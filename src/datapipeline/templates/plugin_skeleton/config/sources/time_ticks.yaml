@@ -1,0 +1,9 @@
+parser:
+  entrypoint: "synthetic.time"
+  args: {}
+loader:
+  entrypoint: "synthetic.time"
+  args:
+    start: "${start_time}"
+    end: "${end_time}"
+    frequency: "1h"

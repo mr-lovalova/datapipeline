@@ -1,0 +1,20 @@
+from typing import Iterator, Any
+from {{PACKAGE_NAME}}.sources.{{ORIGIN}}.{{DATASET}}.dto import {{OriginDTO}}
+from {{PACKAGE_NAME}}.domains.{{TARGET_DOMAIN}}.model import {{DomainRecord}}
+
+
+def {{FUNCTION_NAME}}(
+    stream: Iterator[{{OriginDTO}}],
+    *args: Any,
+) -> Iterator[{{DomainRecord}}]:
+    """Map raw {{ORIGIN}} DTOs to domain-level {{TARGET_DOMAIN}} records.
+
+    - Required on domain record: value{% if time_aware %} and time{% endif %}.
+    - Additional options may be passed via kwargs (e.g., mode="...").
+    """
+    for dto in stream:
+        # TODO: construct {{DomainRecord}} from dto fields
+        {% if time_aware %}# Example (time-aware): set 'time' and 'value'
+        # yield {{DomainRecord}}(time=dto.time, value=dto.value){% else %}# Example (scalar): set 'value'
+        # yield {{DomainRecord}}(value=dto.value){% endif %}
+        yield from ()

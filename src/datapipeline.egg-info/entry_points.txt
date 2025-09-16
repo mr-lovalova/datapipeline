@@ -1,0 +1,41 @@
+[console_scripts]
+datapipeline = datapipeline.cli.app:main
+dp = datapipeline.cli.app:main
+
+[datapipeline.filters]
+eq = datapipeline.filters.filters:eq
+equal = datapipeline.filters.filters:eq
+equals = datapipeline.filters.filters:eq
+ge = datapipeline.filters.filters:ge
+greater_or_equal = datapipeline.filters.filters:ge
+greater_than = datapipeline.filters.filters:gt
+greater_than_or_equal = datapipeline.filters.filters:ge
+gt = datapipeline.filters.filters:gt
+gte = datapipeline.filters.filters:ge
+le = datapipeline.filters.filters:le
+less_or_equal = datapipeline.filters.filters:le
+less_than = datapipeline.filters.filters:lt
+less_than_or_equal = datapipeline.filters.filters:le
+lt = datapipeline.filters.filters:lt
+lte = datapipeline.filters.filters:le
+ne = datapipeline.filters.filters:ne
+not_equal = datapipeline.filters.filters:ne
+not_equals = datapipeline.filters.filters:ne
+
+[datapipeline.loaders]
+composed.loader = datapipeline.sources.factory:build_loader
+synthetic.time = datapipeline.sources.synthetic.time.loader:make_time_loader
+
+[datapipeline.mappers]
+encode_time = datapipeline.mappers.synthetic.time:encode
+time.synthetic = datapipeline.mappers.noop:identity
+
+[datapipeline.parsers]
+identity = datapipeline.parsers.identity:IdentityParser
+synthetic.time = datapipeline.sources.synthetic.time.parser:TimeRowParser
+
+[datapipeline.transforms]
+time_lag = datapipeline.transforms.transforms:time_lag
+
+[datapipeline.transforms.sequence]
+time_window = datapipeline.transforms.sequence:TimeWindowTransformer

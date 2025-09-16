@@ -1,0 +1,4 @@
+source: time_ticks
+mapper:
+  entrypoint: "encode_time"
+  args: { mode: hour_sin }

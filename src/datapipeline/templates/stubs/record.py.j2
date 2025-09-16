@@ -1,0 +1,18 @@
+from dataclasses import dataclass
+from datapipeline.domain.record import {{PARENT_CLASS}}
+
+@dataclass
+class {{CLASS_NAME}}({{PARENT_CLASS}}):
+    """
+    Domain record for '{{DOMAIN}}'.
+
+    Required fields inherited from the base:
+    - value: main payload used to model records value by pipelines (numeric or categorical)
+    - time: tz-aware datetime (only when using TimeFeatureRecord)
+
+    Add any additional fields you need for filtering/partitioning/grouping.
+    """
+    # Example extra fields (uncomment and adapt):
+    # region: str # e.g. 'us-west', 'eu-central', etc.
+    # exchange: str #   e.g. 'NASDAQ', 'NYSE', etc.
+    # currency: str # e.g. 'USD', 'EUR', etc.

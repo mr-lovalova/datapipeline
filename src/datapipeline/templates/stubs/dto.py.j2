@@ -1,0 +1,24 @@
+from dataclasses import dataclass
+
+@dataclass
+class {{CLASS_NAME}}:
+    """
+    Data Transfer Object (DTO) for the '{{DOMAIN}}' source.
+
+    Purpose
+    - Represents the raw, source-shaped data emitted by the loader + parser.
+    - No business logic; keep it a thin container for parsed fields.
+    - Mappers convert this DTO into a domain Record with a required `value`
+      (and `time` when using TimeFeatureRecord).
+
+    Tips
+    - Mirror the source schema (column/field names) for clarity.
+    - Prefer explicit, typed fields; avoid Optional unless the source truly omits them.
+    - Add/rename fields here as the source evolves; update the parser accordingly.
+
+    Example fields:
+    # time: datetime
+    # price: float
+    # region: str
+    # currency: str
+    """

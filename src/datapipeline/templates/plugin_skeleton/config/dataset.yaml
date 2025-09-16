@@ -1,0 +1,17 @@
+group_by:
+  keys:
+    - type: time
+      field: time
+      resolution: 1h
+
+features:
+  - feature_id: time
+    stream: time_ticks
+    where:
+      - ge: { time: 2021-01-01T00:00:00Z }
+    transforms:
+      - time_lag: 1h
+
+targets:
+  - feature_id: time
+    stream: time_ticks

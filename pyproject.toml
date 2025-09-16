@@ -1,0 +1,85 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "datapipeline"
+version = "0.1.0"
+requires-python = ">=3.9"
+dependencies = [
+  "pydantic>=1.8",
+  "PyYAML>=5.4",
+  "tqdm>=4.0",
+  "jinja2>=3.0"
+]
+
+[project.entry-points.console_scripts]
+datapipeline = "datapipeline.cli.app:main"
+# Short alias for convenience
+dp = "datapipeline.cli.app:main"
+# datapipeline-init = "datapipeline.cli.init:main"
+
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+datapipeline = [
+  "templates/dataset_config.yaml",
+  "templates/plugin_skeleton/**",
+  "templates/stubs/**"
+]
+
+[project.entry-points."datapipeline.filters"]
+eq                       = "datapipeline.filters.filters:eq"
+equals                   = "datapipeline.filters.filters:eq"
+equal                    = "datapipeline.filters.filters:eq"
+
+# not equals
+ne                       = "datapipeline.filters.filters:ne"
+not_equal                = "datapipeline.filters.filters:ne"
+not_equals               = "datapipeline.filters.filters:ne"
+
+# less-than
+lt                       = "datapipeline.filters.filters:lt"
+less_than                = "datapipeline.filters.filters:lt"
+
+# less-than-or-equal
+le                       = "datapipeline.filters.filters:le"
+lte                      = "datapipeline.filters.filters:le"
+less_or_equal            = "datapipeline.filters.filters:le"
+less_than_or_equal       = "datapipeline.filters.filters:le"
+
+# greater-than
+gt                       = "datapipeline.filters.filters:gt"
+greater_than             = "datapipeline.filters.filters:gt"
+
+# greater-than-or-equal
+ge                       = "datapipeline.filters.filters:ge"
+gte                      = "datapipeline.filters.filters:ge"
+greater_or_equal         = "datapipeline.filters.filters:ge"
+greater_than_or_equal    = "datapipeline.filters.filters:ge"
+
+
+[project.entry-points."datapipeline.transforms"]
+time_lag = "datapipeline.transforms.transforms:time_lag"
+
+[project.entry-points."datapipeline.mappers"]
+"time.synthetic" = "datapipeline.mappers.noop:identity"
+"encode_time" = "datapipeline.mappers.synthetic.time:encode"
+
+[project.entry-points."datapipeline.transformers.feature"]
+
+[project.entry-points."datapipeline.transforms.sequence"]
+time_window = "datapipeline.transforms.sequence:TimeWindowTransformer"
+
+[project.entry-points."datapipeline.loaders"]
+"synthetic.time" = "datapipeline.sources.synthetic.time.loader:make_time_loader"
+"composed.loader" = "datapipeline.sources.factory:build_loader"
+
+[project.entry-points."datapipeline.parsers"]
+"synthetic.time" = "datapipeline.sources.synthetic.time.parser:TimeRowParser" 
+identity = "datapipeline.parsers.identity:IdentityParser"

@@ -1,0 +1,16 @@
+from typing import Iterator, Any
+
+
+def {{ FUNCTION_NAME }}(stream: Iterator[Any], field: str, target: Any) -> Iterator[Any]:
+    """
+    Custom filter: yield records from `stream` that satisfy your condition.
+
+    - `field`: a field name or attribute on the record
+    - `target`: a literal value to compare with
+
+    Replace the condition below with your own logic.
+    """
+    for record in stream:
+        # Example: pass through everything
+        yield record
+

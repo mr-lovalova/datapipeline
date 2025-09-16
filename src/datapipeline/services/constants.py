@@ -1,0 +1,6 @@
+PARSER_KEY = "parser"
+LOADER_KEY = "loader"
+SOURCE_KEY = "source"
+MAPPER_KEY = "mapper"
+ENTRYPOINT_KEY = "entrypoint"
+ARGS_KEY = "args"

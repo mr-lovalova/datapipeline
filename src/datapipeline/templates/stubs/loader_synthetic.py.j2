@@ -1,0 +1,38 @@
+from typing import Iterator, Any, Optional, Dict
+from datapipeline.sources.models.generator import DataGenerator
+from datapipeline.sources.models.loader import SyntheticLoader
+
+
+class {{ CLASS_NAME }}Generator(DataGenerator):
+    """Synthetic data generator skeleton.
+
+    Emits bounded synthetic rows for downstream parsing.
+
+    Suggested args (edit as needed):
+    - start: ISO8601 datetime string
+    - end: ISO8601 datetime string
+    - frequency: time delta code like "1h"
+    """
+
+    def __init__(self, **kwargs: Any):
+        self.kwargs: Dict[str, Any] = kwargs
+        self.start = kwargs.get("start")
+        self.end = kwargs.get("end")
+        self.frequency = kwargs.get("frequency", "1h")
+
+    def generate(self) -> Iterator[Dict[str, Any]]:
+        # TODO: Replace with your logic. For now, yield placeholders.
+        # Example: yield time ticks, random samples, or derived sequences.
+        yield {"example": True}
+
+    def count(self) -> Optional[int]:
+        # Optional: return number of items if cheaply known; else None
+        return None
+
+
+class {{ CLASS_NAME }}(SyntheticLoader):
+    """Adapter that exposes the generator to the pipeline as a loader."""
+
+    def __init__(self, **kwargs: Any):
+        super().__init__({{ CLASS_NAME }}Generator(**kwargs))
+

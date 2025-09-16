@@ -1,0 +1,18 @@
+from typing import Any
+from datapipeline.sources.models.parser import DataParser
+from .dto import {{DTO_CLASS}}
+
+
+class {{CLASS_NAME}}(DataParser[{{DTO_CLASS}}]):
+    def parse(self, raw: Any) -> {{DTO_CLASS}} | None:
+        """
+        Convert one raw item (row/dict/tuple/record) into a {{DTO_CLASS}}.
+
+        - Return a DTO instance to keep the item, or None to drop it.
+        - Keep this logic thin and mirror your source data.
+        """
+        # Example skeleton (edit to match your source shape):
+        # return {{DTO_CLASS}}(
+        #     ... map fields from `raw` ...
+        # )
+        raise NotImplementedError
