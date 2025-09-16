@@ -1,12 +1,14 @@
 from typing import Any
 from datapipeline.sources.models.parser import DataParser
-from {{PACKAGE_NAME}}.sources.{{ORIGIN}}.dto import {{DTO_CLASS}}
-
+from {{PACKAGE_NAME}}.sources.{{ORIGIN}}.{{DATASET}}.dto import {{DTO_CLASS}}
 
 class {{CLASS_NAME}}(DataParser[{{DTO_CLASS}}]):
     def parse(self, raw: Any) -> {{DTO_CLASS}} | None:
         """
-        Convert one raw item into a {{DTO_CLASS}}. Return None to drop the item.
+        Convert one raw item into a {{DTO_CLASS}}.
+
+        Implement your parsing logic here and return ``None`` to drop invalid
+        records explicitly.
         """
         # Map fields from `raw` to DTO constructor here
-        return None
+        raise NotImplementedError("Implement parser logic for {{DTO_CLASS}}")

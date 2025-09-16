@@ -88,26 +88,28 @@ Create and install your own plugin package (sources, parsers, DTOs, mappers) so 
 
 ```bash
 # 1) Scaffold a plugin package (in your pipelines workspace)
-datapipeline plugin init --name energy_production_data_pipeline --out .
-
-cd 
-
 datapipeline plugin init --name energy_data_pipeline --out .
 cd energy_data_pipeline
-datapipeline plugin add all -d metobs -o dmi -t
-pip install -e .
-datapipeline plugins list
 
-# 2) Add boilerplate for a source+parser+dto+mapper pair
-#    -d is the domain name, -o is the origin/provider
-#    other options: `datapipeline plugin add source|parser|dto|mapper`
-datapipeline plugin add all -d metobs -o dmi
+# 2) Scaffold a source (provider + dataset → loader/parser boilerplate)
+datapipeline source create \
+  --provider dmi \
+  --dataset metobs \
+  --transport fs \
+  --format csv
 
-# 3) Install your plugin so entry points are registered
+# 3) Create a domain package (defaults to Record; --time-aware uses TimeFeatureRecord)
+datapipeline domain create --domain metobs --time-aware
+
+# 4) Link the source to the domain (interactive mapper + canonical stream)
+datapipeline link --time-aware
+
+# 5) Install your plugin so entry points are registered
 python -m pip install -e .
 
-# 4) Confirm the CLI sees your plugin
-datapipeline plugins list
+# 6) Confirm the CLI sees your registrations
+datapipeline list sources
+datapipeline list domains
 ```
 
 Use the plugin in `dataset.yaml` (type is `<origin>.<domain>`):
@@ -115,7 +117,7 @@ Use the plugin in `dataset.yaml` (type is `<origin>.<domain>`):
 ```yaml
 sources:
   dmi_metobs:
-    type: dmi.metobs  # provided by energy_production_data_pipeline
+    type: dmi.metobs  # provided by energy_data_pipeline
     data:
       path: "path/to/file.csv"
       delimiter: ","
