@@ -1,0 +1,36 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.eggs/
+.build/
+dist/
+build/
+*.log
+.venv/
+.env
+.venv*/
+.env*/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.pyre/
+.tox/
+.pytype/
+.ipynb_checkpoints/
+.cache/
+
+# Editors/IDE
+.vscode/
+.idea/
+
+# Project-specific
+src/datapipeline.egg-info/
