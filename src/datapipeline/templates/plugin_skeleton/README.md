@@ -28,7 +28,7 @@ Folder layout
 
 How loaders work
 - For fs/url, sources use the generic loader entry point:
-  - `loader.entrypoint: "composed.loader"`
+  - `loader.entrypoint: "{{COMPOSED_LOADER_EP}}"`
   - `loader.args` include `transport`, `format`, and source-specific args:
     - fs: `path`, `glob`, `encoding`, plus `delimiter` for csv
     - url: `url`, `headers`, `encoding`, optional `count_by_fetch`

@@ -1,6 +1,8 @@
 from pathlib import Path
 import pkg_resources
 
+from ..constants import COMPOSED_LOADER_EP
+
 SKELETON_DIR = Path(pkg_resources.resource_filename(
     "datapipeline", "templates/plugin_skeleton"))
 
@@ -15,5 +17,7 @@ def scaffold_plugin(name: str, outdir: Path) -> None:
     pkg_dir = target / "src" / "{{PACKAGE_NAME}}"
     pkg_dir.rename(target / "src" / name)
     for p in (target / "pyproject.toml", target / "README.md"):
-        p.write_text(p.read_text().replace("{{PACKAGE_NAME}}", name))
+        text = p.read_text().replace("{{PACKAGE_NAME}}", name)
+        text = text.replace("{{COMPOSED_LOADER_EP}}", COMPOSED_LOADER_EP)
+        p.write_text(text)
     print(f"✨ Created plugin skeleton at {target}")

@@ -5,7 +5,7 @@ parser:
 {{ parser_args | to_yaml(4) }}
 
 # loader.entrypoint: registered loader name (not a file path)
-# Examples: "composed.loader" (fs/url with --format) or "synthetic.time"
+# Examples: "{{ composed_loader_ep }}" (fs/url with --format) or "synthetic.time"
 loader:
   entrypoint: "{{ loader_ep }}"
   args:

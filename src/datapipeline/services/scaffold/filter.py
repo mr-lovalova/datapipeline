@@ -1,14 +1,15 @@
 from pathlib import Path
 from typing import Optional
 from datapipeline.services.scaffold.templates import render
-from ..paths import pkg_root, resolve_base_pkg_dir
+from ..constants import FILTERS_GROUP
 from ..entrypoints import inject_ep
+from ..paths import pkg_root, resolve_base_pkg_dir
 
 
 def create_filter(*, name: str, root: Optional[Path]) -> None:
     root_dir, pkg_name, _ = pkg_root(root)
     base = resolve_base_pkg_dir(root_dir, pkg_name)
-    filters_dir = base / "filters"
+    filters_dir = base / FILTERS_GROUP
     filters_dir.mkdir(parents=True, exist_ok=True)
     (filters_dir / "__init__.py").touch(exist_ok=True)
 
@@ -23,7 +24,7 @@ def create_filter(*, name: str, root: Optional[Path]) -> None:
     toml_path = root_dir / "pyproject.toml"
     toml = inject_ep(
         toml_path.read_text(),
-        "filters",
+        FILTERS_GROUP,
         name,
         f"{pkg_name}.filters.{module_name}:{name}",
     )

@@ -1,12 +1,13 @@
-from ..entrypoints import inject_ep
-from ..paths import pkg_root, resolve_base_pkg_dir
+from ..constants import LOADERS_GROUP, PARSERS_GROUP
 from pathlib import Path
 from typing import Optional
+
 from datapipeline.services.scaffold.templates import camel, render
 from datapipeline.utils.load import load_yaml
 
-# Constants centralized for easy tweaks
-EP_LOADER_COMPOSED = "composed.loader"
+from ..constants import COMPOSED_LOADER_EP
+from ..entrypoints import inject_ep
+from ..paths import pkg_root, resolve_base_pkg_dir
 
 
 def _class_prefix(provider: str, dataset: str) -> str:
@@ -39,12 +40,12 @@ def _update_ep(toml_text: str, provider: str, dataset: str, pkg_name: str,
     """
     ep_key = f"{provider}.{dataset}"
     toml_text = inject_ep(
-        toml_text, "parsers", ep_key,
+        toml_text, PARSERS_GROUP, ep_key,
         f"{pkg_name}.sources.{provider}.{dataset}.parser:{parser_class}"
     )
     if transport in {"synthetic"}:
         toml_text = inject_ep(
-            toml_text, "loaders", ep_key,
+            toml_text, LOADERS_GROUP, ep_key,
             f"{pkg_name}.sources.{provider}.{dataset}.loader:{loader_class}"
         )
     return toml_text, ep_key
@@ -56,14 +57,14 @@ def _loader_ep_and_args(transport: str, fmt: Optional[str], ep_key: str) -> tupl
         args = {"transport": "fs", "format": fmt, "path": "<PATH OR GLOB>", "glob": False, "encoding": "utf-8"}
         if fmt == "csv":
             args["delimiter"] = ";"
-        return EP_LOADER_COMPOSED, args
+        return COMPOSED_LOADER_EP, args
     if transport == "synthetic":
         return ep_key, {"start": "<ISO8601>", "end": "<ISO8601>", "frequency": "1h"}
     if transport == "url" and fmt in {"json", "json-lines", "csv"}:
         args = {"transport": "url", "format": fmt, "url": "<https://api.example.com/data.json>", "headers": {}, "encoding": "utf-8"}
         if fmt == "csv":
             args["delimiter"] = ";"
-        return EP_LOADER_COMPOSED, args
+        return COMPOSED_LOADER_EP, args
     return ep_key, {}
 
 
@@ -143,6 +144,7 @@ def create_source(*, provider: str, dataset: str, transport: str, format: Option
             parser_args={},
             loader_ep=loader_ep,
             loader_args=loader_args,
+            composed_loader_ep=COMPOSED_LOADER_EP,
         ))
         print(f"✨ Created: {src_cfg_path}")
 

@@ -2,7 +2,7 @@ import sys
 from datapipeline.services.paths import pkg_root, resolve_base_pkg_dir
 from datapipeline.services.entrypoints import read_group_entries
 import yaml
-from datapipeline.services.constants import SOURCE_KEY, MAPPER_KEY
+from datapipeline.services.constants import FILTERS_GROUP, MAPPER_KEY, ENTRYPOINT_KEY, ARGS_KEY, SOURCE_KEY
 from datapipeline.services.project_paths import sources_dir as resolve_sources_dir, streams_dir as resolve_streams_dir
 from datapipeline.services.scaffold.mappers import attach_source_to_domain
 import re
@@ -55,7 +55,7 @@ def handle(time_aware: bool) -> None:
     domain_options = sorted(set(domain_options))
     if not domain_options:
         domain_options = sorted(
-            read_group_entries(pyproject, "filters").keys())
+            read_group_entries(pyproject, FILTERS_GROUP).keys())
     if not domain_options:
         print("❗ No domains found. Create one first (datapipeline domain create ...)")
         raise SystemExit(2)
@@ -65,6 +65,7 @@ def handle(time_aware: bool) -> None:
     # create mapper + EP (domain.origin)
     attach_source_to_domain(domain=dom_name, provider=provider,
                             dataset=dataset, time_aware=time_aware, root=None)
+
     def _slug(s: str) -> str:
         s = s.strip().lower()
         s = re.sub(r"[^a-z0-9]+", "_", s)
@@ -85,7 +86,7 @@ def handle(time_aware: bool) -> None:
         cfile = streams_dir / f"{canonical_alias}.yaml"
         data = {
             SOURCE_KEY: src_key,
-            MAPPER_KEY: {"entrypoint": mapper_ep, "args": {}},
+            MAPPER_KEY: {ENTRYPOINT_KEY: mapper_ep, ARGS_KEY: {}},
         }
         with cfile.open("w", encoding="utf-8") as f:
             yaml.safe_dump(data, f, sort_keys=False, default_flow_style=False)

@@ -9,7 +9,13 @@ from datapipeline.utils.load import load_yaml
 from datapipeline.config.catalog import StreamsConfig
 from datapipeline.config.project import ProjectConfig
 from datapipeline.services.project_paths import streams_dir, sources_dir
-from datapipeline.services.constants import PARSER_KEY, LOADER_KEY, SOURCE_KEY, MAPPER_KEY
+from datapipeline.services.constants import (
+    PARSER_KEY,
+    LOADER_KEY,
+    SOURCE_KEY,
+    MAPPER_KEY,
+    ENTRYPOINT_KEY,
+)
 from datapipeline.streams.raw import register_source
 from datapipeline.streams.canonical import register_stream
 from datapipeline.services.factories import (
@@ -120,7 +126,7 @@ def _load_canonical_streams(project_yaml: Path, vars_: dict[str, str]) -> dict:
         data = load_yaml(p)
         if isinstance(data, dict) and (SOURCE_KEY in data):
             m = data.get(MAPPER_KEY)
-            if (not isinstance(m, dict)) or ("entrypoint" not in (m or {})):
+            if (not isinstance(m, dict)) or (ENTRYPOINT_KEY not in (m or {})):
                 data[MAPPER_KEY] = None
             rel = p.relative_to(sdir)
             alias = rel.with_suffix("").as_posix().replace("/", ".")

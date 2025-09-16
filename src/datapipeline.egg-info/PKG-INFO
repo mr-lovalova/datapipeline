@@ -1,8 +1,0 @@
-Metadata-Version: 2.4
-Name: datapipeline
-Version: 0.1.0
-Requires-Python: >=3.9
-Requires-Dist: pydantic>=1.8
-Requires-Dist: PyYAML>=5.4
-Requires-Dist: tqdm>=4.0
-Requires-Dist: jinja2>=3.0
