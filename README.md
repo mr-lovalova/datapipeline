@@ -112,6 +112,8 @@ datapipeline list sources
 datapipeline list domains
 ```
 
+Open the generated `config/sources/dmi_metobs.yaml` (path depends on your `project.yaml`) and replace the placeholder strings for path/delimiter with values that match your data source.
+
 Use the plugin in `dataset.yaml` (type is `<origin>.<domain>`):
 
 ```yaml
@@ -231,7 +233,7 @@ class MySource(Source[MyDto]):
         super().__init__(loader=loader, parser=parser, show_progress=show_progress)
 ```
 
-**Use the generic loader entry point** (so the CLI can compose transport+format):
+**Use the generic loader entry point** (the scaffolder pre-populates placeholders):
 
 ```toml
 # In your source YAML
@@ -239,7 +241,7 @@ loader:
   entrypoint: "composed.loader"
   args:
     transport: fs
-    format: csv
+    format: "<FORMAT (csv|json|json-lines)>"
     path: "examples/data.csv"
     glob: false
     delimiter: ","

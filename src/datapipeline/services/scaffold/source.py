@@ -26,7 +26,8 @@ def _write_if_missing(path: Path, text: str) -> None:
         print(f"✨ Created: {path}")
 
 
-def _render_loader_stub(transport: str, loader_class: str, *, fmt: Optional[str]) -> str | None:
+def _render_loader_stub(transport: str, loader_class: str,
+                        *, fmt: Optional[str]) -> str | None:
     """Render loader stub from Jinja templates for supported transports."""
     if transport == "synthetic":
         return render("loader_synthetic.py.j2", CLASS_NAME=loader_class)
@@ -53,22 +54,35 @@ def _update_ep(toml_text: str, provider: str, dataset: str, pkg_name: str,
 
 def _loader_ep_and_args(transport: str, fmt: Optional[str], ep_key: str) -> tuple[str, dict]:
     """Return (loader EP name, default args) for the YAML snippet."""
-    if transport == "fs" and fmt in {"csv", "json", "json-lines"}:
-        args = {"transport": "fs", "format": fmt, "path": "<PATH OR GLOB>", "glob": False, "encoding": "utf-8"}
+    if transport == "fs":
+        args = {
+            "transport": "fs",
+            "format": fmt or "<FORMAT (csv|json|json-lines)>",
+            "path": "<PATH OR GLOB>",
+            "glob": False,
+            "encoding": "utf-8",
+        }
         if fmt == "csv":
-            args["delimiter"] = ";"
+            args["delimiter"] = ","
         return COMPOSED_LOADER_EP, args
     if transport == "synthetic":
         return ep_key, {"start": "<ISO8601>", "end": "<ISO8601>", "frequency": "1h"}
-    if transport == "url" and fmt in {"json", "json-lines", "csv"}:
-        args = {"transport": "url", "format": fmt, "url": "<https://api.example.com/data.json>", "headers": {}, "encoding": "utf-8"}
+    if transport == "url":
+        args = {
+            "transport": "url",
+            "format": fmt or "<FORMAT (json|json-lines|csv)>",
+            "url": "<https://api.example.com/data.json>",
+            "headers": {},
+            "encoding": "utf-8",
+        }
         if fmt == "csv":
-            args["delimiter"] = ";"
+            args["delimiter"] = ","
         return COMPOSED_LOADER_EP, args
     return ep_key, {}
 
 
-def create_source(*, provider: str, dataset: str, transport: str, format: Optional[str], root: Optional[Path]) -> None:
+def create_source(*, provider: str, dataset: str, transport: str,
+                  format: Optional[str], root: Optional[Path]) -> None:
     root_dir, name, _ = pkg_root(root)
     base = resolve_base_pkg_dir(root_dir, name)
     src_pkg_dir = base / "sources" / provider / dataset

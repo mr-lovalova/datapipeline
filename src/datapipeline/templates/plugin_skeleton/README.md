@@ -5,11 +5,11 @@ Minimal plugin skeleton for the DataPipeline framework.
 Quick start
 - Initialize a plugin (already done if you’re reading this here):
   - `datapipeline plugin init --name {{PACKAGE_NAME}}`
-- Add a source via CLI (transport + format):
-  - File CSV: `datapipeline source create -p <provider> -d <dataset> -t fs -f csv`
-  - File NDJSON: `datapipeline source create -p <provider> -d <dataset> -t fs -f json-lines`
-  - URL JSON: `datapipeline source create -p <provider> -d <dataset> -t url -f json`
+- Add a source via CLI (transport-specific placeholders are scaffolded):
+  - File data: `datapipeline source create -p <provider> -d <dataset> -t fs -f <csv|json|json-lines>`
+  - URL data: `datapipeline source create -p <provider> -d <dataset> -t url -f <json|json-lines|csv>`
   - Synthetic: `datapipeline source create -p <provider> -d <dataset> -t synthetic`
+- Edit the generated `config/sources/*.yaml` to fill in the `path`, delimiter, etc.
 - Reinstall after EP changes (pyproject.toml) and restart Python processes:
   - Core: `cd lib/datapipeline && python -m pip install -e .`
   - This plugin: `python -m pip install -e .`
@@ -29,7 +29,7 @@ Folder layout
 How loaders work
 - For fs/url, sources use the generic loader entry point:
   - `loader.entrypoint: "{{COMPOSED_LOADER_EP}}"`
-  - `loader.args` include `transport`, `format`, and source-specific args:
+- `loader.args` include `transport`, `format`, and source-specific args (placeholders are provided):
     - fs: `path`, `glob`, `encoding`, plus `delimiter` for csv
     - url: `url`, `headers`, `encoding`, optional `count_by_fetch`
 - Synthetic sources generate data in-process and keep a small loader stub.
