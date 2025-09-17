@@ -1,33 +1,57 @@
 
-from datapipeline.domain.vector import Vector
-from datapipeline.domain.feature import FeatureRecord
-from typing import Any, Iterator, Tuple
-from itertools import groupby
+"""Composable pipeline stages used by the runtime."""
+
+from __future__ import annotations
+
 from collections import defaultdict
-from datapipeline.pipeline.utils.transform_utils import filter_record_stream, transform_record_stream
-from datapipeline.pipeline.utils.transform_utils import transform_feature_stream, record_to_feature
-from datapipeline.pipeline.utils.ordering import canonical_key
+from itertools import groupby
+from typing import Any, Iterable, Iterator, Optional, Sequence, Tuple
+
+from datapipeline.config.dataset.feature import FeatureRecordConfig
+from datapipeline.config.dataset.group_by import GroupBy
+from datapipeline.domain.feature import FeatureRecord
+from datapipeline.domain.vector import Vector, vectorize_record_group
 from datapipeline.pipeline.utils.memory_sort import memory_sorted
-from datapipeline.domain.vector import vectorize_record_group
+from datapipeline.pipeline.utils.ordering import canonical_key
+from datapipeline.pipeline.utils.transform_utils import (
+    filter_record_stream,
+    record_to_feature,
+    transform_feature_stream,
+    transform_record_stream,
+)
 
 
-def record_stage(raw_stream, filters, transforms):
-    s = filter_record_stream(raw_stream, filters)
-    return transform_record_stream(s, transforms)
+def record_stage(
+    raw_stream: Iterable[Any],
+    filters: Optional[Sequence[dict[str, Any]]] = None,
+    transforms: Optional[Sequence[dict[str, Any]]] = None,
+) -> Iterator[Any]:
+    """Apply configured filters and transforms to the raw record stream."""
+
+    stream = filter_record_stream(iter(raw_stream), filters)
+    return transform_record_stream(stream, transforms)
 
 
-def feature_stage(record_stream, cfg, group_by):
-    s = record_to_feature(record_stream, cfg, group_by)
-    s = memory_sorted(s, batch_size=100000, key=lambda fr: (fr.feature_id, getattr(fr.record, 'time', 0)))
-    s = transform_feature_stream(s, cfg)
-    return memory_sorted(s, batch_size=100000, key=canonical_key)
+def feature_stage(
+    record_stream: Iterable[Any],
+    cfg: FeatureRecordConfig,
+    group_by: GroupBy,
+) -> Iterator[FeatureRecord]:
+    """Convert records into feature records and apply feature transforms."""
+
+    stream = record_to_feature(record_stream, cfg, group_by)
+    stream = memory_sorted(
+        stream,
+        batch_size=100000,
+        key=lambda fr: (fr.feature_id, getattr(fr.record, "time", 0)),
+    )
+    stream = transform_feature_stream(stream, cfg)
+    return memory_sorted(stream, batch_size=100000, key=canonical_key)
 
 
 def vector_stage(merged: Iterator[FeatureRecord]) -> Iterator[Tuple[Any, Vector]]:
-    """
-    Precondition: merged_features is sorted by FeatureRecord.group_key.
-    Yields (group_key, Vector).
-    """
+    """Group a merged feature stream into vectors keyed by ``group_key``."""
+
     for group_key, group in groupby(merged, key=lambda fr: fr.group_key):
         feature_map = defaultdict(list)
         for fr in group:
