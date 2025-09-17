@@ -37,7 +37,9 @@ def feature_stage(
     cfg: FeatureRecordConfig,
     group_by: GroupBy,
 ) -> Iterator[FeatureRecord]:
-    """Convert records into feature records and apply feature transforms."""
+    """Wrap filtered records as FeatureRecord objects.
+    Assign partition-aware feature_ids and normalized group_keys before transforms.
+    Sort feature streams, apply feature/sequence transforms, and emit canonical order."""
 
     stream = record_to_feature(record_stream, cfg, group_by)
     stream = memory_sorted(
@@ -50,7 +52,9 @@ def feature_stage(
 
 
 def vector_stage(merged: Iterator[FeatureRecord]) -> Iterator[Tuple[Any, Vector]]:
-    """Group a merged feature stream into vectors keyed by ``group_key``."""
+    """Group the merged feature stream by group_key.
+    Coalesce each partitioned feature_id into record buckets.
+    Yield (group_key, Vector) pairs ready for downstream consumption."""
 
     for group_key, group in groupby(merged, key=lambda fr: fr.group_key):
         feature_map = defaultdict(list)
