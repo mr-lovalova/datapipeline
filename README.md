@@ -1,337 +1,211 @@
 # datapipeline
 
-Stream-first, plugin-friendly data pipeline. Build **sources** from a **loader** + **parser**, transform them into **features**, and assemble **vectors** for modeling.
+Stream-first, plugin-friendly data pipeline for turning raw records into model-ready vectors. The runtime focuses on three ideas:
+
+* **Declarative configs.** Project, source and dataset YAML files describe how data should flow. Bootstrapping reads them, registers sources/streams and interpolates project-level variables before anything runs (see `src/datapipeline/services/bootstrap.py` and `src/datapipeline/config/project.py`).
+* **Composable stages.** Streams move through record, feature and vector stages where filters, transforms and aggregations are applied with predictable ordering (`src/datapipeline/pipeline/pipelines.py`, `src/datapipeline/pipeline/stages.py`).
+* **Extensible entry points.** Parsers, loaders, mappers, filters and transforms are discovered via setuptools entry points, so adding new behavior is as simple as publishing a plugin (`pyproject.toml`, `src/datapipeline/utils/load.py`).
 
 ---
 
-## Table of contents
+## How data flows
 
-- [Quick start](#quick-start)
-- [Commands](#commands)
-  - [List plugins](#list-plugins)
-  - [Validate a dataset](#validate-a-dataset)
-  - [Show the plan (dry-run)](#show-the-plan-dry-run)
-  - [Run the pipeline](#run-the-pipeline)
-  - [Plugin scaffolding](#plugin-scaffolding)
-- [Project layout](#project-layout)
-- [Core concepts](#core-concepts)
-- [Example: CSV source (loader + parser + ComposedSource)](#example-csv-source-loader--parser--composedsource)
-- [Minimal dataset.yaml](#minimal-datasetyaml)
-- [Developer guide](#developer-guide)
-- [Tips & gotchas](#tips--gotchas)
-
----
-
-## Quick start
-
-```bash
-# 1) Create and activate a virtual environment
-python -m venv .venv
-source .venv/bin/activate      # Windows: .venv\Scripts\activate
-
-# 2) Install the project (editable) and dev tools
-python -m pip install --upgrade pip
-pip install -e ./lib/datapipeline
+```text
+raw source → canonical stream → record stage → feature stage → vector stage
 ```
 
-Verify:
+1. **Raw sources** wrap a loader + parser pair. Loaders handle I/O (files, URLs or synthetic generators) and parsers map rows into typed records while swallowing bad rows (`src/datapipeline/sources/models/loader.py`, `src/datapipeline/sources/models/source.py`). The bootstrapper registers each source under an alias so it can be opened later by the pipeline (`src/datapipeline/streams/raw.py`, `src/datapipeline/services/bootstrap.py`).
+2. **Canonical streams** optionally apply a mapper on top of a raw source to normalize payloads before the dataset consumes them (`src/datapipeline/streams/canonical.py`, `src/datapipeline/services/factories.py`).
+3. **Dataset stages** read the configured canonical streams. Record stages apply filters/transforms, feature stages convert records into keyed features (with optional sequence transforms), and vector stages group aligned features into dense dictionaries ready for export (`src/datapipeline/pipeline/pipelines.py`, `src/datapipeline/pipeline/stages.py`, `src/datapipeline/config/dataset/feature.py`).
+4. **Vectors** carry grouped feature values; downstream analyzers can inspect them for completeness and quality (`src/datapipeline/domain/vector.py`, `src/datapipeline/analysis/vector_analyzer.py`).
+
+---
+
+## Repository tour
+
+| Path | What lives here |
+| --- | --- |
+| `src/datapipeline/cli` | Argparse-powered CLI with commands for running pipelines, inspecting output, scaffolding plugins and visualizing source progress (`cli/app.py`, `cli/openers.py`, `cli/visuals.py`). |
+| `src/datapipeline/services` | Bootstrapping (project loading, YAML interpolation), runtime factories and scaffolding helpers for plugin code generation (`services/bootstrap.py`, `services/factories.py`, `services/scaffold/plugin.py`). |
+| `src/datapipeline/pipeline` | Pure functions that build record/feature/vector iterators plus supporting utilities for ordering and transform wiring (`pipeline/pipelines.py`, `pipeline/utils/transform_utils.py`). |
+| `src/datapipeline/domain` | Data structures representing records, feature records and vectors produced by the pipeline (`domain/record.py`, `domain/feature.py`, `domain/vector.py`). |
+| `src/datapipeline/transforms` & `src/datapipeline/filters` | Built-in transforms (lagging timestamps, sliding windows) and filter helpers exposed through entry points (`transforms/transforms.py`, `transforms/sequence.py`, `filters/filters.py`). |
+| `src/datapipeline/sources/synthetic/time` | Example synthetic time-series loader/parser pair plus helper mappers you can reuse while prototyping (`sources/synthetic/time/loader.py`, `sources/synthetic/time/parser.py`, `mappers/synthetic/time.py`). |
+
+---
+
+## Getting started
+
+### 1. Install the project
+
+```bash
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+python -m pip install --upgrade pip
+pip install -e .
+```
+
+The editable install exposes the `datapipeline` (and `dp`) CLI and pulls in core dependencies like Pydantic, PyYAML, tqdm and Jinja2 (see `pyproject.toml`). Verify everything imports:
 
 ```bash
 python -c "import datapipeline; print('datapipeline OK')"
 ```
 
----
+### 2. Describe your project
 
-## Commands
-
-> Depending on your entry point, you may have a `datapipeline` console command.  
-> If not, you can always run via `python -m datapipeline.cli2 ...`. Both forms are shown below.
-
-### List plugins
-
-```bash
-# console script
-datapipeline plugins list
-
-# module form
-python -m datapipeline.cli2 plugins list
-```
-
-### Validate a dataset
-
-```bash
-datapipeline validate --config examples/dataset.yaml
-# or
-python -m datapipeline.cli2 validate --config examples/dataset.yaml
-```
-
-### Show the plan (dry-run)
-
-```bash
-datapipeline plan --config examples/dataset.yaml
-# or
-python -m datapipeline.cli2 plan --config examples/dataset.yaml
-```
-
-
-### Run the pipeline
-
-```bash
-datapipeline run --config examples/dataset.yaml --out ./out
-# or
-python -m datapipeline.cli2 run --config examples/dataset.yaml --out ./out
-```
-
-## Plugin scaffolding
-
-Create and install your own plugin package (sources, parsers, DTOs, mappers) so the CLI can discover them via entry points.
-
-```bash
-# 1) Scaffold a plugin package (in your pipelines workspace)
-datapipeline plugin init --name energy_data_pipeline --out .
-cd energy_data_pipeline
-
-# 2) Scaffold a source (provider + dataset → loader/parser boilerplate)
-datapipeline source create \
-  --provider dmi \
-  --dataset metobs \
-  --transport fs \
-  --format csv
-
-# 3) Create a domain package (defaults to Record; --time-aware uses TimeFeatureRecord)
-datapipeline domain create --domain metobs --time-aware
-
-# 4) Link the source to the domain (interactive mapper + canonical stream)
-datapipeline link --time-aware
-
-# 5) Install your plugin so entry points are registered
-python -m pip install -e .
-
-# 6) Confirm the CLI sees your registrations
-datapipeline list sources
-datapipeline list domains
-```
-
-Open the generated `config/sources/dmi_metobs.yaml` (path depends on your `project.yaml`) and replace the placeholder strings for path/delimiter with values that match your data source.
-
-Use the plugin in `dataset.yaml` (type is `<origin>.<domain>`):
+Create a `config/project.yaml` so the runtime knows where to find sources, canonical streams and the dataset definition. Globals are optional but handy for sharing values—they are interpolated into downstream YAML files during bootstrap (`src/datapipeline/config/project.py`, `src/datapipeline/services/bootstrap.py`).
 
 ```yaml
-sources:
-  dmi_metobs:
-    type: dmi.metobs  # provided by energy_data_pipeline
-    data:
-      path: "path/to/file.csv"
-      delimiter: ","
-      encoding: "utf-8"
-```
-
-**Notes**
-- After changing entry points (pyproject.toml) in either the core or a plugin, reinstall in your active venv:
-  - Core: `cd lib/datapipeline && python -m pip install -e .`
-  - Plugin: `cd your-plugin && python -m pip install -e .`
-- Restart Python processes (so importlib metadata refreshes).
-- Prefer running commands via the active venv (`python -m ...`) if your PATH has multiple Python installs.
-
----
-
-## Project layout
-
-```
-datapipeline/
-  sources/
-    models/
-      base.py          # SourceInterface (abstract)
-      loader.py        # RawDataLoader base (no-arg load(), optional count())
-      parser.py        # DataParser base (parse(raw)->DTO|None)
-      source.py        # Source: generic loader+parser → stream()
-    transports.py      # fs/url transports yielding text streams
-    decoders.py        # CsvDecoder/JsonDecoder/JsonLinesDecoder
-    composed_loader.py # Compose transport+decoder into a RawDataLoader
-    <origin>/<domain>/
-      dto.py           # domain DTO for this source
-      parser.py        # parse raw row → DTO (validate, drop on None)
-      source.py        # subclass of ComposedSource
-  transformers/        # record/feature transformers (optional)
-  domain/              # Record/Vector models
-  utils/               # progress bars, sorting, helpers
-templates/
-  stubs/               # Jinja stubs for new sources/parsers/DTOs
-examples/
-  dataset.yaml         # minimal runnable config
-  data.csv            # optional sample data
-```
-
----
-
-## Core concepts
-
-- **Loader** — how to enumerate raw data (files, globs, HTTP, DB). Implements:
-  - `load() -> Iterator[Any]`
-  - optional `count() -> int` (if cheap/available)
-- **Parser** — convert a raw row into a domain DTO. Implements:
-  - `parse(raw) -> DTO | None` (return `None` to drop bad rows)
-- **Source** — generic source that wires **loader + parser** and provides `stream()` for you.
-- **Transformers** — optional record/feature transforms.
-- **Assembler** — builds aligned feature vectors by group/time keys.
-
----
-
-## Example: CSV source (composed loader + parser + Source)
-
-**DTO**
-
-```python
-# datapipeline/sources/myorigin/mydomain/dto.py
-from dataclasses import dataclass
-from datetime import datetime
-
-@dataclass
-class MyDto:
-    time: datetime
-    value: float
-```
-
-**Parser**
-
-```python
-# datapipeline/sources/myorigin/mydomain/parser.py
-from typing import Optional
-from datetime import datetime
-from datapipeline.sources.models.parser import DataParser
-from .dto import MyDto
-
-class MyParser(DataParser[MyDto]):
-    def parse(self, raw: dict) -> Optional[MyDto]:
-        try:
-            return MyDto(
-                time=datetime.fromisoformat(raw["timestamp"]),
-                value=float(raw["value"]),
-            )
-        except Exception:
-            return None  # drop malformed rows
-```
-
-**Source (inherits the ready-made loop)**
-
-```python
-# datapipeline/sources/myorigin/mydomain/source.py
-from datapipeline.sources.models.source import Source
-from datapipeline.sources.composed_loader import ComposedRawLoader
-from datapipeline.sources.transports import FsFileSource
-from datapipeline.sources.decoders import CsvDecoder
-from .parser import MyParser
-from .dto import MyDto
-
-class MySource(Source[MyDto]):
-    def __init__(self, path: str, delimiter: str = ",", encoding: str = "utf-8", show_progress: bool = True):
-        loader = ComposedRawLoader(
-            FsFileSource(path, encoding=encoding),
-            CsvDecoder(delimiter=delimiter),
-        )
-        parser = MyParser()
-        super().__init__(loader=loader, parser=parser, show_progress=show_progress)
-```
-
-**Use the generic loader entry point** (the scaffolder pre-populates placeholders):
-
-```toml
-# In your source YAML
-loader:
-  entrypoint: "composed.loader"
-  args:
-    transport: fs
-    format: "<FORMAT (csv|json|json-lines)>"
-    path: "examples/data.csv"
-    glob: false
-    delimiter: ","
-    encoding: "utf-8"
-```
-
----
-
-## Minimal `dataset.yaml`
-
-```yaml
-# examples/dataset.yaml
+version: 1
+paths:
+  sources: config/sources
+  streams: config/streams
+  dataset: config/dataset.yaml
 globals:
-  time: &time
-    start_time: "2024-01-01T00:00:00Z"
-    end_time: "2024-01-02T00:00:00Z"
+  start_time: "2024-01-01T00:00:00Z"
+  end_time: "2024-01-02T00:00:00Z"
+```
 
+> The helper functions in `src/datapipeline/services/project_paths.py` resolve relative paths against the project root and ensure the directories exist, so stick with those defaults unless you have a custom layout.
+
+### 3. Register raw sources
+
+Create `config/sources/<alias>.yaml` files. Each must expose a `parser` and `loader` block pointing at entry points plus any constructor arguments (`src/datapipeline/services/bootstrap.py`). Here is a synthetic clock source:
+
+```yaml
+# config/sources/time_ticks.yaml
+parser:
+  entrypoint: "synthetic.time"
+  args: {}
+loader:
+  entrypoint: "synthetic.time"
+  args:
+    start: "${start_time}"
+    end: "${end_time}"
+    frequency: "1h"
+```
+
+That file wires up the built-in `TimeTicksGenerator` + parser pair that yields timezone-aware timestamps (`sources/synthetic/time/loader.py`, `sources/synthetic/time/parser.py`).
+
+### 4. Define canonical streams (optional but recommended)
+
+Canonical specs live under `config/streams/` and reference a raw source alias plus an optional mapper entry point (`src/datapipeline/services/bootstrap.py`, `src/datapipeline/streams/canonical.py`). This example encodes each timestamp into a sine wave feature:
+
+```yaml
+# config/streams/time/encode.yaml
+source: time_ticks
+mapper:
+  entrypoint: "encode_time"
+  args:
+    mode: hour_sin
+```
+
+The mapper uses the provided mode to create a new `TimeFeatureRecord` stream ready for feature processing (`mappers/synthetic/time.py`).
+
+### 5. Configure the dataset
+
+Datasets describe which canonical streams should be read at each stage and how outputs are grouped (`src/datapipeline/config/dataset/dataset.py`). A minimal hourly dataset might look like:
+
+```yaml
+# config/dataset.yaml
 group_by:
   keys:
     - type: time
       field: time
       resolution: 1h
-
-sources:
-  example_csv:
-    type: myorigin.mydomain
-    data:
-      path: "examples/data.csv"
-      delimiter: ","
-      encoding: "utf-8"
-
 features:
-  - feature_id: value
-    origin: myorigin
-    domain: mydomain
-    source: example_csv
-
-targets: []
+  - stream: time.encode
+    feature_id: hour_sin
+    partition_by: null
+    filters: []
+    transforms:
+      - time_lag: "0h"
 ```
 
-Run it:
+Use the sample `my_dataset.yaml` as a starting point if you prefer scaffolding before filling in concrete values. Group keys support time bucketing (with automatic flooring to the requested resolution) and categorical splits (`src/datapipeline/config/dataset/group_by.py`, `src/datapipeline/config/dataset/normalize.py`). You can also attach feature or sequence transforms—such as the sliding `TimeWindowTransformer`—directly in the YAML by referencing their entry point names (`src/datapipeline/transforms/sequence.py`).
 
-```bash
-datapipeline validate --config examples/dataset.yaml
-datapipeline run --config examples/dataset.yaml --out ./out
-```
+When you are ready to execute, run the bootstrapper once (the CLI does this automatically) to materialize all registered sources and streams (`src/datapipeline/services/bootstrap.py`).
 
 ---
 
-## Developer guide
+## Running and inspecting pipelines
 
-**Run tests**
+### Run any stage
+
+```bash
+datapipeline run --project config/project.yaml --stage vectors --limit 20
+```
+
+* `records` prints the raw post-filter rows per feature.
+* `features` shows `FeatureRecord` entries after feature/sequence transforms.
+* `vectors` emits grouped vector payloads.
+
+All variants respect `--limit` and display tqdm progress bars powered by loader metadata (path, URL host, synthetic generator info). The CLI command internally wires up `build_record_pipeline`, `build_feature_pipeline` and `build_vector_pipeline`, so the results mirror what downstream consumers see (`cli/app.py`, `cli/commands/run.py`, `cli/openers.py`, `cli/visuals.py`, `pipeline/pipelines.py`).
+
+### Analyze vector quality
+
+```bash
+datapipeline analyze --project config/project.yaml
+```
+
+This command reuses the vector pipeline, collects presence counts for every configured feature and highlights empty or incomplete vectors so you can diagnose upstream issues quickly (`cli/commands/analyze.py`, `analysis/vector_analyzer.py`). Use `--limit` to inspect a subset during development.
+
+---
+
+## Extending the system
+
+### Scaffold a plugin package
+
+```bash
+datapipeline plugin init --name energy_data_pipeline --out .
+```
+
+The generator copies a ready-made skeleton (pyproject, README, package directory) and swaps placeholders for your package name so you can start adding entry points immediately (`cli/app.py`, `services/scaffold/plugin.py`). Install the resulting project in editable mode to expose your new loaders, parsers, mappers and transforms.
+
+### Create new sources, domains and mappers
+
+Use the CLI helpers to scaffold boilerplate code in your plugin workspace:
+
+```bash
+datapipeline source create --provider dmi --dataset metobs --transport fs --format csv
+datapipeline domain create --domain metobs --time-aware
+datapipeline link --time-aware
+```
+
+The source command writes DTO/parser stubs, updates entry points and drops a matching YAML file pre-filled with composed-loader defaults for the chosen transport (`cli/app.py`, `services/scaffold/source.py`).
+
+### Add custom filters or transforms
+
+Register new functions/classes under the appropriate entry point group in your plugin’s `pyproject.toml`. The runtime resolves them through `load_ep`, applies record-level filters first, then record/feature/sequence transforms in the order declared in the dataset config (`pyproject.toml`, `src/datapipeline/utils/load.py`, `src/datapipeline/pipeline/utils/transform_utils.py`). Built-in helpers cover common comparisons (including timezone-aware comparisons) and time-based transforms (lags, sliding windows) if you need quick wins (`filters/filters.py`, `transforms/transforms.py`, `transforms/sequence.py`).
+
+### Prototype with synthetic time-series data
+
+Need sample data while wiring up transforms? Reuse the bundled synthetic time loader + parser and enrich it with the `encode_time` mapper for engineered temporal features (`sources/synthetic/time/loader.py`, `sources/synthetic/time/parser.py`, `mappers/synthetic/time.py`). Pair it with the `time_window` sequence transform to build sliding-window feature vectors without external dependencies (`transforms/sequence.py`).
+
+---
+
+## Data model cheat sheet
+
+| Type | Description |
+| --- | --- |
+| `Record` | Canonical payload containing a `value`; extended by other record types (`domain/record.py`). |
+| `TimeFeatureRecord` | A record with a timezone-aware `time` attribute, normalized to UTC to avoid boundary issues (`domain/record.py`). |
+| `FeatureRecord` | Links a record (or list of records from sequence transforms) to a `feature_id` and `group_key` (`domain/feature.py`). |
+| `Vector` | Final grouped payload: a mapping of feature IDs to scalars or ordered lists plus helper methods for shape/key access (`domain/vector.py`). |
+
+---
+
+## Developer workflow
+
+These commands mirror the tooling used in CI and are useful while iterating locally:
 
 ```bash
 pytest -q
-```
-
-**Lint & format** (if included in `.[dev]`)
-
-```bash
 ruff check .
-ruff fix .          # safe autofixes
+ruff fix .
 black .
-```
-
-**Type-check**
-
-```bash
 mypy datapipeline
+python -m build  # optional package build
 ```
 
-**Reinstall locally (editable)**
-
-```bash
-pip uninstall -y datapipeline
-pip install -e ".[dev]"
-```
-
-**Build (optional)**
-
-```bash
-python -m build
-```
-
----
-
-## Tips & gotchas
-
-- `RawDataLoader.load()` is **no-arg**; the base stores `path`/`pattern`.
-- Prefer `if parsed is not None:` (don’t drop valid falsy values like `0`).
-- Implement `count()` only if it’s cheap; otherwise return nothing and let progress bars run without totals.
-- Keep class names aligned with entry-point strings in `pyproject.toml`.
-- You usually **don’t** need to override `stream()`—that’s what `Source` is for. Only override when you need special behavior (pagination, retries, merging multiple loaders, etc.).
+Happy data pipelining! 🚀
