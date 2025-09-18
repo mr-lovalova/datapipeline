@@ -7,5 +7,5 @@ name = "{{PACKAGE_NAME}}"
 version = "0.1.0"
 description = "A DataPipeline plugin for the {{PACKAGE_NAME}} domain"
 dependencies = [
-  "datapipeline>=0.1.0",
+  "jerry-thomas>=0.0.2",
 ]

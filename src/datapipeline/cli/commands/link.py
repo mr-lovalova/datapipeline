@@ -31,7 +31,7 @@ def handle(time_aware: bool) -> None:
     if sources_dir.exists():
         source_options = sorted(p.stem for p in sources_dir.glob("*.y*ml"))
     if not source_options:
-        print("❗ No sources found. Create one first (datapipeline source create ...)")
+        print("❗ No sources found. Create one first (jerry distillery add ...)")
         raise SystemExit(2)
 
     src_key = _pick_from_list("Select a source to link:", source_options)
@@ -57,7 +57,7 @@ def handle(time_aware: bool) -> None:
         domain_options = sorted(
             read_group_entries(pyproject, FILTERS_GROUP).keys())
     if not domain_options:
-        print("❗ No domains found. Create one first (datapipeline domain create ...)")
+        print("❗ No domains found. Create one first (jerry spirit add ...)")
         raise SystemExit(2)
 
     dom_name = _pick_from_list("Select a domain to link to:", domain_options)

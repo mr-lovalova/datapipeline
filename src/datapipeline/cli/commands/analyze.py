@@ -8,14 +8,14 @@ from datapipeline.cli.openers import open_canonical_stream_visual
 from datapipeline.analysis.vector_analyzer import VectorStatsCollector
 
 
-def handle(project: str, limit: Optional[int] = None) -> None:
+def taste(project: str, limit: Optional[int] = None) -> None:
     project_path = Path(project)
     dataset = load_dataset(project_path, "vectors")
     bootstrap(project_path)
 
     expected_feature_ids = [cfg.feature_id for cfg in (dataset.features or [])]
     if not expected_feature_ids:
-        print("(no features configured; nothing to analyze)")
+        print("(no features configured; nothing to taste)")
         return
 
     collector = VectorStatsCollector(expected_feature_ids)

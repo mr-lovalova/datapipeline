@@ -1,14 +1,14 @@
 # {{PACKAGE_NAME}}
 
-Minimal plugin skeleton for the DataPipeline framework.
+Minimal plugin skeleton for the Jerry Thomas (datapipeline) framework.
 
 Quick start
 - Initialize a plugin (already done if you’re reading this here):
-  - `datapipeline plugin init --name {{PACKAGE_NAME}}`
+  - `jerry station init --name {{PACKAGE_NAME}}`
 - Add a source via CLI (transport-specific placeholders are scaffolded):
-  - File data: `datapipeline source create -p <provider> -d <dataset> -t fs -f <csv|json|json-lines>`
-  - URL data: `datapipeline source create -p <provider> -d <dataset> -t url -f <json|json-lines|csv>`
-  - Synthetic: `datapipeline source create -p <provider> -d <dataset> -t synthetic`
+  - File data: `jerry distillery add -p <provider> -d <dataset> -t fs -f <csv|json|json-lines>`
+  - URL data: `jerry distillery add -p <provider> -d <dataset> -t url -f <json|json-lines|csv>`
+  - Synthetic: `jerry distillery add -p <provider> -d <dataset> -t synthetic`
 - Edit the generated `config/sources/*.yaml` to fill in the `path`, delimiter, etc.
 - Reinstall after EP changes (pyproject.toml) and restart Python processes:
   - Core: `cd lib/datapipeline && python -m pip install -e .`
@@ -35,13 +35,12 @@ How loaders work
 - Synthetic sources generate data in-process and keep a small loader stub.
 
 Run data flows
-- Records: `dp run -p config/project.yaml -s records -n 100`
-- Features: `dp run -p config/project.yaml -s features -n 100`
-- Vectors: `dp run -p config/project.yaml -s vectors -n 100`
-- Only specific streams: add `--only <stream1> <stream2>`
+- Records: `jerry prep pour -p config/project.yaml -n 100`
+- Features: `jerry prep build -p config/project.yaml -n 100`
+- Vectors: `jerry prep stir -p config/project.yaml -n 100`
 
 Analyze vectors
-- `dp analyze -p config/project.yaml -n 10000`
+- `jerry taste -p config/project.yaml -n 10000`
 - Prints missing features per group and overall stats.
 
 Tips

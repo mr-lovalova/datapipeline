@@ -1,7 +1,8 @@
 import argparse
-from datapipeline.cli.commands.run import handle as handle_run
-from datapipeline.cli.commands.analyze import handle as handle_analyze
-from datapipeline.cli.commands.plugin import handle as handle_plugin
+
+from datapipeline.cli.commands.run import handle_prep, handle_serve
+from datapipeline.cli.commands.analyze import taste as handle_taste
+from datapipeline.cli.commands.plugin import station as handle_station
 from datapipeline.cli.commands.source import handle as handle_source
 from datapipeline.cli.commands.domain import handle as handle_domain
 from datapipeline.cli.commands.link import handle as handle_link
@@ -11,38 +12,64 @@ from datapipeline.cli.commands.filter import handle as handle_filter
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        prog="datapipeline", description="DataPipeline CLI")
+        prog="jerry",
+        description="Mixology-themed CLI for building and serving data pipelines.",
+    )
     sub = parser.add_subparsers(dest="cmd", required=True)
 
-    # run
-    p_run = sub.add_parser(
-        "run", help="run records/features/vectors using config/project.yaml")
-    p_run.add_argument(
-        "--project", "-p", default="config/project.yaml", help="path to project.yaml")
-    p_run.add_argument(
-        "--stage", "-s", choices=["records", "features", "vectors"], default="vectors")
-    p_run.add_argument("--limit", "-n", type=int, default=20)
-    p_run.add_argument("--only", nargs="*", default=None)
+    # prep (debug mode with visuals)
+    p_prep = sub.add_parser(
+        "prep",
+        help="run pipeline stages with visual progress",
+    )
+    prep_sub = p_prep.add_subparsers(dest="prep_cmd", required=True)
+    prep_steps = {
+        "pour": "preview record-stage output",
+        "build": "inspect feature-stage output",
+        "stir": "examine vector-stage output",
+    }
+    for step, help_text in prep_steps.items():
+        sp = prep_sub.add_parser(step, help=help_text)
+        sp.add_argument(
+            "--project", "-p", default="config/project.yaml", help="path to project.yaml"
+        )
+        sp.add_argument("--limit", "-n", type=int, default=20)
 
-    # analyze
-    p_an = sub.add_parser(
-        "analyze", help="analyze vectors using config/project.yaml")
-    p_an.add_argument(
-        "--project", "-p", default="config/project.yaml", help="path to project.yaml")
-    p_an.add_argument("--limit", "-n", type=int, default=None)
+    # serve (production run, no visuals)
+    p_serve = sub.add_parser(
+        "serve",
+        help="produce vectors without progress visuals",
+    )
+    p_serve.add_argument(
+        "--project", "-p", default="config/project.yaml", help="path to project.yaml"
+    )
+    p_serve.add_argument(
+        "--limit", "-n", type=int, default=None,
+        help="optional cap on the number of vectors to emit",
+    )
+    p_serve.add_argument(
+        "--output", "-o", default="print",
+        help="output destination: 'print', 'stream', or a file ending in .pt",
+    )
 
-    # plugin
-    p_plugin = sub.add_parser("plugin", help="manage plugins")
-    plugin_sub = p_plugin.add_subparsers(dest="plugin_cmd", required=True)
-    p_init = plugin_sub.add_parser("init", help="scaffold a new plugin")
-    p_init.add_argument("--name", "-n", required=True)
-    p_init.add_argument("--out", "-o", default=".")
+    # taste (analysis)
+    p_taste = sub.add_parser(
+        "taste",
+        help="analyze vector completeness and feature stats",
+    )
+    p_taste.add_argument(
+        "--project", "-p", default="config/project.yaml", help="path to project.yaml"
+    )
+    p_taste.add_argument("--limit", "-n", type=int, default=None)
 
-    # source
-    p_src = sub.add_parser("source", help="manage sources (see 'source create -h' for examples)")
-    src_sub = p_src.add_subparsers(dest="src_cmd", required=True)
-    p_src_create = src_sub.add_parser(
-        "create",
+    # distillery (sources)
+    p_dist = sub.add_parser(
+        "distillery",
+        help="add or list raw sources",
+    )
+    dist_sub = p_dist.add_subparsers(dest="dist_cmd", required=True)
+    p_dist_add = dist_sub.add_parser(
+        "add",
         help="create a provider+dataset source",
         description=(
             "Scaffold a source using transport + format.\n\n"
@@ -54,90 +81,125 @@ def main() -> None:
             "Note: set 'glob: true' in the generated YAML if your 'path' contains wildcards."
         ),
     )
-    p_src_create.add_argument("--provider", "-p", required=True)
-    p_src_create.add_argument("--dataset", "-d", required=True)
-    p_src_create.add_argument(
+    p_dist_add.add_argument("--provider", "-p", required=True)
+    p_dist_add.add_argument("--dataset", "-d", required=True)
+    p_dist_add.add_argument(
         "--transport", "-t",
         choices=["fs", "url", "synthetic"],
         required=True,
         help="how data is accessed: fs/url/synthetic",
     )
-    p_src_create.add_argument(
+    p_dist_add.add_argument(
         "--format", "-f",
         choices=["csv", "json", "json-lines"],
         help="data format for fs/url transports (ignored otherwise)",
     )
+    dist_sub.add_parser("list", help="list known sources")
 
-    # domain
-    p_dom = sub.add_parser(
-        "domain",
-        help="manage domains (try: 'datapipeline domain create -h')",
+    # spirit (domains)
+    p_spirit = sub.add_parser(
+        "spirit",
+        help="add or list domains",
     )
-    dom_sub = p_dom.add_subparsers(dest="dom_cmd", required=True)
-    p_dom_create = dom_sub.add_parser(
-        "create",
+    spirit_sub = p_spirit.add_subparsers(dest="spirit_cmd", required=True)
+    p_spirit_add = spirit_sub.add_parser(
+        "add",
         help="create a domain",
         description=(
             "Create a domain package. Defaults to Record base. "
             "Use --time-aware to base on TimeFeatureRecord (adds 'time' and 'value' fields)."
         ),
     )
-    p_dom_create.add_argument("--domain", "-d", required=True)
-    p_dom_create.add_argument(
+    p_spirit_add.add_argument("--domain", "-d", required=True)
+    p_spirit_add.add_argument(
         "--time-aware",
         "-t",
         action="store_true",
         help="use TimeFeatureRecord base (UTC-aware 'time' + 'value' fields) instead of Record",
     )
+    spirit_sub.add_parser("list", help="list known domains")
 
-    # link
-    p_link = sub.add_parser(
-        "link", help="link a source to a domain (create mapper)")
-    p_link.add_argument("--time-aware", "-t", action="store_true")
+    # contract (link source ↔ domain)
+    p_contract = sub.add_parser(
+        "contract",
+        help="link a distillery source to a spirit domain",
+    )
+    p_contract.add_argument("--time-aware", "-t", action="store_true")
 
-    # list
-    p_list = sub.add_parser("list", help="list registered sources or domains")
-    list_sub = p_list.add_subparsers(dest="list_cmd", required=True)
-    list_sub.add_parser("sources", help="list sources")
-    list_sub.add_parser("domains", help="list domains")
+    # station (plugin scaffolding)
+    p_station = sub.add_parser(
+        "station",
+        help="scaffold plugin workspaces",
+    )
+    station_sub = p_station.add_subparsers(dest="station_cmd", required=True)
+    p_station_init = station_sub.add_parser("init", help="create a plugin skeleton")
+    p_station_init.add_argument("--name", "-n", required=True)
+    p_station_init.add_argument("--out", "-o", default=".")
 
-    # filter
+    # filter (unchanged helper)
     p_filt = sub.add_parser("filter", help="manage filters")
     filt_sub = p_filt.add_subparsers(dest="filter_cmd", required=True)
     p_filt_create = filt_sub.add_parser("create", help="create a filter function")
-    p_filt_create.add_argument("--name", "-n", required=True, help="filter entrypoint name and function/module name")
+    p_filt_create.add_argument(
+        "--name", "-n", required=True,
+        help="filter entrypoint name and function/module name",
+    )
 
     args = parser.parse_args()
-    if args.cmd == "run":
-        handle_run(project=args.project, stage=args.stage,
-                   limit=args.limit)
+
+    if args.cmd == "prep":
+        handle_prep(action=args.prep_cmd, project=args.project, limit=args.limit)
         return
-    if args.cmd == "analyze":
-        handle_analyze(project=args.project, limit=getattr(args, "limit", None))
-        return
-    if args.cmd == "plugin":
-        handle_plugin(subcmd=args.plugin_cmd, name=getattr(
-            args, "name", None), out=getattr(args, "out", "."))
-        return
-    if args.cmd == "source":
-        handle_source(
-            subcmd=args.src_cmd,
-            provider=getattr(args, "provider", None),
-            dataset=getattr(args, "dataset", None),
-            transport=getattr(args, "transport", None),
-            format=getattr(args, "format", None),
+
+    if args.cmd == "serve":
+        handle_serve(
+            project=args.project,
+            limit=getattr(args, "limit", None),
+            output=args.output,
         )
         return
-    if args.cmd == "domain":
-        handle_domain(subcmd=args.dom_cmd, domain=getattr(args, "domain", None),
-                      time_aware=getattr(args, "time_aware", False))
+
+    if args.cmd == "taste":
+        handle_taste(project=args.project, limit=getattr(args, "limit", None))
         return
-    if args.cmd == "link":
+
+    if args.cmd == "distillery":
+        if args.dist_cmd == "list":
+            handle_list(subcmd="sources")
+        else:
+            handle_source(
+                subcmd="add",
+                provider=getattr(args, "provider", None),
+                dataset=getattr(args, "dataset", None),
+                transport=getattr(args, "transport", None),
+                format=getattr(args, "format", None),
+            )
+        return
+
+    if args.cmd == "spirit":
+        if args.spirit_cmd == "list":
+            handle_list(subcmd="domains")
+        else:
+            handle_domain(
+                subcmd="add",
+                domain=getattr(args, "domain", None),
+                time_aware=getattr(args, "time_aware", False),
+            )
+        return
+
+    if args.cmd == "contract":
         handle_link(time_aware=getattr(args, "time_aware", False))
         return
-    if args.cmd == "list":
-        handle_list(subcmd=args.list_cmd)
+
+    if args.cmd == "station":
+        handle_station(
+            subcmd=args.station_cmd,
+            name=getattr(args, "name", None),
+            out=getattr(args, "out", "."),
+        )
         return
+
     if args.cmd == "filter":
         handle_filter(subcmd=args.filter_cmd, name=getattr(args, "name", None))
         return
+
