@@ -1,7 +1,7 @@
 import argparse
 
 from datapipeline.cli.commands.run import handle_prep, handle_serve
-from datapipeline.cli.commands.analyze import taste as handle_taste
+from datapipeline.cli.commands.analyze import analyze as handle_analyze
 from datapipeline.cli.commands.plugin import station as handle_station
 from datapipeline.cli.commands.source import handle as handle_source
 from datapipeline.cli.commands.domain import handle as handle_domain
@@ -132,14 +132,16 @@ def main() -> None:
         help="scaffold plugin workspaces",
     )
     station_sub = p_station.add_subparsers(dest="station_cmd", required=True)
-    p_station_init = station_sub.add_parser("init", help="create a plugin skeleton")
+    p_station_init = station_sub.add_parser(
+        "init", help="create a plugin skeleton")
     p_station_init.add_argument("--name", "-n", required=True)
     p_station_init.add_argument("--out", "-o", default=".")
 
     # filter (unchanged helper)
     p_filt = sub.add_parser("filter", help="manage filters")
     filt_sub = p_filt.add_subparsers(dest="filter_cmd", required=True)
-    p_filt_create = filt_sub.add_parser("create", help="create a filter function")
+    p_filt_create = filt_sub.add_parser(
+        "create", help="create a filter function")
     p_filt_create.add_argument(
         "--name", "-n", required=True,
         help="filter entrypoint name and function/module name",
@@ -148,7 +150,8 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.cmd == "prep":
-        handle_prep(action=args.prep_cmd, project=args.project, limit=args.limit)
+        handle_prep(action=args.prep_cmd,
+                    project=args.project, limit=args.limit)
         return
 
     if args.cmd == "serve":
@@ -160,7 +163,8 @@ def main() -> None:
         return
 
     if args.cmd == "taste":
-        handle_taste(project=args.project, limit=getattr(args, "limit", None))
+        handle_analyze(project=args.project,
+                       limit=getattr(args, "limit", None))
         return
 
     if args.cmd == "distillery":
@@ -202,4 +206,3 @@ def main() -> None:
     if args.cmd == "filter":
         handle_filter(subcmd=args.filter_cmd, name=getattr(args, "name", None))
         return
-
