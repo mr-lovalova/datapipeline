@@ -15,35 +15,35 @@ raw source → canonical stream → record stage → feature stage → vector st
 ```
 
 1. **Raw sources (bottles on the shelf)** bundle a loader + parser recipe. Loaders handle
-the I/O (files, URLs or synthetic runs) and parsers map rows into typed records while
-skimming the dregs (`src/datapipeline/sources/models/loader.py`,
-`src/datapipeline/sources/models/source.py`). The bootstrapper registers each source under
-an alias so you can order it later in the service flow (`src/datapipeline/streams/raw.py`,
-`src/datapipeline/services/bootstrap.py`).
+   the I/O (files, URLs or synthetic runs) and parsers map rows into typed records while
+   skimming the dregs (`src/datapipeline/sources/models/loader.py`,
+   `src/datapipeline/sources/models/source.py`). The bootstrapper registers each source under
+   an alias so you can order it later in the service flow (`src/datapipeline/streams/raw.py`,
+   `src/datapipeline/services/bootstrap.py`).
 2. **Canonical streams (house infusions)** optionally apply a mapper on top of a raw
-source to normalize payloads before the dataset drinks them
-(`src/datapipeline/streams/canonical.py`, `src/datapipeline/services/factories.py`).
+   source to normalize payloads before the dataset drinks them
+   (`src/datapipeline/streams/canonical.py`, `src/datapipeline/services/factories.py`).
 3. **Dataset stages (prep stations)** read the configured canonical streams. Record stages
-are your strainers and shakers, feature stages bottle the clarified spirits into keyed
-features (with optional sequence transforms), and vector stages line up the flights ready
-for service (`src/datapipeline/pipeline/pipelines.py`, `src/datapipeline/pipeline/stages.py`,
-`src/datapipeline/config/dataset/feature.py`).
+   are your strainers and shakers, feature stages bottle the clarified spirits into keyed
+   features (with optional sequence transforms), and vector stages line up the flights ready
+   for service (`src/datapipeline/pipeline/pipelines.py`, `src/datapipeline/pipeline/stages.py`,
+   `src/datapipeline/config/dataset/feature.py`).
 4. **Vectors (tasting flights)** carry grouped feature values; downstream tasters can
-inspect them for balance and completeness
-(`src/datapipeline/domain/vector.py`, `src/datapipeline/analysis/vector_analyzer.py`).
+   inspect them for balance and completeness
+   (`src/datapipeline/domain/vector.py`, `src/datapipeline/analysis/vector_analyzer.py`).
 
 ---
 
 ## Bar back cheat sheet
 
-| Path | What lives here |
-| --- | --- |
-| `src/datapipeline/cli` | Argparse-powered bar program with commands for running pipelines, inspecting pours, scaffolding plugins and projecting service flow (`cli/app.py`, `cli/openers.py`, `cli/visuals.py`). |
-| `src/datapipeline/services` | Bootstrapping (project loading, YAML interpolation), runtime factories and scaffolding helpers for new bar tools (`services/bootstrap.py`, `services/factories.py`, `services/scaffold/plugin.py`). |
-| `src/datapipeline/pipeline` | Pure functions that build record/feature/vector iterators plus supporting utilities for ordering and transform wiring (`pipeline/pipelines.py`, `pipeline/utils/transform_utils.py`). |
-| `src/datapipeline/domain` | Data structures representing records, feature records and vectors coming off the line (`domain/record.py`, `domain/feature.py`, `domain/vector.py`). |
-| `src/datapipeline/transforms` & `src/datapipeline/filters` | Built-in transforms (lagging timestamps, sliding windows) and filter helpers exposed through entry points (`transforms/transforms.py`, `transforms/sequence.py`, `filters/filters.py`). |
-| `src/datapipeline/sources/synthetic/time` | Example synthetic time-series loader/parser pair plus helper mappers for experimentation while the real spirits arrive (`sources/synthetic/time/loader.py`, `sources/synthetic/time/parser.py`, `mappers/synthetic/time.py`). |
+| Path                                                       | What lives here                                                                                                                                                                                                               |
+| ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/datapipeline/cli`                                     | Argparse-powered bar program with commands for running pipelines, inspecting pours, scaffolding plugins and projecting service flow (`cli/app.py`, `cli/openers.py`, `cli/visuals.py`).                                       |
+| `src/datapipeline/services`                                | Bootstrapping (project loading, YAML interpolation), runtime factories and scaffolding helpers for new bar tools (`services/bootstrap.py`, `services/factories.py`, `services/scaffold/plugin.py`).                           |
+| `src/datapipeline/pipeline`                                | Pure functions that build record/feature/vector iterators plus supporting utilities for ordering and transform wiring (`pipeline/pipelines.py`, `pipeline/utils/transform_utils.py`).                                         |
+| `src/datapipeline/domain`                                  | Data structures representing records, feature records and vectors coming off the line (`domain/record.py`, `domain/feature.py`, `domain/vector.py`).                                                                          |
+| `src/datapipeline/transforms` & `src/datapipeline/filters` | Built-in transforms (lagging timestamps, sliding windows) and filter helpers exposed through entry points (`transforms/transforms.py`, `transforms/sequence.py`, `filters/filters.py`).                                       |
+| `src/datapipeline/sources/synthetic/time`                  | Example synthetic time-series loader/parser pair plus helper mappers for experimentation while the real spirits arrive (`sources/synthetic/time/loader.py`, `sources/synthetic/time/parser.py`, `mappers/synthetic/time.py`). |
 
 ---
 
@@ -177,9 +177,9 @@ jerry prep build  --project config/project.yaml --limit 20
 jerry prep stir   --project config/project.yaml --limit 20
 ```
 
-* `prep pour` shows the record-stage ingredients headed for each feature.
-* `prep build` highlights `FeatureRecord` entries after the shake/strain sequence.
-* `prep stir` emits grouped vectors—the tasting flight before it leaves the pass.
+- `prep pour` shows the record-stage ingredients headed for each feature.
+- `prep build` highlights `FeatureRecord` entries after the shake/strain sequence.
+- `prep stir` emits grouped vectors—the tasting flight before it leaves the pass.
 
 All variants respect `--limit` and display tqdm-powered progress bars for the underlying
 loaders. The CLI wires up `build_record_pipeline`, `build_feature_pipeline` and
@@ -218,7 +218,7 @@ Use `--limit` to spot-check during service.
 ### Scaffold a plugin package
 
 ```bash
-jerry station init --name speakeasy_pipeline --out .
+jerry station init --name my_datapipeline --out .
 ```
 
 The generator copies a ready-made skeleton (pyproject, README, package directory) and
@@ -266,12 +266,12 @@ transform to build sliding-window feature flights without external datasets
 
 ## Data model tasting notes
 
-| Type | Description |
-| --- | --- |
-| `Record` | Canonical payload containing a `value`; extended by other record types (`src/datapipeline/domain/record.py`). |
-| `TimeFeatureRecord` | A record with a timezone-aware `time` attribute, normalized to UTC to avoid boundary issues (`src/datapipeline/domain/record.py`). |
-| `FeatureRecord` | Links a record (or list of records from sequence transforms) to a `feature_id` and `group_key` (`src/datapipeline/domain/feature.py`). |
-| `Vector` | Final grouped payload: a mapping of feature IDs to scalars or ordered lists plus helper methods for shape/key access (`src/datapipeline/domain/vector.py`). |
+| Type                | Description                                                                                                                                                 |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Record`            | Canonical payload containing a `value`; extended by other record types (`src/datapipeline/domain/record.py`).                                               |
+| `TimeFeatureRecord` | A record with a timezone-aware `time` attribute, normalized to UTC to avoid boundary issues (`src/datapipeline/domain/record.py`).                          |
+| `FeatureRecord`     | Links a record (or list of records from sequence transforms) to a `feature_id` and `group_key` (`src/datapipeline/domain/feature.py`).                      |
+| `Vector`            | Final grouped payload: a mapping of feature IDs to scalars or ordered lists plus helper methods for shape/key access (`src/datapipeline/domain/vector.py`). |
 
 ---
 
