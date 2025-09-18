@@ -48,14 +48,16 @@ def _run_features(dataset: FeatureDatasetConfig, limit: int) -> None:
     for cfg in dataset.features:
         feature_id = getattr(cfg, "feature_id", "?")
         print(f"\n🛠️ building features for {feature_id}")
-        features = build_feature_pipeline(cfg, group_by, open_canonical_stream_visual)
+        features = build_feature_pipeline(
+            cfg, group_by, open_canonical_stream_visual)
         printed = _print_head(features, limit)
         tqdm.write(f"(built {printed} feature records)")
 
 
 def _run_vectors(dataset: FeatureDatasetConfig, limit: int) -> None:
     print("\n🥄 stirring vectors")
-    vectors = build_vector_pipeline(dataset.features, dataset.group_by, open_canonical_stream_visual)
+    vectors = build_vector_pipeline(
+        dataset.features, dataset.group_by, open_canonical_stream_visual)
     printed = _print_head(vectors, limit)
     print(f"(stirred {printed} vectors)")
 
@@ -116,7 +118,8 @@ def _serve_stream(vectors: Iterator[Tuple[object, Vector]], limit: Optional[int]
 def _serve_pt(vectors: Iterator[Tuple[object, Vector]], limit: Optional[int], destination: Path) -> None:
     data = []
     for group_key, vector in _limit_vectors(vectors, limit):
-        normalized_key = list(group_key) if isinstance(group_key, tuple) else group_key
+        normalized_key = list(group_key) if isinstance(
+            group_key, tuple) else group_key
         data.append((normalized_key, vector.values))
     destination.parent.mkdir(parents=True, exist_ok=True)
     with destination.open("wb") as fh:
@@ -134,7 +137,8 @@ def handle_serve(project: str, limit: Optional[int], output: str) -> None:
         print("(no features configured; nothing to serve)")
         return
 
-    vectors = build_vector_pipeline(dataset.features, dataset.group_by, open_canonical_stream)
+    vectors = build_vector_pipeline(
+        dataset.features, dataset.group_by, open_canonical_stream)
 
     if output == "print":
         _serve_print(vectors, limit)
