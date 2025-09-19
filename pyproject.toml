@@ -9,7 +9,7 @@ description = "Jerry-Thomas: a stream-first, plugin-friendly data pipeline (mixo
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.9"
 license = { text = "MIT" }
-authors = [{ name = "Your Name" }]
+authors = [{ name = "Anders Skott Lind" }]
 dependencies = [
   "numpy>=1.24,<3.0",
   "pydantic>=1.8",
