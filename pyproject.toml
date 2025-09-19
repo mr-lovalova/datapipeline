@@ -16,6 +16,7 @@ dependencies = [
   "PyYAML>=5.4",
   "tqdm>=4.0",
   "jinja2>=3.0",
+  "setuptools>=70",
 ]
 
 [project.scripts]
