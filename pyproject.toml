@@ -68,6 +68,10 @@ greater_than_or_equal    = "datapipeline.filters.filters:ge"
 
 [project.entry-points."datapipeline.transforms"]
 time_lag = "datapipeline.transforms.transforms:time_lag"
+drop_missing = "datapipeline.transforms.transforms:drop_missing_values"
+
+[project.entry-points."datapipeline.transforms.feature"]
+standard_scale = "datapipeline.transforms.transforms:StandardScalerTransform"
 
 [project.entry-points."datapipeline.mappers"]
 "time.synthetic" = "datapipeline.mappers.noop:identity"
@@ -81,5 +85,8 @@ time_window = "datapipeline.transforms.sequence:TimeWindowTransformer"
 "composed.loader" = "datapipeline.sources.factory:build_loader"
 
 [project.entry-points."datapipeline.parsers"]
-"synthetic.time" = "datapipeline.sources.synthetic.time.parser:TimeRowParser" 
+"synthetic.time" = "datapipeline.sources.synthetic.time.parser:TimeRowParser"
 identity = "datapipeline.parsers.identity:IdentityParser"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
