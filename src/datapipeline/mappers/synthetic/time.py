@@ -12,8 +12,7 @@ def encode(stream: Iterator[TimeFeatureRecord], mode: str) -> Iterator[TimeFeatu
         elif mode == "weekday_sin":
             val = sin(2 * pi * t.weekday() / 7)
         elif mode == "linear":
-            start = t.replace(hour=0, minute=0, second=0, microsecond=0)
-            val = (t - start).total_seconds()
+            val = t.timestamp()
         else:
             raise ValueError(f"Unsupported encode_time mode: {mode}")
         yield TimeFeatureRecord(time=rec.time, value=val)
