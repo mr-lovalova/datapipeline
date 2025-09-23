@@ -1,48 +1,22 @@
 from __future__ import annotations
 
 from dataclasses import is_dataclass, replace
-from datetime import timedelta
 from itertools import groupby
 from math import sqrt
 from numbers import Real
 from typing import Any, Iterator, Mapping, MutableMapping
 
 from datapipeline.domain.feature import FeatureRecord
-from datapipeline.domain.record import Record, TimeFeatureRecord
-from datapipeline.utils.time import parse_timecode
+from datapipeline.domain.record import Record
 
 
 def _get_field(record: Any, field: str, default: Any = None) -> Any:
-    """Retrieve attribute *field* from *record* supporting dicts and objects."""
-
     if isinstance(record, Mapping):
         return record.get(field, default)
     return getattr(record, field, default)
 
 
-def _is_missing(value: Any) -> bool:
-    """Return True when *value* should be treated as a missing observation."""
-
-    if value is None:
-        return True
-    if isinstance(value, float):  # covers NaN/inf cases
-        return value != value  # NaN check without importing numpy
-    try:
-        if isinstance(value, Real):
-            return value != value
-    except TypeError:
-        pass
-    return False
-
-
 def _clone_with_value(record: Any, value: float) -> Any:
-    """Return a shallow copy of *record* with its ``value`` field replaced."""
-
-    if isinstance(record, list):
-        raise TypeError(
-            "StandardScalerTransform does not support sequence FeatureRecord payloads."
-        )
-
     if isinstance(record, Mapping):
         cloned: MutableMapping[str, Any] = type(record)(record)
         cloned["value"] = value
@@ -56,30 +30,6 @@ def _clone_with_value(record: Any, value: float) -> Any:
         return cloned
 
     raise TypeError(f"Cannot replace value on record type: {type(record)!r}")
-
-
-def shift_record_time(record: TimeFeatureRecord, lag: timedelta) -> TimeFeatureRecord:
-    record.time = record.time - lag
-    return record
-
-
-def time_lag(stream: Iterator[TimeFeatureRecord], lag: str) -> Iterator[TimeFeatureRecord]:
-    lag_td = parse_timecode(lag)
-    for record in stream:
-        yield shift_record_time(record, lag_td)
-
-
-def drop_missing_values(
-    stream: Iterator[Any],
-    field: str = "value",
-) -> Iterator[Any]:
-    """Filter out records whose *field* contains a missing/null value."""
-
-    for record in stream:
-        value = _get_field(record, field)
-        if _is_missing(value):
-            continue
-        yield record
 
 
 class StandardScalerTransform:

@@ -5,10 +5,8 @@ from math import isclose
 
 from datapipeline.domain.feature import FeatureRecord
 from datapipeline.domain.record import TimeFeatureRecord
-from datapipeline.transforms.transforms import (
-    StandardScalerTransform,
-    drop_missing_values,
-)
+from datapipeline.transforms.feature import StandardScalerTransform
+from datapipeline.transforms.record import drop_missing_values
 
 
 def _make_time_record(value: float, hour: int) -> TimeFeatureRecord:
