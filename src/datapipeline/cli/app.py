@@ -60,7 +60,42 @@ def main() -> None:
     p_taste.add_argument(
         "--project", "-p", default="config/project.yaml", help="path to project.yaml"
     )
-    p_taste.add_argument("--limit", "-n", type=int, default=None)
+    p_taste.add_argument(
+        "--threshold",
+        "-t",
+        type=float,
+        default=0.95,
+        help="coverage threshold (0-1) for quick keep/drop lists (default: 0.95)",
+    )
+    p_taste.add_argument(
+        "--matrix",
+        action="store_true",
+        help="render availability heatmaps and per-timestamp summaries",
+    )
+    p_taste.add_argument(
+        "--matrix-rows",
+        type=int,
+        default=20,
+        help="maximum number of group buckets to render in the heatmap (0 = all)",
+    )
+    p_taste.add_argument(
+        "--matrix-cols",
+        type=int,
+        default=10,
+        help="maximum number of features/partitions to render in the heatmap (0 = all)",
+    )
+    p_taste.add_argument(
+        "--matrix-output",
+        type=str,
+        default=None,
+        help="optional path to export feature/partition availability (CSV)",
+    )
+    p_taste.add_argument(
+        "--matrix-format",
+        choices=["csv", "html"],
+        default="csv",
+        help="format for matrix export when --matrix-output is set",
+    )
 
     # distillery (sources)
     p_dist = sub.add_parser(
@@ -163,8 +198,15 @@ def main() -> None:
         return
 
     if args.cmd == "taste":
-        handle_analyze(project=args.project,
-                       limit=getattr(args, "limit", None))
+        handle_analyze(
+            project=args.project,
+            threshold=getattr(args, "threshold", None),
+            show_matrix=getattr(args, "matrix", False),
+            matrix_rows=getattr(args, "matrix_rows", 20),
+            matrix_cols=getattr(args, "matrix_cols", 10),
+            matrix_output=getattr(args, "matrix_output", None),
+            matrix_format=getattr(args, "matrix_format", "csv"),
+        )
         return
 
     if args.cmd == "distillery":
