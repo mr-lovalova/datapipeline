@@ -7,8 +7,9 @@ from datapipeline.config.dataset.feature import BaseRecordConfig
 from datapipeline.config.dataset.group_by import GroupBy
 from datapipeline.domain.feature import FeatureRecord
 from datapipeline.domain.record import Record
+from datapipeline.domain.vector import Vector
 from datapipeline.pipeline.utils.keygen import RecordKeyGenerator
-from datapipeline.plugins import FILTERS_EP, TRANSFORMS_EP
+from datapipeline.plugins import FILTERS_EP, TRANSFORMS_EP, VECTOR_TRANSFORMS_EP
 from datapipeline.utils.load import load_ep
 
 
@@ -82,6 +83,34 @@ def _instantiate_transforms(
         cls = load_ep(group=group, name=name)
         instances.append(_instantiate_entry_point(cls, params))
     return instances
+
+
+def _instantiate_vector_transforms(
+    clauses: Optional[Sequence[Mapping[str, Any]]],
+) -> list[Any]:
+    """Instantiate configured vector-level transforms."""
+
+    instances: list[Any] = []
+    for clause in clauses or ():
+        name, params = _extract_single_pair(clause, "Vector transform")
+        cls = load_ep(group=VECTOR_TRANSFORMS_EP, name=name)
+        instances.append(_instantiate_entry_point(cls, params))
+    return instances
+
+
+def transform_vector_stream(
+    stream: Iterator[Tuple[Any, Vector]],
+    clauses: Optional[Sequence[Mapping[str, Any]]],
+) -> Iterator[Tuple[Any, Vector]]:
+    """Apply configured vector transforms to the merged feature stream."""
+
+    transforms = _instantiate_vector_transforms(clauses)
+    for transform in transforms:
+        if hasattr(transform, "apply"):
+            stream = transform.apply(stream)
+        else:
+            stream = transform(stream)
+    return stream
 
 
 def transform_feature_stream(

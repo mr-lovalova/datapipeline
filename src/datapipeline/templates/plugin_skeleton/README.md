@@ -16,9 +16,10 @@ Quick start
 
 Folder layout
 - `config/`
-  - `project.yaml` — paths for sources/streams
-  - `sources/*.yaml` — raw source definitions (one file per source)
-  - `streams/*.yaml` — canonical stream definitions
+  - `distilleries/*.yaml` — raw source definitions (one file per source)
+  - `contracts/*.yaml` — canonical stream definitions
+  - `recipes/<name>/` — experiment configs (each directory holds a `project.yaml`,
+    `recipe.yaml`, and a `build/` folder for generated artifacts)
 - `src/{{PACKAGE_NAME}}/`
   - `sources/<provider>/<dataset>/dto.py` — DTO model for the source
   - `sources/<provider>/<dataset>/parser.py` — parse raw → DTO
@@ -35,13 +36,16 @@ How loaders work
 - Synthetic sources generate data in-process and keep a small loader stub.
 
 Run data flows
-- Records: `jerry prep pour -p config/project.yaml -n 100`
-- Features: `jerry prep build -p config/project.yaml -n 100`
-- Vectors: `jerry prep stir -p config/project.yaml -n 100`
+- Records: `jerry prep pour -p config/recipes/default/project.yaml -n 100`
+- Features: `jerry prep build -p config/recipes/default/project.yaml -n 100`
+- Vectors: `jerry prep stir -p config/recipes/default/project.yaml -n 100`
 
 Analyze vectors
-- `jerry taste -p config/project.yaml -n 10000`
-- Prints missing features per group and overall stats.
+- `jerry prep taste -p config/recipes/default/project.yaml`
+- Prints missing features per group and overall stats; pair with
+  `jerry inspect coverage --project config/recipes/default/project.yaml` and
+  `jerry inspect matrix --project config/recipes/default/project.yaml` to persist
+  JSON/CSV diagnostics.
 
 Tips
 - Keep parsers thin — mirror source schema and return DTOs; use the identity parser only if your loader already emits domain records.

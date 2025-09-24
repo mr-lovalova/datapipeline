@@ -42,8 +42,26 @@ raw source → canonical stream → record stage → feature stage → vector st
 | `src/datapipeline/services`                                | Bootstrapping (project loading, YAML interpolation), runtime factories and scaffolding helpers for new bar tools (`services/bootstrap.py`, `services/factories.py`, `services/scaffold/plugin.py`).                           |
 | `src/datapipeline/pipeline`                                | Pure functions that build record/feature/vector iterators plus supporting utilities for ordering and transform wiring (`pipeline/pipelines.py`, `pipeline/utils/transform_utils.py`).                                         |
 | `src/datapipeline/domain`                                  | Data structures representing records, feature records and vectors coming off the line (`domain/record.py`, `domain/feature.py`, `domain/vector.py`).                                                                          |
-| `src/datapipeline/transforms` & `src/datapipeline/filters` | Built-in transforms (lagging timestamps, sliding windows) and filter helpers exposed through entry points (`transforms/transforms.py`, `transforms/sequence.py`, `filters/filters.py`).                                       |
+| `src/datapipeline/transforms` & `src/datapipeline/filters` | Built-in transforms (lagging timestamps, scaling, sliding windows) and filter helpers exposed through entry points (`transforms/record.py`, `transforms/feature.py`, `transforms/sequence.py`, `filters/filters.py`). |
 | `src/datapipeline/sources/synthetic/time`                  | Example synthetic time-series loader/parser pair plus helper mappers for experimentation while the real spirits arrive (`sources/synthetic/time/loader.py`, `sources/synthetic/time/parser.py`, `mappers/synthetic/time.py`). |
+
+---
+
+## Built-in DSL identifiers
+
+The YAML DSL resolves filters and transforms by entry-point name. These ship with the
+template out of the box:
+
+| Kind              | Identifiers                                                                                     | Notes |
+| ----------------- | ----------------------------------------------------------------------------------------------- | ----- |
+| Filters           | `eq`/`equals`, `ne`/`not_equal`, `lt`, `le`, `gt`, `ge`, `in`/`contains`, `nin`/`not_in`        | Use as `- gt: { field: value }` or `- in: { field: [values...] }`. Synonyms map to the same implementation. |
+| Record transforms | `time_lag`, `drop_missing`                                                                       | `time_lag` expects a duration string (e.g. `1h`), `drop_missing` removes `None`/`NaN` records. |
+| Feature transforms| `standard_scale`                                                                                | Options: `with_mean`, `with_std`, optional `statistics`. |
+| Sequence transforms | `time_window`                                                                                | Requires `size`; optional `stride`. Produces sliding window lists per feature. |
+| Vector transforms | `drop_incomplete`, `fill_missing`                                                               | `drop_incomplete` honors `required`, `manifest`, `min_coverage`; `fill_missing` currently supports `strategy: constant` and optional `manifest`. |
+
+Extend `pyproject.toml` with additional entry points to register custom logic under your
+own identifiers.
 
 ---
 
@@ -69,17 +87,17 @@ python -c "import datapipeline; print('bar ready')"
 
 ### 2. Draft your bar book
 
-Create a `config/project.yaml` so the runtime knows where to find ingredients, infusions
-and the tasting menu. Globals are optional but handy for sharing values—they are
-interpolated into downstream YAML specs during bootstrap
+Create a `config/recipes/<name>/project.yaml` so the runtime knows where to find
+ingredients, infusions and the tasting menu. Globals are optional but handy for sharing
+values—they are interpolated into downstream YAML specs during bootstrap
 (`src/datapipeline/config/project.py`, `src/datapipeline/services/bootstrap.py`).
 
 ```yaml
 version: 1
 paths:
-  sources: config/distilleries
-  streams: config/contracts
-  dataset: config/recipe.yaml
+  sources: ../../distilleries
+  streams: ../../contracts
+  dataset: recipe.yaml
 globals:
   opening_time: "2024-01-01T16:00:00Z"
   last_call: "2024-01-02T02:00:00Z"
@@ -138,28 +156,51 @@ are grouped (`src/datapipeline/config/dataset/dataset.py`). A minimal hourly men
 look like:
 
 ```yaml
-# config/recipe.yaml
+# config/recipes/default/recipe.yaml
 group_by:
   keys:
     - type: time
       field: time
       resolution: 1h
 features:
-  - stream: time.encode
-    feature_id: hour_spritz
-    partition_by: null
-    filters: []
+  - id: hour_spritz
+    stream: time.encode
     transforms:
-      - time_lag: "0h"
+      - record:
+          transform: time_lag
+          args: 0h
+      - feature:
+          transform: standard_scale
+          with_mean: true
+          with_std: true
+      - sequence:
+          transform: time_window
+          size: 4
+          stride: 1
+
+vector_cleaning:
+  - transform: drop_incomplete
+    manifest: build/partitions.json
+    min_coverage: 1.0
+  - transform: fill_missing
+    manifest: build/partitions.json
+    strategy: constant
+    value: 0.0
 ```
 
 Use the sample `dataset` template as a starting point if you prefer scaffolding before
 pouring concrete values. Group keys support time bucketing (with automatic flooring to the
 requested resolution) and categorical splits
 (`src/datapipeline/config/dataset/group_by.py`,
-`src/datapipeline/config/dataset/normalize.py`). You can also attach feature or sequence
-transforms—such as the sliding `TimeWindowTransformer`—directly in the YAML by referencing
-their entry point names (`src/datapipeline/transforms/sequence.py`).
+`src/datapipeline/config/dataset/normalize.py`). You can also attach feature, sequence, or
+vector transforms—such as the sliding `TimeWindowTransformer` or
+`drop_incomplete`/`fill_missing`—directly in the YAML by referencing their entry point
+names (`src/datapipeline/transforms/sequence.py`,
+`src/datapipeline/transforms/vector.py`). Run
+`jerry inspect partitions --project config/recipes/default/project.yaml`
+to capture every emitted feature id (including partition suffixes) and hand that manifest
+to the vector transforms so they can enforce a consistent schema without inlining long
+lists in the dataset config.
 
 Once the book is ready, run the bootstrapper (the CLI does this automatically) to
 materialize all registered sources and streams
@@ -172,9 +213,9 @@ materialize all registered sources and streams
 ### Prep any station (with visuals)
 
 ```bash
-jerry prep pour   --project config/project.yaml --limit 20
-jerry prep build  --project config/project.yaml --limit 20
-jerry prep stir   --project config/project.yaml --limit 20
+jerry prep pour   --project config/recipes/default/project.yaml --limit 20
+jerry prep build  --project config/recipes/default/project.yaml --limit 20
+jerry prep stir   --project config/recipes/default/project.yaml --limit 20
 ```
 
 - `prep pour` shows the record-stage ingredients headed for each feature.
@@ -191,9 +232,9 @@ loaders. The CLI wires up `build_record_pipeline`, `build_feature_pipeline` and
 ### Serve the flights (production mode)
 
 ```bash
-jerry serve --project config/project.yaml --output print
-jerry serve --project config/project.yaml --output stream
-jerry serve --project config/project.yaml --output exports/batch.pt
+jerry serve --project config/recipes/default/project.yaml --output print
+jerry serve --project config/recipes/default/project.yaml --output stream
+jerry serve --project config/recipes/default/project.yaml --output exports/batch.pt
 ```
 
 Production mode skips the bar flair and focuses on throughput. `print` writes tasting
@@ -203,13 +244,17 @@ necessary), and a `.pt` destination stores a pickle-compatible payload for later
 ### Taste the balance (vector quality)
 
 ```bash
-jerry taste --project config/project.yaml
+jerry prep taste --project config/recipes/default/project.yaml
 ```
 
 This command reuses the vector pipeline, collects presence counts for every configured
 feature and flags empty or incomplete flights so you can diagnose upstream issues quickly
 (`src/datapipeline/cli/commands/analyze.py`, `src/datapipeline/analysis/vector_analyzer.py`).
-Use `--limit` to spot-check during service.
+Run `jerry inspect coverage --project config/recipes/default/project.yaml` to persist the
+coverage summary to `build/coverage.json` (lists of keep/below features and partitions
+plus coverage percentages), and `jerry inspect matrix --project
+config/recipes/default/project.yaml` to export availability matrices (CSV or HTML) for
+deeper analysis.
 
 ---
 
@@ -244,13 +289,14 @@ transport (`src/datapipeline/cli/app.py`, `src/datapipeline/services/scaffold/so
 ### Add custom filters or transforms
 
 Register new functions/classes under the appropriate entry point group in your plugin’s
-`pyproject.toml`. The runtime resolves them through `load_ep`, applies record-level
-filters first, then record/feature/sequence transforms in the order declared in the
-dataset config (`pyproject.toml`, `src/datapipeline/utils/load.py`,
+`pyproject.toml`. The runtime resolves them through `load_ep`, applies record filters first,
+then record/feature/sequence transforms in the order declared in the dataset config
+(`pyproject.toml`, `src/datapipeline/utils/load.py`,
 `src/datapipeline/pipeline/utils/transform_utils.py`). Built-in helpers cover common
 comparisons (including timezone-aware checks) and time-based transforms (lags, sliding
 windows) if you need quick wins (`src/datapipeline/filters/filters.py`,
-`src/datapipeline/transforms/transforms.py`, `src/datapipeline/transforms/sequence.py`).
+`src/datapipeline/transforms/record.py`, `src/datapipeline/transforms/feature.py`,
+`src/datapipeline/transforms/sequence.py`).
 
 ### Prototype with synthetic time-series data
 

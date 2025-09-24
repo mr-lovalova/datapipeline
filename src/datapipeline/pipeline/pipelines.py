@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import heapq
-from collections.abc import Callable, Iterable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from typing import Any, Tuple
 
 from datapipeline.config.dataset.feature import BaseRecordConfig, FeatureRecordConfig
@@ -11,6 +11,7 @@ from datapipeline.config.dataset.group_by import GroupBy
 from datapipeline.domain.feature import FeatureRecord
 from datapipeline.domain.vector import Vector
 from datapipeline.pipeline.stages import feature_stage, record_stage, vector_stage
+from datapipeline.pipeline.utils.transform_utils import transform_vector_stream
 
 
 def build_record_pipeline(
@@ -20,7 +21,7 @@ def build_record_pipeline(
     """Open a configured stream and apply record-level filters/transforms."""
 
     raw = open_stream(cfg.stream)
-    return record_stage(raw, cfg.filters, cfg.transforms)
+    return record_stage(raw, cfg.record_filters, cfg.record_transforms)
 
 
 def build_feature_pipeline(
@@ -38,9 +39,11 @@ def build_vector_pipeline(
     configs: Sequence[FeatureRecordConfig],
     group_by: GroupBy,
     open_stream: Callable[[str], Iterable[Any]],
+    vector_transforms: Sequence[Mapping[str, Any]] | None = None,
 ) -> Iterator[Tuple[Any, Vector]]:
     """Merge feature streams and yield grouped vectors ready for export."""
 
     streams = [build_feature_pipeline(c, group_by, open_stream) for c in configs]
     merged = heapq.merge(*streams, key=lambda fr: fr.group_key)
-    return vector_stage(merged)
+    stream = vector_stage(merged)
+    return transform_vector_stream(stream, vector_transforms)

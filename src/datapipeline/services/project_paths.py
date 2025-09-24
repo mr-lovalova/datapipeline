@@ -12,7 +12,7 @@ def read_project(project_yaml: Path) -> ProjectConfig:
 
 
 def _project_root(project_yaml: Path) -> Path:
-    return project_yaml.parent.parent
+    return project_yaml.parent
 
 
 def streams_dir(project_yaml: Path) -> Path:

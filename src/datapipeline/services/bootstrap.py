@@ -43,7 +43,10 @@ def _load_by_key(project_yaml: Path, key: str) -> dict:
     p = _paths(project_yaml).get(key)
     if not p:
         raise FileNotFoundError(f"project.paths must include '{key}'.")
-    return load_yaml(Path(p))
+    path = Path(p)
+    if not path.is_absolute():
+        path = project_yaml.parent / path
+    return load_yaml(path)
 
 
 def _globals(project_yaml: Path) -> dict[str, str]:

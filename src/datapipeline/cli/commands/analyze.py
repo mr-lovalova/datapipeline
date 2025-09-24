@@ -1,5 +1,4 @@
 from pathlib import Path
-from typing import Optional
 
 from datapipeline.services.bootstrap import bootstrap
 from datapipeline.config.dataset.loader import load_dataset
@@ -43,6 +42,7 @@ def analyze(
         dataset.features,
         dataset.group_by,
         open_canonical_stream_visual,
+        None,
     ):
         collector.update(group_key, vector.values)
 

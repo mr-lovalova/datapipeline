@@ -8,6 +8,11 @@ from datapipeline.cli.commands.domain import handle as handle_domain
 from datapipeline.cli.commands.link import handle as handle_link
 from datapipeline.cli.commands.list_ import handle as handle_list
 from datapipeline.cli.commands.filter import handle as handle_filter
+from datapipeline.cli.commands.inspect import (
+    partitions as handle_inspect_partitions,
+    coverage as handle_inspect_coverage,
+    matrix as handle_inspect_matrix,
+)
 
 
 def main() -> None:
@@ -31,9 +36,59 @@ def main() -> None:
     for step, help_text in prep_steps.items():
         sp = prep_sub.add_parser(step, help=help_text)
         sp.add_argument(
-            "--project", "-p", default="config/project.yaml", help="path to project.yaml"
+            "--project",
+            "-p",
+            default="config/recipes/default/project.yaml",
+            help="path to project.yaml",
         )
         sp.add_argument("--limit", "-n", type=int, default=20)
+
+    sp_taste = prep_sub.add_parser(
+        "taste",
+        help="analyze vector completeness and feature stats",
+    )
+    sp_taste.add_argument(
+        "--project",
+        "-p",
+        default="config/recipes/default/project.yaml",
+        help="path to project.yaml",
+    )
+    sp_taste.add_argument(
+        "--threshold",
+        "-t",
+        type=float,
+        default=0.95,
+        help="coverage threshold (0-1) for quick keep/drop lists (default: 0.95)",
+    )
+    sp_taste.add_argument(
+        "--matrix",
+        action="store_true",
+        help="render availability heatmaps and per-timestamp summaries",
+    )
+    sp_taste.add_argument(
+        "--matrix-rows",
+        type=int,
+        default=20,
+        help="maximum number of group buckets to render in the heatmap (0 = all)",
+    )
+    sp_taste.add_argument(
+        "--matrix-cols",
+        type=int,
+        default=10,
+        help="maximum number of features/partitions to render in the heatmap (0 = all)",
+    )
+    sp_taste.add_argument(
+        "--matrix-output",
+        type=str,
+        default=None,
+        help="optional path to export feature/partition availability (CSV/HTML)",
+    )
+    sp_taste.add_argument(
+        "--matrix-format",
+        choices=["csv", "html"],
+        default="csv",
+        help="format for matrix export when --matrix-output is set",
+    )
 
     # serve (production run, no visuals)
     p_serve = sub.add_parser(
@@ -41,7 +96,10 @@ def main() -> None:
         help="produce vectors without progress visuals",
     )
     p_serve.add_argument(
-        "--project", "-p", default="config/project.yaml", help="path to project.yaml"
+        "--project",
+        "-p",
+        default="config/recipes/default/project.yaml",
+        help="path to project.yaml",
     )
     p_serve.add_argument(
         "--limit", "-n", type=int, default=None,
@@ -50,51 +108,6 @@ def main() -> None:
     p_serve.add_argument(
         "--output", "-o", default="print",
         help="output destination: 'print', 'stream', or a file ending in .pt",
-    )
-
-    # taste (analysis)
-    p_taste = sub.add_parser(
-        "taste",
-        help="analyze vector completeness and feature stats",
-    )
-    p_taste.add_argument(
-        "--project", "-p", default="config/project.yaml", help="path to project.yaml"
-    )
-    p_taste.add_argument(
-        "--threshold",
-        "-t",
-        type=float,
-        default=0.95,
-        help="coverage threshold (0-1) for quick keep/drop lists (default: 0.95)",
-    )
-    p_taste.add_argument(
-        "--matrix",
-        action="store_true",
-        help="render availability heatmaps and per-timestamp summaries",
-    )
-    p_taste.add_argument(
-        "--matrix-rows",
-        type=int,
-        default=20,
-        help="maximum number of group buckets to render in the heatmap (0 = all)",
-    )
-    p_taste.add_argument(
-        "--matrix-cols",
-        type=int,
-        default=10,
-        help="maximum number of features/partitions to render in the heatmap (0 = all)",
-    )
-    p_taste.add_argument(
-        "--matrix-output",
-        type=str,
-        default=None,
-        help="optional path to export feature/partition availability (CSV)",
-    )
-    p_taste.add_argument(
-        "--matrix-format",
-        choices=["csv", "html"],
-        default="csv",
-        help="format for matrix export when --matrix-output is set",
     )
 
     # distillery (sources)
@@ -182,11 +195,124 @@ def main() -> None:
         help="filter entrypoint name and function/module name",
     )
 
+    # inspect (metadata helpers)
+    p_inspect = sub.add_parser(
+        "inspect",
+        help="inspect dataset metadata",
+    )
+    inspect_sub = p_inspect.add_subparsers(dest="inspect_cmd", required=True)
+    p_inspect_partitions = inspect_sub.add_parser(
+        "partitions",
+        help="discover emitted feature ids (including partitions)",
+    )
+    p_inspect_partitions.add_argument(
+        "--project",
+        "-p",
+        default="config/recipes/default/project.yaml",
+        help="path to project.yaml",
+    )
+    p_inspect_partitions.add_argument(
+        "--output",
+        "-o",
+        default=None,
+        help="destination file for the partition manifest",
+    )
+    p_inspect_partitions.add_argument(
+        "--limit", "-n", type=int, default=None,
+        help="optional cap on records processed per feature while discovering partitions",
+    )
+    p_inspect_partitions.add_argument(
+        "--include-targets",
+        action="store_true",
+        help="include target configurations when discovering partitions",
+    )
+
+    p_inspect_coverage = inspect_sub.add_parser(
+        "coverage",
+        help="collect coverage statistics and write JSON summary",
+    )
+    p_inspect_coverage.add_argument(
+        "--project",
+        "-p",
+        default="config/recipes/default/project.yaml",
+        help="path to project.yaml",
+    )
+    p_inspect_coverage.add_argument(
+        "--output",
+        "-o",
+        default=None,
+        help="destination file for the coverage summary",
+    )
+    p_inspect_coverage.add_argument(
+        "--threshold",
+        "-t",
+        type=float,
+        default=0.95,
+        help="coverage threshold (0-1) for keep/drop partition lists",
+    )
+    p_inspect_coverage.add_argument(
+        "--match-partition",
+        choices=["base", "full"],
+        default="base",
+        help="whether to match features by base id or full partition id",
+    )
+
+    p_inspect_matrix = inspect_sub.add_parser(
+        "matrix",
+        help="export availability matrix",
+    )
+    p_inspect_matrix.add_argument(
+        "--project",
+        "-p",
+        default="config/recipes/default/project.yaml",
+        help="path to project.yaml",
+    )
+    p_inspect_matrix.add_argument(
+        "--output", "-o", default=None,
+        help="destination file for the matrix (defaults to build/matrix.csv or .html)",
+    )
+    p_inspect_matrix.add_argument(
+        "--threshold",
+        "-t",
+        type=float,
+        default=0.95,
+        help="coverage threshold (used for keep/drop stats in the summary)",
+    )
+    p_inspect_matrix.add_argument(
+        "--rows",
+        type=int,
+        default=20,
+        help="maximum number of group buckets to include (0 = all)",
+    )
+    p_inspect_matrix.add_argument(
+        "--cols",
+        type=int,
+        default=10,
+        help="maximum number of features/partitions to include (0 = all)",
+    )
+    p_inspect_matrix.add_argument(
+        "--format",
+        choices=["csv", "html"],
+        default="csv",
+        help="output format for the matrix",
+    )
+
     args = parser.parse_args()
 
     if args.cmd == "prep":
-        handle_prep(action=args.prep_cmd,
-                    project=args.project, limit=args.limit)
+        if args.prep_cmd == "taste":
+            handle_analyze(
+                project=args.project,
+                threshold=getattr(args, "threshold", None),
+                show_matrix=getattr(args, "matrix", False),
+                matrix_rows=getattr(args, "matrix_rows", 20),
+                matrix_cols=getattr(args, "matrix_cols", 10),
+                matrix_output=getattr(args, "matrix_output", None),
+                matrix_format=getattr(args, "matrix_format", "csv"),
+            )
+        else:
+            handle_prep(action=args.prep_cmd,
+                        project=args.project, limit=args.limit)
         return
 
     if args.cmd == "serve":
@@ -197,16 +323,30 @@ def main() -> None:
         )
         return
 
-    if args.cmd == "taste":
-        handle_analyze(
-            project=args.project,
-            threshold=getattr(args, "threshold", None),
-            show_matrix=getattr(args, "matrix", False),
-            matrix_rows=getattr(args, "matrix_rows", 20),
-            matrix_cols=getattr(args, "matrix_cols", 10),
-            matrix_output=getattr(args, "matrix_output", None),
-            matrix_format=getattr(args, "matrix_format", "csv"),
-        )
+    if args.cmd == "inspect":
+        if args.inspect_cmd == "partitions":
+            handle_inspect_partitions(
+                project=args.project,
+                output=args.output,
+                limit=getattr(args, "limit", None),
+                include_targets=getattr(args, "include_targets", False),
+            )
+        elif args.inspect_cmd == "coverage":
+            handle_inspect_coverage(
+                project=args.project,
+                output=args.output,
+                threshold=getattr(args, "threshold", 0.95),
+                match_partition=getattr(args, "match_partition", "base"),
+            )
+        elif args.inspect_cmd == "matrix":
+            handle_inspect_matrix(
+                project=args.project,
+                output=getattr(args, "output", None),
+                threshold=getattr(args, "threshold", 0.95),
+                rows=getattr(args, "rows", 20),
+                cols=getattr(args, "cols", 10),
+                fmt=getattr(args, "format", "csv"),
+            )
         return
 
     if args.cmd == "distillery":

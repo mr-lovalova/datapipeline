@@ -64,6 +64,12 @@ gte                      = "datapipeline.filters.filters:ge"
 greater_or_equal         = "datapipeline.filters.filters:ge"
 greater_than_or_equal    = "datapipeline.filters.filters:ge"
 
+# membership helpers
+"in"                     = "datapipeline.filters.filters:in_"
+contains                 = "datapipeline.filters.filters:in_"
+nin                      = "datapipeline.filters.filters:nin"
+not_in                   = "datapipeline.filters.filters:nin"
+
 
 [project.entry-points."datapipeline.transforms"]
 time_lag = "datapipeline.transforms.record:time_lag"
@@ -78,6 +84,10 @@ standard_scale = "datapipeline.transforms.feature:StandardScalerTransform"
 
 [project.entry-points."datapipeline.transforms.sequence"]
 time_window = "datapipeline.transforms.sequence:TimeWindowTransformer"
+
+[project.entry-points."datapipeline.transforms.vector"]
+drop_incomplete = "datapipeline.transforms.vector:DropIncompleteVectorTransform"
+fill_missing = "datapipeline.transforms.vector:FillMissingVectorTransform"
 
 
 [project.entry-points."datapipeline.loaders"]

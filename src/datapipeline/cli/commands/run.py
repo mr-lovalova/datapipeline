@@ -57,7 +57,11 @@ def _run_features(dataset: FeatureDatasetConfig, limit: int) -> None:
 def _run_vectors(dataset: FeatureDatasetConfig, limit: int) -> None:
     print("\n🥄 stirring vectors")
     vectors = build_vector_pipeline(
-        dataset.features, dataset.group_by, open_canonical_stream_visual)
+        dataset.features,
+        dataset.group_by,
+        open_canonical_stream_visual,
+        dataset.vector_transforms,
+    )
     printed = _print_head(vectors, limit)
     print(f"(stirred {printed} vectors)")
 
@@ -138,7 +142,11 @@ def handle_serve(project: str, limit: Optional[int], output: str) -> None:
         return
 
     vectors = build_vector_pipeline(
-        dataset.features, dataset.group_by, open_canonical_stream)
+        dataset.features,
+        dataset.group_by,
+        open_canonical_stream,
+        dataset.vector_transforms,
+    )
 
     if output == "print":
         _serve_print(vectors, limit)
