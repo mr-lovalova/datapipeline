@@ -20,16 +20,27 @@ features:
           with_mean: true
           with_std: true
 
-# Optional vector-level clean-up
-# vector_cleaning:
-#   - transform: drop_incomplete
-#     manifest: config/recipes/default/build/partitions.json
-#     min_coverage: 0.9
-#   - transform: fill_missing
-#     manifest: config/recipes/default/build/partitions.json
-#     strategy: constant
-#     value: 0.0
+# Optional feature-level fills (uncomment to enable)
+#      - sequence:
+#          transform: time_fill_median
+#          window: 24
+#          min_samples: 4
 
+# Optional vector-level adjustments applied after merging partitions
+# vector_transforms:
+#   - fill_history:
+#       expected:
+#         - time
+#       statistic: median
+#       window: 48
+#       min_samples: 6
+#   - fill_horizontal:
+#       manifest: config/recipes/default/build/partitions.json
+#       statistic: mean
+#       min_samples: 2
+#   - drop_missing:
+#       manifest: config/recipes/default/build/partitions.json
+#       min_coverage: 0.9
 targets:
   - id: time
     stream: time_ticks

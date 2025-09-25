@@ -99,7 +99,7 @@ def create_source(*, provider: str, dataset: str, transport: str,
     _write_if_missing(dto_path, render(
         "dto.py.j2",
         PACKAGE_NAME=name, ORIGIN=provider, DOMAIN=dataset,
-        CLASS_NAME=dto_class, time_aware=False
+        CLASS_NAME=dto_class, time_aware=True
     ))
 
     # Parser
@@ -107,7 +107,7 @@ def create_source(*, provider: str, dataset: str, transport: str,
     _write_if_missing(parser_path, render(
         "parser.py.j2",
         PACKAGE_NAME=name, ORIGIN=provider, DOMAIN=dataset,
-        CLASS_NAME=parser_class, DTO_CLASS=dto_class, time_aware=False
+        CLASS_NAME=parser_class, DTO_CLASS=dto_class, time_aware=True
     ))
 
     # Optional loader stub: synthetic (url uses composed loader by default)

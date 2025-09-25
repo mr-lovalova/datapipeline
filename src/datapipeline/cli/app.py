@@ -9,7 +9,6 @@ from datapipeline.cli.commands.link import handle as handle_link
 from datapipeline.cli.commands.list_ import handle as handle_list
 from datapipeline.cli.commands.filter import handle as handle_filter
 from datapipeline.cli.commands.inspect import (
-    partitions as handle_inspect_partitions,
     coverage as handle_inspect_coverage,
     matrix as handle_inspect_matrix,
 )
@@ -75,13 +74,13 @@ def main() -> None:
         "--matrix-cols",
         type=int,
         default=10,
-        help="maximum number of features/partitions to render in the heatmap (0 = all)",
+        help="maximum number of features to render in the heatmap (0 = all)",
     )
     sp_taste.add_argument(
         "--matrix-output",
         type=str,
         default=None,
-        help="optional path to export feature/partition availability (CSV/HTML)",
+        help="optional path to export feature availability (CSV/HTML)",
     )
     sp_taste.add_argument(
         "--matrix-format",
@@ -153,18 +152,9 @@ def main() -> None:
     p_spirit_add = spirit_sub.add_parser(
         "add",
         help="create a domain",
-        description=(
-            "Create a domain package. Defaults to Record base. "
-            "Use --time-aware to base on TimeFeatureRecord (adds 'time' and 'value' fields)."
-        ),
+        description="Create a time-aware domain package rooted in TimeSeriesRecord.",
     )
     p_spirit_add.add_argument("--domain", "-d", required=True)
-    p_spirit_add.add_argument(
-        "--time-aware",
-        "-t",
-        action="store_true",
-        help="use TimeFeatureRecord base (UTC-aware 'time' + 'value' fields) instead of Record",
-    )
     spirit_sub.add_parser("list", help="list known domains")
 
     # contract (link source ↔ domain)
@@ -172,7 +162,6 @@ def main() -> None:
         "contract",
         help="link a distillery source to a spirit domain",
     )
-    p_contract.add_argument("--time-aware", "-t", action="store_true")
 
     # station (plugin scaffolding)
     p_station = sub.add_parser(
@@ -201,31 +190,6 @@ def main() -> None:
         help="inspect dataset metadata",
     )
     inspect_sub = p_inspect.add_subparsers(dest="inspect_cmd", required=True)
-    p_inspect_partitions = inspect_sub.add_parser(
-        "partitions",
-        help="discover emitted feature ids (including partitions)",
-    )
-    p_inspect_partitions.add_argument(
-        "--project",
-        "-p",
-        default="config/recipes/default/project.yaml",
-        help="path to project.yaml",
-    )
-    p_inspect_partitions.add_argument(
-        "--output",
-        "-o",
-        default=None,
-        help="destination file for the partition manifest",
-    )
-    p_inspect_partitions.add_argument(
-        "--limit", "-n", type=int, default=None,
-        help="optional cap on records processed per feature while discovering partitions",
-    )
-    p_inspect_partitions.add_argument(
-        "--include-targets",
-        action="store_true",
-        help="include target configurations when discovering partitions",
-    )
 
     p_inspect_coverage = inspect_sub.add_parser(
         "coverage",
@@ -248,7 +212,7 @@ def main() -> None:
         "-t",
         type=float,
         default=0.95,
-        help="coverage threshold (0-1) for keep/drop partition lists",
+        help="coverage threshold (0-1) for keep/drop feature lists",
     )
     p_inspect_coverage.add_argument(
         "--match-partition",
@@ -324,14 +288,7 @@ def main() -> None:
         return
 
     if args.cmd == "inspect":
-        if args.inspect_cmd == "partitions":
-            handle_inspect_partitions(
-                project=args.project,
-                output=args.output,
-                limit=getattr(args, "limit", None),
-                include_targets=getattr(args, "include_targets", False),
-            )
-        elif args.inspect_cmd == "coverage":
+        if args.inspect_cmd == "coverage":
             handle_inspect_coverage(
                 project=args.project,
                 output=args.output,
@@ -369,12 +326,11 @@ def main() -> None:
             handle_domain(
                 subcmd="add",
                 domain=getattr(args, "domain", None),
-                time_aware=getattr(args, "time_aware", False),
             )
         return
 
     if args.cmd == "contract":
-        handle_link(time_aware=getattr(args, "time_aware", False))
+        handle_link()
         return
 
     if args.cmd == "station":

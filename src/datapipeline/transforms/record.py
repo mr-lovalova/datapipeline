@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import timedelta
 from typing import Any, Iterator, Mapping
 
-from datapipeline.domain.record import TimeFeatureRecord
+from datapipeline.domain.record import TimeSeriesRecord
 from datapipeline.utils.time import parse_timecode
 
 
@@ -21,12 +21,12 @@ def _is_missing(value: Any) -> bool:
     return False
 
 
-def shift_record_time(record: TimeFeatureRecord, lag: timedelta) -> TimeFeatureRecord:
+def shift_record_time(record: TimeSeriesRecord, lag: timedelta) -> TimeSeriesRecord:
     record.time = record.time - lag
     return record
 
 
-def time_lag(stream: Iterator[TimeFeatureRecord], lag: str) -> Iterator[TimeFeatureRecord]:
+def time_lag(stream: Iterator[TimeSeriesRecord], lag: str) -> Iterator[TimeSeriesRecord]:
     lag_td = parse_timecode(lag)
     for record in stream:
         yield shift_record_time(record, lag_td)

@@ -22,14 +22,13 @@ def analyze(
 
     expected_feature_ids = [cfg.feature_id for cfg in (dataset.features or [])]
 
-    match_partition = "base"
     if not expected_feature_ids:
         print("(no features configured; nothing to analyze)")
         return
 
     collector = VectorStatsCollector(
         expected_feature_ids or None,
-        match_partition=match_partition,
+        match_partition="base",
         threshold=threshold,
         show_matrix=show_matrix,
         matrix_rows=matrix_rows,
@@ -42,7 +41,7 @@ def analyze(
         dataset.features,
         dataset.group_by,
         open_canonical_stream_visual,
-        None,
+        dataset.vector_transforms,
     ):
         collector.update(group_key, vector.values)
 

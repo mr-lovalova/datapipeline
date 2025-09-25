@@ -21,7 +21,7 @@ def _pick_from_list(prompt: str, options: list[str]) -> str:
         print("Please enter a number from the list.", file=sys.stderr)
 
 
-def handle(time_aware: bool) -> None:
+def handle() -> None:
     root_dir, name, pyproject = pkg_root(None)
 
     # Discover sources by scanning sources_dir YAMLs
@@ -63,8 +63,12 @@ def handle(time_aware: bool) -> None:
     dom_name = _pick_from_list("Select a domain to link to:", domain_options)
 
     # create mapper + EP (domain.origin)
-    attach_source_to_domain(domain=dom_name, provider=provider,
-                            dataset=dataset, time_aware=time_aware, root=None)
+    attach_source_to_domain(
+        domain=dom_name,
+        provider=provider,
+        dataset=dataset,
+        root=None,
+    )
 
     def _slug(s: str) -> str:
         s = s.strip().lower()

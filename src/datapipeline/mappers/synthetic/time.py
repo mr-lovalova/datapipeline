@@ -1,10 +1,10 @@
 from typing import Iterator
 from datetime import datetime
 from math import sin, pi
-from datapipeline.domain.record import TimeFeatureRecord
+from datapipeline.domain.record import TimeSeriesRecord
 
 
-def encode(stream: Iterator[TimeFeatureRecord], mode: str) -> Iterator[TimeFeatureRecord]:
+def encode(stream: Iterator[TimeSeriesRecord], mode: str) -> Iterator[TimeSeriesRecord]:
     for rec in stream:
         t: datetime = rec.time
         if mode == "hour_sin":
@@ -15,4 +15,4 @@ def encode(stream: Iterator[TimeFeatureRecord], mode: str) -> Iterator[TimeFeatu
             val = t.timestamp()
         else:
             raise ValueError(f"Unsupported encode_time mode: {mode}")
-        yield TimeFeatureRecord(time=rec.time, value=val)
+        yield TimeSeriesRecord(time=rec.time, value=val)

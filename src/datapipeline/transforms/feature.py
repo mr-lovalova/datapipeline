@@ -7,7 +7,7 @@ from numbers import Real
 from typing import Any, Iterator, Mapping, MutableMapping
 
 from datapipeline.domain.feature import FeatureRecord
-from datapipeline.domain.record import Record
+from datapipeline.domain.record import TimeSeriesRecord
 
 
 def _get_field(record: Any, field: str, default: Any = None) -> Any:
@@ -73,7 +73,7 @@ class StandardScalerTransform:
             std = 1.0
         return (mean if self.with_mean else 0.0, std)
 
-    def _extract_value(self, record: Record) -> float:
+    def _extract_value(self, record: TimeSeriesRecord) -> float:
         value = _get_field(record, "value")
         if isinstance(value, Real):
             return float(value)

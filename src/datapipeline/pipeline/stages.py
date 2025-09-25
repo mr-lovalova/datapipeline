@@ -45,7 +45,7 @@ def feature_stage(
     stream = memory_sorted(
         stream,
         batch_size=100000,
-        key=lambda fr: (fr.feature_id, getattr(fr.record, "time", 0)),
+        key=lambda fr: (fr.feature_id, fr.record.time),
     )
     stream = transform_feature_stream(stream, cfg)
     return memory_sorted(stream, batch_size=100000, key=canonical_key)

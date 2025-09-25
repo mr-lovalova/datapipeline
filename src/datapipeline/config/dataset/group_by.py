@@ -1,31 +1,30 @@
-from pydantic import BaseModel, Field
-from typing import Annotated, Union, List, Any, Literal
+from __future__ import annotations
+
+from typing import Any, List, Literal
+
+from pydantic import BaseModel, Field, validator
+
 from datapipeline.config.dataset.normalize import floor_time_to_resolution
 
 
-class GroupKey(BaseModel):
-    type: str
+class TimeKey(BaseModel):
+    """Configuration for a time-based grouping key."""
+
+    type: Literal["time"] = "time"
     field: str
-
-    def normalize(self, val: Any) -> Any:
-        return val
-
-
-class TimeKey(GroupKey):
-    type: Literal["time"]
     resolution: str = Field(..., pattern=r"^\d+(min|h)$")
 
     def normalize(self, val: Any) -> Any:
         return floor_time_to_resolution(val, self.resolution)
 
 
-class CategoricalKey(GroupKey):
-    type: Literal["category"]
-
-
-GroupKeyUnion = Annotated[Union[TimeKey,
-                                CategoricalKey], Field(discriminator="type")]
-
-
 class GroupBy(BaseModel):
-    keys: List[GroupKeyUnion]
+    """Grouping configuration for time-series datasets."""
+
+    keys: List[TimeKey]
+
+    @validator("keys")
+    def _ensure_time_keys(cls, value: List[TimeKey]) -> List[TimeKey]:
+        if not value:
+            raise ValueError("At least one time key must be provided")
+        return value

@@ -42,10 +42,12 @@ Run data flows
 
 Analyze vectors
 - `jerry prep taste -p config/recipes/default/project.yaml`
-- Prints missing features per group and overall stats; pair with
+- Prints missing features/partitions per group; pair with
   `jerry inspect coverage --project config/recipes/default/project.yaml` and
   `jerry inspect matrix --project config/recipes/default/project.yaml` to persist
   JSON/CSV diagnostics.
+- Use `vector_transforms` to keep coverage high (history/horizontal fills, constants, or
+  drop rules) before serving vectors.
 
 Tips
 - Keep parsers thin — mirror source schema and return DTOs; use the identity parser only if your loader already emits domain records.

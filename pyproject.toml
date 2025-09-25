@@ -84,10 +84,14 @@ standard_scale = "datapipeline.transforms.feature:StandardScalerTransform"
 
 [project.entry-points."datapipeline.transforms.sequence"]
 time_window = "datapipeline.transforms.sequence:TimeWindowTransformer"
+time_fill_mean = "datapipeline.transforms.sequence:TimeMeanFillTransformer"
+time_fill_median = "datapipeline.transforms.sequence:TimeMedianFillTransformer"
 
 [project.entry-points."datapipeline.transforms.vector"]
-drop_incomplete = "datapipeline.transforms.vector:DropIncompleteVectorTransform"
-fill_missing = "datapipeline.transforms.vector:FillMissingVectorTransform"
+drop_missing = "datapipeline.transforms.vector:VectorDropMissingTransform"
+fill_constant = "datapipeline.transforms.vector:VectorFillConstantTransform"
+fill_history = "datapipeline.transforms.vector:VectorFillHistoryTransform"
+fill_horizontal = "datapipeline.transforms.vector:VectorFillAcrossPartitionsTransform"
 
 
 [project.entry-points."datapipeline.loaders"]

@@ -6,7 +6,7 @@ from typing import Any, Optional, Tuple
 from datapipeline.config.dataset.feature import BaseRecordConfig
 from datapipeline.config.dataset.group_by import GroupBy
 from datapipeline.domain.feature import FeatureRecord
-from datapipeline.domain.record import Record
+from datapipeline.domain.record import TimeSeriesRecord
 from datapipeline.domain.vector import Vector
 from datapipeline.pipeline.utils.keygen import RecordKeyGenerator
 from datapipeline.plugins import FILTERS_EP, TRANSFORMS_EP, VECTOR_TRANSFORMS_EP
@@ -130,7 +130,7 @@ def transform_feature_stream(
 
 
 def record_to_feature(
-    stream: Iterable[Record],
+    stream: Iterable[TimeSeriesRecord],
     config: BaseRecordConfig,
     group_by: GroupBy,
 ) -> Iterator[FeatureRecord]:
@@ -138,7 +138,7 @@ def record_to_feature(
 
     keygen = RecordKeyGenerator(config.partition_by)
 
-    def group_key(rec: Record) -> tuple:
+    def group_key(rec: TimeSeriesRecord) -> tuple:
         return tuple(k.normalize(getattr(rec, k.field)) for k in group_by.keys)
 
     for rec in stream:

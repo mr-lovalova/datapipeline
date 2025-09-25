@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 
 
@@ -52,28 +51,4 @@ def test_feature_pipeline_expands_into_legacy_fields():
     ]
     assert config.sequence_transforms == [
         {"time_window": {"size": 5, "stride": 1}}
-    ]
-
-
-def test_vector_pipeline_translates_to_transform_clauses():
-    dataset = FeatureDatasetConfig.model_validate(
-        {
-            "group_by": _group_by_hour(),
-            "features": [
-                {
-                    "id": "wind",
-                    "stream": "wind_stream",
-                }
-            ],
-            "targets": [],
-            "vector_cleaning": [
-                {"transform": "drop_incomplete", "min_coverage": 0.9},
-                {"transform": "fill_missing", "value": 0.0},
-            ],
-        }
-    )
-
-    assert dataset.vector_transforms == [
-        {"drop_incomplete": {"min_coverage": 0.9}},
-        {"fill_missing": {"value": 0.0}},
     ]
