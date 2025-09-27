@@ -1,11 +1,7 @@
-from __future__ import annotations
-
-from collections import deque
 from dataclasses import is_dataclass, replace
 from itertools import groupby
 from statistics import mean, median
 from typing import Any, Iterator, Mapping, MutableMapping
-from abc import abstractmethod, ABC
 
 from datapipeline.domain.feature import FeatureRecord, FeatureSequence
 
@@ -43,49 +39,29 @@ def _clone_with_value(record: Any, value: float) -> Any:
         f"Unsupported record type for fill transform: {type(record)!r}")
 
 
-class WindowTransformer:
-    def __init__(self, size: int, stride: int = 1) -> None:
-        self.size = size
-        self.stride = stride
-
-    def apply(self, stream: Iterator[FeatureRecord]) -> Iterator[FeatureRecord]:
-        """Assumes input is pre-sorted by (feature_id, record.time).
-
-        Produces sliding windows per feature_id. Each output FeatureRecord has
-        a list[Record] in ``record`` and carries the current group_key.
-        """
-
-        grouped = groupby(stream, key=lambda fr: fr.feature_id)
-
-        for feature_id, records in grouped:
-            window = deque(maxlen=self.size)
-            step = 0
-            for fr in records:
-                window.append(fr)
-                if len(window) == self.size and step % self.stride == 0:
-                    yield FeatureSequence(
-                        records=[r.record for r in window],
-                        feature_id=feature_id,
-                        group_key=fr.group_key,
-                    )
-                step += 1
-
-
-class FillTransformer(ABC):
+class FillTransformer:
     """Shared implementation for time-aware imputers."""
 
-    def __init__(self, window: int | None = None, min_samples: int = 1) -> None:
+    def __init__(self, statistic="median", window: int | None = None, min_samples: int = 1) -> None:
+
         if window is not None and window <= 0:
             raise ValueError("window must be positive when provided")
         if min_samples <= 0:
             raise ValueError("min_samples must be positive")
+        if statistic == "mean":
+            self.statistic = mean
+        elif statistic == "median":
+            self.statistic = median
+        else:
+            raise ValueError(f"Unsupported statistic: {statistic!r}")
 
         self.window = window
         self.min_samples = min_samples
 
-    @abstractmethod
     def _compute_fill(self, history: list[float]) -> float | None:
-        raise NotImplementedError
+        if not history:
+            return None
+        return float(self.statistic(history))
 
     def apply(self, stream: Iterator[FeatureRecord]) -> Iterator[FeatureSequence]:
         grouped = groupby(stream, key=lambda fr: fr.feature_id)

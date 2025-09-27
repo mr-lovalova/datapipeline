@@ -9,7 +9,7 @@ from typing import Any, Iterable, Iterator, Optional, Sequence, Tuple
 
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.config.dataset.group_by import GroupBy
-from datapipeline.domain.feature import FeatureRecord
+from datapipeline.domain.feature import FeatureRecord, FeatureSequence
 from datapipeline.domain.vector import Vector, vectorize_record_group
 from datapipeline.pipeline.utils.memory_sort import memory_sorted
 from datapipeline.pipeline.utils.ordering import canonical_key
@@ -36,7 +36,7 @@ def feature_stage(
     record_stream: Iterable[Any],
     cfg: FeatureRecordConfig,
     group_by: GroupBy,
-) -> Iterator[FeatureRecord]:
+) -> Iterator[FeatureRecord | FeatureSequence]:
     """Wrap filtered records as FeatureRecord objects.
     Assign partition-aware feature_ids and normalized group_keys before transforms.
     Sort feature streams, apply feature/sequence transforms, and emit canonical order."""
@@ -51,7 +51,7 @@ def feature_stage(
     return memory_sorted(stream, batch_size=100000, key=canonical_key)
 
 
-def vector_stage(merged: Iterator[FeatureRecord]) -> Iterator[Tuple[Any, Vector]]:
+def vector_stage(merged: Iterator[FeatureRecord | FeatureSequence]) -> Iterator[Tuple[Any, Vector]]:
     """Group the merged feature stream by group_key.
     Coalesce each partitioned feature_id into record buckets.
     Yield (group_key, Vector) pairs ready for downstream consumption."""
@@ -59,6 +59,9 @@ def vector_stage(merged: Iterator[FeatureRecord]) -> Iterator[Tuple[Any, Vector]
     for group_key, group in groupby(merged, key=lambda fr: fr.group_key):
         feature_map = defaultdict(list)
         for fr in group:
-            records = fr.record if isinstance(fr.record, list) else [fr.record]
+            if isinstance(fr, FeatureSequence):
+                records = fr.records
+            else:
+                records = [fr.record]
             feature_map[fr.feature_id].extend(records)
         yield group_key, vectorize_record_group(feature_map)

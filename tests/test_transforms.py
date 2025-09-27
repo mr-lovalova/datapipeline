@@ -6,7 +6,7 @@ from typing import Any
 
 from datapipeline.domain.feature import FeatureRecord
 from datapipeline.domain.record import TimeSeriesRecord
-from datapipeline.transforms.feature import StandardScalerTransform
+from datapipeline.transforms.feature.scaler import StandardScalerTransform
 from datapipeline.transforms.record import drop_missing_values
 from datapipeline.transforms.sequence import (
     TimeMeanFillTransformer,

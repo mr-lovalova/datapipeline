@@ -76,16 +76,15 @@ time_lag = "datapipeline.transforms.record:time_lag"
 drop_missing = "datapipeline.transforms.record:drop_missing_values"
 
 [project.entry-points."datapipeline.transforms.feature"]
-standard_scale = "datapipeline.transforms.feature:StandardScalerTransform"
+standard_scale = "datapipeline.transforms.feature.scaler:StandardScalerTransform"
+fill = "datapipeline.transforms.feature.fill:FillTransformer"
 
 [project.entry-points."datapipeline.mappers"]
 "time.synthetic" = "datapipeline.mappers.noop:identity"
 "encode_time" = "datapipeline.mappers.synthetic.time:encode"
 
 [project.entry-points."datapipeline.transforms.sequence"]
-time_window = "datapipeline.transforms.sequence:TimeWindowTransformer"
-time_fill_mean = "datapipeline.transforms.sequence:TimeMeanFillTransformer"
-time_fill_median = "datapipeline.transforms.sequence:TimeMedianFillTransformer"
+time_window = "datapipeline.transforms.sequence:WindowTransformer"
 
 [project.entry-points."datapipeline.transforms.vector"]
 drop_missing = "datapipeline.transforms.vector:VectorDropMissingTransform"

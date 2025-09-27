@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from dataclasses import is_dataclass, replace
 from itertools import groupby
 from math import sqrt
@@ -7,13 +5,8 @@ from numbers import Real
 from typing import Any, Iterator, Mapping, MutableMapping
 
 from datapipeline.domain.feature import FeatureRecord
+from datapipeline.transforms.feature.model import FeatureTransform
 from datapipeline.domain.record import TimeSeriesRecord
-
-
-def _get_field(record: Any, field: str, default: Any = None) -> Any:
-    if isinstance(record, Mapping):
-        return record.get(field, default)
-    return getattr(record, field, default)
 
 
 def _clone_with_value(record: Any, value: float) -> Any:
@@ -32,7 +25,7 @@ def _clone_with_value(record: Any, value: float) -> Any:
     raise TypeError(f"Cannot replace value on record type: {type(record)!r}")
 
 
-class StandardScalerTransform:
+class StandardScalerTransform(FeatureTransform):
     """Standardize feature values to zero mean and unit variance per feature id."""
 
     def __init__(
@@ -74,7 +67,7 @@ class StandardScalerTransform:
         return (mean if self.with_mean else 0.0, std)
 
     def _extract_value(self, record: TimeSeriesRecord) -> float:
-        value = _get_field(record, "value")
+        value = record.value
         if isinstance(value, Real):
             return float(value)
         raise TypeError(f"Record value must be numeric, got {value!r}")
