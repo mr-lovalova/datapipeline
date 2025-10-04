@@ -1,10 +1,18 @@
-from datapipeline.domain.record import Record
+from datapipeline.domain.record import TimeSeriesRecord
 from dataclasses import dataclass
-from typing import Union
 
 
 @dataclass
-class FeatureRecord:
-    record: Union[Record, list[Record]]
+class BaseFeature:
     feature_id: str
     group_key: tuple
+
+
+@dataclass
+class FeatureRecord(BaseFeature):
+    record: TimeSeriesRecord
+
+
+@dataclass
+class FeatureSequence(BaseFeature):
+    records: list[TimeSeriesRecord]

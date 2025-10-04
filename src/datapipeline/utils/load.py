@@ -16,7 +16,9 @@ def load_ep(group: str, name: str):
         mods = ", ".join(f"{ep.module}:{ep.attr}" for ep in eps)
         raise ValueError(
             f"Ambiguous entry point '{name}' in '{group}': {mods}")
-    return eps[0].load()
+    # EntryPoints in newer Python versions are mapping-like; avoid integer indexing
+    ep = next(iter(eps))
+    return ep.load()
 
 
 def load_yaml(p: Path) -> dict:

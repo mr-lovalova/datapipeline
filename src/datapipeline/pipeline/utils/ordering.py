@@ -1,5 +1,4 @@
 from typing import Iterator, Dict, Tuple, Any
-from datapipeline.domain.record import Record
 
 
 def canonical_key(tr: Any) -> Tuple:

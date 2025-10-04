@@ -1,12 +1,8 @@
-from pathlib import Path
-import pkg_resources
 import jinja2
 import yaml
 
-STUB_DIR = Path(pkg_resources.resource_filename(
-    "datapipeline", "templates/stubs"))
 ENV = jinja2.Environment(
-    loader=jinja2.FileSystemLoader(str(STUB_DIR)),
+    loader=jinja2.PackageLoader("datapipeline", "templates/stubs"),
     keep_trailing_newline=True,
 )
 

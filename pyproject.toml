@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jerry-thomas"
-version = "0.0.4"
+version = "0.0.5"
 description = "Jerry-Thomas: a stream-first, plugin-friendly data pipeline (mixology-themed CLI)"
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.9"
@@ -16,7 +16,6 @@ dependencies = [
   "PyYAML>=5.4",
   "tqdm>=4.0",
   "jinja2>=3.0",
-  "setuptools>=70",
 ]
 
 [project.scripts]
@@ -65,21 +64,38 @@ gte                      = "datapipeline.filters.filters:ge"
 greater_or_equal         = "datapipeline.filters.filters:ge"
 greater_than_or_equal    = "datapipeline.filters.filters:ge"
 
+# membership helpers
+"in"                     = "datapipeline.filters.filters:in_"
+contains                 = "datapipeline.filters.filters:in_"
+nin                      = "datapipeline.filters.filters:nin"
+not_in                   = "datapipeline.filters.filters:nin"
+
 
 [project.entry-points."datapipeline.transforms"]
-time_lag = "datapipeline.transforms.transforms:time_lag"
+lag = "datapipeline.transforms.record:time_lag"
+drop_missing = "datapipeline.transforms.record:drop_missing_values"
+scale = "datapipeline.transforms.feature.scaler:StandardScalerTransform"
+fill = "datapipeline.transforms.feature.fill:FillTransformer"
+sequence = "datapipeline.transforms.sequence:WindowTransformer"
 
 [project.entry-points."datapipeline.mappers"]
 "time.synthetic" = "datapipeline.mappers.noop:identity"
 "encode_time" = "datapipeline.mappers.synthetic.time:encode"
 
-[project.entry-points."datapipeline.transforms.sequence"]
-time_window = "datapipeline.transforms.sequence:TimeWindowTransformer"
+[project.entry-points."datapipeline.transforms.vector"]
+drop_missing = "datapipeline.transforms.vector:VectorDropMissingTransform"
+fill_constant = "datapipeline.transforms.vector:VectorFillConstantTransform"
+fill_history = "datapipeline.transforms.vector:VectorFillHistoryTransform"
+fill_horizontal = "datapipeline.transforms.vector:VectorFillAcrossPartitionsTransform"
+
 
 [project.entry-points."datapipeline.loaders"]
 "synthetic.time" = "datapipeline.sources.synthetic.time.loader:make_time_loader"
 "composed.loader" = "datapipeline.sources.factory:build_loader"
 
 [project.entry-points."datapipeline.parsers"]
-"synthetic.time" = "datapipeline.sources.synthetic.time.parser:TimeRowParser" 
+"synthetic.time" = "datapipeline.sources.synthetic.time.parser:TimeRowParser"
 identity = "datapipeline.parsers.identity:IdentityParser"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]

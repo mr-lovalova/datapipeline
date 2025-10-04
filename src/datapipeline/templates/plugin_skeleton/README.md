@@ -4,21 +4,22 @@ Minimal plugin skeleton for the Jerry Thomas (datapipeline) framework.
 
 Quick start
 - Initialize a plugin (already done if you’re reading this here):
-  - `jerry station init --name {{PACKAGE_NAME}}`
+- `jerry bar init --name {{PACKAGE_NAME}}`
 - Add a source via CLI (transport-specific placeholders are scaffolded):
   - File data: `jerry distillery add -p <provider> -d <dataset> -t fs -f <csv|json|json-lines>`
   - URL data: `jerry distillery add -p <provider> -d <dataset> -t url -f <json|json-lines|csv>`
   - Synthetic: `jerry distillery add -p <provider> -d <dataset> -t synthetic`
-- Edit the generated `config/sources/*.yaml` to fill in the `path`, delimiter, etc.
+- Edit the generated `config/distilleries/*.yaml` to fill in the `path`, delimiter, etc.
 - Reinstall after EP changes (pyproject.toml) and restart Python processes:
   - Core: `cd lib/datapipeline && python -m pip install -e .`
   - This plugin: `python -m pip install -e .`
 
 Folder layout
 - `config/`
-  - `project.yaml` — paths for sources/streams
-  - `sources/*.yaml` — raw source definitions (one file per source)
-  - `streams/*.yaml` — canonical stream definitions
+  - `distilleries/*.yaml` — raw source definitions (one file per source)
+  - `contracts/*.yaml` — canonical stream definitions
+  - `recipes/<name>/` — experiment configs (each directory holds a `project.yaml`,
+    `recipe.yaml`, and a `build/` folder for generated artifacts)
 - `src/{{PACKAGE_NAME}}/`
   - `sources/<provider>/<dataset>/dto.py` — DTO model for the source
   - `sources/<provider>/<dataset>/parser.py` — parse raw → DTO
@@ -35,13 +36,17 @@ How loaders work
 - Synthetic sources generate data in-process and keep a small loader stub.
 
 Run data flows
-- Records: `jerry prep pour -p config/project.yaml -n 100`
-- Features: `jerry prep build -p config/project.yaml -n 100`
-- Vectors: `jerry prep stir -p config/project.yaml -n 100`
+- Records: `jerry prep pour -p config/recipes/default/project.yaml -n 100`
+- Features: `jerry prep build -p config/recipes/default/project.yaml -n 100`
+- Vectors: `jerry prep stir -p config/recipes/default/project.yaml -n 100`
 
 Analyze vectors
-- `jerry taste -p config/project.yaml -n 10000`
-- Prints missing features per group and overall stats.
+- `jerry inspect report   --project config/recipes/default/project.yaml` (console only)
+- `jerry inspect coverage --project config/recipes/default/project.yaml` (writes build/coverage.json)
+- `jerry inspect matrix   --project config/recipes/default/project.yaml --format html` (writes build/matrix.html)
+- `jerry inspect partitions --project config/recipes/default/project.yaml` (writes build/partitions.json)
+- Use `vector_transforms` to keep coverage high (history/horizontal fills, constants, or
+  drop rules) before serving vectors.
 
 Tips
 - Keep parsers thin — mirror source schema and return DTOs; use the identity parser only if your loader already emits domain records.
