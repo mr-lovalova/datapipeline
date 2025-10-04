@@ -1,9 +1,9 @@
 from typing import Optional, Dict, Any
 from datapipeline.sources.models.parser import DataParser
-from datapipeline.domain.record import TimeFeatureRecord
+from datapipeline.domain.record import TimeSeriesRecord
 
 
-class TimeRowParser(DataParser[TimeFeatureRecord]):
-    def parse(self, raw: Dict[str, Any]) -> Optional[TimeFeatureRecord]:
+class TimeRowParser(DataParser[TimeSeriesRecord]):
+    def parse(self, raw: Dict[str, Any]) -> Optional[TimeSeriesRecord]:
         t = raw["time"]
-        return TimeFeatureRecord(time=t, value=t)
+        return TimeSeriesRecord(time=t, value=t)

@@ -1,0 +1,38 @@
+group_by:
+  keys:
+    - type: time
+      field: time
+      resolution: 1h
+
+features:
+  - id: time
+    stream: time_hour_sin
+    # Filter raw records (record stage)
+    filters: [{ operator: ge, field: time, value: 2021-01-01T00:00:00Z }]
+    # Shift timestamps back (record stage)
+    lag: 1h
+    # Standardize values per feature_id (feature stage)
+    scale: { with_mean: true, with_std: true }
+
+    fill: { statistic: median, window: 24, min_samples: 4 }
+    sequence: { size: 5, stride: 1 }
+    sort_batch_size: 100000 # Max records held per in-memory sorted chunk
+
+# Optional vector-level adjustments applied after merging partitions
+# vector_transforms:
+#   - fill_history:
+#       expected:
+#         - time
+#       statistic: median
+#       window: 48
+#       min_samples: 6
+#   - fill_horizontal:
+#       manifest: config/recipes/default/build/partitions.json
+#       statistic: mean
+#       min_samples: 2
+#   - drop_missing:
+#       manifest: config/recipes/default/build/partitions.json
+#       min_coverage: 0.9
+targets:
+  - id: time
+    stream: time_ticks

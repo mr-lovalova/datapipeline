@@ -1,20 +1,19 @@
+from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from dataclasses import dataclass, field
 from typing import Any
 
 
 @dataclass
-class Record:
-    # Canonical payload for pipelines; may be numeric or categorical.
+class TimeSeriesRecord:
+    """Canonical time-series payload used throughout the pipeline."""
+
+    time: datetime
     value: Any
 
-
-@dataclass
-class TimeFeatureRecord(Record):
-    time: datetime
-
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.time.tzinfo is None:
-            raise ValueError("TimeFeatureRecord.time must be timezone-aware")
+            raise ValueError("time must be timezone-aware")
         self.time = self.time.astimezone(timezone.utc)
+

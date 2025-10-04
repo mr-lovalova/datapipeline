@@ -1,13 +1,15 @@
 import argparse
 
 from datapipeline.cli.commands.run import handle_prep, handle_serve
-from datapipeline.cli.commands.analyze import analyze as handle_analyze
-from datapipeline.cli.commands.plugin import station as handle_station
+from datapipeline.cli.commands.plugin import bar as handle_bar
 from datapipeline.cli.commands.source import handle as handle_source
 from datapipeline.cli.commands.domain import handle as handle_domain
 from datapipeline.cli.commands.link import handle as handle_link
 from datapipeline.cli.commands.list_ import handle as handle_list
 from datapipeline.cli.commands.filter import handle as handle_filter
+from datapipeline.cli.commands.inspect import (
+    report as handle_inspect_report,
+)
 
 
 def main() -> None:
@@ -31,9 +33,13 @@ def main() -> None:
     for step, help_text in prep_steps.items():
         sp = prep_sub.add_parser(step, help=help_text)
         sp.add_argument(
-            "--project", "-p", default="config/project.yaml", help="path to project.yaml"
+            "--project",
+            "-p",
+            default="config/recipes/default/project.yaml",
+            help="path to project.yaml",
         )
         sp.add_argument("--limit", "-n", type=int, default=20)
+
 
     # serve (production run, no visuals)
     p_serve = sub.add_parser(
@@ -41,7 +47,10 @@ def main() -> None:
         help="produce vectors without progress visuals",
     )
     p_serve.add_argument(
-        "--project", "-p", default="config/project.yaml", help="path to project.yaml"
+        "--project",
+        "-p",
+        default="config/recipes/default/project.yaml",
+        help="path to project.yaml",
     )
     p_serve.add_argument(
         "--limit", "-n", type=int, default=None,
@@ -50,51 +59,6 @@ def main() -> None:
     p_serve.add_argument(
         "--output", "-o", default="print",
         help="output destination: 'print', 'stream', or a file ending in .pt",
-    )
-
-    # taste (analysis)
-    p_taste = sub.add_parser(
-        "taste",
-        help="analyze vector completeness and feature stats",
-    )
-    p_taste.add_argument(
-        "--project", "-p", default="config/project.yaml", help="path to project.yaml"
-    )
-    p_taste.add_argument(
-        "--threshold",
-        "-t",
-        type=float,
-        default=0.95,
-        help="coverage threshold (0-1) for quick keep/drop lists (default: 0.95)",
-    )
-    p_taste.add_argument(
-        "--matrix",
-        action="store_true",
-        help="render availability heatmaps and per-timestamp summaries",
-    )
-    p_taste.add_argument(
-        "--matrix-rows",
-        type=int,
-        default=20,
-        help="maximum number of group buckets to render in the heatmap (0 = all)",
-    )
-    p_taste.add_argument(
-        "--matrix-cols",
-        type=int,
-        default=10,
-        help="maximum number of features/partitions to render in the heatmap (0 = all)",
-    )
-    p_taste.add_argument(
-        "--matrix-output",
-        type=str,
-        default=None,
-        help="optional path to export feature/partition availability (CSV)",
-    )
-    p_taste.add_argument(
-        "--matrix-format",
-        choices=["csv", "html"],
-        default="csv",
-        help="format for matrix export when --matrix-output is set",
     )
 
     # distillery (sources)
@@ -140,18 +104,9 @@ def main() -> None:
     p_spirit_add = spirit_sub.add_parser(
         "add",
         help="create a domain",
-        description=(
-            "Create a domain package. Defaults to Record base. "
-            "Use --time-aware to base on TimeFeatureRecord (adds 'time' and 'value' fields)."
-        ),
+        description="Create a time-aware domain package rooted in TimeSeriesRecord.",
     )
     p_spirit_add.add_argument("--domain", "-d", required=True)
-    p_spirit_add.add_argument(
-        "--time-aware",
-        "-t",
-        action="store_true",
-        help="use TimeFeatureRecord base (UTC-aware 'time' + 'value' fields) instead of Record",
-    )
     spirit_sub.add_parser("list", help="list known domains")
 
     # contract (link source ↔ domain)
@@ -159,18 +114,17 @@ def main() -> None:
         "contract",
         help="link a distillery source to a spirit domain",
     )
-    p_contract.add_argument("--time-aware", "-t", action="store_true")
 
-    # station (plugin scaffolding)
-    p_station = sub.add_parser(
-        "station",
+    # bar (plugin scaffolding)
+    p_bar = sub.add_parser(
+        "bar",
         help="scaffold plugin workspaces",
     )
-    station_sub = p_station.add_subparsers(dest="station_cmd", required=True)
-    p_station_init = station_sub.add_parser(
+    bar_sub = p_bar.add_subparsers(dest="bar_cmd", required=True)
+    p_bar_init = bar_sub.add_parser(
         "init", help="create a plugin skeleton")
-    p_station_init.add_argument("--name", "-n", required=True)
-    p_station_init.add_argument("--out", "-o", default=".")
+    p_bar_init.add_argument("--name", "-n", required=True)
+    p_bar_init.add_argument("--out", "-o", default=".")
 
     # filter (unchanged helper)
     p_filt = sub.add_parser("filter", help="manage filters")
@@ -180,6 +134,152 @@ def main() -> None:
     p_filt_create.add_argument(
         "--name", "-n", required=True,
         help="filter entrypoint name and function/module name",
+    )
+
+    # inspect (metadata helpers)
+    p_inspect = sub.add_parser(
+        "inspect",
+        help="inspect dataset metadata: report, coverage, matrix, partitions",
+    )
+    inspect_sub = p_inspect.add_subparsers(dest="inspect_cmd", required=False)
+
+    # Report (stdout only)
+    p_inspect_report = inspect_sub.add_parser(
+        "report",
+        help="print a quality report to stdout",
+    )
+    p_inspect_report.add_argument(
+        "--project",
+        "-p",
+        default="config/recipes/default/project.yaml",
+        help="path to project.yaml",
+    )
+    p_inspect_report.add_argument(
+        "--threshold",
+        "-t",
+        type=float,
+        default=0.95,
+        help="coverage threshold (0-1) for keep/drop lists",
+    )
+    p_inspect_report.add_argument(
+        "--match-partition",
+        choices=["base", "full"],
+        default="base",
+        help="match features by base id or full partition id",
+    )
+    p_inspect_report.add_argument(
+        "--mode",
+        choices=["final", "raw"],
+        default="final",
+        help="whether to apply vector transforms (final) or ignore them (raw)",
+    )
+
+    # Coverage (JSON file)
+    p_inspect_cov = inspect_sub.add_parser(
+        "coverage",
+        help="write coverage summary JSON",
+    )
+    p_inspect_cov.add_argument(
+        "--project",
+        "-p",
+        default="config/recipes/default/project.yaml",
+        help="path to project.yaml",
+    )
+    p_inspect_cov.add_argument(
+        "--output",
+        "-o",
+        default=None,
+        help="coverage JSON path (defaults to build/coverage.json)",
+    )
+    p_inspect_cov.add_argument(
+        "--threshold",
+        "-t",
+        type=float,
+        default=0.95,
+        help="coverage threshold (0-1) for keep/drop lists",
+    )
+    p_inspect_cov.add_argument(
+        "--match-partition",
+        choices=["base", "full"],
+        default="base",
+        help="match features by base id or full partition id",
+    )
+    p_inspect_cov.add_argument(
+        "--mode",
+        choices=["final", "raw"],
+        default="final",
+        help="whether to apply vector transforms (final) or ignore them (raw)",
+    )
+
+    # Matrix export
+    p_inspect_matrix = inspect_sub.add_parser(
+        "matrix",
+        help="export availability matrix",
+    )
+    p_inspect_matrix.add_argument(
+        "--project",
+        "-p",
+        default="config/recipes/default/project.yaml",
+        help="path to project.yaml",
+    )
+    p_inspect_matrix.add_argument(
+        "--threshold",
+        "-t",
+        type=float,
+        default=0.95,
+        help="coverage threshold (used in the report)",
+    )
+    p_inspect_matrix.add_argument(
+        "--rows",
+        type=int,
+        default=20,
+        help="max number of group buckets in the matrix (0 = all)",
+    )
+    p_inspect_matrix.add_argument(
+        "--cols",
+        type=int,
+        default=10,
+        help="max number of features/partitions in the matrix (0 = all)",
+    )
+    p_inspect_matrix.add_argument(
+        "--format",
+        choices=["csv", "html"],
+        default="csv",
+        help="output format for the matrix",
+    )
+    p_inspect_matrix.add_argument(
+        "--output",
+        default=None,
+        help="destination for the matrix (defaults to build/matrix.<fmt>)",
+    )
+    p_inspect_matrix.add_argument(
+        "--quiet",
+        action="store_true",
+        help="suppress detailed console report; only print save messages",
+    )
+    p_inspect_matrix.add_argument(
+        "--mode",
+        choices=["final", "raw"],
+        default="final",
+        help="whether to apply vector transforms (final) or ignore them (raw)",
+    )
+
+    # Partitions manifest subcommand
+    p_inspect_parts = inspect_sub.add_parser(
+        "partitions",
+        help="discover partitions and write a manifest JSON",
+    )
+    p_inspect_parts.add_argument(
+        "--project",
+        "-p",
+        default="config/recipes/default/project.yaml",
+        help="path to project.yaml",
+    )
+    p_inspect_parts.add_argument(
+        "--output",
+        "-o",
+        default=None,
+        help="partitions manifest path (defaults to build/partitions.json)",
     )
 
     args = parser.parse_args()
@@ -197,16 +297,57 @@ def main() -> None:
         )
         return
 
-    if args.cmd == "taste":
-        handle_analyze(
-            project=args.project,
-            threshold=getattr(args, "threshold", None),
-            show_matrix=getattr(args, "matrix", False),
-            matrix_rows=getattr(args, "matrix_rows", 20),
-            matrix_cols=getattr(args, "matrix_cols", 10),
-            matrix_output=getattr(args, "matrix_output", None),
-            matrix_format=getattr(args, "matrix_format", "csv"),
-        )
+    if args.cmd == "inspect":
+        # Default to 'report' when no subcommand is given
+        subcmd = getattr(args, "inspect_cmd", None)
+        if subcmd in (None, "report"):
+            handle_inspect_report(
+                project=getattr(args, "project", "config/recipes/default/project.yaml"),
+                output=None,
+                threshold=getattr(args, "threshold", 0.95),
+                match_partition=getattr(args, "match_partition", "base"),
+                matrix="none",
+                matrix_output=None,
+                rows=20,
+                cols=10,
+                quiet=False,
+                write_coverage=False,
+                apply_vector_transforms=(getattr(args, "mode", "final") == "final"),
+            )
+        elif subcmd == "coverage":
+            handle_inspect_report(
+                project=args.project,
+                output=getattr(args, "output", None),
+                threshold=getattr(args, "threshold", 0.95),
+                match_partition=getattr(args, "match_partition", "base"),
+                matrix="none",
+                matrix_output=None,
+                rows=20,
+                cols=10,
+                quiet=True,
+                write_coverage=True,
+                apply_vector_transforms=(getattr(args, "mode", "final") == "final"),
+            )
+        elif subcmd == "matrix":
+            handle_inspect_report(
+                project=args.project,
+                output=None,
+                threshold=getattr(args, "threshold", 0.95),
+                match_partition="base",
+                matrix=getattr(args, "format", "csv"),
+                matrix_output=getattr(args, "output", None),
+                rows=getattr(args, "rows", 20),
+                cols=getattr(args, "cols", 10),
+                quiet=getattr(args, "quiet", False),
+                write_coverage=False,
+                apply_vector_transforms=(getattr(args, "mode", "final") == "final"),
+            )
+        elif subcmd == "partitions":
+            from datapipeline.cli.commands.inspect import partitions as handle_inspect_partitions
+            handle_inspect_partitions(
+                project=args.project,
+                output=getattr(args, "output", None),
+            )
         return
 
     if args.cmd == "distillery":
@@ -229,17 +370,16 @@ def main() -> None:
             handle_domain(
                 subcmd="add",
                 domain=getattr(args, "domain", None),
-                time_aware=getattr(args, "time_aware", False),
             )
         return
 
     if args.cmd == "contract":
-        handle_link(time_aware=getattr(args, "time_aware", False))
+        handle_link()
         return
 
-    if args.cmd == "station":
-        handle_station(
-            subcmd=args.station_cmd,
+    if args.cmd == "bar":
+        handle_bar(
+            subcmd=args.bar_cmd,
             name=getattr(args, "name", None),
             out=getattr(args, "out", "."),
         )

@@ -203,7 +203,8 @@ class VectorStatsCollector:
         if not status_map or not features:
             return
 
-        column_width = max(column_width, min(10, max(len(fid) for fid in features)))
+        column_width = max(column_width, min(
+            10, max(len(fid) for fid in features)))
 
         def status_for(group: Hashable, fid: str) -> str:
             statuses = status_map.get(group, {})
@@ -249,6 +250,15 @@ class VectorStatsCollector:
             else self.discovered_partitions
         )
 
+        summary: dict[str, Any] = {
+            "total_vectors": self.total_vectors,
+            "empty_vectors": self.empty_vectors,
+            "match_partition": self.match_partition,
+            "tracked_features": sorted(tracked_features),
+            "tracked_partitions": sorted(tracked_partitions),
+            "threshold": self.threshold,
+        }
+
         print("\n=== Vector Quality Report ===")
         print(f"Total vectors processed: {self.total_vectors}")
         print(f"Empty vectors: {self.empty_vectors}")
@@ -260,7 +270,19 @@ class VectorStatsCollector:
 
         if not self.total_vectors:
             print("(no vectors analyzed)")
-            return
+            summary.update(
+                {
+                    "feature_stats": [],
+                    "partition_stats": [],
+                    "below_features": [],
+                    "keep_features": [],
+                    "below_partitions": [],
+                    "keep_partitions": [],
+                    "below_suffixes": [],
+                    "keep_suffixes": [],
+                }
+            )
+            return summary
 
         feature_stats = []
         print("\n→ Feature coverage (sorted by missing count):")
@@ -272,8 +294,15 @@ class VectorStatsCollector:
             present, missing, opportunities = self._coverage(feature_id)
             coverage = present / opportunities if opportunities else 0.0
             nulls = self._feature_null_count(feature_id)
-            samples = self.missing_samples.get(feature_id, [])
-            sample_note = self._format_samples(samples)
+            raw_samples = self.missing_samples.get(feature_id, [])
+            sample_note = self._format_samples(raw_samples)
+            samples = [
+                {
+                    "group": self._format_group_key(group_key),
+                    "status": status,
+                }
+                for group_key, status in raw_samples
+            ]
             line = (
                 f"  - {feature_id}: present {present}/{opportunities}"
                 f" ({coverage:.1%}) | missing {missing} | null {nulls}"
@@ -293,6 +322,8 @@ class VectorStatsCollector:
                 }
             )
 
+        summary["feature_stats"] = feature_stats
+
         partition_stats = []
         if tracked_partitions:
             for partition_id in tracked_partitions:
@@ -301,6 +332,8 @@ class VectorStatsCollector:
                 )
                 coverage = present / opportunities if opportunities else 0.0
                 nulls = self.null_counts_partitions.get(partition_id, 0)
+                raw_samples = self.missing_partition_samples.get(
+                    partition_id, [])
                 partition_stats.append(
                     {
                         "id": partition_id,
@@ -310,7 +343,13 @@ class VectorStatsCollector:
                         "nulls": nulls,
                         "coverage": coverage,
                         "opportunities": opportunities,
-                        "samples": self.missing_partition_samples.get(partition_id, []),
+                        "samples": [
+                            {
+                                "group": self._format_group_key(group_key),
+                                "status": status,
+                            }
+                            for group_key, status in raw_samples
+                        ],
                     }
                 )
 
@@ -323,6 +362,8 @@ class VectorStatsCollector:
                     f" ({stats['coverage']:.1%}) | missing {stats['missing']} | null/invalid {stats['nulls']}"
                 )
                 print(line)
+
+        summary["partition_stats"] = partition_stats
 
         below_features: list[str] = []
         above_features: list[str] = []
@@ -374,6 +415,34 @@ class VectorStatsCollector:
                     f"📈 Partitions at/above {thr:.0%} coverage:\n  keep_partitions = {above_partitions}"
                 )
                 print(f"  keep_suffixes = {above_suffixes}")
+
+            summary.update(
+                {
+                    "below_features": below_features,
+                    "keep_features": above_features,
+                    "below_partitions": below_partitions,
+                    "keep_partitions": above_partitions,
+                    "below_suffixes": below_suffixes,
+                    "keep_suffixes": above_suffixes,
+                }
+            )
+        else:
+            summary.update(
+                {
+                    "below_features": [],
+                    "keep_features": [stats["id"] for stats in feature_stats],
+                    "below_partitions": [],
+                    "keep_partitions": [stats["id"] for stats in partition_stats],
+                    "below_suffixes": [],
+                    "keep_suffixes": [
+                        self._partition_suffix(stats["id"])
+                        for stats in partition_stats
+                        if self._partition_suffix(stats["id"]) != stats["id"]
+                    ]
+                    if partition_stats
+                    else [],
+                }
+            )
 
         if self.show_matrix:
             feature_candidates = (
@@ -447,7 +516,7 @@ class VectorStatsCollector:
         if self.matrix_output:
             self._export_matrix_data()
 
-        print("\nTip: use `jerry taste` over a broad time range to stabilise these stats.")
+        return summary
 
     def _export_matrix_data(self) -> None:
         if not self.matrix_output:
@@ -526,7 +595,8 @@ class VectorStatsCollector:
                     status = statuses.get(identifier, "absent")
                     cls = cell_class.get(status, "status-absent")
                     symbol = self._symbol_for(status)
-                    cells.append(f"<td class='{cls}' title='{status}'>{symbol}</td>")
+                    cells.append(
+                        f"<td class='{cls}' title='{status}'>{symbol}</td>")
                 rows_html.append(
                     f"<tr><th>{key_str}</th>{''.join(cells)}</tr>"
                 )

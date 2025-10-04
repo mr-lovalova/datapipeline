@@ -6,7 +6,7 @@ from typing import Any, Optional, Tuple
 from datapipeline.config.dataset.feature import BaseRecordConfig
 from datapipeline.config.dataset.group_by import GroupBy
 from datapipeline.domain.feature import FeatureRecord
-from datapipeline.domain.record import Record
+from datapipeline.domain.record import TimeSeriesRecord
 from datapipeline.pipeline.utils.keygen import RecordKeyGenerator
 from datapipeline.plugins import FILTERS_EP, TRANSFORMS_EP
 from datapipeline.utils.load import load_ep
@@ -71,7 +71,7 @@ def transform_record_stream(
     return stream
 
 
-def _instantiate_transforms(
+def instantiate_transforms(
     group: str, clauses: Optional[Sequence[Mapping[str, Any]]]
 ) -> list[Any]:
     """Instantiate configured transform classes for later application."""
@@ -84,24 +84,8 @@ def _instantiate_transforms(
     return instances
 
 
-def transform_feature_stream(
-    stream: Iterator[FeatureRecord],
-    config: BaseRecordConfig,
-) -> Iterator[FeatureRecord]:
-    """Apply feature and sequence transforms declared in the config."""
-
-    feature_tf = getattr(config, "feature_transforms", None) or []
-    for transform in _instantiate_transforms("datapipeline.transforms.feature", feature_tf):
-        stream = transform.apply(stream)
-
-    seq_tf = getattr(config, "sequence_transforms", None) or []
-    for transform in _instantiate_transforms("datapipeline.transforms.sequence", seq_tf):
-        stream = transform.apply(stream)
-    return stream
-
-
 def record_to_feature(
-    stream: Iterable[Record],
+    stream: Iterable[TimeSeriesRecord],
     config: BaseRecordConfig,
     group_by: GroupBy,
 ) -> Iterator[FeatureRecord]:
@@ -109,12 +93,12 @@ def record_to_feature(
 
     keygen = RecordKeyGenerator(config.partition_by)
 
-    def group_key(rec: Record) -> tuple:
+    def group_key(rec: TimeSeriesRecord) -> tuple:
         return tuple(k.normalize(getattr(rec, k.field)) for k in group_by.keys)
 
     for rec in stream:
         yield FeatureRecord(
             record=rec,
-            feature_id=keygen.generate(config.feature_id, rec),
+            feature_id=keygen.generate(config.id, rec),
             group_key=group_key(rec),
         )

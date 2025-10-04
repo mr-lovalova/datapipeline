@@ -1,4 +1,4 @@
-from datapipeline.domain.record import Record
+from datapipeline.domain.record import TimeSeriesRecord
 from typing import Dict
 from typing import Union
 
@@ -31,7 +31,7 @@ class Sample:
     targets: Vector
 
 
-def vectorize_record_group(values: Dict[str, list[Record]]) -> Vector:
+def vectorize_record_group(values: Dict[str, list[TimeSeriesRecord]]) -> Vector:
     structured: Dict[str, Union[float, list[float]]] = {}
 
     for key, records in values.items():

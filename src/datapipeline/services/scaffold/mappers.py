@@ -13,7 +13,7 @@ def _slug(s: str) -> str:
     return s.strip("_")
 
 
-def attach_source_to_domain(*, domain: str, provider: str, dataset: str, time_aware: bool, root: Optional[Path]) -> None:
+def attach_source_to_domain(*, domain: str, provider: str, dataset: str, root: Optional[Path]) -> None:
     root_dir, name, pyproject = pkg_root(root)
     base = resolve_base_pkg_dir(root_dir, name)
     mappers_root = base / MAPPERS_GROUP
@@ -40,7 +40,7 @@ def attach_source_to_domain(*, domain: str, provider: str, dataset: str, time_aw
             DomainConfig=f"{camel(domain)}Config",
             DomainRecord=f"{camel(domain)}Record",
             OriginDTO=f"{camel(provider)}{camel(dataset)}DTO",
-            time_aware=time_aware,
+            time_aware=True,
         ))
         print(f"✨ Created: {path}")
 

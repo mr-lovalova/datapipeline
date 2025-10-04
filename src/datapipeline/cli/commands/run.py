@@ -37,7 +37,7 @@ def _print_head(iterable: Iterator[object], limit: int) -> int:
 
 def _run_records(dataset: RecordDatasetConfig, limit: int) -> None:
     for cfg in dataset.features:
-        print(f"\n🍷 pouring records for {cfg.feature_id}")
+        print(f"\n🍷 pouring records for {cfg.id}")
         records = build_record_pipeline(cfg, open_canonical_stream_visual)
         printed = _print_head(records, limit)
         print(f"(poured {printed} records)")
@@ -46,8 +46,7 @@ def _run_records(dataset: RecordDatasetConfig, limit: int) -> None:
 def _run_features(dataset: FeatureDatasetConfig, limit: int) -> None:
     group_by = dataset.group_by
     for cfg in dataset.features:
-        feature_id = getattr(cfg, "feature_id", "?")
-        print(f"\n🛠️ building features for {feature_id}")
+        print(f"\n🛠️ building features for {cfg.id}")
         features = build_feature_pipeline(
             cfg, group_by, open_canonical_stream_visual)
         printed = _print_head(features, limit)
@@ -57,7 +56,11 @@ def _run_features(dataset: FeatureDatasetConfig, limit: int) -> None:
 def _run_vectors(dataset: FeatureDatasetConfig, limit: int) -> None:
     print("\n🥄 stirring vectors")
     vectors = build_vector_pipeline(
-        dataset.features, dataset.group_by, open_canonical_stream_visual)
+        dataset.features,
+        dataset.group_by,
+        open_canonical_stream_visual,
+        dataset.vector_transforms,
+    )
     printed = _print_head(vectors, limit)
     print(f"(stirred {printed} vectors)")
 
@@ -138,7 +141,11 @@ def handle_serve(project: str, limit: Optional[int], output: str) -> None:
         return
 
     vectors = build_vector_pipeline(
-        dataset.features, dataset.group_by, open_canonical_stream)
+        dataset.features,
+        dataset.group_by,
+        open_canonical_stream,
+        dataset.vector_transforms,
+    )
 
     if output == "print":
         _serve_print(vectors, limit)

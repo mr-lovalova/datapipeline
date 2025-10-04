@@ -64,20 +64,29 @@ gte                      = "datapipeline.filters.filters:ge"
 greater_or_equal         = "datapipeline.filters.filters:ge"
 greater_than_or_equal    = "datapipeline.filters.filters:ge"
 
+# membership helpers
+"in"                     = "datapipeline.filters.filters:in_"
+contains                 = "datapipeline.filters.filters:in_"
+nin                      = "datapipeline.filters.filters:nin"
+not_in                   = "datapipeline.filters.filters:nin"
+
 
 [project.entry-points."datapipeline.transforms"]
-time_lag = "datapipeline.transforms.record:time_lag"
+lag = "datapipeline.transforms.record:time_lag"
 drop_missing = "datapipeline.transforms.record:drop_missing_values"
-
-[project.entry-points."datapipeline.transforms.feature"]
-standard_scale = "datapipeline.transforms.feature:StandardScalerTransform"
+scale = "datapipeline.transforms.feature.scaler:StandardScalerTransform"
+fill = "datapipeline.transforms.feature.fill:FillTransformer"
+sequence = "datapipeline.transforms.sequence:WindowTransformer"
 
 [project.entry-points."datapipeline.mappers"]
 "time.synthetic" = "datapipeline.mappers.noop:identity"
 "encode_time" = "datapipeline.mappers.synthetic.time:encode"
 
-[project.entry-points."datapipeline.transforms.sequence"]
-time_window = "datapipeline.transforms.sequence:TimeWindowTransformer"
+[project.entry-points."datapipeline.transforms.vector"]
+drop_missing = "datapipeline.transforms.vector:VectorDropMissingTransform"
+fill_constant = "datapipeline.transforms.vector:VectorFillConstantTransform"
+fill_history = "datapipeline.transforms.vector:VectorFillHistoryTransform"
+fill_horizontal = "datapipeline.transforms.vector:VectorFillAcrossPartitionsTransform"
 
 
 [project.entry-points."datapipeline.loaders"]
