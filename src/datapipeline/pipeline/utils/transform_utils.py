@@ -7,9 +7,8 @@ from datapipeline.config.dataset.feature import BaseRecordConfig
 from datapipeline.config.dataset.group_by import GroupBy
 from datapipeline.domain.feature import FeatureRecord
 from datapipeline.domain.record import TimeSeriesRecord
-from datapipeline.domain.vector import Vector
 from datapipeline.pipeline.utils.keygen import RecordKeyGenerator
-from datapipeline.plugins import FILTERS_EP, TRANSFORMS_EP, VECTOR_TRANSFORMS_EP
+from datapipeline.plugins import FILTERS_EP, TRANSFORMS_EP
 from datapipeline.utils.load import load_ep
 
 
@@ -72,7 +71,7 @@ def transform_record_stream(
     return stream
 
 
-def _instantiate_transforms(
+def instantiate_transforms(
     group: str, clauses: Optional[Sequence[Mapping[str, Any]]]
 ) -> list[Any]:
     """Instantiate configured transform classes for later application."""
@@ -83,50 +82,6 @@ def _instantiate_transforms(
         cls = load_ep(group=group, name=name)
         instances.append(_instantiate_entry_point(cls, params))
     return instances
-
-
-def _instantiate_vector_transforms(
-    clauses: Optional[Sequence[Mapping[str, Any]]],
-) -> list[Any]:
-    """Instantiate configured vector-level transforms."""
-
-    instances: list[Any] = []
-    for clause in clauses or ():
-        name, params = _extract_single_pair(clause, "Vector transform")
-        cls = load_ep(group=VECTOR_TRANSFORMS_EP, name=name)
-        instances.append(_instantiate_entry_point(cls, params))
-    return instances
-
-
-def transform_vector_stream(
-    stream: Iterator[Tuple[Any, Vector]],
-    clauses: Optional[Sequence[Mapping[str, Any]]],
-) -> Iterator[Tuple[Any, Vector]]:
-    """Apply configured vector transforms to the merged feature stream."""
-
-    transforms = _instantiate_vector_transforms(clauses)
-    for transform in transforms:
-        if hasattr(transform, "apply"):
-            stream = transform.apply(stream)
-        else:
-            stream = transform(stream)
-    return stream
-
-
-def transform_feature_stream(
-    stream: Iterator[FeatureRecord],
-    config: BaseRecordConfig,
-) -> Iterator[FeatureRecord]:
-    """Apply feature and sequence transforms declared in the config."""
-
-    feature_tf = getattr(config, "feature_transforms", None) or []
-    for transform in _instantiate_transforms("datapipeline.transforms.feature", feature_tf):
-        stream = transform.apply(stream)
-
-    seq_tf = getattr(config, "sequence_transforms", None) or []
-    for transform in _instantiate_transforms("datapipeline.transforms.sequence", seq_tf):
-        stream = transform.apply(stream)
-    return stream
 
 
 def record_to_feature(
@@ -144,6 +99,6 @@ def record_to_feature(
     for rec in stream:
         yield FeatureRecord(
             record=rec,
-            feature_id=keygen.generate(config.feature_id, rec),
+            feature_id=keygen.generate(config.id, rec),
             group_key=group_key(rec),
         )

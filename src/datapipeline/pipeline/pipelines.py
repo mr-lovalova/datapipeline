@@ -1,5 +1,3 @@
-"""Helpers for assembling the different pipeline stages."""
-
 from __future__ import annotations
 
 import heapq
@@ -10,8 +8,7 @@ from datapipeline.config.dataset.feature import BaseRecordConfig, FeatureRecordC
 from datapipeline.config.dataset.group_by import GroupBy
 from datapipeline.domain.feature import FeatureRecord, FeatureSequence
 from datapipeline.domain.vector import Vector
-from datapipeline.pipeline.stages import feature_stage, record_stage, vector_stage
-from datapipeline.pipeline.utils.transform_utils import transform_vector_stream
+from datapipeline.pipeline.stages import feature_stage, record_stage, vector_stage, vector_cleaning_stage
 
 
 def build_record_pipeline(
@@ -21,7 +18,36 @@ def build_record_pipeline(
     """Open a configured stream and apply record-level filters/transforms."""
 
     raw = open_stream(cfg.stream)
-    return record_stage(raw, cfg.record_filters, cfg.record_transforms)
+    # Derive record-stage clauses from generic list
+    # Build record-stage filters/transforms directly from simple fields
+    filters: list[dict[str, Any]] = []
+    flt = getattr(cfg, "filter", None)
+    if isinstance(flt, dict):
+        op = flt.get("operator") or flt.get("op")
+        field = flt.get("field")
+        if op and field is not None:
+            val = flt.get("value") if "value" in flt else flt.get("values")
+            filters.append({str(op): {str(field): val}})
+    # Optional multiple filters
+    flts = getattr(cfg, "filters", None)
+    if isinstance(flts, list):
+        for f in flts:
+            if not isinstance(f, dict):
+                continue
+            op = f.get("operator") or f.get("op")
+            field = f.get("field")
+            if op and field is not None:
+                val = f.get("value") if "value" in f else f.get("values")
+                filters.append({str(op): {str(field): val}})
+
+    transforms: list[dict[str, Any]] = []
+    lag = getattr(cfg, "lag", None)
+    if lag is not None:
+        transforms.append({"lag": lag})
+    # Append any user-declared record-stage custom transforms
+    if getattr(cfg, "record_transforms", None):
+        transforms.extend(cfg.record_transforms or [])
+    return record_stage(raw, filters, transforms)
 
 
 def build_feature_pipeline(
@@ -47,4 +73,4 @@ def build_vector_pipeline(
         c, group_by, open_stream) for c in configs]
     merged = heapq.merge(*streams, key=lambda fr: fr.group_key)
     stream = vector_stage(merged)
-    return transform_vector_stream(stream, vector_transforms)
+    return vector_cleaning_stage(stream, vector_transforms)

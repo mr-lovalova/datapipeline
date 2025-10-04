@@ -4,12 +4,12 @@ Minimal plugin skeleton for the Jerry Thomas (datapipeline) framework.
 
 Quick start
 - Initialize a plugin (already done if you’re reading this here):
-  - `jerry station init --name {{PACKAGE_NAME}}`
+- `jerry bar init --name {{PACKAGE_NAME}}`
 - Add a source via CLI (transport-specific placeholders are scaffolded):
   - File data: `jerry distillery add -p <provider> -d <dataset> -t fs -f <csv|json|json-lines>`
   - URL data: `jerry distillery add -p <provider> -d <dataset> -t url -f <json|json-lines|csv>`
   - Synthetic: `jerry distillery add -p <provider> -d <dataset> -t synthetic`
-- Edit the generated `config/sources/*.yaml` to fill in the `path`, delimiter, etc.
+- Edit the generated `config/distilleries/*.yaml` to fill in the `path`, delimiter, etc.
 - Reinstall after EP changes (pyproject.toml) and restart Python processes:
   - Core: `cd lib/datapipeline && python -m pip install -e .`
   - This plugin: `python -m pip install -e .`
@@ -41,11 +41,10 @@ Run data flows
 - Vectors: `jerry prep stir -p config/recipes/default/project.yaml -n 100`
 
 Analyze vectors
-- `jerry prep taste -p config/recipes/default/project.yaml`
-- Prints missing features/partitions per group; pair with
-  `jerry inspect coverage --project config/recipes/default/project.yaml` and
-  `jerry inspect matrix --project config/recipes/default/project.yaml` to persist
-  JSON/CSV diagnostics.
+- `jerry inspect report   --project config/recipes/default/project.yaml` (console only)
+- `jerry inspect coverage --project config/recipes/default/project.yaml` (writes build/coverage.json)
+- `jerry inspect matrix   --project config/recipes/default/project.yaml --format html` (writes build/matrix.html)
+- `jerry inspect partitions --project config/recipes/default/project.yaml` (writes build/partitions.json)
 - Use `vector_transforms` to keep coverage high (history/horizontal fills, constants, or
   drop rules) before serving vectors.
 

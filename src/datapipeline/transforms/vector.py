@@ -1,41 +1,16 @@
-"""Vector-level pipeline transforms for time-series datasets."""
-
 from __future__ import annotations
-
-import json
 from collections import deque
 from collections.abc import Iterator, Mapping, MutableMapping, Sequence
-from pathlib import Path
 from statistics import mean, median
 from typing import Any, Literal, Tuple
 
 from datapipeline.domain.vector import Vector
-
-_MANIFEST_CACHE: dict[Path, dict[str, Any]] = {}
-
-
-def _load_manifest(path: Path) -> dict[str, Any]:
-    normalized = path.expanduser().resolve()
-    cached = _MANIFEST_CACHE.get(normalized)
-    if cached is not None:
-        return cached
-
-    with normalized.open("r", encoding="utf-8") as fh:
-        data = json.load(fh)
-
-    if not isinstance(data, Mapping):
-        raise TypeError("Partition manifest must be a mapping")
-
-    _MANIFEST_CACHE[normalized] = data
-    return data
-
-
-def _is_missing(value: Any) -> bool:
-    if value is None:
-        return True
-    if isinstance(value, float):
-        return value != value  # NaN
-    return False
+from datapipeline.transforms.vector_utils import (
+    base_id as _base_id,
+    is_missing as _is_missing,
+    normalize_key as _normalize_key,
+    resolve_expected as _resolve_expected,
+)
 
 
 def _clone(values: Mapping[str, Any]) -> MutableMapping[str, Any]:
@@ -45,25 +20,19 @@ def _clone(values: Mapping[str, Any]) -> MutableMapping[str, Any]:
 
 
 def _base(feature_id: str) -> str:
-    return feature_id.split("__", 1)[0] if "__" in feature_id else feature_id
+    return _base_id(feature_id)
 
 
 class _ExpectedFeaturesMixin:
-    def __init__(self, *, expected: Sequence[str] | None = None, manifest: str | None = None) -> None:
-        targets: list[str]
-        if expected:
-            targets = [str(item) for item in expected]
-        elif manifest:
-            manifest_path = Path(manifest)
-            payload = _load_manifest(manifest_path)
-            raw = payload.get("features")
-            if not isinstance(raw, Sequence):
-                raise TypeError(
-                    "Partition manifest must contain a 'features' list")
-            targets = [str(item) for item in raw]
-        else:
-            targets = []
-        self._expected = targets
+    def __init__(
+        self,
+        *,
+        expected: Sequence[str] | None = None,
+        manifest: str | None = None,
+        match_partition: Literal["base", "full"] = "base",
+    ) -> None:
+        self._expected = _resolve_expected(
+            manifest, expected, match_partition=match_partition)
 
     @property
     def expected(self) -> list[str]:
@@ -82,7 +51,7 @@ class VectorDropMissingTransform(_ExpectedFeaturesMixin):
         min_coverage: float = 1.0,
         match_partition: Literal["base", "full"] = "full",
     ) -> None:
-        super().__init__(expected=expected, manifest=manifest)
+        super().__init__(expected=expected, manifest=manifest, match_partition=match_partition)
         if not 0.0 <= min_coverage <= 1.0:
             raise ValueError("min_coverage must be between 0 and 1")
         self.required = {str(item) for item in (required or [])}
@@ -90,7 +59,7 @@ class VectorDropMissingTransform(_ExpectedFeaturesMixin):
         self.match_partition = match_partition
 
     def _normalize(self, feature_id: str) -> str:
-        return feature_id if self.match_partition == "full" else _base(feature_id)
+        return _normalize_key(feature_id, self.match_partition)
 
     def apply(self, stream: Iterator[Tuple[Any, Vector]]) -> Iterator[Tuple[Any, Vector]]:
         baseline = set(self.required or self.expected)
@@ -119,7 +88,7 @@ class VectorFillConstantTransform(_ExpectedFeaturesMixin):
         expected: Sequence[str] | None = None,
         manifest: str | None = None,
     ) -> None:
-        super().__init__(expected=expected, manifest=manifest)
+        super().__init__(expected=expected, manifest=manifest, match_partition="base")
         self.value = value
 
     def apply(self, stream: Iterator[Tuple[Any, Vector]]) -> Iterator[Tuple[Any, Vector]]:
@@ -141,7 +110,13 @@ class VectorFillConstantTransform(_ExpectedFeaturesMixin):
 
 
 class VectorFillHistoryTransform(_ExpectedFeaturesMixin):
-    """Fill missing entries using running statistics from prior buckets."""
+    """Fill missing entries using running statistics from prior buckets.
+
+    When `match_partition` is "full" and a manifest is provided (with no
+    explicit `expected` list), targets are taken from `manifest.partitions` to
+    operate per-partition. Otherwise, defaults to base feature ids from
+    `manifest.features`.
+    """
 
     def __init__(
         self,
@@ -151,8 +126,9 @@ class VectorFillHistoryTransform(_ExpectedFeaturesMixin):
         min_samples: int = 1,
         expected: Sequence[str] | None = None,
         manifest: str | None = None,
+        match_partition: Literal["base", "full"] = "full",
     ) -> None:
-        super().__init__(expected=expected, manifest=manifest)
+        super().__init__(expected=expected, manifest=manifest, match_partition=match_partition)
         if window is not None and window <= 0:
             raise ValueError("window must be positive when provided")
         if min_samples <= 0:
@@ -161,9 +137,11 @@ class VectorFillHistoryTransform(_ExpectedFeaturesMixin):
         self.window = window
         self.min_samples = min_samples
         self.history: dict[str, deque[float]] = {}
+        self.match_partition = match_partition
 
     def _compute(self, feature_id: str) -> float | None:
-        values = self.history.get(feature_id)
+        key = _normalize_key(feature_id, self.match_partition)
+        values = self.history.get(key)
         if not values or len(values) < self.min_samples:
             return None
         if self.statistic == "mean":
@@ -173,8 +151,13 @@ class VectorFillHistoryTransform(_ExpectedFeaturesMixin):
     def _push(self, feature_id: str, value: Any) -> None:
         if _is_missing(value):
             return
-        num = float(value)
-        bucket = self.history.setdefault(feature_id, deque(maxlen=self.window))
+        try:
+            num = float(value)
+        except (TypeError, ValueError):
+            # Ignore non-scalar/non-numeric entries
+            return
+        key = _normalize_key(feature_id, self.match_partition)
+        bucket = self.history.setdefault(key, deque(maxlen=self.window))
         bucket.append(num)
 
     def apply(self, stream: Iterator[Tuple[Any, Vector]]) -> Iterator[Tuple[Any, Vector]]:
@@ -199,7 +182,12 @@ class VectorFillHistoryTransform(_ExpectedFeaturesMixin):
 
 
 class VectorFillAcrossPartitionsTransform(_ExpectedFeaturesMixin):
-    """Fill missing entries by aggregating sibling partitions at the same timestamp."""
+    """Fill missing entries by aggregating sibling partitions at the same timestamp.
+
+    When operating with `match_partition="full"` and a manifest is provided (and
+    no explicit `expected` list), targets are taken from `manifest.partitions`
+    so that filling addresses concrete partition IDs.
+    """
 
     def __init__(
         self,
@@ -208,12 +196,14 @@ class VectorFillAcrossPartitionsTransform(_ExpectedFeaturesMixin):
         min_samples: int = 1,
         expected: Sequence[str] | None = None,
         manifest: str | None = None,
+        match_partition: Literal["base", "full"] = "full",
     ) -> None:
-        super().__init__(expected=expected, manifest=manifest)
+        super().__init__(expected=expected, manifest=manifest, match_partition=match_partition)
         if min_samples <= 0:
             raise ValueError("min_samples must be positive")
         self.statistic = statistic
         self.min_samples = min_samples
+        self.match_partition = match_partition
 
     def apply(self, stream: Iterator[Tuple[Any, Vector]]) -> Iterator[Tuple[Any, Vector]]:
         targets = self.expected
@@ -227,7 +217,11 @@ class VectorFillAcrossPartitionsTransform(_ExpectedFeaturesMixin):
             for fid, value in data.items():
                 if _is_missing(value):
                     continue
-                base_groups.setdefault(_base(fid), []).append(float(value))
+                try:
+                    num = float(value)
+                except (TypeError, ValueError):
+                    continue
+                base_groups.setdefault(_base(fid), []).append(num)
 
             updated = False
             for feature in targets:

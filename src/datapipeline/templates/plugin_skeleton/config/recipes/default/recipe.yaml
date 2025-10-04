@@ -6,25 +6,17 @@ group_by:
 
 features:
   - id: time
-    stream: time_ticks
-    transforms:
-      - record:
-          filter: ge
-          args:
-            time: 2021-01-01T00:00:00Z
-      - record:
-          transform: time_lag
-          args: 1h
-      - feature:
-          transform: standard_scale
-          with_mean: true
-          with_std: true
+    stream: time_hour_sin
+    # Filter raw records (record stage)
+    filters: [{ operator: ge, field: time, value: 2021-01-01T00:00:00Z }]
+    # Shift timestamps back (record stage)
+    lag: 1h
+    # Standardize values per feature_id (feature stage)
+    scale: { with_mean: true, with_std: true }
 
-# Optional feature-level fills (uncomment to enable)
-#      - sequence:
-#          transform: time_fill_median
-#          window: 24
-#          min_samples: 4
+    fill: { statistic: median, window: 24, min_samples: 4 }
+    sequence: { size: 5, stride: 1 }
+    sort_batch_size: 100000 # Max records held per in-memory sorted chunk
 
 # Optional vector-level adjustments applied after merging partitions
 # vector_transforms:

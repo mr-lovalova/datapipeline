@@ -8,10 +8,7 @@ from datapipeline.domain.feature import FeatureRecord
 from datapipeline.domain.record import TimeSeriesRecord
 from datapipeline.transforms.feature.scaler import StandardScalerTransform
 from datapipeline.transforms.record import drop_missing_values
-from datapipeline.transforms.sequence import (
-    TimeMeanFillTransformer,
-    TimeMedianFillTransformer,
-)
+from datapipeline.transforms.feature.fill import FillTransformer as FeatureFill
 from datapipeline.transforms.vector import (
     VectorDropMissingTransform,
     VectorFillAcrossPartitionsTransform,
@@ -101,7 +98,7 @@ def test_time_mean_fill_uses_running_average():
         ]
     )
 
-    transformer = TimeMeanFillTransformer()
+    transformer = FeatureFill(statistic="mean")
 
     transformed = list(transformer.apply(stream))
     values = [fr.record.value for fr in transformed]
@@ -121,7 +118,7 @@ def test_time_median_fill_honours_window():
         ]
     )
 
-    transformer = TimeMedianFillTransformer(window=2)
+    transformer = FeatureFill(statistic="median", window=2)
 
     transformed = list(transformer.apply(stream))
     values = [fr.record.value for fr in transformed]
@@ -141,7 +138,8 @@ def test_vector_fill_history_uses_running_statistics():
         ]
     )
 
-    transform = VectorFillHistoryTransform(statistic="mean", window=2, min_samples=2, expected=["temp__A"])
+    transform = VectorFillHistoryTransform(
+        statistic="mean", window=2, min_samples=2, expected=["temp__A"])
 
     out = list(transform.apply(stream))
     assert out[2][1].values["temp__A"] == 11.0
@@ -155,7 +153,8 @@ def test_vector_fill_horizontal_averages_siblings():
         ]
     )
 
-    transform = VectorFillAcrossPartitionsTransform(statistic="median", expected=["wind__A", "wind__B"])
+    transform = VectorFillAcrossPartitionsTransform(
+        statistic="median", expected=["wind__A", "wind__B"])
 
     out = list(transform.apply(stream))
     # First bucket remains unchanged
@@ -167,7 +166,8 @@ def test_vector_fill_horizontal_averages_siblings():
 
 def test_vector_fill_constant_injects_value():
     stream = iter([_make_vector(0, {"time": 1.0})])
-    transform = VectorFillConstantTransform(value=0.0, expected=["time", "wind"])
+    transform = VectorFillConstantTransform(
+        value=0.0, expected=["time", "wind"])
     out = list(transform.apply(stream))
     assert out[0][1].values["wind"] == 0.0
 
@@ -180,7 +180,8 @@ def test_vector_drop_missing_respects_coverage():
         ]
     )
 
-    transform = VectorDropMissingTransform(expected=["a", "b"], min_coverage=1.0)
+    transform = VectorDropMissingTransform(
+        expected=["a", "b"], min_coverage=1.0)
 
     out = list(transform.apply(stream))
     assert len(out) == 1

@@ -250,20 +250,21 @@ Production mode skips the bar flair and focuses on throughput. `print` writes ta
 notes to stdout, `stream` emits newline-delimited JSON (with values coerced to strings when
 necessary), and a `.pt` destination stores a pickle-compatible payload for later pours.
 
-### Taste the balance (vector quality)
+### Inspect the balance (vector quality)
 
-```bash
-jerry prep taste --project config/recipes/default/project.yaml
-```
+Use the inspect helpers for different outputs:
 
-This command reuses the vector pipeline, collects presence counts for every configured
-feature and flags empty or incomplete flights so you can diagnose upstream issues quickly
-(`src/datapipeline/cli/commands/analyze.py`, `src/datapipeline/analysis/vector_analyzer.py`).
-Run `jerry inspect coverage --project config/recipes/default/project.yaml` to persist the
-coverage summary to `build/coverage.json` (keep/below feature and partition lists plus
-coverage percentages), and `jerry inspect matrix --project
-config/recipes/default/project.yaml` to export availability matrices (CSV or HTML) for
-deeper analysis.
+- `jerry inspect report --project config/recipes/default/project.yaml` — print a
+  human-readable quality report (totals, keep/below lists, optional partition detail).
+- `jerry inspect coverage --project config/recipes/default/project.yaml` — persist the
+  coverage summary to `build/coverage.json` (keep/below feature and partition lists plus
+  coverage percentages).
+- `jerry inspect matrix --project config/recipes/default/project.yaml --format html` —
+  export availability matrices (CSV or HTML) for deeper analysis.
+- `jerry inspect partitions --project config/recipes/default/project.yaml` — write the
+  observed partition manifest to `build/partitions.json` for use in configs.
+
+Note: `jerry prep taste` has been removed; use `jerry inspect report` and friends.
 
 ---
 
@@ -272,7 +273,7 @@ deeper analysis.
 ### Scaffold a plugin package
 
 ```bash
-jerry station init --name my_datapipeline --out .
+jerry bar init --name my_datapipeline --out .
 ```
 
 The generator copies a ready-made skeleton (pyproject, README, package directory) and

@@ -6,7 +6,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 from datapipeline.streams.canonical import canonical_entry
 from datapipeline.streams.raw import get_source
-from datapipeline.sources.models.loader import FileLoader, SyntheticLoader, UrlLoader
+from datapipeline.sources.models.loader import SyntheticLoader
 from datapipeline.sources.models.loader import RawDataLoader
 from datapipeline.sources.composed_loader import ComposedRawLoader
 from datapipeline.sources.transports import FsFileSource, FsGlobSource, UrlSource
@@ -22,10 +22,6 @@ def unit_for_loader(loader) -> str:
             return "row"
         if isinstance(dec, (JsonDecoder, JsonLinesDecoder)):
             return "item"
-    if isinstance(loader, FileLoader):
-        return "item"
-    if isinstance(loader, UrlLoader):
-        return "item"
     return "record"
 
 

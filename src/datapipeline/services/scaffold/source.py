@@ -3,11 +3,11 @@ from pathlib import Path
 from typing import Optional
 
 from datapipeline.services.scaffold.templates import camel, render
-from datapipeline.utils.load import load_yaml
 
 from ..constants import COMPOSED_LOADER_EP
 from ..entrypoints import inject_ep
 from ..paths import pkg_root, resolve_base_pkg_dir
+from datapipeline.services.project_paths import sources_dir as resolve_sources_dir
 
 
 def _class_prefix(provider: str, dataset: str) -> str:
@@ -128,27 +128,11 @@ def create_source(*, provider: str, dataset: str, transport: str,
     alias = _source_alias(provider, dataset)
     loader_ep, loader_args = _loader_ep_and_args(transport, format, ep_key)
 
-    proj_yaml = root_dir / "config" / "project.yaml"
-    sources_dir = root_dir / "config" / "sources"
-    try:
-        if proj_yaml.exists():
-            proj = load_yaml(proj_yaml)
-            paths = proj.get("paths") if isinstance(proj, dict) else None
-            if isinstance(paths, dict):
-                sdir = paths.get("sources")
-                if isinstance(sdir, str) and sdir:
-                    sources_dir = (Path(sdir)
-                                   if Path(sdir).is_absolute()
-                                   else (root_dir / sdir))
-                else:
-                    s = paths.get("streams")
-                    if isinstance(s, str) and s:
-                        sp = Path(s)
-                        sources_dir = (sp.parent if sp.is_absolute() else (
-                            root_dir / sp).parent) / "sources"
-    except Exception:
-        # Best-effort resolution; ignore errors and use default
-        pass
+    # Resolve sources directory from a single recipe-scoped project config.
+    # If not present or invalid, let the exception bubble up to prompt the user
+    # to provide a valid project path.
+    proj_yaml = root_dir / "config" / "recipes" / "default" / "project.yaml"
+    sources_dir = resolve_sources_dir(proj_yaml).resolve()
     sources_dir.mkdir(parents=True, exist_ok=True)
     src_cfg_path = sources_dir / f"{alias}.yaml"
     if not src_cfg_path.exists():
@@ -160,6 +144,6 @@ def create_source(*, provider: str, dataset: str, transport: str,
             loader_args=loader_args,
             composed_loader_ep=COMPOSED_LOADER_EP,
         ))
-        print(f"✨ Created: {src_cfg_path}")
+        print(f"✨ Created: {src_cfg_path.resolve()}")
 
     # No inline instructions; per-source YAML file has been created above.

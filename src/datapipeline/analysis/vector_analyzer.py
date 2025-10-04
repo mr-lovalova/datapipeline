@@ -203,7 +203,8 @@ class VectorStatsCollector:
         if not status_map or not features:
             return
 
-        column_width = max(column_width, min(10, max(len(fid) for fid in features)))
+        column_width = max(column_width, min(
+            10, max(len(fid) for fid in features)))
 
         def status_for(group: Hashable, fid: str) -> str:
             statuses = status_map.get(group, {})
@@ -331,7 +332,8 @@ class VectorStatsCollector:
                 )
                 coverage = present / opportunities if opportunities else 0.0
                 nulls = self.null_counts_partitions.get(partition_id, 0)
-                raw_samples = self.missing_partition_samples.get(partition_id, [])
+                raw_samples = self.missing_partition_samples.get(
+                    partition_id, [])
                 partition_stats.append(
                     {
                         "id": partition_id,
@@ -514,8 +516,6 @@ class VectorStatsCollector:
         if self.matrix_output:
             self._export_matrix_data()
 
-        print("\nTip: use `jerry prep taste` over a broad time range to stabilise these stats.")
-
         return summary
 
     def _export_matrix_data(self) -> None:
@@ -595,7 +595,8 @@ class VectorStatsCollector:
                     status = statuses.get(identifier, "absent")
                     cls = cell_class.get(status, "status-absent")
                     symbol = self._symbol_for(status)
-                    cells.append(f"<td class='{cls}' title='{status}'>{symbol}</td>")
+                    cells.append(
+                        f"<td class='{cls}' title='{status}'>{symbol}</td>")
                 rows_html.append(
                     f"<tr><th>{key_str}</th>{''.join(cells)}</tr>"
                 )
