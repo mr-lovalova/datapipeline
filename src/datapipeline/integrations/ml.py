@@ -27,7 +27,6 @@ from pathlib import Path
 from typing import Any, Literal, Mapping
 
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
-from datapipeline.config.dataset.group_by import GroupBy
 from datapipeline.config.dataset.loader import load_dataset
 from datapipeline.domain.vector import Vector
 from datapipeline.pipeline.pipelines import build_pipeline
@@ -39,7 +38,7 @@ GroupFormat = Literal["mapping", "tuple", "list", "flat"]
 
 def _normalize_group(
     group_key: Sequence[Any],
-    group_by: GroupBy,
+    group_by: str,
     fmt: GroupFormat,
 ) -> Any:
     if fmt == "tuple":
@@ -52,8 +51,8 @@ def _normalize_group(
                 "group_format='flat' requires exactly one group key value",
             )
         return group_key[0]
-    # Default: mapping of configured field names → values.
-    fields = [key.field for key in getattr(group_by, "keys", [])]
+    # Default: mapping of field names → values. With simplified GroupBy, use 'time'.
+    fields = ["time"]
     return {field: value for field, value in zip(fields, group_key)}
 
 

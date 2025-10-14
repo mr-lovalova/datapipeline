@@ -1,7 +1,6 @@
 from typing import Any, List
 
 from pydantic import BaseModel, Field
-from datapipeline.config.dataset.group_by import GroupBy
 from datapipeline.config.dataset.feature import BaseRecordConfig, FeatureRecordConfig
 
 
@@ -11,7 +10,7 @@ class RecordDatasetConfig(BaseModel):
 
 
 class FeatureDatasetConfig(BaseModel):
-    group_by: GroupBy
+    group_by: str = Field(..., pattern=r"^\d+(m|min|h)$")
     features: List[FeatureRecordConfig] = Field(default_factory=list)
     targets:  List[FeatureRecordConfig] = Field(default_factory=list)
     vector_transforms: List[Any] | None = Field(default=None)

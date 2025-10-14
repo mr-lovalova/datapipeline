@@ -6,7 +6,6 @@ from datapipeline.pipeline.utils.memory_sort import memory_sorted
 from datapipeline.pipeline.utils.ordering import canonical_key
 
 from datapipeline.config.dataset.feature import FeatureRecordConfig
-from datapipeline.config.dataset.group_by import GroupBy
 from datapipeline.domain.vector import Vector
 from datapipeline.pipeline.stages import (
     open_source_stream,
@@ -25,7 +24,7 @@ from datapipeline.registries.registries import (
 
 def build_feature_pipeline(
     cfg: FeatureRecordConfig,
-    group_by: GroupBy,
+    group_by: str,
     stage: int | None = None,
 ) -> Iterator[Any]:
     record_stream_id = cfg.record_stream
@@ -67,7 +66,7 @@ def build_feature_pipeline(
 
 def build_pipeline(
     configs: Sequence[FeatureRecordConfig],
-    group_by: GroupBy,
+    group_by: str,
     vector_transforms: Sequence[Mapping[str, Any]] | None = None,
     stage: int | None = None,
 ) -> Iterator[Any]:

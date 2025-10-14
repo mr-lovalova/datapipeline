@@ -8,7 +8,7 @@ from datapipeline.pipeline.utils.memory_sort import memory_sorted
 from datapipeline.pipeline.utils.transform_utils import apply_transforms
 from datapipeline.plugins import FEATURE_TRANSFORMS_EP, VECTOR_TRANSFORMS_EP, RECORD_TRANSFORMS_EP, STREAM_TRANFORMS_EP, DEBUG_TRANSFORMS_EP
 
-from datapipeline.config.dataset.group_by import GroupBy
+from datapipeline.config.dataset.normalize import floor_time_to_resolution
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.pipeline.utils.keygen import RecordKeyGenerator
 from datapipeline.registries.registries import record_operations, mappers, stream_sources, stream_operations, debug_operations
@@ -35,14 +35,14 @@ def apply_record_operations(record_stream: Iterable[TemporalRecord], stream_id: 
 def build_feature_stream(
     record_stream: Iterable[TemporalRecord],
     base_feature_id: str,
-    group_by: GroupBy,
+    group_by: str,
     partition_by: Any | None = None,
 ) -> Iterator[FeatureRecord]:
 
     keygen = RecordKeyGenerator(partition_by)
 
     def group_key(rec: TemporalRecord) -> tuple:
-        return tuple(k.normalize(getattr(rec, k.field)) for k in group_by.keys)
+        return (floor_time_to_resolution(rec.time, group_by),)
 
     for rec in record_stream:
         yield FeatureRecord(
