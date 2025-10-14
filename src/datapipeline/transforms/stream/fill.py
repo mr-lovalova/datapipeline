@@ -3,15 +3,8 @@ from itertools import groupby
 from statistics import mean, median
 from typing import Any, Iterator, Mapping, MutableMapping
 
-from datapipeline.domain.feature import FeatureRecord, FeatureSequence
-
-
-def _is_missing(value: Any) -> bool:
-    if value is None:
-        return True
-    if isinstance(value, float):
-        return value != value  # NaN without numpy
-    return False
+from datapipeline.domain.feature import FeatureRecord, FeatureRecordSequence
+from datapipeline.transforms.utils import is_missing
 
 
 def _extract_value(record: Any) -> Any:
@@ -63,24 +56,27 @@ class FillTransformer:
             return None
         return float(self.statistic(history))
 
-    def apply(self, stream: Iterator[FeatureRecord]) -> Iterator[FeatureSequence]:
-        grouped = groupby(stream, key=lambda fr: fr.feature_id)
+    def __call__(self, stream: Iterator[FeatureRecord]) -> Iterator[FeatureRecordSequence]:
+        return self.apply(stream)
 
-        for feature_id, feature_records in grouped:
+    def apply(self, stream: Iterator[FeatureRecord]) -> Iterator[FeatureRecordSequence]:
+        grouped = groupby(stream, key=lambda fr: fr.id)
+
+        for id, feature_records in grouped:
             history: list[float] = []
             for fr in feature_records:
-                if isinstance(fr.record, FeatureSequence):
+                if isinstance(fr.record, FeatureRecordSequence):
                     raise TypeError(
                         "Fills should run before windowing transforms"
                     )
                 value = _extract_value(fr.record)
-                if _is_missing(value):
+                if is_missing(value):
                     if len(history) >= self.min_samples:
                         fill = self._compute_fill(history)
                         if fill is not None:
                             yield FeatureRecord(
                                 record=_clone_with_value(fr.record, fill),
-                                feature_id=feature_id,
+                                id=id,
                                 group_key=fr.group_key,
                             )
                             continue

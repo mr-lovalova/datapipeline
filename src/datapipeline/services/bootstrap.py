@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from pathlib import Path
 from typing import Mapping
 import re
@@ -13,14 +11,26 @@ from datapipeline.services.constants import (
     PARSER_KEY,
     LOADER_KEY,
     SOURCE_KEY,
+    SOURCE_ID_KEY,
     MAPPER_KEY,
     ENTRYPOINT_KEY,
+    STREAM_ID_KEY,
 )
-from datapipeline.streams.raw import register_source
-from datapipeline.streams.canonical import register_stream
 from datapipeline.services.factories import (
     build_source_from_spec,
     build_mapper_from_spec,
+)
+
+from datapipeline.registries.registries import (
+    mappers,
+    sources,
+    stream_sources,
+    record_operations,
+    feature_transforms,
+    stream_operations,
+    debug_operations,
+    partition_by,
+    sort_batch_size,
 )
 
 SRC_PARSER_KEY = PARSER_KEY
@@ -104,9 +114,10 @@ def _load_sources_from_dir(project_yaml: Path, vars_: dict[str, str]) -> dict:
         data = load_yaml(src_dir / fname)
         if not isinstance(data, dict):
             continue
-        # Top-level parser/loader; alias inferred from filename
         if isinstance(data.get(SRC_PARSER_KEY), dict) and isinstance(data.get(SRC_LOADER_KEY), dict):
-            alias = Path(fname).stem
+            alias = data.get(SOURCE_ID_KEY)
+            if not alias:
+                raise ValueError(f"Missing 'source_id' in distillery: {fname}")
             out[alias] = _interpolate(data, vars_)
             continue
     return out
@@ -127,12 +138,12 @@ def _load_canonical_streams(project_yaml: Path, vars_: dict[str, str]) -> dict:
         if not p.is_file():
             continue
         data = load_yaml(p)
-        if isinstance(data, dict) and (SOURCE_KEY in data):
+        # Require explicit ids: stream_id and source_id
+        if isinstance(data, dict) and (SOURCE_ID_KEY in data) and (STREAM_ID_KEY in data):
             m = data.get(MAPPER_KEY)
             if (not isinstance(m, dict)) or (ENTRYPOINT_KEY not in (m or {})):
                 data[MAPPER_KEY] = None
-            rel = p.relative_to(sdir)
-            alias = rel.with_suffix("").as_posix().replace("/", ".")
+            alias = data.get(STREAM_ID_KEY)
             out[alias] = _interpolate(data, vars_)
     return out
 
@@ -140,18 +151,37 @@ def _load_canonical_streams(project_yaml: Path, vars_: dict[str, str]) -> dict:
 def load_streams(project_yaml: Path) -> StreamsConfig:
     vars_ = _globals(project_yaml)
     raw = _load_sources_from_dir(project_yaml, vars_)
-    canonical = _load_canonical_streams(project_yaml, vars_)
-    return StreamsConfig(raw=raw, canonical=canonical)
+    contracts = _load_canonical_streams(project_yaml, vars_)
+    return StreamsConfig(raw=raw, contracts=contracts)
 
 
 def init_streams(cfg: StreamsConfig) -> None:
     """Compile typed streams config into runtime registries."""
+    stream_operations.clear()
+    debug_operations.clear()
+    partition_by.clear()
+    sort_batch_size.clear()
+    record_operations.clear()
+    feature_transforms.clear()
+    sources.clear()
+    mappers.clear()
+    stream_sources.clear()
+
+    # Register per-stream policies and record transforms for runtime lookups
+    for alias, spec in (cfg.contracts or {}).items():
+        stream_operations.register(alias, spec.stream)
+        debug_operations.register(alias, spec.debug)
+        partition_by.register(alias, spec.partition_by)
+        sort_batch_size.register(alias, spec.sort_batch_size)
+        ops = spec.record
+        record_operations.register(alias, ops)
+
     for alias, spec in (cfg.raw or {}).items():
-        register_source(alias, build_source_from_spec(spec))
-    for alias, spec in (cfg.canonical or {}).items():
-        fn, margs = build_mapper_from_spec(spec.mapper)  # None -> identity
-        register_stream(alias, source_alias=spec.source,
-                        mapper=fn, mapper_args=margs)
+        sources.register(alias, build_source_from_spec(spec))
+    for alias, spec in (cfg.contracts or {}).items():
+        mapper = build_mapper_from_spec(spec.mapper)
+        mappers.register(alias, mapper)
+        stream_sources.register(alias, sources.get(spec.source_id))
 
 
 def bootstrap(project_yaml: Path) -> StreamsConfig:

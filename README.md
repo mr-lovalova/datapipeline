@@ -250,6 +250,46 @@ Production mode skips the bar flair and focuses on throughput. `print` writes ta
 notes to stdout, `stream` emits newline-delimited JSON (with values coerced to strings when
 necessary), and a `.pt` destination stores a pickle-compatible payload for later pours.
 
+## Funnel vectors into ML projects
+
+Data scientists rarely want to shell out to the CLI; they need a programmatic
+hand-off that plugs vectors straight into notebooks, feature stores or training
+loops. The `datapipeline.integrations` package wraps the existing iterator
+builders with ML-friendly adapters without pulling pandas or torch into the
+core runtime.
+
+```python
+from datapipeline.integrations import (
+    VectorAdapter,
+    dataframe_from_vectors,
+    iter_vector_rows,
+    torch_dataset,
+)
+
+# Bootstrap once and stream ready-to-use rows.
+adapter = VectorAdapter.from_project("config/project.yaml")
+for row in adapter.iter_rows(limit=32, flatten_sequences=True):
+    send_to_feature_store(row)
+
+# Helper functions cover ad-hoc jobs as well.
+rows = iter_vector_rows(
+    "config/project.yaml",
+    include_group=True,
+    group_format="mapping",
+    flatten_sequences=True,
+)
+
+# Optional extras materialize into common ML containers if installed.
+df = dataframe_from_vectors("config/project.yaml")                # Requires pandas
+dataset = torch_dataset("config/project.yaml", dtype=torch.float32)  # Requires torch
+```
+
+Everything still flows through `build_vector_pipeline`; the integration layer
+normalizes group keys, optionally flattens sequence features and demonstrates
+how to turn the iterator into DataFrames or `torch.utils.data.Dataset`
+instances. ML teams can fork the same pattern for their own stacks—Spark, NumPy
+or feature store SDKs—without adding opinionated glue to the runtime itself.
+
 ### Inspect the balance (vector quality)
 
 Use the inspect helpers for different outputs:

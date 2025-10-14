@@ -18,21 +18,20 @@ features:
     sequence: { size: 5, stride: 1 }
     sort_batch_size: 100000 # Max records held per in-memory sorted chunk
 
+targets:
+  - id: time
+    stream: time_ticks
 # Optional vector-level adjustments applied after merging partitions
 # vector_transforms:
 #   - fill_history:
-#       expected:
-#         - time
+#       manifest: build/partitions.json
 #       statistic: median
 #       window: 48
 #       min_samples: 6
 #   - fill_horizontal:
-#       manifest: config/recipes/default/build/partitions.json
+#       manifest: build/partitions.json
 #       statistic: mean
 #       min_samples: 2
 #   - drop_missing:
-#       manifest: config/recipes/default/build/partitions.json
+#       manifest: build/partitions.json
 #       min_coverage: 0.9
-targets:
-  - id: time
-    stream: time_ticks

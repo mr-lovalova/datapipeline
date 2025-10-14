@@ -1,18 +1,18 @@
-from datapipeline.domain.record import TimeSeriesRecord
+from datapipeline.domain.record import TemporalRecord
 from dataclasses import dataclass
 
 
 @dataclass
 class BaseFeature:
-    feature_id: str
+    id: str
     group_key: tuple
 
 
 @dataclass
 class FeatureRecord(BaseFeature):
-    record: TimeSeriesRecord
+    record: TemporalRecord
 
 
 @dataclass
-class FeatureSequence(BaseFeature):
-    records: list[TimeSeriesRecord]
+class FeatureRecordSequence(BaseFeature):
+    records: list[TemporalRecord]

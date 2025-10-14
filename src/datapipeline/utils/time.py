@@ -2,14 +2,16 @@ from datetime import timedelta, datetime, timezone
 
 
 def parse_timecode(s: str) -> timedelta:
-    """Parse duration strings like '1h', '30m', '2d' into timedelta."""
+    """Parse duration strings like '30s', '10m', '1h', '2d' into timedelta."""
     unit = s[-1]
     value = int(s[:-1])
+    if unit == 's':
+        return timedelta(seconds=value)
+    if unit == 'm':
+        return timedelta(minutes=value)
     if unit == 'h':
         return timedelta(hours=value)
-    elif unit == 'm':
-        return timedelta(minutes=value)
-    elif unit == 'd':
+    if unit == 'd':
         return timedelta(days=value)
     raise ValueError(f"Unsupported time unit in: {s}")
 

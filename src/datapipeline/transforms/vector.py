@@ -9,7 +9,6 @@ from datapipeline.transforms.vector_utils import (
     base_id as _base_id,
     is_missing as _is_missing,
     normalize_key as _normalize_key,
-    resolve_expected as _resolve_expected,
 )
 
 
@@ -24,15 +23,8 @@ def _base(feature_id: str) -> str:
 
 
 class _ExpectedFeaturesMixin:
-    def __init__(
-        self,
-        *,
-        expected: Sequence[str] | None = None,
-        manifest: str | None = None,
-        match_partition: Literal["base", "full"] = "base",
-    ) -> None:
-        self._expected = _resolve_expected(
-            manifest, expected, match_partition=match_partition)
+    def __init__(self, *, expected: Sequence[str] | None = None) -> None:
+        self._expected = [str(x) for x in (expected or [])]
 
     @property
     def expected(self) -> list[str]:
@@ -47,16 +39,14 @@ class VectorDropMissingTransform(_ExpectedFeaturesMixin):
         *,
         required: Sequence[str] | None = None,
         expected: Sequence[str] | None = None,
-        manifest: str | None = None,
         min_coverage: float = 1.0,
-        match_partition: Literal["base", "full"] = "full",
     ) -> None:
-        super().__init__(expected=expected, manifest=manifest, match_partition=match_partition)
+        super().__init__(expected=expected)
         if not 0.0 <= min_coverage <= 1.0:
             raise ValueError("min_coverage must be between 0 and 1")
         self.required = {str(item) for item in (required or [])}
         self.min_coverage = min_coverage
-        self.match_partition = match_partition
+        self.match_partition = "full"
 
     def _normalize(self, feature_id: str) -> str:
         return _normalize_key(feature_id, self.match_partition)
@@ -86,9 +76,8 @@ class VectorFillConstantTransform(_ExpectedFeaturesMixin):
         *,
         value: Any,
         expected: Sequence[str] | None = None,
-        manifest: str | None = None,
     ) -> None:
-        super().__init__(expected=expected, manifest=manifest, match_partition="base")
+        super().__init__(expected=expected)
         self.value = value
 
     def apply(self, stream: Iterator[Tuple[Any, Vector]]) -> Iterator[Tuple[Any, Vector]]:
@@ -125,10 +114,8 @@ class VectorFillHistoryTransform(_ExpectedFeaturesMixin):
         window: int | None = None,
         min_samples: int = 1,
         expected: Sequence[str] | None = None,
-        manifest: str | None = None,
-        match_partition: Literal["base", "full"] = "full",
     ) -> None:
-        super().__init__(expected=expected, manifest=manifest, match_partition=match_partition)
+        super().__init__(expected=expected)
         if window is not None and window <= 0:
             raise ValueError("window must be positive when provided")
         if min_samples <= 0:
@@ -137,7 +124,7 @@ class VectorFillHistoryTransform(_ExpectedFeaturesMixin):
         self.window = window
         self.min_samples = min_samples
         self.history: dict[str, deque[float]] = {}
-        self.match_partition = match_partition
+        self.match_partition = "full"
 
     def _compute(self, feature_id: str) -> float | None:
         key = _normalize_key(feature_id, self.match_partition)
@@ -195,15 +182,13 @@ class VectorFillAcrossPartitionsTransform(_ExpectedFeaturesMixin):
         statistic: Literal["mean", "median"] = "median",
         min_samples: int = 1,
         expected: Sequence[str] | None = None,
-        manifest: str | None = None,
-        match_partition: Literal["base", "full"] = "full",
     ) -> None:
-        super().__init__(expected=expected, manifest=manifest, match_partition=match_partition)
+        super().__init__(expected=expected)
         if min_samples <= 0:
             raise ValueError("min_samples must be positive")
         self.statistic = statistic
         self.min_samples = min_samples
-        self.match_partition = match_partition
+        self.match_partition = "full"
 
     def apply(self, stream: Iterator[Tuple[Any, Vector]]) -> Iterator[Tuple[Any, Vector]]:
         targets = self.expected

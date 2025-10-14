@@ -7,8 +7,8 @@ from typing import Any
 from datapipeline.domain.feature import FeatureRecord
 from datapipeline.domain.record import TimeSeriesRecord
 from datapipeline.transforms.feature.scaler import StandardScalerTransform
-from datapipeline.transforms.record import drop_missing_values
-from datapipeline.transforms.feature.fill import FillTransformer as FeatureFill
+from datapipeline.transforms.stream.ensure_ticks import drop_missing_values
+from datapipeline.transforms.stream.fill import FillTransformer as FeatureFill
 from datapipeline.transforms.vector import (
     VectorDropMissingTransform,
     VectorFillAcrossPartitionsTransform,
@@ -35,6 +35,7 @@ def _make_feature_record(value: float, hour: int, feature_id: str) -> FeatureRec
 
 def _make_vector(group: int, values: dict[str, Any]) -> tuple[tuple[int], Vector]:
     return ((group,), Vector(values=values))
+
 
 
 def test_drop_missing_values_filters_none_and_nan():
@@ -139,7 +140,7 @@ def test_vector_fill_history_uses_running_statistics():
     )
 
     transform = VectorFillHistoryTransform(
-        statistic="mean", window=2, min_samples=2, expected=["temp__A"])
+        statistic="mean", window=2, min_samples=2, expected=["temp__A"]) 
 
     out = list(transform.apply(stream))
     assert out[2][1].values["temp__A"] == 11.0
@@ -154,7 +155,7 @@ def test_vector_fill_horizontal_averages_siblings():
     )
 
     transform = VectorFillAcrossPartitionsTransform(
-        statistic="median", expected=["wind__A", "wind__B"])
+        statistic="median", expected=["wind__A", "wind__B"]) 
 
     out = list(transform.apply(stream))
     # First bucket remains unchanged
