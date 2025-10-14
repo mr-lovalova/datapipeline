@@ -1,6 +1,7 @@
 import argparse
+import logging
 
-from datapipeline.cli.commands.run import handle_prep, handle_serve
+from datapipeline.cli.commands.run import handle_serve
 from datapipeline.cli.commands.plugin import bar as handle_bar
 from datapipeline.cli.commands.source import handle as handle_source
 from datapipeline.cli.commands.domain import handle as handle_domain
@@ -13,9 +14,19 @@ from datapipeline.cli.commands.inspect import (
 
 
 def main() -> None:
+    # Common options shared by top-level and subcommands
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument(
+        "--log-level",
+        default="WARNING",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+        help="set logging level (default: WARNING)",
+    )
+
     parser = argparse.ArgumentParser(
         prog="jerry",
         description="Mixology-themed CLI for building and serving data pipelines.",
+        parents=[common],
     )
     sub = parser.add_subparsers(dest="cmd", required=True)
 
@@ -23,28 +34,37 @@ def main() -> None:
     p_prep = sub.add_parser(
         "prep",
         help="run pipeline stages with visual progress",
+        parents=[common],
     )
+    # Only support numeric stage previews; legacy named stages removed
+    p_prep.add_argument(
+        "--project",
+        "-p",
+        default="config/recipes/default/project.yaml",
+        help="path to project.yaml",
+    )
+    p_prep.add_argument("--limit", "-n", type=int, default=20)
     prep_sub = p_prep.add_subparsers(dest="prep_cmd", required=True)
-    prep_steps = {
-        "pour": "preview record-stage output",
-        "build": "inspect feature-stage output",
-        "stir": "examine vector-stage output",
-    }
-    for step, help_text in prep_steps.items():
-        sp = prep_sub.add_parser(step, help=help_text)
-        sp.add_argument(
-            "--project",
-            "-p",
-            default="config/recipes/default/project.yaml",
-            help="path to project.yaml",
-        )
-        sp.add_argument("--limit", "-n", type=int, default=20)
+    p_prep_stage = prep_sub.add_parser(
+        "stage",
+        help="preview a numeric feature stage (0-5)",
+        parents=[common],
+    )
+    p_prep_stage.add_argument("num", type=int, help="feature stage number (0-5)")
+    p_prep_stage.add_argument(
+        "--project",
+        "-p",
+        default="config/recipes/default/project.yaml",
+        help="path to project.yaml",
+    )
+    p_prep_stage.add_argument("--limit", "-n", type=int, default=20)
 
 
     # serve (production run, no visuals)
     p_serve = sub.add_parser(
         "serve",
         help="produce vectors without progress visuals",
+        parents=[common],
     )
     p_serve.add_argument(
         "--project",
@@ -65,6 +85,7 @@ def main() -> None:
     p_dist = sub.add_parser(
         "distillery",
         help="add or list raw sources",
+        parents=[common],
     )
     dist_sub = p_dist.add_subparsers(dest="dist_cmd", required=True)
     p_dist_add = dist_sub.add_parser(
@@ -99,6 +120,7 @@ def main() -> None:
     p_spirit = sub.add_parser(
         "spirit",
         help="add or list domains",
+        parents=[common],
     )
     spirit_sub = p_spirit.add_subparsers(dest="spirit_cmd", required=True)
     p_spirit_add = spirit_sub.add_parser(
@@ -113,12 +135,14 @@ def main() -> None:
     p_contract = sub.add_parser(
         "contract",
         help="link a distillery source to a spirit domain",
+        parents=[common],
     )
 
     # bar (plugin scaffolding)
     p_bar = sub.add_parser(
         "bar",
         help="scaffold plugin workspaces",
+        parents=[common],
     )
     bar_sub = p_bar.add_subparsers(dest="bar_cmd", required=True)
     p_bar_init = bar_sub.add_parser(
@@ -127,7 +151,7 @@ def main() -> None:
     p_bar_init.add_argument("--out", "-o", default=".")
 
     # filter (unchanged helper)
-    p_filt = sub.add_parser("filter", help="manage filters")
+    p_filt = sub.add_parser("filter", help="manage filters", parents=[common])
     filt_sub = p_filt.add_subparsers(dest="filter_cmd", required=True)
     p_filt_create = filt_sub.add_parser(
         "create", help="create a filter function")
@@ -140,6 +164,7 @@ def main() -> None:
     p_inspect = sub.add_parser(
         "inspect",
         help="inspect dataset metadata: report, coverage, matrix, partitions",
+        parents=[common],
     )
     inspect_sub = p_inspect.add_subparsers(dest="inspect_cmd", required=False)
 
@@ -284,9 +309,19 @@ def main() -> None:
 
     args = parser.parse_args()
 
+    # Initialize logging before dispatching to subcommands
+    logging.basicConfig(
+        level=getattr(logging, str(getattr(args, "log_level", "WARNING")).upper(), logging.WARNING),
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+
     if args.cmd == "prep":
-        handle_prep(action=args.prep_cmd,
-                    project=args.project, limit=args.limit)
+        from datapipeline.cli.commands.run import handle_prep_stage
+        handle_prep_stage(
+            project=getattr(args, "project", "config/recipes/default/project.yaml"),
+            stage=getattr(args, "num", 0),
+            limit=getattr(args, "limit", 20),
+        )
         return
 
     if args.cmd == "serve":

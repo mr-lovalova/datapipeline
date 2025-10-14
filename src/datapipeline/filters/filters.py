@@ -1,4 +1,3 @@
-from __future__ import annotations
 from typing import Any, Callable, Iterator, Optional
 from datetime import datetime, timezone
 from datapipeline.utils.time import parse_datetime

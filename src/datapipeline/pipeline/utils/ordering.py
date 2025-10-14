@@ -14,7 +14,6 @@ def canonical_key(tr: Any) -> Tuple:
     kind_flag = 0
     time_key = 0
 
-    # Sequence: list of Records — use the last element's time if present
     if isinstance(rec, list) and rec:
         last = rec[-1]
         t = getattr(last, "time", None)

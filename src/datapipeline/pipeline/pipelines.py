@@ -1,76 +1,87 @@
-from __future__ import annotations
-
 import heapq
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from typing import Any, Tuple
 
-from datapipeline.config.dataset.feature import BaseRecordConfig, FeatureRecordConfig
+from datapipeline.pipeline.utils.memory_sort import memory_sorted
+from datapipeline.pipeline.utils.ordering import canonical_key
+
+from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.config.dataset.group_by import GroupBy
-from datapipeline.domain.feature import FeatureRecord, FeatureSequence
 from datapipeline.domain.vector import Vector
-from datapipeline.pipeline.stages import feature_stage, record_stage, vector_stage, vector_cleaning_stage
-
-
-def build_record_pipeline(
-    cfg: BaseRecordConfig,
-    open_stream: Callable[[str], Iterable[Any]],
-) -> Iterator[Any]:
-    """Open a configured stream and apply record-level filters/transforms."""
-
-    raw = open_stream(cfg.stream)
-    # Derive record-stage clauses from generic list
-    # Build record-stage filters/transforms directly from simple fields
-    filters: list[dict[str, Any]] = []
-    flt = getattr(cfg, "filter", None)
-    if isinstance(flt, dict):
-        op = flt.get("operator") or flt.get("op")
-        field = flt.get("field")
-        if op and field is not None:
-            val = flt.get("value") if "value" in flt else flt.get("values")
-            filters.append({str(op): {str(field): val}})
-    # Optional multiple filters
-    flts = getattr(cfg, "filters", None)
-    if isinstance(flts, list):
-        for f in flts:
-            if not isinstance(f, dict):
-                continue
-            op = f.get("operator") or f.get("op")
-            field = f.get("field")
-            if op and field is not None:
-                val = f.get("value") if "value" in f else f.get("values")
-                filters.append({str(op): {str(field): val}})
-
-    transforms: list[dict[str, Any]] = []
-    lag = getattr(cfg, "lag", None)
-    if lag is not None:
-        transforms.append({"lag": lag})
-    # Append any user-declared record-stage custom transforms
-    if getattr(cfg, "record_transforms", None):
-        transforms.extend(cfg.record_transforms or [])
-    return record_stage(raw, filters, transforms)
+from datapipeline.pipeline.stages import (
+    open_source_stream,
+    build_record_stream,
+    apply_record_operations,
+    build_feature_stream,
+    regularize_feature_stream,
+    apply_feature_transforms,
+    vector_assemble_stage,
+    vector_cleaning_stage)
+from datapipeline.registries.registries import (
+    partition_by as partition_by_reg,
+    sort_batch_size as sort_batch_size_reg,
+)
 
 
 def build_feature_pipeline(
     cfg: FeatureRecordConfig,
     group_by: GroupBy,
-    open_stream: Callable[[str], Iterable[Any]],
-) -> Iterator[FeatureRecord | FeatureSequence]:
-    """Build the feature-level stream for a single feature configuration."""
+    stage: int | None = None,
+) -> Iterator[Any]:
+    record_stream_id = cfg.record_stream
 
-    rec = build_record_pipeline(cfg, open_stream)
-    return feature_stage(rec, cfg, group_by)
+    dtos = open_source_stream(record_stream_id)
+    if stage == 0:
+        return dtos
+
+    records = build_record_stream(dtos, record_stream_id)
+    if stage == 1:
+        return records
+
+    records = apply_record_operations(records, record_stream_id)
+    if stage == 2:
+        return records
+
+    partition_by = partition_by_reg.get(record_stream_id)
+    features = build_feature_stream(records, cfg.id, group_by, partition_by)
+    if stage == 3:
+        return features
+
+    batch_size = sort_batch_size_reg.get(record_stream_id)
+    regularized = regularize_feature_stream(
+        features, record_stream_id, batch_size)
+    if stage == 4:
+        return regularized
+
+    transformed = apply_feature_transforms(
+        regularized, cfg.scale, cfg.sequence)
+    if stage == 5:
+        return transformed
+
+    sorted = memory_sorted(
+        transformed, batch_size=batch_size, key=canonical_key)
+    if stage == 6:  # final sort needed for downstream consumers:
+        return sorted
+    return sorted
 
 
-def build_vector_pipeline(
+def build_pipeline(
     configs: Sequence[FeatureRecordConfig],
     group_by: GroupBy,
-    open_stream: Callable[[str], Iterable[Any]],
     vector_transforms: Sequence[Mapping[str, Any]] | None = None,
-) -> Iterator[Tuple[Any, Vector]]:
-    """Merge feature streams and yield grouped vectors ready for export."""
+    stage: int | None = None,
+) -> Iterator[Any]:
+    if stage is not None and stage <= 6:
+        first = next(iter(configs))
+        return build_feature_pipeline(first, group_by, stage=stage)
 
     streams = [build_feature_pipeline(
-        c, group_by, open_stream) for c in configs]
+        cfg, group_by, stage=None) for cfg in configs]
     merged = heapq.merge(*streams, key=lambda fr: fr.group_key)
-    stream = vector_stage(merged)
-    return vector_cleaning_stage(stream, vector_transforms)
+    vectors = vector_assemble_stage(merged)
+    if stage == 7:
+        return vectors
+    cleaned = vector_cleaning_stage(vectors, vector_transforms)
+    if stage == 8 or stage is None:
+        return cleaned
+    raise ValueError("unknown stage")

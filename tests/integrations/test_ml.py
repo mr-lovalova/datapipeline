@@ -79,7 +79,7 @@ def _build_project(tmp_path: Path, *, frequency: str) -> Path:
             "features": [
                 {
                     "stream": "time.encode",
-                    "feature_id": "hour_sin",
+                    "id": "hour_sin",
                     "partition_by": None,
                 }
             ],

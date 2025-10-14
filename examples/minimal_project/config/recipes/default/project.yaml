@@ -1,0 +1,5 @@
+version: 1
+paths:
+  sources: ../../distilleries
+  streams: ../../contracts
+  dataset: recipe.yaml

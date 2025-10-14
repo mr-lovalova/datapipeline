@@ -6,7 +6,7 @@ from typing import Any, Iterator, Mapping, MutableMapping
 
 from datapipeline.domain.feature import FeatureRecord
 from datapipeline.transforms.feature.model import FeatureTransform
-from datapipeline.domain.record import TimeSeriesRecord
+from datapipeline.domain.record import TemporalRecord
 
 
 def _clone_with_value(record: Any, value: float) -> Any:
@@ -66,20 +66,20 @@ class StandardScalerTransform(FeatureTransform):
             std = 1.0
         return (mean if self.with_mean else 0.0, std)
 
-    def _extract_value(self, record: TimeSeriesRecord) -> float:
+    def _extract_value(self, record: TemporalRecord) -> float:
         value = record.value
         if isinstance(value, Real):
             return float(value)
         raise TypeError(f"Record value must be numeric, got {value!r}")
 
     def apply(self, stream: Iterator[FeatureRecord]) -> Iterator[FeatureRecord]:
-        grouped = groupby(stream, key=lambda fr: fr.feature_id)
-        for feature_id, records in grouped:
+        grouped = groupby(stream, key=lambda fr: fr.id)
+        for id, records in grouped:
             bucket = list(records)
             if not bucket:
                 continue
             values = [self._extract_value(fr.record) for fr in bucket]
-            mean, std = self._resolve_stats(feature_id, values)
+            mean, std = self._resolve_stats(id, values)
             for fr, raw in zip(bucket, values):
                 normalized = raw
                 if self.with_mean:
@@ -88,6 +88,6 @@ class StandardScalerTransform(FeatureTransform):
                     normalized /= std
                 yield FeatureRecord(
                     record=_clone_with_value(fr.record, normalized),
-                    feature_id=fr.feature_id,
+                    id=fr.id,
                     group_key=fr.group_key,
                 )

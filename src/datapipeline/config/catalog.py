@@ -1,5 +1,5 @@
-from typing import Dict, Optional, Any
-from pydantic import BaseModel, Field
+from typing import Dict, Optional, Any, List, Mapping, Union, Literal
+from pydantic import BaseModel, Field, ConfigDict
 
 
 class EPArgs(BaseModel):
@@ -7,16 +7,24 @@ class EPArgs(BaseModel):
     args: Dict[str, Any] = Field(default_factory=dict)
 
 
-class RawSourceSpec(BaseModel):
+class SourceConfig(BaseModel):
+    model_config = ConfigDict(extra='ignore')
     parser: EPArgs
     loader: EPArgs
 
 
-class CanonicalSpec(BaseModel):
-    source: str
+class ContractConfig(BaseModel):
+    source_id: str
+    stream_id: str
     mapper: Optional[EPArgs] = None
+    partition_by: Optional[Union[str, List[str]]] = Field(default=None)
+    sort_batch_size: int = Field(default=100_000)
+    record: Optional[List[Mapping[str, Any]]] = Field(default=None)
+    stream: Optional[List[Mapping[str, Any]]] = Field(default=None)
+    # Optional debug-only transforms (applied after stream transforms)
+    debug: Optional[List[Mapping[str, Any]]] = Field(default=None)
 
 
 class StreamsConfig(BaseModel):
-    raw: Dict[str, RawSourceSpec] = Field(default_factory=dict)
-    canonical: Dict[str, CanonicalSpec] = Field(default_factory=dict)
+    raw: Dict[str, SourceConfig] = Field(default_factory=dict)
+    contracts: Dict[str, ContractConfig] = Field(default_factory=dict)

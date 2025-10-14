@@ -20,8 +20,6 @@ documented pattern for ML practitioners who want to bridge the existing
 builders with their preferred tooling.
 """
 
-from __future__ import annotations
-
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from itertools import islice
@@ -32,9 +30,9 @@ from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.dataset.group_by import GroupBy
 from datapipeline.config.dataset.loader import load_dataset
 from datapipeline.domain.vector import Vector
-from datapipeline.pipeline.pipelines import build_vector_pipeline
+from datapipeline.pipeline.pipelines import build_pipeline
+from datapipeline.pipeline.stages import open_source_stream
 from datapipeline.services.bootstrap import bootstrap
-from datapipeline.streams.canonical import open_canonical_stream
 
 GroupFormat = Literal["mapping", "tuple", "list", "flat"]
 
@@ -74,14 +72,14 @@ class VectorAdapter:
     """Bootstrap a project once and provide ML-friendly iterators."""
 
     dataset: FeatureDatasetConfig
-    open_stream: Callable[[str], Iterable[Any]] = open_canonical_stream
+    open_stream: Callable[[str], Iterable[Any]] = open_source_stream
 
     @classmethod
     def from_project(
         cls,
         project_yaml: str | Path,
         *,
-        open_stream: Callable[[str], Iterable[Any]] = open_canonical_stream,
+        open_stream: Callable[[str], Iterable[Any]] = open_source_stream,
     ) -> "VectorAdapter":
         project_path = Path(project_yaml)
         dataset = load_dataset(project_path, "vectors")
@@ -94,7 +92,12 @@ class VectorAdapter:
         limit: int | None = None,
     ) -> Iterator[tuple[Sequence[Any], Vector]]:
         features = _ensure_features(self.dataset)
-        stream = build_vector_pipeline(features, self.dataset.group_by, self.open_stream)
+        stream = build_pipeline(
+            features,
+            self.dataset.group_by,
+            vector_transforms=getattr(self.dataset, "vector_transforms", None),
+            stage=None,
+        )
         if limit is not None:
             stream = islice(stream, limit)
         return stream
@@ -115,7 +118,8 @@ class VectorAdapter:
             for group_key, vector in stream:
                 row: dict[str, Any] = {}
                 if include_group:
-                    row[group_column] = _normalize_group(group_key, group_by, group_format)
+                    row[group_column] = _normalize_group(
+                        group_key, group_by, group_format)
                 for feature_id, value in vector.values.items():
                     if flatten_sequences and isinstance(value, list):
                         for idx, item in enumerate(value):
@@ -131,7 +135,7 @@ def stream_vectors(
     project_yaml: str | Path,
     *,
     limit: int | None = None,
-    open_stream: Callable[[str], Iterable[Any]] = open_canonical_stream,
+    open_stream: Callable[[str], Iterable[Any]] = open_source_stream,
 ) -> Iterator[tuple[Sequence[Any], Vector]]:
     """Yield ``(group_key, Vector)`` pairs for the configured project."""
 
@@ -150,7 +154,7 @@ def iter_vector_rows(
     group_format: GroupFormat = "mapping",
     group_column: str = "group",
     flatten_sequences: bool = False,
-    open_stream: Callable[[str], Iterable[Any]] = open_canonical_stream,
+    open_stream: Callable[[str], Iterable[Any]] = open_source_stream,
 ) -> Iterator[dict[str, Any]]:
     """Return an iterator of row dictionaries derived from vectors."""
 
@@ -175,7 +179,7 @@ def collect_vector_rows(
     group_format: GroupFormat = "mapping",
     group_column: str = "group",
     flatten_sequences: bool = False,
-    open_stream: Callable[[str], Iterable[Any]] = open_canonical_stream,
+    open_stream: Callable[[str], Iterable[Any]] = open_source_stream,
 ) -> list[dict[str, Any]]:
     """Materialize :func:`iter_vector_rows` into a list for eager workflows."""
 
@@ -199,7 +203,7 @@ def dataframe_from_vectors(
     group_format: GroupFormat = "mapping",
     group_column: str = "group",
     flatten_sequences: bool = False,
-    open_stream: Callable[[str], Iterable[Any]] = open_canonical_stream,
+    open_stream: Callable[[str], Iterable[Any]] = open_source_stream,
 ):
     """Return a Pandas DataFrame built from project vectors.
 
@@ -251,7 +255,7 @@ def torch_dataset(
     dtype: Any | None = None,
     device: Any | None = None,
     flatten_sequences: bool = False,
-    open_stream: Callable[[str], Iterable[Any]] = open_canonical_stream,
+    open_stream: Callable[[str], Iterable[Any]] = open_source_stream,
 ):
     """Build a torch.utils.data.Dataset that yields tensors from vectors.
 

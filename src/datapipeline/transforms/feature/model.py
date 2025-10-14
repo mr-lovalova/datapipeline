@@ -7,3 +7,6 @@ class FeatureTransform(ABC):
     @abstractmethod
     def apply(self, stream: Iterator[FeatureRecord]) -> Iterator[FeatureRecord]:
         pass
+
+    def __call__(self, stream: Iterator[FeatureRecord]) -> Iterator[FeatureRecord]:
+        return self.apply(stream)

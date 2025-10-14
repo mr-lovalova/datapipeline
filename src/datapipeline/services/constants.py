@@ -1,9 +1,11 @@
 PARSER_KEY = "parser"
 LOADER_KEY = "loader"
 SOURCE_KEY = "source"
+SOURCE_ID_KEY = "source_id"
 MAPPER_KEY = "mapper"
 ENTRYPOINT_KEY = "entrypoint"
 ARGS_KEY = "args"
+STREAM_ID_KEY = "stream_id"
 
 PARSERS_GROUP = "parsers"
 LOADERS_GROUP = "loaders"

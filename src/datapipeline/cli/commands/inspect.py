@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import io
 import json
 from contextlib import redirect_stdout
@@ -7,10 +5,9 @@ from pathlib import Path
 
 from datapipeline.analysis.vector_analyzer import VectorStatsCollector
 from datapipeline.config.dataset.loader import load_dataset
-from datapipeline.pipeline.pipelines import build_vector_pipeline
 from datapipeline.services.bootstrap import bootstrap
-from datapipeline.streams.canonical import open_canonical_stream
 from datapipeline.utils.paths import default_build_path, ensure_parent
+from datapipeline.pipeline.pipelines import build_pipeline
 
 
 def report(
@@ -50,7 +47,8 @@ def report(
     recipe_dir = project_path.parent
     matrix_path = None
     if matrix_fmt:
-        matrix_path = Path(matrix_output) if matrix_output else default_build_path(filename, recipe_dir)
+        matrix_path = Path(matrix_output) if matrix_output else default_build_path(
+            filename, recipe_dir)
 
     collector = VectorStatsCollector(
         expected_feature_ids or None,
@@ -64,11 +62,9 @@ def report(
     )
 
     transforms = dataset.vector_transforms if apply_vector_transforms else None
-    for group_key, vector in build_vector_pipeline(
-        dataset.features,
-        dataset.group_by,
-        open_canonical_stream,
-        transforms,
+
+    for group_key, vector in build_pipeline(
+        dataset.features, dataset.group_by, vector_transforms=transforms, stage=None
     ):
         collector.update(group_key, vector.values)
 
@@ -82,7 +78,8 @@ def report(
 
     # Optionally write coverage summary JSON to a path
     if write_coverage:
-        output_path = Path(output) if output else default_build_path("coverage.json", recipe_dir)
+        output_path = Path(output) if output else default_build_path(
+            "coverage.json", recipe_dir)
         ensure_parent(output_path)
 
         feature_stats = summary.get("feature_stats", [])
@@ -137,16 +134,14 @@ def partitions(
         show_matrix=False,
     )
 
-    for group_key, vector in build_vector_pipeline(
-        dataset.features,
-        dataset.group_by,
-        open_canonical_stream,
-        None,
+    for group_key, vector in build_pipeline(
+        dataset.features, dataset.group_by, vector_transforms=None, stage=7
     ):
         collector.update(group_key, vector.values)
 
     recipe_dir = project_path.parent
-    output_path = Path(output) if output else default_build_path("partitions.json", recipe_dir)
+    output_path = Path(output) if output else default_build_path(
+        "partitions.json", recipe_dir)
     ensure_parent(output_path)
 
     parts = sorted(collector.discovered_partitions)

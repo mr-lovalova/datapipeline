@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import json
 import pickle
 import sys
@@ -8,17 +6,15 @@ from pathlib import Path
 from typing import Iterator, Optional, Tuple
 
 from tqdm import tqdm
-
-from datapipeline.cli.openers import open_canonical_stream_visual
-from datapipeline.config.dataset.dataset import FeatureDatasetConfig, RecordDatasetConfig
+from datapipeline.domain.feature import FeatureRecord, FeatureRecordSequence
+from datapipeline.cli.visual_source import visual_sources
+from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.dataset.loader import load_dataset
 from datapipeline.pipeline.pipelines import (
     build_feature_pipeline,
-    build_record_pipeline,
-    build_vector_pipeline,
+    build_pipeline
 )
 from datapipeline.services.bootstrap import bootstrap
-from datapipeline.streams.canonical import open_canonical_stream
 from datapipeline.domain.vector import Vector
 
 
@@ -35,56 +31,57 @@ def _print_head(iterable: Iterator[object], limit: int) -> int:
     return count
 
 
-def _run_records(dataset: RecordDatasetConfig, limit: int) -> None:
-    for cfg in dataset.features:
-        print(f"\n🍷 pouring records for {cfg.id}")
-        records = build_record_pipeline(cfg, open_canonical_stream_visual)
-        printed = _print_head(records, limit)
-        print(f"(poured {printed} records)")
+# Identity validation moved to a debug transform; no longer used in CLI
 
 
-def _run_features(dataset: FeatureDatasetConfig, limit: int) -> None:
+def _run_feature_stage(dataset: FeatureDatasetConfig, stage: int, limit: int) -> None:
+    """Preview a numeric feature/vector stage.
+
+    Stages 0–6 preview the first configured feature. Stages 7–8 operate on
+    merged features and yield grouped vectors.
+    """
     group_by = dataset.group_by
-    for cfg in dataset.features:
-        print(f"\n🛠️ building features for {cfg.id}")
-        features = build_feature_pipeline(
-            cfg, group_by, open_canonical_stream_visual)
-        printed = _print_head(features, limit)
-        tqdm.write(f"(built {printed} feature records)")
 
-
-def _run_vectors(dataset: FeatureDatasetConfig, limit: int) -> None:
-    print("\n🥄 stirring vectors")
-    vectors = build_vector_pipeline(
-        dataset.features,
-        dataset.group_by,
-        open_canonical_stream_visual,
-        dataset.vector_transforms,
-    )
-    printed = _print_head(vectors, limit)
-    print(f"(stirred {printed} vectors)")
-
-
-def handle_prep(action: str, project: str, limit: int = 20) -> None:
-    stage_lookup = {"pour": "records", "build": "features", "stir": "vectors"}
-    if action not in stage_lookup:
-        raise ValueError(f"Unknown prep action: {action}")
-
-    project_path = Path(project)
-    dataset = load_dataset(project_path, stage_lookup[action])
-    bootstrap(project_path)
-
-    features = list(dataset.features or [])
-    if not features:
-        print("(no features configured; nothing to prep)")
+    # Vector stages (merged across all features)
+    if stage in (7, 8):
+        stream = build_pipeline(dataset.features, group_by, stage=stage)
+        printed = _print_head(stream, limit)
+        print(f"(assembled {printed} vectors)")
         return
 
-    if action == "pour":
-        _run_records(dataset, limit)
-    elif action == "build":
-        _run_features(dataset, limit)
-    else:
-        _run_vectors(dataset, limit)
+    # Feature stages (per-feature preview; show only the first configured)
+    stage_labels = {
+        0: ("📦", "source DTO's", "read {n} dto records"),
+        1: ("🧪", "domain records", "mapped {n} records"),
+        2: ("🍷", "records conditional steps", "poured {n} records"),
+        3: ("🧱", "building features", "built {n} feature records"),
+        4: ("🔎", "wrap only (partition_by)", "wrapped {n} feature records"),
+        5: ("🧰", "feature transforms/sequence", "transformed {n} feature records"),
+        6: ("📐", "final sort", "sorted {n} feature records"),
+    }
+
+    if stage not in stage_labels:
+        print("❗ Unsupported stage. Use 0–6 for feature stages, 7–8 for vectors.")
+        raise SystemExit(2)
+
+    icon, title, summary = stage_labels[stage]
+
+    for cfg in dataset.features + dataset.targets:
+        print(f"\n{icon} {title} for {cfg.id}")
+        stream = build_feature_pipeline(cfg, group_by, stage=stage)
+        printed = _print_head(stream, limit)
+        print(f"({summary.format(n=printed)})")
+        break
+
+
+def handle_prep_stage(project: str, stage: int, limit: int = 20) -> None:
+    """Preview a numeric feature stage (0-5) for all configured features."""
+    project_path = Path(project)
+    # Load at least 'features' stage to obtain group_by and feature configs
+    dataset = load_dataset(project_path, "features")
+    bootstrap(project_path)
+    with visual_sources():
+        _run_feature_stage(dataset, stage, limit)
 
 
 def _limit_vectors(vectors: Iterator[Tuple[object, Vector]], limit: Optional[int]) -> Iterator[Tuple[object, Vector]]:
@@ -140,10 +137,9 @@ def handle_serve(project: str, limit: Optional[int], output: str) -> None:
         print("(no features configured; nothing to serve)")
         return
 
-    vectors = build_vector_pipeline(
+    vectors = build_pipeline(
         dataset.features,
         dataset.group_by,
-        open_canonical_stream,
         dataset.vector_transforms,
     )
 

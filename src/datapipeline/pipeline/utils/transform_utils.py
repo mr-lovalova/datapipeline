@@ -1,14 +1,7 @@
-from __future__ import annotations
-
-from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from typing import Any, Optional, Tuple
+from inspect import isclass
 
-from datapipeline.config.dataset.feature import BaseRecordConfig
-from datapipeline.config.dataset.group_by import GroupBy
-from datapipeline.domain.feature import FeatureRecord
-from datapipeline.domain.record import TimeSeriesRecord
-from datapipeline.pipeline.utils.keygen import RecordKeyGenerator
-from datapipeline.plugins import FILTERS_EP, TRANSFORMS_EP
 from datapipeline.utils.load import load_ep
 
 
@@ -44,61 +37,19 @@ def _instantiate_entry_point(cls: Callable[..., Any], params: Any) -> Any:
     return cls(params)
 
 
-def filter_record_stream(
+def apply_transforms(
     stream: Iterator[Any],
-    filters: Optional[Sequence[Mapping[str, Any]]],
-) -> Iterator[Any]:
-    """Apply all configured filters to the record stream."""
-
-    for clause in filters or ():
-        name, mapping = _extract_single_pair(clause, "Filter")
-        field, target = _extract_single_pair(mapping, f"Filter '{name}'")
-        fn: Callable = load_ep(group=FILTERS_EP, name=name)
-        stream = fn(stream, field, target)
-    return stream
-
-
-def transform_record_stream(
-    stream: Iterator[Any],
+    group: str,
     transforms: Optional[Sequence[Mapping[str, Any]]],
 ) -> Iterator[Any]:
-    """Apply configured record-level transforms to the stream."""
+    """Instantiate and apply configured transforms in order."""
 
-    for clause in transforms or ():
-        name, params = _extract_single_pair(clause, "Transform")
-        fn: Callable = load_ep(group=TRANSFORMS_EP, name=name)
-        stream = _call_with_params(fn, stream, params)
+    for transform in transforms or ():
+        name, params = _extract_single_pair(transform, "Transform")
+        ep = load_ep(group=group, name=name)
+        if isclass(ep):
+            inst = _instantiate_entry_point(ep, params)
+            stream = inst(stream)
+        else:
+            stream = _call_with_params(ep, stream, params)
     return stream
-
-
-def instantiate_transforms(
-    group: str, clauses: Optional[Sequence[Mapping[str, Any]]]
-) -> list[Any]:
-    """Instantiate configured transform classes for later application."""
-
-    instances: list[Any] = []
-    for clause in clauses or ():
-        name, params = _extract_single_pair(clause, "Transform")
-        cls = load_ep(group=group, name=name)
-        instances.append(_instantiate_entry_point(cls, params))
-    return instances
-
-
-def record_to_feature(
-    stream: Iterable[TimeSeriesRecord],
-    config: BaseRecordConfig,
-    group_by: GroupBy,
-) -> Iterator[FeatureRecord]:
-    """Convert raw records into ``FeatureRecord`` instances."""
-
-    keygen = RecordKeyGenerator(config.partition_by)
-
-    def group_key(rec: TimeSeriesRecord) -> tuple:
-        return tuple(k.normalize(getattr(rec, k.field)) for k in group_by.keys)
-
-    for rec in stream:
-        yield FeatureRecord(
-            record=rec,
-            feature_id=keygen.generate(config.id, rec),
-            group_key=group_key(rec),
-        )

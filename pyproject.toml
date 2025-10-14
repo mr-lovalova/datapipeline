@@ -18,6 +18,13 @@ dependencies = [
   "jinja2>=3.0",
 ]
 
+[project.optional-dependencies]
+# Extra helpers for ML adapters in datapipeline.integrations
+ml = [
+  "pandas>=2.0",
+  "torch>=2.0",
+]
+
 [project.scripts]
 jerry = "datapipeline.cli.app:main"
 
@@ -35,52 +42,21 @@ datapipeline = [
 ]
 
 [project.entry-points."datapipeline.filters"]
-eq                       = "datapipeline.filters.filters:eq"
-equals                   = "datapipeline.filters.filters:eq"
-equal                    = "datapipeline.filters.filters:eq"
 
-# not equals
-ne                       = "datapipeline.filters.filters:ne"
-not_equal                = "datapipeline.filters.filters:ne"
-not_equals               = "datapipeline.filters.filters:ne"
+[project.entry-points."datapipeline.transforms.record"]
+lag = "datapipeline.transforms.record.lag:apply_lag"
+floor_time = "datapipeline.transforms.record.floor_time:floor_time"
+filter = "datapipeline.transforms.filter:filter"
 
-# less-than
-lt                       = "datapipeline.filters.filters:lt"
-less_than                = "datapipeline.filters.filters:lt"
+[project.entry-points."datapipeline.transforms.stream"]
+ensure_ticks = "datapipeline.transforms.stream.ensure_ticks:ensure_ticks"
+fill = "datapipeline.transforms.stream.fill:FillTransformer"
+granularity = "datapipeline.transforms.stream.granularity:FeatureGranularityTransform"
+lint = "datapipeline.transforms.stream.lint:StreamLint"
 
-# less-than-or-equal
-le                       = "datapipeline.filters.filters:le"
-lte                      = "datapipeline.filters.filters:le"
-less_or_equal            = "datapipeline.filters.filters:le"
-less_than_or_equal       = "datapipeline.filters.filters:le"
-
-# greater-than
-gt                       = "datapipeline.filters.filters:gt"
-greater_than             = "datapipeline.filters.filters:gt"
-
-# greater-than-or-equal
-ge                       = "datapipeline.filters.filters:ge"
-gte                      = "datapipeline.filters.filters:ge"
-greater_or_equal         = "datapipeline.filters.filters:ge"
-greater_than_or_equal    = "datapipeline.filters.filters:ge"
-
-# membership helpers
-"in"                     = "datapipeline.filters.filters:in_"
-contains                 = "datapipeline.filters.filters:in_"
-nin                      = "datapipeline.filters.filters:nin"
-not_in                   = "datapipeline.filters.filters:nin"
-
-
-[project.entry-points."datapipeline.transforms"]
-lag = "datapipeline.transforms.record:time_lag"
-drop_missing = "datapipeline.transforms.record:drop_missing_values"
+[project.entry-points."datapipeline.transforms.feature"]
 scale = "datapipeline.transforms.feature.scaler:StandardScalerTransform"
-fill = "datapipeline.transforms.feature.fill:FillTransformer"
 sequence = "datapipeline.transforms.sequence:WindowTransformer"
-
-[project.entry-points."datapipeline.mappers"]
-"time.synthetic" = "datapipeline.mappers.noop:identity"
-"encode_time" = "datapipeline.mappers.synthetic.time:encode"
 
 [project.entry-points."datapipeline.transforms.vector"]
 drop_missing = "datapipeline.transforms.vector:VectorDropMissingTransform"
@@ -88,6 +64,9 @@ fill_constant = "datapipeline.transforms.vector:VectorFillConstantTransform"
 fill_history = "datapipeline.transforms.vector:VectorFillHistoryTransform"
 fill_horizontal = "datapipeline.transforms.vector:VectorFillAcrossPartitionsTransform"
 
+[project.entry-points."datapipeline.mappers"]
+"time.synthetic" = "datapipeline.mappers.noop:identity"
+"encode_time" = "datapipeline.mappers.synthetic.time:encode"
 
 [project.entry-points."datapipeline.loaders"]
 "synthetic.time" = "datapipeline.sources.synthetic.time.loader:make_time_loader"
@@ -99,3 +78,6 @@ identity = "datapipeline.parsers.identity:IdentityParser"
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
+[project.entry-points."datapipeline.transforms.debug"]
+identity = "datapipeline.transforms.debug.identity:IdentityGuardTransform"
+lint = "datapipeline.transforms.stream.lint:StreamLint"

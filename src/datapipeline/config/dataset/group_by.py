@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from typing import Any, List, Literal
 
 from pydantic import BaseModel, Field, field_validator
@@ -7,12 +5,22 @@ from pydantic import BaseModel, Field, field_validator
 from datapipeline.config.dataset.normalize import floor_time_to_resolution
 
 
+class TimeKey_old(BaseModel):
+    """Configuration for a time-based grouping key."""
+
+    type: Literal["time"] = "time"
+    field: str
+    resolution: str = Field(..., pattern=r"^\d+(m|min|h)$")
+
+    def normalize(self, val: Any) -> Any:
+        return floor_time_to_resolution(val, self.resolution)
+
 class TimeKey(BaseModel):
     """Configuration for a time-based grouping key."""
 
     type: Literal["time"] = "time"
     field: str
-    resolution: str = Field(..., pattern=r"^\d+(min|h)$")
+    resolution: str = Field(..., pattern=r"^\d+(m|min|h)$")
 
     def normalize(self, val: Any) -> Any:
         return floor_time_to_resolution(val, self.resolution)
