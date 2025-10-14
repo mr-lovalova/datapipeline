@@ -10,7 +10,7 @@ from datapipeline.plugins import FEATURE_TRANSFORMS_EP, VECTOR_TRANSFORMS_EP, RE
 
 from datapipeline.config.dataset.normalize import floor_time_to_resolution
 from datapipeline.domain.record import TemporalRecord
-from datapipeline.pipeline.utils.keygen import RecordKeyGenerator
+from datapipeline.pipeline.utils.keygen import FeatureIdGenerator, group_bucket
 from datapipeline.registries.registries import record_operations, mappers, stream_sources, stream_operations, debug_operations
 from datapipeline.sources.models.source import Source
 
@@ -39,10 +39,10 @@ def build_feature_stream(
     partition_by: Any | None = None,
 ) -> Iterator[FeatureRecord]:
 
-    keygen = RecordKeyGenerator(partition_by)
+    keygen = FeatureIdGenerator(partition_by)
 
     def group_key(rec: TemporalRecord) -> tuple:
-        return (floor_time_to_resolution(rec.time, group_by),)
+        return (group_bucket(rec.time, group_by),)
 
     for rec in record_stream:
         yield FeatureRecord(
