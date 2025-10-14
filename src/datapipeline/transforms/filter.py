@@ -17,6 +17,10 @@ _ALIAS = {
     ">=": "ge",
     "<": "lt",
     "<=": "le",
+    # Membership operators
+    "in": "in_",
+    "not in": "nin",
+    "nin": "nin",
 }
 
 
