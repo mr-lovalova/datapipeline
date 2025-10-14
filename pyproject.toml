@@ -80,4 +80,4 @@ identity = "datapipeline.parsers.identity:IdentityParser"
 pythonpath = ["src"]
 [project.entry-points."datapipeline.transforms.debug"]
 identity = "datapipeline.transforms.debug.identity:IdentityGuardTransform"
-lint = "datapipeline.transforms.stream.lint:StreamLint"
+lint = "datapipeline.transforms.debug.lint:StreamLint"
