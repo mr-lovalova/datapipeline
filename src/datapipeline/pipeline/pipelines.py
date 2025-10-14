@@ -15,7 +15,7 @@ from datapipeline.pipeline.stages import (
     regularize_feature_stream,
     apply_feature_transforms,
     vector_assemble_stage,
-    vector_cleaning_stage)
+    post_process)
 from datapipeline.registries.registries import (
     partition_by as partition_by_reg,
     sort_batch_size as sort_batch_size_reg,
@@ -80,7 +80,7 @@ def build_pipeline(
     vectors = vector_assemble_stage(merged)
     if stage == 7:
         return vectors
-    cleaned = vector_cleaning_stage(vectors, vector_transforms)
+    cleaned = post_process(vectors, vector_transforms)
     if stage == 8 or stage is None:
         return cleaned
     raise ValueError("unknown stage")

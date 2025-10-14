@@ -94,7 +94,6 @@ def apply_feature_transforms(
     transformed = apply_transforms(
         feature_stream, FEATURE_TRANSFORMS_EP, clauses)
     return transformed
-    # return memory_sorted(transformed, batch_size=batch_size, key=canonical_key)
 
 
 def vector_assemble_stage(merged: Iterator[FeatureRecord | FeatureRecordSequence]) -> Iterator[Tuple[Any, Vector]]:
@@ -113,7 +112,7 @@ def vector_assemble_stage(merged: Iterator[FeatureRecord | FeatureRecordSequence
         yield group_key, vectorize_record_group(feature_map)
 
 
-def vector_cleaning_stage(
+def post_process(
     stream: Iterator[Tuple[Any, Vector]],
     clauses: Optional[Sequence[Mapping[str, Any]]],
 ) -> Iterator[Tuple[Any, Vector]]:
