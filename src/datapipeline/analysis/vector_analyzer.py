@@ -2,6 +2,7 @@ import csv
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any, Hashable, Iterable, Literal
+from datetime import datetime
 
 
 def _base_feature_id(feature_id: str) -> str:
@@ -71,6 +72,25 @@ class VectorStatsCollector:
                                      dict[str, list[str]]] = defaultdict(dict)
         self.group_partition_sub: dict[Hashable,
                                        dict[str, list[str]]] = defaultdict(dict)
+
+    @staticmethod
+    def _group_sort_key(g: Hashable):
+        """Stable, chronological sort key for group keys.
+
+        Many pipelines use a 1-tuple containing a datetime as the group key.
+        Sorting by ``str(g)`` can produce lexicographic mis-ordering (e.g.,
+        hours "3" vs "21"). This helper prefers numeric datetime ordering and
+        falls back to string representation only when needed.
+        """
+        def norm(p: Any):
+            if isinstance(p, datetime):
+                # Use POSIX timestamp for monotonic ordering
+                return p.timestamp()
+            return p
+
+        if isinstance(g, (tuple, list)):
+            return tuple(norm(p) for p in g)
+        return norm(g)
 
     def _normalize(self, feature_id: str) -> str:
         if self.match_partition == "full":
@@ -230,7 +250,7 @@ class VectorStatsCollector:
             statuses = status_map.get(group, {})
             return statuses.get(fid, "absent")
 
-        sorted_groups = sorted(status_map.keys(), key=lambda g: str(g))
+        sorted_groups = sorted(status_map.keys(), key=self._group_sort_key)
         focus_groups = [
             g
             for g in sorted_groups
@@ -569,7 +589,7 @@ class VectorStatsCollector:
         keys = set(self.group_feature_status.keys()) | set(
             self.group_partition_status.keys()
         )
-        return sorted(keys, key=lambda g: str(g))
+        return sorted(keys, key=self._group_sort_key)
 
     def _write_matrix_csv(self, path: Path) -> None:
         rows: list[tuple[str, str, str, str]] = []
