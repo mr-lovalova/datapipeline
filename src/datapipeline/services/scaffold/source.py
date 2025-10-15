@@ -7,7 +7,10 @@ from datapipeline.services.scaffold.templates import camel, render
 from ..constants import COMPOSED_LOADER_EP
 from ..entrypoints import inject_ep
 from ..paths import pkg_root, resolve_base_pkg_dir
-from datapipeline.services.project_paths import sources_dir as resolve_sources_dir
+from datapipeline.services.project_paths import (
+    sources_dir as resolve_sources_dir,
+    ensure_project_scaffold,
+)
 
 
 def _class_prefix(provider: str, dataset: str) -> str:
@@ -132,12 +135,15 @@ def create_source(*, provider: str, dataset: str, transport: str,
     # If not present or invalid, let the exception bubble up to prompt the user
     # to provide a valid project path.
     proj_yaml = root_dir / "config" / "recipes" / "default" / "project.yaml"
+    # Best-effort: create a minimal project scaffold if missing
+    ensure_project_scaffold(proj_yaml)
     sources_dir = resolve_sources_dir(proj_yaml).resolve()
     sources_dir.mkdir(parents=True, exist_ok=True)
     src_cfg_path = sources_dir / f"{alias}.yaml"
     if not src_cfg_path.exists():
         src_cfg_path.write_text(render(
             "source.yaml.j2",
+            source_id=alias,
             parser_ep=ep_key,
             parser_args={},
             loader_ep=loader_ep,
