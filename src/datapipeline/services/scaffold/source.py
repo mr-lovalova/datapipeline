@@ -131,10 +131,10 @@ def create_source(*, provider: str, dataset: str, transport: str,
     alias = _source_alias(provider, dataset)
     loader_ep, loader_args = _loader_ep_and_args(transport, format, ep_key)
 
-    # Resolve sources directory from a single recipe-scoped project config.
+    # Resolve sources directory from a single dataset-scoped project config.
     # If not present or invalid, let the exception bubble up to prompt the user
     # to provide a valid project path.
-    proj_yaml = root_dir / "config" / "recipes" / "default" / "project.yaml"
+    proj_yaml = root_dir / "config" / "datasets" / "default" / "project.yaml"
     # Best-effort: create a minimal project scaffold if missing
     ensure_project_scaffold(proj_yaml)
     sources_dir = resolve_sources_dir(proj_yaml).resolve()

@@ -222,9 +222,9 @@ materialize all registered sources and streams
 ### Prep any station (with visuals)
 
 ```bash
-jerry prep pour   --project config/recipes/default/project.yaml --limit 20
-jerry prep build  --project config/recipes/default/project.yaml --limit 20
-jerry prep stir   --project config/recipes/default/project.yaml --limit 20
+jerry prep pour   --project config/datasets/default/project.yaml --limit 20
+jerry prep build  --project config/datasets/default/project.yaml --limit 20
+jerry prep stir   --project config/datasets/default/project.yaml --limit 20
 ```
 
 - `prep pour` shows the record-stage ingredients headed for each feature.
@@ -241,9 +241,9 @@ loaders. The CLI wires up `build_record_pipeline`, `build_feature_pipeline` and
 ### Serve the flights (production mode)
 
 ```bash
-jerry serve --project config/recipes/default/project.yaml --output print
-jerry serve --project config/recipes/default/project.yaml --output stream
-jerry serve --project config/recipes/default/project.yaml --output exports/batch.pt
+jerry serve --project config/datasets/default/project.yaml --output print
+jerry serve --project config/datasets/default/project.yaml --output stream
+jerry serve --project config/datasets/default/project.yaml --output exports/batch.pt
 ```
 
 Production mode skips the bar flair and focuses on throughput. `print` writes tasting
@@ -294,14 +294,14 @@ or feature store SDKs—without adding opinionated glue to the runtime itself.
 
 Use the inspect helpers for different outputs:
 
-- `jerry inspect report --project config/recipes/default/project.yaml` — print a
+- `jerry inspect report --project config/datasets/default/project.yaml` — print a
   human-readable quality report (totals, keep/below lists, optional partition detail).
-- `jerry inspect coverage --project config/recipes/default/project.yaml` — persist the
+- `jerry inspect coverage --project config/datasets/default/project.yaml` — persist the
   coverage summary to `build/coverage.json` (keep/below feature and partition lists plus
   coverage percentages).
-- `jerry inspect matrix --project config/recipes/default/project.yaml --format html` —
+- `jerry inspect matrix --project config/datasets/default/project.yaml --format html` —
   export availability matrices (CSV or HTML) for deeper analysis.
-- `jerry inspect partitions --project config/recipes/default/project.yaml` — write the
+- `jerry inspect partitions --project config/datasets/default/project.yaml` — write the
   observed partition manifest to `build/partitions.json` for use in configs.
 
 Note: `jerry prep taste` has been removed; use `jerry inspect report` and friends.

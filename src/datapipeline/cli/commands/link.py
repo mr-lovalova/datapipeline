@@ -29,8 +29,8 @@ def handle() -> None:
     root_dir, name, pyproject = pkg_root(None)
 
     # Discover sources by scanning sources_dir YAMLs
-    # Default to recipe-scoped project config to match other commands
-    proj_path = root_dir / "config" / "recipes" / "default" / "project.yaml"
+    # Default to dataset-scoped project config
+    proj_path = root_dir / "config" / "datasets" / "default" / "project.yaml"
     # Ensure a minimal project scaffold so we can resolve dirs interactively
     ensure_project_scaffold(proj_path)
     sources_dir = resolve_sources_dir(proj_path)

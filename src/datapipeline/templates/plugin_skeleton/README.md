@@ -18,8 +18,6 @@ Folder layout
 - `config/`
   - `sources/*.yaml` — raw source definitions (one file per source)
   - `contracts/*.yaml` — canonical stream definitions
-  - `recipes/<name>/` — experiment configs (each directory holds a `project.yaml`,
-    `dataset.yaml`, and a `build/` folder for generated artifacts)
 - `src/{{PACKAGE_NAME}}/`
   - `sources/<provider>/<dataset>/dto.py` — DTO model for the source
   - `sources/<provider>/<dataset>/parser.py` — parse raw → DTO
@@ -36,15 +34,15 @@ How loaders work
 - Synthetic sources generate data in-process and keep a small loader stub.
 
 Run data flows
-- Records: `jerry prep pour -p config/recipes/default/project.yaml -n 100`
-- Features: `jerry prep build -p config/recipes/default/project.yaml -n 100`
-- Vectors: `jerry prep stir -p config/recipes/default/project.yaml -n 100`
+- Records: `jerry prep pour -p config/datasets/default/project.yaml -n 100`
+- Features: `jerry prep build -p config/datasets/default/project.yaml -n 100`
+- Vectors: `jerry prep stir -p config/datasets/default/project.yaml -n 100`
 
 Analyze vectors
-- `jerry inspect report   --project config/recipes/default/project.yaml` (console only)
-- `jerry inspect coverage --project config/recipes/default/project.yaml` (writes build/coverage.json)
-- `jerry inspect matrix   --project config/recipes/default/project.yaml --format html` (writes build/matrix.html)
-- `jerry inspect partitions --project config/recipes/default/project.yaml` (writes build/partitions.json)
+- `jerry inspect report   --project config/datasets/default/project.yaml` (console only)
+- `jerry inspect coverage --project config/datasets/default/project.yaml` (writes build/coverage.json)
+- `jerry inspect matrix   --project config/datasets/default/project.yaml --format html` (writes build/matrix.html)
+- `jerry inspect partitions --project config/datasets/default/project.yaml` (writes build/partitions.json)
 - Use `vector_transforms` to keep coverage high (history/horizontal fills, constants, or
   drop rules) before serving vectors.
 

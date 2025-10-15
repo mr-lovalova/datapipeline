@@ -40,7 +40,7 @@ def main() -> None:
     p_prep.add_argument(
         "--project",
         "-p",
-        default="config/recipes/default/project.yaml",
+        default="config/datasets/default/project.yaml",
         help="path to project.yaml",
     )
     p_prep.add_argument("--limit", "-n", type=int, default=20)
@@ -54,7 +54,7 @@ def main() -> None:
     p_prep_stage.add_argument(
         "--project",
         "-p",
-        default="config/recipes/default/project.yaml",
+        default="config/datasets/default/project.yaml",
         help="path to project.yaml",
     )
     p_prep_stage.add_argument("--limit", "-n", type=int, default=20)
@@ -69,7 +69,7 @@ def main() -> None:
     p_serve.add_argument(
         "--project",
         "-p",
-        default="config/recipes/default/project.yaml",
+        default="config/datasets/default/project.yaml",
         help="path to project.yaml",
     )
     p_serve.add_argument(
@@ -176,7 +176,7 @@ def main() -> None:
     p_inspect_report.add_argument(
         "--project",
         "-p",
-        default="config/recipes/default/project.yaml",
+        default="config/datasets/default/project.yaml",
         help="path to project.yaml",
     )
     p_inspect_report.add_argument(
@@ -207,7 +207,7 @@ def main() -> None:
     p_inspect_cov.add_argument(
         "--project",
         "-p",
-        default="config/recipes/default/project.yaml",
+        default="config/datasets/default/project.yaml",
         help="path to project.yaml",
     )
     p_inspect_cov.add_argument(
@@ -244,7 +244,7 @@ def main() -> None:
     p_inspect_matrix.add_argument(
         "--project",
         "-p",
-        default="config/recipes/default/project.yaml",
+        default="config/datasets/default/project.yaml",
         help="path to project.yaml",
     )
     p_inspect_matrix.add_argument(
@@ -297,7 +297,7 @@ def main() -> None:
     p_inspect_parts.add_argument(
         "--project",
         "-p",
-        default="config/recipes/default/project.yaml",
+        default="config/datasets/default/project.yaml",
         help="path to project.yaml",
     )
     p_inspect_parts.add_argument(
@@ -318,7 +318,7 @@ def main() -> None:
     if args.cmd == "prep":
         from datapipeline.cli.commands.run import handle_prep_stage
         handle_prep_stage(
-            project=getattr(args, "project", "config/recipes/default/project.yaml"),
+            project=getattr(args, "project", "config/datasets/default/project.yaml"),
             stage=getattr(args, "num", 0),
             limit=getattr(args, "limit", 20),
         )
@@ -337,7 +337,7 @@ def main() -> None:
         subcmd = getattr(args, "inspect_cmd", None)
         if subcmd in (None, "report"):
             handle_inspect_report(
-                project=getattr(args, "project", "config/recipes/default/project.yaml"),
+                project=getattr(args, "project", "config/datasets/default/project.yaml"),
                 output=None,
                 threshold=getattr(args, "threshold", 0.95),
                 match_partition=getattr(args, "match_partition", "base"),
