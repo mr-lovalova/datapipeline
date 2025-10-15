@@ -3,7 +3,11 @@ from datapipeline.services.paths import pkg_root, resolve_base_pkg_dir
 from datapipeline.services.entrypoints import read_group_entries
 import yaml
 from datapipeline.services.constants import FILTERS_GROUP, MAPPER_KEY, ENTRYPOINT_KEY, ARGS_KEY, SOURCE_KEY
-from datapipeline.services.project_paths import sources_dir as resolve_sources_dir, streams_dir as resolve_streams_dir
+from datapipeline.services.project_paths import (
+    sources_dir as resolve_sources_dir,
+    streams_dir as resolve_streams_dir,
+    ensure_project_scaffold,
+)
 from datapipeline.services.scaffold.mappers import attach_source_to_domain
 import re
 
@@ -27,6 +31,8 @@ def handle() -> None:
     # Discover sources by scanning sources_dir YAMLs
     # Default to recipe-scoped project config to match other commands
     proj_path = root_dir / "config" / "recipes" / "default" / "project.yaml"
+    # Ensure a minimal project scaffold so we can resolve dirs interactively
+    ensure_project_scaffold(proj_path)
     sources_dir = resolve_sources_dir(proj_path)
     source_options = []
     if sources_dir.exists():
@@ -81,20 +87,43 @@ def handle() -> None:
     # Inject per-file canonical stream into streams directory
     streams_path = resolve_streams_dir(proj_path)
 
-    canonical_alias = src_key  # default canonical stream alias
+    canonical_alias = src_key  # default canonical stream alias (= stream_id)
     mapper_ep = ep_key
-    # Write a single-file canonical spec into streams directory
+    # Write a single-file canonical spec into streams directory, matching
+    # ContractConfig schema with helpful commented placeholders per stage.
     try:
         # Ensure streams_path is a directory path
         streams_dir = streams_path if streams_path.is_dir() else streams_path.parent
         streams_dir.mkdir(parents=True, exist_ok=True)
         cfile = streams_dir / f"{canonical_alias}.yaml"
-        data = {
-            SOURCE_KEY: src_key,
-            MAPPER_KEY: {ENTRYPOINT_KEY: mapper_ep, ARGS_KEY: {}},
-        }
+        # Build a richer scaffold as YAML text to preserve comments
+        scaffold = f"""
+source_id: {src_key}
+stream_id: {canonical_alias}
+
+mapper:
+  entrypoint: {mapper_ep}
+  args: {{}}
+
+# partition_by: <field or [fields]> 
+# sort_batch_size: 100000              # in-memory sort chunk size
+
+# record:                              # record-level transforms (run before partitioning)
+#   - filter: {{ operator: ge, field: time, comparand: "${{start_time}}" }}
+#   - filter: {{ operator: le, field: time, comparand: "${{end_time}}" }}
+#   - floor_time: {{ resolution: 10m }}
+#   - lag: {{ lag: 10m }}
+
+# stream:                              # per-feature transforms (input sorted by id,time)
+#   - ensure_ticks: {{ tick: 10m }}
+#   - granularity: {{ mode: first }}
+#   - fill: {{ statistic: median, window: 6, min_samples: 1 }}
+
+# debug:                               # optional validation-only checks
+#   - lint: {{ mode: warn, tick: 10m }}
+"""
         with cfile.open("w", encoding="utf-8") as f:
-            yaml.safe_dump(data, f, sort_keys=False, default_flow_style=False)
+            f.write(scaffold)
         print(f"✨ Created canonical spec: {cfile}")
     except Exception as e:
         print(f"❗ Failed to write canonical spec: {e}", file=sys.stderr)
