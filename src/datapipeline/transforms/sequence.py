@@ -46,8 +46,8 @@ class WindowTransformer:
     def apply(self, stream: Iterator[FeatureRecord]) -> Iterator[FeatureRecord]:
         """Assumes input is pre-sorted by (feature_id, record.time).
 
-        Produces sliding windows per feature_id. Each output FeatureRecord has
-        a list[Record] in ``record`` and carries the current group_key.
+        Produces sliding windows per feature_id. Each output carries a
+        list[Record] in ``records``.
         """
 
         grouped = groupby(stream, key=lambda fr: fr.id)
@@ -80,6 +80,5 @@ class WindowTransformer:
                     yield FeatureRecordSequence(
                         records=[r.record for r in window],
                         id=id,
-                        group_key=fr.group_key,
                     )
                 step += 1

@@ -59,7 +59,7 @@ class IdentityGuardTransform:
         current_key = None
         baseline: dict | None = None
         for fr in stream:
-            key = (fr.id, fr.group_key)
+            key = fr.id
             rec = fr.record
             ident = self._identity_map(rec)
             if key != current_key:
@@ -68,8 +68,7 @@ class IdentityGuardTransform:
             else:
                 if ident != baseline:
                     self._violation(
-                        "identity drift in feature stream id=%s group=%s: expected=%s observed=%s"
-                        % (fr.id, fr.group_key, baseline, ident)
+                        "identity drift in feature stream id=%s: expected=%s observed=%s"
+                        % (fr.id, baseline, ident)
                     )
             yield fr
-

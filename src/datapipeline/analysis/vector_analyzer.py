@@ -66,6 +66,11 @@ class VectorStatsCollector:
 
         self.group_feature_status = defaultdict(dict)
         self.group_partition_status = defaultdict(dict)
+        # Optional per-cell sub-status for list-valued entries (finer resolution inside a bucket)
+        self.group_feature_sub: dict[Hashable,
+                                     dict[str, list[str]]] = defaultdict(dict)
+        self.group_partition_sub: dict[Hashable,
+                                       dict[str, list[str]]] = defaultdict(dict)
 
     def _normalize(self, feature_id: str) -> str:
         if self.match_partition == "full":
@@ -96,6 +101,21 @@ class VectorStatsCollector:
 
             self.discovered_features.add(normalized)
             self.discovered_partitions.add(partition_id)
+
+            # Capture sub-status for list-valued entries
+            sub: list[str] | None = None
+            if isinstance(value, list):
+                sub = []
+                for v in value:
+                    if v is None or (isinstance(v, float) and v != v):
+                        sub.append("null")
+                    else:
+                        sub.append("present")
+                if sub:
+                    self.group_partition_sub[group_key][partition_id] = sub
+                    # Only store one sub per normalized id (first seen)
+                    self.group_feature_sub[group_key].setdefault(
+                        normalized, sub)
 
             is_null = _is_missing_value(value)
             if is_null:
@@ -573,7 +593,7 @@ class VectorStatsCollector:
         partition_ids = self._collect_partition_ids()
         group_keys = self._collect_group_keys()
 
-        def render_table(title: str, identifiers: list[str], status_map: dict) -> str:
+        def render_table(title: str, identifiers: list[str], status_map: dict, sub_map: dict) -> str:
             if not identifiers:
                 return f"<h2>{title}</h2><p>No data.</p>"
 
@@ -594,9 +614,19 @@ class VectorStatsCollector:
                 for identifier in identifiers:
                     status = statuses.get(identifier, "absent")
                     cls = cell_class.get(status, "status-absent")
-                    symbol = self._symbol_for(status)
-                    cells.append(
-                        f"<td class='{cls}' title='{status}'>{symbol}</td>")
+                    # Render sub-cells when available to convey partial availability
+                    sub = sub_map.get(group, {}).get(identifier)
+                    if sub:
+                        parts = "".join(
+                            f"<span class='{cell_class.get(s, 'status-absent')}' title='{s}'>&nbsp;</span>"
+                            for s in sub
+                        )
+                        cells.append(
+                            f"<td title='{status}'><div class='sub'>{parts}</div></td>")
+                    else:
+                        symbol = self._symbol_for(status)
+                        cells.append(
+                            f"<td class='{cls}' title='{status}'>{symbol}</td>")
                 rows_html.append(
                     f"<tr><th>{key_str}</th>{''.join(cells)}</tr>"
                 )
@@ -613,11 +643,13 @@ class VectorStatsCollector:
             "Feature Availability",
             feature_ids,
             self.group_feature_status,
+            self.group_feature_sub,
         )
         partition_table = render_table(
             "Partition Availability",
             partition_ids,
             self.group_partition_status,
+            self.group_partition_sub,
         )
 
         style = """
@@ -628,6 +660,8 @@ class VectorStatsCollector:
             .status-present { background: #2ecc71; color: #fff; }
             .status-null { background: #f1c40f; color: #000; }
             .status-absent { background: #e74c3c; color: #fff; }
+            .sub { display: flex; gap: 1px; height: 12px; }
+            .sub span { flex: 1; display: block; }
         """
 
         html = (

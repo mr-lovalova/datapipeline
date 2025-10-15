@@ -5,7 +5,6 @@ from dataclasses import dataclass
 @dataclass
 class BaseFeature:
     id: str
-    group_key: tuple
 
 
 @dataclass

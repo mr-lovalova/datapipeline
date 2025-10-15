@@ -10,7 +10,7 @@ from datapipeline.plugins import FEATURE_TRANSFORMS_EP, VECTOR_TRANSFORMS_EP, RE
 
 from datapipeline.config.dataset.normalize import floor_time_to_resolution
 from datapipeline.domain.record import TemporalRecord
-from datapipeline.pipeline.utils.keygen import FeatureIdGenerator, group_bucket
+from datapipeline.pipeline.utils.keygen import FeatureIdGenerator, group_key_for
 from datapipeline.registries.registries import record_operations, mappers, stream_sources, stream_operations, debug_operations
 from datapipeline.sources.models.source import Source
 
@@ -35,20 +35,15 @@ def apply_record_operations(record_stream: Iterable[TemporalRecord], stream_id: 
 def build_feature_stream(
     record_stream: Iterable[TemporalRecord],
     base_feature_id: str,
-    group_by: str,
     partition_by: Any | None = None,
 ) -> Iterator[FeatureRecord]:
 
     keygen = FeatureIdGenerator(partition_by)
 
-    def group_key(rec: TemporalRecord) -> tuple:
-        return (group_bucket(rec.time, group_by),)
-
     for rec in record_stream:
         yield FeatureRecord(
             record=rec,
             id=keygen.generate(base_feature_id, rec),
-            group_key=group_key(rec),
         )
 
 
@@ -66,7 +61,6 @@ def regularize_feature_stream(
     transformed = apply_transforms(
         sorted, STREAM_TRANFORMS_EP, stream_operations.get(stream_id)
     )
-    # Apply optional debug-only transforms (e.g., lint/identity checks)
     transformed = apply_transforms(
         transformed, DEBUG_TRANSFORMS_EP, debug_operations.get(stream_id)
     )
@@ -96,12 +90,17 @@ def apply_feature_transforms(
     return transformed
 
 
-def vector_assemble_stage(merged: Iterator[FeatureRecord | FeatureRecordSequence]) -> Iterator[Tuple[Any, Vector]]:
+def vector_assemble_stage(
+    merged: Iterator[FeatureRecord | FeatureRecordSequence],
+    group_by_cadence: str,
+) -> Iterator[Tuple[Any, Vector]]:
     """Group the merged feature stream by group_key.
     Coalesce each partitioned feature_id into record buckets.
     Yield (group_key, Vector) pairs ready for downstream consumption."""
 
-    for group_key, group in groupby(merged, key=lambda fr: fr.group_key):
+    for group_key, group in groupby(
+        merged, key=lambda fr: group_key_for(fr, group_by_cadence)
+    ):
         feature_map = defaultdict(list)
         for fr in group:
             if isinstance(fr, FeatureRecordSequence):

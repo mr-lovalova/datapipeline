@@ -23,6 +23,20 @@ class FeatureIdGenerator:
         return f"{base_id}__{suffix}"
 
 
-def group_bucket(t: datetime, resolution: str) -> datetime:
-    """Return the bucketed timestamp for the given resolution (time-only)."""
-    return floor_time_to_resolution(t, resolution)
+def _anchor_time(item: Any) -> datetime | None:
+    """Return representative datetime for grouping.
+
+    - FeatureRecord → record.time
+    - FeatureRecordSequence → first record time if present
+    """
+    rec = getattr(item, "record", None)
+    if rec is not None:
+        return getattr(rec, "time", None)
+    recs = getattr(item, "records", None)
+    return getattr(recs[0], "time", None) if recs else None
+
+
+def group_key_for(item: Any, resolution: str) -> tuple:
+    """Compute 1-tuple bucket key from a FeatureRecord or FeatureRecordSequence."""
+    t = _anchor_time(item)
+    return (floor_time_to_resolution(t, resolution),)

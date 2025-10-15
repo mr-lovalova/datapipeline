@@ -92,7 +92,6 @@ class FillTransformer:
                             yield FeatureRecord(
                                 record=_clone_with_value(fr.record, fill),
                                 id=id,
-                                group_key=fr.group_key,
                             )
                             continue
                     # Not enough valid samples in window: pass through missing

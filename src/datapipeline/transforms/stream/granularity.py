@@ -38,14 +38,14 @@ class FeatureGranularityTransform:
 
         Precondition: input is sorted by (feature_id, record.time).
 
-        We process one base feature stream at a time (feature_id + group_key),
+        We process one base feature stream at a time (feature_id),
         bucket its records by timestamp, then aggregate each bucket according to
         the selected mode (first/last/mean/median), emitting in increasing timestamp
         order.
         """
 
-        # State for the current base stream: (id, group_key)
-        current_key: tuple[str, tuple] | None = None
+        # State for the current base stream: id
+        current_key: str | None = None
         # Buckets of same-timestamp duplicates for the current base stream
         # Maintain insertion order of timestamps as encountered
         time_buckets: dict[object, list[FeatureRecord]] = {}
@@ -71,9 +71,9 @@ class FeatureGranularityTransform:
             return iter(out)
 
         for fr in stream:
-            base_key = (fr.id, fr.group_key)
+            base_key = fr.id
             t = getattr(fr.record, "time", None)
-            # Start new base stream when feature_id or group_key changes
+            # Start new base stream when feature_id changes
             if current_key is not None and base_key != current_key:
                 for out in flush_current():
                     yield out

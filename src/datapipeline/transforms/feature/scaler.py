@@ -89,5 +89,4 @@ class StandardScalerTransform(FeatureTransform):
                 yield FeatureRecord(
                     record=_clone_with_value(fr.record, normalized),
                     id=fr.id,
-                    group_key=fr.group_key,
                 )

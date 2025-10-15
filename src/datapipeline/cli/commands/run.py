@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Iterator, Optional, Tuple
 
 from tqdm import tqdm
-from datapipeline.domain.feature import FeatureRecord, FeatureRecordSequence
 from datapipeline.cli.visual_source import visual_sources
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.dataset.loader import load_dataset
@@ -31,22 +30,21 @@ def _print_head(iterable: Iterator[object], limit: int) -> int:
     return count
 
 
-# Identity validation moved to a debug transform; no longer used in CLI
-
-
 def _run_feature_stage(dataset: FeatureDatasetConfig, stage: int, limit: int) -> None:
     """Preview a numeric feature/vector stage.
 
-    Stages 0–6 preview the first configured feature. Stages 7–8 operate on
-    merged features and yield grouped vectors.
+    Stages 0–5 preview the first configured feature.
+    Stage 6 assembles merged vectors (no vector transforms).
+    Stage 7 applies vector transforms.
     """
     group_by = dataset.group_by
 
     # Vector stages (merged across all features)
-    if stage in (7, 8):
+    if stage in (6, 7):
         stream = build_pipeline(dataset.features, group_by, stage=stage)
         printed = _print_head(stream, limit)
-        print(f"(assembled {printed} vectors)")
+        label = "assembled" if stage == 6 else "transformed"
+        print(f"({label} {printed} vectors)")
         return
 
     # Feature stages (per-feature preview; show only the first configured)
@@ -57,11 +55,10 @@ def _run_feature_stage(dataset: FeatureDatasetConfig, stage: int, limit: int) ->
         3: ("🧱", "building features", "built {n} feature records"),
         4: ("🔎", "wrap only (partition_by)", "wrapped {n} feature records"),
         5: ("🧰", "feature transforms/sequence", "transformed {n} feature records"),
-        6: ("📐", "final sort", "sorted {n} feature records"),
     }
 
     if stage not in stage_labels:
-        print("❗ Unsupported stage. Use 0–6 for feature stages, 7–8 for vectors.")
+        print("❗ Unsupported stage. Use 0–5 for features, 6–7 for vectors.")
         raise SystemExit(2)
 
     icon, title, summary = stage_labels[stage]
@@ -77,7 +74,6 @@ def _run_feature_stage(dataset: FeatureDatasetConfig, stage: int, limit: int) ->
 def handle_prep_stage(project: str, stage: int, limit: int = 20) -> None:
     """Preview a numeric feature stage (0-5) for all configured features."""
     project_path = Path(project)
-    # Load at least 'features' stage to obtain group_by and feature configs
     dataset = load_dataset(project_path, "features")
     bootstrap(project_path)
     with visual_sources():
