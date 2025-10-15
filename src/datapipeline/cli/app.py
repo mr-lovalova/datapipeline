@@ -81,9 +81,9 @@ def main() -> None:
         help="output destination: 'print', 'stream', or a file ending in .pt",
     )
 
-    # distillery (sources)
+    # source
     p_dist = sub.add_parser(
-        "distillery",
+        "source",
         help="add or list raw sources",
         parents=[common],
     )
@@ -116,9 +116,9 @@ def main() -> None:
     )
     dist_sub.add_parser("list", help="list known sources")
 
-    # spirit (domains)
+    # domain
     p_spirit = sub.add_parser(
-        "spirit",
+        "domain",
         help="add or list domains",
         parents=[common],
     )
@@ -134,7 +134,7 @@ def main() -> None:
     # contract (link source ↔ domain)
     p_contract = sub.add_parser(
         "contract",
-        help="link a distillery source to a spirit domain",
+        help="link a source to a domain",
         parents=[common],
     )
 
@@ -385,7 +385,7 @@ def main() -> None:
             )
         return
 
-    if args.cmd == "distillery":
+    if args.cmd == "source":
         if args.dist_cmd == "list":
             handle_list(subcmd="sources")
         else:
@@ -398,7 +398,7 @@ def main() -> None:
             )
         return
 
-    if args.cmd == "spirit":
+    if args.cmd == "domain":
         if args.spirit_cmd == "list":
             handle_list(subcmd="domains")
         else:

@@ -102,9 +102,9 @@ values—they are interpolated into downstream YAML specs during bootstrap
 ```yaml
 version: 1
 paths:
-  sources: ../../distilleries
+  sources: ../../sources
   streams: ../../contracts
-  dataset: recipe.yaml
+  dataset: dataset.yaml
 globals:
   opening_time: "2024-01-01T16:00:00Z"
   last_call: "2024-01-02T02:00:00Z"
@@ -115,13 +115,13 @@ globals:
 
 ### 3. Stock the bottles (raw sources)
 
-Create `config/distilleries/<alias>.yaml` files. Each must expose a `parser` and `loader`
+Create `config/sources/<alias>.yaml` files. Each must expose a `parser` and `loader`
 pointing at entry points plus any constructor arguments
 (`src/datapipeline/services/bootstrap.py`). Here is a synthetic clock source that feels
 like a drip of barrel-aged bitters:
 
 ```yaml
-# config/distilleries/time_ticks.yaml
+# config/sources/time_ticks.yaml
 parser:
   entrypoint: "synthetic.time"
   args: {}
@@ -163,7 +163,7 @@ are grouped (`src/datapipeline/config/dataset/dataset.py`). A minimal hourly men
 look like:
 
 ```yaml
-# config/recipes/default/recipe.yaml
+# config/recipes/default/dataset.yaml
 group_by:
   keys:
     - type: time
@@ -327,15 +327,15 @@ transforms.
 Use the CLI helpers to scaffold boilerplate code in your plugin workspace:
 
 ```bash
-jerry distillery add --provider dmi --dataset metobs --transport fs --format csv
-jerry spirit add --domain metobs
+jerry source add --provider dmi --dataset metobs --transport fs --format csv
+jerry domain add --domain metobs
 jerry contract
 ```
 
-The distillery command writes DTO/parser stubs, updates entry points and drops a matching
-YAML file in `config/distilleries/` pre-filled with composed-loader defaults for the chosen
+The source command writes DTO/parser stubs, updates entry points and drops a matching
+YAML file in `config/sources/` pre-filled with composed-loader defaults for the chosen
 transport (`src/datapipeline/cli/app.py`, `src/datapipeline/services/scaffold/source.py`).
-`jerry spirit add` now always scaffolds `TimeSeriesRecord` domains so every mapper carries
+`jerry domain add` now always scaffolds `TimeSeriesRecord` domains so every mapper carries
 an explicit timestamp alongside its value, and `jerry contract` wires that source/domain
 pair up for canonical stream generation.
 

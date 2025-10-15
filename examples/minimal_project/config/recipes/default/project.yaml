@@ -1,5 +1,5 @@
 version: 1
 paths:
-  sources: ../../distilleries
+  sources: ../../sources
   streams: ../../contracts
-  dataset: recipe.yaml
+  dataset: dataset.yaml

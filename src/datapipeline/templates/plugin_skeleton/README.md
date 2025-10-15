@@ -6,20 +6,20 @@ Quick start
 - Initialize a plugin (already done if you’re reading this here):
 - `jerry bar init --name {{PACKAGE_NAME}}`
 - Add a source via CLI (transport-specific placeholders are scaffolded):
-  - File data: `jerry distillery add -p <provider> -d <dataset> -t fs -f <csv|json|json-lines>`
-  - URL data: `jerry distillery add -p <provider> -d <dataset> -t url -f <json|json-lines|csv>`
-  - Synthetic: `jerry distillery add -p <provider> -d <dataset> -t synthetic`
-- Edit the generated `config/distilleries/*.yaml` to fill in the `path`, delimiter, etc.
+  - File data: `jerry source add -p <provider> -d <dataset> -t fs -f <csv|json|json-lines>`
+  - URL data: `jerry source add -p <provider> -d <dataset> -t url -f <json|json-lines|csv>`
+  - Synthetic: `jerry source add -p <provider> -d <dataset> -t synthetic`
+- Edit the generated `config/sources/*.yaml` to fill in the `path`, delimiter, etc.
 - Reinstall after EP changes (pyproject.toml) and restart Python processes:
   - Core: `cd lib/datapipeline && python -m pip install -e .`
   - This plugin: `python -m pip install -e .`
 
 Folder layout
 - `config/`
-  - `distilleries/*.yaml` — raw source definitions (one file per source)
+  - `sources/*.yaml` — raw source definitions (one file per source)
   - `contracts/*.yaml` — canonical stream definitions
   - `recipes/<name>/` — experiment configs (each directory holds a `project.yaml`,
-    `recipe.yaml`, and a `build/` folder for generated artifacts)
+    `dataset.yaml`, and a `build/` folder for generated artifacts)
 - `src/{{PACKAGE_NAME}}/`
   - `sources/<provider>/<dataset>/dto.py` — DTO model for the source
   - `sources/<provider>/<dataset>/parser.py` — parse raw → DTO

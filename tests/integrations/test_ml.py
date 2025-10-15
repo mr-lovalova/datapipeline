@@ -21,9 +21,9 @@ def _write_yaml(path: Path, data: dict) -> None:
 
 def _build_project(tmp_path: Path, *, frequency: str) -> Path:
     project_dir = tmp_path / "config"
-    sources_dir = project_dir / "distilleries"
+    sources_dir = project_dir / "sources"
     streams_dir = project_dir / "contracts"
-    dataset_path = project_dir / "recipe.yaml"
+    dataset_path = project_dir / "dataset.yaml"
 
     project_yaml = tmp_path / "project.yaml"
     _write_yaml(

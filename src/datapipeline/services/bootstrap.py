@@ -117,7 +117,7 @@ def _load_sources_from_dir(project_yaml: Path, vars_: dict[str, str]) -> dict:
         if isinstance(data.get(SRC_PARSER_KEY), dict) and isinstance(data.get(SRC_LOADER_KEY), dict):
             alias = data.get(SOURCE_ID_KEY)
             if not alias:
-                raise ValueError(f"Missing 'source_id' in distillery: {fname}")
+                raise ValueError(f"Missing 'source_id' in source file: {fname}")
             out[alias] = _interpolate(data, vars_)
             continue
     return out

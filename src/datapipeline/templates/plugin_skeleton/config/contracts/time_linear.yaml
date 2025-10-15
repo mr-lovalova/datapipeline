@@ -1,4 +1,4 @@
-source_id: time_ticks # raw source alias (see config/distilleries)
+source_id: time_ticks # raw source alias (see config/sources)
 stream_id: time_linear # this stream id used by recipes
 
 mapper: # normalize/reshape DTO -> TemporalRecord if not implemented will give you idenitymapper
