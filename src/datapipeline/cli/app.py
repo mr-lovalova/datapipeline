@@ -138,9 +138,9 @@ def main() -> None:
         parents=[common],
     )
 
-    # bar (plugin scaffolding)
+    # plugin (plugin scaffolding)
     p_bar = sub.add_parser(
-        "bar",
+        "plugin",
         help="scaffold plugin workspaces",
         parents=[common],
     )
@@ -412,7 +412,7 @@ def main() -> None:
         handle_link()
         return
 
-    if args.cmd == "bar":
+    if args.cmd == "plugin":
         handle_bar(
             subcmd=args.bar_cmd,
             name=getattr(args, "name", None),

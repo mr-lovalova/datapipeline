@@ -308,12 +308,12 @@ Note: `jerry prep taste` has been removed; use `jerry inspect report` and friend
 
 ---
 
-## Extending the bar program
+## Extending the CLI
 
 ### Scaffold a plugin package
 
 ```bash
-jerry bar init --name my_datapipeline --out .
+jerry plugin init --name my_datapipeline --out .
 ```
 
 The generator copies a ready-made skeleton (pyproject, README, package directory) and
