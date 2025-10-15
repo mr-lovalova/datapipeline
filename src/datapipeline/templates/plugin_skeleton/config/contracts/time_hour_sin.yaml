@@ -1,4 +1,24 @@
-source: time_ticks
+source_id: time_ticks
+stream_id: time_hour_sin
+
 mapper:
-  entrypoint: "encode_time"
+  entrypoint: encode_time
   args: { mode: hour_sin }
+
+# partition_by: field you want to partition
+
+# record:
+#   - filter: { operator: ge, field: time, comparand: "${start_time}" }
+#   - filter: { operator: le, field: time, comparand: "${end_time}" }
+#   - floor_time: { resolution: 1h }
+#   - lag: { lag: 1h }
+
+# stream:
+#   - ensure_ticks: { tick: 1h }
+#   - granularity: { mode: last }
+#   - fill: { statistic: median, window: 24, min_samples: 4 }
+
+# debug:
+#   - lint: { mode: warn, tick: 1h }
+
+# sort_batch_size: 100000

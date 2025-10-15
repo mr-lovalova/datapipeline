@@ -1,3 +1,5 @@
+source_id: time_ticks
+
 parser:
   entrypoint: "synthetic.time"
   args: {}
