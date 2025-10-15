@@ -19,7 +19,8 @@ def create_domain(*, domain: str, root: Optional[Path]) -> None:
             print(f"✨ Created: {path}")
 
     cls_ = "".join(w.capitalize() for w in domain.split("_"))
-    parent = "TimeSeriesRecord"
+    # New canonical base record class name
+    parent = "TemporalRecord"
     write_missing(pkg_dir / "model.py", "record.py.j2",
                   PACKAGE_NAME=name, DOMAIN=domain, CLASS_NAME=f"{cls_}Record",
                   PARENT_CLASS=parent, time_aware=True)
