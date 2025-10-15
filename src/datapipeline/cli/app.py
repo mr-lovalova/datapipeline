@@ -126,7 +126,7 @@ def main() -> None:
     p_spirit_add = spirit_sub.add_parser(
         "add",
         help="create a domain",
-        description="Create a time-aware domain package rooted in TimeSeriesRecord.",
+        description="Create a time-aware domain package rooted in TemporalRecord.",
     )
     p_spirit_add.add_argument("--domain", "-d", required=True)
     spirit_sub.add_parser("list", help="list known domains")
