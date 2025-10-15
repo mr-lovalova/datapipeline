@@ -8,7 +8,6 @@ from datapipeline.pipeline.utils.memory_sort import memory_sorted
 from datapipeline.pipeline.utils.transform_utils import apply_transforms
 from datapipeline.plugins import FEATURE_TRANSFORMS_EP, VECTOR_TRANSFORMS_EP, RECORD_TRANSFORMS_EP, STREAM_TRANFORMS_EP, DEBUG_TRANSFORMS_EP
 
-from datapipeline.config.dataset.normalize import floor_time_to_resolution
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.pipeline.utils.keygen import FeatureIdGenerator, group_key_for
 from datapipeline.registries.registries import record_operations, mappers, stream_sources, stream_operations, debug_operations
@@ -53,6 +52,7 @@ def regularize_feature_stream(
     batch_size: int,
 ) -> Iterator[FeatureRecord]:
     """Apply feature transforms defined in contract policies in order."""
+    # Sort by (id, time) to satisfy stream transforms (ensure_ticks/fill)
     sorted = memory_sorted(
         feature_stream,
         batch_size=batch_size,

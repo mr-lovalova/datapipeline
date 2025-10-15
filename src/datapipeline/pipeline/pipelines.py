@@ -3,7 +3,7 @@ from collections.abc import Iterator, Mapping, Sequence
 from typing import Any
 
 from datapipeline.pipeline.utils.keygen import group_key_for
-
+from datapipeline.pipeline.utils.memory_sort import memory_sorted
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.pipeline.stages import (
     open_source_stream,
@@ -53,7 +53,20 @@ def build_feature_pipeline(
         regularized, cfg.scale, cfg.sequence)
     if stage == 5:
         return transformed
-    return transformed
+
+    def _time_then_id(item: Any):
+        rec = getattr(item, "record", None)
+        if rec is not None:
+            t = getattr(rec, "time", None)
+        else:
+            recs = getattr(item, "records", None)
+            t = getattr(recs[0], "time", None) if recs else None
+        return (t, getattr(item, "id", None))
+
+    sorted_for_grouping = memory_sorted(
+        transformed, batch_size=batch_size, key=_time_then_id
+    )
+    return sorted_for_grouping
 
 
 def build_pipeline(

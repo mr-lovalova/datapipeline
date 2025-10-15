@@ -65,7 +65,7 @@ def _run_feature_stage(dataset: FeatureDatasetConfig, stage: int, limit: int) ->
 
     for cfg in dataset.features + dataset.targets:
         print(f"\n{icon} {title} for {cfg.id}")
-        stream = build_feature_pipeline(cfg, group_by, stage=stage)
+        stream = build_feature_pipeline(cfg, stage=stage)
         printed = _print_head(stream, limit)
         print(f"({summary.format(n=printed)})")
         break
