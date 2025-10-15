@@ -22,6 +22,6 @@ def read_batches(iterable: Iterable[T], batch_size: int, key: Callable[[T], any]
         yield sorted(batch, key=key)
 
 
-def memory_sorted(iterable: Iterable[T], batch_size: int, key: Callable[[T], any]) -> Iterator[T]:
+def batch_sort(iterable: Iterable[T], batch_size: int, key: Callable[[T], any]) -> Iterator[T]:
     sorted_batches = read_batches(iterable, batch_size, key)
     return heapq.merge(*sorted_batches, key=key)

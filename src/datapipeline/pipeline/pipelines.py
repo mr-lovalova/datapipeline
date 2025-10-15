@@ -3,7 +3,7 @@ from collections.abc import Iterator, Mapping, Sequence
 from typing import Any
 
 from datapipeline.pipeline.utils.keygen import group_key_for
-from datapipeline.pipeline.utils.memory_sort import memory_sorted
+from datapipeline.pipeline.utils.memory_sort import batch_sort
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.pipeline.stages import (
     open_source_stream,
@@ -63,7 +63,7 @@ def build_feature_pipeline(
             t = getattr(recs[0], "time", None) if recs else None
         return (t, getattr(item, "id", None))
 
-    sorted_for_grouping = memory_sorted(
+    sorted_for_grouping = batch_sort(
         transformed, batch_size=batch_size, key=_time_then_id
     )
     return sorted_for_grouping
