@@ -68,7 +68,6 @@ def _run_feature_stage(dataset: FeatureDatasetConfig, stage: int, limit: int) ->
         stream = build_feature_pipeline(cfg, stage=stage)
         printed = _print_head(stream, limit)
         print(f"({summary.format(n=printed)})")
-        break
 
 
 def handle_prep_stage(project: str, stage: int, limit: int = 20) -> None:
@@ -123,7 +122,7 @@ def _serve_pt(vectors: Iterator[Tuple[object, Vector]], limit: Optional[int], de
     print(f"💾 Saved {len(data)} vectors to {destination}")
 
 
-def handle_serve(project: str, limit: Optional[int], output: str) -> None:
+def handle_serve(project: str, limit: Optional[int], output: str, include_targets: bool = False) -> None:
     project_path = Path(project)
     dataset = load_dataset(project_path, "vectors")
     bootstrap(project_path)
@@ -133,8 +132,11 @@ def handle_serve(project: str, limit: Optional[int], output: str) -> None:
         print("(no features configured; nothing to serve)")
         return
 
+    configs = list(dataset.features or [])
+    if include_targets:
+        configs += list(dataset.targets or [])
     vectors = build_pipeline(
-        dataset.features,
+        configs,
         dataset.group_by,
         dataset.vector_transforms,
     )

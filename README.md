@@ -241,9 +241,13 @@ loaders. The CLI wires up `build_record_pipeline`, `build_feature_pipeline` and
 ### Serve the flights (production mode)
 
 ```bash
+# Features only (default)
 jerry serve --project config/datasets/default/project.yaml --output print
 jerry serve --project config/datasets/default/project.yaml --output stream
 jerry serve --project config/datasets/default/project.yaml --output exports/batch.pt
+
+# Include targets in vectors (training-friendly)
+jerry serve --project config/datasets/default/project.yaml --include-targets --output stream
 ```
 
 Production mode skips the bar flair and focuses on throughput. `print` writes tasting
@@ -268,7 +272,7 @@ from datapipeline.integrations import (
 
 # Bootstrap once and stream ready-to-use rows.
 adapter = VectorAdapter.from_project("config/project.yaml")
-for row in adapter.iter_rows(limit=32, flatten_sequences=True):
+for row in adapter.iter_rows(limit=32, flatten_sequences=True, include_targets=True):
     send_to_feature_store(row)
 
 # Helper functions cover ad-hoc jobs as well.
@@ -277,11 +281,16 @@ rows = iter_vector_rows(
     include_group=True,
     group_format="mapping",
     flatten_sequences=True,
+    include_targets=True,
 )
 
 # Optional extras materialize into common ML containers if installed.
-df = dataframe_from_vectors("config/project.yaml")                # Requires pandas
-dataset = torch_dataset("config/project.yaml", dtype=torch.float32)  # Requires torch
+df = dataframe_from_vectors("config/project.yaml", include_targets=True)                # Requires pandas
+dataset = torch_dataset(
+    "config/project.yaml",
+    dtype=torch.float32,
+    include_targets=True,  # auto-derive target columns from dataset.targets
+)  # Requires torch
 ```
 
 Everything still flows through `build_vector_pipeline`; the integration layer
@@ -296,13 +305,17 @@ Use the inspect helpers for different outputs:
 
 - `jerry inspect report --project config/datasets/default/project.yaml` — print a
   human-readable quality report (totals, keep/below lists, optional partition detail).
+- Add `--include-targets` to include dataset.targets in the analysis.
 - `jerry inspect coverage --project config/datasets/default/project.yaml` — persist the
   coverage summary to `build/coverage.json` (keep/below feature and partition lists plus
   coverage percentages).
+- Add `--include-targets` to include dataset.targets in the coverage computation.
 - `jerry inspect matrix --project config/datasets/default/project.yaml --format html` —
   export availability matrices (CSV or HTML) for deeper analysis.
+- Add `--include-targets` to include dataset.targets in the matrix.
 - `jerry inspect partitions --project config/datasets/default/project.yaml` — write the
   observed partition manifest to `build/partitions.json` for use in configs.
+- Add `--include-targets` to include dataset.targets in partition discovery.
 
 Note: `jerry prep taste` has been removed; use `jerry inspect report` and friends.
 

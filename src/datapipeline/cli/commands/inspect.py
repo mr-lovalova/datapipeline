@@ -24,6 +24,7 @@ def report(
     quiet: bool = False,
     write_coverage: bool = True,
     apply_vector_transforms: bool = True,
+    include_targets: bool = False,
 ) -> None:
     """Compute a quality report and optionally export coverage JSON and/or a matrix.
 
@@ -36,7 +37,10 @@ def report(
     dataset = load_dataset(project_path, "vectors")
     bootstrap(project_path)
 
-    expected_feature_ids = [cfg.id for cfg in (dataset.features or [])]
+    feature_cfgs = list(dataset.features or [])
+    if include_targets:
+        feature_cfgs += list(dataset.targets or [])
+    expected_feature_ids = [cfg.id for cfg in feature_cfgs]
 
     # Resolve matrix format and path
     matrix_fmt = (fmt or matrix) if matrix in {"csv", "html"} else None
@@ -64,7 +68,7 @@ def report(
     transforms = dataset.vector_transforms if apply_vector_transforms else None
 
     for group_key, vector in build_pipeline(
-        dataset.features, dataset.group_by, vector_transforms=transforms, stage=None
+        feature_cfgs, dataset.group_by, vector_transforms=transforms, stage=None
     ):
         collector.update(group_key, vector.values)
 
@@ -113,6 +117,7 @@ def partitions(
     project: str,
     *,
     output: str | None = None,
+    include_targets: bool = False,
 ) -> None:
     """Discover observed partitions and write a manifest JSON.
 
@@ -126,7 +131,10 @@ def partitions(
     dataset = load_dataset(project_path, "vectors")
     bootstrap(project_path)
 
-    expected_feature_ids = [cfg.id for cfg in (dataset.features or [])]
+    feature_cfgs = list(dataset.features or [])
+    if include_targets:
+        feature_cfgs += list(dataset.targets or [])
+    expected_feature_ids = [cfg.id for cfg in feature_cfgs]
     collector = VectorStatsCollector(
         expected_feature_ids or None,
         match_partition="full",
@@ -135,7 +143,7 @@ def partitions(
     )
 
     for group_key, vector in build_pipeline(
-        dataset.features, dataset.group_by, vector_transforms=None, stage=7
+        feature_cfgs, dataset.group_by, vector_transforms=None, stage=7
     ):
         collector.update(group_key, vector.values)
 

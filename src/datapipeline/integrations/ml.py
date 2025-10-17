@@ -89,8 +89,14 @@ class VectorAdapter:
         self,
         *,
         limit: int | None = None,
+        include_targets: bool = False,
     ) -> Iterator[tuple[Sequence[Any], Vector]]:
-        features = _ensure_features(self.dataset)
+        features = list(_ensure_features(self.dataset))
+        if include_targets:
+            try:
+                features += list(getattr(self.dataset, "targets", []) or [])
+            except Exception:
+                pass
         stream = build_pipeline(
             features,
             self.dataset.group_by,
@@ -109,8 +115,9 @@ class VectorAdapter:
         group_format: GroupFormat = "mapping",
         group_column: str = "group",
         flatten_sequences: bool = False,
+        include_targets: bool = False,
     ) -> Iterator[dict[str, Any]]:
-        stream = self.stream(limit=limit)
+        stream = self.stream(limit=limit, include_targets=include_targets)
         group_by = self.dataset.group_by
 
         def _rows() -> Iterator[dict[str, Any]]:
@@ -134,13 +141,14 @@ def stream_vectors(
     project_yaml: str | Path,
     *,
     limit: int | None = None,
+    include_targets: bool = False,
     open_stream: Callable[[str], Iterable[Any]] = open_source_stream,
 ) -> Iterator[tuple[Sequence[Any], Vector]]:
     """Yield ``(group_key, Vector)`` pairs for the configured project."""
 
     adapter = VectorAdapter.from_project(project_yaml, open_stream=open_stream)
     try:
-        return adapter.stream(limit=limit)
+        return adapter.stream(limit=limit, include_targets=include_targets)
     except ValueError:
         return iter(())
 
@@ -153,6 +161,7 @@ def iter_vector_rows(
     group_format: GroupFormat = "mapping",
     group_column: str = "group",
     flatten_sequences: bool = False,
+    include_targets: bool = False,
     open_stream: Callable[[str], Iterable[Any]] = open_source_stream,
 ) -> Iterator[dict[str, Any]]:
     """Return an iterator of row dictionaries derived from vectors."""
@@ -165,6 +174,7 @@ def iter_vector_rows(
             group_format=group_format,
             group_column=group_column,
             flatten_sequences=flatten_sequences,
+            include_targets=include_targets,
         )
     except ValueError:
         return iter(())
@@ -178,6 +188,7 @@ def collect_vector_rows(
     group_format: GroupFormat = "mapping",
     group_column: str = "group",
     flatten_sequences: bool = False,
+    include_targets: bool = False,
     open_stream: Callable[[str], Iterable[Any]] = open_source_stream,
 ) -> list[dict[str, Any]]:
     """Materialize :func:`iter_vector_rows` into a list for eager workflows."""
@@ -189,6 +200,7 @@ def collect_vector_rows(
         group_format=group_format,
         group_column=group_column,
         flatten_sequences=flatten_sequences,
+        include_targets=include_targets,
         open_stream=open_stream,
     )
     return list(iterator)
@@ -202,6 +214,7 @@ def dataframe_from_vectors(
     group_format: GroupFormat = "mapping",
     group_column: str = "group",
     flatten_sequences: bool = False,
+    include_targets: bool = False,
     open_stream: Callable[[str], Iterable[Any]] = open_source_stream,
 ):
     """Return a Pandas DataFrame built from project vectors.
@@ -223,6 +236,7 @@ def dataframe_from_vectors(
         group_format=group_format,
         group_column=group_column,
         flatten_sequences=flatten_sequences,
+        include_targets=include_targets,
         open_stream=open_stream,
     )
     return pd.DataFrame(rows)
@@ -254,6 +268,7 @@ def torch_dataset(
     dtype: Any | None = None,
     device: Any | None = None,
     flatten_sequences: bool = False,
+    include_targets: bool = False,
     open_stream: Callable[[str], Iterable[Any]] = open_source_stream,
 ):
     """Build a torch.utils.data.Dataset that yields tensors from vectors.
@@ -277,8 +292,17 @@ def torch_dataset(
         limit=limit,
         include_group=False,
         flatten_sequences=flatten_sequences,
+        include_targets=include_targets,
         open_stream=open_stream,
     )
+
+    # Auto-derive target columns when include_targets is set and none provided
+    if include_targets and target_columns is None:
+        try:
+            ds = load_dataset(Path(project_yaml), "vectors")
+            target_columns = [cfg.id for cfg in (getattr(ds, "targets", []) or [])]
+        except Exception:
+            target_columns = None
 
     feature_cols, target_cols = _resolve_columns(
         rows,

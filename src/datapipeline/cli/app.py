@@ -80,6 +80,11 @@ def main() -> None:
         "--output", "-o", default="print",
         help="output destination: 'print', 'stream', or a file ending in .pt",
     )
+    p_serve.add_argument(
+        "--include-targets",
+        action="store_true",
+        help="include dataset.targets in served vectors (defaults to features only)",
+    )
 
     # source
     p_dist = sub.add_parser(
@@ -198,6 +203,11 @@ def main() -> None:
         default="final",
         help="whether to apply vector transforms (final) or ignore them (raw)",
     )
+    p_inspect_report.add_argument(
+        "--include-targets",
+        action="store_true",
+        help="include dataset.targets when computing report/matrix/coverage",
+    )
 
     # Coverage (JSON file)
     p_inspect_cov = inspect_sub.add_parser(
@@ -234,6 +244,11 @@ def main() -> None:
         choices=["final", "raw"],
         default="final",
         help="whether to apply vector transforms (final) or ignore them (raw)",
+    )
+    p_inspect_cov.add_argument(
+        "--include-targets",
+        action="store_true",
+        help="include dataset.targets when computing coverage",
     )
 
     # Matrix export
@@ -288,6 +303,11 @@ def main() -> None:
         default="final",
         help="whether to apply vector transforms (final) or ignore them (raw)",
     )
+    p_inspect_matrix.add_argument(
+        "--include-targets",
+        action="store_true",
+        help="include dataset.targets when exporting the matrix",
+    )
 
     # Partitions manifest subcommand
     p_inspect_parts = inspect_sub.add_parser(
@@ -305,6 +325,11 @@ def main() -> None:
         "-o",
         default=None,
         help="partitions manifest path (defaults to build/partitions.json)",
+    )
+    p_inspect_parts.add_argument(
+        "--include-targets",
+        action="store_true",
+        help="include dataset.targets when discovering partitions",
     )
 
     args = parser.parse_args()
@@ -329,6 +354,7 @@ def main() -> None:
             project=args.project,
             limit=getattr(args, "limit", None),
             output=args.output,
+            include_targets=getattr(args, "include_targets", False),
         )
         return
 
@@ -348,6 +374,7 @@ def main() -> None:
                 quiet=False,
                 write_coverage=False,
                 apply_vector_transforms=(getattr(args, "mode", "final") == "final"),
+                include_targets=getattr(args, "include_targets", False),
             )
         elif subcmd == "coverage":
             handle_inspect_report(
@@ -362,6 +389,7 @@ def main() -> None:
                 quiet=True,
                 write_coverage=True,
                 apply_vector_transforms=(getattr(args, "mode", "final") == "final"),
+                include_targets=getattr(args, "include_targets", False),
             )
         elif subcmd == "matrix":
             handle_inspect_report(
@@ -376,12 +404,14 @@ def main() -> None:
                 quiet=getattr(args, "quiet", False),
                 write_coverage=False,
                 apply_vector_transforms=(getattr(args, "mode", "final") == "final"),
+                include_targets=getattr(args, "include_targets", False),
             )
         elif subcmd == "partitions":
             from datapipeline.cli.commands.inspect import partitions as handle_inspect_partitions
             handle_inspect_partitions(
                 project=args.project,
                 output=getattr(args, "output", None),
+                include_targets=getattr(args, "include_targets", False),
             )
         return
 
