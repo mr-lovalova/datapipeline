@@ -1,5 +1,0 @@
-version: 1
-paths:
-  sources: ../../sources
-  streams: ../../contracts
-  dataset: dataset.yaml

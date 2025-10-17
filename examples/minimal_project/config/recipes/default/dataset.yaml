@@ -1,9 +1,0 @@
-group_by:
-  keys:
-    - type: time
-      field: time
-      resolution: 1h
-features:
-  - stream: time.encode
-    id: hour_sin
-    partition_by: null
