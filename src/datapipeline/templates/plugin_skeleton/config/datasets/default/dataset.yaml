@@ -5,25 +5,10 @@ features:
     record_stream: time_hour_sin
     # scale: { with_mean: true, with_std: true }
     # sequence: { size: 6, stride: 1, tick: 10m }
+
+  # - id: second_feature
+  #   record_stream: anotherstream
 # targets:
 #   - id: some_target
 #     record_stream: time_linear
 
-# Vector transforms (run after merging all partitions into a vector):
-# vector_transforms:
-#   - drop_missing:
-#       # require these features present OR set min_coverage below
-#       required: [time]
-#       min_coverage: 1.0
-#   - fill_constant:
-#       expected: [time]
-#       value: 0.0
-#   - fill_history:
-#       expected: [time]
-#       statistic: median
-#       window: 48
-#       min_samples: 6
-#   - fill_horizontal:
-#       expected: [time__stationA, time__stationB]
-#       statistic: mean
-#       min_samples: 2

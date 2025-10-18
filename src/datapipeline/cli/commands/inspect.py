@@ -6,8 +6,10 @@ from pathlib import Path
 from datapipeline.analysis.vector_analyzer import VectorStatsCollector
 from datapipeline.config.dataset.loader import load_dataset
 from datapipeline.services.bootstrap import bootstrap
-from datapipeline.utils.paths import default_build_path, ensure_parent
-from datapipeline.pipeline.pipelines import build_pipeline
+from datapipeline.utils.paths import ensure_parent
+from datapipeline.services.bootstrap import artifacts_root
+from datapipeline.pipeline.pipelines import build_vector_pipeline
+from datapipeline.pipeline.stages import post_process
 
 
 def report(
@@ -23,7 +25,7 @@ def report(
     fmt: str | None = None,
     quiet: bool = False,
     write_coverage: bool = True,
-    apply_vector_transforms: bool = True,
+    apply_postprocess: bool = True,
     include_targets: bool = False,
 ) -> None:
     """Compute a quality report and optionally export coverage JSON and/or a matrix.
@@ -48,11 +50,10 @@ def report(
         filename = "matrix.html" if matrix_fmt == "html" else "matrix.csv"
     else:
         filename = None
-    recipe_dir = project_path.parent
+    base_artifacts = artifacts_root(project_path)
     matrix_path = None
     if matrix_fmt:
-        matrix_path = Path(matrix_output) if matrix_output else default_build_path(
-            filename, recipe_dir)
+        matrix_path = Path(matrix_output) if matrix_output else (base_artifacts / filename)
 
     collector = VectorStatsCollector(
         expected_feature_ids or None,
@@ -65,11 +66,13 @@ def report(
         matrix_format=(matrix_fmt or "csv"),
     )
 
-    transforms = dataset.vector_transforms if apply_vector_transforms else None
+    # When applying transforms, let the global postprocess registry provide them (pass None).
+    # When raw, pass an empty list to bypass registry/defaults.
+    vectors = build_vector_pipeline(feature_cfgs, dataset.group_by, stage=None)
+    if apply_postprocess:
+        vectors = post_process(vectors)  # use global postprocess
 
-    for group_key, vector in build_pipeline(
-        feature_cfgs, dataset.group_by, vector_transforms=transforms, stage=None
-    ):
+    for group_key, vector in vectors:
         collector.update(group_key, vector.values)
 
     buffer = io.StringIO()
@@ -82,8 +85,7 @@ def report(
 
     # Optionally write coverage summary JSON to a path
     if write_coverage:
-        output_path = Path(output) if output else default_build_path(
-            "coverage.json", recipe_dir)
+        output_path = Path(output) if output else (base_artifacts / "coverage.json")
         ensure_parent(output_path)
 
         feature_stats = summary.get("feature_stats", [])
@@ -142,14 +144,13 @@ def partitions(
         show_matrix=False,
     )
 
-    for group_key, vector in build_pipeline(
-        feature_cfgs, dataset.group_by, vector_transforms=None, stage=7
-    ):
+    vectors = build_vector_pipeline(feature_cfgs, dataset.group_by, stage=None)
+    vectors = post_process(vectors)  # apply global postprocess
+    for group_key, vector in vectors:
         collector.update(group_key, vector.values)
 
-    recipe_dir = project_path.parent
-    output_path = Path(output) if output else default_build_path(
-        "partitions.json", recipe_dir)
+    base_artifacts = artifacts_root(project_path)
+    output_path = Path(output) if output else (base_artifacts / "partitions.json")
     ensure_parent(output_path)
 
     parts = sorted(collector.discovered_partitions)
@@ -175,3 +176,41 @@ def partitions(
     with output_path.open("w", encoding="utf-8") as fh:
         json.dump(data, fh, indent=2)
     print(f"📝 Saved partitions manifest to {output_path}")
+
+
+def expected(
+    project: str,
+    *,
+    output: str | None = None,
+    include_targets: bool = False,
+) -> None:
+    """Discover complete set of observed full feature IDs and write a list.
+
+    Writes newline-separated ids to `<paths.artifacts>/expected.txt` by default.
+    """
+
+    project_path = Path(project)
+    dataset = load_dataset(project_path, "vectors")
+    bootstrap(project_path)
+
+    feature_cfgs = list(dataset.features or [])
+    if include_targets:
+        feature_cfgs += list(dataset.targets or [])
+
+    vectors = build_vector_pipeline(feature_cfgs, dataset.group_by, stage=None)
+    ids: set[str] = set()
+    for _, vector in vectors:
+        ids.update(vector.values.keys())
+
+    try:
+        default_path = artifacts_root(project_path) / "expected.txt"
+    except Exception as e:
+        raise RuntimeError(
+            f"{e}. Set `paths.artifacts` in your project.yaml to a writable directory."
+        )
+    output_path = Path(output) if output else default_path
+    ensure_parent(output_path)
+    with output_path.open("w", encoding="utf-8") as fh:
+        for fid in sorted(ids):
+            fh.write(f"{fid}\n")
+    print(f"📝 Saved expected feature list to {output_path} ({len(ids)} ids)")

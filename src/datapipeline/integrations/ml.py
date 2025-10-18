@@ -29,7 +29,8 @@ from typing import Any, Literal, Mapping
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.dataset.loader import load_dataset
 from datapipeline.domain.vector import Vector
-from datapipeline.pipeline.pipelines import build_pipeline
+from datapipeline.pipeline.pipelines import build_vector_pipeline
+from datapipeline.pipeline.stages import post_process
 from datapipeline.pipeline.stages import open_source_stream
 from datapipeline.services.bootstrap import bootstrap
 
@@ -97,12 +98,9 @@ class VectorAdapter:
                 features += list(getattr(self.dataset, "targets", []) or [])
             except Exception:
                 pass
-        stream = build_pipeline(
-            features,
-            self.dataset.group_by,
-            vector_transforms=getattr(self.dataset, "vector_transforms", None),
-            stage=None,
-        )
+        vectors = build_vector_pipeline(features, self.dataset.group_by, stage=None)
+        # Apply global postprocess by default
+        stream = post_process(vectors)
         if limit is not None:
             stream = islice(stream, limit)
         return stream

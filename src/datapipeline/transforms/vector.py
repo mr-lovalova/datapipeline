@@ -8,8 +8,8 @@ from datapipeline.domain.vector import Vector
 from datapipeline.transforms.vector_utils import (
     base_id as _base_id,
     is_missing as _is_missing,
-    normalize_key as _normalize_key,
 )
+from datapipeline.pipeline.postprocess_context import get_expected_ids as _ctx_expected
 
 
 def _clone(values: Mapping[str, Any]) -> MutableMapping[str, Any]:
@@ -24,11 +24,15 @@ def _base(feature_id: str) -> str:
 
 class _ExpectedFeaturesMixin:
     def __init__(self, *, expected: Sequence[str] | None = None) -> None:
+        # Expected targets (must be provided by config or injection)
         self._expected = [str(x) for x in (expected or [])]
 
     @property
     def expected(self) -> list[str]:
         return list(self._expected)
+
+    def _targets(self) -> list[str]:
+        return self.expected or _ctx_expected()
 
 
 class VectorDropMissingTransform(_ExpectedFeaturesMixin):
@@ -46,21 +50,18 @@ class VectorDropMissingTransform(_ExpectedFeaturesMixin):
             raise ValueError("min_coverage must be between 0 and 1")
         self.required = {str(item) for item in (required or [])}
         self.min_coverage = min_coverage
-        self.match_partition = "full"
-
-    def _normalize(self, feature_id: str) -> str:
-        return _normalize_key(feature_id, self.match_partition)
+        # Always operate on full (partition) ids
 
     def apply(self, stream: Iterator[Tuple[Any, Vector]]) -> Iterator[Tuple[Any, Vector]]:
-        baseline = set(self.required or self.expected)
         for group_key, vector in stream:
-            present = {
-                self._normalize(fid)
-                for fid, value in vector.values.items()
-                if not _is_missing(value)
-            }
-            if self.required and not self.required.issubset(present):
-                continue
+            present = {fid for fid, value in vector.values.items() if not _is_missing(value)}
+            # Enforce hard requirements first (normalize required keys for fair comparison)
+            if self.required:
+                if not set(self.required).issubset(present):
+                    continue
+
+            # Coverage baseline uses explicit expected if provided; otherwise dynamic set
+            baseline = set(self._targets())
             if baseline:
                 coverage = len(present & baseline) / len(baseline)
                 if coverage < self.min_coverage:
@@ -80,9 +81,12 @@ class VectorFillConstantTransform(_ExpectedFeaturesMixin):
         super().__init__(expected=expected)
         self.value = value
 
+    def __call__(self, stream: Iterator[Tuple[Any, Vector]]) -> Iterator[Tuple[Any, Vector]]:
+        return self.apply(stream)
+
     def apply(self, stream: Iterator[Tuple[Any, Vector]]) -> Iterator[Tuple[Any, Vector]]:
-        targets = self.expected
         for group_key, vector in stream:
+            targets = self._targets()
             if not targets:
                 yield group_key, vector
                 continue
@@ -99,13 +103,7 @@ class VectorFillConstantTransform(_ExpectedFeaturesMixin):
 
 
 class VectorFillHistoryTransform(_ExpectedFeaturesMixin):
-    """Fill missing entries using running statistics from prior buckets.
-
-    When `match_partition` is "full" and a manifest is provided (with no
-    explicit `expected` list), targets are taken from `manifest.partitions` to
-    operate per-partition. Otherwise, defaults to base feature ids from
-    `manifest.features`.
-    """
+    """Fill missing entries using running statistics from prior buckets."""
 
     def __init__(
         self,
@@ -124,11 +122,8 @@ class VectorFillHistoryTransform(_ExpectedFeaturesMixin):
         self.window = window
         self.min_samples = min_samples
         self.history: dict[str, deque[float]] = {}
-        self.match_partition = "full"
-
     def _compute(self, feature_id: str) -> float | None:
-        key = _normalize_key(feature_id, self.match_partition)
-        values = self.history.get(key)
+        values = self.history.get(feature_id)
         if not values or len(values) < self.min_samples:
             return None
         if self.statistic == "mean":
@@ -143,13 +138,12 @@ class VectorFillHistoryTransform(_ExpectedFeaturesMixin):
         except (TypeError, ValueError):
             # Ignore non-scalar/non-numeric entries
             return
-        key = _normalize_key(feature_id, self.match_partition)
-        bucket = self.history.setdefault(key, deque(maxlen=self.window))
+        bucket = self.history.setdefault(str(feature_id), deque(maxlen=self.window))
         bucket.append(num)
 
     def apply(self, stream: Iterator[Tuple[Any, Vector]]) -> Iterator[Tuple[Any, Vector]]:
-        targets = self.expected
         for group_key, vector in stream:
+            targets = self._targets()
             data = _clone(vector.values)
             updated = False
             for feature in targets:
@@ -169,12 +163,7 @@ class VectorFillHistoryTransform(_ExpectedFeaturesMixin):
 
 
 class VectorFillAcrossPartitionsTransform(_ExpectedFeaturesMixin):
-    """Fill missing entries by aggregating sibling partitions at the same timestamp.
-
-    When operating with `match_partition="full"` and a manifest is provided (and
-    no explicit `expected` list), targets are taken from `manifest.partitions`
-    so that filling addresses concrete partition IDs.
-    """
+    """Fill missing entries by aggregating sibling partitions at the same timestamp."""
 
     def __init__(
         self,
@@ -188,11 +177,11 @@ class VectorFillAcrossPartitionsTransform(_ExpectedFeaturesMixin):
             raise ValueError("min_samples must be positive")
         self.statistic = statistic
         self.min_samples = min_samples
-        self.match_partition = "full"
+        # Always operate on full (partition) ids
 
     def apply(self, stream: Iterator[Tuple[Any, Vector]]) -> Iterator[Tuple[Any, Vector]]:
-        targets = self.expected
         for group_key, vector in stream:
+            targets = self._targets()
             if not targets:
                 yield group_key, vector
                 continue

@@ -197,8 +197,10 @@ feature or sequence transforms—such as the sliding `TimeWindowTransformer` or 
 `time_fill_mean`/`time_fill_median` imputers—directly in the YAML by referencing their
 entry point names (`src/datapipeline/transforms/sequence.py`).
 
-When vectors are assembled you can optionally apply `vector_transforms` to enforce schema
-guarantees. The built-ins cover:
+When vectors are assembled you can optionally apply post-processing transforms to enforce schema
+guarantees. Configure them in `postprocess.yaml` under a top-level `transforms:` list. Most
+transforms work without specifying `expected`; they auto-discover target features/partitions from
+the stream as it flows. The built-ins cover:
 
 - `fill_history` – use running means/medians from prior buckets (per partition) with
   configurable window/minimum samples.
@@ -208,12 +210,23 @@ guarantees. The built-ins cover:
 - `drop_missing` – drop vectors that fall below a coverage threshold or omit required
   features.
 
-Transforms accept either an explicit `expected` list or a manifest path to discover the
-full partition set (`build/partitions.json` produced by `jerry inspect partitions`).
+Transforms can accept an explicit `expected` list when you want strict control; otherwise, they
+auto-discover targets from observed vector keys. No manifest is required.
 
 Once the book is ready, run the bootstrapper (the CLI does this automatically) to
 materialize all registered sources and streams
 (`src/datapipeline/services/bootstrap.py`).
+
+Tip: Configure post-processing in a separate `postprocess.yaml` referenced by
+`project.paths.postprocess`. Use a top-level `transforms:` list. These are registered globally
+at bootstrap and applied as a distinct pipeline step after vector assembly. Legacy
+`dataset.yaml` `vector_transforms` are ignored by the CLI/ML helpers in favor of the global
+postprocess; programmatic usage should call `build_vector_pipeline(...)` and then `post_process(...)`.
+
+Build outputs
+- Set a single artifacts root in your project.yaml: `paths.artifacts`. If relative, it is resolved from the
+  location of project.yaml.
+- Tools write artifacts under this folder (e.g., `expected.txt`, `coverage.json`, matrices, etc.).
 
 ---
 
@@ -237,6 +250,27 @@ loaders. The CLI wires up `build_record_pipeline`, `build_feature_pipeline` and
 (`src/datapipeline/cli/app.py`, `src/datapipeline/cli/commands/run.py`,
 `src/datapipeline/cli/openers.py`, `src/datapipeline/cli/visuals.py`,
 `src/datapipeline/pipeline/pipelines.py`).
+
+---
+
+## Postprocess Expected IDs
+
+Some postprocess transforms operate over a complete set of feature IDs (full, partitioned ids like `wind__A`).
+You have two options for providing this set:
+
+- Explicit per-transform list in `postprocess.yaml`:
+  - Example:
+    - transforms:
+      - drop_missing: { expected: [time, wind__A, wind__B], min_coverage: 1.0 }
+      - fill_history: { expected: [wind__A, wind__B], window: 48, min_samples: 6 }
+
+- Generate a complete list via CLI and use it as the default for all transforms:
+  - jerry inspect expected --project <path/to/project.yaml>
+  - Writes newline-separated ids to `build/datasets/<name>/expected.txt` (where `<name>` is the dataset folder name under `config/datasets/`).
+  - Use `--include-targets` to include target features; use `--output` to choose a custom path.
+
+At runtime, if no per-transform `expected` is set, postprocess reads the generated list and applies it to all transforms.
+If the file is missing, the runtime error will point here.
 
 ### Serve the flights (production mode)
 

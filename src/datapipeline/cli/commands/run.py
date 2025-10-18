@@ -11,8 +11,9 @@ from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.dataset.loader import load_dataset
 from datapipeline.pipeline.pipelines import (
     build_feature_pipeline,
-    build_pipeline
+    build_vector_pipeline,
 )
+from datapipeline.pipeline.stages import post_process
 from datapipeline.services.bootstrap import bootstrap
 from datapipeline.domain.vector import Vector
 
@@ -41,7 +42,9 @@ def _run_feature_stage(dataset: FeatureDatasetConfig, stage: int, limit: int) ->
 
     # Vector stages (merged across all features)
     if stage in (6, 7):
-        stream = build_pipeline(dataset.features, group_by, stage=stage)
+        stream = build_vector_pipeline(dataset.features, group_by, stage=6)
+        if stage == 7:
+            stream = post_process(stream)
         printed = _print_head(stream, limit)
         label = "assembled" if stage == 6 else "transformed"
         print(f"({label} {printed} vectors)")
@@ -135,11 +138,9 @@ def handle_serve(project: str, limit: Optional[int], output: str, include_target
     configs = list(dataset.features or [])
     if include_targets:
         configs += list(dataset.targets or [])
-    vectors = build_pipeline(
-        configs,
-        dataset.group_by,
-        dataset.vector_transforms,
-    )
+    vectors = build_vector_pipeline(configs, dataset.group_by)
+    # Apply global postprocess by default
+    vectors = post_process(vectors)
 
     if output == "print":
         _serve_print(vectors, limit)

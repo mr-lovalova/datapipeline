@@ -7,11 +7,12 @@ class ProjectPaths(BaseModel):
     streams: str
     sources: str
     dataset: str
+    postprocess: str
+    artifacts: str
 
 
 class ProjectGlobals(BaseModel):
     model_config = ConfigDict(extra='allow')
-
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
 

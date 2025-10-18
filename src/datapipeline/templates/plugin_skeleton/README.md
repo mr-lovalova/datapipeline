@@ -43,8 +43,18 @@ Analyze vectors
 - `jerry inspect coverage --project config/datasets/default/project.yaml` (writes build/coverage.json)
 - `jerry inspect matrix   --project config/datasets/default/project.yaml --format html` (writes build/matrix.html)
 - `jerry inspect partitions --project config/datasets/default/project.yaml` (writes build/partitions.json)
-- Use `vector_transforms` to keep coverage high (history/horizontal fills, constants, or
-  drop rules) before serving vectors.
+- Use post-processing `transforms` in `postprocess.yaml` to keep coverage high
+  (history/horizontal fills, constants, or drop rules) before serving vectors.
+
+Postprocess expected IDs
+- Some transforms operate over the complete set of partitioned feature IDs (e.g. `wind__A`).
+- You can either:
+  - Set `expected:` explicitly per transform in `postprocess.yaml`, or
+  - Generate a full list once via:
+    - `jerry inspect expected --project config/datasets/default/project.yaml`
+    - Writes newline-separated ids to `build/datasets/default/expected.txt`.
+    - Use `--include-targets` to include targets; `--output` to change the path.
+- At runtime, if a transform has no `expected`, postprocess uses this file. Do not edit generated files.
 
 Tips
 - Keep parsers thin — mirror source schema and return DTOs; use the identity parser only if your loader already emits domain records.

@@ -12,3 +12,5 @@ LOADERS_GROUP = "loaders"
 MAPPERS_GROUP = "mappers"
 FILTERS_GROUP = "filters"
 COMPOSED_LOADER_EP = "composed.loader"
+
+POSTPROCESS_GLOBAL_KEY = "__global__"

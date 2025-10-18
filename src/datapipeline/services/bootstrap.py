@@ -15,6 +15,7 @@ from datapipeline.services.constants import (
     MAPPER_KEY,
     ENTRYPOINT_KEY,
     STREAM_ID_KEY,
+    POSTPROCESS_GLOBAL_KEY,
 )
 from datapipeline.services.factories import (
     build_source_from_spec,
@@ -31,7 +32,10 @@ from datapipeline.registries.registries import (
     debug_operations,
     partition_by,
     sort_batch_size,
+    postprocesses,
 )
+from datapipeline.config.postprocess import PostprocessConfig
+from datapipeline.utils.paths import default_build_path
 
 SRC_PARSER_KEY = PARSER_KEY
 SRC_LOADER_KEY = LOADER_KEY
@@ -46,6 +50,20 @@ def _project(project_yaml: Path) -> ProjectConfig:
 def _paths(project_yaml: Path) -> Mapping[str, str]:
     proj = _project(project_yaml)
     return proj.paths.model_dump()
+
+def artifacts_root(project_yaml: Path) -> Path:
+    """Return the artifacts directory for a given project.yaml.
+
+    Single source of truth: project.paths.artifacts must be provided.
+    If relative, it is resolved against the folder containing project.yaml.
+    """
+    pj = project_yaml.resolve()
+    paths = _paths(project_yaml)
+    a = paths.get("artifacts")
+    if not a:
+        raise ValueError("project.paths.artifacts must be set (absolute or relative to project.yaml)")
+    ap = Path(a)
+    return (pj.parent / ap).resolve() if not ap.is_absolute() else ap
 
 
 def _load_by_key(project_yaml: Path, key: str) -> dict:
@@ -117,7 +135,8 @@ def _load_sources_from_dir(project_yaml: Path, vars_: dict[str, str]) -> dict:
         if isinstance(data.get(SRC_PARSER_KEY), dict) and isinstance(data.get(SRC_LOADER_KEY), dict):
             alias = data.get(SOURCE_ID_KEY)
             if not alias:
-                raise ValueError(f"Missing 'source_id' in source file: {fname}")
+                raise ValueError(
+                    f"Missing 'source_id' in source file: {fname}")
             out[alias] = _interpolate(data, vars_)
             continue
     return out
@@ -163,6 +182,7 @@ def init_streams(cfg: StreamsConfig) -> None:
     sort_batch_size.clear()
     record_operations.clear()
     feature_transforms.clear()
+    postprocesses.clear()
     sources.clear()
     mappers.clear()
     stream_sources.clear()
@@ -188,4 +208,15 @@ def bootstrap(project_yaml: Path) -> StreamsConfig:
     """One-call init: load streams.yaml and register raw/canonical streams."""
     streams = load_streams(project_yaml)
     init_streams(streams)
+    # Load postprocess transforms (required)
+    post_doc = _load_by_key(project_yaml, "postprocess")
+    postprocess = PostprocessConfig.model_validate(post_doc)
+    transforms = postprocess.transforms or []
+    # Register under a well-known global key with expected file hint
+    # Resolve expected file inside the computed artifacts root
+    expected_path = (artifacts_root(project_yaml) / "expected.txt").resolve()
+    postprocesses.register(POSTPROCESS_GLOBAL_KEY, {
+        "transforms": transforms,
+        "expected_path": str(expected_path),
+    })
     return streams

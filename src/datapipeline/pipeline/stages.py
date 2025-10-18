@@ -1,6 +1,6 @@
 from collections import defaultdict
-from itertools import groupby
-from typing import Any, Iterable, Iterator, Optional, Sequence, Tuple, Mapping
+from itertools import groupby, tee
+from typing import Any, Iterable, Iterator, Sequence, Tuple, Mapping
 
 from datapipeline.domain.feature import FeatureRecord, FeatureRecordSequence
 from datapipeline.domain.vector import Vector, vectorize_record_group
@@ -10,7 +10,19 @@ from datapipeline.plugins import FEATURE_TRANSFORMS_EP, VECTOR_TRANSFORMS_EP, RE
 
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.pipeline.utils.keygen import FeatureIdGenerator, group_key_for
-from datapipeline.registries.registries import record_operations, mappers, stream_sources, stream_operations, debug_operations
+from datapipeline.registries.registries import (
+    record_operations,
+    mappers,
+    stream_sources,
+    stream_operations,
+    debug_operations,
+    postprocesses,
+)
+from datapipeline.services.constants import POSTPROCESS_GLOBAL_KEY
+from datapipeline.pipeline.postprocess_context import (
+    set_expected_ids,
+    reset_expected_ids,
+)
 from datapipeline.sources.models.source import Source
 
 
@@ -113,7 +125,44 @@ def vector_assemble_stage(
 
 def post_process(
     stream: Iterator[Tuple[Any, Vector]],
-    clauses: Optional[Sequence[Mapping[str, Any]]],
 ) -> Iterator[Tuple[Any, Vector]]:
-    """Apply configured vector transforms to the merged feature stream."""
-    return apply_transforms(stream, VECTOR_TRANSFORMS_EP, clauses)
+    """Apply project-scoped postprocess transforms (from registry).
+
+    Explicit prereq artifact flow:
+    - Read a precomputed expected feature-id list (full ids) from the build
+      folder. If missing, instruct the user to generate it via CLI.
+    """
+    configured = postprocesses.get(POSTPROCESS_GLOBAL_KEY)
+    if not configured:
+        return stream
+
+    if isinstance(configured, dict):
+        transforms = configured.get("transforms")
+        expected_path = configured.get("expected_path")
+    else:
+        transforms = configured
+        expected_path = None
+
+    if not transforms:
+        return stream
+
+    expected_ids: list[str] = []
+    if isinstance(expected_path, str):
+        try:
+            with open(expected_path, "r", encoding="utf-8") as fh:
+                expected_ids = [line.strip() for line in fh if line.strip()]
+        except FileNotFoundError:
+            raise RuntimeError(
+                f"Missing expected feature-id list at {expected_path}. "
+                "Run: `jerry inspect expected --project <project.yaml>` or add `expected:` to transforms in postprocess.yaml. "
+                "See README: Postprocess Expected IDs."
+            )
+
+    def _with_context() -> Iterator[Tuple[Any, Vector]]:
+        token = set_expected_ids(expected_ids)
+        try:
+            yield from apply_transforms(stream, VECTOR_TRANSFORMS_EP, transforms)
+        finally:
+            reset_expected_ids(token)
+
+    return _with_context()

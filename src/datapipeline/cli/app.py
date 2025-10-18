@@ -201,7 +201,7 @@ def main() -> None:
         "--mode",
         choices=["final", "raw"],
         default="final",
-        help="whether to apply vector transforms (final) or ignore them (raw)",
+        help="whether to apply postprocess transforms (final) or skip them (raw)",
     )
     p_inspect_report.add_argument(
         "--include-targets",
@@ -243,7 +243,7 @@ def main() -> None:
         "--mode",
         choices=["final", "raw"],
         default="final",
-        help="whether to apply vector transforms (final) or ignore them (raw)",
+        help="whether to apply postprocess transforms (final) or skip them (raw)",
     )
     p_inspect_cov.add_argument(
         "--include-targets",
@@ -301,7 +301,7 @@ def main() -> None:
         "--mode",
         choices=["final", "raw"],
         default="final",
-        help="whether to apply vector transforms (final) or ignore them (raw)",
+        help="whether to apply postprocess transforms (final) or skip them (raw)",
     )
     p_inspect_matrix.add_argument(
         "--include-targets",
@@ -330,6 +330,29 @@ def main() -> None:
         "--include-targets",
         action="store_true",
         help="include dataset.targets when discovering partitions",
+    )
+
+    # Expected IDs (newline list)
+    p_inspect_expected = inspect_sub.add_parser(
+        "expected",
+        help="discover full feature ids and write a newline list",
+    )
+    p_inspect_expected.add_argument(
+        "--project",
+        "-p",
+        default="config/datasets/default/project.yaml",
+        help="path to project.yaml",
+    )
+    p_inspect_expected.add_argument(
+        "--output",
+        "-o",
+        default=None,
+        help="expected ids output path (defaults to build/datasets/<name>/expected.txt)",
+    )
+    p_inspect_expected.add_argument(
+        "--include-targets",
+        action="store_true",
+        help="include dataset.targets when discovering expected ids",
     )
 
     args = parser.parse_args()
@@ -373,7 +396,7 @@ def main() -> None:
                 cols=10,
                 quiet=False,
                 write_coverage=False,
-                apply_vector_transforms=(getattr(args, "mode", "final") == "final"),
+                apply_postprocess=(getattr(args, "mode", "final") == "final"),
                 include_targets=getattr(args, "include_targets", False),
             )
         elif subcmd == "coverage":
@@ -388,7 +411,7 @@ def main() -> None:
                 cols=10,
                 quiet=True,
                 write_coverage=True,
-                apply_vector_transforms=(getattr(args, "mode", "final") == "final"),
+                apply_postprocess=(getattr(args, "mode", "final") == "final"),
                 include_targets=getattr(args, "include_targets", False),
             )
         elif subcmd == "matrix":
@@ -403,12 +426,19 @@ def main() -> None:
                 cols=getattr(args, "cols", 10),
                 quiet=getattr(args, "quiet", False),
                 write_coverage=False,
-                apply_vector_transforms=(getattr(args, "mode", "final") == "final"),
+                apply_postprocess=(getattr(args, "mode", "final") == "final"),
                 include_targets=getattr(args, "include_targets", False),
             )
         elif subcmd == "partitions":
             from datapipeline.cli.commands.inspect import partitions as handle_inspect_partitions
             handle_inspect_partitions(
+                project=args.project,
+                output=getattr(args, "output", None),
+                include_targets=getattr(args, "include_targets", False),
+            )
+        elif subcmd == "expected":
+            from datapipeline.cli.commands.inspect import expected as handle_inspect_expected
+            handle_inspect_expected(
                 project=args.project,
                 output=getattr(args, "output", None),
                 include_targets=getattr(args, "include_targets", False),

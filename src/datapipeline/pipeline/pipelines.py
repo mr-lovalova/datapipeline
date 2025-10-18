@@ -1,5 +1,5 @@
 import heapq
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterator, Sequence
 from typing import Any
 
 from datapipeline.pipeline.utils.keygen import group_key_for
@@ -13,7 +13,7 @@ from datapipeline.pipeline.stages import (
     regularize_feature_stream,
     apply_feature_transforms,
     vector_assemble_stage,
-    post_process)
+)
 from datapipeline.registries.registries import (
     partition_by as partition_by_reg,
     sort_batch_size as sort_batch_size_reg,
@@ -69,25 +69,23 @@ def build_feature_pipeline(
     return sorted_for_grouping
 
 
-def build_pipeline(
+def build_vector_pipeline(
     configs: Sequence[FeatureRecordConfig],
     group_by_cadence: str,
-    vector_transforms: Sequence[Mapping[str, Any]] | None = None,
     stage: int | None = None,
 ) -> Iterator[Any]:
+    """Build the vector assembly pipeline.
+    Stages:
+      - 0..5: delegates to feature pipeline for the first configured feature
+      - 6: assembled vectors
+    """
     if stage is not None and stage <= 5:
         first = next(iter(configs))
         return build_feature_pipeline(first, stage=stage)
 
     streams = [build_feature_pipeline(cfg, stage=None) for cfg in configs]
-
     merged = heapq.merge(
         *streams, key=lambda fr: group_key_for(fr, group_by_cadence)
     )
     vectors = vector_assemble_stage(merged, group_by_cadence)
-    if stage == 6:
-        return vectors
-    cleaned = post_process(vectors, vector_transforms)
-    if stage == 7 or stage is None:
-        return cleaned
-    raise ValueError("unknown stage")
+    return vectors

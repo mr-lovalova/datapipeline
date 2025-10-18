@@ -2,15 +2,13 @@ import csv
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any, Hashable, Iterable, Literal
+from datapipeline.transforms.vector_utils import base_id as _base_id
 from datetime import datetime
 
 
 def _base_feature_id(feature_id: str) -> str:
     """Return the base feature id without partition suffix."""
-
-    if "__" in feature_id:
-        return feature_id.split("__", 1)[0]
-    return feature_id
+    return _base_id(feature_id)
 
 
 def _is_missing_value(value: Any) -> bool:

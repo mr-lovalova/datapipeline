@@ -7,6 +7,7 @@ mappers: Registry[str, Any] = Registry()
 stream_sources: Registry[str, Any] = Registry()
 record_operations: Registry[str, Sequence[Mapping[str, object]]] = Registry()
 feature_transforms: Registry[str, Sequence[Mapping[str, object]]] = Registry()
+postprocesses: Registry[str, Any] = Registry()
 
 # Per-stream policy registries
 stream_operations: Registry[str, Sequence[Mapping[str, object]]] = Registry()
