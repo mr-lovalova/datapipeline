@@ -14,3 +14,5 @@ stream_operations: Registry[str, Sequence[Mapping[str, object]]] = Registry()
 debug_operations: Registry[str, Sequence[Mapping[str, object]]] = Registry()
 partition_by: Registry[str, Optional[Union[str, List[str]]]] = Registry()
 sort_batch_size: Registry[str, int] = Registry()
+
+artifacts: Registry[str, Any] = Registry()

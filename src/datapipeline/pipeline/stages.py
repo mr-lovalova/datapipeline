@@ -1,6 +1,7 @@
 from collections import defaultdict
-from itertools import groupby, tee
-from typing import Any, Iterable, Iterator, Sequence, Tuple, Mapping
+from itertools import groupby
+from typing import Any, Iterable, Iterator, Tuple, Mapping
+from datapipeline.services.artifacts import load_artifact
 
 from datapipeline.domain.feature import FeatureRecord, FeatureRecordSequence
 from datapipeline.domain.vector import Vector, vectorize_record_group
@@ -18,7 +19,7 @@ from datapipeline.registries.registries import (
     debug_operations,
     postprocesses,
 )
-from datapipeline.services.constants import POSTPROCESS_GLOBAL_KEY
+from datapipeline.services.constants import POSTPROCESS_TRANSFORMS, PARTIONED_IDS
 from datapipeline.pipeline.postprocess_context import (
     set_expected_ids,
     reset_expected_ids,
@@ -132,31 +133,12 @@ def post_process(
     - Read a precomputed expected feature-id list (full ids) from the build
       folder. If missing, instruct the user to generate it via CLI.
     """
-    configured = postprocesses.get(POSTPROCESS_GLOBAL_KEY)
-    if not configured:
-        return stream
-
-    if isinstance(configured, dict):
-        transforms = configured.get("transforms")
-        expected_path = configured.get("expected_path")
-    else:
-        transforms = configured
-        expected_path = None
+    transforms = postprocesses.get(POSTPROCESS_TRANSFORMS)
 
     if not transforms:
         return stream
 
-    expected_ids: list[str] = []
-    if isinstance(expected_path, str):
-        try:
-            with open(expected_path, "r", encoding="utf-8") as fh:
-                expected_ids = [line.strip() for line in fh if line.strip()]
-        except FileNotFoundError:
-            raise RuntimeError(
-                f"Missing expected feature-id list at {expected_path}. "
-                "Run: `jerry inspect expected --project <project.yaml>` or add `expected:` to transforms in postprocess.yaml. "
-                "See README: Postprocess Expected IDs."
-            )
+    expected_ids = load_artifact(PARTIONED_IDS)
 
     def _with_context() -> Iterator[Tuple[Any, Vector]]:
         token = set_expected_ids(expected_ids)

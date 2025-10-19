@@ -13,4 +13,6 @@ MAPPERS_GROUP = "mappers"
 FILTERS_GROUP = "filters"
 COMPOSED_LOADER_EP = "composed.loader"
 
-POSTPROCESS_GLOBAL_KEY = "__global__"
+#POSTPROCESS_GLOBAL_KEY = "__global__"
+POSTPROCESS_TRANSFORMS = "transforms"
+PARTIONED_IDS = "partitioned_ids"
