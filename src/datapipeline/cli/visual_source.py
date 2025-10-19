@@ -1,7 +1,7 @@
 from typing import Iterator, Any
 from contextlib import contextmanager
 from datapipeline.cli.visuals import progress_meta_for_loader
-from datapipeline.registries.registries import stream_sources
+from datapipeline.runtime import Runtime
 from datapipeline.sources.models.source import Source
 from tqdm import tqdm
 
@@ -19,14 +19,15 @@ class VisualSourceProxy(Source):
 
 
 @contextmanager
-def visual_sources():
+def visual_sources(runtime: Runtime):
     """Temporarily wrap all registered stream sources with VisualSourceProxy."""
-    originals = dict(stream_sources.items())
+    reg = runtime.registries.stream_sources
+    originals = dict(reg.items())
     try:
         for alias, src in originals.items():
-            stream_sources.register(alias, VisualSourceProxy(src))
+            reg.register(alias, VisualSourceProxy(src))
         yield
     finally:
         # Restore original sources
         for alias, src in originals.items():
-            stream_sources.register(alias, src)
+            reg.register(alias, src)

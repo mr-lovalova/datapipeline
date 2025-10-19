@@ -2,7 +2,7 @@ from datapipeline.services.constants import PARTIONED_IDS
 from datapipeline.registries.registry import Registry
 
 
-from datapipeline.registries.registries import artifacts
+from datapipeline.runtime import Runtime
 
 
 _builders: Registry[str, callable] = Registry()
@@ -25,6 +25,6 @@ def _expected_ids(path: str) -> list[str]:
 _builders.register(PARTIONED_IDS, _expected_ids)
 
 
-def load_artifact(key: str):
-    path = artifacts.get(key)
+def load_artifact(runtime: Runtime, key: str):
+    path = runtime.registries.artifacts.get(key)
     return _builders.get(key)(path)

@@ -1,6 +1,7 @@
 from collections import defaultdict
 from itertools import groupby
 from typing import Any, Iterable, Iterator, Tuple, Mapping
+from datapipeline.runtime import Runtime
 from datapipeline.services.artifacts import load_artifact
 
 from datapipeline.domain.feature import FeatureRecord, FeatureRecordSequence
@@ -11,14 +12,6 @@ from datapipeline.plugins import FEATURE_TRANSFORMS_EP, VECTOR_TRANSFORMS_EP, RE
 
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.pipeline.utils.keygen import FeatureIdGenerator, group_key_for
-from datapipeline.registries.registries import (
-    record_operations,
-    mappers,
-    stream_sources,
-    stream_operations,
-    debug_operations,
-    postprocesses,
-)
 from datapipeline.services.constants import POSTPROCESS_TRANSFORMS, PARTIONED_IDS
 from datapipeline.pipeline.postprocess_context import (
     set_expected_ids,
@@ -27,19 +20,19 @@ from datapipeline.pipeline.postprocess_context import (
 from datapipeline.sources.models.source import Source
 
 
-def open_source_stream(stream_alias: str) -> Source:
-    return stream_sources.get(stream_alias).stream()
+def open_source_stream(runtime: Runtime, stream_alias: str) -> Source:
+    return runtime.registries.stream_sources.get(stream_alias).stream()
 
 
-def build_record_stream(record_stream: Iterable[Mapping[str, Any]], stream_id: str) -> Iterator[TemporalRecord]:
+def build_record_stream(runtime: Runtime, record_stream: Iterable[Mapping[str, Any]], stream_id: str) -> Iterator[TemporalRecord]:
     """Map dto's to TemporalRecord instances."""
-    mapper = mappers.get(stream_id)
+    mapper = runtime.registries.mappers.get(stream_id)
     return mapper(record_stream)
 
 
-def apply_record_operations(record_stream: Iterable[TemporalRecord], stream_id: str) -> Iterator[TemporalRecord]:
+def apply_record_operations(runtime: Runtime, record_stream: Iterable[TemporalRecord], stream_id: str) -> Iterator[TemporalRecord]:
     """Apply record transforms defined in contract policies in order."""
-    steps = record_operations.get(stream_id)
+    steps = runtime.registries.record_operations.get(stream_id)
     records = apply_transforms(record_stream, RECORD_TRANSFORMS_EP, steps)
     return records
 
@@ -60,6 +53,7 @@ def build_feature_stream(
 
 
 def regularize_feature_stream(
+    runtime: Runtime,
     feature_stream: Iterable[FeatureRecord],
     stream_id: str,
     batch_size: int,
@@ -72,10 +66,10 @@ def regularize_feature_stream(
         key=lambda fr: (fr.id, fr.record.time),
     )
     transformed = apply_transforms(
-        sorted, STREAM_TRANFORMS_EP, stream_operations.get(stream_id)
+        sorted, STREAM_TRANFORMS_EP, runtime.registries.stream_operations.get(stream_id)
     )
     transformed = apply_transforms(
-        transformed, DEBUG_TRANSFORMS_EP, debug_operations.get(stream_id)
+        transformed, DEBUG_TRANSFORMS_EP, runtime.registries.debug_operations.get(stream_id)
     )
     return transformed
 
@@ -125,6 +119,7 @@ def vector_assemble_stage(
 
 
 def post_process(
+    runtime: Runtime,
     stream: Iterator[Tuple[Any, Vector]],
 ) -> Iterator[Tuple[Any, Vector]]:
     """Apply project-scoped postprocess transforms (from registry).
@@ -133,12 +128,12 @@ def post_process(
     - Read a precomputed expected feature-id list (full ids) from the build
       folder. If missing, instruct the user to generate it via CLI.
     """
-    transforms = postprocesses.get(POSTPROCESS_TRANSFORMS)
+    transforms = runtime.registries.postprocesses.get(POSTPROCESS_TRANSFORMS)
 
     if not transforms:
         return stream
 
-    expected_ids = load_artifact(PARTIONED_IDS)
+    expected_ids = load_artifact(runtime, PARTIONED_IDS)
 
     def _with_context() -> Iterator[Tuple[Any, Vector]]:
         token = set_expected_ids(expected_ids)

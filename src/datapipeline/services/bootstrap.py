@@ -23,19 +23,7 @@ from datapipeline.services.factories import (
     build_mapper_from_spec,
 )
 
-from datapipeline.registries.registries import (
-    mappers,
-    sources,
-    stream_sources,
-    record_operations,
-    feature_transforms,
-    stream_operations,
-    debug_operations,
-    partition_by,
-    sort_batch_size,
-    postprocesses,
-    artifacts
-)
+from datapipeline.runtime import Runtime
 from datapipeline.config.postprocess import PostprocessConfig
 
 
@@ -178,45 +166,53 @@ def load_streams(project_yaml: Path) -> StreamsConfig:
     return StreamsConfig(raw=raw, contracts=contracts)
 
 
-def init_streams(cfg: StreamsConfig) -> None:
+def init_streams(cfg: StreamsConfig, runtime: Runtime) -> None:
     """Compile typed streams config into runtime registries."""
-    stream_operations.clear()
-    debug_operations.clear()
-    partition_by.clear()
-    sort_batch_size.clear()
-    record_operations.clear()
-    feature_transforms.clear()
-    postprocesses.clear()
-    sources.clear()
-    mappers.clear()
-    stream_sources.clear()
+    regs = runtime.registries
+    regs.stream_operations.clear()
+    regs.debug_operations.clear()
+    regs.partition_by.clear()
+    regs.sort_batch_size.clear()
+    regs.record_operations.clear()
+    regs.feature_transforms.clear()
+    regs.postprocesses.clear()
+    regs.sources.clear()
+    regs.mappers.clear()
+    regs.stream_sources.clear()
 
     # Register per-stream policies and record transforms for runtime lookups
     for alias, spec in (cfg.contracts or {}).items():
-        stream_operations.register(alias, spec.stream)
-        debug_operations.register(alias, spec.debug)
-        partition_by.register(alias, spec.partition_by)
-        sort_batch_size.register(alias, spec.sort_batch_size)
+        regs.stream_operations.register(alias, spec.stream)
+        regs.debug_operations.register(alias, spec.debug)
+        regs.partition_by.register(alias, spec.partition_by)
+        regs.sort_batch_size.register(alias, spec.sort_batch_size)
         ops = spec.record
-        record_operations.register(alias, ops)
+        regs.record_operations.register(alias, ops)
 
     for alias, spec in (cfg.raw or {}).items():
-        sources.register(alias, build_source_from_spec(spec))
+        regs.sources.register(alias, build_source_from_spec(spec))
     for alias, spec in (cfg.contracts or {}).items():
         mapper = build_mapper_from_spec(spec.mapper)
-        mappers.register(alias, mapper)
-        stream_sources.register(alias, sources.get(spec.source_id))
+        regs.mappers.register(alias, mapper)
+        regs.stream_sources.register(alias, regs.sources.get(spec.source_id))
 
 
-def bootstrap(project_yaml: Path) -> StreamsConfig:
-    """One-call init: load streams.yaml and register raw/canonical streams."""
+def bootstrap(project_yaml: Path) -> Runtime:
+    """One-call init returning a scoped Runtime.
+
+    Loads streams and postprocess config, fills registries, and wires artifacts
+    under a per-project runtime instance.
+    """
+    art_root = artifacts_root(project_yaml)
+    runtime = Runtime(project_yaml=project_yaml, artifacts_root=art_root)
+
     streams = load_streams(project_yaml)
-    init_streams(streams)
+    init_streams(streams, runtime)
+
     post_doc = _load_by_key(project_yaml, "postprocess")
     postprocess = PostprocessConfig.model_validate(post_doc)
+    runtime.registries.postprocesses.register(POSTPROCESS_TRANSFORMS, postprocess.transforms)
 
-    postprocesses.register(POSTPROCESS_TRANSFORMS, postprocess.transforms)
-
-    expected_path = (artifacts_root(project_yaml) / "expected.txt").resolve()
-    artifacts.register(PARTIONED_IDS, expected_path)
-    return streams
+    expected_path = (art_root / "expected.txt").resolve()
+    runtime.registries.artifacts.register(PARTIONED_IDS, expected_path)
+    return runtime

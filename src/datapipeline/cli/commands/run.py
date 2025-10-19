@@ -31,7 +31,7 @@ def _print_head(iterable: Iterator[object], limit: int) -> int:
     return count
 
 
-def _run_feature_stage(dataset: FeatureDatasetConfig, stage: int, limit: int) -> None:
+def _run_feature_stage(runtime, dataset: FeatureDatasetConfig, stage: int, limit: int) -> None:
     """Preview a numeric feature/vector stage.
 
     Stages 0–5 preview the first configured feature.
@@ -42,9 +42,9 @@ def _run_feature_stage(dataset: FeatureDatasetConfig, stage: int, limit: int) ->
 
     # Vector stages (merged across all features)
     if stage in (6, 7):
-        stream = build_vector_pipeline(dataset.features, group_by, stage=6)
+        stream = build_vector_pipeline(runtime, dataset.features, group_by, stage=6)
         if stage == 7:
-            stream = post_process(stream)
+            stream = post_process(runtime, stream)
         printed = _print_head(stream, limit)
         label = "assembled" if stage == 6 else "transformed"
         print(f"({label} {printed} vectors)")
@@ -68,7 +68,7 @@ def _run_feature_stage(dataset: FeatureDatasetConfig, stage: int, limit: int) ->
 
     for cfg in dataset.features + dataset.targets:
         print(f"\n{icon} {title} for {cfg.id}")
-        stream = build_feature_pipeline(cfg, stage=stage)
+        stream = build_feature_pipeline(runtime, cfg, stage=stage)
         printed = _print_head(stream, limit)
         print(f"({summary.format(n=printed)})")
 
@@ -77,9 +77,9 @@ def handle_prep_stage(project: str, stage: int, limit: int = 20) -> None:
     """Preview a numeric feature stage (0-5) for all configured features."""
     project_path = Path(project)
     dataset = load_dataset(project_path, "features")
-    bootstrap(project_path)
-    with visual_sources():
-        _run_feature_stage(dataset, stage, limit)
+    runtime = bootstrap(project_path)
+    with visual_sources(runtime):
+        _run_feature_stage(runtime, dataset, stage, limit)
 
 
 def _limit_vectors(vectors: Iterator[Tuple[object, Vector]], limit: Optional[int]) -> Iterator[Tuple[object, Vector]]:
@@ -128,7 +128,7 @@ def _serve_pt(vectors: Iterator[Tuple[object, Vector]], limit: Optional[int], de
 def handle_serve(project: str, limit: Optional[int], output: str, include_targets: bool = False) -> None:
     project_path = Path(project)
     dataset = load_dataset(project_path, "vectors")
-    bootstrap(project_path)
+    runtime = bootstrap(project_path)
 
     features = list(dataset.features or [])
     if not features:
@@ -138,9 +138,9 @@ def handle_serve(project: str, limit: Optional[int], output: str, include_target
     configs = list(dataset.features or [])
     if include_targets:
         configs += list(dataset.targets or [])
-    vectors = build_vector_pipeline(configs, dataset.group_by)
+    vectors = build_vector_pipeline(runtime, configs, dataset.group_by)
     # Apply global postprocess by default
-    vectors = post_process(vectors)
+    vectors = post_process(runtime, vectors)
 
     if output == "print":
         _serve_print(vectors, limit)

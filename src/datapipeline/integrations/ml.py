@@ -31,8 +31,8 @@ from datapipeline.config.dataset.loader import load_dataset
 from datapipeline.domain.vector import Vector
 from datapipeline.pipeline.pipelines import build_vector_pipeline
 from datapipeline.pipeline.stages import post_process
-from datapipeline.pipeline.stages import open_source_stream
 from datapipeline.services.bootstrap import bootstrap
+from datapipeline.runtime import Runtime
 
 GroupFormat = Literal["mapping", "tuple", "list", "flat"]
 
@@ -72,19 +72,18 @@ class VectorAdapter:
     """Bootstrap a project once and provide ML-friendly iterators."""
 
     dataset: FeatureDatasetConfig
-    open_stream: Callable[[str], Iterable[Any]] = open_source_stream
+    runtime: Runtime
 
     @classmethod
     def from_project(
         cls,
         project_yaml: str | Path,
         *,
-        open_stream: Callable[[str], Iterable[Any]] = open_source_stream,
     ) -> "VectorAdapter":
         project_path = Path(project_yaml)
         dataset = load_dataset(project_path, "vectors")
-        bootstrap(project_path)
-        return cls(dataset=dataset, open_stream=open_stream)
+        runtime = bootstrap(project_path)
+        return cls(dataset=dataset, runtime=runtime)
 
     def stream(
         self,
@@ -98,9 +97,9 @@ class VectorAdapter:
                 features += list(getattr(self.dataset, "targets", []) or [])
             except Exception:
                 pass
-        vectors = build_vector_pipeline(features, self.dataset.group_by, stage=None)
+        vectors = build_vector_pipeline(self.runtime, features, self.dataset.group_by, stage=None)
         # Apply global postprocess by default
-        stream = post_process(vectors)
+        stream = post_process(self.runtime, vectors)
         if limit is not None:
             stream = islice(stream, limit)
         return stream
@@ -140,11 +139,10 @@ def stream_vectors(
     *,
     limit: int | None = None,
     include_targets: bool = False,
-    open_stream: Callable[[str], Iterable[Any]] = open_source_stream,
 ) -> Iterator[tuple[Sequence[Any], Vector]]:
     """Yield ``(group_key, Vector)`` pairs for the configured project."""
 
-    adapter = VectorAdapter.from_project(project_yaml, open_stream=open_stream)
+    adapter = VectorAdapter.from_project(project_yaml)
     try:
         return adapter.stream(limit=limit, include_targets=include_targets)
     except ValueError:
@@ -160,11 +158,10 @@ def iter_vector_rows(
     group_column: str = "group",
     flatten_sequences: bool = False,
     include_targets: bool = False,
-    open_stream: Callable[[str], Iterable[Any]] = open_source_stream,
 ) -> Iterator[dict[str, Any]]:
     """Return an iterator of row dictionaries derived from vectors."""
 
-    adapter = VectorAdapter.from_project(project_yaml, open_stream=open_stream)
+    adapter = VectorAdapter.from_project(project_yaml)
     try:
         return adapter.iter_rows(
             limit=limit,
@@ -187,7 +184,6 @@ def collect_vector_rows(
     group_column: str = "group",
     flatten_sequences: bool = False,
     include_targets: bool = False,
-    open_stream: Callable[[str], Iterable[Any]] = open_source_stream,
 ) -> list[dict[str, Any]]:
     """Materialize :func:`iter_vector_rows` into a list for eager workflows."""
 
@@ -199,7 +195,7 @@ def collect_vector_rows(
         group_column=group_column,
         flatten_sequences=flatten_sequences,
         include_targets=include_targets,
-        open_stream=open_stream,
+        
     )
     return list(iterator)
 
@@ -267,7 +263,6 @@ def torch_dataset(
     device: Any | None = None,
     flatten_sequences: bool = False,
     include_targets: bool = False,
-    open_stream: Callable[[str], Iterable[Any]] = open_source_stream,
 ):
     """Build a torch.utils.data.Dataset that yields tensors from vectors.
 
@@ -291,7 +286,6 @@ def torch_dataset(
         include_group=False,
         flatten_sequences=flatten_sequences,
         include_targets=include_targets,
-        open_stream=open_stream,
     )
 
     # Auto-derive target columns when include_targets is set and none provided
