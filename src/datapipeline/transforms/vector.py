@@ -1,25 +1,11 @@
-from __future__ import annotations
 from collections import deque
-from collections.abc import Iterator, Mapping, MutableMapping, Sequence
+from collections.abc import Iterator, Sequence
 from statistics import mean, median
 from typing import Any, Literal, Tuple
 
 from datapipeline.domain.vector import Vector
-from datapipeline.transforms.vector_utils import (
-    base_id as _base_id,
-    is_missing as _is_missing,
-)
+from datapipeline.transforms.vector_utils import base_id, is_missing, clone
 from datapipeline.pipeline.postprocess_context import get_expected_ids as _ctx_expected
-
-
-def _clone(values: Mapping[str, Any]) -> MutableMapping[str, Any]:
-    if isinstance(values, MutableMapping):
-        return type(values)(values)
-    return dict(values)
-
-
-def _base(feature_id: str) -> str:
-    return _base_id(feature_id)
 
 
 class _ExpectedFeaturesMixin:
@@ -55,7 +41,7 @@ class VectorDropMissingTransform(_ExpectedFeaturesMixin):
     def apply(self, stream: Iterator[Tuple[Any, Vector]]) -> Iterator[Tuple[Any, Vector]]:
         for group_key, vector in stream:
             present = {fid for fid, value in vector.values.items()
-                       if not _is_missing(value)}
+                       if not is_missing(value)}
             # Enforce hard requirements first (normalize required keys for fair comparison)
             if self.required:
                 if not set(self.required).issubset(present):
@@ -91,10 +77,10 @@ class VectorFillConstantTransform(_ExpectedFeaturesMixin):
             if not targets:
                 yield group_key, vector
                 continue
-            data = _clone(vector.values)
+            data = clone(vector.values)
             updated = False
             for feature in targets:
-                if feature not in data or _is_missing(data[feature]):
+                if feature not in data or is_missing(data[feature]):
                     data[feature] = self.value
                     updated = True
             if updated:
@@ -133,7 +119,7 @@ class VectorFillHistoryTransform(_ExpectedFeaturesMixin):
         return float(median(values))
 
     def _push(self, feature_id: str, value: Any) -> None:
-        if _is_missing(value):
+        if is_missing(value):
             return
         try:
             num = float(value)
@@ -147,10 +133,10 @@ class VectorFillHistoryTransform(_ExpectedFeaturesMixin):
     def apply(self, stream: Iterator[Tuple[Any, Vector]]) -> Iterator[Tuple[Any, Vector]]:
         for group_key, vector in stream:
             targets = self._targets()
-            data = _clone(vector.values)
+            data = clone(vector.values)
             updated = False
             for feature in targets:
-                if feature in data and not _is_missing(data[feature]):
+                if feature in data and not is_missing(data[feature]):
                     continue
                 fill = self._compute(feature)
                 if fill is not None:
@@ -189,22 +175,22 @@ class VectorFillAcrossPartitionsTransform(_ExpectedFeaturesMixin):
                 yield group_key, vector
                 continue
 
-            data = _clone(vector.values)
+            data = clone(vector.values)
             base_groups: dict[str, list[float]] = {}
             for fid, value in data.items():
-                if _is_missing(value):
+                if is_missing(value):
                     continue
                 try:
                     num = float(value)
                 except (TypeError, ValueError):
                     continue
-                base_groups.setdefault(_base(fid), []).append(num)
+                base_groups.setdefault(base_id(fid), []).append(num)
 
             updated = False
             for feature in targets:
-                if feature in data and not _is_missing(data[feature]):
+                if feature in data and not is_missing(data[feature]):
                     continue
-                base = _base(feature)
+                base = base_id(feature)
                 candidates = base_groups.get(base, [])
                 if len(candidates) < self.min_samples:
                     continue

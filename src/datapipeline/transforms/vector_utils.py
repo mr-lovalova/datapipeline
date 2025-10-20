@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Mapping, MutableMapping
 
 PARTITION_SEP = "__"
 
@@ -28,3 +28,9 @@ def is_missing(value: Any) -> bool:
         # NaN check without numpy
         return value != value
     return False
+
+
+def clone(values: Mapping[str, Any]) -> MutableMapping[str, Any]:
+    if isinstance(values, MutableMapping):
+        return type(values)(values)
+    return dict(values)
