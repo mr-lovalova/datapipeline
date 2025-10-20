@@ -54,7 +54,8 @@ class VectorDropMissingTransform(_ExpectedFeaturesMixin):
 
     def apply(self, stream: Iterator[Tuple[Any, Vector]]) -> Iterator[Tuple[Any, Vector]]:
         for group_key, vector in stream:
-            present = {fid for fid, value in vector.values.items() if not _is_missing(value)}
+            present = {fid for fid, value in vector.values.items()
+                       if not _is_missing(value)}
             # Enforce hard requirements first (normalize required keys for fair comparison)
             if self.required:
                 if not set(self.required).issubset(present):
@@ -122,6 +123,7 @@ class VectorFillHistoryTransform(_ExpectedFeaturesMixin):
         self.window = window
         self.min_samples = min_samples
         self.history: dict[str, deque[float]] = {}
+
     def _compute(self, feature_id: str) -> float | None:
         values = self.history.get(feature_id)
         if not values or len(values) < self.min_samples:
@@ -138,7 +140,8 @@ class VectorFillHistoryTransform(_ExpectedFeaturesMixin):
         except (TypeError, ValueError):
             # Ignore non-scalar/non-numeric entries
             return
-        bucket = self.history.setdefault(str(feature_id), deque(maxlen=self.window))
+        bucket = self.history.setdefault(
+            str(feature_id), deque(maxlen=self.window))
         bucket.append(num)
 
     def apply(self, stream: Iterator[Tuple[Any, Vector]]) -> Iterator[Tuple[Any, Vector]]:
