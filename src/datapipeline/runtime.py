@@ -1,8 +1,7 @@
-from __future__ import annotations
-
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Optional, Sequence, Union, List
+from datapipeline.config.split import SplitConfig
 
 from datapipeline.registries.registry import Registry
 from datapipeline.sources.models.source import Source
@@ -66,4 +65,4 @@ class Runtime:
     project_yaml: Path
     artifacts_root: Path
     registries: Registries = field(default_factory=Registries)
-
+    split: Optional[SplitConfig] = None

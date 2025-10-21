@@ -206,12 +206,26 @@ def bootstrap(project_yaml: Path) -> Runtime:
     art_root = artifacts_root(project_yaml)
     runtime = Runtime(project_yaml=project_yaml, artifacts_root=art_root)
 
+    # Attach project-level split config once to runtime (avoid reloading later)
+    try:
+        proj = _project(project_yaml)
+        runtime.split = getattr(proj.globals, "split", None)
+    except Exception:
+        runtime.split = None
+
     streams = load_streams(project_yaml)
     init_streams(streams, runtime)
 
     post_doc = _load_by_key(project_yaml, "postprocess")
+    # Allow interpolation of ${var} using project.globals in postprocess.yaml
+    try:
+        vars_ = _globals(project_yaml)
+        post_doc = _interpolate(post_doc, vars_)
+    except Exception:
+        pass
     postprocess = PostprocessConfig.model_validate(post_doc)
-    runtime.registries.postprocesses.register(POSTPROCESS_TRANSFORMS, postprocess.transforms)
+    runtime.registries.postprocesses.register(
+        POSTPROCESS_TRANSFORMS, postprocess.transforms)
 
     expected_path = (art_root / "expected.txt").resolve()
     runtime.registries.artifacts.register(PARTIONED_IDS, expected_path)

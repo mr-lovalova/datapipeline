@@ -46,6 +46,29 @@ Analyze vectors
 - Use post-processing `transforms` in `postprocess.yaml` to keep coverage high
   (history/horizontal fills, constants, or drop rules) before serving vectors.
 
+Train/Val/Test splits (deterministic)
+- Configure splits once in your project file (single source of truth):
+  - Edit `config/datasets/default/project.yaml` and set:
+    ```yaml
+    globals:
+      split:
+        keep: train           # train|val|test
+        mode: hash            # hash|time
+        key: group            # group or feature:<id> (entity-stable)
+        seed: 42              # deterministic hash seed
+        ratios: {train: 0.8, val: 0.1, test: 0.1}
+    ```
+- Serve examples (change `keep` between runs to materialize each split):
+  - `jerry run serve -p config/datasets/default/project.yaml -o stream > train.jsonl`
+  - Edit `keep: val`, then run again → `val.jsonl`
+  - Edit `keep: test`, then run again → `test.jsonl`
+- The split is applied at the end (after postprocess transforms), and assignment
+  is deterministic (hash-based) with a fixed seed; no overlap across runs.
+
+Key selection guidance
+- `key: group` hashes the group key (commonly the time bucket). This yields a uniform random split per group but may allow the same entity to appear in multiple splits across time.
+- `key: feature:<id>` hashes a specific feature value, e.g., `feature:entity_id` or `feature:station_id`, ensuring all vectors for that entity land in the same split (recommended to avoid leakage).
+
 Postprocess expected IDs
 - Some transforms operate over the complete set of partitioned feature IDs (e.g. `wind__A`).
 - You can either:

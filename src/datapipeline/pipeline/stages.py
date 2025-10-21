@@ -18,6 +18,7 @@ from datapipeline.pipeline.postprocess_context import (
     reset_expected_ids,
 )
 from datapipeline.sources.models.source import Source
+from datapipeline.pipeline.split import apply_split_stage as split_stage
 
 
 def open_source_stream(runtime: Runtime, stream_alias: str) -> Source:

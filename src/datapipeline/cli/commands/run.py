@@ -16,6 +16,7 @@ from datapipeline.pipeline.pipelines import (
 from datapipeline.pipeline.stages import post_process
 from datapipeline.services.bootstrap import bootstrap
 from datapipeline.domain.vector import Vector
+from datapipeline.pipeline.stages import split_stage
 
 
 def _print_head(iterable: Iterator[object], limit: int) -> int:
@@ -139,8 +140,10 @@ def handle_serve(project: str, limit: Optional[int], output: str, include_target
     if include_targets:
         configs += list(dataset.targets or [])
     vectors = build_vector_pipeline(runtime, configs, dataset.group_by)
-    # Apply global postprocess by default
+    # Apply global postprocess transforms first (fills/coverage)
     vectors = post_process(runtime, vectors)
+    # Finally, apply configured split (if any) via a dedicated stage
+    vectors = split_stage(runtime, vectors)
 
     if output == "print":
         _serve_print(vectors, limit)
