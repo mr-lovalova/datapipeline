@@ -35,6 +35,23 @@ def sources_dir(project_yaml: Path) -> Path:
     return p
 
 
+def build_config_path(project_yaml: Path) -> Path:
+    """Return the resolved path to build.yaml declared in project.paths.build."""
+
+    cfg = read_project(project_yaml)
+    build_path = getattr(cfg.paths, "build", None)
+    if not build_path:
+        raise FileNotFoundError(
+            "project.paths.build must point to a build.yaml configuration file."
+        )
+    p = Path(build_path)
+    if not p.is_absolute():
+        p = _project_root(project_yaml) / p
+    if not p.exists():
+        raise FileNotFoundError(f"build config not found: {p}")
+    return p
+
+
 def ensure_project_scaffold(project_yaml: Path) -> None:
     """Ensure a minimal project scaffold exists.
 
@@ -51,6 +68,9 @@ def ensure_project_scaffold(project_yaml: Path) -> None:
             "  streams: ../../contracts\n"
             "  sources: ../../sources\n"
             "  dataset: dataset.yaml\n"
+            "  postprocess: postprocess.yaml\n"
+            "  artifacts: ../../build/datasets/default\n"
+            "  build: build.yaml\n"
             "globals:\n"
             "  start_time: 2021-01-01T00:00:00Z\n"
             "  end_time: 2021-12-31T23:00:00Z\n"

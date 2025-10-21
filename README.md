@@ -226,6 +226,8 @@ postprocess; programmatic usage should call `build_vector_pipeline(...)` and the
 Build outputs
 - Set a single artifacts root in your project.yaml: `paths.artifacts`. If relative, it is resolved from the
   location of project.yaml.
+- Run `jerry build --project <project.yaml>` to materialize project-level artifacts (expected ids, config hash, etc.).
+  The build command persists metadata to `<artifacts>/build/state.json` and skips work when configuration hashes match.
 - Tools write artifacts under this folder (e.g., `expected.txt`, `coverage.json`, matrices, etc.).
 
 ---
@@ -265,9 +267,10 @@ You have two options for providing this set:
       - fill_history: { expected: [wind__A, wind__B], window: 48, min_samples: 6 }
 
 - Generate a complete list via CLI and use it as the default for all transforms:
-  - jerry inspect expected --project <path/to/project.yaml>
-  - Writes newline-separated ids to `build/datasets/<name>/expected.txt` (where `<name>` is the dataset folder name under `config/datasets/`).
-  - Use `--include-targets` to include target features; use `--output` to choose a custom path.
+  - Preferred: `jerry build --project <path/to/project.yaml>` (writes to `<paths.artifacts>/expected.txt` and records the location in `<paths.artifacts>/build/state.json`).
+  - Alternative: `jerry inspect expected --project <path/to/project.yaml>` if you want an ad-hoc export.
+    - Writes newline-separated ids to `build/datasets/<name>/expected.txt` (where `<name>` is the dataset folder name under `config/datasets/`).
+    - Use `--include-targets` to include target features; use `--output` to choose a custom path.
 
 At runtime, if no per-transform `expected` is set, postprocess reads the generated list and applies it to all transforms.
 If the file is missing, the runtime error will point here.

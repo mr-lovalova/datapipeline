@@ -11,6 +11,7 @@ from datapipeline.cli.commands.filter import handle as handle_filter
 from datapipeline.cli.commands.inspect import (
     report as handle_inspect_report,
 )
+from datapipeline.cli.commands.build import handle as handle_build
 
 
 def main() -> None:
@@ -84,6 +85,24 @@ def main() -> None:
         "--include-targets",
         action="store_true",
         help="include dataset.targets in served vectors (defaults to features only)",
+    )
+
+    # build (materialize artifacts)
+    p_build = sub.add_parser(
+        "build",
+        help="materialize project artifacts (expected ids, hashes, etc.)",
+        parents=[common],
+    )
+    p_build.add_argument(
+        "--project",
+        "-p",
+        default="config/datasets/default/project.yaml",
+        help="path to project.yaml",
+    )
+    p_build.add_argument(
+        "--force",
+        action="store_true",
+        help="rebuild even when the configuration hash matches the last run",
     )
 
     # source
@@ -378,6 +397,12 @@ def main() -> None:
             limit=getattr(args, "limit", None),
             output=args.output,
             include_targets=getattr(args, "include_targets", False),
+        )
+        return
+    if args.cmd == "build":
+        handle_build(
+            project=args.project,
+            force=getattr(args, "force", False),
         )
         return
 

@@ -2,7 +2,7 @@ from collections import defaultdict
 from itertools import groupby
 from typing import Any, Iterable, Iterator, Tuple, Mapping
 from datapipeline.runtime import Runtime
-from datapipeline.services.artifacts import load_artifact
+from datapipeline.services.artifacts import PARTITIONED_IDS_SPEC, get_artifact
 
 from datapipeline.domain.feature import FeatureRecord, FeatureRecordSequence
 from datapipeline.domain.vector import Vector, vectorize_record_group
@@ -12,7 +12,7 @@ from datapipeline.plugins import FEATURE_TRANSFORMS_EP, VECTOR_TRANSFORMS_EP, RE
 
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.pipeline.utils.keygen import FeatureIdGenerator, group_key_for
-from datapipeline.services.constants import POSTPROCESS_TRANSFORMS, PARTIONED_IDS
+from datapipeline.services.constants import POSTPROCESS_TRANSFORMS
 from datapipeline.pipeline.postprocess_context import (
     set_expected_ids,
     reset_expected_ids,
@@ -134,7 +134,7 @@ def post_process(
     if not transforms:
         return stream
 
-    expected_ids = load_artifact(runtime, PARTIONED_IDS)
+    expected_ids = get_artifact(runtime, PARTITIONED_IDS_SPEC)
 
     def _with_context() -> Iterator[Tuple[Any, Vector]]:
         token = set_expected_ids(expected_ids)

@@ -1,0 +1,4 @@
+version: 1
+partitioned_ids:
+  output: expected.txt     # relative to project.paths.artifacts
+  include_targets: false   # set true to include dataset.targets

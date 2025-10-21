@@ -7,6 +7,7 @@ from datapipeline.utils.load import load_yaml
 from datapipeline.config.catalog import StreamsConfig
 from datapipeline.config.project import ProjectConfig
 from datapipeline.services.project_paths import streams_dir, sources_dir
+from datapipeline.build.state import load_build_state
 from datapipeline.services.constants import (
     PARSER_KEY,
     LOADER_KEY,
@@ -227,6 +228,14 @@ def bootstrap(project_yaml: Path) -> Runtime:
     runtime.registries.postprocesses.register(
         POSTPROCESS_TRANSFORMS, postprocess.transforms)
 
-    expected_path = (art_root / "expected.txt").resolve()
-    runtime.registries.artifacts.register(PARTIONED_IDS, expected_path)
+    def _register_artifact(key: str, value: Path) -> None:
+        runtime.registries.artifacts.register(key, value)
+
+    state_path = (art_root / "build" / "state.json").resolve()
+    state = load_build_state(state_path)
+    if state:
+        for key, relative in state.artifacts.items():
+            rel = Path(relative)
+            abs_path = rel if rel.is_absolute() else (art_root / rel).resolve()
+            _register_artifact(key, abs_path)
     return runtime

@@ -18,6 +18,7 @@ Folder layout
 - `config/`
   - `sources/*.yaml` — raw source definitions (one file per source)
   - `contracts/*.yaml` — canonical stream definitions
+  - `datasets/<name>/build.yaml` — build configuration (partitioned ids today, more artifacts later)
 - `src/{{PACKAGE_NAME}}/`
   - `sources/<provider>/<dataset>/dto.py` — DTO model for the source
   - `sources/<provider>/<dataset>/parser.py` — parse raw → DTO
@@ -34,6 +35,7 @@ How loaders work
 - Synthetic sources generate data in-process and keep a small loader stub.
 
 Run data flows
+- Build artifacts once: `jerry build --project config/datasets/default/project.yaml`
 - Records: `jerry prep pour -p config/datasets/default/project.yaml -n 100`
 - Features: `jerry prep build -p config/datasets/default/project.yaml -n 100`
 - Vectors: `jerry prep stir -p config/datasets/default/project.yaml -n 100`
@@ -74,10 +76,10 @@ Postprocess expected IDs
 - You can either:
   - Set `expected:` explicitly per transform in `postprocess.yaml`, or
   - Generate a full list once via:
-    - `jerry inspect expected --project config/datasets/default/project.yaml`
-    - Writes newline-separated ids to `build/datasets/default/expected.txt`.
+    - Recommended: `jerry build --project config/datasets/default/project.yaml` (writes to `<paths.artifacts>/expected.txt` and records the location in `<paths.artifacts>/build/state.json`).
+    - Ad-hoc: `jerry inspect expected --project config/datasets/default/project.yaml`
     - Use `--include-targets` to include targets; `--output` to change the path.
-- At runtime, if a transform has no `expected`, postprocess uses this file. Do not edit generated files.
+- At runtime, if a transform has no `expected`, postprocess uses the registered artifact. Do not edit generated files.
 
 Tips
 - Keep parsers thin — mirror source schema and return DTOs; use the identity parser only if your loader already emits domain records.
