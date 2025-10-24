@@ -28,9 +28,12 @@ def handle(project: str, *, force: bool = False) -> None:
 
     new_state = BuildState(config_hash=config_hash)
     for key, info in artifacts.items():
-        new_state.register(key, info["relative_path"])
-        count_note = f" ({info['count']} ids)" if "count" in info else ""
-        print(f"🛠️  {key} → {info['relative_path']}{count_note}")
+        relative_path = info["relative_path"]
+        meta = {k: v for k, v in info.items() if k != "relative_path"}
+        new_state.register(key, relative_path, meta=meta)
+        details = ", ".join(f"{k}={v}" for k, v in meta.items())
+        suffix = f" ({details})" if details else ""
+        print(f"🛠️  {key} → {relative_path}{suffix}")
 
     save_build_state(new_state, state_path)
     print("✅ Build completed.")

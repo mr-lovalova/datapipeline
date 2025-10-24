@@ -1,6 +1,9 @@
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from typing import Any, Optional, Tuple
-from inspect import isclass
+from inspect import isclass, signature, Parameter
+from contextlib import nullcontext
+
+from datapipeline.pipeline.context import PipelineContext
 
 from datapipeline.utils.load import load_ep
 
@@ -13,43 +16,81 @@ def _extract_single_pair(clause: Mapping[str, Any], kind: str) -> Tuple[str, Any
     return next(iter(clause.items()))
 
 
-def _call_with_params(fn: Callable, stream: Iterator[Any], params: Any) -> Iterator[Any]:
+def _supports_parameter(callable_obj: Callable[..., Any], name: str) -> bool:
+    try:
+        sig = signature(callable_obj)
+    except (ValueError, TypeError):
+        return False
+    for param in sig.parameters.values():
+        if param.kind == Parameter.VAR_KEYWORD:
+            return True
+        if param.kind in (Parameter.POSITIONAL_OR_KEYWORD, Parameter.KEYWORD_ONLY) and param.name == name:
+            return True
+    return False
+
+
+def _split_params(params: Any) -> Tuple[Tuple[Any, ...], dict[str, Any]]:
+    if params is None:
+        return (), {}
+    if isinstance(params, (list, tuple)):
+        return tuple(params), {}
+    if isinstance(params, Mapping):
+        return (), dict(params)
+    return (params,), {}
+
+
+def _call_with_params(
+    fn: Callable,
+    stream: Iterator[Any],
+    params: Any,
+    context: Optional[PipelineContext],
+) -> Iterator[Any]:
     """Invoke an entry-point callable with optional params semantics."""
 
-    if params is None:
-        return fn(stream)
-    if isinstance(params, (list, tuple)):
-        return fn(stream, *params)
-    if isinstance(params, Mapping):
-        return fn(stream, **params)
-    return fn(stream, params)
+    args, kwargs = _split_params(params)
+    if context and _supports_parameter(fn, "context") and "context" not in kwargs:
+        kwargs["context"] = context
+    return fn(stream, *args, **kwargs)
 
 
-def _instantiate_entry_point(cls: Callable[..., Any], params: Any) -> Any:
+def _instantiate_entry_point(
+    cls: Callable[..., Any],
+    params: Any,
+    context: Optional[PipelineContext],
+) -> Any:
     """Instantiate a transform class with parameters from the config."""
 
-    if params is None:
-        return cls()
-    if isinstance(params, Mapping):
-        return cls(**params)
-    if isinstance(params, (list, tuple)):
-        return cls(*params)
-    return cls(params)
+    args, kwargs = _split_params(params)
+    if context and _supports_parameter(cls.__init__, "context") and "context" not in kwargs:
+        kwargs["context"] = context
+    return cls(*args, **kwargs)
+
+
+def _bind_context(transform: Any, context: Optional[PipelineContext]) -> None:
+    if not context:
+        return
+    binder = getattr(transform, "bind_context", None)
+    if callable(binder):
+        binder(context)
 
 
 def apply_transforms(
     stream: Iterator[Any],
     group: str,
     transforms: Optional[Sequence[Mapping[str, Any]]],
+    context: Optional[PipelineContext] = None,
 ) -> Iterator[Any]:
     """Instantiate and apply configured transforms in order."""
 
-    for transform in transforms or ():
-        name, params = _extract_single_pair(transform, "Transform")
-        ep = load_ep(group=group, name=name)
-        if isclass(ep):
-            inst = _instantiate_entry_point(ep, params)
-            stream = inst(stream)
-        else:
-            stream = _call_with_params(ep, stream, params)
+    context_cm = context.activate() if context else nullcontext()
+    with context_cm:
+        for transform in transforms or ():
+            name, params = _extract_single_pair(transform, "Transform")
+            ep = load_ep(group=group, name=name)
+            if isclass(ep):
+                inst = _instantiate_entry_point(ep, params, context)
+                _bind_context(inst, context)
+                stream = inst(stream)
+            else:
+                stream = _call_with_params(ep, stream, params, context)
     return stream

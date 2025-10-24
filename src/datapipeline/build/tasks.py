@@ -2,15 +2,18 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
-from typing import Dict, Iterable, Sequence, Tuple
+from typing import Dict, Iterable, Iterator, Sequence, Tuple
 
 from datapipeline.config.build import BuildConfig
 from datapipeline.config.dataset.loader import load_dataset
+from datapipeline.pipeline.context import PipelineContext
 from datapipeline.pipeline.pipelines import build_vector_pipeline
+from datapipeline.pipeline.split import build_labeler
 from datapipeline.runtime import Runtime
-from datapipeline.services.constants import PARTIONED_IDS
+from datapipeline.services.constants import PARTIONED_IDS, SCALER_STATISTICS
 from datapipeline.services.project_paths import read_project
 from datapipeline.utils.paths import ensure_parent
+from datapipeline.transforms.feature.scaler import StandardScaler
 
 
 def _resolve_relative(project_yaml: Path, value: str) -> Path:
@@ -59,7 +62,8 @@ def compute_config_hash(project_yaml: Path, build_config_path: Path) -> str:
 
     for dir_value in (cfg.paths.sources, cfg.paths.streams):
         directory = _resolve_relative(project_yaml, dir_value)
-        hasher.update(f"[dir]{_normalized_label(directory, base_dir)}".encode("utf-8"))
+        hasher.update(
+            f"[dir]{_normalized_label(directory, base_dir)}".encode("utf-8"))
         if not directory.exists():
             hasher.update(b"[missing]")
             continue
@@ -75,8 +79,13 @@ def _collect_partitioned_ids(runtime: Runtime, include_targets: bool) -> Sequenc
     if include_targets:
         feature_cfgs += list(dataset.targets or [])
 
+    sanitized = [cfg.model_copy(update={"scale": False})
+                 for cfg in feature_cfgs]
+
     ids: set[str] = set()
-    vectors = build_vector_pipeline(runtime, feature_cfgs, dataset.group_by, stage=None)
+    context = PipelineContext(runtime)
+    vectors = build_vector_pipeline(
+        context, sanitized, dataset.group_by, stage=None)
     for _, vector in vectors:
         ids.update(vector.values.keys())
     return sorted(ids)
@@ -86,7 +95,8 @@ def materialize_partitioned_ids(runtime: Runtime, config: BuildConfig) -> Tuple[
     """Write the partitioned-id list and return (relative_path, count)."""
 
     task_cfg = config.partitioned_ids
-    ids = _collect_partitioned_ids(runtime, include_targets=task_cfg.include_targets)
+    ids = _collect_partitioned_ids(
+        runtime, include_targets=task_cfg.include_targets)
 
     relative_path = Path(task_cfg.output)
     destination = (runtime.artifacts_root / relative_path).resolve()
@@ -99,13 +109,78 @@ def materialize_partitioned_ids(runtime: Runtime, config: BuildConfig) -> Tuple[
     return str(relative_path), len(ids)
 
 
+def materialize_scaler_statistics(runtime: Runtime, config: BuildConfig) -> Tuple[str, Dict[str, object]] | None:
+    task_cfg = config.scaler
+    if not task_cfg.enabled:
+        return None
+
+    dataset = load_dataset(runtime.project_yaml, "vectors")
+    feature_cfgs = list(dataset.features)
+    if not feature_cfgs and not task_cfg.include_targets:
+        return None
+
+    if task_cfg.include_targets:
+        feature_cfgs += list(dataset.targets or [])
+
+    sanitized_cfgs = [cfg.model_copy(
+        update={"scale": False}) for cfg in feature_cfgs]
+
+    context = PipelineContext(runtime)
+    vectors = build_vector_pipeline(
+        context, sanitized_cfgs, dataset.group_by, stage=None)
+
+    cfg = getattr(runtime, "split", None)
+    labeler = build_labeler(cfg) if cfg else None
+    if not labeler and task_cfg.split_label != "all":
+        raise RuntimeError(
+            f"Cannot compute scaler statistics for split '{task_cfg.split_label}' "
+            "when no split configuration is defined in the project."
+        )
+
+    def _train_stream() -> Iterator[tuple[object, object]]:
+        for group_key, vector in vectors:
+            if labeler and labeler.label(group_key, vector) != task_cfg.split_label:
+                continue
+            yield group_key, vector
+
+    scaler = StandardScaler()
+    total_observations = scaler.fit(_train_stream())
+
+    if not scaler.statistics:
+        raise RuntimeError(
+            f"No scaler statistics computed for split '{task_cfg.split_label}'."
+        )
+
+    relative_path = Path(task_cfg.output)
+    destination = (runtime.artifacts_root / relative_path).resolve()
+    ensure_parent(destination)
+
+    scaler.save(destination)
+
+    meta: Dict[str, object] = {
+        "features": len(scaler.statistics),
+        "split": task_cfg.split_label,
+        "observations": total_observations,
+    }
+
+    return str(relative_path), meta
+
+
 def execute_build(runtime: Runtime, config: BuildConfig) -> Dict[str, Dict[str, object]]:
     """Materialize artifacts described by build.yaml."""
+    artifacts: Dict[str, Dict[str, object]] = {}
 
     rel_path, count = materialize_partitioned_ids(runtime, config)
-    return {
-        PARTIONED_IDS: {
-            "relative_path": rel_path,
-            "count": count,
-        }
+    artifacts[PARTIONED_IDS] = {
+        "relative_path": rel_path,
+        "count": count,
     }
+
+    scaler_result = materialize_scaler_statistics(runtime, config)
+    if scaler_result:
+        rel_path, meta = scaler_result
+        scaler_meta = {"relative_path": rel_path}
+        scaler_meta.update(meta)
+        artifacts[SCALER_STATISTICS] = scaler_meta
+
+    return artifacts

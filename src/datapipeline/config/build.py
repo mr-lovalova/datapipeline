@@ -20,6 +20,27 @@ class PartitionedIdsConfig(BaseModel):
     )
 
 
+class ScalerArtifactConfig(BaseModel):
+    """Configuration for computing standard-scaler statistics."""
+
+    enabled: bool = Field(
+        default=True,
+        description="Disable to skip generating the scaler statistics artifact.",
+    )
+    output: str = Field(
+        default="scaler.pkl",
+        description="Artifact path relative to project.paths.artifacts.",
+    )
+    include_targets: bool = Field(
+        default=False,
+        description="Include dataset.targets when fitting scaler statistics.",
+    )
+    split_label: str = Field(
+        default="train",
+        description="Split label to use when fitting scaler statistics.",
+    )
+
+
 class BuildConfig(BaseModel):
     """Top-level build configuration describing materialized artifacts."""
 
@@ -27,6 +48,10 @@ class BuildConfig(BaseModel):
     partitioned_ids: PartitionedIdsConfig = Field(
         default_factory=PartitionedIdsConfig,
         description="Partitioned-id task settings.",
+    )
+    scaler: ScalerArtifactConfig = Field(
+        default_factory=ScalerArtifactConfig,
+        description="Standard-scaler statistics artifact settings.",
     )
 
 

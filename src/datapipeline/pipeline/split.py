@@ -141,13 +141,16 @@ class VectorSplitApplicator:
                 yield group_key, Vector(values=data)
 
 
-def _build_from_model(cfg: SplitConfig) -> VectorSplitApplicator:
+def build_labeler(cfg: SplitConfig) -> BaseLabeler:
     if isinstance(cfg, TimeSplitConfig):
-        labeler = TimeLabeler(boundaries=cfg.boundaries, labels=cfg.labels)
-        return VectorSplitApplicator(labeler=labeler, output="filter", keep=cfg.keep)
+        return TimeLabeler(boundaries=cfg.boundaries, labels=cfg.labels)
+    return HashLabeler(ratios=cfg.ratios, key=cfg.key, seed=cfg.seed)
 
-    labeler = HashLabeler(ratios=cfg.ratios, key=cfg.key, seed=cfg.seed)
-    return VectorSplitApplicator(labeler=labeler, output="filter", keep=cfg.keep)
+
+def build_applicator(cfg: SplitConfig) -> VectorSplitApplicator:
+    labeler = build_labeler(cfg)
+    keep = getattr(cfg, "keep", None)
+    return VectorSplitApplicator(labeler=labeler, output="filter", keep=keep)
 
 
 def apply_split_stage(runtime, stream: Iterator[Tuple[Any, Vector]]) -> Iterator[Tuple[Any, Vector]]:
@@ -161,7 +164,7 @@ def apply_split_stage(runtime, stream: Iterator[Tuple[Any, Vector]]) -> Iterator
         cfg = getattr(runtime, "split", None)
         if not cfg:
             return stream
-        applicator = _build_from_model(cfg)
+        applicator = build_applicator(cfg)
         return applicator(stream)
     except Exception:
         return stream

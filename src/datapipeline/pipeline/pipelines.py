@@ -14,25 +14,26 @@ from datapipeline.pipeline.stages import (
     apply_feature_transforms,
     vector_assemble_stage,
 )
-from datapipeline.runtime import Runtime
+from datapipeline.pipeline.context import PipelineContext
 
 
 def build_feature_pipeline(
-    runtime: Runtime,
+    context: PipelineContext,
     cfg: FeatureRecordConfig,
     stage: int | None = None,
 ) -> Iterator[Any]:
+    runtime = context.runtime
     record_stream_id = cfg.record_stream
 
-    dtos = open_source_stream(runtime, record_stream_id)
+    dtos = open_source_stream(context, record_stream_id)
     if stage == 0:
         return dtos
 
-    records = build_record_stream(runtime, dtos, record_stream_id)
+    records = build_record_stream(context, dtos, record_stream_id)
     if stage == 1:
         return records
 
-    records = apply_record_operations(runtime, records, record_stream_id)
+    records = apply_record_operations(context, records, record_stream_id)
     if stage == 2:
         return records
 
@@ -43,12 +44,12 @@ def build_feature_pipeline(
 
     batch_size = runtime.registries.sort_batch_size.get(record_stream_id)
     regularized = regularize_feature_stream(
-        runtime, features, record_stream_id, batch_size)
+        context, features, record_stream_id, batch_size)
     if stage == 4:
         return regularized
 
     transformed = apply_feature_transforms(
-        regularized, cfg.scale, cfg.sequence)
+        context, regularized, cfg.scale, cfg.sequence)
     if stage == 5:
         return transformed
 
@@ -68,7 +69,7 @@ def build_feature_pipeline(
 
 
 def build_vector_pipeline(
-    runtime: Runtime,
+    context: PipelineContext,
     configs: Sequence[FeatureRecordConfig],
     group_by_cadence: str,
     stage: int | None = None,
@@ -80,9 +81,9 @@ def build_vector_pipeline(
     """
     if stage is not None and stage <= 5:
         first = next(iter(configs))
-        return build_feature_pipeline(runtime, first, stage=stage)
+        return build_feature_pipeline(context, first, stage=stage)
 
-    streams = [build_feature_pipeline(runtime, cfg, stage=None) for cfg in configs]
+    streams = [build_feature_pipeline(context, cfg, stage=None) for cfg in configs]
     merged = heapq.merge(
         *streams, key=lambda fr: group_key_for(fr, group_by_cadence)
     )

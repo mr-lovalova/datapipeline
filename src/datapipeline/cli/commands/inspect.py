@@ -8,6 +8,7 @@ from datapipeline.config.dataset.loader import load_dataset
 from datapipeline.services.bootstrap import bootstrap
 from datapipeline.utils.paths import ensure_parent
 from datapipeline.services.bootstrap import artifacts_root
+from datapipeline.pipeline.context import PipelineContext
 from datapipeline.pipeline.pipelines import build_vector_pipeline
 from datapipeline.pipeline.stages import post_process
 
@@ -38,6 +39,7 @@ def report(
     project_path = Path(project)
     dataset = load_dataset(project_path, "vectors")
     runtime = bootstrap(project_path)
+    context = PipelineContext(runtime)
 
     feature_cfgs = list(dataset.features or [])
     if include_targets:
@@ -68,9 +70,9 @@ def report(
 
     # When applying transforms, let the global postprocess registry provide them (pass None).
     # When raw, pass an empty list to bypass registry/defaults.
-    vectors = build_vector_pipeline(runtime, feature_cfgs, dataset.group_by, stage=None)
+    vectors = build_vector_pipeline(context, feature_cfgs, dataset.group_by, stage=None)
     if apply_postprocess:
-        vectors = post_process(runtime, vectors)  # use global postprocess
+        vectors = post_process(context, vectors)  # use global postprocess
 
     for group_key, vector in vectors:
         collector.update(group_key, vector.values)
@@ -144,8 +146,9 @@ def partitions(
         show_matrix=False,
     )
 
-    vectors = build_vector_pipeline(runtime, feature_cfgs, dataset.group_by, stage=None)
-    vectors = post_process(runtime, vectors)  # apply global postprocess
+    context = PipelineContext(runtime)
+    vectors = build_vector_pipeline(context, feature_cfgs, dataset.group_by, stage=None)
+    vectors = post_process(context, vectors)  # apply global postprocess
     for group_key, vector in vectors:
         collector.update(group_key, vector.values)
 
@@ -197,7 +200,8 @@ def expected(
     if include_targets:
         feature_cfgs += list(dataset.targets or [])
 
-    vectors = build_vector_pipeline(runtime, feature_cfgs, dataset.group_by, stage=None)
+    context = PipelineContext(runtime)
+    vectors = build_vector_pipeline(context, feature_cfgs, dataset.group_by, stage=None)
     ids: set[str] = set()
     for _, vector in vectors:
         ids.update(vector.values.keys())

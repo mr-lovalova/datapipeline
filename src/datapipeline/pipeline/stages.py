@@ -1,8 +1,9 @@
 from collections import defaultdict
 from itertools import groupby
 from typing import Any, Iterable, Iterator, Tuple, Mapping
-from datapipeline.runtime import Runtime
-from datapipeline.services.artifacts import PARTITIONED_IDS_SPEC, get_artifact
+from datapipeline.pipeline.context import PipelineContext
+from datapipeline.services.artifacts import PARTITIONED_IDS_SPEC
+from datapipeline.services.constants import POSTPROCESS_TRANSFORMS, SCALER_STATISTICS
 
 from datapipeline.domain.feature import FeatureRecord, FeatureRecordSequence
 from datapipeline.domain.vector import Vector, vectorize_record_group
@@ -12,29 +13,33 @@ from datapipeline.plugins import FEATURE_TRANSFORMS_EP, VECTOR_TRANSFORMS_EP, RE
 
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.pipeline.utils.keygen import FeatureIdGenerator, group_key_for
-from datapipeline.services.constants import POSTPROCESS_TRANSFORMS
-from datapipeline.pipeline.postprocess_context import (
-    set_expected_ids,
-    reset_expected_ids,
-)
 from datapipeline.sources.models.source import Source
 from datapipeline.pipeline.split import apply_split_stage as split_stage
 
 
-def open_source_stream(runtime: Runtime, stream_alias: str) -> Source:
+def open_source_stream(context: PipelineContext, stream_alias: str) -> Source:
+    runtime = context.runtime
     return runtime.registries.stream_sources.get(stream_alias).stream()
 
 
-def build_record_stream(runtime: Runtime, record_stream: Iterable[Mapping[str, Any]], stream_id: str) -> Iterator[TemporalRecord]:
+def build_record_stream(
+    context: PipelineContext,
+    record_stream: Iterable[Mapping[str, Any]],
+    stream_id: str,
+) -> Iterator[TemporalRecord]:
     """Map dto's to TemporalRecord instances."""
-    mapper = runtime.registries.mappers.get(stream_id)
+    mapper = context.runtime.registries.mappers.get(stream_id)
     return mapper(record_stream)
 
 
-def apply_record_operations(runtime: Runtime, record_stream: Iterable[TemporalRecord], stream_id: str) -> Iterator[TemporalRecord]:
+def apply_record_operations(
+    context: PipelineContext,
+    record_stream: Iterable[TemporalRecord],
+    stream_id: str,
+) -> Iterator[TemporalRecord]:
     """Apply record transforms defined in contract policies in order."""
-    steps = runtime.registries.record_operations.get(stream_id)
-    records = apply_transforms(record_stream, RECORD_TRANSFORMS_EP, steps)
+    steps = context.runtime.registries.record_operations.get(stream_id)
+    records = apply_transforms(record_stream, RECORD_TRANSFORMS_EP, steps, context)
     return records
 
 
@@ -54,7 +59,7 @@ def build_feature_stream(
 
 
 def regularize_feature_stream(
-    runtime: Runtime,
+    context: PipelineContext,
     feature_stream: Iterable[FeatureRecord],
     stream_id: str,
     batch_size: int,
@@ -67,15 +72,22 @@ def regularize_feature_stream(
         key=lambda fr: (fr.id, fr.record.time),
     )
     transformed = apply_transforms(
-        sorted, STREAM_TRANFORMS_EP, runtime.registries.stream_operations.get(stream_id)
+        sorted,
+        STREAM_TRANFORMS_EP,
+        context.runtime.registries.stream_operations.get(stream_id),
+        context,
     )
     transformed = apply_transforms(
-        transformed, DEBUG_TRANSFORMS_EP, runtime.registries.debug_operations.get(stream_id)
+        transformed,
+        DEBUG_TRANSFORMS_EP,
+        context.runtime.registries.debug_operations.get(stream_id),
+        context,
     )
     return transformed
 
 
 def apply_feature_transforms(
+    context: PipelineContext,
     feature_stream: Iterable[FeatureRecord],
     scale: Mapping[str, Any] | None = None,
     sequence: Mapping[str, Any] | None = None,
@@ -88,13 +100,21 @@ def apply_feature_transforms(
     clauses: list[Mapping[str, Any]] = []
     if scale:
         scale_args = {} if scale is True else dict(scale)
+        if "model_path" not in scale_args:
+            if not context.artifacts.has(SCALER_STATISTICS):
+                raise RuntimeError(
+                    "Scaler artifact is missing. Run `jerry build` to generate it "
+                    "or disable scale in feature config."
+                )
+            model_path = context.artifacts.resolve_path(SCALER_STATISTICS)
+            scale_args["model_path"] = str(model_path)
         clauses.append({"scale": scale_args})
 
     if sequence:
         clauses.append({"sequence": dict(sequence)})
 
     transformed = apply_transforms(
-        feature_stream, FEATURE_TRANSFORMS_EP, clauses)
+        feature_stream, FEATURE_TRANSFORMS_EP, clauses, context)
     return transformed
 
 
@@ -120,7 +140,7 @@ def vector_assemble_stage(
 
 
 def post_process(
-    runtime: Runtime,
+    context: PipelineContext,
     stream: Iterator[Tuple[Any, Vector]],
 ) -> Iterator[Tuple[Any, Vector]]:
     """Apply project-scoped postprocess transforms (from registry).
@@ -129,18 +149,10 @@ def post_process(
     - Read a precomputed expected feature-id list (full ids) from the build
       folder. If missing, instruct the user to generate it via CLI.
     """
+    runtime = context.runtime
     transforms = runtime.registries.postprocesses.get(POSTPROCESS_TRANSFORMS)
 
     if not transforms:
         return stream
 
-    expected_ids = get_artifact(runtime, PARTITIONED_IDS_SPEC)
-
-    def _with_context() -> Iterator[Tuple[Any, Vector]]:
-        token = set_expected_ids(expected_ids)
-        try:
-            yield from apply_transforms(stream, VECTOR_TRANSFORMS_EP, transforms)
-        finally:
-            reset_expected_ids(token)
-
-    return _with_context()
+    return apply_transforms(stream, VECTOR_TRANSFORMS_EP, transforms, context)

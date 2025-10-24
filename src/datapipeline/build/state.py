@@ -1,10 +1,15 @@
-from __future__ import annotations
-
 import json
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Optional, Any
 
 from pydantic import BaseModel, Field
+
+
+class ArtifactInfo(BaseModel):
+    """Metadata describing a materialized artifact."""
+
+    relative_path: str
+    meta: Dict[str, Any] = Field(default_factory=dict)
 
 
 class BuildState(BaseModel):
@@ -12,10 +17,11 @@ class BuildState(BaseModel):
 
     version: int = 1
     config_hash: str
-    artifacts: Dict[str, str] = Field(default_factory=dict)
+    artifacts: Dict[str, ArtifactInfo] = Field(default_factory=dict)
 
-    def register(self, key: str, relative_path: str) -> None:
-        self.artifacts[key] = relative_path
+    def register(self, key: str, relative_path: str, *, meta: Optional[Dict[str, Any]] = None) -> None:
+        self.artifacts[key] = ArtifactInfo(
+            relative_path=relative_path, meta=dict(meta or {}))
 
 
 def load_build_state(path: Path) -> Optional[BuildState]:
@@ -25,14 +31,17 @@ def load_build_state(path: Path) -> Optional[BuildState]:
         data = json.load(fh)
     artifacts = data.get("artifacts")
     if isinstance(artifacts, dict):
-        normalized: Dict[str, str] = {}
+        normalized: Dict[str, ArtifactInfo] = {}
         for key, value in artifacts.items():
             if isinstance(value, dict):
                 rel = value.get("relative_path")
                 if isinstance(rel, str):
-                    normalized[key] = rel
+                    meta = value.get("meta") if isinstance(
+                        value.get("meta"), dict) else {}
+                    normalized[key] = ArtifactInfo(
+                        relative_path=rel, meta=meta)
             elif isinstance(value, str):
-                normalized[key] = value
+                normalized[key] = ArtifactInfo(relative_path=value)
         data["artifacts"] = normalized
     return BuildState.model_validate(data)
 

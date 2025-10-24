@@ -13,6 +13,7 @@ from datapipeline.pipeline.pipelines import (
     build_feature_pipeline,
     build_vector_pipeline,
 )
+from datapipeline.pipeline.context import PipelineContext
 from datapipeline.pipeline.stages import post_process
 from datapipeline.services.bootstrap import bootstrap
 from datapipeline.domain.vector import Vector
@@ -40,12 +41,13 @@ def _run_feature_stage(runtime, dataset: FeatureDatasetConfig, stage: int, limit
     Stage 7 applies vector transforms.
     """
     group_by = dataset.group_by
+    context = PipelineContext(runtime)
 
     # Vector stages (merged across all features)
     if stage in (6, 7):
-        stream = build_vector_pipeline(runtime, dataset.features, group_by, stage=6)
+        stream = build_vector_pipeline(context, dataset.features, group_by, stage=6)
         if stage == 7:
-            stream = post_process(runtime, stream)
+            stream = post_process(context, stream)
         printed = _print_head(stream, limit)
         label = "assembled" if stage == 6 else "transformed"
         print(f"({label} {printed} vectors)")
@@ -69,7 +71,7 @@ def _run_feature_stage(runtime, dataset: FeatureDatasetConfig, stage: int, limit
 
     for cfg in dataset.features + dataset.targets:
         print(f"\n{icon} {title} for {cfg.id}")
-        stream = build_feature_pipeline(runtime, cfg, stage=stage)
+        stream = build_feature_pipeline(context, cfg, stage=stage)
         printed = _print_head(stream, limit)
         print(f"({summary.format(n=printed)})")
 
@@ -130,6 +132,7 @@ def handle_serve(project: str, limit: Optional[int], output: str, include_target
     project_path = Path(project)
     dataset = load_dataset(project_path, "vectors")
     runtime = bootstrap(project_path)
+    context = PipelineContext(runtime)
 
     features = list(dataset.features or [])
     if not features:
@@ -139,9 +142,9 @@ def handle_serve(project: str, limit: Optional[int], output: str, include_target
     configs = list(dataset.features or [])
     if include_targets:
         configs += list(dataset.targets or [])
-    vectors = build_vector_pipeline(runtime, configs, dataset.group_by)
+    vectors = build_vector_pipeline(context, configs, dataset.group_by)
     # Apply global postprocess transforms first (fills/coverage)
-    vectors = post_process(runtime, vectors)
+    vectors = post_process(context, vectors)
     # Finally, apply configured split (if any) via a dedicated stage
     vectors = split_stage(runtime, vectors)
 
