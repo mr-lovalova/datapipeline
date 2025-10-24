@@ -17,7 +17,6 @@ from datapipeline.services.constants import (
     ENTRYPOINT_KEY,
     STREAM_ID_KEY,
     POSTPROCESS_TRANSFORMS,
-    PARTIONED_IDS,
 )
 from datapipeline.services.factories import (
     build_source_from_spec,
@@ -228,14 +227,13 @@ def bootstrap(project_yaml: Path) -> Runtime:
     runtime.registries.postprocesses.register(
         POSTPROCESS_TRANSFORMS, postprocess.transforms)
 
-    def _register_artifact(key: str, value: Path) -> None:
-        runtime.registries.artifacts.register(key, value)
-
     state_path = (art_root / "build" / "state.json").resolve()
     state = load_build_state(state_path)
     if state:
-        for key, relative in state.artifacts.items():
-            rel = Path(relative)
-            abs_path = rel if rel.is_absolute() else (art_root / rel).resolve()
-            _register_artifact(key, abs_path)
+        for key, info in state.artifacts.items():
+            runtime.artifacts.register(
+                key,
+                relative_path=info.relative_path,
+                meta=info.meta,
+            )
     return runtime

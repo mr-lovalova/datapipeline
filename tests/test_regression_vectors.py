@@ -1,19 +1,69 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone, timedelta
-import json
+from datetime import datetime, timezone
+from pathlib import Path
 
 from datapipeline.config.dataset.feature import FeatureRecordConfig
-from datapipeline.config.dataset.group_by import GroupBy, TimeKey
 from datapipeline.domain.record import TimeSeriesRecord
+from datapipeline.pipeline.context import PipelineContext
 from datapipeline.pipeline.pipelines import build_vector_pipeline
+from datapipeline.pipeline.stages import post_process
+from datapipeline.runtime import Runtime
+from datapipeline.services.constants import POSTPROCESS_TRANSFORMS, SCALER_STATISTICS
+from datapipeline.transforms.feature.scaler import StandardScaler
 
 
 def _ts(hour: int, minute: int = 0) -> datetime:
     return datetime(2024, 1, 1, hour=hour, minute=minute, tzinfo=timezone.utc)
 
 
-def test_regression_scaled_shapes_airpressure_high_freq_and_windspeed_hourly() -> None:
+def _identity(iterable):
+    return iterable
+
+
+class _StubSource:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def stream(self):
+        return iter(self._rows)
+
+
+def _runtime_with_streams(tmp_path: Path, streams: dict[str, list[TimeSeriesRecord]]) -> Runtime:
+    project_yaml = tmp_path / "project.yaml"
+    artifacts_root = tmp_path / "artifacts"
+    artifacts_root.mkdir(parents=True, exist_ok=True)
+    runtime = Runtime(project_yaml=project_yaml, artifacts_root=artifacts_root)
+
+    regs = runtime.registries
+    for alias, rows in streams.items():
+        regs.stream_sources.register(alias, _StubSource(rows))
+        regs.mappers.register(alias, _identity)
+        regs.record_operations.register(alias, [])
+        regs.stream_operations.register(alias, [])
+        regs.debug_operations.register(alias, [])
+        regs.partition_by.register(alias, None)
+        regs.sort_batch_size.register(alias, 1024)
+
+    return runtime
+
+
+def _register_scaler(runtime: Runtime, configs: list[FeatureRecordConfig], group_by: str) -> None:
+    sanitized = [cfg.model_copy(update={"scale": False}) for cfg in configs]
+    context = PipelineContext(runtime)
+    vectors = build_vector_pipeline(context, sanitized, group_by, stage=None)
+
+    scaler = StandardScaler()
+    total = scaler.fit(((group_key, vector) for group_key, vector in vectors))
+    if not total:
+        raise RuntimeError("Unable to compute scaler statistics for test runtime.")
+
+    destination = runtime.artifacts_root / "scaler.pkl"
+    scaler.save(destination)
+    runtime.artifacts.register(SCALER_STATISTICS, destination)
+
+
+def test_regression_scaled_shapes_airpressure_high_freq_and_windspeed_hourly(tmp_path) -> None:
     # Fake raw streams
     # high-frequency mock series (multiple samples per hour)
     high_freq_raw = [
@@ -33,18 +83,18 @@ def test_regression_scaled_shapes_airpressure_high_freq_and_windspeed_hourly() -
         "air_pressure": high_freq_raw,
         "wind_speed": hourly_raw,
     }
-
-    def open_stream(alias: str):
-        return iter(streams[alias])
-
-    group_by = GroupBy(keys=[TimeKey(field="time", resolution="1h")])
+    runtime = _runtime_with_streams(tmp_path, streams)
+    group_by = "1h"
 
     configs = [
         FeatureRecordConfig(stream="air_pressure", id="air_pressure", scale=True),
         FeatureRecordConfig(stream="wind_speed", id="wind_speed", scale=True),
     ]
 
-    out = list(build_vector_pipeline(configs, group_by, open_stream, vector_transforms=None))
+    _register_scaler(runtime, configs, group_by)
+    context = PipelineContext(runtime)
+
+    out = list(build_vector_pipeline(context, configs, group_by, stage=None))
 
     # Two hourly groups expected: 00:00 and 01:00
     assert len(out) == 2
@@ -68,7 +118,7 @@ def test_regression_scaled_shapes_airpressure_high_freq_and_windspeed_hourly() -
     assert abs(ws_mean) < 1e-6
 
 
-def test_regression_fill_then_scale_with_missing_values() -> None:
+def test_regression_fill_then_scale_with_missing_values(tmp_path) -> None:
     # air_pressure has a missing value in between two valid ones within the same hour
     series_high = [
         TimeSeriesRecord(time=_ts(0, 10), value=1000.0),
@@ -82,11 +132,8 @@ def test_regression_fill_then_scale_with_missing_values() -> None:
     ]
 
     streams = {"ap": series_high, "ws": series_hourly}
-
-    def open_stream(alias: str):
-        return iter(streams[alias])
-
-    group_by = GroupBy(keys=[TimeKey(field="time", resolution="1h")])
+    runtime = _runtime_with_streams(tmp_path, streams)
+    group_by = "1h"
 
     # Fill then scale for both features
     configs = [
@@ -94,7 +141,9 @@ def test_regression_fill_then_scale_with_missing_values() -> None:
         FeatureRecordConfig(stream="ws", id="wind_speed", fill={"statistic": "mean", "window": 10, "min_samples": 1}, scale=True),
     ]
 
-    out = list(build_vector_pipeline(configs, group_by, open_stream, vector_transforms=None))
+    _register_scaler(runtime, configs, group_by)
+    context = PipelineContext(runtime)
+    out = list(build_vector_pipeline(context, configs, group_by, stage=None))
 
     # One hour group
     assert len(out) == 2  # hours 00 and 01 due to wind_speed hour 1
@@ -126,11 +175,9 @@ def test_regression_vector_transforms_fill_horizontal_history_and_drop(tmp_path)
         "wind_A": wind_a,
         "wind_B": wind_b,
     }
-
-    def open_stream(alias: str):
-        return iter(streams[alias])
-
-    group_by = GroupBy(keys=[TimeKey(field="time", resolution="1h")])
+    runtime = _runtime_with_streams(tmp_path, streams)
+    context = PipelineContext(runtime)
+    group_by = "1h"
 
     configs = [
         FeatureRecordConfig(stream="wind_A", id="wind_speed__A"),
@@ -152,7 +199,9 @@ def test_regression_vector_transforms_fill_horizontal_history_and_drop(tmp_path)
         {"drop_missing": {"manifest": str(manifest_path), "match_partition": "full", "min_coverage": 1.0}},
     ]
 
-    out = list(build_vector_pipeline(configs, group_by, open_stream, vector_transforms=vt))
+    runtime.registries.postprocesses.register(POSTPROCESS_TRANSFORMS, vt)
+    vectors = build_vector_pipeline(context, configs, group_by, stage=None)
+    out = list(post_process(context, vectors))
 
     # Two hourly vectors should be present after horizontal fill + drop
     assert len(out) == 2

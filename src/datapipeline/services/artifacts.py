@@ -2,9 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Generic, TypeVar
+from typing import Any, Callable, Dict, Generic, Mapping, Optional, TypeVar
 
-from datapipeline.runtime import Runtime
 from datapipeline.services.constants import PARTIONED_IDS
 
 ArtifactValue = TypeVar("ArtifactValue")
@@ -19,6 +18,73 @@ class ArtifactSpec(Generic[ArtifactValue]):
     loader: ArtifactLoader[ArtifactValue]
 
 
+@dataclass(frozen=True)
+class ArtifactRecord:
+    key: str
+    relative_path: str
+    meta: Mapping[str, Any]
+
+    def resolve(self, root: Path) -> Path:
+        path = Path(self.relative_path)
+        return path if path.is_absolute() else (root / path)
+
+
+class ArtifactNotRegisteredError(RuntimeError):
+    """Raised when attempting to use an artifact that is not registered."""
+
+
+class ArtifactManager:
+    """Manage materialized artifact locations and metadata."""
+
+    def __init__(self, root: Path) -> None:
+        self._root = Path(root)
+        self._records: Dict[str, ArtifactRecord] = {}
+
+    @property
+    def root(self) -> Path:
+        return self._root
+
+    def register(self, key: str, *, relative_path: str, meta: Optional[Mapping[str, Any]] = None) -> None:
+        self._records[key] = ArtifactRecord(
+            key=key,
+            relative_path=relative_path,
+            meta=dict(meta or {}),
+        )
+
+    def has(self, key: str) -> bool:
+        return key in self._records
+
+    def require(self, key: str) -> ArtifactRecord:
+        try:
+            return self._records[key]
+        except KeyError as exc:
+            raise ArtifactNotRegisteredError(
+                f"Artifact '{key}' is not registered. "
+                "Run `jerry build --project <project.yaml>` first."
+            ) from exc
+
+    def optional(self, key: str) -> ArtifactRecord | None:
+        return self._records.get(key)
+
+    def metadata(self, key: str) -> Dict[str, Any]:
+        return self.require(key).meta
+
+    def resolve_path(self, key: str) -> Path:
+        return self.require(key).resolve(self._root)
+
+    def load(self, spec: ArtifactSpec[ArtifactValue]) -> ArtifactValue:
+        path = self.resolve_path(spec.key)
+        try:
+            return spec.loader(path)
+        except FileNotFoundError as exc:
+            message = (
+                f"Artifact file not found: {path}. "
+                "Run `jerry build --project <project.yaml>` (preferred) or "
+                "`jerry inspect expected --project <project.yaml>` to regenerate it."
+            )
+            raise RuntimeError(message) from exc
+
+
 def _read_expected_ids(path: Path) -> list[str]:
     with path.open("r", encoding="utf-8") as fh:
         return [line.strip() for line in fh if line.strip()]
@@ -28,30 +94,3 @@ PARTITIONED_IDS_SPEC = ArtifactSpec[list[str]](
     key=PARTIONED_IDS,
     loader=_read_expected_ids,
 )
-
-
-def _resolve_artifact_path(runtime: Runtime, spec: ArtifactSpec[ArtifactValue]) -> Path:
-    try:
-        value = runtime.registries.artifacts.get(spec.key)
-    except KeyError as exc:
-        raise RuntimeError(
-            f"Artifact '{spec.key}' is not registered. "
-            "Run `jerry build --project <project.yaml>` first."
-        ) from exc
-    path = value if isinstance(value, Path) else Path(value)
-    return path.resolve()
-
-
-def get_artifact(runtime: Runtime, spec: ArtifactSpec[ArtifactValue]) -> ArtifactValue:
-    """Load an artifact declared by *spec* using the runtime registry."""
-
-    path = _resolve_artifact_path(runtime, spec)
-    try:
-        return spec.loader(path)
-    except FileNotFoundError as exc:
-        message = (
-            f"Artifact file not found: {path}. "
-            "Run `jerry build --project <project.yaml>` (preferred) or "
-            "`jerry inspect expected --project <project.yaml>` to regenerate it."
-        )
-        raise RuntimeError(message) from exc

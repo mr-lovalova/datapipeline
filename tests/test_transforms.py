@@ -6,7 +6,7 @@ from typing import Any
 
 from datapipeline.domain.feature import FeatureRecord
 from datapipeline.domain.record import TimeSeriesRecord
-from datapipeline.transforms.feature.scaler import StandardScalerTransform
+from datapipeline.transforms.feature.scaler import StandardScaler, StandardScalerTransform
 from datapipeline.transforms.stream.ensure_ticks import drop_missing_values
 from datapipeline.transforms.stream.fill import FillTransformer as FeatureFill
 from datapipeline.transforms.vector import (
@@ -37,6 +37,13 @@ def _make_vector(group: int, values: dict[str, Any]) -> tuple[tuple[int], Vector
     return ((group,), Vector(values=values))
 
 
+class _StubVectorContext:
+    def __init__(self, expected: list[str]):
+        self._expected = list(expected)
+
+    def load_expected_ids(self) -> list[str]:
+        return list(self._expected)
+
 
 def test_drop_missing_values_filters_none_and_nan():
     stream = iter(
@@ -54,6 +61,17 @@ def test_drop_missing_values_filters_none_and_nan():
 
 
 def test_standard_scaler_normalizes_feature_stream():
+    training_vectors = iter(
+        [
+            ((0,), Vector(values={"radiation": 1.0})),
+            ((1,), Vector(values={"radiation": 2.0})),
+            ((2,), Vector(values={"radiation": 3.0})),
+        ]
+    )
+    scaler_model = StandardScaler()
+    scaler_model.fit(training_vectors)
+    scaler = StandardScalerTransform(scaler=scaler_model)
+
     stream = iter(
         [
             _make_feature_record(1.0, 0, "radiation"),
@@ -61,7 +79,6 @@ def test_standard_scaler_normalizes_feature_stream():
             _make_feature_record(3.0, 2, "radiation"),
         ]
     )
-    scaler = StandardScalerTransform()
 
     transformed = list(scaler.apply(stream))
 
@@ -69,23 +86,57 @@ def test_standard_scaler_normalizes_feature_stream():
     expected = [-1.22474487, 0.0, 1.22474487]
     for observed, target in zip(values, expected):
         assert isclose(observed, target, rel_tol=1e-6)
-    assert isclose(scaler.stats_["radiation"]["mean"], 2.0, rel_tol=1e-6)
 
 
 def test_standard_scaler_uses_provided_statistics():
+    training_vectors = iter(
+        [
+            ((0,), Vector(values={"temperature": 0.0})),
+            ((1,), Vector(values={"temperature": 10.0})),
+        ]
+    )
+    scaler_model = StandardScaler()
+    scaler_model.fit(training_vectors)
+    scaler = StandardScalerTransform(scaler=scaler_model)
+
     stream = iter(
         [
             _make_feature_record(10.0, 0, "temperature"),
             _make_feature_record(11.0, 1, "temperature"),
         ]
     )
-    scaler = StandardScalerTransform(
-        statistics={"temperature": {"mean": 5.0, "std": 5.0}}
-    )
 
     transformed = list(scaler.apply(stream))
 
     assert [fr.record.value for fr in transformed] == [1.0, 1.2]
+
+
+def test_standard_scaler_fit_and_serialize(tmp_path):
+    vectors = iter(
+        [
+            ((0,), Vector(values={"temp": 10.0, "wind": 5.0})),
+            ((1,), Vector(values={"temp": 14.0, "wind": 7.0})),
+        ]
+    )
+
+    scaler = StandardScaler()
+    total = scaler.fit(vectors)
+    assert total == 4
+    path = tmp_path / "scaler.pkl"
+    scaler.save(path)
+    restored = StandardScaler.load(path)
+    transform = StandardScalerTransform(model_path=path)
+
+    stream = iter(
+        [
+            _make_feature_record(12.0, 0, "temp"),
+            _make_feature_record(6.0, 0, "wind"),
+        ]
+    )
+
+    transformed = list(transform.apply(stream))
+    assert len(restored.statistics) == 2
+    assert len(transformed) == 2
 
 
 def test_time_mean_fill_uses_running_average():
@@ -140,7 +191,8 @@ def test_vector_fill_history_uses_running_statistics():
     )
 
     transform = VectorFillHistoryTransform(
-        statistic="mean", window=2, min_samples=2, expected=["temp__A"]) 
+        statistic="mean", window=2, min_samples=2)
+    transform.bind_context(_StubVectorContext(["temp__A"]))
 
     out = list(transform.apply(stream))
     assert out[2][1].values["temp__A"] == 11.0
@@ -155,7 +207,8 @@ def test_vector_fill_horizontal_averages_siblings():
     )
 
     transform = VectorFillAcrossPartitionsTransform(
-        statistic="median", expected=["wind__A", "wind__B"]) 
+        statistic="median")
+    transform.bind_context(_StubVectorContext(["wind__A", "wind__B"]))
 
     out = list(transform.apply(stream))
     # First bucket remains unchanged
@@ -167,8 +220,8 @@ def test_vector_fill_horizontal_averages_siblings():
 
 def test_vector_fill_constant_injects_value():
     stream = iter([_make_vector(0, {"time": 1.0})])
-    transform = VectorFillConstantTransform(
-        value=0.0, expected=["time", "wind"])
+    transform = VectorFillConstantTransform(value=0.0)
+    transform.bind_context(_StubVectorContext(["time", "wind"]))
     out = list(transform.apply(stream))
     assert out[0][1].values["wind"] == 0.0
 
@@ -181,8 +234,8 @@ def test_vector_drop_missing_respects_coverage():
         ]
     )
 
-    transform = VectorDropMissingTransform(
-        expected=["a", "b"], min_coverage=1.0)
+    transform = VectorDropMissingTransform(min_coverage=1.0)
+    transform.bind_context(_StubVectorContext(["a", "b"]))
 
     out = list(transform.apply(stream))
     assert len(out) == 1

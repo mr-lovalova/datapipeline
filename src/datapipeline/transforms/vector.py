@@ -1,37 +1,37 @@
 from collections import deque
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator
 from statistics import mean, median
 from typing import Any, Literal, Tuple
 
 from datapipeline.domain.vector import Vector
 from datapipeline.transforms.vector_utils import base_id, is_missing, clone
-from datapipeline.pipeline.postprocess_context import get_expected_ids as _ctx_expected
+from datapipeline.pipeline.context import PipelineContext, try_get_current_context
 
 
-class _ExpectedFeaturesMixin:
-    def __init__(self, *, expected: Sequence[str] | None = None) -> None:
-        # Expected targets (must be provided by config or injection)
-        self._expected = [str(x) for x in (expected or [])]
+class _ContextExpectedMixin:
+    def __init__(self) -> None:
+        self._context: PipelineContext | None = None
 
-    @property
-    def expected(self) -> list[str]:
-        return list(self._expected)
+    def bind_context(self, context: PipelineContext) -> None:
+        self._context = context
 
-    def _targets(self) -> list[str]:
-        return self.expected or _ctx_expected()
+    def _expected_ids(self) -> list[str]:
+        ctx = self._context or try_get_current_context()
+        if not ctx:
+            return []
+        return ctx.load_expected_ids()
 
 
-class VectorDropMissingTransform(_ExpectedFeaturesMixin):
+class VectorDropMissingTransform(_ContextExpectedMixin):
     """Drop vectors that do not satisfy coverage requirements."""
 
     def __init__(
         self,
         *,
-        required: Sequence[str] | None = None,
-        expected: Sequence[str] | None = None,
+        required: list[str] | None = None,
         min_coverage: float = 1.0,
     ) -> None:
-        super().__init__(expected=expected)
+        super().__init__()
         if not 0.0 <= min_coverage <= 1.0:
             raise ValueError("min_coverage must be between 0 and 1")
         self.required = {str(item) for item in (required or [])}
@@ -48,7 +48,7 @@ class VectorDropMissingTransform(_ExpectedFeaturesMixin):
                     continue
 
             # Coverage baseline uses explicit expected if provided; otherwise dynamic set
-            baseline = set(self._targets())
+            baseline = set(self._expected_ids())
             if baseline:
                 coverage = len(present & baseline) / len(baseline)
                 if coverage < self.min_coverage:
@@ -56,16 +56,15 @@ class VectorDropMissingTransform(_ExpectedFeaturesMixin):
             yield group_key, vector
 
 
-class VectorFillConstantTransform(_ExpectedFeaturesMixin):
+class VectorFillConstantTransform(_ContextExpectedMixin):
     """Fill missing entries with a constant value."""
 
     def __init__(
         self,
         *,
         value: Any,
-        expected: Sequence[str] | None = None,
     ) -> None:
-        super().__init__(expected=expected)
+        super().__init__()
         self.value = value
 
     def __call__(self, stream: Iterator[Tuple[Any, Vector]]) -> Iterator[Tuple[Any, Vector]]:
@@ -73,7 +72,7 @@ class VectorFillConstantTransform(_ExpectedFeaturesMixin):
 
     def apply(self, stream: Iterator[Tuple[Any, Vector]]) -> Iterator[Tuple[Any, Vector]]:
         for group_key, vector in stream:
-            targets = self._targets()
+            targets = self._expected_ids()
             if not targets:
                 yield group_key, vector
                 continue
@@ -89,7 +88,7 @@ class VectorFillConstantTransform(_ExpectedFeaturesMixin):
                 yield group_key, vector
 
 
-class VectorFillHistoryTransform(_ExpectedFeaturesMixin):
+class VectorFillHistoryTransform(_ContextExpectedMixin):
     """Fill missing entries using running statistics from prior buckets."""
 
     def __init__(
@@ -98,9 +97,8 @@ class VectorFillHistoryTransform(_ExpectedFeaturesMixin):
         statistic: Literal["mean", "median"] = "median",
         window: int | None = None,
         min_samples: int = 1,
-        expected: Sequence[str] | None = None,
     ) -> None:
-        super().__init__(expected=expected)
+        super().__init__()
         if window is not None and window <= 0:
             raise ValueError("window must be positive when provided")
         if min_samples <= 0:
@@ -132,7 +130,7 @@ class VectorFillHistoryTransform(_ExpectedFeaturesMixin):
 
     def apply(self, stream: Iterator[Tuple[Any, Vector]]) -> Iterator[Tuple[Any, Vector]]:
         for group_key, vector in stream:
-            targets = self._targets()
+            targets = self._expected_ids()
             data = clone(vector.values)
             updated = False
             for feature in targets:
@@ -151,7 +149,7 @@ class VectorFillHistoryTransform(_ExpectedFeaturesMixin):
                 yield group_key, vector
 
 
-class VectorFillAcrossPartitionsTransform(_ExpectedFeaturesMixin):
+class VectorFillAcrossPartitionsTransform(_ContextExpectedMixin):
     """Fill missing entries by aggregating sibling partitions at the same timestamp."""
 
     def __init__(
@@ -159,9 +157,8 @@ class VectorFillAcrossPartitionsTransform(_ExpectedFeaturesMixin):
         *,
         statistic: Literal["mean", "median"] = "median",
         min_samples: int = 1,
-        expected: Sequence[str] | None = None,
     ) -> None:
-        super().__init__(expected=expected)
+        super().__init__()
         if min_samples <= 0:
             raise ValueError("min_samples must be positive")
         self.statistic = statistic
@@ -170,7 +167,7 @@ class VectorFillAcrossPartitionsTransform(_ExpectedFeaturesMixin):
 
     def apply(self, stream: Iterator[Tuple[Any, Vector]]) -> Iterator[Tuple[Any, Vector]]:
         for group_key, vector in stream:
-            targets = self._targets()
+            targets = self._expected_ids()
             if not targets:
                 yield group_key, vector
                 continue

@@ -1,433 +1,455 @@
-# Jerry Thomas
+# Datapipeline Runtime
 
-Time‑Series First
-- This runtime is time‑series‑first. Every domain record must include a timezone‑aware `time` and a `value`.
-- Grouping is defined by time buckets only (`group_by.keys: [ { type: time, ... } ]`).
-- Feature streams are sorted by time; sequence transforms assume ordered series.
-- Categorical dimensions (e.g., station, zone, ticker) belong in `partition_by` so they become partitions of the same time series.
-- Non‑temporal grouping is not supported.
+Jerry Thomas is a time-series-first data pipeline runtime. It turns declarative
+YAML projects into iterators that stream records, engineered features, and
+model-ready vectors. The CLI lets you preview every stage, build deterministic
+artifacts, inspect coverage, and scaffold plugins for custom loaders, parsers,
+transforms, and filters.
 
-Jerry Thomas turns the datapipeline runtime into a cocktail program. You still install the
-same Python package (`datapipeline`) and tap into the plugin architecture, but every CLI
-dance step nods to a craft bar. Declarative YAML menus describe projects, sources and
-datasets, pipelines move payloads through record/feature/vector stations, and setuptools
-entry points keep the back bar stocked with new ingredients.
+> **Core assumptions**
+> - Every record carries a timezone-aware `time` attribute and a numeric
+>   `value`.
+> - Grouping is purely temporal. Dimensional splits belong in `partition_by`.
+> - Streams are already ordered by time when they hit transforms.
 
 ---
 
-## How the bar is set up
+## Why You Might Use It
+
+- Materialize canonical time-series datasets from disparate sources.
+- Preview and debug each stage of the pipeline without writing ad-hoc scripts.
+- Enforce coverage/quality gates and publish artifacts (expected IDs, scaler
+  stats) for downstream ML teams.
+- Extend the runtime with entry-point driven plugins for domain-specific I/O or
+  feature engineering.
+- Consume vectors directly from Python via iterators, Pandas DataFrames, or
+  `torch.utils.data.Dataset`.
+
+---
+
+## Quick Start
+
+```bash
+# 1. Install in editable mode (with optional dev extras for testing).
+pip install -e .[dev]
+
+# 2. Bootstrap a project (scaffolds configs, plugin package, and templates).
+jerry plugin init --name my_datapipeline --out .
+
+# 3. Create a source & domain scaffold, then declare a canonical stream.
+jerry source add --provider demo --dataset weather --transport fs --format csv
+jerry domain add --domain weather
+# (edit config/contracts/<alias>.yaml to point at your mapper and policies)
+
+# 4. Configure dataset/postprocess/build files in config/datasets/<name>/.
+#    Then preview the pipeline and serve a few vectors:
+jerry run prep --project config/datasets/default/project.yaml --stage 2 --limit 5
+jerry run serve --project config/datasets/default/project.yaml --output print --limit 3
+
+# 5. Inspect coverage and build artifacts:
+jerry inspect report --project config/datasets/default/project.yaml
+jerry build --project config/datasets/default/project.yaml
+```
+
+The skeleton project in `src/datapipeline/templates/plugin_skeleton/` mirrors the
+paths expected by the CLI. Copy it or run `jerry plugin init` to get a ready-made
+layout with `config/`, `src/<package>/`, and entry-point stubs.
+
+---
+
+## Pipeline Architecture
 
 ```text
-raw source → canonical stream → record stage → feature stage → vector stage
+raw source ──▶ canonical stream ──▶ record stage ──▶ feature stage ──▶ vector stage
 ```
 
-1. **Raw sources (bottles on the shelf)** bundle a loader + parser recipe. Loaders handle
-   the I/O (files, URLs or synthetic runs) and parsers map rows into typed records while
-   skimming the dregs (`src/datapipeline/sources/models/loader.py`,
-   `src/datapipeline/sources/models/source.py`). The bootstrapper registers each source under
-   an alias so you can order it later in the service flow (`src/datapipeline/streams/raw.py`,
-   `src/datapipeline/services/bootstrap.py`).
-2. **Canonical streams (house infusions)** optionally apply a mapper on top of a raw
-   source to normalize payloads before the dataset drinks them
-   (`src/datapipeline/streams/canonical.py`, `src/datapipeline/services/factories.py`).
-3. **Dataset stages (prep stations)** read the configured canonical streams. Record stages
-   are your strainers and shakers, feature stages bottle the clarified spirits into keyed
-   features (with optional sequence transforms), and vector stages line up the flights ready
-   for service (`src/datapipeline/pipeline/pipelines.py`, `src/datapipeline/pipeline/stages.py`,
-   `src/datapipeline/config/dataset/feature.py`).
-4. **Vectors (tasting flights)** carry grouped feature values; downstream tasters can
-   inspect them for balance and completeness
-   (`src/datapipeline/domain/vector.py`, `src/datapipeline/analysis/vector_analyzer.py`).
+1. **Raw sources** pair a loader with a parser. Loaders fetch bytes (file system,
+   HTTP, synthetic generators). Parsers turn those bytes into typed DTOs.
+   Register them via entry points (`loaders`, `parsers`) and declaratively wire
+   them in `config/sources/*.yaml`.
+2. **Canonical streams** decorate raw sources with mappers and per-stream
+   policies. Contract files under `config/contracts/` define record transforms,
+   feature transforms, sort hints, and partitioning.
+3. **Record stage** applies canonical policies to DTOs, turning them into
+   `TemporalRecord` instances (tz-aware timestamp + numeric value).
+4. **Feature stage** wraps records into `FeatureRecord`s, handles per-feature
+   sorting, optional scaling, and sequence windows (`FeatureRecordSequence`).
+5. **Vector stage** merges all feature streams, buckets them using `group_by`
+   cadence (e.g., `1h`), and emits `(group_key, Vector)` pairs ready for
+   downstream consumers.
+
+The runtime (`src/datapipeline/runtime.py`) hosts registries for sources,
+transforms, artifacts, and postprocess rules. The CLI constructs lightweight
+`PipelineContext` objects to build iterators without mutating global state.
 
 ---
 
-## Bar back cheat sheet
+## Configuration Files
 
-| Path                                                       | What lives here                                                                                                                                                                                                               |
-| ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/datapipeline/cli`                                     | Argparse-powered bar program with commands for running pipelines, inspecting pours, scaffolding plugins and projecting service flow (`cli/app.py`, `cli/openers.py`, `cli/visuals.py`).                                       |
-| `src/datapipeline/services`                                | Bootstrapping (project loading, YAML interpolation), runtime factories and scaffolding helpers for new bar tools (`services/bootstrap.py`, `services/factories.py`, `services/scaffold/plugin.py`).                           |
-| `src/datapipeline/pipeline`                                | Pure functions that build record/feature/vector iterators plus supporting utilities for ordering and transform wiring (`pipeline/pipelines.py`, `pipeline/utils/transform_utils.py`).                                         |
-| `src/datapipeline/domain`                                  | Data structures representing records, feature records and vectors coming off the line (`domain/record.py`, `domain/feature.py`, `domain/vector.py`).                                                                          |
-| `src/datapipeline/transforms` & `src/datapipeline/filters` | Built-in transforms (lagging timestamps, scaling, sliding windows) and filter helpers exposed through entry points (`transforms/record.py`, `transforms/feature.py`, `transforms/sequence.py`, `filters/filters.py`). |
-| `src/datapipeline/sources/synthetic/time`                  | Example synthetic time-series loader/parser pair plus helper mappers for experimentation while the real spirits arrive (`sources/synthetic/time/loader.py`, `sources/synthetic/time/parser.py`, `mappers/synthetic/time.py`). |
+All project configuration lives under `config/datasets/<name>/` by default.
 
----
-
-## Built-in DSL identifiers
-
-The YAML DSL resolves filters and transforms by entry-point name. These ship with the
-template out of the box:
-
-| Kind              | Identifiers                                                                                     | Notes |
-| ----------------- | ----------------------------------------------------------------------------------------------- | ----- |
-| Filters           | `eq`/`equals`, `ne`/`not_equal`, `lt`, `le`, `gt`, `ge`, `in`/`contains`, `nin`/`not_in`        | Use as `- gt: { field: value }` or `- in: { field: [values...] }`. Synonyms map to the same implementation. |
-| Record transforms | `time_lag`, `drop_missing`                                                                       | `time_lag` expects a duration string (e.g. `1h`), `drop_missing` removes `None`/`NaN` records. |
-| Feature transforms| `standard_scale`                                                                                | Options: `with_mean`, `with_std`, optional `statistics`. |
-| Sequence transforms | `time_window`, `time_fill_mean`, `time_fill_median`                                           | `time_window` builds sliding windows; the fill transforms impute missing values from running mean/median with optional `window`/`min_samples`. |
-| Vector transforms   | `fill_history`, `fill_horizontal`, `fill_constant`, `drop_missing`                           | History fill uses prior buckets, horizontal fill aggregates sibling partitions, constant sets a default, and drop removes vectors below coverage thresholds. |
-
-Extend `pyproject.toml` with additional entry points to register custom logic under your
-own identifiers.
-
----
-
-## Opening the bar
-
-### 1. Install the tools
-
-```bash
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
-python -m pip install --upgrade pip
-pip install jerry-thomas
-```
-
-The published wheel exposes the `jerry` CLI (backed by the `datapipeline` package) and
-pulls in core dependencies like Pydantic, PyYAML, tqdm and Jinja2 (see
-`pyproject.toml`). Prefer `pip install -e .` only when you are actively developing this
-repository. Double-check the back bar is reachable:
-
-```bash
-python -c "import datapipeline; print('bar ready')"
-```
-
-### 2. Draft your bar book
-
-Create a `config/recipes/<name>/project.yaml` so the runtime knows where to find
-ingredients, infusions and the tasting menu. Globals are optional but handy for sharing
-values—they are interpolated into downstream YAML specs during bootstrap
-(`src/datapipeline/config/project.py`, `src/datapipeline/services/bootstrap.py`).
+### `project.yaml`
 
 ```yaml
 version: 1
 paths:
-  sources: ../../sources
   streams: ../../contracts
+  sources: ../../sources
   dataset: dataset.yaml
+  postprocess: postprocess.yaml
+  artifacts: ../../build/datasets/default
+  build: build.yaml
 globals:
-  opening_time: "2024-01-01T16:00:00Z"
-  last_call: "2024-01-02T02:00:00Z"
+  start_time: 2021-01-01T00:00:00Z
+  end_time: 2023-01-03T23:00:00Z
+  split:
+    keep: train         # train | val | test
+    mode: hash          # hash | time
+    key: group          # group | feature:<id>
+    seed: 42
+    ratios: {train: 0.8, val: 0.1, test: 0.1}
 ```
 
-> Helper functions in `src/datapipeline/services/project_paths.py` resolve relative paths
-> against the project root and ensure the mise en place folders exist.
+- `paths.*` are resolved relative to the project file unless absolute.
+- `globals` provide values for `${var}` interpolation across YAML files. Datetime
+  values are normalized to strict UTC `YYYY-MM-DDTHH:MM:SSZ`.
+- `split` config is optional and only applied during the serve/split stage.
 
-### 3. Stock the bottles (raw sources)
+### `config/sources/<alias>.yaml`
 
-Create `config/sources/<alias>.yaml` files. Each must expose a `parser` and `loader`
-pointing at entry points plus any constructor arguments
-(`src/datapipeline/services/bootstrap.py`). Here is a synthetic clock source that feels
-like a drip of barrel-aged bitters:
+Each file defines a loader/parser pair exposed under `<alias>` (also the
+`source_id` the rest of the pipeline references).
 
 ```yaml
-# config/sources/time_ticks.yaml
-parser:
-  entrypoint: "synthetic.time"
-  args: {}
+source_id: demo_weather
 loader:
-  entrypoint: "synthetic.time"
+  entrypoint: demo.csv_loader
   args:
-    start: "${opening_time}"
-    end: "${last_call}"
-    frequency: "1h"
+    path: data/weather.csv
+parser:
+  entrypoint: demo.weather_parser
+  args:
+    timezone: UTC
 ```
 
-That file wires up the built-in `TimeTicksGenerator` + parser pair that yields
-timezone-aware timestamps (`sources/synthetic/time/loader.py`,
-`sources/synthetic/time/parser.py`).
+### `config/contracts/<alias>.yaml`
 
-### 4. Mix house infusions (canonical streams)
-
-Canonical specs live under `config/contracts/` and reference a raw source alias plus an
-optional mapper entry point (`src/datapipeline/services/bootstrap.py`,
-`src/datapipeline/streams/canonical.py`). This example turns each timestamp into a citrus
-spritz feature:
+Canonical stream contracts describe how the runtime should map and prepare a
+source. `alias` normally matches the source alias; use folders to organize by
+domain.
 
 ```yaml
-# config/contracts/time/encode.yaml
-source: time_ticks
+source_id: demo_weather
+stream_id: demo_weather
+
 mapper:
-  entrypoint: "synthetic.time.encode"
-  args:
-    mode: spritz
+  entrypoint: weather.domain.mapper
+  args: {}
+
+partition_by: station
+sort_batch_size: 50000
+
+record:
+  - filter: { operator: ge, field: time, comparand: "${start_time}" }
+  - filter: { operator: lt, field: time, comparand: "${end_time}" }
+  - floor_time: { resolution: 10m }
+
+stream:
+  - ensure_ticks: { tick: 10m }
+  - granularity: { mode: mean }
+  - fill: { statistic: median, window: 6, min_samples: 2 }
+
+debug:
+  - lint: { mode: warn, tick: 10m }
 ```
 
-The mapper uses the provided mode to create a new `TimeSeriesRecord` stream ready for the
-feature stage (`mappers/synthetic/time.py`).
+- `record`: ordered record-level transforms (filters, floor/lag, custom
+  transforms registered under the `record` entry-point group).
+- `stream`: transforms applied after feature wrapping, still per base feature.
+- `debug`: instrumentation-only transforms (linters, assertions).
+- `partition_by`: optional keys used to suffix feature IDs (e.g., `temp__station=XYZ`).
+- `sort_batch_size`: chunk size used by the in-memory sorter when normalizing
+  order before stream transforms.
 
-### 5. Script the tasting menu (dataset)
+### `dataset.yaml`
 
-Datasets describe which canonical streams should be read at each station and how flights
-are grouped (`src/datapipeline/config/dataset/dataset.py`). A minimal hourly menu might
-look like:
+Defines which canonical streams become features/targets and the vector bucketing.
 
 ```yaml
-# config/recipes/default/dataset.yaml
-group_by:
-  keys:
-    - type: time
-      field: time
-      resolution: 1h
+group_by: 1h
+
 features:
-  - id: hour_spritz
-    stream: time.encode
-    transforms:
-      - record:
-          transform: time_lag
-          args: 0h
-      - feature:
-          transform: standard_scale
-          with_mean: true
-          with_std: true
-      - sequence:
-          transform: time_window
-          size: 4
-          stride: 1
-      - sequence:
-          transform: time_fill_mean
-          window: 24
-          min_samples: 6
+  - id: temp_c
+    record_stream: demo_weather
+    scale: true
+    sequence: { size: 6, stride: 1, tick: 10m }
+
+targets:
+  - id: precip
+    record_stream: demo_weather
 ```
 
-Use the sample `dataset` template as a starting point if you prefer scaffolding before
-pouring concrete values. Group keys now require explicit time bucketing (with automatic
-flooring to the requested resolution) so every pipeline is clock-driven. You can attach
-feature or sequence transforms—such as the sliding `TimeWindowTransformer` or the
-`time_fill_mean`/`time_fill_median` imputers—directly in the YAML by referencing their
-entry point names (`src/datapipeline/transforms/sequence.py`).
+- `group_by` controls the cadence for vector partitioning (accepts `Xs`, `Xm`,
+  `Xh`, `Xd`).
+- `scale: true` inserts the standard scaler feature transform (requires scaler
+  stats artifact or inline statistics).
+- `sequence` emits `FeatureRecordSequence` windows (size, stride, optional
+  cadence enforcement via `tick`).
 
-When vectors are assembled you can optionally apply post-processing transforms to enforce schema
-guarantees. Configure them in `postprocess.yaml` under a top-level `transforms:` list. Most
-transforms work without specifying `expected`; they auto-discover target features/partitions from
-the stream as it flows. The built-ins cover:
+### `postprocess.yaml`
 
-- `fill_history` – use running means/medians from prior buckets (per partition) with
-  configurable window/minimum samples.
-- `fill_horizontal` – aggregate sibling partitions at the same timestamp (e.g. other
-  stations) using mean/median.
-- `fill_constant` – provide a constant default for missing features/partitions.
-- `drop_missing` – drop vectors that fall below a coverage threshold or omit required
-  features.
+Project-scoped vector transforms that run after assembly and before serving.
 
-Transforms can accept an explicit `expected` list when you want strict control; otherwise, they
-auto-discover targets from observed vector keys. No manifest is required.
+```yaml
+transforms:
+  - drop_missing:
+      required: [temp_c__station=001]
+      min_coverage: 0.95
+  - fill_constant: { value: 0.0 }
+  - fill_history:
+      statistic: median
+      window: 48
+      min_samples: 6
+  - fill_horizontal:
+      statistic: mean
+      min_samples: 2
+```
 
-Once the book is ready, run the bootstrapper (the CLI does this automatically) to
-materialize all registered sources and streams
-(`src/datapipeline/services/bootstrap.py`).
+- Vector transforms rely on artifacts (expected IDs, scaler stats) to decide
+  which features should be present.
+- When no transforms are configured the stream passes through unchanged.
 
-Tip: Configure post-processing in a separate `postprocess.yaml` referenced by
-`project.paths.postprocess`. Use a top-level `transforms:` list. These are registered globally
-at bootstrap and applied as a distinct pipeline step after vector assembly. Legacy
-`dataset.yaml` `vector_transforms` are ignored by the CLI/ML helpers in favor of the global
-postprocess; programmatic usage should call `build_vector_pipeline(...)` and then `post_process(...)`.
+### `build.yaml`
 
-Build outputs
-- Set a single artifacts root in your project.yaml: `paths.artifacts`. If relative, it is resolved from the
-  location of project.yaml.
-- Run `jerry build --project <project.yaml>` to materialize project-level artifacts (expected ids, config hash, etc.).
-  The build command persists metadata to `<artifacts>/build/state.json` and skips work when configuration hashes match.
-- Tools write artifacts under this folder (e.g., `expected.txt`, `coverage.json`, matrices, etc.).
+Declares which artifacts the build step should materialize.
+
+```yaml
+version: 1
+partitioned_ids:
+  output: expected.txt
+  include_targets: false
+scaler:
+  enabled: true
+  output: scaler.pkl
+  include_targets: false
+  split_label: train
+```
+
+- `expected.txt` lists every fully partitioned feature ID observed in the latest
+  run (used by vector postprocess transforms).
+- `scaler.pkl` is a pickled standard scaler fitted on the requested split.
 
 ---
 
-## Running service
+## CLI Reference
 
-### Prep any station (with visuals)
+All commands live under the `jerry` entry point (`src/datapipeline/cli/app.py`).
+Pass `--help` on any command for flags.
 
-```bash
-jerry prep pour   --project config/datasets/default/project.yaml --limit 20
-jerry prep build  --project config/datasets/default/project.yaml --limit 20
-jerry prep stir   --project config/datasets/default/project.yaml --limit 20
-```
+### Preview Stages
 
-- `prep pour` shows the record-stage ingredients headed for each feature.
-- `prep build` highlights `FeatureRecord` entries after the shake/strain sequence.
-- `prep stir` emits grouped vectors—the tasting flight before it leaves the pass.
+- `jerry run prep --project <project.yaml> --stage <0-5> --limit N`
+  - Stage 0: raw DTOs
+  - Stage 1: domain `TemporalRecord`s
+  - Stage 2: record transforms applied
+  - Stage 3: feature records (before sort/regularization)
+  - Stage 4: feature regularization (post stream transforms)
+  - Stage 5: feature transforms/sequence outputs
+  - Stage 6: vectors assembled (no postprocess)
+  - Stage 7: vectors + postprocess transforms
+- `jerry run serve --project <project.yaml> --output print|stream|path.pt --limit N [--include-targets]`
+  - Applies postprocess transforms and optional dataset split before emitting.
 
-All variants respect `--limit` and display tqdm-powered progress bars for the underlying
-loaders. The CLI wires up `build_record_pipeline`, `build_feature_pipeline` and
-`build_vector_pipeline`, so what you see mirrors the service line
-(`src/datapipeline/cli/app.py`, `src/datapipeline/cli/commands/run.py`,
-`src/datapipeline/cli/openers.py`, `src/datapipeline/cli/visuals.py`,
-`src/datapipeline/pipeline/pipelines.py`).
+### Build & Quality
 
----
+- `jerry inspect report --project <project.yaml> [--threshold 0.95] [--include-targets]`
+  - Prints coverage summary (keep/below lists) and writes `coverage.json` under
+    the artifacts directory.
+  - Add `--matrix csv|html` to persist an availability matrix.
+- `jerry inspect partitions --project <project.yaml> [--include-targets]`
+  - Writes discovered partition suffixes to `partitions.json`.
+- `jerry inspect expected --project <project.yaml> [--include-targets]`
+  - Writes the full set of observed feature IDs to `expected.txt`.
+- `jerry build --project <project.yaml> [--force]`
+  - Regenerates artifacts declared in `build.yaml` if configuration hash changed.
 
-## Postprocess Expected IDs
+### Scaffolding & Reference
 
-Some postprocess transforms operate over a complete set of feature IDs (full, partitioned ids like `wind__A`).
-You have two options for providing this set:
-
-- Explicit per-transform list in `postprocess.yaml`:
-  - Example:
-    - transforms:
-      - drop_missing: { expected: [time, wind__A, wind__B], min_coverage: 1.0 }
-      - fill_history: { expected: [wind__A, wind__B], window: 48, min_samples: 6 }
-
-- Generate a complete list via CLI and use it as the default for all transforms:
-  - Preferred: `jerry build --project <path/to/project.yaml>` (writes to `<paths.artifacts>/expected.txt` and records the location in `<paths.artifacts>/build/state.json`).
-  - Alternative: `jerry inspect expected --project <path/to/project.yaml>` if you want an ad-hoc export.
-    - Writes newline-separated ids to `build/datasets/<name>/expected.txt` (where `<name>` is the dataset folder name under `config/datasets/`).
-    - Use `--include-targets` to include target features; use `--output` to choose a custom path.
-
-At runtime, if no per-transform `expected` is set, postprocess reads the generated list and applies it to all transforms.
-If the file is missing, the runtime error will point here.
-
-### Serve the flights (production mode)
-
-```bash
-# Features only (default)
-jerry serve --project config/datasets/default/project.yaml --output print
-jerry serve --project config/datasets/default/project.yaml --output stream
-jerry serve --project config/datasets/default/project.yaml --output exports/batch.pt
-
-# Include targets in vectors (training-friendly)
-jerry serve --project config/datasets/default/project.yaml --include-targets --output stream
-```
-
-Production mode skips the bar flair and focuses on throughput. `print` writes tasting
-notes to stdout, `stream` emits newline-delimited JSON (with values coerced to strings when
-necessary), and a `.pt` destination stores a pickle-compatible payload for later pours.
-
-## Funnel vectors into ML projects
-
-Data scientists rarely want to shell out to the CLI; they need a programmatic
-hand-off that plugs vectors straight into notebooks, feature stores or training
-loops. The `datapipeline.integrations` package wraps the existing iterator
-builders with ML-friendly adapters without pulling pandas or torch into the
-core runtime.
-
-```python
-from datapipeline.integrations import (
-    VectorAdapter,
-    dataframe_from_vectors,
-    iter_vector_rows,
-    torch_dataset,
-)
-
-# Bootstrap once and stream ready-to-use rows.
-adapter = VectorAdapter.from_project("config/project.yaml")
-for row in adapter.iter_rows(limit=32, flatten_sequences=True, include_targets=True):
-    send_to_feature_store(row)
-
-# Helper functions cover ad-hoc jobs as well.
-rows = iter_vector_rows(
-    "config/project.yaml",
-    include_group=True,
-    group_format="mapping",
-    flatten_sequences=True,
-    include_targets=True,
-)
-
-# Optional extras materialize into common ML containers if installed.
-df = dataframe_from_vectors("config/project.yaml", include_targets=True)                # Requires pandas
-dataset = torch_dataset(
-    "config/project.yaml",
-    dtype=torch.float32,
-    include_targets=True,  # auto-derive target columns from dataset.targets
-)  # Requires torch
-```
-
-Everything still flows through `build_vector_pipeline`; the integration layer
-normalizes group keys, optionally flattens sequence features and demonstrates
-how to turn the iterator into DataFrames or `torch.utils.data.Dataset`
-instances. ML teams can fork the same pattern for their own stacks—Spark, NumPy
-or feature store SDKs—without adding opinionated glue to the runtime itself.
-
-### Inspect the balance (vector quality)
-
-Use the inspect helpers for different outputs:
-
-- `jerry inspect report --project config/datasets/default/project.yaml` — print a
-  human-readable quality report (totals, keep/below lists, optional partition detail).
-- Add `--include-targets` to include dataset.targets in the analysis.
-- `jerry inspect coverage --project config/datasets/default/project.yaml` — persist the
-  coverage summary to `build/coverage.json` (keep/below feature and partition lists plus
-  coverage percentages).
-- Add `--include-targets` to include dataset.targets in the coverage computation.
-- `jerry inspect matrix --project config/datasets/default/project.yaml --format html` —
-  export availability matrices (CSV or HTML) for deeper analysis.
-- Add `--include-targets` to include dataset.targets in the matrix.
-- `jerry inspect partitions --project config/datasets/default/project.yaml` — write the
-  observed partition manifest to `build/partitions.json` for use in configs.
-- Add `--include-targets` to include dataset.targets in partition discovery.
-
-Note: `jerry prep taste` has been removed; use `jerry inspect report` and friends.
+- `jerry plugin init --name <package> --out <dir>`
+  - Generates a plugin project (pyproject, package skeleton, config templates).
+- `jerry source add --provider <name> --dataset <slug> --transport fs|url|synthetic --format csv|json|json-lines`
+  - Creates loader/parser stubs, updates entry points, and drops a matching
+    source YAML.
+- `jerry domain add --domain <name>`
+  - Adds a `domains/<name>/` package with a `model.py` stub.
+- `jerry filter create --name <identifier>`
+  - Scaffolds an entry-point-ready filter (helpful for custom record predicates).
+- `jerry list sources|domains`
+  - Introspect configured source aliases or domain packages.
 
 ---
 
-## Extending the CLI
+## Transform & Filter Library
 
-### Scaffold a plugin package
+### Record Filters (`config/contracts[].record`)
 
-```bash
-jerry plugin init --name my_datapipeline --out .
-```
+- Binary comparisons: `eq`, `ne`, `lt`, `le`, `gt`, `ge` (timezone-aware for ISO
+  or datetime literals).
+- Membership: `in`, `nin`.
+  ```yaml
+  - filter: { operator: ge, field: time, comparand: "${start_time}" }
+  - filter: { operator: in, field: station, comparand: [a, b, c] }
+  ```
 
-The generator copies a ready-made skeleton (pyproject, README, package directory) and
-swaps placeholders for your package name so you can start adding new spirits immediately
-(`src/datapipeline/cli/app.py`, `src/datapipeline/services/scaffold/plugin.py`). Install the
-resulting project in editable mode to expose your loaders, parsers, mappers and
-transforms.
+### Record Transforms
 
-### Create new sources, domains and contracts
+- `floor_time`: snap timestamps down to the nearest resolution (`10m`, `1h`, …).
+- `lag`: add lagged copies of records (see `src/datapipeline/transforms/record/lag.py` for options).
 
-Use the CLI helpers to scaffold boilerplate code in your plugin workspace:
+### Stream (Feature) Transforms
 
-```bash
-jerry source add --provider dmi --dataset metobs --transport fs --format csv
-jerry domain add --domain metobs
-jerry contract
-```
+- `ensure_ticks`: backfill missing ticks with `value=None` records to enforce a
+  strict cadence.
+- `granularity`: merge duplicate timestamps using `first|last|mean|median`.
+- `fill`: rolling statistic-based imputation within each feature stream.
+- Custom transforms can be registered under the `stream` entry-point group.
 
-The source command writes DTO/parser stubs, updates entry points and drops a matching
-YAML file in `config/sources/` pre-filled with composed-loader defaults for the chosen
-transport (`src/datapipeline/cli/app.py`, `src/datapipeline/services/scaffold/source.py`).
-`jerry domain add` now always scaffolds `TimeSeriesRecord` domains so every mapper carries
-an explicit timestamp alongside its value, and `jerry contract` wires that source/domain
-pair up for canonical stream generation.
+### Feature Transforms
 
-### Add custom filters or transforms
+- `scale`: wraps `StandardScalerTransform`. Read statistics from the build
+  artifact or accept inline `statistics`.
+  ```yaml
+  scale:
+    with_mean: true
+    with_std: true
+    statistics:
+      temp_c__station=001: { mean: 10.3, std: 2.1 }
+  ```
 
-Register new functions/classes under the appropriate entry point group in your plugin’s
-`pyproject.toml`. The runtime resolves them through `load_ep`, applies record filters first,
-then record/feature/sequence transforms in the order declared in the dataset config
-(`pyproject.toml`, `src/datapipeline/utils/load.py`,
-`src/datapipeline/pipeline/utils/transform_utils.py`). Built-in helpers cover common
-comparisons (including timezone-aware checks) and time-based transforms (lags, sliding
-windows) if you need quick wins (`src/datapipeline/filters/filters.py`,
-`src/datapipeline/transforms/record.py`, `src/datapipeline/transforms/feature.py`,
-`src/datapipeline/transforms/sequence.py`).
+### Sequence Transforms
 
-### Prototype with synthetic time-series data
+- `sequence`: sliding window generator (`size`, `stride`, optional `tick` to
+  enforce gaps). Emits `FeatureRecordSequence` payloads with `.records`.
 
-Need sample pours while wiring up transforms? Reuse the bundled synthetic time loader +
-parser and season it with the `encode_time` mapper for engineered temporal features
-(`src/datapipeline/sources/synthetic/time/loader.py`,
-`src/datapipeline/sources/synthetic/time/parser.py`,
-`src/datapipeline/mappers/synthetic/time.py`). Pair it with the `time_window` sequence
-transform to build sliding-window feature flights without external datasets
-(`src/datapipeline/transforms/sequence.py`).
+### Vector (Postprocess) Transforms
 
----
+- `drop_missing`: drop vectors that do not meet required IDs or coverage ratio.
+- `fill_constant`: seed absent IDs with a constant.
+- `fill_history`: impute using rolling statistics from prior vectors.
+- `fill_horizontal`: aggregate sibling partitions in the same timestamp.
 
-## Data model tasting notes
-
-| Type                | Description                                                                                                                                                 |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `TimeSeriesRecord`  | Canonical record with `time` (tz-aware, normalized to UTC) and `value`; the pipeline treats streams as ordered series (`src/datapipeline/domain/record.py`).|
-| `FeatureRecord`     | Links a record (or list of records from sequence transforms) to a `feature_id` and `group_key` (`src/datapipeline/domain/feature.py`).                      |
-| `Vector`            | Final grouped payload: a mapping of feature IDs to scalars or ordered lists plus helper methods for shape/key access (`src/datapipeline/domain/vector.py`). |
+All transforms share a consistent entry-point signature and accept their config
+dict as keyword arguments. Register new ones in `pyproject.toml` under the
+appropriate group (`record`, `stream`, `feature`, `sequence`, `vector`,
+`filters`, `debug`).
 
 ---
 
-## Developer shift checklist
+## Artifacts & Postprocess
 
-These commands mirror the tooling used in CI and are useful while iterating locally:
+- `expected.txt`: newline-delimited full feature IDs. Required by drop/fill
+  transforms to know the target feature universe.
+- `scaler.pkl`: pickled standard scaler fitted on the configured split. Loaded
+  lazily by feature transforms at runtime.
+- Build state is tracked in `artifacts/build/state.json`; config hashes avoid
+  redundant runs.
 
-```bash
-pip install -e .[dev]
-pytest
+If a postprocess transform needs an artifact and it is missing, the runtime will
+raise a descriptive error suggesting `jerry build`.
+
+---
+
+## Splitting & Serving
+
+If `project.globals.split` is present, `jerry run serve` filters vectors at the
+end of the pipeline:
+
+- `mode: hash` – deterministic entity hash using either the group key or a
+  specified feature ID.
+- `mode: time` – boundary-based slicing using timestamp labels.
+- `keep` selects the active slice; ratios define the bucketization.
+
+The split configuration never mutates stored artifacts; it is only applied when
+serving vectors (either via CLI or the Python integrations).
+
+---
+
+## Python Integrations
+
+`datapipeline.integrations.ml` demonstrates how to reuse the runtime from
+application code:
+
+- `VectorAdapter.from_project(project_yaml)` – bootstrap once, then stream
+  vectors or row dicts.
+- `stream_vectors(project_yaml, limit=...)` – iterator matching `jerry run serve`.
+- `iter_vector_rows` / `collect_vector_rows` – handy for Pandas or custom sinks.
+- `dataframe_from_vectors` – eager helper that returns a Pandas DataFrame
+  (requires `pandas`).
+- `torch_dataset` – builds a `torch.utils.data.Dataset` that yields tensors. See
+  `examples/minimal_project/run_torch.py` for usage.
+
+---
+
+## Extending the Runtime
+
+### Entry Points
+
+Register custom components in your plugin’s `pyproject.toml`:
+
+```toml
+[project.entry-points."datapipeline.loaders"]
+demo.csv_loader = "my_datapipeline.loaders.csv:CsvLoader"
+
+[project.entry-points."datapipeline.parsers"]
+demo.weather_parser = "my_datapipeline.parsers.weather:WeatherParser"
+
+[project.entry-points."datapipeline.mappers"]
+weather.domain.mapper = "my_datapipeline.mappers.weather:DomainMapper"
+
+[project.entry-points."datapipeline.stream"]
+weather.fill = "my_datapipeline.transforms.weather:CustomFill"
 ```
+
+Loader, parser, mapper, and transform classes should provide a callable
+interface (usually `__call__`) matching the runtime expectations. Refer to the
+built-in implementations in `src/datapipeline/sources/`, `src/datapipeline/transforms/`,
+and `src/datapipeline/filters/`.
+
+### Scaffolding Helpers
+
+- `datapipeline.services.scaffold.plugin.scaffold_plugin` – invoked by
+  `jerry plugin init`.
+- `datapipeline.services.scaffold.source.create_source` – writes loader/parser
+  stubs and updates entry points.
+- `datapipeline.services.scaffold.domain.create_domain` – domain DTO skeleton.
+- `datapipeline.services.scaffold.filter.create_filter` – custom filter stub.
+- `datapipeline.services.scaffold.mappers.attach_source_to_domain` – helper for
+  programmatically wiring sources to domain mappers and emitting stream
+  contracts (useful in custom automation or tests).
+
+---
+
+## Development Workflow
+
+- Install dependencies: `pip install -e .[dev]`.
+- Run tests: `pytest`.
+- When iterating on configs, use `jerry run prep` to peek into problematic
+  stages.
+- After tuning transforms, refresh artifacts: `jerry build`.
+- Use `jerry inspect report --include-targets` to ensure targets meet coverage
+  gates before handing vectors to downstream consumers.
+
+---
+
+## Additional Resources
+
+- `src/datapipeline/analysis/vector_analyzer.py` – quality metrics collected by
+  the inspect commands.
+- `src/datapipeline/pipeline/` – pure functions that wire each stage.
+- `src/datapipeline/services/bootstrap.py` – runtime initialization and
+  registry population.
+- `examples/minimal_project/` – runnable demo showing config layout and Torch
+  integration.
+
+Happy shipping! Build, inspect, and serve consistent time-series features with
+confidence.

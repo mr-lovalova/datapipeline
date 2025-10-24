@@ -1,36 +1,14 @@
-from dataclasses import is_dataclass, replace
 from itertools import groupby
 from statistics import mean, median
-from typing import Any, Iterator, Mapping, MutableMapping
+from typing import Any, Iterator
 from collections import deque
 
 from datapipeline.domain.feature import FeatureRecord, FeatureRecordSequence
-from datapipeline.transforms.utils import is_missing
+from datapipeline.transforms.utils import is_missing, clone_record_with_value
 
 
 def _extract_value(record: Any) -> Any:
-    if isinstance(record, Mapping):
-        return record.get("value")
     return getattr(record, "value", None)
-
-
-def _clone_with_value(record: Any, value: float) -> Any:
-    if isinstance(record, MutableMapping):
-        cloned = type(record)(record)
-        cloned["value"] = value
-        return cloned
-    if isinstance(record, Mapping):
-        cloned = dict(record)
-        cloned["value"] = value
-        return cloned
-    if hasattr(record, "value"):
-        if is_dataclass(record):
-            return replace(record, value=value)
-        clone = type(record)(**record.__dict__)
-        clone.value = value
-        return clone
-    raise TypeError(
-        f"Unsupported record type for fill transform: {type(record)!r}")
 
 
 class FillTransformer:
@@ -90,7 +68,7 @@ class FillTransformer:
                             # Do NOT treat filled value as original valid; append a missing marker
                             tick_window.append((False, None))
                             yield FeatureRecord(
-                                record=_clone_with_value(fr.record, fill),
+                                record=clone_record_with_value(fr.record, fill),
                                 id=id,
                             )
                             continue

@@ -72,14 +72,12 @@ Key selection guidance
 - `key: feature:<id>` hashes a specific feature value, e.g., `feature:entity_id` or `feature:station_id`, ensuring all vectors for that entity land in the same split (recommended to avoid leakage).
 
 Postprocess expected IDs
-- Some transforms operate over the complete set of partitioned feature IDs (e.g. `wind__A`).
-- You can either:
-  - Set `expected:` explicitly per transform in `postprocess.yaml`, or
-  - Generate a full list once via:
-    - Recommended: `jerry build --project config/datasets/default/project.yaml` (writes to `<paths.artifacts>/expected.txt` and records the location in `<paths.artifacts>/build/state.json`).
-    - Ad-hoc: `jerry inspect expected --project config/datasets/default/project.yaml`
-    - Use `--include-targets` to include targets; `--output` to change the path.
-- At runtime, if a transform has no `expected`, postprocess uses the registered artifact. Do not edit generated files.
+- Build once with `jerry build --project config/datasets/default/project.yaml` (or run `jerry inspect expected …`) to materialize `<paths.artifacts>/expected.txt`.
+- Bootstrap registers the artifact; postprocess transforms read it automatically. Per-transform `expected:` overrides are no longer required or supported — the build output is the single source of truth.
+
+Scaler statistics
+- Enable the scaler task in `build.yaml` (default `enabled: true`) to compute mean/std per feature using the configured training split.
+- The build writes `<paths.artifacts>/scaler.pkl`; runtime scaling requires this artifact. If it is missing, scaling transforms raise a runtime error.
 
 Tips
 - Keep parsers thin — mirror source schema and return DTOs; use the identity parser only if your loader already emits domain records.

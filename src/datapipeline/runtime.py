@@ -5,6 +5,7 @@ from datapipeline.config.split import SplitConfig
 
 from datapipeline.registries.registry import Registry
 from datapipeline.sources.models.source import Source
+from datapipeline.services.artifacts import ArtifactManager
 
 
 @dataclass
@@ -38,9 +39,6 @@ class Registries:
     )
     sort_batch_size: Registry[str, int] = field(default_factory=Registry)
 
-    # Misc artifacts (paths, handles)
-    artifacts: Registry[str, Any] = field(default_factory=Registry)
-
     def clear_all(self) -> None:
         for reg in (
             self.stream_operations,
@@ -53,7 +51,6 @@ class Registries:
             self.sources,
             self.mappers,
             self.stream_sources,
-            self.artifacts,
         ):
             reg.clear()
 
@@ -66,3 +63,7 @@ class Runtime:
     artifacts_root: Path
     registries: Registries = field(default_factory=Registries)
     split: Optional[SplitConfig] = None
+    artifacts: ArtifactManager = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.artifacts = ArtifactManager(self.artifacts_root)
