@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from datapipeline.utils.load import load_yaml
 from datapipeline.config.catalog import StreamsConfig
 from datapipeline.config.project import ProjectConfig
+from datapipeline.config.run import load_run_config
 from datapipeline.services.project_paths import streams_dir, sources_dir
 from datapipeline.build.state import load_build_state
 from datapipeline.services.constants import (
@@ -212,6 +213,17 @@ def bootstrap(project_yaml: Path) -> Runtime:
         runtime.split = getattr(proj.globals, "split", None)
     except Exception:
         runtime.split = None
+
+    try:
+        runtime.run = load_run_config(project_yaml)
+    except FileNotFoundError:
+        runtime.run = None
+    except Exception:
+        runtime.run = None
+
+    run_keep = runtime.run.keep if runtime.run else None
+    split_keep = getattr(runtime.split, "keep", None)
+    runtime.split_keep = run_keep or split_keep
 
     streams = load_streams(project_yaml)
     init_streams(streams, runtime)

@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Mapping, Optional, Sequence, Union, List
+from typing import Any, List, Mapping, Optional, Sequence, Union
+
+from datapipeline.config.run import RunConfig
 from datapipeline.config.split import SplitConfig
 
 from datapipeline.registries.registry import Registry
@@ -63,6 +65,8 @@ class Runtime:
     artifacts_root: Path
     registries: Registries = field(default_factory=Registries)
     split: Optional[SplitConfig] = None
+    split_keep: Optional[str] = None
+    run: Optional[RunConfig] = None
     artifacts: ArtifactManager = field(init=False)
 
     def __post_init__(self) -> None:

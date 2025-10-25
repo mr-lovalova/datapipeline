@@ -1,6 +1,7 @@
 import json
 import pickle
 import sys
+import time
 from itertools import islice
 from pathlib import Path
 from typing import Iterator, Optional, Tuple
@@ -92,6 +93,19 @@ def _limit_vectors(vectors: Iterator[Tuple[object, Vector]], limit: Optional[int
         yield from islice(vectors, limit)
 
 
+def _throttle_vectors(
+    vectors: Iterator[Tuple[object, Vector]],
+    throttle_ms: Optional[float],
+) -> Iterator[Tuple[object, Vector]]:
+    if not throttle_ms or throttle_ms <= 0:
+        yield from vectors
+        return
+    delay = throttle_ms / 1000.0
+    for item in vectors:
+        yield item
+        time.sleep(delay)
+
+
 def _serve_print(vectors: Iterator[Tuple[object, Vector]], limit: Optional[int]) -> None:
     count = 0
     try:
@@ -128,10 +142,31 @@ def _serve_pt(vectors: Iterator[Tuple[object, Vector]], limit: Optional[int], de
     print(f"💾 Saved {len(data)} vectors to {destination}")
 
 
-def handle_serve(project: str, limit: Optional[int], output: str, include_targets: bool = False) -> None:
+def handle_serve(
+    project: str,
+    limit: Optional[int],
+    output: Optional[str],
+    include_targets: Optional[bool] = None,
+    keep: Optional[str] = None,
+) -> None:
     project_path = Path(project)
     dataset = load_dataset(project_path, "vectors")
     runtime = bootstrap(project_path)
+    run_opts = getattr(runtime, "run", None)
+    resolved_output = (
+        output
+        if output is not None
+        else (run_opts.output if run_opts and run_opts.output else "print")
+    )
+    resolved_limit = (
+        limit if limit is not None else (run_opts.limit if run_opts else None)
+    )
+    if include_targets is None:
+        include_targets = run_opts.include_targets if run_opts else False
+    throttle_ms = run_opts.throttle_ms if run_opts else None
+
+    if keep:
+        runtime.split_keep = keep
     context = PipelineContext(runtime)
 
     features = list(dataset.features or [])
@@ -147,13 +182,15 @@ def handle_serve(project: str, limit: Optional[int], output: str, include_target
     vectors = post_process(context, vectors)
     # Finally, apply configured split (if any) via a dedicated stage
     vectors = split_stage(runtime, vectors)
+    # Throttle emission if configured
+    vectors = _throttle_vectors(vectors, throttle_ms)
 
-    if output == "print":
-        _serve_print(vectors, limit)
-    elif output == "stream":
-        _serve_stream(vectors, limit)
-    elif output.endswith(".pt"):
-        _serve_pt(vectors, limit, Path(output))
+    if resolved_output == "print":
+        _serve_print(vectors, resolved_limit)
+    elif resolved_output == "stream":
+        _serve_stream(vectors, resolved_limit)
+    elif resolved_output and resolved_output.endswith(".pt"):
+        _serve_pt(vectors, resolved_limit, Path(resolved_output))
     else:
         print("❗ Unsupported output format. Use 'print', 'stream', or a .pt file path.")
         raise SystemExit(2)

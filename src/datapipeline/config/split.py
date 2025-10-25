@@ -5,7 +5,6 @@ import math
 
 class BaseSplitConfig(BaseModel):
     model_config = ConfigDict(extra='forbid')
-    keep: Literal["train", "val", "test"]
 
 
 Ratio = Annotated[float, Field(ge=0.0, le=1.0)]

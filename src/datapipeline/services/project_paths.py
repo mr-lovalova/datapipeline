@@ -71,6 +71,7 @@ def ensure_project_scaffold(project_yaml: Path) -> None:
             "  postprocess: postprocess.yaml\n"
             "  artifacts: ../../build/datasets/default\n"
             "  build: build.yaml\n"
+            "  run: run.yaml\n"
             "globals:\n"
             "  start_time: 2021-01-01T00:00:00Z\n"
             "  end_time: 2021-12-31T23:00:00Z\n"

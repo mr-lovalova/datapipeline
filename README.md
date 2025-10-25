@@ -99,11 +99,11 @@ paths:
   postprocess: postprocess.yaml
   artifacts: ../../build/datasets/default
   build: build.yaml
+  run: run.yaml
 globals:
   start_time: 2021-01-01T00:00:00Z
   end_time: 2023-01-03T23:00:00Z
   split:
-    keep: train         # train | val | test
     mode: hash          # hash | time
     key: group          # group | feature:<id>
     seed: 42
@@ -113,7 +113,23 @@ globals:
 - `paths.*` are resolved relative to the project file unless absolute.
 - `globals` provide values for `${var}` interpolation across YAML files. Datetime
   values are normalized to strict UTC `YYYY-MM-DDTHH:MM:SSZ`.
-- `split` config is optional and only applied during the serve/split stage.
+- `split` config defines how labels are assigned; the active label is selected by `run.yaml` or CLI `--keep`.
+- Label names are free-form: match whatever keys you declare in `split.ratios` (hash) or `split.labels` (time).
+
+### `run.yaml`
+
+```yaml
+version: 1
+keep: train         # set to any label defined in globals.split (null disables filtering)
+output: print       # override to 'stream' or a .pt path for binary dumps
+limit: 100          # cap vectors per serve run (null = unlimited)
+include_targets: false
+throttle_ms: null   # sleep between vectors (milliseconds)
+```
+
+- `keep` selects the currently served split. This file is referenced by `project.paths.run`.
+- `output`, `limit`, `include_targets`, and `throttle_ms` provide serve defaults; CLI flags still win per invocation.
+- Override `keep` (and other fields) per invocation via `jerry run serve ... --keep val` etc.
 
 ### `config/sources/<alias>.yaml`
 
@@ -367,7 +383,7 @@ end of the pipeline:
 - `mode: hash` – deterministic entity hash using either the group key or a
   specified feature ID.
 - `mode: time` – boundary-based slicing using timestamp labels.
-- `keep` selects the active slice; ratios define the bucketization.
+- `run.keep` (or CLI `--keep`) selects the active slice; use any label name defined in your split config.
 
 The split configuration never mutates stored artifacts; it is only applied when
 serving vectors (either via CLI or the Python integrations).

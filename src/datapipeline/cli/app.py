@@ -78,13 +78,18 @@ def main() -> None:
         help="optional cap on the number of vectors to emit",
     )
     p_serve.add_argument(
-        "--output", "-o", default="print",
+        "--output", "-o", default=None,
         help="output destination: 'print', 'stream', or a file ending in .pt",
     )
     p_serve.add_argument(
         "--include-targets",
-        action="store_true",
-        help="include dataset.targets in served vectors (defaults to features only)",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="include dataset.targets in served vectors (use --no-include-targets to force disable)",
+    )
+    p_serve.add_argument(
+        "--keep",
+        help="split label to serve; overrides run.yaml and project globals",
     )
 
     # build (materialize artifacts)
@@ -396,7 +401,8 @@ def main() -> None:
             project=args.project,
             limit=getattr(args, "limit", None),
             output=args.output,
-            include_targets=getattr(args, "include_targets", False),
+            include_targets=args.include_targets,
+            keep=getattr(args, "keep", None),
         )
         return
     if args.cmd == "build":

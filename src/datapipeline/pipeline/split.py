@@ -147,10 +147,10 @@ def build_labeler(cfg: SplitConfig) -> BaseLabeler:
     return HashLabeler(ratios=cfg.ratios, key=cfg.key, seed=cfg.seed)
 
 
-def build_applicator(cfg: SplitConfig) -> VectorSplitApplicator:
+def build_applicator(cfg: SplitConfig, keep: str | None = None) -> VectorSplitApplicator:
     labeler = build_labeler(cfg)
-    keep = getattr(cfg, "keep", None)
-    return VectorSplitApplicator(labeler=labeler, output="filter", keep=keep)
+    selected = keep if keep is not None else getattr(cfg, "keep", None)
+    return VectorSplitApplicator(labeler=labeler, output="filter", keep=selected)
 
 
 def apply_split_stage(runtime, stream: Iterator[Tuple[Any, Vector]]) -> Iterator[Tuple[Any, Vector]]:
@@ -164,7 +164,8 @@ def apply_split_stage(runtime, stream: Iterator[Tuple[Any, Vector]]) -> Iterator
         cfg = getattr(runtime, "split", None)
         if not cfg:
             return stream
-        applicator = build_applicator(cfg)
+        keep = getattr(runtime, "split_keep", None)
+        applicator = build_applicator(cfg, keep=keep)
         return applicator(stream)
     except Exception:
         return stream
