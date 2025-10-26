@@ -14,6 +14,9 @@ def {{FUNCTION_NAME}}(
     """
     for dto in stream:
         # TODO: construct {{DomainRecord}} from dto fields
-        # Example: set 'time' and 'value'
-        # yield {{DomainRecord}}(time=dto.time, value=dto.value)
         yield from ()
+            yield {{DomainRecord}}(
+                time=dto.time, # must include time
+                value=dto.value, # must include value
+                # additional fields...
+            )
