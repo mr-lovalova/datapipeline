@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Mapping
+from typing import Any, Mapping
 import re
 from datetime import datetime, timezone
 
@@ -59,7 +59,12 @@ def artifacts_root(project_yaml: Path) -> Path:
     return (pj.parent / ap).resolve() if not ap.is_absolute() else ap
 
 
-def _load_by_key(project_yaml: Path, key: str) -> dict:
+def _load_by_key(
+    project_yaml: Path,
+    key: str,
+    *,
+    require_mapping: bool = True,
+) -> Any:
     """Load a YAML document referenced by project.paths[key]. (Legacy)"""
     p = _paths(project_yaml).get(key)
     if not p:
@@ -67,7 +72,7 @@ def _load_by_key(project_yaml: Path, key: str) -> dict:
     path = Path(p)
     if not path.is_absolute():
         path = project_yaml.parent / path
-    return load_yaml(path)
+    return load_yaml(path, require_mapping=require_mapping)
 
 
 def _globals(project_yaml: Path) -> dict[str, str]:
@@ -228,7 +233,7 @@ def bootstrap(project_yaml: Path) -> Runtime:
     streams = load_streams(project_yaml)
     init_streams(streams, runtime)
 
-    post_doc = _load_by_key(project_yaml, "postprocess")
+    post_doc = _load_by_key(project_yaml, "postprocess", require_mapping=False)
     # Allow interpolation of ${var} using project.globals in postprocess.yaml
     try:
         vars_ = _globals(project_yaml)

@@ -21,7 +21,7 @@ def load_ep(group: str, name: str):
     return ep.load()
 
 
-def load_yaml(p: Path) -> dict:
+def load_yaml(p: Path, *, require_mapping: bool = True):
     try:
         with p.open("r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
@@ -32,7 +32,7 @@ def load_yaml(p: Path) -> dict:
 
     if data is None:
         return {}
-    if not isinstance(data, dict):
+    if require_mapping and not isinstance(data, dict):
         raise TypeError(
             f"Top-level YAML in {p} must be a mapping, got {type(data).__name__}")
     return data
