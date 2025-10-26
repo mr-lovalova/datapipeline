@@ -79,7 +79,6 @@ class VectorAdapter:
     def from_project(
         cls,
         project_yaml: str | Path,
-        *,
     ) -> "VectorAdapter":
         project_path = Path(project_yaml)
         dataset = load_dataset(project_path, "vectors")
@@ -99,7 +98,8 @@ class VectorAdapter:
             except Exception:
                 pass
         context = PipelineContext(self.runtime)
-        vectors = build_vector_pipeline(context, features, self.dataset.group_by, stage=None)
+        vectors = build_vector_pipeline(
+            context, features, self.dataset.group_by, stage=None)
         # Apply global postprocess by default
         stream = post_process(context, vectors)
         if limit is not None:
@@ -197,7 +197,7 @@ def collect_vector_rows(
         group_column=group_column,
         flatten_sequences=flatten_sequences,
         include_targets=include_targets,
-        
+
     )
     return list(iterator)
 
@@ -294,7 +294,8 @@ def torch_dataset(
     if include_targets and target_columns is None:
         try:
             ds = load_dataset(Path(project_yaml), "vectors")
-            target_columns = [cfg.id for cfg in (getattr(ds, "targets", []) or [])]
+            target_columns = [cfg.id for cfg in (
+                getattr(ds, "targets", []) or [])]
         except Exception:
             target_columns = None
 

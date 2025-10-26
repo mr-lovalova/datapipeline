@@ -7,19 +7,13 @@ def test_feature_config_simple_fields():
     config = FeatureRecordConfig.model_validate(
         {
             "id": "time",
-            "stream": "time_linear",
-            "filters": {"operator": "ge", "field": "time", "value": "2021-01-01T00:00:00Z"},
-            "lag": "1h",
+            "record_stream": "time_linear",
             "scale": {"with_mean": True, "with_std": True},
             "sequence": {"size": 5, "stride": 1},
         }
     )
 
     assert config.id == "time"
-    assert config.stream == "time_linear"
-    assert isinstance(config.filters, dict)
-    assert config.filters["operator"] == "ge"
-    assert config.filters["field"] == "time"
-    assert config.lag == "1h"
+    assert config.record_stream == "time_linear"
     assert isinstance(config.scale, dict)
     assert isinstance(config.sequence, dict)

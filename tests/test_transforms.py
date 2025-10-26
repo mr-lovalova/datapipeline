@@ -5,9 +5,8 @@ from math import isclose
 from typing import Any
 
 from datapipeline.domain.feature import FeatureRecord
-from datapipeline.domain.record import TimeSeriesRecord
+from datapipeline.domain.record import TemporalRecord
 from datapipeline.transforms.feature.scaler import StandardScaler, StandardScalerTransform
-from datapipeline.transforms.stream.ensure_ticks import drop_missing_values
 from datapipeline.transforms.stream.fill import FillTransformer as FeatureFill
 from datapipeline.transforms.vector import (
     VectorDropMissingTransform,
@@ -18,8 +17,8 @@ from datapipeline.transforms.vector import (
 from datapipeline.domain.vector import Vector
 
 
-def _make_time_record(value: float, hour: int) -> TimeSeriesRecord:
-    return TimeSeriesRecord(
+def _make_time_record(value: float, hour: int) -> TemporalRecord:
+    return TemporalRecord(
         time=datetime(2024, 1, 1, hour=hour, tzinfo=timezone.utc),
         value=value,
     )
@@ -28,8 +27,7 @@ def _make_time_record(value: float, hour: int) -> TimeSeriesRecord:
 def _make_feature_record(value: float, hour: int, feature_id: str) -> FeatureRecord:
     return FeatureRecord(
         record=_make_time_record(value, hour),
-        feature_id=feature_id,
-        group_key=(hour,),
+        id=feature_id,
     )
 
 
@@ -43,21 +41,6 @@ class _StubVectorContext:
 
     def load_expected_ids(self) -> list[str]:
         return list(self._expected)
-
-
-def test_drop_missing_values_filters_none_and_nan():
-    stream = iter(
-        [
-            _make_time_record(1.0, 1),
-            _make_time_record(float("nan"), 2),
-            _make_time_record(3.0, 3),
-            _make_time_record(0.0, 4),
-        ]
-    )
-
-    cleaned = list(drop_missing_values(stream))
-
-    assert [rec.value for rec in cleaned] == [1.0, 3.0, 0.0]
 
 
 def test_standard_scaler_normalizes_feature_stream():
@@ -150,13 +133,13 @@ def test_time_mean_fill_uses_running_average():
         ]
     )
 
-    transformer = FeatureFill(statistic="mean")
+    transformer = FeatureFill(statistic="mean", window=2)
 
     transformed = list(transformer.apply(stream))
     values = [fr.record.value for fr in transformed]
 
     assert values[2] == 11.0  # mean of 10 and 12
-    assert isclose(values[4], 38.0 / 3.0, rel_tol=1e-9)
+    assert values[4] == 16.0  # window counts ticks, so only the fresh valid value is available
 
 
 def test_time_median_fill_honours_window():
@@ -177,8 +160,8 @@ def test_time_median_fill_honours_window():
 
     # history window restricted to last two valid values -> [100, 2]
     assert values[3] == 51.0
-    # second missing reuses same history (still [100,2])
-    assert values[4] == 51.0
+    # second missing only sees one valid tick (2.0) because window tracks ticks, not values
+    assert values[4] == 2.0
 
 
 def test_vector_fill_history_uses_running_statistics():
