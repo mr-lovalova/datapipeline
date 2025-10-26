@@ -217,18 +217,17 @@ targets:
 Project-scoped vector transforms that run after assembly and before serving.
 
 ```yaml
-transforms:
-  - drop_missing:
-      required: [temp_c__station=001]
-      min_coverage: 0.95
-  - fill_constant: { value: 0.0 }
-  - fill_history:
-      statistic: median
-      window: 48
-      min_samples: 6
-  - fill_horizontal:
-      statistic: mean
-      min_samples: 2
+- drop_missing:
+    required: [temp_c__station=001]
+    min_coverage: 0.95
+- fill_constant: { value: 0.0 }
+- fill_history:
+    statistic: median
+    window: 48
+    min_samples: 6
+- fill_horizontal:
+    statistic: mean
+    min_samples: 2
 ```
 
 - Vector transforms rely on artifacts (expected IDs, scaler stats) to decide

@@ -235,9 +235,13 @@ def bootstrap(project_yaml: Path) -> Runtime:
         post_doc = _interpolate(post_doc, vars_)
     except Exception:
         pass
-    postprocess = PostprocessConfig.model_validate(post_doc)
+    if post_doc is None:
+        transforms = None
+    else:
+        postprocess = PostprocessConfig.model_validate(post_doc)
+        transforms = postprocess.root
     runtime.registries.postprocesses.register(
-        POSTPROCESS_TRANSFORMS, postprocess.transforms)
+        POSTPROCESS_TRANSFORMS, transforms)
 
     state_path = (art_root / "build" / "state.json").resolve()
     state = load_build_state(state_path)

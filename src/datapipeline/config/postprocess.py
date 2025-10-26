@@ -1,8 +1,6 @@
 from typing import Any, List
-from pydantic import BaseModel, Field
+from pydantic import RootModel
 
 
-class PostprocessConfig(BaseModel):
+class PostprocessConfig(RootModel[List[Any]]):
     """Schema for optional postprocess.yaml."""
-
-    transforms: List[Any] | None = Field(default=None)

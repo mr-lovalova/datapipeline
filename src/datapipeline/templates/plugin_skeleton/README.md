@@ -45,7 +45,7 @@ Analyze vectors
 - `jerry inspect coverage --project config/datasets/default/project.yaml` (writes build/coverage.json)
 - `jerry inspect matrix   --project config/datasets/default/project.yaml --format html` (writes build/matrix.html)
 - `jerry inspect partitions --project config/datasets/default/project.yaml` (writes build/partitions.json)
-- Use post-processing `transforms` in `postprocess.yaml` to keep coverage high
+- Use post-processing transforms in `postprocess.yaml` to keep coverage high
   (history/horizontal fills, constants, or drop rules) before serving vectors.
 
 Train/Val/Test splits (deterministic)
