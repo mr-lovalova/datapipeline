@@ -1,8 +1,7 @@
 import sys
 from datapipeline.services.paths import pkg_root, resolve_base_pkg_dir
 from datapipeline.services.entrypoints import read_group_entries
-import yaml
-from datapipeline.services.constants import FILTERS_GROUP, MAPPER_KEY, ENTRYPOINT_KEY, ARGS_KEY, SOURCE_KEY
+from datapipeline.services.constants import FILTERS_GROUP
 from datapipeline.services.project_paths import (
     sources_dir as resolve_sources_dir,
     streams_dir as resolve_streams_dir,
@@ -87,7 +86,7 @@ def handle() -> None:
     # Inject per-file canonical stream into streams directory
     streams_path = resolve_streams_dir(proj_path)
 
-    canonical_alias = src_key  # default canonical stream alias (= stream_id)
+    canonical_alias = ep_key
     mapper_ep = ep_key
     # Write a single-file canonical spec into streams directory, matching
     # ContractConfig schema with helpful commented placeholders per stage.
