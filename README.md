@@ -124,13 +124,14 @@ globals:
 version: 1
 keep: train         # set to any label defined in globals.split (null disables filtering)
 output: print       # override to 'stream' or a .pt path for binary dumps
-limit: 100          # cap vectors per serve run (null = unlimited)
+limit: 100          # cap vectors per serve/prep run (null = unlimited)
 include_targets: false
 throttle_ms: null   # sleep between vectors (milliseconds)
+visuals: null       # true enables visuals, false disables, null uses command defaults
 ```
 
 - `keep` selects the currently served split. This file is referenced by `project.paths.run`.
-- `output`, `limit`, `include_targets`, and `throttle_ms` provide serve defaults; CLI flags still win per invocation.
+- `output`, `limit`, `include_targets`, `throttle_ms`, and `visuals` provide defaults for serve/prep; CLI flags still win per invocation.
 - Override `keep` (and other fields) per invocation via `jerry run serve ... --keep val` etc.
 
 ### `config/sources/<alias>.yaml`
@@ -265,7 +266,7 @@ Pass `--help` on any command for flags.
 
 ### Preview Stages
 
-- `jerry run prep --project <project.yaml> --stage <0-5> --limit N`
+- `jerry run prep --project <project.yaml> --stage <0-5> --limit N [--visuals]`
   - Stage 0: raw DTOs
   - Stage 1: domain `TemporalRecord`s
   - Stage 2: record transforms applied
@@ -274,8 +275,10 @@ Pass `--help` on any command for flags.
   - Stage 5: feature transforms/sequence outputs
   - Stage 6: vectors assembled (no postprocess)
   - Stage 7: vectors + postprocess transforms
-- `jerry run serve --project <project.yaml> --output print|stream|path.pt --limit N [--include-targets]`
+  - Add `--visuals/--no-visuals` (or configure `run.yaml`) to toggle progress bars.
+- `jerry run serve --project <project.yaml> --output print|stream|path.pt --limit N [--include-targets] [--visuals]`
   - Applies postprocess transforms and optional dataset split before emitting.
+  - Add `--visuals` (or set `run.yaml` → `visuals: true`) to reuse the tqdm progress bars from `prep`.
 
 ### Build & Quality
 

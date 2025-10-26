@@ -36,6 +36,10 @@ class RunConfig(BaseModel):
         description="Milliseconds to sleep between emitted vectors (throttle).",
         ge=0.0,
     )
+    visuals: bool | None = Field(
+        default=None,
+        description="Wrap raw sources with CLI progress bars when running (serve/prep).",
+    )
 
 
 def load_run_config(project_yaml: Path) -> RunConfig | None:

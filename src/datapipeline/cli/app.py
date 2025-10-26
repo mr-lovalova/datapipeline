@@ -44,7 +44,7 @@ def main() -> None:
         default="config/datasets/default/project.yaml",
         help="path to project.yaml",
     )
-    p_prep.add_argument("--limit", "-n", type=int, default=20)
+    p_prep.add_argument("--limit", "-n", type=int, default=None)
     prep_sub = p_prep.add_subparsers(dest="prep_cmd", required=True)
     p_prep_stage = prep_sub.add_parser(
         "stage",
@@ -58,13 +58,19 @@ def main() -> None:
         default="config/datasets/default/project.yaml",
         help="path to project.yaml",
     )
-    p_prep_stage.add_argument("--limit", "-n", type=int, default=20)
+    p_prep_stage.add_argument("--limit", "-n", type=int, default=None)
+    p_prep_stage.add_argument(
+        "--visuals",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="wrap prep runs with tqdm progress bars (use --no-visuals to disable)",
+    )
 
 
     # serve (production run, no visuals)
     p_serve = sub.add_parser(
         "serve",
-        help="produce vectors without progress visuals",
+        help="produce vectors (optionally with progress visuals)",
         parents=[common],
     )
     p_serve.add_argument(
@@ -90,6 +96,12 @@ def main() -> None:
     p_serve.add_argument(
         "--keep",
         help="split label to serve; overrides run.yaml and project globals",
+    )
+    p_serve.add_argument(
+        "--visuals",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="wrap serve runs with tqdm progress bars (use --no-visuals to force disable)",
     )
 
     # build (materialize artifacts)
@@ -392,7 +404,8 @@ def main() -> None:
         handle_prep_stage(
             project=getattr(args, "project", "config/datasets/default/project.yaml"),
             stage=getattr(args, "num", 0),
-            limit=getattr(args, "limit", 20),
+            limit=getattr(args, "limit", None),
+            visuals=getattr(args, "visuals", None),
         )
         return
 
@@ -403,6 +416,7 @@ def main() -> None:
             output=args.output,
             include_targets=args.include_targets,
             keep=getattr(args, "keep", None),
+            visuals=getattr(args, "visuals", None),
         )
         return
     if args.cmd == "build":

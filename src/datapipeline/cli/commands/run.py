@@ -2,6 +2,7 @@ import json
 import pickle
 import sys
 import time
+from contextlib import nullcontext
 from itertools import islice
 from pathlib import Path
 from typing import Iterator, Optional, Tuple
@@ -77,13 +78,26 @@ def _run_feature_stage(runtime, dataset: FeatureDatasetConfig, stage: int, limit
         print(f"({summary.format(n=printed)})")
 
 
-def handle_prep_stage(project: str, stage: int, limit: int = 20) -> None:
+def handle_prep_stage(project: str, stage: int, limit: Optional[int] = None, visuals: Optional[bool] = None) -> None:
     """Preview a numeric feature stage (0-5) for all configured features."""
     project_path = Path(project)
     dataset = load_dataset(project_path, "features")
     runtime = bootstrap(project_path)
-    with visual_sources(runtime):
-        _run_feature_stage(runtime, dataset, stage, limit)
+    run_opts = getattr(runtime, "run", None)
+    resolved_limit = (
+        limit
+        if limit is not None
+        else (run_opts.limit if run_opts and run_opts.limit is not None else 20)
+    )
+    if visuals is None:
+        visuals = (
+            run_opts.visuals
+            if run_opts and run_opts.visuals is not None
+            else True
+        )
+    prep_ctx = visual_sources(runtime) if visuals else nullcontext()
+    with prep_ctx:
+        _run_feature_stage(runtime, dataset, stage, resolved_limit)
 
 
 def _limit_vectors(vectors: Iterator[Tuple[object, Vector]], limit: Optional[int]) -> Iterator[Tuple[object, Vector]]:
@@ -148,6 +162,7 @@ def handle_serve(
     output: Optional[str],
     include_targets: Optional[bool] = None,
     keep: Optional[str] = None,
+    visuals: Optional[bool] = None,
 ) -> None:
     project_path = Path(project)
     dataset = load_dataset(project_path, "vectors")
@@ -164,6 +179,12 @@ def handle_serve(
     if include_targets is None:
         include_targets = run_opts.include_targets if run_opts else False
     throttle_ms = run_opts.throttle_ms if run_opts else None
+    if visuals is None:
+        visuals = (
+            run_opts.visuals
+            if run_opts and run_opts.visuals is not None
+            else False
+        )
 
     if keep:
         runtime.split_keep = keep
@@ -177,20 +198,23 @@ def handle_serve(
     configs = list(dataset.features or [])
     if include_targets:
         configs += list(dataset.targets or [])
-    vectors = build_vector_pipeline(context, configs, dataset.group_by)
-    # Apply global postprocess transforms first (fills/coverage)
-    vectors = post_process(context, vectors)
-    # Finally, apply configured split (if any) via a dedicated stage
-    vectors = split_stage(runtime, vectors)
-    # Throttle emission if configured
-    vectors = _throttle_vectors(vectors, throttle_ms)
 
-    if resolved_output == "print":
-        _serve_print(vectors, resolved_limit)
-    elif resolved_output == "stream":
-        _serve_stream(vectors, resolved_limit)
-    elif resolved_output and resolved_output.endswith(".pt"):
-        _serve_pt(vectors, resolved_limit, Path(resolved_output))
-    else:
-        print("❗ Unsupported output format. Use 'print', 'stream', or a .pt file path.")
-        raise SystemExit(2)
+    serve_ctx = visual_sources(runtime) if visuals else nullcontext()
+    with serve_ctx:
+        vectors = build_vector_pipeline(context, configs, dataset.group_by)
+        # Apply global postprocess transforms first (fills/coverage)
+        vectors = post_process(context, vectors)
+        # Finally, apply configured split (if any) via a dedicated stage
+        vectors = split_stage(runtime, vectors)
+        # Throttle emission if configured
+        vectors = _throttle_vectors(vectors, throttle_ms)
+
+        if resolved_output == "print":
+            _serve_print(vectors, resolved_limit)
+        elif resolved_output == "stream":
+            _serve_stream(vectors, resolved_limit)
+        elif resolved_output and resolved_output.endswith(".pt"):
+            _serve_pt(vectors, resolved_limit, Path(resolved_output))
+        else:
+            print("❗ Unsupported output format. Use 'print', 'stream', or a .pt file path.")
+            raise SystemExit(2)
