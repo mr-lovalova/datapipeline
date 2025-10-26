@@ -15,6 +15,7 @@ from datapipeline.pipeline.pipelines import (
     build_feature_pipeline,
     build_vector_pipeline,
 )
+from datapipeline.config.run import load_named_run_configs
 from datapipeline.pipeline.context import PipelineContext
 from datapipeline.pipeline.stages import post_process
 from datapipeline.services.bootstrap import bootstrap
@@ -156,38 +157,16 @@ def _serve_pt(vectors: Iterator[Tuple[object, Vector]], limit: Optional[int], de
     print(f"💾 Saved {len(data)} vectors to {destination}")
 
 
-def handle_serve(
-    project: str,
+def _serve_with_runtime(
+    runtime,
+    dataset: FeatureDatasetConfig,
+    *,
     limit: Optional[int],
-    output: Optional[str],
-    include_targets: Optional[bool] = None,
-    keep: Optional[str] = None,
-    visuals: Optional[bool] = None,
+    output: str,
+    include_targets: bool,
+    throttle_ms: Optional[float],
+    visuals: bool,
 ) -> None:
-    project_path = Path(project)
-    dataset = load_dataset(project_path, "vectors")
-    runtime = bootstrap(project_path)
-    run_opts = getattr(runtime, "run", None)
-    resolved_output = (
-        output
-        if output is not None
-        else (run_opts.output if run_opts and run_opts.output else "print")
-    )
-    resolved_limit = (
-        limit if limit is not None else (run_opts.limit if run_opts else None)
-    )
-    if include_targets is None:
-        include_targets = run_opts.include_targets if run_opts else False
-    throttle_ms = run_opts.throttle_ms if run_opts else None
-    if visuals is None:
-        visuals = (
-            run_opts.visuals
-            if run_opts and run_opts.visuals is not None
-            else False
-        )
-
-    if keep:
-        runtime.split_keep = keep
     context = PipelineContext(runtime)
 
     features = list(dataset.features or [])
@@ -209,12 +188,94 @@ def handle_serve(
         # Throttle emission if configured
         vectors = _throttle_vectors(vectors, throttle_ms)
 
-        if resolved_output == "print":
-            _serve_print(vectors, resolved_limit)
-        elif resolved_output == "stream":
-            _serve_stream(vectors, resolved_limit)
-        elif resolved_output and resolved_output.endswith(".pt"):
-            _serve_pt(vectors, resolved_limit, Path(resolved_output))
+        if output == "print":
+            _serve_print(vectors, limit)
+        elif output == "stream":
+            _serve_stream(vectors, limit)
+        elif output and output.endswith(".pt"):
+            _serve_pt(vectors, limit, Path(output))
         else:
             print("❗ Unsupported output format. Use 'print', 'stream', or a .pt file path.")
             raise SystemExit(2)
+
+
+def handle_serve(
+    project: str,
+    limit: Optional[int],
+    output: Optional[str],
+    include_targets: Optional[bool] = None,
+    keep: Optional[str] = None,
+    visuals: Optional[bool] = None,
+    run_name: Optional[str] = None,
+) -> None:
+    project_path = Path(project)
+    dataset = load_dataset(project_path, "vectors")
+    try:
+        run_entries = load_named_run_configs(project_path)
+    except FileNotFoundError:
+        run_entries = []
+    except Exception as exc:
+        print(f"❗ Failed to load run configs: {exc}")
+        raise SystemExit(2) from exc
+
+    if run_entries:
+        if run_name:
+            run_entries = [entry for entry in run_entries if entry[0] == run_name]
+            if not run_entries:
+                print(f"❗ Unknown run config: {run_name}")
+                raise SystemExit(2)
+    else:
+        if run_name:
+            print("❗ Project does not define run configs.")
+            raise SystemExit(2)
+        run_entries = [(None, None)]
+
+    total_runs = len(run_entries)
+    for idx, (entry_name, run_cfg) in enumerate(run_entries, start=1):
+        runtime = bootstrap(project_path)
+        if run_cfg is not None:
+            runtime.run = run_cfg
+            split_keep = getattr(runtime.split, "keep", None)
+            runtime.split_keep = run_cfg.keep or split_keep
+        run_opts = runtime.run
+
+        resolved_output = (
+            output
+            if output is not None
+            else (run_opts.output if run_opts and run_opts.output else "print")
+        )
+        resolved_limit = (
+            limit if limit is not None else (run_opts.limit if run_opts else None)
+        )
+        resolved_include_targets = (
+            include_targets
+            if include_targets is not None
+            else (run_opts.include_targets if run_opts else False)
+        )
+        throttle_ms = run_opts.throttle_ms if run_opts else None
+        resolved_visuals = (
+            visuals
+            if visuals is not None
+            else (
+                run_opts.visuals
+                if run_opts and run_opts.visuals is not None
+                else False
+            )
+        )
+
+        if keep:
+            runtime.split_keep = keep
+
+        if total_runs > 1:
+            label = entry_name or f"run{idx}"
+            print(f"\n🥃 Run '{label}' ({idx}/{total_runs})")
+
+        _serve_with_runtime(
+            runtime,
+            dataset,
+            limit=resolved_limit,
+            output=resolved_output,
+            include_targets=resolved_include_targets,
+            throttle_ms=throttle_ms,
+            visuals=resolved_visuals,
+        )

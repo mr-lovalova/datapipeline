@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import List, Sequence, Tuple
 
 from pydantic import BaseModel, Field
 
@@ -42,20 +43,59 @@ class RunConfig(BaseModel):
     )
 
 
-def load_run_config(project_yaml: Path) -> RunConfig | None:
-    """Load a run.yaml referenced by project.paths.run, if configured."""
-
-    project_data = load_yaml(project_yaml)
-    project = ProjectConfig.model_validate(project_data)
-    run_path = getattr(project.paths, "run", None)
-    if not run_path:
-        return None
+def _resolve_run_path(project_yaml: Path, run_path: str | Path) -> Path:
     path = Path(run_path)
     if not path.is_absolute():
         path = project_yaml.parent / path
-    if not path.exists():
-        raise FileNotFoundError(f"run config not found: {path}")
+    return path.resolve()
+
+
+def _list_run_paths(project_yaml: Path) -> Sequence[Path]:
+    project_data = load_yaml(project_yaml)
+    project = ProjectConfig.model_validate(project_data)
+    run_path_ref = getattr(project.paths, "run", None)
+    if not run_path_ref:
+        return []
+    run_path = _resolve_run_path(project_yaml, run_path_ref)
+    if not run_path.exists():
+        raise FileNotFoundError(f"run config not found: {run_path}")
+    if run_path.is_dir():
+        entries = sorted(
+            [
+                p
+                for p in run_path.iterdir()
+                if p.is_file() and p.suffix in {".yaml", ".yml"}
+            ],
+            key=lambda p: p.name,
+        )
+        if not entries:
+            raise FileNotFoundError(f"no run configs found under {run_path}")
+        return entries
+    return [run_path]
+
+
+def _load_run_from_path(path: Path) -> RunConfig:
     doc = load_yaml(path)
     if not isinstance(doc, dict):
-        raise TypeError("run.yaml must define a mapping at the top level.")
+        raise TypeError(f"{path} must define a mapping at the top level.")
     return RunConfig.model_validate(doc)
+
+
+def load_named_run_configs(project_yaml: Path) -> List[Tuple[str, RunConfig]]:
+    """Return (name, config) pairs for every run file (directory-aware)."""
+
+    paths = _list_run_paths(project_yaml)
+    entries: List[Tuple[str, RunConfig]] = []
+    for path in paths:
+        cfg = _load_run_from_path(path)
+        entries.append((path.stem, cfg))
+    return entries
+
+
+def load_run_config(project_yaml: Path) -> RunConfig | None:
+    """Load the first run config referenced by project.paths.run, if configured."""
+
+    paths = _list_run_paths(project_yaml)
+    if not paths:
+        return None
+    return _load_run_from_path(paths[0])

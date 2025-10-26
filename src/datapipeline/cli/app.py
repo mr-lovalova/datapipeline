@@ -98,6 +98,10 @@ def main() -> None:
         help="split label to serve; overrides run.yaml and project globals",
     )
     p_serve.add_argument(
+        "--run",
+        help="select a specific run config by filename stem when project.paths.run points to a folder",
+    )
+    p_serve.add_argument(
         "--visuals",
         action=argparse.BooleanOptionalAction,
         default=None,
@@ -417,6 +421,7 @@ def main() -> None:
             include_targets=args.include_targets,
             keep=getattr(args, "keep", None),
             visuals=getattr(args, "visuals", None),
+            run_name=getattr(args, "run", None),
         )
         return
     if args.cmd == "build":

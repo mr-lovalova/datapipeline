@@ -116,6 +116,9 @@ globals:
 - `globals` provide values for `${var}` interpolation across YAML files. Datetime
   values are normalized to strict UTC `YYYY-MM-DDTHH:MM:SSZ`.
 - `split` config defines how labels are assigned; the active label is selected by `run.yaml` or CLI `--keep`.
+- `paths.run` may point to a single file (default) or a directory. When it is a directory,
+  every `*.yaml` file inside is treated as a run config; `jerry run serve` executes them
+  sequentially in alphabetical order unless you pass `--run <name>` (filename stem).
 - Label names are free-form: match whatever keys you declare in `split.ratios` (hash) or `split.labels` (time).
 
 ### `run.yaml`
@@ -133,6 +136,9 @@ visuals: null       # true enables visuals, false disables, null uses command de
 - `keep` selects the currently served split. This file is referenced by `project.paths.run`.
 - `output`, `limit`, `include_targets`, `throttle_ms`, and `visuals` provide defaults for serve/prep; CLI flags still win per invocation.
 - Override `keep` (and other fields) per invocation via `jerry run serve ... --keep val` etc.
+- To manage multiple runs, point `project.paths.run` at a folder (e.g., `config/datasets/default/runs/`)
+  and drop additional `*.yaml` files there. `jerry run serve` will run each file in order; pass
+  `--run train` to execute only `runs/train.yaml`.
 
 ### `config/sources/<alias>.yaml`
 
@@ -276,9 +282,10 @@ Pass `--help` on any command for flags.
   - Stage 6: vectors assembled (no postprocess)
   - Stage 7: vectors + postprocess transforms
   - Add `--visuals/--no-visuals` (or configure `run.yaml`) to toggle progress bars.
-- `jerry run serve --project <project.yaml> --output print|stream|path.pt --limit N [--include-targets] [--visuals]`
+- `jerry run serve --project <project.yaml> --output print|stream|path.pt --limit N [--include-targets] [--visuals] [--run name]`
   - Applies postprocess transforms and optional dataset split before emitting.
   - Add `--visuals` (or set `run.yaml` → `visuals: true`) to reuse the tqdm progress bars from `prep`.
+  - When `project.paths.run` is a directory, add `--run val` (filename stem) to target a single config; otherwise every run file is executed sequentially.
 
 ### Build & Quality
 

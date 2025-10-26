@@ -71,6 +71,8 @@ Train/Val/Test splits (deterministic)
   include_targets: false    # include dataset.targets when serving
   throttle_ms: null         # sleep between vectors (milliseconds)
   ```
+- If you prefer separate configs per split, point `project.paths.run` at a folder (e.g., `config/datasets/default/runs/`),
+  drop `train.yaml`, `val.yaml`, etc. inside, and the CLI will run each file in order unless you pass `--run <name>`.
 - Serve examples (change run.yaml or pass `--keep val|test`):
   - `jerry run serve -p config/datasets/default/project.yaml -o stream > train.jsonl`
   - `jerry run serve -p config/datasets/default/project.yaml --keep val -o stream > val.jsonl`
