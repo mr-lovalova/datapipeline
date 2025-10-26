@@ -29,5 +29,6 @@ class ProjectGlobals(BaseModel):
 
 class ProjectConfig(BaseModel):
     version: int = 1
+    name: str | None = None
     paths: ProjectPaths
     globals: ProjectGlobals = Field(default_factory=ProjectGlobals)

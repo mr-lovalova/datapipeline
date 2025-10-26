@@ -92,12 +92,13 @@ All project configuration lives under `config/datasets/<name>/` by default.
 
 ```yaml
 version: 1
+name: default
 paths:
   streams: ../../contracts
   sources: ../../sources
   dataset: dataset.yaml
   postprocess: postprocess.yaml
-  artifacts: ../../build/datasets/default
+  artifacts: ../../build/datasets/${project_name}
   build: build.yaml
   run: run.yaml
 globals:
@@ -110,7 +111,8 @@ globals:
     ratios: {train: 0.8, val: 0.1, test: 0.1}
 ```
 
-- `paths.*` are resolved relative to the project file unless absolute.
+- `name` provides a stable identifier you can reuse inside config files via `${project_name}`.
+- `paths.*` are resolved relative to the project file unless absolute; they also support `${var}` interpolation.
 - `globals` provide values for `${var}` interpolation across YAML files. Datetime
   values are normalized to strict UTC `YYYY-MM-DDTHH:MM:SSZ`.
 - `split` config defines how labels are assigned; the active label is selected by `run.yaml` or CLI `--keep`.

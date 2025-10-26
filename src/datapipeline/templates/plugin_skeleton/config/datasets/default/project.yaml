@@ -1,10 +1,11 @@
 version: 1
+name: default
 paths:
   streams: ../../contracts
   sources: ../../sources
   dataset: dataset.yaml
   postprocess: postprocess.yaml
-  artifacts: ../../build/datasets/default
+  artifacts: ../../build/datasets/${project_name}
   build: build.yaml
   run: run.yaml
 globals:

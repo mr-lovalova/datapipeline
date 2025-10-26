@@ -19,6 +19,9 @@ Folder layout
   - `sources/*.yaml` — raw source definitions (one file per source)
   - `contracts/*.yaml` — canonical stream definitions
   - `datasets/<name>/build.yaml` — build configuration (partitioned ids today, more artifacts later)
+- Every dataset `project.yaml` declares a `name`; reference it via `${project_name}`
+  inside other config files (e.g., `paths.artifacts: ../../build/datasets/${project_name}`) to
+  avoid hard-coding per-dataset directories.
 - `src/{{PACKAGE_NAME}}/`
   - `sources/<provider>/<dataset>/dto.py` — DTO model for the source
   - `sources/<provider>/<dataset>/parser.py` — parse raw → DTO

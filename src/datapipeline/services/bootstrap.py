@@ -35,12 +35,33 @@ SRC_LOADER_KEY = LOADER_KEY
 def _project(project_yaml: Path) -> ProjectConfig:
     """Load and validate project.yaml."""
     data = load_yaml(project_yaml)
+    vars_ = _project_vars(data)
+    paths = data.get("paths")
+    if isinstance(paths, dict) and vars_:
+        data["paths"] = _interpolate(paths, vars_)
     return ProjectConfig.model_validate(data)
 
 
 def _paths(project_yaml: Path) -> Mapping[str, str]:
     proj = _project(project_yaml)
     return proj.paths.model_dump()
+
+
+def _project_vars(data: dict) -> dict[str, str]:
+    vars_: dict[str, str] = {}
+    name = data.get("name")
+    if name:
+        vars_["project"] = str(name)
+        vars_["project_name"] = str(name)
+    globals_ = data.get("globals") or {}
+    for k, v in globals_.items():
+        if isinstance(v, datetime):
+            try:
+                v = v.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            except ValueError:
+                v = v.isoformat()
+        vars_[str(k)] = str(v)
+    return vars_
 
 
 def artifacts_root(project_yaml: Path) -> Path:
