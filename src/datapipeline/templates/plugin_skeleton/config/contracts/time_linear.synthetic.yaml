@@ -6,9 +6,9 @@ mapper: # normalize/reshape DTO -> TemporalRecord if not implemented will give y
   args: { mode: linear }
 # partition_by: station_id      # optional: add partition suffixes to feature ids
 
-# record:                       # record-level transforms (run before partitioning)
-#   - filter: { operator: ge, field: time, comparand: "${start_time}" }
-#   - filter: { operator: le, field: time, comparand: "${end_time}" }
+record: # record-level transforms
+  - filter: { operator: ge, field: time, comparand: "${start_time}" }
+  - filter: { operator: le, field: time, comparand: "${end_time}" }
 #   - floor_time: { resolution: 10m }          # snap timestamps to resolution
 #   - lag: { lag: 10m }                         # shift timestamps backwards
 

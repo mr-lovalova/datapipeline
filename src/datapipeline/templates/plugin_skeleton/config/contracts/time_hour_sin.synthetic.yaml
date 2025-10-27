@@ -7,9 +7,9 @@ mapper:
 
 # partition_by: field you want to partition
 
-# record:
-#   - filter: { operator: ge, field: time, comparand: "${start_time}" }
-#   - filter: { operator: le, field: time, comparand: "${end_time}" }
+record:
+  - filter: { operator: ge, field: time, comparand: "${start_time}" }
+  - filter: { operator: le, field: time, comparand: "${end_time}" }
 #   - floor_time: { resolution: 1h }
 #   - lag: { lag: 1h }
 
