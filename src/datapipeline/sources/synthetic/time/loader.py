@@ -1,7 +1,8 @@
 from typing import Iterator, Dict, Any, Optional
 from datapipeline.sources.models.loader import SyntheticLoader
-from datapipeline.sources.models.generator import DataGenerator
+from datapipeline.sources.models.generator import DataGenerator, NoOpGenerator
 from datapipeline.utils.time import parse_timecode, parse_datetime
+
 
 class TimeTicksGenerator(DataGenerator):
     def __init__(self, start: str, end: str, frequency: str | None = "1h"):
@@ -27,4 +28,6 @@ def make_time_loader(start: str, end: str, frequency: str | None = "1h") -> Synt
 
     Returns a SyntheticLoader that wraps the TimeTicksGenerator.
     """
+    if start is None or end is None:
+        return SyntheticLoader(NoOpGenerator())
     return SyntheticLoader(TimeTicksGenerator(start, end, frequency))

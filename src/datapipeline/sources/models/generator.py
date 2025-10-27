@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from abc import ABC, abstractmethod
 from typing import Iterator, Any, Optional
 
@@ -21,3 +19,9 @@ class DataGenerator(ABC):
     def __iter__(self) -> Iterator[Any]:
         return self.generate()
 
+
+class NoOpGenerator(DataGenerator):
+    """A data generator that yields no items."""
+
+    def generate(self) -> Iterator[Any]:
+        pass
