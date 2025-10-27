@@ -38,6 +38,9 @@ class VectorDropMissingTransform(_ContextExpectedMixin):
         self.min_coverage = min_coverage
         # Always operate on full (partition) ids
 
+    def __call__(self, stream: Iterator[Tuple[Any, Vector]]) -> Iterator[Tuple[Any, Vector]]:
+        return self.apply(stream)
+
     def apply(self, stream: Iterator[Tuple[Any, Vector]]) -> Iterator[Tuple[Any, Vector]]:
         for group_key, vector in stream:
             present = {fid for fid, value in vector.values.items()
@@ -128,6 +131,9 @@ class VectorFillHistoryTransform(_ContextExpectedMixin):
             str(feature_id), deque(maxlen=self.window))
         bucket.append(num)
 
+    def __call__(self, stream: Iterator[Tuple[Any, Vector]]) -> Iterator[Tuple[Any, Vector]]:
+        return self.apply(stream)
+
     def apply(self, stream: Iterator[Tuple[Any, Vector]]) -> Iterator[Tuple[Any, Vector]]:
         for group_key, vector in stream:
             targets = self._expected_ids()
@@ -164,6 +170,9 @@ class VectorFillAcrossPartitionsTransform(_ContextExpectedMixin):
         self.statistic = statistic
         self.min_samples = min_samples
         # Always operate on full (partition) ids
+
+    def __call__(self, stream: Iterator[Tuple[Any, Vector]]) -> Iterator[Tuple[Any, Vector]]:
+        return self.apply(stream)
 
     def apply(self, stream: Iterator[Tuple[Any, Vector]]) -> Iterator[Tuple[Any, Vector]]:
         for group_key, vector in stream:
