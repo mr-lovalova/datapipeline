@@ -1,4 +1,7 @@
+import base64
 import csv
+import html
+import json
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any, Hashable, Iterable, Literal
@@ -33,7 +36,7 @@ class VectorStatsCollector:
         matrix_rows: int = 20,
         matrix_cols: int = 10,
         matrix_output: str | None = None,
-        matrix_format: str = "csv",
+        matrix_format: str = "html",
     ) -> None:
         self.match_partition = match_partition
         self.threshold = threshold
@@ -611,84 +614,417 @@ class VectorStatsCollector:
         partition_ids = self._collect_partition_ids()
         group_keys = self._collect_group_keys()
 
-        def render_table(title: str, identifiers: list[str], status_map: dict, sub_map: dict) -> str:
-            if not identifiers:
-                return f"<h2>{title}</h2><p>No data.</p>"
+        sections: list[str] = []
+        scripts: list[str] = []
+        legend_entries: dict[str, tuple[str, str]] = {}
 
-            cell_class = {
+        def render_table(
+            title: str,
+            identifiers: list[str],
+            status_map: dict,
+            sub_map: dict,
+            table_id: str,
+        ) -> None:
+            if not identifiers:
+                sections.append(
+                    "<section class='matrix-section'>"
+                    f"<h2>{html.escape(title)}</h2>"
+                    "<p>No data.</p>"
+                    "</section>"
+                )
+                return
+
+            base_class = {
                 "present": "status-present",
                 "null": "status-null",
                 "absent": "status-absent",
             }
 
-            header = "".join(
-                f"<th>{id_}</th>" for id_ in identifiers
+            statuses_found: set[str] = {"absent"}
+            for statuses in status_map.values():
+                statuses_found.update(statuses.values())
+            for group_sub in sub_map.values():
+                for sub_statuses in group_sub.values():
+                    statuses_found.update(sub_statuses)
+
+            preferred_order = {"present": 0, "null": 1, "absent": 2}
+            ordered_statuses = sorted(
+                statuses_found,
+                key=lambda s: (preferred_order.get(s, len(preferred_order)), s),
             )
-            rows_html = []
-            for group in group_keys:
-                key_str = self._format_group_key(group)
+            status_to_index = {status: idx for idx, status in enumerate(ordered_statuses)}
+            default_index = status_to_index["absent"]
+
+            row_labels = [self._format_group_key(group) for group in group_keys]
+            row_count = len(row_labels)
+            col_count = len(identifiers)
+            total_cells = row_count * col_count
+            codes = bytearray(total_cells)
+            sub_indices: dict[int, list[int]] = {}
+
+            for row_idx, group in enumerate(group_keys):
                 statuses = status_map.get(group, {})
-                cells = []
-                for identifier in identifiers:
+                sub_cells = sub_map.get(group, {})
+                for col_idx, identifier in enumerate(identifiers):
+                    cell_idx = row_idx * col_count + col_idx
                     status = statuses.get(identifier, "absent")
-                    cls = cell_class.get(status, "status-absent")
-                    # Render sub-cells when available to convey partial availability
-                    sub = sub_map.get(group, {}).get(identifier)
-                    if sub:
-                        parts = "".join(
-                            f"<span class='{cell_class.get(s, 'status-absent')}' title='{s}'>&nbsp;</span>"
-                            for s in sub
-                        )
-                        cells.append(
-                            f"<td title='{status}'><div class='sub'>{parts}</div></td>")
-                    else:
-                        symbol = self._symbol_for(status)
-                        cells.append(
-                            f"<td class='{cls}' title='{status}'>{symbol}</td>")
-                rows_html.append(
-                    f"<tr><th>{key_str}</th>{''.join(cells)}</tr>"
+                    codes[cell_idx] = status_to_index.get(status, default_index)
+                    sub_statuses = sub_cells.get(identifier)
+                    if sub_statuses:
+                        sub_indices[cell_idx] = [
+                            status_to_index.get(sub_status, default_index)
+                            for sub_status in sub_statuses
+                        ]
+
+            status_class_map = {
+                status: base_class.get(status, "status-missing")
+                for status in ordered_statuses
+            }
+            status_class_map["__default__"] = "status-missing"
+
+            symbol_map = {
+                status: self._symbol_for(status)
+                for status in ordered_statuses
+            }
+            symbol_map["__default__"] = "."
+
+            payload = {
+                "rows": row_labels,
+                "cols": identifiers,
+                "statuses": ordered_statuses,
+                "encoded": base64.b64encode(bytes(codes)).decode("ascii"),
+                "sub": sub_indices,
+                "statusClass": status_class_map,
+                "symbols": symbol_map,
+            }
+
+            header_cells = "".join(
+                f"<th scope='col'>{html.escape(identifier)}</th>"
+                for identifier in identifiers
+            )
+
+            sections.append(
+                "<section class='matrix-section'>"
+                f"<h2>{html.escape(title)}</h2>"
+                "<div class='matrix-info'>Scroll horizontally and vertically to explore.</div>"
+                f"<div class='table-container' id='{table_id}-container'>"
+                "<table class='heatmap'>"
+                "<thead>"
+                "<tr>"
+                "<th scope='col' class='group-col'>Group</th>"
+                f"{header_cells}"
+                "</tr>"
+                "</thead>"
+                f"<tbody id='{table_id}-body' data-colspan='{col_count + 1}'></tbody>"
+                "</table>"
+                "</div>"
+                "</section>"
+            )
+
+            scripts.append(
+                f"setupMatrix('{table_id}', {json.dumps(payload)});"
+            )
+
+            for status, css_class in status_class_map.items():
+                if status.startswith("__"):
+                    continue
+                legend_entries.setdefault(
+                    status, (css_class, status.replace("_", " ").title())
                 )
 
-            return (
-                f"<h2>{title}</h2>"
-                "<table class='heatmap'>"
-                f"<tr><th>Group</th>{header}</tr>"
-                f"{''.join(rows_html)}"
-                "</table>"
-            )
-
-        feature_table = render_table(
+        render_table(
             "Feature Availability",
             feature_ids,
             self.group_feature_status,
             self.group_feature_sub,
+            "feature",
         )
-        partition_table = render_table(
+        render_table(
             "Partition Availability",
             partition_ids,
             self.group_partition_status,
             self.group_partition_sub,
+            "partition",
+        )
+
+        for base_status, css in (
+            ("present", "status-present"),
+            ("null", "status-null"),
+            ("absent", "status-absent"),
+        ):
+            legend_entries.setdefault(
+                base_status, (css, base_status.replace("_", " ").title())
+            )
+
+        ordered_legend = sorted(
+            legend_entries.items(),
+            key=lambda item: (
+                {"present": 0, "null": 1, "absent": 2}.get(item[0], 99),
+                item[0],
+            ),
+        )
+        legend_html = "".join(
+            f"<span><span class='swatch {css}'></span>{label}</span>"
+            for _, (css, label) in ordered_legend
         )
 
         style = """
-            body { font-family: Arial, sans-serif; }
-            table.heatmap { border-collapse: collapse; margin-bottom: 2rem; }
-            .heatmap th, .heatmap td { border: 1px solid #ccc; padding: 4px 6px; }
-            .heatmap th { background: #f0f0f0; position: sticky; top: 0; }
-            .status-present { background: #2ecc71; color: #fff; }
-            .status-null { background: #f1c40f; color: #000; }
-            .status-absent { background: #e74c3c; color: #fff; }
+            :root { color-scheme: light; }
+            * { box-sizing: border-box; }
+            body {
+                font-family: Arial, sans-serif;
+                margin: 24px;
+                background: #f9f9fa;
+                color: #222;
+            }
+            h1 { margin: 0; }
+            .matrix-wrapper {
+                border: 1px solid #d0d0d0;
+                border-radius: 8px;
+                background: #fff;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+                overflow: hidden;
+            }
+            .matrix-header {
+                padding: 16px 20px;
+                border-bottom: 1px solid #e2e2e8;
+                display: flex;
+                flex-wrap: wrap;
+                align-items: center;
+                gap: 16px;
+            }
+            .matrix-header h1 {
+                font-size: 22px;
+            }
+            .legend {
+                display: inline-flex;
+                flex-wrap: wrap;
+                gap: 12px;
+                font-size: 13px;
+                color: #444;
+            }
+            .legend span {
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+            }
+            .legend .swatch {
+                width: 14px;
+                height: 14px;
+                border-radius: 3px;
+                border: 1px solid rgba(0,0,0,0.08);
+                background: #bdc3c7;
+            }
+            .matrix-section {
+                padding: 18px 20px 24px;
+                border-top: 1px solid #f0f0f4;
+            }
+            .matrix-section:first-of-type {
+                border-top: none;
+            }
+            .matrix-section h2 {
+                margin: 0 0 10px;
+                font-size: 18px;
+            }
+            .matrix-info {
+                font-size: 12px;
+                color: #666;
+                margin-bottom: 10px;
+            }
+            .table-container {
+                border: 1px solid #d0d0d0;
+                border-radius: 6px;
+                overflow: auto;
+                max-height: 55vh;
+            }
+            table.heatmap {
+                border-collapse: collapse;
+                min-width: 100%;
+            }
+            .heatmap th,
+            .heatmap td {
+                border: 1px solid #d0d0d0;
+                padding: 4px 6px;
+                text-align: center;
+                font-size: 13px;
+                line-height: 1.2;
+            }
+            .heatmap thead th {
+                position: sticky;
+                top: 0;
+                background: #f3f3f6;
+                z-index: 2;
+            }
+            .heatmap thead th.group-col,
+            .heatmap tbody th.group-col {
+                min-width: 160px;
+            }
+            .heatmap tbody th {
+                position: sticky;
+                left: 0;
+                background: #fff;
+                text-align: left;
+                font-weight: normal;
+                color: #333;
+                z-index: 1;
+            }
+            .status-present { background: #2ecc71; color: #fff; font-weight: bold; }
+            .status-null { background: #f1c40f; color: #000; font-weight: bold; }
+            .status-absent { background: #e74c3c; color: #fff; font-weight: bold; }
+            .status-missing { background: #bdc3c7; color: #000; font-weight: bold; }
             .sub { display: flex; gap: 1px; height: 12px; }
             .sub span { flex: 1; display: block; }
+            .sub span::after { content: ""; display: block; width: 100%; height: 100%; }
+            .sub .status-present::after { background: #2ecc71; }
+            .sub .status-null::after { background: #f1c40f; }
+            .sub .status-absent::after { background: #e74c3c; }
+            .sub .status-missing::after { background: #bdc3c7; }
         """
 
-        html = (
+        script = """
+            function setupMatrix(rootId, payload) {
+                const container = document.getElementById(rootId + "-container");
+                const tbody = document.getElementById(rootId + "-body");
+                if (!container || !tbody) {
+                    return;
+                }
+
+                const rows = payload.rows;
+                const cols = payload.cols;
+                const statuses = payload.statuses;
+                const encoded = payload.encoded;
+                const sub = payload.sub || {};
+                const statusClass = payload.statusClass || {};
+                const symbols = payload.symbols || {};
+                const colCount = cols.length;
+                const totalRows = rows.length;
+                const data = decode(encoded);
+
+                const defaultClass = statusClass["__default__"] || "status-missing";
+                const defaultSymbol = symbols["__default__"] || ".";
+
+                const rowHeightEstimate = 28;
+                let rowHeight = rowHeightEstimate;
+                let previousStart = -1;
+
+                renderInitial();
+
+                container.addEventListener("scroll", () => {
+                    window.requestAnimationFrame(renderVisibleRows);
+                });
+
+                function renderInitial() {
+                    renderVisibleRows();
+                    const sampleRow = tbody.querySelector("tr.data-row");
+                    if (sampleRow) {
+                        rowHeight = sampleRow.getBoundingClientRect().height || rowHeightEstimate;
+                        previousStart = -1;
+                        renderVisibleRows();
+                    }
+                }
+
+                function renderVisibleRows() {
+                    const visibleHeight = container.clientHeight;
+                    const scrollTop = container.scrollTop;
+                    const buffer = 20;
+
+                    const start = Math.max(0, Math.floor(scrollTop / rowHeight) - buffer);
+                    const visibleCount = Math.ceil(visibleHeight / rowHeight) + buffer * 2;
+                    const end = Math.min(totalRows, start + visibleCount);
+
+                    if (start === previousStart) {
+                        return;
+                    }
+                    previousStart = start;
+
+                    const topSpacer = start * rowHeight;
+                    const bottomSpacer = Math.max(0, (totalRows - end) * rowHeight);
+                    const colspan = Number(tbody.dataset.colspan) || (colCount + 1);
+
+                    let html = "";
+
+                    if (topSpacer > 0) {
+                        html += `<tr class="virtual-spacer"><td colspan="${colspan}" style="height:${topSpacer}px;border:none;padding:0;"></td></tr>`;
+                    }
+
+                    for (let rowIdx = start; rowIdx < end; rowIdx++) {
+                        html += buildRow(rowIdx);
+                    }
+
+                    if (bottomSpacer > 0) {
+                        html += `<tr class="virtual-spacer"><td colspan="${colspan}" style="height:${bottomSpacer}px;border:none;padding:0;"></td></tr>`;
+                    }
+
+                    tbody.innerHTML = html;
+                }
+
+                function buildRow(rowIdx) {
+                    const group = rows[rowIdx];
+                    const rowLabel = escapeHtml(group);
+                    const startOffset = rowIdx * colCount;
+                    let cells = "";
+
+                    for (let colIdx = 0; colIdx < colCount; colIdx++) {
+                        const cellIndex = startOffset + colIdx;
+                        const code = data[cellIndex];
+                        const status = statuses[code] || "absent";
+                        const cssClass = statusClass[status] || defaultClass;
+                        const title = escapeHtml(status);
+                        const symbol = symbols[status] !== undefined ? symbols[status] : defaultSymbol;
+                        const subEntry = sub[cellIndex];
+
+                        if (subEntry && subEntry.length) {
+                            const spans = subEntry.map((subCode) => {
+                                const subStatus = statuses[subCode] || "absent";
+                                const subClass = statusClass[subStatus] || defaultClass;
+                                return `<span class="${subClass}" title="${escapeHtml(subStatus)}"></span>`;
+                            }).join("");
+                            cells += `<td title="${title}"><div class="sub">${spans}</div></td>`;
+                        } else {
+                            cells += `<td class="${cssClass}" title="${title}">${escapeHtml(symbol)}</td>`;
+                        }
+                    }
+
+                    return `<tr class="data-row"><th scope="row" class="group-col">${rowLabel}</th>${cells}</tr>`;
+                }
+            }
+
+            function decode(data) {
+                const binary = atob(data);
+                const arr = new Uint8Array(binary.length);
+                for (let i = 0; i < binary.length; i++) {
+                    arr[i] = binary.charCodeAt(i);
+                }
+                return arr;
+            }
+
+            function escapeHtml(value) {
+                return String(value)
+                    .replace(/&/g, "&amp;")
+                    .replace(/</g, "&lt;")
+                    .replace(/>/g, "&gt;")
+                    .replace(/"/g, "&quot;")
+                    .replace(/'/g, "&#039;");
+            }
+        """
+
+        script_calls = "\n".join(scripts)
+
+        html_output = (
             "<html><head><meta charset='utf-8'>"
             f"<style>{style}</style>"
             "<title>Feature Availability</title></head><body>"
-            f"<h1>Availability Matrix</h1>{feature_table}{partition_table}"
+            "<div class='matrix-wrapper'>"
+            "<div class='matrix-header'>"
+            "<h1>Availability Matrix</h1>"
+            f"<div class='legend'>{legend_html}</div>"
+            "<div style='margin-left:auto;font-size:12px;color:#666;'>Scroll to inspect large matrices.</div>"
+            "</div>"
+            f"{''.join(sections)}"
+            f"<script>{script}{script_calls}</script>"
+            "</div>"
             "</body></html>"
         )
 
         with path.open("w", encoding="utf-8") as fh:
-            fh.write(html)
+            fh.write(html_output)

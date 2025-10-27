@@ -65,7 +65,7 @@ def report(
         matrix_rows=rows,
         matrix_cols=cols,
         matrix_output=(str(matrix_path) if matrix_path else None),
-        matrix_format=(matrix_fmt or "csv"),
+        matrix_format=(matrix_fmt or "html"),
     )
 
     # When applying transforms, let the global postprocess registry provide them (pass None).

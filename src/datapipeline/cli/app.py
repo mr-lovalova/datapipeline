@@ -324,7 +324,7 @@ def main() -> None:
     p_inspect_matrix.add_argument(
         "--format",
         choices=["csv", "html"],
-        default="csv",
+        default="html",
         help="output format for the matrix",
     )
     p_inspect_matrix.add_argument(
@@ -470,7 +470,7 @@ def main() -> None:
                 output=None,
                 threshold=getattr(args, "threshold", 0.95),
                 match_partition="base",
-                matrix=getattr(args, "format", "csv"),
+                matrix=getattr(args, "format", "html"),
                 matrix_output=getattr(args, "output", None),
                 rows=getattr(args, "rows", 20),
                 cols=getattr(args, "cols", 10),
