@@ -1,10 +1,10 @@
-# {{PACKAGE_NAME}}
+# {{DIST_NAME}}
 
 Minimal plugin skeleton for the Jerry Thomas (datapipeline) framework.
 
 Quick start
 - Initialize a plugin (already done if you’re reading this here):
-- `jerry plugin init --name {{PACKAGE_NAME}}`
+- `jerry plugin init --name {{DIST_NAME}}`
 - Add a source via CLI (transport-specific placeholders are scaffolded):
   - File data: `jerry source add -p <provider> -d <dataset> -t fs -f <csv|json|json-lines>`
   - URL data: `jerry source add -p <provider> -d <dataset> -t url -f <json|json-lines|csv>`
