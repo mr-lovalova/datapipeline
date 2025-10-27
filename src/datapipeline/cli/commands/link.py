@@ -107,9 +107,9 @@ mapper:
 # partition_by: <field or [fields]> 
 # sort_batch_size: 100000              # in-memory sort chunk size
 
-# record:                              # record-level transforms (run before partitioning)
-#   - filter: {{ operator: ge, field: time, comparand: "${{start_time}}" }}
-#   - filter: {{ operator: le, field: time, comparand: "${{end_time}}" }}
+record:                              # record-level transforms
+  - filter: {{ operator: ge, field: time, comparand: "${{start_time}}" }}
+  - filter: {{ operator: le, field: time, comparand: "${{end_time}}" }}
 #   - floor_time: {{ resolution: 10m }}
 #   - lag: {{ lag: 10m }}
 
