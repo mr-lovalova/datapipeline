@@ -1,5 +1,8 @@
-from typing import Iterator, Any
+from typing import Iterator, Any, Optional
 from contextlib import contextmanager
+from itertools import cycle
+import threading
+import time
 from datapipeline.cli.visuals import progress_meta_for_loader
 from datapipeline.runtime import Runtime
 from datapipeline.sources.models.source import Source
@@ -9,12 +12,62 @@ from tqdm import tqdm
 class VisualSourceProxy(Source):
     """Proxy wrapping Source.stream() with a tqdm progress bar (CLI-only)."""
 
-    def __init__(self, inner: Source):
+    def __init__(self, inner: Source, alias: str):
         self._inner = inner
+        self._alias = alias
+
+    @staticmethod
+    def _start_spinner(label: str):
+        """Start a background spinner tqdm progress bar."""
+        bar = tqdm(
+            total=0,
+            desc="",
+            bar_format="{desc}",
+            dynamic_ncols=True,
+            leave=False,
+        )
+        bar.set_description_str(label)
+        bar.refresh()
+
+        stop_event = threading.Event()
+
+        def _spin():
+            frames = cycle((" |", " /", " -", " \\"))
+            while not stop_event.is_set():
+                bar.set_description_str(f"{label}{next(frames)}")
+                bar.refresh()
+                time.sleep(0.1)
+            bar.set_description_str(label)
+            bar.refresh()
+
+        worker = threading.Thread(target=_spin, daemon=True)
+        worker.start()
+        return stop_event, worker, bar
+
+    def _count_with_indicator(self, label: str) -> Optional[int]:
+        try:
+            stop_event, worker, bar = self._start_spinner(label)
+        except Exception:
+            # If spinner setup fails, silently fall back to raw count
+            return self._safe_count()
+
+        try:
+            return self._safe_count()
+        finally:
+            stop_event.set()
+            worker.join()
+            bar.close()
+
+    def _safe_count(self) -> Optional[int]:
+        try:
+            return self._inner.count()
+        except Exception:
+            return None
 
     def stream(self) -> Iterator[Any]:
-        total = self._inner.count()
         desc, unit = progress_meta_for_loader(self._inner.loader)
+        total = self._count_with_indicator(
+            f"Spinning up data stream for [{self._alias}]:")
         return tqdm(self._inner.stream(), total=total, desc=desc, unit=unit, dynamic_ncols=True, mininterval=0.0, miniters=1, leave=True)
 
 
@@ -25,7 +78,7 @@ def visual_sources(runtime: Runtime):
     originals = dict(reg.items())
     try:
         for alias, src in originals.items():
-            reg.register(alias, VisualSourceProxy(src))
+            reg.register(alias, VisualSourceProxy(src, alias))
         yield
     finally:
         # Restore original sources
