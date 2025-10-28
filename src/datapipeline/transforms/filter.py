@@ -1,11 +1,10 @@
-from __future__ import annotations
-
 from collections.abc import Iterator
 from typing import Any
 
 from datapipeline.filters import filters as _filters
 from datapipeline.plugins import FILTERS_EP
 from datapipeline.utils.load import load_ep
+from datapipeline.utils.placeholders import is_missing
 
 
 _ALIAS = {
@@ -43,6 +42,10 @@ def filter(
     - field: record attribute/key to compare
     - comparand: scalar for unary operators; list/tuple/set for membership (in/nin)
     """
+
+    if is_missing(comparand):
+        # Skip filter when comparand is an unresolved placeholder.
+        return stream
 
     op = _normalize_op(operator)
     fn = None

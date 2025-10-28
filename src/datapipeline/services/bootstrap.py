@@ -26,10 +26,23 @@ from datapipeline.services.factories import (
 
 from datapipeline.runtime import Runtime
 from datapipeline.config.postprocess import PostprocessConfig
+from datapipeline.utils.placeholders import MissingInterpolation, is_missing
 
 
 SRC_PARSER_KEY = PARSER_KEY
 SRC_LOADER_KEY = LOADER_KEY
+
+
+def _serialize_global_value(value: Any) -> Any:
+    """Normalize project global values for interpolation."""
+    if isinstance(value, datetime):
+        try:
+            return value.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        except ValueError:
+            return value.isoformat()
+    if value is None:
+        return None
+    return str(value)
 
 
 def _project(project_yaml: Path) -> ProjectConfig:
@@ -47,20 +60,15 @@ def _paths(project_yaml: Path) -> Mapping[str, str]:
     return proj.paths.model_dump()
 
 
-def _project_vars(data: dict) -> dict[str, str]:
-    vars_: dict[str, str] = {}
+def _project_vars(data: dict) -> dict[str, Any]:
+    vars_: dict[str, Any] = {}
     name = data.get("name")
     if name:
         vars_["project"] = str(name)
         vars_["project_name"] = str(name)
     globals_ = data.get("globals") or {}
     for k, v in globals_.items():
-        if isinstance(v, datetime):
-            try:
-                v = v.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-            except ValueError:
-                v = v.isoformat()
-        vars_[str(k)] = str(v)
+        vars_[str(k)] = _serialize_global_value(v)
     return vars_
 
 
@@ -96,27 +104,25 @@ def _load_by_key(
     return load_yaml(path, require_mapping=require_mapping)
 
 
-def _globals(project_yaml: Path) -> dict[str, str]:
+def _globals(project_yaml: Path) -> dict[str, Any]:
     """Return project-level globals for interpolation.
 
     If a value is a datetime, normalize to strict UTC Z-format string so
     downstream components expecting ISO Z will work predictably.
-    Otherwise, coerce to string.
+    Preserve explicit nulls; otherwise coerce to string.
     """
     proj = _project(project_yaml)
     g = proj.globals.model_dump()
-    out: dict[str, str] = {}
+    out: dict[str, Any] = {}
     for k, v in g.items():
-        if isinstance(v, datetime):
-            v = v.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        out[str(k)] = str(v)
+        out[str(k)] = _serialize_global_value(v)
     return out
 
 
 _VAR_RE = re.compile(r"\$\{([^}]+)\}")
 
 
-def _interpolate(obj, vars_: dict[str, str]):
+def _interpolate(obj, vars_: dict[str, Any]):
     """Recursively substitute ${var} in strings using vars_ map.
 
     Minimal behavior: if a key is missing, leave placeholder as-is.
@@ -126,14 +132,27 @@ def _interpolate(obj, vars_: dict[str, str]):
     if isinstance(obj, list):
         return [_interpolate(v, vars_) for v in obj]
     if isinstance(obj, str):
+        match = _VAR_RE.fullmatch(obj)
+        if match:
+            key = match.group(1)
+            if key in vars_:
+                value = vars_[key]
+                if value is None or is_missing(value):
+                    return MissingInterpolation(key)
+                return str(value)
+            return obj
+
         def repl(m):
             key = m.group(1)
-            return vars_.get(key, m.group(0))
+            value = vars_.get(key, m.group(0))
+            if value is None or is_missing(value):
+                return m.group(0)
+            return str(value)
         return _VAR_RE.sub(repl, obj)
     return obj
 
 
-def _load_sources_from_dir(project_yaml: Path, vars_: dict[str, str]) -> dict:
+def _load_sources_from_dir(project_yaml: Path, vars_: dict[str, Any]) -> dict:
     """Aggregate per-source YAML files into a raw-sources mapping.
 
     Expects each file to define a single source with top-level 'parser' and
@@ -161,7 +180,7 @@ def _load_sources_from_dir(project_yaml: Path, vars_: dict[str, str]) -> dict:
     return out
 
 
-def _load_canonical_streams(project_yaml: Path, vars_: dict[str, str]) -> dict:
+def _load_canonical_streams(project_yaml: Path, vars_: dict[str, Any]) -> dict:
     """Aggregate canonical stream specs from streams_dir (supports subfolders).
 
     Recursively scans for *.yml|*.yaml under the configured streams dir.

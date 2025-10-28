@@ -24,4 +24,4 @@ class NoOpGenerator(DataGenerator):
     """A data generator that yields no items."""
 
     def generate(self) -> Iterator[Any]:
-        pass
+        return iter(())

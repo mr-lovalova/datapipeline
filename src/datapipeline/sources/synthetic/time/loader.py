@@ -1,6 +1,7 @@
 from typing import Iterator, Dict, Any, Optional
 from datapipeline.sources.models.loader import SyntheticLoader
 from datapipeline.sources.models.generator import DataGenerator, NoOpGenerator
+from datapipeline.utils.placeholders import coalesce_missing
 from datapipeline.utils.time import parse_timecode, parse_datetime
 
 
@@ -28,6 +29,10 @@ def make_time_loader(start: str, end: str, frequency: str | None = "1h") -> Synt
 
     Returns a SyntheticLoader that wraps the TimeTicksGenerator.
     """
-    if start is None or end is None:
+    start_val = coalesce_missing(start)
+    end_val = coalesce_missing(end)
+    freq_val = coalesce_missing(frequency, default="1h")
+
+    if start_val is None or end_val is None:
         return SyntheticLoader(NoOpGenerator())
-    return SyntheticLoader(TimeTicksGenerator(start, end, frequency))
+    return SyntheticLoader(TimeTicksGenerator(start_val, end_val, freq_val))
