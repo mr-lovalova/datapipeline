@@ -43,8 +43,8 @@ jerry domain add --domain weather
 
 # 4. Configure dataset/postprocess/build files in config/datasets/<name>/.
 #    Then preview the pipeline and serve a few vectors:
-jerry run prep --project config/datasets/default/project.yaml --stage 2 --limit 5
-jerry run serve --project config/datasets/default/project.yaml --output print --limit 3
+jerry serve --project config/datasets/default/project.yaml --stage 2 --limit 5
+jerry serve --project config/datasets/default/project.yaml --output print --limit 3
 
 # 5. Inspect coverage and build artifacts:
 jerry inspect report --project config/datasets/default/project.yaml
@@ -117,7 +117,7 @@ globals:
   values are normalized to strict UTC `YYYY-MM-DDTHH:MM:SSZ`.
 - `split` config defines how labels are assigned; the active label is selected by `run.yaml` or CLI `--keep`.
 - `paths.run` may point to a single file (default) or a directory. When it is a directory,
-  every `*.yaml` file inside is treated as a run config; `jerry run serve` executes them
+  every `*.yaml` file inside is treated as a run config; `jerry serve` executes them
   sequentially in alphabetical order unless you pass `--run <name>` (filename stem).
 - Label names are free-form: match whatever keys you declare in `split.ratios` (hash) or `split.labels` (time).
 
@@ -127,17 +127,17 @@ globals:
 version: 1
 keep: train         # set to any label defined in globals.split (null disables filtering)
 output: print       # override to 'stream' or a .pt path for binary dumps
-limit: 100          # cap vectors per serve/prep run (null = unlimited)
+limit: 100          # cap vectors per serve run (null = unlimited)
 include_targets: false
 throttle_ms: null   # sleep between vectors (milliseconds)
-visuals: null       # true enables visuals, false disables, null uses command defaults
+verbosity: null     # 0=spinner, 1=spinner+prints, 2=progress bars (null uses command defaults)
 ```
 
 - `keep` selects the currently served split. This file is referenced by `project.paths.run`.
-- `output`, `limit`, `include_targets`, `throttle_ms`, and `visuals` provide defaults for serve/prep; CLI flags still win per invocation.
-- Override `keep` (and other fields) per invocation via `jerry run serve ... --keep val` etc.
+- `output`, `limit`, `include_targets`, `throttle_ms`, and `verbosity` provide defaults for `jerry serve`; CLI flags still win per invocation.
+- Override `keep` (and other fields) per invocation via `jerry serve ... --keep val` etc.
 - To manage multiple runs, point `project.paths.run` at a folder (e.g., `config/datasets/default/runs/`)
-  and drop additional `*.yaml` files there. `jerry run serve` will run each file in order; pass
+  and drop additional `*.yaml` files there. `jerry serve` will run each file in order; pass
   `--run train` to execute only `runs/train.yaml`.
 
 ### `config/sources/<alias>.yaml`
@@ -272,7 +272,7 @@ Pass `--help` on any command for flags.
 
 ### Preview Stages
 
-- `jerry run prep --project <project.yaml> --stage <0-5> --limit N [--visuals]`
+- `jerry serve --project <project.yaml> --stage <0-7> --limit N [--verbose {0,1,2}]`
   - Stage 0: raw DTOs
   - Stage 1: domain `TemporalRecord`s
   - Stage 2: record transforms applied
@@ -281,10 +281,10 @@ Pass `--help` on any command for flags.
   - Stage 5: feature transforms/sequence outputs
   - Stage 6: vectors assembled (no postprocess)
   - Stage 7: vectors + postprocess transforms
-  - Add `--visuals/--no-visuals` (or configure `run.yaml`) to toggle progress bars.
-- `jerry run serve --project <project.yaml> --output print|stream|path.pt --limit N [--include-targets] [--visuals] [--run name]`
+  - Use `--verbose 2` for progress bars, `--verbose 1` for spinner + prints, or `--verbose 0` for a spinner only.
+- `jerry serve --project <project.yaml> --output print|stream|path.pt --limit N [--include-targets] [--verbose {0,1,2}] [--run name]`
   - Applies postprocess transforms and optional dataset split before emitting.
-  - Add `--visuals` (or set `run.yaml` → `visuals: true`) to reuse the tqdm progress bars from `prep`.
+  - Set `--verbose` (or set `run.yaml` -> `verbosity: 2`) to reuse the tqdm progress bars when previewing stages.
   - When `project.paths.run` is a directory, add `--run val` (filename stem) to target a single config; otherwise every run file is executed sequentially.
 
 ### Build & Quality
@@ -388,7 +388,7 @@ raise a descriptive error suggesting `jerry build`.
 
 ## Splitting & Serving
 
-If `project.globals.split` is present, `jerry run serve` filters vectors at the
+If `project.globals.split` is present, `jerry serve` filters vectors at the
 end of the pipeline:
 
 - `mode: hash` – deterministic entity hash using either the group key or a
@@ -408,7 +408,7 @@ application code:
 
 - `VectorAdapter.from_project(project_yaml)` – bootstrap once, then stream
   vectors or row dicts.
-- `stream_vectors(project_yaml, limit=...)` – iterator matching `jerry run serve`.
+- `stream_vectors(project_yaml, limit=...)` – iterator matching `jerry serve`.
 - `iter_vector_rows` / `collect_vector_rows` – handy for Pandas or custom sinks.
 - `dataframe_from_vectors` – eager helper that returns a Pandas DataFrame
   (requires `pandas`).
@@ -460,7 +460,7 @@ and `src/datapipeline/filters/`.
 
 - Install dependencies: `pip install -e .[dev]`.
 - Run tests: `pytest`.
-- When iterating on configs, use `jerry run prep` to peek into problematic
+- When iterating on configs, use `jerry serve --stage <n>` to peek into problematic
   stages.
 - After tuning transforms, refresh artifacts: `jerry build`.
 - Use `jerry inspect report --include-targets` to ensure targets meet coverage

@@ -39,9 +39,9 @@ How loaders work
 
 Run data flows
 - Build artifacts once: `jerry build --project config/datasets/default/project.yaml`
-- Records: `jerry prep pour -p config/datasets/default/project.yaml -n 100`
-- Features: `jerry prep build -p config/datasets/default/project.yaml -n 100`
-- Vectors: `jerry prep stir -p config/datasets/default/project.yaml -n 100`
+- Preview records (stage 1): `jerry serve --project config/datasets/default/project.yaml --stage 1 --limit 100`
+- Preview features (stage 3): `jerry serve --project config/datasets/default/project.yaml --stage 3 --limit 100`
+- Preview vectors (stage 7): `jerry serve --project config/datasets/default/project.yaml --stage 7 --limit 100`
 
 Analyze vectors
 - `jerry inspect report   --project config/datasets/default/project.yaml` (console only)
@@ -67,15 +67,15 @@ Train/Val/Test splits (deterministic)
   version: 1
   keep: train               # any label defined in globals.split; null disables filtering
   output: print             # serve output default (print|stream|/path)
-  limit: 100                # cap vectors per run (null = unlimited)
+  limit: 100                # cap vectors per serve run (null = unlimited)
   include_targets: false    # include dataset.targets when serving
   throttle_ms: null         # sleep between vectors (milliseconds)
   ```
 - If you prefer separate configs per split, point `project.paths.run` at a folder (e.g., `config/datasets/default/runs/`),
   drop `train.yaml`, `val.yaml`, etc. inside, and the CLI will run each file in order unless you pass `--run <name>`.
 - Serve examples (change run.yaml or pass `--keep val|test`):
-  - `jerry run serve -p config/datasets/default/project.yaml -o stream > train.jsonl`
-  - `jerry run serve -p config/datasets/default/project.yaml --keep val -o stream > val.jsonl`
+  - `jerry serve -p config/datasets/default/project.yaml -o stream > train.jsonl`
+  - `jerry serve -p config/datasets/default/project.yaml --keep val -o stream > val.jsonl`
 - The split is applied at the end (after postprocess transforms), and assignment
   is deterministic (hash-based) with a fixed seed; no overlap across runs.
 

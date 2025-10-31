@@ -71,26 +71,5 @@ def build_source_label(loader: RawDataLoader) -> str:
     return loader.__class__.__name__
 
 
-def icon_for_loader(loader) -> str:
-    if isinstance(loader, SyntheticLoader):
-        gen = getattr(loader, "generator", None)
-        try:
-            if gen is not None:
-                if any(hasattr(gen, attr) for attr in ("start", "end", "frequency")):
-                    return "🕒"
-                if hasattr(gen, "seed"):
-                    return "🎲"
-        except Exception:
-            pass
-        return "✨"
-    if isinstance(loader, ComposedRawLoader):
-        src = getattr(loader, "source", None)
-        if isinstance(src, (FsFileSource, FsGlobSource)):
-            return "📄"
-        if isinstance(src, UrlSource):
-            return "🌐"
-        return "📦"
-
-
 def progress_meta_for_loader(loader: RawDataLoader) -> tuple[str, str]:
-    return f"{icon_for_loader(loader)} {build_source_label(loader)}", unit_for_loader(loader)
+    return build_source_label(loader), unit_for_loader(loader)

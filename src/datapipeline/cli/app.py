@@ -31,46 +31,10 @@ def main() -> None:
     )
     sub = parser.add_subparsers(dest="cmd", required=True)
 
-    # prep (debug mode with visuals)
-    p_prep = sub.add_parser(
-        "prep",
-        help="run pipeline stages with visual progress",
-        parents=[common],
-    )
-    # Only support numeric stage previews; legacy named stages removed
-    p_prep.add_argument(
-        "--project",
-        "-p",
-        default="config/datasets/default/project.yaml",
-        help="path to project.yaml",
-    )
-    p_prep.add_argument("--limit", "-n", type=int, default=None)
-    prep_sub = p_prep.add_subparsers(dest="prep_cmd", required=True)
-    p_prep_stage = prep_sub.add_parser(
-        "stage",
-        help="preview a numeric feature stage (0-5)",
-        parents=[common],
-    )
-    p_prep_stage.add_argument("num", type=int, help="feature stage number (0-5)")
-    p_prep_stage.add_argument(
-        "--project",
-        "-p",
-        default="config/datasets/default/project.yaml",
-        help="path to project.yaml",
-    )
-    p_prep_stage.add_argument("--limit", "-n", type=int, default=None)
-    p_prep_stage.add_argument(
-        "--visuals",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-        help="wrap prep runs with tqdm progress bars (use --no-visuals to disable)",
-    )
-
-
-    # serve (production run, no visuals)
+    # serve (production run, adjustable verbosity)
     p_serve = sub.add_parser(
         "serve",
-        help="produce vectors (optionally with progress visuals)",
+        help="produce vectors with adjustable verbosity",
         parents=[common],
     )
     p_serve.add_argument(
@@ -102,10 +66,20 @@ def main() -> None:
         help="select a specific run config by filename stem when project.paths.run points to a folder",
     )
     p_serve.add_argument(
-        "--visuals",
-        action=argparse.BooleanOptionalAction,
+        "--verbose",
+        "-v",
+        type=int,
+        choices=[0, 1, 2],
         default=None,
-        help="wrap serve runs with tqdm progress bars (use --no-visuals to force disable)",
+        help="verbosity level: 0=spinner, 1=spinner+prints, 2=progress bars",
+    )
+    p_serve.add_argument(
+        "--stage",
+        "-s",
+        type=int,
+        choices=range(0, 8),
+        default=None,
+        help="preview a specific pipeline stage (0-5 feature stages, 6 assembled vectors, 7 transformed vectors)",
     )
 
     # build (materialize artifacts)
@@ -399,19 +373,10 @@ def main() -> None:
 
     # Initialize logging before dispatching to subcommands
     logging.basicConfig(
-        level=getattr(logging, str(getattr(args, "log_level", "WARNING")).upper(), logging.WARNING),
+        level=getattr(logging, str(getattr(args, "log_level",
+                      "WARNING")).upper(), logging.WARNING),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
-
-    if args.cmd == "prep":
-        from datapipeline.cli.commands.run import handle_prep_stage
-        handle_prep_stage(
-            project=getattr(args, "project", "config/datasets/default/project.yaml"),
-            stage=getattr(args, "num", 0),
-            limit=getattr(args, "limit", None),
-            visuals=getattr(args, "visuals", None),
-        )
-        return
 
     if args.cmd == "serve":
         handle_serve(
@@ -420,8 +385,9 @@ def main() -> None:
             output=args.output,
             include_targets=args.include_targets,
             keep=getattr(args, "keep", None),
-            visuals=getattr(args, "visuals", None),
+            verbosity=getattr(args, "verbose", None),
             run_name=getattr(args, "run", None),
+            stage=getattr(args, "stage", None),
         )
         return
     if args.cmd == "build":
@@ -436,7 +402,8 @@ def main() -> None:
         subcmd = getattr(args, "inspect_cmd", None)
         if subcmd in (None, "report"):
             handle_inspect_report(
-                project=getattr(args, "project", "config/datasets/default/project.yaml"),
+                project=getattr(args, "project",
+                                "config/datasets/default/project.yaml"),
                 output=None,
                 threshold=getattr(args, "threshold", 0.95),
                 match_partition=getattr(args, "match_partition", "base"),

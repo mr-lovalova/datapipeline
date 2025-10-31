@@ -20,7 +20,7 @@ class RunConfig(BaseModel):
     )
     output: str | None = Field(
         default=None,
-        description="Default output destination for jerry run serve (print|stream|<path>).",
+        description="Default output destination for jerry serve (print|stream|<path>).",
         min_length=1,
     )
     limit: int | None = Field(
@@ -37,9 +37,11 @@ class RunConfig(BaseModel):
         description="Milliseconds to sleep between emitted vectors (throttle).",
         ge=0.0,
     )
-    visuals: bool | None = Field(
-        default=None,
-        description="Wrap raw sources with CLI progress bars when running (serve/prep).",
+    verbosity: int = Field(
+        default=1,
+        ge=0,
+        le=2,
+        description="Verbosity level for CLI feedback (0=spinner, 1=spinner+prints, 2=progress bars).",
     )
 
 
