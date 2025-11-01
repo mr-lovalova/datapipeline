@@ -130,11 +130,11 @@ output: print       # override to 'stream' or a .pt path for binary dumps
 limit: 100          # cap vectors per serve run (null = unlimited)
 include_targets: false
 throttle_ms: null   # sleep between vectors (milliseconds)
-verbosity: null     # 0=spinner, 1=spinner+prints, 2=progress bars (null uses command defaults)
+log_level: INFO     # DEBUG=progress bars, INFO=spinner, WARNING=quiet (null inherits CLI)
 ```
 
 - `keep` selects the currently served split. This file is referenced by `project.paths.run`.
-- `output`, `limit`, `include_targets`, `throttle_ms`, and `verbosity` provide defaults for `jerry serve`; CLI flags still win per invocation.
+- `output`, `limit`, `include_targets`, `throttle_ms`, and `log_level` provide defaults for `jerry serve`; CLI flags still win per invocation.
 - Override `keep` (and other fields) per invocation via `jerry serve ... --keep val` etc.
 - To manage multiple runs, point `project.paths.run` at a folder (e.g., `config/datasets/default/runs/`)
   and drop additional `*.yaml` files there. `jerry serve` will run each file in order; pass
@@ -272,7 +272,7 @@ Pass `--help` on any command for flags.
 
 ### Preview Stages
 
-- `jerry serve --project <project.yaml> --stage <0-7> --limit N [--verbose {0,1,2}]`
+- `jerry serve --project <project.yaml> --stage <0-7> --limit N [--log-level LEVEL]`
   - Stage 0: raw DTOs
   - Stage 1: domain `TemporalRecord`s
   - Stage 2: record transforms applied
@@ -281,10 +281,10 @@ Pass `--help` on any command for flags.
   - Stage 5: feature transforms/sequence outputs
   - Stage 6: vectors assembled (no postprocess)
   - Stage 7: vectors + postprocess transforms
-  - Use `--verbose 2` for progress bars, `--verbose 1` for spinner + prints, or `--verbose 0` for a spinner only.
-- `jerry serve --project <project.yaml> --output print|stream|path.pt --limit N [--include-targets] [--verbose {0,1,2}] [--run name]`
+  - Use `--log-level DEBUG` for progress bars, `--log-level INFO` for spinner + prints, or the default (`WARNING`) for minimal output.
+- `jerry serve --project <project.yaml> --output print|stream|path.pt --limit N [--include-targets] [--log-level LEVEL] [--run name]`
   - Applies postprocess transforms and optional dataset split before emitting.
-  - Set `--verbose` (or set `run.yaml` -> `verbosity: 2`) to reuse the tqdm progress bars when previewing stages.
+  - Set `--log-level DEBUG` (or set `run.yaml` -> `log_level: DEBUG`) to reuse the tqdm progress bars when previewing stages.
   - When `project.paths.run` is a directory, add `--run val` (filename stem) to target a single config; otherwise every run file is executed sequentially.
 
 ### Build & Quality

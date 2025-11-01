@@ -1,7 +1,7 @@
 import time
 from itertools import islice
 from pathlib import Path
-from typing import Iterator, List, Optional, Tuple
+from typing import Iterator, List, Optional, Tuple, Union
 
 import logging
 
@@ -19,6 +19,21 @@ from datapipeline.services.bootstrap import bootstrap
 from datapipeline.cli.commands.writers import writer_factory, Writer
 
 logger = logging.getLogger(__name__)
+
+
+def _coerce_log_level(
+    value: Optional[Union[str, int]],
+    *,
+    default: int = logging.WARNING,
+) -> int:
+    if value is None:
+        return default
+    if isinstance(value, int):
+        return value
+    name = str(value).upper()
+    if name not in logging._nameToLevel:
+        raise ValueError(f"Unsupported log level: {value}")
+    return logging._nameToLevel[name]
 
 
 def _resolve_run_entries(project_path: Path, run_name: Optional[str]) -> List[Tuple[Optional[str], Optional[RunConfig]]]:
@@ -105,9 +120,7 @@ def _serve(
     return count
 
 
-def _report_end(output: Optional[str], count: int, verbosity: int) -> None:
-    if verbosity < 1:
-        return
+def _report_end(output: Optional[str], count: int) -> None:
     mode = (output or "print").lower()
     if output and output.lower().endswith(".pt"):
         logger.info("Saved %d items to %s", count, output)
@@ -130,7 +143,7 @@ def _serve_with_runtime(
     output: Optional[str],
     include_targets: bool,
     throttle_ms: Optional[float],
-    verbosity: int,
+    log_level: int,
     stage: Optional[int] = None,
 ) -> None:
     context = PipelineContext(runtime)
@@ -153,7 +166,7 @@ def _serve_with_runtime(
             items = ((cfg.id, item) for item in stream)
             writer = writer_factory(output)
             count = _serve(items, limit, writer=writer)
-            _report_end(output, count, verbosity)
+            _report_end(output, count)
         return
 
     configs: List[FeatureRecordConfig] = list(feature_configs)
@@ -176,7 +189,7 @@ def _serve_with_runtime(
 
     writer = writer_factory(output)
     result_count = _serve(vectors, limit, writer=writer)
-    _report_end(output, result_count, verbosity)
+    _report_end(output, result_count)
 
 
 def _execute_runs(
@@ -185,9 +198,11 @@ def _execute_runs(
     limit: Optional[int],
     output: Optional[str],
     include_targets: Optional[bool],
-    verbosity: Optional[int],
     keep: Optional[str],
     run_name: Optional[str],
+    *,
+    cli_log_level: Optional[str],
+    base_log_level: str,
 ) -> None:
     # Helper for precedence: CLI > config > default
     def pick(cli_val, cfg_val, default=None):
@@ -196,24 +211,34 @@ def _execute_runs(
     dataset_name = "vectors" if stage is None else "features"
     dataset = load_dataset(project_path, dataset_name)
 
+    base_level_name = str(base_log_level).upper()
+    base_level_value = _coerce_log_level(base_level_name)
+
     for idx, total_runs, entry_name, runtime in _iter_runtime_runs(project_path, run_name, keep):
         run = getattr(runtime, "run", None)
 
         # resolving argument hierarchy CLI args > run config > defaults
-        resolved_verbosity = pick(
-            verbosity, getattr(run, "verbosity", None), 0)
         resolved_limit = pick(limit, getattr(run, "limit", None), None)
         resolved_output = pick(output, getattr(run, "output", None), "print")
         resolved_include_targets = pick(
             include_targets, getattr(run, "include_targets", None), False)
         throttle_ms = getattr(run, "throttle_ms", None)
+        resolved_level_name = pick(
+            cli_log_level.upper() if cli_log_level else None,
+            getattr(run, "log_level", None),
+            base_level_name,
+        )
+        resolved_level_value = _coerce_log_level(
+            resolved_level_name, default=base_level_value)
 
-        if resolved_verbosity >= 1:
-            label = entry_name or f"run{idx}"
-            logger.info("")
-            logger.info("Run '%s' (%d/%d)", label, idx, total_runs)
+        root_logger = logging.getLogger()
+        if root_logger.level != resolved_level_value:
+            root_logger.setLevel(resolved_level_value)
 
-        with visual_sources(runtime, resolved_verbosity):
+        label = entry_name or f"run{idx}"
+        logger.info("Run '%s' (%d/%d)", label, idx, total_runs)
+
+        with visual_sources(runtime, resolved_level_value):
             _serve_with_runtime(
                 runtime,
                 dataset,
@@ -221,7 +246,7 @@ def _execute_runs(
                 output=resolved_output,
                 include_targets=resolved_include_targets,
                 throttle_ms=throttle_ms,
-                verbosity=resolved_verbosity,
+                log_level=resolved_level_value,
                 stage=stage,
             )
 
@@ -232,9 +257,11 @@ def handle_serve(
     output: Optional[str],
     include_targets: Optional[bool] = None,
     keep: Optional[str] = None,
-    verbosity: Optional[int] = None,
     run_name: Optional[str] = None,
     stage: Optional[int] = None,
+    *,
+    cli_log_level: Optional[str],
+    base_log_level: str,
 ) -> None:
     project_path = Path(project)
     _execute_runs(
@@ -243,7 +270,8 @@ def handle_serve(
         limit=limit,
         output=output,
         include_targets=include_targets,
-        verbosity=verbosity,
         keep=keep,
         run_name=run_name,
+        cli_log_level=cli_log_level,
+        base_log_level=base_log_level,
     )

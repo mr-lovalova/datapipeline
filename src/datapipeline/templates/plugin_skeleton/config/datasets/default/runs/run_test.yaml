@@ -7,4 +7,4 @@ output: print # print | stream | /path/to/test_file.pt
 limit: 100 # max vectors per serve run (null = unlimited)
 include_targets: false # serve dataset.targets alongside features
 throttle_ms: null # milliseconds to sleep between emitted vectors
-verbosity: 1 # 0 output only, 1=spinner+prints, 2=progress bars
+log_level: INFO # DEBUG for progress bars, INFO for spinner, WARNING to keep quiet (null to inherit CLI)

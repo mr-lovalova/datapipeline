@@ -1,8 +1,10 @@
 from typing import Iterator, Any, Optional
 from contextlib import contextmanager
 from itertools import cycle
+import logging
 import threading
 import time
+
 from .labels import progress_meta_for_loader
 from datapipeline.runtime import Runtime
 from datapipeline.sources.models.source import Source
@@ -10,7 +12,7 @@ from tqdm import tqdm
 
 
 class VisualSourceProxy(Source):
-    """Proxy wrapping Source.stream() with CLI feedback controlled by verbosity."""
+    """Proxy wrapping Source.stream() with CLI feedback scaled by logging level."""
 
     def __init__(self, inner: Source, alias: str, verbosity: int):
         self._inner = inner
@@ -101,11 +103,13 @@ class VisualSourceProxy(Source):
 
 
 @contextmanager
-def visual_sources(runtime: Runtime, verbosity: int):
-    """Temporarily wrap stream sources with verbosity-aware feedback."""
-    if verbosity is None or verbosity <= 0:
+def visual_sources(runtime: Runtime, log_level: int):
+    """Temporarily wrap stream sources with logging-level-driven feedback."""
+    if log_level is None or log_level > logging.INFO:
         yield
         return
+
+    verbosity = 2 if log_level <= logging.DEBUG else 1
 
     reg = runtime.registries.stream_sources
     originals = dict(reg.items())

@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import List, Sequence, Tuple
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from datapipeline.config.project import ProjectConfig
 from datapipeline.utils.load import load_yaml
+
+VALID_LOG_LEVELS = ("CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG")
 
 
 class RunConfig(BaseModel):
@@ -37,12 +40,22 @@ class RunConfig(BaseModel):
         description="Milliseconds to sleep between emitted vectors (throttle).",
         ge=0.0,
     )
-    verbosity: int = Field(
-        default=1,
-        ge=0,
-        le=2,
-        description="Verbosity level for CLI feedback (0=spinner, 1=spinner+prints, 2=progress bars).",
+    log_level: str | None = Field(
+        default="INFO",
+        description="Default logging level for serve runs (DEBUG, INFO, WARNING, ERROR, CRITICAL). Use null to inherit CLI.",
     )
+
+    @field_validator("log_level")
+    @classmethod
+    def _validate_log_level(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        name = str(value).upper()
+        if name not in VALID_LOG_LEVELS:
+            raise ValueError(
+                f"log_level must be one of {', '.join(VALID_LOG_LEVELS)}, got {value!r}"
+            )
+        return name
 
 
 def _resolve_run_path(project_yaml: Path, run_path: str | Path) -> Path:

@@ -19,8 +19,8 @@ def main() -> None:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument(
         "--log-level",
-        default="WARNING",
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+        type=str.upper,
         help="set logging level (default: WARNING)",
     )
 
@@ -31,10 +31,10 @@ def main() -> None:
     )
     sub = parser.add_subparsers(dest="cmd", required=True)
 
-    # serve (production run, adjustable verbosity)
+    # serve (production run, configurable logging)
     p_serve = sub.add_parser(
         "serve",
-        help="produce vectors with adjustable verbosity",
+        help="produce vectors with configurable logging",
         parents=[common],
     )
     p_serve.add_argument(
@@ -64,14 +64,6 @@ def main() -> None:
     p_serve.add_argument(
         "--run",
         help="select a specific run config by filename stem when project.paths.run points to a folder",
-    )
-    p_serve.add_argument(
-        "--verbose",
-        "-v",
-        type=int,
-        choices=[0, 1, 2],
-        default=None,
-        help="verbosity level: 0=spinner, 1=spinner+prints, 2=progress bars",
     )
     p_serve.add_argument(
         "--stage",
@@ -371,15 +363,9 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    requested_level_name = str(getattr(args, "log_level", "WARNING")).upper()
-    base_level = logging._nameToLevel.get(requested_level_name, logging.WARNING)
-
-    if getattr(args, "cmd", None) == "serve":
-        verbosity = getattr(args, "verbose", None)
-        if verbosity == 1:
-            base_level = min(base_level, logging.INFO)
-        elif verbosity and verbosity >= 2:
-            base_level = min(base_level, logging.DEBUG)
+    cli_level_arg = getattr(args, "log_level", None)
+    base_level_name = (cli_level_arg or "WARNING").upper()
+    base_level = logging._nameToLevel.get(base_level_name, logging.WARNING)
 
     logging.basicConfig(level=base_level, format="%(message)s")
 
@@ -390,9 +376,10 @@ def main() -> None:
             output=args.output,
             include_targets=args.include_targets,
             keep=getattr(args, "keep", None),
-            verbosity=getattr(args, "verbose", None),
             run_name=getattr(args, "run", None),
             stage=getattr(args, "stage", None),
+            cli_log_level=cli_level_arg,
+            base_log_level=base_level_name,
         )
         return
     if args.cmd == "build":
