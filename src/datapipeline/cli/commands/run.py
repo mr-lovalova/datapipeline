@@ -144,21 +144,20 @@ def _serve_with_runtime(
     output: Optional[str],
     include_targets: bool,
     throttle_ms: Optional[float],
-    log_level: int,
     stage: Optional[int] = None,
 ) -> None:
     context = PipelineContext(runtime)
 
-    feature_configs = list(dataset.features or [])
-    if not feature_configs:
+    features = list(dataset.features or [])
+    if include_targets:
+        features += list(dataset.targets or [])
+
+    if not features:
         logger.warning("(no features configured; nothing to serve)")
         return
 
     if stage is not None and stage <= 5:
-        preview_configs: List[FeatureRecordConfig] = list(feature_configs)
-        if include_targets:
-            preview_configs += list(dataset.targets or [])
-        for cfg in preview_configs:
+        for cfg in features:
             stream = build_vector_pipeline(
                 context,
                 [cfg],
@@ -171,14 +170,10 @@ def _serve_with_runtime(
             _report_end(output, count)
         return
 
-    configs: List[FeatureRecordConfig] = list(feature_configs)
-    if include_targets:
-        configs += list(dataset.targets or [])
-
     vector_stage = 6 if stage in (6, 7) else None
     vectors = build_vector_pipeline(
         context,
-        configs,
+        features,
         dataset.group_by,
         stage=vector_stage,
     )
@@ -249,7 +244,6 @@ def _execute_runs(
                     output=resolved_output,
                     include_targets=resolved_include_targets,
                     throttle_ms=throttle_ms,
-                    log_level=resolved_level_value,
                     stage=stage,
                 )
 
