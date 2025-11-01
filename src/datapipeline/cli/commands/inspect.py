@@ -3,7 +3,7 @@ import json
 from contextlib import redirect_stdout
 from pathlib import Path
 
-from datapipeline.analysis.vector_analyzer import VectorStatsCollector
+from datapipeline.analysis.vector.collector import VectorStatsCollector
 from datapipeline.config.dataset.loader import load_dataset
 from datapipeline.services.bootstrap import bootstrap
 from datapipeline.utils.paths import ensure_parent
