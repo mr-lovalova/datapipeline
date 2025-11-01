@@ -24,18 +24,18 @@ def _resolve_run_entries(project_path: Path, run_name: Optional[str]) -> List[Tu
     except FileNotFoundError:
         entries = []
     except Exception as exc:
-        print(f"Error: failed to load run configs: {exc}")
+        print(f"Error: failed to load run configs: {exc}", file=sys.stderr)
         raise SystemExit(2) from exc
 
     if entries:
         if run_name:
             entries = [entry for entry in entries if entry[0] == run_name]
             if not entries:
-                print(f"Error: unknown run config '{run_name}'")
+                print(f"Error: unknown run config '{run_name}'", file=sys.stderr)
                 raise SystemExit(2)
     else:
         if run_name:
-            print("Error: project does not define run configs.")
+            print("Error: project does not define run configs.", file=sys.stderr)
             raise SystemExit(2)
         entries = [(None, None)]
     return entries
@@ -134,7 +134,7 @@ def _serve_with_runtime(
 
     feature_configs = list(dataset.features or [])
     if not feature_configs:
-        print("(no features configured; nothing to serve)")
+        print("(no features configured; nothing to serve)", file=sys.stderr)
         return
 
     if stage is not None and stage <= 5:
@@ -207,7 +207,7 @@ def _execute_runs(
 
         if resolved_verbosity >= 1:
             label = entry_name or f"run{idx}"
-            print(f"\nRun '{label}' ({idx}/{total_runs})")
+            print(f"\nRun '{label}' ({idx}/{total_runs})", file=sys.stderr)
 
         with visual_sources(runtime, resolved_verbosity):
             _serve_with_runtime(
