@@ -10,7 +10,7 @@ RECORD_TRANSFORMS_EP = os.getenv(
 STREAM_TRANFORMS_EP = os.getenv(
     "DP_STREAM_TRANSFORMS_EP", "datapipeline.transforms.stream")
 FEATURE_TRANSFORMS_EP = os.getenv(
-    "DP_FEAUTE_TRANSFORMS_EP", "datapipeline.transforms.feature")
+    "DP_FEATURE_TRANSFORMS_EP", "datapipeline.transforms.feature")
 VECTOR_TRANSFORMS_EP = os.getenv(
     "DP_VECTOR_TRANSFORMS_EP", "datapipeline.transforms.vector"
 )
