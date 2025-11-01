@@ -214,8 +214,8 @@ targets:
     record_stream: demo_weather
 ```
 
-- `group_by` controls the cadence for vector partitioning (accepts `Xs`, `Xm`,
-  `Xh`, `Xd`).
+- `group_by` controls the cadence for vector partitioning (accepts `Xm|min|Xh`
+  — minutes or hours).
 - `scale: true` inserts the standard scaler feature transform (requires scaler
   stats artifact or inline statistics).
 - `sequence` emits `FeatureRecordSequence` windows (size, stride, optional
@@ -282,10 +282,11 @@ Pass `--help` on any command for flags.
   - Stage 6: vectors assembled (no postprocess)
   - Stage 7: vectors + postprocess transforms
   - Use `--log-level DEBUG` for progress bars, `--log-level INFO` for spinner + prints, or the default (`WARNING`) for minimal output.
-- `jerry serve --project <project.yaml> --output print|stream|path.pt --limit N [--include-targets] [--log-level LEVEL] [--run name]`
+- `jerry serve --project <project.yaml> --output print|stream|path.pt|path.csv|path.jsonl.gz --limit N [--include-targets] [--log-level LEVEL] [--run name]`
   - Applies postprocess transforms and optional dataset split before emitting.
   - Set `--log-level DEBUG` (or set `run.yaml` -> `log_level: DEBUG`) to reuse the tqdm progress bars when previewing stages.
   - When `project.paths.run` is a directory, add `--run val` (filename stem) to target a single config; otherwise every run file is executed sequentially.
+  - Argument precedence: CLI flags > run.yaml > built‑in defaults.
 
 ### Build & Quality
 
@@ -473,8 +474,8 @@ and `src/datapipeline/filters/`.
 - `src/datapipeline/analysis/vector_analyzer.py` – quality metrics collected by
   the inspect commands.
 - `src/datapipeline/pipeline/` – pure functions that wire each stage.
-- `src/datapipeline/services/bootstrap.py` – runtime initialization and
-  registry population.
+- `src/datapipeline/services/bootstrap/` – runtime initialization and
+  registry population (see `core.py`).
 - `examples/minimal_project/` – runnable demo showing config layout and Torch
   integration.
 
