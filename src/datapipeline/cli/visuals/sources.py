@@ -3,7 +3,7 @@ from contextlib import contextmanager
 from itertools import cycle
 import threading
 import time
-from datapipeline.cli.visuals import progress_meta_for_loader
+from .labels import progress_meta_for_loader
 from datapipeline.runtime import Runtime
 from datapipeline.sources.models.source import Source
 from tqdm import tqdm

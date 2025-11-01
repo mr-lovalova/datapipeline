@@ -4,7 +4,7 @@ from itertools import islice
 from pathlib import Path
 from typing import Iterator, List, Optional, Tuple
 
-from datapipeline.cli.visual_source import visual_sources
+from datapipeline.cli.visuals import visual_sources
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.config.dataset.loader import load_dataset
