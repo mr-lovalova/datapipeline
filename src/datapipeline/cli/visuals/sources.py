@@ -47,6 +47,25 @@ class VisualSourceProxy(Source):
         worker.start()
         return stop_event, worker, bar
 
+    @staticmethod
+    def _stop_spinner(stop_event, worker, bar):
+        stop_event.set()
+        worker.join()
+        try:
+            bar.close()
+        finally:
+            fp = getattr(bar, "fp", None)
+            try:
+                if getattr(bar, "disable", False):
+                    return
+                if fp and hasattr(fp, "write"):
+                    fp.write("\n")
+                    fp.flush()
+                else:
+                    print()
+            except Exception:
+                pass
+
     def _count_with_indicator(self, label: str) -> Optional[int]:
         try:
             stop_event, worker, bar = self._start_spinner(label)
@@ -57,9 +76,7 @@ class VisualSourceProxy(Source):
         try:
             return self._safe_count()
         finally:
-            stop_event.set()
-            worker.join()
-            bar.close()
+            self._stop_spinner(stop_event, worker, bar)
 
     def _safe_count(self) -> Optional[int]:
         try:
@@ -97,9 +114,7 @@ class VisualSourceProxy(Source):
             for item in self._inner.stream():
                 yield item
         finally:
-            stop_event.set()
-            worker.join()
-            bar.close()
+            self._stop_spinner(stop_event, worker, bar)
 
 
 @contextmanager

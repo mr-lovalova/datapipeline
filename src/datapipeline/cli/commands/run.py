@@ -17,6 +17,7 @@ from datapipeline.pipeline.stages import post_process, split_stage
 from datapipeline.runtime import Runtime
 from datapipeline.services.bootstrap import bootstrap
 from datapipeline.cli.commands.writers import writer_factory, Writer
+from tqdm.contrib.logging import logging_redirect_tqdm
 
 logger = logging.getLogger(__name__)
 
@@ -155,7 +156,8 @@ def _serve_with_runtime(
 
     if stage is not None and stage <= 5:
         preview_configs: List[FeatureRecordConfig] = list(feature_configs)
-        preview_configs += list(dataset.targets or [])
+        if include_targets:
+            preview_configs += list(dataset.targets or [])
         for cfg in preview_configs:
             stream = build_vector_pipeline(
                 context,
@@ -239,16 +241,17 @@ def _execute_runs(
         logger.info("Run '%s' (%d/%d)", label, idx, total_runs)
 
         with visual_sources(runtime, resolved_level_value):
-            _serve_with_runtime(
-                runtime,
-                dataset,
-                limit=resolved_limit,
-                output=resolved_output,
-                include_targets=resolved_include_targets,
-                throttle_ms=throttle_ms,
-                log_level=resolved_level_value,
-                stage=stage,
-            )
+            with logging_redirect_tqdm():
+                _serve_with_runtime(
+                    runtime,
+                    dataset,
+                    limit=resolved_limit,
+                    output=resolved_output,
+                    include_targets=resolved_include_targets,
+                    throttle_ms=throttle_ms,
+                    log_level=resolved_level_value,
+                    stage=stage,
+                )
 
 
 def handle_serve(
