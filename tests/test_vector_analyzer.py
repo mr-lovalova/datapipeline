@@ -1,8 +1,6 @@
-from __future__ import annotations
-
 import json
 
-from datapipeline.analysis.vector_analyzer import VectorStatsCollector
+from datapipeline.analysis.vector.collector import VectorStatsCollector
 
 
 def test_vector_analyzer_summary_is_serializable(capfd):
