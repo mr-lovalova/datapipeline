@@ -23,8 +23,8 @@ class ProjectGlobals(BaseModel):
     split: Optional[SplitConfig] = None
 
     # No coercion or discriminator injection; default behavior:
-    # - If 'split' omitted or null → disabled
-    # - If mapping lacks 'mode' → validated as HashSplitConfig (first in union)
+    # - If 'split' omitted or null -> disabled
+    # - If mapping lacks 'mode' -> validated as HashSplitConfig (first in union)
 
 
 class ProjectConfig(BaseModel):

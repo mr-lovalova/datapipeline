@@ -20,7 +20,7 @@ def handle(project: str, *, force: bool = False) -> None:
     state = load_build_state(state_path)
 
     if state and (state.config_hash == config_hash) and not force:
-        print("✅ Build is up-to-date (config hash matches). Use --force to rebuild.")
+        print("[ok] Build is up-to-date (config hash matches). Use --force to rebuild.")
         return
 
     runtime = bootstrap(project_path)
@@ -33,7 +33,7 @@ def handle(project: str, *, force: bool = False) -> None:
         new_state.register(key, relative_path, meta=meta)
         details = ", ".join(f"{k}={v}" for k, v in meta.items())
         suffix = f" ({details})" if details else ""
-        print(f"🛠️  {key} → {relative_path}{suffix}")
+        print(f"[build] {key} -> {relative_path}{suffix}")
 
     save_build_state(new_state, state_path)
-    print("✅ Build completed.")
+    print("[ok] Build completed.")

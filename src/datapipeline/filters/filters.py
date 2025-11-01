@@ -70,7 +70,7 @@ def _as_set(x: Any) -> set[Any]:
         return set(x)
     return {x}
 
-# membership: value ∈ {targets}
+# membership: value in {targets}
 
 
 def in_(stream: Iterator[Any], field: str, target: Any) -> Iterator[Any]:

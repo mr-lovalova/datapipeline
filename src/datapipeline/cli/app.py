@@ -150,7 +150,7 @@ def main() -> None:
     p_spirit_add.add_argument("--domain", "-d", required=True)
     spirit_sub.add_parser("list", help="list known domains")
 
-    # contract (link source ↔ domain)
+    # contract (link source <-> domain)
     p_contract = sub.add_parser(
         "contract",
         help="link a source to a domain",

@@ -7,5 +7,5 @@ TRecord = TypeVar("TRecord")
 
 
 class GenerativeSourceInterface(SourceInterface[TRecord], ABC):
-    """Marker interface – use if source doesn't rely on external data."""
+    """Marker interface - use if source doesn't rely on external data."""
     pass

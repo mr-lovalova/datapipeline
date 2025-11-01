@@ -42,7 +42,7 @@ def attach_source_to_domain(*, domain: str, provider: str, dataset: str, root: O
             OriginDTO=f"{camel(provider)}{camel(dataset)}DTO",
             time_aware=True,
         ))
-        print(f"✨ Created: {path}")
+        print(f"[new] Created: {path}")
 
     # Register the mapper EP as domain.provider (fallback to domain.provider.dataset on collision handled elsewhere)
     ep_key = f"{dom}.{prov}"

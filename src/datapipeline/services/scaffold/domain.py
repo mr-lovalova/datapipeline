@@ -16,10 +16,9 @@ def create_domain(*, domain: str, root: Optional[Path]) -> None:
     def write_missing(path: Path, tpl: str, **ctx):
         if not path.exists():
             path.write_text(render(tpl, **ctx))
-            print(f"✨ Created: {path}")
+            print(f"[new] Created: {path}")
 
     cls_ = "".join(w.capitalize() for w in domain.split("_"))
-    # New canonical base record class name
     parent = "TemporalRecord"
     write_missing(pkg_dir / "model.py", "record.py.j2",
                   PACKAGE_NAME=name, DOMAIN=domain, CLASS_NAME=f"{cls_}Record",

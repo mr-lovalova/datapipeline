@@ -114,7 +114,7 @@ def report(
 
         with output_path.open("w", encoding="utf-8") as fh:
             json.dump(trimmed, fh, indent=2)
-        print(f"📝 Saved coverage summary to {output_path}")
+        print(f"[write] Saved coverage summary to {output_path}")
 
 
 def partitions(
@@ -178,7 +178,7 @@ def partitions(
 
     with output_path.open("w", encoding="utf-8") as fh:
         json.dump(data, fh, indent=2)
-    print(f"📝 Saved partitions manifest to {output_path}")
+    print(f"[write] Saved partitions manifest to {output_path}")
 
 
 def expected(
@@ -217,4 +217,4 @@ def expected(
     with output_path.open("w", encoding="utf-8") as fh:
         for fid in sorted(ids):
             fh.write(f"{fid}\n")
-    print(f"📝 Saved expected feature list to {output_path} ({len(ids)} ids)")
+    print(f"[write] Saved expected feature list to {output_path} ({len(ids)} ids)")

@@ -37,14 +37,14 @@ def handle() -> None:
     if sources_dir.exists():
         source_options = sorted(p.stem for p in sources_dir.glob("*.y*ml"))
     if not source_options:
-        print("❗ No sources found. Create one first (jerry source add ...)")
+        print("[error] No sources found. Create one first (jerry source add ...)")
         raise SystemExit(2)
 
     src_key = _pick_from_list("Select a source to link:", source_options)
     # Expect aliases from sources_dir filenames: provider_dataset.yaml
     parts = src_key.split("_", 1)
     if len(parts) != 2:
-        print("❗ Source alias must be 'provider_dataset' (from sources/<alias>.yaml)", file=sys.stderr)
+        print("[error] Source alias must be 'provider_dataset' (from sources/<alias>.yaml)", file=sys.stderr)
         raise SystemExit(2)
     provider, dataset = parts[0], parts[1]
 
@@ -63,7 +63,7 @@ def handle() -> None:
         domain_options = sorted(
             read_group_entries(pyproject, FILTERS_GROUP).keys())
     if not domain_options:
-        print("❗ No domains found. Create one first (jerry domain add ...)")
+        print("[error] No domains found. Create one first (jerry domain add ...)")
         raise SystemExit(2)
 
     dom_name = _pick_from_list("Select a domain to link to:", domain_options)
@@ -81,7 +81,7 @@ def handle() -> None:
         s = re.sub(r"[^a-z0-9]+", "_", s)
         return s.strip("_")
     ep_key = f"{_slug(dom_name)}.{_slug(provider)}"
-    print(f"✅ Registered mapper entry point as '{ep_key}'.")
+    print(f"[ok] Registered mapper entry point as '{ep_key}'.")
 
     # Inject per-file canonical stream into streams directory
     streams_path = resolve_streams_dir(proj_path)
@@ -123,6 +123,6 @@ record:                              # record-level transforms
 """
         with cfile.open("w", encoding="utf-8") as f:
             f.write(scaffold)
-        print(f"✨ Created canonical spec: {cfile}")
+        print(f"[new] Created canonical spec: {cfile}")
     except Exception as e:
-        print(f"❗ Failed to write canonical spec: {e}", file=sys.stderr)
+        print(f"[error] Failed to write canonical spec: {e}", file=sys.stderr)

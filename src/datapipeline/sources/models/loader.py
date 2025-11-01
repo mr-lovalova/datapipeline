@@ -36,6 +36,3 @@ class SyntheticLoader(RawDataLoader):
 
     def __repr__(self) -> str:
         return f"<{self.__class__.__name__} generator={self.generator.__class__.__name__}>"
-
-
-## Deprecated loaders (FileLoader, UrlLoader) have been removed.

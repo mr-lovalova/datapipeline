@@ -18,7 +18,7 @@ def create_filter(*, name: str, root: Optional[Path]) -> None:
     path = filters_dir / f"{module_name}.py"
     if not path.exists():
         path.write_text(render("filter.py.j2", FUNCTION_NAME=name))
-        print(f"✨ Created: {path}")
+        print(f"[new] Created: {path}")
 
     # Register entry point under datapipeline.filters
     toml_path = root_dir / "pyproject.toml"
@@ -29,4 +29,3 @@ def create_filter(*, name: str, root: Optional[Path]) -> None:
         f"{pkg_name}.filters.{module_name}:{name}",
     )
     toml_path.write_text(toml)
-

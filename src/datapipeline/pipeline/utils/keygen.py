@@ -26,8 +26,8 @@ class FeatureIdGenerator:
 def _anchor_time(item: Any) -> datetime | None:
     """Return representative datetime for grouping.
 
-    - FeatureRecord → record.time
-    - FeatureRecordSequence → first record time if present
+    - FeatureRecord -> record.time
+    - FeatureRecordSequence -> first record time if present
     """
     rec = getattr(item, "record", None)
     if rec is not None:

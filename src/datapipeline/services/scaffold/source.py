@@ -26,7 +26,7 @@ def _write_if_missing(path: Path, text: str) -> None:
     """Write file only if it does not exist; echo a friendly message."""
     if not path.exists():
         path.write_text(text)
-        print(f"✨ Created: {path}")
+        print(f"[new] Created: {path}")
 
 
 def _render_loader_stub(transport: str, loader_class: str,
@@ -150,6 +150,4 @@ def create_source(*, provider: str, dataset: str, transport: str,
             loader_args=loader_args,
             composed_loader_ep=COMPOSED_LOADER_EP,
         ))
-        print(f"✨ Created: {src_cfg_path.resolve()}")
-
-    # No inline instructions; per-source YAML file has been created above.
+        print(f"[new] Created: {src_cfg_path.resolve()}")

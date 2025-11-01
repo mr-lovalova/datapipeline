@@ -10,7 +10,7 @@ def inject_ep(toml: str, comp: str, key: str, target: str) -> str:
     Robust approach:
     - Locate the [project.entry-points."datapipeline.<comp>"] block
     - Parse all existing lines (quoted or unquoted keys)
-    - Update/insert the specified key → target
+    - Update/insert the specified key -> target
     - Reconstruct the block with unique, quoted keys (stable, deduped)
     - Create the block if it doesn't exist
     """

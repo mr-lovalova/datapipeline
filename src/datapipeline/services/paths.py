@@ -9,7 +9,7 @@ def pkg_root(start: Optional[Path] = None) -> tuple[Path, str, Path]:
         pyproject = d / "pyproject.toml"
         if pyproject.exists():
             return d, d.name, pyproject
-    print("❗ pyproject.toml not found (searched current and parent dirs)", file=sys.stderr)
+    print("[error] pyproject.toml not found (searched current and parent dirs)", file=sys.stderr)
     raise SystemExit(1)
 
 

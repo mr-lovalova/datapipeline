@@ -10,13 +10,13 @@ def _normalized_package_name(dist_name: str) -> str:
     package_name = dist_name.replace("-", "_")
     if package_name in _RESERVED_PACKAGE_NAMES:
         print(
-            "❗ `datapipeline` is reserved for the core package. "
+            "[error] `datapipeline` is reserved for the core package. "
             "Choose a different plugin name."
         )
         raise SystemExit(1)
     if not package_name.isidentifier():
         print(
-            "❗ Plugin names must be valid Python identifiers once hyphens are replaced "
+            "[error] Plugin names must be valid Python identifiers once hyphens are replaced "
             "with underscores."
         )
         raise SystemExit(1)
@@ -26,7 +26,7 @@ def _normalized_package_name(dist_name: str) -> str:
 def scaffold_plugin(name: str, outdir: Path) -> None:
     target = (outdir / name).absolute()
     if target.exists():
-        print(f"❗ `{target}` already exists")
+        print(f"[error] `{target}` already exists")
         raise SystemExit(1)
     import shutil
 
@@ -46,4 +46,4 @@ def scaffold_plugin(name: str, outdir: Path) -> None:
         for placeholder, value in replacements.items():
             text = text.replace(placeholder, value)
         p.write_text(text)
-    print(f"✨ Created plugin skeleton at {target}")
+    print(f"[new] Created plugin skeleton at {target}")
