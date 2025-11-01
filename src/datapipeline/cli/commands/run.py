@@ -114,8 +114,10 @@ def _report_end(output: Optional[str], count: int, verbosity: int) -> None:
         print(f"Saved {count} items to {output}", file=sys.stderr)
     elif mode == "stream":
         print(f"(streamed {count} items)", file=sys.stderr)
+    elif mode == "print":
+        print(f"(printed {count} items to stdout)", file=sys.stderr)
     else:
-        print(f"(served {count} items to stdout)", file=sys.stderr)
+        raise ValueError("unreachable: unknown output mode in _report_end")
 
 
 def _serve_with_runtime(
@@ -218,6 +220,7 @@ def _execute_runs(
                 verbosity=resolved_verbosity,
                 stage=stage,
             )
+
 
 def handle_serve(
     project: str,
