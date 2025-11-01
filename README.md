@@ -7,10 +7,10 @@ artifacts, inspect coverage, and scaffold plugins for custom loaders, parsers,
 transforms, and filters.
 
 > **Core assumptions**
+>
 > - Every record carries a timezone-aware `time` attribute and a numeric
 >   `value`.
 > - Grouping is purely temporal. Dimensional splits belong in `partition_by`.
-> - Streams are already ordered by time when they hit transforms.
 
 ---
 
@@ -105,10 +105,10 @@ globals:
   start_time: 2021-01-01T00:00:00Z
   end_time: 2023-01-03T23:00:00Z
   split:
-    mode: hash          # hash | time
-    key: group          # group | feature:<id>
+    mode: hash # hash | time
+    key: group # group | feature:<id>
     seed: 42
-    ratios: {train: 0.8, val: 0.1, test: 0.1}
+    ratios: { train: 0.8, val: 0.1, test: 0.1 }
 ```
 
 - `name` provides a stable identifier you can reuse inside config files via `${project_name}`.
@@ -125,12 +125,12 @@ globals:
 
 ```yaml
 version: 1
-keep: train         # set to any label defined in globals.split (null disables filtering)
-output: print       # override to 'stream' or a .pt path for binary dumps
-limit: 100          # cap vectors per serve run (null = unlimited)
+keep: train # set to any label defined in globals.split (null disables filtering)
+output: print # override to 'stream' or a .pt path for binary dumps
+limit: 100 # cap vectors per serve run (null = unlimited)
 include_targets: false
-throttle_ms: null   # sleep between vectors (milliseconds)
-log_level: INFO     # DEBUG=progress bars, INFO=spinner, WARNING=quiet (null inherits CLI)
+throttle_ms: null # sleep between vectors (milliseconds)
+log_level: INFO # DEBUG=progress bars, INFO=spinner, WARNING=quiet (null inherits CLI)
 ```
 
 - `keep` selects the currently served split. This file is referenced by `project.paths.run`.
