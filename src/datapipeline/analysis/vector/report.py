@@ -1,11 +1,15 @@
 from __future__ import annotations
 from typing import Any
+import logging
 
 from .matrix import export_matrix_data, render_matrix
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .collector import VectorStatsCollector
+
+
+logger = logging.getLogger(__name__)
 
 
 def print_report(collector: VectorStatsCollector) -> dict[str, Any]:
@@ -29,17 +33,20 @@ def print_report(collector: VectorStatsCollector) -> dict[str, Any]:
         "threshold": collector.threshold,
     }
 
-    print("\n=== Vector Quality Report ===")
-    print(f"Total vectors processed: {collector.total_vectors}")
-    print(f"Empty vectors: {collector.empty_vectors}")
-    print(
-        f"Features tracked ({collector.match_partition}): {len(tracked_features)}"
+    logger.info("\n=== Vector Quality Report ===")
+    logger.info("Total vectors processed: %d", collector.total_vectors)
+    logger.info("Empty vectors: %d", collector.empty_vectors)
+    logger.info(
+        "Features tracked (%s): %d",
+        collector.match_partition,
+        len(tracked_features),
     )
     if collector.match_partition == "full":
-        print(f"Partitions observed: {len(collector.discovered_partitions)}")
+        logger.info("Partitions observed: %d",
+                    len(collector.discovered_partitions))
 
     if not collector.total_vectors:
-        print("(no vectors analyzed)")
+        logger.info("(no vectors analyzed)")
         summary.update(
             {
                 "feature_stats": [],
@@ -55,7 +62,7 @@ def print_report(collector: VectorStatsCollector) -> dict[str, Any]:
         return summary
 
     feature_stats = []
-    print("\n-> Feature coverage (sorted by missing count):")
+    logger.info("\n-> Feature coverage (sorted by missing count):")
     for feature_id in sorted(
         tracked_features,
         key=lambda fid: collector._coverage(fid)[1],
@@ -79,7 +86,7 @@ def print_report(collector: VectorStatsCollector) -> dict[str, Any]:
         )
         if sample_note:
             line += f"; samples: {sample_note}"
-        print(line)
+        logger.info(line)
         feature_stats.append(
             {
                 "id": feature_id,
@@ -123,7 +130,7 @@ def print_report(collector: VectorStatsCollector) -> dict[str, Any]:
                 }
             )
 
-        print("\n-> Partition details (top by missing count):")
+        logger.info("\n-> Partition details (top by missing count):")
         for stats in sorted(
             partition_stats, key=lambda s: s["missing"], reverse=True
         )[:20]:
@@ -131,7 +138,7 @@ def print_report(collector: VectorStatsCollector) -> dict[str, Any]:
                 f"  - {stats['id']} (base: {stats['base']}): present {stats['present']}/{stats['opportunities']}"
                 f" ({stats['coverage']:.1%}) | missing {stats['missing']} | null/invalid {stats['nulls']}"
             )
-            print(line)
+            logger.info(line)
 
     summary["partition_stats"] = partition_stats
 
@@ -150,11 +157,15 @@ def print_report(collector: VectorStatsCollector) -> dict[str, Any]:
         above_features = [
             stats["id"] for stats in feature_stats if stats["coverage"] >= thr
         ]
-        print(
-            f"\n[low] Features below {thr:.0%} coverage:\n  below_features = {below_features}"
+        logger.warning(
+            "\n[low] Features below %.0f%% coverage:\n  below_features = %s",
+            thr * 100,
+            below_features,
         )
-        print(
-            f"[high] Features at/above {thr:.0%} coverage:\n  keep_features = {above_features}"
+        logger.info(
+            "[high] Features at/above %.0f%% coverage:\n  keep_features = %s",
+            thr * 100,
+            above_features,
         )
 
         if partition_stats:
@@ -174,14 +185,18 @@ def print_report(collector: VectorStatsCollector) -> dict[str, Any]:
             ]
             if not above_partitions:
                 above_suffixes = []
-            print(
-                f"\n[low] Partitions below {thr:.0%} coverage:\n  below_partitions = {below_partitions}"
+            logger.warning(
+                "\n[low] Partitions below %.0f%% coverage:\n  below_partitions = %s",
+                thr * 100,
+                below_partitions,
             )
-            print(f"  below_suffixes = {below_suffixes}")
-            print(
-                f"[high] Partitions at/above {thr:.0%} coverage:\n  keep_partitions = {above_partitions}"
+            logger.warning("  below_suffixes = %s", below_suffixes)
+            logger.info(
+                "[high] Partitions at/above %.0f%% coverage:\n  keep_partitions = %s",
+                thr * 100,
+                above_partitions,
             )
-            print(f"  keep_suffixes = {above_suffixes}")
+            logger.info("  keep_suffixes = %s", above_suffixes)
 
     summary.update(
         {
@@ -256,12 +271,14 @@ def print_report(collector: VectorStatsCollector) -> dict[str, Any]:
         ]
         group_missing = [item for item in group_missing if item[1] > 0]
         if group_missing:
-            print("\n-> Time buckets with missing features:")
+            logger.info("\n-> Time buckets with missing features:")
             for group, count in sorted(
                 group_missing, key=lambda item: item[1], reverse=True
             )[:10]:
-                print(
-                    f"  - {collector._format_group_key(group)}: {count} features missing"
+                logger.info(
+                    "  - %s: %d features missing",
+                    collector._format_group_key(group),
+                    count,
                 )
 
         if partition_stats:
@@ -280,12 +297,14 @@ def print_report(collector: VectorStatsCollector) -> dict[str, Any]:
             partition_missing = [
                 item for item in partition_missing if item[1] > 0]
             if partition_missing:
-                print("\n-> Time buckets with missing partitions:")
+                logger.info("\n-> Time buckets with missing partitions:")
                 for group, count in sorted(
                     partition_missing, key=lambda item: item[1], reverse=True
                 )[:10]:
-                    print(
-                        f"  - {collector._format_group_key(group)}: {count} partitions missing"
+                    logger.info(
+                        "  - %s: %d partitions missing",
+                        collector._format_group_key(group),
+                        count,
                     )
 
     if collector.matrix_output:

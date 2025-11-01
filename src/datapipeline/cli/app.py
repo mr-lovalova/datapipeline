@@ -371,12 +371,17 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    # Initialize logging before dispatching to subcommands
-    logging.basicConfig(
-        level=getattr(logging, str(getattr(args, "log_level",
-                      "WARNING")).upper(), logging.WARNING),
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
+    requested_level_name = str(getattr(args, "log_level", "WARNING")).upper()
+    base_level = logging._nameToLevel.get(requested_level_name, logging.WARNING)
+
+    if getattr(args, "cmd", None) == "serve":
+        verbosity = getattr(args, "verbose", None)
+        if verbosity == 1:
+            base_level = min(base_level, logging.INFO)
+        elif verbosity and verbosity >= 2:
+            base_level = min(base_level, logging.DEBUG)
+
+    logging.basicConfig(level=base_level, format="%(message)s")
 
     if args.cmd == "serve":
         handle_serve(

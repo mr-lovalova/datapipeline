@@ -1,8 +1,9 @@
-import sys
 import time
 from itertools import islice
 from pathlib import Path
 from typing import Iterator, List, Optional, Tuple
+
+import logging
 
 from datapipeline.cli.visuals import visual_sources
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
@@ -17,6 +18,8 @@ from datapipeline.runtime import Runtime
 from datapipeline.services.bootstrap import bootstrap
 from datapipeline.cli.commands.writers import writer_factory, Writer
 
+logger = logging.getLogger(__name__)
+
 
 def _resolve_run_entries(project_path: Path, run_name: Optional[str]) -> List[Tuple[Optional[str], Optional[RunConfig]]]:
     try:
@@ -24,18 +27,18 @@ def _resolve_run_entries(project_path: Path, run_name: Optional[str]) -> List[Tu
     except FileNotFoundError:
         entries = []
     except Exception as exc:
-        print(f"Error: failed to load run configs: {exc}", file=sys.stderr)
+        logger.error("Failed to load run configs: %s", exc)
         raise SystemExit(2) from exc
 
     if entries:
         if run_name:
             entries = [entry for entry in entries if entry[0] == run_name]
             if not entries:
-                print(f"Error: unknown run config '{run_name}'", file=sys.stderr)
+                logger.error("Unknown run config '%s'", run_name)
                 raise SystemExit(2)
     else:
         if run_name:
-            print("Error: project does not define run configs.", file=sys.stderr)
+            logger.error("Project does not define run configs.")
             raise SystemExit(2)
         entries = [(None, None)]
     return entries
@@ -107,15 +110,15 @@ def _report_end(output: Optional[str], count: int, verbosity: int) -> None:
         return
     mode = (output or "print").lower()
     if output and output.lower().endswith(".pt"):
-        print(f"Saved {count} items to {output}", file=sys.stderr)
+        logger.info("Saved %d items to %s", count, output)
     elif output and output.lower().endswith(".csv"):
-        print(f"Saved {count} items to {output}", file=sys.stderr)
+        logger.info("Saved %d items to %s", count, output)
     elif output and (output.lower().endswith(".jsonl.gz") or output.lower().endswith(".gz")):
-        print(f"Saved {count} items to {output}", file=sys.stderr)
+        logger.info("Saved %d items to %s", count, output)
     elif mode == "stream":
-        print(f"(streamed {count} items)", file=sys.stderr)
+        logger.info("(streamed %d items)", count)
     elif mode == "print":
-        print(f"(printed {count} items to stdout)", file=sys.stderr)
+        logger.info("(printed %d items to stdout)", count)
     else:
         raise ValueError("unreachable: unknown output mode in _report_end")
 
@@ -134,7 +137,7 @@ def _serve_with_runtime(
 
     feature_configs = list(dataset.features or [])
     if not feature_configs:
-        print("(no features configured; nothing to serve)", file=sys.stderr)
+        logger.warning("(no features configured; nothing to serve)")
         return
 
     if stage is not None and stage <= 5:
@@ -207,7 +210,8 @@ def _execute_runs(
 
         if resolved_verbosity >= 1:
             label = entry_name or f"run{idx}"
-            print(f"\nRun '{label}' ({idx}/{total_runs})", file=sys.stderr)
+            logger.info("")
+            logger.info("Run '%s' (%d/%d)", label, idx, total_runs)
 
         with visual_sources(runtime, resolved_verbosity):
             _serve_with_runtime(

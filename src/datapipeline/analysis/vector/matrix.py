@@ -3,6 +3,7 @@ import base64
 import csv
 import html
 import json
+import logging
 from pathlib import Path
 from typing import Hashable
 
@@ -10,6 +11,9 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .collector import VectorStatsCollector
+
+
+logger = logging.getLogger(__name__)
 
 
 def render_matrix(
@@ -46,12 +50,12 @@ def render_matrix(
         focus_groups = focus_groups[: collector.matrix_rows]
 
     matrix_label = "Partition" if partitions else "Feature"
-    print(f"\n-> {matrix_label} availability heatmap:")
+    logger.info("\n-> %s availability heatmap:", matrix_label)
 
     header = " " * 20 + " ".join(
         f"{fid[-column_width:]:>{column_width}}" for fid in features
     )
-    print(header)
+    logger.info(header)
 
     for group in focus_groups:
         label = collector._format_group_key(group)
@@ -60,9 +64,9 @@ def render_matrix(
             f"{collector._symbol_for(status_for(group, fid)):^{column_width}}"
             for fid in features
         )
-        print(f"  {label} {cells}")
+        logger.info("  %s %s", label, cells)
 
-    print("    Legend: # present | ! null | . missing")
+    logger.info("    Legend: # present | ! null | . missing")
 
 
 def export_matrix_data(collector: VectorStatsCollector) -> None:
@@ -77,9 +81,11 @@ def export_matrix_data(collector: VectorStatsCollector) -> None:
             _write_matrix_html(collector, path)
         else:
             _write_matrix_csv(collector, path)
-        print(f"\n[write] Saved availability matrix to {path}")
+        logger.info("\n[write] Saved availability matrix to %s", path)
     except OSError as exc:
-        print(f"\n[warn] Failed to write availability matrix to {path}: {exc}")
+        logger.warning(
+            "\n[warn] Failed to write availability matrix to %s: %s", path, exc
+        )
 
 
 def _write_matrix_csv(collector: VectorStatsCollector, path: Path) -> None:
