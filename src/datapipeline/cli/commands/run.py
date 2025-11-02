@@ -7,7 +7,6 @@ import logging
 
 from datapipeline.cli.visuals import visual_sources
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
-from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.config.dataset.loader import load_dataset
 from datapipeline.config.run import RunConfig, load_named_run_configs
 from datapipeline.domain.vector import Vector
@@ -205,14 +204,18 @@ def _execute_runs(
     def pick(cli_val, cfg_val, default=None):
         return cli_val if cli_val is not None else (cfg_val if cfg_val is not None else default)
 
-    dataset_name = "vectors" if stage is None else "features"
-    dataset = load_dataset(project_path, dataset_name)
-
     base_level_name = str(base_log_level).upper()
     base_level_value = _coerce_log_level(base_level_name)
+    datasets = {}
 
     for idx, total_runs, entry_name, runtime in _iter_runtime_runs(project_path, run_name, keep):
         run = getattr(runtime, "run", None)
+        resolved_stage = pick(stage, getattr(run, "stage", None), None)
+        dataset_name = "vectors" if resolved_stage is None else "features"
+        dataset = datasets.get(dataset_name)
+        if dataset is None:
+            dataset = load_dataset(project_path, dataset_name)
+            datasets[dataset_name] = dataset
 
         # resolving argument hierarchy CLI args > run config > defaults
         resolved_limit = pick(limit, getattr(run, "limit", None), None)
@@ -244,7 +247,7 @@ def _execute_runs(
                     output=resolved_output,
                     include_targets=resolved_include_targets,
                     throttle_ms=throttle_ms,
-                    stage=stage,
+                    stage=resolved_stage,
                 )
 
 

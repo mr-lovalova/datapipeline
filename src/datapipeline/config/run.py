@@ -35,6 +35,12 @@ class RunConfig(BaseModel):
         default=False,
         description="Serve dataset.targets alongside features by default.",
     )
+    stage: int | None = Field(
+        default=None,
+        description="Default pipeline stage preview for serve runs (0-7).",
+        ge=0,
+        le=7,
+    )
     throttle_ms: float | None = Field(
         default=None,
         description="Milliseconds to sleep between emitted vectors (throttle).",
