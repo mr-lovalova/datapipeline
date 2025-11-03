@@ -3,7 +3,9 @@ version: 1
 # Set to null to disable filtering or override per run via CLI.
 keep: val
 # Optional defaults for jerry serve (override via CLI when needed).
-output: print # print | stream | /path/to/val_file.pt
+output:
+  transport: stdout
+  format: print # print | json-lines
 limit: 100 # max vectors per serve run (null = unlimited)
 include_targets: false # serve dataset.targets alongside features
 stage: null # default pipeline stage preview (0-7); null streams full pipeline

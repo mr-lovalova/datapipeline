@@ -1,15 +1,40 @@
-from __future__ import annotations
-
-import logging
 from pathlib import Path
-from typing import List, Sequence, Tuple
+from typing import List, Sequence, Tuple, Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from datapipeline.config.project import ProjectConfig
 from datapipeline.utils.load import load_yaml
 
 VALID_LOG_LEVELS = ("CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG")
+
+Transport = Literal["fs", "stdout"]
+Format = Literal["csv", "json", "json-lines", "print", "pickle"]
+
+
+class OutputConfig(BaseModel):
+    transport: Transport = Field(..., description="fs | stdout")
+    format: Format = Field(..., description="csv | json | json-lines | print")
+    path: Optional[Path] = Field(
+        default=None,
+        description="Required for fs. Full file path including extension."
+    )
+
+    @model_validator(mode="after")
+    def _validate(self):
+        if self.transport == "stdout":
+            if self.path is not None:
+                raise ValueError("stdout cannot have path")
+            if self.format not in {"print", "json-lines", "json"}:
+                raise ValueError(
+                    "stdout output supports 'print' or 'json-lines' formats"
+                )
+        else:  # fs
+            if self.path is None:
+                raise ValueError("fs requires path")
+            if self.format in {"print"}:
+                raise ValueError("fs transport cannot use 'print' format")
+        return self
 
 
 class RunConfig(BaseModel):
@@ -21,11 +46,7 @@ class RunConfig(BaseModel):
         description="Active split label to serve. Null disables filtering.",
         min_length=1,
     )
-    output: str | None = Field(
-        default=None,
-        description="Default output destination for jerry serve (print|stream|<path>).",
-        min_length=1,
-    )
+    output: OutputConfig | None = None
     limit: int | None = Field(
         default=None,
         description="Default max number of vectors to emit during serve runs.",

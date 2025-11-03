@@ -126,7 +126,9 @@ globals:
 ```yaml
 version: 1
 keep: train # set to any label defined in globals.split (null disables filtering)
-output: print # override to 'stream' or a .pt path for binary dumps
+output:
+  transport: stdout # stdout | fs
+  format: print # print | json-lines
 limit: 100 # cap vectors per serve run (null = unlimited)
 include_targets: false
 throttle_ms: null # sleep between vectors (milliseconds)
@@ -134,7 +136,7 @@ log_level: INFO # DEBUG=progress bars, INFO=spinner, WARNING=quiet (null inherit
 ```
 
 - `keep` selects the currently served split. This file is referenced by `project.paths.run`.
-- `output`, `limit`, `include_targets`, `throttle_ms`, and `log_level` provide defaults for `jerry serve`; CLI flags still win per invocation.
+- `output`, `limit`, `include_targets`, `throttle_ms`, and `log_level` provide defaults for `jerry serve`; CLI flags still win per invocation. For filesystem outputs, set `transport: fs`, `path: /path/to/file.jsonl`, and the desired `format`.
 - Override `keep` (and other fields) per invocation via `jerry serve ... --keep val` etc.
 - To manage multiple runs, point `project.paths.run` at a folder (e.g., `config/datasets/default/runs/`)
   and drop additional `*.yaml` files there. `jerry serve` will run each file in order; pass
@@ -305,7 +307,7 @@ Pass `--help` on any command for flags.
 
 - `jerry plugin init --name <package> --out <dir>`
   - Generates a plugin project (pyproject, package skeleton, config templates).
-- `jerry source add --provider <name> --dataset <slug> --transport fs|url|synthetic --format csv|json|json-lines`
+- `jerry source add --provider <name> --dataset <slug> --transport fs|url|synthetic --format csv|json|json-lines|pickle`
   - Creates loader/parser stubs, updates entry points, and drops a matching
     source YAML.
 - `jerry domain add --domain <name>`

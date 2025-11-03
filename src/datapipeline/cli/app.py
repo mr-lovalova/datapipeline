@@ -122,7 +122,7 @@ def main() -> None:
     )
     p_dist_add.add_argument(
         "--format", "-f",
-        choices=["csv", "json", "json-lines"],
+        choices=["csv", "json", "json-lines", "pickle"],
         help="data format for fs/url transports (ignored otherwise)",
     )
     dist_sub.add_parser("list", help="list known sources")

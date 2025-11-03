@@ -15,7 +15,14 @@ from datapipeline.pipeline.pipelines import build_vector_pipeline
 from datapipeline.pipeline.stages import post_process, split_stage
 from datapipeline.runtime import Runtime
 from datapipeline.services.bootstrap import bootstrap
-from datapipeline.cli.commands.writers import writer_factory, Writer
+from datapipeline.io.factory import writer_factory
+from datapipeline.io.output import (
+    OutputResolutionError,
+    OutputTarget,
+    resolve_output_target,
+)
+from datapipeline.io.protocols import Writer
+from datapipeline.io.serialization import normalize_output_record
 from tqdm.contrib.logging import logging_redirect_tqdm
 
 logger = logging.getLogger(__name__)
@@ -94,16 +101,10 @@ def _throttle_vectors(vectors: Iterator[Tuple[object, Vector]], throttle_ms: Opt
         time.sleep(delay)
 
 
-def _normalize(key: object, payload: object) -> dict:
-    return {
-        "key": list(key) if isinstance(key, tuple) else key,
-        "values": getattr(payload, "values", payload),
-    }
-
-
 def _serve(
     items: Iterator[Tuple[object, object]],
     limit: Optional[int],
+    stage: Optional[int],
     *,
     writer: Writer,
 ) -> int:
@@ -111,7 +112,8 @@ def _serve(
     count = 0
     try:
         for key, payload in _limit_items(items, limit):
-            writer.write(_normalize(key, payload))
+            record = normalize_output_record(key, payload, stage=stage)
+            writer.write(record)
             count += 1
     except KeyboardInterrupt:
         pass
@@ -120,30 +122,45 @@ def _serve(
     return count
 
 
-def _report_end(output: Optional[str], count: int) -> None:
-    mode = (output or "print").lower()
-    if output and output.lower().endswith(".pt"):
-        logger.info("Saved %d items to %s", count, output)
-    elif output and output.lower().endswith(".csv"):
-        logger.info("Saved %d items to %s", count, output)
-    elif output and (output.lower().endswith(".jsonl.gz") or output.lower().endswith(".gz")):
-        logger.info("Saved %d items to %s", count, output)
-    elif mode == "stream":
+def _report_end(target: OutputTarget, count: int) -> None:
+    if target.destination:
+        logger.info("Saved %d items to %s", count, target.destination)
+        return
+    if target.writer_kind == "stdout.jsonl":
         logger.info("(streamed %d items)", count)
-    elif mode == "print":
-        logger.info("(printed %d items to stdout)", count)
     else:
-        raise ValueError("unreachable: unknown output mode in _report_end")
+        logger.info("(printed %d items to stdout)", count)
+
+
+def _target_for_feature(base: OutputTarget, feature_id: str) -> OutputTarget:
+    if base.destination is None:
+        return OutputTarget(writer_kind=base.writer_kind, destination=None)
+    dest = base.destination
+    safe_feature = "".join(
+        ch if ch.isalnum() or ch in ("_", "-", ".") else "_"
+        for ch in str(feature_id)
+    )
+    suffix = "".join(dest.suffixes)
+    if suffix:
+        stem = dest.name[: -len(suffix)]
+    else:
+        stem = dest.name
+    new_name = f"{stem}.{safe_feature}{suffix}"
+    new_path = dest.with_name(new_name)
+    return OutputTarget(writer_kind=base.writer_kind, destination=new_path)
 
 
 def _serve_with_runtime(
-    runtime,
+    runtime: Runtime,
     dataset: FeatureDatasetConfig,
+    *,
     limit: Optional[int],
-    output: Optional[str],
+    target: OutputTarget,
     include_targets: bool,
     throttle_ms: Optional[float],
-    stage: Optional[int] = None,
+    stage: Optional[int],
+    run_label: Optional[str],
+    dataset_name: str,
 ) -> None:
     context = PipelineContext(runtime)
 
@@ -164,9 +181,10 @@ def _serve_with_runtime(
                 stage=stage,
             )
             items = ((cfg.id, item) for item in stream)
-            writer = writer_factory(output)
-            count = _serve(items, limit, writer=writer)
-            _report_end(output, count)
+            feature_target = _target_for_feature(target, cfg.id)
+            writer = writer_factory(feature_target)
+            count = _serve(items, limit, stage=stage, writer=writer)
+            _report_end(feature_target, count)
         return
 
     vector_stage = 6 if stage in (6, 7) else None
@@ -183,9 +201,9 @@ def _serve_with_runtime(
         vectors = split_stage(runtime, vectors)
         vectors = _throttle_vectors(vectors, throttle_ms)
 
-    writer = writer_factory(output)
-    result_count = _serve(vectors, limit, writer=writer)
-    _report_end(output, result_count)
+    writer = writer_factory(target)
+    result_count = _serve(vectors, limit, stage=stage, writer=writer)
+    _report_end(target, result_count)
 
 
 def _execute_runs(
@@ -219,7 +237,6 @@ def _execute_runs(
 
         # resolving argument hierarchy CLI args > run config > defaults
         resolved_limit = pick(limit, getattr(run, "limit", None), None)
-        resolved_output = pick(output, getattr(run, "output", None), "print")
         resolved_include_targets = pick(
             include_targets, getattr(run, "include_targets", None), False)
         throttle_ms = getattr(run, "throttle_ms", None)
@@ -230,6 +247,17 @@ def _execute_runs(
         )
         resolved_level_value = _coerce_log_level(
             resolved_level_name, default=base_level_value)
+
+        try:
+            target = resolve_output_target(
+                cli_output=output,
+                config_output=getattr(run, "output", None) if run else None,
+                default="print",
+                base_path=project_path.parent,
+            )
+        except OutputResolutionError as exc:
+            logger.error("Invalid output configuration: %s", exc)
+            raise SystemExit(2) from exc
 
         root_logger = logging.getLogger()
         if root_logger.level != resolved_level_value:
@@ -244,10 +272,12 @@ def _execute_runs(
                     runtime,
                     dataset,
                     limit=resolved_limit,
-                    output=resolved_output,
+                    target=target,
                     include_targets=resolved_include_targets,
                     throttle_ms=throttle_ms,
                     stage=resolved_stage,
+                    run_label=label,
+                    dataset_name=dataset_name,
                 )
 
 

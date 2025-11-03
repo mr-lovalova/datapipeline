@@ -48,7 +48,9 @@ def test_load_run_config_parses_optional_defaults(tmp_path):
     run_yaml.write_text(
         """version: 1
 keep: holdout
-output: stream
+output:
+  transport: stdout
+  format: json-lines
 limit: 5
 include_targets: true
 throttle_ms: 250
@@ -58,7 +60,9 @@ throttle_ms: 250
 
     cfg = load_run_config(project_yaml)
 
-    assert cfg.output == "stream"
+    assert cfg.output is not None
+    assert cfg.output.transport == "stdout"
+    assert cfg.output.format == "json-lines"
     assert cfg.limit == 5
     assert cfg.include_targets is True
     assert cfg.throttle_ms == 250
