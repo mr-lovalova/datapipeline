@@ -1,13 +1,13 @@
 from typing import Iterator, Generic, TypeVar, Optional
 from .base import SourceInterface
-from .loader import RawDataLoader
+from .loader import BaseDataLoader
 from .parser import DataParser
 
 TRecord = TypeVar("TRecord")
 
 
 class Source(SourceInterface[TRecord], Generic[TRecord]):
-    def __init__(self, loader: RawDataLoader, parser: DataParser[TRecord]):
+    def __init__(self, loader: BaseDataLoader, parser: DataParser[TRecord]):
         self.loader = loader
         self.parser = parser
 
@@ -25,4 +25,3 @@ class Source(SourceInterface[TRecord], Generic[TRecord]):
             return self.loader.count()
         except Exception:
             return None
-

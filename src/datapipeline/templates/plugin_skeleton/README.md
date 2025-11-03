@@ -6,7 +6,7 @@ Quick start
 - Initialize a plugin (already done if you’re reading this here):
 - `jerry plugin init --name {{DIST_NAME}}`
 - Add a source via CLI (transport-specific placeholders are scaffolded):
-  - File data: `jerry source add -p <provider> -d <dataset> -t fs -f <csv|json|json-lines>`
+  - File data: `jerry source add -p <provider> -d <dataset> -t fs -f <csv|json|json-lines|pickle>`
   - URL data: `jerry source add -p <provider> -d <dataset> -t url -f <json|json-lines|csv>`
   - Synthetic: `jerry source add -p <provider> -d <dataset> -t synthetic`
 - Edit the generated `config/sources/*.yaml` to fill in the `path`, delimiter, etc.
@@ -66,7 +66,9 @@ Train/Val/Test splits (deterministic)
   ```yaml
   version: 1
   keep: train               # any label defined in globals.split; null disables filtering
-  output: print             # serve output default (print|stream|/path)
+  output:
+    transport: stdout       # stdout | fs
+    format: print           # print | json-lines
   limit: 100                # cap vectors per serve run (null = unlimited)
   include_targets: false    # include dataset.targets when serving
   throttle_ms: null         # sleep between vectors (milliseconds)

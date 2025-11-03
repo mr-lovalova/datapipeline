@@ -6,61 +6,60 @@ from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
 
 
-class TextSource(ABC):
-    """Abstract transport that yields text line streams per resource.
-
-    Each item from `streams()` is an iterable over text lines (no newlines).
-    """
+class Transport(ABC):
+    """Abstract transport that yields raw-byte streams per resource."""
 
     @abstractmethod
-    def streams(self) -> Iterator[Iterable[str]]:
+    def streams(self) -> Iterator[Iterable[bytes]]:
         pass
 
 
-class FsFileSource(TextSource):
-    def __init__(self, path: str, *, encoding: str = "utf-8"):
+class FsFileTransport(Transport):
+    def __init__(self, path: str, *, chunk_size: int = 65536):
         self.path = path
-        self.encoding = encoding
+        self.chunk_size = chunk_size
 
-    def streams(self) -> Iterator[Iterable[str]]:
-        def _iter() -> Iterator[str]:
-            with open(self.path, "r", encoding=self.encoding) as f:
-                for line in f:
-                    yield line
+    def streams(self) -> Iterator[Iterable[bytes]]:
+        def _iter() -> Iterator[bytes]:
+            with open(self.path, "rb") as f:
+                while True:
+                    chunk = f.read(self.chunk_size)
+                    if not chunk:
+                        break
+                    yield chunk
         yield _iter()
 
 
-class FsGlobSource(TextSource):
-    def __init__(self, pattern: str, *, encoding: str = "utf-8"):
+class FsGlobTransport(Transport):
+    def __init__(self, pattern: str, *, chunk_size: int = 65536):
         import glob as _glob
 
         self.pattern = pattern
-        self.encoding = encoding
+        self.chunk_size = chunk_size
         self._files: List[str] = sorted(_glob.glob(pattern))
 
-    def streams(self) -> Iterator[Iterable[str]]:
-        def _iter(path: str) -> Iterator[str]:
-            with open(path, "r", encoding=self.encoding) as f:
-                for line in f:
-                    yield line
+    def streams(self) -> Iterator[Iterable[bytes]]:
+        def _iter(path: str) -> Iterator[bytes]:
+            with open(path, "rb") as f:
+                while True:
+                    chunk = f.read(self.chunk_size)
+                    if not chunk:
+                        break
+                    yield chunk
         for p in self._files:
             yield _iter(p)
 
 
-class UrlSource(TextSource):
-    def __init__(self, url: str, *, headers: Optional[Dict[str, str]] = None, encoding: str = "utf-8"):
+class UrlTransport(Transport):
+    def __init__(self, url: str, *, headers: Optional[Dict[str, str]] = None):
         self.url = url
         self.headers = dict(headers or {})
-        self.encoding = encoding
 
-    def streams(self) -> Iterator[Iterable[str]]:
+    def streams(self) -> Iterator[Iterable[bytes]]:
         req = Request(self.url, headers=self.headers)
         try:
             with urlopen(req) as resp:
                 data = resp.read()
         except (URLError, HTTPError) as e:
             raise RuntimeError(f"failed to fetch {self.url}: {e}") from e
-
-        text = data.decode(self.encoding, errors="strict")
-        lines = text.splitlines()
-        yield iter(lines)
+        yield iter([data])

@@ -60,7 +60,7 @@ def _loader_ep_and_args(transport: str, fmt: Optional[str], ep_key: str) -> tupl
     if transport == "fs":
         args = {
             "transport": "fs",
-            "format": fmt or "<FORMAT (csv|json|json-lines)>",
+            "format": fmt or "<FORMAT (csv|json|json-lines|pickle)>",
             "path": "<PATH OR GLOB>",
             "glob": False,
             "encoding": "utf-8",

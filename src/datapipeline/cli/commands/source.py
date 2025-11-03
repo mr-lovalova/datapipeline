@@ -11,7 +11,7 @@ def handle(subcmd: str, provider: str | None, dataset: str | None,
             print("[error] --transport is required (fs|url|synthetic)")
             raise SystemExit(2)
         if transport in {"fs", "url"} and not format:
-            print("[error] --format is required for fs/url transports (csv|json|json-lines)")
+            print("[error] --format is required for fs/url transports (fs: csv|json|json-lines|pickle, url: csv|json|json-lines)")
             raise SystemExit(2)
         create_source(provider=provider, dataset=dataset,
                       transport=transport, format=format, root=None)
