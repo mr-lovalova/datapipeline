@@ -1,10 +1,17 @@
+import logging
 from pathlib import Path
+
+from tqdm.contrib.logging import logging_redirect_tqdm
 
 from datapipeline.build.state import BuildState, load_build_state, save_build_state
 from datapipeline.build.tasks import compute_config_hash, execute_build
+from datapipeline.cli.visuals import visual_sources
 from datapipeline.config.build import load_build_config
 from datapipeline.services.bootstrap import artifacts_root, bootstrap
 from datapipeline.services.project_paths import build_config_path
+
+
+logger = logging.getLogger(__name__)
 
 
 def handle(project: str, *, force: bool = False) -> None:
@@ -20,11 +27,17 @@ def handle(project: str, *, force: bool = False) -> None:
     state = load_build_state(state_path)
 
     if state and (state.config_hash == config_hash) and not force:
-        print("[ok] Build is up-to-date (config hash matches). Use --force to rebuild.")
+        logger.info("Build is up-to-date (config hash matches). Use --force to rebuild.")
         return
 
+    logger.info("Starting build for %s", project_path)
+
     runtime = bootstrap(project_path)
-    artifacts = execute_build(runtime, build_config)
+    effective_level = logging.getLogger().getEffectiveLevel()
+
+    with visual_sources(runtime, effective_level):
+        with logging_redirect_tqdm():
+            artifacts = execute_build(runtime, build_config)
 
     new_state = BuildState(config_hash=config_hash)
     for key, info in artifacts.items():
@@ -33,7 +46,7 @@ def handle(project: str, *, force: bool = False) -> None:
         new_state.register(key, relative_path, meta=meta)
         details = ", ".join(f"{k}={v}" for k, v in meta.items())
         suffix = f" ({details})" if details else ""
-        print(f"[build] {key} -> {relative_path}{suffix}")
+        logger.info("Materialized %s -> %s%s", key, relative_path, suffix)
 
     save_build_state(new_state, state_path)
-    print("[ok] Build completed.")
+    logger.info("Build completed.")

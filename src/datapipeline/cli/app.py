@@ -374,7 +374,10 @@ def main() -> None:
     args = parser.parse_args()
 
     cli_level_arg = getattr(args, "log_level", None)
-    base_level_name = (cli_level_arg or "WARNING").upper()
+    default_level_name = "WARNING"
+    if cli_level_arg is None and getattr(args, "cmd", None) == "build":
+        default_level_name = "INFO"
+    base_level_name = (cli_level_arg or default_level_name).upper()
     base_level = logging._nameToLevel.get(base_level_name, logging.WARNING)
 
     logging.basicConfig(level=base_level, format="%(message)s")
