@@ -5,8 +5,7 @@ from typing import Any
 
 class JsonLineFormatter:
     def __call__(self, item: Any) -> str:
-        payload = asdict(item)
-        return json.dumps(asdict(payload), ensure_ascii=False, default=str) + "\n"
+        return json.dumps(asdict(item), ensure_ascii=False, default=str) + "\n"
 
 
 class PrintLineFormatter:
