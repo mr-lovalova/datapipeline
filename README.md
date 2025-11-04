@@ -142,6 +142,7 @@ log_level: INFO # DEBUG=progress bars, INFO=spinner, WARNING=quiet (null inherit
 - To manage multiple runs, point `project.paths.run` at a folder (e.g., `config/datasets/default/runs/`)
   and drop additional `*.yaml` files there. `jerry serve` will run each file in order; pass
   `--run train` to execute only `runs/train.yaml`.
+- Updating run configs only changes serve-time defaults; it does not trigger a rebuild.
 
 ### `config/sources/<alias>.yaml`
 
@@ -286,6 +287,7 @@ Pass `--help` on any command for flags.
   - Stage 6: vectors assembled (no postprocess)
   - Stage 7: vectors + postprocess transforms
   - Use `--log-level DEBUG` for progress bars, `--log-level INFO` for spinner + prints, or the default (`WARNING`) for minimal output.
+  - Ensures build artifacts are current before streaming; the build step only runs when the configuration hash changes.
 - `jerry serve --project <project.yaml> --out-transport stdout --out-format json-lines --limit N [--include-targets] [--log-level LEVEL] [--run name]`
   - Applies postprocess transforms and optional dataset split before emitting.
   - Use `--out-transport fs --out-format json-lines --out-path build/vectors.jsonl` (or `csv`, `pickle`, etc.) to write artifacts to disk instead of stdout.

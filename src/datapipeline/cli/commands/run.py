@@ -4,6 +4,7 @@ from itertools import islice
 from pathlib import Path
 from typing import Iterator, List, Optional, Union
 
+from datapipeline.cli.commands.build import run_build_if_needed
 from datapipeline.cli.visuals import visual_sources
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.dataset.loader import load_dataset
@@ -292,6 +293,7 @@ def handle_serve(
     base_log_level: str,
 ) -> None:
     project_path = Path(project)
+    run_build_if_needed(project_path, ensure_level=logging.INFO)
     cli_output_cfg = _build_cli_output_config(
         out_transport, out_format, out_path)
     _execute_runs(
