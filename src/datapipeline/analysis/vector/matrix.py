@@ -81,11 +81,13 @@ def export_matrix_data(collector: VectorStatsCollector) -> None:
             _write_matrix_html(collector, path)
         else:
             _write_matrix_csv(collector, path)
-        logger.info("\n[write] Saved availability matrix to %s", path)
+        message = f"[write] Saved availability matrix to {path}"
+        print(message)
+        logger.info("\n%s", message)
     except OSError as exc:
-        logger.warning(
-            "\n[warn] Failed to write availability matrix to %s: %s", path, exc
-        )
+        warning = f"[warn] Failed to write availability matrix to {path}: {exc}"
+        print(warning)
+        logger.warning("\n%s", warning)
 
 
 def _write_matrix_csv(collector: VectorStatsCollector, path: Path) -> None:
