@@ -130,14 +130,11 @@ def _report_end(target: OutputTarget, count: int) -> None:
 def _serve_with_runtime(
     runtime: Runtime,
     dataset: FeatureDatasetConfig,
-    *,
     limit: Optional[int],
     target: OutputTarget,
     include_targets: bool,
     throttle_ms: Optional[float],
     stage: Optional[int],
-    run_label: Optional[str],
-    dataset_name: str,
 ) -> None:
     context = PipelineContext(runtime)
 
@@ -251,9 +248,7 @@ def _execute_runs(
                     target=target,
                     include_targets=resolved_include_targets,
                     throttle_ms=throttle_ms,
-                    stage=resolved_stage,
-                    run_label=label,
-                    dataset_name=dataset_name,
+                    stage=resolved_stage
                 )
 
 
