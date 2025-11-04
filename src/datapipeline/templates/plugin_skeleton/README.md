@@ -50,6 +50,7 @@ Analyze vectors
 - `jerry inspect partitions --project config/datasets/default/project.yaml` (writes build/partitions.json)
 - Use post-processing transforms in `postprocess.yaml` to keep coverage high
   (history/horizontal fills, constants, or drop rules) before serving vectors.
+  Add `payload: targets` inside a transform when you need to mutate label vectors.
 
 Train/Val/Test splits (deterministic)
 - Configure split mechanics once in your project file:
@@ -68,7 +69,7 @@ Train/Val/Test splits (deterministic)
   keep: train               # any label defined in globals.split; null disables filtering
   output:
     transport: stdout       # stdout | fs
-    format: print           # print | json-lines
+    format: print           # print | json-lines | json | csv | pickle
   limit: 100                # cap vectors per serve run (null = unlimited)
   include_targets: false    # include dataset.targets when serving
   throttle_ms: null         # sleep between vectors (milliseconds)
@@ -76,8 +77,8 @@ Train/Val/Test splits (deterministic)
 - If you prefer separate configs per split, point `project.paths.run` at a folder (e.g., `config/datasets/default/runs/`),
   drop `train.yaml`, `val.yaml`, etc. inside, and the CLI will run each file in order unless you pass `--run <name>`.
 - Serve examples (change run.yaml or pass `--keep val|test`):
-  - `jerry serve -p config/datasets/default/project.yaml -o stream > train.jsonl`
-  - `jerry serve -p config/datasets/default/project.yaml --keep val -o stream > val.jsonl`
+  - `jerry serve -p config/datasets/default/project.yaml --out-transport stdout --out-format json-lines > train.jsonl`
+  - `jerry serve -p config/datasets/default/project.yaml --keep val --out-transport stdout --out-format json-lines > val.jsonl`
 - The split is applied at the end (after postprocess transforms), and assignment
   is deterministic (hash-based) with a fixed seed; no overlap across runs.
 
