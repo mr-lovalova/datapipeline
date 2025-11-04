@@ -1,9 +1,8 @@
 from collections import defaultdict
 from itertools import groupby
-from typing import Any, Iterable, Iterator, Mapping, Sequence
+from typing import Any, Iterable, Iterator, Mapping
 
 from datapipeline.pipeline.context import PipelineContext
-from datapipeline.services.artifacts import PARTITIONED_IDS_SPEC
 from datapipeline.services.constants import POSTPROCESS_TRANSFORMS, SCALER_STATISTICS
 
 from datapipeline.domain.feature import FeatureRecord, FeatureRecordSequence
@@ -16,7 +15,6 @@ from datapipeline.plugins import FEATURE_TRANSFORMS_EP, VECTOR_TRANSFORMS_EP, RE
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.pipeline.utils.keygen import FeatureIdGenerator, group_key_for
 from datapipeline.sources.models.source import Source
-from datapipeline.pipeline.split import apply_split_stage as split_stage
 
 
 def open_source_stream(context: PipelineContext, stream_alias: str) -> Source:
@@ -41,7 +39,8 @@ def apply_record_operations(
 ) -> Iterator[TemporalRecord]:
     """Apply record transforms defined in contract policies in order."""
     steps = context.runtime.registries.record_operations.get(stream_id)
-    records = apply_transforms(record_stream, RECORD_TRANSFORMS_EP, steps, context)
+    records = apply_transforms(
+        record_stream, RECORD_TRANSFORMS_EP, steps, context)
     return records
 
 
@@ -142,12 +141,15 @@ def vector_assemble_stage(
             feature_map[fr.id].extend(records)
         vector = vectorize_record_group(feature_map)
         if selected_targets:
-            feature_values = {fid: val for fid, val in vector.values.items() if fid not in selected_targets}
-            target_values = {fid: val for fid, val in vector.values.items() if fid in selected_targets}
+            feature_values = {
+                fid: val for fid, val in vector.values.items() if fid not in selected_targets}
+            target_values = {
+                fid: val for fid, val in vector.values.items() if fid in selected_targets}
             yield Sample(
                 key=group_key,
                 features=Vector(values=feature_values),
-                targets=Vector(values=target_values) if target_values else None,
+                targets=Vector(
+                    values=target_values) if target_values else None,
             )
         else:
             yield Sample(key=group_key, features=vector)
