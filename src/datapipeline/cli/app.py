@@ -48,8 +48,18 @@ def main() -> None:
         help="optional cap on the number of vectors to emit",
     )
     p_serve.add_argument(
-        "--output", "-o", default=None,
-        help="output destination: 'print', 'stream', or a file ending in .pt",
+        "--out-transport",
+        choices=["stdout", "fs"],
+        help="output transport (stdout or fs) for serve runs",
+    )
+    p_serve.add_argument(
+        "--out-format",
+        choices=["print", "json-lines", "json", "csv", "pickle"],
+        help="output format (print/json-lines/csv/pickle) for serve runs",
+    )
+    p_serve.add_argument(
+        "--out-path",
+        help="destination file path when using fs transport",
     )
     p_serve.add_argument(
         "--include-targets",
@@ -373,11 +383,13 @@ def main() -> None:
         handle_serve(
             project=args.project,
             limit=getattr(args, "limit", None),
-            output=args.output,
             include_targets=args.include_targets,
             keep=getattr(args, "keep", None),
             run_name=getattr(args, "run", None),
             stage=getattr(args, "stage", None),
+            out_transport=getattr(args, "out_transport", None),
+            out_format=getattr(args, "out_format", None),
+            out_path=getattr(args, "out_path", None),
             cli_log_level=cli_level_arg,
             base_log_level=base_level_name,
         )

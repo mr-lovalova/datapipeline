@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from datapipeline.domain.feature import FeatureRecord
+from datapipeline.domain.sample import Sample
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.transforms.feature.model import FeatureTransform
 from datapipeline.transforms.utils import clone_record_with_value
@@ -39,11 +40,12 @@ class StandardScaler(PicklePersistanceMixin):
         self.epsilon = epsilon
         self.statistics: dict[str, dict[str, float | int]] = {}
 
-    def fit(self, vectors: Iterator[tuple[Any, Any]]) -> int:
+    def fit(self, vectors: Iterator[Sample]) -> int:
         trackers: dict[str, StandardScaler._RunningStats] = defaultdict(
             self._RunningStats)
         total = 0
-        for _, vector in vectors:
+        for sample in vectors:
+            vector = sample.features
             values = getattr(vector, "values", {})
             for fid, raw in values.items():
                 for value in _iter_numeric_values(raw):

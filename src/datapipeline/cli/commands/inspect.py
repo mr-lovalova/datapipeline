@@ -42,8 +42,7 @@ def report(
     context = PipelineContext(runtime)
 
     feature_cfgs = list(dataset.features or [])
-    if include_targets:
-        feature_cfgs += list(dataset.targets or [])
+    target_cfgs = list(dataset.targets or []) if include_targets else []
     expected_feature_ids = [cfg.id for cfg in feature_cfgs]
 
     # Resolve matrix format and path
@@ -70,12 +69,20 @@ def report(
 
     # When applying transforms, let the global postprocess registry provide them (pass None).
     # When raw, pass an empty list to bypass registry/defaults.
-    vectors = build_vector_pipeline(context, feature_cfgs, dataset.group_by, stage=None)
+    vectors = build_vector_pipeline(
+        context,
+        feature_cfgs,
+        dataset.group_by,
+        stage=None,
+        target_configs=target_cfgs,
+    )
     if apply_postprocess:
         vectors = post_process(context, vectors)  # use global postprocess
 
-    for group_key, vector in vectors:
-        collector.update(group_key, vector.values)
+    for sample in vectors:
+        collector.update(sample.key, sample.features.values)
+        if sample.targets:
+            collector.update(sample.key, sample.targets.values)
 
     buffer = io.StringIO()
     with redirect_stdout(buffer):
@@ -136,8 +143,7 @@ def partitions(
     runtime = bootstrap(project_path)
 
     feature_cfgs = list(dataset.features or [])
-    if include_targets:
-        feature_cfgs += list(dataset.targets or [])
+    target_cfgs = list(dataset.targets or []) if include_targets else []
     expected_feature_ids = [cfg.id for cfg in feature_cfgs]
     collector = VectorStatsCollector(
         expected_feature_ids or None,
@@ -147,10 +153,18 @@ def partitions(
     )
 
     context = PipelineContext(runtime)
-    vectors = build_vector_pipeline(context, feature_cfgs, dataset.group_by, stage=None)
+    vectors = build_vector_pipeline(
+        context,
+        feature_cfgs,
+        dataset.group_by,
+        stage=None,
+        target_configs=target_cfgs,
+    )
     vectors = post_process(context, vectors)  # apply global postprocess
-    for group_key, vector in vectors:
-        collector.update(group_key, vector.values)
+    for sample in vectors:
+        collector.update(sample.key, sample.features.values)
+        if sample.targets:
+            collector.update(sample.key, sample.targets.values)
 
     base_artifacts = artifacts_root(project_path)
     output_path = Path(output) if output else (base_artifacts / "partitions.json")
@@ -197,14 +211,21 @@ def expected(
     runtime = bootstrap(project_path)
 
     feature_cfgs = list(dataset.features or [])
-    if include_targets:
-        feature_cfgs += list(dataset.targets or [])
+    target_cfgs = list(dataset.targets or []) if include_targets else []
 
     context = PipelineContext(runtime)
-    vectors = build_vector_pipeline(context, feature_cfgs, dataset.group_by, stage=None)
+    vectors = build_vector_pipeline(
+        context,
+        feature_cfgs,
+        dataset.group_by,
+        stage=None,
+        target_configs=target_cfgs,
+    )
     ids: set[str] = set()
-    for _, vector in vectors:
-        ids.update(vector.values.keys())
+    for sample in vectors:
+        ids.update(sample.features.values.keys())
+        if sample.targets:
+            ids.update(sample.targets.values.keys())
 
     try:
         default_path = artifacts_root(project_path) / "expected.txt"

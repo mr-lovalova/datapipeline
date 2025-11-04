@@ -6,6 +6,8 @@ from typing import Any
 
 from datapipeline.domain.feature import FeatureRecord
 from datapipeline.domain.record import TemporalRecord
+from datapipeline.domain.sample import Sample
+from datapipeline.domain.vector import Vector
 from datapipeline.transforms.feature.scaler import StandardScaler, StandardScalerTransform
 from datapipeline.transforms.stream.fill import FillTransformer as FeatureFill
 from datapipeline.transforms.vector import (
@@ -14,7 +16,6 @@ from datapipeline.transforms.vector import (
     VectorFillConstantTransform,
     VectorFillHistoryTransform,
 )
-from datapipeline.domain.vector import Vector
 
 
 def _make_time_record(value: float, hour: int) -> TemporalRecord:
@@ -31,8 +32,8 @@ def _make_feature_record(value: float, hour: int, feature_id: str) -> FeatureRec
     )
 
 
-def _make_vector(group: int, values: dict[str, Any]) -> tuple[tuple[int], Vector]:
-    return ((group,), Vector(values=values))
+def _make_vector(group: int, values: dict[str, Any]) -> Sample:
+    return Sample(key=(group,), features=Vector(values=values))
 
 
 class _StubVectorContext:
@@ -46,9 +47,9 @@ class _StubVectorContext:
 def test_standard_scaler_normalizes_feature_stream():
     training_vectors = iter(
         [
-            ((0,), Vector(values={"radiation": 1.0})),
-            ((1,), Vector(values={"radiation": 2.0})),
-            ((2,), Vector(values={"radiation": 3.0})),
+            Sample(key=(0,), features=Vector(values={"radiation": 1.0})),
+            Sample(key=(1,), features=Vector(values={"radiation": 2.0})),
+            Sample(key=(2,), features=Vector(values={"radiation": 3.0})),
         ]
     )
     scaler_model = StandardScaler()
@@ -74,8 +75,8 @@ def test_standard_scaler_normalizes_feature_stream():
 def test_standard_scaler_uses_provided_statistics():
     training_vectors = iter(
         [
-            ((0,), Vector(values={"temperature": 0.0})),
-            ((1,), Vector(values={"temperature": 10.0})),
+            Sample(key=(0,), features=Vector(values={"temperature": 0.0})),
+            Sample(key=(1,), features=Vector(values={"temperature": 10.0})),
         ]
     )
     scaler_model = StandardScaler()
@@ -97,8 +98,8 @@ def test_standard_scaler_uses_provided_statistics():
 def test_standard_scaler_fit_and_serialize(tmp_path):
     vectors = iter(
         [
-            ((0,), Vector(values={"temp": 10.0, "wind": 5.0})),
-            ((1,), Vector(values={"temp": 14.0, "wind": 7.0})),
+            Sample(key=(0,), features=Vector(values={"temp": 10.0, "wind": 5.0})),
+            Sample(key=(1,), features=Vector(values={"temp": 14.0, "wind": 7.0})),
         ]
     )
 
@@ -178,7 +179,7 @@ def test_vector_fill_history_uses_running_statistics():
     transform.bind_context(_StubVectorContext(["temp__A"]))
 
     out = list(transform.apply(stream))
-    assert out[2][1].values["temp__A"] == 11.0
+    assert out[2].features.values["temp__A"] == 11.0
 
 
 def test_vector_fill_horizontal_averages_siblings():
@@ -195,10 +196,10 @@ def test_vector_fill_horizontal_averages_siblings():
 
     out = list(transform.apply(stream))
     # First bucket remains unchanged
-    assert out[0][1].values == {"wind__A": 10.0, "wind__B": 14.0}
+    assert out[0].features.values == {"wind__A": 10.0, "wind__B": 14.0}
     # Second bucket fills missing wind__B using value from same timestamp (only A present -> not enough samples)
     # Wait we need at least min_samples=1 -> default 1 so fill uses available values
-    assert out[1][1].values["wind__B"] == 12.0
+    assert out[1].features.values["wind__B"] == 12.0
 
 
 def test_vector_fill_constant_injects_value():
@@ -206,7 +207,7 @@ def test_vector_fill_constant_injects_value():
     transform = VectorFillConstantTransform(value=0.0)
     transform.bind_context(_StubVectorContext(["time", "wind"]))
     out = list(transform.apply(stream))
-    assert out[0][1].values["wind"] == 0.0
+    assert out[0].features.values["wind"] == 0.0
 
 
 def test_vector_drop_missing_respects_coverage():
@@ -222,4 +223,32 @@ def test_vector_drop_missing_respects_coverage():
 
     out = list(transform.apply(stream))
     assert len(out) == 1
-    assert out[0][1].values == {"a": 1.0, "b": 2.0}
+    assert out[0].features.values == {"a": 1.0, "b": 2.0}
+
+
+def test_vector_fill_constant_targets_payload():
+    sample = Sample(
+        key=(0,),
+        features=Vector(values={"f": 1.0}),
+        targets=Vector(values={"t": None}),
+    )
+    transform = VectorFillConstantTransform(value=5.0, payload="targets")
+    transform.bind_context(_StubVectorContext(["t"]))
+
+    out = list(transform.apply(iter([sample])))
+
+    assert out[0].features.values == {"f": 1.0}
+    assert out[0].targets is not None
+    assert out[0].targets.values["t"] == 5.0
+
+
+def test_vector_drop_missing_targets_payload():
+    sample = Sample(
+        key=(0,),
+        features=Vector(values={"f": 1.0}),
+        targets=Vector(values={"t": None}),
+    )
+    transform = VectorDropMissingTransform(required=["t"], payload="targets")
+    transform.bind_context(_StubVectorContext(["t"]))
+
+    assert list(transform.apply(iter([sample]))) == []

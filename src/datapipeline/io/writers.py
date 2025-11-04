@@ -1,17 +1,17 @@
 from typing import Optional
 from pathlib import Path
-import json
 import csv
+import json
 import pickle
 
+from datapipeline.io.formatters import CsvRowFormatter, JsonLineFormatter, PickleFormatter
+from datapipeline.io.protocols import HeaderCapable, HasFilePath, Writer
 from datapipeline.io.sinks import (
-    StdoutTextSink,
+    AtomicBinaryFileSink,
     AtomicTextFileSink,
     GzipBinarySink,
-    AtomicBinaryFileSink,
+    StdoutTextSink,
 )
-from datapipeline.io.protocols import Writer, HeaderCapable, HasFilePath
-from datapipeline.io.formatters import JsonLineFormatter, CsvRowFormatter, PickleFormatter
 
 
 class LineWriter(Writer):
@@ -21,8 +21,8 @@ class LineWriter(Writer):
         self.sink = sink
         self.fmt = formatter
 
-    def write(self, rec: dict) -> None:
-        self.sink.write_text(self.fmt(rec))
+    def write(self, item) -> None:
+        self.sink.write_text(self.fmt(item))
 
     def close(self) -> None:
         self.sink.close()
@@ -55,6 +55,7 @@ class JsonLinesFileWriter(LineWriter, HeaderJsonlMixin, HasFilePath):
 class GzipJsonLinesWriter(Writer, HeaderCapable, HasFilePath):
     def __init__(self, dest: Path):
         self.sink = GzipBinarySink(dest)
+        self._fmt = JsonLineFormatter()
 
     @property
     def file_path(self) -> Optional[Path]:
@@ -66,10 +67,9 @@ class GzipJsonLinesWriter(Writer, HeaderCapable, HasFilePath):
              ensure_ascii=False) + "\n").encode("utf-8")
         )
 
-    def write(self, rec: dict) -> None:
-        self.sink.write_bytes(
-            (json.dumps(rec, ensure_ascii=False, default=str) + "\n").encode("utf-8")
-        )
+    def write(self, item) -> None:
+        line = self._fmt(item)
+        self.sink.write_bytes(line.encode("utf-8"))
 
     def close(self) -> None:
         self.sink.close()
@@ -86,8 +86,8 @@ class CsvFileWriter(Writer, HasFilePath):
     def file_path(self) -> Optional[Path]:
         return self.sink.file_path
 
-    def write(self, rec: dict) -> None:
-        self.writer.writerow(self._fmt(rec))
+    def write(self, item) -> None:
+        self.writer.writerow(self._fmt(item))
 
     def close(self) -> None:
         self.sink.close()
@@ -104,8 +104,8 @@ class PickleFileWriter(Writer, HasFilePath):
     def file_path(self) -> Optional[Path]:
         return self.sink.file_path
 
-    def write(self, rec: dict) -> None:
-        self.pickler.dump(self._fmt(rec))
+    def write(self, item) -> None:
+        self.pickler.dump(self._fmt(item))
 
     def close(self) -> None:
         self.sink.close()

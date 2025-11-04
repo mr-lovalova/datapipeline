@@ -1,6 +1,6 @@
 import heapq
 from collections.abc import Iterator, Sequence
-from typing import Any
+from typing import Any, Sequence
 
 from datapipeline.pipeline.utils.keygen import group_key_for
 from datapipeline.pipeline.utils.memory_sort import batch_sort
@@ -73,19 +73,28 @@ def build_vector_pipeline(
     configs: Sequence[FeatureRecordConfig],
     group_by_cadence: str,
     stage: int | None = None,
+    *,
+    target_configs: Sequence[FeatureRecordConfig] | None = None,
 ) -> Iterator[Any]:
     """Build the vector assembly pipeline.
     Stages:
       - 0..5: delegates to feature pipeline for the first configured feature
       - 6: assembled vectors
     """
-    if stage is not None and stage <= 5:
-        first = next(iter(configs))
-        return build_feature_pipeline(context, first, stage=stage)
+    all_feature_cfgs = list(configs)
+    target_cfgs = list(target_configs or [])
+    all_configs = all_feature_cfgs + target_cfgs
 
-    streams = [build_feature_pipeline(context, cfg, stage=None) for cfg in configs]
+    if stage is not None and stage <= 5:
+        primary = all_configs[0] if all_configs else None
+        if not primary:
+            return iter(() )
+        return build_feature_pipeline(context, primary, stage=stage)
+
+    streams = [build_feature_pipeline(context, cfg, stage=None) for cfg in all_configs]
     merged = heapq.merge(
         *streams, key=lambda fr: group_key_for(fr, group_by_cadence)
     )
-    vectors = vector_assemble_stage(merged, group_by_cadence)
+    target_ids = {cfg.id for cfg in target_cfgs}
+    vectors = vector_assemble_stage(merged, group_by_cadence, target_ids=target_ids)
     return vectors

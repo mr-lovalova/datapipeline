@@ -1,16 +1,32 @@
 from collections import deque
 from collections.abc import Iterator
 from statistics import mean, median
-from typing import Any, Literal, Tuple
+from typing import Any, Literal
 
+from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
 from datapipeline.transforms.vector_utils import base_id, is_missing, clone
 from datapipeline.pipeline.context import PipelineContext, try_get_current_context
 
 
+def _select_vector(sample: Sample, payload: str) -> Vector | None:
+    if payload == "targets":
+        return sample.targets
+    return sample.features
+
+
+def _replace_vector(sample: Sample, payload: str, vector: Vector) -> Sample:
+    if payload == "targets":
+        return sample.with_targets(vector)
+    return sample.with_features(vector)
+
+
 class _ContextExpectedMixin:
-    def __init__(self) -> None:
+    def __init__(self, payload: Literal["features", "targets"] = "features") -> None:
+        if payload not in {"features", "targets"}:
+            raise ValueError("payload must be 'features' or 'targets'")
         self._context: PipelineContext | None = None
+        self._payload = payload
 
     def bind_context(self, context: PipelineContext) -> None:
         self._context = context
@@ -30,19 +46,24 @@ class VectorDropMissingTransform(_ContextExpectedMixin):
         *,
         required: list[str] | None = None,
         min_coverage: float = 1.0,
+        payload: Literal["features", "targets"] = "features",
     ) -> None:
-        super().__init__()
+        super().__init__(payload=payload)
         if not 0.0 <= min_coverage <= 1.0:
             raise ValueError("min_coverage must be between 0 and 1")
         self.required = {str(item) for item in (required or [])}
         self.min_coverage = min_coverage
         # Always operate on full (partition) ids
 
-    def __call__(self, stream: Iterator[Tuple[Any, Vector]]) -> Iterator[Tuple[Any, Vector]]:
+    def __call__(self, stream: Iterator[Sample]) -> Iterator[Sample]:
         return self.apply(stream)
 
-    def apply(self, stream: Iterator[Tuple[Any, Vector]]) -> Iterator[Tuple[Any, Vector]]:
-        for group_key, vector in stream:
+    def apply(self, stream: Iterator[Sample]) -> Iterator[Sample]:
+        for sample in stream:
+            vector = _select_vector(sample, self._payload)
+            if vector is None:
+                yield sample
+                continue
             present = {fid for fid, value in vector.values.items()
                        if not is_missing(value)}
             # Enforce hard requirements first (normalize required keys for fair comparison)
@@ -56,7 +77,7 @@ class VectorDropMissingTransform(_ContextExpectedMixin):
                 coverage = len(present & baseline) / len(baseline)
                 if coverage < self.min_coverage:
                     continue
-            yield group_key, vector
+            yield sample
 
 
 class VectorFillConstantTransform(_ContextExpectedMixin):
@@ -66,18 +87,23 @@ class VectorFillConstantTransform(_ContextExpectedMixin):
         self,
         *,
         value: Any,
+        payload: Literal["features", "targets"] = "features",
     ) -> None:
-        super().__init__()
+        super().__init__(payload=payload)
         self.value = value
 
-    def __call__(self, stream: Iterator[Tuple[Any, Vector]]) -> Iterator[Tuple[Any, Vector]]:
+    def __call__(self, stream: Iterator[Sample]) -> Iterator[Sample]:
         return self.apply(stream)
 
-    def apply(self, stream: Iterator[Tuple[Any, Vector]]) -> Iterator[Tuple[Any, Vector]]:
-        for group_key, vector in stream:
+    def apply(self, stream: Iterator[Sample]) -> Iterator[Sample]:
+        for sample in stream:
+            vector = _select_vector(sample, self._payload)
+            if vector is None:
+                yield sample
+                continue
             targets = self._expected_ids()
             if not targets:
-                yield group_key, vector
+                yield sample
                 continue
             data = clone(vector.values)
             updated = False
@@ -86,9 +112,9 @@ class VectorFillConstantTransform(_ContextExpectedMixin):
                     data[feature] = self.value
                     updated = True
             if updated:
-                yield group_key, Vector(values=data)
+                yield _replace_vector(sample, self._payload, Vector(values=data))
             else:
-                yield group_key, vector
+                yield sample
 
 
 class VectorFillHistoryTransform(_ContextExpectedMixin):
@@ -100,8 +126,9 @@ class VectorFillHistoryTransform(_ContextExpectedMixin):
         statistic: Literal["mean", "median"] = "median",
         window: int | None = None,
         min_samples: int = 1,
+        payload: Literal["features", "targets"] = "features",
     ) -> None:
-        super().__init__()
+        super().__init__(payload=payload)
         if window is not None and window <= 0:
             raise ValueError("window must be positive when provided")
         if min_samples <= 0:
@@ -131,11 +158,15 @@ class VectorFillHistoryTransform(_ContextExpectedMixin):
             str(feature_id), deque(maxlen=self.window))
         bucket.append(num)
 
-    def __call__(self, stream: Iterator[Tuple[Any, Vector]]) -> Iterator[Tuple[Any, Vector]]:
+    def __call__(self, stream: Iterator[Sample]) -> Iterator[Sample]:
         return self.apply(stream)
 
-    def apply(self, stream: Iterator[Tuple[Any, Vector]]) -> Iterator[Tuple[Any, Vector]]:
-        for group_key, vector in stream:
+    def apply(self, stream: Iterator[Sample]) -> Iterator[Sample]:
+        for sample in stream:
+            vector = _select_vector(sample, self._payload)
+            if vector is None:
+                yield sample
+                continue
             targets = self._expected_ids()
             data = clone(vector.values)
             updated = False
@@ -150,9 +181,9 @@ class VectorFillHistoryTransform(_ContextExpectedMixin):
             for fid, value in data.items():
                 self._push(fid, value)
             if updated:
-                yield group_key, Vector(values=data)
+                yield _replace_vector(sample, self._payload, Vector(values=data))
             else:
-                yield group_key, vector
+                yield sample
 
 
 class VectorFillAcrossPartitionsTransform(_ContextExpectedMixin):
@@ -163,22 +194,27 @@ class VectorFillAcrossPartitionsTransform(_ContextExpectedMixin):
         *,
         statistic: Literal["mean", "median"] = "median",
         min_samples: int = 1,
+        payload: Literal["features", "targets"] = "features",
     ) -> None:
-        super().__init__()
+        super().__init__(payload=payload)
         if min_samples <= 0:
             raise ValueError("min_samples must be positive")
         self.statistic = statistic
         self.min_samples = min_samples
         # Always operate on full (partition) ids
 
-    def __call__(self, stream: Iterator[Tuple[Any, Vector]]) -> Iterator[Tuple[Any, Vector]]:
+    def __call__(self, stream: Iterator[Sample]) -> Iterator[Sample]:
         return self.apply(stream)
 
-    def apply(self, stream: Iterator[Tuple[Any, Vector]]) -> Iterator[Tuple[Any, Vector]]:
-        for group_key, vector in stream:
+    def apply(self, stream: Iterator[Sample]) -> Iterator[Sample]:
+        for sample in stream:
+            vector = _select_vector(sample, self._payload)
+            if vector is None:
+                yield sample
+                continue
             targets = self._expected_ids()
             if not targets:
-                yield group_key, vector
+                yield sample
                 continue
 
             data = clone(vector.values)
@@ -205,6 +241,6 @@ class VectorFillAcrossPartitionsTransform(_ContextExpectedMixin):
                 data[feature] = float(fill)
                 updated = True
             if updated:
-                yield group_key, Vector(values=data)
+                yield _replace_vector(sample, self._payload, Vector(values=data))
             else:
-                yield group_key, vector
+                yield sample

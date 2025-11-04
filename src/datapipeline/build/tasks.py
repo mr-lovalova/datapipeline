@@ -6,6 +6,7 @@ from typing import Dict, Iterable, Iterator, Sequence, Tuple
 
 from datapipeline.config.build import BuildConfig
 from datapipeline.config.dataset.loader import load_dataset
+from datapipeline.domain.sample import Sample
 from datapipeline.pipeline.context import PipelineContext
 from datapipeline.pipeline.pipelines import build_vector_pipeline
 from datapipeline.pipeline.split import build_labeler
@@ -76,18 +77,24 @@ def compute_config_hash(project_yaml: Path, build_config_path: Path) -> str:
 def _collect_partitioned_ids(runtime: Runtime, include_targets: bool) -> Sequence[str]:
     dataset = load_dataset(runtime.project_yaml, "vectors")
     feature_cfgs = list(dataset.features or [])
-    if include_targets:
-        feature_cfgs += list(dataset.targets or [])
+    target_cfgs = list(dataset.targets or []) if include_targets else []
 
-    sanitized = [cfg.model_copy(update={"scale": False})
-                 for cfg in feature_cfgs]
+    sanitized_features = [cfg.model_copy(update={"scale": False}) for cfg in feature_cfgs]
+    sanitized_targets = [cfg.model_copy(update={"scale": False}) for cfg in target_cfgs]
 
     ids: set[str] = set()
     context = PipelineContext(runtime)
     vectors = build_vector_pipeline(
-        context, sanitized, dataset.group_by, stage=None)
-    for _, vector in vectors:
-        ids.update(vector.values.keys())
+        context,
+        sanitized_features,
+        dataset.group_by,
+        stage=None,
+        target_configs=sanitized_targets,
+    )
+    for sample in vectors:
+        ids.update(sample.features.values.keys())
+        if sample.targets:
+            ids.update(sample.targets.values.keys())
     return sorted(ids)
 
 
@@ -115,19 +122,22 @@ def materialize_scaler_statistics(runtime: Runtime, config: BuildConfig) -> Tupl
         return None
 
     dataset = load_dataset(runtime.project_yaml, "vectors")
-    feature_cfgs = list(dataset.features)
-    if not feature_cfgs and not task_cfg.include_targets:
+    feature_cfgs = list(dataset.features or [])
+    target_cfgs = list(dataset.targets or []) if task_cfg.include_targets else []
+    if not feature_cfgs and not target_cfgs:
         return None
 
-    if task_cfg.include_targets:
-        feature_cfgs += list(dataset.targets or [])
-
-    sanitized_cfgs = [cfg.model_copy(
-        update={"scale": False}) for cfg in feature_cfgs]
+    sanitized_features = [cfg.model_copy(update={"scale": False}) for cfg in feature_cfgs]
+    sanitized_targets = [cfg.model_copy(update={"scale": False}) for cfg in target_cfgs]
 
     context = PipelineContext(runtime)
     vectors = build_vector_pipeline(
-        context, sanitized_cfgs, dataset.group_by, stage=None)
+        context,
+        sanitized_features,
+        dataset.group_by,
+        stage=None,
+        target_configs=sanitized_targets,
+    )
 
     cfg = getattr(runtime, "split", None)
     labeler = build_labeler(cfg) if cfg else None
@@ -137,11 +147,11 @@ def materialize_scaler_statistics(runtime: Runtime, config: BuildConfig) -> Tupl
             "when no split configuration is defined in the project."
         )
 
-    def _train_stream() -> Iterator[tuple[object, object]]:
-        for group_key, vector in vectors:
-            if labeler and labeler.label(group_key, vector) != task_cfg.split_label:
+    def _train_stream() -> Iterator[Sample]:
+        for sample in vectors:
+            if labeler and labeler.label(sample.key, sample.features) != task_cfg.split_label:
                 continue
-            yield group_key, vector
+            yield sample
 
     scaler = StandardScaler()
     total_observations = scaler.fit(_train_stream())

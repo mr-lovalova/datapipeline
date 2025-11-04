@@ -61,7 +61,7 @@ def _register_scaler(runtime: Runtime, configs: list[FeatureRecordConfig], group
     vectors = build_vector_pipeline(context, sanitized, group_by, stage=None)
 
     scaler = StandardScaler()
-    total = scaler.fit(((group_key, vector) for group_key, vector in vectors))
+    total = scaler.fit(vectors)
     if not total:
         raise RuntimeError(
             "Unable to compute scaler statistics for test runtime.")
@@ -122,8 +122,8 @@ def test_regression_scaled_shapes_airpressure_high_freq_and_windspeed_hourly(tmp
     assert len(out) == 2
 
     # Shapes: air_pressure -> lists (multiple per hour); wind_speed -> scalars (single per hour)
-    v0 = out[0][1].values
-    v1 = out[1][1].values
+    v0 = out[0].features.values
+    v1 = out[1].features.values
 
     assert isinstance(v0["air_pressure"], list) and len(
         v0["air_pressure"]) == 3
@@ -185,7 +185,7 @@ def test_regression_fill_then_scale_with_missing_values(tmp_path) -> None:
     # One hour group
     assert len(out) == 2  # hours 00 and 01 due to wind_speed hour 1
 
-    v0 = out[0][1].values
+    v0 = out[0].features.values
     # air_pressure list length = 3 with middle filled (not None)
     assert isinstance(v0["air_pressure"], list) and len(
         v0["air_pressure"]) == 3
@@ -193,7 +193,7 @@ def test_regression_fill_then_scale_with_missing_values(tmp_path) -> None:
                for x in v0["air_pressure"])  # filled and scaled
 
     # wind_speed hour 0 present and scaled; hour 1 present due to fill then scale
-    v1 = out[1][1].values
+    v1 = out[1].features.values
     assert not isinstance(v0["wind_speed"], list)
     assert not isinstance(v1["wind_speed"], list)
 
@@ -243,7 +243,7 @@ def test_regression_vector_transforms_fill_horizontal_history_and_drop(tmp_path)
 
     # Two hourly vectors should be present after horizontal fill + drop
     assert len(out) == 2
-    v0 = out[0][1].values
-    v1 = out[1][1].values
+    v0 = out[0].features.values
+    v1 = out[1].features.values
     assert v0["wind_speed__A"] == 10.0 and v0["wind_speed__B"] == 10.0
     assert v1["wind_speed__A"] == 12.0 and v1["wind_speed__B"] == 12.0

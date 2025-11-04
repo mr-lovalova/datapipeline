@@ -5,7 +5,7 @@ keep: test
 # Optional defaults for jerry serve (override via CLI when needed).
 output:
   transport: stdout
-  format: print # print | json-lines
+  format: print # print | json-lines | json | csv | pickle
 limit: 100 # max vectors per serve run (null = unlimited)
 include_targets: false # serve dataset.targets alongside features
 stage: null # default pipeline stage preview (0-7); null streams full pipeline

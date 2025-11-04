@@ -1,5 +1,3 @@
-from pathlib import Path
-
 from datapipeline.io.writers import (
     JsonLinesFileWriter,
     JsonLinesStdoutWriter,
@@ -15,28 +13,29 @@ from datapipeline.io.output import OutputTarget
 
 
 def writer_factory(target: OutputTarget) -> Writer:
-    kind = target.writer_kind
-    destination = target.destination
+    transport = target.transport.lower()
+    format_ = target.format.lower()
 
-    if destination is not None:
-        destination.parent.mkdir(parents=True, exist_ok=True)
-
-    match kind:
-        case "stdout.jsonl":
+    if transport == "stdout":
+        if format_ in {"json-lines", "json", "jsonl"}:
             return JsonLinesStdoutWriter()
-        case "stdout.print":
+        if format_ == "print":
             return LineWriter(StdoutTextSink(), PrintLineFormatter())
-        case "file.jsonl":
-            assert destination is not None
-            return JsonLinesFileWriter(destination)
-        case "file.jsonl.gz":
-            assert destination is not None
+        raise ValueError(f"Unsupported stdout format '{target.format}'")
+
+    destination = target.destination
+    if destination is None:
+        raise ValueError("fs output requires a destination path")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+
+    suffix = "".join(destination.suffixes).lower()
+    if format_ in {"json-lines", "json", "jsonl"}:
+        if suffix.endswith(".jsonl.gz") or suffix.endswith(".json.gz") or suffix.endswith(".gz"):
             return GzipJsonLinesWriter(destination)
-        case "file.csv":
-            assert destination is not None
-            return CsvFileWriter(destination)
-        case "file.pickle":
-            assert destination is not None
-            return PickleFileWriter(destination)
-        case _:
-            raise ValueError(f"Unknown writer kind: {kind}")
+        return JsonLinesFileWriter(destination)
+    if format_ == "csv":
+        return CsvFileWriter(destination)
+    if format_ == "pickle":
+        return PickleFileWriter(destination)
+
+    raise ValueError(f"Unsupported fs format '{target.format}'")

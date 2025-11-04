@@ -44,7 +44,7 @@ jerry domain add --domain weather
 # 4. Configure dataset/postprocess/build files in config/datasets/<name>/.
 #    Then preview the pipeline and serve a few vectors:
 jerry serve --project config/datasets/default/project.yaml --stage 2 --limit 5
-jerry serve --project config/datasets/default/project.yaml --output print --limit 3
+jerry serve --project config/datasets/default/project.yaml --limit 3
 
 # 5. Inspect coverage and build artifacts:
 jerry inspect report --project config/datasets/default/project.yaml
@@ -128,7 +128,7 @@ version: 1
 keep: train # set to any label defined in globals.split (null disables filtering)
 output:
   transport: stdout # stdout | fs
-  format: print # print | json-lines
+  format: print # print | json-lines | json | csv | pickle
 limit: 100 # cap vectors per serve run (null = unlimited)
 include_targets: false
 throttle_ms: null # sleep between vectors (milliseconds)
@@ -138,6 +138,7 @@ log_level: INFO # DEBUG=progress bars, INFO=spinner, WARNING=quiet (null inherit
 - `keep` selects the currently served split. This file is referenced by `project.paths.run`.
 - `output`, `limit`, `include_targets`, `throttle_ms`, and `log_level` provide defaults for `jerry serve`; CLI flags still win per invocation. For filesystem outputs, set `transport: fs`, `path: /path/to/file.jsonl`, and the desired `format`.
 - Override `keep` (and other fields) per invocation via `jerry serve ... --keep val` etc.
+- Override output transport/format via run.yaml or the CLI flags `--out-transport`, `--out-format`, and `--out-path`.
 - To manage multiple runs, point `project.paths.run` at a folder (e.g., `config/datasets/default/runs/`)
   and drop additional `*.yaml` files there. `jerry serve` will run each file in order; pass
   `--run train` to execute only `runs/train.yaml`.
@@ -231,19 +232,20 @@ Project-scoped vector transforms that run after assembly and before serving.
 - drop_missing:
     required: [temp_c__station=001]
     min_coverage: 0.95
-- fill_constant: { value: 0.0 }
 - fill_history:
     statistic: median
     window: 48
     min_samples: 6
-- fill_horizontal:
-    statistic: mean
-    min_samples: 2
+- fill_constant:
+    payload: targets
+    value: 0.0
 ```
 
+- Each transform receives a `Sample`; set `payload: targets` when you want to
+  mutate label vectors, otherwise the feature vector is used.
 - Vector transforms rely on artifacts (expected IDs, scaler stats) to decide
-  which features should be present.
-- When no transforms are configured the stream passes through unchanged.
+  which identifiers should be present. When no transforms are configured the
+  stream passes through unchanged.
 
 ### `build.yaml`
 
@@ -284,8 +286,9 @@ Pass `--help` on any command for flags.
   - Stage 6: vectors assembled (no postprocess)
   - Stage 7: vectors + postprocess transforms
   - Use `--log-level DEBUG` for progress bars, `--log-level INFO` for spinner + prints, or the default (`WARNING`) for minimal output.
-- `jerry serve --project <project.yaml> --output print|stream|path.pt|path.csv|path.jsonl.gz --limit N [--include-targets] [--log-level LEVEL] [--run name]`
+- `jerry serve --project <project.yaml> --out-transport stdout --out-format json-lines --limit N [--include-targets] [--log-level LEVEL] [--run name]`
   - Applies postprocess transforms and optional dataset split before emitting.
+  - Use `--out-transport fs --out-format json-lines --out-path build/vectors.jsonl` (or `csv`, `pickle`, etc.) to write artifacts to disk instead of stdout.
   - Set `--log-level DEBUG` (or set `run.yaml` -> `log_level: DEBUG`) to reuse the tqdm progress bars when previewing stages.
   - When `project.paths.run` is a directory, add `--run val` (filename stem) to target a single config; otherwise every run file is executed sequentially.
   - Argument precedence: CLI flags > run.yaml > built‑in defaults.

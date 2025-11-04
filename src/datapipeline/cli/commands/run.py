@@ -1,15 +1,14 @@
+import logging
 import time
 from itertools import islice
 from pathlib import Path
-from typing import Iterator, List, Optional, Tuple, Union
-
-import logging
+from typing import Iterator, List, Optional, Union
 
 from datapipeline.cli.visuals import visual_sources
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.dataset.loader import load_dataset
-from datapipeline.config.run import RunConfig, load_named_run_configs
-from datapipeline.domain.vector import Vector
+from datapipeline.config.run import OutputConfig, RunConfig, load_named_run_configs
+from datapipeline.domain.sample import Sample
 from datapipeline.pipeline.context import PipelineContext
 from datapipeline.pipeline.pipelines import build_vector_pipeline
 from datapipeline.pipeline.stages import post_process, split_stage
@@ -22,7 +21,6 @@ from datapipeline.io.output import (
     resolve_output_target,
 )
 from datapipeline.io.protocols import Writer
-from datapipeline.io.serialization import normalize_output_record
 from tqdm.contrib.logging import logging_redirect_tqdm
 
 logger = logging.getLogger(__name__)
@@ -43,7 +41,7 @@ def _coerce_log_level(
     return logging._nameToLevel[name]
 
 
-def _resolve_run_entries(project_path: Path, run_name: Optional[str]) -> List[Tuple[Optional[str], Optional[RunConfig]]]:
+def _resolve_run_entries(project_path: Path, run_name: Optional[str]) -> List[tuple[Optional[str], Optional[RunConfig]]]:
     try:
         entries = load_named_run_configs(project_path)
     except FileNotFoundError:
@@ -70,7 +68,7 @@ def _iter_runtime_runs(
     project_path: Path,
     run_name: Optional[str],
     keep_override: Optional[str],
-) -> Iterator[Tuple[int, int, Optional[str], Runtime]]:
+) -> Iterator[tuple[int, int, Optional[str], Runtime]]:
     run_entries = _resolve_run_entries(project_path, run_name)
     total_runs = len(run_entries)
     for idx, (entry_name, run_cfg) in enumerate(run_entries, start=1):
@@ -84,14 +82,14 @@ def _iter_runtime_runs(
         yield idx, total_runs, entry_name, runtime
 
 
-def _limit_items(items: Iterator[Tuple[object, object]], limit: Optional[int]) -> Iterator[Tuple[object, object]]:
+def _limit_items(items: Iterator[object], limit: Optional[int]) -> Iterator[object]:
     if limit is None:
         yield from items
     else:
         yield from islice(items, limit)
 
 
-def _throttle_vectors(vectors: Iterator[Tuple[object, Vector]], throttle_ms: Optional[float]) -> Iterator[Tuple[object, Vector]]:
+def _throttle_vectors(vectors: Iterator[Sample], throttle_ms: Optional[float]) -> Iterator[Sample]:
     if not throttle_ms or throttle_ms <= 0:
         yield from vectors
         return
@@ -102,18 +100,15 @@ def _throttle_vectors(vectors: Iterator[Tuple[object, Vector]], throttle_ms: Opt
 
 
 def _serve(
-    items: Iterator[Tuple[object, object]],
+    items: Iterator[object],
     limit: Optional[int],
-    stage: Optional[int],
-    *,
     writer: Writer,
 ) -> int:
-    """Iterate, normalize, write, return count. Writers do only I/O."""
+    """Iterate, write raw items, return count."""
     count = 0
     try:
-        for key, payload in _limit_items(items, limit):
-            record = normalize_output_record(key, payload, stage=stage)
-            writer.write(record)
+        for item in _limit_items(items, limit):
+            writer.write(item)
             count += 1
     except KeyboardInterrupt:
         pass
@@ -126,28 +121,10 @@ def _report_end(target: OutputTarget, count: int) -> None:
     if target.destination:
         logger.info("Saved %d items to %s", count, target.destination)
         return
-    if target.writer_kind == "stdout.jsonl":
+    if target.transport == "stdout" and target.format in {"json-lines", "json", "jsonl"}:
         logger.info("(streamed %d items)", count)
     else:
         logger.info("(printed %d items to stdout)", count)
-
-
-def _target_for_feature(base: OutputTarget, feature_id: str) -> OutputTarget:
-    if base.destination is None:
-        return OutputTarget(writer_kind=base.writer_kind, destination=None)
-    dest = base.destination
-    safe_feature = "".join(
-        ch if ch.isalnum() or ch in ("_", "-", ".") else "_"
-        for ch in str(feature_id)
-    )
-    suffix = "".join(dest.suffixes)
-    if suffix:
-        stem = dest.name[: -len(suffix)]
-    else:
-        stem = dest.name
-    new_name = f"{stem}.{safe_feature}{suffix}"
-    new_path = dest.with_name(new_name)
-    return OutputTarget(writer_kind=base.writer_kind, destination=new_path)
 
 
 def _serve_with_runtime(
@@ -164,35 +141,35 @@ def _serve_with_runtime(
 ) -> None:
     context = PipelineContext(runtime)
 
-    features = list(dataset.features or [])
-    if include_targets:
-        features += list(dataset.targets or [])
+    feature_cfgs = list(dataset.features or [])
+    target_cfgs = list(dataset.targets or []) if include_targets else []
+    preview_cfgs = feature_cfgs + target_cfgs
 
-    if not features:
+    if not preview_cfgs:
         logger.warning("(no features configured; nothing to serve)")
         return
 
     if stage is not None and stage <= 5:
-        for cfg in features:
+        for cfg in preview_cfgs:
             stream = build_vector_pipeline(
                 context,
                 [cfg],
                 dataset.group_by,
                 stage=stage,
             )
-            items = ((cfg.id, item) for item in stream)
-            feature_target = _target_for_feature(target, cfg.id)
+            feature_target = target.for_feature(cfg.id)
             writer = writer_factory(feature_target)
-            count = _serve(items, limit, stage=stage, writer=writer)
+            count = _serve(stream, limit, writer=writer)
             _report_end(feature_target, count)
         return
 
     vector_stage = 6 if stage in (6, 7) else None
     vectors = build_vector_pipeline(
         context,
-        features,
+        feature_cfgs,
         dataset.group_by,
         stage=vector_stage,
+        target_configs=target_cfgs,
     )
 
     if stage in (None, 7):
@@ -202,7 +179,7 @@ def _serve_with_runtime(
         vectors = _throttle_vectors(vectors, throttle_ms)
 
     writer = writer_factory(target)
-    result_count = _serve(vectors, limit, stage=stage, writer=writer)
+    result_count = _serve(vectors, limit, writer=writer)
     _report_end(target, result_count)
 
 
@@ -210,7 +187,7 @@ def _execute_runs(
     project_path: Path,
     stage: Optional[int],
     limit: Optional[int],
-    output: Optional[str],
+    cli_output: OutputConfig | None,
     include_targets: Optional[bool],
     keep: Optional[str],
     run_name: Optional[str],
@@ -250,9 +227,8 @@ def _execute_runs(
 
         try:
             target = resolve_output_target(
-                cli_output=output,
+                cli_output=cli_output,
                 config_output=getattr(run, "output", None) if run else None,
-                default="print",
                 base_path=project_path.parent,
             )
         except OutputResolutionError as exc:
@@ -281,24 +257,52 @@ def _execute_runs(
                 )
 
 
+def _build_cli_output_config(
+    transport: Optional[str],
+    fmt: Optional[str],
+    path: Optional[str],
+) -> OutputConfig | None:
+    if transport is None and fmt is None and path is None:
+        return None
+    if not transport or not fmt:
+        logger.error(
+            "--out-transport and --out-format must be provided together")
+        raise SystemExit(2)
+    transport = transport.lower()
+    fmt = fmt.lower()
+    if transport == "fs":
+        if not path:
+            logger.error("--out-path is required when --out-transport=fs")
+            raise SystemExit(2)
+        return OutputConfig(transport="fs", format=fmt, path=Path(path))
+    if path:
+        logger.error("--out-path is only valid when --out-transport=fs")
+        raise SystemExit(2)
+    return OutputConfig(transport="stdout", format=fmt, path=None)
+
+
 def handle_serve(
     project: str,
     limit: Optional[int],
-    output: Optional[str],
     include_targets: Optional[bool] = None,
     keep: Optional[str] = None,
     run_name: Optional[str] = None,
     stage: Optional[int] = None,
+    out_transport: Optional[str] = None,
+    out_format: Optional[str] = None,
+    out_path: Optional[str] = None,
     *,
     cli_log_level: Optional[str],
     base_log_level: str,
 ) -> None:
     project_path = Path(project)
+    cli_output_cfg = _build_cli_output_config(
+        out_transport, out_format, out_path)
     _execute_runs(
         project_path=project_path,
         stage=stage,
         limit=limit,
-        output=output,
+        cli_output=cli_output_cfg,
         include_targets=include_targets,
         keep=keep,
         run_name=run_name,

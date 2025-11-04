@@ -1,8 +1,9 @@
 import hashlib
-from collections.abc import Iterator, Mapping, MutableMapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from datetime import datetime
-from typing import Any, Literal, Tuple
+from typing import Any, Literal
 
+from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
 from datapipeline.config.split import (
     SplitConfig,
@@ -121,24 +122,25 @@ class VectorSplitApplicator:
                 self._keep is None or self._keep_placeholder)
         )
 
-    def __call__(self, stream: Iterator[Tuple[Any, Vector]]) -> Iterator[Tuple[Any, Vector]]:
+    def __call__(self, stream: Iterator[Sample]) -> Iterator[Sample]:
         return self.apply(stream)
 
-    def apply(self, stream: Iterator[Tuple[Any, Vector]]) -> Iterator[Tuple[Any, Vector]]:
-        for group_key, vector in stream:
+    def apply(self, stream: Iterator[Sample]) -> Iterator[Sample]:
+        for sample in stream:
+            group_key, vector = sample.key, sample.features
             label = self._labeler.label(group_key, vector)
             if self._output == "filter":
                 if not self._filter_enabled:
-                    yield group_key, vector
+                    yield sample
                     continue
                 if label == self._keep:
-                    yield group_key, vector
+                    yield sample
                 else:
                     continue
             else:
                 data = clone(vector.values)
                 data[self._field] = label
-                yield group_key, Vector(values=data)
+                yield sample.with_features(Vector(values=data))
 
 
 def build_labeler(cfg: SplitConfig) -> BaseLabeler:
@@ -153,7 +155,7 @@ def build_applicator(cfg: SplitConfig, keep: str | None = None) -> VectorSplitAp
     return VectorSplitApplicator(labeler=labeler, output="filter", keep=selected)
 
 
-def apply_split_stage(runtime, stream: Iterator[Tuple[Any, Vector]]) -> Iterator[Tuple[Any, Vector]]:
+def apply_split_stage(runtime, stream: Iterator[Sample]) -> Iterator[Sample]:
     """Apply project-configured split at the end of the vector pipeline.
 
     Reads `runtime.split` (set during bootstrap from project.globals.split) and,

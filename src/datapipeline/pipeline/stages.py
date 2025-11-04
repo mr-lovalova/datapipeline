@@ -1,12 +1,14 @@
 from collections import defaultdict
 from itertools import groupby
-from typing import Any, Iterable, Iterator, Tuple, Mapping
+from typing import Any, Iterable, Iterator, Mapping, Sequence
+
 from datapipeline.pipeline.context import PipelineContext
 from datapipeline.services.artifacts import PARTITIONED_IDS_SPEC
 from datapipeline.services.constants import POSTPROCESS_TRANSFORMS, SCALER_STATISTICS
 
 from datapipeline.domain.feature import FeatureRecord, FeatureRecordSequence
 from datapipeline.domain.vector import Vector, vectorize_record_group
+from datapipeline.domain.sample import Sample
 from datapipeline.pipeline.utils.memory_sort import batch_sort
 from datapipeline.pipeline.utils.transform_utils import apply_transforms
 from datapipeline.plugins import FEATURE_TRANSFORMS_EP, VECTOR_TRANSFORMS_EP, RECORD_TRANSFORMS_EP, STREAM_TRANFORMS_EP, DEBUG_TRANSFORMS_EP
@@ -121,10 +123,12 @@ def apply_feature_transforms(
 def vector_assemble_stage(
     merged: Iterator[FeatureRecord | FeatureRecordSequence],
     group_by_cadence: str,
-) -> Iterator[Tuple[Any, Vector]]:
-    """Group the merged feature stream by group_key.
-    Coalesce each partitioned feature_id into record buckets.
-    Yield (group_key, Vector) pairs ready for downstream consumption."""
+    *,
+    target_ids: set[str] | None = None,
+) -> Iterator[Sample]:
+    """Group the merged feature stream by group_key and emit `Sample` objects."""
+
+    selected_targets = set(target_ids or ())
 
     for group_key, group in groupby(
         merged, key=lambda fr: group_key_for(fr, group_by_cadence)
@@ -136,13 +140,23 @@ def vector_assemble_stage(
             else:
                 records = [fr.record]
             feature_map[fr.id].extend(records)
-        yield group_key, vectorize_record_group(feature_map)
+        vector = vectorize_record_group(feature_map)
+        if selected_targets:
+            feature_values = {fid: val for fid, val in vector.values.items() if fid not in selected_targets}
+            target_values = {fid: val for fid, val in vector.values.items() if fid in selected_targets}
+            yield Sample(
+                key=group_key,
+                features=Vector(values=feature_values),
+                targets=Vector(values=target_values) if target_values else None,
+            )
+        else:
+            yield Sample(key=group_key, features=vector)
 
 
 def post_process(
     context: PipelineContext,
-    stream: Iterator[Tuple[Any, Vector]],
-) -> Iterator[Tuple[Any, Vector]]:
+    stream: Iterator[Sample],
+) -> Iterator[Sample]:
     """Apply project-scoped postprocess transforms (from registry).
 
     Explicit prereq artifact flow:
