@@ -7,7 +7,6 @@ from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
 from datapipeline.config.split import (
     SplitConfig,
-    HashSplitConfig,
     TimeSplitConfig,
 )
 

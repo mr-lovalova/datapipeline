@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 from datapipeline.utils.load import load_yaml
 from datapipeline.config.catalog import StreamsConfig
@@ -9,7 +9,6 @@ from datapipeline.build.state import load_build_state
 from datapipeline.services.constants import (
     PARSER_KEY,
     LOADER_KEY,
-    SOURCE_KEY,
     SOURCE_ID_KEY,
     MAPPER_KEY,
     ENTRYPOINT_KEY,
@@ -28,9 +27,7 @@ from .config import (
     _globals,
     _interpolate,
     _load_by_key,
-    _paths,
     _project,
-    _project_vars,
 )
 
 
