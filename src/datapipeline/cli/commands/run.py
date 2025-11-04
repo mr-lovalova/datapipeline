@@ -11,7 +11,8 @@ from datapipeline.config.run import OutputConfig, RunConfig, load_named_run_conf
 from datapipeline.domain.sample import Sample
 from datapipeline.pipeline.context import PipelineContext
 from datapipeline.pipeline.pipelines import build_vector_pipeline
-from datapipeline.pipeline.stages import post_process, split_stage
+from datapipeline.pipeline.stages import post_process
+from datapipeline.pipeline.split import apply_split_stage
 from datapipeline.runtime import Runtime
 from datapipeline.services.bootstrap import bootstrap
 from datapipeline.io.factory import writer_factory
@@ -172,7 +173,7 @@ def _serve_with_runtime(
     if stage in (None, 7):
         vectors = post_process(context, vectors)
     if stage is None:
-        vectors = split_stage(runtime, vectors)
+        vectors = apply_split_stage(runtime, vectors)
         vectors = _throttle_vectors(vectors, throttle_ms)
 
     writer = writer_factory(target)
