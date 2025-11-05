@@ -288,12 +288,23 @@ def handle_serve(
     out_transport: Optional[str] = None,
     out_format: Optional[str] = None,
     out_path: Optional[str] = None,
+    skip_build: bool = False,
     *,
     cli_log_level: Optional[str],
     base_log_level: str,
 ) -> None:
     project_path = Path(project)
-    run_build_if_needed(project_path, ensure_level=logging.INFO)
+    skip_reason = None
+    if skip_build:
+        skip_reason = "--skip-build flag provided"
+    elif stage is not None and stage <= 5:
+        skip_reason = f"stage {stage} preview"
+
+    if skip_reason:
+        logger.info("Skipping build (%s).", skip_reason)
+    else:
+        run_build_if_needed(project_path, ensure_level=logging.INFO)
+
     cli_output_cfg = _build_cli_output_config(
         out_transport, out_format, out_path)
     _execute_runs(

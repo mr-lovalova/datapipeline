@@ -43,6 +43,7 @@ jerry domain add --domain weather
 
 # 4. Configure dataset/postprocess/build files in config/datasets/<name>/.
 #    Then preview the pipeline and serve a few vectors:
+#    Add --skip-build when you only need a quick feature peek.
 jerry serve --project config/datasets/default/project.yaml --stage 2 --limit 5
 jerry serve --project config/datasets/default/project.yaml --limit 3
 
@@ -287,13 +288,14 @@ Pass `--help` on any command for flags.
   - Stage 6: vectors assembled (no postprocess)
   - Stage 7: vectors + postprocess transforms
   - Use `--log-level DEBUG` for progress bars, `--log-level INFO` for spinner + prints, or the default (`WARNING`) for minimal output.
-  - Ensures build artifacts are current before streaming; the build step only runs when the configuration hash changes.
+  - Ensures build artifacts are current before streaming; the build step only runs when the configuration hash changes unless you pass `--stage` 0-5 (auto-skip) or opt out with `--skip-build`.
 - `jerry serve --project <project.yaml> --out-transport stdout --out-format json-lines --limit N [--include-targets] [--log-level LEVEL] [--run name]`
   - Applies postprocess transforms and optional dataset split before emitting.
   - Use `--out-transport fs --out-format json-lines --out-path build/vectors.jsonl` (or `csv`, `pickle`, etc.) to write artifacts to disk instead of stdout.
   - Set `--log-level DEBUG` (or set `run.yaml` -> `log_level: DEBUG`) to reuse the tqdm progress bars when previewing stages.
   - When `project.paths.run` is a directory, add `--run val` (filename stem) to target a single config; otherwise every run file is executed sequentially.
   - Argument precedence: CLI flags > run.yaml > built‑in defaults.
+  - Combine with `--skip-build` when you already have fresh artifacts and want to jump straight into streaming.
 
 ### Build & Quality
 

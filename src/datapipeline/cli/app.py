@@ -83,6 +83,11 @@ def main() -> None:
         default=None,
         help="preview a specific pipeline stage (0-5 feature stages, 6 assembled vectors, 7 transformed vectors)",
     )
+    p_serve.add_argument(
+        "--skip-build",
+        action="store_true",
+        help="skip the automatic build step (useful for quick feature previews)",
+    )
 
     # build (materialize artifacts)
     p_build = sub.add_parser(
@@ -398,6 +403,7 @@ def main() -> None:
             out_transport=getattr(args, "out_transport", None),
             out_format=getattr(args, "out_format", None),
             out_path=getattr(args, "out_path", None),
+            skip_build=getattr(args, "skip_build", False),
             cli_log_level=cli_level_arg,
             base_log_level=base_level_name,
         )
