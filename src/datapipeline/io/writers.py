@@ -106,6 +106,7 @@ class PickleFileWriter(Writer, HasFilePath):
 
     def write(self, item) -> None:
         self.pickler.dump(self._fmt(item))
+        self.pickler.clear_memo()
 
     def close(self) -> None:
         self.sink.close()
