@@ -5,7 +5,7 @@ from datapipeline.cli.commands.run import handle_serve
 from datapipeline.cli.commands.plugin import bar as handle_bar
 from datapipeline.cli.commands.source import handle as handle_source
 from datapipeline.cli.commands.domain import handle as handle_domain
-from datapipeline.cli.commands.link import handle as handle_link
+from datapipeline.cli.commands.contract import handle as handle_contract
 from datapipeline.cli.commands.list_ import handle as handle_list
 from datapipeline.cli.commands.filter import handle as handle_filter
 from datapipeline.cli.commands.inspect import (
@@ -499,7 +499,7 @@ def main() -> None:
         return
 
     if args.cmd == "contract":
-        handle_link()
+        handle_contract()
         return
 
     if args.cmd == "plugin":
