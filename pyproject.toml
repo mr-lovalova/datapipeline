@@ -66,7 +66,8 @@ fill_horizontal = "datapipeline.transforms.vector:VectorFillAcrossPartitionsTran
 
 [project.entry-points."datapipeline.mappers"]
 "time.synthetic" = "datapipeline.mappers.noop:identity"
-"encode_time" = "datapipeline.mappers.synthetic.time:encode"
+encode_time = "datapipeline.mappers.synthetic.time:encode"
+identity = "datapipeline.mappers.noop:identity"
 
 [project.entry-points."datapipeline.loaders"]
 "synthetic.time" = "datapipeline.sources.synthetic.time.loader:make_time_loader"
