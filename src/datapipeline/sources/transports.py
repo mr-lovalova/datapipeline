@@ -37,6 +37,15 @@ class FsGlobTransport(Transport):
         self.pattern = pattern
         self.chunk_size = chunk_size
         self._files: List[str] = sorted(_glob.glob(pattern))
+        self._current_path: Optional[str] = None
+
+    @property
+    def files(self) -> List[str]:
+        return list(self._files)
+
+    @property
+    def current_path(self) -> Optional[str]:
+        return self._current_path
 
     def streams(self) -> Iterator[Iterable[bytes]]:
         def _iter(path: str) -> Iterator[bytes]:
@@ -46,8 +55,12 @@ class FsGlobTransport(Transport):
                     if not chunk:
                         break
                     yield chunk
-        for p in self._files:
-            yield _iter(p)
+        try:
+            for p in self._files:
+                self._current_path = p
+                yield _iter(p)
+        finally:
+            self._current_path = None
 
 
 class UrlTransport(Transport):
