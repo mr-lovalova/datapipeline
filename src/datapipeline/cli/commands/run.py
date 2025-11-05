@@ -1,28 +1,19 @@
 import logging
-import time
-from itertools import islice
 from pathlib import Path
-from typing import Iterator, List, Optional, Union
+from typing import Optional, Sequence, Union
 
 from datapipeline.cli.commands.build import run_build_if_needed
-from datapipeline.cli.visuals import visual_sources
-from datapipeline.config.dataset.dataset import FeatureDatasetConfig
-from datapipeline.config.dataset.loader import load_dataset
-from datapipeline.config.run import OutputConfig, RunConfig, load_named_run_configs
-from datapipeline.domain.sample import Sample
-from datapipeline.pipeline.context import PipelineContext
-from datapipeline.pipeline.pipelines import build_vector_pipeline
-from datapipeline.pipeline.stages import post_process
-from datapipeline.pipeline.split import apply_split_stage
-from datapipeline.runtime import Runtime
-from datapipeline.services.bootstrap import bootstrap
-from datapipeline.io.factory import writer_factory
-from datapipeline.io.output import (
-    OutputResolutionError,
-    OutputTarget,
-    resolve_output_target,
+from datapipeline.cli.commands.run_config import (
+    RunEntry,
+    determine_preview_stage,
+    iter_runtime_runs,
+    resolve_run_entries,
 )
-from datapipeline.io.protocols import Writer
+from datapipeline.cli.commands.serve_pipeline import serve_with_runtime
+from datapipeline.cli.visuals import visual_sources
+from datapipeline.config.dataset.loader import load_dataset
+from datapipeline.config.run import OutputConfig
+from datapipeline.io.output import OutputResolutionError, resolve_output_target
 from tqdm.contrib.logging import logging_redirect_tqdm
 
 logger = logging.getLogger(__name__)
@@ -43,153 +34,14 @@ def _coerce_log_level(
     return logging._nameToLevel[name]
 
 
-def _resolve_run_entries(project_path: Path, run_name: Optional[str]) -> List[tuple[Optional[str], Optional[RunConfig]]]:
-    try:
-        entries = load_named_run_configs(project_path)
-    except FileNotFoundError:
-        entries = []
-    except Exception as exc:
-        logger.error("Failed to load run configs: %s", exc)
-        raise SystemExit(2) from exc
-
-    if entries:
-        if run_name:
-            entries = [entry for entry in entries if entry[0] == run_name]
-            if not entries:
-                logger.error("Unknown run config '%s'", run_name)
-                raise SystemExit(2)
-    else:
-        if run_name:
-            logger.error("Project does not define run configs.")
-            raise SystemExit(2)
-        entries = [(None, None)]
-    return entries
-
-
-def _iter_runtime_runs(
-    project_path: Path,
-    run_name: Optional[str],
-    keep_override: Optional[str],
-) -> Iterator[tuple[int, int, Optional[str], Runtime]]:
-    run_entries = _resolve_run_entries(project_path, run_name)
-    total_runs = len(run_entries)
-    for idx, (entry_name, run_cfg) in enumerate(run_entries, start=1):
-        runtime = bootstrap(project_path)
-        if run_cfg is not None:
-            runtime.run = run_cfg
-            split_keep = getattr(runtime.split, "keep", None)
-            runtime.split_keep = run_cfg.keep or split_keep
-        if keep_override:
-            runtime.split_keep = keep_override
-        yield idx, total_runs, entry_name, runtime
-
-
-def _limit_items(items: Iterator[object], limit: Optional[int]) -> Iterator[object]:
-    if limit is None:
-        yield from items
-    else:
-        yield from islice(items, limit)
-
-
-def _throttle_vectors(vectors: Iterator[Sample], throttle_ms: Optional[float]) -> Iterator[Sample]:
-    if not throttle_ms or throttle_ms <= 0:
-        yield from vectors
-        return
-    delay = throttle_ms / 1000.0
-    for item in vectors:
-        yield item
-        time.sleep(delay)
-
-
-def _serve(
-    items: Iterator[object],
-    limit: Optional[int],
-    writer: Writer,
-) -> int:
-    """Iterate, write raw items, return count."""
-    count = 0
-    try:
-        for item in _limit_items(items, limit):
-            writer.write(item)
-            count += 1
-    except KeyboardInterrupt:
-        pass
-    finally:
-        writer.close()
-    return count
-
-
-def _report_end(target: OutputTarget, count: int) -> None:
-    if target.destination:
-        logger.info("Saved %d items to %s", count, target.destination)
-        return
-    if target.transport == "stdout" and target.format in {"json-lines", "json", "jsonl"}:
-        logger.info("(streamed %d items)", count)
-    else:
-        logger.info("(printed %d items to stdout)", count)
-
-
-def _serve_with_runtime(
-    runtime: Runtime,
-    dataset: FeatureDatasetConfig,
-    limit: Optional[int],
-    target: OutputTarget,
-    include_targets: bool,
-    throttle_ms: Optional[float],
-    stage: Optional[int],
-) -> None:
-    context = PipelineContext(runtime)
-
-    feature_cfgs = list(dataset.features or [])
-    target_cfgs = list(dataset.targets or []) if include_targets else []
-    preview_cfgs = feature_cfgs + target_cfgs
-
-    if not preview_cfgs:
-        logger.warning("(no features configured; nothing to serve)")
-        return
-
-    if stage is not None and stage <= 5:
-        for cfg in preview_cfgs:
-            stream = build_vector_pipeline(
-                context,
-                [cfg],
-                dataset.group_by,
-                stage=stage,
-            )
-            feature_target = target.for_feature(cfg.id)
-            writer = writer_factory(feature_target)
-            count = _serve(stream, limit, writer=writer)
-            _report_end(feature_target, count)
-        return
-
-    vector_stage = 6 if stage in (6, 7) else None
-    vectors = build_vector_pipeline(
-        context,
-        feature_cfgs,
-        dataset.group_by,
-        stage=vector_stage,
-        target_configs=target_cfgs,
-    )
-
-    if stage in (None, 7):
-        vectors = post_process(context, vectors)
-    if stage is None:
-        vectors = apply_split_stage(runtime, vectors)
-        vectors = _throttle_vectors(vectors, throttle_ms)
-
-    writer = writer_factory(target)
-    result_count = _serve(vectors, limit, writer=writer)
-    _report_end(target, result_count)
-
-
 def _execute_runs(
     project_path: Path,
+    run_entries: Sequence[RunEntry],
     stage: Optional[int],
     limit: Optional[int],
     cli_output: OutputConfig | None,
     include_targets: Optional[bool],
     keep: Optional[str],
-    run_name: Optional[str],
     *,
     cli_log_level: Optional[str],
     base_log_level: str,
@@ -200,9 +52,9 @@ def _execute_runs(
 
     base_level_name = str(base_log_level).upper()
     base_level_value = _coerce_log_level(base_level_name)
-    datasets = {}
+    datasets: dict[str, object] = {}
 
-    for idx, total_runs, entry_name, runtime in _iter_runtime_runs(project_path, run_name, keep):
+    for idx, total_runs, entry_name, runtime in iter_runtime_runs(project_path, run_entries, keep):
         run = getattr(runtime, "run", None)
         resolved_stage = pick(stage, getattr(run, "stage", None), None)
         dataset_name = "vectors" if resolved_stage is None else "features"
@@ -243,7 +95,7 @@ def _execute_runs(
 
         with visual_sources(runtime, resolved_level_value):
             with logging_redirect_tqdm():
-                _serve_with_runtime(
+                serve_with_runtime(
                     runtime,
                     dataset,
                     limit=resolved_limit,
@@ -294,11 +146,19 @@ def handle_serve(
     base_log_level: str,
 ) -> None:
     project_path = Path(project)
+    run_entries = resolve_run_entries(project_path, run_name)
     skip_reason = None
     if skip_build:
         skip_reason = "--skip-build flag provided"
-    elif stage is not None and stage <= 5:
-        skip_reason = f"stage {stage} preview"
+    else:
+        preview_stage, preview_source = determine_preview_stage(
+            stage, run_entries
+        )
+        if preview_stage is not None and preview_stage <= 5:
+            if preview_source:
+                skip_reason = f"stage {preview_stage} preview ({preview_source})"
+            else:
+                skip_reason = f"stage {preview_stage} preview"
 
     if skip_reason:
         logger.info("Skipping build (%s).", skip_reason)
@@ -309,12 +169,12 @@ def handle_serve(
         out_transport, out_format, out_path)
     _execute_runs(
         project_path=project_path,
+        run_entries=run_entries,
         stage=stage,
         limit=limit,
         cli_output=cli_output_cfg,
         include_targets=include_targets,
         keep=keep,
-        run_name=run_name,
         cli_log_level=cli_log_level,
         base_log_level=base_log_level,
     )
