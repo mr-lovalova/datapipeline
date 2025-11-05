@@ -148,7 +148,8 @@ log_level: INFO # DEBUG=progress bars, INFO=spinner, WARNING=quiet (null inherit
 ### `config/sources/<alias>.yaml`
 
 Each file defines a loader/parser pair exposed under `<alias>` (also the
-`source_id` the rest of the pipeline references).
+`source_id` the rest of the pipeline references). Files may live in nested
+subdirectories under `config/sources/`; discovery is recursive.
 
 ```yaml
 source_id: demo_weather

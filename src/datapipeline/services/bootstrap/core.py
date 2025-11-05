@@ -38,26 +38,28 @@ SRC_LOADER_KEY = LOADER_KEY
 def _load_sources_from_dir(project_yaml: Path, vars_: dict[str, Any]) -> dict:
     """Aggregate per-source YAML files into a raw-sources mapping.
 
-    Expects each file to define a single source with top-level 'parser' and
-    'loader' keys. The source alias is inferred from the filename (without
-    extension).
+    Scans for YAML files under the sources directory (recursing through
+    subfolders). Expects each file to define a single source with top-level
+    'parser' and 'loader' keys. The `source_id` inside the file becomes the
+    runtime alias.
     """
-    import os
     src_dir = sources_dir(project_yaml)
     if not src_dir.exists() or not src_dir.is_dir():
         return {}
     out: dict[str, dict] = {}
-    for fname in sorted(os.listdir(src_dir)):
-        if not (fname.endswith(".yaml") or fname.endswith(".yml")):
-            continue
-        data = load_yaml(src_dir / fname)
+    candidates = sorted(
+        (p for p in src_dir.rglob("*.y*ml") if p.is_file()),
+        key=lambda p: p.relative_to(src_dir).as_posix(),
+    )
+    for path in candidates:
+        data = load_yaml(path)
         if not isinstance(data, dict):
             continue
         if isinstance(data.get(SRC_PARSER_KEY), dict) and isinstance(data.get(SRC_LOADER_KEY), dict):
             alias = data.get(SOURCE_ID_KEY)
             if not alias:
                 raise ValueError(
-                    f"Missing 'source_id' in source file: {fname}")
+                    f"Missing 'source_id' in source file: {path.relative_to(src_dir)}")
             out[alias] = _interpolate(data, vars_)
             continue
     return out
