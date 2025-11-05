@@ -1,8 +1,15 @@
 from datapipeline.services.scaffold.source import create_source
 
 
-def handle(subcmd: str, provider: str | None, dataset: str | None,
-           transport: str | None = None, format: str | None = None) -> None:
+def handle(
+    subcmd: str,
+    provider: str | None,
+    dataset: str | None,
+    transport: str | None = None,
+    format: str | None = None,
+    *,
+    identity: bool = False,
+) -> None:
     if subcmd in {"create", "add"}:
         if not provider or not dataset:
             print("[error] --provider and --dataset are required")
@@ -13,5 +20,11 @@ def handle(subcmd: str, provider: str | None, dataset: str | None,
         if transport in {"fs", "url"} and not format:
             print("[error] --format is required for fs/url transports (fs: csv|json|json-lines|pickle, url: csv|json|json-lines)")
             raise SystemExit(2)
-        create_source(provider=provider, dataset=dataset,
-                      transport=transport, format=format, root=None)
+        create_source(
+            provider=provider,
+            dataset=dataset,
+            transport=transport,
+            format=format,
+            root=None,
+            identity=identity,
+        )

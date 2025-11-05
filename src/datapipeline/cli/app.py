@@ -135,6 +135,11 @@ def main() -> None:
         choices=["csv", "json", "json-lines", "pickle"],
         help="data format for fs/url transports (ignored otherwise)",
     )
+    p_dist_add.add_argument(
+        "--identity",
+        action="store_true",
+        help="use the built-in identity parser (skips DTO/parser scaffolding)",
+    )
     dist_sub.add_parser("list", help="list known sources")
 
     # domain
@@ -479,6 +484,7 @@ def main() -> None:
                 dataset=getattr(args, "dataset", None),
                 transport=getattr(args, "transport", None),
                 format=getattr(args, "format", None),
+                identity=getattr(args, "identity", False),
             )
         return
 
