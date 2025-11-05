@@ -103,13 +103,13 @@ def main() -> None:
     )
 
     # source
-    p_dist = sub.add_parser(
+    p_source = sub.add_parser(
         "source",
         help="add or list raw sources",
         parents=[common],
     )
-    dist_sub = p_dist.add_subparsers(dest="dist_cmd", required=True)
-    p_dist_add = dist_sub.add_parser(
+    source_sub = p_source.add_subparsers(dest="source_cmd", required=True)
+    p_source_add = source_sub.add_parser(
         "add",
         help="create a provider+dataset source",
         description=(
@@ -122,40 +122,40 @@ def main() -> None:
             "Note: set 'glob: true' in the generated YAML if your 'path' contains wildcards."
         ),
     )
-    p_dist_add.add_argument("--provider", "-p", required=True)
-    p_dist_add.add_argument("--dataset", "-d", required=True)
-    p_dist_add.add_argument(
+    p_source_add.add_argument("--provider", "-p", required=True)
+    p_source_add.add_argument("--dataset", "-d", required=True)
+    p_source_add.add_argument(
         "--transport", "-t",
         choices=["fs", "url", "synthetic"],
         required=True,
         help="how data is accessed: fs/url/synthetic",
     )
-    p_dist_add.add_argument(
+    p_source_add.add_argument(
         "--format", "-f",
         choices=["csv", "json", "json-lines", "pickle"],
         help="data format for fs/url transports (ignored otherwise)",
     )
-    p_dist_add.add_argument(
+    p_source_add.add_argument(
         "--identity",
         action="store_true",
         help="use the built-in identity parser (skips DTO/parser scaffolding)",
     )
-    dist_sub.add_parser("list", help="list known sources")
+    source_sub.add_parser("list", help="list known sources")
 
     # domain
-    p_spirit = sub.add_parser(
+    p_domain = sub.add_parser(
         "domain",
         help="add or list domains",
         parents=[common],
     )
-    spirit_sub = p_spirit.add_subparsers(dest="spirit_cmd", required=True)
-    p_spirit_add = spirit_sub.add_parser(
+    domain_sub = p_domain.add_subparsers(dest="domain_cmd", required=True)
+    p_domain_add = domain_sub.add_parser(
         "add",
         help="create a domain",
         description="Create a time-aware domain package rooted in TemporalRecord.",
     )
-    p_spirit_add.add_argument("--domain", "-d", required=True)
-    spirit_sub.add_parser("list", help="list known domains")
+    p_domain_add.add_argument("--domain", "-d", required=True)
+    domain_sub.add_parser("list", help="list known domains")
 
     # contract (link source <-> domain)
     p_contract = sub.add_parser(
@@ -475,7 +475,7 @@ def main() -> None:
         return
 
     if args.cmd == "source":
-        if args.dist_cmd == "list":
+        if args.source_cmd == "list":
             handle_list(subcmd="sources")
         else:
             handle_source(
@@ -489,7 +489,7 @@ def main() -> None:
         return
 
     if args.cmd == "domain":
-        if args.spirit_cmd == "list":
+        if args.domain_cmd == "list":
             handle_list(subcmd="domains")
         else:
             handle_domain(
