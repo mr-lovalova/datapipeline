@@ -58,6 +58,9 @@ lint = "datapipeline.transforms.stream.lint:StreamLint"
 scale = "datapipeline.transforms.feature.scaler:StandardScalerTransform"
 sequence = "datapipeline.transforms.sequence:WindowTransformer"
 
+[project.entry-points."datapipeline.transforms.combine"]
+air_density = "datapipeline.transforms.combine:AirDensityCombineTransform"
+
 [project.entry-points."datapipeline.transforms.vector"]
 drop_missing = "datapipeline.transforms.vector:VectorDropMissingTransform"
 fill_constant = "datapipeline.transforms.vector:VectorFillConstantTransform"

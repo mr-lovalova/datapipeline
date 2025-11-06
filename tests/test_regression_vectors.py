@@ -1,4 +1,6 @@
 from datetime import datetime, timezone
+import math
+import pytest
 from pathlib import Path
 
 from datapipeline.config.dataset.feature import FeatureRecordConfig
@@ -17,6 +19,18 @@ from datapipeline.transforms.vector import (
 
 def _ts(hour: int, minute: int = 0) -> datetime:
     return datetime(2024, 1, 1, hour=hour, minute=minute, tzinfo=timezone.utc)
+
+
+def _air_density(pressure_hpa: float, temp_c: float, rh_percent: float | None) -> float:
+    pressure_pa = pressure_hpa * 100.0
+    temp_k = temp_c + 273.15
+    density = pressure_pa / (287.05 * temp_k)
+    if rh_percent is not None:
+        rh = rh_percent / 100.0
+        saturation = 6.112 * math.exp((17.67 * temp_c) / (temp_c + 243.5))
+        vapor_pressure = rh * saturation * 100.0
+        density = (pressure_pa - 0.378 * vapor_pressure) / (287.05 * temp_k)
+    return density
 
 
 def _identity(iterable):
@@ -247,3 +261,114 @@ def test_regression_vector_transforms_fill_horizontal_history_and_drop(tmp_path)
     v1 = out[1].features.values
     assert v0["wind_speed__A"] == 10.0 and v0["wind_speed__B"] == 10.0
     assert v1["wind_speed__A"] == 12.0 and v1["wind_speed__B"] == 12.0
+
+
+def test_feature_combine_air_density(tmp_path) -> None:
+    pressure_stream = [
+        TemporalRecord(time=_ts(0, 0), value=1013.25),
+    ]
+    temp_stream = [
+        TemporalRecord(time=_ts(0, 0), value=15.0),
+    ]
+    humidity_stream = [
+        TemporalRecord(time=_ts(0, 0), value=60.0),
+    ]
+
+    streams = {
+        "air_pressure": pressure_stream,
+        "temp_dry": temp_stream,
+        "humidity": humidity_stream,
+    }
+    runtime = _runtime_with_streams(tmp_path, streams)
+    context = PipelineContext(runtime)
+    group_by = "1h"
+
+    base_configs = [
+        FeatureRecordConfig(record_stream="air_pressure", id="air_pressure"),
+        FeatureRecordConfig(record_stream="temp_dry", id="temp_dry"),
+        FeatureRecordConfig(record_stream="humidity", id="humidity"),
+    ]
+    density_cfg = FeatureRecordConfig.model_validate(
+        {
+            "record_stream": "air_pressure",
+            "id": "air_density",
+            "combine": {
+                "inputs": ["temp_dry", "humidity"],
+                "transform": {
+                    "air_density": {
+                        "temperature_id": "temp_dry",
+                        "humidity_id": "humidity",
+                    }
+                },
+            },
+        }
+    )
+
+    configs = base_configs + [density_cfg]
+    vectors = list(build_vector_pipeline(context, configs, group_by, stage=None))
+
+    assert len(vectors) == 1
+    values = vectors[0].features.values
+    assert "air_density" in values
+    expected = _air_density(1013.25, 15.0, 60.0)
+    assert values["air_density"] == pytest.approx(expected, rel=1e-6)
+
+
+def test_feature_combine_air_density_with_partitions(tmp_path) -> None:
+    def _station_record(value: float, station: str) -> TemporalRecord:
+        rec = TemporalRecord(time=_ts(0, 0), value=value)
+        setattr(rec, "station", station)
+        return rec
+
+    pressure_stream = [
+        _station_record(1013.25, "A"),
+        _station_record(1000.0, "B"),
+    ]
+    temp_stream = [
+        _station_record(15.0, "A"),
+        _station_record(10.0, "B"),
+    ]
+    humidity_stream = [
+        _station_record(60.0, "A"),
+        _station_record(40.0, "B"),
+    ]
+
+    streams = {
+        "air_pressure": pressure_stream,
+        "temp_dry": temp_stream,
+        "humidity": humidity_stream,
+    }
+    runtime = _runtime_with_streams(tmp_path, streams)
+    for alias in streams:
+        runtime.registries.partition_by.register(alias, "station")
+    context = PipelineContext(runtime)
+    group_by = "1h"
+
+    base_configs = [
+        FeatureRecordConfig(record_stream="air_pressure", id="air_pressure"),
+        FeatureRecordConfig(record_stream="temp_dry", id="temp_dry"),
+        FeatureRecordConfig(record_stream="humidity", id="humidity"),
+    ]
+    density_cfg = FeatureRecordConfig.model_validate(
+        {
+            "record_stream": "air_pressure",
+            "id": "air_density",
+            "combine": {
+                "inputs": ["temp_dry", "humidity"],
+                "transform": {
+                    "air_density": {
+                        "temperature_id": "temp_dry",
+                        "humidity_id": "humidity",
+                    }
+                },
+            },
+        }
+    )
+
+    configs = base_configs + [density_cfg]
+    vectors = list(build_vector_pipeline(context, configs, group_by, stage=None))
+
+    assert len(vectors) == 1
+    values = vectors[0].features.values
+    assert values["air_density__A"] == pytest.approx(_air_density(1013.25, 15.0, 60.0), rel=1e-6)
+    assert values["air_density__B"] == pytest.approx(_air_density(1000.0, 10.0, 40.0), rel=1e-6)
