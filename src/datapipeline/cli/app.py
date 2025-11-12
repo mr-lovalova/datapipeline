@@ -119,6 +119,10 @@ def main() -> None:
         help="create a provider+dataset source",
         description=(
             "Scaffold a source using transport + format.\n\n"
+            "Usage:\n"
+            "  jerry source add <provider> <dataset> -t fs -f csv\n"
+            "  jerry source add <provider>.<dataset> -t url -f json\n"
+            "  jerry source add -p <provider> -d <dataset> -t synthetic\n\n"
             "Examples:\n"
             "  fs CSV:        -t fs  -f csv\n"
             "  fs NDJSON:     -t fs  -f json-lines\n"
@@ -127,8 +131,14 @@ def main() -> None:
             "Note: set 'glob: true' in the generated YAML if your 'path' contains wildcards."
         ),
     )
-    p_source_add.add_argument("--provider", "-p", required=True)
-    p_source_add.add_argument("--dataset", "-d", required=True)
+    # Support simple positionals, plus flags for compatibility
+    # Allow either positionals or flags. Use distinct dest names for flags
+    # to avoid ambiguity when both forms are present in some environments.
+    p_source_add.add_argument("provider", nargs="?", help="provider name")
+    p_source_add.add_argument("dataset", nargs="?", help="dataset slug")
+    p_source_add.add_argument("--provider", "-p", dest="provider_opt", metavar="PROVIDER", help="provider name")
+    p_source_add.add_argument("--dataset", "-d", dest="dataset_opt", metavar="DATASET", help="dataset slug")
+    p_source_add.add_argument("--alias", "-a", help="provider.dataset alias")
     p_source_add.add_argument(
         "--transport", "-t",
         choices=["fs", "url", "synthetic"],
@@ -159,13 +169,17 @@ def main() -> None:
         help="create a domain",
         description="Create a time-aware domain package rooted in TemporalRecord.",
     )
-    p_domain_add.add_argument("--domain", "-d", required=True)
+    # Accept positional name, plus flags for flexibility and consistency.
+    p_domain_add.add_argument("domain", nargs="?", help="domain name")
+    p_domain_add.add_argument(
+        "--name", "-n", dest="domain", help="domain name"
+    )
     domain_sub.add_parser("list", help="list known domains")
 
-    # contract (link source <-> domain)
+    # contract (interactive: ingest or composed)
     p_contract = sub.add_parser(
         "contract",
-        help="link a source to a domain",
+        help="manage stream contracts (ingest or composed)",
         parents=[common],
     )
 
@@ -178,7 +192,9 @@ def main() -> None:
     bar_sub = p_bar.add_subparsers(dest="bar_cmd", required=True)
     p_bar_init = bar_sub.add_parser(
         "init", help="create a plugin skeleton")
-    p_bar_init.add_argument("--name", "-n", required=True)
+    # Accept positional name and flag for flexibility
+    p_bar_init.add_argument("name", nargs="?", help="plugin distribution name")
+    p_bar_init.add_argument("--name", "-n", dest="name", help="plugin distribution name")
     p_bar_init.add_argument("--out", "-o", default=".")
 
     # filter (unchanged helper)
@@ -484,12 +500,14 @@ def main() -> None:
         if args.source_cmd == "list":
             handle_list(subcmd="sources")
         else:
+            # Merge positionals and flags for provider/dataset
             handle_source(
                 subcmd="add",
-                provider=getattr(args, "provider", None),
-                dataset=getattr(args, "dataset", None),
+                provider=(getattr(args, "provider", None) or getattr(args, "provider_opt", None)),
+                dataset=(getattr(args, "dataset", None) or getattr(args, "dataset_opt", None)),
                 transport=getattr(args, "transport", None),
                 format=getattr(args, "format", None),
+                alias=getattr(args, "alias", None),
                 identity=getattr(args, "identity", False),
             )
         return
