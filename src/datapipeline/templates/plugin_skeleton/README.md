@@ -4,10 +4,10 @@ Minimal plugin skeleton for the Jerry Thomas (datapipeline) framework.
 
 Quick start
 - Initialize a plugin (already done if you’re reading this here):
-- `jerry plugin init --name {{DIST_NAME}}`
+- `jerry plugin init {{DIST_NAME}}`
 - Add a source via CLI (transport-specific placeholders are scaffolded):
-  - File data: `jerry source add -p <provider> -d <dataset> -t fs -f <csv|json|json-lines|pickle>`
-  - URL data: `jerry source add -p <provider> -d <dataset> -t url -f <json|json-lines|csv>`
+  - File data: `jerry source add <provider> <dataset> -t fs -f <csv|json|json-lines|pickle>`
+  - URL data: `jerry source add <provider>.<dataset> -t url -f <json|json-lines|csv>`
   - Synthetic: `jerry source add -p <provider> -d <dataset> -t synthetic`
 - Edit the generated `config/sources/*.yaml` to fill in the `path`, delimiter, etc.
 - Reinstall after EP changes (pyproject.toml) and restart Python processes:
@@ -17,7 +17,7 @@ Quick start
 Folder layout
 - `config/`
   - `sources/*.yaml` — raw source definitions (one file per source)
-  - `contracts/*.yaml` — canonical stream definitions
+- `contracts/*.yaml` — canonical stream definitions
   - `datasets/<name>/build.yaml` — build configuration (partitioned ids today, more artifacts later)
 - Every dataset `project.yaml` declares a `name`; reference it via `${project_name}`
   inside other config files (e.g., `paths.artifacts: ../../build/datasets/${project_name}`) to
@@ -31,7 +31,7 @@ Folder layout
 
 How loaders work
 - For fs/url, sources use the generic loader entry point:
-  - `loader.entrypoint: "{{COMPOSED_LOADER_EP}}"`
+  - `loader.entrypoint: "{{DEFAULT_IO_LOADER_EP}}"`
 - `loader.args` include `transport`, `format`, and source-specific args (placeholders are provided):
     - fs: `path`, `glob`, `encoding`, plus `delimiter` for csv
     - url: `url`, `headers`, `encoding`, optional `count_by_fetch`
@@ -97,3 +97,37 @@ Scaler statistics
 Tips
 - Keep parsers thin — mirror source schema and return DTOs; use the identity parser only if your loader already emits domain records.
 - Prefer small, composable configs over monolithic ones: one YAML per source is easier to review and reuse.
+
+Composed streams (engineered domains)
+- Declare engineered streams that depend on other canonical streams directly in contracts. The runtime builds each input to stage 4, stream‑aligns by partition+timestamp, runs your composer, and emits fresh records for the derived stream.
+
+```yaml
+# config/contracts/air_density.processed.yaml
+kind: composed
+id: air_density.processed
+inputs:
+  - p=pressure.processed
+  - t=temp_dry.processed
+partition_by: station_id
+sort_batch_size: 20000
+
+mapper:
+  entrypoint: {{PACKAGE_NAME}}.mappers.air_density:mapper
+  args:
+    driver: p   # optional; defaults to first input alias
+
+# Optional post‑compose policies (same as any stream):
+# record: [...]
+# stream: [...]
+# debug: [...]
+```
+
+Then reference the composed stream in your dataset:
+
+```yaml
+# config/datasets/default/dataset.yaml
+group_by: 1h
+features:
+  - id: air_density
+    record_stream: air_density.processed
+```

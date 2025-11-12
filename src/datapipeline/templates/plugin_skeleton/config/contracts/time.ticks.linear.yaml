@@ -1,7 +1,8 @@
-source_id: time_ticks # raw source alias (see config/sources)
-stream_id: time_linear # this stream id used by recipes
+kind: ingest
+source: synthetic.ticks # raw source alias (see config/sources)
+id: time.ticks.linear # canonical stream id (format: domain.dataset.(variant))
 
-mapper: # normalize/reshape DTO -> TemporalRecord if not implemented will give you idenitymapper
+mapper: # normalize/reshape DTO -> TemporalRecord
   entrypoint: encode_time
   args: { mode: linear }
 # partition_by: station_id      # optional: add partition suffixes to feature ids

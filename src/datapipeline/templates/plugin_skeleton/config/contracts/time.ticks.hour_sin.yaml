@@ -1,5 +1,6 @@
-source_id: time_ticks
-stream_id: time_hour_sin
+kind: ingest
+source: synthetic.ticks
+id: time.ticks.hour_sin # format: domain.dataset.(variant)
 
 mapper:
   entrypoint: encode_time
