@@ -135,6 +135,7 @@ keep: train # set to any label defined in globals.split (null disables filtering
 output:
   transport: stdout # stdout | fs
   format: print # print | json-lines | json | csv | pickle
+  # path: build/train.jsonl # Required when transport=fs; omit for stdout
 limit: 100 # cap vectors per serve run (null = unlimited)
 include_targets: false
 throttle_ms: null # sleep between vectors (milliseconds)
