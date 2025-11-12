@@ -56,7 +56,7 @@ def build_loader(*, transport: str, format: str | None = None, **kwargs: Any) ->
             raise ValueError("pickle loader currently supported only for fs transport")
         decoder = PickleDecoder()
     else:
-        raise ValueError(f"unsupported format for composed loader: {format}")
+        raise ValueError(f"unsupported format for IO loader: {format}")
 
     allow_net = bool(kwargs.get("count_by_fetch", False))
     return DataLoader(source, decoder, allow_network_count=allow_net)
