@@ -9,10 +9,9 @@ from datapipeline.domain.feature import FeatureRecord, FeatureRecordSequence
 from datapipeline.domain.vector import Vector, vectorize_record_group
 from datapipeline.domain.sample import Sample
 from datapipeline.pipeline.utils.memory_sort import batch_sort
-import inspect
 
 from datapipeline.pipeline.utils.transform_utils import apply_transforms
-from datapipeline.plugins import FEATURE_TRANSFORMS_EP, VECTOR_TRANSFORMS_EP, RECORD_TRANSFORMS_EP, STREAM_TRANFORMS_EP, DEBUG_TRANSFORMS_EP, FEATURE_COMBINE_TRANSFORMS_EP
+from datapipeline.plugins import FEATURE_TRANSFORMS_EP, VECTOR_TRANSFORMS_EP, RECORD_TRANSFORMS_EP, STREAM_TRANFORMS_EP, DEBUG_TRANSFORMS_EP
 from datapipeline.utils.load import load_ep
 
 from datapipeline.domain.record import TemporalRecord
@@ -89,33 +88,6 @@ def regularize_feature_stream(
     )
     return transformed
 
-
-def apply_feature_combine(
-    context: PipelineContext,
-    feature_stream: Iterable[FeatureRecord],
-    transform_clause: Mapping[str, Any] | None,
-) -> Iterator[FeatureRecord]:
-    if not transform_clause:
-        return feature_stream
-
-    name = transform_clause.get("name")
-    init_params = dict(transform_clause.get("init", {}))
-    inputs = transform_clause.get("inputs", {})
-    target_id = transform_clause.get("target_id")
-    if not name:
-        raise ValueError("combine transform requires a name")
-    if target_id is None:
-        raise ValueError("combine transform requires target_id")
-
-    transform = load_ep(FEATURE_COMBINE_TRANSFORMS_EP, name)
-    if not inspect.isclass(transform):
-        raise TypeError("Feature combine transforms must be class-based.")
-    instance = transform(**init_params)
-    if context is not None:
-        binder = getattr(instance, "bind_context", None)
-        if callable(binder):
-            binder(context)
-    return instance(feature_stream, inputs=inputs, target_id=target_id)
 
 
 def apply_feature_transforms(

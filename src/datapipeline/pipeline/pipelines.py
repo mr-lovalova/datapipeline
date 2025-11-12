@@ -12,7 +12,6 @@ from datapipeline.pipeline.stages import (
     build_feature_stream,
     regularize_feature_stream,
     apply_feature_transforms,
-    apply_feature_combine,
     vector_assemble_stage,
 )
 from datapipeline.pipeline.context import PipelineContext
@@ -53,22 +52,8 @@ def build_feature_pipeline(
     if stage == 4:
         return regularized
 
-    combine_clause = None
-    if cfg.combine:
-        dependencies = _build_combine_dependencies(
-            context,
-            cfg,
-            config_index=config_index,
-            stack=_stack,
-        )
-        combine_clause = cfg.combine.build_clause(
-            dependencies=dependencies,
-            target_id=cfg.id,
-        )
-    combined = apply_feature_combine(context, regularized, combine_clause)
-
     transformed = apply_feature_transforms(
-        context, combined, cfg.scale, cfg.sequence)
+        context, regularized, cfg.scale, cfg.sequence)
     if stage == 5:
         return transformed
 
@@ -85,43 +70,6 @@ def build_feature_pipeline(
         transformed, batch_size=batch_size, key=_time_then_id
     )
     return sorted_for_grouping
-
-
-def _build_combine_dependencies(
-    context: PipelineContext,
-    cfg: FeatureRecordConfig,
-    *,
-    config_index: Mapping[str, FeatureRecordConfig],
-    stack: set[str] | None,
-) -> dict[str, Iterator[Any]]:
-    next_stack = set(stack or ())
-    if cfg.id in next_stack:
-        raise RuntimeError(f"cycle detected while resolving combine for feature '{cfg.id}'")
-    next_stack.add(cfg.id)
-
-    dependencies: dict[str, Iterator[Any]] = {}
-    for feature_id in cfg.combine.inputs:
-        if feature_id == cfg.id:
-            raise ValueError(
-                f"Feature '{cfg.id}' combine inputs must not include itself"
-            )
-        dep_cfg = config_index.get(feature_id)
-        if not dep_cfg:
-            raise KeyError(
-                f"Feature '{cfg.id}' combine references unknown feature '{feature_id}'"
-            )
-        if feature_id in next_stack:
-            raise RuntimeError(
-                f"cycle detected while resolving combine dependency '{feature_id}' for feature '{cfg.id}'"
-            )
-        dependencies[feature_id] = build_feature_pipeline(
-            context,
-            dep_cfg,
-            stage=4,
-            config_index=config_index,
-            _stack=next_stack,
-        )
-    return dependencies
 
 
 def build_vector_pipeline(
