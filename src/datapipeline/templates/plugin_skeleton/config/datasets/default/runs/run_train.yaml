@@ -6,6 +6,7 @@ keep: train
 output:
   transport: stdout
   format: print # print | json-lines | json | csv | pickle
+  # path: artifacts/train.jsonl # Required when transport=fs; omit/forbidden for stdout
 limit: 100 # max vectors per serve run (null = unlimited)
 include_targets: false # serve dataset.targets alongside features
 stage: null # default pipeline stage preview (0-7); null streams full pipeline
