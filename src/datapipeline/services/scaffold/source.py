@@ -4,7 +4,7 @@ from typing import Optional
 
 from datapipeline.services.scaffold.templates import camel, render
 
-from ..constants import COMPOSED_LOADER_EP
+from ..constants import DEFAULT_IO_LOADER_EP
 from ..entrypoints import inject_ep
 from ..paths import pkg_root, resolve_base_pkg_dir
 from datapipeline.services.project_paths import (
@@ -19,14 +19,14 @@ def _class_prefix(provider: str, dataset: str) -> str:
 
 
 def _source_alias(provider: str, dataset: str) -> str:
-    return f"{provider}_{dataset}"
+    return f"{provider}.{dataset}"
 
 
 def _write_if_missing(path: Path, text: str) -> None:
     """Write file only if it does not exist; echo a friendly message."""
     if not path.exists():
         path.write_text(text)
-        print(f"[new] Created: {path}")
+        print(f"[new] {path}")
 
 
 def _render_loader_stub(transport: str, loader_class: str,
@@ -67,7 +67,7 @@ def _loader_ep_and_args(transport: str, fmt: Optional[str], ep_key: Optional[str
         }
         if fmt == "csv":
             args["delimiter"] = ","
-        return COMPOSED_LOADER_EP, args
+        return DEFAULT_IO_LOADER_EP, args
     if transport == "synthetic":
         if ep_key is None:
             raise ValueError("synthetic transport requires scaffolding a loader entrypoint")
@@ -82,7 +82,7 @@ def _loader_ep_and_args(transport: str, fmt: Optional[str], ep_key: Optional[str
         }
         if fmt == "csv":
             args["delimiter"] = ","
-        return COMPOSED_LOADER_EP, args
+        return DEFAULT_IO_LOADER_EP, args
     if ep_key is None:
         raise ValueError(f"unsupported transport '{transport}' for identity scaffold")
     return ep_key, {}
@@ -99,6 +99,7 @@ def create_source(
 ) -> None:
     root_dir, name, _ = pkg_root(root)
     base = resolve_base_pkg_dir(root_dir, name)
+    package_name = base.name
 
     alias = _source_alias(provider, dataset)
     parser_ep: str
@@ -127,7 +128,7 @@ def create_source(
         dto_path = src_pkg_dir / "dto.py"
         _write_if_missing(dto_path, render(
             "dto.py.j2",
-            PACKAGE_NAME=name, ORIGIN=provider, DOMAIN=dataset,
+            PACKAGE_NAME=package_name, ORIGIN=provider, DOMAIN=dataset,
             CLASS_NAME=dto_class, time_aware=True
         ))
 
@@ -135,11 +136,11 @@ def create_source(
         parser_path = src_pkg_dir / "parser.py"
         _write_if_missing(parser_path, render(
             "parser.py.j2",
-            PACKAGE_NAME=name, ORIGIN=provider, DOMAIN=dataset,
+            PACKAGE_NAME=package_name, ORIGIN=provider, DOMAIN=dataset,
             CLASS_NAME=parser_class, DTO_CLASS=dto_class, time_aware=True
         ))
 
-        # Optional loader stub: synthetic (url uses composed loader by default)
+        # Optional loader stub: synthetic (url uses core IO loader by default)
         if transport in {"synthetic"}:
             loader_path = src_pkg_dir / "loader.py"
             stub = _render_loader_stub(transport, loader_class, fmt=format)
@@ -151,7 +152,7 @@ def create_source(
             toml_path.read_text(),
             provider,
             dataset,
-            name,
+            package_name,
             transport,
             parser_class,
             loader_class,
@@ -175,13 +176,13 @@ def create_source(
     if not src_cfg_path.exists():
         src_cfg_path.write_text(render(
             "source.yaml.j2",
-            source_id=alias,
+            id=alias,
             parser_ep=parser_ep,
             parser_args=parser_args,
             loader_ep=loader_ep,
             loader_args=loader_args,
-            composed_loader_ep=COMPOSED_LOADER_EP,
+            default_io_loader_ep=DEFAULT_IO_LOADER_EP,
         ))
-        print(f"[new] Created: {src_cfg_path.resolve()}")
+        print(f"[new] {src_cfg_path.resolve()}")
     elif identity:
         print(f"[info] Source YAML already exists; skipped identity scaffold at {src_cfg_path.resolve()}")

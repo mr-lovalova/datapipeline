@@ -18,6 +18,7 @@ from datapipeline.services.constants import (
 from datapipeline.services.factories import (
     build_source_from_spec,
     build_mapper_from_spec,
+    build_composed_source,
 )
 
 from datapipeline.runtime import Runtime
@@ -40,7 +41,7 @@ def _load_sources_from_dir(project_yaml: Path, vars_: dict[str, Any]) -> dict:
 
     Scans for YAML files under the sources directory (recursing through
     subfolders). Expects each file to define a single source with top-level
-    'parser' and 'loader' keys. The `source_id` inside the file becomes the
+    'parser' and 'loader' keys. The top-level 'id' inside the file becomes the
     runtime alias.
     """
     src_dir = sources_dir(project_yaml)
@@ -59,7 +60,7 @@ def _load_sources_from_dir(project_yaml: Path, vars_: dict[str, Any]) -> dict:
             alias = data.get(SOURCE_ID_KEY)
             if not alias:
                 raise ValueError(
-                    f"Missing 'source_id' in source file: {path.relative_to(src_dir)}")
+                    f"Missing 'id' in source file: {path.relative_to(src_dir)}")
             out[alias] = _interpolate(data, vars_)
             continue
     return out
@@ -80,13 +81,23 @@ def _load_canonical_streams(project_yaml: Path, vars_: dict[str, Any]) -> dict:
         if not p.is_file():
             continue
         data = load_yaml(p)
-        # Require explicit ids: stream_id and source_id
-        if isinstance(data, dict) and (SOURCE_ID_KEY in data) and (STREAM_ID_KEY in data):
-            m = data.get(MAPPER_KEY)
-            if (not isinstance(m, dict)) or (ENTRYPOINT_KEY not in (m or {})):
-                data[MAPPER_KEY] = None
-            alias = data.get(STREAM_ID_KEY)
-            out[alias] = _interpolate(data, vars_)
+        # Contracts must declare kind: 'ingest' | 'composed'
+        if not isinstance(data, dict):
+            continue
+        kind = data.get("kind")
+        if kind not in {"ingest", "composed"}:
+            continue
+        if (STREAM_ID_KEY not in data):
+            continue
+        if kind == "ingest" and ("source" not in data):
+            continue
+        if kind == "composed" and ("inputs" not in data):
+            continue
+        m = data.get(MAPPER_KEY)
+        if (not isinstance(m, dict)) or (ENTRYPOINT_KEY not in (m or {})):
+            data[MAPPER_KEY] = None
+        alias = data.get(STREAM_ID_KEY)
+        out[alias] = _interpolate(data, vars_)
     return out
 
 
@@ -123,9 +134,16 @@ def init_streams(cfg: StreamsConfig, runtime: Runtime) -> None:
     for alias, spec in (cfg.raw or {}).items():
         regs.sources.register(alias, build_source_from_spec(spec))
     for alias, spec in (cfg.contracts or {}).items():
-        mapper = build_mapper_from_spec(spec.mapper)
-        regs.mappers.register(alias, mapper)
-        regs.stream_sources.register(alias, regs.sources.get(spec.source_id))
+        if getattr(spec, "kind", None) == "composed":
+            # Composed stream: register virtual source and identity mapper
+            regs.stream_sources.register(
+                alias, build_composed_source(alias, spec, runtime)
+            )
+            regs.mappers.register(alias, build_mapper_from_spec(None))
+        else:
+            mapper = build_mapper_from_spec(spec.mapper)
+            regs.mappers.register(alias, mapper)
+            regs.stream_sources.register(alias, regs.sources.get(spec.source))
 
 
 def bootstrap(project_yaml: Path) -> Runtime:

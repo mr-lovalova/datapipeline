@@ -9,6 +9,7 @@ from ..paths import pkg_root, resolve_base_pkg_dir
 def create_filter(*, name: str, root: Optional[Path]) -> None:
     root_dir, pkg_name, _ = pkg_root(root)
     base = resolve_base_pkg_dir(root_dir, pkg_name)
+    package_name = base.name
     filters_dir = base / FILTERS_GROUP
     filters_dir.mkdir(parents=True, exist_ok=True)
     (filters_dir / "__init__.py").touch(exist_ok=True)
@@ -18,7 +19,7 @@ def create_filter(*, name: str, root: Optional[Path]) -> None:
     path = filters_dir / f"{module_name}.py"
     if not path.exists():
         path.write_text(render("filter.py.j2", FUNCTION_NAME=name))
-        print(f"[new] Created: {path}")
+        print(f"[new] {path}")
 
     # Register entry point under datapipeline.filters
     toml_path = root_dir / "pyproject.toml"
@@ -26,6 +27,6 @@ def create_filter(*, name: str, root: Optional[Path]) -> None:
         toml_path.read_text(),
         FILTERS_GROUP,
         name,
-        f"{pkg_name}.filters.{module_name}:{name}",
+        f"{package_name}.filters.{module_name}:{name}",
     )
     toml_path.write_text(toml)

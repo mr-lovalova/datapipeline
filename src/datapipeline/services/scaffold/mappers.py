@@ -16,6 +16,7 @@ def _slug(s: str) -> str:
 def attach_source_to_domain(*, domain: str, provider: str, dataset: str, root: Optional[Path]) -> None:
     root_dir, name, pyproject = pkg_root(root)
     base = resolve_base_pkg_dir(root_dir, name)
+    package_name = base.name
     mappers_root = base / MAPPERS_GROUP
     prov = _slug(provider); ds = _slug(dataset); dom = _slug(domain)
 
@@ -32,7 +33,7 @@ def attach_source_to_domain(*, domain: str, provider: str, dataset: str, root: O
         function_name = "map"
         path.write_text(render(
             "mapper.py.j2",
-            PACKAGE_NAME=name,
+            PACKAGE_NAME=package_name,
             ORIGIN=provider,
             DATASET=dataset,
             TARGET_DOMAIN=dom,
@@ -42,11 +43,11 @@ def attach_source_to_domain(*, domain: str, provider: str, dataset: str, root: O
             OriginDTO=f"{camel(provider)}{camel(dataset)}DTO",
             time_aware=True,
         ))
-        print(f"[new] Created: {path}")
+        print(f"[new] {path}")
 
-    # Register the mapper EP as domain.provider (fallback to domain.provider.dataset on collision handled elsewhere)
-    ep_key = f"{dom}.{prov}"
-    ep_target = f"{name}.mappers.{provider}.{dataset}.{module_name}:map"
+    # Register the mapper EP as domain.dataset
+    ep_key = f"{dom}.{ds}"
+    ep_target = f"{package_name}.mappers.{provider}.{dataset}.{module_name}:map"
     toml = (root_dir / "pyproject.toml").read_text()
     toml = inject_ep(toml, MAPPERS_GROUP, ep_key, ep_target)
     (root_dir / "pyproject.toml").write_text(toml)

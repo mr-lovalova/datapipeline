@@ -1,7 +1,7 @@
 from importlib.resources import as_file, files
 from pathlib import Path
 
-from ..constants import COMPOSED_LOADER_EP
+from ..constants import DEFAULT_IO_LOADER_EP
 
 _RESERVED_PACKAGE_NAMES = {"datapipeline"}
 
@@ -39,11 +39,11 @@ def scaffold_plugin(name: str, outdir: Path) -> None:
     replacements = {
         "{{PACKAGE_NAME}}": package_name,
         "{{DIST_NAME}}": name,
-        "{{COMPOSED_LOADER_EP}}": COMPOSED_LOADER_EP,
+        "{{DEFAULT_IO_LOADER_EP}}": DEFAULT_IO_LOADER_EP,
     }
     for p in (target / "pyproject.toml", target / "README.md"):
         text = p.read_text()
         for placeholder, value in replacements.items():
             text = text.replace(placeholder, value)
         p.write_text(text)
-    print(f"[new] Created plugin skeleton at {target}")
+    print(f"[new] plugin skeleton at {target}")
