@@ -34,11 +34,16 @@ transforms, and filters.
 pip install -e .[dev]
 
 # 2. Bootstrap a project (scaffolds configs, plugin package, and templates).
-jerry plugin init --name my_datapipeline --out .
+jerry plugin init my_datapipeline --out .
 
 # 3. Create a source & domain scaffold, then declare a canonical stream.
+# Simple forms
+jerry source add demo weather --transport fs --format csv
+jerry source add demo.weather --transport url --format json
+
+# Flag form (explicit)
 jerry source add --provider demo --dataset weather --transport fs --format csv
-jerry domain add --domain weather
+jerry domain add weather
 # (edit config/contracts/<alias>.yaml to point at your mapper and policies)
 
 # 4. Configure dataset/postprocess/build files in config/datasets/<name>/.
@@ -148,30 +153,30 @@ log_level: INFO # DEBUG=progress bars, INFO=spinner, WARNING=quiet (null inherit
 ### `config/sources/<alias>.yaml`
 
 Each file defines a loader/parser pair exposed under `<alias>` (also the
-`source_id` the rest of the pipeline references). Files may live in nested
+`id` the rest of the pipeline references). Files may live in nested
 subdirectories under `config/sources/`; discovery is recursive.
 
 ```yaml
-source_id: demo_weather
-loader:
-  entrypoint: demo.csv_loader
-  args:
-    path: data/weather.csv
+id: demo_weather
 parser:
   entrypoint: demo.weather_parser
   args:
     timezone: UTC
+loader:
+  entrypoint: demo.csv_loader
+  args:
+    path: data/weather.csv
 ```
 
 ### `config/contracts/<alias>.yaml`
 
 Canonical stream contracts describe how the runtime should map and prepare a
-source. `alias` normally matches the source alias; use folders to organize by
-domain.
+source. Use folders to organize by domain.
 
 ```yaml
-source_id: demo_weather
-stream_id: demo_weather
+kind: ingest
+id: demo_weather
+source: demo_weather
 
 mapper:
   entrypoint: weather.domain.mapper
@@ -201,6 +206,47 @@ debug:
 - `partition_by`: optional keys used to suffix feature IDs (e.g., `temp__station=XYZ`).
 - `sort_batch_size`: chunk size used by the in-memory sorter when normalizing
   order before stream transforms.
+
+### Composed Streams (Engineered Domains)
+
+Define engineered streams that depend on other canonical streams directly in contracts. The runtime builds each input to stage 4 (ordered + regularized), stream‑aligns by partition + timestamp, runs your composer, and emits fresh records for the derived stream.
+
+```yaml
+# contracts/air_density.processed.yaml
+kind: composed
+id: air_density.processed
+inputs:
+  - pressure.processed
+  - t=temp_dry.processed
+partition_by: station_id
+sort_batch_size: 20000
+
+mapper:
+  # Function or class via dotted path; entry points optional
+  entrypoint: mypkg.domains.air_density:compose_to_record
+  args:
+    driver: pressure.processed   # optional; defaults to first input
+
+# Optional post‑compose policies (run after composition like any stream)
+# record: [...]
+# stream: [...]
+# debug:  [...]
+```
+
+Dataset stays minimal — features only reference the composed stream:
+
+```yaml
+# dataset.yaml
+group_by: 1h
+features:
+  - id: air_density
+    record_stream: air_density.processed
+```
+
+Notes:
+- Inputs always reference canonical stream_ids (not raw sources).
+- The composed source outputs records; its own `record`/`stream`/`debug` rules still apply afterward.
+- Partitioning for the engineered domain is explicit via `partition_by` on the composed contract.
 
 ### `dataset.yaml`
 
@@ -313,12 +359,14 @@ Pass `--help` on any command for flags.
 
 ### Scaffolding & Reference
 
-- `jerry plugin init --name <package> --out <dir>`
+- `jerry plugin init <package> --out <dir>` (also supports `-n/--name`)
   - Generates a plugin project (pyproject, package skeleton, config templates).
-- `jerry source add --provider <name> --dataset <slug> --transport fs|url|synthetic --format csv|json|json-lines|pickle`
+- `jerry source add <provider> <dataset> --transport fs|url|synthetic --format csv|json|json-lines|pickle`
+  - Also supports `<provider>.<dataset>` via `--alias` or as the first positional
+  - Flag form remains available: `--provider/--dataset`
   - Creates loader/parser stubs, updates entry points, and drops a matching
     source YAML.
-- `jerry domain add --domain <name>`
+- `jerry domain add <name>` (also supports `-n/--name`)
   - Adds a `domains/<name>/` package with a `model.py` stub.
 - `jerry filter create --name <identifier>`
   - Scaffolds an entry-point-ready filter (helpful for custom record predicates).
@@ -442,7 +490,7 @@ demo.csv_loader = "my_datapipeline.loaders.csv:CsvLoader"
 demo.weather_parser = "my_datapipeline.parsers.weather:WeatherParser"
 
 [project.entry-points."datapipeline.mappers"]
-weather.domain.mapper = "my_datapipeline.mappers.weather:DomainMapper"
+time.ticks = "my_datapipeline.mappers.synthetic.ticks:map"
 
 [project.entry-points."datapipeline.stream"]
 weather.fill = "my_datapipeline.transforms.weather:CustomFill"
