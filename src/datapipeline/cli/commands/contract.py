@@ -1,7 +1,7 @@
 import sys
 from datapipeline.services.paths import pkg_root, resolve_base_pkg_dir
-from datapipeline.services.entrypoints import read_group_entries
-from datapipeline.services.constants import FILTERS_GROUP
+from datapipeline.services.entrypoints import read_group_entries, inject_ep
+from datapipeline.services.constants import FILTERS_GROUP, MAPPERS_GROUP
 from datapipeline.services.project_paths import (
     sources_dir as resolve_sources_dir,
     streams_dir as resolve_streams_dir,
@@ -219,15 +219,27 @@ def scaffold_conflux(
         if not picked:
             print("[error] No inputs selected.", file=sys.stderr)
             raise SystemExit(2)
-        # Default alias is last token after '.'; default stage is aligned
+        # Build default aliases using domain+variant to avoid collisions.
+        # Stream id format: domain.dataset.variant (variant optional)
         built = []
         for ref in picked:
-            alias = ref.split(".")[-1]
+            parts = ref.split(".")
+            if len(parts) >= 3:
+                domain, variant = parts[0], parts[-1]
+                alias = f"{domain}_{variant}"
+            elif len(parts) == 2:
+                # No explicit variant -> use domain as alias
+                alias = parts[0]
+            else:
+                # Fallback to full ref if unexpected
+                alias = ref
             built.append(f"{alias}={ref}")
         inputs = ",".join(built)
 
-    inputs_list = ",\n  - ".join(s.strip()
-                                 for s in inputs.split(",") if s.strip())
+    # YAML list items do not need commas; avoid embedding commas in item text
+    inputs_list = "\n  - ".join(
+        s.strip() for s in inputs.split(",") if s.strip()
+    )
 
     # If no stream_id, select target domain now and derive stream id (mirror ingest flow)
     if not stream_id:
@@ -256,10 +268,13 @@ def scaffold_conflux(
             raise SystemExit(2)
         domain = domain_options[idx - 1]
         stream_id = f"{domain}.processed"
-        mapper_path = mapper_path or f"{name}.mappers.{domain}:mapper"
+        # Default mapper path uses import-safe package dir, not project name
+        pkg_base = resolve_base_pkg_dir(root_dir, name).name
+        mapper_path = mapper_path or f"{pkg_base}.mappers.{domain}:mapper"
     else:
         domain = stream_id.split('.')[0]
-        mapper_path = mapper_path or f"{name}.mappers.{domain}:mapper"
+        pkg_base = resolve_base_pkg_dir(root_dir, name).name
+        mapper_path = mapper_path or f"{pkg_base}.mappers.{domain}:mapper"
 
     # Optional mapper stub under mappers/
     if with_mapper_stub:
@@ -286,6 +301,27 @@ def mapper(
 """.lstrip()
             )
             print(f"[new] {mapper_file}")
+        # Register mapper entry point under datapipeline.mappers
+        # Choose EP name equal to stream_id for clarity/reuse
+        ep_key = stream_id
+        # If mapper_path looks like a dotted target (module:attr), use it; otherwise build default target
+        package_name = base.name  # filesystem package dir is import-safe (underscored)
+        default_target = f"{package_name}.mappers.{domain}:mapper"
+        ep_target = mapper_path if (
+            mapper_path and ":" in mapper_path) else default_target
+        pyproj_path = root_dir / "pyproject.toml"
+        try:
+            toml_text = pyproj_path.read_text()
+            updated = inject_ep(toml_text, MAPPERS_GROUP, ep_key, ep_target)
+            if updated != toml_text:
+                pyproj_path.write_text(updated)
+                print(
+                    f"[ok] Registered mapper entry point '{ep_key}' -> {ep_target}")
+        except FileNotFoundError:
+            print(
+                "[info] pyproject.toml not found; skipping entry point registration", file=sys.stderr)
+        # From here on, reference the EP name in the YAML
+        mapper_path = ep_key
     # Contract file path (now that stream_id is known)
     proj_path = root_dir / "config" / "datasets" / "default" / "project.yaml"
     ensure_project_scaffold(proj_path)
