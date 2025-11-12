@@ -12,7 +12,6 @@ from datapipeline.pipeline.utils.memory_sort import batch_sort
 
 from datapipeline.pipeline.utils.transform_utils import apply_transforms
 from datapipeline.plugins import FEATURE_TRANSFORMS_EP, VECTOR_TRANSFORMS_EP, RECORD_TRANSFORMS_EP, STREAM_TRANFORMS_EP, DEBUG_TRANSFORMS_EP
-from datapipeline.utils.load import load_ep
 
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.pipeline.utils.keygen import FeatureIdGenerator, group_key_for
@@ -87,7 +86,6 @@ def regularize_feature_stream(
         context,
     )
     return transformed
-
 
 
 def apply_feature_transforms(

@@ -1,6 +1,5 @@
 from datetime import datetime, timezone
 import math
-import pytest
 from pathlib import Path
 
 from datapipeline.config.dataset.feature import FeatureRecordConfig
@@ -61,7 +60,8 @@ def _runtime_with_streams(
         regs.stream_sources.register(alias, _StubSource(rows))
         regs.mappers.register(alias, _identity)
         regs.record_operations.register(alias, [])
-        regs.stream_operations.register(alias, stream_transforms.get(alias, []))
+        regs.stream_operations.register(
+            alias, stream_transforms.get(alias, []))
         regs.debug_operations.register(alias, [])
         regs.partition_by.register(alias, None)
         regs.sort_batch_size.register(alias, 1024)
@@ -124,7 +124,8 @@ def test_regression_scaled_shapes_airpressure_high_freq_and_windspeed_hourly(tmp
     configs = [
         FeatureRecordConfig(record_stream="air_pressure",
                             id="air_pressure", scale=True),
-        FeatureRecordConfig(record_stream="wind_speed", id="wind_speed", scale=True),
+        FeatureRecordConfig(record_stream="wind_speed",
+                            id="wind_speed", scale=True),
     ]
 
     _register_scaler(runtime, configs, group_by)
@@ -291,7 +292,8 @@ def test_placeholder_composed_stream_docs_only(tmp_path) -> None:
     # Feature-level combine is deprecated; composed streams are defined in contracts.
     # This placeholder asserts that base streams still flow through the pipeline.
     configs = base_configs
-    vectors = list(build_vector_pipeline(context, configs, group_by, stage=None))
+    vectors = list(build_vector_pipeline(
+        context, configs, group_by, stage=None))
     assert len(vectors) == 1
 
 
@@ -331,5 +333,6 @@ def test_placeholder_composed_stream_with_partitions(tmp_path) -> None:
         FeatureRecordConfig(record_stream="humidity", id="humidity"),
     ]
     configs = base_configs
-    vectors = list(build_vector_pipeline(context, configs, group_by, stage=None))
+    vectors = list(build_vector_pipeline(
+        context, configs, group_by, stage=None))
     assert len(vectors) == 1

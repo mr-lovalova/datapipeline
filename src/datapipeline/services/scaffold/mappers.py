@@ -18,7 +18,9 @@ def attach_source_to_domain(*, domain: str, provider: str, dataset: str, root: O
     base = resolve_base_pkg_dir(root_dir, name)
     package_name = base.name
     mappers_root = base / MAPPERS_GROUP
-    prov = _slug(provider); ds = _slug(dataset); dom = _slug(domain)
+    _ = _slug(provider)
+    ds = _slug(dataset)
+    dom = _slug(domain)
 
     # Option B layout: mappers/{provider}/{dataset}/to_{domain}.py
     pkg_dir = mappers_root / provider / dataset
