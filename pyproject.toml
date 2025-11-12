@@ -58,8 +58,6 @@ lint = "datapipeline.transforms.stream.lint:StreamLint"
 scale = "datapipeline.transforms.feature.scaler:StandardScalerTransform"
 sequence = "datapipeline.transforms.sequence:WindowTransformer"
 
-[project.entry-points."datapipeline.transforms.combine"]
-air_density = "datapipeline.transforms.combine:AirDensityCombineTransform"
 
 [project.entry-points."datapipeline.transforms.vector"]
 drop_missing = "datapipeline.transforms.vector:VectorDropMissingTransform"
@@ -73,12 +71,12 @@ encode_time = "datapipeline.mappers.synthetic.time:encode"
 identity = "datapipeline.mappers.noop:identity"
 
 [project.entry-points."datapipeline.loaders"]
-"synthetic.time" = "datapipeline.sources.synthetic.time.loader:make_time_loader"
-"composed.loader" = "datapipeline.sources.factory:build_loader"
+"core.io" = "datapipeline.sources.factory:build_loader"
+"core.synthetic.ticks" = "datapipeline.sources.synthetic.time.loader:make_time_loader"
 
 [project.entry-points."datapipeline.parsers"]
-"synthetic.time" = "datapipeline.sources.synthetic.time.parser:TimeRowParser"
 identity = "datapipeline.parsers.identity:IdentityParser"
+"core.synthetic.ticks" = "datapipeline.sources.synthetic.time.parser:TimeRowParser"
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
