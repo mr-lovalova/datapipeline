@@ -212,7 +212,6 @@ def visual_sources(runtime: Runtime, log_level: int, visuals: Optional[str] = No
     # Columns tuned by verbosity; alias is embedded in text
     if verbosity >= 2:
         columns = [
-            # SpinnerColumn(),
             TextColumn("{task.fields[text]}", markup=False),
             BarColumn(),
             MofNCompleteColumn(),
@@ -222,8 +221,8 @@ def visual_sources(runtime: Runtime, log_level: int, visuals: Optional[str] = No
         ]
     else:
         columns = [
-            SpinnerColumn(),
             TextColumn("{task.fields[text]}", markup=False),
+            SpinnerColumn(spinner_name="runner"),
         ]
 
     # At INFO, keep the last frame (transient=False) so a final line persists; at DEBUG, transient=True
@@ -236,11 +235,13 @@ def visual_sources(runtime: Runtime, log_level: int, visuals: Optional[str] = No
             super().__init__()
             self._last: tuple[int, str] | None = None
 
-        def filter(self, record: logging.LogRecord) -> bool:  # type: ignore[override]
+        # type: ignore[override]
+        def filter(self, record: logging.LogRecord) -> bool:
             try:
                 msg = record.getMessage()
             except Exception:
-                msg = record.msg if isinstance(record.msg, str) else str(record.msg)
+                msg = record.msg if isinstance(
+                    record.msg, str) else str(record.msg)
             key = (record.levelno, msg)
             if self._last == key:
                 return False
@@ -346,7 +347,8 @@ def visual_sources(runtime: Runtime, log_level: int, visuals: Optional[str] = No
                                 spec = getattr(self._inner, "_spec", None)
                                 inputs = getattr(spec, "inputs", None)
                                 if isinstance(inputs, (list, tuple)) and inputs:
-                                    detail_entries = [str(item) for item in inputs]
+                                    detail_entries = [str(item)
+                                                      for item in inputs]
                             except Exception:
                                 detail_entries = None
                             log_combined_stream(self._alias, detail_entries)
