@@ -10,11 +10,10 @@ from datapipeline.cli.commands.run_config import (
     resolve_run_entries,
 )
 from datapipeline.cli.commands.serve_pipeline import serve_with_runtime
-from datapipeline.cli.visuals import visual_sources
+from datapipeline.cli.visuals.runner import run_job
 from datapipeline.config.dataset.loader import load_dataset
-from datapipeline.config.run import OutputConfig
+from datapipeline.config.run import OutputConfig, load_run_runtime_config
 from datapipeline.io.output import OutputResolutionError, resolve_output_target
-from tqdm.contrib.logging import logging_redirect_tqdm
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +33,16 @@ def _coerce_log_level(
     return logging._nameToLevel[name]
 
 
+def _run_config_value(run_cfg, field: str):
+    """Return a run config field only when it was explicitly provided."""
+    if run_cfg is None:
+        return None
+    fields_set = getattr(run_cfg, "model_fields_set", None)
+    if fields_set is not None and field not in fields_set:
+        return None
+    return getattr(run_cfg, field, None)
+
+
 def _execute_runs(
     project_path: Path,
     run_entries: Sequence[RunEntry],
@@ -45,18 +54,27 @@ def _execute_runs(
     *,
     cli_log_level: Optional[str],
     base_log_level: str,
+    cli_visuals: Optional[str],
 ) -> None:
     # Helper for precedence: CLI > config > default
     def pick(cli_val, cfg_val, default=None):
         return cli_val if cli_val is not None else (cfg_val if cfg_val is not None else default)
 
     base_level_name = str(base_log_level).upper()
+    # Load shared run runtime defaults (visuals/log level)
+    run_runtime = load_run_runtime_config(project_path)
+    runtime_visuals_default = getattr(run_runtime, "visuals", None)
+    runtime_level_default = getattr(run_runtime, "log_level", None)
+    runtime_limit_default = getattr(run_runtime, "limit", None)
+    runtime_stage_default = getattr(run_runtime, "stage", None)
+    runtime_throttle_default = getattr(run_runtime, "throttle_ms", None)
+    runtime_output_defaults = getattr(run_runtime, "output_defaults", None)
     base_level_value = _coerce_log_level(base_level_name)
     datasets: dict[str, object] = {}
 
     for idx, total_runs, entry_name, runtime in iter_runtime_runs(project_path, run_entries, keep):
         run = getattr(runtime, "run", None)
-        resolved_stage = pick(stage, getattr(run, "stage", None), None)
+        resolved_stage = pick(stage, _run_config_value(run, "stage"), runtime_stage_default)
         dataset_name = "vectors" if resolved_stage is None else "features"
         dataset = datasets.get(dataset_name)
         if dataset is None:
@@ -64,22 +82,36 @@ def _execute_runs(
             datasets[dataset_name] = dataset
 
         # resolving argument hierarchy CLI args > run config > defaults
-        resolved_limit = pick(limit, getattr(run, "limit", None), None)
+        resolved_limit = pick(limit, _run_config_value(run, "limit"), runtime_limit_default)
         resolved_include_targets = pick(
-            include_targets, getattr(run, "include_targets", None), False)
-        throttle_ms = getattr(run, "throttle_ms", None)
+            include_targets, _run_config_value(run, "include_targets"), False)
+        throttle_ms = pick(
+            None, _run_config_value(run, "throttle_ms"), runtime_throttle_default)
         resolved_level_name = pick(
             cli_log_level.upper() if cli_log_level else None,
-            getattr(run, "log_level", None),
-            base_level_name,
-        )
+            _run_config_value(run, "log_level"),
+            runtime_level_default,
+        ) or base_level_name
         resolved_level_value = _coerce_log_level(
             resolved_level_name, default=base_level_value)
 
+        # visuals resolution: CLI > run.yaml > default('auto')
+        resolved_visuals = pick(
+            (cli_visuals or None),
+            _run_config_value(run, "visuals"),
+            runtime_visuals_default,
+        ) or "auto"
+
         try:
+            runtime_output_cfg = (
+                runtime_output_defaults.model_copy()
+                if runtime_output_defaults is not None
+                else None
+            )
             target = resolve_output_target(
                 cli_output=cli_output,
                 config_output=getattr(run, "output", None) if run else None,
+                default=runtime_output_cfg,
                 base_path=project_path.parent,
             )
         except OutputResolutionError as exc:
@@ -91,19 +123,28 @@ def _execute_runs(
             root_logger.setLevel(resolved_level_value)
 
         label = entry_name or f"run{idx}"
-        logger.info("Run '%s' (%d/%d)", label, idx, total_runs)
+        def _work():
+            serve_with_runtime(
+                runtime,
+                dataset,
+                limit=resolved_limit,
+                target=target,
+                include_targets=resolved_include_targets,
+                throttle_ms=throttle_ms,
+                stage=resolved_stage,
+                visuals=resolved_visuals,
+            )
 
-        with visual_sources(runtime, resolved_level_value):
-            with logging_redirect_tqdm():
-                serve_with_runtime(
-                    runtime,
-                    dataset,
-                    limit=resolved_limit,
-                    target=target,
-                    include_targets=resolved_include_targets,
-                    throttle_ms=throttle_ms,
-                    stage=resolved_stage
-                )
+        run_job(
+            kind="run",
+            label=label,
+            visuals=resolved_visuals or "auto",
+            level=resolved_level_value,
+            runtime=runtime,
+            work=_work,
+            idx=idx,
+            total=total_runs,
+        )
 
 
 def _build_cli_output_config(
@@ -144,6 +185,7 @@ def handle_serve(
     *,
     cli_log_level: Optional[str],
     base_log_level: str,
+    cli_visuals: Optional[str] = None,
 ) -> None:
     project_path = Path(project)
     run_entries = resolve_run_entries(project_path, run_name)
@@ -163,7 +205,7 @@ def handle_serve(
     if skip_reason:
         logger.info("Skipping build (%s).", skip_reason)
     else:
-        run_build_if_needed(project_path, ensure_level=logging.INFO)
+        run_build_if_needed(project_path, ensure_level=logging.INFO, cli_visuals=cli_visuals)
 
     cli_output_cfg = _build_cli_output_config(
         out_transport, out_format, out_path)
@@ -177,4 +219,5 @@ def handle_serve(
         keep=keep,
         cli_log_level=cli_log_level,
         base_log_level=base_log_level,
+        cli_visuals=cli_visuals,
     )

@@ -66,6 +66,14 @@ def report_serve(target: OutputTarget, count: int) -> None:
     logger.info("(printed %d items to stdout)", count)
 
 
+def _is_stdout_tty() -> bool:
+    try:
+        import sys
+        return hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
+    except Exception:
+        return False
+
+
 def serve_with_runtime(
     runtime: Runtime,
     dataset: FeatureDatasetConfig,
@@ -74,6 +82,7 @@ def serve_with_runtime(
     include_targets: bool,
     throttle_ms: Optional[float],
     stage: Optional[int],
+    visuals: Optional[str] = None,
 ) -> None:
     context = PipelineContext(runtime)
 
@@ -95,6 +104,50 @@ def serve_with_runtime(
             )
             feature_target = target.for_feature(cfg.id)
             writer = writer_factory(feature_target)
+            # Pretty-print to stdout via Rich only for human-readable 'print' format
+            if (
+                feature_target.transport == "stdout"
+                and feature_target.format.lower() == "print"
+                and (visuals or "auto").lower() == "rich"
+                and _is_stdout_tty()
+            ):
+                try:
+                    from rich.console import Console
+                    from datapipeline.io.protocols import Writer as _Writer
+
+                    class _RichStdoutPrintWriter(_Writer):
+                        def __init__(self):
+                            import sys as _sys
+                            self.console = Console(file=_sys.stdout, markup=False, highlight=False, soft_wrap=True)
+
+                        def write(self, item) -> None:
+                            from dataclasses import is_dataclass, asdict
+                            from rich.pretty import Pretty
+
+                            try:
+                                if is_dataclass(item):
+                                    # Use JSON view for a clean, readable structure
+                                    self.console.print_json(data=asdict(item), default=str)
+                                    return
+                                to_json = None
+                                if hasattr(item, "model_dump"):
+                                    to_json = item.model_dump()
+                                elif hasattr(item, "dict") and callable(getattr(item, "dict")):
+                                    to_json = item.dict()
+                                if to_json is not None:
+                                    self.console.print_json(data=to_json, default=str)
+                                    return
+                            except Exception:
+                                pass
+                            # Fallback: Pretty-print the object
+                            self.console.print(Pretty(item))
+
+                        def close(self) -> None:
+                            pass
+
+                    writer = _RichStdoutPrintWriter()
+                except Exception:
+                    pass
             count = serve_stream(stream, limit, writer=writer)
             report_serve(feature_target, count)
         return
@@ -115,5 +168,47 @@ def serve_with_runtime(
         vectors = throttle_vectors(vectors, throttle_ms)
 
     writer = writer_factory(target)
+    if (
+        target.transport == "stdout"
+        and target.format.lower() == "print"
+        and (visuals or "auto").lower() == "rich"
+        and _is_stdout_tty()
+    ):
+        try:
+            from rich.console import Console
+            from datapipeline.io.protocols import Writer as _Writer
+
+            class _RichStdoutPrintWriter(_Writer):
+                def __init__(self):
+                    import sys as _sys
+                    self.console = Console(file=_sys.stdout, markup=False, highlight=False, soft_wrap=True)
+
+                def write(self, item) -> None:
+                    from dataclasses import is_dataclass, asdict
+                    from rich.pretty import Pretty
+
+                    try:
+                        if is_dataclass(item):
+                            self.console.print_json(data=asdict(item), default=str)
+                            return
+                        to_json = None
+                        if hasattr(item, "model_dump"):
+                            to_json = item.model_dump()
+                        elif hasattr(item, "dict") and callable(getattr(item, "dict")):
+                            to_json = item.dict()
+                        if to_json is not None:
+                            self.console.print_json(data=to_json, default=str)
+                            return
+                    except Exception:
+                        pass
+                    self.console.print(Pretty(item))
+
+                def close(self) -> None:
+                    pass
+
+            writer = _RichStdoutPrintWriter()
+        except Exception:
+            pass
+
     result_count = serve_stream(vectors, limit, writer=writer)
     report_serve(target, result_count)

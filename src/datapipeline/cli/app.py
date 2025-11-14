@@ -84,6 +84,12 @@ def main() -> None:
         help="preview a specific pipeline stage (0-5 feature stages, 6 assembled vectors, 7 transformed vectors)",
     )
     p_serve.add_argument(
+        "--visuals",
+        choices=["auto", "basic", "rich", "off"],
+        default=None,
+        help="visuals backend: auto (default), basic (tqdm), rich, or off",
+    )
+    p_serve.add_argument(
         "--skip-build",
         action="store_true",
         help="skip the automatic build step (useful for quick feature previews)",
@@ -105,6 +111,12 @@ def main() -> None:
         "--force",
         action="store_true",
         help="rebuild even when the configuration hash matches the last run",
+    )
+    p_build.add_argument(
+        "--visuals",
+        choices=["auto", "basic", "rich", "off"],
+        default=None,
+        help="visuals backend: auto (default), basic (tqdm), rich, or off",
     )
 
     # source
@@ -422,12 +434,14 @@ def main() -> None:
             skip_build=getattr(args, "skip_build", False),
             cli_log_level=cli_level_arg,
             base_log_level=base_level_name,
+            cli_visuals=getattr(args, "visuals", None),
         )
         return
     if args.cmd == "build":
         handle_build(
             project=args.project,
             force=getattr(args, "force", False),
+            cli_visuals=getattr(args, "visuals", None),
         )
         return
 

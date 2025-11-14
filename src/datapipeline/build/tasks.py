@@ -176,21 +176,4 @@ def materialize_scaler_statistics(runtime: Runtime, config: BuildConfig) -> Tupl
     return str(relative_path), meta
 
 
-def execute_build(runtime: Runtime, config: BuildConfig) -> Dict[str, Dict[str, object]]:
-    """Materialize artifacts described by build.yaml."""
-    artifacts: Dict[str, Dict[str, object]] = {}
-
-    rel_path, count = materialize_partitioned_ids(runtime, config)
-    artifacts[PARTIONED_IDS] = {
-        "relative_path": rel_path,
-        "count": count,
-    }
-
-    scaler_result = materialize_scaler_statistics(runtime, config)
-    if scaler_result:
-        rel_path, meta = scaler_result
-        scaler_meta = {"relative_path": rel_path}
-        scaler_meta.update(meta)
-        artifacts[SCALER_STATISTICS] = scaler_meta
-
-    return artifacts
+# execute_build removed in favor of per-artifact sessions in the CLI

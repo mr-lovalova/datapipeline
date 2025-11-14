@@ -1,0 +1,13 @@
+version: 1
+# Shared defaults for jerry serve. Precedence:
+#   CLI > per-run file (runs/*.yaml) > runtime.serve.yaml > program defaults
+visuals: AUTO # AUTO | BASIC | RICH | OFF
+log_level: INFO # DEBUG | INFO | WARNING | ERROR | CRITICAL
+# Optional shared defaults for serve (overridable per run):
+# limit: 100
+# stage: null
+# throttle_ms: null
+# output_defaults:
+#   transport: stdout
+#   format: print
+#   # path: build/train.jsonl  # required when transport=fs
