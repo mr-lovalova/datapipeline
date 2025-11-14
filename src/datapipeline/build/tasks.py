@@ -51,7 +51,6 @@ def compute_config_hash(project_yaml: Path, build_config_path: Path) -> str:
 
     required: Sequence[Path] = [
         project_yaml.resolve(),
-        build_config_path.resolve(),
         _resolve_relative(project_yaml, cfg.paths.dataset).resolve(),
         _resolve_relative(project_yaml, cfg.paths.postprocess).resolve(),
     ]
@@ -60,6 +59,16 @@ def compute_config_hash(project_yaml: Path, build_config_path: Path) -> str:
         if not path.exists():
             raise FileNotFoundError(f"Expected config file missing: {path}")
         _hash_file(hasher, path, base_dir)
+
+    if not build_config_path.is_dir():
+        raise TypeError(
+            f"project.paths.build must point to an artifacts directory, got: {build_config_path}"
+        )
+    hasher.update(
+        f"[dir]{_normalized_label(build_config_path, base_dir)}".encode("utf-8")
+    )
+    for p in _yaml_files(build_config_path):
+        _hash_file(hasher, p, base_dir)
 
     for dir_value in (cfg.paths.sources, cfg.paths.streams):
         directory = _resolve_relative(project_yaml, dir_value)

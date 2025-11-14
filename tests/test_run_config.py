@@ -15,7 +15,7 @@ def _write_project(tmp_path: Path, run_ref: str | None = None) -> Path:
         "  dataset: dataset.yaml",
         "  postprocess: postprocess.yaml",
         "  artifacts: artifacts",
-        "  build: build.yaml",
+        "  build: build/artifacts",
     ]
     if run_ref:
         lines.append(f"  run: {run_ref}")

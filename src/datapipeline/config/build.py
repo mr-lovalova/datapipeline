@@ -4,7 +4,8 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from datapipeline.services.bootstrap import _load_by_key
+from datapipeline.services.project_paths import build_config_path
+from datapipeline.utils.load import load_yaml
 
 
 class PartitionedIdsConfig(BaseModel):
@@ -55,10 +56,47 @@ class BuildConfig(BaseModel):
     )
 
 
-def load_build_config(project_yaml: Path) -> BuildConfig:
-    """Load build.yaml referenced by project.paths.build and validate it."""
+def _load_from_artifact_directory(path: Path) -> BuildConfig:
+    part = PartitionedIdsConfig()
+    scaler = ScalerArtifactConfig()
 
-    doc = _load_by_key(project_yaml, "build")
-    if not isinstance(doc, dict):
-        raise TypeError("build.yaml must define a mapping at the top level.")
-    return BuildConfig.model_validate(doc)
+    for p in sorted(path.rglob("*.y*ml")):
+        data = load_yaml(p)
+        if not isinstance(data, dict):
+            continue
+        kind = str(data.get("kind", "")).strip().lower()
+        if not kind:
+            if "partitioned_ids" in data:
+                data = data["partitioned_ids"] or {}
+                kind = "partitioned_ids"
+            elif "scaler" in data:
+                data = data["scaler"] or {}
+                kind = "scaler"
+
+        out = data.get("output")
+        if isinstance(out, dict) and "path" in out:
+            data = dict(data)
+            data["output"] = out.get("path")
+
+        if kind == "partitioned_ids":
+            try:
+                part = PartitionedIdsConfig.model_validate(data)
+            except Exception:
+                pass
+        elif kind == "scaler":
+            try:
+                scaler = ScalerArtifactConfig.model_validate(data)
+            except Exception:
+                pass
+
+    return BuildConfig(partitioned_ids=part, scaler=scaler)
+
+
+def load_build_config(project_yaml: Path) -> BuildConfig:
+    """Load build configuration from the artifacts directory."""
+    path = build_config_path(project_yaml)
+    if not path.is_dir():
+        raise TypeError(
+            f"project.paths.build must point to an artifacts directory, got: {path}"
+        )
+    return _load_from_artifact_directory(path)

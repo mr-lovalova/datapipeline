@@ -1,0 +1,9 @@
+# Per‑artifact settings (what/where to build).
+# Shared runtime knobs (visuals, log_level, mode) live in runtime.build.yaml next to project.yaml.
+# Override there; do not add visuals/log_level here.
+kind: scaler
+output:
+  path: scaler.pkl     # relative to project.paths.artifacts
+include_targets: false
+split_label: train
+enabled: true

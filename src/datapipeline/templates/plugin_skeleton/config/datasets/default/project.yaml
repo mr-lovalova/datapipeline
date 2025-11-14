@@ -6,7 +6,7 @@ paths:
   dataset: dataset.yaml
   postprocess: postprocess.yaml
   artifacts: ../../build/datasets/${project_name}
-  build: build.yaml
+  build: build/artifacts
   run: runs
 globals:
   start_time: 2021-01-01T00:00:00Z

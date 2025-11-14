@@ -18,7 +18,7 @@ Folder layout
 - `config/`
   - `sources/*.yaml` — raw source definitions (one file per source)
 - `contracts/*.yaml` — canonical stream definitions
-  - `datasets/<name>/build.yaml` — build configuration (partitioned ids today, more artifacts later)
+  - `datasets/<name>/build/artifacts/*.yaml` — per-artifact build configuration (partitioned ids today, more artifacts later)
 - Every dataset `project.yaml` declares a `name`; reference it via `${project_name}`
   inside other config files (e.g., `paths.artifacts: ../../build/datasets/${project_name}`) to
   avoid hard-coding per-dataset directories.
@@ -74,12 +74,14 @@ Train/Val/Test splits (deterministic)
   limit: 100                # cap vectors per serve run (null = unlimited)
   include_targets: false    # include dataset.targets when serving
   throttle_ms: null         # sleep between vectors (milliseconds)
+  # visuals: AUTO          # visuals backend for CLI feedback: AUTO|BASIC|RICH|OFF
   ```
 - If you prefer separate configs per split, point `project.paths.run` at a folder (e.g., `config/datasets/default/runs/`),
   drop `train.yaml`, `val.yaml`, etc. inside, and the CLI will run each file in order unless you pass `--run <name>`.
 - Serve examples (change run.yaml or pass `--keep val|test`):
   - `jerry serve -p config/datasets/default/project.yaml --out-transport stdout --out-format json-lines > train.jsonl`
   - `jerry serve -p config/datasets/default/project.yaml --keep val --out-transport stdout --out-format json-lines > val.jsonl`
+  - Add `--visuals rich` for a richer interactive UI; defaults to `AUTO`.
 - The split is applied at the end (after postprocess transforms), and assignment
   is deterministic (hash-based) with a fixed seed; no overlap across runs.
 
@@ -92,7 +94,7 @@ Postprocess expected IDs
 - Bootstrap registers the artifact; postprocess transforms read it automatically. Per-transform `expected:` overrides are no longer required or supported — the build output is the single source of truth.
 
 Scaler statistics
-- Enable the scaler task in `build.yaml` (default `enabled: true`) to compute mean/std per feature using the configured training split.
+- Enable the scaler task in `build/artifacts/scaler.yaml` (default `enabled: true`) to compute mean/std per feature using the configured training split.
 - The build writes `<paths.artifacts>/scaler.pkl`; runtime scaling requires this artifact. If it is missing, scaling transforms raise a runtime error.
 
 Tips

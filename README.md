@@ -105,7 +105,7 @@ paths:
   dataset: dataset.yaml
   postprocess: postprocess.yaml
   artifacts: ../../build/datasets/${project_name}
-  build: build.yaml
+  build: build/artifacts
   run: run.yaml
 globals:
   start_time: 2021-01-01T00:00:00Z
@@ -140,16 +140,20 @@ limit: 100 # cap vectors per serve run (null = unlimited)
 include_targets: false
 throttle_ms: null # sleep between vectors (milliseconds)
 log_level: INFO # DEBUG=progress bars, INFO=spinner, WARNING=quiet (null inherits CLI)
+# Optional visuals backend (auto|basic|rich|off); CLI --visuals overrides
+# visuals: AUTO
 ```
 
 - `keep` selects the currently served split. This file is referenced by `project.paths.run`.
 - `output`, `limit`, `include_targets`, `throttle_ms`, and `log_level` provide defaults for `jerry serve`; CLI flags still win per invocation. For filesystem outputs, set `transport: fs`, `path: /path/to/file.jsonl`, and the desired `format`.
 - Override `keep` (and other fields) per invocation via `jerry serve ... --keep val` etc.
 - Override output transport/format via run.yaml or the CLI flags `--out-transport`, `--out-format`, and `--out-path`.
+- Visuals backend: set `visuals: AUTO|BASIC|RICH|OFF` in run.yaml or use `--visuals`.
 - To manage multiple runs, point `project.paths.run` at a folder (e.g., `config/datasets/default/runs/`)
   and drop additional `*.yaml` files there. `jerry serve` will run each file in order; pass
   `--run train` to execute only `runs/train.yaml`.
 - Updating run configs only changes serve-time defaults; it does not trigger a rebuild.
+- Use `runtime.serve.yaml` next to the project file to define shared defaults (visuals/log level/limit/output); CLI flags still take precedence.
 
 ### `config/sources/<alias>.yaml`
 
@@ -297,25 +301,31 @@ Project-scoped vector transforms that run after assembly and before serving.
   which identifiers should be present. When no transforms are configured the
   stream passes through unchanged.
 
-### `build.yaml`
+### Build Artifacts (`build/artifacts/*.yaml`)
 
-Declares which artifacts the build step should materialize.
+Declare one YAML file per artifact under `project.paths.build` (default `build/artifacts/`):
+
+`build/artifacts/partitioned_ids.yaml`
 
 ```yaml
-version: 1
-partitioned_ids:
-  output: expected.txt
-  include_targets: false
-scaler:
-  enabled: true
-  output: scaler.pkl
-  include_targets: false
-  split_label: train
+kind: partitioned_ids
+output: expected.txt
+include_targets: false
 ```
 
-- `expected.txt` lists every fully partitioned feature ID observed in the latest
-  run (used by vector postprocess transforms).
+`build/artifacts/scaler.yaml`
+
+```yaml
+kind: scaler
+output: scaler.pkl
+include_targets: false
+split_label: train
+enabled: true
+```
+
+- `expected.txt` lists every fully partitioned feature ID observed in the latest run (used by vector postprocess transforms).
 - `scaler.pkl` is a pickled standard scaler fitted on the requested split.
+- Shared runtime defaults (visuals/log level/build mode) live in `runtime.build.yaml`.
 
 ---
 
@@ -326,7 +336,7 @@ Pass `--help` on any command for flags.
 
 ### Preview Stages
 
-- `jerry serve --project <project.yaml> --stage <0-7> --limit N [--log-level LEVEL]`
+- `jerry serve --project <project.yaml> --stage <0-7> --limit N [--log-level LEVEL] [--visuals auto|basic|rich|off]`
   - Stage 0: raw DTOs
   - Stage 1: domain `TemporalRecord`s
   - Stage 2: record transforms applied
@@ -337,7 +347,7 @@ Pass `--help` on any command for flags.
   - Stage 7: vectors + postprocess transforms
   - Use `--log-level DEBUG` for progress bars, `--log-level INFO` for spinner + prints, or the default (`WARNING`) for minimal output.
   - Ensures build artifacts are current before streaming; the build step only runs when the configuration hash changes unless you pass `--stage` 0-5 (auto-skip) or opt out with `--skip-build`.
-- `jerry serve --project <project.yaml> --out-transport stdout --out-format json-lines --limit N [--include-targets] [--log-level LEVEL] [--run name]`
+- `jerry serve --project <project.yaml> --out-transport stdout --out-format json-lines --limit N [--include-targets] [--log-level LEVEL] [--visuals ...] [--run name]`
   - Applies postprocess transforms and optional dataset split before emitting.
   - Use `--out-transport fs --out-format json-lines --out-path build/vectors.jsonl` (or `csv`, `pickle`, etc.) to write artifacts to disk instead of stdout.
   - Set `--log-level DEBUG` (or set `run.yaml` -> `log_level: DEBUG`) to reuse the tqdm progress bars when previewing stages.
@@ -356,7 +366,7 @@ Pass `--help` on any command for flags.
 - `jerry inspect expected --project <project.yaml> [--include-targets]`
   - Writes the full set of observed feature IDs to `expected.txt`.
 - `jerry build --project <project.yaml> [--force]`
-  - Regenerates artifacts declared in `build.yaml` if configuration hash changed.
+  - Regenerates artifacts declared under `project.paths.build` when the configuration hash changes.
 
 ### Scaffolding & Reference
 
