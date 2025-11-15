@@ -12,7 +12,12 @@ from datapipeline.runtime import Runtime
 from datapipeline.sources.models.source import Source
 from datapipeline.sources.transports import FsGlobTransport
 from tqdm import tqdm
-from .common import log_transport_details, log_combined_stream
+from .common import (
+    compute_glob_root,
+    current_transport_label,
+    log_combined_stream,
+    log_transport_details,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -91,48 +96,11 @@ class VisualSourceProxy(Source):
         except Exception:
             return None
 
-    @staticmethod
-    def _compute_glob_root(files: list[str]) -> Optional[Path]:
-        if not files:
-            return None
-        try:
-            return Path(os.path.commonpath(files))
-        except Exception:
-            return None
-
-    @staticmethod
-    def _compact_root(path: Path, *, segments: int = 3) -> str:
-        parts = [part for part in path.as_posix().split("/") if part]
-        if len(parts) > segments:
-            parts = ["..."] + parts[-segments:]
-        return "/".join(parts) if parts else "/"
-
-    @staticmethod
-    def _relative_label(path: str, root: Optional[Path]) -> str:
-        if root is not None:
-            try:
-                rel = Path(path).relative_to(root)
-                rel_str = rel.as_posix()
-                if rel_str:
-                    return rel_str
-                return rel.name or path
-            except Exception:
-                pass
-        return Path(path).name or path
-
     def _log_source_details(self, transport, root: Optional[Path]) -> None:
         # Use visuals-agnostic helper so behavior matches rich/basic
         log_transport_details(transport, self._alias)
 
     @staticmethod
-    def _current_path_label(transport, root: Optional[Path]) -> Optional[str]:
-        if not isinstance(transport, FsGlobTransport):
-            return None
-        current = transport.current_path
-        if not current:
-            return None
-        return VisualSourceProxy._relative_label(current, root)
-
     def stream(self) -> Iterator[Any]:
         loader = getattr(self._inner, "loader", None)
         desc, unit = progress_meta_for_loader(loader)
@@ -145,7 +113,7 @@ class VisualSourceProxy(Source):
 
         glob_root: Optional[Path] = None
         if isinstance(transport, FsGlobTransport):
-            glob_root = self._compute_glob_root(transport.files)
+            glob_root = compute_glob_root(transport.files)
 
         last_path_label: Optional[str] = None
 
@@ -159,7 +127,7 @@ class VisualSourceProxy(Source):
 
         def maybe_update_label(apply_label):
             nonlocal last_path_label
-            current_label = self._current_path_label(transport, glob_root)
+            current_label = current_transport_label(transport, glob_root=glob_root)
             if not current_label or current_label == last_path_label:
                 return
             last_path_label = current_label

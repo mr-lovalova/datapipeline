@@ -9,10 +9,11 @@ from datapipeline.build.tasks import (
     materialize_scaler_statistics,
 )
 from datapipeline.cli.visuals import get_visuals_backend
+from datapipeline.cli.visuals.runner import run_job
 from datapipeline.config.build import load_build_config
+from datapipeline.config.resolution import cascade, minimum_level, resolve_visuals
 from datapipeline.services.bootstrap import artifacts_root, bootstrap
 from datapipeline.services.project_paths import build_config_path
-from datapipeline.cli.visuals.runner import run_job
 
 
 logger = logging.getLogger(__name__)
@@ -32,51 +33,33 @@ def run_build_if_needed(
     Returns True when a build was performed, False if skipped.
     """
     project_path = Path(project).resolve()
-    def pick(*values, default=None):
-        for value in values:
-            if value is not None:
-                return value
-        return default
-
     shared = workspace.config.shared if workspace else None
     build_defaults = workspace.config.build if workspace else None
-    shared_provider = (
-        shared.visual_provider.lower() if shared and shared.visual_provider else None
-    )
-    shared_style = (
-        shared.progress_style.lower() if shared and shared.progress_style else None
-    )
-    shared_log_level = (
-        shared.log_level.upper() if shared and shared.log_level else None
-    )
+    shared_provider = shared.visual_provider if shared else None
+    shared_style = shared.progress_style if shared else None
+    shared_log_level = shared.log_level if shared else None
     build_log_level = (
-        build_defaults.log_level.upper() if build_defaults and build_defaults.log_level else None
+        build_defaults.log_level if build_defaults else None
     )
     build_mode_default = (
         build_defaults.mode.upper() if build_defaults and build_defaults.mode else None
     )
 
-    effective_provider = (
-        pick(
-            cli_visual_provider.lower() if cli_visual_provider else None,
-            shared_provider,
-            "auto",
-        )
-        or "auto"
+    visuals = resolve_visuals(
+        cli_provider=cli_visual_provider,
+        config_provider=None,
+        workspace_provider=shared_provider,
+        cli_style=cli_progress_style,
+        config_style=None,
+        workspace_style=shared_style,
     )
-    effective_style = (
-        pick(
-            cli_progress_style.lower() if cli_progress_style else None,
-            shared_style,
-            "auto",
-        )
-        or "auto"
-    )
+    effective_provider = visuals.provider
+    effective_style = visuals.progress_style
 
     effective_mode = (
         "FORCE"
         if force
-        else (pick(build_mode_default, "AUTO") or "AUTO")
+        else (cascade(build_mode_default, "AUTO") or "AUTO")
     )
     effective_mode = effective_mode.upper()
     if effective_mode == "OFF":
@@ -94,19 +77,7 @@ def run_build_if_needed(
     original_level = root_logger.level
     level_changed = False
 
-    effective_ensure = ensure_level
-
-    def _maybe_reduce(level_name: str | None) -> None:
-        nonlocal effective_ensure
-        if not level_name:
-            return
-        cfg_level = logging._nameToLevel.get(str(level_name).upper())
-        if cfg_level is not None:
-            if effective_ensure is None or cfg_level < effective_ensure:
-                effective_ensure = cfg_level
-
-    _maybe_reduce(build_log_level)
-    _maybe_reduce(shared_log_level)
+    effective_ensure = minimum_level(build_log_level, shared_log_level, start=ensure_level)
 
     if effective_ensure is not None:
         effective_level = root_logger.getEffectiveLevel()

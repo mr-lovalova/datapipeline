@@ -11,7 +11,7 @@ from datapipeline.sources.transports import FsGlobTransport, FsFileTransport, Ur
 logger = logging.getLogger(__name__)
 
 
-def _compute_glob_root(files: list[str]) -> Optional[Path]:
+def compute_glob_root(files: list[str]) -> Optional[Path]:
     if not files:
         return None
     try:
@@ -20,14 +20,14 @@ def _compute_glob_root(files: list[str]) -> Optional[Path]:
         return None
 
 
-def _compact_root(path: Path, *, segments: int = 3) -> str:
+def compact_root(path: Path, *, segments: int = 3) -> str:
     parts = [part for part in path.as_posix().split("/") if part]
     if len(parts) > segments:
         parts = ["..."] + parts[-segments:]
     return "/".join(parts) if parts else "/"
 
 
-def _relative_label(path: str, root: Optional[Path]) -> str:
+def relative_label(path: str, root: Optional[Path]) -> str:
     if root is not None:
         try:
             rel = Path(path).relative_to(root)
@@ -60,16 +60,16 @@ def _fs_glob_info_lines(transport: FsGlobTransport) -> list[str]:
     total = len(files)
     # Build INFO-level summary lines
     lines: list[str] = []
-    root = _compute_glob_root(files)
-    root_label = _compact_root(root) if root else pattern or "fs"
+    root = compute_glob_root(files)
+    root_label = compact_root(root) if root else pattern or "fs"
     if total == 0:
         lines.append(f"fs.glob: 0 files (under {root_label})")
     elif total == 1:
-        rel = _relative_label(files[0], root)
+        rel = relative_label(files[0], root)
         lines.append(f"fs.glob: 1 file (file={rel})")
     else:
-        rel_first = _relative_label(files[0], root)
-        rel_last = _relative_label(files[-1], root)
+        rel_first = relative_label(files[0], root)
+        rel_last = relative_label(files[-1], root)
         lines.append(f"fs.glob: {total} files (first={rel_first}, last={rel_last})")
     return lines
 
@@ -83,8 +83,8 @@ def _log_fs_glob_details(transport: FsGlobTransport, alias: str | None) -> None:
             _emit_info(line, alias)
     # DEBUG: detailed listing
     if logger.isEnabledFor(logging.DEBUG) and total > 0:
-        root = _compute_glob_root(files)
-        rel_files = [_relative_label(path, root) for path in files]
+        root = compute_glob_root(files)
+        rel_files = [relative_label(path, root) for path in files]
         for idx, path in enumerate(rel_files, start=1):
             _emit_debug(f"fs.glob file {idx}/{total}: {path}", alias)
 
@@ -169,8 +169,8 @@ def transport_debug_lines(transport) -> list[str]:
         files = getattr(transport, "files", [])
         total = len(files)
         if total > 0:
-            root = _compute_glob_root(files)
-            rel_files = [_relative_label(path, root) for path in files]
+            root = compute_glob_root(files)
+            rel_files = [relative_label(path, root) for path in files]
             for idx, path in enumerate(rel_files, start=1):
                 lines.append(f"fs.glob file {idx}/{total}: {path}")
         return lines
@@ -209,3 +209,31 @@ def log_combined_stream(alias: str, details: Optional[Sequence[str] | str]) -> N
             logger.info("[%s]   - %s", alias, mapping)
     else:
         logger.info("[%s] Feature engineering from upstream inputs", alias)
+
+
+def current_transport_label(transport, *, glob_root: Optional[Path] = None) -> Optional[str]:
+    """Return a human-friendly label for the transport's current unit of work."""
+    if isinstance(transport, FsGlobTransport):
+        current = getattr(transport, "current_path", None)
+        if not current:
+            return None
+        return relative_label(current, glob_root)
+    if isinstance(transport, FsFileTransport):
+        path = getattr(transport, "path", None)
+        if not path:
+            return None
+        try:
+            return Path(path).name or str(path)
+        except Exception:
+            return str(path)
+    if isinstance(transport, UrlTransport):
+        url = getattr(transport, "url", None)
+        if not url:
+            return None
+        try:
+            parts = urlparse(url)
+            name = Path(parts.path or "").name
+            return name or (parts.netloc or "http")
+        except Exception:
+            return None
+    return None

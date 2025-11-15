@@ -17,12 +17,16 @@ from rich.progress import (
 )
 
 from .labels import progress_meta_for_loader
-from .common import transport_info_lines, transport_debug_lines, log_combined_stream
+from .common import (
+    compute_glob_root,
+    current_transport_label,
+    log_combined_stream,
+    transport_debug_lines,
+    transport_info_lines,
+)
 from datapipeline.runtime import Runtime
 from datapipeline.sources.models.source import Source
 from datapipeline.sources.transports import FsGlobTransport, FsFileTransport, UrlTransport
-from urllib.parse import urlparse
-
 logger = logging.getLogger(__name__)
 
 
@@ -43,58 +47,6 @@ class _RichSourceProxy(Source):
         # Plain alias prefix to avoid Rich markup issues
         return f"[{self._alias}] {message}" if message else f"[{self._alias}]"
 
-    @staticmethod
-    def _compute_glob_root(files: list[str]) -> Optional[Path]:
-        if not files:
-            return None
-        try:
-            return Path(os.path.commonpath(files))
-        except Exception:
-            return None
-
-    @staticmethod
-    def _relative_label(path: str, root: Optional[Path]) -> str:
-        if root is not None:
-            try:
-                rel = Path(path).relative_to(root)
-                rel_str = rel.as_posix()
-                if rel_str:
-                    return rel_str
-                return rel.name or path
-            except Exception:
-                pass
-        return Path(path).name or path
-
-    @staticmethod
-    def _current_path_label(transport, root: Optional[Path]) -> Optional[str]:
-        # Glob transport provides a rolling current_path during iteration
-        if isinstance(transport, FsGlobTransport):
-            current = transport.current_path
-            if not current:
-                return None
-            return _RichSourceProxy._relative_label(current, root)
-        # Single file transport: show file basename
-        if isinstance(transport, FsFileTransport):
-            path = getattr(transport, "path", None)
-            if not path:
-                return None
-            try:
-                return Path(path).name or str(path)
-            except Exception:
-                return str(path)
-        # URL transport: show last path segment or host
-        if isinstance(transport, UrlTransport):
-            url = getattr(transport, "url", None)
-            if not url:
-                return None
-            try:
-                parts = urlparse(url)
-                name = Path(parts.path or "").name
-                return name or (parts.netloc or "http")
-            except Exception:
-                return None
-        return None
-
     def _safe_count(self) -> Optional[int]:
         try:
             return self._inner.count()
@@ -112,7 +64,7 @@ class _RichSourceProxy(Source):
         transport = getattr(loader, "transport", None)
         glob_root: Optional[Path] = None
         if isinstance(transport, FsGlobTransport):
-            glob_root = self._compute_glob_root(
+            glob_root = compute_glob_root(
                 getattr(transport, "files", []))
 
         def compose_text(name: Optional[str]) -> str:
@@ -145,7 +97,9 @@ class _RichSourceProxy(Source):
 
         try:
             for item in self._inner.stream():
-                current_label = self._current_path_label(transport, glob_root)
+                current_label = current_transport_label(
+                    transport, glob_root=glob_root
+                )
                 # On first item: emit Start + transport details
                 if not started_logged:
                     try:
