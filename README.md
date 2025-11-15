@@ -164,8 +164,8 @@ Create an optional `jerry.yaml` in the directory where you run the CLI to share 
 plugin_root: lib/power_plugin   # optional repo path for scaffolding (relative to this file)
 config_root: configs/default    # directory containing project.yaml (relative paths ok)
 
-visuals:
-  provider: rich                # default visual provider (auto|tqdm|rich|off)
+shared:
+  visual_provider: rich         # default visual provider (auto|tqdm|rich|off)
   progress_style: bars          # spinner|bars|auto|off
 
 serve:
