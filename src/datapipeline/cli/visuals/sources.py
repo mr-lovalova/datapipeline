@@ -18,14 +18,14 @@ def _is_tty() -> bool:
 class VisualsBackend:
     """Interface for visuals backends.
 
-    - on_build_start/on_run_start return True if the backend handled the headline, False to let caller log it.
+    - on_build_start/on_job_start return True if the backend handled the headline, False to let caller log it.
     - wrap_sources returns a contextmanager that enables streaming visuals.
     """
 
     def on_build_start(self, path) -> bool:  # Path-like
         return False
 
-    def on_run_start(self, label: str, idx: int, total: int) -> bool:
+    def on_job_start(self, kind: str, label: str, idx: int, total: int) -> bool:
         return False
 
     def on_streams_complete(self) -> bool:
@@ -51,6 +51,21 @@ class _BasicBackend(VisualsBackend):
 
 
 class _RichBackend(VisualsBackend):
+    def on_job_start(self, kind: str, label: str, idx: int, total: int) -> bool:
+        kind_lower = (kind or "").lower()
+        title = "Run" if kind_lower == "run" else kind.title() if kind else "Job"
+        try:
+            from rich.console import Console as _Console
+            from rich.rule import Rule as _Rule
+            import sys as _sys
+            console = _Console(file=_sys.stderr, markup=True)
+            console.print(_Rule(title, style="bold white"))
+            console.print(f"[cyan]{kind_lower or 'job'}:[/cyan] '{label}' ({idx}/{total})")
+            console.print()
+            return True
+        except Exception:
+            return False
+
     def on_build_start(self, path) -> bool:
         try:
             from rich.console import Console as _Console
@@ -73,19 +88,6 @@ class _RichBackend(VisualsBackend):
             compact = "/".join(parts) if parts else p.name
             console.print(f"[cyan]project:[/cyan] {compact}")
             console.print()  # spacer
-            return True
-        except Exception:
-            return False
-
-    def on_run_start(self, label: str, idx: int, total: int) -> bool:
-        try:
-            from rich.console import Console as _Console
-            from rich.rule import Rule as _Rule
-            import sys as _sys
-            console = _Console(file=_sys.stderr, markup=True)
-            console.print(_Rule("Run", style="bold white"))
-            console.print(f"[cyan]run:[/cyan] '{label}' ({idx}/{total})")
-            console.print()
             return True
         except Exception:
             return False

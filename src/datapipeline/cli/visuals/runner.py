@@ -38,17 +38,19 @@ def run_job(*, kind: str, label: str, visuals: str, level: int, runtime: Runtime
     """
     backend = get_visuals_backend(visuals)
 
+    job_idx = idx or 1
+    job_total = total or 1
     presented = False
-    if kind == "run":
-        try:
-            presented = backend.on_run_start(label, idx or 1, total or 1)
-        except Exception:
-            presented = False
-        if not presented:
-            if idx is not None and total is not None:
-                logger.info("Run: '%s' (%d/%d)", label, idx, total)
-            else:
-                logger.info("Run: '%s'", label)
+    try:
+        presented = backend.on_job_start(kind, label, job_idx, job_total)
+    except Exception:
+        presented = False
+    if not presented:
+        title = kind.capitalize() if kind else "Job"
+        if idx is not None and total is not None:
+            logger.info("%s: '%s' (%d/%d)", title, label, job_idx, job_total)
+        else:
+            logger.info("%s: '%s'", title, label)
 
     result = _run_work(backend, runtime, level, work)
 

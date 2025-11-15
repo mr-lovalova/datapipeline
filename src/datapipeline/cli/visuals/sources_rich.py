@@ -225,9 +225,8 @@ def visual_sources(runtime: Runtime, log_level: int, visuals: Optional[str] = No
             SpinnerColumn(spinner_name="runner"),
         ]
 
-    # At INFO, keep the last frame (transient=False) so a final line persists; at DEBUG, transient=True
-    progress = Progress(
-        *columns, transient=(verbosity >= 2), console=_vis_console)
+    # Keep Live output transient so the spinner/bars disappear once completed
+    progress = Progress(*columns, transient=True, console=_vis_console)
 
     # Install a temporary Rich logging handler for clean log rendering during Live
     class _DedupFilter(logging.Filter):
@@ -280,7 +279,7 @@ def visual_sources(runtime: Runtime, log_level: int, visuals: Optional[str] = No
 
     renderable = progress
 
-    with Live(renderable, console=_vis_console, refresh_per_second=10, transient=(verbosity >= 2)) as live:
+    with Live(renderable, console=_vis_console, refresh_per_second=10, transient=True) as live:
         try:
             shared_task_id: Optional[int] = None
             active_alias: Optional[str] = None
