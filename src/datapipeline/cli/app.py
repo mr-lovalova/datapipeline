@@ -1,5 +1,7 @@
 import argparse
 import logging
+from pathlib import Path
+from typing import Optional
 
 from datapipeline.cli.commands.run import handle_serve
 from datapipeline.cli.commands.plugin import bar as handle_bar
@@ -12,6 +14,32 @@ from datapipeline.cli.commands.inspect import (
     report as handle_inspect_report,
 )
 from datapipeline.cli.commands.build import handle as handle_build
+from datapipeline.config.workspace import (
+    WorkspaceContext,
+    load_workspace_context,
+)
+
+DEFAULT_PROJECT_PATH = "config/datasets/default/project.yaml"
+
+
+def _resolve_project_argument(
+    value: Optional[str],
+    workspace: Optional[WorkspaceContext],
+) -> Optional[str]:
+    if value is None or value != DEFAULT_PROJECT_PATH or workspace is None:
+        return value
+    config_root = workspace.resolve_config_root()
+    if config_root is None:
+        return value
+    if config_root.suffix in {".yaml", ".yml"}:
+        return str(config_root)
+    candidate = config_root / "project.yaml"
+    if candidate.exists():
+        return str(candidate)
+    fallback = config_root / "datasets" / "default" / "project.yaml"
+    if fallback.exists():
+        return str(fallback)
+    return str(candidate)
 
 
 def main() -> None:
@@ -421,16 +449,30 @@ def main() -> None:
         help="include dataset.targets when discovering expected ids",
     )
 
+    workspace_context = load_workspace_context(Path.cwd())
     args = parser.parse_args()
+    if hasattr(args, "project"):
+        args.project = _resolve_project_argument(args.project, workspace_context)
 
     cli_level_arg = getattr(args, "log_level", None)
-    default_level_name = "WARNING"
+    shared_defaults = workspace_context.config.shared if workspace_context else None
+    build_defaults = workspace_context.config.build if workspace_context else None
+    default_level_name = (
+        shared_defaults.log_level.upper()
+        if shared_defaults and shared_defaults.log_level
+        else "WARNING"
+    )
     if cli_level_arg is None and getattr(args, "cmd", None) == "build":
-        default_level_name = "INFO"
+        default_level_name = (
+            build_defaults.log_level.upper()
+            if build_defaults and build_defaults.log_level
+            else "INFO"
+        )
     base_level_name = (cli_level_arg or default_level_name).upper()
     base_level = logging._nameToLevel.get(base_level_name, logging.WARNING)
 
     logging.basicConfig(level=base_level, format="%(message)s")
+    plugin_root = workspace_context.resolve_plugin_root() if workspace_context else None
 
     if args.cmd == "serve":
         handle_serve(
@@ -448,6 +490,7 @@ def main() -> None:
             base_log_level=base_level_name,
             cli_visual_provider=getattr(args, "visual_provider", None),
             cli_progress_style=getattr(args, "progress_style", None),
+            workspace=workspace_context,
         )
         return
     if args.cmd == "build":
@@ -456,16 +499,19 @@ def main() -> None:
             force=getattr(args, "force", False),
             cli_visual_provider=getattr(args, "visual_provider", None),
             cli_progress_style=getattr(args, "progress_style", None),
+            workspace=workspace_context,
         )
         return
 
     if args.cmd == "inspect":
         # Default to 'report' when no subcommand is given
         subcmd = getattr(args, "inspect_cmd", None)
+        default_project = _resolve_project_argument(
+            DEFAULT_PROJECT_PATH, workspace_context
+        )
         if subcmd in (None, "report"):
             handle_inspect_report(
-                project=getattr(args, "project",
-                                "config/datasets/default/project.yaml"),
+                project=getattr(args, "project", default_project),
                 output=None,
                 threshold=getattr(args, "threshold", 0.95),
                 match_partition=getattr(args, "match_partition", "base"),
@@ -480,7 +526,7 @@ def main() -> None:
             )
         elif subcmd == "coverage":
             handle_inspect_report(
-                project=args.project,
+                project=getattr(args, "project", default_project),
                 output=getattr(args, "output", None),
                 threshold=getattr(args, "threshold", 0.95),
                 match_partition=getattr(args, "match_partition", "base"),
@@ -495,7 +541,7 @@ def main() -> None:
             )
         elif subcmd == "matrix":
             handle_inspect_report(
-                project=args.project,
+                project=getattr(args, "project", default_project),
                 output=None,
                 threshold=getattr(args, "threshold", 0.95),
                 match_partition="base",
@@ -511,14 +557,14 @@ def main() -> None:
         elif subcmd == "partitions":
             from datapipeline.cli.commands.inspect import partitions as handle_inspect_partitions
             handle_inspect_partitions(
-                project=args.project,
+                project=getattr(args, "project", default_project),
                 output=getattr(args, "output", None),
                 include_targets=getattr(args, "include_targets", False),
             )
         elif subcmd == "expected":
             from datapipeline.cli.commands.inspect import expected as handle_inspect_expected
             handle_inspect_expected(
-                project=args.project,
+                project=getattr(args, "project", default_project),
                 output=getattr(args, "output", None),
                 include_targets=getattr(args, "include_targets", False),
             )
@@ -537,6 +583,7 @@ def main() -> None:
                 format=getattr(args, "format", None),
                 alias=getattr(args, "alias", None),
                 identity=getattr(args, "identity", False),
+                plugin_root=plugin_root,
             )
         return
 
@@ -547,11 +594,12 @@ def main() -> None:
             handle_domain(
                 subcmd="add",
                 domain=getattr(args, "domain", None),
+                plugin_root=plugin_root,
             )
         return
 
     if args.cmd == "contract":
-        handle_contract()
+        handle_contract(plugin_root=plugin_root)
         return
 
     if args.cmd == "plugin":

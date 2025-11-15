@@ -10,7 +10,6 @@ from datapipeline.build.tasks import (
 )
 from datapipeline.cli.visuals import get_visuals_backend
 from datapipeline.config.build import load_build_config
-from datapipeline.config.run import load_build_runtime_config
 from datapipeline.services.bootstrap import artifacts_root, bootstrap
 from datapipeline.services.project_paths import build_config_path
 from datapipeline.cli.visuals.runner import run_job
@@ -26,32 +25,62 @@ def run_build_if_needed(
     ensure_level: int | None = None,
     cli_visual_provider: str | None = None,
     cli_progress_style: str | None = None,
+    workspace=None,
 ) -> bool:
     """Execute the build workflow when the cached config hash has changed.
 
     Returns True when a build was performed, False if skipped.
     """
     project_path = Path(project).resolve()
-    runtime_overrides = load_build_runtime_config(project_path)
-    effective_provider = cli_visual_provider
-    if (
-        effective_provider is None
-        and runtime_overrides
-        and runtime_overrides.visual_provider
-    ):
-        effective_provider = runtime_overrides.visual_provider.lower()
-    effective_provider = effective_provider or "auto"
+    def pick(*values, default=None):
+        for value in values:
+            if value is not None:
+                return value
+        return default
 
-    effective_style = cli_progress_style
-    if effective_style is None and runtime_overrides and runtime_overrides.progress_style:
-        effective_style = runtime_overrides.progress_style.lower()
-    effective_style = effective_style or "auto"
+    shared = workspace.config.shared if workspace else None
+    build_defaults = workspace.config.build if workspace else None
+    shared_provider = (
+        shared.visual_provider.lower() if shared and shared.visual_provider else None
+    )
+    shared_style = (
+        shared.progress_style.lower() if shared and shared.progress_style else None
+    )
+    shared_log_level = (
+        shared.log_level.upper() if shared and shared.log_level else None
+    )
+    build_log_level = (
+        build_defaults.log_level.upper() if build_defaults and build_defaults.log_level else None
+    )
+    build_mode_default = (
+        build_defaults.mode.upper() if build_defaults and build_defaults.mode else None
+    )
 
-    effective_mode = runtime_overrides.mode if runtime_overrides else "AUTO"
-    if force:
-        effective_mode = "FORCE"
+    effective_provider = (
+        pick(
+            cli_visual_provider.lower() if cli_visual_provider else None,
+            shared_provider,
+            "auto",
+        )
+        or "auto"
+    )
+    effective_style = (
+        pick(
+            cli_progress_style.lower() if cli_progress_style else None,
+            shared_style,
+            "auto",
+        )
+        or "auto"
+    )
+
+    effective_mode = (
+        "FORCE"
+        if force
+        else (pick(build_mode_default, "AUTO") or "AUTO")
+    )
+    effective_mode = effective_mode.upper()
     if effective_mode == "OFF":
-        logger.info("Build skipped (runtime.build.yaml mode=OFF).")
+        logger.info("Build skipped (jerry.yaml build.mode=OFF).")
         return False
     force = force or effective_mode == "FORCE"
     cfg_path = build_config_path(project_path)
@@ -66,12 +95,18 @@ def run_build_if_needed(
     level_changed = False
 
     effective_ensure = ensure_level
-    if runtime_overrides and runtime_overrides.log_level:
-        cfg_level = logging._nameToLevel.get(
-            runtime_overrides.log_level.upper())
+
+    def _maybe_reduce(level_name: str | None) -> None:
+        nonlocal effective_ensure
+        if not level_name:
+            return
+        cfg_level = logging._nameToLevel.get(str(level_name).upper())
         if cfg_level is not None:
             if effective_ensure is None or cfg_level < effective_ensure:
                 effective_ensure = cfg_level
+
+    _maybe_reduce(build_log_level)
+    _maybe_reduce(shared_log_level)
 
     if effective_ensure is not None:
         effective_level = root_logger.getEffectiveLevel()
@@ -181,6 +216,7 @@ def handle(
     force: bool = False,
     cli_visual_provider: str | None = None,
     cli_progress_style: str | None = None,
+    workspace=None,
 ) -> None:
     """Materialize build artifacts for the configured project."""
     run_build_if_needed(
@@ -188,4 +224,5 @@ def handle(
         force=force,
         cli_visual_provider=cli_visual_provider,
         cli_progress_style=cli_progress_style,
+        workspace=workspace,
     )

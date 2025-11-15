@@ -11,7 +11,6 @@ from datapipeline.utils.load import load_yaml
 VALID_LOG_LEVELS = ("CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG")
 VALID_VISUAL_PROVIDERS = ("AUTO", "TQDM", "RICH", "OFF")
 VALID_PROGRESS_STYLES = ("AUTO", "SPINNER", "BARS", "OFF")
-VALID_BUILD_MODES = ("AUTO", "FORCE", "OFF")
 
 Transport = Literal["fs", "stdout"]
 Format = Literal["csv", "json", "json-lines", "print", "pickle"]
@@ -124,101 +123,11 @@ class RunConfig(BaseModel):
         return name
 
 
-class RuntimeProfileBase(BaseModel):
-    """Shared runtime profile fields used by serve/build profiles."""
-
-    version: int = Field(default=1)
-    visual_provider: str | None = Field(default=None, description="Visuals provider.")
-    progress_style: str | None = Field(default=None, description="Progress visualization style.")
-    log_level: str | None = Field(default=None, description="Logging level.")
-
-    @field_validator("visual_provider", mode="before")
-    @classmethod
-    def _validate_visual_provider_common(cls, value):
-        if value is None:
-            return None
-        if isinstance(value, bool):
-            return "OFF" if value is False else "AUTO"
-        name = str(value).upper()
-        if name not in VALID_VISUAL_PROVIDERS:
-            raise ValueError(
-                f"visual_provider must be one of {', '.join(VALID_VISUAL_PROVIDERS)}, got {value!r}"
-            )
-        return name
-
-    @field_validator("progress_style", mode="before")
-    @classmethod
-    def _validate_progress_style_common(cls, value):
-        if value is None:
-            return None
-        name = str(value).upper()
-        if name not in VALID_PROGRESS_STYLES:
-            raise ValueError(
-                f"progress_style must be one of {', '.join(VALID_PROGRESS_STYLES)}, got {value!r}"
-            )
-        return name
-
-    @field_validator("log_level")
-    @classmethod
-    def _validate_log_level_common(cls, value):
-        if value is None:
-            return None
-        name = str(value).upper()
-        if name not in VALID_LOG_LEVELS:
-            raise ValueError(
-                f"log_level must be one of {', '.join(VALID_LOG_LEVELS)}, got {value!r}"
-            )
-        return name
-
-
-class BuildRuntimeConfig(RuntimeProfileBase):
-    mode: str = Field(default="AUTO", description="AUTO, FORCE, or OFF.")
-
-    @field_validator("mode", mode="before")
-    @classmethod
-    def _validate_mode(cls, value):
-        if value is None:
-            return "AUTO"
-        name = str(value).upper()
-        if name not in VALID_BUILD_MODES:
-            raise ValueError(
-                f"mode must be one of {', '.join(VALID_BUILD_MODES)}, got {value!r}"
-            )
-        return name
-
 def _resolve_run_path(project_yaml: Path, run_path: str | Path) -> Path:
     path = Path(run_path)
     if not path.is_absolute():
         path = project_yaml.parent / path
     return path.resolve()
-
-
-class RunRuntimeConfig(RuntimeProfileBase):
-    # Optional shared defaults for serve
-    limit: int | None = Field(default=None, ge=1)
-    stage: int | None = Field(default=None, ge=0, le=7)
-    throttle_ms: float | None = Field(default=None, ge=0.0)
-    output_defaults: OutputConfig | None = None
-
-
-def _run_runtime_config_path(project_yaml: Path) -> Path | None:
-    candidate = project_yaml.parent / "runtime.serve.yaml"
-    return candidate if candidate.exists() else None
-
-
-def load_run_runtime_config(project_yaml: Path) -> RunRuntimeConfig | None:
-    path = _run_runtime_config_path(project_yaml)
-    if path is None:
-        return None
-    data = load_yaml(path)
-    if not isinstance(data, dict):
-        raise TypeError("runtime.serve.yaml must define a mapping at the top level")
-    return RunRuntimeConfig.model_validate(data)
-
-
-def _build_runtime_config_path(project_yaml: Path) -> Path | None:
-    candidate = project_yaml.parent / "runtime.build.yaml"
-    return candidate if candidate.exists() else None
 
 
 def _list_run_paths(project_yaml: Path) -> Sequence[Path]:
@@ -243,16 +152,6 @@ def _list_run_paths(project_yaml: Path) -> Sequence[Path]:
             raise FileNotFoundError(f"no run configs found under {run_path}")
         return entries
     return [run_path]
-
-
-def load_build_runtime_config(project_yaml: Path) -> BuildRuntimeConfig | None:
-    path = _build_runtime_config_path(project_yaml)
-    if path is None:
-        return None
-    data = load_yaml(path)
-    if not isinstance(data, dict):
-        raise TypeError("runtime.build.yaml must define a mapping at the top level")
-    return BuildRuntimeConfig.model_validate(data)
 
 
 def _load_run_from_path(path: Path) -> RunConfig:

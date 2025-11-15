@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from datapipeline.services.scaffold.source import create_source
 
 
@@ -10,6 +12,7 @@ def handle(
     *,
     identity: bool = False,
     alias: str | None = None,
+    plugin_root: Path | None = None,
 ) -> None:
     if subcmd in {"create", "add"}:
         # Allow: positional provider dataset, --provider/--dataset, --alias, or provider as 'prov.ds'
@@ -45,6 +48,6 @@ def handle(
             dataset=dataset,
             transport=transport,
             format=format,
-            root=None,
+            root=plugin_root,
             identity=identity,
         )

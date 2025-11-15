@@ -83,6 +83,7 @@ Train/Val/Test splits (deterministic)
   - `jerry serve -p config/datasets/default/project.yaml --out-transport stdout --out-format json-lines > train.jsonl`
   - `jerry serve -p config/datasets/default/project.yaml --keep val --out-transport stdout --out-format json-lines > val.jsonl`
   - Add `--visual-provider rich --progress-style bars` for a richer interactive UI; defaults to `AUTO`.
+- For shared workspace defaults (visual provider, progress style, build mode), drop a `jerry.yaml` next to your workspace root and set `visuals.provider`, `visuals.progress_style`, etc. CLI commands walk up from the current directory to find it.
 - The split is applied at the end (after postprocess transforms), and assignment
   is deterministic (hash-based) with a fixed seed; no overlap across runs.
 

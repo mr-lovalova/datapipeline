@@ -1,4 +1,6 @@
 import sys
+from pathlib import Path
+
 from datapipeline.services.paths import pkg_root, resolve_base_pkg_dir
 from datapipeline.services.entrypoints import read_group_entries, inject_ep
 from datapipeline.services.constants import FILTERS_GROUP, MAPPERS_GROUP
@@ -24,8 +26,8 @@ def _pick_from_list(prompt: str, options: list[str]) -> str:
         print("Please enter a number from the list.", file=sys.stderr)
 
 
-def handle() -> None:
-    root_dir, name, pyproject = pkg_root(None)
+def handle(*, plugin_root: Path | None = None) -> None:
+    root_dir, name, pyproject = pkg_root(plugin_root)
     # Select contract type: Ingest (source->stream) or Composed (streams->stream)
     print("Select contract type:", file=sys.stderr)
     print("  [1] Ingest (source → stream)", file=sys.stderr)
@@ -97,7 +99,7 @@ def handle() -> None:
         domain=dom_name,
         provider=provider,
         dataset=dataset,
-        root=None,
+        root=plugin_root,
     )
 
     def _slug(s: str) -> str:

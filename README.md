@@ -154,7 +154,29 @@ log_level: INFO # DEBUG=progress bars, INFO=spinner, WARNING=quiet (null inherit
   and drop additional `*.yaml` files there. `jerry serve` will run each file in order; pass
   `--run train` to execute only `runs/train.yaml`.
 - Updating run configs only changes serve-time defaults; it does not trigger a rebuild.
-- Use `runtime.serve.yaml` next to the project file to define shared defaults (visual provider/progress style/log level/output); CLI flags still take precedence.
+- Use `jerry.yaml` next to the project or workspace root to define shared defaults (visual provider/progress style/log level/output); CLI flags still take precedence.
+
+### Workspace Defaults (`jerry.yaml`)
+
+Create an optional `jerry.yaml` in the directory where you run the CLI to share settings across commands. The CLI walks up from the current working directory to find the first `jerry.yaml`.
+
+```yaml
+plugin_root: lib/power_plugin   # optional repo path for scaffolding (relative to this file)
+config_root: configs/default    # directory containing project.yaml (relative paths ok)
+
+visuals:
+  provider: rich                # default visual provider (auto|tqdm|rich|off)
+  progress_style: bars          # spinner|bars|auto|off
+
+serve:
+  log_level: INFO
+
+build:
+  log_level: INFO
+  mode: AUTO                    # AUTO | FORCE | OFF
+```
+
+`jerry.yaml` sits near the root of your workspace, while dataset-specific overrides still live in individual `runs/*.yaml` as needed.
 
 ### `config/sources/<alias>.yaml`
 
@@ -326,7 +348,7 @@ enabled: true
 
 - `expected.txt` lists every fully partitioned feature ID observed in the latest run (used by vector postprocess transforms).
 - `scaler.pkl` is a pickled standard scaler fitted on the requested split.
-- Shared runtime defaults (visual provider/progress style/log level/build mode) live in `runtime.build.yaml`.
+- Shared run/build defaults (visual provider/progress style/log level/build mode) live in `jerry.yaml`.
 
 ---
 

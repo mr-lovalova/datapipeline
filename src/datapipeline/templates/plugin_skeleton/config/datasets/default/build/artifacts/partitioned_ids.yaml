@@ -1,5 +1,5 @@
 # Per‑artifact settings (what/where to build).
-# Shared runtime knobs (visual provider/progress style/log_level/mode) live in runtime.build.yaml next to project.yaml.
+# Shared workspace defaults (visual provider/progress style/log_level/mode) live in jerry.yaml.
 # Override there; do not add visual provider/progress style/log_level here.
 kind: partitioned_ids
 output:
