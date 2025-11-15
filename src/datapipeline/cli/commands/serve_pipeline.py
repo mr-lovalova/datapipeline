@@ -82,7 +82,7 @@ def serve_with_runtime(
     include_targets: bool,
     throttle_ms: Optional[float],
     stage: Optional[int],
-    visuals: Optional[str] = None,
+    visual_provider: Optional[str] = None,
 ) -> None:
     context = PipelineContext(runtime)
 
@@ -108,7 +108,7 @@ def serve_with_runtime(
             if (
                 feature_target.transport == "stdout"
                 and feature_target.format.lower() == "print"
-                and (visuals or "auto").lower() == "rich"
+                and (visual_provider or "auto").lower() == "rich"
                 and _is_stdout_tty()
             ):
                 try:
@@ -171,7 +171,7 @@ def serve_with_runtime(
     if (
         target.transport == "stdout"
         and target.format.lower() == "print"
-        and (visuals or "auto").lower() == "rich"
+        and (visual_provider or "auto").lower() == "rich"
         and _is_stdout_tty()
     ):
         try:

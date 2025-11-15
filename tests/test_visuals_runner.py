@@ -16,13 +16,13 @@ class _StubBackend:
     def requires_logging_redirect(self) -> bool:
         return self._redirect
 
-    def wrap_sources(self, runtime, level):
+    def wrap_sources(self, runtime, level, progress_style):
         @contextmanager
         def _cm():
             yield
         return _cm()
 
-    def on_run_start(self, *args, **kwargs):
+    def on_job_start(self, *args, **kwargs):
         return False
 
     def on_streams_complete(self) -> bool:
@@ -43,6 +43,7 @@ def test_run_job_auto_mode_skips_redirect_when_backend_is_rich(mock_redirect):
             kind="run",
             label="demo",
             visuals="auto",
+            progress_style="auto",
             level=logging.INFO,
             runtime=_runtime(),
             work=lambda: None,
@@ -60,6 +61,7 @@ def test_run_with_backend_uses_redirect_for_basic_backends(mock_redirect):
     with patch("datapipeline.cli.visuals.runner.get_visuals_backend", return_value=backend):
         runner.run_with_backend(
             visuals="basic",
+            progress_style="auto",
             runtime=_runtime(),
             level=logging.INFO,
             work=lambda: None,

@@ -36,7 +36,7 @@ class VisualsBackend:
         """Return True when console logging should be routed via tqdm."""
         return True
 
-    def wrap_sources(self, runtime: Runtime, log_level: int):  # contextmanager
+    def wrap_sources(self, runtime: Runtime, log_level: int, progress_style: str):  # contextmanager
         @contextmanager
         def _noop():
             yield
@@ -45,9 +45,9 @@ class VisualsBackend:
 
 
 class _BasicBackend(VisualsBackend):
-    def wrap_sources(self, runtime: Runtime, log_level: int):
+    def wrap_sources(self, runtime: Runtime, log_level: int, progress_style: str):
         from .sources_basic import visual_sources as basic
-        return basic(runtime, log_level)
+        return basic(runtime, log_level, progress_style)
 
 
 class _RichBackend(VisualsBackend):
@@ -92,9 +92,9 @@ class _RichBackend(VisualsBackend):
         except Exception:
             return False
 
-    def wrap_sources(self, runtime: Runtime, log_level: int):
+    def wrap_sources(self, runtime: Runtime, log_level: int, progress_style: str):
         from .sources_rich import visual_sources as rich_vs
-        return rich_vs(runtime, log_level)
+        return rich_vs(runtime, log_level, progress_style)
 
     def on_streams_complete(self) -> bool:
         # Rich backend manages its own persistent final line; signal handled
@@ -105,9 +105,9 @@ class _RichBackend(VisualsBackend):
 
 
 class _OffBackend(VisualsBackend):
-    def wrap_sources(self, runtime: Runtime, log_level: int):
+    def wrap_sources(self, runtime: Runtime, log_level: int, progress_style: str):
         from .sources_off import visual_sources as off_vs
-        return off_vs(runtime, log_level)
+        return off_vs(runtime, log_level, progress_style)
 
 
 def _rich_available() -> bool:
@@ -118,11 +118,11 @@ def _rich_available() -> bool:
         return False
 
 
-def get_visuals_backend(visuals: Optional[str]) -> VisualsBackend:
-    mode = (visuals or "auto").lower()
+def get_visuals_backend(provider: Optional[str]) -> VisualsBackend:
+    mode = (provider or "auto").lower()
     if mode == "off":
         return _OffBackend()
-    if mode == "basic":
+    if mode == "tqdm":
         return _BasicBackend()
     if mode == "rich":
         return _RichBackend() if _rich_available() else _BasicBackend()
@@ -133,7 +133,7 @@ def get_visuals_backend(visuals: Optional[str]) -> VisualsBackend:
 
 
 @contextmanager
-def visual_sources(runtime: Runtime, log_level: int, visuals: Optional[str] = None):
-    backend = get_visuals_backend(visuals)
-    with backend.wrap_sources(runtime, log_level):
+def visual_sources(runtime: Runtime, log_level: int, provider: Optional[str] = None, progress_style: str = "auto"):
+    backend = get_visuals_backend(provider)
+    with backend.wrap_sources(runtime, log_level, progress_style):
         yield

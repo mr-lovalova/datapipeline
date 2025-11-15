@@ -10,32 +10,22 @@ from datapipeline.runtime import Runtime
 logger = logging.getLogger(__name__)
 
 
-def _run_work(backend, runtime: Runtime, level: int, work: Callable[[], Any]):
-    with backend.wrap_sources(runtime, level):
+def _run_work(backend, runtime: Runtime, level: int, progress_style: str, work: Callable[[], Any]):
+    with backend.wrap_sources(runtime, level, progress_style):
         if backend.requires_logging_redirect():
             with logging_redirect_tqdm():
                 return work()
         return work()
 
 
-def run_with_backend(*, visuals: str, runtime: Runtime, level: int, work: Callable[[], Any]):
-    """Execute a unit of work inside a visuals backend context.
-
-    - Picks backend from visuals string (auto|basic|rich|off)
-    - Wraps sources so streaming feedback is consistent across commands
-    - Redirects tqdm logging for non-rich backends
-    """
+def run_with_backend(*, visuals: str, progress_style: str, runtime: Runtime, level: int, work: Callable[[], Any]):
+    """Execute a unit of work inside a visuals backend context."""
     backend = get_visuals_backend(visuals)
-    return _run_work(backend, runtime, level, work)
+    return _run_work(backend, runtime, level, progress_style, work)
 
 
-def run_job(*, kind: str, label: str, visuals: str, level: int, runtime: Runtime, work: Callable[[], Any], idx: int | None = None, total: int | None = None):
-    """Run a labeled job (serve run or build artifact) with visuals lifecycle.
-
-    - Emits a headline via backend (for kind=='run'), with fallback logging
-    - Wraps sources so progress/spinners render consistently
-    - Emits a completion footer via backend with fallback logging
-    """
+def run_job(*, kind: str, label: str, visuals: str, progress_style: str, level: int, runtime: Runtime, work: Callable[[], Any], idx: int | None = None, total: int | None = None):
+    """Run a labeled job (serve run, build artifact, etc.) with visuals lifecycle."""
     backend = get_visuals_backend(visuals)
 
     job_idx = idx or 1
@@ -52,7 +42,7 @@ def run_job(*, kind: str, label: str, visuals: str, level: int, runtime: Runtime
         else:
             logger.info("%s: '%s'", title, label)
 
-    result = _run_work(backend, runtime, level, work)
+    result = _run_work(backend, runtime, level, progress_style, work)
 
     try:
         handled = backend.on_streams_complete()

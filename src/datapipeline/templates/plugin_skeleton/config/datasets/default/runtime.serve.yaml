@@ -1,7 +1,8 @@
 version: 1
 # Shared defaults for jerry serve. Precedence:
 #   CLI > per-run file (runs/*.yaml) > runtime.serve.yaml > program defaults
-visuals: AUTO # AUTO | BASIC | RICH | OFF
+visual_provider: AUTO # AUTO | TQDM | RICH | OFF
+progress_style: AUTO # AUTO | SPINNER | BARS | OFF
 log_level: INFO # DEBUG | INFO | WARNING | ERROR | CRITICAL
 # Optional shared defaults for serve (overridable per run):
 # limit: 100

@@ -195,13 +195,27 @@ class _RichSourceProxy(Source):
             # No explicit end separator; completion line is sufficient
 
 
+def _style_mode(progress_style: str, log_level: int | None) -> str:
+    mode = (progress_style or "auto").lower()
+    if mode == "auto":
+        level = log_level if log_level is not None else logging.INFO
+        return "bars" if level <= logging.DEBUG else "spinner"
+    return mode
+
+
 @contextmanager
-def visual_sources(runtime: Runtime, log_level: int, visuals: Optional[str] = None):
-    if log_level is None or log_level > logging.INFO:
+def visual_sources(runtime: Runtime, log_level: int | None, progress_style: str = "auto"):
+    level = log_level if log_level is not None else logging.INFO
+    if level > logging.INFO:
         yield
         return
 
-    verbosity = 2 if log_level <= logging.DEBUG else 1
+    style_mode = _style_mode(progress_style, log_level)
+    if style_mode == "off":
+        yield
+        return
+
+    verbosity = 2 if style_mode == "bars" else 1
 
     # Build a console on stderr for visuals/logs
     from rich.console import Console as _Console
@@ -209,7 +223,7 @@ def visual_sources(runtime: Runtime, log_level: int, visuals: Optional[str] = No
     _vis_console = _Console(file=_sys.stderr, markup=False,
                             highlight=False, soft_wrap=True)
 
-    # Columns tuned by verbosity; alias is embedded in text
+    # Columns tuned by style; alias is embedded in text
     if verbosity >= 2:
         columns = [
             TextColumn("{task.fields[text]}", markup=False),

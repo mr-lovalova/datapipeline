@@ -9,7 +9,8 @@ from datapipeline.config.project import ProjectConfig
 from datapipeline.utils.load import load_yaml
 
 VALID_LOG_LEVELS = ("CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG")
-VALID_VISUALS = ("AUTO", "BASIC", "RICH", "OFF")
+VALID_VISUAL_PROVIDERS = ("AUTO", "TQDM", "RICH", "OFF")
+VALID_PROGRESS_STYLES = ("AUTO", "SPINNER", "BARS", "OFF")
 VALID_BUILD_MODES = ("AUTO", "FORCE", "OFF")
 
 Transport = Literal["fs", "stdout"]
@@ -75,9 +76,13 @@ class RunConfig(BaseModel):
         default="INFO",
         description="Default logging level for serve runs (DEBUG, INFO, WARNING, ERROR, CRITICAL). Use null to inherit CLI.",
     )
-    visuals: str | None = Field(
+    visual_provider: str | None = Field(
         default="AUTO",
-        description="Visuals backend: AUTO (prefer rich if available), BASIC (tqdm), RICH, or OFF.",
+        description="Visuals provider: AUTO (prefer rich if available), TQDM, RICH, or OFF.",
+    )
+    progress_style: str | None = Field(
+        default="AUTO",
+        description="Progress style: AUTO (spinner unless DEBUG), SPINNER, BARS, or OFF.",
     )
 
     @field_validator("log_level")
@@ -92,17 +97,29 @@ class RunConfig(BaseModel):
             )
         return name
 
-    @field_validator("visuals", mode="before")
+    @field_validator("visual_provider", mode="before")
     @classmethod
-    def _validate_visuals_run(cls, value):
+    def _validate_visual_provider_run(cls, value):
         if value is None:
             return None
         if isinstance(value, bool):
             return "OFF" if value is False else "AUTO"
         name = str(value).upper()
-        if name not in VALID_VISUALS:
+        if name not in VALID_VISUAL_PROVIDERS:
             raise ValueError(
-                f"visuals must be one of {', '.join(VALID_VISUALS)}, got {value!r}"
+                f"visual_provider must be one of {', '.join(VALID_VISUAL_PROVIDERS)}, got {value!r}"
+            )
+        return name
+
+    @field_validator("progress_style", mode="before")
+    @classmethod
+    def _validate_progress_style_run(cls, value):
+        if value is None:
+            return None
+        name = str(value).upper()
+        if name not in VALID_PROGRESS_STYLES:
+            raise ValueError(
+                f"progress_style must be one of {', '.join(VALID_PROGRESS_STYLES)}, got {value!r}"
             )
         return name
 
@@ -111,20 +128,33 @@ class RuntimeProfileBase(BaseModel):
     """Shared runtime profile fields used by serve/build profiles."""
 
     version: int = Field(default=1)
-    visuals: str | None = Field(default=None, description="Visuals backend.")
+    visual_provider: str | None = Field(default=None, description="Visuals provider.")
+    progress_style: str | None = Field(default=None, description="Progress visualization style.")
     log_level: str | None = Field(default=None, description="Logging level.")
 
-    @field_validator("visuals", mode="before")
+    @field_validator("visual_provider", mode="before")
     @classmethod
-    def _validate_visuals_common(cls, value):
+    def _validate_visual_provider_common(cls, value):
         if value is None:
             return None
         if isinstance(value, bool):
             return "OFF" if value is False else "AUTO"
         name = str(value).upper()
-        if name not in VALID_VISUALS:
+        if name not in VALID_VISUAL_PROVIDERS:
             raise ValueError(
-                f"visuals must be one of {', '.join(VALID_VISUALS)}, got {value!r}"
+                f"visual_provider must be one of {', '.join(VALID_VISUAL_PROVIDERS)}, got {value!r}"
+            )
+        return name
+
+    @field_validator("progress_style", mode="before")
+    @classmethod
+    def _validate_progress_style_common(cls, value):
+        if value is None:
+            return None
+        name = str(value).upper()
+        if name not in VALID_PROGRESS_STYLES:
+            raise ValueError(
+                f"progress_style must be one of {', '.join(VALID_PROGRESS_STYLES)}, got {value!r}"
             )
         return name
 

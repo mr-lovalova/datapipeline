@@ -39,7 +39,7 @@ class _OffSourceProxy(Source):
 
 
 @contextmanager
-def visual_sources(runtime: Runtime, log_level: int):
+def visual_sources(runtime: Runtime, log_level: int | None, progress_style: str = "auto"):
     if log_level is None or log_level > logging.INFO:
         yield
         return

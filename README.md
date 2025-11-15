@@ -140,20 +140,21 @@ limit: 100 # cap vectors per serve run (null = unlimited)
 include_targets: false
 throttle_ms: null # sleep between vectors (milliseconds)
 log_level: INFO # DEBUG=progress bars, INFO=spinner, WARNING=quiet (null inherits CLI)
-# Optional visuals backend (auto|basic|rich|off); CLI --visuals overrides
-# visuals: AUTO
+# Optional visuals provider/style; CLI --visual-provider/--progress-style override
+# visual_provider: AUTO # AUTO | TQDM | RICH | OFF
+# progress_style: AUTO # AUTO | SPINNER | BARS | OFF
 ```
 
 - `keep` selects the currently served split. This file is referenced by `project.paths.run`.
 - `output`, `limit`, `include_targets`, `throttle_ms`, and `log_level` provide defaults for `jerry serve`; CLI flags still win per invocation. For filesystem outputs, set `transport: fs`, `path: /path/to/file.jsonl`, and the desired `format`.
 - Override `keep` (and other fields) per invocation via `jerry serve ... --keep val` etc.
 - Override output transport/format via run.yaml or the CLI flags `--out-transport`, `--out-format`, and `--out-path`.
-- Visuals backend: set `visuals: AUTO|BASIC|RICH|OFF` in run.yaml or use `--visuals`.
+- Visuals backend: set `visual_provider: AUTO|TQDM|RICH|OFF` in run.yaml or use `--visual-provider`. Pair with `progress_style: AUTO|SPINNER|BARS|OFF` or `--progress-style` to control progress layouts.
 - To manage multiple runs, point `project.paths.run` at a folder (e.g., `config/datasets/default/runs/`)
   and drop additional `*.yaml` files there. `jerry serve` will run each file in order; pass
   `--run train` to execute only `runs/train.yaml`.
 - Updating run configs only changes serve-time defaults; it does not trigger a rebuild.
-- Use `runtime.serve.yaml` next to the project file to define shared defaults (visuals/log level/limit/output); CLI flags still take precedence.
+- Use `runtime.serve.yaml` next to the project file to define shared defaults (visual provider/progress style/log level/output); CLI flags still take precedence.
 
 ### `config/sources/<alias>.yaml`
 
@@ -325,7 +326,7 @@ enabled: true
 
 - `expected.txt` lists every fully partitioned feature ID observed in the latest run (used by vector postprocess transforms).
 - `scaler.pkl` is a pickled standard scaler fitted on the requested split.
-- Shared runtime defaults (visuals/log level/build mode) live in `runtime.build.yaml`.
+- Shared runtime defaults (visual provider/progress style/log level/build mode) live in `runtime.build.yaml`.
 
 ---
 
@@ -336,7 +337,7 @@ Pass `--help` on any command for flags.
 
 ### Preview Stages
 
-- `jerry serve --project <project.yaml> --stage <0-7> --limit N [--log-level LEVEL] [--visuals auto|basic|rich|off]`
+- `jerry serve --project <project.yaml> --stage <0-7> --limit N [--log-level LEVEL] [--visual-provider auto|tqdm|rich|off] [--progress-style auto|spinner|bars|off]`
   - Stage 0: raw DTOs
   - Stage 1: domain `TemporalRecord`s
   - Stage 2: record transforms applied
@@ -347,7 +348,7 @@ Pass `--help` on any command for flags.
   - Stage 7: vectors + postprocess transforms
   - Use `--log-level DEBUG` for progress bars, `--log-level INFO` for spinner + prints, or the default (`WARNING`) for minimal output.
   - Ensures build artifacts are current before streaming; the build step only runs when the configuration hash changes unless you pass `--stage` 0-5 (auto-skip) or opt out with `--skip-build`.
-- `jerry serve --project <project.yaml> --out-transport stdout --out-format json-lines --limit N [--include-targets] [--log-level LEVEL] [--visuals ...] [--run name]`
+- `jerry serve --project <project.yaml> --out-transport stdout --out-format json-lines --limit N [--include-targets] [--log-level LEVEL] [--visual-provider ...] [--progress-style ...] [--run name]`
   - Applies postprocess transforms and optional dataset split before emitting.
   - Use `--out-transport fs --out-format json-lines --out-path build/vectors.jsonl` (or `csv`, `pickle`, etc.) to write artifacts to disk instead of stdout.
   - Set `--log-level DEBUG` (or set `run.yaml` -> `log_level: DEBUG`) to reuse the tqdm progress bars when previewing stages.
@@ -365,7 +366,7 @@ Pass `--help` on any command for flags.
   - Writes discovered partition suffixes to `partitions.json`.
 - `jerry inspect expected --project <project.yaml> [--include-targets]`
   - Writes the full set of observed feature IDs to `expected.txt`.
-- `jerry build --project <project.yaml> [--force]`
+- `jerry build --project <project.yaml> [--force] [--visual-provider ...] [--progress-style ...]`
   - Regenerates artifacts declared under `project.paths.build` when the configuration hash changes.
 
 ### Scaffolding & Reference

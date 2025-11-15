@@ -3,6 +3,7 @@ version: 1
 #   CLI > runtime.build.yaml > program defaults
 # mode controls automatic build behavior when serving:
 #   AUTO = build if config changed; FORCE = always rebuild; OFF = never build automatically
-visuals: AUTO   # AUTO | BASIC | RICH | OFF
+visual_provider: AUTO   # AUTO | TQDM | RICH | OFF
+progress_style: AUTO    # AUTO | SPINNER | BARS | OFF
 log_level: INFO # DEBUG | INFO | WARNING | ERROR | CRITICAL
 mode: AUTO      # AUTO | FORCE | OFF

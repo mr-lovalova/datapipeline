@@ -54,16 +54,18 @@ def _execute_runs(
     *,
     cli_log_level: Optional[str],
     base_log_level: str,
-    cli_visuals: Optional[str],
+    cli_visual_provider: Optional[str],
+    cli_progress_style: Optional[str],
 ) -> None:
     # Helper for precedence: CLI > config > default
     def pick(cli_val, cfg_val, default=None):
         return cli_val if cli_val is not None else (cfg_val if cfg_val is not None else default)
 
     base_level_name = str(base_log_level).upper()
-    # Load shared run runtime defaults (visuals/log level)
+    # Load shared run runtime defaults (visual provider/progress style/log level)
     run_runtime = load_run_runtime_config(project_path)
-    runtime_visuals_default = getattr(run_runtime, "visuals", None)
+    runtime_visual_provider_default = getattr(run_runtime, "visual_provider", None)
+    runtime_progress_style_default = getattr(run_runtime, "progress_style", None)
     runtime_level_default = getattr(run_runtime, "log_level", None)
     runtime_limit_default = getattr(run_runtime, "limit", None)
     runtime_stage_default = getattr(run_runtime, "stage", None)
@@ -95,11 +97,16 @@ def _execute_runs(
         resolved_level_value = _coerce_log_level(
             resolved_level_name, default=base_level_value)
 
-        # visuals resolution: CLI > run.yaml > default('auto')
-        resolved_visuals = pick(
-            (cli_visuals or None),
-            _run_config_value(run, "visuals"),
-            runtime_visuals_default,
+        # Visual provider/style resolution: CLI > run.yaml > defaults
+        resolved_visual_provider = pick(
+            (cli_visual_provider or None),
+            _run_config_value(run, "visual_provider"),
+            runtime_visual_provider_default,
+        ) or "auto"
+        resolved_progress_style = pick(
+            (cli_progress_style or None),
+            _run_config_value(run, "progress_style"),
+            runtime_progress_style_default,
         ) or "auto"
 
         try:
@@ -132,13 +139,14 @@ def _execute_runs(
                 include_targets=resolved_include_targets,
                 throttle_ms=throttle_ms,
                 stage=resolved_stage,
-                visuals=resolved_visuals,
+                visual_provider=resolved_visual_provider,
             )
 
         run_job(
             kind="run",
             label=label,
-            visuals=resolved_visuals or "auto",
+            visuals=resolved_visual_provider or "auto",
+            progress_style=resolved_progress_style or "auto",
             level=resolved_level_value,
             runtime=runtime,
             work=_work,
@@ -185,7 +193,8 @@ def handle_serve(
     *,
     cli_log_level: Optional[str],
     base_log_level: str,
-    cli_visuals: Optional[str] = None,
+    cli_visual_provider: Optional[str] = None,
+    cli_progress_style: Optional[str] = None,
 ) -> None:
     project_path = Path(project)
     run_entries = resolve_run_entries(project_path, run_name)
@@ -205,7 +214,12 @@ def handle_serve(
     if skip_reason:
         logger.info("Skipping build (%s).", skip_reason)
     else:
-        run_build_if_needed(project_path, ensure_level=logging.INFO, cli_visuals=cli_visuals)
+        run_build_if_needed(
+            project_path,
+            ensure_level=logging.INFO,
+            cli_visual_provider=cli_visual_provider,
+            cli_progress_style=cli_progress_style,
+        )
 
     cli_output_cfg = _build_cli_output_config(
         out_transport, out_format, out_path)
@@ -219,5 +233,6 @@ def handle_serve(
         keep=keep,
         cli_log_level=cli_log_level,
         base_log_level=base_log_level,
-        cli_visuals=cli_visuals,
+        cli_visual_provider=cli_visual_provider,
+        cli_progress_style=cli_progress_style,
     )

@@ -240,14 +240,24 @@ class VisualSourceProxy(Source):
                     pass
 
 
+def _style_mode(progress_style: str, log_level: int | None) -> str:
+    mode = (progress_style or "auto").lower()
+    if mode == "auto":
+        level = log_level if log_level is not None else logging.INFO
+        return "bars" if level <= logging.DEBUG else "spinner"
+    return mode
+
+
 @contextmanager
-def visual_sources(runtime: Runtime, log_level: int):
+def visual_sources(runtime: Runtime, log_level: int | None, progress_style: str = "auto"):
     """Temporarily wrap stream sources with logging-level-driven feedback."""
-    if log_level is None or log_level > logging.INFO:
+    level = log_level if log_level is not None else logging.INFO
+    style_mode = _style_mode(progress_style, log_level)
+    if style_mode == "off" or level > logging.INFO:
         yield
         return
 
-    verbosity = 2 if log_level <= logging.DEBUG else 1
+    verbosity = 2 if style_mode == "bars" else 1
 
     reg = runtime.registries.stream_sources
     originals = dict(reg.items())
