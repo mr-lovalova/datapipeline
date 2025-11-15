@@ -11,7 +11,7 @@ limit: 100 # max vectors per serve run (null = unlimited)
 include_targets: false # serve dataset.targets alongside features
 stage: null # default pipeline stage preview (0-7); null streams full pipeline
 throttle_ms: null # milliseconds to sleep between emitted vectors
-# Shared defaults for visual provider/progress style/log_level live in runtime.serve.yaml next to project.yaml.
+# Shared defaults for visual provider/progress style/log_level live in jerry.yaml.
 # Uncomment below to override for this specific run only.
 # log_level: INFO # DEBUG | INFO | WARNING | ERROR | CRITICAL
 # visual_provider: AUTO   # AUTO | TQDM | RICH | OFF
