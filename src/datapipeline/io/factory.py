@@ -1,3 +1,5 @@
+from typing import Optional
+
 from datapipeline.io.writers import (
     JsonLinesFileWriter,
     JsonLinesStdoutWriter,
@@ -7,20 +9,36 @@ from datapipeline.io.writers import (
     LineWriter,
 )
 from datapipeline.io.protocols import Writer
-from datapipeline.io.formatters import PrintLineFormatter
-from datapipeline.io.sinks import StdoutTextSink
+from datapipeline.io.formatters import PrintLineFormatter, JsonLineFormatter
+from datapipeline.io.sinks import StdoutTextSink, RichStdoutSink, ReprRichFormatter, JsonRichFormatter, PlainRichFormatter
 from datapipeline.io.output import OutputTarget
 
 
-def writer_factory(target: OutputTarget) -> Writer:
+def stdout_sink_for(format_: str, visual_provider: Optional[str]) -> StdoutTextSink:
+    fmt = (format_ or "print").lower()
+    provider = (visual_provider or "auto").lower()
+    if provider != "rich":
+        return StdoutTextSink()
+    try:
+        if fmt in {"json", "json-lines", "jsonl"}:
+            return RichStdoutSink(JsonRichFormatter())
+        if fmt == "print":
+            return RichStdoutSink(ReprRichFormatter())
+        return RichStdoutSink(PlainRichFormatter())
+    except Exception:
+        return StdoutTextSink()
+
+
+def writer_factory(target: OutputTarget, *, visual_provider: Optional[str] = None) -> Writer:
     transport = target.transport.lower()
     format_ = target.format.lower()
 
     if transport == "stdout":
+        sink = stdout_sink_for(format_, visual_provider)
         if format_ in {"json-lines", "json", "jsonl"}:
-            return JsonLinesStdoutWriter()
+            return LineWriter(sink, JsonLineFormatter())
         if format_ == "print":
-            return LineWriter(StdoutTextSink(), PrintLineFormatter())
+            return LineWriter(sink, PrintLineFormatter())
         raise ValueError(f"Unsupported stdout format '{target.format}'")
 
     destination = target.destination

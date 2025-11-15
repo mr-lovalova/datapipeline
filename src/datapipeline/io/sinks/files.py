@@ -2,30 +2,17 @@ from pathlib import Path
 import os
 import tempfile
 import gzip
-import sys
 
-
-class BaseSink:
-    def close(self) -> None: ...
-
-
-class StdoutTextSink(BaseSink):
-    def __init__(self):
-        self.stream = sys.stdout
-
-    def write_text(self, s: str) -> None:
-        self.stream.write(s)
-
-    def close(self) -> None:
-        self.stream.flush()
+from .base import BaseSink
 
 
 class AtomicTextFileSink(BaseSink):
     def __init__(self, dest: Path):
         self._dest = dest
         dest.parent.mkdir(parents=True, exist_ok=True)
-        self._tmp = Path(tempfile.NamedTemporaryFile(
-            dir=str(dest.parent), delete=False).name)
+        self._tmp = Path(
+            tempfile.NamedTemporaryFile(dir=str(dest.parent), delete=False).name
+        )
         self._fh = open(self._tmp, "w", encoding="utf-8")
 
     @property
@@ -48,8 +35,9 @@ class AtomicBinaryFileSink(BaseSink):
     def __init__(self, dest: Path):
         self._dest = dest
         dest.parent.mkdir(parents=True, exist_ok=True)
-        self._tmp = Path(tempfile.NamedTemporaryFile(
-            dir=str(dest.parent), delete=False).name)
+        self._tmp = Path(
+            tempfile.NamedTemporaryFile(dir=str(dest.parent), delete=False).name
+        )
         self._fh = open(self._tmp, "wb")
 
     @property
@@ -72,8 +60,9 @@ class GzipBinarySink(BaseSink):
     def __init__(self, dest: Path):
         self._dest = dest
         dest.parent.mkdir(parents=True, exist_ok=True)
-        self._tmp = Path(tempfile.NamedTemporaryFile(
-            dir=str(dest.parent), delete=False).name)
+        self._tmp = Path(
+            tempfile.NamedTemporaryFile(dir=str(dest.parent), delete=False).name
+        )
         self._raw = open(self._tmp, "wb")
         self._fh = gzip.GzipFile(fileobj=self._raw, mode="wb")
 
