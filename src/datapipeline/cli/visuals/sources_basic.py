@@ -100,7 +100,6 @@ class VisualSourceProxy(Source):
         # Use visuals-agnostic helper so behavior matches rich/basic
         log_transport_details(transport, self._alias)
 
-    @staticmethod
     def stream(self) -> Iterator[Any]:
         loader = getattr(self._inner, "loader", None)
         desc, unit = progress_meta_for_loader(loader)

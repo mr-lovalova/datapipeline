@@ -1,7 +1,7 @@
 from contextlib import contextmanager
 import logging
 import sys
-from typing import Optional
+from typing import Optional, Tuple
 
 from datapipeline.runtime import Runtime
 
@@ -25,7 +25,7 @@ class VisualsBackend:
     def on_build_start(self, path) -> bool:  # Path-like
         return False
 
-    def on_job_start(self, kind: str, label: str, idx: int, total: int) -> bool:
+    def on_job_start(self, sections: Tuple[str, ...], label: str, idx: int, total: int) -> bool:
         return False
 
     def on_streams_complete(self) -> bool:
@@ -51,16 +51,25 @@ class _BasicBackend(VisualsBackend):
 
 
 class _RichBackend(VisualsBackend):
-    def on_job_start(self, kind: str, label: str, idx: int, total: int) -> bool:
-        kind_lower = (kind or "").lower()
-        title = "Run" if kind_lower == "run" else kind.title() if kind else "Job"
+    def _render_sections(self, console, sections: tuple[str, ...]) -> None:
+        if not sections:
+            return
+        from rich.rule import Rule as _Rule
+        console.print(_Rule(sections[0].title(), style="bold white"))
+        if len(sections) > 1:
+            for level, name in enumerate(sections[1:], start=1):
+                indent = "  " * level
+                console.print(f"{indent}[cyan]{name}[/cyan]")
+            console.print()
+
+    def on_job_start(self, sections: tuple[str, ...], label: str, idx: int, total: int) -> bool:
         try:
             from rich.console import Console as _Console
-            from rich.rule import Rule as _Rule
             import sys as _sys
             console = _Console(file=_sys.stderr, markup=True)
-            console.print(_Rule(title, style="bold white"))
-            console.print(f"[cyan]{kind_lower or 'job'}:[/cyan] '{label}' ({idx}/{total})")
+            self._render_sections(console, sections)
+            indent = "  " * max(len(sections), 1)
+            console.print(f"{indent}── {label} ({idx}/{total}) ──")
             console.print()
             return True
         except Exception:
@@ -105,6 +114,9 @@ class _RichBackend(VisualsBackend):
 
 
 class _OffBackend(VisualsBackend):
+    def requires_logging_redirect(self) -> bool:
+        return False
+
     def wrap_sources(self, runtime: Runtime, log_level: int, progress_style: str):
         from .sources_off import visual_sources as off_vs
         return off_vs(runtime, log_level, progress_style)

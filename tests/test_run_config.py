@@ -89,9 +89,10 @@ def test_load_named_run_configs_returns_all_entries(tmp_path):
 
     entries = load_named_run_configs(project_yaml)
 
-    assert [name for name, _ in entries] == ["train", "val"]
+    assert [name for name, _, _ in entries] == ["train", "val"]
     assert entries[0][1].keep == "train"
     assert entries[1][1].keep == "val"
+    assert entries[0][2].name == "train.yaml"
 
 
 def test_load_named_run_configs_raises_when_directory_empty(tmp_path):

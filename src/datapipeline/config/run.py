@@ -161,14 +161,14 @@ def _load_run_from_path(path: Path) -> RunConfig:
     return RunConfig.model_validate(doc)
 
 
-def load_named_run_configs(project_yaml: Path) -> List[Tuple[str, RunConfig]]:
-    """Return (name, config) pairs for every run file (directory-aware)."""
+def load_named_run_configs(project_yaml: Path) -> List[Tuple[str, RunConfig, Path]]:
+    """Return (name, config, path) triples for every run file (directory-aware)."""
 
     paths = _list_run_paths(project_yaml)
-    entries: List[Tuple[str, RunConfig]] = []
+    entries: List[Tuple[str, RunConfig, Path]] = []
     for path in paths:
         cfg = _load_run_from_path(path)
-        entries.append((path.stem, cfg))
+        entries.append((path.stem, cfg, path))
     return entries
 
 

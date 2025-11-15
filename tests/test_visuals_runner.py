@@ -40,7 +40,7 @@ def test_run_job_auto_mode_skips_redirect_when_backend_is_rich(mock_redirect):
     backend = _StubBackend(redirect=False)
     with patch("datapipeline.cli.visuals.runner.get_visuals_backend", return_value=backend):
         runner.run_job(
-            kind="run",
+            sections=("Runs",),
             label="demo",
             visuals="auto",
             progress_style="auto",

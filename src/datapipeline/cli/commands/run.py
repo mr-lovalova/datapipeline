@@ -20,6 +20,7 @@ from datapipeline.config.resolution import (
     workspace_output_defaults,
 )
 from datapipeline.io.output import OutputResolutionError, resolve_output_target
+from datapipeline.cli.visuals.sections import sections_from_path
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,10 @@ def _run_config_value(run_cfg, field: str):
     if fields_set is not None and field not in fields_set:
         return None
     return getattr(run_cfg, field, None)
+
+
+def _entry_sections(run_root: Optional[Path], entry: RunEntry) -> tuple[str, ...]:
+    return sections_from_path(run_root, entry.path)
 
 
 def _execute_runs(
@@ -48,6 +53,7 @@ def _execute_runs(
     cli_visual_provider: Optional[str],
     cli_progress_style: Optional[str],
     workspace,
+    run_root: Optional[Path],
 ) -> None:
     base_level_name = str(base_log_level).upper()
     shared = workspace.config.shared if workspace else None
@@ -66,7 +72,8 @@ def _execute_runs(
     workspace_output_cfg = workspace_output_defaults(workspace)
     datasets: dict[str, object] = {}
 
-    for idx, total_runs, entry_name, runtime in iter_runtime_runs(project_path, run_entries, keep):
+    for idx, total_runs, entry, runtime in iter_runtime_runs(project_path, run_entries, keep):
+        entry_name = entry.name
         run = getattr(runtime, "run", None)
         resolved_stage = cascade(stage, _run_config_value(
             run, "stage"), serve_stage_default)
@@ -138,8 +145,9 @@ def _execute_runs(
                 visual_provider=resolved_visual_provider,
             )
 
+        sections = _entry_sections(run_root, entry)
         run_job(
-            kind="run",
+            sections=sections,
             label=label,
             visuals=resolved_visual_provider or "auto",
             progress_style=resolved_progress_style or "auto",
@@ -194,14 +202,12 @@ def handle_serve(
     workspace=None,
 ) -> None:
     project_path = Path(project)
-    run_entries = resolve_run_entries(project_path, run_name)
+    run_entries, run_root = resolve_run_entries(project_path, run_name)
     skip_reason = None
     if skip_build:
         skip_reason = "--skip-build flag provided"
     else:
-        preview_stage, preview_source = determine_preview_stage(
-            stage, run_entries
-        )
+        preview_stage, preview_source = determine_preview_stage(stage, run_entries)
         if preview_stage is not None and preview_stage <= 5:
             if preview_source:
                 skip_reason = f"stage {preview_stage} preview ({preview_source})"
@@ -213,7 +219,6 @@ def handle_serve(
     else:
         run_build_if_needed(
             project_path,
-            ensure_level=logging.INFO,
             cli_visual_provider=cli_visual_provider,
             cli_progress_style=cli_progress_style,
             workspace=workspace,
@@ -234,4 +239,5 @@ def handle_serve(
         cli_visual_provider=cli_visual_provider,
         cli_progress_style=cli_progress_style,
         workspace=workspace,
+        run_root=run_root,
     )
