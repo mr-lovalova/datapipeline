@@ -67,12 +67,12 @@ def run_build_if_needed(
             rel = project_path.relative_to(cwd)
             parts = [part for part in rel.as_posix().split("/") if part]
         except Exception:
-            parts = [part for part in project_path.as_posix().split("/")
-                     if part]
+            parts = [part for part in project_path.as_posix().split("/") if part]
         if len(parts) > 3:
             parts = ["..."] + parts[-3:]
         compact = "/".join(parts) if parts else project_path.name
-        logger.info("Build: %s", compact)
+        logger.info("──────────────── Build ───────────────")
+        logger.info("project: %s", compact)
 
     if state and (state.config_hash == config_hash) and not force:
         logger.info(
