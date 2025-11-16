@@ -139,7 +139,7 @@ flowchart TB
   registrySources -. alias -> Source .-> registryStreamSources
 
   subgraph Canonical stream
-    mapperEP[Mapper entry point (from contract)]
+    mapperEP[Mapper entry point from contract]
     recordRules[Record policies from registry]
     streamRules[Stream policies from registry]
     debugRules[Debug policies from registry]
