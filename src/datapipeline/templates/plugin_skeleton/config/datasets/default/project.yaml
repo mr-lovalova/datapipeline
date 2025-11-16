@@ -5,8 +5,8 @@ paths:
   sources: ../../sources
   dataset: dataset.yaml
   postprocess: postprocess.yaml
-  artifacts: ../../build/datasets/${project_name}
-  build: build/artifacts
+  artifacts: ../../artifacts/${project_name}
+  build: builds
   run: runs
 globals:
   start_time: null # 2021-01-01T00:00:00Z format example

@@ -11,6 +11,8 @@ shared:
 
 serve:
   # log_level: INFO
+  limit: 5
+  stage: null
   output:
     transport: stdout
     format: print # set to fs + directory for file outputs
