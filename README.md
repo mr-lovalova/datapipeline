@@ -99,8 +99,8 @@ flowchart TB
     cliContract[jerry contract]
     cliServe[jerry serve]
     project[[project.yaml]]
-    sourcesCfg[config/sources/<alias>.yaml]
-    contractsCfg[config/contracts/<alias>.yaml]
+    sourcesCfg[config/sources/*.yaml]
+    contractsCfg[config/contracts/*.yaml]
     datasetCfg[dataset.yaml]
     postprocessCfg[postprocess.yaml]
   end
@@ -115,53 +115,53 @@ flowchart TB
   project -.->|paths.postprocess| postprocessCfg
 
   subgraph Registries
-    registrySources[registries.sources]
-    registryStreamSources[registries.stream_sources]
-    registryMappers[registries.mappers]
-    registryRecordOps[registries.record_ops]
-    registryStreamOps[registries.stream_ops]
-    registryDebugOps[registries.debug_ops]
+    registrySources[sources]
+    registryStreamSources[stream_sources]
+    registryMappers[mappers]
+    registryRecordOps[record_ops]
+    registryStreamOps[stream_ops]
+    registryDebugOps[debug_ops]
   end
 
   subgraph Source wiring
-    rawData[(External data store)]
-    transportSpec[transport + format choice]
-    loaderEP[Loader entry point]
-    parserEP[Parser entry point]
-    sourceArgs[Loader args: path/creds]
-    sourceNode[Source: loader+parser]
-    dtoStream[(DTO iterator)]
+    rawData[(external data)]
+    transportSpec[transport + format]
+    loaderEP[loader ep]
+    parserEP[parser ep]
+    sourceArgs[loader args]
+    sourceNode[Source]
+    dtoStream[(DTOs)]
   end
 
   sourcesCfg --> transportSpec
   sourcesCfg --> loaderEP
   sourcesCfg --> parserEP
   sourcesCfg --> sourceArgs
-  transportSpec -. select fs/url/synthetic .-> loaderEP
-  loaderEP -. instantiate loader .-> sourceNode
-  parserEP -. instantiate parser .-> sourceNode
-  sourceArgs -. path/glob/credentials .-> sourceNode
+  transportSpec -. select fs/url/synth .-> loaderEP
+  loaderEP -. build loader .-> sourceNode
+  parserEP -. build parser .-> sourceNode
+  sourceArgs -. paths/creds .-> sourceNode
   rawData --> sourceNode --> dtoStream
   sourcesCfg -. build_source_from_spec .-> registrySources
-  contractsCfg -. stream_id + source alias .-> registryStreamSources
+  contractsCfg -. stream_id + source .-> registryStreamSources
   registrySources -. alias -> Source .-> registryStreamSources
 
   subgraph Canonical stream
-    mapperEP[Mapper entry point from contract]
-    recordRules[Record policies from registry]
-    streamRules[Stream policies from registry]
-    debugRules[Debug policies from registry]
-    canonical[Mapper: DTO -> TemporalRecord]
+    mapperEP[mapper ep]
+    recordRules[record rules]
+    streamRules[stream rules]
+    debugRules[debug rules]
+    canonical[DTO -> record]
     domainRecords((TemporalRecord))
-    recordStage[Record transforms]
-    featureWrap[Feature wrapping: TemporalRecord -> FeatureRecord]
+    recordStage[record xforms]
+    featureWrap[record -> feature]
     featureRecords((FeatureRecord))
-    regularization[Stream regularization]
+    regularization[stream xforms]
   end
 
   dtoStream --> canonical --> domainRecords --> recordStage --> featureWrap --> featureRecords --> regularization
   contractsCfg --> mapperEP
-  mapperEP -. build_mapper_from_spec (stream_id -> mapper) .-> registryMappers
+  mapperEP -. build_mapper_from_spec .-> registryMappers
   registryMappers --> canonical
   contractsCfg --> recordRules
   contractsCfg --> streamRules
@@ -174,61 +174,61 @@ flowchart TB
   debugRules --> regularization
 
   subgraph Dataset shaping
-    featureSpec[feature + sequence config]
-    groupBySpec[group_by cadence]
+    featureSpec[feature cfg]
+    groupBySpec[group_by]
     streamRefs[record_stream ids]
-    featureTrans[Feature/sequence transforms]
-    sequenceStream((FeatureRecordSequence or FeatureRecord))
-    vectorStage[Vector assembly]
-    vectorSamples((Samples with feature/target vectors))
+    featureTrans[feature/seq xforms]
+    sequenceStream((seq/features))
+    vectorStage[vector assembly]
+    vectorSamples((samples))
   end
 
   datasetCfg --> featureSpec
   datasetCfg --> groupBySpec
   datasetCfg --> streamRefs
-  streamRefs -.->|build_feature_pipeline resolves source+contract| registryStreamSources
+  streamRefs -.->|build_feature_pipeline| registryStreamSources
   registryStreamSources -.->|open_source_stream| sourceNode
   featureRecords --> regularization --> featureTrans --> sequenceStream --> vectorStage --> vectorSamples
   featureSpec -. scale/sequence .-> featureTrans
-  groupBySpec -. bucket cadence .-> vectorStage
+  groupBySpec -. cadence .-> vectorStage
 
   subgraph Postprocess
-    vectorTransforms[vector transforms]
-    postprocessNode[Postprocess transforms]
+    vectorTransforms[vector xforms]
+    postprocessNode[postprocess]
   end
 
-  postprocessCfg --> vectorTransforms -. fill/drop/etc .-> postprocessNode
+  postprocessCfg --> vectorTransforms -. drop/fill .-> postprocessNode
   vectorStage --> postprocessNode
 ```
 
-style cliSource width:200px
-style cliDomain width:200px
-style cliContract width:200px
-style cliServe width:200px
-style sourcesCfg width:280px
-style contractsCfg width:300px
-style datasetCfg width:240px
-style postprocessCfg width:280px
-style registrySources width:280px
-style registryStreamSources width:320px
-style registryMappers width:280px
-style registryRecordOps width:300px
-style registryStreamOps width:320px
-style registryDebugOps width:300px
-style transportSpec width:280px
-style loaderEP width:280px
-style parserEP width:280px
-style sourceArgs width:320px
-style canonical width:360px
-style featureTrans width:340px
-style domainRecords width:300px
-style featureRecords width:300px
-style sequenceStream width:340px
-style vectorStage width:300px
-style vectorSamples width:340px
-style recordRules width:320px
-style streamRules width:320px
-style debugRules width:320px
+style cliSource width:140px
+style cliDomain width:140px
+style cliContract width:140px
+style cliServe width:140px
+style sourcesCfg width:220px
+style contractsCfg width:220px
+style datasetCfg width:200px
+style postprocessCfg width:220px
+style registrySources width:180px
+style registryStreamSources width:200px
+style registryMappers width:180px
+style registryRecordOps width:200px
+style registryStreamOps width:200px
+style registryDebugOps width:200px
+style transportSpec width:200px
+style loaderEP width:160px
+style parserEP width:160px
+style sourceArgs width:180px
+style canonical width:200px
+style featureTrans width:200px
+style domainRecords width:160px
+style featureRecords width:160px
+style sequenceStream width:200px
+style vectorStage width:180px
+style vectorSamples width:200px
+style recordRules width:180px
+style streamRules width:180px
+style debugRules width:180px
 
 Solid arrows trace runtime data flow; dashed edges highlight how the config files
 inject transports, entry points, or policies into each stage.
