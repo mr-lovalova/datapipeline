@@ -1,3 +1,4 @@
+import json
 import logging
 from pathlib import Path
 from typing import Callable, Optional
@@ -20,6 +21,32 @@ from datapipeline.services.project_paths import build_config_path
 logger = logging.getLogger(__name__)
 
 
+def _log_build_settings_debug(project_path: Path, settings) -> None:
+    if not logger.isEnabledFor(logging.DEBUG):
+        return
+    payload = {
+        "project": str(project_path),
+        "mode": settings.mode,
+        "force": settings.force,
+        "visuals": settings.visuals,
+        "progress": settings.progress,
+    }
+    logger.debug("Build settings:\n%s", json.dumps(payload, indent=2, default=str))
+
+
+def _log_build_config_debug(build_config) -> None:
+    if not logger.isEnabledFor(logging.DEBUG):
+        return
+    logger.debug(
+        "Build config:\n%s",
+        json.dumps(
+            build_config.model_dump(exclude_none=True),
+            indent=2,
+            default=str,
+        ),
+    )
+
+
 def run_build_if_needed(
     project: Path | str,
     *,
@@ -39,6 +66,7 @@ def run_build_if_needed(
         cli_progress=cli_progress,
         force_flag=force,
     )
+    _log_build_settings_debug(project_path, settings)
     effective_provider = settings.visuals
     effective_style = settings.progress
 
@@ -80,6 +108,7 @@ def run_build_if_needed(
         return False
     build_root = build_config_path(project_path)
     build_config = load_build_config(project_path)
+    _log_build_config_debug(build_config)
     runtime = bootstrap(project_path)
 
     artifacts = {}

@@ -1,4 +1,4 @@
-from datapipeline.cli.commands.run import _run_config_value
+from datapipeline.config.context import _run_config_value
 from datapipeline.config.run import RunConfig
 
 

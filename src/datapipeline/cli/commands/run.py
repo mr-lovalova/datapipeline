@@ -1,3 +1,4 @@
+import json
 import logging
 from pathlib import Path
 from typing import Optional
@@ -19,14 +20,52 @@ from datapipeline.io.output import OutputResolutionError
 logger = logging.getLogger(__name__)
 
 
-def _run_config_value(run_cfg, field: str):
-    """Return a run config field only when it was explicitly provided."""
-    if run_cfg is None:
-        return None
-    fields_set = getattr(run_cfg, 'model_fields_set', None)
-    if fields_set is not None and field not in fields_set:
-        return None
-    return getattr(run_cfg, field, None)
+def _profile_debug_payload(profile) -> dict[str, object]:
+    entry = profile.entry
+    payload: dict[str, object] = {
+        "label": profile.label,
+        "idx": profile.idx,
+        "total": profile.total,
+        "entry": {
+            "name": entry.name,
+            "path": str(entry.path) if entry.path else None,
+        },
+        "stage": profile.stage,
+        "limit": profile.limit,
+        "include_targets": profile.include_targets,
+        "throttle_ms": profile.throttle_ms,
+        "log_level": {
+            "name": profile.log_decision.name,
+            "value": profile.log_decision.value,
+        },
+        "visuals": {
+            "provider": profile.visuals.visuals,
+            "progress": profile.visuals.progress,
+        },
+        "output": {
+            "transport": profile.output.transport,
+            "format": profile.output.format,
+            "destination": str(profile.output.destination)
+            if profile.output.destination
+            else None,
+        },
+    }
+    cfg = entry.config
+    if cfg is not None:
+        payload["run_config"] = cfg.model_dump(exclude_unset=True, exclude_none=True)
+    return payload
+
+
+def _log_profile_start_debug(profile) -> None:
+    if not logger.isEnabledFor(logging.DEBUG):
+        return
+    payload = _profile_debug_payload(profile)
+    logger.debug(
+        "Run profile start (%s/%s):\n%s",
+        profile.idx,
+        profile.total,
+        json.dumps(payload, indent=2, default=str),
+    )
 
 
 
@@ -78,6 +117,7 @@ def handle_serve(
 ) -> None:
     project_path = Path(project)
     run_entries, run_root = resolve_run_entries(project_path, run_name)
+
     skip_reason = None
     if skip_build:
         skip_reason = "--skip-build flag provided"
@@ -132,7 +172,8 @@ def handle_serve(
         if root_logger.level != profile.log_decision.value:
             root_logger.setLevel(profile.log_decision.value)
 
-        def _work():
+        def _work(profile=profile):
+            _log_profile_start_debug(profile)
             serve_with_runtime(
                 profile.runtime,
                 dataset,
