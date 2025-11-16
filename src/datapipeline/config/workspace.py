@@ -82,6 +82,23 @@ class BuildDefaults(BaseModel):
     log_level: Optional[str] = None
     mode: Optional[str] = None
 
+    @field_validator("mode", mode="before")
+    @classmethod
+    def _normalize_mode(cls, value: object):
+        if value is None:
+            return None
+        if isinstance(value, bool):
+            return "OFF" if value is False else "AUTO"
+        text = str(value).strip()
+        if not text:
+            return None
+        name = text.upper()
+        valid_modes = {"AUTO", "FORCE", "OFF"}
+        if name not in valid_modes:
+            options = ", ".join(sorted(valid_modes))
+            raise ValueError(f"build.mode must be one of {options}, got {value!r}")
+        return name
+
 
 class WorkspaceConfig(BaseModel):
     plugin_root: Optional[str] = None

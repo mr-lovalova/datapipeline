@@ -76,3 +76,11 @@ def test_workspace_output_defaults_handles_relative_paths(tmp_path):
     assert resolved.transport == "fs"
     assert resolved.format == "json-lines"
     assert resolved.directory == (tmp_path / "outputs").resolve()
+
+
+def test_workspace_build_mode_accepts_booleans():
+    cfg = WorkspaceConfig.model_validate({"build": {"mode": False}})
+    assert cfg.build.mode == "OFF"
+
+    cfg = WorkspaceConfig.model_validate({"build": {"mode": True}})
+    assert cfg.build.mode == "AUTO"
