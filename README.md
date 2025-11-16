@@ -139,7 +139,7 @@ flowchart TB
   registrySources -. alias -> Source .-> registryStreamSources
 
   subgraph Canonical stream
-    mapperEP[Mapper entry point]
+    mapperEP[Mapper entry point (from contract)]
     recordRules[Record policies from registry]
     streamRules[Stream policies from registry]
     debugRules[Debug policies from registry]
@@ -152,7 +152,8 @@ flowchart TB
   end
 
   dtoStream --> canonical --> domainRecords --> recordStage --> featureWrap --> featureRecords --> regularization
-  contractsCfg --> mapperEP -. register stream alias .-> registryMappers
+  contractsCfg --> mapperEP
+  mapperEP -. build_mapper_from_spec (stream_id -> mapper) .-> registryMappers
   registryMappers --> canonical
   contractsCfg --> recordRules
   contractsCfg --> streamRules
@@ -192,30 +193,30 @@ flowchart TB
   vectorStage --> postprocessNode
 ```
 
-style sourcesCfg width:260px
-style contractsCfg width:260px
-style datasetCfg width:220px
-style postprocessCfg width:260px
-style registrySources width:260px
-style registryStreamSources width:300px
-style registryMappers width:260px
-style registryRecordOps width:260px
-style registryStreamOps width:300px
-style registryDebugOps width:260px
-style transportSpec width:260px
-style loaderEP width:260px
-style parserEP width:260px
-style sourceArgs width:280px
-style canonical width:300px
-style featureTrans width:300px
-style domainRecords width:260px
-style featureRecords width:260px
-style sequenceStream width:300px
-style vectorStage width:260px
-style vectorSamples width:300px
-style recordRules width:260px
-style streamRules width:260px
-style debugRules width:260px
+style sourcesCfg width:280px
+style contractsCfg width:300px
+style datasetCfg width:240px
+style postprocessCfg width:280px
+style registrySources width:280px
+style registryStreamSources width:320px
+style registryMappers width:280px
+style registryRecordOps width:300px
+style registryStreamOps width:320px
+style registryDebugOps width:300px
+style transportSpec width:280px
+style loaderEP width:280px
+style parserEP width:280px
+style sourceArgs width:320px
+style canonical width:360px
+style featureTrans width:340px
+style domainRecords width:300px
+style featureRecords width:300px
+style sequenceStream width:340px
+style vectorStage width:300px
+style vectorSamples width:340px
+style recordRules width:320px
+style streamRules width:320px
+style debugRules width:320px
 
 Solid arrows trace runtime data flow; dashed edges highlight how the config files
 inject transports, entry points, or policies into each stage.
