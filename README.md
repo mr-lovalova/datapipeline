@@ -140,30 +140,38 @@ flowchart TB
 
   subgraph Canonical stream
     mapperEP[Mapper entry point]
-    recordRules[record policies]
-    streamRules[stream policies]
-    canonical[Canonical mapper]
+    recordRules[Record policies from registry]
+    streamRules[Stream policies from registry]
+    debugRules[Debug policies from registry]
+    canonical[Mapper: DTO -> TemporalRecord]
+    domainRecords((TemporalRecord))
     recordStage[Record transforms]
-    featureWrap[Feature wrapping]
+    featureWrap[Feature wrapping: TemporalRecord -> FeatureRecord]
+    featureRecords((FeatureRecord))
     regularization[Stream regularization]
   end
 
-  dtoStream --> canonical --> recordStage --> featureWrap --> regularization
+  dtoStream --> canonical --> domainRecords --> recordStage --> featureWrap --> featureRecords --> regularization
   contractsCfg --> mapperEP -. register stream alias .-> registryMappers
   registryMappers --> canonical
-  contractsCfg -. record ops .-> registryRecordOps
-  contractsCfg -. stream ops .-> registryStreamOps
-  contractsCfg -. debug ops .-> registryDebugOps
-  registryRecordOps -. filters/floor/lag .-> recordStage
-  registryStreamOps -. ensure_ticks/fill .-> regularization
-  registryDebugOps -. lint/assert .-> regularization
+  contractsCfg --> recordRules
+  contractsCfg --> streamRules
+  contractsCfg --> debugRules
+  registryRecordOps --> recordRules
+  registryStreamOps --> streamRules
+  registryDebugOps --> debugRules
+  recordRules --> recordStage
+  streamRules --> regularization
+  debugRules --> regularization
 
   subgraph Dataset shaping
     featureSpec[feature + sequence config]
     groupBySpec[group_by cadence]
     streamRefs[record_stream ids]
-    featureTrans[Feature transforms / sequence]
+    featureTrans[Feature/sequence transforms]
+    sequenceStream((FeatureRecordSequence or FeatureRecord))
     vectorStage[Vector assembly]
+    vectorSamples((Samples with feature/target vectors))
   end
 
   datasetCfg --> featureSpec
@@ -171,7 +179,7 @@ flowchart TB
   datasetCfg --> streamRefs
   streamRefs -.->|build_feature_pipeline resolves source+contract| registryStreamSources
   registryStreamSources -.->|open_source_stream| sourceNode
-  featureWrap --> regularization --> featureTrans --> vectorStage
+  featureRecords --> regularization --> featureTrans --> sequenceStream --> vectorStage --> vectorSamples
   featureSpec -. scale/sequence .-> featureTrans
   groupBySpec -. bucket cadence .-> vectorStage
 
@@ -188,18 +196,26 @@ style sourcesCfg width:220px
 style contractsCfg width:220px
 style datasetCfg width:160px
 style postprocessCfg width:220px
-style registrySources width:180px
-style registryStreamSources width:200px
-style registryMappers width:180px
-style registryRecordOps width:200px
-style registryStreamOps width:220px
-style registryDebugOps width:200px
-style transportSpec width:160px
-style loaderEP width:160px
-style parserEP width:160px
-style sourceArgs width:180px
-style canonical width:220px
-style featureTrans width:220px
+style registrySources width:200px
+style registryStreamSources width:240px
+style registryMappers width:200px
+style registryRecordOps width:220px
+style registryStreamOps width:240px
+style registryDebugOps width:220px
+style transportSpec width:200px
+style loaderEP width:200px
+style parserEP width:200px
+style sourceArgs width:220px
+style canonical width:260px
+style featureTrans width:260px
+style domainRecords width:220px
+style featureRecords width:220px
+style sequenceStream width:260px
+style vectorStage width:220px
+style vectorSamples width:260px
+style recordRules width:260px
+style streamRules width:260px
+style debugRules width:260px
 
 Solid arrows trace runtime data flow; dashed edges highlight how the config files
 inject transports, entry points, or policies into each stage.
