@@ -13,6 +13,7 @@ def handle(
     identity: bool = False,
     alias: str | None = None,
     plugin_root: Path | None = None,
+    config_root: Path | None = None,
 ) -> None:
     if subcmd in {"create", "add"}:
         # Allow: positional provider dataset, --provider/--dataset, --alias, or provider as 'prov.ds'
@@ -50,4 +51,5 @@ def handle(
             format=format,
             root=plugin_root,
             identity=identity,
+            config_root=config_root,
         )

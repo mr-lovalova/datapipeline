@@ -473,6 +473,7 @@ def main() -> None:
 
     logging.basicConfig(level=base_level, format="%(message)s")
     plugin_root = workspace_context.resolve_plugin_root() if workspace_context else None
+    config_root = workspace_context.resolve_config_root() if workspace_context else None
 
     if args.cmd == "serve":
         handle_serve(
@@ -584,6 +585,7 @@ def main() -> None:
                 alias=getattr(args, "alias", None),
                 identity=getattr(args, "identity", False),
                 plugin_root=plugin_root,
+                config_root=config_root,
             )
         return
 
@@ -599,7 +601,7 @@ def main() -> None:
         return
 
     if args.cmd == "contract":
-        handle_contract(plugin_root=plugin_root)
+        handle_contract(plugin_root=plugin_root, config_root=config_root)
         return
 
     if args.cmd == "plugin":

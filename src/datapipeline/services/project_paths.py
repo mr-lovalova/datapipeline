@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Optional
 
 from datapipeline.utils.load import load_yaml
 from datapipeline.config.project import ProjectConfig
@@ -94,3 +95,22 @@ def ensure_project_scaffold(project_yaml: Path) -> None:
         # If the file is malformed, leave it to callers to report; this helper
         # is best-effort to create a sensible starting point.
         pass
+
+
+def resolve_project_yaml_path(
+    plugin_root: Path,
+    config_root: Optional[Path],
+) -> Path:
+    """Return project.yaml path honoring optional workspace config overrides."""
+    if config_root:
+        target = Path(config_root)
+        if target.suffix.lower() in {".yaml", ".yml"}:
+            return target
+        candidate = target / "project.yaml"
+        if candidate.exists():
+            return candidate
+        fallback = target / "datasets" / "default" / "project.yaml"
+        if fallback.exists():
+            return fallback
+        return candidate
+    return plugin_root / "config" / "datasets" / "default" / "project.yaml"
