@@ -7,6 +7,29 @@ from typing import Optional
 from datapipeline.config.run import OutputConfig
 
 
+def _format_suffix(fmt: str) -> str:
+    suffix_map = {
+        "json-lines": ".jsonl",
+        "json": ".json",
+        "csv": ".csv",
+        "pickle": ".pkl",
+    }
+    return suffix_map.get(fmt, ".out")
+
+
+def _default_filename_for_format(fmt: str) -> str:
+    suffix = _format_suffix(fmt)
+    return f"vectors{suffix}"
+
+
+def _sanitize_segment(value: str) -> str:
+    cleaned = "".join(
+        ch if ch.isalnum() or ch in ("_", "-", ".") else "_"
+        for ch in value.strip()
+    )
+    return cleaned or "run"
+
+
 @dataclass(frozen=True)
 class OutputTarget:
     """Resolved writer target describing how and where to emit records."""
@@ -40,6 +63,7 @@ def resolve_output_target(
     config_output: OutputConfig | None,
     default: OutputConfig | None = None,
     base_path: Path | None = None,
+    run_name: str | None = None,
 ) -> OutputTarget:
     """
     Resolve the effective output target using CLI override, run config, or default.
@@ -58,11 +82,23 @@ def resolve_output_target(
             destination=None,
         )
 
-    dest_path = config.path
-    if dest_path is None:
-        raise OutputResolutionError("fs output requires a destination path")
-    if not dest_path.is_absolute():
-        dest_path = (base_path / dest_path).resolve()
+    if config.directory is None:
+        raise OutputResolutionError("fs output requires a directory")
+    directory = (
+        config.directory
+        if config.directory.is_absolute()
+        else (base_path / config.directory).resolve()
+    )
+    run_segment = _sanitize_segment(run_name) if run_name else None
+    if run_segment:
+        directory = directory / run_segment
+    suffix = _format_suffix(config.format)
+    filename_stem = config.filename or run_name
+    if filename_stem:
+        filename = f"{filename_stem}{suffix}"
+    else:
+        filename = _default_filename_for_format(config.format)
+    dest_path = (directory / filename).resolve()
 
     return OutputTarget(
         transport="fs",

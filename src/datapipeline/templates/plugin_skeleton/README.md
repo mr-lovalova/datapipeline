@@ -74,16 +74,16 @@ Train/Val/Test splits (deterministic)
   limit: 100                # cap vectors per serve run (null = unlimited)
   include_targets: false    # include dataset.targets when serving
   throttle_ms: null         # sleep between vectors (milliseconds)
-  # visual_provider: AUTO  # visuals backend for CLI feedback: AUTO|TQDM|RICH|OFF
-  # progress_style: AUTO   # AUTO | SPINNER | BARS | OFF
+  # visuals: AUTO  # visuals backend for CLI feedback: AUTO|TQDM|RICH|OFF
+  # progress: AUTO   # AUTO | SPINNER | BARS | OFF
   ```
 - If you prefer separate configs per split, point `project.paths.run` at a folder (e.g., `config/datasets/default/runs/`),
   drop `train.yaml`, `val.yaml`, etc. inside, and the CLI will run each file in order unless you pass `--run <name>`.
 - Serve examples (change run.yaml or pass `--keep val|test`):
   - `jerry serve -p config/datasets/default/project.yaml --out-transport stdout --out-format json-lines > train.jsonl`
   - `jerry serve -p config/datasets/default/project.yaml --keep val --out-transport stdout --out-format json-lines > val.jsonl`
-  - Add `--visual-provider rich --progress-style bars` for a richer interactive UI; defaults to `AUTO`.
-- For shared workspace defaults (visual provider, progress style, build mode), drop a `jerry.yaml` next to your workspace root and set `visuals.provider`, `visuals.progress_style`, etc. CLI commands walk up from the current directory to find it.
+  - Add `--visuals rich --progress bars` for a richer interactive UI; defaults to `AUTO`.
+- For shared workspace defaults (visual renderer, progress display, build mode), drop a `jerry.yaml` next to your workspace root and set `shared.visuals`, `shared.progress`, etc. CLI commands walk up from the current directory to find it.
 - The split is applied at the end (after postprocess transforms), and assignment
   is deterministic (hash-based) with a fixed seed; no overlap across runs.
 

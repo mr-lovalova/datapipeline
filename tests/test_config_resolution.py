@@ -18,26 +18,26 @@ def test_cascade_prefers_first_non_null():
 
 def test_resolve_visuals_applies_priority():
     visuals = resolve_visuals(
-        cli_provider="RICH",
-        config_provider="TQDM",
-        workspace_provider="auto",
-        cli_style=None,
-        config_style="BARS",
-        workspace_style="spinner",
+        cli_visuals="RICH",
+        config_visuals="TQDM",
+        workspace_visuals="auto",
+        cli_progress=None,
+        config_progress="BARS",
+        workspace_progress="spinner",
     )
-    assert visuals.provider == "rich"
-    assert visuals.progress_style == "bars"
+    assert visuals.visuals == "rich"
+    assert visuals.progress == "bars"
 
     visuals = resolve_visuals(
-        cli_provider=None,
-        config_provider=None,
-        workspace_provider="tqdm",
-        cli_style=None,
-        config_style=None,
-        workspace_style="spinner",
+        cli_visuals=None,
+        config_visuals=None,
+        workspace_visuals="tqdm",
+        cli_progress=None,
+        config_progress=None,
+        workspace_progress="spinner",
     )
-    assert visuals.provider == "tqdm"
-    assert visuals.progress_style == "spinner"
+    assert visuals.visuals == "tqdm"
+    assert visuals.progress == "spinner"
 
 
 def test_resolve_log_level_handles_fallbacks():
@@ -63,10 +63,10 @@ def test_workspace_output_defaults_handles_relative_paths(tmp_path):
     cfg = WorkspaceConfig.model_validate(
         {
             "serve": {
-                "output_defaults": {
+                "output": {
                     "transport": "fs",
                     "format": "json-lines",
-                    "path": "outputs/run.jsonl",
+                    "directory": "outputs",
                 }
             }
         }
@@ -75,4 +75,4 @@ def test_workspace_output_defaults_handles_relative_paths(tmp_path):
     resolved = workspace_output_defaults(context)
     assert resolved.transport == "fs"
     assert resolved.format == "json-lines"
-    assert resolved.path == (tmp_path / "outputs" / "run.jsonl").resolve()
+    assert resolved.directory == (tmp_path / "outputs").resolve()

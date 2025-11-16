@@ -14,9 +14,9 @@ from datapipeline.io.sinks import StdoutTextSink, RichStdoutSink, ReprRichFormat
 from datapipeline.io.output import OutputTarget
 
 
-def stdout_sink_for(format_: str, visual_provider: Optional[str]) -> StdoutTextSink:
+def stdout_sink_for(format_: str, visuals: Optional[str]) -> StdoutTextSink:
     fmt = (format_ or "print").lower()
-    provider = (visual_provider or "auto").lower()
+    provider = (visuals or "auto").lower()
     if provider != "rich":
         return StdoutTextSink()
     try:
@@ -29,12 +29,12 @@ def stdout_sink_for(format_: str, visual_provider: Optional[str]) -> StdoutTextS
         return StdoutTextSink()
 
 
-def writer_factory(target: OutputTarget, *, visual_provider: Optional[str] = None) -> Writer:
+def writer_factory(target: OutputTarget, *, visuals: Optional[str] = None) -> Writer:
     transport = target.transport.lower()
     format_ = target.format.lower()
 
     if transport == "stdout":
-        sink = stdout_sink_for(format_, visual_provider)
+        sink = stdout_sink_for(format_, visuals)
         if format_ in {"json-lines", "json", "jsonl"}:
             return LineWriter(sink, JsonLineFormatter())
         if format_ == "print":

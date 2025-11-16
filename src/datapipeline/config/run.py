@@ -18,26 +18,47 @@ Format = Literal["csv", "json", "json-lines", "print", "pickle"]
 
 class OutputConfig(BaseModel):
     transport: Transport = Field(..., description="fs | stdout")
-    format: Format = Field(..., description="csv | json | json-lines | print")
-    path: Optional[Path] = Field(
+    format: Format = Field(..., description="csv | json | json-lines | print | pickle")
+    directory: Optional[Path] = Field(
         default=None,
-        description="Required for fs. Full file path including extension."
+        description="Directory where run outputs should land (fs transport only).",
     )
+    filename: Optional[str] = Field(
+        default=None,
+        description="Filename stem (extension derived from format) for fs outputs.",
+    )
+
+    @field_validator("filename", mode="before")
+    @classmethod
+    def _normalize_filename(cls, value):
+        if value is None:
+            return None
+        text = str(value).strip()
+        if not text:
+            return None
+        if any(sep in text for sep in ("/", "\\")):
+            raise ValueError("filename must not contain path separators")
+        if "." in Path(text).name:
+            raise ValueError("filename should not include an extension; format determines the suffix")
+        return text
 
     @model_validator(mode="after")
     def _validate(self):
         if self.transport == "stdout":
-            if self.path is not None:
-                raise ValueError("stdout cannot have path")
+            if self.directory is not None:
+                raise ValueError("stdout cannot define a directory")
+            if self.filename is not None:
+                raise ValueError("stdout outputs do not support filenames")
             if self.format not in {"print", "json-lines", "json"}:
                 raise ValueError(
                     "stdout output supports 'print', 'json-lines', or 'json' formats"
                 )
-        else:  # fs
-            if self.path is None:
-                raise ValueError("fs requires path")
-            if self.format in {"print"}:
-                raise ValueError("fs transport cannot use 'print' format")
+            return self
+
+        if self.format == "print":
+            raise ValueError("fs transport cannot use 'print' format")
+        if self.directory is None:
+            raise ValueError("fs outputs require a directory")
         return self
 
 
@@ -45,6 +66,10 @@ class RunConfig(BaseModel):
     """Runtime overrides applied when serving vectors."""
 
     version: int = Field(default=1)
+    name: str | None = Field(
+        default=None,
+        description="Unique run name (defaults to filename stem when omitted).",
+    )
     keep: str | None = Field(
         default=None,
         description="Active split label to serve. Null disables filtering.",
@@ -75,11 +100,11 @@ class RunConfig(BaseModel):
         default="INFO",
         description="Default logging level for serve runs (DEBUG, INFO, WARNING, ERROR, CRITICAL). Use null to inherit CLI.",
     )
-    visual_provider: str | None = Field(
+    visuals: str | None = Field(
         default="AUTO",
         description="Visuals provider: AUTO (prefer rich if available), TQDM, RICH, or OFF.",
     )
-    progress_style: str | None = Field(
+    progress: str | None = Field(
         default="AUTO",
         description="Progress style: AUTO (spinner unless DEBUG), SPINNER, BARS, or OFF.",
     )
@@ -96,9 +121,9 @@ class RunConfig(BaseModel):
             )
         return name
 
-    @field_validator("visual_provider", mode="before")
+    @field_validator("visuals", mode="before")
     @classmethod
-    def _validate_visual_provider_run(cls, value):
+    def _validate_visuals_run(cls, value):
         if value is None:
             return None
         if isinstance(value, bool):
@@ -106,21 +131,31 @@ class RunConfig(BaseModel):
         name = str(value).upper()
         if name not in VALID_VISUAL_PROVIDERS:
             raise ValueError(
-                f"visual_provider must be one of {', '.join(VALID_VISUAL_PROVIDERS)}, got {value!r}"
+                f"visuals must be one of {', '.join(VALID_VISUAL_PROVIDERS)}, got {value!r}"
             )
         return name
 
-    @field_validator("progress_style", mode="before")
+    @field_validator("progress", mode="before")
     @classmethod
-    def _validate_progress_style_run(cls, value):
+    def _validate_progress_run(cls, value):
         if value is None:
             return None
         name = str(value).upper()
         if name not in VALID_PROGRESS_STYLES:
             raise ValueError(
-                f"progress_style must be one of {', '.join(VALID_PROGRESS_STYLES)}, got {value!r}"
+                f"progress must be one of {', '.join(VALID_PROGRESS_STYLES)}, got {value!r}"
             )
         return name
+
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        if not text:
+            raise ValueError("run name cannot be empty")
+        return text
 
 
 def _resolve_run_path(project_yaml: Path, run_path: str | Path) -> Path:
@@ -168,7 +203,10 @@ def load_named_run_configs(project_yaml: Path) -> List[Tuple[str, RunConfig, Pat
     entries: List[Tuple[str, RunConfig, Path]] = []
     for path in paths:
         cfg = _load_run_from_path(path)
-        entries.append((path.stem, cfg, path))
+        effective_name = cfg.name or path.stem
+        if cfg.name is None:
+            cfg.name = effective_name
+        entries.append((effective_name, cfg, path))
     return entries
 
 
@@ -178,4 +216,7 @@ def load_run_config(project_yaml: Path) -> RunConfig | None:
     paths = _list_run_paths(project_yaml)
     if not paths:
         return None
-    return _load_run_from_path(paths[0])
+    cfg = _load_run_from_path(paths[0])
+    if cfg.name is None:
+        cfg.name = paths[0].stem
+    return cfg

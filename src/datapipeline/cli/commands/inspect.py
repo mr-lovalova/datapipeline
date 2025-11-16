@@ -4,11 +4,9 @@ from contextlib import redirect_stdout
 from pathlib import Path
 
 from datapipeline.analysis.vector.collector import VectorStatsCollector
-from datapipeline.config.dataset.loader import load_dataset
-from datapipeline.services.bootstrap import bootstrap
+from datapipeline.config.context import load_dataset_context
 from datapipeline.utils.paths import ensure_parent
 from datapipeline.services.bootstrap import artifacts_root
-from datapipeline.pipeline.context import PipelineContext
 from datapipeline.pipeline.pipelines import build_vector_pipeline
 from datapipeline.pipeline.stages import post_process
 
@@ -36,13 +34,13 @@ def report(
     - When matrix != 'none', writes an availability matrix in the requested format.
     """
 
-    project_path = Path(project)
-    dataset = load_dataset(project_path, "vectors")
-    runtime = bootstrap(project_path)
-    context = PipelineContext(runtime)
+    dataset_ctx = load_dataset_context(project, include_targets=include_targets)
+    project_path = dataset_ctx.project
+    context = dataset_ctx.pipeline_context
+    dataset = dataset_ctx.dataset
 
-    feature_cfgs = list(dataset.features or [])
-    target_cfgs = list(dataset.targets or []) if include_targets else []
+    feature_cfgs = dataset_ctx.features
+    target_cfgs = dataset_ctx.targets if include_targets else []
     expected_feature_ids = [cfg.id for cfg in feature_cfgs]
 
     # Resolve matrix format and path
@@ -138,10 +136,10 @@ def partitions(
       - by_feature: mapping base id -> list of suffixes (empty when none)
     """
 
-    project_path = Path(project)
-    dataset = load_dataset(project_path, "vectors")
-    runtime = bootstrap(project_path)
+    dataset_ctx = load_dataset_context(project, include_targets=include_targets)
+    project_path = dataset_ctx.project
 
+    dataset = dataset_ctx.dataset
     feature_cfgs = list(dataset.features or [])
     target_cfgs = list(dataset.targets or []) if include_targets else []
     expected_feature_ids = [cfg.id for cfg in feature_cfgs]
@@ -152,7 +150,7 @@ def partitions(
         show_matrix=False,
     )
 
-    context = PipelineContext(runtime)
+    context = dataset_ctx.pipeline_context
     vectors = build_vector_pipeline(
         context,
         feature_cfgs,
@@ -206,14 +204,13 @@ def expected(
     Writes newline-separated ids to `<paths.artifacts>/expected.txt` by default.
     """
 
-    project_path = Path(project)
-    dataset = load_dataset(project_path, "vectors")
-    runtime = bootstrap(project_path)
-
+    dataset_ctx = load_dataset_context(project, include_targets=include_targets)
+    project_path = dataset_ctx.project
+    dataset = dataset_ctx.dataset
     feature_cfgs = list(dataset.features or [])
     target_cfgs = list(dataset.targets or []) if include_targets else []
 
-    context = PipelineContext(runtime)
+    context = dataset_ctx.pipeline_context
     vectors = build_vector_pipeline(
         context,
         feature_cfgs,

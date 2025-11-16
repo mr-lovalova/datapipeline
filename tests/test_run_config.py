@@ -40,6 +40,7 @@ def test_load_run_config_reads_arbitrary_keep_value(tmp_path):
 
     assert cfg is not None
     assert cfg.keep == "shadow"
+    assert cfg.name == "run"
 
 
 def test_load_run_config_parses_optional_defaults(tmp_path):
@@ -78,21 +79,37 @@ def test_load_run_config_uses_first_file_when_directory(tmp_path):
     cfg = load_run_config(project_yaml)
 
     assert cfg.keep == "foo"
+    assert cfg.name == "a"
 
 
 def test_load_named_run_configs_returns_all_entries(tmp_path):
     project_yaml = _write_project(tmp_path, run_ref="runs")
     runs_dir = project_yaml.parent / "runs"
     runs_dir.mkdir()
-    (runs_dir / "train.yaml").write_text("version: 1\nkeep: train\n", encoding="utf-8")
+    (runs_dir / "train.yaml").write_text(
+        "version: 1\nname: training\nkeep: train\n",
+        encoding="utf-8",
+    )
     (runs_dir / "val.yaml").write_text("version: 1\nkeep: val\n", encoding="utf-8")
 
     entries = load_named_run_configs(project_yaml)
 
-    assert [name for name, _, _ in entries] == ["train", "val"]
+    assert [name for name, _, _ in entries] == ["training", "val"]
     assert entries[0][1].keep == "train"
     assert entries[1][1].keep == "val"
     assert entries[0][2].name == "train.yaml"
+
+
+def test_load_named_run_configs_defaults_name_from_filename(tmp_path):
+    project_yaml = _write_project(tmp_path, run_ref="runs")
+    runs_dir = project_yaml.parent / "runs"
+    runs_dir.mkdir()
+    (runs_dir / "serve.yaml").write_text("version: 1\nkeep: test\n", encoding="utf-8")
+
+    entries = load_named_run_configs(project_yaml)
+
+    assert entries[0][0] == "serve"
+    assert entries[0][1].name == "serve"
 
 
 def test_load_named_run_configs_raises_when_directory_empty(tmp_path):

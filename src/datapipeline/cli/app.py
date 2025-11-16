@@ -112,16 +112,16 @@ def main() -> None:
         help="preview a specific pipeline stage (0-5 feature stages, 6 assembled vectors, 7 transformed vectors)",
     )
     p_serve.add_argument(
-        "--visual-provider",
+        "--visuals",
         choices=["auto", "tqdm", "rich", "off"],
         default=None,
-        help="visuals provider: auto (default), tqdm, rich, or off",
+        help="visuals renderer: auto (default), tqdm, rich, or off",
     )
     p_serve.add_argument(
-        "--progress-style",
+        "--progress",
         choices=["auto", "spinner", "bars", "off"],
         default=None,
-        help="progress style: auto (spinner unless DEBUG), spinner, bars, or off",
+        help="progress display: auto (spinner unless DEBUG), spinner, bars, or off",
     )
     p_serve.add_argument(
         "--skip-build",
@@ -147,16 +147,16 @@ def main() -> None:
         help="rebuild even when the configuration hash matches the last run",
     )
     p_build.add_argument(
-        "--visual-provider",
+        "--visuals",
         choices=["auto", "tqdm", "rich", "off"],
         default=None,
-        help="visuals provider: auto (default), tqdm, rich, or off",
+        help="visuals renderer: auto (default), tqdm, rich, or off",
     )
     p_build.add_argument(
-        "--progress-style",
+        "--progress",
         choices=["auto", "spinner", "bars", "off"],
         default=None,
-        help="progress style: auto (spinner unless DEBUG), spinner, bars, or off",
+        help="progress display: auto (spinner unless DEBUG), spinner, bars, or off",
     )
 
     # source
@@ -488,8 +488,8 @@ def main() -> None:
             skip_build=getattr(args, "skip_build", False),
             cli_log_level=cli_level_arg,
             base_log_level=base_level_name,
-            cli_visual_provider=getattr(args, "visual_provider", None),
-            cli_progress_style=getattr(args, "progress_style", None),
+            cli_visuals=getattr(args, "visuals", None),
+            cli_progress=getattr(args, "progress", None),
             workspace=workspace_context,
         )
         return
@@ -497,8 +497,8 @@ def main() -> None:
         handle_build(
             project=args.project,
             force=getattr(args, "force", False),
-            cli_visual_provider=getattr(args, "visual_provider", None),
-            cli_progress_style=getattr(args, "progress_style", None),
+            cli_visuals=getattr(args, "visuals", None),
+            cli_progress=getattr(args, "progress", None),
             workspace=workspace_context,
         )
         return

@@ -74,7 +74,7 @@ def serve_with_runtime(
     include_targets: bool,
     throttle_ms: Optional[float],
     stage: Optional[int],
-    visual_provider: Optional[str] = None,
+    visuals: Optional[str] = None,
 ) -> None:
     context = PipelineContext(runtime)
 
@@ -95,7 +95,7 @@ def serve_with_runtime(
                 stage=stage,
             )
             feature_target = target.for_feature(cfg.id)
-            writer = writer_factory(feature_target, visual_provider=visual_provider)
+            writer = writer_factory(feature_target, visuals=visuals)
             count = serve_stream(stream, limit, writer=writer)
             report_serve(feature_target, count)
         return
@@ -115,7 +115,7 @@ def serve_with_runtime(
         vectors = apply_split_stage(runtime, vectors)
         vectors = throttle_vectors(vectors, throttle_ms)
 
-    writer = writer_factory(target, visual_provider=visual_provider)
+    writer = writer_factory(target, visuals=visuals)
 
     result_count = serve_stream(vectors, limit, writer=writer)
     report_serve(target, result_count)

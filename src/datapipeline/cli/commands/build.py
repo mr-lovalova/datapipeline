@@ -12,7 +12,7 @@ from datapipeline.cli.visuals import get_visuals_backend
 from datapipeline.cli.visuals.runner import run_job
 from datapipeline.cli.visuals.sections import sections_from_path
 from datapipeline.config.build import load_build_config
-from datapipeline.config.resolution import cascade, resolve_visuals
+from datapipeline.config.context import resolve_build_settings
 from datapipeline.services.bootstrap import artifacts_root, bootstrap
 from datapipeline.services.project_paths import build_config_path
 
@@ -24,8 +24,8 @@ def run_build_if_needed(
     project: Path | str,
     *,
     force: bool = False,
-    cli_visual_provider: str | None = None,
-    cli_progress_style: str | None = None,
+    cli_visuals: str | None = None,
+    cli_progress: str | None = None,
     workspace=None,
 ) -> bool:
     """Execute the build workflow when the cached config hash has changed.
@@ -33,35 +33,19 @@ def run_build_if_needed(
     Returns True when a build was performed, False if skipped.
     """
     project_path = Path(project).resolve()
-    shared = workspace.config.shared if workspace else None
-    build_defaults = workspace.config.build if workspace else None
-    shared_provider = shared.visual_provider if shared else None
-    shared_style = shared.progress_style if shared else None
-    build_mode_default = (
-        build_defaults.mode.upper() if build_defaults and build_defaults.mode else None
+    settings = resolve_build_settings(
+        workspace=workspace,
+        cli_visuals=cli_visuals,
+        cli_progress=cli_progress,
+        force_flag=force,
     )
+    effective_provider = settings.visuals
+    effective_style = settings.progress
 
-    visuals = resolve_visuals(
-        cli_provider=cli_visual_provider,
-        config_provider=None,
-        workspace_provider=shared_provider,
-        cli_style=cli_progress_style,
-        config_style=None,
-        workspace_style=shared_style,
-    )
-    effective_provider = visuals.provider
-    effective_style = visuals.progress_style
-
-    effective_mode = (
-        "FORCE"
-        if force
-        else (cascade(build_mode_default, "AUTO") or "AUTO")
-    )
-    effective_mode = effective_mode.upper()
-    if effective_mode == "OFF":
+    if settings.mode == "OFF":
         logger.info("Build skipped (jerry.yaml build.mode=OFF).")
         return False
-    force = force or effective_mode == "FORCE"
+    force = settings.force
     cfg_path = build_config_path(project_path)
     config_hash = compute_config_hash(project_path, cfg_path)
 
@@ -167,15 +151,15 @@ def handle(
     project: str,
     *,
     force: bool = False,
-    cli_visual_provider: str | None = None,
-    cli_progress_style: str | None = None,
+    cli_visuals: str | None = None,
+    cli_progress: str | None = None,
     workspace=None,
 ) -> None:
     """Materialize build artifacts for the configured project."""
     run_build_if_needed(
         project,
         force=force,
-        cli_visual_provider=cli_visual_provider,
-        cli_progress_style=cli_progress_style,
+        cli_visuals=cli_visuals,
+        cli_progress=cli_progress,
         workspace=workspace,
     )

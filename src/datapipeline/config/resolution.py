@@ -40,34 +40,34 @@ def _level_value(value: Any) -> Optional[int]:
 
 @dataclass(frozen=True)
 class VisualSettings:
-    provider: str
-    progress_style: str
+    visuals: str
+    progress: str
 
 
 def resolve_visuals(
     *,
-    cli_provider: str | None,
-    config_provider: str | None,
-    workspace_provider: str | None,
-    cli_style: str | None,
-    config_style: str | None,
-    workspace_style: str | None,
-    default_provider: str = "auto",
-    default_style: str = "auto",
+    cli_visuals: str | None,
+    config_visuals: str | None,
+    workspace_visuals: str | None,
+    cli_progress: str | None,
+    config_progress: str | None,
+    workspace_progress: str | None,
+    default_visuals: str = "auto",
+    default_progress: str = "auto",
 ) -> VisualSettings:
-    provider = cascade(
-        _normalize_lower(cli_provider),
-        _normalize_lower(config_provider),
-        _normalize_lower(workspace_provider),
-        default_provider,
-    ) or default_provider
-    progress_style = cascade(
-        _normalize_lower(cli_style),
-        _normalize_lower(config_style),
-        _normalize_lower(workspace_style),
-        default_style,
-    ) or default_style
-    return VisualSettings(provider=provider, progress_style=progress_style)
+    visuals = cascade(
+        _normalize_lower(cli_visuals),
+        _normalize_lower(config_visuals),
+        _normalize_lower(workspace_visuals),
+        default_visuals,
+    ) or default_visuals
+    progress = cascade(
+        _normalize_lower(cli_progress),
+        _normalize_lower(config_progress),
+        _normalize_lower(workspace_progress),
+        default_progress,
+    ) or default_progress
+    return VisualSettings(visuals=visuals, progress=progress)
 
 
 @dataclass(frozen=True)
@@ -110,13 +110,13 @@ def workspace_output_defaults(
     if workspace is None:
         return None
     serve_defaults = getattr(workspace.config, "serve", None)
-    if not serve_defaults or not serve_defaults.output_defaults:
+    if not serve_defaults or not serve_defaults.output:
         return None
-    od = serve_defaults.output_defaults
-    output_path = None
-    if od.path:
-        candidate = Path(od.path)
-        output_path = (
+    od = serve_defaults.output
+    output_dir = None
+    if od.directory:
+        candidate = Path(od.directory)
+        output_dir = (
             candidate
             if candidate.is_absolute()
             else (workspace.root / candidate).resolve()
@@ -124,5 +124,5 @@ def workspace_output_defaults(
     return OutputConfig(
         transport=od.transport,
         format=od.format,
-        path=output_path,
+        directory=output_dir,
     )
