@@ -106,25 +106,37 @@ flowchart TB
   project -.->|paths.dataset| datasetCfg
   project -.->|paths.postprocess| postprocessCfg
 
-  subgraph Source definition
+  subgraph Registries
+    registrySources[registries.sources]
+    registryStreamSources[registries.stream_sources]
+    registryMappers[registries.mappers]
+    registryRecordOps[registries.record_ops]
+    registryStreamOps[registries.stream_ops]
+    registryDebugOps[registries.debug_ops]
+  end
+
+  subgraph Source wiring
     rawData[(External data store)]
     transportSpec[transport + format choice]
     loaderEP[Loader entry point]
     parserEP[Parser entry point]
     sourceArgs[Loader args: path/creds]
-    loaderNode[Loader instance]
-    parserNode[Parser instance]
+    sourceNode[Source: loader+parser]
+    dtoStream[(DTO iterator)]
   end
 
   sourcesCfg --> transportSpec
   sourcesCfg --> loaderEP
   sourcesCfg --> parserEP
   sourcesCfg --> sourceArgs
-  transportSpec -. select fs/url/synthetic .-> loaderNode
-  loaderEP -. instantiate loader .-> loaderNode
-  parserEP -. instantiate parser .-> parserNode
-  sourceArgs -. path/glob/credentials .-> rawData
-  rawData --> loaderNode --> parserNode
+  transportSpec -. select fs/url/synthetic .-> loaderEP
+  loaderEP -. instantiate loader .-> sourceNode
+  parserEP -. instantiate parser .-> sourceNode
+  sourceArgs -. path/glob/credentials .-> sourceNode
+  rawData --> sourceNode --> dtoStream
+  sourcesCfg -. build_source_from_spec .-> registrySources
+  contractsCfg -. stream_id + source alias .-> registryStreamSources
+  registrySources -. alias -> Source .-> registryStreamSources
 
   subgraph Canonical stream
     mapperEP[Mapper entry point]
@@ -136,11 +148,15 @@ flowchart TB
     regularization[Stream regularization]
   end
 
-  parserNode --> canonical --> recordStage --> featureWrap --> regularization
-  contractsCfg --> mapperEP --> canonical
-  contractsCfg -. source alias .-> parserNode
-  contractsCfg --> recordRules -. filters/floor/lag .-> recordStage
-  contractsCfg --> streamRules -. ensure_ticks/fill/debug .-> regularization
+  dtoStream --> canonical --> recordStage --> featureWrap --> regularization
+  contractsCfg --> mapperEP -. register stream alias .-> registryMappers
+  registryMappers --> canonical
+  contractsCfg -. record ops .-> registryRecordOps
+  contractsCfg -. stream ops .-> registryStreamOps
+  contractsCfg -. debug ops .-> registryDebugOps
+  registryRecordOps -. filters/floor/lag .-> recordStage
+  registryStreamOps -. ensure_ticks/fill .-> regularization
+  registryDebugOps -. lint/assert .-> regularization
 
   subgraph Dataset shaping
     featureSpec[feature + sequence config]
@@ -153,8 +169,9 @@ flowchart TB
   datasetCfg --> featureSpec
   datasetCfg --> groupBySpec
   datasetCfg --> streamRefs
+  streamRefs -.->|build_feature_pipeline resolves source+contract| registryStreamSources
+  registryStreamSources -.->|open_source_stream| sourceNode
   featureWrap --> regularization --> featureTrans --> vectorStage
-  streamRefs -. attach features to stream ids .-> featureWrap
   featureSpec -. scale/sequence .-> featureTrans
   groupBySpec -. bucket cadence .-> vectorStage
 
@@ -167,6 +184,23 @@ flowchart TB
   vectorStage --> postprocessNode
 ```
 
+style sourcesCfg width:220px
+style contractsCfg width:220px
+style datasetCfg width:160px
+style postprocessCfg width:220px
+style registrySources width:180px
+style registryStreamSources width:200px
+style registryMappers width:180px
+style registryRecordOps width:200px
+style registryStreamOps width:220px
+style registryDebugOps width:200px
+style transportSpec width:160px
+style loaderEP width:160px
+style parserEP width:160px
+style sourceArgs width:180px
+style canonical width:220px
+style featureTrans width:220px
+
 Solid arrows trace runtime data flow; dashed edges highlight how the config files
 inject transports, entry points, or policies into each stage.
 
@@ -176,10 +210,12 @@ you define transport (`fs`, `url`, `synthetic`, etc.), the payload format
 typically include file paths, bucket prefixes, or credential references—the
 runtime feeds those arguments into the instantiated loader so it knows exactly
 which external data store to read. Contracts bind each canonical stream to a
-`source` alias (connecting back to the loader/parser pair), specify mapper
-entry points, record/stream rules, partitioning, and batch sizes. Dataset
-features reference those canonical stream IDs via `record_stream`, so the
-feature/sequence blocks always pull from a well-defined contract. Finally,
+`source` alias (connecting back to the loader/parser pair) and register a
+stream ID; they also specify mapper entry points, record/stream rules,
+partitioning, and batch sizes. Dataset features reference those canonical
+stream IDs via `record_stream`, so each feature config reuses the registered
+stream (and, by extension, the raw source) when you call
+`build_feature_pipeline()` (`src/datapipeline/pipeline/pipelines.py`). Finally,
 `postprocess.yaml` decorates the vector stream with additional filters/fills so
 serve/build outputs inherit the full set of policies. When you run the CLI,
 `bootstrap()` (`src/datapipeline/services/bootstrap/core.py`) loads each
@@ -187,6 +223,13 @@ directory declared in `project.yaml`, instantiates loaders/parsers via
 `build_source_from_spec()` and `load_ep()`, attaches contract registries, and
 hands a fully wired `Runtime` to the pipeline stages in
 `src/datapipeline/pipeline/stages.py`.
+
+Every `record_stream` identifier ultimately resolves to the stream entry revived
+by the contract bootstrap step, so requesting stage outputs for a feature always
+walks the entire chain from dataset config → canonical contract → source
+definition. That is why `build_feature_pipeline()` starts by calling
+`open_source_stream(context, record_stream_id)` before stepping through record
+policies, stream policies, and feature transforms.
 
 The runtime (`src/datapipeline/runtime.py`) hosts registries for sources,
 transforms, artifacts, and postprocess rules. The CLI constructs lightweight
