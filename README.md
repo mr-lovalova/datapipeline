@@ -66,23 +66,127 @@ layout with `config/`, `src/<package>/`, and entry-point stubs.
 ## Pipeline Architecture
 
 ```text
-raw source ──▶ canonical stream ──▶ record stage ──▶ feature stage ──▶ vector stage
+raw source ──▶ loader/parser DTOs ──▶ canonical stream ──▶ record policies
+      └──▶ feature wrapping ──▶ stream regularization ──▶ feature transforms/sequence
+      └──▶ vector assembly ──▶ postprocess transforms
 ```
 
-1. **Raw sources** pair a loader with a parser. Loaders fetch bytes (file system,
-   HTTP, synthetic generators). Parsers turn those bytes into typed DTOs.
-   Register them via entry points (`loaders`, `parsers`) and declaratively wire
-   them in `config/sources/*.yaml`.
-2. **Canonical streams** decorate raw sources with mappers and per-stream
-   policies. Contract files under `config/contracts/` define record transforms,
-   feature transforms, sort hints, and partitioning.
-3. **Record stage** applies canonical policies to DTOs, turning them into
-   `TemporalRecord` instances (tz-aware timestamp + numeric value).
-4. **Feature stage** wraps records into `FeatureRecord`s, handles per-feature
-   sorting, optional scaling, and sequence windows (`FeatureRecordSequence`).
-5. **Vector stage** merges all feature streams, buckets them using `group_by`
-   cadence (e.g., `1h`), and emits `(group_key, Vector)` pairs ready for
-   downstream consumers.
+1. **Loader/parser (Stage 0)** – raw bytes become typed DTOs. Loaders fetch from
+   FS/HTTP/synthetic sources; parsers map bytes to DTOs. Register them via entry
+   points (`loaders`, `parsers`) and wire them in `config/sources/*.yaml`.
+2. **Canonical stream mapping (Stage 1)** – mappers attach domain semantics and
+   partition keys, producing domain `TemporalRecord`s.
+3. **Record policies (Stage 2)** – contract `record` rules (filters, floor, lag)
+   prune and normalize DTO-derived records.
+4. **Feature wrapping (Stage 3)** – records become `FeatureRecord`s before
+   sort/regularization.
+5. **Stream regularization (Stage 4)** – contract `stream` rules ensure cadence,
+   deduplicate timestamps, and impute where needed.
+6. **Feature transforms/sequence (Stage 5)** – dataset transforms (scale,
+   sequence windows) produce per-feature tensors or windows.
+7. **Vector assembly (Stage 6)** – features merge by `group_by` cadence into
+   `(group_key, Vector)` pairs, prior to postprocess tweaks.
+8. **Postprocess (Stage 7)** – optional vector transforms (fill/drop/etc.) run
+   before results are emitted to the configured output.
+
+#### Visual Flowchart
+
+```mermaid
+flowchart TB
+  subgraph Project config
+    project[[project.yaml]]
+    sourcesCfg[config/sources/<alias>.yaml]
+    contractsCfg[config/contracts/<alias>.yaml]
+    datasetCfg[dataset.yaml]
+    postprocessCfg[postprocess.yaml]
+  end
+
+  project -.->|paths.sources| sourcesCfg
+  project -.->|paths.streams| contractsCfg
+  project -.->|paths.dataset| datasetCfg
+  project -.->|paths.postprocess| postprocessCfg
+
+  subgraph Source definition
+    rawData[(External data store)]
+    transportSpec[transport + format choice]
+    loaderEP[Loader entry point]
+    parserEP[Parser entry point]
+    sourceArgs[Loader args: path/creds]
+    loaderNode[Loader instance]
+    parserNode[Parser instance]
+  end
+
+  sourcesCfg --> transportSpec
+  sourcesCfg --> loaderEP
+  sourcesCfg --> parserEP
+  sourcesCfg --> sourceArgs
+  transportSpec -. select fs/url/synthetic .-> loaderNode
+  loaderEP -. instantiate loader .-> loaderNode
+  parserEP -. instantiate parser .-> parserNode
+  sourceArgs -. path/glob/credentials .-> rawData
+  rawData --> loaderNode --> parserNode
+
+  subgraph Canonical stream
+    mapperEP[Mapper entry point]
+    recordRules[record policies]
+    streamRules[stream policies]
+    canonical[Canonical mapper]
+    recordStage[Record transforms]
+    featureWrap[Feature wrapping]
+    regularization[Stream regularization]
+  end
+
+  parserNode --> canonical --> recordStage --> featureWrap --> regularization
+  contractsCfg --> mapperEP --> canonical
+  contractsCfg -. source alias .-> parserNode
+  contractsCfg --> recordRules -. filters/floor/lag .-> recordStage
+  contractsCfg --> streamRules -. ensure_ticks/fill/debug .-> regularization
+
+  subgraph Dataset shaping
+    featureSpec[feature + sequence config]
+    groupBySpec[group_by cadence]
+    streamRefs[record_stream ids]
+    featureTrans[Feature transforms / sequence]
+    vectorStage[Vector assembly]
+  end
+
+  datasetCfg --> featureSpec
+  datasetCfg --> groupBySpec
+  datasetCfg --> streamRefs
+  featureWrap --> regularization --> featureTrans --> vectorStage
+  streamRefs -. attach features to stream ids .-> featureWrap
+  featureSpec -. scale/sequence .-> featureTrans
+  groupBySpec -. bucket cadence .-> vectorStage
+
+  subgraph Postprocess
+    vectorTransforms[vector transforms]
+    postprocessNode[Postprocess transforms]
+  end
+
+  postprocessCfg --> vectorTransforms -. fill/drop/etc .-> postprocessNode
+  vectorStage --> postprocessNode
+```
+
+Solid arrows trace runtime data flow; dashed edges highlight how the config files
+inject transports, entry points, or policies into each stage.
+
+`config/sources/*.yaml` determines both the transport and parsing strategy:
+you define transport (`fs`, `url`, `synthetic`, etc.), the payload format
+(`csv`, `json`, ...), and the loader/parser entry points. Loader `args`
+typically include file paths, bucket prefixes, or credential references—the
+runtime feeds those arguments into the instantiated loader so it knows exactly
+which external data store to read. Contracts bind each canonical stream to a
+`source` alias (connecting back to the loader/parser pair), specify mapper
+entry points, record/stream rules, partitioning, and batch sizes. Dataset
+features reference those canonical stream IDs via `record_stream`, so the
+feature/sequence blocks always pull from a well-defined contract. Finally,
+`postprocess.yaml` decorates the vector stream with additional filters/fills so
+serve/build outputs inherit the full set of policies. When you run the CLI,
+`bootstrap()` (`src/datapipeline/services/bootstrap/core.py`) loads each
+directory declared in `project.yaml`, instantiates loaders/parsers via
+`build_source_from_spec()` and `load_ep()`, attaches contract registries, and
+hands a fully wired `Runtime` to the pipeline stages in
+`src/datapipeline/pipeline/stages.py`.
 
 The runtime (`src/datapipeline/runtime.py`) hosts registries for sources,
 transforms, artifacts, and postprocess rules. The CLI constructs lightweight
@@ -147,7 +251,7 @@ log_level: INFO # DEBUG=progress bars, INFO=spinner, WARNING=quiet (null inherit
 ```
 
 - `keep` selects the currently served split. This file is referenced by `project.paths.run`.
-- `output`, `limit`, `include_targets`, `throttle_ms`, and `log_level` provide defaults for `jerry serve`; CLI flags still win per invocation. For filesystem outputs, set `transport: fs`, `directory: /path/to/root`, and omit file names—each run automatically writes to `<directory>/<run_name>/<run_name>.<ext>` unless you override the entire `output` block with a custom `path`.
+- `output`, `limit`, `include_targets`, `throttle_ms`, and `log_level` provide defaults for `jerry serve`; CLI flags still win per invocation (see *Configuration Resolution Order*). For filesystem outputs, set `transport: fs`, `directory: /path/to/root`, and omit file names—each run automatically writes to `<directory>/<run_name>/<run_name>.<ext>` unless you override the entire `output` block with a custom `path`.
 - Override `keep` (and other fields) per invocation via `jerry serve ... --keep val` etc.
 - Override output transport/format via run.yaml or the CLI flags `--out-transport`, `--out-format`, and `--out-path` (pointing to a directory when `fs`).
 - Visuals backend: set `visuals: AUTO|TQDM|RICH|OFF` in run.yaml or use `--visuals`. Pair with `progress: AUTO|SPINNER|BARS|OFF` or `--progress` to control progress layouts.
@@ -182,6 +286,31 @@ build:
 ```
 
 `jerry.yaml` sits near the root of your workspace, while dataset-specific overrides still live in individual `runs/*.yaml` as needed.
+
+### Configuration Resolution Order
+
+Defaults are layered so you can set global preferences once, keep dataset/run
+files focused on per-project behavior, and still override anything from the CLI.
+For both `jerry serve` and `jerry build`, options are merged in the following
+order (highest precedence first):
+
+1. **CLI flags** – anything you pass on the command line always wins, even if a
+   value is already specified elsewhere.
+2. **Project run/build files** – `run.yaml` (or the selected file under
+   `project.paths.run`) supplies serve defaults; artifact declarations referenced
+   via `project.paths.build` do the same for `jerry build`. These only apply to
+   the dataset that owns the config directory.
+3. **`jerry.yaml` command blocks** – settings under `jerry.serve` and
+   `jerry.build` provide workspace-wide defaults for their respective commands.
+4. **`jerry.yaml.shared`** – shared fallbacks for visuals/progress/log-level
+   style settings that apply to every command when a more specific value is not
+   defined.
+5. **Built-in defaults** – the runtime’s hard-coded values used when nothing else
+   sets an option.
+
+This hierarchy lets you push opinionated defaults up to the workspace (so every
+project or dataset behaves consistently) while still giving each dataset and
+every CLI invocation the ability to tighten or override behaviors.
 
 ### `config/sources/<alias>.yaml`
 
@@ -381,7 +510,7 @@ Pass `--help` on any command for flags.
   - Use `--out-transport fs --out-format json-lines --out-path build/serve` (or `csv`, `pickle`, etc.) to write artifacts to disk instead of stdout; files land under `<out-path>/<run_name>/`.
   - Set `--log-level DEBUG` (or set `run.yaml` -> `log_level: DEBUG`) to reuse the tqdm progress bars when previewing stages.
   - When `project.paths.run` is a directory, add `--run val` (filename stem) to target a single config; otherwise every run file is executed sequentially.
-  - Argument precedence: CLI flags > run.yaml > built‑in defaults.
+  - Argument precedence follows the order described under *Configuration Resolution Order*.
   - Combine with `--skip-build` when you already have fresh artifacts and want to jump straight into streaming.
 
 ### Build & Quality
