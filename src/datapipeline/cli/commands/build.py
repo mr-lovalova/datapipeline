@@ -66,7 +66,6 @@ def run_build_if_needed(
         cli_progress=cli_progress,
         force_flag=force,
     )
-    _log_build_settings_debug(project_path, settings)
     effective_provider = settings.visuals
     effective_style = settings.progress
 
@@ -101,6 +100,8 @@ def run_build_if_needed(
             parts = ["..."] + parts[-3:]
         compact = "/".join(parts) if parts else project_path.name
         logger.info("project: %s", compact)
+
+    _log_build_settings_debug(project_path, settings)
 
     if state and (state.config_hash == config_hash) and not force:
         logger.info(
