@@ -93,7 +93,11 @@ raw source ──▶ loader/parser DTOs ──▶ canonical stream ──▶ rec
 
 ```mermaid
 flowchart TB
-  subgraph Project config
+  subgraph CLI & Project config
+    cliSource[jerry source add]
+    cliDomain[jerry domain add]
+    cliContract[jerry contract]
+    cliServe[jerry serve]
     project[[project.yaml]]
     sourcesCfg[config/sources/<alias>.yaml]
     contractsCfg[config/contracts/<alias>.yaml]
@@ -101,6 +105,10 @@ flowchart TB
     postprocessCfg[postprocess.yaml]
   end
 
+  cliSource --> sourcesCfg
+  cliDomain --> contractsCfg
+  cliContract --> contractsCfg
+  cliServe --> vectorSamples
   project -.->|paths.sources| sourcesCfg
   project -.->|paths.streams| contractsCfg
   project -.->|paths.dataset| datasetCfg
@@ -193,6 +201,10 @@ flowchart TB
   vectorStage --> postprocessNode
 ```
 
+style cliSource width:200px
+style cliDomain width:200px
+style cliContract width:200px
+style cliServe width:200px
 style sourcesCfg width:280px
 style contractsCfg width:300px
 style datasetCfg width:240px
