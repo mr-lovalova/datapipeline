@@ -234,6 +234,11 @@ def main() -> None:
         help="manage stream contracts (ingest or composed)",
         parents=[common],
     )
+    p_contract.add_argument(
+        "--identity",
+        action="store_true",
+        help="use built-in identity mapper (skip mapper scaffolding)",
+    )
 
     # plugin (plugin scaffolding)
     p_bar = sub.add_parser(
@@ -601,7 +606,11 @@ def main() -> None:
         return
 
     if args.cmd == "contract":
-        handle_contract(plugin_root=plugin_root, config_root=config_root)
+        handle_contract(
+            plugin_root=plugin_root,
+            config_root=config_root,
+            use_identity=args.identity,
+        )
         return
 
     if args.cmd == "plugin":

@@ -106,3 +106,40 @@ def test_contract_scaffold_honors_workspace_config(monkeypatch: pytest.MonkeyPat
         / "to_weather.py"
     )
     assert mapper_file.exists(), "mapper scaffolding inside the plugin should still run"
+
+
+def test_contract_identity_mapper_skips_scaffold(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    plugin_root = _create_plugin(tmp_path)
+    workspace = tmp_path / "workspace"
+    config_root = workspace / "config" / "datasets" / "prod"
+    sources_dir = workspace / "sources"
+    streams_dir = workspace / "contracts"
+    _write_project_yaml(config_root / "project.yaml", sources_dir, streams_dir)
+    _write_source_yaml(sources_dir / "demo.weather.yaml", "demo.weather")
+
+    _input_sequence(monkeypatch, ["1", "1", "1", ""])
+
+    handle_contract(plugin_root=plugin_root, config_root=config_root, use_identity=True)
+
+    contract_path = streams_dir / "weather.weather.yaml"
+    assert contract_path.exists()
+    text = contract_path.read_text()
+    assert "entrypoint: identity" in text
+
+    mapper_file = (
+        plugin_root
+        / "src"
+        / "sample_plugin"
+        / "mappers"
+        / "demo"
+        / "weather"
+        / "to_weather.py"
+    )
+    assert not mapper_file.exists(), "identity mapper selection should skip scaffold"
+
+
+def test_contract_identity_flag_rejects_composed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    plugin_root = _create_plugin(tmp_path)
+    _input_sequence(monkeypatch, ["2"])
+    with pytest.raises(SystemExit):
+        handle_contract(plugin_root=plugin_root, use_identity=True)

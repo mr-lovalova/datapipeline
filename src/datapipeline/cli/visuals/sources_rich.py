@@ -1,9 +1,11 @@
 from contextlib import contextmanager
-from typing import Iterator, Any, Optional
+from typing import Iterator, Any, Optional, Deque, Dict, Tuple
 from pathlib import Path
 from math import ceil
 import logging
 import os
+
+from collections import deque
 
 from rich.live import Live
 from rich.progress import (
@@ -34,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 
 class AverageTimeRemainingColumn(ProgressColumn):
-    """ETA column that uses total elapsed time for a steadier estimate."""
+    """ETA column that blends long-term and recent throughput for stability."""
 
     max_refresh = 0.5
 
@@ -43,9 +45,12 @@ class AverageTimeRemainingColumn(ProgressColumn):
         compact: bool = False,
         elapsed_when_finished: bool = False,
         table_column: Optional[Any] = None,
+        window_seconds: float = 300.0,
     ) -> None:
         self.compact = compact
         self.elapsed_when_finished = elapsed_when_finished
+        self.window_seconds = max(0.0, float(window_seconds))
+        self._history: Dict[int, Deque[Tuple[float, float]]] = {}
         super().__init__(table_column=table_column)
 
     def _format_seconds(self, seconds: int) -> str:
@@ -55,8 +60,31 @@ class AverageTimeRemainingColumn(ProgressColumn):
             return f"{minutes:02d}:{secs:02d}"
         return f"{hours:d}:{minutes:02d}:{secs:02d}"
 
+    def _recent_seconds_per_item(self, task: Task) -> Optional[float]:
+        if self.window_seconds <= 0:
+            return None
+        if task.start_time is None:
+            return None
+        history = self._history.setdefault(int(task.id), deque())
+        now = task.get_time()
+        completed = float(task.completed)
+        if not history or history[-1][1] != completed:
+            history.append((now, completed))
+        cutoff = now - self.window_seconds
+        while history and history[0][0] < cutoff:
+            history.popleft()
+        if len(history) < 2:
+            return None
+        start_time, start_completed = history[0]
+        delta_completed = completed - start_completed
+        delta_time = now - start_time
+        if delta_completed <= 0 or delta_time <= 0:
+            return None
+        return delta_time / delta_completed
+
     def render(self, task: Task) -> Text:
         if self.elapsed_when_finished and task.finished:
+            self._history.pop(int(task.id), None)
             elapsed = task.finished_time
             if elapsed is None:
                 return Text("-:--:--", style="progress.elapsed")
@@ -71,7 +99,8 @@ class AverageTimeRemainingColumn(ProgressColumn):
         remaining = task.remaining
         if not completed or elapsed is None or remaining is None:
             return Text("--:--" if self.compact else "-:--:--", style=style)
-        avg_seconds_per_item = elapsed / completed
+        recent = self._recent_seconds_per_item(task)
+        avg_seconds_per_item = recent if recent is not None else (elapsed / completed)
         if avg_seconds_per_item <= 0:
             return Text("--:--" if self.compact else "-:--:--", style=style)
         eta_seconds = int(max(0, ceil(remaining * avg_seconds_per_item)))
