@@ -106,13 +106,21 @@ flowchart TB
   end
 
   cliSource --> sourcesCfg
-  cliDomain --> contractsCfg
+  cliDomain --> domainPkg
   cliContract --> contractsCfg
   cliServe --> vectorSamples
   project -.->|paths.sources| sourcesCfg
   project -.->|paths.streams| contractsCfg
   project -.->|paths.dataset| datasetCfg
   project -.->|paths.postprocess| postprocessCfg
+
+  subgraph Plugin code
+    domainPkg[domains/*]
+    mappersPkg[mappers/*]
+  end
+
+  cliContract --> mappersPkg
+  domainPkg -. domain models .-> mappersPkg
 
   subgraph Registries
     registrySources[sources]
@@ -161,6 +169,7 @@ flowchart TB
 
   dtoStream --> canonical --> domainRecords --> recordStage --> featureWrap --> featureRecords --> regularization
   contractsCfg --> mapperEP
+  mappersPkg -. ep target .-> mapperEP
   mapperEP -. build_mapper_from_spec .-> registryMappers
   registryMappers --> canonical
   contractsCfg --> recordRules
@@ -201,37 +210,45 @@ flowchart TB
   vectorStage --> postprocessNode
 ```
 
-style cliSource width:140px
-style cliDomain width:140px
-style cliContract width:140px
-style cliServe width:140px
-style sourcesCfg width:220px
-style contractsCfg width:220px
-style datasetCfg width:200px
-style postprocessCfg width:220px
-style registrySources width:180px
-style registryStreamSources width:200px
-style registryMappers width:180px
-style registryRecordOps width:200px
-style registryStreamOps width:200px
-style registryDebugOps width:200px
-style transportSpec width:200px
-style loaderEP width:160px
-style parserEP width:160px
-style sourceArgs width:180px
-style canonical width:200px
-style featureTrans width:200px
-style domainRecords width:160px
-style featureRecords width:160px
-style sequenceStream width:200px
-style vectorStage width:180px
-style vectorSamples width:200px
-style recordRules width:180px
-style streamRules width:180px
-style debugRules width:180px
+style cliSource width:120px
+style cliDomain width:120px
+style cliContract width:120px
+style cliServe width:120px
+style sourcesCfg width:200px
+style contractsCfg width:200px
+style datasetCfg width:180px
+style postprocessCfg width:200px
+style registrySources width:160px
+style registryStreamSources width:180px
+style registryMappers width:160px
+style registryRecordOps width:180px
+style registryStreamOps width:180px
+style registryDebugOps width:180px
+style transportSpec width:180px
+style loaderEP width:140px
+style parserEP width:140px
+style sourceArgs width:160px
+style canonical width:180px
+style featureTrans width:180px
+style domainRecords width:140px
+style featureRecords width:140px
+style sequenceStream width:180px
+style vectorStage width:160px
+style vectorSamples width:180px
+style recordRules width:160px
+style streamRules width:160px
+style debugRules width:160px
+style domainPkg width:160px
+style mappersPkg width:160px
 
 Solid arrows trace runtime data flow; dashed edges highlight how the config files
 inject transports, entry points, or policies into each stage.
+
+CLI quick path:
+- `jerry source add <provider> <dataset> --transport fs|url|synthetic --format ...` → scaffolds DTO/parser/loader and writes `config/sources/*.yaml`.
+- `jerry domain add <name>` → creates `src/<pkg>/domains/<name>/model.py`.
+- `jerry contract` → picks a source + domain, scaffolds/links a mapper under `mappers/`, registers its entry point, and writes `config/contracts/<stream>.yaml`.
+- `jerry serve --project <project.yaml>` → builds/streams vectors using dataset `record_stream` IDs, registry wiring, and postprocess rules.
 
 `config/sources/*.yaml` determines both the transport and parsing strategy:
 you define transport (`fs`, `url`, `synthetic`, etc.), the payload format
