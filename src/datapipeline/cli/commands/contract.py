@@ -27,7 +27,12 @@ def _pick_from_list(prompt: str, options: list[str]) -> str:
         print("Please enter a number from the list.", file=sys.stderr)
 
 
-def handle(*, plugin_root: Path | None = None, config_root: Path | None = None) -> None:
+def handle(
+    *,
+    plugin_root: Path | None = None,
+    config_root: Path | None = None,
+    use_identity: bool = False,
+) -> None:
     root_dir, name, pyproject = pkg_root(plugin_root)
     # Select contract type: Ingest (source->stream) or Composed (streams->stream)
     print("Select contract type:", file=sys.stderr)
@@ -35,6 +40,9 @@ def handle(*, plugin_root: Path | None = None, config_root: Path | None = None) 
     print("  [2] Composed (streams → stream)", file=sys.stderr)
     sel = input("> ").strip()
     if sel == "2":
+        if use_identity:
+            print("[error] --identity is only supported for ingest contracts.", file=sys.stderr)
+            raise SystemExit(2)
         # Defer to composed scaffolder (fully interactive)
         scaffold_conflux(
             stream_id=None,
@@ -101,20 +109,25 @@ def handle(*, plugin_root: Path | None = None, config_root: Path | None = None) 
     dom_name = _pick_from_list(
         "Select a domain to contract with:", domain_options)
 
-    # create mapper + EP (domain.origin)
-    attach_source_to_domain(
-        domain=dom_name,
-        provider=provider,
-        dataset=dataset,
-        root=plugin_root,
-    )
-
     def _slug(s: str) -> str:
         s = s.strip().lower()
         s = re.sub(r"[^a-z0-9]+", "_", s)
         return s.strip("_")
-    ep_key = f"{_slug(dom_name)}.{_slug(dataset)}"
-    print(f"[ok] Registered mapper entry point as '{ep_key}'.")
+
+    if use_identity:
+        mapper_ep = "identity"
+        print("[ok] Using built-in mapper entry point 'identity'.")
+    else:
+        # create mapper + EP (domain.origin)
+        attach_source_to_domain(
+            domain=dom_name,
+            provider=provider,
+            dataset=dataset,
+            root=plugin_root,
+        )
+        ep_key = f"{_slug(dom_name)}.{_slug(dataset)}"
+        print(f"[ok] Registered mapper entry point as '{ep_key}'.")
+        mapper_ep = ep_key
 
     # Derive canonical stream id as domain.dataset[.variant]
     print("Optional variant suffix (press Enter to skip):", file=sys.stderr)
@@ -123,7 +136,6 @@ def handle(*, plugin_root: Path | None = None, config_root: Path | None = None) 
         canonical_alias = f"{_slug(dom_name)}.{_slug(dataset)}.{_slug(variant)}"
     else:
         canonical_alias = f"{_slug(dom_name)}.{_slug(dataset)}"
-    mapper_ep = ep_key
 
     # Inject per-file canonical stream into streams directory
     streams_path = resolve_streams_dir(proj_path)
