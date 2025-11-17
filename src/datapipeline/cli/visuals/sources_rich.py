@@ -1,20 +1,23 @@
 from contextlib import contextmanager
 from typing import Iterator, Any, Optional
 from pathlib import Path
+from math import ceil
 import logging
 import os
 
 from rich.live import Live
 from rich.progress import (
     Progress,
+    ProgressColumn,
     SpinnerColumn,
     TextColumn,
     BarColumn,
     MofNCompleteColumn,
     TaskProgressColumn,
     TimeElapsedColumn,
-    TimeRemainingColumn,
+    Task,
 )
+from rich.text import Text
 
 from .labels import progress_meta_for_loader
 from .common import (
@@ -28,6 +31,51 @@ from datapipeline.runtime import Runtime
 from datapipeline.sources.models.source import Source
 from datapipeline.sources.transports import FsGlobTransport, FsFileTransport, UrlTransport
 logger = logging.getLogger(__name__)
+
+
+class AverageTimeRemainingColumn(ProgressColumn):
+    """ETA column that uses total elapsed time for a steadier estimate."""
+
+    max_refresh = 0.5
+
+    def __init__(
+        self,
+        compact: bool = False,
+        elapsed_when_finished: bool = False,
+        table_column: Optional[Any] = None,
+    ) -> None:
+        self.compact = compact
+        self.elapsed_when_finished = elapsed_when_finished
+        super().__init__(table_column=table_column)
+
+    def _format_seconds(self, seconds: int) -> str:
+        minutes, secs = divmod(seconds, 60)
+        hours, minutes = divmod(minutes, 60)
+        if self.compact and not hours:
+            return f"{minutes:02d}:{secs:02d}"
+        return f"{hours:d}:{minutes:02d}:{secs:02d}"
+
+    def render(self, task: Task) -> Text:
+        if self.elapsed_when_finished and task.finished:
+            elapsed = task.finished_time
+            if elapsed is None:
+                return Text("-:--:--", style="progress.elapsed")
+            return Text(self._format_seconds(int(elapsed)), style="progress.elapsed")
+
+        style = "progress.remaining"
+        total = task.total
+        if total is None:
+            return Text("", style=style)
+        elapsed = task.elapsed
+        completed = task.completed
+        remaining = task.remaining
+        if not completed or elapsed is None or remaining is None:
+            return Text("--:--" if self.compact else "-:--:--", style=style)
+        avg_seconds_per_item = elapsed / completed
+        if avg_seconds_per_item <= 0:
+            return Text("--:--" if self.compact else "-:--:--", style=style)
+        eta_seconds = int(max(0, ceil(remaining * avg_seconds_per_item)))
+        return Text(self._format_seconds(eta_seconds), style=style)
 
 
 class _RichSourceProxy(Source):
@@ -78,11 +126,7 @@ class _RichSourceProxy(Source):
         # Create task lazily with no total (DEBUG) or reuse shared spinner (INFO)
         if self._verbosity >= 2 or self._shared_task_id is None:
             self._task_id = self._progress.add_task(
-                "", total=None, text=self._format_text(compute_text := compose_text(None)))
-        else:
-            # Defer setting shared spinner text until first item to ensure any
-            # completion line from the previous source is rendered first.
-            compute_text = None  # type: ignore[assignment]
+                "", start=False, total=None, text=self._format_text(compose_text(None)))
 
         # If verbose, try to resolve total and show a real bar
         if self._verbosity >= 2 and self._task_id is not None:
@@ -94,6 +138,9 @@ class _RichSourceProxy(Source):
         last_path_label: Optional[str] = None
         shared_init_done = False
         started_logged = False
+
+        if self._task_id is not None:
+            self._progress.start_task(self._task_id)
 
         try:
             for item in self._inner.stream():
@@ -119,8 +166,7 @@ class _RichSourceProxy(Source):
                     shared_init_done = True
                 if current_label and current_label != last_path_label:
                     last_path_label = current_label
-                    text = self._format_text(
-                        compute_text := compose_text(current_label))
+                    text = self._format_text(compose_text(current_label))
                     if self._verbosity >= 2 and self._task_id is not None:
                         self._progress.update(self._task_id, text=text)
                     elif self._shared_task_id is not None:
@@ -185,7 +231,7 @@ def visual_sources(runtime: Runtime, log_level: int | None, progress_style: str 
             MofNCompleteColumn(),
             TaskProgressColumn(),
             TimeElapsedColumn(),
-            TimeRemainingColumn(),
+            AverageTimeRemainingColumn(),
         ]
     else:
         columns = [
