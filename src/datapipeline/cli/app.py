@@ -18,6 +18,7 @@ from datapipeline.config.workspace import (
     WorkspaceContext,
     load_workspace_context,
 )
+from datapipeline.config.resolution import resolve_visuals
 
 DEFAULT_PROJECT_PATH = "config/datasets/default/project.yaml"
 
@@ -264,11 +265,26 @@ def main() -> None:
         help="filter entrypoint name and function/module name",
     )
 
+    # Shared visuals/progress controls for inspect commands
+    inspect_common = argparse.ArgumentParser(add_help=False)
+    inspect_common.add_argument(
+        "--visuals",
+        choices=["auto", "tqdm", "rich", "off"],
+        default=None,
+        help="visuals renderer: auto (default), tqdm, rich, or off",
+    )
+    inspect_common.add_argument(
+        "--progress",
+        choices=["auto", "spinner", "bars", "off"],
+        default=None,
+        help="progress display: auto (spinner unless DEBUG), spinner, bars, or off",
+    )
+
     # inspect (metadata helpers)
     p_inspect = sub.add_parser(
         "inspect",
         help="inspect dataset metadata: report, coverage, matrix, partitions",
-        parents=[common],
+        parents=[common, inspect_common],
     )
     inspect_sub = p_inspect.add_subparsers(dest="inspect_cmd", required=False)
 
@@ -276,6 +292,7 @@ def main() -> None:
     p_inspect_report = inspect_sub.add_parser(
         "report",
         help="print a quality report to stdout",
+        parents=[inspect_common],
     )
     p_inspect_report.add_argument(
         "--project",
@@ -312,6 +329,7 @@ def main() -> None:
     p_inspect_cov = inspect_sub.add_parser(
         "coverage",
         help="write coverage summary JSON",
+        parents=[inspect_common],
     )
     p_inspect_cov.add_argument(
         "--project",
@@ -354,6 +372,7 @@ def main() -> None:
     p_inspect_matrix = inspect_sub.add_parser(
         "matrix",
         help="export availability matrix",
+        parents=[inspect_common],
     )
     p_inspect_matrix.add_argument(
         "--project",
@@ -412,6 +431,7 @@ def main() -> None:
     p_inspect_parts = inspect_sub.add_parser(
         "partitions",
         help="discover partitions and write a manifest JSON",
+        parents=[inspect_common],
     )
     p_inspect_parts.add_argument(
         "--project",
@@ -435,6 +455,7 @@ def main() -> None:
     p_inspect_expected = inspect_sub.add_parser(
         "expected",
         help="discover full feature ids and write a newline list",
+        parents=[inspect_common],
     )
     p_inspect_expected.add_argument(
         "--project",
@@ -515,6 +536,18 @@ def main() -> None:
         default_project = _resolve_project_argument(
             DEFAULT_PROJECT_PATH, workspace_context
         )
+        shared_visuals_default = shared_defaults.visuals if shared_defaults else None
+        shared_progress_default = shared_defaults.progress if shared_defaults else None
+        inspect_visuals = resolve_visuals(
+            cli_visuals=getattr(args, "visuals", None),
+            config_visuals=None,
+            workspace_visuals=shared_visuals_default,
+            cli_progress=getattr(args, "progress", None),
+            config_progress=None,
+            workspace_progress=shared_progress_default,
+        )
+        inspect_visual_provider = inspect_visuals.visuals or "auto"
+        inspect_progress_style = inspect_visuals.progress or "auto"
         if subcmd in (None, "report"):
             handle_inspect_report(
                 project=getattr(args, "project", default_project),
@@ -529,6 +562,9 @@ def main() -> None:
                 write_coverage=False,
                 apply_postprocess=(getattr(args, "mode", "final") == "final"),
                 include_targets=getattr(args, "include_targets", False),
+                visuals=inspect_visual_provider,
+                progress=inspect_progress_style,
+                log_level=base_level,
             )
         elif subcmd == "coverage":
             handle_inspect_report(
@@ -544,6 +580,9 @@ def main() -> None:
                 write_coverage=True,
                 apply_postprocess=(getattr(args, "mode", "final") == "final"),
                 include_targets=getattr(args, "include_targets", False),
+                visuals=inspect_visual_provider,
+                progress=inspect_progress_style,
+                log_level=base_level,
             )
         elif subcmd == "matrix":
             handle_inspect_report(
@@ -559,6 +598,9 @@ def main() -> None:
                 write_coverage=False,
                 apply_postprocess=(getattr(args, "mode", "final") == "final"),
                 include_targets=getattr(args, "include_targets", False),
+                visuals=inspect_visual_provider,
+                progress=inspect_progress_style,
+                log_level=base_level,
             )
         elif subcmd == "partitions":
             from datapipeline.cli.commands.inspect import partitions as handle_inspect_partitions
@@ -566,6 +608,9 @@ def main() -> None:
                 project=getattr(args, "project", default_project),
                 output=getattr(args, "output", None),
                 include_targets=getattr(args, "include_targets", False),
+                visuals=inspect_visual_provider,
+                progress=inspect_progress_style,
+                log_level=base_level,
             )
         elif subcmd == "expected":
             from datapipeline.cli.commands.inspect import expected as handle_inspect_expected
@@ -573,6 +618,9 @@ def main() -> None:
                 project=getattr(args, "project", default_project),
                 output=getattr(args, "output", None),
                 include_targets=getattr(args, "include_targets", False),
+                visuals=inspect_visual_provider,
+                progress=inspect_progress_style,
+                log_level=base_level,
             )
         return
 
