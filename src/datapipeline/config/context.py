@@ -150,6 +150,9 @@ def resolve_run_profiles(
     serve_limit_default = serve_defaults.limit if serve_defaults else None
     serve_stage_default = serve_defaults.stage if serve_defaults else None
     serve_throttle_default = serve_defaults.throttle_ms if serve_defaults else None
+    serve_include_targets_default = (
+        serve_defaults.include_targets if serve_defaults else None
+    )
     workspace_output_cfg = workspace_output_defaults(workspace)
 
     profiles: list[RunProfile] = []
@@ -162,7 +165,10 @@ def resolve_run_profiles(
         resolved_stage = cascade(stage, _run_config_value(run_cfg, "stage"), serve_stage_default)
         resolved_limit = cascade(limit, _run_config_value(run_cfg, "limit"), serve_limit_default)
         resolved_include_targets = cascade(
-            include_targets, _run_config_value(run_cfg, "include_targets"), False
+            include_targets,
+            _run_config_value(run_cfg, "include_targets"),
+            serve_include_targets_default,
+            False,
         )
         throttle_ms = cascade(
             _run_config_value(run_cfg, "throttle_ms"),

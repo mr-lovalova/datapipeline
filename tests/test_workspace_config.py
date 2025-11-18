@@ -43,3 +43,17 @@ def test_shared_visuals_defaults_when_missing(tmp_path):
     shared = context.config.shared
     assert shared.visuals == "AUTO"
     assert shared.progress is None
+
+
+def test_workspace_serve_defaults_include_targets(tmp_path):
+    _write_jerry(
+        tmp_path,
+        """
+        serve:
+          include_targets: true
+        """,
+    )
+
+    context = load_workspace_context(tmp_path)
+    assert context
+    assert context.config.serve.include_targets is True

@@ -364,6 +364,7 @@ shared:
 
 serve:
   log_level: INFO
+  include_targets: false # include dataset.targets when serving
   output:
     transport: stdout
     format: print
@@ -374,7 +375,7 @@ build:
   mode: AUTO # AUTO | FORCE | OFF
 ```
 
-`jerry.yaml` sits near the root of your workspace, while dataset-specific overrides still live in individual `runs/*.yaml` as needed.
+`jerry.yaml` sits near the root of your workspace, while dataset-specific overrides still live in individual `runs/*.yaml` as needed. Use `serve.include_targets` when you want every run to emit labels by default instead of toggling each run file.
 
 ### Configuration Resolution Order
 
