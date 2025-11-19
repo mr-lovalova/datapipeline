@@ -341,10 +341,11 @@ def _write_matrix_html(collector: VectorStatsCollector, path: Path) -> None:
         .heatmap th,
         .heatmap td {
             border: 1px solid #d0d0d0;
-            padding: 4px 6px;
+            padding: 0 5px;
             text-align: center;
             font-size: 13px;
             line-height: 1.2;
+            vertical-align: middle;
         }
         .heatmap thead th {
             position: sticky;
@@ -369,9 +370,33 @@ def _write_matrix_html(collector: VectorStatsCollector, path: Path) -> None:
         .status-null { background: #f1c40f; color: #000; font-weight: bold; }
         .status-absent { background: #e74c3c; color: #fff; font-weight: bold; }
         .status-missing { background: #bdc3c7; color: #000; font-weight: bold; }
-        .sub { display: flex; gap: 1px; height: 12px; }
-        .sub span { flex: 1; display: block; }
-        .sub span::after { content: ""; display: block; width: 100%; height: 100%; }
+        .sub {
+            display: flex;
+            gap: 5px;
+            height: calc(100% - 2px);
+            min-height: 24px;
+            padding: 0 2px;
+            margin: 1px 0;
+            align-items: stretch;
+            justify-content: center;
+        }
+        .sub span {
+            flex: 1;
+            display: block;
+            position: relative;
+            border-radius: 4px;
+            overflow: hidden;
+            border: 1px solid rgba(0,0,0,0.15);
+            background: #fff;
+            min-width: 12px;
+        }
+        .sub span::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            display: block;
+            border-radius: 4px;
+        }
         .sub .status-present::after { background: #2ecc71; }
         .sub .status-null::after { background: #f1c40f; }
         .sub .status-absent::after { background: #e74c3c; }
