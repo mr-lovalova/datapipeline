@@ -558,7 +558,15 @@ Declare one YAML file per artifact under `project.paths.build` (default `build/a
 ```yaml
 kind: partitioned_ids
 output: expected.txt
-include_targets: false
+target: features
+```
+
+`build/artifacts/partitioned_targets.yaml`
+
+```yaml
+kind: partitioned_ids
+output: expected_targets.txt
+target: targets
 ```
 
 `build/artifacts/scaler.yaml`
@@ -571,7 +579,8 @@ split_label: train
 enabled: true
 ```
 
-- `expected.txt` lists every fully partitioned feature ID observed in the latest run (used by vector postprocess transforms).
+- `expected.txt` lists every fully partitioned feature ID observed in the latest run (used by vector postprocess transforms). Add additional `partitioned_ids` files with `target: targets` to materialize a separate baseline for label vectors.
+- When you configure `payload: targets` (or any target-focused vector transform), Jerry automatically uses the `target: targets` artifact (e.g., `expected_targets.txt`) for coverage checks.
 - `scaler.pkl` is a pickled standard scaler fitted on the requested split.
 - Shared run/build defaults (visuals/progress/log level/build mode) live in `jerry.yaml`.
 

@@ -37,11 +37,14 @@ def _make_vector(group: int, values: dict[str, Any]) -> Sample:
 
 
 class _StubVectorContext:
-    def __init__(self, expected: list[str]):
-        self._expected = list(expected)
+    def __init__(self, expected: list[str] | dict[str, list[str]]):
+        if isinstance(expected, dict):
+            self._expected_map = {k: list(v) for k, v in expected.items()}
+        else:
+            self._expected_map = {"features": list(expected)}
 
-    def load_expected_ids(self) -> list[str]:
-        return list(self._expected)
+    def load_expected_ids(self, *, payload: str = "features") -> list[str]:
+        return list(self._expected_map.get(payload, []))
 
 
 def test_standard_scaler_normalizes_feature_stream():
@@ -233,7 +236,7 @@ def test_vector_fill_constant_targets_payload():
         targets=Vector(values={"t": None}),
     )
     transform = VectorFillConstantTransform(value=5.0, payload="targets")
-    transform.bind_context(_StubVectorContext(["t"]))
+    transform.bind_context(_StubVectorContext({"targets": ["t"]}))
 
     out = list(transform.apply(iter([sample])))
 
@@ -249,6 +252,6 @@ def test_vector_drop_missing_targets_payload():
         targets=Vector(values={"t": None}),
     )
     transform = VectorDropMissingTransform(required=["t"], payload="targets")
-    transform.bind_context(_StubVectorContext(["t"]))
+    transform.bind_context(_StubVectorContext({"targets": ["t"]}))
 
     assert list(transform.apply(iter([sample]))) == []

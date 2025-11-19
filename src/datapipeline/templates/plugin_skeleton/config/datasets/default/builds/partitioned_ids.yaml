@@ -4,4 +4,4 @@
 kind: partitioned_ids
 output:
   path: expected.txt   # relative to project.paths.artifacts
-include_targets: false
+target: features

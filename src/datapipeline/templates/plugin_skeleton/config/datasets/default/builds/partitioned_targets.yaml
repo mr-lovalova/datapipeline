@@ -1,0 +1,4 @@
+kind: partitioned_ids
+output:
+  path: expected_targets.txt
+target: targets

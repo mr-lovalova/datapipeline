@@ -34,5 +34,4 @@ class ContextExpectedMixin:
         ctx = self._context or try_get_current_context()
         if not ctx:
             return []
-        return ctx.load_expected_ids()
-
+        return ctx.load_expected_ids(payload=self._payload)

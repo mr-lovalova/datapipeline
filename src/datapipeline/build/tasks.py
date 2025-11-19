@@ -4,7 +4,7 @@ import hashlib
 from pathlib import Path
 from typing import Dict, Iterable, Iterator, Sequence, Tuple
 
-from datapipeline.config.build import BuildConfig
+from datapipeline.config.build import BuildConfig, PartitionedIdsConfig
 from datapipeline.config.dataset.loader import load_dataset
 from datapipeline.domain.sample import Sample
 from datapipeline.pipeline.context import PipelineContext
@@ -83,36 +83,34 @@ def compute_config_hash(project_yaml: Path, build_config_path: Path) -> str:
     return hasher.hexdigest()
 
 
-def _collect_partitioned_ids(runtime: Runtime, include_targets: bool) -> Sequence[str]:
+def _collect_partitioned_ids(runtime: Runtime, target: str) -> Sequence[str]:
     dataset = load_dataset(runtime.project_yaml, "vectors")
-    feature_cfgs = list(dataset.features or [])
-    target_cfgs = list(dataset.targets or []) if include_targets else []
-
-    sanitized_features = [cfg.model_copy(update={"scale": False}) for cfg in feature_cfgs]
-    sanitized_targets = [cfg.model_copy(update={"scale": False}) for cfg in target_cfgs]
+    target = (target or "features").lower()
+    if target not in {"features", "targets"}:
+        raise ValueError("target must be 'features' or 'targets'")
+    cfgs = list(dataset.features or []) if target == "features" else list(dataset.targets or [])
+    sanitized = [cfg.model_copy(update={"scale": False}) for cfg in cfgs]
+    if not sanitized:
+        return []
 
     ids: set[str] = set()
     context = PipelineContext(runtime)
     vectors = build_vector_pipeline(
         context,
-        sanitized_features,
+        sanitized,
         dataset.group_by,
         stage=None,
-        target_configs=sanitized_targets,
     )
     for sample in vectors:
         ids.update(sample.features.values.keys())
-        if sample.targets:
-            ids.update(sample.targets.values.keys())
     return sorted(ids)
 
 
-def materialize_partitioned_ids(runtime: Runtime, config: BuildConfig) -> Tuple[str, int]:
+def materialize_partitioned_ids(runtime: Runtime, task_cfg: PartitionedIdsConfig) -> Tuple[str, int]:
     """Write the partitioned-id list and return (relative_path, count)."""
 
-    task_cfg = config.partitioned_ids
     ids = _collect_partitioned_ids(
-        runtime, include_targets=task_cfg.include_targets)
+        runtime, target=task_cfg.target)
 
     relative_path = Path(task_cfg.output)
     destination = (runtime.artifacts_root / relative_path).resolve()

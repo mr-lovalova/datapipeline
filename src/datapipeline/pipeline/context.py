@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -7,12 +8,15 @@ from typing import Iterator, Mapping, Any
 
 from datapipeline.runtime import Runtime
 from datapipeline.services.artifacts import (
+    ArtifactNotRegisteredError,
     ArtifactManager,
     ArtifactSpec,
     ArtifactValue,
     PARTITIONED_IDS_SPEC,
+    PARTITIONED_TARGET_IDS_SPEC,
 )
 
+logger = logging.getLogger(__name__)
 
 _current_context: ContextVar[PipelineContext | None] = ContextVar(
     "datapipeline_pipeline_context", default=None
@@ -42,11 +46,23 @@ class PipelineContext:
     def require_artifact(self, spec: ArtifactSpec[ArtifactValue]) -> ArtifactValue:
         return self.artifacts.load(spec)
 
-    def load_expected_ids(self) -> list[str]:
-        ids = self._cache.get("expected_ids")
+    def load_expected_ids(self, *, payload: str = "features") -> list[str]:
+        key = f"expected_ids:{payload}"
+        ids = self._cache.get(key)
         if ids is None:
-            ids = list(self.artifacts.load(PARTITIONED_IDS_SPEC))
-            self._cache["expected_ids"] = ids
+            spec = PARTITIONED_IDS_SPEC if payload != "targets" else PARTITIONED_TARGET_IDS_SPEC
+            try:
+                ids = list(self.artifacts.load(spec))
+            except ArtifactNotRegisteredError:
+                if payload == "targets":
+                    ids = []
+                    logger.debug(
+                        "Target expected-id artifact ('%s') not registered; proceeding without a baseline.",
+                        spec.key,
+                    )
+                else:
+                    raise
+            self._cache[key] = ids
         return list(ids)
 
     @contextmanager

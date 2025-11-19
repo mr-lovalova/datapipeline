@@ -15,6 +15,10 @@ from datapipeline.cli.visuals.sections import sections_from_path
 from datapipeline.config.build import load_build_config
 from datapipeline.config.context import resolve_build_settings
 from datapipeline.services.bootstrap import artifacts_root, bootstrap
+from datapipeline.services.constants import (
+    PARTIONED_IDS,
+    PARTITIONED_TARGET_IDS,
+)
 from datapipeline.services.project_paths import build_config_path
 
 
@@ -114,18 +118,6 @@ def run_build_if_needed(
 
     artifacts = {}
 
-    def _work_ids():
-        try:
-            logger.info(
-                "Building artifact: partitioned_ids -> %s",
-                build_config.partitioned_ids.output,
-            )
-        except Exception:
-            pass
-        rel_path, count = materialize_partitioned_ids(
-            runtime, build_config)
-        return {"relative_path": rel_path, "count": count}
-
     def _work_scaler():
         try:
             logger.info(
@@ -141,13 +133,42 @@ def run_build_if_needed(
         meta_out.update(meta)
         return meta_out
 
-    job_specs: list[tuple[str, Callable[[], object], Optional[Path]]] = [
-        ("partitioned_ids", _work_ids, build_root / "partitioned_ids.yaml")]
+    job_specs: list[tuple[str, str, Callable[[], object], Optional[Path]]] = []
+    seen_targets: set[str] = set()
+
+    def _make_partition_job(task_cfg):
+        def _work():
+            try:
+                logger.info(
+                    "Building artifact: partitioned_ids (%s) -> %s",
+                    task_cfg.target,
+                    task_cfg.output,
+                )
+            except Exception:
+                pass
+            rel_path, count = materialize_partitioned_ids(runtime, task_cfg)
+            return {"relative_path": rel_path, "count": count}
+
+        return _work
+
+    for idx, task_cfg in enumerate(build_config.partitioned_ids, start=1):
+        label = f"partitioned_ids[{task_cfg.target}:{idx}]"
+        config_path = task_cfg.source_path or (build_root / "partitioned_ids.yaml")
+        artifact_key = PARTIONED_IDS if task_cfg.target == "features" else PARTITIONED_TARGET_IDS
+        if artifact_key in seen_targets:
+            logger.error(
+                "Multiple partitioned_ids artifacts target '%s'; only one per target is supported.",
+                task_cfg.target,
+            )
+            raise SystemExit(2)
+        seen_targets.add(artifact_key)
+        job_specs.append((label, artifact_key, _make_partition_job(task_cfg), config_path))
+
     if getattr(build_config.scaler, "enabled", True):
-        job_specs.append(("scaler", _work_scaler, build_root / "scaler.yaml"))
+        job_specs.append(("scaler", "scaler", _work_scaler, build_root / "scaler.yaml"))
 
     total_jobs = len(job_specs)
-    for idx, (job_label, job_work, config_path) in enumerate(job_specs, start=1):
+    for idx, (job_label, artifact_key, job_work, config_path) in enumerate(job_specs, start=1):
         sections = sections_from_path(build_root, config_path)
         result = run_job(
             sections=sections,
@@ -161,7 +182,7 @@ def run_build_if_needed(
             total=total_jobs,
         )
         if result:
-            artifacts[job_label] = result
+            artifacts[artifact_key] = result
 
     new_state = BuildState(config_hash=config_hash)
     for key, info in artifacts.items():

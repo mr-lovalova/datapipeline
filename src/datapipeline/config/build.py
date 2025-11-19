@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -15,10 +16,11 @@ class PartitionedIdsConfig(BaseModel):
         default="expected.txt",
         description="Artifact path relative to project.paths.artifacts.",
     )
-    include_targets: bool = Field(
-        default=False,
-        description="When true, include dataset.targets in the discovery stream.",
+    target: Literal["features", "targets"] = Field(
+        default="features",
+        description="Vector domain to evaluate for expected IDs ('features' or 'targets').",
     )
+    source_path: Path | None = Field(default=None, exclude=True)
 
 
 class ScalerArtifactConfig(BaseModel):
@@ -46,9 +48,9 @@ class BuildConfig(BaseModel):
     """Top-level build configuration describing materialized artifacts."""
 
     version: int = 1
-    partitioned_ids: PartitionedIdsConfig = Field(
-        default_factory=PartitionedIdsConfig,
-        description="Partitioned-id task settings.",
+    partitioned_ids: list[PartitionedIdsConfig] = Field(
+        default_factory=lambda: [PartitionedIdsConfig()],
+        description="Partitioned-id task settings (one entry per artifact).",
     )
     scaler: ScalerArtifactConfig = Field(
         default_factory=ScalerArtifactConfig,
@@ -57,7 +59,7 @@ class BuildConfig(BaseModel):
 
 
 def _load_from_artifact_directory(path: Path) -> BuildConfig:
-    part = PartitionedIdsConfig()
+    parts: list[PartitionedIdsConfig] = []
     scaler = ScalerArtifactConfig()
 
     for p in sorted(path.rglob("*.y*ml")):
@@ -80,7 +82,9 @@ def _load_from_artifact_directory(path: Path) -> BuildConfig:
 
         if kind == "partitioned_ids":
             try:
-                part = PartitionedIdsConfig.model_validate(data)
+                cfg = PartitionedIdsConfig.model_validate(data)
+                cfg.source_path = p
+                parts.append(cfg)
             except Exception:
                 pass
         elif kind == "scaler":
@@ -89,7 +93,9 @@ def _load_from_artifact_directory(path: Path) -> BuildConfig:
             except Exception:
                 pass
 
-    return BuildConfig(partitioned_ids=part, scaler=scaler)
+    if not parts:
+        parts = [PartitionedIdsConfig()]
+    return BuildConfig(partitioned_ids=parts, scaler=scaler)
 
 
 def load_build_config(project_yaml: Path) -> BuildConfig:

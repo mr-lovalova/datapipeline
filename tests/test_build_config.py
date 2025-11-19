@@ -28,8 +28,12 @@ def test_load_build_config_from_artifact_directory(tmp_path):
     artifacts_dir = tmp_path / "build" / "artifacts"
     artifacts_dir.mkdir(parents=True, exist_ok=True)
 
-    (artifacts_dir / "partitioned_ids.yaml").write_text(
-        "kind: partitioned_ids\noutput: expected_ids.txt\ninclude_targets: true\n",
+    (artifacts_dir / "partitioned_ids.features.yaml").write_text(
+        "kind: partitioned_ids\noutput: expected_ids.txt\ntarget: features\n",
+        encoding="utf-8",
+    )
+    (artifacts_dir / "partitioned_ids.targets.yaml").write_text(
+        "kind: partitioned_ids\noutput: expected_targets.txt\ntarget: targets\n",
         encoding="utf-8",
     )
     (artifacts_dir / "scaler.yaml").write_text(
@@ -39,7 +43,10 @@ def test_load_build_config_from_artifact_directory(tmp_path):
 
     cfg = load_build_config(project_yaml)
 
-    assert cfg.partitioned_ids.output == "expected_ids.txt"
-    assert cfg.partitioned_ids.include_targets is True
+    assert len(cfg.partitioned_ids) == 2
+    assert cfg.partitioned_ids[0].output == "expected_ids.txt"
+    assert cfg.partitioned_ids[0].target == "features"
+    assert cfg.partitioned_ids[1].output == "expected_targets.txt"
+    assert cfg.partitioned_ids[1].target == "targets"
     assert cfg.scaler.output == "scaler_val.pkl"
     assert cfg.scaler.split_label == "val"
