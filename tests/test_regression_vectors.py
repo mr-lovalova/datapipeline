@@ -140,8 +140,8 @@ def test_vector_targets_respect_partitioned_ids(tmp_path) -> None:
     sample = samples[0]
     assert sample.targets is not None
     assert set(sample.targets.keys()) == {
-        "wind_production__06019",
-        "wind_production__06030",
+        "wind_production__@municipality:06019",
+        "wind_production__@municipality:06030",
     }
     assert all(
         not key.startswith("wind_production")
