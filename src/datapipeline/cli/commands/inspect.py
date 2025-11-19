@@ -3,14 +3,45 @@ import json
 import logging
 from contextlib import redirect_stdout
 from pathlib import Path
+from typing import Iterable, Iterator, TypeVar
 
 from datapipeline.analysis.vector.collector import VectorStatsCollector
-from datapipeline.cli.visuals.runner import run_with_backend
+from datapipeline.cli.visuals.runner import run_job
 from datapipeline.config.context import load_dataset_context
 from datapipeline.utils.paths import ensure_parent
 from datapipeline.services.bootstrap import artifacts_root
 from datapipeline.pipeline.pipelines import build_vector_pipeline
 from datapipeline.pipeline.stages import post_process
+from tqdm import tqdm
+
+T = TypeVar("T")
+
+
+def _iter_with_progress(
+    iterable: Iterable[T],
+    *,
+    progress_style: str | None,
+    label: str,
+) -> Iterator[T]:
+    style = (progress_style or "auto").lower()
+    if style == "off":
+        yield from iterable
+        return
+    bar_kwargs = {
+        "desc": label,
+        "unit": "vec",
+        "dynamic_ncols": True,
+        "mininterval": 0.2,
+        "leave": False,
+    }
+    if style == "spinner":
+        bar_kwargs["bar_format"] = "{desc} {n_fmt}{unit}"
+    bar = tqdm(iterable, **bar_kwargs)
+    try:
+        for item in bar:
+            yield item
+    finally:
+        bar.close()
 
 
 def _run_inspect_job(
@@ -20,6 +51,8 @@ def _run_inspect_job(
     visuals: str | None,
     progress: str | None,
     log_level: int | None,
+    label: str,
+    section: str,
     work,
 ) -> None:
     dataset_ctx = load_dataset_context(project, include_targets=include_targets)
@@ -27,12 +60,14 @@ def _run_inspect_job(
     visuals_provider = visuals or "auto"
     progress_style = progress or "auto"
 
-    run_with_backend(
+    run_job(
+        sections=("inspect", section),
+        label=label,
         visuals=visuals_provider,
         progress_style=progress_style,
-        runtime=dataset_ctx.runtime,
         level=level_value,
-        work=lambda: work(dataset_ctx),
+        runtime=dataset_ctx.runtime,
+        work=lambda: work(dataset_ctx, progress_style),
     )
 
 
@@ -62,7 +97,7 @@ def report(
     - When matrix != 'none', writes an availability matrix in the requested format.
     """
 
-    def _work(dataset_ctx):
+    def _work(dataset_ctx, progress_style):
         project_path = dataset_ctx.project
         context = dataset_ctx.pipeline_context
         dataset = dataset_ctx.dataset
@@ -102,7 +137,12 @@ def report(
         if apply_postprocess:
             vectors = post_process(context, vectors)
 
-        for sample in vectors:
+        vector_iter = _iter_with_progress(
+            vectors,
+            progress_style=progress_style,
+            label="Processing vectors",
+        )
+        for sample in vector_iter:
             collector.update(sample.key, sample.features.values)
             if sample.targets:
                 collector.update(sample.key, sample.targets.values)
@@ -151,6 +191,8 @@ def report(
         visuals=visuals,
         progress=progress,
         log_level=log_level,
+        label="Inspect report",
+        section="report",
         work=_work,
     )
 
@@ -172,7 +214,7 @@ def partitions(
       - by_feature: mapping base id -> list of suffixes (empty when none)
     """
 
-    def _work(dataset_ctx):
+    def _work(dataset_ctx, progress_style):
         project_path = dataset_ctx.project
 
         dataset = dataset_ctx.dataset
@@ -199,7 +241,12 @@ def partitions(
             target_configs=target_cfgs,
         )
         vectors = post_process(context, vectors)
-        for sample in vectors:
+        vector_iter = _iter_with_progress(
+            vectors,
+            progress_style=progress_style,
+            label="Processing vectors",
+        )
+        for sample in vector_iter:
             collector.update(sample.key, sample.features.values)
             if sample.targets:
                 collector.update(sample.key, sample.targets.values)
@@ -236,6 +283,8 @@ def partitions(
         visuals=visuals,
         progress=progress,
         log_level=log_level,
+        label="Inspect partitions",
+        section="partitions",
         work=_work,
     )
 
@@ -254,7 +303,7 @@ def expected(
     Writes newline-separated ids to `<paths.artifacts>/expected.txt` by default.
     """
 
-    def _work(dataset_ctx):
+    def _work(dataset_ctx, progress_style):
         project_path = dataset_ctx.project
         dataset = dataset_ctx.dataset
         feature_cfgs = list(dataset.features or [])
@@ -268,8 +317,13 @@ def expected(
             stage=None,
             target_configs=target_cfgs,
         )
+        vector_iter = _iter_with_progress(
+            vectors,
+            progress_style=progress_style,
+            label="Processing vectors",
+        )
         ids: set[str] = set()
-        for sample in vectors:
+        for sample in vector_iter:
             ids.update(sample.features.values.keys())
             if sample.targets:
                 ids.update(sample.targets.values.keys())
@@ -293,5 +347,7 @@ def expected(
         visuals=visuals,
         progress=progress,
         log_level=log_level,
+        label="Inspect expected ids",
+        section="expected",
         work=_work,
     )
