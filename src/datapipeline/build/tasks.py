@@ -99,7 +99,6 @@ def _collect_partitioned_ids(runtime: Runtime, target: str) -> Sequence[str]:
         context,
         sanitized,
         dataset.group_by,
-        stage=None,
     )
     for sample in vectors:
         ids.update(sample.features.values.keys())
@@ -142,7 +141,6 @@ def materialize_scaler_statistics(runtime: Runtime, config: BuildConfig) -> Tupl
         context,
         sanitized_features,
         dataset.group_by,
-        stage=None,
         target_configs=sanitized_targets,
     )
 

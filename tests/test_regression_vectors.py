@@ -72,7 +72,7 @@ def _runtime_with_streams(
 def _register_scaler(runtime: Runtime, configs: list[FeatureRecordConfig], group_by: str) -> None:
     sanitized = [cfg.model_copy(update={"scale": False}) for cfg in configs]
     context = PipelineContext(runtime)
-    vectors = build_vector_pipeline(context, sanitized, group_by, stage=None)
+    vectors = build_vector_pipeline(context, sanitized, group_by)
 
     scaler = StandardScaler()
     total = scaler.fit(vectors)
@@ -95,6 +95,57 @@ def _register_partitioned_ids(runtime: Runtime, ids: list[str]) -> None:
     runtime.artifacts.register(
         PARTIONED_IDS,
         relative_path=path.relative_to(runtime.artifacts_root).as_posix(),
+    )
+
+
+def test_vector_targets_respect_partitioned_ids(tmp_path) -> None:
+    def _partitioned_record(value: float, code: str) -> TemporalRecord:
+        rec = TemporalRecord(time=_ts(0), value=value)
+        setattr(rec, "municipality", code)
+        return rec
+
+    streams = {
+        "wind_speed_stream": [
+            _partitioned_record(2.5, "06019"),
+            _partitioned_record(3.1, "06030"),
+        ],
+        "wind_production_stream": [
+            _partitioned_record(0.3, "06019"),
+            _partitioned_record(0.5, "06030"),
+        ],
+    }
+    runtime = _runtime_with_streams(tmp_path, streams)
+    runtime.registries.partition_by.register(
+        "wind_speed_stream", "municipality")
+    runtime.registries.partition_by.register(
+        "wind_production_stream", "municipality")
+
+    context = PipelineContext(runtime)
+    feature_cfgs = [
+        FeatureRecordConfig(record_stream="wind_speed_stream",
+                            id="wind_speed"),
+    ]
+    target_cfgs = [
+        FeatureRecordConfig(record_stream="wind_production_stream",
+                            id="wind_production"),
+    ]
+
+    samples = list(
+        build_vector_pipeline(
+            context, feature_cfgs, "1h", target_configs=target_cfgs
+        )
+    )
+
+    assert len(samples) == 1
+    sample = samples[0]
+    assert sample.targets is not None
+    assert set(sample.targets.keys()) == {
+        "wind_production__06019",
+        "wind_production__06030",
+    }
+    assert all(
+        not key.startswith("wind_production")
+        for key in sample.features.keys()
     )
 
 
@@ -131,7 +182,7 @@ def test_regression_scaled_shapes_airpressure_high_freq_and_windspeed_hourly(tmp
     _register_scaler(runtime, configs, group_by)
     context = PipelineContext(runtime)
 
-    out = list(build_vector_pipeline(context, configs, group_by, stage=None))
+    out = list(build_vector_pipeline(context, configs, group_by))
 
     # Two hourly groups expected: 00:00 and 01:00
     assert len(out) == 2
@@ -195,7 +246,7 @@ def test_regression_fill_then_scale_with_missing_values(tmp_path) -> None:
 
     _register_scaler(runtime, configs, group_by)
     context = PipelineContext(runtime)
-    out = list(build_vector_pipeline(context, configs, group_by, stage=None))
+    out = list(build_vector_pipeline(context, configs, group_by))
 
     # One hour group
     assert len(out) == 2  # hours 00 and 01 due to wind_speed hour 1
@@ -241,7 +292,7 @@ def test_regression_vector_transforms_fill_horizontal_history_and_drop(tmp_path)
     _register_partitioned_ids(
         runtime, ["wind_speed__A", "wind_speed__B"])
 
-    vectors = build_vector_pipeline(context, configs, group_by, stage=None)
+    vectors = build_vector_pipeline(context, configs, group_by)
 
     transforms = [
         VectorFillAcrossPartitionsTransform(statistic="mean", min_samples=1),
@@ -293,7 +344,7 @@ def test_placeholder_composed_stream_docs_only(tmp_path) -> None:
     # This placeholder asserts that base streams still flow through the pipeline.
     configs = base_configs
     vectors = list(build_vector_pipeline(
-        context, configs, group_by, stage=None))
+        context, configs, group_by))
     assert len(vectors) == 1
 
 
@@ -334,5 +385,5 @@ def test_placeholder_composed_stream_with_partitions(tmp_path) -> None:
     ]
     configs = base_configs
     vectors = list(build_vector_pipeline(
-        context, configs, group_by, stage=None))
+        context, configs, group_by))
     assert len(vectors) == 1

@@ -8,7 +8,7 @@ from typing import Iterator, Optional
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.domain.sample import Sample
 from datapipeline.pipeline.context import PipelineContext
-from datapipeline.pipeline.pipelines import build_vector_pipeline
+from datapipeline.pipeline.pipelines import build_feature_pipeline, build_vector_pipeline
 from datapipeline.pipeline.stages import post_process
 from datapipeline.pipeline.split import apply_split_stage
 from datapipeline.runtime import Runtime
@@ -88,24 +88,17 @@ def serve_with_runtime(
 
     if stage is not None and stage <= 5:
         for cfg in preview_cfgs:
-            stream = build_vector_pipeline(
-                context,
-                [cfg],
-                dataset.group_by,
-                stage=stage,
-            )
+            stream = build_feature_pipeline(context, cfg, stage=stage)
             feature_target = target.for_feature(cfg.id)
             writer = writer_factory(feature_target, visuals=visuals)
             count = serve_stream(stream, limit, writer=writer)
             report_serve(feature_target, count)
         return
 
-    vector_stage = 6 if stage in (6, 7) else None
     vectors = build_vector_pipeline(
         context,
         feature_cfgs,
         dataset.group_by,
-        stage=vector_stage,
         target_configs=target_cfgs,
     )
 

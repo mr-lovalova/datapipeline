@@ -123,13 +123,8 @@ def apply_feature_transforms(
 def vector_assemble_stage(
     merged: Iterator[FeatureRecord | FeatureRecordSequence],
     group_by_cadence: str,
-    *,
-    target_ids: set[str] | None = None,
-) -> Iterator[Sample]:
-    """Group the merged feature stream by group_key and emit `Sample` objects."""
-
-    selected_targets = set(target_ids or ())
-
+) -> Iterator[tuple[tuple, Vector]]:
+    """Group merged feature stream by key and emit raw vectors."""
     for group_key, group in groupby(
         merged, key=lambda fr: group_key_for(fr, group_by_cadence)
     ):
@@ -141,19 +136,39 @@ def vector_assemble_stage(
                 records = [fr.record]
             feature_map[fr.id].extend(records)
         vector = vectorize_record_group(feature_map)
-        if selected_targets:
-            feature_values = {
-                fid: val for fid, val in vector.values.items() if fid not in selected_targets}
-            target_values = {
-                fid: val for fid, val in vector.values.items() if fid in selected_targets}
-            yield Sample(
-                key=group_key,
-                features=Vector(values=feature_values),
-                targets=Vector(
-                    values=target_values) if target_values else None,
-            )
-        else:
-            yield Sample(key=group_key, features=vector)
+        yield group_key, vector
+
+
+def sample_assemble_stage(
+    feature_vectors: Iterator[tuple[tuple, Vector]],
+    target_vectors: Iterator[tuple[tuple, Vector]] | None = None,
+) -> Iterator[Sample]:
+    """Combine feature/target vectors into Sample objects."""
+    feature_iter = iter(feature_vectors)
+    target_iter = iter(target_vectors or ())
+
+    def _advance(it):
+        try:
+            return next(it)
+        except StopIteration:
+            return None
+
+    current_feature = _advance(feature_iter)
+    current_target = _advance(target_iter)
+
+    while current_feature:
+        feature_key, feature_vector = current_feature
+        targets = None
+
+        while current_target and current_target[0] < feature_key:
+            current_target = _advance(target_iter)
+
+        if current_target and current_target[0] == feature_key:
+            targets = current_target[1]
+            current_target = _advance(target_iter)
+
+        yield Sample(key=feature_key, features=feature_vector, targets=targets)
+        current_feature = _advance(feature_iter)
 
 
 def post_process(

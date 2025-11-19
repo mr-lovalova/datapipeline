@@ -131,7 +131,6 @@ def report(
             context,
             feature_cfgs,
             dataset.group_by,
-            stage=None,
             target_configs=target_cfgs,
         )
         if apply_postprocess:
@@ -237,7 +236,6 @@ def partitions(
             context,
             feature_cfgs,
             dataset.group_by,
-            stage=None,
             target_configs=target_cfgs,
         )
         vectors = post_process(context, vectors)
@@ -314,7 +312,6 @@ def expected(
             context,
             feature_cfgs,
             dataset.group_by,
-            stage=None,
             target_configs=target_cfgs,
         )
         vector_iter = _iter_with_progress(

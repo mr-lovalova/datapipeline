@@ -81,7 +81,6 @@ class VectorAdapter:
             context,
             features,
             self.dataset.group_by,
-            stage=None,
             target_configs=target_cfgs,
         )
         base_stream = post_process(context, vectors)
@@ -109,7 +108,6 @@ class VectorAdapter:
             context,
             features,
             self.dataset.group_by,
-            stage=None,
             target_configs=target_cfgs,
         )
         base_stream = post_process(context, vectors)
