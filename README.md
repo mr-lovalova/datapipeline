@@ -455,7 +455,7 @@ debug:
   transforms registered under the `record` entry-point group).
 - `stream`: transforms applied after feature wrapping, still per base feature.
 - `debug`: instrumentation-only transforms (linters, assertions).
-- `partition_by`: optional keys used to suffix feature IDs (e.g., `temp__station=XYZ`).
+- `partition_by`: optional keys used to suffix feature IDs (e.g., `temp__@station_id:XYZ`).
 - `sort_batch_size`: chunk size used by the in-memory sorter when normalizing
   order before stream transforms.
 

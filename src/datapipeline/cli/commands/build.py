@@ -18,6 +18,7 @@ from datapipeline.services.bootstrap import artifacts_root, bootstrap
 from datapipeline.services.constants import (
     PARTIONED_IDS,
     PARTITIONED_TARGET_IDS,
+    SCALER_STATISTICS,
 )
 from datapipeline.services.project_paths import build_config_path
 
@@ -165,7 +166,7 @@ def run_build_if_needed(
         job_specs.append((label, artifact_key, _make_partition_job(task_cfg), config_path))
 
     if getattr(build_config.scaler, "enabled", True):
-        job_specs.append(("scaler", "scaler", _work_scaler, build_root / "scaler.yaml"))
+        job_specs.append(("scaler", SCALER_STATISTICS, _work_scaler, build_root / "scaler.yaml"))
 
     total_jobs = len(job_specs)
     for idx, (job_label, artifact_key, job_work, config_path) in enumerate(job_specs, start=1):
