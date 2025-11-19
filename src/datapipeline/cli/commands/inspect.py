@@ -142,9 +142,10 @@ def report(
             label="Processing vectors",
         )
         for sample in vector_iter:
-            collector.update(sample.key, sample.features.values)
+            merged = dict(sample.features.values)
             if sample.targets:
-                collector.update(sample.key, sample.targets.values)
+                merged.update(sample.targets.values)
+            collector.update(sample.key, merged)
 
         buffer = io.StringIO()
         with redirect_stdout(buffer):
@@ -245,9 +246,10 @@ def partitions(
             label="Processing vectors",
         )
         for sample in vector_iter:
-            collector.update(sample.key, sample.features.values)
+            merged = dict(sample.features.values)
             if sample.targets:
-                collector.update(sample.key, sample.targets.values)
+                merged.update(sample.targets.values)
+            collector.update(sample.key, merged)
 
         ensure_parent(output_path)
 
