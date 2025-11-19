@@ -19,6 +19,9 @@ from datapipeline.config.workspace import (
     load_workspace_context,
 )
 from datapipeline.config.resolution import resolve_visuals
+from datapipeline.utils.rich_compat import suppress_file_proxy_shutdown_errors
+
+suppress_file_proxy_shutdown_errors()
 
 DEFAULT_PROJECT_PATH = "config/datasets/default/project.yaml"
 
