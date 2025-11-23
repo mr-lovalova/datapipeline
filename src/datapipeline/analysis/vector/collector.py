@@ -246,10 +246,10 @@ class VectorStatsCollector:
             column_width=column_width,
         )
 
-    def print_report(self) -> dict[str, Any]:
+    def print_report(self, *, sort_key: str = "missing") -> dict[str, Any]:
         from .report import print_report as _print_report
 
-        return _print_report(self)
+        return _print_report(self, sort_key=sort_key)
 
     def _export_matrix_data(self) -> None:
         from .matrix import export_matrix_data

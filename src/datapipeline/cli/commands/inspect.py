@@ -89,6 +89,7 @@ def report(
     visuals: str | None = None,
     progress: str | None = None,
     log_level: int | None = None,
+    sort: str = "missing",
 ) -> None:
     """Compute a quality report and optionally export coverage JSON and/or a matrix.
 
@@ -149,7 +150,7 @@ def report(
 
         buffer = io.StringIO()
         with redirect_stdout(buffer):
-            summary = collector.print_report()
+            summary = collector.print_report(sort_key=sort)
         if not quiet:
             report_text = buffer.getvalue()
             if report_text.strip():

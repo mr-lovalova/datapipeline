@@ -37,6 +37,7 @@ class OutputTarget:
     transport: str  # stdout | fs
     format: str     # print | json-lines | json | csv | pickle
     destination: Optional[Path]
+    payload: str = "sample"
 
     def for_feature(self, feature_id: str) -> "OutputTarget":
         if self.transport != "fs" or self.destination is None:
@@ -50,7 +51,12 @@ class OutputTarget:
         stem = dest.name[: -len(suffix)] if suffix else dest.name
         new_name = f"{stem}.{safe_feature}{suffix}"
         new_path = dest.with_name(new_name)
-        return OutputTarget(transport=self.transport, format=self.format, destination=new_path)
+        return OutputTarget(
+            transport=self.transport,
+            format=self.format,
+            destination=new_path,
+            payload=self.payload,
+        )
 
 
 class OutputResolutionError(ValueError):
@@ -64,6 +70,7 @@ def resolve_output_target(
     default: OutputConfig | None = None,
     base_path: Path | None = None,
     run_name: str | None = None,
+    payload_override: str | None = None,
 ) -> OutputTarget:
     """
     Resolve the effective output target using CLI override, run config, or default.
@@ -75,11 +82,14 @@ def resolve_output_target(
     if config is None:
         config = OutputConfig(transport="stdout", format="print")
 
+    payload = payload_override or config.payload or "sample"
+
     if config.transport == "stdout":
         return OutputTarget(
             transport="stdout",
             format=config.format,
             destination=None,
+            payload=payload,
         )
 
     if config.directory is None:
@@ -104,4 +114,5 @@ def resolve_output_target(
         transport="fs",
         format=config.format,
         destination=dest_path,
+        payload=payload,
     )

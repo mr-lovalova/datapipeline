@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from pathlib import Path
 from typing import Any, Callable, Dict, Generic, Mapping, Optional, TypeVar
 
-from datapipeline.services.constants import PARTIONED_IDS, PARTITIONED_TARGET_IDS
+from datapipeline.services.constants import PARTIONED_IDS, PARTITIONED_TARGET_IDS, VECTOR_SCHEMA
 
 ArtifactValue = TypeVar("ArtifactValue")
 
@@ -90,6 +91,11 @@ def _read_expected_ids(path: Path) -> list[str]:
         return [line.strip() for line in fh if line.strip()]
 
 
+def _read_schema(path: Path) -> dict:
+    with path.open("r", encoding="utf-8") as fh:
+        return json.load(fh)
+
+
 PARTITIONED_IDS_SPEC = ArtifactSpec[list[str]](
     key=PARTIONED_IDS,
     loader=_read_expected_ids,
@@ -98,4 +104,9 @@ PARTITIONED_IDS_SPEC = ArtifactSpec[list[str]](
 PARTITIONED_TARGET_IDS_SPEC = ArtifactSpec[list[str]](
     key=PARTITIONED_TARGET_IDS,
     loader=_read_expected_ids,
+)
+
+VECTOR_SCHEMA_SPEC = ArtifactSpec[dict](
+    key=VECTOR_SCHEMA,
+    loader=_read_schema,
 )

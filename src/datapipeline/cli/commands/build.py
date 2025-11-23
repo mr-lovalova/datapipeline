@@ -8,6 +8,7 @@ from datapipeline.build.tasks import (
     compute_config_hash,
     materialize_partitioned_ids,
     materialize_scaler_statistics,
+    materialize_vector_schema,
 )
 from datapipeline.cli.visuals import get_visuals_backend
 from datapipeline.cli.visuals.runner import run_job
@@ -19,6 +20,7 @@ from datapipeline.services.constants import (
     PARTIONED_IDS,
     PARTITIONED_TARGET_IDS,
     SCALER_STATISTICS,
+    VECTOR_SCHEMA,
 )
 from datapipeline.services.project_paths import build_config_path
 
@@ -134,6 +136,21 @@ def run_build_if_needed(
         meta_out.update(meta)
         return meta_out
 
+    def _work_schema():
+        try:
+            logger.info(
+                "Building artifact: schema -> %s", build_config.vector_schema.output
+            )
+        except Exception:
+            pass
+        res = materialize_vector_schema(runtime, build_config.vector_schema)
+        if not res:
+            return None
+        rel_path, meta = res
+        meta_out = {"relative_path": rel_path}
+        meta_out.update(meta)
+        return meta_out
+
     job_specs: list[tuple[str, str, Callable[[], object], Optional[Path]]] = []
     seen_targets: set[str] = set()
 
@@ -153,6 +170,8 @@ def run_build_if_needed(
         return _work
 
     for idx, task_cfg in enumerate(build_config.partitioned_ids, start=1):
+        if not getattr(task_cfg, "enabled", True):
+            continue
         label = f"partitioned_ids[{task_cfg.target}:{idx}]"
         config_path = task_cfg.source_path or (build_root / "partitioned_ids.yaml")
         artifact_key = PARTIONED_IDS if task_cfg.target == "features" else PARTITIONED_TARGET_IDS
@@ -164,6 +183,16 @@ def run_build_if_needed(
             raise SystemExit(2)
         seen_targets.add(artifact_key)
         job_specs.append((label, artifact_key, _make_partition_job(task_cfg), config_path))
+
+    if getattr(build_config.vector_schema, "enabled", True):
+        job_specs.append(
+            (
+                "schema",
+                VECTOR_SCHEMA,
+                _work_schema,
+                build_config.vector_schema.source_path or (build_root / "schema.yaml"),
+            )
+        )
 
     if getattr(build_config.scaler, "enabled", True):
         job_specs.append(("scaler", SCALER_STATISTICS, _work_scaler, build_root / "scaler.yaml"))

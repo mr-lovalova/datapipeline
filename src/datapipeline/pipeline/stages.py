@@ -16,6 +16,7 @@ from datapipeline.plugins import FEATURE_TRANSFORMS_EP, VECTOR_TRANSFORMS_EP, RE
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.pipeline.utils.keygen import FeatureIdGenerator, group_key_for
 from datapipeline.sources.models.source import Source
+from datapipeline.transforms.vector import VectorEnsureSchemaTransform
 
 
 def open_source_stream(context: PipelineContext, stream_alias: str) -> Source:
@@ -181,10 +182,19 @@ def post_process(
     - Read a precomputed expected feature-id list (full ids) from the build
       folder. If missing, instruct the user to generate it via CLI.
     """
+    stream = _apply_vector_schema(context, stream)
     runtime = context.runtime
     transforms = runtime.registries.postprocesses.get(POSTPROCESS_TRANSFORMS)
-
     if not transforms:
         return stream
-
     return apply_transforms(stream, VECTOR_TRANSFORMS_EP, transforms, context)
+
+
+def _apply_vector_schema(
+    context: PipelineContext,
+    stream: Iterator[Sample],
+) -> Iterator[Sample]:
+    with context.activate():
+        transform = VectorEnsureSchemaTransform(on_missing="fill")
+        transform.bind_context(context)
+        return transform(stream)

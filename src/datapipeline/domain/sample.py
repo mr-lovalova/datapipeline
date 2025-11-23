@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Iterator, Optional
+from dataclasses import dataclass, asdict
+from typing import Any, Iterator, Optional, Literal
 
 from .vector import Vector
+
+PayloadMode = Literal["sample", "vector"]
 
 
 @dataclass
@@ -36,12 +38,17 @@ class Sample:
             return self.features
         raise IndexError(idx)
 
-    @property
-    def vector(self) -> Vector:
-        return self.features
-
     def with_targets(self, targets: Optional[Vector]) -> "Sample":
         return Sample(key=self.key, features=self.features, targets=targets)
 
     def with_features(self, features: Vector) -> "Sample":
         return Sample(key=self.key, features=features, targets=self.targets)
+
+    def as_full_payload(self) -> dict[str, Any]:
+        return asdict(self)
+
+    def as_vector_payload(self) -> dict[str, Any]:
+        data: dict[str, Any] = {"features": list(self.features.values.values())}
+        if self.targets is not None:
+            data["targets"] = list(self.targets.values.values())
+        return data

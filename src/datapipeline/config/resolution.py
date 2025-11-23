@@ -124,5 +124,6 @@ def workspace_output_defaults(
     return OutputConfig(
         transport=od.transport,
         format=od.format,
+        payload=od.payload,
         directory=output_dir,
     )

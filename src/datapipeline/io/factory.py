@@ -9,7 +9,12 @@ from datapipeline.io.writers import (
     LineWriter,
 )
 from datapipeline.io.protocols import Writer
-from datapipeline.io.formatters import PrintLineFormatter, JsonLineFormatter
+from datapipeline.io.serializers import (
+    json_line_serializer,
+    print_serializer,
+    csv_row_serializer,
+    pickle_serializer,
+)
 from datapipeline.io.sinks import StdoutTextSink, RichStdoutSink, ReprRichFormatter, JsonRichFormatter, PlainRichFormatter
 from datapipeline.io.output import OutputTarget
 
@@ -32,13 +37,16 @@ def stdout_sink_for(format_: str, visuals: Optional[str]) -> StdoutTextSink:
 def writer_factory(target: OutputTarget, *, visuals: Optional[str] = None) -> Writer:
     transport = target.transport.lower()
     format_ = target.format.lower()
+    payload = target.payload
 
     if transport == "stdout":
         sink = stdout_sink_for(format_, visuals)
         if format_ in {"json-lines", "json", "jsonl"}:
-            return LineWriter(sink, JsonLineFormatter())
+            serializer = json_line_serializer(payload)
+            return LineWriter(sink, serializer)
         if format_ == "print":
-            return LineWriter(sink, PrintLineFormatter())
+            serializer = print_serializer(payload)
+            return LineWriter(sink, serializer)
         raise ValueError(f"Unsupported stdout format '{target.format}'")
 
     destination = target.destination
@@ -48,12 +56,15 @@ def writer_factory(target: OutputTarget, *, visuals: Optional[str] = None) -> Wr
 
     suffix = "".join(destination.suffixes).lower()
     if format_ in {"json-lines", "json", "jsonl"}:
+        serializer = json_line_serializer(payload)
         if suffix.endswith(".jsonl.gz") or suffix.endswith(".json.gz") or suffix.endswith(".gz"):
-            return GzipJsonLinesWriter(destination)
-        return JsonLinesFileWriter(destination)
+            return GzipJsonLinesWriter(destination, serializer=serializer)
+        return JsonLinesFileWriter(destination, serializer=serializer)
     if format_ == "csv":
-        return CsvFileWriter(destination)
+        serializer = csv_row_serializer(payload)
+        return CsvFileWriter(destination, serializer=serializer)
     if format_ == "pickle":
-        return PickleFileWriter(destination)
+        serializer = pickle_serializer(payload)
+        return PickleFileWriter(destination, serializer=serializer)
 
     raise ValueError(f"Unsupported fs format '{target.format}'")

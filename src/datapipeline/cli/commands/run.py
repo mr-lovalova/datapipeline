@@ -45,6 +45,7 @@ def _profile_debug_payload(profile) -> dict[str, object]:
         "output": {
             "transport": profile.output.transport,
             "format": profile.output.format,
+            "payload": profile.output.payload,
             "destination": str(profile.output.destination)
             if profile.output.destination
             else None,
@@ -77,9 +78,18 @@ def _build_cli_output_config(
     transport: Optional[str],
     fmt: Optional[str],
     path: Optional[str],
-) -> OutputConfig | None:
+    payload: Optional[str],
+) -> tuple[OutputConfig | None, Optional[str]]:
+    payload_style = None
+    if payload is not None:
+        payload_style = payload.lower()
+        if payload_style not in {"sample", "vector"}:
+            logger.error("--out-payload must be 'sample' or 'vector'")
+            raise SystemExit(2)
+
     if transport is None and fmt is None and path is None:
-        return None
+        return None, payload_style
+
     if not transport or not fmt:
         logger.error(
             "--out-transport and --out-format must be provided together")
@@ -90,11 +100,26 @@ def _build_cli_output_config(
         if not path:
             logger.error("--out-path is required when --out-transport=fs (directory)")
             raise SystemExit(2)
-        return OutputConfig(transport="fs", format=fmt, directory=Path(path))
+        return (
+            OutputConfig(
+                transport="fs",
+                format=fmt,
+                directory=Path(path),
+                payload=payload_style or "sample",
+            ),
+            None,
+        )
     if path:
         logger.error("--out-path is only valid when --out-transport=fs")
         raise SystemExit(2)
-    return OutputConfig(transport="stdout", format=fmt)
+    return (
+        OutputConfig(
+            transport="stdout",
+            format=fmt,
+            payload=payload_style or "sample",
+        ),
+        None,
+    )
 
 
 def handle_serve(
@@ -106,6 +131,7 @@ def handle_serve(
     stage: Optional[int] = None,
     out_transport: Optional[str] = None,
     out_format: Optional[str] = None,
+    out_payload: Optional[str] = None,
     out_path: Optional[str] = None,
     skip_build: bool = False,
     *,
@@ -139,8 +165,8 @@ def handle_serve(
             workspace=workspace,
         )
 
-    cli_output_cfg = _build_cli_output_config(
-        out_transport, out_format, out_path)
+    cli_output_cfg, payload_override = _build_cli_output_config(
+        out_transport, out_format, out_path, out_payload)
     try:
         profiles = resolve_run_profiles(
             project_path=project_path,
@@ -150,6 +176,7 @@ def handle_serve(
             limit=limit,
             include_targets=include_targets,
             cli_output=cli_output_cfg,
+            cli_payload=payload_override or (out_payload.lower() if out_payload else None),
             workspace=workspace,
             cli_log_level=cli_log_level,
             base_log_level=base_log_level,

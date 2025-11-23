@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Any
+from typing import Any, Literal
 import logging
 
 from .matrix import export_matrix_data, render_matrix
@@ -12,7 +12,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def print_report(collector: VectorStatsCollector) -> dict[str, Any]:
+def print_report(
+    collector: VectorStatsCollector,
+    *,
+    sort_key: Literal["missing", "nulls"] = "missing",
+) -> dict[str, Any]:
     tracked_features = (
         collector.expected_features
         if collector.expected_features
@@ -62,10 +66,18 @@ def print_report(collector: VectorStatsCollector) -> dict[str, Any]:
         return summary
 
     feature_stats = []
-    logger.info("\n-> Feature coverage (sorted by missing count):")
+    sort_label = "null" if sort_key == "nulls" else "missing"
+    logger.info("\n-> Feature coverage (sorted by %s count):", sort_label)
+    if sort_key == "nulls":
+        def _feature_sort(fid):
+            return collector._feature_null_count(fid)
+    else:
+        def _feature_sort(fid):
+            return collector._coverage(fid)[1]
+
     for feature_id in sorted(
         tracked_features,
-        key=lambda fid: collector._coverage(fid)[1],
+        key=_feature_sort,
         reverse=True,
     ):
         present, missing, opportunities = collector._coverage(feature_id)

@@ -71,6 +71,7 @@ class ServeDefaults(BaseModel):
     class OutputDefaults(BaseModel):
         transport: str
         format: str
+        payload: str = Field(default="sample")
         directory: Optional[str] = Field(
             default=None,
             description="Base directory for fs outputs (relative paths are resolved from jerry.yaml).",

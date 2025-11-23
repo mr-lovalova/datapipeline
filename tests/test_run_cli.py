@@ -54,6 +54,7 @@ def test_run_profiles_inherit_workspace_include_targets(monkeypatch, tmp_path):
         limit=None,
         include_targets=None,
         cli_output=None,
+        cli_payload=None,
         workspace=workspace,
         cli_log_level=None,
         base_log_level="INFO",

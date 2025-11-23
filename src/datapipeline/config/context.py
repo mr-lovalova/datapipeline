@@ -135,6 +135,7 @@ def resolve_run_profiles(
     limit: Optional[int],
     include_targets: Optional[bool],
     cli_output,
+    cli_payload: Optional[str],
     workspace: WorkspaceContext | None,
     cli_log_level: Optional[str],
     base_log_level: str,
@@ -200,6 +201,7 @@ def resolve_run_profiles(
             default=runtime_output_cfg,
             base_path=project_path.parent,
             run_name=entry_name or f"run{idx}",
+            payload_override=cli_payload,
         )
 
         profiles.append(

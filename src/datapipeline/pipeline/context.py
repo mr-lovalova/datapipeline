@@ -14,6 +14,7 @@ from datapipeline.services.artifacts import (
     ArtifactValue,
     PARTITIONED_IDS_SPEC,
     PARTITIONED_TARGET_IDS_SPEC,
+    VECTOR_SCHEMA_SPEC,
 )
 
 logger = logging.getLogger(__name__)
@@ -64,6 +65,23 @@ class PipelineContext:
                     raise
             self._cache[key] = ids
         return list(ids)
+
+    def load_schema(self, *, payload: str = "features") -> list[dict[str, Any]]:
+        key = f"schema:{payload}"
+        cached = self._cache.get(key)
+        if cached is None:
+            try:
+                doc = self.artifacts.load(VECTOR_SCHEMA_SPEC)
+            except ArtifactNotRegisteredError:
+                cached = []
+            else:
+                section = doc.get("targets" if payload == "targets" else "features")
+                if isinstance(section, list):
+                    cached = [entry for entry in section if isinstance(entry, dict)]
+                else:
+                    cached = []
+            self._cache[key] = cached
+        return [dict(entry) for entry in cached] if cached else []
 
     @contextmanager
     def activate(self) -> Iterator[PipelineContext]:

@@ -53,6 +53,7 @@ ensure_ticks = "datapipeline.transforms.stream.ensure_ticks:ensure_ticks"
 fill = "datapipeline.transforms.stream.fill:FillTransformer"
 granularity = "datapipeline.transforms.stream.granularity:FeatureGranularityTransform"
 lint = "datapipeline.transforms.stream.lint:StreamLint"
+dedupe = "datapipeline.transforms.stream.dedupe:FeatureDeduplicateTransform"
 
 [project.entry-points."datapipeline.transforms.feature"]
 scale = "datapipeline.transforms.feature.scaler:StandardScalerTransform"

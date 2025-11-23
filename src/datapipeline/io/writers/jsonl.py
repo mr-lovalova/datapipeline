@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Optional
 import json
 
-from datapipeline.io.formatters import JsonLineFormatter
+from datapipeline.io.serializers import json_line_serializer, BaseJsonLineSerializer
 from datapipeline.io.protocols import HeaderCapable, HasFilePath, Writer
 from datapipeline.io.sinks import (
     AtomicTextFileSink,
@@ -14,14 +14,14 @@ from .base import HeaderJsonlMixin, LineWriter
 
 
 class JsonLinesStdoutWriter(LineWriter, HeaderJsonlMixin):
-    def __init__(self):
-        super().__init__(StdoutTextSink(), JsonLineFormatter())
+    def __init__(self, serializer: BaseJsonLineSerializer | None = None):
+        super().__init__(StdoutTextSink(), serializer or json_line_serializer("sample"))
 
 
 class JsonLinesFileWriter(LineWriter, HeaderJsonlMixin, HasFilePath):
-    def __init__(self, dest: Path):
+    def __init__(self, dest: Path, serializer: BaseJsonLineSerializer | None = None):
         self._sink = AtomicTextFileSink(dest)
-        super().__init__(self._sink, JsonLineFormatter())
+        super().__init__(self._sink, serializer or json_line_serializer("sample"))
 
     @property
     def file_path(self) -> Optional[Path]:
@@ -29,9 +29,9 @@ class JsonLinesFileWriter(LineWriter, HeaderJsonlMixin, HasFilePath):
 
 
 class GzipJsonLinesWriter(Writer, HeaderCapable, HasFilePath):
-    def __init__(self, dest: Path):
+    def __init__(self, dest: Path, serializer: BaseJsonLineSerializer | None = None):
         self.sink = GzipBinarySink(dest)
-        self._fmt = JsonLineFormatter()
+        self._serializer = serializer or json_line_serializer("sample")
 
     @property
     def file_path(self) -> Optional[Path]:
@@ -45,7 +45,7 @@ class GzipJsonLinesWriter(Writer, HeaderCapable, HasFilePath):
         )
 
     def write(self, item) -> None:
-        line = self._fmt(item)
+        line = self._serializer(item)
         self.sink.write_bytes(line.encode("utf-8"))
 
     def close(self) -> None:

@@ -90,6 +90,11 @@ def main() -> None:
         help="output format (print/json-lines/csv/pickle) for serve runs",
     )
     p_serve.add_argument(
+        "--out-payload",
+        choices=["sample", "vector"],
+        help="payload structure: full sample (default) or vector-only body",
+    )
+    p_serve.add_argument(
         "--out-path",
         help="destination file path when using fs transport",
     )
@@ -327,6 +332,12 @@ def main() -> None:
         action="store_true",
         help="include dataset.targets when computing report/matrix/coverage",
     )
+    p_inspect_report.add_argument(
+        "--sort",
+        choices=["missing", "nulls"],
+        default="missing",
+        help="feature ranking metric in the report (missing or nulls)",
+    )
 
     # Coverage (JSON file)
     p_inspect_cov = inspect_sub.add_parser(
@@ -514,6 +525,7 @@ def main() -> None:
             stage=getattr(args, "stage", None),
             out_transport=getattr(args, "out_transport", None),
             out_format=getattr(args, "out_format", None),
+            out_payload=getattr(args, "out_payload", None),
             out_path=getattr(args, "out_path", None),
             skip_build=getattr(args, "skip_build", False),
             cli_log_level=cli_level_arg,
@@ -568,6 +580,7 @@ def main() -> None:
                 visuals=inspect_visual_provider,
                 progress=inspect_progress_style,
                 log_level=base_level,
+                sort=getattr(args, "sort", "missing"),
             )
         elif subcmd == "coverage":
             handle_inspect_report(
@@ -586,6 +599,7 @@ def main() -> None:
                 visuals=inspect_visual_provider,
                 progress=inspect_progress_style,
                 log_level=base_level,
+                sort=getattr(args, "sort", "missing"),
             )
         elif subcmd == "matrix":
             handle_inspect_report(
@@ -604,6 +618,7 @@ def main() -> None:
                 visuals=inspect_visual_provider,
                 progress=inspect_progress_style,
                 log_level=base_level,
+                sort=getattr(args, "sort", "missing"),
             )
         elif subcmd == "partitions":
             from datapipeline.cli.commands.inspect import partitions as handle_inspect_partitions

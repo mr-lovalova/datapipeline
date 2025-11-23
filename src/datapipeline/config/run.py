@@ -14,11 +14,16 @@ VALID_PROGRESS_STYLES = ("AUTO", "SPINNER", "BARS", "OFF")
 
 Transport = Literal["fs", "stdout"]
 Format = Literal["csv", "json", "json-lines", "print", "pickle"]
+PayloadMode = Literal["sample", "vector"]
 
 
 class OutputConfig(BaseModel):
     transport: Transport = Field(..., description="fs | stdout")
     format: Format = Field(..., description="csv | json | json-lines | print | pickle")
+    payload: PayloadMode = Field(
+        default="sample",
+        description="sample (key + metadata) or vector payload (features [+targets]).",
+    )
     directory: Optional[Path] = Field(
         default=None,
         description="Directory where run outputs should land (fs transport only).",
@@ -60,6 +65,16 @@ class OutputConfig(BaseModel):
         if self.directory is None:
             raise ValueError("fs outputs require a directory")
         return self
+
+    @field_validator("payload", mode="before")
+    @classmethod
+    def _normalize_payload(cls, value):
+        if value is None:
+            return "sample"
+        name = str(value).lower()
+        if name not in {"sample", "vector"}:
+            raise ValueError("payload must be 'sample' or 'vector'")
+        return name
 
 
 class RunConfig(BaseModel):

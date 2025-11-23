@@ -580,8 +580,11 @@ enabled: true
 ```
 
 - `expected.txt` lists every fully partitioned feature ID observed in the latest run (used by vector postprocess transforms). Add additional `partitioned_ids` files with `target: targets` to materialize a separate baseline for label vectors.
+  - Set `enabled: false` inside a `kind: partitioned_ids` build file to skip generating the default `expected.txt`.
 - When you configure `payload: targets` (or any target-focused vector transform), Jerry automatically uses the `target: targets` artifact (e.g., `expected_targets.txt`) for coverage checks.
 - `scaler.pkl` is a pickled standard scaler fitted on the requested split.
+- `schema.json` (from the `vector_schema` task) captures richer metadata per feature/target identifier—value kinds, list-length statistics, and inferred types—so downstream consumers can enforce cadence and ordering without scanning raw vectors.
+  - Configure the `vector_schema` build task (see `builds/schema.yaml`) to choose a global cadence strategy (currently `max`). Per-feature overrides will be added later; for now every list-valued feature records the max observed length as its enforcement target.
 - Shared run/build defaults (visuals/progress/log level/build mode) live in `jerry.yaml`.
 
 ---
@@ -607,6 +610,9 @@ Pass `--help` on any command for flags.
 - `jerry serve --project <project.yaml> --out-transport stdout --out-format json-lines --limit N [--include-targets] [--log-level LEVEL] [--visuals ...] [--progress ...] [--run name]`
   - Applies postprocess transforms and optional dataset split before emitting.
   - Use `--out-transport fs --out-format json-lines --out-path build/serve` (or `csv`, `pickle`, etc.) to write artifacts to disk instead of stdout; files land under `<out-path>/<run_name>/`.
+- `--out-payload vector` emits only the vector payload with features/targets
+  flattened into schema-ordered lists (no identifier keys) when you don't need
+  the group key or metadata. Default is `sample`.
   - Set `--log-level DEBUG` (or set `run.yaml` -> `log_level: DEBUG`) to reuse the tqdm progress bars when previewing stages.
   - When `project.paths.run` is a directory, add `--run val` (filename stem) to target a single config; otherwise every run file is executed sequentially.
   - Argument precedence follows the order described under *Configuration Resolution Order*.
@@ -665,6 +671,8 @@ Pass `--help` on any command for flags.
 - `ensure_ticks`: backfill missing ticks with `value=None` records to enforce a
   strict cadence.
 - `granularity`: merge duplicate timestamps using `first|last|mean|median`.
+- `dedupe`: drop exact duplicate records (same id, timestamp, and payload) from
+  an already sorted feature stream.
 - `fill`: rolling statistic-based imputation within each feature stream.
 - Custom transforms can be registered under the `stream` entry-point group.
 
@@ -691,6 +699,8 @@ Pass `--help` on any command for flags.
 - `fill_constant`: seed absent IDs with a constant.
 - `fill_history`: impute using rolling statistics from prior vectors.
 - `fill_horizontal`: aggregate sibling partitions in the same timestamp.
+  (Jerry automatically enforces the `schema.json` vector schema—ordering +
+  cadence—before any configured vector transforms run.)
 
 All transforms share a consistent entry-point signature and accept their config
 dict as keyword arguments. Register new ones in `pyproject.toml` under the
@@ -703,6 +713,10 @@ appropriate group (`record`, `stream`, `feature`, `sequence`, `vector`,
 
 - `expected.txt`: newline-delimited full feature IDs. Required by drop/fill
   transforms to know the target feature universe.
+- `schema.json`: output of the `vector_schema` build task. Jerry automatically
+  enforces this schema during postprocess to impose deterministic ordering and
+  list cadence metadata (targets get their own section when
+  `include_targets: true`).
 - `scaler.pkl`: pickled standard scaler fitted on the configured split. Loaded
   lazily by feature transforms at runtime.
 - Build state is tracked in `artifacts/build/state.json`; config hashes avoid

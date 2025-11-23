@@ -4,14 +4,17 @@ from datetime import datetime, timezone
 from math import isclose
 from typing import Any
 
+import pytest
 from datapipeline.domain.feature import FeatureRecord
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
 from datapipeline.transforms.feature.scaler import StandardScaler, StandardScalerTransform
+from datapipeline.transforms.stream.dedupe import FeatureDeduplicateTransform
 from datapipeline.transforms.stream.fill import FillTransformer as FeatureFill
 from datapipeline.transforms.vector import (
     VectorDropMissingTransform,
+    VectorEnsureSchemaTransform,
     VectorFillAcrossPartitionsTransform,
     VectorFillConstantTransform,
     VectorFillHistoryTransform,
@@ -37,14 +40,24 @@ def _make_vector(group: int, values: dict[str, Any]) -> Sample:
 
 
 class _StubVectorContext:
-    def __init__(self, expected: list[str] | dict[str, list[str]]):
+    def __init__(
+        self,
+        expected: list[str] | dict[str, list[str]],
+        *,
+        schema: dict[str, list[dict]] | None = None,
+    ):
         if isinstance(expected, dict):
             self._expected_map = {k: list(v) for k, v in expected.items()}
         else:
             self._expected_map = {"features": list(expected)}
+        self._schema_map = schema or {}
 
     def load_expected_ids(self, *, payload: str = "features") -> list[str]:
         return list(self._expected_map.get(payload, []))
+
+    def load_schema(self, *, payload: str = "features") -> list[dict]:
+        entries = self._schema_map.get(payload)
+        return [dict(item) for item in entries] if entries else []
 
 
 def test_standard_scaler_normalizes_feature_stream():
@@ -168,6 +181,33 @@ def test_time_median_fill_honours_window():
     assert values[4] == 2.0
 
 
+def test_stream_dedupe_removes_exact_duplicates():
+    stream = iter(
+        [
+            _make_feature_record(10.0, 0, "temp"),
+            _make_feature_record(10.0, 0, "temp"),
+            _make_feature_record(12.0, 1, "temp"),
+            _make_feature_record(5.0, 0, "wind"),
+            _make_feature_record(5.0, 0, "wind"),
+        ]
+    )
+    transform = FeatureDeduplicateTransform()
+    out = list(transform.apply(stream))
+    assert [fr.record.value for fr in out] == [10.0, 12.0, 5.0]
+
+
+def test_stream_dedupe_keeps_distinct_values():
+    stream = iter(
+        [
+            _make_feature_record(10.0, 0, "temp"),
+            _make_feature_record(11.0, 0, "temp"),
+        ]
+    )
+    transform = FeatureDeduplicateTransform()
+    out = list(transform.apply(stream))
+    assert [fr.record.value for fr in out] == [10.0, 11.0]
+
+
 def test_vector_fill_history_uses_running_statistics():
     stream = iter(
         [
@@ -255,3 +295,160 @@ def test_vector_drop_missing_targets_payload():
     transform.bind_context(_StubVectorContext({"targets": ["t"]}))
 
     assert list(transform.apply(iter([sample]))) == []
+
+
+def test_vector_ensure_schema_errors_on_missing_by_default():
+    stream = iter([_make_vector(0, {"wind__A": 1.0})])
+    transform = VectorEnsureSchemaTransform()
+    transform.bind_context(
+        _StubVectorContext(
+            [],
+            schema={"features": [{"id": "wind__A"}, {"id": "wind__B"}]},
+        )
+    )
+
+    with pytest.raises(ValueError):
+        list(transform.apply(stream))
+
+
+def test_vector_ensure_schema_fill_and_reorder():
+    stream = iter([_make_vector(0, {"wind__B": 5.0, "wind__A": 2.0, "new": 9.0})])
+    transform = VectorEnsureSchemaTransform(
+        on_missing="fill", fill_value=0.0, on_extra="drop"
+    )
+    transform.bind_context(
+        _StubVectorContext(
+            [],
+            schema={"features": [{"id": "wind__A"}, {"id": "wind__B"}]},
+        )
+    )
+
+    out = list(transform.apply(stream))
+    assert out[0].features.values == {"wind__A": 2.0, "wind__B": 5.0}
+
+
+def test_vector_ensure_schema_inserts_none_for_missing_slots():
+    stream = iter([_make_vector(0, {"wind__B": 5.0})])
+    transform = VectorEnsureSchemaTransform(on_missing="fill")
+    transform.bind_context(
+        _StubVectorContext(
+            [],
+            schema={"features": [{"id": "wind__A"}, {"id": "wind__B"}]},
+        )
+    )
+
+    out = list(transform.apply(stream))
+    assert out[0].features.values == {"wind__A": None, "wind__B": 5.0}
+
+
+def test_vector_ensure_schema_orders_longer_baseline():
+    stream = iter([_make_vector(0, {"wind__C": 7.0, "wind__A": 1.0, "wind__B": 2.0})])
+    transform = VectorEnsureSchemaTransform()
+    transform.bind_context(
+        _StubVectorContext(
+            [],
+            schema={
+                "features": [
+                    {"id": "wind__A"},
+                    {"id": "wind__B"},
+                    {"id": "wind__C"},
+                ]
+            },
+        )
+    )
+
+    out = list(transform.apply(stream))
+    assert [*out[0].features.values.keys()] == ["wind__A", "wind__B", "wind__C"]
+
+
+def test_vector_ensure_schema_drop_sample_on_missing():
+    stream = iter([_make_vector(0, {"wind__A": 2.0})])
+    transform = VectorEnsureSchemaTransform(on_missing="drop")
+    transform.bind_context(
+        _StubVectorContext(
+            [],
+            schema={"features": [{"id": "wind__A"}, {"id": "wind__B"}]},
+        )
+    )
+
+    out = list(transform.apply(stream))
+    assert out == []
+
+
+def test_vector_ensure_schema_keep_extra_when_allowed():
+    stream = iter([_make_vector(0, {"wind__A": 1.0, "wind__B": 2.0, "wind__C": 3.0})])
+    transform = VectorEnsureSchemaTransform(on_extra="keep")
+    transform.bind_context(
+        _StubVectorContext(
+            [],
+            schema={"features": [{"id": "wind__A"}, {"id": "wind__B"}]},
+        )
+    )
+
+    out = list(transform.apply(stream))
+    assert list(out[0].features.values.keys()) == ["wind__A", "wind__B", "wind__C"]
+
+
+def test_vector_ensure_schema_prefers_schema_artifact_over_expected_ids():
+    stream = iter([_make_vector(0, {"b": 2.0, "a": 1.0})])
+    transform = VectorEnsureSchemaTransform()
+    transform.bind_context(
+        _StubVectorContext(
+            [],
+            schema={"features": [{"id": "a"}, {"id": "b"}]},
+        )
+    )
+
+    out = list(transform.apply(stream))
+    assert list(out[0].features.values.keys()) == ["a", "b"]
+
+
+def test_vector_ensure_schema_enforces_list_length_via_schema():
+    stream = iter([_make_vector(0, {"seq": [1, 2, 3]})])
+    transform = VectorEnsureSchemaTransform(on_missing="fill", fill_value=0)
+    transform.bind_context(
+        _StubVectorContext(
+            [],
+            schema={"features": [{"id": "seq", "kind": "list", "cadence": {"target": 5}}]},
+        )
+    )
+
+    out = list(transform.apply(stream))
+    assert out[0].features.values["seq"] == [1, 2, 3, 0, 0]
+
+
+def test_vector_ensure_schema_enforces_length_error_on_violation():
+    stream = iter([_make_vector(0, {"seq": [1, 2, 3, 4]})])
+    transform = VectorEnsureSchemaTransform(on_missing="error")
+    transform.bind_context(
+        _StubVectorContext(
+            [],
+            schema={"features": [{"id": "seq", "kind": "list", "cadence": {"target": 2}}]},
+        )
+    )
+
+    with pytest.raises(ValueError):
+        list(transform.apply(stream))
+
+
+def test_vector_ensure_schema_respects_cadence_target_from_schema():
+    stream = iter([_make_vector(0, {"seq": [1, 2, 3, 4, 5]})])
+    transform = VectorEnsureSchemaTransform(on_missing="fill", fill_value=0)
+    transform.bind_context(
+        _StubVectorContext(
+            [],
+            schema={"features": [{"id": "seq", "kind": "list", "cadence": {"target": 6}}]},
+        )
+    )
+
+    out = list(transform.apply(stream))
+    assert len(out[0].features.values["seq"]) == 6
+
+
+def test_vector_ensure_schema_raises_without_schema_artifact():
+    stream = iter([_make_vector(0, {"wind__A": 1.0})])
+    transform = VectorEnsureSchemaTransform()
+    transform.bind_context(_StubVectorContext(["wind__A"]))
+
+    with pytest.raises(RuntimeError):
+        list(transform.apply(stream))
