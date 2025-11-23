@@ -38,7 +38,8 @@ def _log_build_settings_debug(project_path: Path, settings) -> None:
         "visuals": settings.visuals,
         "progress": settings.progress,
     }
-    logger.debug("Build settings:\n%s", json.dumps(payload, indent=2, default=str))
+    logger.debug("Build settings:\n%s", json.dumps(
+        payload, indent=2, default=str))
 
 
 def _log_build_config_debug(build_config) -> None:
@@ -122,39 +123,35 @@ def run_build_if_needed(
     artifacts = {}
 
     def _work_scaler():
-        try:
-            logger.info(
-                "Building artifact: scaler -> %s", build_config.scaler.output
-            )
-        except Exception:
-            pass
         res = materialize_scaler_statistics(runtime, build_config)
         if not res:
             return None
         rel_path, meta = res
+        full_path = (runtime.artifacts_root / rel_path).resolve()
         meta_out = {"relative_path": rel_path}
         meta_out.update(meta)
+        details = ", ".join(f"{k}={v}" for k, v in meta.items())
+        suffix = f" ({details})" if details else ""
+        logger.info("Materialized %s -> %s%s",
+                    SCALER_STATISTICS, full_path, suffix)
         return meta_out
 
     def _work_schema():
-        try:
-            logger.info(
-                "Building artifact: schema -> %s", build_config.vector_schema.output
-            )
-        except Exception:
-            pass
         res = materialize_vector_schema(runtime, build_config.vector_schema)
         if not res:
             return None
         rel_path, meta = res
         meta_out = {"relative_path": rel_path}
         meta_out.update(meta)
+        details = ", ".join(f"{k}={v}" for k, v in meta.items())
+        suffix = f" ({details})" if details else ""
+        logger.info("Materialized %s -> %s%s", VECTOR_SCHEMA, rel_path, suffix)
         return meta_out
 
     job_specs: list[tuple[str, str, Callable[[], object], Optional[Path]]] = []
     seen_targets: set[str] = set()
 
-    def _make_partition_job(task_cfg):
+    def _make_partition_job(task_cfg, artifact_key: str):
         def _work():
             try:
                 logger.info(
@@ -165,6 +162,8 @@ def run_build_if_needed(
             except Exception:
                 pass
             rel_path, count = materialize_partitioned_ids(runtime, task_cfg)
+            logger.info("Materialized %s -> %s (count=%s)",
+                        artifact_key, rel_path, count)
             return {"relative_path": rel_path, "count": count}
 
         return _work
@@ -173,7 +172,8 @@ def run_build_if_needed(
         if not getattr(task_cfg, "enabled", True):
             continue
         label = f"partitioned_ids[{task_cfg.target}:{idx}]"
-        config_path = task_cfg.source_path or (build_root / "partitioned_ids.yaml")
+        config_path = task_cfg.source_path or (
+            build_root / "partitioned_ids.yaml")
         artifact_key = PARTIONED_IDS if task_cfg.target == "features" else PARTITIONED_TARGET_IDS
         if artifact_key in seen_targets:
             logger.error(
@@ -182,7 +182,8 @@ def run_build_if_needed(
             )
             raise SystemExit(2)
         seen_targets.add(artifact_key)
-        job_specs.append((label, artifact_key, _make_partition_job(task_cfg), config_path))
+        job_specs.append((label, artifact_key, _make_partition_job(
+            task_cfg, artifact_key), config_path))
 
     if getattr(build_config.vector_schema, "enabled", True):
         job_specs.append(
@@ -190,12 +191,14 @@ def run_build_if_needed(
                 "schema",
                 VECTOR_SCHEMA,
                 _work_schema,
-                build_config.vector_schema.source_path or (build_root / "schema.yaml"),
+                build_config.vector_schema.source_path or (
+                    build_root / "schema.yaml"),
             )
         )
 
     if getattr(build_config.scaler, "enabled", True):
-        job_specs.append(("scaler", SCALER_STATISTICS, _work_scaler, build_root / "scaler.yaml"))
+        job_specs.append(("scaler", SCALER_STATISTICS,
+                         _work_scaler, build_root / "scaler.yaml"))
 
     total_jobs = len(job_specs)
     for idx, (job_label, artifact_key, job_work, config_path) in enumerate(job_specs, start=1):
@@ -219,12 +222,8 @@ def run_build_if_needed(
         relative_path = info["relative_path"]
         meta = {k: v for k, v in info.items() if k != "relative_path"}
         new_state.register(key, relative_path, meta=meta)
-        details = ", ".join(f"{k}={v}" for k, v in meta.items())
-        suffix = f" ({details})" if details else ""
-        logger.info("Materialized %s -> %s%s", key, relative_path, suffix)
 
     save_build_state(new_state, state_path)
-    logger.info("Build completed.")
     return True
 
 
