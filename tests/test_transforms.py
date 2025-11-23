@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from math import isclose
 from typing import Any
@@ -137,6 +138,88 @@ def test_standard_scaler_fit_and_serialize(tmp_path):
     transformed = list(transform.apply(stream))
     assert len(restored.statistics) == 2
     assert len(transformed) == 2
+
+
+def test_standard_scaler_errors_on_missing_by_default():
+    training_vectors = iter(
+        [
+            Sample(key=(0,), features=Vector(values={"temp": 10.0})),
+            Sample(key=(1,), features=Vector(values={"temp": 14.0})),
+        ]
+    )
+    scaler_model = StandardScaler()
+    scaler_model.fit(training_vectors)
+    transform = StandardScalerTransform(scaler=scaler_model)
+
+    stream = iter(
+        [
+            _make_feature_record(10.0, 0, "temp"),
+            _make_feature_record(None, 1, "temp"),
+        ]
+    )
+
+    with pytest.raises(TypeError):
+        list(transform.apply(stream))
+
+
+def test_standard_scaler_passthrough_missing_counts():
+    training_vectors = iter(
+        [
+            Sample(key=(0,), features=Vector(values={"temp": 1.0})),
+            Sample(key=(1,), features=Vector(values={"temp": 3.0})),
+        ]
+    )
+    scaler_model = StandardScaler()
+    scaler_model.fit(training_vectors)
+
+    transform = StandardScalerTransform(
+        scaler=scaler_model, on_none="warn"
+    )
+
+    stream = iter(
+        [
+            _make_feature_record(1.0, 0, "temp"),
+            _make_feature_record(None, 1, "temp"),
+            _make_feature_record(3.0, 2, "temp"),
+        ]
+    )
+
+    transformed = list(transform.apply(stream))
+    values = [fr.record.value for fr in transformed]
+    assert values == [-1.0, None, 1.0]
+    assert transform.missing_counts == {"temp": 1}
+
+
+def test_standard_scaler_passthrough_logs_once(caplog):
+    training_vectors = iter(
+        [
+            Sample(key=(0,), features=Vector(values={"temp": 1.0})),
+            Sample(key=(1,), features=Vector(values={"temp": 3.0})),
+        ]
+    )
+    scaler_model = StandardScaler()
+    scaler_model.fit(training_vectors)
+
+    transform = StandardScalerTransform(
+        scaler=scaler_model, on_none="warn"
+    )
+
+    stream = iter(
+        [
+            _make_feature_record(1.0, 0, "temp"),
+            _make_feature_record(None, 1, "temp"),
+            _make_feature_record(None, 2, "temp"),
+        ]
+    )
+
+    with caplog.at_level(logging.WARNING):
+        transformed = list(transform.apply(stream))
+
+    assert [fr.record.value for fr in transformed] == [-1.0, None, None]
+    assert transform.missing_counts == {"temp": 2}
+    assert len(caplog.records) == 1
+    assert "passthrough" in caplog.records[0].message
+    assert "temp" in caplog.records[0].message
 
 
 def test_time_mean_fill_uses_running_average():

@@ -1,16 +1,19 @@
+import logging
 import math
 from collections import defaultdict
 from itertools import groupby
 from numbers import Real
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterator, Literal
 
 from datapipeline.domain.feature import FeatureRecord
 from datapipeline.domain.sample import Sample
-from datapipeline.domain.record import TemporalRecord
 from datapipeline.transforms.feature.model import FeatureTransform
 from datapipeline.transforms.utils import clone_record_with_value
 from datapipeline.utils.pickle_model import PicklePersistanceMixin
+
+
+logger = logging.getLogger(__name__)
 
 
 def _iter_numeric_values(value: Any) -> Iterator[float]:
@@ -39,6 +42,7 @@ class StandardScaler(PicklePersistanceMixin):
         self.with_std = with_std
         self.epsilon = epsilon
         self.statistics: dict[str, dict[str, float | int]] = {}
+        self.missing_counts: dict[str, int] = {}
 
     def fit(self, vectors: Iterator[Sample]) -> int:
         trackers: dict[str, StandardScaler._RunningStats] = defaultdict(
@@ -63,10 +67,21 @@ class StandardScaler(PicklePersistanceMixin):
         }
         return total
 
-    def transform(self, stream: Iterator[FeatureRecord]) -> Iterator[FeatureRecord]:
+    def transform(
+        self,
+        stream: Iterator[FeatureRecord],
+        *,
+        on_none: Literal["error", "warn"] = "error",
+    ) -> Iterator[FeatureRecord]:
         if not self.statistics:
             raise RuntimeError(
                 "StandardScaler must be fitted before calling transform().")
+
+        if on_none not in {"error", "warn"}:
+            raise ValueError("on_none must be 'error' or 'warn'.")
+
+        logged_missing: set[str] = set()
+        self.missing_counts = {}
 
         grouped = groupby(stream, key=lambda fr: fr.id)
         for feature_id, records in grouped:
@@ -77,7 +92,24 @@ class StandardScaler(PicklePersistanceMixin):
             mean = float(stats.get("mean", 0.0))
             std = float(stats.get("std", 1.0))
             for fr in records:
-                raw = self._extract_value(fr.record)
+                value = fr.record.value
+                if not isinstance(value, Real):
+                    if value is None and on_none == "warn":
+                        self.missing_counts[feature_id] = (
+                            self.missing_counts.get(feature_id, 0) + 1
+                        )
+                        if feature_id not in logged_missing:
+                            logger.warning(
+                                "Scaler passthrough: encountered missing value for feature '%s'; leaving value untouched.",
+                                feature_id,
+                            )
+                            logged_missing.add(feature_id)
+                        yield fr
+                        continue
+                    raise TypeError(
+                        f"Record value must be numeric, got {value!r}")
+
+                raw = float(value)
                 normalized = raw
                 if self.with_mean:
                     normalized -= mean
@@ -87,13 +119,6 @@ class StandardScaler(PicklePersistanceMixin):
                     record=clone_record_with_value(fr.record, normalized),
                     id=fr.id,
                 )
-
-    @staticmethod
-    def _extract_value(record: TemporalRecord) -> float:
-        value = record.value
-        if isinstance(value, Real):
-            return float(value)
-        raise TypeError(f"Record value must be numeric, got {value!r}")
 
     class _RunningStats:
         __slots__ = ("count", "mean", "m2")
@@ -134,6 +159,7 @@ class StandardScalerTransform(FeatureTransform):
         with_mean: bool = True,
         with_std: bool = True,
         epsilon: float = 1e-12,
+        on_none: Literal["error", "warn"] = "error",
     ) -> None:
         base: StandardScaler
         if scaler is not None:
@@ -154,6 +180,14 @@ class StandardScalerTransform(FeatureTransform):
             epsilon=epsilon,
         )
         self._scaler.statistics = dict(base.statistics)
+        self._on_none = on_none
+
+    @property
+    def missing_counts(self) -> dict[str, int]:
+        return dict(self._scaler.missing_counts)
 
     def apply(self, stream: Iterator[FeatureRecord]) -> Iterator[FeatureRecord]:
-        yield from self._scaler.transform(stream)
+        yield from self._scaler.transform(
+            stream,
+            on_none=self._on_none,
+        )
