@@ -4,9 +4,10 @@ import logging
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import Iterator, Mapping, Any
+from typing import Iterator, Mapping, Any, Callable, Optional
 
 from datapipeline.runtime import Runtime
+from datapipeline.pipeline.observability import ObserverRegistry
 from datapipeline.services.artifacts import (
     ArtifactNotRegisteredError,
     ArtifactManager,
@@ -29,6 +30,8 @@ class PipelineContext:
     """Lightweight runtime context shared across pipeline stages."""
 
     runtime: Runtime
+    transform_observer: Callable[..., None] | None = None
+    observer_registry: Optional[ObserverRegistry] = None
     _cache: dict[str, Any] = field(default_factory=dict)
 
     @property

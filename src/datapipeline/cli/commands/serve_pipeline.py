@@ -5,6 +5,7 @@ import time
 from itertools import islice
 from typing import Iterator, Optional
 
+from datapipeline.pipeline.observability import default_observer_registry
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.domain.sample import Sample
 from datapipeline.pipeline.context import PipelineContext
@@ -76,7 +77,10 @@ def serve_with_runtime(
     stage: Optional[int],
     visuals: Optional[str] = None,
 ) -> None:
-    context = PipelineContext(runtime)
+    context = PipelineContext(
+        runtime,
+        observer_registry=default_observer_registry(),
+    )
 
     feature_cfgs = list(dataset.features or [])
     target_cfgs = list(dataset.targets or []) if include_targets else []

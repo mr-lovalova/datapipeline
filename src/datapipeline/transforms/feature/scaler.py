@@ -1,19 +1,16 @@
-import logging
 import math
 from collections import defaultdict
 from itertools import groupby
 from numbers import Real
 from pathlib import Path
-from typing import Any, Iterator, Literal
+from typing import Any, Callable, Iterator, Literal, Mapping
 
 from datapipeline.domain.feature import FeatureRecord
 from datapipeline.domain.sample import Sample
 from datapipeline.transforms.feature.model import FeatureTransform
 from datapipeline.transforms.utils import clone_record_with_value
 from datapipeline.utils.pickle_model import PicklePersistanceMixin
-
-
-logger = logging.getLogger(__name__)
+from datapipeline.pipeline.observability import TransformEvent
 
 
 def _iter_numeric_values(value: Any) -> Iterator[float]:
@@ -72,6 +69,7 @@ class StandardScaler(PicklePersistanceMixin):
         stream: Iterator[FeatureRecord],
         *,
         on_none: Literal["error", "warn"] = "error",
+        observer: Callable[[TransformEvent], None] | None = None,
     ) -> Iterator[FeatureRecord]:
         if not self.statistics:
             raise RuntimeError(
@@ -80,7 +78,6 @@ class StandardScaler(PicklePersistanceMixin):
         if on_none not in {"error", "warn"}:
             raise ValueError("on_none must be 'error' or 'warn'.")
 
-        logged_missing: set[str] = set()
         self.missing_counts = {}
 
         grouped = groupby(stream, key=lambda fr: fr.id)
@@ -98,12 +95,17 @@ class StandardScaler(PicklePersistanceMixin):
                         self.missing_counts[feature_id] = (
                             self.missing_counts.get(feature_id, 0) + 1
                         )
-                        if feature_id not in logged_missing:
-                            logger.warning(
-                                "Scaler passthrough: encountered None value for feature '%s'; leaving value untouched.",
-                                feature_id,
+                        if observer is not None:
+                            observer(
+                                TransformEvent(
+                                    type="scaler_none",
+                                    payload={
+                                        "feature_id": feature_id,
+                                        "record": fr.record,
+                                        "count": self.missing_counts[feature_id],
+                                    },
+                                )
                             )
-                            logged_missing.add(feature_id)
                         yield fr
                         continue
                     raise TypeError(
@@ -160,6 +162,7 @@ class StandardScalerTransform(FeatureTransform):
         with_std: bool = True,
         epsilon: float = 1e-12,
         on_none: Literal["error", "warn"] = "error",
+        observer: Callable[[TransformEvent], None] | None = None,
     ) -> None:
         base: StandardScaler
         if scaler is not None:
@@ -181,13 +184,18 @@ class StandardScalerTransform(FeatureTransform):
         )
         self._scaler.statistics = dict(base.statistics)
         self._on_none = on_none
+        self._observer = observer
 
     @property
     def missing_counts(self) -> dict[str, int]:
         return dict(self._scaler.missing_counts)
 
+    def set_observer(self, observer: Callable[[TransformEvent], None] | None) -> None:
+        self._observer = observer
+
     def apply(self, stream: Iterator[FeatureRecord]) -> Iterator[FeatureRecord]:
         yield from self._scaler.transform(
             stream,
             on_none=self._on_none,
+            observer=self._observer,
         )

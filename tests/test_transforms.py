@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 from datetime import datetime, timezone
 from math import isclose
 from typing import Any
@@ -190,7 +189,7 @@ def test_standard_scaler_passthrough_missing_counts():
     assert transform.missing_counts == {"temp": 1}
 
 
-def test_standard_scaler_passthrough_logs_once(caplog):
+def test_standard_scaler_warn_callback_invoked_with_counts():
     training_vectors = iter(
         [
             Sample(key=(0,), features=Vector(values={"temp": 1.0})),
@@ -200,9 +199,24 @@ def test_standard_scaler_passthrough_logs_once(caplog):
     scaler_model = StandardScaler()
     scaler_model.fit(training_vectors)
 
+    calls: list[tuple[str, float | None, int]] = []
+
+    def on_none_cb(event):
+        if event.type == "scaler_none":
+            calls.append(
+                (
+                    event.payload["feature_id"],
+                    event.payload["record"].time.hour,
+                    event.payload["count"],
+                )
+            )
+        elif event.type == "scaler_none_summary":
+            calls.append(("summary", None, event.payload["count"]))
+
     transform = StandardScalerTransform(
         scaler=scaler_model, on_none="warn"
     )
+    transform.set_observer(on_none_cb)
 
     stream = iter(
         [
@@ -212,14 +226,11 @@ def test_standard_scaler_passthrough_logs_once(caplog):
         ]
     )
 
-    with caplog.at_level(logging.WARNING):
-        transformed = list(transform.apply(stream))
+    transformed = list(transform.apply(stream))
 
     assert [fr.record.value for fr in transformed] == [-1.0, None, None]
     assert transform.missing_counts == {"temp": 2}
-    assert len(caplog.records) == 1
-    assert "passthrough" in caplog.records[0].message
-    assert "temp" in caplog.records[0].message
+    assert calls == [("temp", 1, 1), ("temp", 2, 2)]
 
 
 def test_time_mean_fill_uses_running_average():
