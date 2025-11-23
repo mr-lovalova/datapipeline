@@ -100,7 +100,7 @@ class StandardScaler(PicklePersistanceMixin):
                         )
                         if feature_id not in logged_missing:
                             logger.warning(
-                                "Scaler passthrough: encountered missing value for feature '%s'; leaving value untouched.",
+                                "Scaler passthrough: encountered None value for feature '%s'; leaving value untouched.",
                                 feature_id,
                             )
                             logged_missing.add(feature_id)
