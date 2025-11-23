@@ -141,11 +141,12 @@ def run_build_if_needed(
         if not res:
             return None
         rel_path, meta = res
+        full_path = (runtime.artifacts_root / rel_path).resolve()
         meta_out = {"relative_path": rel_path}
         meta_out.update(meta)
         details = ", ".join(f"{k}={v}" for k, v in meta.items())
         suffix = f" ({details})" if details else ""
-        logger.info("Materialized %s -> %s%s", VECTOR_SCHEMA, rel_path, suffix)
+        logger.info("Materialized %s -> %s%s", VECTOR_SCHEMA, full_path, suffix)
         return meta_out
 
     job_specs: list[tuple[str, str, Callable[[], object], Optional[Path]]] = []
