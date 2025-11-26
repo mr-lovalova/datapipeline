@@ -1,6 +1,7 @@
 import io
 import json
 import logging
+import sys
 from contextlib import redirect_stdout
 from pathlib import Path
 from typing import Iterable, Iterator, TypeVar
@@ -24,6 +25,9 @@ def _iter_with_progress(
     label: str,
 ) -> Iterator[T]:
     style = (progress_style or "auto").lower()
+    if style == "auto":
+        # Default to a light spinner unless DEBUG logging is active.
+        style = "bars" if logging.getLogger().isEnabledFor(logging.DEBUG) else "spinner"
     if style == "off":
         yield from iterable
         return
@@ -33,6 +37,8 @@ def _iter_with_progress(
         "dynamic_ncols": True,
         "mininterval": 0.2,
         "leave": False,
+        # Avoid noisy multi-line progress when stdout is not a TTY (e.g., logs)
+        "disable": not sys.stderr.isatty(),
     }
     if style == "spinner":
         bar_kwargs["bar_format"] = "{desc} {n_fmt}{unit}"
@@ -98,6 +104,8 @@ def report(
     - When matrix != 'none', writes an availability matrix in the requested format.
     """
 
+    coverage_path: Path | None = None
+
     def _work(dataset_ctx, progress_style):
         project_path = dataset_ctx.project
         context = dataset_ctx.pipeline_context
@@ -117,9 +125,13 @@ def report(
         if matrix_fmt:
             matrix_path = Path(matrix_output) if matrix_output else (base_artifacts / filename)
 
+        schema_entries = dataset_ctx.pipeline_context.load_schema(payload="features")
+        schema_meta = {entry["id"]: entry for entry in (schema_entries or []) if isinstance(entry.get("id"), str)}
+
         collector = VectorStatsCollector(
             expected_feature_ids or None,
             match_partition=match_partition,
+            schema_meta=schema_meta,
             threshold=threshold,
             show_matrix=False,
             matrix_rows=rows,
@@ -172,19 +184,78 @@ def report(
                     "keep": summary.get("keep_features", []),
                     "below": summary.get("below_features", []),
                     "coverage": {stat["id"]: stat["coverage"] for stat in feature_stats},
+                    "availability": {
+                        stat["id"]: (
+                            stat["present"] / stat["opportunities"]
+                            if stat.get("opportunities")
+                            else 0
+                        )
+                        for stat in feature_stats
+                    },
+                    "nulls": {stat["id"]: stat.get("nulls", 0) for stat in feature_stats},
+                    "null_rate": {
+                        stat["id"]: (
+                            stat.get("nulls", 0) / stat["opportunities"]
+                            if stat.get("opportunities")
+                            else 0
+                        )
+                        for stat in feature_stats
+                    },
+                    "cadence_nulls": {
+                        stat["id"]: stat.get("cadence_nulls")
+                        for stat in feature_stats
+                        if stat.get("cadence_opportunities")
+                    },
+                    "cadence_opportunities": {
+                        stat["id"]: stat.get("cadence_opportunities")
+                        for stat in feature_stats
+                        if stat.get("cadence_opportunities")
+                    },
                 },
                 "partitions": {
                     "keep": summary.get("keep_partitions", []),
                     "below": summary.get("below_partitions", []),
                     "keep_suffixes": summary.get("keep_suffixes", []),
                     "below_suffixes": summary.get("below_suffixes", []),
+                    "keep_values": summary.get("keep_partition_values", []),
+                    "below_values": summary.get("below_partition_values", []),
                     "coverage": {stat["id"]: stat["coverage"] for stat in partition_stats},
+                    "availability": {
+                        stat["id"]: (
+                            stat["present"] / stat["opportunities"]
+                            if stat.get("opportunities")
+                            else 0
+                        )
+                        for stat in partition_stats
+                    },
+                    "nulls": {
+                        stat["id"]: stat.get("nulls", 0) for stat in partition_stats
+                    },
+                    "null_rate": {
+                        stat["id"]: (
+                            stat.get("nulls", 0) / stat["opportunities"]
+                            if stat.get("opportunities")
+                            else 0
+                        )
+                        for stat in partition_stats
+                    },
+                    "cadence_nulls": {
+                        stat["id"]: stat.get("cadence_nulls")
+                        for stat in partition_stats
+                        if stat.get("cadence_opportunities")
+                    },
+                    "cadence_opportunities": {
+                        stat["id"]: stat.get("cadence_opportunities")
+                        for stat in partition_stats
+                        if stat.get("cadence_opportunities")
+                    },
                 },
             }
 
             with output_path.open("w", encoding="utf-8") as fh:
                 json.dump(trimmed, fh, indent=2)
             print(f"[write] Saved coverage summary to {output_path}")
+            coverage_path = output_path
 
     _run_inspect_job(
         project,
@@ -196,6 +267,9 @@ def report(
         section="report",
         work=_work,
     )
+
+    if write_coverage and coverage_path:
+        print(f"[inspect] Coverage summary available at {coverage_path}")
 
 
 def partitions(

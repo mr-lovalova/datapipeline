@@ -42,4 +42,3 @@ class VectorDropMissingTransform(ContextExpectedMixin):
                 if coverage < self.min_coverage:
                     continue
             yield sample
-

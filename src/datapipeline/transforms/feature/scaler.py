@@ -122,6 +122,37 @@ class StandardScaler(PicklePersistanceMixin):
                     id=fr.id,
                 )
 
+    def inverse_transform(
+        self,
+        stream: Iterator[FeatureRecord],
+    ) -> Iterator[FeatureRecord]:
+        if not self.statistics:
+            raise RuntimeError(
+                "StandardScaler must be fitted before calling inverse_transform().")
+
+        grouped = groupby(stream, key=lambda fr: fr.id)
+        for feature_id, records in grouped:
+            stats = self.statistics.get(feature_id)
+            if not stats:
+                raise KeyError(
+                    f"Missing scaler statistics for feature '{feature_id}'.")
+            mean = float(stats.get("mean", 0.0))
+            std = float(stats.get("std", 1.0))
+            for fr in records:
+                value = fr.record.value
+                if not isinstance(value, Real):
+                    raise TypeError(
+                        f"Record value must be numeric, got {value!r}")
+                restored = float(value)
+                if self.with_std:
+                    restored *= std
+                if self.with_mean:
+                    restored += mean
+                yield FeatureRecord(
+                    record=clone_record_with_value(fr.record, restored),
+                    id=fr.id,
+                )
+
     class _RunningStats:
         __slots__ = ("count", "mean", "m2")
 
@@ -199,3 +230,7 @@ class StandardScalerTransform(FeatureTransform):
             on_none=self._on_none,
             observer=self._observer,
         )
+
+    def inverse(self, stream: Iterator[FeatureRecord]) -> Iterator[FeatureRecord]:
+        """Undo scaling using the fitted statistics."""
+        yield from self._scaler.inverse_transform(stream)

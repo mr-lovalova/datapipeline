@@ -1,0 +1,10 @@
+{
+  "artifacts": {
+    "vector_schema": {
+      "meta": {},
+      "relative_path": "schema.json"
+    }
+  },
+  "config_hash": "fixture",
+  "version": 1
+}

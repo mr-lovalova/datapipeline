@@ -195,6 +195,12 @@ def _apply_vector_schema(
     stream: Iterator[Sample],
 ) -> Iterator[Sample]:
     with context.activate():
-        transform = VectorEnsureSchemaTransform(on_missing="fill")
-        transform.bind_context(context)
-        return transform(stream)
+        feature_schema = VectorEnsureSchemaTransform(on_missing="fill")
+        feature_schema.bind_context(context)
+
+        target_schema = VectorEnsureSchemaTransform(
+            payload="targets", on_missing="fill"
+        )
+        target_schema.bind_context(context)
+
+        return target_schema(feature_schema(stream))

@@ -34,4 +34,10 @@ class ContextExpectedMixin:
         ctx = self._context or try_get_current_context()
         if not ctx:
             return []
-        return ctx.load_expected_ids(payload=self._payload)
+        schema = ctx.load_schema(payload=self._payload) or []
+        ids = [
+            entry.get("id")
+            for entry in schema
+            if isinstance(entry, dict) and isinstance(entry.get("id"), str)
+        ]
+        return ids or []

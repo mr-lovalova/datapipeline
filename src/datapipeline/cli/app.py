@@ -291,7 +291,7 @@ def main() -> None:
     # inspect (metadata helpers)
     p_inspect = sub.add_parser(
         "inspect",
-        help="inspect dataset metadata: report, coverage, matrix, partitions",
+        help="inspect dataset metadata: report, matrix, partitions",
         parents=[common, inspect_common],
     )
     inspect_sub = p_inspect.add_subparsers(dest="inspect_cmd", required=False)
@@ -337,49 +337,6 @@ def main() -> None:
         choices=["missing", "nulls"],
         default="missing",
         help="feature ranking metric in the report (missing or nulls)",
-    )
-
-    # Coverage (JSON file)
-    p_inspect_cov = inspect_sub.add_parser(
-        "coverage",
-        help="write coverage summary JSON",
-        parents=[inspect_common],
-    )
-    p_inspect_cov.add_argument(
-        "--project",
-        "-p",
-        default="config/datasets/default/project.yaml",
-        help="path to project.yaml",
-    )
-    p_inspect_cov.add_argument(
-        "--output",
-        "-o",
-        default=None,
-        help="coverage JSON path (defaults to build/coverage.json)",
-    )
-    p_inspect_cov.add_argument(
-        "--threshold",
-        "-t",
-        type=float,
-        default=0.95,
-        help="coverage threshold (0-1) for keep/drop lists",
-    )
-    p_inspect_cov.add_argument(
-        "--match-partition",
-        choices=["base", "full"],
-        default="base",
-        help="match features by base id or full partition id",
-    )
-    p_inspect_cov.add_argument(
-        "--mode",
-        choices=["final", "raw"],
-        default="final",
-        help="whether to apply postprocess transforms (final) or skip them (raw)",
-    )
-    p_inspect_cov.add_argument(
-        "--include-targets",
-        action="store_true",
-        help="include dataset.targets when computing coverage",
     )
 
     # Matrix export
@@ -575,25 +532,6 @@ def main() -> None:
                 cols=10,
                 quiet=False,
                 write_coverage=False,
-                apply_postprocess=(getattr(args, "mode", "final") == "final"),
-                include_targets=getattr(args, "include_targets", False),
-                visuals=inspect_visual_provider,
-                progress=inspect_progress_style,
-                log_level=base_level,
-                sort=getattr(args, "sort", "missing"),
-            )
-        elif subcmd == "coverage":
-            handle_inspect_report(
-                project=getattr(args, "project", default_project),
-                output=getattr(args, "output", None),
-                threshold=getattr(args, "threshold", 0.95),
-                match_partition=getattr(args, "match_partition", "base"),
-                matrix="none",
-                matrix_output=None,
-                rows=20,
-                cols=10,
-                quiet=True,
-                write_coverage=True,
                 apply_postprocess=(getattr(args, "mode", "final") == "final"),
                 include_targets=getattr(args, "include_targets", False),
                 visuals=inspect_visual_provider,

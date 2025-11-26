@@ -3,7 +3,7 @@
 Jerry Thomas is a time-series-first data pipeline runtime. It turns declarative
 YAML projects into iterators that stream records, engineered features, and
 model-ready vectors. The CLI lets you preview every stage, build deterministic
-artifacts, inspect coverage, and scaffold plugins for custom loaders, parsers,
+artifacts, inspect quality, and scaffold plugins for custom loaders, parsers,
 transforms, and filters.
 
 > **Core assumptions**
@@ -523,6 +523,9 @@ targets:
   — minutes or hours).
 - `scale: true` inserts the standard scaler feature transform (requires scaler
   stats artifact or inline statistics).
+  - Downstream consumers can load the `scaler.pkl` artifact and call
+    `StandardScaler.inverse_transform` (or `StandardScalerTransform.inverse`)
+    to undo scaling.
 - `sequence` emits `FeatureRecordSequence` windows (size, stride, optional
   cadence enforcement via `tick`).
 

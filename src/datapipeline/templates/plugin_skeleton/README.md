@@ -45,9 +45,9 @@ Run data flows
 
 Analyze vectors
 - `jerry inspect report   --project config/datasets/default/project.yaml` (console only)
-- `jerry inspect coverage --project config/datasets/default/project.yaml` (writes build/coverage.json)
-- `jerry inspect matrix   --project config/datasets/default/project.yaml --format html` (writes build/matrix.html)
 - `jerry inspect partitions --project config/datasets/default/project.yaml` (writes build/partitions.json)
+- `jerry inspect matrix   --project config/datasets/default/project.yaml --format html` (writes build/matrix.html)
+- `jerry inspect expected --project config/datasets/default/project.yaml` (writes build/expected.txt)
 - Use post-processing transforms in `postprocess.yaml` to keep coverage high
   (history/horizontal fills, constants, or drop rules) before serving vectors.
   Add `payload: targets` inside a transform when you need to mutate label vectors.

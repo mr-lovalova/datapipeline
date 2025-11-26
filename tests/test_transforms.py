@@ -18,6 +18,7 @@ from datapipeline.transforms.vector import (
     VectorFillAcrossPartitionsTransform,
     VectorFillConstantTransform,
     VectorFillHistoryTransform,
+    VectorDropNullTransform,
 )
 
 
@@ -57,7 +58,12 @@ class _StubVectorContext:
 
     def load_schema(self, *, payload: str = "features") -> list[dict]:
         entries = self._schema_map.get(payload)
-        return [dict(item) for item in entries] if entries else []
+        if entries is not None:
+            return [dict(item) for item in entries]
+        expected = self._expected_map.get(payload)
+        if expected is None:
+            return []
+        return [{"id": fid} for fid in expected]
 
 
 def test_standard_scaler_normalizes_feature_stream():
@@ -109,6 +115,35 @@ def test_standard_scaler_uses_provided_statistics():
     transformed = list(scaler.apply(stream))
 
     assert [fr.record.value for fr in transformed] == [1.0, 1.2]
+
+
+def test_standard_scaler_inverse_transform_round_trip():
+    training_vectors = iter(
+        [
+            Sample(key=(0,), features=Vector(values={"radiation": 1.0})),
+            Sample(key=(1,), features=Vector(values={"radiation": 2.0})),
+            Sample(key=(2,), features=Vector(values={"radiation": 3.0})),
+        ]
+    )
+    scaler_model = StandardScaler()
+    scaler_model.fit(training_vectors)
+    transform = StandardScalerTransform(scaler=scaler_model)
+
+    stream = iter(
+        [
+            _make_feature_record(1.0, 0, "radiation"),
+            _make_feature_record(2.0, 1, "radiation"),
+            _make_feature_record(3.0, 2, "radiation"),
+        ]
+    )
+
+    scaled = list(transform.apply(stream))
+    restored = list(transform.inverse(iter(scaled)))
+
+    original = [1.0, 2.0, 3.0]
+    values = [fr.record.value for fr in restored]
+    for observed, expected in zip(values, original):
+        assert isclose(observed, expected, rel_tol=1e-6)
 
 
 def test_standard_scaler_fit_and_serialize(tmp_path):
@@ -187,6 +222,29 @@ def test_standard_scaler_passthrough_missing_counts():
     values = [fr.record.value for fr in transformed]
     assert values == [-1.0, None, 1.0]
     assert transform.missing_counts == {"temp": 1}
+
+
+def test_standard_scaler_matches_sklearn():
+    sklearn = pytest.importorskip("sklearn.preprocessing")
+    SKStandardScaler = getattr(sklearn, "StandardScaler")
+
+    values = [1.0, 2.0, 3.0, 4.0]
+    vectors = iter(
+        [Sample(key=(i,), features=Vector(values={"x": v})) for i, v in enumerate(values)]
+    )
+
+    scaler = StandardScaler()
+    scaler.fit(vectors)
+
+    sk_scaler = SKStandardScaler()
+    sk_scaler.fit([[v] for v in values])
+
+    stream = iter([_make_feature_record(v, i, "x") for i, v in enumerate(values)])
+    transformed = list(StandardScalerTransform(scaler=scaler).apply(stream))
+    ours = [fr.record.value for fr in transformed]
+    theirs = sk_scaler.transform([[v] for v in values]).flatten().tolist()
+
+    assert pytest.approx(ours) == theirs
 
 
 def test_standard_scaler_warn_callback_invoked_with_counts():
@@ -361,6 +419,20 @@ def test_vector_drop_missing_respects_coverage():
     out = list(transform.apply(stream))
     assert len(out) == 1
     assert out[0].features.values == {"a": 1.0, "b": 2.0}
+
+
+def test_vector_drop_missing_uses_schema_when_available():
+    stream = iter([_make_vector(0, {"a": 1.0})])
+    transform = VectorDropMissingTransform(min_coverage=1.0)
+    transform.bind_context(
+        _StubVectorContext(
+            [],
+            schema={"features": [{"id": "a"}, {"id": "b"}]},
+        )
+    )
+
+    out = list(transform.apply(stream))
+    assert out == []
 
 
 def test_vector_fill_constant_targets_payload():
@@ -542,7 +614,48 @@ def test_vector_ensure_schema_respects_cadence_target_from_schema():
 def test_vector_ensure_schema_raises_without_schema_artifact():
     stream = iter([_make_vector(0, {"wind__A": 1.0})])
     transform = VectorEnsureSchemaTransform()
-    transform.bind_context(_StubVectorContext(["wind__A"]))
+    transform.bind_context(
+        _StubVectorContext(
+            [],
+            schema={"features": []},
+        )
+    )
 
     with pytest.raises(RuntimeError):
         list(transform.apply(stream))
+
+
+def test_vector_drop_null_feature_level_drops_when_coverage_low():
+    stream = iter([_make_vector(0, {"a": 1.0, "b": None})])
+    transform = VectorDropNullTransform(mode="feature-level", min_feature_coverage=0.8)
+    transform.bind_context(_StubVectorContext(["a", "b", "c"]))
+
+    out = list(transform.apply(stream))
+    assert out == []
+
+
+def test_vector_drop_null_feature_level_keeps_when_coverage_sufficient():
+    stream = iter([_make_vector(0, {"a": 1.0, "b": 2.0, "c": None})])
+    transform = VectorDropNullTransform(mode="feature-level", min_feature_coverage=0.5)
+    transform.bind_context(_StubVectorContext(["a", "b", "c"]))
+
+    out = list(transform.apply(stream))
+    assert len(out) == 1
+
+
+def test_vector_drop_null_record_level_drops_on_sparse_sequence():
+    stream = iter([_make_vector(0, {"seq": [1.0, None, None], "f": 2.0})])
+    transform = VectorDropNullTransform(mode="record-level", min_cadence_coverage=0.5)
+    transform.bind_context(_StubVectorContext(["seq", "f"]))
+
+    out = list(transform.apply(stream))
+    assert out == []
+
+
+def test_vector_drop_null_record_level_ignores_when_no_sequences():
+    stream = iter([_make_vector(0, {"a": 1.0})])
+    transform = VectorDropNullTransform(mode="record-level", min_cadence_coverage=0.8)
+    transform.bind_context(_StubVectorContext(["a"]))
+
+    out = list(transform.apply(stream))
+    assert len(out) == 1
