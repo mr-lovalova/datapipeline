@@ -78,11 +78,6 @@ def serve_with_runtime(
     stage: Optional[int],
     visuals: Optional[str] = None,
 ) -> None:
-    # Resolve bounds only when serving assembled vectors (stage >= 6 or default runs).
-    rect_required = runtime.rectangular_required and (stage is None or stage > 5)
-    if rect_required:
-        runtime.window_bounds = resolve_window_bounds(runtime, True)
-
     context = PipelineContext(
         runtime,
         observer_registry=default_observer_registry(),
@@ -95,6 +90,8 @@ def serve_with_runtime(
     if not preview_cfgs:
         logger.warning("(no features configured; nothing to serve)")
         return
+
+    rectangular = stage is None or stage > 5
 
     if stage is not None and stage <= 5:
         if target.payload != "sample":
@@ -111,11 +108,15 @@ def serve_with_runtime(
             report_serve(feature_target, count)
         return
 
+    if rectangular:
+        runtime.window_bounds = resolve_window_bounds(runtime, True)
+
     vectors = build_vector_pipeline(
         context,
         feature_cfgs,
         dataset.group_by,
         target_configs=target_cfgs,
+        rectangular=rectangular,
     )
 
     if stage in (None, 7):

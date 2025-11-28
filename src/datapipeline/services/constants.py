@@ -15,7 +15,6 @@ DEFAULT_IO_LOADER_EP = "core.io"
 
 # POSTPROCESS_GLOBAL_KEY = "__global__"
 POSTPROCESS_TRANSFORMS = "transforms"
-PARTIONED_IDS = "partitioned_ids"
-PARTITIONED_TARGET_IDS = "partitioned_target_ids"
 SCALER_STATISTICS = "scaler_statistics"
 VECTOR_SCHEMA = "vector_schema"
+VECTOR_SCHEMA_METADATA = "vector_schema_metadata"

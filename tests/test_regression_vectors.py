@@ -8,7 +8,7 @@ from datapipeline.domain.record import TemporalRecord
 from datapipeline.pipeline.context import PipelineContext
 from datapipeline.pipeline.pipelines import build_vector_pipeline
 from datapipeline.runtime import Runtime
-from datapipeline.services.constants import PARTIONED_IDS, SCALER_STATISTICS, VECTOR_SCHEMA
+from datapipeline.services.constants import SCALER_STATISTICS, VECTOR_SCHEMA
 from datapipeline.transforms.feature.scaler import StandardScaler
 from datapipeline.transforms.vector import (
     VectorDropMissingTransform,
@@ -99,12 +99,6 @@ def _register_scaler(runtime: Runtime, configs: list[FeatureRecordConfig], group
 
 
 def _register_partitioned_ids(runtime: Runtime, ids: list[str]) -> None:
-    path = runtime.artifacts_root / "partitioned_ids.txt"
-    path.write_text("\n".join(ids) + "\n", encoding="utf-8")
-    runtime.artifacts.register(
-        PARTIONED_IDS,
-        relative_path=path.relative_to(runtime.artifacts_root).as_posix(),
-    )
     schema_path = runtime.artifacts_root / "schema.json"
     schema_doc = {"features": [{"id": fid} for fid in ids], "targets": []}
     schema_path.write_text(json.dumps(schema_doc, indent=2), encoding="utf-8")

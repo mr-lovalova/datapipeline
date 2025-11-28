@@ -1,7 +1,0 @@
-# Per‑artifact settings (what/where to build).
-# Shared workspace defaults (visual provider/progress style/log_level/mode) live in jerry.yaml.
-# Override there; do not add visual provider/progress style/log_level here.
-kind: partitioned_ids
-output:
-  path: expected.txt   # relative to project.paths.artifacts
-target: features

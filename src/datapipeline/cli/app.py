@@ -538,6 +538,7 @@ def main() -> None:
                 progress=inspect_progress_style,
                 log_level=base_level,
                 sort=getattr(args, "sort", "missing"),
+                workspace=workspace_context,
             )
         elif subcmd == "matrix":
             handle_inspect_report(
@@ -557,6 +558,7 @@ def main() -> None:
                 progress=inspect_progress_style,
                 log_level=base_level,
                 sort=getattr(args, "sort", "missing"),
+                workspace=workspace_context,
             )
         elif subcmd == "partitions":
             from datapipeline.cli.commands.inspect import partitions as handle_inspect_partitions
@@ -567,6 +569,7 @@ def main() -> None:
                 visuals=inspect_visual_provider,
                 progress=inspect_progress_style,
                 log_level=base_level,
+                workspace=workspace_context,
             )
         elif subcmd == "expected":
             from datapipeline.cli.commands.inspect import expected as handle_inspect_expected
@@ -577,6 +580,7 @@ def main() -> None:
                 visuals=inspect_visual_provider,
                 progress=inspect_progress_style,
                 log_level=base_level,
+                workspace=workspace_context,
             )
         return
 

@@ -60,7 +60,7 @@ def test_full_regression_project_vectors(project_path: Path) -> None:
         }, 103.0),
         (5, {
             "linear_scaled": 1.6666666666666667,
-            "sine_window": None,
+            "sine_window": [None, None],
             "humidity_partitioned__@location:north": 43.0,
             "humidity_partitioned__@location:south": 40.0,
         }, 107.0),

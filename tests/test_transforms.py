@@ -14,6 +14,7 @@ from datapipeline.transforms.stream.dedupe import FeatureDeduplicateTransform
 from datapipeline.transforms.stream.fill import FillTransformer as FeatureFill
 from datapipeline.transforms.vector import (
     VectorDropMissingTransform,
+    VectorDropPartitionsTransform,
     VectorEnsureSchemaTransform,
     VectorFillAcrossPartitionsTransform,
     VectorFillConstantTransform,
@@ -52,18 +53,37 @@ class _StubVectorContext:
         else:
             self._expected_map = {"features": list(expected)}
         self._schema_map = schema or {}
+        self._cache: dict[str, Any] = {}
+        self._metadata_doc: dict | None = None
 
     def load_expected_ids(self, *, payload: str = "features") -> list[str]:
-        return list(self._expected_map.get(payload, []))
+        ids = list(self._expected_map.get(payload, []))
+        self._cache[f"expected_ids:{payload}"] = list(ids)
+        return ids
 
     def load_schema(self, *, payload: str = "features") -> list[dict]:
         entries = self._schema_map.get(payload)
         if entries is not None:
-            return [dict(item) for item in entries]
-        expected = self._expected_map.get(payload)
-        if expected is None:
-            return []
-        return [{"id": fid} for fid in expected]
+            snapshot = [dict(item) for item in entries]
+        else:
+            expected = self._expected_map.get(payload)
+            if expected is None:
+                snapshot = []
+            else:
+                snapshot = [{"id": fid} for fid in expected]
+        self._cache[f"schema:{payload}"] = [dict(item) for item in snapshot]
+        self._cache[f"expected_ids:{payload}"] = [
+            entry["id"] for entry in snapshot if isinstance(entry.get("id"), str)
+        ]
+        return snapshot
+
+    def set_metadata(self, doc: dict) -> None:
+        self._metadata_doc = doc
+
+    def require_artifact(self, spec) -> dict:
+        if self._metadata_doc is None:
+            raise RuntimeError("artifact missing")
+        return self._metadata_doc
 
 
 def test_standard_scaler_normalizes_feature_stream():
@@ -461,6 +481,104 @@ def test_vector_drop_missing_targets_payload():
     transform.bind_context(_StubVectorContext({"targets": ["t"]}))
 
     assert list(transform.apply(iter([sample]))) == []
+
+
+def test_vector_drop_partitions_drops_low_coverage_partitions():
+    stream = iter(
+        [
+            _make_vector(
+                0,
+                {
+                    "humidity__@location:north": 1.0,
+                    "humidity__@location:south": 2.0,
+                    "temp": 3.0,
+                },
+            )
+        ]
+    )
+    ctx = _StubVectorContext(
+        ["humidity__@location:north", "humidity__@location:south", "temp"]
+    )
+    ctx.set_metadata(
+        {
+            "counts": {"feature_vectors": 4},
+            "features": [
+                {"id": "humidity__@location:north", "present_count": 4, "null_count": 0},
+                {"id": "humidity__@location:south", "present_count": 1, "null_count": 0},
+                {"id": "temp", "present_count": 4, "null_count": 0},
+            ],
+        }
+    )
+    transform = VectorDropPartitionsTransform(min_coverage=0.75)
+    transform.bind_context(ctx)
+
+    out = list(transform.apply(stream))
+    assert list(out[0].features.values.keys()) == [
+        "humidity__@location:north",
+        "temp",
+    ]
+    assert [entry["id"] for entry in ctx._cache["schema:features"]] == [
+        "humidity__@location:north",
+        "temp",
+    ]
+
+
+def test_vector_drop_partitions_uses_value_fraction():
+    stream = iter(
+        [
+            _make_vector(
+                0,
+                {
+                    "precip__@station:north": None,
+                    "precip__@station:south": 2.0,
+                    "temp": 10.0,
+                },
+            )
+        ]
+    )
+    ctx = _StubVectorContext(
+        ["precip__@station:north", "precip__@station:south", "temp"]
+    )
+    ctx.set_metadata(
+        {
+            "counts": {"feature_vectors": 4},
+            "features": [
+                {
+                    "id": "precip__@station:north",
+                    "present_count": 4,
+                    "null_count": 3,
+                },
+                {
+                    "id": "precip__@station:south",
+                    "present_count": 4,
+                    "null_count": 0,
+                },
+                {"id": "temp", "present_count": 4, "null_count": 0},
+            ],
+        }
+    )
+    transform = VectorDropPartitionsTransform(min_value_fraction=0.5)
+    transform.bind_context(ctx)
+
+    out = list(transform.apply(stream))
+    assert list(out[0].features.values.keys()) == [
+        "precip__@station:south",
+        "temp",
+    ]
+    assert [entry["id"] for entry in ctx._cache["schema:features"]] == [
+        "precip__@station:south",
+        "temp",
+    ]
+
+
+def test_vector_drop_partitions_errors_without_metadata():
+    stream = iter([_make_vector(0, {"temp": 1.0})])
+    ctx = _StubVectorContext(["temp"])
+    transform = VectorDropPartitionsTransform(min_coverage=0.5)
+    transform.bind_context(ctx)
+
+    with pytest.raises(RuntimeError):
+        list(transform.apply(stream))
 
 
 def test_vector_ensure_schema_errors_on_missing_by_default():

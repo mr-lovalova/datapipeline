@@ -5,16 +5,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Tuple
 
-from datapipeline.config.build import VectorSchemaConfig
+from datapipeline.config.build import VectorMetadataConfig
 from datapipeline.config.dataset.loader import load_dataset
 from datapipeline.runtime import Runtime
 from datapipeline.utils.paths import ensure_parent
 from datapipeline.utils.window import resolve_window_bounds
 
-from .utils import collect_schema_entries, schema_entries_from_stats
+from .utils import collect_schema_entries, metadata_entries_from_stats
 
 
-def materialize_vector_schema(runtime: Runtime, task_cfg: VectorSchemaConfig) -> Tuple[str, Dict[str, object]] | None:
+def materialize_metadata(runtime: Runtime, task_cfg: VectorMetadataConfig) -> Tuple[str, Dict[str, object]] | None:
     if not task_cfg.enabled:
         return None
     dataset = load_dataset(runtime.project_yaml, "vectors")
@@ -24,26 +24,33 @@ def materialize_vector_schema(runtime: Runtime, task_cfg: VectorSchemaConfig) ->
         features_cfgs,
         dataset.group_by,
         cadence_strategy=task_cfg.cadence_strategy,
-        collect_metadata=False,
+        collect_metadata=True,
     )
-    target_entries: list[dict] = []
+    target_meta: list[dict] = []
+    target_vectors = 0
     if task_cfg.include_targets:
         target_cfgs = list(dataset.targets or [])
-        target_stats, _, target_min, target_max = collect_schema_entries(
+        target_stats, target_vectors, target_min, target_max = collect_schema_entries(
             runtime,
             target_cfgs,
             dataset.group_by,
             cadence_strategy=task_cfg.cadence_strategy,
-            collect_metadata=False,
+            collect_metadata=True,
         )
-        target_entries = schema_entries_from_stats(target_stats, task_cfg.cadence_strategy)
+        target_meta = metadata_entries_from_stats(target_stats, task_cfg.cadence_strategy)
     else:
         target_min = target_max = None
-    feature_entries = schema_entries_from_stats(feature_stats, task_cfg.cadence_strategy)
+    feature_meta = metadata_entries_from_stats(feature_stats, task_cfg.cadence_strategy)
 
     doc = {
         "schema_version": 1,
         "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "features": feature_meta,
+        "targets": target_meta,
+        "counts": {
+            "feature_vectors": feature_vectors,
+            "target_vectors": target_vectors,
+        },
     }
     start, end = resolve_window_bounds(runtime, False)
     obs_start_candidates = [t for t in (feature_min, target_min) if t is not None]
@@ -54,8 +61,6 @@ def materialize_vector_schema(runtime: Runtime, task_cfg: VectorSchemaConfig) ->
     end = end or obs_end
     if start is not None and end is not None:
         doc["window"] = {"start": start.isoformat(), "end": end.isoformat()}
-    doc["features"] = feature_entries
-    doc["targets"] = target_entries
 
     relative_path = Path(task_cfg.output)
     destination = (runtime.artifacts_root / relative_path).resolve()
@@ -64,7 +69,7 @@ def materialize_vector_schema(runtime: Runtime, task_cfg: VectorSchemaConfig) ->
         json.dump(doc, fh, indent=2)
 
     meta: Dict[str, object] = {
-        "features": len(feature_entries),
-        "targets": len(target_entries),
+        "features": len(feature_meta),
+        "targets": len(target_meta),
     }
     return str(relative_path), meta

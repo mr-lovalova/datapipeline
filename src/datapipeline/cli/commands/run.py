@@ -6,7 +6,6 @@ from typing import Optional
 from datapipeline.cli.commands.build import run_build_if_needed
 from datapipeline.cli.commands.run_config import (
     RunEntry,
-    determine_preview_stage,
     resolve_run_entries,
 )
 from datapipeline.cli.commands.serve_pipeline import serve_with_runtime
@@ -16,6 +15,7 @@ from datapipeline.config.context import resolve_run_profiles
 from datapipeline.config.dataset.loader import load_dataset
 from datapipeline.config.run import OutputConfig
 from datapipeline.io.output import OutputResolutionError
+from datapipeline.pipeline.artifacts import StageDemand, required_artifacts_for
 
 logger = logging.getLogger(__name__)
 
@@ -122,6 +122,28 @@ def _build_cli_output_config(
     )
 
 
+def ensure_stage_artifacts(
+    project_path: Path,
+    dataset,
+    profiles,
+    *,
+    cli_visuals: Optional[str],
+    cli_progress: Optional[str],
+    workspace,
+) -> None:
+    demands = [StageDemand(profile.stage, profile.include_targets) for profile in profiles]
+    required = required_artifacts_for(dataset, demands)
+    if not required:
+        return
+    run_build_if_needed(
+        project_path,
+        cli_visuals=cli_visuals,
+        cli_progress=cli_progress,
+        workspace=workspace,
+        required_artifacts=required,
+    )
+
+
 def handle_serve(
     project: str,
     limit: Optional[int],
@@ -143,27 +165,6 @@ def handle_serve(
 ) -> None:
     project_path = Path(project)
     run_entries, run_root = resolve_run_entries(project_path, run_name)
-
-    skip_reason = None
-    if skip_build:
-        skip_reason = "--skip-build flag provided"
-    else:
-        preview_stage, preview_source = determine_preview_stage(stage, run_entries)
-        if preview_stage is not None and preview_stage <= 5:
-            if preview_source:
-                skip_reason = f"stage {preview_stage} preview ({preview_source})"
-            else:
-                skip_reason = f"stage {preview_stage} preview"
-
-    if skip_reason:
-        logger.info("Skipping build (%s).", skip_reason)
-    else:
-        run_build_if_needed(
-            project_path,
-            cli_visuals=cli_visuals,
-            cli_progress=cli_progress,
-            workspace=workspace,
-        )
 
     cli_output_cfg, payload_override = _build_cli_output_config(
         out_transport, out_format, out_path, out_payload)
@@ -187,7 +188,23 @@ def handle_serve(
         logger.error("Invalid output configuration: %s", exc)
         raise SystemExit(2) from exc
 
+    vector_dataset = load_dataset(project_path, "vectors")
+    skip_reason = None
+    if skip_build:
+        skip_reason = "--skip-build flag provided"
+
+    if not skip_reason:
+        ensure_stage_artifacts(
+            project_path,
+            vector_dataset,
+            profiles,
+            cli_visuals=cli_visuals,
+            cli_progress=cli_progress,
+            workspace=workspace,
+        )
+
     datasets: dict[str, object] = {}
+    datasets["vectors"] = vector_dataset
     for profile in profiles:
         dataset_name = "vectors" if profile.stage is None else "features"
         dataset = datasets.get(dataset_name)

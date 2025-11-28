@@ -14,8 +14,6 @@ from datapipeline.services.artifacts import (
     ArtifactManager,
     ArtifactSpec,
     ArtifactValue,
-    PARTITIONED_IDS_SPEC,
-    PARTITIONED_TARGET_IDS_SPEC,
     VECTOR_SCHEMA_SPEC,
 )
 from datapipeline.utils.window import resolve_window_bounds
@@ -54,21 +52,18 @@ class PipelineContext:
 
     def load_expected_ids(self, *, payload: str = "features") -> list[str]:
         key = f"expected_ids:{payload}"
-        ids = self._cache.get(key)
-        if ids is None:
-            spec = PARTITIONED_IDS_SPEC if payload != "targets" else PARTITIONED_TARGET_IDS_SPEC
-            try:
-                ids = list(self.artifacts.load(spec))
-            except ArtifactNotRegisteredError:
-                if payload == "targets":
-                    ids = []
-                    logger.debug(
-                        "Target expected-id artifact ('%s') not registered; proceeding without a baseline.",
-                        spec.key,
-                    )
-                else:
-                    raise
-            self._cache[key] = ids
+        cached = self._cache.get(key)
+        if cached is not None:
+            return list(cached)
+        entries = self.load_schema(payload=payload)
+        if not entries:
+            if payload == "targets":
+                logger.debug("Target schema entries missing; proceeding without target baseline.")
+                self._cache[key] = []
+                return []
+            raise RuntimeError("Vector schema artifact missing; run `jerry build` to materialize schema.json.")
+        ids = [entry["id"] for entry in entries if isinstance(entry.get("id"), str)]
+        self._cache[key] = ids
         return list(ids)
 
     def load_schema(self, *, payload: str = "features") -> list[dict[str, Any]]:
@@ -89,29 +84,28 @@ class PipelineContext:
         return [dict(entry) for entry in cached] if cached else []
 
     @property
-    def rectangular_required(self) -> bool:
-        return bool(getattr(self.runtime, "rectangular_required", True))
-
-    @property
     def schema_required(self) -> bool:
         return bool(getattr(self.runtime, "schema_required", True))
 
-    def resolve_window_bounds(self) -> tuple[datetime | None, datetime | None]:
-        cached = self._cache.get("window_bounds")
+    def window_bounds(self, *, rectangular_required: bool = False) -> tuple[datetime | None, datetime | None]:
+        key = "window_bounds:required" if rectangular_required else "window_bounds:optional"
+        cached = self._cache.get(key)
         if cached is not None:
             return cached
-        bounds = resolve_window_bounds(self.runtime, self.rectangular_required)
-        self._cache["window_bounds"] = bounds
+        bounds = resolve_window_bounds(self.runtime, rectangular_required)
+        if rectangular_required:
+            self.runtime.window_bounds = bounds
+        self._cache[key] = bounds
         return bounds
 
     @property
     def start_time(self) -> datetime | None:
-        start, _ = self.resolve_window_bounds()
+        start, _ = self.window_bounds()
         return start
 
     @property
     def end_time(self) -> datetime | None:
-        _, end = self.resolve_window_bounds()
+        _, end = self.window_bounds()
         return end
 
     @contextmanager

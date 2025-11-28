@@ -1,0 +1,4 @@
+kind: metadata
+enabled: false
+output: schema.metadata.json
+include_targets: true

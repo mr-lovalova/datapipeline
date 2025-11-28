@@ -9,13 +9,39 @@ from typing import Iterable, Iterator, TypeVar
 from datapipeline.analysis.vector.collector import VectorStatsCollector
 from datapipeline.cli.visuals.runner import run_job
 from datapipeline.config.context import load_dataset_context
+from datapipeline.config.dataset.loader import load_dataset
 from datapipeline.utils.paths import ensure_parent
 from datapipeline.services.bootstrap import artifacts_root
 from datapipeline.pipeline.pipelines import build_vector_pipeline
 from datapipeline.pipeline.stages import post_process
+from datapipeline.pipeline.artifacts import StageDemand, required_artifacts_for
+from datapipeline.cli.commands.build import run_build_if_needed
 from tqdm import tqdm
 
 T = TypeVar("T")
+
+
+def _prepare_inspect_build(
+    project: str | Path,
+    *,
+    include_targets: bool,
+    visuals: str | None,
+    progress: str | None,
+    workspace=None,
+) -> None:
+    project_path = Path(project)
+    dataset = load_dataset(project_path, "vectors")
+    demands = [StageDemand(stage=None, include_targets=include_targets)]
+    required = required_artifacts_for(dataset, demands)
+    if not required:
+        return
+    run_build_if_needed(
+        project_path,
+        required_artifacts=required,
+        cli_visuals=visuals,
+        cli_progress=progress,
+        workspace=workspace,
+    )
 
 
 def _iter_with_progress(
@@ -96,6 +122,7 @@ def report(
     progress: str | None = None,
     log_level: int | None = None,
     sort: str = "missing",
+    workspace=None,
 ) -> None:
     """Compute a quality report and optionally export coverage JSON and/or a matrix.
 
@@ -104,6 +131,13 @@ def report(
     - When matrix != 'none', writes an availability matrix in the requested format.
     """
 
+    _prepare_inspect_build(
+        project,
+        include_targets=include_targets,
+        visuals=visuals,
+        progress=progress,
+        workspace=workspace,
+    )
     coverage_path: Path | None = None
 
     def _work(dataset_ctx, progress_style):
@@ -140,11 +174,13 @@ def report(
             matrix_format=(matrix_fmt or "html"),
         )
 
+        context.window_bounds(rectangular_required=True)
         vectors = build_vector_pipeline(
             context,
             feature_cfgs,
             dataset.group_by,
             target_configs=target_cfgs,
+            rectangular=True,
         )
         if apply_postprocess:
             vectors = post_process(context, vectors)
@@ -280,6 +316,7 @@ def partitions(
     visuals: str | None = None,
     progress: str | None = None,
     log_level: int | None = None,
+    workspace=None,
 ) -> None:
     """Discover observed partitions and write a manifest JSON.
 
@@ -288,6 +325,14 @@ def partitions(
       - partitions: list of full partition ids (e.g., feature__suffix)
       - by_feature: mapping base id -> list of suffixes (empty when none)
     """
+
+    _prepare_inspect_build(
+        project,
+        include_targets=include_targets,
+        visuals=visuals,
+        progress=progress,
+        workspace=workspace,
+    )
 
     def _work(dataset_ctx, progress_style):
         project_path = dataset_ctx.project
@@ -308,11 +353,13 @@ def partitions(
         )
 
         context = dataset_ctx.pipeline_context
+        context.window_bounds(rectangular_required=True)
         vectors = build_vector_pipeline(
             context,
             feature_cfgs,
             dataset.group_by,
             target_configs=target_cfgs,
+            rectangular=True,
         )
         vectors = post_process(context, vectors)
         vector_iter = _iter_with_progress(
@@ -372,11 +419,20 @@ def expected(
     visuals: str | None = None,
     progress: str | None = None,
     log_level: int | None = None,
+    workspace=None,
 ) -> None:
     """Discover complete set of observed full feature IDs and write a list.
 
     Writes newline-separated ids to `<paths.artifacts>/expected.txt` by default.
     """
+
+    _prepare_inspect_build(
+        project,
+        include_targets=include_targets,
+        visuals=visuals,
+        progress=progress,
+        workspace=workspace,
+    )
 
     def _work(dataset_ctx, progress_style):
         project_path = dataset_ctx.project

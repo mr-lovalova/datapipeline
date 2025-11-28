@@ -6,9 +6,9 @@ from typing import Callable, Optional
 from datapipeline.build.state import BuildState, load_build_state, save_build_state
 from datapipeline.build.tasks import (
     compute_config_hash,
-    materialize_partitioned_ids,
     materialize_scaler_statistics,
     materialize_vector_schema,
+    materialize_metadata,
 )
 from datapipeline.cli.visuals import get_visuals_backend
 from datapipeline.cli.visuals.runner import run_job
@@ -17,10 +17,9 @@ from datapipeline.config.build import load_build_config
 from datapipeline.config.context import resolve_build_settings
 from datapipeline.services.bootstrap import artifacts_root, bootstrap
 from datapipeline.services.constants import (
-    PARTIONED_IDS,
-    PARTITIONED_TARGET_IDS,
     SCALER_STATISTICS,
     VECTOR_SCHEMA,
+    VECTOR_SCHEMA_METADATA,
 )
 from datapipeline.services.project_paths import build_config_path
 
@@ -62,6 +61,7 @@ def run_build_if_needed(
     cli_visuals: str | None = None,
     cli_progress: str | None = None,
     workspace=None,
+    required_artifacts: set[str] | None = None,
 ) -> bool:
     """Execute the build workflow when the cached config hash has changed.
 
@@ -115,6 +115,10 @@ def run_build_if_needed(
         logger.info(
             "Build is up-to-date (config hash matches); skipping rebuild.")
         return False
+    if required_artifacts is not None and not required_artifacts:
+        logger.info("Build skipped (no artifacts required for this run).")
+        return False
+
     build_root = build_config_path(project_path)
     build_config = load_build_config(project_path)
     _log_build_config_debug(build_config)
@@ -149,57 +153,47 @@ def run_build_if_needed(
         logger.info("Materialized %s -> %s%s", VECTOR_SCHEMA, full_path, suffix)
         return meta_out
 
+    def _work_metadata():
+        res = materialize_metadata(runtime, build_config.vector_metadata)
+        if not res:
+            return None
+        rel_path, meta = res
+        full_path = (runtime.artifacts_root / rel_path).resolve()
+        meta_out = {"relative_path": rel_path}
+        meta_out.update(meta)
+        details = ", ".join(f"{k}={v}" for k, v in meta.items())
+        suffix = f" ({details})" if details else ""
+        logger.info("Materialized %s -> %s%s", VECTOR_SCHEMA_METADATA, full_path, suffix)
+        return meta_out
+
     job_specs: list[tuple[str, str, Callable[[], object], Optional[Path]]] = []
-    seen_targets: set[str] = set()
-
-    def _make_partition_job(task_cfg, artifact_key: str):
-        def _work():
-            try:
-                logger.info(
-                    "Building artifact: partitioned_ids (%s) -> %s",
-                    task_cfg.target,
-                    task_cfg.output,
-                )
-            except Exception:
-                pass
-            rel_path, count = materialize_partitioned_ids(runtime, task_cfg)
-            logger.info("Materialized %s -> %s (count=%s)",
-                        artifact_key, rel_path, count)
-            return {"relative_path": rel_path, "count": count}
-
-        return _work
-
-    for idx, task_cfg in enumerate(build_config.partitioned_ids, start=1):
-        if not getattr(task_cfg, "enabled", True):
-            continue
-        label = f"partitioned_ids[{task_cfg.target}:{idx}]"
-        config_path = task_cfg.source_path or (
-            build_root / "partitioned_ids.yaml")
-        artifact_key = PARTIONED_IDS if task_cfg.target == "features" else PARTITIONED_TARGET_IDS
-        if artifact_key in seen_targets:
-            logger.error(
-                "Multiple partitioned_ids artifacts target '%s'; only one per target is supported.",
-                task_cfg.target,
-            )
-            raise SystemExit(2)
-        seen_targets.add(artifact_key)
-        job_specs.append((label, artifact_key, _make_partition_job(
-            task_cfg, artifact_key), config_path))
-
     if getattr(build_config.vector_schema, "enabled", True):
-        job_specs.append(
-            (
-                "schema",
-                VECTOR_SCHEMA,
-                _work_schema,
-                build_config.vector_schema.source_path or (
-                    build_root / "schema.yaml"),
+        if required_artifacts is None or VECTOR_SCHEMA in required_artifacts:
+            job_specs.append(
+                (
+                    "schema",
+                    VECTOR_SCHEMA,
+                    _work_schema,
+                    build_config.vector_schema.source_path or (
+                        build_root / "schema.yaml"),
+                )
             )
-        )
+    if getattr(build_config.vector_metadata, "enabled", False):
+        if required_artifacts is None or VECTOR_SCHEMA_METADATA in required_artifacts:
+            job_specs.append(
+                (
+                    "metadata",
+                    VECTOR_SCHEMA_METADATA,
+                    _work_metadata,
+                    build_config.vector_metadata.source_path or (
+                        build_root / "metadata.yaml"),
+                )
+            )
 
     if getattr(build_config.scaler, "enabled", True):
-        job_specs.append(("scaler", SCALER_STATISTICS,
-                         _work_scaler, build_root / "scaler.yaml"))
+        if required_artifacts is None or SCALER_STATISTICS in required_artifacts:
+            job_specs.append(("scaler", SCALER_STATISTICS,
+                             _work_scaler, build_root / "scaler.yaml"))
 
     total_jobs = len(job_specs)
     for idx, (job_label, artifact_key, job_work, config_path) in enumerate(job_specs, start=1):

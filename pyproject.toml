@@ -62,6 +62,7 @@ sequence = "datapipeline.transforms.sequence:WindowTransformer"
 
 [project.entry-points."datapipeline.transforms.vector"]
 drop_missing = "datapipeline.transforms.vector:VectorDropMissingTransform"
+drop_partitions = "datapipeline.transforms.vector:VectorDropPartitionsTransform"
 fill_constant = "datapipeline.transforms.vector:VectorFillConstantTransform"
 fill_history = "datapipeline.transforms.vector:VectorFillHistoryTransform"
 fill_horizontal = "datapipeline.transforms.vector:VectorFillAcrossPartitionsTransform"

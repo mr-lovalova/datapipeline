@@ -34,6 +34,7 @@ def materialize_scaler_statistics(runtime: Runtime, config: BuildConfig) -> Tupl
         sanitized_features,
         dataset.group_by,
         target_configs=sanitized_targets,
+        rectangular=False,
     )
 
     cfg = getattr(runtime, "split", None)

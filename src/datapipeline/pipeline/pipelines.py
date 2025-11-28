@@ -79,6 +79,8 @@ def build_vector_pipeline(
     configs: Sequence[FeatureRecordConfig],
     group_by_cadence: str,
     target_configs: Sequence[FeatureRecordConfig] | None = None,
+    *,
+    rectangular: bool = True,
 ) -> Iterator[Any]:
     """Build the vector assembly pipeline for features and optionally attach targets."""
     feature_cfgs = list(configs)
@@ -86,8 +88,11 @@ def build_vector_pipeline(
     if not feature_cfgs and not target_cfgs:
         return iter(())
 
-    rect = context.rectangular_required
-    keys = window_keys(context.start_time, context.end_time, group_by_cadence) if rect else None
+    if rectangular:
+        start, end = context.window_bounds(rectangular_required=True)
+        keys = window_keys(start, end, group_by_cadence)
+    else:
+        keys = None
 
     feature_vectors = _assemble_vectors(
         context,

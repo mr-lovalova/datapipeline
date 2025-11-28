@@ -21,7 +21,6 @@ from datapipeline.io.output import (
     resolve_output_target,
 )
 from datapipeline.pipeline.context import PipelineContext
-from datapipeline.utils.window import resolve_window_bounds
 from datapipeline.runtime import Runtime
 from datapipeline.services.bootstrap import bootstrap
 
@@ -83,7 +82,6 @@ def load_dataset_context(project: Path | str, *, include_targets: bool) -> Datas
     project_path = Path(project)
     dataset = load_dataset(project_path, "vectors")
     runtime = bootstrap(project_path)
-    runtime.window_bounds = resolve_window_bounds(runtime, runtime.rectangular_required)
     context = PipelineContext(runtime)
     if not include_targets:
         dataset.targets = []

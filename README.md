@@ -548,29 +548,13 @@ Project-scoped vector transforms that run after assembly and before serving.
 
 - Each transform receives a `Sample`; set `payload: targets` when you want to
   mutate label vectors, otherwise the feature vector is used.
-- Vector transforms rely on artifacts (expected IDs, scaler stats) to decide
-  which identifiers should be present. When no transforms are configured the
-  stream passes through unchanged.
+- Vector transforms rely on the schema artifact (for expected IDs/cadence)
+  and scaler stats when scaling is enabled. When no transforms are configured
+  the stream passes through unchanged.
 
 ### Build Artifacts (`build/artifacts/*.yaml`)
 
 Declare one YAML file per artifact under `project.paths.build` (default `build/artifacts/`):
-
-`build/artifacts/partitioned_ids.yaml`
-
-```yaml
-kind: partitioned_ids
-output: expected.txt
-target: features
-```
-
-`build/artifacts/partitioned_targets.yaml`
-
-```yaml
-kind: partitioned_ids
-output: expected_targets.txt
-target: targets
-```
 
 `build/artifacts/scaler.yaml`
 
@@ -582,12 +566,10 @@ split_label: train
 enabled: true
 ```
 
-- `expected.txt` lists every fully partitioned feature ID observed in the latest run (used by vector postprocess transforms). Add additional `partitioned_ids` files with `target: targets` to materialize a separate baseline for label vectors.
-  - Set `enabled: false` inside a `kind: partitioned_ids` build file to skip generating the default `expected.txt`.
-- When you configure `payload: targets` (or any target-focused vector transform), Jerry automatically uses the `target: targets` artifact (e.g., `expected_targets.txt`) for coverage checks.
 - `scaler.pkl` is a pickled standard scaler fitted on the requested split.
-- `schema.json` (from the `vector_schema` task) captures richer metadata per feature/target identifier—value kinds, list-length statistics, and inferred types—so downstream consumers can enforce cadence and ordering without scanning raw vectors.
+- `schema.json` (from the `vector_schema` task) enumerates the discovered feature/target identifiers (including partitions), their kinds (scalar/list), and cadence hints used to enforce ordering downstream.
   - Configure the `vector_schema` build task (see `builds/schema.yaml`) to choose a global cadence strategy (currently `max`). Per-feature overrides will be added later; for now every list-valued feature records the max observed length as its enforcement target.
+- `schema.metadata.json` (from the optional `metadata` task) captures heavier statistics—present/null counts, inferred value types, list-length histograms, etc. Enable it when you need coverage diagnostics without reprocessing raw vectors.
 - Shared run/build defaults (visuals/progress/log level/build mode) live in `jerry.yaml`.
 
 ---
@@ -630,7 +612,7 @@ Pass `--help` on any command for flags.
 - `jerry inspect partitions --project <project.yaml> [--include-targets]`
   - Writes discovered partition suffixes to `partitions.json`.
 - `jerry inspect expected --project <project.yaml> [--include-targets]`
-  - Writes the full set of observed feature IDs to `expected.txt`.
+  - Writes the full set of observed feature IDs to `expected.txt` (for external tooling; runtime uses `schema.json`).
 - `jerry build --project <project.yaml> [--force] [--visuals ...] [--progress ...]`
   - Regenerates artifacts declared under `project.paths.build` when the configuration hash changes.
 
@@ -699,6 +681,9 @@ Pass `--help` on any command for flags.
 ### Vector (Postprocess) Transforms
 
 - `drop_missing`: drop vectors that do not meet required IDs or coverage ratio.
+- `drop_partitions`: require `schema.metadata.json` and drop partitions whose
+  coverage (present vs total vectors) or non-null fraction falls below the
+  configured thresholds so the weakest partitions stop forcing row drops.
 - `fill_constant`: seed absent IDs with a constant.
 - `fill_history`: impute using rolling statistics from prior vectors.
 - `fill_horizontal`: aggregate sibling partitions in the same timestamp.
@@ -714,8 +699,9 @@ appropriate group (`record`, `stream`, `feature`, `sequence`, `vector`,
 
 ## Artifacts & Postprocess
 
-- `expected.txt`: newline-delimited full feature IDs. Required by drop/fill
-  transforms to know the target feature universe.
+- `expected.txt`: newline-delimited full feature IDs, generated on demand via
+  `jerry inspect expected`. Not required at runtime; transforms derive the
+  expected universe from `schema.json`.
 - `schema.json`: output of the `vector_schema` build task. Jerry automatically
   enforces this schema during postprocess to impose deterministic ordering and
   list cadence metadata (targets get their own section when

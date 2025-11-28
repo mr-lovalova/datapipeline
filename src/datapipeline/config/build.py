@@ -9,24 +9,6 @@ from datapipeline.services.project_paths import build_config_path
 from datapipeline.utils.load import load_yaml
 
 
-class PartitionedIdsConfig(BaseModel):
-    """Configuration for writing the expected partitioned-id list."""
-
-    enabled: bool = Field(
-        default=True,
-        description="Disable to skip generating this partitioned-id artifact.",
-    )
-    output: str = Field(
-        default="expected.txt",
-        description="Artifact path relative to project.paths.artifacts.",
-    )
-    target: Literal["features", "targets"] = Field(
-        default="features",
-        description="Vector domain to evaluate for expected IDs ('features' or 'targets').",
-    )
-    source_path: Path | None = Field(default=None, exclude=True)
-
-
 class ScalerArtifactConfig(BaseModel):
     """Configuration for computing standard-scaler statistics."""
 
@@ -70,14 +52,32 @@ class VectorSchemaConfig(BaseModel):
     )
 
 
+class VectorMetadataConfig(BaseModel):
+    """Configuration for exporting optional vector metadata statistics."""
+
+    enabled: bool = Field(
+        default=False,
+        description="Disable to skip generating the vector metadata artifact.",
+    )
+    output: str = Field(
+        default="schema.metadata.json",
+        description="Artifact path relative to project.paths.artifacts.",
+    )
+    include_targets: bool = Field(
+        default=False,
+        description="Include dataset.targets when summarizing metadata.",
+    )
+    source_path: Path | None = Field(default=None, exclude=True)
+    cadence_strategy: Literal["max"] = Field(
+        default="max",
+        description="Strategy for selecting cadence targets (currently only 'max' is supported).",
+    )
+
+
 class BuildConfig(BaseModel):
     """Top-level build configuration describing materialized artifacts."""
 
     version: int = 1
-    partitioned_ids: list[PartitionedIdsConfig] = Field(
-        default_factory=list,
-        description="Partitioned-id task settings (one entry per artifact).",
-    )
     scaler: ScalerArtifactConfig = Field(
         default_factory=ScalerArtifactConfig,
         description="Standard-scaler statistics artifact settings.",
@@ -86,13 +86,16 @@ class BuildConfig(BaseModel):
         default_factory=lambda: VectorSchemaConfig(),
         description="Vector schema artifact settings.",
     )
+    vector_metadata: VectorMetadataConfig = Field(
+        default_factory=VectorMetadataConfig,
+        description="Vector metadata artifact settings.",
+    )
 
 
 def _load_from_artifact_directory(path: Path) -> BuildConfig:
-    parts: list[PartitionedIdsConfig] = []
     scaler = ScalerArtifactConfig()
     schema = VectorSchemaConfig()
-    partition_declared = False
+    metadata = VectorMetadataConfig()
 
     for p in sorted(path.rglob("*.y*ml")):
         data = load_yaml(p)
@@ -100,10 +103,7 @@ def _load_from_artifact_directory(path: Path) -> BuildConfig:
             continue
         kind = str(data.get("kind", "")).strip().lower()
         if not kind:
-            if "partitioned_ids" in data:
-                data = data["partitioned_ids"] or {}
-                kind = "partitioned_ids"
-            elif "scaler" in data:
+            if "scaler" in data:
                 data = data["scaler"] or {}
                 kind = "scaler"
 
@@ -112,15 +112,7 @@ def _load_from_artifact_directory(path: Path) -> BuildConfig:
             data = dict(data)
             data["output"] = out.get("path")
 
-        if kind == "partitioned_ids":
-            try:
-                cfg = PartitionedIdsConfig.model_validate(data)
-                cfg.source_path = p
-                parts.append(cfg)
-                partition_declared = True
-            except Exception:
-                pass
-        elif kind == "scaler":
+        if kind == "scaler":
             try:
                 scaler = ScalerArtifactConfig.model_validate(data)
             except Exception:
@@ -131,8 +123,18 @@ def _load_from_artifact_directory(path: Path) -> BuildConfig:
                 schema.source_path = p  # type: ignore[attr-defined]
             except Exception:
                 pass
+        elif kind in {"vector_metadata", "schema_metadata"}:
+            try:
+                metadata = VectorMetadataConfig.model_validate(data)
+                metadata.source_path = p  # type: ignore[attr-defined]
+            except Exception:
+                pass
 
-    return BuildConfig(partitioned_ids=parts, scaler=scaler, vector_schema=schema)
+    return BuildConfig(
+        scaler=scaler,
+        vector_schema=schema,
+        vector_metadata=metadata,
+    )
 
 
 def load_build_config(project_yaml: Path) -> BuildConfig:

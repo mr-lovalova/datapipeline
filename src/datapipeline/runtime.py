@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, List, Mapping, Optional, Sequence, Union
+from datetime import datetime
 
 from datapipeline.config.run import RunConfig
 from datapipeline.config.split import SplitConfig
@@ -67,8 +68,8 @@ class Runtime:
     split: Optional[SplitConfig] = None
     split_keep: Optional[str] = None
     run: Optional[RunConfig] = None
-    rectangular_required: bool = True
     schema_required: bool = True
+    window_bounds: tuple[datetime | None, datetime | None] | None = None
     artifacts: ArtifactManager = field(init=False)
 
     def __post_init__(self) -> None:

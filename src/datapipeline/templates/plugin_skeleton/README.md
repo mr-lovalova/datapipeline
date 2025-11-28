@@ -18,7 +18,7 @@ Folder layout
 - `config/`
   - `sources/*.yaml` — raw source definitions (one file per source)
 - `contracts/*.yaml` — canonical stream definitions
-  - `datasets/<name>/build/artifacts/*.yaml` — per-artifact build configuration (partitioned ids today, more artifacts later)
+- `datasets/<name>/build/artifacts/*.yaml` — per-artifact build configuration (schema/scaler/metadata)
 - Every dataset `project.yaml` declares a `name`; reference it via `${project_name}`
   inside other config files (e.g., `paths.artifacts: ../../build/datasets/${project_name}`) to
   avoid hard-coding per-dataset directories.
