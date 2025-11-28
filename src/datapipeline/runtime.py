@@ -67,6 +67,8 @@ class Runtime:
     split: Optional[SplitConfig] = None
     split_keep: Optional[str] = None
     run: Optional[RunConfig] = None
+    rectangular_required: bool = True
+    schema_required: bool = True
     artifacts: ArtifactManager = field(init=False)
 
     def __post_init__(self) -> None:

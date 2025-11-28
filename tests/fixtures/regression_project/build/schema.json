@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "features": [
+    { "id": "linear_scaled" },
+    { "id": "sine_window" },
+    { "id": "humidity_partitioned__@location:north" },
+    { "id": "humidity_partitioned__@location:south" }
+  ],
+  "targets": [
+    { "id": "power_target" }
+  ],
+  "window": {
+    "start": "2024-03-01T00:00:00Z",
+    "end": "2024-03-01T05:00:00Z"
+  }
+}

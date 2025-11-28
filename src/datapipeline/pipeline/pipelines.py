@@ -1,6 +1,7 @@
 import heapq
 from collections.abc import Iterator, Sequence
 from typing import Any
+from itertools import tee
 
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
@@ -16,6 +17,8 @@ from datapipeline.pipeline.stages import (
     apply_feature_transforms,
     vector_assemble_stage,
     sample_assemble_stage,
+    align_stream,
+    window_keys,
 )
 from datapipeline.pipeline.context import PipelineContext
 
@@ -83,11 +86,24 @@ def build_vector_pipeline(
     if not feature_cfgs and not target_cfgs:
         return iter(())
 
+    rect = context.rectangular_required
+    keys = window_keys(context.start_time, context.end_time, group_by_cadence) if rect else None
+
     feature_vectors = _assemble_vectors(
         context,
         feature_cfgs,
         group_by_cadence,
     )
+    if keys is not None:
+        # share keys across feature/target alignment
+        if target_cfgs:
+            keys_feature, keys_target = tee(keys, 2)
+        else:
+            keys_feature = keys
+            keys_target = None
+        feature_vectors = align_stream(feature_vectors, keys=keys_feature)
+    else:
+        keys_target = None
 
     if not target_cfgs:
         return sample_assemble_stage(feature_vectors)
@@ -97,6 +113,8 @@ def build_vector_pipeline(
         target_cfgs,
         group_by_cadence,
     )
+    if keys is not None:
+        target_vectors = align_stream(target_vectors, keys=keys_target)
     return sample_assemble_stage(feature_vectors, target_vectors)
 
 
@@ -118,6 +136,3 @@ def _assemble_vectors(
         *streams, key=lambda fr: group_key_for(fr, group_by_cadence)
     )
     return vector_assemble_stage(merged, group_by_cadence)
-
-
-

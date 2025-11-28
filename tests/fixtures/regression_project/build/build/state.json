@@ -1,0 +1,14 @@
+{
+  "artifacts": {
+    "vector_schema": {
+      "meta": {},
+      "relative_path": "schema.json"
+    },
+    "scaler_statistics": {
+      "meta": {},
+      "relative_path": "scaler.pkl"
+    }
+  },
+  "config_hash": "fixture",
+  "version": 1
+}

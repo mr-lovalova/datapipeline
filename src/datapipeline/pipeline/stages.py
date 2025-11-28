@@ -1,6 +1,7 @@
 from collections import defaultdict
-from itertools import groupby
+from itertools import chain, groupby
 from typing import Any, Iterable, Iterator, Mapping
+from datetime import datetime
 
 from datapipeline.pipeline.context import PipelineContext
 from datapipeline.services.constants import POSTPROCESS_TRANSFORMS, SCALER_STATISTICS
@@ -17,6 +18,8 @@ from datapipeline.domain.record import TemporalRecord
 from datapipeline.pipeline.utils.keygen import FeatureIdGenerator, group_key_for
 from datapipeline.sources.models.source import Source
 from datapipeline.transforms.vector import VectorEnsureSchemaTransform
+from datapipeline.config.dataset.normalize import floor_time_to_resolution
+from datapipeline.utils.time import parse_timecode
 
 
 def open_source_stream(context: PipelineContext, stream_alias: str) -> Source:
@@ -140,6 +143,45 @@ def vector_assemble_stage(
         yield group_key, vector
 
 
+def window_keys(start: datetime | None, end: datetime | None, cadence: str | None) -> Iterator[tuple] | None:
+    if start is None or end is None or cadence is None:
+        return None
+    try:
+        current = floor_time_to_resolution(start, cadence)
+        stop = floor_time_to_resolution(end, cadence)
+        step = parse_timecode(cadence)
+    except Exception:
+        return None
+    if stop < current:
+        return None
+
+    def _iter():
+        t = current
+        while t <= stop:
+            yield (t,)
+            t = t + step
+
+    return _iter()
+
+
+def align_stream(
+    stream: Iterator[tuple[tuple, Vector]] | None,
+    keys: Iterator[tuple] | None,
+) -> Iterator[tuple[tuple, Vector]]:
+    if keys is None:
+        return iter(stream or ())
+    it = iter(stream or ())
+    current = next(it, None)
+    for key in keys:
+        while current and current[0] < key:
+            current = next(it, None)
+        if current and current[0] == key:
+            yield current
+            current = next(it, None)
+        else:
+            yield (key, Vector(values={}))
+
+
 def sample_assemble_stage(
     feature_vectors: Iterator[tuple[tuple, Vector]],
     target_vectors: Iterator[tuple[tuple, Vector]] | None = None,
@@ -195,12 +237,33 @@ def _apply_vector_schema(
     stream: Iterator[Sample],
 ) -> Iterator[Sample]:
     with context.activate():
-        feature_schema = VectorEnsureSchemaTransform(on_missing="fill")
-        feature_schema.bind_context(context)
+        feature_entries = context.load_schema(payload="features")
+        target_entries = context.load_schema(payload="targets")
 
-        target_schema = VectorEnsureSchemaTransform(
-            payload="targets", on_missing="fill"
-        )
-        target_schema.bind_context(context)
+        if not feature_entries:
+            if context.schema_required:
+                raise RuntimeError("Schema missing for payload 'features'. Run `jerry build` to materialize schema.json.")
+            feature_stream = stream
+        else:
+            feature_schema = VectorEnsureSchemaTransform(on_missing="fill")
+            feature_schema.bind_context(context)
+            feature_stream = feature_schema(stream)
 
-        return target_schema(feature_schema(stream))
+        def _apply_targets(upstream: Iterator[Sample]) -> Iterator[Sample]:
+            if target_entries:
+                target_schema = VectorEnsureSchemaTransform(payload="targets", on_missing="fill")
+                target_schema.bind_context(context)
+                return target_schema(upstream)
+            if not context.schema_required:
+                return upstream
+            # schema required but missing: only raise if targets are present in stream
+            iterator = iter(upstream)
+            try:
+                first = next(iterator)
+            except StopIteration:
+                return iter(())
+            if first.targets is None:
+                return chain([first], iterator)
+            raise RuntimeError("Schema missing for payload 'targets'. Run `jerry build` to materialize schema.json.")
+
+        return _apply_targets(feature_stream)

@@ -1,0 +1,11 @@
+id: regression.sine
+
+parser:
+  entrypoint: identity
+  args: {}
+loader:
+  entrypoint: "core.io"
+  args:
+    transport: fs
+    format: pickle
+    path: tests/fixtures/regression_project/data/sine_subhour.pkl

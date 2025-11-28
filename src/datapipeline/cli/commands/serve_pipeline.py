@@ -13,6 +13,7 @@ from datapipeline.pipeline.pipelines import build_feature_pipeline, build_vector
 from datapipeline.pipeline.stages import post_process
 from datapipeline.pipeline.split import apply_split_stage
 from datapipeline.runtime import Runtime
+from datapipeline.utils.window import resolve_window_bounds
 from datapipeline.io.factory import writer_factory
 from datapipeline.io.output import OutputTarget
 from datapipeline.io.protocols import Writer
@@ -77,6 +78,11 @@ def serve_with_runtime(
     stage: Optional[int],
     visuals: Optional[str] = None,
 ) -> None:
+    # Resolve bounds only when serving assembled vectors (stage >= 6 or default runs).
+    rect_required = runtime.rectangular_required and (stage is None or stage > 5)
+    if rect_required:
+        runtime.window_bounds = resolve_window_bounds(runtime, True)
+
     context = PipelineContext(
         runtime,
         observer_registry=default_observer_registry(),
@@ -91,10 +97,16 @@ def serve_with_runtime(
         return
 
     if stage is not None and stage <= 5:
+        if target.payload != "sample":
+            logger.warning(
+                "Ignoring payload '%s' for stage %s preview; preview outputs stream raw records.",
+                target.payload,
+                stage,
+            )
         for cfg in preview_cfgs:
             stream = build_feature_pipeline(context, cfg, stage=stage)
             feature_target = target.for_feature(cfg.id)
-            writer = writer_factory(feature_target, visuals=visuals)
+            writer = writer_factory(feature_target, visuals=visuals, item_type="record")
             count = serve_stream(stream, limit, writer=writer)
             report_serve(feature_target, count)
         return

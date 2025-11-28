@@ -57,6 +57,8 @@ def _runtime_with_streams(
 
     regs = runtime.registries
     stream_transforms = stream_transforms or {}
+    start_time: datetime | None = None
+    end_time: datetime | None = None
     for alias, rows in streams.items():
         regs.stream_sources.register(alias, _StubSource(rows))
         regs.mappers.register(alias, _identity)
@@ -66,7 +68,13 @@ def _runtime_with_streams(
         regs.debug_operations.register(alias, [])
         regs.partition_by.register(alias, None)
         regs.sort_batch_size.register(alias, 1024)
+        for rec in rows:
+            ts = getattr(rec, "time", None)
+            if isinstance(ts, datetime):
+                start_time = ts if start_time is None else min(start_time, ts)
+                end_time = ts if end_time is None else max(end_time, ts)
 
+    runtime.window_bounds = (start_time, end_time)
     return runtime
 
 

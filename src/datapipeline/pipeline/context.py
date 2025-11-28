@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Iterator, Mapping, Any, Callable, Optional
+from datetime import datetime
 
 from datapipeline.runtime import Runtime
 from datapipeline.pipeline.observability import ObserverRegistry
@@ -17,6 +18,7 @@ from datapipeline.services.artifacts import (
     PARTITIONED_TARGET_IDS_SPEC,
     VECTOR_SCHEMA_SPEC,
 )
+from datapipeline.utils.window import resolve_window_bounds
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +87,32 @@ class PipelineContext:
                     cached = []
             self._cache[key] = cached
         return [dict(entry) for entry in cached] if cached else []
+
+    @property
+    def rectangular_required(self) -> bool:
+        return bool(getattr(self.runtime, "rectangular_required", True))
+
+    @property
+    def schema_required(self) -> bool:
+        return bool(getattr(self.runtime, "schema_required", True))
+
+    def resolve_window_bounds(self) -> tuple[datetime | None, datetime | None]:
+        cached = self._cache.get("window_bounds")
+        if cached is not None:
+            return cached
+        bounds = resolve_window_bounds(self.runtime, self.rectangular_required)
+        self._cache["window_bounds"] = bounds
+        return bounds
+
+    @property
+    def start_time(self) -> datetime | None:
+        start, _ = self.resolve_window_bounds()
+        return start
+
+    @property
+    def end_time(self) -> datetime | None:
+        _, end = self.resolve_window_bounds()
+        return end
 
     @contextmanager
     def activate(self) -> Iterator[PipelineContext]:

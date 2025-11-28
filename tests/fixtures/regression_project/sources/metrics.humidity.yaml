@@ -1,0 +1,11 @@
+id: regression.humidity
+
+parser:
+  entrypoint: identity
+  args: {}
+loader:
+  entrypoint: "core.io"
+  args:
+    transport: fs
+    format: pickle
+    path: tests/fixtures/regression_project/data/humidity_partitioned.pkl
