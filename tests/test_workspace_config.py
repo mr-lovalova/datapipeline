@@ -45,15 +45,17 @@ def test_shared_visuals_defaults_when_missing(tmp_path):
     assert shared.progress is None
 
 
-def test_workspace_serve_defaults_include_targets(tmp_path):
+def test_workspace_serve_defaults_limit(tmp_path):
     _write_jerry(
         tmp_path,
         """
         serve:
-          include_targets: true
+          limit: 25
+          throttle_ms: 100
         """,
     )
 
     context = load_workspace_context(tmp_path)
     assert context
-    assert context.config.serve.include_targets is True
+    assert context.config.serve.limit == 25
+    assert context.config.serve.throttle_ms == 100

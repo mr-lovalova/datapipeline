@@ -20,7 +20,7 @@ def materialize_scaler_statistics(runtime: Runtime, task_cfg: ScalerTask) -> Tup
 
     dataset = load_dataset(runtime.project_yaml, "vectors")
     feature_cfgs = list(dataset.features or [])
-    target_cfgs = list(dataset.targets or []) if task_cfg.include_targets else []
+    target_cfgs = list(dataset.targets or [])
     if not feature_cfgs and not target_cfgs:
         return None
 

@@ -24,14 +24,13 @@ T = TypeVar("T")
 def _prepare_inspect_build(
     project: str | Path,
     *,
-    include_targets: bool,
     visuals: str | None,
     progress: str | None,
     workspace=None,
 ) -> None:
     project_path = Path(project)
     dataset = load_dataset(project_path, "vectors")
-    demands = [StageDemand(stage=None, include_targets=include_targets)]
+    demands = [StageDemand(stage=None)]
     required = required_artifacts_for(dataset, demands)
     if not required:
         return
@@ -79,7 +78,6 @@ def _iter_with_progress(
 def _run_inspect_job(
     project: str,
     *,
-    include_targets: bool,
     visuals: str | None,
     progress: str | None,
     log_level: int | None,
@@ -87,7 +85,7 @@ def _run_inspect_job(
     section: str,
     work,
 ) -> None:
-    dataset_ctx = load_dataset_context(project, include_targets=include_targets)
+    dataset_ctx = load_dataset_context(project)
     level_value = log_level if log_level is not None else logging.getLogger().getEffectiveLevel()
     visuals_provider = visuals or "auto"
     progress_style = progress or "auto"
@@ -117,7 +115,6 @@ def report(
     quiet: bool = False,
     write_coverage: bool = True,
     apply_postprocess: bool = True,
-    include_targets: bool = False,
     visuals: str | None = None,
     progress: str | None = None,
     log_level: int | None = None,
@@ -133,7 +130,6 @@ def report(
 
     _prepare_inspect_build(
         project,
-        include_targets=include_targets,
         visuals=visuals,
         progress=progress,
         workspace=workspace,
@@ -146,7 +142,7 @@ def report(
         dataset = dataset_ctx.dataset
 
         feature_cfgs = dataset_ctx.features
-        target_cfgs = dataset_ctx.targets if include_targets else []
+        target_cfgs = dataset_ctx.targets
         expected_feature_ids = [cfg.id for cfg in feature_cfgs]
 
         matrix_fmt = (fmt or matrix) if matrix in {"csv", "html"} else None
@@ -295,7 +291,6 @@ def report(
 
     _run_inspect_job(
         project,
-        include_targets=include_targets,
         visuals=visuals,
         progress=progress,
         log_level=log_level,
@@ -312,7 +307,6 @@ def partitions(
     project: str,
     *,
     output: str | None = None,
-    include_targets: bool = False,
     visuals: str | None = None,
     progress: str | None = None,
     log_level: int | None = None,
@@ -328,7 +322,6 @@ def partitions(
 
     _prepare_inspect_build(
         project,
-        include_targets=include_targets,
         visuals=visuals,
         progress=progress,
         workspace=workspace,
@@ -339,7 +332,7 @@ def partitions(
 
         dataset = dataset_ctx.dataset
         feature_cfgs = list(dataset.features or [])
-        target_cfgs = list(dataset.targets or []) if include_targets else []
+        target_cfgs = list(dataset.targets or [])
         expected_feature_ids = [cfg.id for cfg in feature_cfgs]
 
         base_artifacts = artifacts_root(project_path)
@@ -401,7 +394,6 @@ def partitions(
 
     _run_inspect_job(
         project,
-        include_targets=include_targets,
         visuals=visuals,
         progress=progress,
         log_level=log_level,
@@ -415,7 +407,6 @@ def expected(
     project: str,
     *,
     output: str | None = None,
-    include_targets: bool = False,
     visuals: str | None = None,
     progress: str | None = None,
     log_level: int | None = None,
@@ -428,7 +419,6 @@ def expected(
 
     _prepare_inspect_build(
         project,
-        include_targets=include_targets,
         visuals=visuals,
         progress=progress,
         workspace=workspace,
@@ -438,7 +428,7 @@ def expected(
         project_path = dataset_ctx.project
         dataset = dataset_ctx.dataset
         feature_cfgs = list(dataset.features or [])
-        target_cfgs = list(dataset.targets or []) if include_targets else []
+        target_cfgs = list(dataset.targets or [])
 
         context = dataset_ctx.pipeline_context
         vectors = build_vector_pipeline(
@@ -473,7 +463,6 @@ def expected(
 
     _run_inspect_job(
         project,
-        include_targets=include_targets,
         visuals=visuals,
         progress=progress,
         log_level=log_level,

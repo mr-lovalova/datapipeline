@@ -31,8 +31,8 @@ def test_run_config_value_preserves_explicit_null():
     assert _run_config_value(cfg, "progress") is None
 
 
-def test_run_profiles_inherit_workspace_include_targets(monkeypatch, tmp_path):
-    workspace_cfg = WorkspaceConfig.model_validate({"serve": {"include_targets": True}})
+def test_run_profiles_inherit_workspace_throttle(monkeypatch, tmp_path):
+    workspace_cfg = WorkspaceConfig.model_validate({"serve": {"throttle_ms": 250}})
     workspace = WorkspaceContext(file_path=tmp_path / "jerry.yaml", config=workspace_cfg)
     entries = [RunEntry(name="demo", config=None, path=None)]
 
@@ -52,7 +52,6 @@ def test_run_profiles_inherit_workspace_include_targets(monkeypatch, tmp_path):
         keep=None,
         stage=None,
         limit=None,
-        include_targets=None,
         cli_output=None,
         cli_payload=None,
         workspace=workspace,
@@ -62,4 +61,4 @@ def test_run_profiles_inherit_workspace_include_targets(monkeypatch, tmp_path):
         cli_progress=None,
     )
 
-    assert profiles[0].include_targets is True
+    assert profiles[0].throttle_ms == 250

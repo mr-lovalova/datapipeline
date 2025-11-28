@@ -330,7 +330,6 @@ output:
   transport: stdout  # stdout | fs
   format: print      # print | json-lines | json | csv | pickle
 limit: 100           # cap vectors per serve run (null = unlimited)
-include_targets: false
 throttle_ms: null    # milliseconds to sleep between emitted vectors
 # Optional overrides:
 # log_level: INFO   # DEBUG=progress bars, INFO=spinner, WARNING=quiet
@@ -339,7 +338,7 @@ throttle_ms: null    # milliseconds to sleep between emitted vectors
 ```
 
 - Each serve task lives alongside artifact tasks under `paths.tasks`. Files are independent—no special directory structure required.
-- `output`, `limit`, `include_targets`, `throttle_ms`, and `log_level` provide defaults for `jerry serve`; CLI flags still win per invocation (see *Configuration Resolution Order*). For filesystem outputs, set `transport: fs`, `directory: /path/to/root`, and omit file names—each run automatically writes to `<directory>/<run_name>/<run_name>.<ext>` unless you override the entire `output` block with a custom `filename`.
+- `output`, `limit`, `throttle_ms`, and `log_level` provide defaults for `jerry serve`; CLI flags still win per invocation (see *Configuration Resolution Order*). For filesystem outputs, set `transport: fs`, `directory: /path/to/root`, and omit file names—each run automatically writes to `<directory>/<run_name>/<run_name>.<ext>` unless you override the entire `output` block with a custom `filename`.
 - Override `keep` (and other fields) per invocation via `jerry serve ... --keep val` etc.
 - Visuals backend: set `visuals: AUTO|TQDM|RICH|OFF` in the task or use `--visuals`. Pair with `progress: AUTO|SPINNER|BARS|OFF` or `--progress` to control progress layouts.
 - Add additional `kind: serve` files to the tasks directory for other splits (val/test/etc.); `jerry serve` runs each enabled file unless you pass `--run <name>`.
@@ -359,7 +358,6 @@ shared:
 
 serve:
   log_level: INFO
-  include_targets: false # include dataset.targets when serving
   output:
     transport: stdout
     format: print
@@ -370,7 +368,7 @@ build:
   mode: AUTO # AUTO | FORCE | OFF
 ```
 
-`jerry.yaml` sits near the root of your workspace, while dataset-specific overrides still live in individual `tasks/serve.*.yaml` files as needed. Use `serve.include_targets` when you want every run to emit labels by default instead of toggling each task file.
+`jerry.yaml` sits near the root of your workspace, while dataset-specific overrides still live in individual `tasks/serve.*.yaml` files as needed.
 
 ### Configuration Resolution Order
 
@@ -548,14 +546,15 @@ Project-scoped vector transforms that run after assembly and before serving.
 
 ### Task Specs (`tasks/*.yaml`)
 
-Declare artifact and command tasks under `project.paths.tasks` (default `tasks/`):
+Declare artifact and command tasks under `project.paths.tasks` (default `tasks/`).
+Artifact specs are optional; if you omit them, Jerry falls back to built-in defaults.
+Add a YAML file only when you need to override paths or other parameters.
 
 `tasks/scaler.yaml`
 
 ```yaml
 kind: scaler
 output: scaler.pkl
-include_targets: false
 split_label: train
 enabled: true
 ```
@@ -697,10 +696,9 @@ appropriate group (`record`, `stream`, `feature`, `sequence`, `vector`,
 - `expected.txt`: newline-delimited full feature IDs, generated on demand via
   `jerry inspect expected`. Not required at runtime; transforms derive the
   expected universe from `schema.json`.
-- `schema.json`: output of the `vector_schema` build task. Jerry automatically
+- `schema.json`: output of the `schema` task. Jerry automatically
   enforces this schema during postprocess to impose deterministic ordering and
-  list cadence metadata (targets get their own section when
-  `include_targets: true`).
+  list cadence metadata (targets appear whenever the dataset defines them).
 - `scaler.pkl`: pickled standard scaler fitted on the configured split. Loaded
   lazily by feature transforms at runtime.
 - Build state is tracked in `artifacts/build/state.json`; config hashes avoid

@@ -35,7 +35,6 @@ def torch_dataset(
     dtype: Any | None = None,
     device: Any | None = None,
     flatten_sequences: bool = False,
-    include_targets: bool = False,
 ):
     """Build a torch.utils.data.Dataset that yields tensors from vectors."""
 
@@ -52,10 +51,9 @@ def torch_dataset(
         limit=limit,
         include_group=False,
         flatten_sequences=flatten_sequences,
-        include_targets=include_targets,
     )
 
-    if include_targets and target_columns is None:
+    if target_columns is None:
         try:
             ds = load_dataset(Path(project_yaml), "vectors")
             target_columns = [cfg.id for cfg in getattr(ds, "targets", []) or []]

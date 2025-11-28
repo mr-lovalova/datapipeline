@@ -73,7 +73,6 @@ def serve_with_runtime(
     dataset: FeatureDatasetConfig,
     limit: Optional[int],
     target: OutputTarget,
-    include_targets: bool,
     throttle_ms: Optional[float],
     stage: Optional[int],
     visuals: Optional[str] = None,
@@ -84,7 +83,7 @@ def serve_with_runtime(
     )
 
     feature_cfgs = list(dataset.features or [])
-    target_cfgs = list(dataset.targets or []) if include_targets else []
+    target_cfgs = list(dataset.targets or [])
     preview_cfgs = feature_cfgs + target_cfgs
 
     if not preview_cfgs:

@@ -70,12 +70,9 @@ class VectorAdapter:
         self,
         *,
         limit: int | None = None,
-        include_targets: bool = False,
     ) -> Iterator[tuple[Sequence[Any], Vector]]:
         features = list(_ensure_features(self.dataset))
-        target_cfgs = []
-        if include_targets:
-            target_cfgs = list(getattr(self.dataset, "targets", []) or [])
+        target_cfgs = list(getattr(self.dataset, "targets", []) or [])
         context = PipelineContext(self.runtime)
         vectors = build_vector_pipeline(
             context,
@@ -97,12 +94,9 @@ class VectorAdapter:
         group_format: GroupFormat = "mapping",
         group_column: str = "group",
         flatten_sequences: bool = False,
-        include_targets: bool = False,
     ) -> Iterator[dict[str, Any]]:
         features = list(_ensure_features(self.dataset))
-        target_cfgs = []
-        if include_targets:
-            target_cfgs = list(getattr(self.dataset, "targets", []) or [])
+        target_cfgs = list(getattr(self.dataset, "targets", []) or [])
         context = PipelineContext(self.runtime)
         vectors = build_vector_pipeline(
             context,
@@ -123,7 +117,7 @@ class VectorAdapter:
                         sample.key, group_by, group_format
                     )
                 vectors = [sample.features]
-                if include_targets and sample.targets:
+                if sample.targets:
                     vectors.append(sample.targets)
                 for vector in vectors:
                     for feature_id, value in vector.values.items():

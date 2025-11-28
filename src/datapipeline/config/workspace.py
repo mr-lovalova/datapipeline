@@ -66,7 +66,6 @@ class ServeDefaults(BaseModel):
     limit: Optional[int] = None
     stage: Optional[int] = None
     throttle_ms: Optional[float] = None
-    include_targets: Optional[bool] = None
 
     class OutputDefaults(BaseModel):
         transport: str

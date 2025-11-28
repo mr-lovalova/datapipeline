@@ -99,12 +99,6 @@ def main() -> None:
         help="destination file path when using fs transport",
     )
     p_serve.add_argument(
-        "--include-targets",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-        help="include dataset.targets in served vectors (use --no-include-targets to force disable)",
-    )
-    p_serve.add_argument(
         "--keep",
         help="split label to serve; overrides serve tasks and project globals",
     )
@@ -328,11 +322,6 @@ def main() -> None:
         help="whether to apply postprocess transforms (final) or skip them (raw)",
     )
     p_inspect_report.add_argument(
-        "--include-targets",
-        action="store_true",
-        help="include dataset.targets when computing report/matrix/coverage",
-    )
-    p_inspect_report.add_argument(
         "--sort",
         choices=["missing", "nulls"],
         default="missing",
@@ -392,11 +381,6 @@ def main() -> None:
         default="final",
         help="whether to apply postprocess transforms (final) or skip them (raw)",
     )
-    p_inspect_matrix.add_argument(
-        "--include-targets",
-        action="store_true",
-        help="include dataset.targets when exporting the matrix",
-    )
 
     # Partitions manifest subcommand
     p_inspect_parts = inspect_sub.add_parser(
@@ -416,11 +400,6 @@ def main() -> None:
         default=None,
         help="partitions manifest path (defaults to build/partitions.json)",
     )
-    p_inspect_parts.add_argument(
-        "--include-targets",
-        action="store_true",
-        help="include dataset.targets when discovering partitions",
-    )
 
     # Expected IDs (newline list)
     p_inspect_expected = inspect_sub.add_parser(
@@ -439,11 +418,6 @@ def main() -> None:
         "-o",
         default=None,
         help="expected ids output path (defaults to build/datasets/<name>/expected.txt)",
-    )
-    p_inspect_expected.add_argument(
-        "--include-targets",
-        action="store_true",
-        help="include dataset.targets when discovering expected ids",
     )
 
     workspace_context = load_workspace_context(Path.cwd())
@@ -476,7 +450,6 @@ def main() -> None:
         handle_serve(
             project=args.project,
             limit=getattr(args, "limit", None),
-            include_targets=args.include_targets,
             keep=getattr(args, "keep", None),
             run_name=getattr(args, "run", None),
             stage=getattr(args, "stage", None),
@@ -533,7 +506,6 @@ def main() -> None:
                 quiet=False,
                 write_coverage=False,
                 apply_postprocess=(getattr(args, "mode", "final") == "final"),
-                include_targets=getattr(args, "include_targets", False),
                 visuals=inspect_visual_provider,
                 progress=inspect_progress_style,
                 log_level=base_level,
@@ -553,7 +525,6 @@ def main() -> None:
                 quiet=getattr(args, "quiet", False),
                 write_coverage=False,
                 apply_postprocess=(getattr(args, "mode", "final") == "final"),
-                include_targets=getattr(args, "include_targets", False),
                 visuals=inspect_visual_provider,
                 progress=inspect_progress_style,
                 log_level=base_level,
@@ -565,7 +536,6 @@ def main() -> None:
             handle_inspect_partitions(
                 project=getattr(args, "project", default_project),
                 output=getattr(args, "output", None),
-                include_targets=getattr(args, "include_targets", False),
                 visuals=inspect_visual_provider,
                 progress=inspect_progress_style,
                 log_level=base_level,
@@ -576,7 +546,6 @@ def main() -> None:
             handle_inspect_expected(
                 project=getattr(args, "project", default_project),
                 output=getattr(args, "output", None),
-                include_targets=getattr(args, "include_targets", False),
                 visuals=inspect_visual_provider,
                 progress=inspect_progress_style,
                 log_level=base_level,

@@ -72,7 +72,6 @@ Train/Val/Test splits (deterministic)
     transport: stdout       # stdout | fs
     format: print           # print | json-lines | json | csv | pickle
   limit: 100                # cap vectors per serve run (null = unlimited)
-  include_targets: false    # include dataset.targets when serving
   throttle_ms: null         # sleep between vectors (milliseconds)
   # visuals: AUTO  # AUTO | TQDM | RICH | OFF
   # progress: AUTO # AUTO | SPINNER | BARS | OFF
@@ -95,7 +94,7 @@ Postprocess expected IDs
 - Bootstrap registers the artifact; postprocess transforms read it automatically. Per-transform `expected:` overrides are no longer required or supported — the build output is the single source of truth.
 
 Scaler statistics
-- Enable the scaler task in `tasks/scaler.yaml` (default `enabled: true`) to compute mean/std per feature using the configured training split.
+- Jerry computes scaler stats automatically. If you need custom paths or settings, add `tasks/scaler.yaml` and override the defaults.
 - The build writes `<paths.artifacts>/scaler.pkl`; runtime scaling requires this artifact. If it is missing, scaling transforms raise a runtime error.
 
 Tips

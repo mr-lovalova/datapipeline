@@ -32,7 +32,6 @@ def _profile_debug_payload(profile) -> dict[str, object]:
         },
         "stage": profile.stage,
         "limit": profile.limit,
-        "include_targets": profile.include_targets,
         "throttle_ms": profile.throttle_ms,
         "log_level": {
             "name": profile.log_decision.name,
@@ -131,7 +130,7 @@ def ensure_stage_artifacts(
     cli_progress: Optional[str],
     workspace,
 ) -> None:
-    demands = [StageDemand(profile.stage, profile.include_targets) for profile in profiles]
+    demands = [StageDemand(profile.stage) for profile in profiles]
     required = required_artifacts_for(dataset, demands)
     if not required:
         return
@@ -147,7 +146,6 @@ def ensure_stage_artifacts(
 def handle_serve(
     project: str,
     limit: Optional[int],
-    include_targets: Optional[bool] = None,
     keep: Optional[str] = None,
     run_name: Optional[str] = None,
     stage: Optional[int] = None,
@@ -175,7 +173,6 @@ def handle_serve(
             keep=keep,
             stage=stage,
             limit=limit,
-            include_targets=include_targets,
             cli_output=cli_output_cfg,
             cli_payload=payload_override or (out_payload.lower() if out_payload else None),
             workspace=workspace,
@@ -223,7 +220,6 @@ def handle_serve(
                 dataset,
                 limit=profile.limit,
                 target=profile.output,
-                include_targets=profile.include_targets,
                 throttle_ms=profile.throttle_ms,
                 stage=profile.stage,
                 visuals=profile.visuals.visuals,

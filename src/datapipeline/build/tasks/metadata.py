@@ -28,8 +28,9 @@ def materialize_metadata(runtime: Runtime, task_cfg: MetadataTask) -> Tuple[str,
     )
     target_meta: list[dict] = []
     target_vectors = 0
-    if task_cfg.include_targets:
-        target_cfgs = list(dataset.targets or [])
+    target_cfgs = list(dataset.targets or [])
+    target_min = target_max = None
+    if target_cfgs:
         target_stats, target_vectors, target_min, target_max = collect_schema_entries(
             runtime,
             target_cfgs,
@@ -38,8 +39,6 @@ def materialize_metadata(runtime: Runtime, task_cfg: MetadataTask) -> Tuple[str,
             collect_metadata=True,
         )
         target_meta = metadata_entries_from_stats(target_stats, task_cfg.cadence_strategy)
-    else:
-        target_min = target_max = None
     feature_meta = metadata_entries_from_stats(feature_stats, task_cfg.cadence_strategy)
 
     doc = {

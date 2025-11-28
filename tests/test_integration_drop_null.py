@@ -8,7 +8,7 @@ from datapipeline.pipeline.stages import post_process
 
 def test_drop_missing_with_schema_and_partitioned_streams():
     project = Path("tests/fixtures/drop_null_project/project.yaml")
-    dataset_ctx = load_dataset_context(project, include_targets=False)
+    dataset_ctx = load_dataset_context(project)
     context = dataset_ctx.pipeline_context
 
     vectors = build_vector_pipeline(

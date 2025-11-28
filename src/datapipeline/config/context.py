@@ -43,7 +43,6 @@ class RunProfile:
     runtime: Runtime
     stage: Optional[int]
     limit: Optional[int]
-    include_targets: bool
     throttle_ms: Optional[float]
     log_decision: LogLevelDecision
     visuals: VisualSettings
@@ -78,13 +77,11 @@ class DatasetContext:
         return list(self.dataset.targets or [])
 
 
-def load_dataset_context(project: Path | str, *, include_targets: bool) -> DatasetContext:
+def load_dataset_context(project: Path | str) -> DatasetContext:
     project_path = Path(project)
     dataset = load_dataset(project_path, "vectors")
     runtime = bootstrap(project_path)
     context = PipelineContext(runtime)
-    if not include_targets:
-        dataset.targets = []
     return DatasetContext(
         project=project_path,
         dataset=dataset,
@@ -133,7 +130,6 @@ def resolve_run_profiles(
     keep: Optional[str],
     stage: Optional[int],
     limit: Optional[int],
-    include_targets: Optional[bool],
     cli_output,
     cli_payload: Optional[str],
     workspace: WorkspaceContext | None,
@@ -151,9 +147,6 @@ def resolve_run_profiles(
     serve_limit_default = serve_defaults.limit if serve_defaults else None
     serve_stage_default = serve_defaults.stage if serve_defaults else None
     serve_throttle_default = serve_defaults.throttle_ms if serve_defaults else None
-    serve_include_targets_default = (
-        serve_defaults.include_targets if serve_defaults else None
-    )
     workspace_output_cfg = workspace_output_defaults(workspace)
 
     profiles: list[RunProfile] = []
@@ -165,12 +158,6 @@ def resolve_run_profiles(
 
         resolved_stage = cascade(stage, _run_config_value(run_cfg, "stage"), serve_stage_default)
         resolved_limit = cascade(limit, _run_config_value(run_cfg, "limit"), serve_limit_default)
-        resolved_include_targets = cascade(
-            include_targets,
-            _run_config_value(run_cfg, "include_targets"),
-            serve_include_targets_default,
-            False,
-        )
         throttle_ms = cascade(
             _run_config_value(run_cfg, "throttle_ms"),
             serve_throttle_default,
@@ -212,7 +199,6 @@ def resolve_run_profiles(
                 runtime=runtime,
                 stage=resolved_stage,
                 limit=resolved_limit,
-                include_targets=resolved_include_targets,
                 throttle_ms=throttle_ms,
                 log_decision=log_decision,
                 visuals=visuals,

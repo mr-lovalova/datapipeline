@@ -1,5 +1,0 @@
-kind: scaler
-output: scaler.pkl     # relative to project.paths.artifacts
-include_targets: false
-split_label: train
-enabled: true

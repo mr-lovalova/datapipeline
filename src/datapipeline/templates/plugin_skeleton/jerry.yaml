@@ -13,7 +13,6 @@ serve:
   # log_level: INFO
   limit: 5
   stage: null
-  include_targets: false # include dataset.targets when serving
   output:
     transport: stdout
     format: print # set to fs + directory for file outputs

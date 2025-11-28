@@ -29,7 +29,7 @@ def test_artifact_tasks_load_configs(tmp_path):
     tasks_dir = project_yaml.parent / "tasks"
     tasks_dir.mkdir()
     (tasks_dir / "schema.yaml").write_text(
-        "kind: schema\noutput: schema.json\ninclude_targets: true\n", encoding="utf-8"
+        "kind: schema\noutput: schema.json\n", encoding="utf-8"
     )
     (tasks_dir / "scaler.yaml").write_text(
         "kind: scaler\nsplit_label: all\noutput: stats.pkl\n", encoding="utf-8"
@@ -38,9 +38,9 @@ def test_artifact_tasks_load_configs(tmp_path):
     tasks = artifact_tasks(project_yaml)
 
     kinds = sorted(task.kind for task in tasks)
-    assert kinds == ["scaler", "schema"]
+    assert kinds == ["metadata", "scaler", "schema"]
     schema = next(task for task in tasks if task.kind == "schema")
-    assert schema.include_targets is True
+    assert schema.output == "schema.json"
     scaler = next(task for task in tasks if task.kind == "scaler")
     assert scaler.split_label == "all"
     assert scaler.output == "stats.pkl"

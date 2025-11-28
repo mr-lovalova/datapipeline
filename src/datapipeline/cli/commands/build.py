@@ -50,7 +50,6 @@ def _log_task_overview(tasks: list[ArtifactTask]) -> None:
             "kind": task.kind,
             "enabled": task.enabled,
             "output": getattr(task, "output", None),
-            "include_targets": getattr(task, "include_targets", None),
         }
         for task in tasks
     ]

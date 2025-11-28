@@ -15,7 +15,6 @@ def dataframe_from_vectors(
     group_format: GroupFormat = "mapping",
     group_column: str = "group",
     flatten_sequences: bool = False,
-    include_targets: bool = False,
     open_stream: Callable[[str], Iterable[Any]] | None = None,
 ):
     """Return a Pandas DataFrame built from project vectors.
@@ -37,7 +36,6 @@ def dataframe_from_vectors(
         group_format=group_format,
         group_column=group_column,
         flatten_sequences=flatten_sequences,
-        include_targets=include_targets,
         open_stream=open_stream,
     )
     return pd.DataFrame(rows)

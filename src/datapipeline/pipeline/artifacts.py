@@ -14,7 +14,6 @@ from datapipeline.services.constants import (
 @dataclass(frozen=True)
 class StageDemand:
     stage: int | None
-    include_targets: bool
 
 
 def _needs_scaler(configs: Iterable[FeatureRecordConfig]) -> bool:
@@ -27,10 +26,10 @@ def _needs_scaler(configs: Iterable[FeatureRecordConfig]) -> bool:
     return False
 
 
-def _requires_scaler(dataset: FeatureDatasetConfig, include_targets: bool) -> bool:
+def _requires_scaler(dataset: FeatureDatasetConfig) -> bool:
     if _needs_scaler(dataset.features or []):
         return True
-    if include_targets and dataset.targets:
+    if dataset.targets:
         return _needs_scaler(dataset.targets)
     return False
 
@@ -42,10 +41,9 @@ def required_artifacts_for(
     required: set[str] = set()
     for demand in demands:
         stage = demand.stage
-        include_targets = demand.include_targets
         effective_stage = 7 if stage is None else stage
 
-        if effective_stage >= 5 and _requires_scaler(dataset, include_targets):
+        if effective_stage >= 5 and _requires_scaler(dataset):
             required.add(SCALER_STATISTICS)
 
         if effective_stage >= 6:

@@ -14,7 +14,7 @@ from datapipeline.pipeline.stages import post_process
     [Path("tests/fixtures/regression_project/project.yaml")],
 )
 def test_full_regression_project_vectors(project_path: Path) -> None:
-    ctx = load_dataset_context(project_path, include_targets=True)
+    ctx = load_dataset_context(project_path)
     context = ctx.pipeline_context
 
     base_vectors = build_vector_pipeline(

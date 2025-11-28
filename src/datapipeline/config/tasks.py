@@ -35,10 +35,6 @@ class ArtifactTask(TaskBase):
         ...,
         description="Artifact path relative to project.paths.artifacts.",
     )
-    include_targets: bool = Field(
-        default=False,
-        description="Include dataset.targets when generating the artifact.",
-    )
 
 
 class ScalerTask(ArtifactTask):
@@ -144,10 +140,6 @@ class ServeTask(TaskBase):
         default=None,
         description="Default max number of vectors to emit.",
         ge=1,
-    )
-    include_targets: bool = Field(
-        default=False,
-        description="Serve dataset.targets alongside features by default.",
     )
     stage: int | None = Field(
         default=None,
@@ -267,11 +259,19 @@ def load_all_tasks(project_yaml: Path) -> list[TaskBase]:
 
 
 def artifact_tasks(project_yaml: Path) -> list[ArtifactTask]:
-    return [
+    tasks = [
         task
         for task in load_all_tasks(project_yaml)
         if isinstance(task, ArtifactTask)
     ]
+    kinds = {task.kind for task in tasks}
+    if "schema" not in kinds:
+        tasks.append(SchemaTask(kind="schema"))
+    if "scaler" not in kinds:
+        tasks.append(ScalerTask(kind="scaler"))
+    if "metadata" not in kinds:
+        tasks.append(MetadataTask(kind="metadata"))
+    return tasks
 
 
 def command_tasks(project_yaml: Path, kind: str | None = None) -> list[TaskBase]:
