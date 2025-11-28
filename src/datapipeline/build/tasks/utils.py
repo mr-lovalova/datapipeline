@@ -62,7 +62,14 @@ def collect_schema_entries(
                     "element_types": set(),
                     "min_length": None,
                     "lengths": Counter(),
+                    "first_ts": None,
+                    "last_ts": None,
                 }
+            if isinstance(ts, datetime):
+                prev_start = entry.get("first_ts")
+                entry["first_ts"] = ts if prev_start is None else min(prev_start, ts)
+                prev_end = entry.get("last_ts")
+                entry["last_ts"] = ts if prev_end is None else max(prev_end, ts)
             if collect_metadata:
                 entry["present_count"] += 1
             if is_missing(value):
@@ -118,6 +125,15 @@ def schema_entries_from_stats(entries: list[dict], cadence_strategy: str) -> lis
     return doc
 
 
+def _to_iso(ts: datetime | None) -> str | None:
+    if isinstance(ts, datetime):
+        text = ts.isoformat()
+        if text.endswith("+00:00"):
+            return text[:-6] + "Z"
+        return text
+    return None
+
+
 def metadata_entries_from_stats(entries: list[dict], cadence_strategy: str) -> list[dict]:
     meta_entries: list[dict] = []
     for entry in entries:
@@ -129,6 +145,12 @@ def metadata_entries_from_stats(entries: list[dict], cadence_strategy: str) -> l
             "present_count": entry.get("present_count", 0),
             "null_count": entry.get("null_count", 0),
         }
+        first_ts = _to_iso(entry.get("first_ts"))
+        last_ts = _to_iso(entry.get("last_ts"))
+        if first_ts:
+            item["first_observed"] = first_ts
+        if last_ts:
+            item["last_observed"] = last_ts
         if kind == "list":
             item["element_types"] = sorted(entry.get("element_types", []))
             lengths = entry.get("lengths") or {}

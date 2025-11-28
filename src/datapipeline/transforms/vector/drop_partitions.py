@@ -46,6 +46,8 @@ class VectorDropPartitionsTransform(ContextExpectedMixin):
             return
         self._maybe_prune_schema(drop_ids)
         for sample in stream:
+            if not self._schema_pruned:
+                self._maybe_prune_schema(drop_ids)
             vector = select_vector(sample, self._payload)
             if vector is None or not vector.values:
                 yield sample
@@ -121,7 +123,7 @@ class VectorDropPartitionsTransform(ContextExpectedMixin):
             return
         schema_key = f"schema:{self._payload}"
         if schema_key not in cache:
-            context.load_schema(payload=self._payload)
+            return
         entries = cache.get(schema_key)
         if not entries:
             self._schema_pruned = True

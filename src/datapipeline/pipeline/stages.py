@@ -245,13 +245,13 @@ def _apply_vector_schema(
                 raise RuntimeError("Schema missing for payload 'features'. Run `jerry build` to materialize schema.json.")
             feature_stream = stream
         else:
-            feature_schema = VectorEnsureSchemaTransform(on_missing="fill")
+            feature_schema = VectorEnsureSchemaTransform(on_missing="fill", on_extra="drop")
             feature_schema.bind_context(context)
             feature_stream = feature_schema(stream)
 
         def _apply_targets(upstream: Iterator[Sample]) -> Iterator[Sample]:
             if target_entries:
-                target_schema = VectorEnsureSchemaTransform(payload="targets", on_missing="fill")
+                target_schema = VectorEnsureSchemaTransform(payload="targets", on_missing="fill", on_extra="drop")
                 target_schema.bind_context(context)
                 return target_schema(upstream)
             if not context.schema_required:

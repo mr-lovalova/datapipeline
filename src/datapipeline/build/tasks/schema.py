@@ -44,15 +44,6 @@ def materialize_vector_schema(runtime: Runtime, task_cfg: SchemaTask) -> Tuple[s
         "schema_version": 1,
         "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
     }
-    start, end = resolve_window_bounds(runtime, False)
-    obs_start_candidates = [t for t in (feature_min, target_min) if t is not None]
-    obs_end_candidates = [t for t in (feature_max, target_max) if t is not None]
-    obs_start = min(obs_start_candidates) if obs_start_candidates else None
-    obs_end = max(obs_end_candidates) if obs_end_candidates else None
-    start = start or obs_start
-    end = end or obs_end
-    if start is not None and end is not None:
-        doc["window"] = {"start": start.isoformat(), "end": end.isoformat()}
     doc["features"] = feature_entries
     doc["targets"] = target_entries
 

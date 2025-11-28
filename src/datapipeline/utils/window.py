@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from datapipeline.services.artifacts import ArtifactNotRegisteredError, VECTOR_SCHEMA_SPEC
+from datapipeline.services.artifacts import (
+    ArtifactNotRegisteredError,
+    VECTOR_METADATA_SPEC,
+    VECTOR_SCHEMA_SPEC,
+)
 from datapipeline.utils.time import parse_datetime
 from datapipeline.runtime import Runtime
 
@@ -32,20 +36,31 @@ def resolve_window_bounds(runtime: Runtime, rectangular_required: bool) -> tuple
             start = end = None
 
     if start is None or end is None:
+        doc = None
         try:
-            doc = runtime.artifacts.load(VECTOR_SCHEMA_SPEC)
+            doc = runtime.artifacts.load(VECTOR_METADATA_SPEC)
         except ArtifactNotRegisteredError:
             doc = None
         except Exception:
             doc = None
-        if isinstance(doc, dict):
-            window = doc.get("window") or doc.get("meta", {}).get("window")
-            if isinstance(window, dict):
-                start = start or _parse_dt(window.get("start") or window.get("start_time"))
-                end = end or _parse_dt(window.get("end") or window.get("end_time"))
+        if not isinstance(doc, dict):
+            try:
+                doc = runtime.artifacts.load(VECTOR_SCHEMA_SPEC)
+            except ArtifactNotRegisteredError:
+                doc = None
+            except Exception:
+                doc = None
+        try:
+            if isinstance(doc, dict):
+                window = doc.get("window") or doc.get("meta", {}).get("window")
+                if isinstance(window, dict):
+                    start = start or _parse_dt(window.get("start") or window.get("start_time"))
+                    end = end or _parse_dt(window.get("end") or window.get("end_time"))
+        except Exception:
+            pass
 
     if rectangular_required and (start is None or end is None):
-        raise RuntimeError("Window bounds unavailable (globals and schema missing); rectangular output required.")
+        raise RuntimeError("Window bounds unavailable (configure globals.start/end or rebuild metadata); rectangular output required.")
     return start, end
 
 

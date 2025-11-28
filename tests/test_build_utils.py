@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import math
+from datetime import datetime, timezone
 
-from datapipeline.build.tasks.utils import collect_schema_entries
+from datapipeline.build.tasks.metadata import _window_bounds_from_stats
+from datapipeline.build.tasks.utils import collect_schema_entries, metadata_entries_from_stats
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
@@ -40,3 +42,48 @@ def test_collect_schema_entries_counts_nan(monkeypatch, tmp_path):
     entry = next(item for item in stats if item["id"] == "wind_speed")
     assert entry["present_count"] == 1
     assert entry["null_count"] == 1
+
+
+def test_metadata_entries_include_observation_bounds():
+    stats = [
+        {
+            "id": "temp",
+            "base_id": "temp",
+            "kind": "scalar",
+            "present_count": 4,
+            "null_count": 0,
+            "first_ts": datetime(2024, 1, 1, tzinfo=timezone.utc),
+            "last_ts": datetime(2024, 1, 2, tzinfo=timezone.utc),
+        }
+    ]
+
+    entries = metadata_entries_from_stats(stats, "max")
+
+    assert entries[0]["first_observed"] == "2024-01-01T00:00:00Z"
+    assert entries[0]["last_observed"] == "2024-01-02T00:00:00Z"
+
+
+def test_window_bounds_modes():
+    ts = lambda hour: datetime(2024, 1, 1, hour=hour, tzinfo=timezone.utc)
+    feature_stats = [
+        {"id": "wind__@A", "base_id": "wind", "first_ts": ts(0), "last_ts": ts(6)},
+        {"id": "wind__@B", "base_id": "wind", "first_ts": ts(2), "last_ts": ts(5)},
+        {"id": "temp", "base_id": "temp", "first_ts": ts(1), "last_ts": ts(7)},
+    ]
+    target_stats: list[dict] = []
+
+    start, end = _window_bounds_from_stats(feature_stats, target_stats, mode="union")
+    assert start == ts(0)
+    assert end == ts(7)
+
+    start, end = _window_bounds_from_stats(feature_stats, target_stats, mode="intersection")
+    assert start == ts(1)
+    assert end == ts(6)
+
+    start, end = _window_bounds_from_stats(feature_stats, target_stats, mode="strict")
+    assert start == ts(2)
+    assert end == ts(5)
+
+    start, end = _window_bounds_from_stats(feature_stats, target_stats, mode="relaxed")
+    assert start == ts(0)
+    assert end == ts(7)

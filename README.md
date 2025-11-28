@@ -562,7 +562,7 @@ enabled: true
 - `scaler.pkl` is a pickled standard scaler fitted on the requested split.
 - `schema.json` (from the `schema` task) enumerates the discovered feature/target identifiers (including partitions), their kinds (scalar/list), and cadence hints used to enforce ordering downstream.
   - Configure the `schema` task to choose a cadence strategy (currently `max`). Per-feature overrides will be added later; for now every list-valued feature records the max observed length as its enforcement target.
-- `schema.metadata.json` (from the optional `metadata` task) captures heavier statistics—present/null counts, inferred value types, list-length histograms, etc. Enable it when you need coverage diagnostics without reprocessing raw vectors.
+- `schema.metadata.json` (from the `metadata` task) captures heavier statistics—present/null counts, inferred value types, list-length histograms, per-partition timestamps, and the dataset window. Configure `metadata.window_mode` with `union|intersection|strict|relaxed` to control how start/end bounds are derived (project `globals.start_time`/`end_time` still override each side when set). `union` considers base features, `intersection` uses their overlap, `strict` intersects every partition, and `relaxed` unions partitions independently.
 - Command tasks (`kind: serve`) live alongside artifact tasks; `jerry serve` reads them directly.
 - Shared run/build defaults (visuals/progress/log level/build mode) live in `jerry.yaml`.
 
@@ -698,7 +698,7 @@ appropriate group (`record`, `stream`, `feature`, `sequence`, `vector`,
   expected universe from `schema.json`.
 - `schema.json`: output of the `schema` task. Jerry automatically
   enforces this schema during postprocess to impose deterministic ordering and
-  list cadence metadata (targets appear whenever the dataset defines them).
+  list cadence metadata (targets appear whenever the dataset defines them). Window metadata now lives in `schema.metadata.json`.
 - `scaler.pkl`: pickled standard scaler fitted on the configured split. Loaded
   lazily by feature transforms at runtime.
 - Build state is tracked in `artifacts/build/state.json`; config hashes avoid

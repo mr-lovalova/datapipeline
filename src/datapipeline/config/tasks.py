@@ -66,6 +66,10 @@ class MetadataTask(ArtifactTask):
         default="max",
         description="Strategy for selecting cadence targets.",
     )
+    window_mode: Literal["union", "intersection", "strict", "relaxed"] = Field(
+        default="union",
+        description="Window mode: union (base union), intersection (base intersection), strict (partition intersection), relaxed (partition union).",
+    )
 
 
 class ServeOutputConfig(BaseModel):
