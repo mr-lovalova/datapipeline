@@ -6,13 +6,12 @@ paths:
   dataset: dataset.yaml
   postprocess: postprocess.yaml
   artifacts: ../../artifacts/${project_name}
-  build: builds
-  run: runs
+  tasks: tasks
 globals:
   start_time: null # 2021-01-01T00:00:00Z format example
   end_time: null # 2023-01-03T23:00:00Z
   # Configure deterministic dataset split here (applied at serve time, after postprocess).
-  # Adjust `ratios` as needed; the active split is selected via run.yaml or CLI.
+  # Adjust `ratios` as needed; the active split is selected via serve tasks or CLI.
   split:
     mode: hash # hash | time (time uses boundaries/labels)
     key: group # group | feature:<id> (entity-stable split)

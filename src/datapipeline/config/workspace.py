@@ -6,7 +6,7 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
-from datapipeline.config.run import (
+from datapipeline.config.tasks import (
     VALID_PROGRESS_STYLES,
     VALID_VISUAL_PROVIDERS,
 )

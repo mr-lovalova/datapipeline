@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from datapipeline.config.run import OutputConfig
+from datapipeline.config.tasks import ServeOutputConfig
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
 from datapipeline.io.serializers import json_line_serializer
@@ -10,7 +10,7 @@ from datapipeline.io.output import resolve_output_target
 def test_resolve_output_target_uses_directory_and_run_name(tmp_path):
     default_dir = tmp_path / "outputs"
     default_dir.mkdir()
-    cfg = OutputConfig(transport="fs", format="json-lines", directory=default_dir)
+    cfg = ServeOutputConfig(transport="fs", format="json-lines", directory=default_dir)
 
     target = resolve_output_target(
         cli_output=None,
@@ -29,7 +29,7 @@ def test_resolve_output_target_uses_directory_and_run_name(tmp_path):
 def test_resolve_output_target_honors_custom_filename(tmp_path):
     base_dir = tmp_path / "outputs"
     base_dir.mkdir()
-    cfg = OutputConfig(transport="fs", format="json-lines", directory=base_dir, filename="custom")
+    cfg = ServeOutputConfig(transport="fs", format="json-lines", directory=base_dir, filename="custom")
 
     target = resolve_output_target(
         cli_output=None,
@@ -45,7 +45,7 @@ def test_resolve_output_target_honors_custom_filename(tmp_path):
 def test_resolve_output_target_preserves_payload_setting(tmp_path):
     base_dir = tmp_path / "vectors_out"
     base_dir.mkdir()
-    cfg = OutputConfig(
+    cfg = ServeOutputConfig(
         transport="fs", format="json-lines", directory=base_dir, payload="vector"
     )
 
@@ -61,7 +61,7 @@ def test_resolve_output_target_preserves_payload_setting(tmp_path):
 
 
 def test_resolve_output_target_respects_payload_override(tmp_path):
-    cfg = OutputConfig(transport="stdout", format="print", payload="sample")
+    cfg = ServeOutputConfig(transport="stdout", format="print", payload="sample")
 
     target = resolve_output_target(
         cli_output=None,

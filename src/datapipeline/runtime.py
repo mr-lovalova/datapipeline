@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Any, List, Mapping, Optional, Sequence, Union
 from datetime import datetime
 
-from datapipeline.config.run import RunConfig
+from datapipeline.config.tasks import ServeTask
 from datapipeline.config.split import SplitConfig
 
 from datapipeline.registries.registry import Registry
@@ -67,7 +67,7 @@ class Runtime:
     registries: Registries = field(default_factory=Registries)
     split: Optional[SplitConfig] = None
     split_keep: Optional[str] = None
-    run: Optional[RunConfig] = None
+    run: Optional[ServeTask] = None
     schema_required: bool = True
     window_bounds: tuple[datetime | None, datetime | None] | None = None
     artifacts: ArtifactManager = field(init=False)

@@ -1,18 +1,14 @@
-version: 1
+kind: serve
 name: train
-# Active split label to serve; must match a label defined in globals.split.
-# Set to null to disable filtering or override per run via CLI.
 keep: train
 # Optional defaults for jerry serve (override via CLI when needed).
 # output:
 #   transport: stdout
 #   format: print # print | json-lines | json | csv | pickle
-#   # directory: artifacts/serve # When transport=fs, provide a directory (not a file path)
 # limit: 100 # max vectors per serve run (null = unlimited)
 # include_targets: false # serve dataset.targets alongside features
 # stage: null # default pipeline stage preview (0-7); null streams full pipeline
 # throttle_ms: null # milliseconds to sleep between emitted vectors
-# Uncomment below to override for this specific run only.
 # log_level: INFO # DEBUG | INFO | WARNING | ERROR | CRITICAL
 # visuals: AUTO   # AUTO | TQDM | RICH | OFF
-# progress: AUTO    # AUTO | SPINNER | BARS | OFF
+# progress: AUTO  # AUTO | SPINNER | BARS | OFF

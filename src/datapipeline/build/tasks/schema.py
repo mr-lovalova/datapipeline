@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Tuple
 
-from datapipeline.config.build import VectorSchemaConfig
+from datapipeline.config.tasks import SchemaTask
 from datapipeline.config.dataset.loader import load_dataset
 from datapipeline.runtime import Runtime
 from datapipeline.utils.paths import ensure_parent
@@ -14,7 +14,7 @@ from datapipeline.utils.window import resolve_window_bounds
 from .utils import collect_schema_entries, schema_entries_from_stats
 
 
-def materialize_vector_schema(runtime: Runtime, task_cfg: VectorSchemaConfig) -> Tuple[str, Dict[str, object]] | None:
+def materialize_vector_schema(runtime: Runtime, task_cfg: SchemaTask) -> Tuple[str, Dict[str, object]] | None:
     if not task_cfg.enabled:
         return None
     dataset = load_dataset(runtime.project_yaml, "vectors")

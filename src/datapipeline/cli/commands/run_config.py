@@ -4,7 +4,7 @@ import logging
 from pathlib import Path
 from typing import Iterator, List, NamedTuple, Optional, Sequence
 
-from datapipeline.config.run import RunConfig, load_named_run_configs
+from datapipeline.config.tasks import ServeTask, serve_tasks
 from datapipeline.runtime import Runtime
 from datapipeline.services.bootstrap import bootstrap
 
@@ -13,17 +13,17 @@ logger = logging.getLogger(__name__)
 
 class RunEntry(NamedTuple):
     name: Optional[str]
-    config: Optional[RunConfig]
+    config: Optional[ServeTask]
     path: Optional[Path]
 
 
 def resolve_run_entries(project_path: Path, run_name: Optional[str]) -> tuple[List[RunEntry], Optional[Path]]:
     try:
-        raw_entries = load_named_run_configs(project_path)
+        raw_entries = serve_tasks(project_path)
     except FileNotFoundError:
         raw_entries = []
     except Exception as exc:
-        logger.error("Failed to load run configs: %s", exc)
+        logger.error("Failed to load serve tasks: %s", exc)
         raise SystemExit(2) from exc
 
     entries: List[RunEntry] = []
@@ -31,17 +31,28 @@ def resolve_run_entries(project_path: Path, run_name: Optional[str]) -> tuple[Li
 
     if raw_entries:
         if run_name:
-            raw_entries = [entry for entry in raw_entries if entry[0] == run_name]
+            raw_entries = [
+                task
+                for task in raw_entries
+                if task.effective_name() == run_name
+            ]
             if not raw_entries:
-                logger.error("Unknown run config '%s'", run_name)
+                logger.error("Unknown run task '%s'", run_name)
                 raise SystemExit(2)
-        for name, cfg, path in raw_entries:
-            if root_path is None:
+        for task in raw_entries:
+            path = getattr(task, "source_path", None)
+            if root_path is None and path is not None:
                 root_path = path.parent
-            entries.append(RunEntry(name=name, config=cfg, path=path))
+            entries.append(
+                RunEntry(
+                    name=task.effective_name(),
+                    config=task,
+                    path=path,
+                )
+            )
     else:
         if run_name:
-            logger.error("Project does not define run configs.")
+            logger.error("Project does not define serve tasks.")
             raise SystemExit(2)
         entries = [RunEntry(name=None, config=None, path=None)]
     return entries, root_path

@@ -88,7 +88,7 @@ class VectorDropPartitionsTransform(ContextExpectedMixin):
             if self._payload == "targets":
                 raise RuntimeError(
                     "Vector metadata artifact missing counts for targets; "
-                    "set `include_targets: true` in build/artifacts/metadata.yaml and rebuild."
+                    "set `include_targets: true` in tasks/metadata.yaml and rebuild."
                 )
             raise RuntimeError(
                 "Vector metadata artifact missing counts for features; "

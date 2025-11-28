@@ -11,8 +11,7 @@ class ProjectPaths(BaseModel):
     dataset: str
     postprocess: str
     artifacts: str
-    build: str | None = None
-    run: str | None = None
+    tasks: str | None = None
 
 
 class ProjectGlobals(BaseModel):

@@ -32,7 +32,7 @@ def _yaml_files(directory: Path) -> Iterable[Path]:
     return sorted(p for p in directory.rglob("*.y*ml") if p.is_file())
 
 
-def compute_config_hash(project_yaml: Path, build_config_path: Path) -> str:
+def compute_config_hash(project_yaml: Path, tasks_path: Path) -> str:
     """Compute a deterministic hash across relevant config inputs."""
 
     hasher = hashlib.sha256()
@@ -50,14 +50,14 @@ def compute_config_hash(project_yaml: Path, build_config_path: Path) -> str:
             raise FileNotFoundError(f"Expected config file missing: {path}")
         _hash_file(hasher, path, base_dir)
 
-    if not build_config_path.is_dir():
+    if not tasks_path.is_dir():
         raise TypeError(
-            f"project.paths.build must point to an artifacts directory, got: {build_config_path}"
+            f"project.paths.tasks must point to a directory, got: {tasks_path}"
         )
     hasher.update(
-        f"[dir]{_normalized_label(build_config_path, base_dir)}".encode("utf-8")
+        f"[dir]{_normalized_label(tasks_path, base_dir)}".encode("utf-8")
     )
-    for p in _yaml_files(build_config_path):
+    for p in _yaml_files(tasks_path):
         _hash_file(hasher, p, base_dir)
 
     for dir_value in (cfg.paths.sources, cfg.paths.streams):

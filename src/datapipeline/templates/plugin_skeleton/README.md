@@ -18,7 +18,7 @@ Folder layout
 - `config/`
   - `sources/*.yaml` — raw source definitions (one file per source)
 - `contracts/*.yaml` — canonical stream definitions
-- `datasets/<name>/build/artifacts/*.yaml` — per-artifact build configuration (schema/scaler/metadata)
+- `datasets/<name>/tasks/*.yaml` — task specs (schema/scaler/metadata/serve)
 - Every dataset `project.yaml` declares a `name`; reference it via `${project_name}`
   inside other config files (e.g., `paths.artifacts: ../../build/datasets/${project_name}`) to
   avoid hard-coding per-dataset directories.
@@ -63,23 +63,22 @@ Train/Val/Test splits (deterministic)
         seed: 42              # deterministic hash seed
         ratios: {train: 0.8, val: 0.1, test: 0.1}
     ```
-- Select the active slice via `config/datasets/default/run.yaml` (or `--keep`):
+- Select the active slice via `config/datasets/default/tasks/serve.<name>.yaml` (or `--keep`):
   ```yaml
-  version: 1
+  kind: serve
+  name: train               # defaults to filename stem when omitted
   keep: train               # any label defined in globals.split; null disables filtering
   output:
     transport: stdout       # stdout | fs
     format: print           # print | json-lines | json | csv | pickle
-    # path: build/train.jsonl # Required when transport=fs; omit for stdout
   limit: 100                # cap vectors per serve run (null = unlimited)
   include_targets: false    # include dataset.targets when serving
   throttle_ms: null         # sleep between vectors (milliseconds)
-  # visuals: AUTO  # visuals backend for CLI feedback: AUTO|TQDM|RICH|OFF
-  # progress: AUTO   # AUTO | SPINNER | BARS | OFF
+  # visuals: AUTO  # AUTO | TQDM | RICH | OFF
+  # progress: AUTO # AUTO | SPINNER | BARS | OFF
   ```
-- If you prefer separate configs per split, point `project.paths.run` at a folder (e.g., `config/datasets/default/runs/`),
-  drop `train.yaml`, `val.yaml`, etc. inside, and the CLI will run each file in order unless you pass `--run <name>`.
-- Serve examples (change run.yaml or pass `--keep val|test`):
+- Add additional `kind: serve` files (e.g., `serve.val.yaml`, `serve.test.yaml`) and the CLI will run each enabled file in order unless you pass `--run <name>`.
+- Serve examples (change the serve task or pass `--keep val|test`):
   - `jerry serve -p config/datasets/default/project.yaml --out-transport stdout --out-format json-lines > train.jsonl`
   - `jerry serve -p config/datasets/default/project.yaml --keep val --out-transport stdout --out-format json-lines > val.jsonl`
   - Add `--visuals rich --progress bars` for a richer interactive UI; defaults to `AUTO`.
@@ -96,7 +95,7 @@ Postprocess expected IDs
 - Bootstrap registers the artifact; postprocess transforms read it automatically. Per-transform `expected:` overrides are no longer required or supported — the build output is the single source of truth.
 
 Scaler statistics
-- Enable the scaler task in `build/artifacts/scaler.yaml` (default `enabled: true`) to compute mean/std per feature using the configured training split.
+- Enable the scaler task in `tasks/scaler.yaml` (default `enabled: true`) to compute mean/std per feature using the configured training split.
 - The build writes `<paths.artifacts>/scaler.pkl`; runtime scaling requires this artifact. If it is missing, scaling transforms raise a runtime error.
 
 Tips

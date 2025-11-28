@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
-from datapipeline.config.run import OutputConfig
+from datapipeline.config.tasks import ServeOutputConfig
 from datapipeline.config.workspace import WorkspaceContext
 
 
@@ -106,7 +106,7 @@ def minimum_level(*levels: Any, start: int | None = None) -> int | None:
 
 def workspace_output_defaults(
     workspace: WorkspaceContext | None,
-) -> OutputConfig | None:
+) -> ServeOutputConfig | None:
     if workspace is None:
         return None
     serve_defaults = getattr(workspace.config, "serve", None)
@@ -121,7 +121,7 @@ def workspace_output_defaults(
             if candidate.is_absolute()
             else (workspace.root / candidate).resolve()
         )
-    return OutputConfig(
+    return ServeOutputConfig(
         transport=od.transport,
         format=od.format,
         payload=od.payload,

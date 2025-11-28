@@ -2,12 +2,12 @@ from types import SimpleNamespace
 
 from datapipeline.cli.commands.run_config import RunEntry
 from datapipeline.config.context import _run_config_value, resolve_run_profiles
-from datapipeline.config.run import RunConfig
+from datapipeline.config.tasks import ServeTask
 from datapipeline.config.workspace import WorkspaceConfig, WorkspaceContext
 
 
 def test_run_config_value_ignores_model_defaults():
-    cfg = RunConfig.model_validate({"version": 1})
+    cfg = ServeTask.model_validate({"kind": "serve"})
 
     assert _run_config_value(cfg, "visuals") is None
     assert _run_config_value(cfg, "progress") is None
@@ -15,8 +15,8 @@ def test_run_config_value_ignores_model_defaults():
 
 
 def test_run_config_value_respects_explicit_overrides():
-    cfg = RunConfig.model_validate(
-        {"version": 1, "visuals": "rich", "progress": "bars", "log_level": "debug"}
+    cfg = ServeTask.model_validate(
+        {"kind": "serve", "visuals": "rich", "progress": "bars", "log_level": "debug"}
     )
 
     assert _run_config_value(cfg, "visuals") == "RICH"
@@ -25,7 +25,7 @@ def test_run_config_value_respects_explicit_overrides():
 
 
 def test_run_config_value_preserves_explicit_null():
-    cfg = RunConfig.model_validate({"version": 1, "visuals": None, "progress": None})
+    cfg = ServeTask.model_validate({"kind": "serve", "visuals": None, "progress": None})
 
     assert _run_config_value(cfg, "visuals") is None
     assert _run_config_value(cfg, "progress") is None

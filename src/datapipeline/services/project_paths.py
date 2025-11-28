@@ -36,20 +36,18 @@ def sources_dir(project_yaml: Path) -> Path:
     return p
 
 
-def build_config_path(project_yaml: Path) -> Path:
-    """Return the resolved path to the build artifacts directory (project.paths.build)."""
+def tasks_dir(project_yaml: Path) -> Path:
+    """Return the resolved path to the tasks directory (project.paths.tasks)."""
 
     cfg = read_project(project_yaml)
-    build_path = getattr(cfg.paths, "build", None)
-    if not build_path:
-        raise FileNotFoundError(
-            "project.paths.build must point to a build artifacts directory."
-        )
-    p = Path(build_path)
+    tasks_path = getattr(cfg.paths, "tasks", None)
+    if not tasks_path:
+        raise FileNotFoundError("project.paths.tasks must point to a tasks directory.")
+    p = Path(tasks_path)
     if not p.is_absolute():
         p = _project_root(project_yaml) / p
     if not p.exists() or not p.is_dir():
-        raise FileNotFoundError(f"build config not found: {p}")
+        raise FileNotFoundError(f"tasks directory not found: {p}")
     return p.resolve()
 
 
@@ -71,8 +69,7 @@ def ensure_project_scaffold(project_yaml: Path) -> None:
             "  dataset: dataset.yaml\n"
             "  postprocess: postprocess.yaml\n"
             "  artifacts: ../../build/datasets/default\n"
-            "  build: build/artifacts\n"
-            "  run: runs\n"
+            "  tasks: tasks\n"
             "globals:\n"
             "  start_time: 2021-01-01T00:00:00Z\n"
             "  end_time: 2021-12-31T23:00:00Z\n"
@@ -91,6 +88,13 @@ def ensure_project_scaffold(project_yaml: Path) -> None:
         if not sources.is_absolute():
             sources = _project_root(project_yaml) / sources
         sources.mkdir(parents=True, exist_ok=True)
+
+        tasks = getattr(cfg.paths, "tasks", None)
+        if tasks:
+            tasks_path = Path(tasks)
+            if not tasks_path.is_absolute():
+                tasks_path = _project_root(project_yaml) / tasks_path
+            tasks_path.mkdir(parents=True, exist_ok=True)
     except Exception:
         # If the file is malformed, leave it to callers to report; this helper
         # is best-effort to create a sensible starting point.

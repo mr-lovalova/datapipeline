@@ -298,8 +298,7 @@ paths:
   dataset: dataset.yaml
   postprocess: postprocess.yaml
   artifacts: ../../build/datasets/${project_name}
-  build: build/artifacts
-  run: run.yaml
+  tasks: tasks
 globals:
   start_time: 2021-01-01T00:00:00Z
   end_time: 2023-01-03T23:00:00Z
@@ -314,40 +313,36 @@ globals:
 - `paths.*` are resolved relative to the project file unless absolute; they also support `${var}` interpolation.
 - `globals` provide values for `${var}` interpolation across YAML files. Datetime
   values are normalized to strict UTC `YYYY-MM-DDTHH:MM:SSZ`.
-- `split` config defines how labels are assigned; the active label is selected by `run.yaml` or CLI `--keep`.
-- `paths.run` may point to a single file (default) or a directory. When it is a directory,
-  every `*.yaml` file inside is treated as a run config; `jerry serve` executes them
-  sequentially in alphabetical order unless you pass `--run <name>` (filename stem).
+- `split` config defines how labels are assigned; serve tasks or CLI flags pick the active label via `keep`.
+- `paths.tasks` points to a directory of task specs. Each `*.yaml` file declares `kind: ...`
+  (`scaler`, `schema`, `metadata`, `serve`, …). Artifact tasks drive `jerry build`; command
+  tasks (currently `kind: serve`) provide presets for `jerry serve`. When multiple serve tasks
+  exist, `jerry serve --run <name>` selects by `name`/filename stem.
 - Label names are free-form: match whatever keys you declare in `split.ratios` (hash) or `split.labels` (time).
 
-### `run.yaml`
+### Serve Tasks (`tasks/serve.<name>.yaml`)
 
 ```yaml
-version: 1
-name: train # required when project.paths.run points to a directory
-keep: train # set to any label defined in globals.split (null disables filtering)
+kind: serve
+name: train        # defaults to filename stem when omitted
+keep: train        # select active split label (null disables filtering)
 output:
-  transport: stdout # stdout | fs
-  format: print # print | json-lines | json | csv | pickle
-  # directory: artifacts/serve # For fs outputs, supply a directory (not a file path)
-limit: 100 # cap vectors per serve run (null = unlimited)
+  transport: stdout  # stdout | fs
+  format: print      # print | json-lines | json | csv | pickle
+limit: 100           # cap vectors per serve run (null = unlimited)
 include_targets: false
-throttle_ms: null # sleep between vectors (milliseconds)
-log_level: INFO # DEBUG=progress bars, INFO=spinner, WARNING=quiet (null inherits CLI)
-# Optional visuals options; CLI --visuals/--progress override
-# visuals: AUTO # AUTO | TQDM | RICH | OFF
-# progress: AUTO # AUTO | SPINNER | BARS | OFF
+throttle_ms: null    # milliseconds to sleep between emitted vectors
+# Optional overrides:
+# log_level: INFO   # DEBUG=progress bars, INFO=spinner, WARNING=quiet
+# visuals: AUTO     # AUTO | TQDM | RICH | OFF
+# progress: AUTO    # AUTO | SPINNER | BARS | OFF
 ```
 
-- `keep` selects the currently served split. This file is referenced by `project.paths.run`.
-- `output`, `limit`, `include_targets`, `throttle_ms`, and `log_level` provide defaults for `jerry serve`; CLI flags still win per invocation (see *Configuration Resolution Order*). For filesystem outputs, set `transport: fs`, `directory: /path/to/root`, and omit file names—each run automatically writes to `<directory>/<run_name>/<run_name>.<ext>` unless you override the entire `output` block with a custom `path`.
+- Each serve task lives alongside artifact tasks under `paths.tasks`. Files are independent—no special directory structure required.
+- `output`, `limit`, `include_targets`, `throttle_ms`, and `log_level` provide defaults for `jerry serve`; CLI flags still win per invocation (see *Configuration Resolution Order*). For filesystem outputs, set `transport: fs`, `directory: /path/to/root`, and omit file names—each run automatically writes to `<directory>/<run_name>/<run_name>.<ext>` unless you override the entire `output` block with a custom `filename`.
 - Override `keep` (and other fields) per invocation via `jerry serve ... --keep val` etc.
-- Override output transport/format via run.yaml or the CLI flags `--out-transport`, `--out-format`, and `--out-path` (pointing to a directory when `fs`).
-- Visuals backend: set `visuals: AUTO|TQDM|RICH|OFF` in run.yaml or use `--visuals`. Pair with `progress: AUTO|SPINNER|BARS|OFF` or `--progress` to control progress layouts.
-- To manage multiple runs, point `project.paths.run` at a folder (e.g., `config/datasets/default/runs/`)
-  and drop additional `*.yaml` files there. `jerry serve` will run each file in order; pass
-  `--run train` to execute only `runs/train.yaml`.
-- Updating run configs only changes serve-time defaults; it does not trigger a rebuild.
+- Visuals backend: set `visuals: AUTO|TQDM|RICH|OFF` in the task or use `--visuals`. Pair with `progress: AUTO|SPINNER|BARS|OFF` or `--progress` to control progress layouts.
+- Add additional `kind: serve` files to the tasks directory for other splits (val/test/etc.); `jerry serve` runs each enabled file unless you pass `--run <name>`.
 - Use `jerry.yaml` next to the project or workspace root to define shared defaults (visuals/progress/log level/output); CLI flags still take precedence.
 
 ### Workspace Defaults (`jerry.yaml`)
@@ -375,7 +370,7 @@ build:
   mode: AUTO # AUTO | FORCE | OFF
 ```
 
-`jerry.yaml` sits near the root of your workspace, while dataset-specific overrides still live in individual `runs/*.yaml` as needed. Use `serve.include_targets` when you want every run to emit labels by default instead of toggling each run file.
+`jerry.yaml` sits near the root of your workspace, while dataset-specific overrides still live in individual `tasks/serve.*.yaml` files as needed. Use `serve.include_targets` when you want every run to emit labels by default instead of toggling each task file.
 
 ### Configuration Resolution Order
 
@@ -386,10 +381,9 @@ order (highest precedence first):
 
 1. **CLI flags** – anything you pass on the command line always wins, even if a
    value is already specified elsewhere.
-2. **Project run/build files** – `run.yaml` (or the selected file under
-   `project.paths.run`) supplies serve defaults; artifact declarations referenced
-   via `project.paths.build` do the same for `jerry build`. These only apply to
-   the dataset that owns the config directory.
+2. **Project task files** – `kind: serve` specs (under `project.paths.tasks`)
+   supply serve defaults; artifact tasks in the same directory drive `jerry build`.
+   These only apply to the dataset that owns the config directory.
 3. **`jerry.yaml` command blocks** – settings under `jerry.serve` and
    `jerry.build` provide workspace-wide defaults for their respective commands.
 4. **`jerry.yaml.shared`** – shared fallbacks for visuals/progress/log-level
@@ -552,11 +546,11 @@ Project-scoped vector transforms that run after assembly and before serving.
   and scaler stats when scaling is enabled. When no transforms are configured
   the stream passes through unchanged.
 
-### Build Artifacts (`build/artifacts/*.yaml`)
+### Task Specs (`tasks/*.yaml`)
 
-Declare one YAML file per artifact under `project.paths.build` (default `build/artifacts/`):
+Declare artifact and command tasks under `project.paths.tasks` (default `tasks/`):
 
-`build/artifacts/scaler.yaml`
+`tasks/scaler.yaml`
 
 ```yaml
 kind: scaler
@@ -567,9 +561,10 @@ enabled: true
 ```
 
 - `scaler.pkl` is a pickled standard scaler fitted on the requested split.
-- `schema.json` (from the `vector_schema` task) enumerates the discovered feature/target identifiers (including partitions), their kinds (scalar/list), and cadence hints used to enforce ordering downstream.
-  - Configure the `vector_schema` build task (see `builds/schema.yaml`) to choose a global cadence strategy (currently `max`). Per-feature overrides will be added later; for now every list-valued feature records the max observed length as its enforcement target.
+- `schema.json` (from the `schema` task) enumerates the discovered feature/target identifiers (including partitions), their kinds (scalar/list), and cadence hints used to enforce ordering downstream.
+  - Configure the `schema` task to choose a cadence strategy (currently `max`). Per-feature overrides will be added later; for now every list-valued feature records the max observed length as its enforcement target.
 - `schema.metadata.json` (from the optional `metadata` task) captures heavier statistics—present/null counts, inferred value types, list-length histograms, etc. Enable it when you need coverage diagnostics without reprocessing raw vectors.
+- Command tasks (`kind: serve`) live alongside artifact tasks; `jerry serve` reads them directly.
 - Shared run/build defaults (visuals/progress/log level/build mode) live in `jerry.yaml`.
 
 ---
@@ -598,8 +593,8 @@ Pass `--help` on any command for flags.
 - `--out-payload vector` emits only the vector payload with features/targets
   flattened into schema-ordered lists (no identifier keys) when you don't need
   the group key or metadata. Default is `sample`.
-  - Set `--log-level DEBUG` (or set `run.yaml` -> `log_level: DEBUG`) to reuse the tqdm progress bars when previewing stages.
-  - When `project.paths.run` is a directory, add `--run val` (filename stem) to target a single config; otherwise every run file is executed sequentially.
+  - Set `--log-level DEBUG` (or set your serve task `log_level: DEBUG`) to reuse the tqdm progress bars when previewing stages.
+  - When multiple serve tasks exist, add `--run val` (task name or filename stem) to target a single config; otherwise every enabled task is executed sequentially.
   - Argument precedence follows the order described under *Configuration Resolution Order*.
   - Combine with `--skip-build` when you already have fresh artifacts and want to jump straight into streaming.
 
@@ -614,7 +609,7 @@ Pass `--help` on any command for flags.
 - `jerry inspect expected --project <project.yaml> [--include-targets]`
   - Writes the full set of observed feature IDs to `expected.txt` (for external tooling; runtime uses `schema.json`).
 - `jerry build --project <project.yaml> [--force] [--visuals ...] [--progress ...]`
-  - Regenerates artifacts declared under `project.paths.build` when the configuration hash changes.
+  - Regenerates artifact tasks declared under `project.paths.tasks` when the configuration hash changes.
 
 ### Scaffolding & Reference
 

@@ -13,7 +13,7 @@ from datapipeline.build.tasks import (
 from datapipeline.cli.visuals import get_visuals_backend
 from datapipeline.cli.visuals.runner import run_job
 from datapipeline.cli.visuals.sections import sections_from_path
-from datapipeline.config.build import load_build_config
+from datapipeline.config.tasks import ArtifactTask, MetadataTask, ScalerTask, SchemaTask, artifact_tasks
 from datapipeline.config.context import resolve_build_settings
 from datapipeline.services.bootstrap import artifacts_root, bootstrap
 from datapipeline.services.constants import (
@@ -21,7 +21,7 @@ from datapipeline.services.constants import (
     VECTOR_SCHEMA,
     VECTOR_SCHEMA_METADATA,
 )
-from datapipeline.services.project_paths import build_config_path
+from datapipeline.services.project_paths import tasks_dir
 
 
 logger = logging.getLogger(__name__)
@@ -41,17 +41,20 @@ def _log_build_settings_debug(project_path: Path, settings) -> None:
         payload, indent=2, default=str))
 
 
-def _log_build_config_debug(build_config) -> None:
+def _log_task_overview(tasks: list[ArtifactTask]) -> None:
     if not logger.isEnabledFor(logging.DEBUG):
         return
-    logger.debug(
-        "Build config:\n%s",
-        json.dumps(
-            build_config.model_dump(exclude_none=True),
-            indent=2,
-            default=str,
-        ),
-    )
+    payload = [
+        {
+            "name": task.effective_name(),
+            "kind": task.kind,
+            "enabled": task.enabled,
+            "output": getattr(task, "output", None),
+            "include_targets": getattr(task, "include_targets", None),
+        }
+        for task in tasks
+    ]
+    logger.debug("Artifact tasks:\n%s", json.dumps(payload, indent=2, default=str))
 
 
 def run_build_if_needed(
@@ -81,8 +84,8 @@ def run_build_if_needed(
         logger.info("Build skipped (jerry.yaml build.mode=OFF).")
         return False
     force = settings.force
-    cfg_path = build_config_path(project_path)
-    config_hash = compute_config_hash(project_path, cfg_path)
+    tasks_root = tasks_dir(project_path)
+    config_hash = compute_config_hash(project_path, tasks_root)
 
     art_root = artifacts_root(project_path)
     state_path = (art_root / "build" / "state.json").resolve()
@@ -119,15 +122,20 @@ def run_build_if_needed(
         logger.info("Build skipped (no artifacts required for this run).")
         return False
 
-    build_root = build_config_path(project_path)
-    build_config = load_build_config(project_path)
-    _log_build_config_debug(build_config)
+    task_configs = artifact_tasks(project_path)
+    _log_task_overview(task_configs)
     runtime = bootstrap(project_path)
+
+    tasks_by_kind = {
+        task.kind: task
+        for task in task_configs
+        if task.enabled
+    }
 
     artifacts = {}
 
-    def _work_scaler():
-        res = materialize_scaler_statistics(runtime, build_config)
+    def _work_scaler(task: ScalerTask):
+        res = materialize_scaler_statistics(runtime, task)
         if not res:
             return None
         rel_path, meta = res
@@ -136,12 +144,16 @@ def run_build_if_needed(
         meta_out.update(meta)
         details = ", ".join(f"{k}={v}" for k, v in meta.items())
         suffix = f" ({details})" if details else ""
-        logger.info("Materialized %s -> %s%s",
-                    SCALER_STATISTICS, full_path, suffix)
+        logger.info(
+            "Materialized %s -> %s%s",
+            SCALER_STATISTICS,
+            full_path,
+            suffix,
+        )
         return meta_out
 
-    def _work_schema():
-        res = materialize_vector_schema(runtime, build_config.vector_schema)
+    def _work_schema(task: SchemaTask):
+        res = materialize_vector_schema(runtime, task)
         if not res:
             return None
         rel_path, meta = res
@@ -153,8 +165,8 @@ def run_build_if_needed(
         logger.info("Materialized %s -> %s%s", VECTOR_SCHEMA, full_path, suffix)
         return meta_out
 
-    def _work_metadata():
-        res = materialize_metadata(runtime, build_config.vector_metadata)
+    def _work_metadata(task: MetadataTask):
+        res = materialize_metadata(runtime, task)
         if not res:
             return None
         rel_path, meta = res
@@ -167,37 +179,43 @@ def run_build_if_needed(
         return meta_out
 
     job_specs: list[tuple[str, str, Callable[[], object], Optional[Path]]] = []
-    if getattr(build_config.vector_schema, "enabled", True):
-        if required_artifacts is None or VECTOR_SCHEMA in required_artifacts:
-            job_specs.append(
-                (
-                    "schema",
-                    VECTOR_SCHEMA,
-                    _work_schema,
-                    build_config.vector_schema.source_path or (
-                        build_root / "schema.yaml"),
-                )
-            )
-    if getattr(build_config.vector_metadata, "enabled", False):
-        if required_artifacts is None or VECTOR_SCHEMA_METADATA in required_artifacts:
-            job_specs.append(
-                (
-                    "metadata",
-                    VECTOR_SCHEMA_METADATA,
-                    _work_metadata,
-                    build_config.vector_metadata.source_path or (
-                        build_root / "metadata.yaml"),
-                )
-            )
 
-    if getattr(build_config.scaler, "enabled", True):
-        if required_artifacts is None or SCALER_STATISTICS in required_artifacts:
-            job_specs.append(("scaler", SCALER_STATISTICS,
-                             _work_scaler, build_root / "scaler.yaml"))
+    schema_task = tasks_by_kind.get("schema")
+    if schema_task and (required_artifacts is None or VECTOR_SCHEMA in required_artifacts):
+        job_specs.append(
+            (
+                "schema",
+                VECTOR_SCHEMA,
+                lambda task=schema_task: _work_schema(task),
+                schema_task.source_path,
+            )
+        )
+
+    metadata_task = tasks_by_kind.get("metadata")
+    if metadata_task and (required_artifacts is None or VECTOR_SCHEMA_METADATA in required_artifacts):
+        job_specs.append(
+            (
+                "metadata",
+                VECTOR_SCHEMA_METADATA,
+                lambda task=metadata_task: _work_metadata(task),
+                metadata_task.source_path,
+            )
+        )
+
+    scaler_task = tasks_by_kind.get("scaler")
+    if scaler_task and (required_artifacts is None or SCALER_STATISTICS in required_artifacts):
+        job_specs.append(
+            (
+                "scaler",
+                SCALER_STATISTICS,
+                lambda task=scaler_task: _work_scaler(task),
+                scaler_task.source_path,
+            )
+        )
 
     total_jobs = len(job_specs)
     for idx, (job_label, artifact_key, job_work, config_path) in enumerate(job_specs, start=1):
-        sections = sections_from_path(build_root, config_path)
+        sections = sections_from_path(tasks_root, config_path or tasks_root)
         result = run_job(
             sections=sections,
             label=job_label,

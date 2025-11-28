@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Dict, Iterator, Tuple
 
-from datapipeline.config.build import BuildConfig
+from datapipeline.config.tasks import ScalerTask
 from datapipeline.config.dataset.loader import load_dataset
 from datapipeline.domain.sample import Sample
 from datapipeline.pipeline.context import PipelineContext
@@ -14,8 +14,7 @@ from datapipeline.transforms.feature.scaler import StandardScaler
 from datapipeline.utils.paths import ensure_parent
 
 
-def materialize_scaler_statistics(runtime: Runtime, config: BuildConfig) -> Tuple[str, Dict[str, object]] | None:
-    task_cfg = config.scaler
+def materialize_scaler_statistics(runtime: Runtime, task_cfg: ScalerTask) -> Tuple[str, Dict[str, object]] | None:
     if not task_cfg.enabled:
         return None
 

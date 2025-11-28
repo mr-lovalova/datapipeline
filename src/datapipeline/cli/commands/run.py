@@ -13,7 +13,7 @@ from datapipeline.cli.visuals.runner import run_job
 from datapipeline.cli.visuals.sections import sections_from_path
 from datapipeline.config.context import resolve_run_profiles
 from datapipeline.config.dataset.loader import load_dataset
-from datapipeline.config.run import OutputConfig
+from datapipeline.config.tasks import ServeOutputConfig
 from datapipeline.io.output import OutputResolutionError
 from datapipeline.pipeline.artifacts import StageDemand, required_artifacts_for
 
@@ -79,7 +79,7 @@ def _build_cli_output_config(
     fmt: Optional[str],
     path: Optional[str],
     payload: Optional[str],
-) -> tuple[OutputConfig | None, Optional[str]]:
+) -> tuple[ServeOutputConfig | None, Optional[str]]:
     payload_style = None
     if payload is not None:
         payload_style = payload.lower()
@@ -101,7 +101,7 @@ def _build_cli_output_config(
             logger.error("--out-path is required when --out-transport=fs (directory)")
             raise SystemExit(2)
         return (
-            OutputConfig(
+            ServeOutputConfig(
                 transport="fs",
                 format=fmt,
                 directory=Path(path),
@@ -113,7 +113,7 @@ def _build_cli_output_config(
         logger.error("--out-path is only valid when --out-transport=fs")
         raise SystemExit(2)
     return (
-        OutputConfig(
+        ServeOutputConfig(
             transport="stdout",
             format=fmt,
             payload=payload_style or "sample",

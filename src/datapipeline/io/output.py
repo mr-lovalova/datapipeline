@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from datapipeline.config.run import OutputConfig
+from datapipeline.config.tasks import ServeOutputConfig
 
 
 def _format_suffix(fmt: str) -> str:
@@ -65,9 +65,9 @@ class OutputResolutionError(ValueError):
 
 def resolve_output_target(
     *,
-    cli_output: OutputConfig | None,
-    config_output: OutputConfig | None,
-    default: OutputConfig | None = None,
+    cli_output: ServeOutputConfig | None,
+    config_output: ServeOutputConfig | None,
+    default: ServeOutputConfig | None = None,
     base_path: Path | None = None,
     run_name: str | None = None,
     payload_override: str | None = None,
@@ -80,7 +80,7 @@ def resolve_output_target(
 
     config = cli_output or config_output or default
     if config is None:
-        config = OutputConfig(transport="stdout", format="print")
+        config = ServeOutputConfig(transport="stdout", format="print")
 
     payload = payload_override or config.payload or "sample"
 

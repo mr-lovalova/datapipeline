@@ -6,7 +6,7 @@ paths:
   dataset: dataset.yaml
   postprocess: postprocess.yaml
   artifacts: build
-  build: build/artifacts
+  tasks: tasks
 globals:
   start_time: 2024-01-01T00:00:00Z
   end_time: 2024-01-01T04:00:00Z

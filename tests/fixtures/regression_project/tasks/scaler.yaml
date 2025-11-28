@@ -1,0 +1,4 @@
+kind: scaler
+output: scaler.pkl
+split_label: train
+include_targets: true

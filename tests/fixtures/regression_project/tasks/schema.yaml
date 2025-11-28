@@ -1,0 +1,3 @@
+kind: schema
+output: schema.json
+include_targets: true

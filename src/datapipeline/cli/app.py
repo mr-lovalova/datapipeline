@@ -106,11 +106,11 @@ def main() -> None:
     )
     p_serve.add_argument(
         "--keep",
-        help="split label to serve; overrides run.yaml and project globals",
+        help="split label to serve; overrides serve tasks and project globals",
     )
     p_serve.add_argument(
         "--run",
-        help="select a specific run config by filename stem when project.paths.run points to a folder",
+        help="select a serve task by name when project.paths.tasks contains multiple entries",
     )
     p_serve.add_argument(
         "--stage",
