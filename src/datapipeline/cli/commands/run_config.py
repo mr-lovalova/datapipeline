@@ -30,6 +30,8 @@ def resolve_run_entries(project_path: Path, run_name: Optional[str]) -> tuple[Li
     root_path: Optional[Path] = None
 
     if raw_entries:
+        if not run_name:
+            raw_entries = [task for task in raw_entries if task.enabled]
         if run_name:
             raw_entries = [
                 task

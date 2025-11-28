@@ -483,7 +483,7 @@ def test_vector_drop_missing_targets_payload():
     assert list(transform.apply(iter([sample]))) == []
 
 
-def test_vector_drop_partitions_drops_low_coverage_partitions():
+def test_vector_drop_partitions_drops_when_coverage_low():
     stream = iter(
         [
             _make_vector(
@@ -503,27 +503,27 @@ def test_vector_drop_partitions_drops_low_coverage_partitions():
         {
             "counts": {"feature_vectors": 4},
             "features": [
-                {"id": "humidity__@location:north", "present_count": 4, "null_count": 0},
-                {"id": "humidity__@location:south", "present_count": 1, "null_count": 0},
+                {"id": "humidity__@location:north", "present_count": 4, "null_count": 3},
+                {"id": "humidity__@location:south", "present_count": 4, "null_count": 0},
                 {"id": "temp", "present_count": 4, "null_count": 0},
             ],
         }
     )
-    transform = VectorDropPartitionsTransform(min_coverage=0.75)
+    transform = VectorDropPartitionsTransform(threshold=0.8)
     transform.bind_context(ctx)
 
     out = list(transform.apply(stream))
     assert list(out[0].features.values.keys()) == [
-        "humidity__@location:north",
+        "humidity__@location:south",
         "temp",
     ]
     assert [entry["id"] for entry in ctx._cache["schema:features"]] == [
-        "humidity__@location:north",
+        "humidity__@location:south",
         "temp",
     ]
 
 
-def test_vector_drop_partitions_uses_value_fraction():
+def test_vector_drop_partitions_keeps_when_coverage_sufficient():
     stream = iter(
         [
             _make_vector(
@@ -546,7 +546,7 @@ def test_vector_drop_partitions_uses_value_fraction():
                 {
                     "id": "precip__@station:north",
                     "present_count": 4,
-                    "null_count": 3,
+                    "null_count": 1,
                 },
                 {
                     "id": "precip__@station:south",
@@ -557,24 +557,68 @@ def test_vector_drop_partitions_uses_value_fraction():
             ],
         }
     )
-    transform = VectorDropPartitionsTransform(min_value_fraction=0.5)
+    transform = VectorDropPartitionsTransform(threshold=0.7)
     transform.bind_context(ctx)
 
     out = list(transform.apply(stream))
     assert list(out[0].features.values.keys()) == [
+        "precip__@station:north",
         "precip__@station:south",
         "temp",
     ]
-    assert [entry["id"] for entry in ctx._cache["schema:features"]] == [
+    schema = ctx._cache.get("schema:features")
+    if schema is None:
+        ctx.load_schema()
+        schema = ctx._cache["schema:features"]
+    assert [entry["id"] for entry in schema] == [
+        "precip__@station:north",
         "precip__@station:south",
         "temp",
     ]
+
+
+def test_vector_drop_partitions_accounts_for_absence():
+    stream = iter(
+        [
+            _make_vector(
+                0,
+                {
+                    "wind_speed__@station_id:06052": 1.0,
+                },
+            )
+        ]
+    )
+    ctx = _StubVectorContext(
+        ["wind_speed__@station_id:06052", "wind_speed__@station_id:06053"]
+    )
+    ctx.set_metadata(
+        {
+            "counts": {"feature_vectors": 4},
+            "features": [
+                {
+                    "id": "wind_speed__@station_id:06052",
+                    "present_count": 2,
+                    "null_count": 0,
+                },
+                {
+                    "id": "wind_speed__@station_id:06053",
+                    "present_count": 4,
+                    "null_count": 0,
+                },
+            ],
+        }
+    )
+    transform = VectorDropPartitionsTransform(threshold=0.75)
+    transform.bind_context(ctx)
+
+    out = list(transform.apply(stream))
+    assert list(out[0].features.values.keys()) == []
 
 
 def test_vector_drop_partitions_errors_without_metadata():
     stream = iter([_make_vector(0, {"temp": 1.0})])
     ctx = _StubVectorContext(["temp"])
-    transform = VectorDropPartitionsTransform(min_coverage=0.5)
+    transform = VectorDropPartitionsTransform(threshold=0.5)
     transform.bind_context(ctx)
 
     with pytest.raises(RuntimeError):

@@ -113,7 +113,11 @@ def run_build_if_needed(
 
     _log_build_settings_debug(project_path, settings)
 
-    if state and (state.config_hash == config_hash) and not force:
+    missing_required = set(required_artifacts or [])
+    if missing_required:
+        existing = state.artifacts.keys() if state else set()
+        missing_required = {art for art in missing_required if art not in existing}
+    if state and (state.config_hash == config_hash) and not force and not missing_required:
         logger.info(
             "Build is up-to-date (config hash matches); skipping rebuild.")
         return False

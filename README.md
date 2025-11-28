@@ -675,9 +675,9 @@ Pass `--help` on any command for flags.
 ### Vector (Postprocess) Transforms
 
 - `drop_missing`: drop vectors that do not meet required IDs or coverage ratio.
-- `drop_partitions`: require `schema.metadata.json` and drop partitions whose
-  coverage (present vs total vectors) or non-null fraction falls below the
-  configured thresholds so the weakest partitions stop forcing row drops.
+- `drop_partitions`: require `schema.metadata.json` and drop partitions when their
+  coverage falls below the configured `threshold` (minimum acceptable coverage),
+  so the weakest partitions stop forcing row drops.
 - `fill_constant`: seed absent IDs with a constant.
 - `fill_history`: impute using rolling statistics from prior vectors.
 - `fill_horizontal`: aggregate sibling partitions in the same timestamp.

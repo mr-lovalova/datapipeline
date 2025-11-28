@@ -8,6 +8,7 @@ from datapipeline.pipeline.context import PipelineContext
 from datapipeline.pipeline.pipelines import build_vector_pipeline
 from datapipeline.runtime import Runtime
 from datapipeline.transforms.vector_utils import base_id as _base_feature_id
+from datapipeline.transforms.utils import is_missing
 
 
 def _type_name(value: object) -> str:
@@ -64,7 +65,7 @@ def collect_schema_entries(
                 }
             if collect_metadata:
                 entry["present_count"] += 1
-            if value is None:
+            if is_missing(value):
                 if collect_metadata:
                     entry["null_count"] += 1
                 continue

@@ -59,7 +59,7 @@ class MetadataTask(ArtifactTask):
     kind: Literal["metadata"]
     output: str = Field(default="schema.metadata.json")
     enabled: bool = Field(
-        default=False,
+        default=True,
         description="Disable to skip generating the vector metadata artifact.",
     )
     cadence_strategy: Literal["max"] = Field(
@@ -286,9 +286,16 @@ def command_tasks(project_yaml: Path, kind: str | None = None) -> list[TaskBase]
 
 
 def serve_tasks(project_yaml: Path) -> list[ServeTask]:
-    return [task for task in command_tasks(project_yaml, kind="serve") if isinstance(task, ServeTask)]
+    """Load all serve tasks regardless of enabled state."""
+    return [
+        task
+        for task in command_tasks(project_yaml, kind="serve")
+        if isinstance(task, ServeTask)
+    ]
 
 
 def default_serve_task(project_yaml: Path) -> ServeTask | None:
-    tasks = [task for task in serve_tasks(project_yaml) if task.enabled]
-    return tasks[0] if tasks else None
+    for task in serve_tasks(project_yaml):
+        if task.enabled:
+            return task
+    return None

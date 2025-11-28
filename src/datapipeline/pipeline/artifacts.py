@@ -8,6 +8,7 @@ from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.services.constants import (
     SCALER_STATISTICS,
     VECTOR_SCHEMA,
+    VECTOR_SCHEMA_METADATA,
 )
 
 
@@ -48,5 +49,7 @@ def required_artifacts_for(
 
         if effective_stage >= 6:
             required.add(VECTOR_SCHEMA)
+
+    required.add(VECTOR_SCHEMA_METADATA)
 
     return required

@@ -5,8 +5,18 @@ from datapipeline.services.bootstrap import _load_by_key
 Stage = Literal["records", "features", "vectors"]
 
 
+def _normalize_dataset_doc(doc):
+    if not isinstance(doc, dict):
+        return doc
+    normalized = dict(doc)
+    for key in ("features", "targets"):
+        if normalized.get(key) is None:
+            normalized[key] = []
+    return normalized
+
+
 def load_dataset(project_yaml, stage: Stage):
-    ds_doc = _load_by_key(project_yaml, "dataset")
+    ds_doc = _normalize_dataset_doc(_load_by_key(project_yaml, "dataset"))
 
     if stage == "records":
         return RecordDatasetConfig.model_validate(ds_doc)
@@ -16,4 +26,3 @@ def load_dataset(project_yaml, stage: Stage):
         return FeatureDatasetConfig.model_validate(ds_doc)
     else:
         raise ValueError(f"Unknown stage: {stage}")
-

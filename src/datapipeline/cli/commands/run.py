@@ -199,6 +199,20 @@ def handle_serve(
             cli_progress=cli_progress,
             workspace=workspace,
         )
+        profiles = resolve_run_profiles(
+            project_path=project_path,
+            run_entries=run_entries,
+            keep=keep,
+            stage=stage,
+            limit=limit,
+            cli_output=cli_output_cfg,
+            cli_payload=payload_override or (out_payload.lower() if out_payload else None),
+            workspace=workspace,
+            cli_log_level=cli_log_level,
+            base_log_level=base_log_level,
+            cli_visuals=cli_visuals,
+            cli_progress=cli_progress,
+        )
 
     datasets: dict[str, object] = {}
     datasets["vectors"] = vector_dataset
