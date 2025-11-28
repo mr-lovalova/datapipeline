@@ -8,21 +8,31 @@ from pydantic import BaseModel, Field
 from datapipeline.services.project_paths import build_config_path
 from datapipeline.utils.load import load_yaml
 
+from .build_defaults import METADATA_OUTPUT, SCALER_OUTPUT, SCHEMA_OUTPUT
 
-class ScalerArtifactConfig(BaseModel):
-    """Configuration for computing standard-scaler statistics."""
+class BaseArtifactConfig(BaseModel):
+    """Shared fields for build artifacts."""
 
     enabled: bool = Field(
         default=True,
-        description="Disable to skip generating the scaler statistics artifact.",
+        description="Disable to skip generating this artifact.",
     )
     output: str = Field(
-        default="scaler.pkl",
+        default="artifact.bin",
         description="Artifact path relative to project.paths.artifacts.",
     )
     include_targets: bool = Field(
         default=False,
-        description="Include dataset.targets when fitting scaler statistics.",
+        description="Include dataset.targets when generating the artifact.",
+    )
+
+
+class ScalerArtifactConfig(BaseArtifactConfig):
+    """Configuration for computing standard-scaler statistics."""
+
+    output: str = Field(
+        default=SCALER_OUTPUT,
+        description="Artifact path relative to project.paths.artifacts.",
     )
     split_label: str = Field(
         default="train",
@@ -30,20 +40,12 @@ class ScalerArtifactConfig(BaseModel):
     )
 
 
-class VectorSchemaConfig(BaseModel):
+class VectorSchemaConfig(BaseArtifactConfig):
     """Configuration for writing the vector schema manifest."""
 
-    enabled: bool = Field(
-        default=True,
-        description="Disable to skip generating the vector schema artifact.",
-    )
     output: str = Field(
-        default="schema.json",
+        default=SCHEMA_OUTPUT,
         description="Artifact path relative to project.paths.artifacts.",
-    )
-    include_targets: bool = Field(
-        default=False,
-        description="Include dataset.targets when summarizing the schema.",
     )
     source_path: Path | None = Field(default=None, exclude=True)
     cadence_strategy: Literal["max"] = Field(
@@ -52,20 +54,12 @@ class VectorSchemaConfig(BaseModel):
     )
 
 
-class VectorMetadataConfig(BaseModel):
+class VectorMetadataConfig(BaseArtifactConfig):
     """Configuration for exporting optional vector metadata statistics."""
 
     enabled: bool = Field(
         default=False,
         description="Disable to skip generating the vector metadata artifact.",
-    )
-    output: str = Field(
-        default="schema.metadata.json",
-        description="Artifact path relative to project.paths.artifacts.",
-    )
-    include_targets: bool = Field(
-        default=False,
-        description="Include dataset.targets when summarizing metadata.",
     )
     source_path: Path | None = Field(default=None, exclude=True)
     cadence_strategy: Literal["max"] = Field(
@@ -123,7 +117,7 @@ def _load_from_artifact_directory(path: Path) -> BuildConfig:
                 schema.source_path = p  # type: ignore[attr-defined]
             except Exception:
                 pass
-        elif kind in {"vector_metadata", "schema_metadata"}:
+        elif kind in {"vector_metadata", "metadata", "schema_metadata"}:
             try:
                 metadata = VectorMetadataConfig.model_validate(data)
                 metadata.source_path = p  # type: ignore[attr-defined]
@@ -145,3 +139,7 @@ def load_build_config(project_yaml: Path) -> BuildConfig:
             f"project.paths.build must point to an artifacts directory, got: {path}"
         )
     return _load_from_artifact_directory(path)
+    output: str = Field(
+        default=METADATA_OUTPUT,
+        description="Artifact path relative to project.paths.artifacts.",
+    )

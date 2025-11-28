@@ -1,4 +1,4 @@
-kind: vector_schema
+kind: schema
 output: schema.json
 include_targets: true
 cadence_strategy: max

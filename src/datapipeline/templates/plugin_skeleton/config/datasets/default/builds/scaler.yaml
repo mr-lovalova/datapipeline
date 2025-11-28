@@ -2,8 +2,7 @@
 # Shared workspace defaults (visual provider/progress style/log_level/mode) live in jerry.yaml.
 # Override there; do not add visual provider/progress style/log_level here.
 kind: scaler
-output:
-  path: scaler.pkl     # relative to project.paths.artifacts
+output: scaler.pkl     # relative to project.paths.artifacts
 include_targets: false
 split_label: train
 enabled: true
