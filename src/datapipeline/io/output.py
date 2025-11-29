@@ -74,6 +74,7 @@ def resolve_output_target(
     base_path: Path | None = None,
     run_name: str | None = None,
     payload_override: str | None = None,
+    stage: int | None = None,
     create_run: bool = False,
 ) -> OutputTarget:
     """
@@ -105,7 +106,7 @@ def resolve_output_target(
         else (base_path / config.directory).resolve()
     )
     if create_run:
-        run_paths, _ = start_run_for_directory(directory)
+        run_paths, _ = start_run_for_directory(directory, stage=stage)
         base_dest_dir = run_paths.dataset_dir
     else:
         run_paths = None

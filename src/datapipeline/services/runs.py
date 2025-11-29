@@ -1,5 +1,3 @@
-
-
 from __future__ import annotations
 
 from dataclasses import dataclass, asdict
@@ -46,6 +44,7 @@ class RunMetadata:
     finished_at: str | None = None
     status: str | None = None  # e.g. "running", "success", "failed"
     notes: str | None = None
+    stage: int | None = None
 
 
 def _now_utc_iso() -> str:
@@ -94,13 +93,17 @@ def _load_run_metadata(path: Path) -> RunMetadata:
     return RunMetadata(**data)
 
 
-def start_run_for_directory(directory: str | Path, run_id: str | None = None) -> Tuple[RunPaths, RunMetadata]:
+def start_run_for_directory(
+    directory: str | Path,
+    run_id: str | None = None,
+    *,
+    stage: int | None = None,
+) -> Tuple[RunPaths, RunMetadata]:
     """Initialise a new run rooted at the given directory.
 
     This will create the run's dataset directory and an initial metadata file
     with status set to "running".
     """
-    print("DEBUG start_run_for_directory", directory, "run_id=", run_id)
     serve_root = get_serve_root(directory)
     paths = get_run_paths(serve_root, run_id)
 
@@ -113,6 +116,7 @@ def start_run_for_directory(directory: str | Path, run_id: str | None = None) ->
         finished_at=None,
         status="running",
         notes=None,
+        stage=stage,
     )
     _write_run_metadata(meta, paths.metadata_path)
     return paths, meta

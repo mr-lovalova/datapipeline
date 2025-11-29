@@ -69,6 +69,10 @@ def report_serve(target: OutputTarget, count: int) -> None:
     logger.info("(printed %d items to stdout)", count)
 
 
+def _is_full_pipeline_stage(stage: int | None) -> bool:
+    return stage is None or stage >= 6
+
+
 def serve_with_runtime(
     runtime: Runtime,
     dataset: FeatureDatasetConfig,
@@ -107,7 +111,8 @@ def serve_with_runtime(
             for cfg in preview_cfgs:
                 stream = build_feature_pipeline(context, cfg, stage=stage)
                 feature_target = target.for_feature(cfg.id)
-                writer = writer_factory(feature_target, visuals=visuals, item_type="record")
+                writer = writer_factory(
+                    feature_target, visuals=visuals, item_type="record")
                 count = serve_stream(stream, limit, writer=writer)
                 report_serve(feature_target, count)
             run_status = "success"
@@ -145,6 +150,7 @@ def serve_with_runtime(
         if run_paths is not None and run_status is not None:
             if run_status == "success":
                 finish_run_success(run_paths)
-                set_latest_run(run_paths)
+                if _is_full_pipeline_stage(stage):
+                    set_latest_run(run_paths)
             else:
                 finish_run_failed(run_paths)

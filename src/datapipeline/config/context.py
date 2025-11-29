@@ -193,6 +193,7 @@ def resolve_run_profiles(
             base_path=project_path.parent,
             run_name=entry_name or f"run{idx}",
             payload_override=cli_payload,
+            stage=resolved_stage,
             create_run=create_run,
         )
 
