@@ -74,6 +74,7 @@ def resolve_output_target(
     base_path: Path | None = None,
     run_name: str | None = None,
     payload_override: str | None = None,
+    create_run: bool = False,
 ) -> OutputTarget:
     """
     Resolve the effective output target using CLI override, run config, or default.
@@ -103,15 +104,19 @@ def resolve_output_target(
         if config.directory.is_absolute()
         else (base_path / config.directory).resolve()
     )
-    # run_paths, _ = start_run_for_directory(directory, run_id=run_name)
-    run_paths, _ = start_run_for_directory(directory)
+    if create_run:
+        run_paths, _ = start_run_for_directory(directory)
+        base_dest_dir = run_paths.dataset_dir
+    else:
+        run_paths = None
+        base_dest_dir = directory
     suffix = _format_suffix(config.format)
     filename_stem = config.filename or run_name
     if filename_stem:
         filename = f"{filename_stem}{suffix}"
     else:
         filename = _default_filename_for_format(config.format)
-    dest_path = (run_paths.dataset_dir / filename).resolve()
+    dest_path = (base_dest_dir / filename).resolve()
 
     return OutputTarget(
         transport="fs",

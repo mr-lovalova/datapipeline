@@ -100,6 +100,7 @@ def start_run_for_directory(directory: str | Path, run_id: str | None = None) ->
     This will create the run's dataset directory and an initial metadata file
     with status set to "running".
     """
+    print("DEBUG start_run_for_directory", directory, "run_id=", run_id)
     serve_root = get_serve_root(directory)
     paths = get_run_paths(serve_root, run_id)
 

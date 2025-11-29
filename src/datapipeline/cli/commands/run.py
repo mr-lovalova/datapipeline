@@ -180,6 +180,7 @@ def handle_serve(
             base_log_level=base_log_level,
             cli_visuals=cli_visuals,
             cli_progress=cli_progress,
+            create_run=False,
         )
     except OutputResolutionError as exc:
         logger.error("Invalid output configuration: %s", exc)
@@ -212,6 +213,7 @@ def handle_serve(
             base_log_level=base_log_level,
             cli_visuals=cli_visuals,
             cli_progress=cli_progress,
+            create_run=True,
         )
 
     datasets: dict[str, object] = {}

@@ -112,7 +112,8 @@ def resolve_build_settings(
         config_progress=None,
         workspace_progress=shared_progress,
     )
-    effective_mode = "FORCE" if force_flag else (cascade(build_mode_default, "AUTO") or "AUTO")
+    effective_mode = "FORCE" if force_flag else (
+        cascade(build_mode_default, "AUTO") or "AUTO")
     effective_mode = effective_mode.upper()
     force_build = force_flag or effective_mode == "FORCE"
     return BuildSettings(
@@ -137,6 +138,7 @@ def resolve_run_profiles(
     base_log_level: str,
     cli_visuals: Optional[str],
     cli_progress: Optional[str],
+    create_run: bool = False,
 ) -> list[RunProfile]:
     shared = workspace.config.shared if workspace else None
     serve_defaults = workspace.config.serve if workspace else None
@@ -156,8 +158,10 @@ def resolve_run_profiles(
         entry_name = entry.name
         run_cfg = getattr(runtime, "run", None)
 
-        resolved_stage = cascade(stage, _run_config_value(run_cfg, "stage"), serve_stage_default)
-        resolved_limit = cascade(limit, _run_config_value(run_cfg, "limit"), serve_limit_default)
+        resolved_stage = cascade(stage, _run_config_value(
+            run_cfg, "stage"), serve_stage_default)
+        resolved_limit = cascade(limit, _run_config_value(
+            run_cfg, "limit"), serve_limit_default)
         throttle_ms = cascade(
             _run_config_value(run_cfg, "throttle_ms"),
             serve_throttle_default,
@@ -189,6 +193,7 @@ def resolve_run_profiles(
             base_path=project_path.parent,
             run_name=entry_name or f"run{idx}",
             payload_override=cli_payload,
+            create_run=create_run,
         )
 
         profiles.append(
