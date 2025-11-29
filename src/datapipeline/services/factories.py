@@ -10,7 +10,7 @@ from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.pipeline.pipelines import build_feature_pipeline
 from datapipeline.pipeline.utils.transform_utils import _supports_parameter
 from inspect import isclass
-from typing import Iterator, Any
+from typing import Iterator, Any, Optional
 
 
 def build_source_from_spec(spec: SourceConfig) -> Source:
@@ -55,7 +55,8 @@ class _ComposedSource(SourceInterface):
             k: (fr.record for fr in v["iter"])  # stage>=3 yields FeatureRecord
             for k, v in aligned.items()
         }
-        aux_iters: dict[str, Iterator[Any]] = {k: v["iter"] for k, v in aux.items()}
+        aux_iters: dict[str, Iterator[Any]] = {
+            k: v["iter"] for k, v in aux.items()}
 
         # Load mapper (composer) from contract
         mapper = self._spec.mapper
@@ -132,7 +133,8 @@ class _ComposedSource(SourceInterface):
     def _parse_input(text: str) -> tuple[str, str]:
         # alias=stream_id
         if "@" in text:
-            raise ValueError("composed inputs may not include '@stage'; streams align by default")
+            raise ValueError(
+                "composed inputs may not include '@stage'; streams align by default")
         alias: Optional[str] = None
         if "=" in text:
             alias, text = text.split("=", 1)

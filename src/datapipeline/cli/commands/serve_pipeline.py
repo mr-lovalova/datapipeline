@@ -17,6 +17,7 @@ from datapipeline.utils.window import resolve_window_bounds
 from datapipeline.io.factory import writer_factory
 from datapipeline.io.output import OutputTarget
 from datapipeline.io.protocols import Writer
+from datapipeline.services.runs import finish_run_failed, finish_run_success, set_latest_run
 
 logger = logging.getLogger(__name__)
 
@@ -77,54 +78,73 @@ def serve_with_runtime(
     stage: Optional[int],
     visuals: Optional[str] = None,
 ) -> None:
-    context = PipelineContext(
-        runtime,
-        observer_registry=default_observer_registry(),
-    )
+    run_paths = target.run
+    run_status: str | None = None
+    try:
+        context = PipelineContext(
+            runtime,
+            observer_registry=default_observer_registry(),
+        )
 
-    feature_cfgs = list(dataset.features or [])
-    target_cfgs = list(dataset.targets or [])
-    preview_cfgs = feature_cfgs + target_cfgs
+        feature_cfgs = list(dataset.features or [])
+        target_cfgs = list(dataset.targets or [])
+        preview_cfgs = feature_cfgs + target_cfgs
 
-    if not preview_cfgs:
-        logger.warning("(no features configured; nothing to serve)")
-        return
+        if not preview_cfgs:
+            logger.warning("(no features configured; nothing to serve)")
+            run_status = "success"
+            return
 
-    rectangular = stage is None or stage > 5
+        rectangular = stage is None or stage > 5
 
-    if stage is not None and stage <= 5:
-        if target.payload != "sample":
-            logger.warning(
-                "Ignoring payload '%s' for stage %s preview; preview outputs stream raw records.",
-                target.payload,
-                stage,
-            )
-        for cfg in preview_cfgs:
-            stream = build_feature_pipeline(context, cfg, stage=stage)
-            feature_target = target.for_feature(cfg.id)
-            writer = writer_factory(feature_target, visuals=visuals, item_type="record")
-            count = serve_stream(stream, limit, writer=writer)
-            report_serve(feature_target, count)
-        return
+        if stage is not None and stage <= 5:
+            if target.payload != "sample":
+                logger.warning(
+                    "Ignoring payload '%s' for stage %s preview; preview outputs stream raw records.",
+                    target.payload,
+                    stage,
+                )
+            for cfg in preview_cfgs:
+                stream = build_feature_pipeline(context, cfg, stage=stage)
+                feature_target = target.for_feature(cfg.id)
+                writer = writer_factory(feature_target, visuals=visuals, item_type="record")
+                count = serve_stream(stream, limit, writer=writer)
+                report_serve(feature_target, count)
+            run_status = "success"
+            return
 
-    if rectangular:
-        runtime.window_bounds = resolve_window_bounds(runtime, True)
+        if rectangular:
+            runtime.window_bounds = resolve_window_bounds(runtime, True)
 
-    vectors = build_vector_pipeline(
-        context,
-        feature_cfgs,
-        dataset.group_by,
-        target_configs=target_cfgs,
-        rectangular=rectangular,
-    )
+        vectors = build_vector_pipeline(
+            context,
+            feature_cfgs,
+            dataset.group_by,
+            target_configs=target_cfgs,
+            rectangular=rectangular,
+        )
 
-    if stage in (None, 7):
-        vectors = post_process(context, vectors)
-    if stage is None:
-        vectors = apply_split_stage(runtime, vectors)
-        vectors = throttle_vectors(vectors, throttle_ms)
+        if stage in (None, 7):
+            vectors = post_process(context, vectors)
+        if stage is None:
+            vectors = apply_split_stage(runtime, vectors)
+            vectors = throttle_vectors(vectors, throttle_ms)
 
-    writer = writer_factory(target, visuals=visuals)
+        writer = writer_factory(target, visuals=visuals)
 
-    result_count = serve_stream(vectors, limit, writer=writer)
-    report_serve(target, result_count)
+        result_count = serve_stream(vectors, limit, writer=writer)
+        report_serve(target, result_count)
+        run_status = "success"
+    except KeyboardInterrupt:
+        logger.info("Serve interrupted by user")
+        run_status = "failed"
+    except Exception:
+        run_status = "failed"
+        raise
+    finally:
+        if run_paths is not None and run_status is not None:
+            if run_status == "success":
+                finish_run_success(run_paths)
+                set_latest_run(run_paths)
+            else:
+                finish_run_failed(run_paths)

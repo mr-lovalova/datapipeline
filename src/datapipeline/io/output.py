@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Optional
 
 from datapipeline.config.tasks import ServeOutputConfig
+from datapipeline.services.runs import RunPaths, start_run_for_directory
 
 
 def _format_suffix(fmt: str) -> str:
@@ -38,6 +39,7 @@ class OutputTarget:
     format: str     # print | json-lines | json | csv | pickle
     destination: Optional[Path]
     payload: str = "sample"
+    run: RunPaths | None = None
 
     def for_feature(self, feature_id: str) -> "OutputTarget":
         if self.transport != "fs" or self.destination is None:
@@ -56,6 +58,7 @@ class OutputTarget:
             format=self.format,
             destination=new_path,
             payload=self.payload,
+            run=self.run,
         )
 
 
@@ -90,6 +93,7 @@ def resolve_output_target(
             format=config.format,
             destination=None,
             payload=payload,
+            run=None,
         )
 
     if config.directory is None:
@@ -99,20 +103,20 @@ def resolve_output_target(
         if config.directory.is_absolute()
         else (base_path / config.directory).resolve()
     )
-    run_segment = _sanitize_segment(run_name) if run_name else None
-    if run_segment:
-        directory = directory / run_segment
+    # run_paths, _ = start_run_for_directory(directory, run_id=run_name)
+    run_paths, _ = start_run_for_directory(directory)
     suffix = _format_suffix(config.format)
     filename_stem = config.filename or run_name
     if filename_stem:
         filename = f"{filename_stem}{suffix}"
     else:
         filename = _default_filename_for_format(config.format)
-    dest_path = (directory / filename).resolve()
+    dest_path = (run_paths.dataset_dir / filename).resolve()
 
     return OutputTarget(
         transport="fs",
         format=config.format,
         destination=dest_path,
         payload=payload,
+        run=run_paths,
     )
