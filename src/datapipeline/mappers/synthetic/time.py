@@ -13,14 +13,6 @@ def encode(stream: Iterator[TemporalRecord], mode: str) -> Iterator[TemporalReco
             val = sin(2 * pi * t.weekday() / 7)
         elif mode == "linear":
             val = t.timestamp()
-        elif mode == "since_start_hours":
-            first_time = None
-            for rec in stream:
-                t = rec.time
-                if first_time is None:
-                    first_time = t
-                val = (t - first_time).total_seconds() / 3600.0
-                yield TemporalRecord(time=rec.time, value=val)
         else:
             raise ValueError(f"Unsupported encode_time mode: {mode}")
         yield TemporalRecord(time=rec.time, value=val)
