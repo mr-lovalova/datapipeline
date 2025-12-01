@@ -68,15 +68,12 @@ class StandardScaler(PicklePersistanceMixin):
         self,
         stream: Iterator[FeatureRecord],
         *,
-        on_none: Literal["error", "warn"] = "error",
+        on_none: Literal["error", "skip"] = "skip",
         observer: Callable[[TransformEvent], None] | None = None,
     ) -> Iterator[FeatureRecord]:
         if not self.statistics:
             raise RuntimeError(
                 "StandardScaler must be fitted before calling transform().")
-
-        if on_none not in {"error", "warn"}:
-            raise ValueError("on_none must be 'error' or 'warn'.")
 
         self.missing_counts = {}
 
@@ -91,7 +88,7 @@ class StandardScaler(PicklePersistanceMixin):
             for fr in records:
                 value = fr.record.value
                 if not isinstance(value, Real):
-                    if value is None and on_none == "warn":
+                    if value is None and on_none == "skip":
                         self.missing_counts[feature_id] = (
                             self.missing_counts.get(feature_id, 0) + 1
                         )
@@ -192,7 +189,7 @@ class StandardScalerTransform(FeatureTransform):
         with_mean: bool = True,
         with_std: bool = True,
         epsilon: float = 1e-12,
-        on_none: Literal["error", "warn"] = "error",
+        on_none: Literal["error", "skip"] = "error",
         observer: Callable[[TransformEvent], None] | None = None,
     ) -> None:
         base: StandardScaler

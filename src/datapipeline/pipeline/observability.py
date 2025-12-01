@@ -41,32 +41,28 @@ def _scaler_observer_factory(logger: logging.Logger) -> Optional[Observer]:
     if not logger.isEnabledFor(logging.WARNING):
         return None
 
-    totals: dict[str, int] = {}
     warned: set[str] = set()
 
     def _observer(event: TransformEvent) -> None:
         if event.type != "scaler_none":
             return
         fid = event.payload.get("feature_id")
-        count = event.payload.get("count")
         record = event.payload.get("record")
-        if isinstance(fid, str) and isinstance(count, int):
-            totals[fid] = totals.get(fid, 0) + 1
         time = getattr(record, "time", None)
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(
-                "Scaler encountered None: feature=%s time=%s",
+                "Scaler encountered None value during scaling: feature=%s time=%s",
                 fid,
                 time,
             )
         else:
-            # Warn once per feature with total seen so far.
+            # Warn once per feature that None values are present at scale time.
             if isinstance(fid, str) and fid not in warned:
                 warned.add(fid)
                 logger.warning(
-                    "Scaler encountered None: feature=%s total_count=%s",
+                    "Scaler encountered None value during scaling for feature=%s "
+                    "(further occurrences suppressed; consider fill/lint upstream).",
                     fid,
-                    totals.get(fid, count),
                 )
 
     return _observer
