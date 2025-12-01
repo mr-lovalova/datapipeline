@@ -64,15 +64,25 @@ class FsGlobTransport(Transport):
 
 
 class UrlTransport(Transport):
-    def __init__(self, url: str, *, headers: Optional[Dict[str, str]] = None):
+    def __init__(self, url: str, headers: Optional[Dict[str, str]] = None, chunk_size: int = 64 * 1024):
         self.url = url
         self.headers = dict(headers or {})
+        self.chunk_size = chunk_size
 
     def streams(self) -> Iterator[Iterable[bytes]]:
         req = Request(self.url, headers=self.headers)
+
         try:
-            with urlopen(req) as resp:
-                data = resp.read()
+            resp = urlopen(req)
         except (URLError, HTTPError) as e:
             raise RuntimeError(f"failed to fetch {self.url}: {e}") from e
-        yield iter([data])
+
+        def byte_stream() -> Iterator[bytes]:
+            with resp:
+                while True:
+                    chunk = resp.read(self.chunk_size)
+                    if not chunk:
+                        break
+                    yield chunk
+
+        yield byte_stream()
