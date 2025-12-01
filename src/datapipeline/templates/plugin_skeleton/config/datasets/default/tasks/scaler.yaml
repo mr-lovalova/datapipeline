@@ -1,0 +1,9 @@
+kind: scaler
+
+# Output path is relative to project.paths.artifacts; defaults to "scaler.pkl".
+# output: scaler.pkl
+
+# Split label to use when fitting scaler statistics.
+# Must match a label from globals.split.ratios.
+split_label: train
+

@@ -8,8 +8,10 @@ paths:
   artifacts: ../../artifacts/${project_name}/v${version}
   tasks: tasks
 globals:
-  start_time: null # 2021-01-01T00:00:00Z format example
-  end_time: null # 2023-01-03T23:00:00Z
+  # Window bounds: 'auto' resolves from stats using metadata.window_mode,
+  # or set explicit ISO datetimes to override.
+  start_time: auto # or 2021-01-01T00:00:00Z
+  end_time: auto # or 2023-01-03T23:00:00Z
   # Configure deterministic dataset split here (applied at serve time, after postprocess).
   # Adjust `ratios` as needed; the active split is selected via serve tasks or CLI.
   split:

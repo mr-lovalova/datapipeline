@@ -71,8 +71,10 @@ def ensure_project_scaffold(project_yaml: Path) -> None:
             "  artifacts: ../../build/datasets/default\n"
             "  tasks: tasks\n"
             "globals:\n"
-            "  start_time: 2021-01-01T00:00:00Z\n"
-            "  end_time: 2021-12-31T23:00:00Z\n"
+            "  # Window bounds: 'auto' resolves from stats using metadata.window_mode,\n"
+            "  # or set explicit ISO datetimes to override.\n"
+            "  start_time: auto\n"
+            "  end_time: auto\n"
         )
         project_yaml.write_text(default, encoding="utf-8")
 

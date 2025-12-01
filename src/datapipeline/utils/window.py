@@ -30,8 +30,16 @@ def resolve_window_bounds(runtime: Runtime, rectangular_required: bool) -> tuple
         try:
             proj = _project(runtime.project_yaml)
             globals_cfg = getattr(proj, "globals", None)
-            start = getattr(globals_cfg, "start_time", None)
-            end = getattr(globals_cfg, "end_time", None)
+            globals_start = getattr(globals_cfg, "start_time", "auto")
+            globals_end = getattr(globals_cfg, "end_time", "auto")
+            if isinstance(globals_start, datetime):
+                start = globals_start
+            elif isinstance(globals_start, str) and globals_start.lower() != "auto":
+                start = _parse_dt(globals_start)
+            if isinstance(globals_end, datetime):
+                end = globals_end
+            elif isinstance(globals_end, str) and globals_end.lower() != "auto":
+                end = _parse_dt(globals_end)
         except Exception:
             start = end = None
 
