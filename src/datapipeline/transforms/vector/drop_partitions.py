@@ -3,16 +3,16 @@ from __future__ import annotations
 from collections.abc import Iterator
 from typing import Literal
 
-from datapipeline.config.metadata import VectorMetadata
+from datapipeline.config.metadata import (
+    VectorMetadata,
+    FEATURE_VECTORS_COUNT_KEY,
+    TARGET_VECTORS_COUNT_KEY,
+)
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
 from datapipeline.services.artifacts import (
     ArtifactNotRegisteredError,
     VECTOR_METADATA_SPEC,
-)
-from datapipeline.build.tasks.metadata import (
-    FEATURE_VECTORS_COUNT_KEY,
-    TARGET_VECTORS_COUNT_KEY,
 )
 
 from .common import ContextExpectedMixin, replace_vector, select_vector, try_get_current_context

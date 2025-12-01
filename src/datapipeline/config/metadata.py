@@ -6,6 +6,11 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 
+# Shared keys for vector metadata counts
+FEATURE_VECTORS_COUNT_KEY = "feature_vectors"
+TARGET_VECTORS_COUNT_KEY = "target_vectors"
+
+
 class Window(BaseModel):
     """Typed representation of dataset window bounds."""
 

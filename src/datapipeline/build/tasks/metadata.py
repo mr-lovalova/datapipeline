@@ -7,16 +7,17 @@ from pathlib import Path
 from typing import Dict, Tuple
 
 from datapipeline.config.dataset.loader import load_dataset
-from datapipeline.config.metadata import VectorMetadata, Window
+from datapipeline.config.metadata import (
+    VectorMetadata,
+    Window,
+    FEATURE_VECTORS_COUNT_KEY,
+    TARGET_VECTORS_COUNT_KEY,
+)
 from datapipeline.config.tasks import MetadataTask
 from datapipeline.runtime import Runtime
 from datapipeline.utils.paths import ensure_parent
 
 from .utils import collect_schema_entries, metadata_entries_from_stats
-
-
-FEATURE_VECTORS_COUNT_KEY = "feature_vectors"
-TARGET_VECTORS_COUNT_KEY = "target_vectors"
 
 
 def _entry_window(entry: dict) -> tuple[datetime | None, datetime | None]:

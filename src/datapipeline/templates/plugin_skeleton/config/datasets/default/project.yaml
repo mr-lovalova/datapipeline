@@ -10,8 +10,8 @@ paths:
 globals:
   # Optional window bounds used for interpolation and as overrides when
   # deriving the dataset window in metadata. Set to ISO datetimes or null.
-  start_time: null # 2021-01-01T00:00:00Z
-  end_time: null # 2023-01-03T23:00:00Z
+  start_time: 2021-01-01T00:00:00Z
+  end_time: 2021-01-02T00:00:00Z
   # Configure deterministic dataset split here (applied at serve time, after postprocess).
   # Adjust `ratios` as needed; the active split is selected via serve tasks or CLI.
   split:
