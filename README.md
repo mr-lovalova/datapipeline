@@ -300,10 +300,8 @@ paths:
   artifacts: ../../build/datasets/${project_name}
   tasks: tasks
 globals:
-  # Window bounds: 'auto' resolves from stats using metadata.window_mode,
-  # or set explicit ISO datetimes to override.
-  start_time: auto
-  end_time: auto
+  start_time: 2021-01-01T00:00:00Z
+  end_time: 2023-01-03T23:00:00Z
   split:
     mode: hash # hash | time
     key: group # group | feature:<id>
@@ -564,7 +562,7 @@ enabled: true
 - `scaler.pkl` is a pickled standard scaler fitted on the requested split.
 - `schema.json` (from the `schema` task) enumerates the discovered feature/target identifiers (including partitions), their kinds (scalar/list), and cadence hints used to enforce ordering downstream.
   - Configure the `schema` task to choose a cadence strategy (currently `max`). Per-feature overrides will be added later; for now every list-valued feature records the max observed length as its enforcement target.
-- `schema.metadata.json` (from the `metadata` task) captures heavier statistics—present/null counts, inferred value types, list-length histograms, per-partition timestamps, and the dataset window. Configure `metadata.window_mode` with `union|intersection|strict|relaxed` (default `intersection`) to control how start/end bounds are derived; project `globals.start_time`/`end_time` set to explicit datetimes still override each side when set. `union` considers base features, `intersection` uses their overlap, `strict` intersects every partition, and `relaxed` unions partitions independently.
+- `schema.metadata.json` (from the `metadata` task) captures heavier statistics—present/null counts, inferred value types, list-length histograms, per-partition timestamps, and the dataset window. Configure `metadata.window_mode` with `union|intersection|strict|relaxed` (default `intersection`) to control how start/end bounds are derived. `union` considers base features, `intersection` uses their overlap, `strict` intersects every partition, and `relaxed` unions partitions independently.
 - Command tasks (`kind: serve`) live alongside artifact tasks; `jerry serve` reads them directly.
 - Shared run/build defaults (visuals/progress/log level/build mode) live in `jerry.yaml`.
 

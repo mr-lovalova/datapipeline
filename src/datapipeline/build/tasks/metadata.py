@@ -6,13 +6,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Tuple
 
-from datapipeline.config.tasks import MetadataTask
 from datapipeline.config.dataset.loader import load_dataset
+from datapipeline.config.metadata import VectorMetadata, Window
+from datapipeline.config.tasks import MetadataTask
 from datapipeline.runtime import Runtime
 from datapipeline.utils.paths import ensure_parent
-from datapipeline.utils.window import resolve_window_bounds
 
 from .utils import collect_schema_entries, metadata_entries_from_stats
+
+
+FEATURE_VECTORS_COUNT_KEY = "feature_vectors"
+TARGET_VECTORS_COUNT_KEY = "target_vectors"
 
 
 def _entry_window(entry: dict) -> tuple[datetime | None, datetime | None]:
@@ -65,8 +69,10 @@ def _window_bounds_from_stats(
     *,
     mode: str,
 ) -> tuple[datetime | None, datetime | None]:
-    base_ranges = _group_ranges(feature_stats, "base_id") + _group_ranges(target_stats, "base_id")
-    partition_ranges = _group_ranges(feature_stats, "id") + _group_ranges(target_stats, "id")
+    base_ranges = _group_ranges(
+        feature_stats, "base_id") + _group_ranges(target_stats, "base_id")
+    partition_ranges = _group_ranges(
+        feature_stats, "id") + _group_ranges(target_stats, "id")
 
     if mode == "intersection":
         return _range_intersection(base_ranges)
@@ -103,39 +109,40 @@ def materialize_metadata(runtime: Runtime, task_cfg: MetadataTask) -> Tuple[str,
             cadence_strategy=task_cfg.cadence_strategy,
             collect_metadata=True,
         )
-        target_meta = metadata_entries_from_stats(target_stats, task_cfg.cadence_strategy)
-    feature_meta = metadata_entries_from_stats(feature_stats, task_cfg.cadence_strategy)
+        target_meta = metadata_entries_from_stats(
+            target_stats, task_cfg.cadence_strategy)
+    feature_meta = metadata_entries_from_stats(
+        feature_stats, task_cfg.cadence_strategy)
 
-    doc = {
-        "schema_version": 1,
-        "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-        "features": feature_meta,
-        "targets": target_meta,
-        "counts": {
-            "feature_vectors": feature_vectors,
-            "target_vectors": target_vectors,
-        },
-    }
-    start_override, end_override = resolve_window_bounds(runtime, False)
+    generated_at = datetime.now(timezone.utc)
+    window_obj: Window | None = None
     computed_start, computed_end = _window_bounds_from_stats(
         feature_stats,
         target_stats if target_cfgs else [],
         mode=task_cfg.window_mode,
     )
-    start = start_override or computed_start
-    end = end_override or computed_end
+    start = computed_start
+    end = computed_end
     if start is not None and end is not None and start < end:
-        doc["window"] = {
-            "start": start.isoformat().replace("+00:00", "Z"),
-            "end": end.isoformat().replace("+00:00", "Z"),
-            "mode": task_cfg.window_mode,
-        }
+        window_obj = Window(start=start, end=end, mode=task_cfg.window_mode)
+
+    doc = VectorMetadata(
+        schema_version=1,
+        generated_at=generated_at,
+        features=feature_meta,
+        targets=target_meta,
+        counts={
+            FEATURE_VECTORS_COUNT_KEY: feature_vectors,
+            TARGET_VECTORS_COUNT_KEY: target_vectors,
+        },
+        window=window_obj,
+    )
 
     relative_path = Path(task_cfg.output)
     destination = (runtime.artifacts_root / relative_path).resolve()
     ensure_parent(destination)
     with destination.open("w", encoding="utf-8") as fh:
-        json.dump(doc, fh, indent=2)
+        json.dump(doc.model_dump(mode="json"), fh, indent=2)
 
     meta: Dict[str, object] = {
         "features": len(feature_meta),

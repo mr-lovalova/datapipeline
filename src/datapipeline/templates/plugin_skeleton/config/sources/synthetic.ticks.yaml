@@ -6,6 +6,8 @@ parser:
 loader:
   entrypoint: "core.synthetic.ticks"
   args:
+    # Synthetic time sources require explicit start/end bounds. Set concrete ISO
+    # datetimes in globals.start_time/end_time or override these directly.
     start: "${start_time}"
     end: "${end_time}"
     frequency: "1h"

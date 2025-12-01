@@ -3,11 +3,16 @@ from __future__ import annotations
 from collections.abc import Iterator
 from typing import Literal
 
+from datapipeline.config.metadata import VectorMetadata
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
 from datapipeline.services.artifacts import (
     ArtifactNotRegisteredError,
     VECTOR_METADATA_SPEC,
+)
+from datapipeline.build.tasks.metadata import (
+    FEATURE_VECTORS_COUNT_KEY,
+    TARGET_VECTORS_COUNT_KEY,
 )
 
 from .common import ContextExpectedMixin, replace_vector, select_vector, try_get_current_context
@@ -71,16 +76,22 @@ class VectorDropPartitionsTransform(ContextExpectedMixin):
         if not context:
             raise RuntimeError("VectorDropPartitionsTransform requires an active pipeline context.")
         try:
-            metadata = context.require_artifact(VECTOR_METADATA_SPEC)
+            raw = context.require_artifact(VECTOR_METADATA_SPEC)
         except ArtifactNotRegisteredError as exc:
             raise RuntimeError(
                 "Vector metadata artifact missing. Enable the `metadata` build task "
                 "and rerun `jerry build --project <project.yaml>`."
             ) from exc
+        meta = VectorMetadata.model_validate(raw)
         section_key = "targets" if self._payload == "targets" else "features"
-        counts_key = "target_vectors" if self._payload == "targets" else "feature_vectors"
-        entries = metadata.get(section_key) or []
-        total = metadata.get("counts", {}).get(counts_key)
+        counts_key = (
+            TARGET_VECTORS_COUNT_KEY
+            if self._payload == "targets"
+            else FEATURE_VECTORS_COUNT_KEY
+        )
+
+        entries = getattr(meta, section_key) or []
+        total = meta.counts.get(counts_key)
         if not isinstance(total, (int, float)) or total <= 0:
             if self._payload == "targets":
                 raise RuntimeError(
