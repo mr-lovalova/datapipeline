@@ -16,6 +16,7 @@ def test_drop_missing_with_schema_and_partitioned_streams():
         dataset_ctx.features,
         dataset_ctx.dataset.group_by,
         target_configs=dataset_ctx.targets,
+        rectangular=False,
     )
     processed = post_process(context, vectors)
     samples = list(processed)

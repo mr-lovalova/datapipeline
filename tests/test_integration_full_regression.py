@@ -22,6 +22,7 @@ def test_full_regression_project_vectors(project_path: Path) -> None:
         ctx.features,
         ctx.dataset.group_by,
         target_configs=ctx.targets,
+        rectangular=False,
     )
     samples = list(post_process(context, base_vectors))
 

@@ -29,7 +29,7 @@ class VectorMetadata(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     schema_version: int = 1
-    generated_at: datetime
+    generated_at: Optional[datetime] = None
     window: Optional[Window] = None
     meta: Dict[str, Any] | None = None
     features: List[Dict[str, Any]] = Field(default_factory=list)

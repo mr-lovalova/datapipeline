@@ -41,8 +41,8 @@ def resolve_window_bounds(runtime: Runtime, rectangular_required: bool) -> tuple
         except Exception:
             start = end = None
 
-    # Legacy fallback: try schema/spec window if metadata missing or invalid
-    if (start is None or end is None) and not isinstance(doc, dict):
+    # Fallback: try schema/spec window if metadata missing or invalid.
+    if start is None or end is None:
         try:
             doc = runtime.artifacts.load(VECTOR_SCHEMA_SPEC)
         except ArtifactNotRegisteredError:
@@ -53,13 +53,15 @@ def resolve_window_bounds(runtime: Runtime, rectangular_required: bool) -> tuple
             if isinstance(doc, dict):
                 window = doc.get("window") or doc.get("meta", {}).get("window")
                 if isinstance(window, dict):
-                    start = _parse_dt(window.get("start"))
-                    end = _parse_dt(window.get("end"))
+                    start = _parse_dt(window.get("start")) or start
+                    end = _parse_dt(window.get("end")) or end
         except Exception:
             pass
 
     if rectangular_required and (start is None or end is None):
-        raise RuntimeError("Window bounds unavailable (configure globals.start/end or rebuild metadata); rectangular output required.")
+        raise RuntimeError(
+            "Window bounds unavailable (rebuild metadata to materialize schema.metadata.json with a window); rectangular output required."
+        )
     return start, end
 
 

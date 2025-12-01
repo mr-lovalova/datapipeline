@@ -110,7 +110,11 @@ def resolve_output_target(
         base_dest_dir = run_paths.dataset_dir
     else:
         run_paths = None
+        # When not creating a managed run, nest outputs under an optional
+        # run_name subdirectory to keep layouts consistent with tests/CLI.
         base_dest_dir = directory
+        if run_name:
+            base_dest_dir = base_dest_dir / _sanitize_segment(run_name)
     suffix = _format_suffix(config.format)
     filename_stem = config.filename or run_name
     if filename_stem:
