@@ -24,10 +24,20 @@ from datapipeline.io.output import OutputTarget
 
 
 def stdout_sink_for(format_: str, visuals: Optional[str]) -> StdoutTextSink:
+    """Select an appropriate stdout sink given format and visuals preference.
+
+    Behavior:
+    - visuals == "rich" or "auto" -> attempt Rich formatting; fallback to plain on error.
+    - anything else               -> plain stdout (no Rich formatting).
+    """
     fmt = (format_ or "print").lower()
     provider = (visuals or "auto").lower()
-    if provider != "rich":
+
+    use_rich = provider == "rich" or provider == "auto"
+    if not use_rich:
         return StdoutTextSink()
+
+    # Prefer Rich when possible; gracefully degrade to plain stdout on any failure.
     try:
         if fmt in {"json", "json-lines", "jsonl"}:
             return RichStdoutSink(JsonRichFormatter())
