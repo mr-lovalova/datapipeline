@@ -72,6 +72,10 @@ class MetadataTask(ArtifactTask):
     )
 
 
+class RuntimeTask(TaskBase):
+    """Base class for runtime-oriented tasks (serve/evaluate/etc.)."""
+
+
 class ServeOutputConfig(BaseModel):
     transport: Transport = Field(..., description="fs | stdout")
     format: Format = Field(..., description="csv | json | json-lines | print | pickle")
@@ -132,7 +136,7 @@ class ServeOutputConfig(BaseModel):
         return name
 
 
-class ServeTask(TaskBase):
+class ServeTask(RuntimeTask):
     kind: Literal["serve"]
     output: ServeOutputConfig | None = None
     keep: str | None = Field(

@@ -83,8 +83,8 @@ class _RichBackend(VisualsBackend):
             from pathlib import Path as _Path
             import os as _os
             console = _Console(file=_sys.stderr, markup=True)
-            console.print(_Rule("Build", style="bold white"))
-            # Subheader with compact path
+            console.print(_Rule("Info", style="bold white"))
+            # Subheader with compact path to project.yaml
             p = _Path(path)
             try:
                 cwd = _Path(_os.getcwd())

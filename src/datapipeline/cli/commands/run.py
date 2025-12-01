@@ -52,7 +52,8 @@ def _profile_debug_payload(profile) -> dict[str, object]:
     }
     cfg = entry.config
     if cfg is not None:
-        payload["run_config"] = cfg.model_dump(exclude_unset=True, exclude_none=True)
+        payload["run_config"] = cfg.model_dump(
+            exclude_unset=True, exclude_none=True)
     return payload
 
 
@@ -68,9 +69,10 @@ def _log_profile_start_debug(profile) -> None:
     )
 
 
-
 def _entry_sections(run_root: Optional[Path], entry: RunEntry) -> tuple[str, ...]:
-    return sections_from_path(run_root, entry.path)
+    # Prefix sections with a phase label for visuals; keep path-based detail.
+    path_sections = sections_from_path(run_root, entry.path)
+    return ("Run Tasks",) + tuple(path_sections[1:])
 
 
 def _build_cli_output_config(
@@ -97,7 +99,8 @@ def _build_cli_output_config(
     fmt = fmt.lower()
     if transport == "fs":
         if not path:
-            logger.error("--out-path is required when --out-transport=fs (directory)")
+            logger.error(
+                "--out-path is required when --out-transport=fs (directory)")
             raise SystemExit(2)
         return (
             ServeOutputConfig(
@@ -174,7 +177,8 @@ def handle_serve(
             stage=stage,
             limit=limit,
             cli_output=cli_output_cfg,
-            cli_payload=payload_override or (out_payload.lower() if out_payload else None),
+            cli_payload=payload_override or (
+                out_payload.lower() if out_payload else None),
             workspace=workspace,
             cli_log_level=cli_log_level,
             base_log_level=base_log_level,
@@ -207,7 +211,8 @@ def handle_serve(
             stage=stage,
             limit=limit,
             cli_output=cli_output_cfg,
-            cli_payload=payload_override or (out_payload.lower() if out_payload else None),
+            cli_payload=payload_override or (
+                out_payload.lower() if out_payload else None),
             workspace=workspace,
             cli_log_level=cli_log_level,
             base_log_level=base_log_level,

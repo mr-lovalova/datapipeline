@@ -218,7 +218,9 @@ def run_build_if_needed(
 
     total_jobs = len(job_specs)
     for idx, (job_label, artifact_key, job_work, config_path) in enumerate(job_specs, start=1):
-        sections = sections_from_path(tasks_root, config_path or tasks_root)
+        # Prefix sections with a phase label for visuals; keep path-based detail.
+        path_sections = sections_from_path(tasks_root, config_path or tasks_root)
+        sections = ("Build Tasks",) + tuple(path_sections[1:])
         result = run_job(
             sections=sections,
             label=job_label,
