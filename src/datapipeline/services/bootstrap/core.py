@@ -1,15 +1,14 @@
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 from datapipeline.utils.load import load_yaml
 from datapipeline.config.catalog import StreamsConfig
-from datapipeline.config.run import load_run_config
+from datapipeline.config.tasks import default_serve_task
 from datapipeline.services.project_paths import streams_dir, sources_dir
 from datapipeline.build.state import load_build_state
 from datapipeline.services.constants import (
     PARSER_KEY,
     LOADER_KEY,
-    SOURCE_KEY,
     SOURCE_ID_KEY,
     MAPPER_KEY,
     ENTRYPOINT_KEY,
@@ -19,6 +18,7 @@ from datapipeline.services.constants import (
 from datapipeline.services.factories import (
     build_source_from_spec,
     build_mapper_from_spec,
+    build_composed_source,
 )
 
 from datapipeline.runtime import Runtime
@@ -28,9 +28,7 @@ from .config import (
     _globals,
     _interpolate,
     _load_by_key,
-    _paths,
     _project,
-    _project_vars,
 )
 
 
@@ -41,26 +39,28 @@ SRC_LOADER_KEY = LOADER_KEY
 def _load_sources_from_dir(project_yaml: Path, vars_: dict[str, Any]) -> dict:
     """Aggregate per-source YAML files into a raw-sources mapping.
 
-    Expects each file to define a single source with top-level 'parser' and
-    'loader' keys. The source alias is inferred from the filename (without
-    extension).
+    Scans for YAML files under the sources directory (recursing through
+    subfolders). Expects each file to define a single source with top-level
+    'parser' and 'loader' keys. The top-level 'id' inside the file becomes the
+    runtime alias.
     """
-    import os
     src_dir = sources_dir(project_yaml)
     if not src_dir.exists() or not src_dir.is_dir():
         return {}
     out: dict[str, dict] = {}
-    for fname in sorted(os.listdir(src_dir)):
-        if not (fname.endswith(".yaml") or fname.endswith(".yml")):
-            continue
-        data = load_yaml(src_dir / fname)
+    candidates = sorted(
+        (p for p in src_dir.rglob("*.y*ml") if p.is_file()),
+        key=lambda p: p.relative_to(src_dir).as_posix(),
+    )
+    for path in candidates:
+        data = load_yaml(path)
         if not isinstance(data, dict):
             continue
         if isinstance(data.get(SRC_PARSER_KEY), dict) and isinstance(data.get(SRC_LOADER_KEY), dict):
             alias = data.get(SOURCE_ID_KEY)
             if not alias:
                 raise ValueError(
-                    f"Missing 'source_id' in source file: {fname}")
+                    f"Missing 'id' in source file: {path.relative_to(src_dir)}")
             out[alias] = _interpolate(data, vars_)
             continue
     return out
@@ -81,13 +81,23 @@ def _load_canonical_streams(project_yaml: Path, vars_: dict[str, Any]) -> dict:
         if not p.is_file():
             continue
         data = load_yaml(p)
-        # Require explicit ids: stream_id and source_id
-        if isinstance(data, dict) and (SOURCE_ID_KEY in data) and (STREAM_ID_KEY in data):
-            m = data.get(MAPPER_KEY)
-            if (not isinstance(m, dict)) or (ENTRYPOINT_KEY not in (m or {})):
-                data[MAPPER_KEY] = None
-            alias = data.get(STREAM_ID_KEY)
-            out[alias] = _interpolate(data, vars_)
+        # Contracts must declare kind: 'ingest' | 'composed'
+        if not isinstance(data, dict):
+            continue
+        kind = data.get("kind")
+        if kind not in {"ingest", "composed"}:
+            continue
+        if (STREAM_ID_KEY not in data):
+            continue
+        if kind == "ingest" and ("source" not in data):
+            continue
+        if kind == "composed" and ("inputs" not in data):
+            continue
+        m = data.get(MAPPER_KEY)
+        if (not isinstance(m, dict)) or (ENTRYPOINT_KEY not in (m or {})):
+            data[MAPPER_KEY] = None
+        alias = data.get(STREAM_ID_KEY)
+        out[alias] = _interpolate(data, vars_)
     return out
 
 
@@ -124,9 +134,16 @@ def init_streams(cfg: StreamsConfig, runtime: Runtime) -> None:
     for alias, spec in (cfg.raw or {}).items():
         regs.sources.register(alias, build_source_from_spec(spec))
     for alias, spec in (cfg.contracts or {}).items():
-        mapper = build_mapper_from_spec(spec.mapper)
-        regs.mappers.register(alias, mapper)
-        regs.stream_sources.register(alias, regs.sources.get(spec.source_id))
+        if getattr(spec, "kind", None) == "composed":
+            # Composed stream: register virtual source and identity mapper
+            regs.stream_sources.register(
+                alias, build_composed_source(alias, spec, runtime)
+            )
+            regs.mappers.register(alias, build_mapper_from_spec(None))
+        else:
+            mapper = build_mapper_from_spec(spec.mapper)
+            regs.mappers.register(alias, mapper)
+            regs.stream_sources.register(alias, regs.sources.get(spec.source))
 
 
 def bootstrap(project_yaml: Path) -> Runtime:
@@ -146,9 +163,7 @@ def bootstrap(project_yaml: Path) -> Runtime:
         runtime.split = None
 
     try:
-        runtime.run = load_run_config(project_yaml)
-    except FileNotFoundError:
-        runtime.run = None
+        runtime.run = default_serve_task(project_yaml)
     except Exception:
         runtime.run = None
 

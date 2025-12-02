@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from datapipeline.config.split import TimeSplitConfig
+from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
 from datapipeline.pipeline.split import apply_split_stage
 
@@ -11,10 +12,14 @@ from datapipeline.pipeline.split import apply_split_stage
 def _vector_stream():
     return iter(
         [
-            (datetime(1970, 1, 1, tzinfo=timezone.utc),
-             Vector(values={"x": 1})),
-            (datetime(1970, 1, 3, tzinfo=timezone.utc),
-             Vector(values={"x": 2})),
+            Sample(
+                key=datetime(1970, 1, 1, tzinfo=timezone.utc),
+                features=Vector(values={"x": 1}),
+            ),
+            Sample(
+                key=datetime(1970, 1, 3, tzinfo=timezone.utc),
+                features=Vector(values={"x": 2}),
+            ),
         ]
     )
 
@@ -34,7 +39,7 @@ def test_split_stage_filters_when_runtime_keep_set():
     filtered = list(apply_split_stage(runtime, _vector_stream()))
 
     assert len(filtered) == 1
-    assert filtered[0][1].values["x"] == 2
+    assert filtered[0].features.values["x"] == 2
 
 
 def test_split_stage_passes_through_when_keep_missing():

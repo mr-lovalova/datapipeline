@@ -1,9 +1,11 @@
+import logging
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from typing import Any, Optional, Tuple
 from inspect import isclass, signature, Parameter
 from contextlib import nullcontext
 
 from datapipeline.pipeline.context import PipelineContext
+from datapipeline.pipeline.observability import ObserverRegistry, SupportsObserver, TransformEvent
 
 from datapipeline.utils.load import load_ep
 
@@ -79,8 +81,15 @@ def apply_transforms(
     group: str,
     transforms: Optional[Sequence[Mapping[str, Any]]],
     context: Optional[PipelineContext] = None,
+    observer: Callable[[TransformEvent], None] | None = None,
+    observer_registry: ObserverRegistry | None = None,
 ) -> Iterator[Any]:
     """Instantiate and apply configured transforms in order."""
+
+    observer = observer or (getattr(context, "transform_observer", None)
+                            if context is not None else None)
+    registry = observer_registry or (getattr(context, "observer_registry", None)
+                                     if context is not None else None)
 
     context_cm = context.activate() if context else nullcontext()
     with context_cm:
@@ -90,7 +99,20 @@ def apply_transforms(
             if isclass(ep):
                 inst = _instantiate_entry_point(ep, params, context)
                 _bind_context(inst, context)
+                eff_observer = observer
+                if eff_observer is None and registry:
+                    eff_observer = registry.get(
+                        name, logging.getLogger(f"{group}.{name}")
+                    )
+                _attach_observer(inst, eff_observer)
                 stream = inst(stream)
             else:
                 stream = _call_with_params(ep, stream, params, context)
     return stream
+
+
+def _attach_observer(transform: Any, observer: Callable[..., None] | None) -> None:
+    if observer is None:
+        return
+    if isinstance(transform, SupportsObserver):
+        transform.set_observer(observer)

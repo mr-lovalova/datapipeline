@@ -1,9 +1,0 @@
-version: 1
-partitioned_ids:
-  output: expected.txt     # relative to project.paths.artifacts
-  include_targets: false   # set true to include dataset.targets
-scaler:
-  enabled: true            # disable to skip scaler statistics
-  output: scaler.pkl       # relative to project.paths.artifacts
-  include_targets: false   # include targets when fitting scaler
-  split_label: train       # label from project.globals.split to fit on

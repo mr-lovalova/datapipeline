@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Optional
 
 from datapipeline.utils.load import load_yaml
 from datapipeline.config.project import ProjectConfig
@@ -35,21 +36,19 @@ def sources_dir(project_yaml: Path) -> Path:
     return p
 
 
-def build_config_path(project_yaml: Path) -> Path:
-    """Return the resolved path to build.yaml declared in project.paths.build."""
+def tasks_dir(project_yaml: Path) -> Path:
+    """Return the resolved path to the tasks directory (project.paths.tasks)."""
 
     cfg = read_project(project_yaml)
-    build_path = getattr(cfg.paths, "build", None)
-    if not build_path:
-        raise FileNotFoundError(
-            "project.paths.build must point to a build.yaml configuration file."
-        )
-    p = Path(build_path)
+    tasks_path = getattr(cfg.paths, "tasks", None)
+    if not tasks_path:
+        raise FileNotFoundError("project.paths.tasks must point to a tasks directory.")
+    p = Path(tasks_path)
     if not p.is_absolute():
         p = _project_root(project_yaml) / p
-    if not p.exists():
-        raise FileNotFoundError(f"build config not found: {p}")
-    return p
+    if not p.exists() or not p.is_dir():
+        raise FileNotFoundError(f"tasks directory not found: {p}")
+    return p.resolve()
 
 
 def ensure_project_scaffold(project_yaml: Path) -> None:
@@ -64,14 +63,14 @@ def ensure_project_scaffold(project_yaml: Path) -> None:
         project_yaml.parent.mkdir(parents=True, exist_ok=True)
         default = (
             "version: 1\n"
+            "name: default\n"
             "paths:\n"
             "  streams: ../../contracts\n"
             "  sources: ../../sources\n"
             "  dataset: dataset.yaml\n"
             "  postprocess: postprocess.yaml\n"
             "  artifacts: ../../build/datasets/default\n"
-            "  build: build.yaml\n"
-            "  run: run.yaml\n"
+            "  tasks: tasks\n"
             "globals:\n"
             "  start_time: 2021-01-01T00:00:00Z\n"
             "  end_time: 2021-12-31T23:00:00Z\n"
@@ -90,7 +89,33 @@ def ensure_project_scaffold(project_yaml: Path) -> None:
         if not sources.is_absolute():
             sources = _project_root(project_yaml) / sources
         sources.mkdir(parents=True, exist_ok=True)
+
+        tasks = getattr(cfg.paths, "tasks", None)
+        if tasks:
+            tasks_path = Path(tasks)
+            if not tasks_path.is_absolute():
+                tasks_path = _project_root(project_yaml) / tasks_path
+            tasks_path.mkdir(parents=True, exist_ok=True)
     except Exception:
         # If the file is malformed, leave it to callers to report; this helper
         # is best-effort to create a sensible starting point.
         pass
+
+
+def resolve_project_yaml_path(
+    plugin_root: Path,
+    config_root: Optional[Path],
+) -> Path:
+    """Return project.yaml path honoring optional workspace config overrides."""
+    if config_root:
+        target = Path(config_root)
+        if target.suffix.lower() in {".yaml", ".yml"}:
+            return target
+        candidate = target / "project.yaml"
+        if candidate.exists():
+            return candidate
+        fallback = target / "datasets" / "default" / "project.yaml"
+        if fallback.exists():
+            return fallback
+        return candidate
+    return plugin_root / "config" / "datasets" / "default" / "project.yaml"

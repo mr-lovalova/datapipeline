@@ -15,7 +15,7 @@ def test_scaffold_plugin_normalizes_hyphenated_name(tmp_path: Path) -> None:
     assert 'name = "test-datapipeline"' in pyproject
 
     readme = (plugin_root / "README.md").read_text()
-    assert "jerry plugin init --name test-datapipeline" in readme
+    assert "jerry plugin init test-datapipeline" in readme
 
 
 @pytest.mark.parametrize("name", ["data pipeline", "datapipeline"])

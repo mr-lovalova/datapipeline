@@ -1,10 +1,10 @@
 from pathlib import Path
 from urllib.parse import urlparse
 
-from datapipeline.sources.models.loader import SyntheticLoader, RawDataLoader
-from datapipeline.sources.composed_loader import ComposedRawLoader
-from datapipeline.sources.transports import FsFileSource, FsGlobSource, UrlSource
-from datapipeline.sources.decoders import CsvDecoder, JsonDecoder, JsonLinesDecoder
+from datapipeline.sources.models.loader import SyntheticLoader, BaseDataLoader
+from datapipeline.sources.data_loader import DataLoader
+from datapipeline.sources.transports import FsFileTransport, FsGlobTransport, UrlTransport
+from datapipeline.sources.decoders import CsvDecoder, JsonDecoder, JsonLinesDecoder, PickleDecoder
 
 MAX_LABEL_LEN = 48
 GLOB_SEGMENTS = 3
@@ -40,36 +40,36 @@ def _compact_path_label(name: str) -> str:
 def unit_for_loader(loader) -> str:
     if isinstance(loader, SyntheticLoader):
         return "tick"
-    if isinstance(loader, ComposedRawLoader):
+    if isinstance(loader, DataLoader):
         dec = getattr(loader, "decoder", None)
         if isinstance(dec, CsvDecoder):
             return "row"
-        if isinstance(dec, (JsonDecoder, JsonLinesDecoder)):
+        if isinstance(dec, (JsonDecoder, JsonLinesDecoder, PickleDecoder)):
             return "item"
     return "record"
 
 
-def build_source_label(loader: RawDataLoader) -> str:
+def build_source_label(loader: BaseDataLoader) -> str:
     if isinstance(loader, SyntheticLoader):
         try:
             gen_name = loader.generator.__class__.__name__
         except Exception:
             gen_name = loader.__class__.__name__
         return "Generating data with " + gen_name
-    if isinstance(loader, ComposedRawLoader):
-        src = getattr(loader, "source", None)
-        if isinstance(src, (FsFileSource, FsGlobSource)):
-            name = str(getattr(src, "pattern", getattr(src, "path", "")))
-            if isinstance(src, FsFileSource) and name and "*" not in name:
+    if isinstance(loader, DataLoader):
+        transport = getattr(loader, "transport", None)
+        if isinstance(transport, (FsFileTransport, FsGlobTransport)):
+            name = str(getattr(transport, "pattern", getattr(transport, "path", "")))
+            if isinstance(transport, FsFileTransport) and name and "*" not in name:
                 label = Path(name).name or "fs"
             else:
                 label = _compact_path_label(name)
             return f"Loading data from: {label}"
-        if isinstance(src, UrlSource):
-            host = urlparse(src.url).netloc or "http"
+        if isinstance(transport, UrlTransport):
+            host = urlparse(transport.url).netloc or "http"
             return f"Downloading data from: @{host}"
     return loader.__class__.__name__
 
 
-def progress_meta_for_loader(loader: RawDataLoader) -> tuple[str, str]:
+def progress_meta_for_loader(loader: BaseDataLoader) -> tuple[str, str]:
     return build_source_label(loader), unit_for_loader(loader)

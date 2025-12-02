@@ -26,3 +26,14 @@ class TemporalRecord(Record):
         data.pop("time", None)
         data.pop("value", None)
         return data
+
+    def __eq__(self, other: object) -> bool:
+        if self is other:
+            return True
+        if not isinstance(other, TemporalRecord):
+            return NotImplemented
+        return (
+            self.time == other.time
+            and self.value == other.value
+            and self._identity_fields() == other._identity_fields()
+        )

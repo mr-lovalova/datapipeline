@@ -13,13 +13,12 @@ def stream_vectors(
     project_yaml: str | Path,
     *,
     limit: int | None = None,
-    include_targets: bool = False,
 ) -> Iterator[tuple[Sequence[Any], Vector]]:
     """Yield ``(group_key, Vector)`` pairs for the configured project."""
 
     adapter = VectorAdapter.from_project(project_yaml)
     try:
-        return adapter.stream(limit=limit, include_targets=include_targets)
+        return adapter.stream(limit=limit)
     except ValueError:
         return iter(())
 
@@ -32,7 +31,6 @@ def iter_vector_rows(
     group_format: GroupFormat = "mapping",
     group_column: str = "group",
     flatten_sequences: bool = False,
-    include_targets: bool = False,
 ) -> Iterator[dict[str, Any]]:
     """Return an iterator of row dictionaries derived from vectors."""
 
@@ -44,7 +42,6 @@ def iter_vector_rows(
             group_format=group_format,
             group_column=group_column,
             flatten_sequences=flatten_sequences,
-            include_targets=include_targets,
         )
     except ValueError:
         return iter(())
@@ -58,7 +55,6 @@ def collect_vector_rows(
     group_format: GroupFormat = "mapping",
     group_column: str = "group",
     flatten_sequences: bool = False,
-    include_targets: bool = False,
     open_stream=None,
 ) -> list[dict[str, Any]]:
     """Materialize :func:`iter_vector_rows` into a list for eager workflows."""
@@ -70,7 +66,6 @@ def collect_vector_rows(
         group_format=group_format,
         group_column=group_column,
         flatten_sequences=flatten_sequences,
-        include_targets=include_targets,
     )
     return list(iterator)
 

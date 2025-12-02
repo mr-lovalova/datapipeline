@@ -13,7 +13,16 @@ def load_ep(group: str, name: str):
         raise ValueError(
             f"No entry point '{name}' in '{group}'. Available: {available or '(none)'}")
     if len(eps) > 1:
-        mods = ", ".join(f"{ep.module}:{ep.attr}" for ep in eps)
+        def describe(ep):
+            value = getattr(ep, "value", None)
+            if value:
+                return value
+            module = getattr(ep, "module", None)
+            attr = getattr(ep, "attr", None)
+            if module and attr:
+                return f"{module}:{attr}"
+            return repr(ep)
+        mods = ", ".join(describe(ep) for ep in eps)
         raise ValueError(
             f"Ambiguous entry point '{name}' in '{group}': {mods}")
     # EntryPoints in newer Python versions are mapping-like; avoid integer indexing

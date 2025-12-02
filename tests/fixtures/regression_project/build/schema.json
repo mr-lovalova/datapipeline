@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "generated_at": "2025-11-28T10:00:10.763250Z",
+  "features": [
+    {
+      "id": "linear_scaled",
+      "base_id": "linear_scaled",
+      "kind": "scalar"
+    },
+    {
+      "id": "sine_window",
+      "base_id": "sine_window",
+      "kind": "list",
+      "cadence": {
+        "strategy": "max",
+        "target": 2
+      }
+    },
+    {
+      "id": "humidity_partitioned__@location:north",
+      "base_id": "humidity_partitioned",
+      "kind": "scalar"
+    },
+    {
+      "id": "humidity_partitioned__@location:south",
+      "base_id": "humidity_partitioned",
+      "kind": "scalar"
+    }
+  ],
+  "targets": [
+    {
+      "id": "power_target",
+      "base_id": "power_target",
+      "kind": "scalar"
+    }
+  ]
+}

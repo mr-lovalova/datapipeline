@@ -18,10 +18,3 @@ class DataGenerator(ABC):
 
     def __iter__(self) -> Iterator[Any]:
         return self.generate()
-
-
-class NoOpGenerator(DataGenerator):
-    """A data generator that yields no items."""
-
-    def generate(self) -> Iterator[Any]:
-        return iter(())

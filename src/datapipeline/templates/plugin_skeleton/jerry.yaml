@@ -1,0 +1,23 @@
+# Workspace defaults. Move this file to the root of your workspace if you serve
+# configs outside the plugin repo; the CLI searches upward from cwd for jerry.yaml.
+
+plugin_root: . # relative path to the plugin repo root
+config_root: config/datasets/default # directory containing project.yaml
+
+shared:
+  visuals: AUTO # AUTO | TQDM | RICH | OFF
+  progress: AUTO # AUTO | SPINNER | BARS | OFF
+  log_level: INFO
+
+serve:
+  # log_level: INFO
+  limit: 5
+  stage: null
+  output:
+    transport: stdout
+    format: print # set to fs + directory for file outputs
+    # directory: artifacts/serve
+
+build:
+  # log_level: INFO
+  mode: AUTO # AUTO | FORCE | OFF

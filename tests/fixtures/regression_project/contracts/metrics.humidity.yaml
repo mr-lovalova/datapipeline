@@ -1,0 +1,16 @@
+kind: ingest
+source: regression.humidity
+id: metrics.humidity
+partition_by: location
+
+mapper:
+  entrypoint: identity
+  args: {}
+
+record:
+  - filter: { operator: ge, field: time, comparand: "${start_time}" }
+  - filter: { operator: le, field: time, comparand: "${end_time}" }
+
+stream:
+  - ensure_ticks: { tick: 1h }
+  - fill: { statistic: median, window: 3, min_samples: 1 }

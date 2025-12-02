@@ -3,7 +3,7 @@ from typing import Iterator, Any, Optional
 from .generator import DataGenerator
 
 
-class RawDataLoader(ABC):
+class BaseDataLoader(ABC):
     @abstractmethod
     def load(self) -> Iterator[Any]:
         pass
@@ -15,8 +15,8 @@ class RawDataLoader(ABC):
         return self.load()
 
 
-class SyntheticLoader(RawDataLoader):
-    """Adapter that turns a `DataGenerator` into a `RawDataLoader`.
+class SyntheticLoader(BaseDataLoader):
+    """Adapter that turns a `DataGenerator` into a `BaseDataLoader`.
 
     Keeps the `load()` contract used by the pipeline, while making the
     generative intent explicit and separate from I/O loaders.

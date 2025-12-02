@@ -41,6 +41,12 @@ def _project_vars(data: dict) -> dict[str, Any]:
     if name:
         vars_["project"] = str(name)
         vars_["project_name"] = str(name)
+
+    version = data.get("version")
+    if version is not None:
+        vars_["version"] = str(version)
+        vars_["project_version"] = str(version)
+
     globals_ = data.get("globals") or {}
     for k, v in globals_.items():
         vars_[str(k)] = _serialize_global_value(v)
@@ -62,6 +68,24 @@ def artifacts_root(project_yaml: Path) -> Path:
         )
     ap = Path(a)
     return (pj.parent / ap).resolve() if not ap.is_absolute() else ap
+
+
+def run_root(project_yaml: Path, run_id: str | None = None) -> Path:
+    """Return a per-run artifacts directory under the project artifacts root.
+
+    Example:
+      artifacts_root: /.../artifacts/my_dataset/v3
+      run_root:       /.../artifacts/my_dataset/v3/runs/2025-11-29T14-15-23Z
+    """
+    base = artifacts_root(project_yaml)
+
+    if run_id is None:
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
+        run_id = ts
+
+    root = (base / "runs" / run_id).resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    return root
 
 
 def _load_by_key(
@@ -131,6 +155,7 @@ def _interpolate(obj, vars_: dict[str, Any]):
 
 __all__ = [
     "artifacts_root",
+    "run_root",
     "_globals",
     "_interpolate",
     "_load_by_key",

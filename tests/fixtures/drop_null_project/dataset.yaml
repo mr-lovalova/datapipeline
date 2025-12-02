@@ -1,0 +1,8 @@
+group_by: 1h
+
+features:
+  - id: time_linear
+    record_stream: time.ticks.linear
+    scale: false
+
+targets: []

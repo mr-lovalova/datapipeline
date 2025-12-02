@@ -11,3 +11,6 @@
 # - fill_horizontal:
 #     statistic: mean
 #     min_samples: 2
+# - fill_constant:
+#     payload: targets
+#     value: 0.0

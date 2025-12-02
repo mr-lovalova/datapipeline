@@ -1,9 +1,8 @@
 from __future__ import annotations
-from typing import Any
+from typing import Any, Literal, TYPE_CHECKING
 import logging
 
 from .matrix import export_matrix_data, render_matrix
-from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .collector import VectorStatsCollector
@@ -12,7 +11,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def print_report(collector: VectorStatsCollector) -> dict[str, Any]:
+def print_report(
+    collector: VectorStatsCollector,
+    *,
+    sort_key: Literal["missing", "nulls"] = "missing",
+) -> dict[str, Any]:
     tracked_features = (
         collector.expected_features
         if collector.expected_features
@@ -62,15 +65,25 @@ def print_report(collector: VectorStatsCollector) -> dict[str, Any]:
         return summary
 
     feature_stats = []
-    logger.info("\n-> Feature coverage (sorted by missing count):")
+    sort_label = "null" if sort_key == "nulls" else "missing"
+    logger.info("\n-> Feature coverage (sorted by %s count):", sort_label)
+    if sort_key == "nulls":
+        def _feature_sort(fid):
+            return collector._feature_null_count(fid)
+    else:
+        def _feature_sort(fid):
+            return collector._coverage(fid)[1]
+
     for feature_id in sorted(
         tracked_features,
-        key=lambda fid: collector._coverage(fid)[1],
+        key=_feature_sort,
         reverse=True,
     ):
         present, missing, opportunities = collector._coverage(feature_id)
         coverage = present / opportunities if opportunities else 0.0
         nulls = collector._feature_null_count(feature_id)
+        cadence_nulls = collector.cadence_null_counts.get(feature_id, 0)
+        cadence_opps = collector.cadence_opportunities.get(feature_id, 0)
         raw_samples = collector.missing_samples.get(feature_id, [])
         sample_note = collector._format_samples(raw_samples)
         samples = [
@@ -82,7 +95,7 @@ def print_report(collector: VectorStatsCollector) -> dict[str, Any]:
         ]
         line = (
             f"  - {feature_id}: present {present}/{opportunities}"
-            f" ({coverage:.1%}) | missing {missing} | null {nulls}"
+            f" ({coverage:.1%}) | absent {missing} | null {nulls}"
         )
         if sample_note:
             line += f"; samples: {sample_note}"
@@ -93,6 +106,11 @@ def print_report(collector: VectorStatsCollector) -> dict[str, Any]:
                 "present": present,
                 "missing": missing,
                 "nulls": nulls,
+                "cadence_nulls": cadence_nulls,
+                "cadence_opportunities": cadence_opps,
+                "cadence_null_fraction": (
+                    cadence_nulls / cadence_opps if cadence_opps else None
+                ),
                 "coverage": coverage,
                 "opportunities": opportunities,
                 "samples": samples,
@@ -109,6 +127,12 @@ def print_report(collector: VectorStatsCollector) -> dict[str, Any]:
             )
             coverage = present / opportunities if opportunities else 0.0
             nulls = collector.null_counts_partitions.get(partition_id, 0)
+            cadence_nulls = collector.cadence_null_counts_partitions.get(
+                partition_id, 0
+            )
+            cadence_opps = collector.cadence_opportunities_partitions.get(
+                partition_id, 0
+            )
             raw_samples = collector.missing_partition_samples.get(
                 partition_id, [])
             partition_stats.append(
@@ -118,6 +142,11 @@ def print_report(collector: VectorStatsCollector) -> dict[str, Any]:
                     "present": present,
                     "missing": missing,
                     "nulls": nulls,
+                    "cadence_nulls": cadence_nulls,
+                    "cadence_opportunities": cadence_opps,
+                    "cadence_null_fraction": (
+                        cadence_nulls / cadence_opps if cadence_opps else None
+                    ),
                     "coverage": coverage,
                     "opportunities": opportunities,
                     "samples": [
@@ -130,13 +159,16 @@ def print_report(collector: VectorStatsCollector) -> dict[str, Any]:
                 }
             )
 
-        logger.info("\n-> Partition details (top by missing count):")
+        sort_label_partitions = "null" if sort_key == "nulls" else "absent"
+        logger.info("\n-> Partition details (top by %s count):", sort_label_partitions)
+        def _partition_sort(stats):
+            return stats["nulls"] if sort_key == "nulls" else stats["missing"]
         for stats in sorted(
-            partition_stats, key=lambda s: s["missing"], reverse=True
+            partition_stats, key=_partition_sort, reverse=True
         )[:20]:
             line = (
                 f"  - {stats['id']} (base: {stats['base']}): present {stats['present']}/{stats['opportunities']}"
-                f" ({stats['coverage']:.1%}) | missing {stats['missing']} | null/invalid {stats['nulls']}"
+                f" ({stats['coverage']:.1%}) | absent {stats['missing']} | null/invalid {stats['nulls']}"
             )
             logger.info(line)
 
@@ -148,6 +180,10 @@ def print_report(collector: VectorStatsCollector) -> dict[str, Any]:
     above_partitions: list[str] = []
     below_suffixes: list[str] = []
     above_suffixes: list[str] = []
+    below_partition_values: list[str] = []
+    above_partition_values: list[str] = []
+    below_partitions_cadence: list[str] = []
+    above_partitions_cadence: list[str] = []
 
     if collector.threshold is not None:
         thr = collector.threshold
@@ -157,17 +193,6 @@ def print_report(collector: VectorStatsCollector) -> dict[str, Any]:
         above_features = [
             stats["id"] for stats in feature_stats if stats["coverage"] >= thr
         ]
-        logger.warning(
-            "\n[low] Features below %.0f%% coverage:\n  below_features = %s",
-            thr * 100,
-            below_features,
-        )
-        logger.info(
-            "[high] Features at/above %.0f%% coverage:\n  keep_features = %s",
-            thr * 100,
-            above_features,
-        )
-
         if partition_stats:
             below_partitions = [
                 stats["id"] for stats in partition_stats if stats["coverage"] < thr
@@ -185,18 +210,26 @@ def print_report(collector: VectorStatsCollector) -> dict[str, Any]:
             ]
             if not above_partitions:
                 above_suffixes = []
-            logger.warning(
-                "\n[low] Partitions below %.0f%% coverage:\n  below_partitions = %s",
-                thr * 100,
-                below_partitions,
-            )
-            logger.warning("  below_suffixes = %s", below_suffixes)
-            logger.info(
-                "[high] Partitions at/above %.0f%% coverage:\n  keep_partitions = %s",
-                thr * 100,
-                above_partitions,
-            )
-            logger.info("  keep_suffixes = %s", above_suffixes)
+            below_partition_values = [
+                v
+                for pid in below_partitions
+                if "__" in pid and (v := collector._partition_value(pid))
+            ]
+            above_partition_values = [
+                v
+                for pid in above_partitions
+                if "__" in pid and (v := collector._partition_value(pid))
+            ]
+            below_partitions_cadence = [
+                stats["id"]
+                for stats in partition_stats
+                if (stats.get("cadence_null_fraction") or 0) > (1 - thr)
+            ]
+            above_partitions_cadence = [
+                stats["id"]
+                for stats in partition_stats
+                if (stats.get("cadence_null_fraction") or 0) <= (1 - thr)
+            ]
 
     summary.update(
         {
@@ -216,6 +249,21 @@ def print_report(collector: VectorStatsCollector) -> dict[str, Any]:
                 if partition_stats
                 else []
             ),
+            "below_partition_values": below_partition_values,
+            "keep_partition_values": above_partition_values
+            or (
+                [
+                    collector._partition_value(stats["id"])
+                    for stats in partition_stats
+                    if "__" in stats["id"]
+                    and collector._partition_value(stats["id"])
+                ]
+                if partition_stats
+                else []
+            ),
+            "below_partitions_cadence": below_partitions_cadence,
+            "keep_partitions_cadence": above_partitions_cadence
+            or [stats["id"] for stats in partition_stats],
         }
     )
 
@@ -309,6 +357,88 @@ def print_report(collector: VectorStatsCollector) -> dict[str, Any]:
 
     if collector.matrix_output:
         export_matrix_data(collector)
+
+    # Record-level (cadence) gaps for list features/partitions
+    partition_cadence = [
+        stats
+        for stats in partition_stats
+        if stats.get("cadence_opportunities")
+    ]
+    if partition_cadence:
+        logger.info("\n-> Record-level gaps (expected cadence; null/invalid elements):")
+        total_missing = sum(s.get("cadence_nulls", 0) or 0 for s in partition_cadence)
+        total_opps = sum(s.get("cadence_opportunities", 0) or 0 for s in partition_cadence)
+        if total_opps:
+            logger.info(
+                "  Total null/invalid elements: %d/%d (%.1f%%)",
+                total_missing,
+                total_opps,
+                (total_missing / total_opps) * 100,
+            )
+        logger.info("  Top partitions by null/invalid elements:")
+        for stats in sorted(
+            partition_cadence,
+            key=lambda s: (s.get("cadence_nulls") or 0),
+            reverse=True,
+        )[:20]:
+            missing_elems = stats.get("cadence_nulls") or 0
+            opps = stats.get("cadence_opportunities") or 0
+            frac = (missing_elems / opps) if opps else 0
+            logger.info(
+                "  - %s (base: %s): vectors present %d/%d | absent %d | cadence null/invalid %d/%d elements (%.1f%%)",
+                stats["id"],
+                stats.get("base"),
+                stats.get("present", 0),
+                stats.get("opportunities", 0),
+                stats.get("missing", 0),
+                missing_elems,
+                opps,
+                frac * 100,
+            )
+
+    if collector.threshold is not None:
+        thr = collector.threshold
+        logger.warning(
+            "\n[low] Features below %.0f%% coverage:\n  below_features = %s",
+            thr * 100,
+            below_features,
+        )
+        logger.info(
+            "[high] Features at/above %.0f%% coverage:\n  keep_features = %s",
+            thr * 100,
+            above_features,
+        )
+        if partition_stats:
+            logger.warning(
+                "\n[low] Partitions below %.0f%% coverage:\n  below_partitions = %s",
+                thr * 100,
+                below_partitions,
+            )
+            logger.warning("  below_suffixes = %s", below_suffixes)
+            if below_partition_values:
+                logger.warning("  below_partition_values = %s",
+                               below_partition_values)
+            logger.info(
+                "[high] Partitions at/above %.0f%% coverage:\n  keep_partitions = %s",
+                thr * 100,
+                above_partitions,
+            )
+            logger.info("  keep_suffixes = %s", above_suffixes)
+            if above_partition_values:
+                logger.info(
+                    "  keep_partition_values = %s", above_partition_values)
+            if below_partitions_cadence:
+                logger.warning(
+                    "[low] Partitions below %.0f%% cadence fill:\n  below_partitions_cadence = %s",
+                    thr * 100,
+                    below_partitions_cadence,
+                )
+            if above_partitions_cadence:
+                logger.info(
+                    "[high] Partitions at/above %.0f%% cadence fill:\n  keep_partitions_cadence = %s",
+                    thr * 100,
+                    above_partitions_cadence,
+                )
 
     return summary
 

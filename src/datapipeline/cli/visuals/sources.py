@@ -1,138 +1,151 @@
-from typing import Iterator, Any, Optional
 from contextlib import contextmanager
-from itertools import cycle
 import logging
-import threading
-import time
+import sys
+from typing import Optional, Tuple
 
-from .labels import progress_meta_for_loader
 from datapipeline.runtime import Runtime
-from datapipeline.sources.models.source import Source
-from tqdm import tqdm
+
+logger = logging.getLogger(__name__)
 
 
-class VisualSourceProxy(Source):
-    """Proxy wrapping Source.stream() with CLI feedback scaled by logging level."""
+def _is_tty() -> bool:
+    try:
+        return hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
+    except Exception:
+        return False
 
-    def __init__(self, inner: Source, alias: str, verbosity: int):
-        self._inner = inner
-        self._alias = alias
-        self._verbosity = max(0, min(verbosity, 2))
 
-    @staticmethod
-    def _start_spinner(label: str):
-        """Start a background spinner tqdm progress bar."""
-        bar = tqdm(
-            total=0,
-            desc="",
-            bar_format="{desc}",
-            dynamic_ncols=True,
-            leave=False,
-        )
-        bar.set_description_str(label)
-        bar.refresh()
+class VisualsBackend:
+    """Interface for visuals backends.
 
-        stop_event = threading.Event()
+    - on_build_start/on_job_start return True if the backend handled the headline, False to let caller log it.
+    - wrap_sources returns a contextmanager that enables streaming visuals.
+    """
 
-        def _spin():
-            frames = cycle((" |", " /", " -", " \\"))
-            while not stop_event.is_set():
-                bar.set_description_str(f"{label}{next(frames)}")
-                bar.refresh()
-                time.sleep(0.1)
-            bar.set_description_str(label)
-            bar.refresh()
+    def on_build_start(self, path) -> bool:  # Path-like
+        return False
 
-        worker = threading.Thread(target=_spin, daemon=True)
-        worker.start()
-        return stop_event, worker, bar
+    def on_job_start(self, sections: Tuple[str, ...], label: str, idx: int, total: int) -> bool:
+        return False
 
-    @staticmethod
-    def _stop_spinner(stop_event, worker, bar):
-        stop_event.set()
-        worker.join()
+    def on_streams_complete(self) -> bool:
+        """Return True if backend surfaced a final completion line visually."""
+        return False
+
+    def requires_logging_redirect(self) -> bool:
+        """Return True when console logging should be routed via tqdm."""
+        return True
+
+    def wrap_sources(self, runtime: Runtime, log_level: int, progress_style: str):  # contextmanager
+        @contextmanager
+        def _noop():
+            yield
+
+        return _noop()
+
+
+class _BasicBackend(VisualsBackend):
+    def wrap_sources(self, runtime: Runtime, log_level: int, progress_style: str):
+        from .sources_basic import visual_sources as basic
+        return basic(runtime, log_level, progress_style)
+
+
+class _RichBackend(VisualsBackend):
+    def _render_sections(self, console, sections: tuple[str, ...]) -> None:
+        if not sections:
+            return
+        from rich.rule import Rule as _Rule
+        console.print(_Rule(sections[0].title(), style="bold white"))
+        if len(sections) > 1:
+            for level, name in enumerate(sections[1:], start=1):
+                indent = "  " * level
+                console.print(f"{indent}[cyan]{name}[/cyan]")
+            console.print()
+
+    def on_job_start(self, sections: tuple[str, ...], label: str, idx: int, total: int) -> bool:
         try:
-            bar.close()
-        finally:
-            fp = getattr(bar, "fp", None)
+            from rich.console import Console as _Console
+            import sys as _sys
+            console = _Console(file=_sys.stderr, markup=True)
+            self._render_sections(console, sections)
+            indent = "  " * max(len(sections), 1)
+            console.print(f"{indent}── {label} ({idx}/{total}) ──")
+            console.print()
+            return True
+        except Exception:
+            return False
+
+    def on_build_start(self, path) -> bool:
+        try:
+            from rich.console import Console as _Console
+            from rich.rule import Rule as _Rule
+            import sys as _sys
+            from pathlib import Path as _Path
+            import os as _os
+            console = _Console(file=_sys.stderr, markup=True)
+            console.print(_Rule("Info", style="bold white"))
+            # Subheader with compact path to project.yaml
+            p = _Path(path)
             try:
-                if getattr(bar, "disable", False):
-                    return
-                if fp and hasattr(fp, "write"):
-                    fp.write("\n")
-                    fp.flush()
-                else:
-                    print()
+                cwd = _Path(_os.getcwd())
+                rel = p.relative_to(cwd)
+                parts = [part for part in rel.as_posix().split("/") if part]
             except Exception:
-                pass
-
-    def _count_with_indicator(self, label: str) -> Optional[int]:
-        try:
-            stop_event, worker, bar = self._start_spinner(label)
+                parts = [part for part in p.as_posix().split("/") if part]
+            if len(parts) > 3:
+                parts = ["..."] + parts[-3:]
+            compact = "/".join(parts) if parts else p.name
+            console.print(f"[cyan]project:[/cyan] {compact}")
+            console.print()  # spacer
+            return True
         except Exception:
-            # If spinner setup fails, silently fall back to raw count
-            return self._safe_count()
+            return False
 
-        try:
-            return self._safe_count()
-        finally:
-            self._stop_spinner(stop_event, worker, bar)
+    def wrap_sources(self, runtime: Runtime, log_level: int, progress_style: str):
+        from .sources_rich import visual_sources as rich_vs
+        return rich_vs(runtime, log_level, progress_style)
 
-    def _safe_count(self) -> Optional[int]:
-        try:
-            return self._inner.count()
-        except Exception:
-            return None
+    def on_streams_complete(self) -> bool:
+        # Rich backend manages its own persistent final line; signal handled
+        return True
 
-    def stream(self) -> Iterator[Any]:
-        desc, unit = progress_meta_for_loader(self._inner.loader)
-        progress_desc = f"{desc} [{self._alias}]"
-        label = f"Preparing data stream for [{self._alias}]"
+    def requires_logging_redirect(self) -> bool:
+        return False
 
-        if self._verbosity >= 2:
-            total = self._count_with_indicator(label)
-            yield from tqdm(
-                self._inner.stream(),
-                total=total,
-                desc=progress_desc,
-                unit=unit,
-                dynamic_ncols=True,
-                mininterval=0.0,
-                miniters=1,
-                leave=True,
-            )
-            return
 
-        try:
-            stop_event, worker, bar = self._start_spinner(progress_desc)
-        except Exception:
-            # Spinner isn't critical; fall back to raw stream
-            yield from self._inner.stream()
-            return
+class _OffBackend(VisualsBackend):
+    def requires_logging_redirect(self) -> bool:
+        return False
 
-        try:
-            for item in self._inner.stream():
-                yield item
-        finally:
-            self._stop_spinner(stop_event, worker, bar)
+    def wrap_sources(self, runtime: Runtime, log_level: int, progress_style: str):
+        from .sources_off import visual_sources as off_vs
+        return off_vs(runtime, log_level, progress_style)
+
+
+def _rich_available() -> bool:
+    try:
+        import rich  # noqa: F401
+        return True
+    except Exception:
+        return False
+
+
+def get_visuals_backend(provider: Optional[str]) -> VisualsBackend:
+    mode = (provider or "auto").lower()
+    if mode == "off":
+        return _OffBackend()
+    if mode == "tqdm":
+        return _BasicBackend()
+    if mode == "rich":
+        return _RichBackend() if _rich_available() else _BasicBackend()
+    # auto
+    if _rich_available() and _is_tty():
+        return _RichBackend()
+    return _BasicBackend()
 
 
 @contextmanager
-def visual_sources(runtime: Runtime, log_level: int):
-    """Temporarily wrap stream sources with logging-level-driven feedback."""
-    if log_level is None or log_level > logging.INFO:
+def visual_sources(runtime: Runtime, log_level: int, provider: Optional[str] = None, progress_style: str = "auto"):
+    backend = get_visuals_backend(provider)
+    with backend.wrap_sources(runtime, log_level, progress_style):
         yield
-        return
-
-    verbosity = 2 if log_level <= logging.DEBUG else 1
-
-    reg = runtime.registries.stream_sources
-    originals = dict(reg.items())
-    try:
-        for alias, src in originals.items():
-            reg.register(alias, VisualSourceProxy(src, alias, verbosity))
-        yield
-    finally:
-        # Restore original sources
-        for alias, src in originals.items():
-            reg.register(alias, src)

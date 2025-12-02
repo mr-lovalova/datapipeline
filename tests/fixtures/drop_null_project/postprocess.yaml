@@ -1,0 +1,3 @@
+- drop_missing:
+    payload: features
+    min_coverage: 1.0

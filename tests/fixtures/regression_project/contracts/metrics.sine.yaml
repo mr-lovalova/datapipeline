@@ -1,0 +1,15 @@
+kind: ingest
+source: regression.sine
+id: metrics.sine
+
+mapper:
+  entrypoint: identity
+  args: {}
+
+record:
+  - filter: { operator: ge, field: time, comparand: "${start_time}" }
+  - filter: { operator: le, field: time, comparand: "${end_time}" }
+
+stream:
+  - ensure_ticks: { tick: 30m }
+  - granularity: { mode: last }

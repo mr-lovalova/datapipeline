@@ -8,6 +8,7 @@ from typing import Any, Literal
 
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.dataset.loader import load_dataset
+from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
 from datapipeline.pipeline.context import PipelineContext
 from datapipeline.pipeline.pipelines import build_vector_pipeline
@@ -69,22 +70,21 @@ class VectorAdapter:
         self,
         *,
         limit: int | None = None,
-        include_targets: bool = False,
     ) -> Iterator[tuple[Sequence[Any], Vector]]:
         features = list(_ensure_features(self.dataset))
-        if include_targets:
-            try:
-                features += list(getattr(self.dataset, "targets", []) or [])
-            except Exception:
-                pass
+        target_cfgs = list(getattr(self.dataset, "targets", []) or [])
         context = PipelineContext(self.runtime)
         vectors = build_vector_pipeline(
-            context, features, self.dataset.group_by, stage=None
+            context,
+            features,
+            self.dataset.group_by,
+            target_configs=target_cfgs,
         )
-        stream = post_process(context, vectors)
+        base_stream = post_process(context, vectors)
+        sample_iter = base_stream
         if limit is not None:
-            stream = islice(stream, limit)
-        return stream
+            sample_iter = islice(sample_iter, limit)
+        return ((sample.key, sample.features) for sample in sample_iter)
 
     def iter_rows(
         self,
@@ -94,24 +94,38 @@ class VectorAdapter:
         group_format: GroupFormat = "mapping",
         group_column: str = "group",
         flatten_sequences: bool = False,
-        include_targets: bool = False,
     ) -> Iterator[dict[str, Any]]:
-        stream = self.stream(limit=limit, include_targets=include_targets)
+        features = list(_ensure_features(self.dataset))
+        target_cfgs = list(getattr(self.dataset, "targets", []) or [])
+        context = PipelineContext(self.runtime)
+        vectors = build_vector_pipeline(
+            context,
+            features,
+            self.dataset.group_by,
+            target_configs=target_cfgs,
+        )
+        base_stream = post_process(context, vectors)
+        if limit is not None:
+            base_stream = islice(base_stream, limit)
         group_by = self.dataset.group_by
 
         def _rows() -> Iterator[dict[str, Any]]:
-            for group_key, vector in stream:
+            for sample in base_stream:
                 row: dict[str, Any] = {}
                 if include_group:
                     row[group_column] = _normalize_group(
-                        group_key, group_by, group_format
+                        sample.key, group_by, group_format
                     )
-                for feature_id, value in vector.values.items():
-                    if flatten_sequences and isinstance(value, list):
-                        for idx, item in enumerate(value):
-                            row[f"{feature_id}[{idx}]"] = item
-                    else:
-                        row[feature_id] = value
+                vectors = [sample.features]
+                if sample.targets:
+                    vectors.append(sample.targets)
+                for vector in vectors:
+                    for feature_id, value in vector.values.items():
+                        if flatten_sequences and isinstance(value, list):
+                            for idx, item in enumerate(value):
+                                row[f"{feature_id}[{idx}]"] = item
+                        else:
+                            row[feature_id] = value
                 yield row
 
         return _rows()

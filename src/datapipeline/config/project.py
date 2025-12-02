@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, Field, ConfigDict
@@ -11,8 +13,7 @@ class ProjectPaths(BaseModel):
     dataset: str
     postprocess: str
     artifacts: str
-    build: str | None = None
-    run: str | None = None
+    tasks: str | None = None
 
 
 class ProjectGlobals(BaseModel):
