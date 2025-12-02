@@ -5,7 +5,7 @@ from datapipeline.integrations import dataframe_from_vectors
 
 def main() -> None:
     project = Path(__file__).resolve().parent / \
-        "config/recipes/default/project.yaml"
+        "config/project.yaml"
     df = dataframe_from_vectors(
         project,
         limit=None,

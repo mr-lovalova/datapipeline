@@ -16,11 +16,14 @@ Quick start
 
 Folder layout
 - `config/`
+  - `project.yaml` — project root (paths, globals, split)
+  - `dataset.yaml` — feature/target declarations
+  - `postprocess.yaml` — postprocess transforms
+  - `contracts/*.yaml` — canonical stream definitions
   - `sources/*.yaml` — raw source definitions (one file per source)
-- `contracts/*.yaml` — canonical stream definitions
-- `datasets/<name>/tasks/*.yaml` — task specs (schema/scaler/metadata/serve)
+  - `tasks/*.yaml` — task specs (schema/scaler/metadata/serve)
 - Every dataset `project.yaml` declares a `name`; reference it via `${project_name}`
-  inside other config files (e.g., `paths.artifacts: ../../../artifacts/${project_name}`) to
+  inside other config files (e.g., `paths.artifacts: ../artifacts/${project_name}`) to
   avoid hard-coding per-dataset directories.
 - `src/{{PACKAGE_NAME}}/`
   - `sources/<provider>/<dataset>/dto.py` — DTO model for the source
@@ -38,23 +41,23 @@ How loaders work
 - Synthetic sources generate data in-process and keep a small loader stub.
 
 Run data flows
-- Build artifacts once: `jerry build --project config/datasets/default/project.yaml`
-- Preview records (stage 1): `jerry serve --project config/datasets/default/project.yaml --stage 1 --limit 100`
-- Preview features (stage 3): `jerry serve --project config/datasets/default/project.yaml --stage 3 --limit 100`
-- Preview vectors (stage 7): `jerry serve --project config/datasets/default/project.yaml --stage 7 --limit 100`
+- Build artifacts once: `jerry build --project config/project.yaml`
+- Preview records (stage 1): `jerry serve --project config/project.yaml --stage 1 --limit 100`
+- Preview features (stage 3): `jerry serve --project config/project.yaml --stage 3 --limit 100`
+- Preview vectors (stage 7): `jerry serve --project config/project.yaml --stage 7 --limit 100`
 
 Analyze vectors
-- `jerry inspect report   --project config/datasets/default/project.yaml` (console only)
-- `jerry inspect partitions --project config/datasets/default/project.yaml` (writes build/partitions.json)
-- `jerry inspect matrix   --project config/datasets/default/project.yaml --format html` (writes build/matrix.html)
-- `jerry inspect expected --project config/datasets/default/project.yaml` (writes build/expected.txt)
+- `jerry inspect report   --project config/project.yaml` (console only)
+- `jerry inspect partitions --project config/project.yaml` (writes build/partitions.json)
+- `jerry inspect matrix   --project config/project.yaml --format html` (writes build/matrix.html)
+- `jerry inspect expected --project config/project.yaml` (writes build/expected.txt)
 - Use post-processing transforms in `postprocess.yaml` to keep coverage high
   (history/horizontal fills, constants, or drop rules) before serving vectors.
   Add `payload: targets` inside a transform when you need to mutate label vectors.
 
 Train/Val/Test splits (deterministic)
 - Configure split mechanics once in your project file:
-  - Edit `config/datasets/default/project.yaml` and set:
+  - Edit `config/project.yaml` and set:
     ```yaml
     globals:
       split:
@@ -63,7 +66,7 @@ Train/Val/Test splits (deterministic)
         seed: 42              # deterministic hash seed
         ratios: {train: 0.8, val: 0.1, test: 0.1}
     ```
-- Select the active slice via `config/datasets/default/tasks/serve.<name>.yaml` (or `--keep`):
+- Select the active slice via `config/tasks/serve.<name>.yaml` (or `--keep`):
   ```yaml
   kind: serve
   name: train               # defaults to filename stem when omitted
@@ -78,8 +81,8 @@ Train/Val/Test splits (deterministic)
   ```
 - Add additional `kind: serve` files (e.g., `serve.val.yaml`, `serve.test.yaml`) and the CLI will run each enabled file in order unless you pass `--run <name>`.
 - Serve examples (change the serve task or pass `--keep val|test`):
-  - `jerry serve -p config/datasets/default/project.yaml --out-transport stdout --out-format json-lines > train.jsonl`
-  - `jerry serve -p config/datasets/default/project.yaml --keep val --out-transport stdout --out-format json-lines > val.jsonl`
+  - `jerry serve -p config/project.yaml --out-transport stdout --out-format json-lines > train.jsonl`
+  - `jerry serve -p config/project.yaml --keep val --out-transport stdout --out-format json-lines > val.jsonl`
   - Add `--visuals rich --progress bars` for a richer interactive UI; defaults to `AUTO`.
 - For shared workspace defaults (visual renderer, progress display, build mode), drop a `jerry.yaml` next to your workspace root and set `shared.visuals`, `shared.progress`, etc. CLI commands walk up from the current directory to find it.
 - The split is applied at the end (after postprocess transforms), and assignment
@@ -90,7 +93,7 @@ Key selection guidance
 - `key: feature:<id>` hashes a specific feature value, e.g., `feature:entity_id` or `feature:station_id`, ensuring all vectors for that entity land in the same split (recommended to avoid leakage).
 
 Postprocess expected IDs
-- Build once with `jerry build --project config/datasets/default/project.yaml` (or run `jerry inspect expected …`) to materialize `<paths.artifacts>/expected.txt`.
+- Build once with `jerry build --project config/project.yaml` (or run `jerry inspect expected …`) to materialize `<paths.artifacts>/expected.txt`.
 - Bootstrap registers the artifact; postprocess transforms read it automatically. Per-transform `expected:` overrides are no longer required or supported — the build output is the single source of truth.
 
 Scaler statistics
@@ -128,7 +131,7 @@ mapper:
 Then reference the composed stream in your dataset:
 
 ```yaml
-# config/datasets/default/dataset.yaml
+# config/dataset.yaml
 group_by: 1h
 features:
   - id: air_density

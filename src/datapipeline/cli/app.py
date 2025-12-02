@@ -23,7 +23,7 @@ from datapipeline.utils.rich_compat import suppress_file_proxy_shutdown_errors
 
 suppress_file_proxy_shutdown_errors()
 
-DEFAULT_PROJECT_PATH = "config/datasets/default/project.yaml"
+DEFAULT_PROJECT_PATH = "config/project.yaml"
 
 
 def _resolve_project_argument(
@@ -38,11 +38,6 @@ def _resolve_project_argument(
     if config_root.suffix in {".yaml", ".yml"}:
         return str(config_root)
     candidate = config_root / "project.yaml"
-    if candidate.exists():
-        return str(candidate)
-    fallback = config_root / "datasets" / "default" / "project.yaml"
-    if fallback.exists():
-        return str(fallback)
     return str(candidate)
 
 
@@ -72,7 +67,7 @@ def main() -> None:
     p_serve.add_argument(
         "--project",
         "-p",
-        default="config/datasets/default/project.yaml",
+        default=DEFAULT_PROJECT_PATH,
         help="path to project.yaml",
     )
     p_serve.add_argument(
@@ -141,7 +136,7 @@ def main() -> None:
     p_build.add_argument(
         "--project",
         "-p",
-        default="config/datasets/default/project.yaml",
+        default=DEFAULT_PROJECT_PATH,
         help="path to project.yaml",
     )
     p_build.add_argument(
@@ -299,7 +294,7 @@ def main() -> None:
     p_inspect_report.add_argument(
         "--project",
         "-p",
-        default="config/datasets/default/project.yaml",
+        default=DEFAULT_PROJECT_PATH,
         help="path to project.yaml",
     )
     p_inspect_report.add_argument(
@@ -337,7 +332,7 @@ def main() -> None:
     p_inspect_matrix.add_argument(
         "--project",
         "-p",
-        default="config/datasets/default/project.yaml",
+        default=DEFAULT_PROJECT_PATH,
         help="path to project.yaml",
     )
     p_inspect_matrix.add_argument(
@@ -391,7 +386,7 @@ def main() -> None:
     p_inspect_parts.add_argument(
         "--project",
         "-p",
-        default="config/datasets/default/project.yaml",
+        default=DEFAULT_PROJECT_PATH,
         help="path to project.yaml",
     )
     p_inspect_parts.add_argument(
@@ -410,7 +405,7 @@ def main() -> None:
     p_inspect_expected.add_argument(
         "--project",
         "-p",
-        default="config/datasets/default/project.yaml",
+        default=DEFAULT_PROJECT_PATH,
         help="path to project.yaml",
     )
     p_inspect_expected.add_argument(

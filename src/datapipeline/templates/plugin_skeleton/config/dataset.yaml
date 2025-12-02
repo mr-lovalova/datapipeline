@@ -2,12 +2,16 @@ group_by: 1h
 
 features:
   - id: time
-    record_stream: time.ticks.hour_sin
-    # scale: { with_mean: true, with_std: true }
-    # sequence: { size: 6, stride: 1, tick: 10m }
+    record_stream: time.ticks.linear
+    scale: true # { with_mean: true, with_std: true }
+    sequence: { size: 6, stride: 1, tick: 1h }
 
-  # - id: second_feature
+  - id: time
+    record_stream: time.ticks.hour_sin
+
+  # - id: third_feature
   #   record_stream: anotherstream
 # targets:
 #   - id: some_target
 #     record_stream: time.ticks.linear
+

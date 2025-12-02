@@ -1,12 +1,12 @@
 version: 1
 name: default
 paths:
-  streams: ../../contracts
-  sources: ../../sources
+  streams: ./contracts
+  sources: ./sources
   dataset: dataset.yaml
   postprocess: postprocess.yaml
-  artifacts: ../../../artifacts/${project_name}/v${version}
-  tasks: tasks
+  artifacts: ../artifacts/${project_name}/v${version}
+  tasks: ./tasks
 globals:
   # Optional window bounds used for interpolation and as overrides when
   # deriving the dataset window in metadata. Set to ISO datetimes or null.

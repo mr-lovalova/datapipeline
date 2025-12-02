@@ -46,15 +46,15 @@ jerry source add --provider demo --dataset weather --transport fs --format csv
 jerry domain add weather
 # (edit config/contracts/<alias>.yaml to point at your mapper and policies)
 
-# 4. Configure dataset/postprocess/build files in config/datasets/<name>/.
+# 4. Configure dataset/postprocess/build files under config/.
 #    Then preview the pipeline and serve a few vectors:
 #    Add --skip-build when you only need a quick feature peek.
-jerry serve --project config/datasets/default/project.yaml --stage 2 --limit 5
-jerry serve --project config/datasets/default/project.yaml --limit 3
+jerry serve --project config/project.yaml --stage 2 --limit 5
+jerry serve --project config/project.yaml --limit 3
 
 # 5. Inspect coverage and build artifacts:
-jerry inspect report --project config/datasets/default/project.yaml
-jerry build --project config/datasets/default/project.yaml
+jerry inspect report --project config/project.yaml
+jerry build --project config/project.yaml
 ```
 
 The skeleton project in `src/datapipeline/templates/plugin_skeleton/` mirrors the
@@ -285,7 +285,7 @@ transforms, artifacts, and postprocess rules. The CLI constructs lightweight
 
 ## Configuration Files
 
-All project configuration lives under `config/datasets/<name>/` by default.
+All project configuration for a dataset lives under a single project root directory (for example `config/`), which contains `project.yaml` and its siblings.
 
 ### `project.yaml`
 
@@ -293,12 +293,12 @@ All project configuration lives under `config/datasets/<name>/` by default.
 version: 1
 name: default
 paths:
-  streams: ../../contracts
-  sources: ../../sources
+  streams: ./contracts
+  sources: ./sources
   dataset: dataset.yaml
   postprocess: postprocess.yaml
-  artifacts: ../../build/datasets/${project_name}
-  tasks: tasks
+  artifacts: ../build/datasets/${project_name}
+  tasks: ./tasks
 globals:
   start_time: 2021-01-01T00:00:00Z
   end_time: 2023-01-03T23:00:00Z
