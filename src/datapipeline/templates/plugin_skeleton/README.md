@@ -20,7 +20,7 @@ Folder layout
 - `contracts/*.yaml` — canonical stream definitions
 - `datasets/<name>/tasks/*.yaml` — task specs (schema/scaler/metadata/serve)
 - Every dataset `project.yaml` declares a `name`; reference it via `${project_name}`
-  inside other config files (e.g., `paths.artifacts: ../../build/datasets/${project_name}`) to
+  inside other config files (e.g., `paths.artifacts: ../../../artifacts/${project_name}`) to
   avoid hard-coding per-dataset directories.
 - `src/{{PACKAGE_NAME}}/`
   - `sources/<provider>/<dataset>/dto.py` — DTO model for the source
