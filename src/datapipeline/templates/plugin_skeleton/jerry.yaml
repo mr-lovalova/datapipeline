@@ -2,7 +2,12 @@
 # configs outside the plugin repo; the CLI searches upward from cwd for jerry.yaml.
 
 plugin_root: . # relative path to the plugin repo root
-config_root: example # directory containing project.yaml
+
+datasets:
+  example: example/project.yaml
+  your-second-example-dataset: your-second-example-dataset/project.yaml
+
+default_dataset: example
 
 shared:
   visuals: AUTO # AUTO | TQDM | RICH | OFF
