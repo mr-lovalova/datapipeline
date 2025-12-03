@@ -120,16 +120,7 @@ def load_streams(project_yaml: Path) -> StreamsConfig:
 def init_streams(cfg: StreamsConfig, runtime: Runtime) -> None:
     """Compile typed streams config into runtime registries."""
     regs = runtime.registries
-    regs.stream_operations.clear()
-    regs.debug_operations.clear()
-    regs.partition_by.clear()
-    regs.sort_batch_size.clear()
-    regs.record_operations.clear()
-    regs.feature_transforms.clear()
-    regs.postprocesses.clear()
-    regs.sources.clear()
-    regs.mappers.clear()
-    regs.stream_sources.clear()
+    regs.clear_all()
 
     # Register per-stream policies and record transforms for runtime lookups
     for alias, spec in (cfg.contracts or {}).items():

@@ -343,7 +343,6 @@ def mapper(
         # From here on, reference the EP name in the YAML
         mapper_path = ep_key
     # Contract file path (now that stream_id is known)
-    proj_path = root_dir / "config" / "datasets" / "default" / "project.yaml"
     ensure_project_scaffold(proj_path)
     streams_path = resolve_streams_dir(proj_path)
     streams_dir = streams_path if streams_path.is_dir() else streams_path.parent
