@@ -1,4 +1,4 @@
-id: synthetic.ticks  # format: provider.dataset
+id: synthetic.ticks # format: provider.dataset
 
 parser:
   entrypoint: "core.synthetic.ticks"
@@ -10,4 +10,4 @@ loader:
     # datetimes in globals.start_time/end_time or override these directly.
     start: "${start_time}"
     end: "${end_time}"
-    frequency: "1h"
+    frequency: "${group_by}" # e.g., "15m", "1h"

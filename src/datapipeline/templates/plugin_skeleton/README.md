@@ -16,8 +16,8 @@ Quick start
 
 Folder layout
 - `config/`
-  - `project.yaml` — project root (paths, globals, split)
-  - `dataset.yaml` — feature/target declarations
+  - `project.yaml` — project root (paths, globals, cadence/split)
+  - `dataset.yaml` — feature/target declarations (uses `${group_by}` from globals)
   - `postprocess.yaml` — postprocess transforms
   - `contracts/*.yaml` — canonical stream definitions
   - `sources/*.yaml` — raw source definitions (one file per source)
@@ -60,6 +60,7 @@ Train/Val/Test splits (deterministic)
   - Edit `config/project.yaml` and set:
     ```yaml
     globals:
+      group_by: 10m          # dataset cadence; reused as contract cadence
       split:
         mode: hash            # hash|time
         key: group            # group or feature:<id> (entity-stable)
@@ -132,7 +133,7 @@ Then reference the composed stream in your dataset:
 
 ```yaml
 # config/dataset.yaml
-group_by: 1h
+group_by: ${group_by}
 features:
   - id: air_density
     record_stream: air_density.processed

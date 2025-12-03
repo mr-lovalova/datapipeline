@@ -50,7 +50,7 @@ floor_time = "datapipeline.transforms.record.floor_time:floor_time"
 filter = "datapipeline.transforms.filter:filter"
 
 [project.entry-points."datapipeline.transforms.stream"]
-ensure_ticks = "datapipeline.transforms.stream.ensure_ticks:ensure_ticks"
+ensure_cadence = "datapipeline.transforms.stream.ensure_ticks:ensure_cadence"
 fill = "datapipeline.transforms.stream.fill:FillTransformer"
 granularity = "datapipeline.transforms.stream.granularity:FeatureGranularityTransform"
 lint = "datapipeline.transforms.stream.lint:StreamLint"

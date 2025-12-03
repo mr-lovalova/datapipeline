@@ -3,7 +3,7 @@ group_by: ${group_by}
 features:
   - id: time_linear
     record_stream: time.ticks.linear
-    scale: true # { with_mean: true, with_std: true }
+    scale: true # optionally add with_mean/with_std overrides
     # Sliding window over the regularized stream; cadence is enforced in the contract.
     sequence: { size: 6, stride: 1 }
 

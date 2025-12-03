@@ -14,17 +14,16 @@ mapper:
 record:
   - filter: { operator: ge, field: time, comparand: "${start_time}" }
   - filter: { operator: le, field: time, comparand: "${end_time}" }
-  - floor_time: { resolution: "${cadence}" }
+  - floor_time: { bucket: "${cadence}" }
   # - lag: { lag: "${cadence}" }
 
 stream:
   - dedupe: {}
   - granularity: { mode: first }
-  - ensure_ticks: { tick: "${cadence}" }
+  - ensure_cadence: { cadence: "${cadence}" }
   # Optional: fill gaps before downstream transforms:
   # - fill: { statistic: median, window: 24, min_samples: 4 }
 
-# debug:
-#   - lint: { mode: warn, tick: 1h }
-
+debug:
+  - lint: { mode: error, tick: "${cadence}" }
 # sort_batch_size: 100000

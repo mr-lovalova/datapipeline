@@ -432,10 +432,10 @@ sort_batch_size: 50000
 record:
   - filter: { operator: ge, field: time, comparand: "${start_time}" }
   - filter: { operator: lt, field: time, comparand: "${end_time}" }
-  - floor_time: { resolution: 10m }
+  - floor_time: { cadence: 10m }
 
 stream:
-  - ensure_ticks: { tick: 10m }
+  - ensure_cadence: { cadence: 10m }
   - granularity: { mode: mean }
   - fill: { statistic: median, window: 6, min_samples: 2 }
 
@@ -504,7 +504,7 @@ features:
   - id: temp_c
     record_stream: demo_weather
     scale: true
-    sequence: { size: 6, stride: 1, tick: 10m }
+    sequence: { size: 6, stride: 1 }
 
 targets:
   - id: precip
@@ -642,12 +642,12 @@ Pass `--help` on any command for flags.
 
 ### Record Transforms
 
-- `floor_time`: snap timestamps down to the nearest resolution (`10m`, `1h`, …).
+- `floor_time`: snap timestamps down to the nearest cadence (`10m`, `1h`, …).
 - `lag`: add lagged copies of records (see `src/datapipeline/transforms/record/lag.py` for options).
 
 ### Stream (Feature) Transforms
 
-- `ensure_ticks`: backfill missing ticks with `value=None` records to enforce a
+- `ensure_cadence`: backfill missing ticks with `value=None` records to enforce a
   strict cadence.
 - `granularity`: merge duplicate timestamps using `first|last|mean|median`.
 - `dedupe`: drop exact duplicate records (same id, timestamp, and payload) from
@@ -669,8 +669,8 @@ Pass `--help` on any command for flags.
 
 ### Sequence Transforms
 
-- `sequence`: sliding window generator (`size`, `stride`, optional `tick` to
-  enforce gaps). Emits `FeatureRecordSequence` payloads with `.records`.
+- `sequence`: sliding window generator (`size`, `stride`, optional `cadence` to
+  enforce contiguous windows). Emits `FeatureRecordSequence` payloads with `.records`.
 
 ### Vector (Postprocess) Transforms
 
