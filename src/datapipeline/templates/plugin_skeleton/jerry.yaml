@@ -2,7 +2,7 @@
 # configs outside the plugin repo; the CLI searches upward from cwd for jerry.yaml.
 
 plugin_root: . # relative path to the plugin repo root
-config_root: config # directory containing project.yaml
+config_root: example # directory containing project.yaml
 
 shared:
   visuals: AUTO # AUTO | TQDM | RICH | OFF

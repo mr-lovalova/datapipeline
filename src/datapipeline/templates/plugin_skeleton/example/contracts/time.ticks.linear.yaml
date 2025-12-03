@@ -1,5 +1,5 @@
 kind: ingest
-source: synthetic.ticks # raw source alias (see config/sources)
+source: synthetic.ticks # raw source alias (see example/sources)
 id: time.ticks.linear # canonical stream id (format: domain.dataset.(variant))
 
 # Fine-grained cadence for this stream. Defaults to the dataset group_by via project.globals.
@@ -13,17 +13,18 @@ mapper: # normalize/reshape DTO -> TemporalRecord
 record: # record-level transforms
   - filter: { operator: ge, field: time, comparand: "${start_time}" }
   - filter: { operator: le, field: time, comparand: "${end_time}" }
-  - floor_time: { bucket: "${cadence}" } # snap timestamps to cadence boundaries
+  - floor_time: { cadence: "${cadence}" }          # snap timestamps to cadence boundaries
   # - lag: { lag: "${cadence}" }                      # optional: shift timestamps backwards
 
-stream: # per-feature stream transforms (input sorted by id,time)
-  - dedupe: {} # drop exact-duplicate records per tick
-  - granularity: { mode: first } # aggregate duplicates within a tick
-  - ensure_cadence: { cadence: "${cadence}" } # insert missing ticks (value=None)
+stream:                       # per-feature stream transforms (input sorted by id,time)
+  - dedupe: {}                                # drop exact-duplicate records per tick
+  - granularity: { mode: first }              # aggregate duplicates within a tick
+  - ensure_cadence: { cadence: "${cadence}" }           # insert missing ticks (value=None)
   # Consider adding a fill transform to impute None values before sequence/windowing:
   # - fill: { statistic: median, window: 6, min_samples: 1 }
 
-debug: # optional validation-only transforms
-  - lint: { mode: error, tick: "${cadence}" } # strict cadence/order; value issues handled by downstream transforms
+debug:                        # optional validation-only transforms
+  - lint: { mode: error, tick: "${cadence}" }  # strict cadence/order; value issues handled by downstream transforms
 
 # sort_batch_size: 100000       # in-memory chunk size used by internal sorting
+

@@ -14,7 +14,7 @@ mapper:
 record:
   - filter: { operator: ge, field: time, comparand: "${start_time}" }
   - filter: { operator: le, field: time, comparand: "${end_time}" }
-  - floor_time: { bucket: "${cadence}" }
+  - floor_time: { cadence: "${cadence}" }
   # - lag: { lag: "${cadence}" }
 
 stream:
@@ -26,4 +26,6 @@ stream:
 
 debug:
   - lint: { mode: error, tick: "${cadence}" }
+
 # sort_batch_size: 100000
+
