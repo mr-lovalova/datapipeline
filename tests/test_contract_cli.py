@@ -75,26 +75,22 @@ def _input_sequence(monkeypatch: pytest.MonkeyPatch, responses: list[str]) -> No
     monkeypatch.setattr("builtins.input", _fake_input)
 
 
-def test_contract_scaffold_honors_workspace_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_contract_scaffold_uses_project_paths(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Contract scaffold should use the project's streams/sources paths inside the plugin repo."""
     plugin_root = _create_plugin(tmp_path)
-    workspace = tmp_path / "workspace"
-    config_root = workspace / "config" / "datasets" / "prod"
-    sources_dir = workspace / "sources"
-    streams_dir = workspace / "contracts"
-    _write_project_yaml(config_root / "project.yaml", sources_dir, streams_dir)
+    # Create a project.yaml under example/ with explicit streams/sources paths
+    example_root = plugin_root / "example"
+    sources_dir = example_root / "sources"
+    streams_dir = example_root / "contracts"
+    _write_project_yaml(example_root / "project.yaml", sources_dir, streams_dir)
     _write_source_yaml(sources_dir / "demo.weather.yaml", "demo.weather")
 
     _input_sequence(monkeypatch, ["1", "1", "1", ""])
 
-    handle_contract(plugin_root=plugin_root, config_root=config_root)
+    handle_contract(plugin_root=plugin_root)
 
     contract_path = streams_dir / "weather.weather.yaml"
     assert contract_path.exists(), f"expected contract at {contract_path}"
-
-    plugin_contracts = (
-        plugin_root / "config" / "contracts" / "weather.weather.yaml"
-    )
-    assert not plugin_contracts.exists(), "contract should not be written inside the plugin repo when config_root overrides it"
 
     mapper_file = (
         plugin_root
@@ -110,16 +106,15 @@ def test_contract_scaffold_honors_workspace_config(monkeypatch: pytest.MonkeyPat
 
 def test_contract_identity_mapper_skips_scaffold(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     plugin_root = _create_plugin(tmp_path)
-    workspace = tmp_path / "workspace"
-    config_root = workspace / "config" / "datasets" / "prod"
-    sources_dir = workspace / "sources"
-    streams_dir = workspace / "contracts"
-    _write_project_yaml(config_root / "project.yaml", sources_dir, streams_dir)
+    example_root = plugin_root / "example"
+    sources_dir = example_root / "sources"
+    streams_dir = example_root / "contracts"
+    _write_project_yaml(example_root / "project.yaml", sources_dir, streams_dir)
     _write_source_yaml(sources_dir / "demo.weather.yaml", "demo.weather")
 
     _input_sequence(monkeypatch, ["1", "1", "1", ""])
 
-    handle_contract(plugin_root=plugin_root, config_root=config_root, use_identity=True)
+    handle_contract(plugin_root=plugin_root, use_identity=True)
 
     contract_path = streams_dir / "weather.weather.yaml"
     assert contract_path.exists()

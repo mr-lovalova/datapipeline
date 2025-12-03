@@ -97,7 +97,6 @@ def create_source(
     format: Optional[str],
     root: Optional[Path],
     identity: bool = False,
-    config_root: Optional[Path] = None,
 ) -> None:
     root_dir, name, _ = pkg_root(root)
     base = resolve_base_pkg_dir(root_dir, name)
@@ -169,7 +168,7 @@ def create_source(
     # Resolve sources directory from a single dataset-scoped project config.
     # If not present or invalid, let the exception bubble up to prompt the user
     # to provide a valid project path.
-    proj_yaml = resolve_project_yaml_path(root_dir, config_root)
+    proj_yaml = resolve_project_yaml_path(root_dir)
     # Best-effort: create a minimal project scaffold if missing
     ensure_project_scaffold(proj_yaml)
     sources_dir = resolve_sources_dir(proj_yaml).resolve()

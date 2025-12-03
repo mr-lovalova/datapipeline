@@ -65,12 +65,12 @@ def ensure_project_scaffold(project_yaml: Path) -> None:
             "version: 1\n"
             "name: default\n"
             "paths:\n"
-            "  streams: ../../contracts\n"
-            "  sources: ../../sources\n"
+            "  streams: ./contracts\n"
+            "  sources: ./sources\n"
             "  dataset: dataset.yaml\n"
             "  postprocess: postprocess.yaml\n"
-            "  artifacts: ../../build/datasets/default\n"
-            "  tasks: tasks\n"
+            "  artifacts: ../artifacts/default\n"
+            "  tasks: ./tasks\n"
             "globals:\n"
             "  start_time: 2021-01-01T00:00:00Z\n"
             "  end_time: 2021-12-31T23:00:00Z\n"
@@ -102,20 +102,22 @@ def ensure_project_scaffold(project_yaml: Path) -> None:
         pass
 
 
-def resolve_project_yaml_path(
-    plugin_root: Path,
-    config_root: Optional[Path],
-) -> Path:
-    """Return project.yaml path honoring optional workspace config overrides."""
-    if config_root:
-        target = Path(config_root)
-        if target.suffix.lower() in {".yaml", ".yml"}:
-            return target
-        candidate = target / "project.yaml"
+def resolve_project_yaml_path(plugin_root: Path) -> Path:
+    """Return a best-effort project.yaml path for scaffolding.
+
+    Resolution order:
+    1) <plugin_root>/example/project.yaml
+    2) <plugin_root>/config/project.yaml
+    3) <plugin_root>/config/datasets/default/project.yaml
+    4) Fallback: <plugin_root>/example/project.yaml
+    """
+    candidates = [
+        plugin_root / "example" / "project.yaml",
+        plugin_root / "config" / "project.yaml",
+        plugin_root / "config" / "datasets" / "default" / "project.yaml",
+    ]
+    for candidate in candidates:
         if candidate.exists():
             return candidate
-        fallback = target / "datasets" / "default" / "project.yaml"
-        if fallback.exists():
-            return fallback
-        return candidate
-    return plugin_root / "config" / "datasets" / "default" / "project.yaml"
+    # Default to the first candidate; callers may scaffold a new project there.
+    return candidates[0]
