@@ -203,7 +203,7 @@ def test_standard_scaler_errors_on_missing_by_default():
     )
     scaler_model = StandardScaler()
     scaler_model.fit(training_vectors)
-    transform = StandardScalerTransform(scaler=scaler_model)
+    transform = StandardScalerTransform(scaler=scaler_model, on_none="error")
 
     stream = iter(
         [
@@ -226,9 +226,7 @@ def test_standard_scaler_passthrough_missing_counts():
     scaler_model = StandardScaler()
     scaler_model.fit(training_vectors)
 
-    transform = StandardScalerTransform(
-        scaler=scaler_model, on_none="warn"
-    )
+    transform = StandardScalerTransform(scaler=scaler_model, on_none="skip")
 
     stream = iter(
         [
@@ -291,9 +289,7 @@ def test_standard_scaler_warn_callback_invoked_with_counts():
         elif event.type == "scaler_none_summary":
             calls.append(("summary", None, event.payload["count"]))
 
-    transform = StandardScalerTransform(
-        scaler=scaler_model, on_none="warn"
-    )
+    transform = StandardScalerTransform(scaler=scaler_model, on_none="skip")
     transform.set_observer(on_none_cb)
 
     stream = iter(

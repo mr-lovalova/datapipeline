@@ -21,7 +21,7 @@ def test_drop_missing_with_schema_and_partitioned_streams():
     processed = post_process(context, vectors)
     samples = list(processed)
 
-    # Source emits ticks every 2h; ensure_ticks fills 1h gaps with None.
+    # Source emits ticks every 2h; ensure_cadence fills 1h gaps with None.
     # drop_missing with min_coverage=1.0 removes the filled (None) buckets,
     # keeping only the original ticks.
     expected_hours = [0, 2, 4]
