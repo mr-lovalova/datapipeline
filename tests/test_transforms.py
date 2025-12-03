@@ -13,13 +13,12 @@ from datapipeline.transforms.feature.scaler import StandardScaler, StandardScale
 from datapipeline.transforms.stream.dedupe import FeatureDeduplicateTransform
 from datapipeline.transforms.stream.fill import FillTransformer as FeatureFill
 from datapipeline.transforms.vector import (
-    VectorDropMissingTransform,
+    VectorDropTransform,
     VectorDropPartitionsTransform,
     VectorEnsureSchemaTransform,
     VectorFillAcrossPartitionsTransform,
     VectorFillConstantTransform,
     VectorFillHistoryTransform,
-    VectorDropNullTransform,
 )
 
 
@@ -421,34 +420,19 @@ def test_vector_fill_constant_injects_value():
     assert out[0].features.values["wind"] == 0.0
 
 
-def test_vector_drop_missing_respects_coverage():
+def test_vector_drop_horizontal_respects_coverage_with_schema():
     stream = iter(
         [
             _make_vector(0, {"a": 1.0, "b": 2.0}),
             _make_vector(1, {"a": 3.0}),
         ]
     )
-
-    transform = VectorDropMissingTransform(min_coverage=1.0)
+    transform = VectorDropTransform(axis="horizontal", threshold=1.0)
     transform.bind_context(_StubVectorContext(["a", "b"]))
 
     out = list(transform.apply(stream))
     assert len(out) == 1
     assert out[0].features.values == {"a": 1.0, "b": 2.0}
-
-
-def test_vector_drop_missing_uses_schema_when_available():
-    stream = iter([_make_vector(0, {"a": 1.0})])
-    transform = VectorDropMissingTransform(min_coverage=1.0)
-    transform.bind_context(
-        _StubVectorContext(
-            [],
-            schema={"features": [{"id": "a"}, {"id": "b"}]},
-        )
-    )
-
-    out = list(transform.apply(stream))
-    assert out == []
 
 
 def test_vector_fill_constant_targets_payload():
@@ -467,16 +451,69 @@ def test_vector_fill_constant_targets_payload():
     assert out[0].targets.values["t"] == 5.0
 
 
-def test_vector_drop_missing_targets_payload():
-    sample = Sample(
-        key=(0,),
-        features=Vector(values={"f": 1.0}),
-        targets=Vector(values={"t": None}),
+def test_vector_drop_horizontal_drops_sparse_vector():
+    stream = iter(
+        [
+            _make_vector(0, {"a": 1.0, "b": 2.0}),
+            _make_vector(1, {"a": 3.0, "b": None}),
+        ]
     )
-    transform = VectorDropMissingTransform(required=["t"], payload="targets")
-    transform.bind_context(_StubVectorContext({"targets": ["t"]}))
+    transform = VectorDropTransform(axis="horizontal", threshold=1.0)
+    transform.bind_context(_StubVectorContext(["a", "b"]))
 
-    assert list(transform.apply(iter([sample]))) == []
+    out = list(transform.apply(stream))
+    assert len(out) == 1
+    assert out[0].features.values == {"a": 1.0, "b": 2.0}
+
+
+def test_vector_drop_horizontal_sequence_aware():
+    stream = iter(
+        [
+            _make_vector(0, {"seq": [1.0, None, None], "f": 2.0}),
+        ]
+    )
+    # seq coverage = 1/3, f coverage = 1.0 -> horizontal = (1/3 + 1)/2 ≈ 0.666
+    transform = VectorDropTransform(axis="horizontal", threshold=0.7)
+    transform.bind_context(_StubVectorContext(["seq", "f"]))
+
+    out = list(transform.apply(stream))
+    assert out == []
+
+
+def test_vector_drop_vertical_delegates_to_partitions():
+    stream = iter(
+        [
+            _make_vector(
+                0,
+                {
+                    "humidity__@location:north": 1.0,
+                    "humidity__@location:south": 2.0,
+                    "temp": 3.0,
+                },
+            )
+        ]
+    )
+    ctx = _StubVectorContext(
+        ["humidity__@location:north", "humidity__@location:south", "temp"]
+    )
+    ctx.set_metadata(
+        {
+            "counts": {"feature_vectors": 4},
+            "features": [
+                {"id": "humidity__@location:north", "present_count": 4, "null_count": 3},
+                {"id": "humidity__@location:south", "present_count": 4, "null_count": 0},
+                {"id": "temp", "present_count": 4, "null_count": 0},
+            ],
+        }
+    )
+    transform = VectorDropTransform(axis="vertical", threshold=0.8)
+    transform.bind_context(ctx)
+
+    out = list(transform.apply(stream))
+    assert list(out[0].features.values.keys()) == [
+        "humidity__@location:south",
+        "temp",
+    ]
 
 
 def test_vector_drop_partitions_drops_when_coverage_low():
@@ -791,8 +828,10 @@ def test_vector_ensure_schema_raises_without_schema_artifact():
 
 def test_vector_drop_null_feature_level_drops_when_coverage_low():
     stream = iter([_make_vector(0, {"a": 1.0, "b": None})])
-    transform = VectorDropNullTransform(mode="feature-level", min_feature_coverage=0.8)
-    transform.bind_context(_StubVectorContext(["a", "b", "c"]))
+    # a and b are expected; coverage = average(cell_coverage(a), cell_coverage(b))
+    # = (1.0 + 0.0)/2 = 0.5 < 0.8 -> drop
+    transform = VectorDropTransform(axis="horizontal", threshold=0.8)
+    transform.bind_context(_StubVectorContext(["a", "b"]))
 
     out = list(transform.apply(stream))
     assert out == []
@@ -800,7 +839,8 @@ def test_vector_drop_null_feature_level_drops_when_coverage_low():
 
 def test_vector_drop_null_feature_level_keeps_when_coverage_sufficient():
     stream = iter([_make_vector(0, {"a": 1.0, "b": 2.0, "c": None})])
-    transform = VectorDropNullTransform(mode="feature-level", min_feature_coverage=0.5)
+    # expected: a,b,c -> coverage = (1.0 + 1.0 + 0.0)/3 ≈ 0.666 >= 0.5 -> keep
+    transform = VectorDropTransform(axis="horizontal", threshold=0.5)
     transform.bind_context(_StubVectorContext(["a", "b", "c"]))
 
     out = list(transform.apply(stream))
@@ -809,7 +849,8 @@ def test_vector_drop_null_feature_level_keeps_when_coverage_sufficient():
 
 def test_vector_drop_null_record_level_drops_on_sparse_sequence():
     stream = iter([_make_vector(0, {"seq": [1.0, None, None], "f": 2.0})])
-    transform = VectorDropNullTransform(mode="record-level", min_cadence_coverage=0.5)
+    # seq coverage = 1/3, f coverage = 1.0 -> horizontal ≈ 0.666 < 0.8 -> drop
+    transform = VectorDropTransform(axis="horizontal", threshold=0.8)
     transform.bind_context(_StubVectorContext(["seq", "f"]))
 
     out = list(transform.apply(stream))
@@ -818,7 +859,7 @@ def test_vector_drop_null_record_level_drops_on_sparse_sequence():
 
 def test_vector_drop_null_record_level_ignores_when_no_sequences():
     stream = iter([_make_vector(0, {"a": 1.0})])
-    transform = VectorDropNullTransform(mode="record-level", min_cadence_coverage=0.8)
+    transform = VectorDropTransform(axis="horizontal", threshold=0.8)
     transform.bind_context(_StubVectorContext(["a"]))
 
     out = list(transform.apply(stream))

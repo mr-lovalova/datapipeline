@@ -526,9 +526,10 @@ targets:
 Project-scoped vector transforms that run after assembly and before serving.
 
 ```yaml
-- drop_missing:
-    required: [temp_c__station=001]
-    min_coverage: 0.95
+- drop:
+    axis: horizontal
+    payload: features
+    threshold: 0.95
 - fill_history:
     statistic: median
     window: 48
@@ -674,10 +675,10 @@ Pass `--help` on any command for flags.
 
 ### Vector (Postprocess) Transforms
 
-- `drop_missing`: drop vectors that do not meet required IDs or coverage ratio.
-- `drop_partitions`: require `schema.metadata.json` and drop partitions when their
-  coverage falls below the configured `threshold` (minimum acceptable coverage),
-  so the weakest partitions stop forcing row drops.
+- `drop`: apply coverage thresholds along the horizontal axis (vectors) or
+  vertical axis (features/partitions) using `axis: horizontal|vertical` and
+  `threshold`. Vertical mode requires the optional `schema.metadata.json`
+  artifact and internally prunes weak partitions.
 - `fill_constant`: seed absent IDs with a constant.
 - `fill_history`: impute using rolling statistics from prior vectors.
 - `fill_horizontal`: aggregate sibling partitions in the same timestamp.

@@ -11,7 +11,7 @@ from datapipeline.runtime import Runtime
 from datapipeline.services.constants import SCALER_STATISTICS, VECTOR_SCHEMA
 from datapipeline.transforms.feature.scaler import StandardScaler
 from datapipeline.transforms.vector import (
-    VectorDropMissingTransform,
+    VectorDropTransform,
     VectorFillAcrossPartitionsTransform,
     VectorFillHistoryTransform,
 )
@@ -307,7 +307,7 @@ def test_regression_vector_transforms_fill_horizontal_history_and_drop(tmp_path)
     transforms = [
         VectorFillAcrossPartitionsTransform(statistic="mean", min_samples=1),
         VectorFillHistoryTransform(statistic="mean", window=2, min_samples=1),
-        VectorDropMissingTransform(min_coverage=1.0),
+        VectorDropTransform(axis="horizontal", threshold=1.0),
     ]
 
     stream = vectors

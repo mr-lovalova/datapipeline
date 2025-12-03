@@ -1,3 +1,4 @@
-- drop_missing:
+- drop:
+    axis: horizontal
     payload: features
-    min_coverage: 1.0
+    threshold: 1.0
