@@ -505,18 +505,12 @@ def main() -> None:
 
     cli_level_arg = getattr(args, "log_level", None)
     shared_defaults = workspace_context.config.shared if workspace_context else None
-    build_defaults = workspace_context.config.build if workspace_context else None
+    # Default logging level: CLI flag > jerry.yaml shared.log_level > INFO
     default_level_name = (
         shared_defaults.log_level.upper()
         if shared_defaults and shared_defaults.log_level
-        else "WARNING"
+        else "INFO"
     )
-    if cli_level_arg is None and getattr(args, "cmd", None) == "build":
-        default_level_name = (
-            build_defaults.log_level.upper()
-            if build_defaults and build_defaults.log_level
-            else "INFO"
-        )
     base_level_name = (cli_level_arg or default_level_name).upper()
     base_level = logging._nameToLevel.get(base_level_name, logging.WARNING)
 

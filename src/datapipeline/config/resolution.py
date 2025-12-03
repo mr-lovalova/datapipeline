@@ -78,7 +78,7 @@ class LogLevelDecision:
 
 def resolve_log_level(
     *levels: Any,
-    fallback: str = "WARNING",
+    fallback: str = "INFO",
 ) -> LogLevelDecision:
     name = None
     for level in levels:
@@ -87,8 +87,8 @@ def resolve_log_level(
             name = normalized
             break
     if not name:
-        name = _normalize_upper(fallback) or "WARNING"
-    value = logging._nameToLevel.get(name, logging.WARNING)
+        name = _normalize_upper(fallback) or "INFO"
+    value = logging._nameToLevel.get(name, logging.INFO)
     return LogLevelDecision(name=name, value=value)
 
 
