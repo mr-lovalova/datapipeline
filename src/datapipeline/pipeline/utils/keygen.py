@@ -1,7 +1,7 @@
 from typing import Union, List, Any
 from datetime import datetime
 
-from datapipeline.config.dataset.normalize import floor_time_to_resolution
+from datapipeline.config.dataset.normalize import floor_time_to_bucket
 from datapipeline.transforms.vector_utils import PARTITION_SEP
 
 
@@ -49,7 +49,7 @@ def _anchor_time(item: Any) -> datetime | None:
     return getattr(recs[0], "time", None) if recs else None
 
 
-def group_key_for(item: Any, resolution: str) -> tuple:
+def group_key_for(item: Any, cadence: str) -> tuple:
     """Compute 1-tuple bucket key from a FeatureRecord or FeatureRecordSequence."""
     t = _anchor_time(item)
-    return (floor_time_to_resolution(t, resolution),)
+    return (floor_time_to_bucket(t, cadence),)

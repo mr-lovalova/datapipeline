@@ -96,8 +96,17 @@ def _load_canonical_streams(project_yaml: Path, vars_: dict[str, Any]) -> dict:
         m = data.get(MAPPER_KEY)
         if (not isinstance(m, dict)) or (ENTRYPOINT_KEY not in (m or {})):
             data[MAPPER_KEY] = None
+        # Support simple per-contract variables like 'cadence' while keeping
+        # project-level globals as the single source of truth for shared values.
+        local_vars = dict(vars_)
+        cadence_expr = data.get("cadence")
+        if cadence_expr is not None:
+            # Allow cadence to reference globals (e.g. ${group_by}) while also
+            # making ${cadence} usable elsewhere in the same contract.
+            resolved_cadence = _interpolate(cadence_expr, vars_)
+            local_vars["cadence"] = resolved_cadence
         alias = data.get(STREAM_ID_KEY)
-        out[alias] = _interpolate(data, vars_)
+        out[alias] = _interpolate(data, local_vars)
     return out
 
 

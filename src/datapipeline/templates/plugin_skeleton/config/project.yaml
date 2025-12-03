@@ -8,6 +8,9 @@ paths:
   artifacts: ../artifacts/${project_name}/v${version}
   tasks: ./tasks
 globals:
+  # Primary dataset cadence; referenced from dataset.yaml (group_by)
+  # and contracts via ${group_by}.
+  group_by: 10m
   # Optional window bounds used for interpolation and as overrides when
   # deriving the dataset window in metadata. Set to ISO datetimes or null.
   start_time: 2021-01-01T00:00:00Z

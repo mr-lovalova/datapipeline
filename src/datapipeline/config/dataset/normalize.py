@@ -2,15 +2,15 @@ from datetime import datetime
 import re
 
 
-def floor_time_to_resolution(ts: datetime, resolution: str) -> datetime:
-    """Floor a timestamp to the nearest resolution bucket.
+def floor_time_to_bucket(ts: datetime, bucket: str) -> datetime:
+    """Floor a timestamp to the nearest bucket boundary.
 
     Supports patterns like '10m', '10min', '1h', '2h'.
     Minutes may be specified as 'm' or 'min'.
     """
-    m = re.fullmatch(r"^(\d+)(m|min|h)$", resolution)
+    m = re.fullmatch(r"^(\d+)(m|min|h)$", bucket)
     if not m:
-        raise ValueError(f"Unsupported granularity: {resolution}")
+        raise ValueError(f"Unsupported cadence: {bucket}")
     n = int(m.group(1))
     unit = m.group(2)
     if n <= 0:
