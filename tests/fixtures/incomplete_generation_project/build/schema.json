@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "generated_at": "2025-12-04T13:05:41.350992Z",
+  "features": [
+    {
+      "id": "onshore_mwh_scaled__@municipality:400",
+      "base_id": "onshore_mwh_scaled",
+      "kind": "scalar"
+    },
+    {
+      "id": "onshore_mwh_scaled__@municipality:550",
+      "base_id": "onshore_mwh_scaled",
+      "kind": "scalar"
+    },
+    {
+      "id": "onshore_mwh_scaled__@municipality:849",
+      "base_id": "onshore_mwh_scaled",
+      "kind": "scalar"
+    },
+    {
+      "id": "onshore_mwh_window__@municipality:400",
+      "base_id": "onshore_mwh_window",
+      "kind": "list",
+      "cadence": {
+        "strategy": "max",
+        "target": 2
+      }
+    },
+    {
+      "id": "onshore_mwh_window__@municipality:550",
+      "base_id": "onshore_mwh_window",
+      "kind": "list",
+      "cadence": {
+        "strategy": "max",
+        "target": 2
+      }
+    },
+    {
+      "id": "onshore_mwh_window__@municipality:849",
+      "base_id": "onshore_mwh_window",
+      "kind": "list",
+      "cadence": {
+        "strategy": "max",
+        "target": 2
+      }
+    }
+  ],
+  "targets": [
+    {
+      "id": "dk1_price",
+      "base_id": "dk1_price",
+      "kind": "scalar"
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+group_by: 1h
+
+features:
+  - id: onshore_mwh_scaled
+    record_stream: metrics.production.wind
+    scale: true
+  - id: onshore_mwh_window
+    record_stream: metrics.production.wind
+    sequence:
+      size: 2
+      stride: 2
+
+targets:
+  - id: dk1_price
+    record_stream: targets.price.dk1

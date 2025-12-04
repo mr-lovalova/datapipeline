@@ -1,0 +1,105 @@
+{
+  "schema_version": 1,
+  "generated_at": "2025-12-04T13:05:41.296141Z",
+  "features": [
+    {
+      "id": "spot_eur_scaled__@area:DE",
+      "base_id": "spot_eur_scaled",
+      "kind": "scalar"
+    },
+    {
+      "id": "spot_eur_scaled__@area:DK1",
+      "base_id": "spot_eur_scaled",
+      "kind": "scalar"
+    },
+    {
+      "id": "spot_eur_scaled__@area:DK2",
+      "base_id": "spot_eur_scaled",
+      "kind": "scalar"
+    },
+    {
+      "id": "spot_eur_scaled__@area:NO2",
+      "base_id": "spot_eur_scaled",
+      "kind": "scalar"
+    },
+    {
+      "id": "spot_eur_scaled__@area:SE3",
+      "base_id": "spot_eur_scaled",
+      "kind": "scalar"
+    },
+    {
+      "id": "spot_eur_scaled__@area:SE4",
+      "base_id": "spot_eur_scaled",
+      "kind": "scalar"
+    },
+    {
+      "id": "spot_eur_scaled__@area:SYSTEM",
+      "base_id": "spot_eur_scaled",
+      "kind": "scalar"
+    },
+    {
+      "id": "spot_eur_sequence__@area:DE",
+      "base_id": "spot_eur_sequence",
+      "kind": "list",
+      "cadence": {
+        "strategy": "max",
+        "target": 3
+      }
+    },
+    {
+      "id": "spot_eur_sequence__@area:DK1",
+      "base_id": "spot_eur_sequence",
+      "kind": "list",
+      "cadence": {
+        "strategy": "max",
+        "target": 3
+      }
+    },
+    {
+      "id": "spot_eur_sequence__@area:DK2",
+      "base_id": "spot_eur_sequence",
+      "kind": "list",
+      "cadence": {
+        "strategy": "max",
+        "target": 3
+      }
+    },
+    {
+      "id": "spot_eur_sequence__@area:NO2",
+      "base_id": "spot_eur_sequence",
+      "kind": "list",
+      "cadence": {
+        "strategy": "max",
+        "target": 3
+      }
+    },
+    {
+      "id": "spot_eur_sequence__@area:SE3",
+      "base_id": "spot_eur_sequence",
+      "kind": "list",
+      "cadence": {
+        "strategy": "max",
+        "target": 3
+      }
+    },
+    {
+      "id": "spot_eur_sequence__@area:SE4",
+      "base_id": "spot_eur_sequence",
+      "kind": "list",
+      "cadence": {
+        "strategy": "max",
+        "target": 3
+      }
+    },
+    {
+      "id": "spot_eur_sequence__@area:SYSTEM",
+      "base_id": "spot_eur_sequence",
+      "kind": "list",
+      "cadence": {
+        "strategy": "max",
+        "target": 3
+      }
+    }
+  ],
+  "targets": []
+}

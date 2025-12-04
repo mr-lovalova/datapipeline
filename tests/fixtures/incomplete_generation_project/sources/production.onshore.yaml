@@ -1,0 +1,17 @@
+id: incomplete.production
+
+parser:
+  entrypoint: "core.temporal.csv"
+  args:
+    time_field: HourUTC
+    value_field: OnshoreWindMWh
+    decimal: ","
+    attributes:
+      municipality: MunicipalityNo
+loader:
+  entrypoint: "core.io"
+  args:
+    transport: fs
+    format: csv
+    path: tests/fixtures/regression_project/data/incomplete/ProductionMunicipalityHour.csv
+    delimiter: ";"

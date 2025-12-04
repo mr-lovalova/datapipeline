@@ -1,13 +1,26 @@
+import importlib
 import importlib.metadata as md
 from functools import lru_cache
 from pathlib import Path
 
 import yaml
 
+# Local fallback map so newly added entrypoints remain usable in editable installs
+# before package metadata is refreshed.
+_EP_OVERRIDES = {
+    ("datapipeline.parsers", "core.temporal.csv"): "datapipeline.parsers.temporal_csv:TemporalCsvValueParser",
+    ("datapipeline.parsers", "core.temporal.jsonpath"): "datapipeline.parsers.temporal_json:TemporalJsonPathParser",
+}
+
+
 @lru_cache
 def load_ep(group: str, name: str):
     eps = md.entry_points().select(group=group, name=name)
     if not eps:
+        target = _EP_OVERRIDES.get((group, name))
+        if target:
+            module, attr = target.split(":")
+            return getattr(importlib.import_module(module), attr)
         available = ", ".join(
             sorted(ep.name for ep in md.entry_points().select(group=group))
         )

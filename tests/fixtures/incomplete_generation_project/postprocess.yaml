@@ -1,0 +1,14 @@
+- fill:
+    payload: features
+    statistic: mean
+    window: 2
+    min_samples: 1
+- fill:
+    payload: targets
+    statistic: mean
+    window: 2
+    min_samples: 1
+- drop:
+    axis: horizontal
+    payload: features
+    threshold: 0.3

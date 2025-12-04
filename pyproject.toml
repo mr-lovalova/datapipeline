@@ -78,6 +78,8 @@ identity = "datapipeline.mappers.noop:identity"
 [project.entry-points."datapipeline.parsers"]
 identity = "datapipeline.parsers.identity:IdentityParser"
 "core.synthetic.ticks" = "datapipeline.sources.synthetic.time.parser:TimeRowParser"
+"core.temporal.csv" = "datapipeline.parsers.temporal_csv:TemporalCsvValueParser"
+"core.temporal.jsonpath" = "datapipeline.parsers.temporal_json:TemporalJsonPathParser"
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

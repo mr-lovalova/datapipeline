@@ -1,0 +1,17 @@
+kind: ingest
+source: incomplete.production
+id: metrics.production.wind
+partition_by: municipality
+
+mapper:
+  entrypoint: identity
+  args: {}
+
+record:
+  - filter: { operator: ge, field: time, comparand: "${start_time}" }
+  - filter: { operator: le, field: time, comparand: "${end_time}" }
+  - filter: { operator: in, field: municipality, comparand: ["849", "550", "400"] }
+
+stream:
+  - ensure_cadence: { cadence: 1h }
+  - fill: { statistic: median, window: 3, min_samples: 1 }

@@ -663,6 +663,57 @@ def test_vector_drop_partitions_errors_without_metadata():
         list(transform.apply(stream))
 
 
+def test_vector_drop_vertical_drops_null_target_at_threshold_one():
+    stream = iter(
+        [
+            Sample(
+                key=(0,),
+                features=Vector(values={}),
+                targets=Vector(
+                    values={
+                        "wind_production__@municipality_no:101": None,
+                        "wind_production__@municipality_no:147": 1.0,
+                    }
+                ),
+            )
+        ]
+    )
+    ctx = _StubVectorContext({"targets": [
+        "wind_production__@municipality_no:101",
+        "wind_production__@municipality_no:147",
+    ]})
+    ctx.set_metadata(
+        {
+            "counts": {"target_vectors": 1},
+            "targets": [
+                {
+                    "id": "wind_production__@municipality_no:101",
+                    "present_count": 1,
+                    "null_count": 1,
+                },
+                {
+                    "id": "wind_production__@municipality_no:147",
+                    "present_count": 1,
+                    "null_count": 0,
+                },
+            ],
+        }
+    )
+    transform = VectorDropTransform(
+        axis="vertical",
+        payload="targets",
+        threshold=1.0,
+    )
+    transform.bind_context(ctx)
+
+    out = list(transform.apply(stream))
+    assert len(out) == 1
+    assert out[0].targets is not None
+    assert set(out[0].targets.values.keys()) == {
+        "wind_production__@municipality_no:147"
+    }
+
+
 def test_vector_ensure_schema_errors_on_missing_by_default():
     stream = iter([_make_vector(0, {"wind__A": 1.0})])
     transform = VectorEnsureSchemaTransform()
