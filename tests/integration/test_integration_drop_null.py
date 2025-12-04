@@ -1,13 +1,12 @@
-from pathlib import Path
 from datetime import datetime, timezone
-
 from datapipeline.config.context import load_dataset_context
 from datapipeline.pipeline.pipelines import build_vector_pipeline
 from datapipeline.pipeline.stages import post_process
 
 
-def test_drop_with_schema_and_partitioned_streams():
-    project = Path("tests/fixtures/drop_null_project/project.yaml")
+def test_drop_with_schema_and_partitioned_streams(copy_fixture):
+    project_root = copy_fixture("drop_null_project")
+    project = project_root / "project.yaml"
     dataset_ctx = load_dataset_context(project)
     context = dataset_ctx.pipeline_context
 

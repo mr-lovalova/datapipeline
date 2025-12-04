@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import pytest
 
 from datapipeline.config.context import load_dataset_context
@@ -11,7 +9,7 @@ from datapipeline.pipeline.pipelines import build_vector_pipeline
 from datapipeline.pipeline.stages import post_process
 
 
-def _vector_samples(project_yaml: Path):
+def _vector_samples(project_yaml):
     ctx = load_dataset_context(project_yaml)
     context = ctx.pipeline_context
     runtime = ctx.runtime
@@ -38,8 +36,9 @@ def _vector_samples(project_yaml: Path):
     return list(post_process(context, vectors))
 
 
-def test_incomplete_prices_project_vectors():
-    project = Path("tests/fixtures/incomplete_prices_project/project.yaml")
+def test_incomplete_prices_project_vectors(copy_fixture):
+    project_root = copy_fixture("incomplete_prices_project")
+    project = project_root / "project.yaml"
     samples = _vector_samples(project)
 
     assert len(samples) == 8
@@ -62,8 +61,9 @@ def test_incomplete_prices_project_vectors():
     assert populated == pytest.approx([40.59, 43.259998, 49.66], rel=1e-6)
 
 
-def test_incomplete_generation_project_alignment():
-    project = Path("tests/fixtures/incomplete_generation_project/project.yaml")
+def test_incomplete_generation_project_alignment(copy_fixture):
+    project_root = copy_fixture("incomplete_generation_project")
+    project = project_root / "project.yaml"
     samples = _vector_samples(project)
 
     assert len(samples) == 9

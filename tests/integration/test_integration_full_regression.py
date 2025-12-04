@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from datapipeline.config.context import load_dataset_context
@@ -9,11 +7,9 @@ from datapipeline.pipeline.pipelines import build_vector_pipeline
 from datapipeline.pipeline.stages import post_process
 
 
-@pytest.mark.parametrize(
-    "project_path",
-    [Path("tests/fixtures/regression_project/project.yaml")],
-)
-def test_full_regression_project_vectors(project_path: Path) -> None:
+def test_full_regression_project_vectors(copy_fixture) -> None:
+    project_root = copy_fixture("regression_project")
+    project_path = project_root / "project.yaml"
     ctx = load_dataset_context(project_path)
     context = ctx.pipeline_context
 

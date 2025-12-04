@@ -257,7 +257,7 @@ def test_regression_fill_then_scale_with_missing_values(tmp_path) -> None:
     context = PipelineContext(runtime)
     out = list(build_vector_pipeline(context, configs, group_by))
 
-    # One hour group
+    # Two hour groups because fill made the second hour visible
     assert len(out) == 2  # hours 00 and 01 due to wind_speed hour 1
 
     v0 = out[0].features.values
@@ -271,77 +271,3 @@ def test_regression_fill_then_scale_with_missing_values(tmp_path) -> None:
     v1 = out[1].features.values
     assert not isinstance(v0["wind_speed"], list)
     assert not isinstance(v1["wind_speed"], list)
-
-
-def test_placeholder_composed_stream_docs_only(tmp_path) -> None:
-    pressure_stream = [
-        TemporalRecord(time=_ts(0, 0), value=1013.25),
-    ]
-    temp_stream = [
-        TemporalRecord(time=_ts(0, 0), value=15.0),
-    ]
-    humidity_stream = [
-        TemporalRecord(time=_ts(0, 0), value=60.0),
-    ]
-
-    streams = {
-        "air_pressure": pressure_stream,
-        "temp_dry": temp_stream,
-        "humidity": humidity_stream,
-    }
-    runtime = _runtime_with_streams(tmp_path, streams)
-    context = PipelineContext(runtime)
-    group_by = "1h"
-
-    base_configs = [
-        FeatureRecordConfig(record_stream="air_pressure", id="air_pressure"),
-        FeatureRecordConfig(record_stream="temp_dry", id="temp_dry"),
-        FeatureRecordConfig(record_stream="humidity", id="humidity"),
-    ]
-    # Feature-level combine is deprecated; composed streams are defined in contracts.
-    # This placeholder asserts that base streams still flow through the pipeline.
-    configs = base_configs
-    vectors = list(build_vector_pipeline(
-        context, configs, group_by))
-    assert len(vectors) == 1
-
-
-def test_placeholder_composed_stream_with_partitions(tmp_path) -> None:
-    def _station_record(value: float, station: str) -> TemporalRecord:
-        rec = TemporalRecord(time=_ts(0, 0), value=value)
-        setattr(rec, "station", station)
-        return rec
-
-    pressure_stream = [
-        _station_record(1013.25, "A"),
-        _station_record(1000.0, "B"),
-    ]
-    temp_stream = [
-        _station_record(15.0, "A"),
-        _station_record(10.0, "B"),
-    ]
-    humidity_stream = [
-        _station_record(60.0, "A"),
-        _station_record(40.0, "B"),
-    ]
-
-    streams = {
-        "air_pressure": pressure_stream,
-        "temp_dry": temp_stream,
-        "humidity": humidity_stream,
-    }
-    runtime = _runtime_with_streams(tmp_path, streams)
-    for alias in streams:
-        runtime.registries.partition_by.register(alias, "station")
-    context = PipelineContext(runtime)
-    group_by = "1h"
-
-    base_configs = [
-        FeatureRecordConfig(record_stream="air_pressure", id="air_pressure"),
-        FeatureRecordConfig(record_stream="temp_dry", id="temp_dry"),
-        FeatureRecordConfig(record_stream="humidity", id="humidity"),
-    ]
-    configs = base_configs
-    vectors = list(build_vector_pipeline(
-        context, configs, group_by))
-    assert len(vectors) == 1

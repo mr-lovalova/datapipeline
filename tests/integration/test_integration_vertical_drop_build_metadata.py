@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
 import shutil
 
 from datapipeline.build.tasks.metadata import materialize_metadata
@@ -19,8 +18,9 @@ from datapipeline.services.constants import (
 from datapipeline.transforms.vector import VectorDropTransform
 
 
-def test_vertical_drop_respects_element_coverage_after_metadata_build():
-    project = Path("tests/fixtures/incomplete_prices_project/project.yaml")
+def test_vertical_drop_respects_element_coverage_after_metadata_build(copy_fixture):
+    project_root = copy_fixture("incomplete_prices_project")
+    project = project_root / "project.yaml"
 
     # Ensure a clean artifact folder so builds reflect current code each run.
     build_dir = project.parent / "build"

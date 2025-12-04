@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import shutil
 
 from datapipeline.config.context import load_dataset_context
@@ -12,8 +11,9 @@ from datapipeline.transforms.vector import VectorDropTransform
 from datapipeline.services.constants import VECTOR_SCHEMA_METADATA
 
 
-def test_vertical_drop_uses_window_size_metadata(tmp_path):
-    project = Path("tests/fixtures/incomplete_generation_project/project.yaml")
+def test_vertical_drop_uses_window_size_metadata(tmp_path, copy_fixture):
+    project_root = copy_fixture("incomplete_generation_project")
+    project = project_root / "project.yaml"
     build_dir = project.parent / "build"
     if build_dir.exists():
         shutil.rmtree(build_dir)
