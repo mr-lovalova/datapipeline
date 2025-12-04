@@ -37,7 +37,7 @@ How loaders work
   - `loader.entrypoint: "{{DEFAULT_IO_LOADER_EP}}"`
 - `loader.args` include `transport`, `format`, and source-specific args (placeholders are provided):
     - fs: `path`, `glob`, `encoding`, plus `delimiter` for csv
-    - http: `url`, `headers`, `encoding`, optional `count_by_fetch`
+    - http: `url`, `headers`, `params`, `encoding`, optional `count_by_fetch`
 - Synthetic sources generate data in-process and keep a small loader stub.
 
 Run data flows

@@ -79,6 +79,7 @@ def _loader_ep_and_args(transport: str, fmt: Optional[str], ep_key: Optional[str
             "format": fmt or "<FORMAT (json|json-lines|csv)>",
             "url": "<https://api.example.com/data.json>",
             "headers": {},
+            "params": {},
             "encoding": "utf-8",
         }
         if fmt == "csv":

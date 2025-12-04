@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Iterable, Iterator, List, Dict, Optional
+from typing import Iterable, Iterator, List, Dict, Optional, Any
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
+from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
 
 
 class Transport(ABC):
@@ -64,13 +65,27 @@ class FsGlobTransport(Transport):
 
 
 class HttpTransport(Transport):
-    def __init__(self, url: str, headers: Optional[Dict[str, str]] = None, chunk_size: int = 64 * 1024):
+    def __init__(self, url: str, headers: Optional[Dict[str, str]] = None, params: Optional[Dict[str, Any]] = None, chunk_size: int = 64 * 1024):
         self.url = url
         self.headers = dict(headers or {})
+        self.params: Dict[str, Any] = dict(params or {})
         self.chunk_size = chunk_size
 
+    def _build_url(self) -> str:
+        if not self.params:
+            return self.url
+        try:
+            parsed = urlparse(self.url)
+            existing = parse_qsl(parsed.query, keep_blank_values=True)
+            merged = existing + list(self.params.items())
+            query = urlencode(merged, doseq=True)
+            return urlunparse(parsed._replace(query=query))
+        except Exception:
+            return self.url
+
     def streams(self) -> Iterator[Iterable[bytes]]:
-        req = Request(self.url, headers=self.headers)
+        req_url = self._build_url()
+        req = Request(req_url, headers=self.headers)
 
         try:
             resp = urlopen(req)
