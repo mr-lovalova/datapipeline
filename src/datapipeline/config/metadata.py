@@ -17,6 +17,10 @@ class Window(BaseModel):
     start: Optional[datetime] = None
     end: Optional[datetime] = None
     mode: Optional[str] = None
+    size: Optional[int] = Field(
+        default=None,
+        description="Count of cadence buckets from start to end (inclusive) when known.",
+    )
 
 
 class VectorMetadata(BaseModel):

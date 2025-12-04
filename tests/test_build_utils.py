@@ -3,8 +3,12 @@ from __future__ import annotations
 import math
 from datetime import datetime, timezone
 
-from datapipeline.build.tasks.metadata import _window_bounds_from_stats
-from datapipeline.build.tasks.utils import collect_schema_entries, metadata_entries_from_stats
+from datapipeline.build.tasks.metadata import _window_bounds_from_stats, _window_size
+from datapipeline.build.tasks.utils import (
+    collect_schema_entries,
+    metadata_entries_from_stats,
+    schema_entries_from_stats,
+)
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
@@ -87,3 +91,14 @@ def test_window_bounds_modes():
     start, end = _window_bounds_from_stats(feature_stats, target_stats, mode="relaxed")
     assert start == ts(0)
     assert end == ts(7)
+
+
+def test_window_size_counts_cadence_buckets():
+    ts = lambda hour: datetime(2024, 1, 1, hour=hour, tzinfo=timezone.utc)
+    start = ts(4)
+    end = ts(10)
+
+    assert _window_size(start, end, "1h") == 7  # hours 4..10 inclusive
+    assert _window_size(start, end, "2h") == 4  # 4,6,8,10
+    assert _window_size(start, end, "15m") == 25  # 6 hours -> 360 minutes / 15 + 1
+    assert _window_size(start, end, None) is None

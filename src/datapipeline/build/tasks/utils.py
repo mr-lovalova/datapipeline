@@ -87,6 +87,9 @@ def collect_schema_entries(
                 )
                 if collect_metadata:
                     entry["lengths"][length] += 1
+                    entry["observed_elements"] = entry.get("observed_elements", 0) + sum(
+                        1 for v in value if not is_missing(v)
+                    )
                     if not value:
                         entry["element_types"].add("empty")
                     else:
@@ -158,6 +161,8 @@ def metadata_entries_from_stats(entries: list[dict], cadence_strategy: str) -> l
             target = _resolve_cadence_target(entry, cadence_strategy)
             if target is not None:
                 item["cadence"] = {"strategy": cadence_strategy, "target": target}
+            if "observed_elements" in entry:
+                item["observed_elements"] = int(entry.get("observed_elements", 0))
         else:
             item["value_types"] = sorted(entry.get("scalar_types", []))
         meta_entries.append(item)
