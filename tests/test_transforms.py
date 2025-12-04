@@ -14,11 +14,9 @@ from datapipeline.transforms.stream.dedupe import FeatureDeduplicateTransform
 from datapipeline.transforms.stream.fill import FillTransformer as FeatureFill
 from datapipeline.transforms.vector import (
     VectorDropTransform,
-    VectorDropPartitionsTransform,
     VectorEnsureSchemaTransform,
-    VectorFillAcrossPartitionsTransform,
-    VectorFillConstantTransform,
-    VectorFillHistoryTransform,
+    VectorReplaceTransform,
+    VectorFillTransform,
 )
 
 
@@ -384,7 +382,7 @@ def test_vector_fill_history_uses_running_statistics():
         ]
     )
 
-    transform = VectorFillHistoryTransform(
+    transform = VectorFillTransform(
         statistic="mean", window=2, min_samples=2)
     transform.bind_context(_StubVectorContext(["temp__A"]))
 
@@ -392,29 +390,9 @@ def test_vector_fill_history_uses_running_statistics():
     assert out[2].features.values["temp__A"] == 11.0
 
 
-def test_vector_fill_horizontal_averages_siblings():
-    stream = iter(
-        [
-            _make_vector(0, {"wind__A": 10.0, "wind__B": 14.0}),
-            _make_vector(1, {"wind__A": 12.0}),
-        ]
-    )
-
-    transform = VectorFillAcrossPartitionsTransform(
-        statistic="median")
-    transform.bind_context(_StubVectorContext(["wind__A", "wind__B"]))
-
-    out = list(transform.apply(stream))
-    # First bucket remains unchanged
-    assert out[0].features.values == {"wind__A": 10.0, "wind__B": 14.0}
-    # Second bucket fills missing wind__B using value from same timestamp (only A present -> not enough samples)
-    # Wait we need at least min_samples=1 -> default 1 so fill uses available values
-    assert out[1].features.values["wind__B"] == 12.0
-
-
 def test_vector_fill_constant_injects_value():
     stream = iter([_make_vector(0, {"time": 1.0})])
-    transform = VectorFillConstantTransform(value=0.0)
+    transform = VectorReplaceTransform(value=0.0)
     transform.bind_context(_StubVectorContext(["time", "wind"]))
     out = list(transform.apply(stream))
     assert out[0].features.values["wind"] == 0.0
@@ -441,7 +419,7 @@ def test_vector_fill_constant_targets_payload():
         features=Vector(values={"f": 1.0}),
         targets=Vector(values={"t": None}),
     )
-    transform = VectorFillConstantTransform(value=5.0, payload="targets")
+    transform = VectorReplaceTransform(value=5.0, payload="targets")
     transform.bind_context(_StubVectorContext({"targets": ["t"]}))
 
     out = list(transform.apply(iter([sample])))
@@ -478,6 +456,27 @@ def test_vector_drop_horizontal_sequence_aware():
 
     out = list(transform.apply(stream))
     assert out == []
+
+
+def test_vector_drop_horizontal_with_only_and_exclude():
+    stream = iter(
+        [
+            _make_vector(0, {"a": 1.0, "b": None, "c": 2.0}),
+        ]
+    )
+    # Baseline features: a,b,c; with only=[a,b] and exclude=[b] -> baseline=[a]
+    # Coverage = coverage(a)=1.0, so vector kept.
+    transform = VectorDropTransform(
+        axis="horizontal",
+        threshold=1.0,
+        payload="features",
+        only=["a", "b"],
+        exclude=["b"],
+    )
+    transform.bind_context(_StubVectorContext(["a", "b", "c"]))
+
+    out = list(transform.apply(stream))
+    assert len(out) == 1
 
 
 def test_vector_drop_vertical_delegates_to_partitions():
@@ -542,7 +541,7 @@ def test_vector_drop_partitions_drops_when_coverage_low():
             ],
         }
     )
-    transform = VectorDropPartitionsTransform(threshold=0.8)
+    transform = VectorDropTransform(axis="vertical", threshold=0.8)
     transform.bind_context(ctx)
 
     ctx.load_schema()
@@ -595,7 +594,7 @@ def test_vector_drop_partitions_keeps_when_coverage_sufficient():
             ],
         }
     )
-    transform = VectorDropPartitionsTransform(threshold=0.7)
+    transform = VectorDropTransform(axis="vertical", threshold=0.7)
     transform.bind_context(ctx)
 
     ctx.load_schema()
@@ -647,7 +646,7 @@ def test_vector_drop_partitions_accounts_for_absence():
             ],
         }
     )
-    transform = VectorDropPartitionsTransform(threshold=0.75)
+    transform = VectorDropTransform(axis="vertical", threshold=0.75)
     transform.bind_context(ctx)
 
     out = list(transform.apply(stream))
@@ -657,7 +656,7 @@ def test_vector_drop_partitions_accounts_for_absence():
 def test_vector_drop_partitions_errors_without_metadata():
     stream = iter([_make_vector(0, {"temp": 1.0})])
     ctx = _StubVectorContext(["temp"])
-    transform = VectorDropPartitionsTransform(threshold=0.5)
+    transform = VectorDropTransform(axis="vertical", threshold=0.5)
     transform.bind_context(ctx)
 
     with pytest.raises(RuntimeError):

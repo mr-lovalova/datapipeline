@@ -8,13 +8,13 @@ from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
 from datapipeline.transforms.vector_utils import clone
 
-from .common import ContextExpectedMixin, replace_vector, select_vector
+from .common import VectorContextMixin, replace_vector, select_vector
 
 MissingPolicy = Literal["error", "drop", "fill"]
 ExtraPolicy = Literal["error", "drop", "keep"]
 
 
-class VectorEnsureSchemaTransform(ContextExpectedMixin):
+class VectorEnsureSchemaTransform(VectorContextMixin):
     """Ensure vectors conform to the vector schema (`schema.json`) artifact.
 
     Options allow filling or dropping rows with missing identifiers and

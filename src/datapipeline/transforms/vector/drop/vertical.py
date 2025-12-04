@@ -4,9 +4,9 @@ from collections.abc import Iterator
 from typing import Literal
 
 from datapipeline.config.metadata import (
-    VectorMetadata,
     FEATURE_VECTORS_COUNT_KEY,
     TARGET_VECTORS_COUNT_KEY,
+    VectorMetadata,
 )
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
@@ -15,10 +15,15 @@ from datapipeline.services.artifacts import (
     VECTOR_METADATA_SPEC,
 )
 
-from .common import ContextExpectedMixin, replace_vector, select_vector, try_get_current_context
+from ..common import (
+    VectorContextMixin,
+    replace_vector,
+    select_vector,
+    try_get_current_context,
+)
 
 
-class VectorDropPartitionsTransform(ContextExpectedMixin):
+class VectorDropVerticalTransform(VectorContextMixin):
     required_artifacts = {VECTOR_METADATA_SPEC.key}
     """Drop partitions/features when metadata coverage falls below configured thresholds.
 
@@ -74,7 +79,7 @@ class VectorDropPartitionsTransform(ContextExpectedMixin):
             return self._drop_ids
         context = self._context or try_get_current_context()
         if not context:
-            raise RuntimeError("VectorDropPartitionsTransform requires an active pipeline context.")
+            raise RuntimeError("VectorDropVerticalTransform requires an active pipeline context.")
         try:
             raw = context.require_artifact(VECTOR_METADATA_SPEC)
         except ArtifactNotRegisteredError as exc:
@@ -148,3 +153,4 @@ class VectorDropPartitionsTransform(ContextExpectedMixin):
             if isinstance(entry.get("id"), str)
         ]
         self._schema_pruned = True
+

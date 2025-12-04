@@ -7,10 +7,10 @@ from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
 from datapipeline.transforms.vector_utils import clone, is_missing
 
-from .common import ContextExpectedMixin, replace_vector, select_vector
+from .common import VectorPostprocessBase, replace_vector, select_vector
 
 
-class VectorFillHistoryTransform(ContextExpectedMixin):
+class VectorFillTransform(VectorPostprocessBase):
     """Fill missing entries using running statistics from prior buckets."""
 
     def __init__(
@@ -19,9 +19,11 @@ class VectorFillHistoryTransform(ContextExpectedMixin):
         statistic: Literal["mean", "median"] = "median",
         window: int | None = None,
         min_samples: int = 1,
-        payload: Literal["features", "targets"] = "features",
+        payload: Literal["features", "targets", "both"] = "features",
+        only: list[str] | None = None,
+        exclude: list[str] | None = None,
     ) -> None:
-        super().__init__(payload=payload)
+        super().__init__(payload=payload, only=only, exclude=exclude)
         if window is not None and window <= 0:
             raise ValueError("window must be positive when provided")
         if min_samples <= 0:
@@ -54,24 +56,32 @@ class VectorFillHistoryTransform(ContextExpectedMixin):
 
     def apply(self, stream: Iterator[Sample]) -> Iterator[Sample]:
         for sample in stream:
-            vector = select_vector(sample, self._payload)
-            if vector is None:
-                yield sample
-                continue
-            targets = self._expected_ids()
-            data = clone(vector.values)
-            updated = False
-            for feature in targets:
-                if feature in data and not is_missing(data[feature]):
-                    continue
-                fill = self._compute(feature)
-                if fill is not None:
-                    data[feature] = fill
-                    updated = True
-            for fid, value in data.items():
-                self._push(fid, value)
-            if updated:
-                yield replace_vector(sample, self._payload, Vector(values=data))
-            else:
-                yield sample
+            for kind in self._payload_kinds():
+                ids = self._ids_for(kind)
+                if ids:
+                    sample = self._apply_to_payload(sample, kind, ids)
+            yield sample
 
+    def _apply_to_payload(
+        self,
+        sample: Sample,
+        payload: Literal["features", "targets"],
+        ids: list[str],
+    ) -> Sample:
+        vector = select_vector(sample, payload)
+        if vector is None:
+            return sample
+        data = clone(vector.values)
+        updated = False
+        for feature in ids:
+            if feature in data and not is_missing(data[feature]):
+                continue
+            fill = self._compute(feature)
+            if fill is not None:
+                data[feature] = fill
+                updated = True
+        for fid, value in data.items():
+            self._push(fid, value)
+        if not updated:
+            return sample
+        return replace_vector(sample, payload, Vector(values=data))

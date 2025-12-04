@@ -12,8 +12,7 @@ from datapipeline.services.constants import SCALER_STATISTICS, VECTOR_SCHEMA
 from datapipeline.transforms.feature.scaler import StandardScaler
 from datapipeline.transforms.vector import (
     VectorDropTransform,
-    VectorFillAcrossPartitionsTransform,
-    VectorFillHistoryTransform,
+    VectorFillTransform,
 )
 
 
@@ -272,57 +271,6 @@ def test_regression_fill_then_scale_with_missing_values(tmp_path) -> None:
     v1 = out[1].features.values
     assert not isinstance(v0["wind_speed"], list)
     assert not isinstance(v1["wind_speed"], list)
-
-
-def test_regression_vector_transforms_fill_horizontal_history_and_drop(tmp_path) -> None:
-    # Two partitioned features using explicit ids to avoid partition_by on records
-    wind_a = [
-        TemporalRecord(time=_ts(0, 0), value=10.0),
-        TemporalRecord(time=_ts(1, 0), value=12.0),
-    ]
-    # B missing at both hours
-    wind_b = [
-        TemporalRecord(time=_ts(0, 0), value=None),
-        TemporalRecord(time=_ts(1, 0), value=None),
-    ]
-
-    streams = {
-        "wind_A": wind_a,
-        "wind_B": wind_b,
-    }
-    runtime = _runtime_with_streams(tmp_path, streams)
-    context = PipelineContext(runtime)
-    group_by = "1h"
-
-    configs = [
-        FeatureRecordConfig(record_stream="wind_A", id="wind_speed__A"),
-        FeatureRecordConfig(record_stream="wind_B", id="wind_speed__B"),
-    ]
-
-    _register_partitioned_ids(
-        runtime, ["wind_speed__A", "wind_speed__B"])
-
-    vectors = build_vector_pipeline(context, configs, group_by)
-
-    transforms = [
-        VectorFillAcrossPartitionsTransform(statistic="mean", min_samples=1),
-        VectorFillHistoryTransform(statistic="mean", window=2, min_samples=1),
-        VectorDropTransform(axis="horizontal", threshold=1.0),
-    ]
-
-    stream = vectors
-    for transform in transforms:
-        transform.bind_context(context)
-        stream = transform.apply(stream)
-
-    out = list(stream)
-
-    # Two hourly vectors should be present after horizontal fill + drop
-    assert len(out) == 2
-    v0 = out[0].features.values
-    v1 = out[1].features.values
-    assert v0["wind_speed__A"] == 10.0 and v0["wind_speed__B"] == 10.0
-    assert v1["wind_speed__A"] == 12.0 and v1["wind_speed__B"] == 12.0
 
 
 def test_placeholder_composed_stream_docs_only(tmp_path) -> None:

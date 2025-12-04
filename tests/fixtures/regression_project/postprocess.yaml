@@ -1,17 +1,14 @@
-- fill_horizontal:
-    payload: features
-    statistic: mean
-    min_samples: 1
-- fill_history:
+- fill:
     payload: features
     statistic: mean
     window: 2
     min_samples: 1
-- fill_history:
+- fill:
     payload: targets
     statistic: mean
     window: 2
     min_samples: 1
-- drop_missing:
+- drop:
+    axis: horizontal
     payload: features
-    min_coverage: 0.5
+    threshold: 0.5

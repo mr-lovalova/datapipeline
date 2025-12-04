@@ -63,9 +63,8 @@ sequence = "datapipeline.transforms.sequence:WindowTransformer"
 
 [project.entry-points."datapipeline.transforms.vector"]
 drop = "datapipeline.transforms.vector:VectorDropTransform"
-fill_constant = "datapipeline.transforms.vector:VectorFillConstantTransform"
-fill_history = "datapipeline.transforms.vector:VectorFillHistoryTransform"
-fill_horizontal = "datapipeline.transforms.vector:VectorFillAcrossPartitionsTransform"
+fill = "datapipeline.transforms.vector:VectorFillTransform"
+replace = "datapipeline.transforms.vector:VectorReplaceTransform"
 
 [project.entry-points."datapipeline.mappers"]
 "time.synthetic" = "datapipeline.mappers.noop:identity"

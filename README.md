@@ -530,11 +530,11 @@ Project-scoped vector transforms that run after assembly and before serving.
     axis: horizontal
     payload: features
     threshold: 0.95
-- fill_history:
+- fill:
     statistic: median
     window: 48
     min_samples: 6
-- fill_constant:
+- replace:
     payload: targets
     value: 0.0
 ```
@@ -679,9 +679,8 @@ Pass `--help` on any command for flags.
   vertical axis (features/partitions) using `axis: horizontal|vertical` and
   `threshold`. Vertical mode requires the optional `schema.metadata.json`
   artifact and internally prunes weak partitions.
-- `fill_constant`: seed absent IDs with a constant.
-- `fill_history`: impute using rolling statistics from prior vectors.
-- `fill_horizontal`: aggregate sibling partitions in the same timestamp.
+- `fill`: impute using rolling statistics from prior vectors (history-based).
+- `replace`: seed missing IDs with a constant or literal value.
   (Jerry automatically enforces the `schema.json` vector schema—ordering +
   cadence—before any configured vector transforms run.)
 
