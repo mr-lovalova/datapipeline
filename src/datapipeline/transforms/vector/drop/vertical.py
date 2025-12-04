@@ -96,7 +96,8 @@ class VectorDropVerticalTransform(VectorContextMixin):
         )
 
         entries = getattr(meta, section_key) or []
-        total = meta.counts.get(counts_key)
+        window_size = self._window_size(getattr(meta, "window", None))
+        total = window_size if window_size is not None else meta.counts.get(counts_key)
         if not isinstance(total, (int, float)) or total <= 0:
             if self._payload == "targets":
                 raise RuntimeError(
@@ -107,7 +108,7 @@ class VectorDropVerticalTransform(VectorContextMixin):
                 "Vector metadata artifact missing counts for features; "
                 "rerun `jerry build --project <project.yaml>` to refresh metadata."
             )
-        total_vectors = float(total)
+        expected_buckets = float(total)
         drop_ids: set[str] = set()
         for entry in entries:
             if not isinstance(entry, dict):
@@ -115,16 +116,42 @@ class VectorDropVerticalTransform(VectorContextMixin):
             fid = entry.get("id")
             if not isinstance(fid, str):
                 continue
-            present = float(entry.get("present_count") or 0)
-            nulls = float(entry.get("null_count") or 0)
-            if total_vectors <= 0:
-                coverage = 0.0
-            else:
-                coverage = max(0.0, min(1.0, (present - nulls) / total_vectors))
+            coverage = self._coverage_for_entry(entry, expected_buckets)
             if coverage < self._threshold:
                 drop_ids.add(fid)
         self._drop_ids = drop_ids
         return drop_ids
+
+    @staticmethod
+    def _window_size(window) -> float | None:
+        if window is None:
+            return None
+        if isinstance(window, dict):
+            return window.get("size")
+        return getattr(window, "size", None)
+
+    @staticmethod
+    def _coverage_for_entry(entry: dict, expected_buckets: float) -> float:
+        if expected_buckets <= 0:
+            return 0.0
+        present = float(entry.get("present_count") or 0.0)
+        nulls = float(entry.get("null_count") or 0.0)
+        cadence_doc = entry.get("cadence")
+        cadence = cadence_doc.get("target") if isinstance(cadence_doc, dict) else None
+        observed_elements = entry.get("observed_elements")
+
+        if isinstance(observed_elements, (int, float)) and cadence:
+            # Base expected elements on buckets where this feature actually appeared
+            # to avoid over-crediting sparse sequences.
+            expected_elements = float(max(present, 0.0)) * float(cadence)
+            if expected_elements > 0:
+                return max(
+                    0.0,
+                    min(1.0, float(observed_elements) / expected_elements),
+                )
+
+        coverage = (present - nulls) / expected_buckets
+        return max(0.0, min(1.0, coverage))
 
     def _maybe_prune_schema(self, drop_ids: set[str]) -> None:
         if self._schema_pruned or not drop_ids:
@@ -153,4 +180,3 @@ class VectorDropVerticalTransform(VectorContextMixin):
             if isinstance(entry.get("id"), str)
         ]
         self._schema_pruned = True
-

@@ -615,6 +615,75 @@ def test_vector_drop_partitions_keeps_when_coverage_sufficient():
     ]
 
 
+def test_vector_drop_vertical_prefers_window_size_for_coverage():
+    stream = iter(
+        [
+            _make_vector(
+                0,
+                {
+                    "humidity__@location:north": 1.0,
+                },
+            )
+        ]
+    )
+    ctx = _StubVectorContext(["humidity__@location:north"])
+    ctx.set_metadata(
+        {
+            "window": {"start": "2024-01-01T00:00:00Z", "end": "2024-01-01T04:00:00Z", "size": 5},
+            "counts": {"feature_vectors": 100},  # would force coverage to near zero if used
+            "features": [
+                {
+                    "id": "humidity__@location:north",
+                    "present_count": 3,
+                    "null_count": 0,
+                },
+            ],
+        }
+    )
+    transform = VectorDropTransform(axis="vertical", threshold=0.5)
+    transform.bind_context(ctx)
+
+    out = list(transform.apply(stream))
+    assert out[0].features is not None
+    assert "humidity__@location:north" in out[0].features.values
+
+
+def test_vector_drop_vertical_uses_element_coverage_for_sequences():
+    stream = iter(
+        [
+            Sample(
+                key=(0,),
+                features=Vector(
+                    values={"pressure__@station_id:06183": [1.0, 2.0, 3.0, None]}
+                ),
+            )
+        ]
+    )
+    ctx = _StubVectorContext(["pressure__@station_id:06183"])
+    ctx.set_metadata(
+        {
+            "window": {"start": "2024-01-01T00:00:00Z", "end": "2024-01-01T01:00:00Z", "size": 1},
+            "counts": {"feature_vectors": 1},
+            "features": [
+                {
+                    "id": "pressure__@station_id:06183",
+                    "present_count": 1,
+                    "null_count": 0,
+                    "cadence": {"target": 4},
+                    "observed_elements": 3,  # one missing
+                }
+            ],
+        }
+    )
+    transform = VectorDropTransform(axis="vertical", threshold=1.0)
+    transform.bind_context(ctx)
+
+    out = list(transform.apply(stream))
+    assert out and out[0].features is not None
+    # Only 3/4 elements present => coverage < 1 => dropped
+    assert "pressure__@station_id:06183" not in out[0].features.values
+
+
 def test_vector_drop_partitions_accounts_for_absence():
     stream = iter(
         [
