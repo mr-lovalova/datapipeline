@@ -38,7 +38,7 @@ class ObserverRegistry:
 
 
 def _scaler_observer_factory(logger: logging.Logger) -> Optional[Observer]:
-    if not logger.isEnabledFor(logging.WARNING):
+    if not logger.isEnabledFor(logging.DEBUG):
         return None
 
     warned: set[str] = set()
@@ -47,16 +47,7 @@ def _scaler_observer_factory(logger: logging.Logger) -> Optional[Observer]:
         if event.type != "scaler_none":
             return
         fid = event.payload.get("feature_id")
-        record = event.payload.get("record")
-        time = getattr(record, "time", None)
         if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
-                "Scaler encountered None value during scaling: feature=%s time=%s",
-                fid,
-                time,
-            )
-        else:
-            # Warn once per feature that None values are present at scale time.
             if isinstance(fid, str) and fid not in warned:
                 warned.add(fid)
                 logger.warning(
