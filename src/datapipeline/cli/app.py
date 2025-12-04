@@ -29,17 +29,7 @@ def _dataset_to_project_path(
     workspace: Optional[WorkspaceContext],
 ) -> str:
     """Resolve a dataset selector (alias, folder, or file) into a project.yaml path."""
-    # 1) Direct file path
-    path = Path(dataset)
-    if path.suffix in {".yaml", ".yml"}:
-        return str(path if path.is_absolute() else (Path.cwd() / path).resolve())
-
-    # 2) Directory: assume project.yaml inside
-    if path.is_dir():
-        candidate = path / "project.yaml"
-        return str(candidate.resolve())
-
-    # 3) Alias via jerry.yaml datasets
+    # 1) Alias via jerry.yaml datasets (wins over local folders with same name)
     if workspace is not None:
         datasets = getattr(workspace.config, "datasets", {}) or {}
         raw = datasets.get(dataset)
@@ -50,6 +40,16 @@ def _dataset_to_project_path(
             if candidate.is_dir():
                 candidate = candidate / "project.yaml"
             return str(candidate.resolve())
+
+    # 2) Direct file path
+    path = Path(dataset)
+    if path.suffix in {".yaml", ".yml"}:
+        return str(path if path.is_absolute() else (Path.cwd() / path).resolve())
+
+    # 3) Directory: assume project.yaml inside
+    if path.is_dir():
+        candidate = path / "project.yaml"
+        return str(candidate.resolve())
 
     raise SystemExit(f"Unknown dataset '{dataset}'. Define it under datasets: in jerry.yaml or pass a valid path.")
 
