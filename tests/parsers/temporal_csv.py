@@ -30,7 +30,6 @@ def _parse_time(text: Any, time_format: str | None, tz: timezone) -> datetime:
         if time_format:
             dt = datetime.strptime(raw, time_format)
         else:
-            # Accept ISO-like strings with either 'T' or space separator.
             normalized = raw.replace(" ", "T") if "T" not in raw else raw
             dt = parse_datetime(normalized)
     if dt.tzinfo is None:
@@ -56,7 +55,7 @@ def _parse_value(value: Any, decimal: str) -> float | None:
 
 
 class TemporalCsvValueParser(DataParser[TemporalRecord]):
-    """Parse CSV row mappings into TemporalRecord instances."""
+    """Parse CSV row mappings into TemporalRecord instances (test-only)."""
 
     def __init__(
         self,

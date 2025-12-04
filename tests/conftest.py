@@ -5,6 +5,14 @@ import shutil
 
 import pytest
 
+from datapipeline.utils import load as dp_load
+
+# Test-only entrypoint overrides for fixture parsers.
+dp_load._EP_OVERRIDES.update({
+    ("datapipeline.parsers", "core.temporal.csv"): "tests.parsers.temporal_csv:TemporalCsvValueParser",
+    ("datapipeline.parsers", "core.temporal.jsonpath"): "tests.parsers.temporal_json:TemporalJsonPathParser",
+})
+
 
 @pytest.fixture
 def copy_fixture(tmp_path: Path):

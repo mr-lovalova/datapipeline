@@ -44,7 +44,7 @@ def _coerce_float(value: Any) -> float | None:
 
 
 class TemporalJsonPathParser(DataParser[TemporalRecord]):
-    """Parse nested JSON dicts (e.g., json-lines) into TemporalRecords."""
+    """Parse nested JSON dicts (e.g., json-lines) into TemporalRecords (test-only)."""
 
     def __init__(
         self,
