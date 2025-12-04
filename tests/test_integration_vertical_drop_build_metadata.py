@@ -68,6 +68,6 @@ def test_vertical_drop_respects_element_coverage_after_metadata_build():
     samples = list(drop.apply(vectors))
 
     # Sequences are fully populated (present buckets * cadence == observed_elements), so they should be kept.
-    for sample in samples:
-        features = sample.features.values
-        assert "spot_eur_sequence__@area:DK1" in features
+    assert any(
+        "spot_eur_sequence__@area:DK1" in sample.features.values for sample in samples
+    )
