@@ -39,7 +39,7 @@ jerry plugin init my_datapipeline --out .
 # 3. Create a source & domain scaffold, then declare a canonical stream.
 # Simple forms
 jerry source add demo weather --transport fs --format csv
-jerry source add demo.weather --transport url --format json
+jerry source add demo.weather --transport http --format json
 
 # Flag form (explicit)
 jerry source add --provider demo --dataset weather --transport fs --format csv
@@ -145,7 +145,7 @@ flowchart TB
   sourcesCfg --> loaderEP
   sourcesCfg --> parserEP
   sourcesCfg --> sourceArgs
-  transportSpec -. select fs/url/synth .-> loaderEP
+  transportSpec -. select fs/http/synth .-> loaderEP
   loaderEP -. build loader .-> sourceNode
   parserEP -. build parser .-> sourceNode
   sourceArgs -. paths/creds .-> sourceNode
@@ -245,13 +245,13 @@ Solid arrows trace runtime data flow; dashed edges highlight how the config file
 inject transports, entry points, or policies into each stage.
 
 CLI quick path:
-- `jerry source add <provider> <dataset> --transport fs|url|synthetic --format ...` → scaffolds DTO/parser/loader and writes `config/sources/*.yaml`.
+- `jerry source add <provider> <dataset> --transport fs|http|synthetic --format ...` → scaffolds DTO/parser/loader and writes `config/sources/*.yaml`.
 - `jerry domain add <name>` → creates `src/<pkg>/domains/<name>/model.py`.
 - `jerry contract` → picks a source + domain, scaffolds/links a mapper under `mappers/`, registers its entry point, and writes `config/contracts/<stream>.yaml`.
 - `jerry serve --project <project.yaml>` → builds/streams vectors using dataset `record_stream` IDs, registry wiring, and postprocess rules.
 
 `config/sources/*.yaml` determines both the transport and parsing strategy:
-you define transport (`fs`, `url`, `synthetic`, etc.), the payload format
+you define transport (`fs`, `http`, `synthetic`, etc.), the payload format
 (`csv`, `json`, ...), and the loader/parser entry points. Loader `args`
 typically include file paths, bucket prefixes, or credential references—the
 runtime feeds those arguments into the instantiated loader so it knows exactly
@@ -615,7 +615,7 @@ Pass `--help` on any command for flags.
 
 - `jerry plugin init <package> --out <dir>` (also supports `-n/--name`)
   - Generates a plugin project (pyproject, package skeleton, config templates).
-- `jerry source add <provider> <dataset> --transport fs|url|synthetic --format csv|json|json-lines|pickle`
+- `jerry source add <provider> <dataset> --transport fs|http|synthetic --format csv|json|json-lines|pickle`
   - Also supports `<provider>.<dataset>` via `--alias` or as the first positional
   - Flag form remains available: `--provider/--dataset`
   - Creates loader/parser stubs, updates entry points, and drops a matching

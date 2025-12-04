@@ -63,7 +63,7 @@ class FsGlobTransport(Transport):
             self._current_path = None
 
 
-class UrlTransport(Transport):
+class HttpTransport(Transport):
     def __init__(self, url: str, headers: Optional[Dict[str, str]] = None, chunk_size: int = 64 * 1024):
         self.url = url
         self.headers = dict(headers or {})

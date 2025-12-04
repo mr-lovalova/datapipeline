@@ -31,7 +31,7 @@ from .common import (
 )
 from datapipeline.runtime import Runtime
 from datapipeline.sources.models.source import Source
-from datapipeline.sources.transports import FsGlobTransport, FsFileTransport, UrlTransport
+from datapipeline.sources.transports import FsGlobTransport, FsFileTransport, HttpTransport
 logger = logging.getLogger(__name__)
 
 

@@ -73,9 +73,9 @@ def _loader_ep_and_args(transport: str, fmt: Optional[str], ep_key: Optional[str
         if ep_key is None:
             raise ValueError("synthetic transport requires scaffolding a loader entrypoint")
         return ep_key, {"start": "<ISO8601>", "end": "<ISO8601>", "frequency": "1h"}
-    if transport == "url":
+    if transport == "http":
         args = {
-            "transport": "url",
+            "transport": "http",
             "format": fmt or "<FORMAT (json|json-lines|csv)>",
             "url": "<https://api.example.com/data.json>",
             "headers": {},
@@ -141,7 +141,7 @@ def create_source(
             CLASS_NAME=parser_class, DTO_CLASS=dto_class, time_aware=True
         ))
 
-        # Optional loader stub: synthetic (url uses core IO loader by default)
+        # Optional loader stub: synthetic (http uses core IO loader by default)
         if transport in {"synthetic"}:
             loader_path = src_pkg_dir / "loader.py"
             stub = _render_loader_stub(transport, loader_class, fmt=format)

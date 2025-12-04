@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Dict
 
 from datapipeline.sources.data_loader import DataLoader
-from datapipeline.sources.transports import FsFileTransport, FsGlobTransport, UrlTransport
+from datapipeline.sources.transports import FsFileTransport, FsGlobTransport, HttpTransport
 from datapipeline.sources.decoders import (
     CsvDecoder,
     JsonDecoder,
@@ -16,10 +16,10 @@ def build_loader(*, transport: str, format: str | None = None, **kwargs: Any) ->
     """Factory entrypoint that composes a transport and a decoder.
 
     Args (by transport/format):
-      transport: "fs" | "url"
-      format: "csv" | "json" | "json-lines" | "pickle" (required for fs/url)
+      transport: "fs" | "http"
+      format: "csv" | "json" | "json-lines" | "pickle" (required for fs/http)
       fs: path (str), glob (bool, optional), encoding (str, default utf-8), delimiter (csv only)
-      url: url (str), headers (dict, optional), encoding (str, default utf-8)
+      http: url (str), headers (dict, optional), encoding (str, default utf-8)
     """
 
     t = (transport or "").lower()
@@ -33,13 +33,13 @@ def build_loader(*, transport: str, format: str | None = None, **kwargs: Any) ->
         encoding = kwargs.get("encoding", "utf-8")
         use_glob = bool(kwargs.get("glob", False))
         source = FsGlobTransport(path) if use_glob else FsFileTransport(path)
-    elif t == "url":
+    elif t == "http":
         url = kwargs.get("url")
         if not url:
-            raise ValueError("url transport requires 'url'")
+            raise ValueError("http transport requires 'url'")
         headers: Dict[str, str] = dict(kwargs.get("headers") or {})
         encoding = kwargs.get("encoding", "utf-8")
-        source = UrlTransport(url, headers=headers)
+        source = HttpTransport(url, headers=headers)
     else:
         raise ValueError(f"unsupported transport: {transport}")
 

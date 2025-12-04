@@ -6,7 +6,7 @@ import os
 from typing import Optional, Sequence
 
 from urllib.parse import urlparse
-from datapipeline.sources.transports import FsGlobTransport, FsFileTransport, UrlTransport
+from datapipeline.sources.transports import FsGlobTransport, FsFileTransport, HttpTransport
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +103,7 @@ def _log_fs_file_details(transport: FsFileTransport, alias: str | None) -> None:
         _emit_debug(f"fs.file full path: {getattr(transport, 'path', '')}", alias)
 
 
-def _url_info_lines(transport: UrlTransport) -> list[str]:
+def _http_info_lines(transport: HttpTransport) -> list[str]:
     url = getattr(transport, "url", "")
     try:
         parts = urlparse(url)
@@ -112,18 +112,18 @@ def _url_info_lines(transport: UrlTransport) -> list[str]:
     except Exception:
         host = "http"
         resource = ""
-    lines = [f"url fetching from {host}"]
+    lines = [f"http fetching from {host}"]
     if resource:
-        lines.append(f"url resource: {resource}")
+        lines.append(f"http resource: {resource}")
     return lines
 
 
-def _log_url_details(transport: UrlTransport, alias: str | None) -> None:
+def _log_http_details(transport: HttpTransport, alias: str | None) -> None:
     if logger.isEnabledFor(logging.INFO):
-        for line in _url_info_lines(transport):
+        for line in _http_info_lines(transport):
             _emit_info(line, alias)
     if logger.isEnabledFor(logging.DEBUG):
-        _emit_debug(f"url full: {getattr(transport, 'url', '')}", alias)
+        _emit_debug(f"http full: {getattr(transport, 'url', '')}", alias)
 
 
 def log_transport_details(transport, alias: str | None = None) -> None:
@@ -131,7 +131,7 @@ def log_transport_details(transport, alias: str | None = None) -> None:
 
     - FsGlobTransport: summary + first/last (INFO), per-file list (DEBUG)
     - FsFileTransport: filename (INFO), full path (DEBUG)
-    - UrlTransport: host (+ resource) (INFO), full URL (DEBUG)
+    - HttpTransport: host (+ resource) (INFO), full URL (DEBUG)
     """
     if isinstance(transport, FsGlobTransport):
         _log_fs_glob_details(transport, alias)
@@ -139,8 +139,8 @@ def log_transport_details(transport, alias: str | None = None) -> None:
     if isinstance(transport, FsFileTransport):
         _log_fs_file_details(transport, alias)
         return
-    if isinstance(transport, UrlTransport):
-        _log_url_details(transport, alias)
+    if isinstance(transport, HttpTransport):
+        _log_http_details(transport, alias)
         return
 
 
@@ -153,8 +153,8 @@ def transport_info_lines(transport) -> list[str]:
         return _fs_glob_info_lines(transport)
     if isinstance(transport, FsFileTransport):
         return _fs_file_info_lines(transport)
-    if isinstance(transport, UrlTransport):
-        return _url_info_lines(transport)
+    if isinstance(transport, HttpTransport):
+        return _http_info_lines(transport)
     return []
 
 
@@ -177,10 +177,10 @@ def transport_debug_lines(transport) -> list[str]:
     if isinstance(transport, FsFileTransport):
         # INFO line already conveys the filename; avoid redundant DEBUG line
         return lines
-    if isinstance(transport, UrlTransport):
+    if isinstance(transport, HttpTransport):
         url = getattr(transport, "url", "")
         if url:
-            lines.append(f"url full: {url}")
+            lines.append(f"http full: {url}")
         return lines
     return lines
 
@@ -226,7 +226,7 @@ def current_transport_label(transport, *, glob_root: Optional[Path] = None) -> O
             return Path(path).name or str(path)
         except Exception:
             return str(path)
-    if isinstance(transport, UrlTransport):
+    if isinstance(transport, HttpTransport):
         url = getattr(transport, "url", None)
         if not url:
             return None

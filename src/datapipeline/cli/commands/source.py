@@ -38,10 +38,10 @@ def handle(
             print("[error] Source requires '<provider> <dataset>' (or -a/--alias provider.dataset)")
             raise SystemExit(2)
         if not transport:
-            print("[error] --transport is required (fs|url|synthetic)")
+            print("[error] --transport is required (fs|http|synthetic)")
             raise SystemExit(2)
-        if transport in {"fs", "url"} and not format:
-            print("[error] --format is required for fs/url transports (fs: csv|json|json-lines|pickle, url: csv|json|json-lines)")
+        if transport in {"fs", "http"} and not format:
+            print("[error] --format is required for fs/http transports (fs: csv|json|json-lines|pickle, http: csv|json|json-lines)")
             raise SystemExit(2)
         create_source(
             provider=provider,

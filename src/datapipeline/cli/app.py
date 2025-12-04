@@ -237,12 +237,12 @@ def main() -> None:
             "Scaffold a source using transport + format.\n\n"
             "Usage:\n"
             "  jerry source add <provider> <dataset> -t fs -f csv\n"
-            "  jerry source add <provider>.<dataset> -t url -f json\n"
+            "  jerry source add <provider>.<dataset> -t http -f json\n"
             "  jerry source add -p <provider> -d <dataset> -t synthetic\n\n"
             "Examples:\n"
             "  fs CSV:        -t fs  -f csv\n"
             "  fs NDJSON:     -t fs  -f json-lines\n"
-            "  URL JSON:      -t url -f json\n"
+            "  HTTP JSON:     -t http -f json\n"
             "  Synthetic:     -t synthetic\n\n"
             "Note: set 'glob: true' in the generated YAML if your 'path' contains wildcards."
         ),
@@ -257,14 +257,14 @@ def main() -> None:
     p_source_add.add_argument("--alias", "-a", help="provider.dataset alias")
     p_source_add.add_argument(
         "--transport", "-t",
-        choices=["fs", "url", "synthetic"],
+        choices=["fs", "http", "synthetic"],
         required=True,
-        help="how data is accessed: fs/url/synthetic",
+        help="how data is accessed: fs/http/synthetic",
     )
     p_source_add.add_argument(
         "--format", "-f",
         choices=["csv", "json", "json-lines", "pickle"],
-        help="data format for fs/url transports (ignored otherwise)",
+        help="data format for fs/http transports (ignored otherwise)",
     )
     p_source_add.add_argument(
         "--identity",

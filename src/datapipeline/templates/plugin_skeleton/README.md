@@ -7,7 +7,7 @@ Quick start
 - `jerry plugin init {{DIST_NAME}}`
 - Add a source via CLI (transport-specific placeholders are scaffolded):
   - File data: `jerry source add <provider> <dataset> -t fs -f <csv|json|json-lines|pickle>`
-  - URL data: `jerry source add <provider>.<dataset> -t url -f <json|json-lines|csv>`
+  - HTTP data: `jerry source add <provider>.<dataset> -t http -f <json|json-lines|csv>`
   - Synthetic: `jerry source add -p <provider> -d <dataset> -t synthetic`
 - Edit the generated `config/sources/*.yaml` to fill in the `path`, delimiter, etc.
 - Reinstall after EP changes (pyproject.toml) and restart Python processes:
@@ -33,11 +33,11 @@ Folder layout
   - `mappers/*.py` — map DTOs → domain records
 
 How loaders work
-- For fs/url, sources use the generic loader entry point:
+- For fs/http, sources use the generic loader entry point:
   - `loader.entrypoint: "{{DEFAULT_IO_LOADER_EP}}"`
 - `loader.args` include `transport`, `format`, and source-specific args (placeholders are provided):
     - fs: `path`, `glob`, `encoding`, plus `delimiter` for csv
-    - url: `url`, `headers`, `encoding`, optional `count_by_fetch`
+    - http: `url`, `headers`, `encoding`, optional `count_by_fetch`
 - Synthetic sources generate data in-process and keep a small loader stub.
 
 Run data flows
