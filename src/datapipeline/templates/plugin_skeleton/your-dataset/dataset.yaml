@@ -1,0 +1,18 @@
+group_by: ${group_by}
+
+features:
+  - id: time_linear
+    record_stream: time.ticks.linear
+    scale: true # optionally add with_mean/with_std overrides
+    # Sliding window over the regularized stream; cadence is enforced in the contract.
+    sequence: { size: 6, stride: 1 }
+
+  - id: time_hour_sin
+    record_stream: time.ticks.hour_sin
+
+  # - id: third_feature
+  #   record_stream: anotherstream
+# targets:
+#   - id: some_target
+#     record_stream: time.ticks.linear
+
