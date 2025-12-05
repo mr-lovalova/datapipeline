@@ -16,7 +16,7 @@ shared:
 
 serve:
   # log_level: INFO
-  limit: 5
+  limit: null
   stage: null
   output:
     transport: stdout
