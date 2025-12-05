@@ -1,0 +1,29 @@
+#### example combination of postprocessing steps ######
+#### making sure data is complete after these combinations ######
+- drop: # example of dropping sparse partitions/vertical-axis for targets
+    axis: vertical
+    payload: targets
+    threshold: 0.9
+
+- drop: # example of dropping sparse partitions for features
+    axis: vertical
+    payload: features
+    threshold: 0.9
+
+- drop: # dropping vectors/horizontal-axis that has features which none
+    axis: horizontal
+    payload: features
+    threshold: 1
+
+- drop:
+    axis: horizontal
+    payload: targets
+    threshold: 1
+######
+# - fill:
+#     statistic: median
+#     window: 48
+#     min_samples: 6
+# - replace:
+#     payload: targets
+#     value: 0.0

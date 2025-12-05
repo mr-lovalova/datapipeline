@@ -1,0 +1,3 @@
+kind: metadata
+# window_mode: intersection # union|intersection|strict|relaxed (default: intersection)
+

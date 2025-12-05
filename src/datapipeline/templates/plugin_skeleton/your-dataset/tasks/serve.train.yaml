@@ -1,0 +1,28 @@
+kind: serve
+
+# Optional identifier for this serve task; defaults to filename stem.
+name: train
+
+# Active split label to serve; must match a label from globals.split.ratios.
+# Set to null to disable split filtering.
+keep: train
+#output:
+# transport: stdout | fs
+# format: print | json-lines | json | csv | pickle
+# When using fs transport, set a directory (and optionally filename) for outputs:
+# directory: artifacts/serve
+# filename: vectors.train
+
+# Default max number of vectors to emit (null = unlimited).
+# limit: 5
+# Optional pipeline stage preview (0-7); null lets the CLI decide.
+# stage: 7
+
+# Optional pacing between emitted vectors (milliseconds).
+# throttle_ms: null
+
+# Visuals/logging knobs (inherit CLI or jerry.yaml defaults when omitted):
+# visuals: AUTO   # AUTO | TQDM | RICH | OFF
+# progress: AUTO  # AUTO | SPINNER | BARS | OFF
+# log_level: INFO # CRITICAL | ERROR | WARNING | INFO | DEBUG
+
