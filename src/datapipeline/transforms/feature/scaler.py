@@ -88,7 +88,7 @@ class StandardScaler(PicklePersistanceMixin):
             for fr in records:
                 value = fr.record.value
                 if not isinstance(value, Real):
-                    if value is None and on_none in {"skip", "warn"}:
+                    if value is None and on_none == "skip":
                         self.missing_counts[feature_id] = (
                             self.missing_counts.get(feature_id, 0) + 1
                         )
@@ -189,7 +189,7 @@ class StandardScalerTransform(FeatureTransform):
         with_mean: bool = True,
         with_std: bool = True,
         epsilon: float = 1e-12,
-        on_none: Literal["error", "skip", "warn"] = "error",
+        on_none: Literal["error", "skip"] = "skip",
         observer: Callable[[TransformEvent], None] | None = None,
     ) -> None:
         base: StandardScaler

@@ -73,12 +73,13 @@ def _loader_ep_and_args(transport: str, fmt: Optional[str], ep_key: Optional[str
         if ep_key is None:
             raise ValueError("synthetic transport requires scaffolding a loader entrypoint")
         return ep_key, {"start": "<ISO8601>", "end": "<ISO8601>", "frequency": "1h"}
-    if transport == "url":
+    if transport == "http":
         args = {
-            "transport": "url",
+            "transport": "http",
             "format": fmt or "<FORMAT (json|json-lines|csv)>",
             "url": "<https://api.example.com/data.json>",
             "headers": {},
+            "params": {},
             "encoding": "utf-8",
         }
         if fmt == "csv":
@@ -97,7 +98,6 @@ def create_source(
     format: Optional[str],
     root: Optional[Path],
     identity: bool = False,
-    config_root: Optional[Path] = None,
 ) -> None:
     root_dir, name, _ = pkg_root(root)
     base = resolve_base_pkg_dir(root_dir, name)
@@ -142,7 +142,7 @@ def create_source(
             CLASS_NAME=parser_class, DTO_CLASS=dto_class, time_aware=True
         ))
 
-        # Optional loader stub: synthetic (url uses core IO loader by default)
+        # Optional loader stub: synthetic (http uses core IO loader by default)
         if transport in {"synthetic"}:
             loader_path = src_pkg_dir / "loader.py"
             stub = _render_loader_stub(transport, loader_class, fmt=format)
@@ -169,7 +169,7 @@ def create_source(
     # Resolve sources directory from a single dataset-scoped project config.
     # If not present or invalid, let the exception bubble up to prompt the user
     # to provide a valid project path.
-    proj_yaml = resolve_project_yaml_path(root_dir, config_root)
+    proj_yaml = resolve_project_yaml_path(root_dir)
     # Best-effort: create a minimal project scaffold if missing
     ensure_project_scaffold(proj_yaml)
     sources_dir = resolve_sources_dir(proj_yaml).resolve()

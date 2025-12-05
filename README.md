@@ -39,22 +39,22 @@ jerry plugin init my_datapipeline --out .
 # 3. Create a source & domain scaffold, then declare a canonical stream.
 # Simple forms
 jerry source add demo weather --transport fs --format csv
-jerry source add demo.weather --transport url --format json
+jerry source add demo.weather --transport http --format json
 
 # Flag form (explicit)
 jerry source add --provider demo --dataset weather --transport fs --format csv
 jerry domain add weather
 # (edit config/contracts/<alias>.yaml to point at your mapper and policies)
 
-# 4. Configure dataset/postprocess/build files in config/datasets/<name>/.
+# 4. Configure dataset/postprocess/build files under config/.
 #    Then preview the pipeline and serve a few vectors:
 #    Add --skip-build when you only need a quick feature peek.
-jerry serve --project config/datasets/default/project.yaml --stage 2 --limit 5
-jerry serve --project config/datasets/default/project.yaml --limit 3
+jerry serve --project config/project.yaml --stage 2 --limit 5
+jerry serve --project config/project.yaml --limit 3
 
 # 5. Inspect coverage and build artifacts:
-jerry inspect report --project config/datasets/default/project.yaml
-jerry build --project config/datasets/default/project.yaml
+jerry inspect report --project config/project.yaml
+jerry build --project config/project.yaml
 ```
 
 The skeleton project in `src/datapipeline/templates/plugin_skeleton/` mirrors the
@@ -145,7 +145,7 @@ flowchart TB
   sourcesCfg --> loaderEP
   sourcesCfg --> parserEP
   sourcesCfg --> sourceArgs
-  transportSpec -. select fs/url/synth .-> loaderEP
+  transportSpec -. select fs/http/synth .-> loaderEP
   loaderEP -. build loader .-> sourceNode
   parserEP -. build parser .-> sourceNode
   sourceArgs -. paths/creds .-> sourceNode
@@ -245,13 +245,13 @@ Solid arrows trace runtime data flow; dashed edges highlight how the config file
 inject transports, entry points, or policies into each stage.
 
 CLI quick path:
-- `jerry source add <provider> <dataset> --transport fs|url|synthetic --format ...` → scaffolds DTO/parser/loader and writes `config/sources/*.yaml`.
+- `jerry source add <provider> <dataset> --transport fs|http|synthetic --format ...` → scaffolds DTO/parser/loader and writes `config/sources/*.yaml`.
 - `jerry domain add <name>` → creates `src/<pkg>/domains/<name>/model.py`.
 - `jerry contract` → picks a source + domain, scaffolds/links a mapper under `mappers/`, registers its entry point, and writes `config/contracts/<stream>.yaml`.
 - `jerry serve --project <project.yaml>` → builds/streams vectors using dataset `record_stream` IDs, registry wiring, and postprocess rules.
 
 `config/sources/*.yaml` determines both the transport and parsing strategy:
-you define transport (`fs`, `url`, `synthetic`, etc.), the payload format
+you define transport (`fs`, `http`, `synthetic`, etc.), the payload format
 (`csv`, `json`, ...), and the loader/parser entry points. Loader `args`
 typically include file paths, bucket prefixes, or credential references—the
 runtime feeds those arguments into the instantiated loader so it knows exactly
@@ -285,7 +285,7 @@ transforms, artifacts, and postprocess rules. The CLI constructs lightweight
 
 ## Configuration Files
 
-All project configuration lives under `config/datasets/<name>/` by default.
+All project configuration for a dataset lives under a single project root directory (for example `config/`), which contains `project.yaml` and its siblings.
 
 ### `project.yaml`
 
@@ -293,12 +293,12 @@ All project configuration lives under `config/datasets/<name>/` by default.
 version: 1
 name: default
 paths:
-  streams: ../../contracts
-  sources: ../../sources
+  streams: ./contracts
+  sources: ./sources
   dataset: dataset.yaml
   postprocess: postprocess.yaml
-  artifacts: ../../build/datasets/${project_name}
-  tasks: tasks
+  artifacts: ../build/datasets/${project_name}
+  tasks: ./tasks
 globals:
   start_time: 2021-01-01T00:00:00Z
   end_time: 2023-01-03T23:00:00Z
@@ -432,10 +432,10 @@ sort_batch_size: 50000
 record:
   - filter: { operator: ge, field: time, comparand: "${start_time}" }
   - filter: { operator: lt, field: time, comparand: "${end_time}" }
-  - floor_time: { resolution: 10m }
+  - floor_time: { cadence: 10m }
 
 stream:
-  - ensure_ticks: { tick: 10m }
+  - ensure_cadence: { cadence: 10m }
   - granularity: { mode: mean }
   - fill: { statistic: median, window: 6, min_samples: 2 }
 
@@ -504,7 +504,7 @@ features:
   - id: temp_c
     record_stream: demo_weather
     scale: true
-    sequence: { size: 6, stride: 1, tick: 10m }
+    sequence: { size: 6, stride: 1 }
 
 targets:
   - id: precip
@@ -526,14 +526,15 @@ targets:
 Project-scoped vector transforms that run after assembly and before serving.
 
 ```yaml
-- drop_missing:
-    required: [temp_c__station=001]
-    min_coverage: 0.95
-- fill_history:
+- drop:
+    axis: horizontal
+    payload: features
+    threshold: 0.95
+- fill:
     statistic: median
     window: 48
     min_samples: 6
-- fill_constant:
+- replace:
     payload: targets
     value: 0.0
 ```
@@ -562,7 +563,7 @@ enabled: true
 - `scaler.pkl` is a pickled standard scaler fitted on the requested split.
 - `schema.json` (from the `schema` task) enumerates the discovered feature/target identifiers (including partitions), their kinds (scalar/list), and cadence hints used to enforce ordering downstream.
   - Configure the `schema` task to choose a cadence strategy (currently `max`). Per-feature overrides will be added later; for now every list-valued feature records the max observed length as its enforcement target.
-- `schema.metadata.json` (from the `metadata` task) captures heavier statistics—present/null counts, inferred value types, list-length histograms, per-partition timestamps, and the dataset window. Configure `metadata.window_mode` with `union|intersection|strict|relaxed` (default `intersection`) to control how start/end bounds are derived. `union` considers base features, `intersection` uses their overlap, `strict` intersects every partition, and `relaxed` unions partitions independently.
+- `metadata.json` (from the `metadata` task) captures heavier statistics—present/null counts, inferred value types, list-length histograms, per-partition timestamps, and the dataset window. Configure `metadata.window_mode` with `union|intersection|strict|relaxed` (default `intersection`) to control how start/end bounds are derived. `union` considers base features, `intersection` uses their overlap, `strict` intersects every partition, and `relaxed` unions partitions independently.
 - Command tasks (`kind: serve`) live alongside artifact tasks; `jerry serve` reads them directly.
 - Shared run/build defaults (visuals/progress/log level/build mode) live in `jerry.yaml`.
 
@@ -614,7 +615,7 @@ Pass `--help` on any command for flags.
 
 - `jerry plugin init <package> --out <dir>` (also supports `-n/--name`)
   - Generates a plugin project (pyproject, package skeleton, config templates).
-- `jerry source add <provider> <dataset> --transport fs|url|synthetic --format csv|json|json-lines|pickle`
+- `jerry source add <provider> <dataset> --transport fs|http|synthetic --format csv|json|json-lines|pickle`
   - Also supports `<provider>.<dataset>` via `--alias` or as the first positional
   - Flag form remains available: `--provider/--dataset`
   - Creates loader/parser stubs, updates entry points, and drops a matching
@@ -642,12 +643,12 @@ Pass `--help` on any command for flags.
 
 ### Record Transforms
 
-- `floor_time`: snap timestamps down to the nearest resolution (`10m`, `1h`, …).
+- `floor_time`: snap timestamps down to the nearest cadence (`10m`, `1h`, …).
 - `lag`: add lagged copies of records (see `src/datapipeline/transforms/record/lag.py` for options).
 
 ### Stream (Feature) Transforms
 
-- `ensure_ticks`: backfill missing ticks with `value=None` records to enforce a
+- `ensure_cadence`: backfill missing ticks with `value=None` records to enforce a
   strict cadence.
 - `granularity`: merge duplicate timestamps using `first|last|mean|median`.
 - `dedupe`: drop exact duplicate records (same id, timestamp, and payload) from
@@ -669,18 +670,17 @@ Pass `--help` on any command for flags.
 
 ### Sequence Transforms
 
-- `sequence`: sliding window generator (`size`, `stride`, optional `tick` to
-  enforce gaps). Emits `FeatureRecordSequence` payloads with `.records`.
+- `sequence`: sliding window generator (`size`, `stride`, optional `cadence` to
+  enforce contiguous windows). Emits `FeatureRecordSequence` payloads with `.records`.
 
 ### Vector (Postprocess) Transforms
 
-- `drop_missing`: drop vectors that do not meet required IDs or coverage ratio.
-- `drop_partitions`: require `schema.metadata.json` and drop partitions when their
-  coverage falls below the configured `threshold` (minimum acceptable coverage),
-  so the weakest partitions stop forcing row drops.
-- `fill_constant`: seed absent IDs with a constant.
-- `fill_history`: impute using rolling statistics from prior vectors.
-- `fill_horizontal`: aggregate sibling partitions in the same timestamp.
+- `drop`: apply coverage thresholds along the horizontal axis (vectors) or
+  vertical axis (features/partitions) using `axis: horizontal|vertical` and
+  `threshold`. Vertical mode requires the optional `metadata.json`
+  artifact and internally prunes weak partitions.
+- `fill`: impute using rolling statistics from prior vectors (history-based).
+- `replace`: seed missing IDs with a constant or literal value.
   (Jerry automatically enforces the `schema.json` vector schema—ordering +
   cadence—before any configured vector transforms run.)
 
@@ -698,7 +698,7 @@ appropriate group (`record`, `stream`, `feature`, `sequence`, `vector`,
   expected universe from `schema.json`.
 - `schema.json`: output of the `schema` task. Jerry automatically
   enforces this schema during postprocess to impose deterministic ordering and
-  list cadence metadata (targets appear whenever the dataset defines them). Window metadata now lives in `schema.metadata.json`.
+  list cadence metadata (targets appear whenever the dataset defines them). Window metadata now lives in `metadata.json`.
 - `scaler.pkl`: pickled standard scaler fitted on the configured split. Loaded
   lazily by feature transforms at runtime.
 - Build state is tracked in `artifacts/build/state.json`; config hashes avoid

@@ -30,7 +30,6 @@ def _pick_from_list(prompt: str, options: list[str]) -> str:
 def handle(
     *,
     plugin_root: Path | None = None,
-    config_root: Path | None = None,
     use_identity: bool = False,
 ) -> None:
     root_dir, name, pyproject = pkg_root(plugin_root)
@@ -50,13 +49,12 @@ def handle(
             mapper_path=None,
             with_mapper_stub=True,
             plugin_root=plugin_root,
-            config_root=config_root,
         )
         return
 
     # Discover sources by scanning sources_dir YAMLs
     # Default to dataset-scoped project config
-    proj_path = resolve_project_yaml_path(root_dir, config_root)
+    proj_path = resolve_project_yaml_path(root_dir)
     # Ensure a minimal project scaffold so we can resolve dirs interactively
     ensure_project_scaffold(proj_path)
     sources_dir = resolve_sources_dir(proj_path)
@@ -189,7 +187,6 @@ def scaffold_conflux(
     mapper_path: str | None,
     with_mapper_stub: bool,
     plugin_root: Path | None,
-    config_root: Path | None,
 ) -> None:
     """Scaffold a composed (multi-input) contract and optional mapper stub.
 
@@ -198,7 +195,7 @@ def scaffold_conflux(
     """
     root_dir, name, _ = pkg_root(plugin_root)
     # Resolve default project path early for interactive selections
-    proj_path = resolve_project_yaml_path(root_dir, config_root)
+    proj_path = resolve_project_yaml_path(root_dir)
     ensure_project_scaffold(proj_path)
     # Defer target domain selection until after choosing inputs
 
@@ -346,7 +343,6 @@ def mapper(
         # From here on, reference the EP name in the YAML
         mapper_path = ep_key
     # Contract file path (now that stream_id is known)
-    proj_path = root_dir / "config" / "datasets" / "default" / "project.yaml"
     ensure_project_scaffold(proj_path)
     streams_path = resolve_streams_dir(proj_path)
     streams_dir = streams_path if streams_path.is_dir() else streams_path.parent

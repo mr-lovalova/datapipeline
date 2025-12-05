@@ -1,0 +1,13 @@
+group_by: 1h
+
+features:
+  - id: spot_eur_scaled
+    record_stream: metrics.elspot.eur
+    scale: true
+  - id: spot_eur_sequence
+    record_stream: metrics.elspot.eur
+    sequence:
+      size: 3
+      stride: 2
+
+targets: []

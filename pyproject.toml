@@ -16,6 +16,7 @@ dependencies = [
   "PyYAML>=5.4",
   "tqdm>=4.0",
   "jinja2>=3.0",
+  "rich>=13",
 ]
 
 [project.optional-dependencies]
@@ -49,7 +50,7 @@ floor_time = "datapipeline.transforms.record.floor_time:floor_time"
 filter = "datapipeline.transforms.filter:filter"
 
 [project.entry-points."datapipeline.transforms.stream"]
-ensure_ticks = "datapipeline.transforms.stream.ensure_ticks:ensure_ticks"
+ensure_cadence = "datapipeline.transforms.stream.ensure_ticks:ensure_cadence"
 fill = "datapipeline.transforms.stream.fill:FillTransformer"
 granularity = "datapipeline.transforms.stream.granularity:FeatureGranularityTransform"
 lint = "datapipeline.transforms.stream.lint:StreamLint"
@@ -61,12 +62,9 @@ sequence = "datapipeline.transforms.sequence:WindowTransformer"
 
 
 [project.entry-points."datapipeline.transforms.vector"]
-drop_missing = "datapipeline.transforms.vector:VectorDropMissingTransform"
-drop_partitions = "datapipeline.transforms.vector:VectorDropPartitionsTransform"
-fill_constant = "datapipeline.transforms.vector:VectorFillConstantTransform"
-fill_history = "datapipeline.transforms.vector:VectorFillHistoryTransform"
-fill_horizontal = "datapipeline.transforms.vector:VectorFillAcrossPartitionsTransform"
-drop_null = "datapipeline.transforms.vector:VectorDropNullTransform"
+drop = "datapipeline.transforms.vector:VectorDropTransform"
+fill = "datapipeline.transforms.vector:VectorFillTransform"
+replace = "datapipeline.transforms.vector:VectorReplaceTransform"
 
 [project.entry-points."datapipeline.mappers"]
 "time.synthetic" = "datapipeline.mappers.noop:identity"

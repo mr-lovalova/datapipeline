@@ -16,6 +16,8 @@ from datapipeline.config.metadata import (
 from datapipeline.config.tasks import MetadataTask
 from datapipeline.runtime import Runtime
 from datapipeline.utils.paths import ensure_parent
+from datapipeline.config.dataset.normalize import floor_time_to_bucket
+from datapipeline.utils.time import parse_timecode
 
 from .utils import collect_schema_entries, metadata_entries_from_stats
 
@@ -85,6 +87,20 @@ def _window_bounds_from_stats(
     return _range_union(base_ranges if base_ranges else partition_ranges)
 
 
+def _window_size(start: datetime | None, end: datetime | None, cadence: str | None) -> int | None:
+    if start is None or end is None or cadence is None:
+        return None
+    try:
+        anchored_start = floor_time_to_bucket(start, cadence)
+        anchored_end = floor_time_to_bucket(end, cadence)
+        step = parse_timecode(cadence)
+        if anchored_end < anchored_start:
+            return None
+        return int(((anchored_end - anchored_start) / step)) + 1
+    except Exception:
+        return None
+
+
 def materialize_metadata(runtime: Runtime, task_cfg: MetadataTask) -> Tuple[str, Dict[str, object]] | None:
     if not task_cfg.enabled:
         return None
@@ -125,7 +141,9 @@ def materialize_metadata(runtime: Runtime, task_cfg: MetadataTask) -> Tuple[str,
     start = computed_start
     end = computed_end
     if start is not None and end is not None and start < end:
-        window_obj = Window(start=start, end=end, mode=task_cfg.window_mode)
+        size = _window_size(start, end, dataset.group_by)
+        window_obj = Window(start=start, end=end,
+                            mode=task_cfg.window_mode, size=size)
 
     doc = VectorMetadata(
         schema_version=1,

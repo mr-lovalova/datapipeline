@@ -1,15 +1,27 @@
+import importlib
 import importlib.metadata as md
 from functools import lru_cache
-import yaml
 from pathlib import Path
+
+import yaml
+
+# Local fallback map so newly added entrypoints remain usable in editable installs
+# before package metadata is refreshed.
+_EP_OVERRIDES = {}
 
 
 @lru_cache
 def load_ep(group: str, name: str):
+    target = _EP_OVERRIDES.get((group, name))
+    if target:
+        module, attr = target.split(":")
+        return getattr(importlib.import_module(module), attr)
+
     eps = md.entry_points().select(group=group, name=name)
     if not eps:
         available = ", ".join(
-            sorted(ep.name for ep in md.entry_points().select(group=group)))
+            sorted(ep.name for ep in md.entry_points().select(group=group))
+        )
         raise ValueError(
             f"No entry point '{name}' in '{group}'. Available: {available or '(none)'}")
     if len(eps) > 1:

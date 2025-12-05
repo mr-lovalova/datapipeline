@@ -1,7 +1,7 @@
 import argparse
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 from datapipeline.cli.commands.run import handle_serve
 from datapipeline.cli.commands.plugin import bar as handle_bar
@@ -23,27 +23,78 @@ from datapipeline.utils.rich_compat import suppress_file_proxy_shutdown_errors
 
 suppress_file_proxy_shutdown_errors()
 
-DEFAULT_PROJECT_PATH = "config/datasets/default/project.yaml"
 
-
-def _resolve_project_argument(
-    value: Optional[str],
+def _dataset_to_project_path(
+    dataset: str,
     workspace: Optional[WorkspaceContext],
-) -> Optional[str]:
-    if value is None or value != DEFAULT_PROJECT_PATH or workspace is None:
-        return value
-    config_root = workspace.resolve_config_root()
-    if config_root is None:
-        return value
-    if config_root.suffix in {".yaml", ".yml"}:
-        return str(config_root)
-    candidate = config_root / "project.yaml"
-    if candidate.exists():
-        return str(candidate)
-    fallback = config_root / "datasets" / "default" / "project.yaml"
-    if fallback.exists():
-        return str(fallback)
-    return str(candidate)
+) -> str:
+    """Resolve a dataset selector (alias, folder, or file) into a project.yaml path."""
+    # 1) Alias via jerry.yaml datasets (wins over local folders with same name)
+    if workspace is not None:
+        datasets = getattr(workspace.config, "datasets", {}) or {}
+        raw = datasets.get(dataset)
+        if raw:
+            base = workspace.root
+            candidate = Path(raw)
+            candidate = candidate if candidate.is_absolute() else (base / candidate)
+            if candidate.is_dir():
+                candidate = candidate / "project.yaml"
+            return str(candidate.resolve())
+
+    # 2) Direct file path
+    path = Path(dataset)
+    if path.suffix in {".yaml", ".yml"}:
+        return str(path if path.is_absolute() else (Path.cwd() / path).resolve())
+
+    # 3) Directory: assume project.yaml inside
+    if path.is_dir():
+        candidate = path / "project.yaml"
+        return str(candidate.resolve())
+
+    raise SystemExit(f"Unknown dataset '{dataset}'. Define it under datasets: in jerry.yaml or pass a valid path.")
+
+
+def _resolve_project_from_args(
+    project: Optional[str],
+    dataset: Optional[str],
+    workspace: Optional[WorkspaceContext],
+) -> Tuple[Optional[str], Optional[str]]:
+    """Resolve final project path from --project / --dataset / jerry.yaml defaults.
+
+    Rules:
+    - If both project and dataset are explicitly given (and project != DEFAULT_PROJECT_PATH), error.
+    - If dataset is given, resolve it to a project path (alias, dir, or file).
+    - If neither is given (or project==DEFAULT_PROJECT_PATH), and jerry.yaml declares default_dataset,
+      resolve that alias.
+    - Otherwise fall back to legacy DEFAULT_PROJECT_PATH resolution.
+    """
+    explicit_project = project is not None
+    explicit_dataset = dataset is not None
+
+    if explicit_project and explicit_dataset:
+        raise SystemExit("Cannot use both --project and --dataset; pick one.")
+
+    # Prefer dataset when provided
+    if explicit_dataset:
+        resolved = _dataset_to_project_path(dataset, workspace)
+        return resolved, dataset
+
+    # No explicit dataset; use default_dataset from workspace when project is not explicitly set
+    if not explicit_project and workspace is not None:
+        default_ds = getattr(workspace.config, "default_dataset", None)
+        if default_ds:
+            resolved = _dataset_to_project_path(default_ds, workspace)
+            return resolved, default_ds
+
+    # If project was given explicitly, use it as-is (caller is responsible for validity).
+    if explicit_project:
+        return project, dataset
+
+    # Nothing resolved: require explicit selection.
+    raise SystemExit(
+        "No dataset/project selected. Use --dataset <name|path>, --project <path>, "
+        "or define default_dataset in jerry.yaml."
+    )
 
 
 def main() -> None:
@@ -70,9 +121,14 @@ def main() -> None:
         parents=[common],
     )
     p_serve.add_argument(
+        "--dataset",
+        "-d",
+        help="dataset alias, folder, or project.yaml path",
+    )
+    p_serve.add_argument(
         "--project",
         "-p",
-        default="config/datasets/default/project.yaml",
+        default=None,
         help="path to project.yaml",
     )
     p_serve.add_argument(
@@ -139,9 +195,14 @@ def main() -> None:
         parents=[common],
     )
     p_build.add_argument(
+        "--dataset",
+        "-d",
+        help="dataset alias, folder, or project.yaml path",
+    )
+    p_build.add_argument(
         "--project",
         "-p",
-        default="config/datasets/default/project.yaml",
+        default=None,
         help="path to project.yaml",
     )
     p_build.add_argument(
@@ -176,12 +237,12 @@ def main() -> None:
             "Scaffold a source using transport + format.\n\n"
             "Usage:\n"
             "  jerry source add <provider> <dataset> -t fs -f csv\n"
-            "  jerry source add <provider>.<dataset> -t url -f json\n"
+            "  jerry source add <provider>.<dataset> -t http -f json\n"
             "  jerry source add -p <provider> -d <dataset> -t synthetic\n\n"
             "Examples:\n"
             "  fs CSV:        -t fs  -f csv\n"
             "  fs NDJSON:     -t fs  -f json-lines\n"
-            "  URL JSON:      -t url -f json\n"
+            "  HTTP JSON:     -t http -f json\n"
             "  Synthetic:     -t synthetic\n\n"
             "Note: set 'glob: true' in the generated YAML if your 'path' contains wildcards."
         ),
@@ -196,14 +257,14 @@ def main() -> None:
     p_source_add.add_argument("--alias", "-a", help="provider.dataset alias")
     p_source_add.add_argument(
         "--transport", "-t",
-        choices=["fs", "url", "synthetic"],
+        choices=["fs", "http", "synthetic"],
         required=True,
-        help="how data is accessed: fs/url/synthetic",
+        help="how data is accessed: fs/http/synthetic",
     )
     p_source_add.add_argument(
         "--format", "-f",
         choices=["csv", "json", "json-lines", "pickle"],
-        help="data format for fs/url transports (ignored otherwise)",
+        help="data format for fs/http transports (ignored otherwise)",
     )
     p_source_add.add_argument(
         "--identity",
@@ -281,6 +342,11 @@ def main() -> None:
         default=None,
         help="progress display: auto (spinner unless DEBUG), spinner, bars, or off",
     )
+    inspect_common.add_argument(
+        "--dataset",
+        "-d",
+        help="dataset alias, folder, or project.yaml path",
+    )
 
     # inspect (metadata helpers)
     p_inspect = sub.add_parser(
@@ -299,7 +365,7 @@ def main() -> None:
     p_inspect_report.add_argument(
         "--project",
         "-p",
-        default="config/datasets/default/project.yaml",
+        default=None,
         help="path to project.yaml",
     )
     p_inspect_report.add_argument(
@@ -337,7 +403,7 @@ def main() -> None:
     p_inspect_matrix.add_argument(
         "--project",
         "-p",
-        default="config/datasets/default/project.yaml",
+        default=None,
         help="path to project.yaml",
     )
     p_inspect_matrix.add_argument(
@@ -391,7 +457,7 @@ def main() -> None:
     p_inspect_parts.add_argument(
         "--project",
         "-p",
-        default="config/datasets/default/project.yaml",
+        default=None,
         help="path to project.yaml",
     )
     p_inspect_parts.add_argument(
@@ -410,7 +476,7 @@ def main() -> None:
     p_inspect_expected.add_argument(
         "--project",
         "-p",
-        default="config/datasets/default/project.yaml",
+        default=None,
         help="path to project.yaml",
     )
     p_inspect_expected.add_argument(
@@ -422,29 +488,36 @@ def main() -> None:
 
     workspace_context = load_workspace_context(Path.cwd())
     args = parser.parse_args()
-    if hasattr(args, "project"):
-        args.project = _resolve_project_argument(args.project, workspace_context)
+
+    # Resolve dataset/project selection for commands that use a project.
+    if hasattr(args, "project") or hasattr(args, "dataset"):
+        raw_project = getattr(args, "project", None)
+        raw_dataset = getattr(args, "dataset", None)
+        resolved_project, resolved_dataset = _resolve_project_from_args(
+            raw_project,
+            raw_dataset,
+            workspace_context,
+        )
+        if hasattr(args, "project"):
+            args.project = resolved_project
+        if hasattr(args, "dataset"):
+            args.dataset = resolved_dataset
 
     cli_level_arg = getattr(args, "log_level", None)
     shared_defaults = workspace_context.config.shared if workspace_context else None
-    build_defaults = workspace_context.config.build if workspace_context else None
+    # Default logging level: CLI flag > jerry.yaml shared.log_level > INFO
     default_level_name = (
         shared_defaults.log_level.upper()
         if shared_defaults and shared_defaults.log_level
-        else "WARNING"
+        else "INFO"
     )
-    if cli_level_arg is None and getattr(args, "cmd", None) == "build":
-        default_level_name = (
-            build_defaults.log_level.upper()
-            if build_defaults and build_defaults.log_level
-            else "INFO"
-        )
     base_level_name = (cli_level_arg or default_level_name).upper()
     base_level = logging._nameToLevel.get(base_level_name, logging.WARNING)
 
     logging.basicConfig(level=base_level, format="%(message)s")
-    plugin_root = workspace_context.resolve_plugin_root() if workspace_context else None
-    config_root = workspace_context.resolve_config_root() if workspace_context else None
+    plugin_root = (
+        workspace_context.resolve_plugin_root() if workspace_context else None
+    )
 
     if args.cmd == "serve":
         handle_serve(
@@ -478,9 +551,6 @@ def main() -> None:
     if args.cmd == "inspect":
         # Default to 'report' when no subcommand is given
         subcmd = getattr(args, "inspect_cmd", None)
-        default_project = _resolve_project_argument(
-            DEFAULT_PROJECT_PATH, workspace_context
-        )
         shared_visuals_default = shared_defaults.visuals if shared_defaults else None
         shared_progress_default = shared_defaults.progress if shared_defaults else None
         inspect_visuals = resolve_visuals(
@@ -495,7 +565,7 @@ def main() -> None:
         inspect_progress_style = inspect_visuals.progress or "auto"
         if subcmd in (None, "report"):
             handle_inspect_report(
-                project=getattr(args, "project", default_project),
+                project=args.project,
                 output=None,
                 threshold=getattr(args, "threshold", 0.95),
                 match_partition=getattr(args, "match_partition", "base"),
@@ -514,7 +584,7 @@ def main() -> None:
             )
         elif subcmd == "matrix":
             handle_inspect_report(
-                project=getattr(args, "project", default_project),
+                project=args.project,
                 output=None,
                 threshold=getattr(args, "threshold", 0.95),
                 match_partition="base",
@@ -534,7 +604,7 @@ def main() -> None:
         elif subcmd == "partitions":
             from datapipeline.cli.commands.inspect import partitions as handle_inspect_partitions
             handle_inspect_partitions(
-                project=getattr(args, "project", default_project),
+                project=args.project,
                 output=getattr(args, "output", None),
                 visuals=inspect_visual_provider,
                 progress=inspect_progress_style,
@@ -544,7 +614,7 @@ def main() -> None:
         elif subcmd == "expected":
             from datapipeline.cli.commands.inspect import expected as handle_inspect_expected
             handle_inspect_expected(
-                project=getattr(args, "project", default_project),
+                project=args.project,
                 output=getattr(args, "output", None),
                 visuals=inspect_visual_provider,
                 progress=inspect_progress_style,
@@ -567,7 +637,6 @@ def main() -> None:
                 alias=getattr(args, "alias", None),
                 identity=getattr(args, "identity", False),
                 plugin_root=plugin_root,
-                config_root=config_root,
             )
         return
 
@@ -585,7 +654,6 @@ def main() -> None:
     if args.cmd == "contract":
         handle_contract(
             plugin_root=plugin_root,
-            config_root=config_root,
             use_identity=args.identity,
         )
         return

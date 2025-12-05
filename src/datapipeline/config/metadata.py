@@ -17,10 +17,14 @@ class Window(BaseModel):
     start: Optional[datetime] = None
     end: Optional[datetime] = None
     mode: Optional[str] = None
+    size: Optional[int] = Field(
+        default=None,
+        description="Count of cadence buckets from start to end (inclusive) when known.",
+    )
 
 
 class VectorMetadata(BaseModel):
-    """Lightweight typed model for schema.metadata.json.
+    """Lightweight typed model for metadata.json.
 
     Only window/counts/entries are modeled explicitly; all other fields are
     accepted via extra='allow' for forwards-compatibility.

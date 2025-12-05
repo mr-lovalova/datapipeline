@@ -18,7 +18,7 @@ from datapipeline.domain.record import TemporalRecord
 from datapipeline.pipeline.utils.keygen import FeatureIdGenerator, group_key_for
 from datapipeline.sources.models.source import Source
 from datapipeline.transforms.vector import VectorEnsureSchemaTransform
-from datapipeline.config.dataset.normalize import floor_time_to_resolution
+from datapipeline.config.dataset.normalize import floor_time_to_bucket
 from datapipeline.utils.time import parse_timecode
 
 
@@ -71,7 +71,7 @@ def regularize_feature_stream(
     batch_size: int,
 ) -> Iterator[FeatureRecord]:
     """Apply feature transforms defined in contract policies in order."""
-    # Sort by (id, time) to satisfy stream transforms (ensure_ticks/fill)
+    # Sort by (id, time) to satisfy stream transforms (ensure_cadence/fill)
     sorted = batch_sort(
         feature_stream,
         batch_size=batch_size,
@@ -147,8 +147,8 @@ def window_keys(start: datetime | None, end: datetime | None, cadence: str | Non
     if start is None or end is None or cadence is None:
         return None
     try:
-        current = floor_time_to_resolution(start, cadence)
-        stop = floor_time_to_resolution(end, cadence)
+        current = floor_time_to_bucket(start, cadence)
+        stop = floor_time_to_bucket(end, cadence)
         step = parse_timecode(cadence)
     except Exception:
         return None

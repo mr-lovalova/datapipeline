@@ -1,0 +1,31 @@
+kind: ingest
+source: synthetic.ticks
+id: time.ticks.hour_sin # format: domain.dataset.(variant)
+
+# Fine-grained cadence for this stream. Defaults to the dataset group_by via project.globals.
+cadence: ${group_by}
+
+mapper:
+  entrypoint: encode_time
+  args: { mode: hour_sin }
+
+# partition_by: field you want to partition
+
+record:
+  - filter: { operator: ge, field: time, comparand: "${start_time}" }
+  - filter: { operator: le, field: time, comparand: "${end_time}" }
+  - floor_time: { cadence: "${cadence}" }
+  # - lag: { lag: "${cadence}" }
+
+stream:
+  - dedupe: {}
+  - granularity: { mode: first }
+  - ensure_cadence: { cadence: "${cadence}" }
+  # Optional: fill gaps before downstream transforms:
+  # - fill: { statistic: median, window: 24, min_samples: 4 }
+
+debug:
+  - lint: { mode: error, tick: "${cadence}" }
+
+# sort_batch_size: 100000
+

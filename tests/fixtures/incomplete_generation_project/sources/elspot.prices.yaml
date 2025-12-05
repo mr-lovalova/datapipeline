@@ -1,0 +1,17 @@
+id: incomplete.elspot
+
+parser:
+  entrypoint: "core.temporal.csv"
+  args:
+    time_field: HourUTC
+    value_field: SpotPriceEUR
+    decimal: ","
+    attributes:
+      area: PriceArea
+loader:
+  entrypoint: "core.io"
+  args:
+    transport: fs
+    format: csv
+    path: tests/fixtures/regression_project/data/incomplete/Elspotprices.csv
+    delimiter: ";"

@@ -1,0 +1,16 @@
+kind: ingest
+source: incomplete.elspot
+id: targets.price.dk1
+
+mapper:
+  entrypoint: identity
+  args: {}
+
+record:
+  - filter: { operator: ge, field: time, comparand: "${start_time}" }
+  - filter: { operator: le, field: time, comparand: "${end_time}" }
+  - filter: { operator: eq, field: area, comparand: DK1 }
+
+stream:
+  - ensure_cadence: { cadence: 1h }
+  - fill: { statistic: mean, window: 2, min_samples: 1 }

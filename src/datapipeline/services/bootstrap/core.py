@@ -96,8 +96,17 @@ def _load_canonical_streams(project_yaml: Path, vars_: dict[str, Any]) -> dict:
         m = data.get(MAPPER_KEY)
         if (not isinstance(m, dict)) or (ENTRYPOINT_KEY not in (m or {})):
             data[MAPPER_KEY] = None
+        # Support simple per-contract variables like 'cadence' while keeping
+        # project-level globals as the single source of truth for shared values.
+        local_vars = dict(vars_)
+        cadence_expr = data.get("cadence")
+        if cadence_expr is not None:
+            # Allow cadence to reference globals (e.g. ${group_by}) while also
+            # making ${cadence} usable elsewhere in the same contract.
+            resolved_cadence = _interpolate(cadence_expr, vars_)
+            local_vars["cadence"] = resolved_cadence
         alias = data.get(STREAM_ID_KEY)
-        out[alias] = _interpolate(data, vars_)
+        out[alias] = _interpolate(data, local_vars)
     return out
 
 
@@ -111,16 +120,7 @@ def load_streams(project_yaml: Path) -> StreamsConfig:
 def init_streams(cfg: StreamsConfig, runtime: Runtime) -> None:
     """Compile typed streams config into runtime registries."""
     regs = runtime.registries
-    regs.stream_operations.clear()
-    regs.debug_operations.clear()
-    regs.partition_by.clear()
-    regs.sort_batch_size.clear()
-    regs.record_operations.clear()
-    regs.feature_transforms.clear()
-    regs.postprocesses.clear()
-    regs.sources.clear()
-    regs.mappers.clear()
-    regs.stream_sources.clear()
+    regs.clear_all()
 
     # Register per-stream policies and record transforms for runtime lookups
     for alias, spec in (cfg.contracts or {}).items():

@@ -1,6 +1,10 @@
 from typing import Literal
-from datapipeline.config.dataset.dataset import RecordDatasetConfig, FeatureDatasetConfig
-from datapipeline.services.bootstrap import _load_by_key
+
+from datapipeline.config.dataset.dataset import (
+    RecordDatasetConfig,
+    FeatureDatasetConfig,
+)
+from datapipeline.services.bootstrap import _load_by_key, _globals, _interpolate
 
 Stage = Literal["records", "features", "vectors"]
 
@@ -16,7 +20,11 @@ def _normalize_dataset_doc(doc):
 
 
 def load_dataset(project_yaml, stage: Stage):
-    ds_doc = _normalize_dataset_doc(_load_by_key(project_yaml, "dataset"))
+    raw = _load_by_key(project_yaml, "dataset")
+    vars_ = _globals(project_yaml)
+    if vars_:
+        raw = _interpolate(raw, vars_)
+    ds_doc = _normalize_dataset_doc(raw)
 
     if stage == "records":
         return RecordDatasetConfig.model_validate(ds_doc)

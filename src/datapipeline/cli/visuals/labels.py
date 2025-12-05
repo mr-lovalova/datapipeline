@@ -3,7 +3,7 @@ from urllib.parse import urlparse
 
 from datapipeline.sources.models.loader import SyntheticLoader, BaseDataLoader
 from datapipeline.sources.data_loader import DataLoader
-from datapipeline.sources.transports import FsFileTransport, FsGlobTransport, UrlTransport
+from datapipeline.sources.transports import FsFileTransport, FsGlobTransport, HttpTransport
 from datapipeline.sources.decoders import CsvDecoder, JsonDecoder, JsonLinesDecoder, PickleDecoder
 
 MAX_LABEL_LEN = 48
@@ -65,7 +65,7 @@ def build_source_label(loader: BaseDataLoader) -> str:
             else:
                 label = _compact_path_label(name)
             return f"Loading data from: {label}"
-        if isinstance(transport, UrlTransport):
+        if isinstance(transport, HttpTransport):
             host = urlparse(transport.url).netloc or "http"
             return f"Downloading data from: @{host}"
     return loader.__class__.__name__

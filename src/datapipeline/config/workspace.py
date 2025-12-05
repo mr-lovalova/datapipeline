@@ -103,7 +103,14 @@ class BuildDefaults(BaseModel):
 
 class WorkspaceConfig(BaseModel):
     plugin_root: Optional[str] = None
-    config_root: Optional[str] = None
+    datasets: dict[str, str] = Field(
+        default_factory=dict,
+        description="Named dataset aliases mapping to project.yaml paths (relative to jerry.yaml).",
+    )
+    default_dataset: Optional[str] = Field(
+        default=None,
+        description="Optional default dataset alias when --dataset/--project are omitted.",
+    )
     shared: SharedDefaults = Field(default_factory=SharedDefaults)
     serve: ServeDefaults = Field(default_factory=ServeDefaults)
     build: BuildDefaults = Field(default_factory=BuildDefaults)
@@ -120,17 +127,6 @@ class WorkspaceContext:
 
     def resolve_plugin_root(self) -> Optional[Path]:
         raw = self.config.plugin_root
-        if not raw:
-            return None
-        candidate = Path(raw)
-        return (
-            candidate.resolve()
-            if candidate.is_absolute()
-            else (self.root / candidate).resolve()
-        )
-
-    def resolve_config_root(self) -> Optional[Path]:
-        raw = self.config.config_root
         if not raw:
             return None
         candidate = Path(raw)

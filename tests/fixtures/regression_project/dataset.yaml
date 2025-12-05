@@ -3,14 +3,12 @@ group_by: 1h
 features:
   - id: linear_scaled
     record_stream: metrics.linear
-    scale:
-      on_none: warn
+    scale: true
   - id: sine_window
     record_stream: metrics.sine
     sequence:
       size: 2
       stride: 2
-      tick: 30m
   - id: humidity_partitioned
     record_stream: metrics.humidity
 

@@ -40,6 +40,7 @@ def required_artifacts_for(
     demands: Iterable[StageDemand],
 ) -> set[str]:
     required: set[str] = set()
+    needs_metadata = False
     for demand in demands:
         stage = demand.stage
         effective_stage = 7 if stage is None else stage
@@ -49,7 +50,9 @@ def required_artifacts_for(
 
         if effective_stage >= 6:
             required.add(VECTOR_SCHEMA)
+            needs_metadata = True
 
-    required.add(VECTOR_SCHEMA_METADATA)
+    if needs_metadata:
+        required.add(VECTOR_SCHEMA_METADATA)
 
     return required

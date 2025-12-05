@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Iterator, Any, Optional
 from .models.loader import BaseDataLoader
-from .transports import Transport, UrlTransport
+from .transports import Transport, HttpTransport
 from .decoders import Decoder
 
 
@@ -23,7 +23,7 @@ class DataLoader(BaseDataLoader):
         # Delegate counting to the decoder using the transport streams.
         # Avoid counting over network unless explicitly enabled.
         try:
-            if isinstance(self.transport, UrlTransport) and not self._allow_net_count:
+            if isinstance(self.transport, HttpTransport) and not self._allow_net_count:
                 return None
             total = 0
             any_stream = False
