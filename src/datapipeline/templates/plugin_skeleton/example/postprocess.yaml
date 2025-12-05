@@ -1,15 +1,26 @@
-# - drop:
-#     axis: horizontal
-#     threshold: 1.0
-# - replace:
-#     value: 0.0
+- drop:
+    axis: vertical
+    payload: targets
+    threshold: 0.9
+
+- drop:
+    axis: vertical
+    payload: features
+    threshold: 0.9
+
+- drop:
+    axis: horizontal
+    payload: features
+    threshold: 1
+
+- drop:
+    axis: horizontal
+    payload: targets
+    threshold: 1
 # - fill:
 #     statistic: median
 #     window: 48
 #     min_samples: 6
-# - fill_horizontal:
-#     statistic: mean
-#     min_samples: 2
 # - replace:
 #     payload: targets
 #     value: 0.0
