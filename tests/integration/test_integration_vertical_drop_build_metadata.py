@@ -43,7 +43,7 @@ def test_vertical_drop_respects_element_coverage_after_metadata_build(copy_fixtu
         runtime.artifacts.register(SCALER_STATISTICS, relative_path=scaler_rel[0])
     meta_rel = materialize_metadata(
         runtime,
-        MetadataTask(kind="metadata", output="schema.metadata.json"),
+        MetadataTask(kind="metadata", output="metadata.json"),
     )
     assert meta_rel is not None
     rel_path, _meta = meta_rel

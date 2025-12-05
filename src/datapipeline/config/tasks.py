@@ -57,7 +57,7 @@ class SchemaTask(ArtifactTask):
 
 class MetadataTask(ArtifactTask):
     kind: Literal["metadata"]
-    output: str = Field(default="schema.metadata.json")
+    output: str = Field(default="metadata.json")
     enabled: bool = Field(
         default=True,
         description="Disable to skip generating the vector metadata artifact.",

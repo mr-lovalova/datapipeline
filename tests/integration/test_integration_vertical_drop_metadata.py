@@ -41,7 +41,7 @@ def test_vertical_drop_uses_window_size_metadata(tmp_path, copy_fixture):
     }
 
     # Write metadata into the fixture artifacts root and register it for the runtime.
-    metadata_path = runtime.artifacts_root / "schema.metadata.json"
+    metadata_path = runtime.artifacts_root / "metadata.json"
     metadata_path.parent.mkdir(parents=True, exist_ok=True)
     metadata_path.write_text(json.dumps(metadata_doc, indent=2), encoding="utf-8")
     runtime.artifacts.register(

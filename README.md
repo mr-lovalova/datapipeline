@@ -563,7 +563,7 @@ enabled: true
 - `scaler.pkl` is a pickled standard scaler fitted on the requested split.
 - `schema.json` (from the `schema` task) enumerates the discovered feature/target identifiers (including partitions), their kinds (scalar/list), and cadence hints used to enforce ordering downstream.
   - Configure the `schema` task to choose a cadence strategy (currently `max`). Per-feature overrides will be added later; for now every list-valued feature records the max observed length as its enforcement target.
-- `schema.metadata.json` (from the `metadata` task) captures heavier statistics—present/null counts, inferred value types, list-length histograms, per-partition timestamps, and the dataset window. Configure `metadata.window_mode` with `union|intersection|strict|relaxed` (default `intersection`) to control how start/end bounds are derived. `union` considers base features, `intersection` uses their overlap, `strict` intersects every partition, and `relaxed` unions partitions independently.
+- `metadata.json` (from the `metadata` task) captures heavier statistics—present/null counts, inferred value types, list-length histograms, per-partition timestamps, and the dataset window. Configure `metadata.window_mode` with `union|intersection|strict|relaxed` (default `intersection`) to control how start/end bounds are derived. `union` considers base features, `intersection` uses their overlap, `strict` intersects every partition, and `relaxed` unions partitions independently.
 - Command tasks (`kind: serve`) live alongside artifact tasks; `jerry serve` reads them directly.
 - Shared run/build defaults (visuals/progress/log level/build mode) live in `jerry.yaml`.
 
@@ -677,7 +677,7 @@ Pass `--help` on any command for flags.
 
 - `drop`: apply coverage thresholds along the horizontal axis (vectors) or
   vertical axis (features/partitions) using `axis: horizontal|vertical` and
-  `threshold`. Vertical mode requires the optional `schema.metadata.json`
+  `threshold`. Vertical mode requires the optional `metadata.json`
   artifact and internally prunes weak partitions.
 - `fill`: impute using rolling statistics from prior vectors (history-based).
 - `replace`: seed missing IDs with a constant or literal value.
@@ -698,7 +698,7 @@ appropriate group (`record`, `stream`, `feature`, `sequence`, `vector`,
   expected universe from `schema.json`.
 - `schema.json`: output of the `schema` task. Jerry automatically
   enforces this schema during postprocess to impose deterministic ordering and
-  list cadence metadata (targets appear whenever the dataset defines them). Window metadata now lives in `schema.metadata.json`.
+  list cadence metadata (targets appear whenever the dataset defines them). Window metadata now lives in `metadata.json`.
 - `scaler.pkl`: pickled standard scaler fitted on the configured split. Loaded
   lazily by feature transforms at runtime.
 - Build state is tracked in `artifacts/build/state.json`; config hashes avoid

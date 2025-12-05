@@ -60,7 +60,7 @@ def resolve_window_bounds(runtime: Runtime, rectangular_required: bool) -> tuple
 
     if rectangular_required and (start is None or end is None):
         raise RuntimeError(
-            "Window bounds unavailable (rebuild metadata to materialize schema.metadata.json with a window); rectangular output required."
+            "Window bounds unavailable (rebuild metadata to materialize metadata.json with a window); rectangular output required."
         )
     return start, end
 
