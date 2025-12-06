@@ -1,5 +1,6 @@
 from importlib.resources import as_file, files
 from pathlib import Path
+import logging
 import os
 
 import yaml
@@ -8,21 +9,21 @@ from datapipeline.utils.load import load_yaml
 
 from ..constants import DEFAULT_IO_LOADER_EP
 
+logger = logging.getLogger(__name__)
+
 _RESERVED_PACKAGE_NAMES = {"datapipeline"}
 
 
 def _normalized_package_name(dist_name: str) -> str:
     package_name = dist_name.replace("-", "_")
     if package_name in _RESERVED_PACKAGE_NAMES:
-        print(
-            "[error] `datapipeline` is reserved for the core package. "
-            "Choose a different plugin name."
+        logger.error(
+            "`datapipeline` is reserved for the core package. Choose a different plugin name."
         )
         raise SystemExit(1)
     if not package_name.isidentifier():
-        print(
-            "[error] Plugin names must be valid Python identifiers once hyphens are replaced "
-            "with underscores."
+        logger.error(
+            "Plugin names must be valid Python identifiers once hyphens are replaced with underscores."
         )
         raise SystemExit(1)
     return package_name
@@ -31,7 +32,7 @@ def _normalized_package_name(dist_name: str) -> str:
 def scaffold_plugin(name: str, outdir: Path) -> None:
     target = (outdir / name).absolute()
     if target.exists():
-        print(f"[error] `{target}` already exists")
+        logger.error("`%s` already exists", target)
         raise SystemExit(1)
     import shutil
 
@@ -83,8 +84,10 @@ def scaffold_plugin(name: str, outdir: Path) -> None:
                 updated_datasets[alias] = (plugin_root_rel / p).as_posix()
         data["datasets"] = updated_datasets
 
-        workspace_jerry.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+        workspace_jerry.write_text(
+            yaml.safe_dump(data, sort_keys=False), encoding="utf-8"
+        )
         plugin_jerry.unlink()
-        print(f"[new] workspace jerry.yaml at {workspace_jerry}")
+        logger.info("workspace jerry.yaml created at %s", workspace_jerry)
 
-    print(f"[new] plugin skeleton at {target}")
+    logger.info("plugin skeleton created at %s", target)
