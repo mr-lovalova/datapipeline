@@ -10,6 +10,8 @@ Quick start
   - HTTP data: `jerry source add <provider>.<dataset> -t http -f <json|json-lines|csv>`
   - Synthetic: `jerry source add -p <provider> -d <dataset> -t synthetic`
 - Edit the generated `config/sources/*.yaml` to fill in the `path`, delimiter, etc.
+- `jerry.yaml` is placed in your workspace root (alongside the plugin folder) so
+  you can run CLI commands from there; `plugin_root` points back to this plugin.
 - Reinstall after EP changes (pyproject.toml) and restart Python processes:
   - Core: `cd lib/datapipeline && python -m pip install -e .`
   - This plugin: `python -m pip install -e .`

@@ -1,5 +1,10 @@
 from importlib.resources import as_file, files
 from pathlib import Path
+import os
+
+import yaml
+
+from datapipeline.utils.load import load_yaml
 
 from ..constants import DEFAULT_IO_LOADER_EP
 
@@ -46,4 +51,40 @@ def scaffold_plugin(name: str, outdir: Path) -> None:
         for placeholder, value in replacements.items():
             text = text.replace(placeholder, value)
         p.write_text(text)
+
+    # Move jerry.yaml up to the workspace root (current working directory) so
+    # users can run the CLI from the workspace without cd'ing into the plugin.
+    # We adjust plugin_root and dataset paths to point at the plugin directory
+    # relative to the workspace. Do not overwrite an existing workspace
+    # jerry.yaml.
+    plugin_jerry = target / "jerry.yaml"
+    workspace_root = Path.cwd().resolve()
+    workspace_jerry = workspace_root / "jerry.yaml"
+    if plugin_jerry.exists() and not workspace_jerry.exists():
+        try:
+            plugin_root_rel = target.relative_to(workspace_root)
+        except ValueError:
+            # Fall back to a relative path between arbitrary directories; this
+            # may include ".." segments.
+            try:
+                plugin_root_rel = Path(os.path.relpath(target, workspace_root))
+            except Exception:
+                plugin_root_rel = target
+
+        data = load_yaml(plugin_jerry)
+        data["plugin_root"] = plugin_root_rel.as_posix()
+        datasets = data.get("datasets") or {}
+        updated_datasets = {}
+        for alias, path in datasets.items():
+            p = Path(path)
+            if p.is_absolute():
+                updated_datasets[alias] = p.as_posix()
+            else:
+                updated_datasets[alias] = (plugin_root_rel / p).as_posix()
+        data["datasets"] = updated_datasets
+
+        workspace_jerry.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+        plugin_jerry.unlink()
+        print(f"[new] workspace jerry.yaml at {workspace_jerry}")
+
     print(f"[new] plugin skeleton at {target}")
