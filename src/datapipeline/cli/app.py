@@ -490,7 +490,10 @@ def main() -> None:
     args = parser.parse_args()
 
     # Resolve dataset/project selection for commands that use a project.
-    if hasattr(args, "project") or hasattr(args, "dataset"):
+    needs_project_resolution = args.cmd in {"serve", "build", "inspect"}
+    if needs_project_resolution and (
+        hasattr(args, "project") or hasattr(args, "dataset")
+    ):
         raw_project = getattr(args, "project", None)
         raw_dataset = getattr(args, "dataset", None)
         resolved_project, resolved_dataset = _resolve_project_from_args(
