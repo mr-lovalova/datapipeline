@@ -29,37 +29,61 @@ transforms, and filters.
 
 ## Quick Start
 
+### Serve The Example
+
 ```bash
-# 1. Install in editable mode (with optional dev extras for testing).
-pip install -e .[dev]
-
-# 2. Bootstrap a project (scaffolds configs, plugin package, and templates).
-jerry plugin init my_datapipeline --out .
-
-# 3. Create a source & domain scaffold, then declare a canonical stream.
-# Simple forms
-jerry source add demo weather --transport fs --format csv
-jerry source add demo.weather --transport http --format json
-
-# Flag form (explicit)
-jerry source add --provider demo --dataset weather --transport fs --format csv
-jerry domain add weather
-# (edit config/contracts/<alias>.yaml to point at your mapper and policies)
-
-# 4. Configure dataset/postprocess/build files under config/.
-#    Then preview the pipeline and serve a few vectors:
-#    Add --skip-build when you only need a quick feature peek.
-jerry serve --project config/project.yaml --stage 2 --limit 5
-jerry serve --project config/project.yaml --limit 3
-
-# 5. Inspect coverage and build artifacts:
-jerry inspect report --project config/project.yaml
-jerry build --project config/project.yaml
+pip install jerry-thomas
+jerry plugin init my-datapipeline --out lib/
+jerry serve --limit 3
 ```
 
-The skeleton project in `src/datapipeline/templates/plugin_skeleton/` mirrors the
-paths expected by the CLI. Copy it or run `jerry plugin init` to get a ready-made
-layout with `config/`, `src/<package>/`, and entry-point stubs.
+### Create Your Own Stream
+
+Assumes you already ran `jerry plugin init ...` in this workspace (it writes `jerry.yaml` which the CLI uses for defaults and scaffolding paths).
+These scaffolding commands write YAML into the dataset selected by `default_dataset` in `jerry.yaml` (`example` by default).
+
+```bash
+jerry source add demo weather -t fs -f csv
+jerry domain add weather
+jerry contract
+pip install -e lib/my-datapipeline
+```
+
+---
+
+## CLI Cheat Sheet
+
+- `jerry plugin init <name> --out lib/`: scaffolds `lib/<name>/` and writes workspace `jerry.yaml`.
+- `jerry.yaml` (created by `plugin init`): sets `plugin_root` for scaffolding commands and `datasets/default_dataset` so you can omit `--project`/`--dataset`.
+- `jerry serve [--dataset <alias>|--project <path>] [--limit N] [--stage 0-7] [--skip-build]`: streams output; builds required artifacts unless `--skip-build`.
+- `jerry build [--dataset <alias>|--project <path>] [--force]`: materializes artifacts (schema, scaler, expected IDs, etc.).
+- `jerry inspect report|matrix|partitions|expected [--dataset <alias>|--project <path>]`: quality and metadata helpers.
+- `jerry source add <provider> <dataset> -t fs|http|synthetic -f csv|json|json-lines|pickle [--identity]`: scaffolds a source YAML and (unless `--identity`) a parser + entry point.
+- `jerry domain add <domain>`: scaffolds domain models under `src/<package>/domains/<domain>/`.
+- `jerry contract [--identity]`: interactive contract scaffolder; most users pick `[1] Ingest (source → stream)` (use `[2] Composed` for derived streams, e.g. air_density from temp + pressure).
+- `pip install -e lib/<name>`: rerun after commands that update `lib/<name>/pyproject.toml` (entry points), or after manual edits to it.
+
+---
+
+## Fan-out Loaders (core.foreach)
+
+Use `core.foreach` to expand a loader spec across a list without duplicating YAML.
+It interpolates string args and optionally injects the foreach value into each row.
+
+```yaml
+loader:
+  entrypoint: core.foreach
+  args:
+    foreach:
+      symbol: [AAPL, MSFT]
+    inject_field: symbol
+    loader:
+      entrypoint: core.io
+      args:
+        transport: http
+        format: csv
+        url: "https://stooq.com/q/d/l/?s=${symbol}&i=d"
+```
 
 ---
 
@@ -245,6 +269,7 @@ Solid arrows trace runtime data flow; dashed edges highlight how the config file
 inject transports, entry points, or policies into each stage.
 
 CLI quick path:
+
 - `jerry source add <provider> <dataset> --transport fs|http|synthetic --format ...` → scaffolds DTO/parser/loader and writes `config/sources/*.yaml`.
 - `jerry domain add <name>` → creates `src/<pkg>/domains/<name>/model.py`.
 - `jerry contract` → picks a source + domain, scaffolds/links a mapper under `mappers/`, registers its entry point, and writes `config/contracts/<stream>.yaml`.
@@ -324,13 +349,13 @@ globals:
 
 ```yaml
 kind: serve
-name: train        # defaults to filename stem when omitted
-keep: train        # select active split label (null disables filtering)
+name: train # defaults to filename stem when omitted
+keep: train # select active split label (null disables filtering)
 output:
-  transport: stdout  # stdout | fs
-  format: print      # print | json-lines | json | csv | pickle
-limit: 100           # cap vectors per serve run (null = unlimited)
-throttle_ms: null    # milliseconds to sleep between emitted vectors
+  transport: stdout # stdout | fs
+  format: print # print | json-lines | json | csv | pickle
+limit: 100 # cap vectors per serve run (null = unlimited)
+throttle_ms: null # milliseconds to sleep between emitted vectors
 # Optional overrides:
 # log_level: INFO   # DEBUG=progress bars, INFO=spinner, WARNING=quiet
 # visuals: AUTO     # AUTO | TQDM | RICH | OFF
@@ -338,7 +363,7 @@ throttle_ms: null    # milliseconds to sleep between emitted vectors
 ```
 
 - Each serve task lives alongside artifact tasks under `paths.tasks`. Files are independent—no special directory structure required.
-- `output`, `limit`, `throttle_ms`, and `log_level` provide defaults for `jerry serve`; CLI flags still win per invocation (see *Configuration Resolution Order*). For filesystem outputs, set `transport: fs`, `directory: /path/to/root`, and omit file names—each run automatically writes to `<directory>/<run_name>/<run_name>.<ext>` unless you override the entire `output` block with a custom `filename`.
+- `output`, `limit`, `throttle_ms`, and `log_level` provide defaults for `jerry serve`; CLI flags still win per invocation (see _Configuration Resolution Order_). For filesystem outputs, set `transport: fs`, `directory: /path/to/root`, and omit file names—each run automatically writes to `<directory>/<run_name>/<run_name>.<ext>` unless you override the entire `output` block with a custom `filename`.
 - Override `keep` (and other fields) per invocation via `jerry serve ... --keep val` etc.
 - Visuals backend: set `visuals: AUTO|TQDM|RICH|OFF` in the task or use `--visuals`. Pair with `progress: AUTO|SPINNER|BARS|OFF` or `--progress` to control progress layouts.
 - Add additional `kind: serve` files to the tasks directory for other splits (val/test/etc.); `jerry serve` runs each enabled file unless you pass `--run <name>`.
@@ -595,7 +620,7 @@ Pass `--help` on any command for flags.
   the group key or metadata. Default is `sample`.
   - Set `--log-level DEBUG` (or set your serve task `log_level: DEBUG`) to reuse the tqdm progress bars when previewing stages.
   - When multiple serve tasks exist, add `--run val` (task name or filename stem) to target a single config; otherwise every enabled task is executed sequentially.
-  - Argument precedence follows the order described under *Configuration Resolution Order*.
+  - Argument precedence follows the order described under _Configuration Resolution Order_.
   - Combine with `--skip-build` when you already have fresh artifacts and want to jump straight into streaming.
 
 ### Build & Quality
