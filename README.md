@@ -95,7 +95,15 @@ These live under `lib/<plugin>/src/<package>/`:
 - A **DTO** (Data Transfer Object) mirrors a single source’s schema (columns/fields) and stays “raw-shaped”; it’s what parsers emit.
 - A **domain record** is the canonical shape used across the pipeline. Mappers convert DTOs into domain records so multiple sources can land in the same domain model.
 - The base time-series type is `TemporalRecord` (`time` + `value`). Domains typically add identity fields (e.g. `symbol`, `station_id`) that make filtering/partitioning meaningful.
-- `time` must be timezone-aware (normalized to UTC); `value` is the measurement you engineer features from; extra fields act as the record’s “identity”.
+- `time` must be timezone-aware (normalized to UTC); `value` is the measurement you engineer features from; all other fields act as the record’s “identity” (used by equality/deduping and commonly by `partition_by`).
+
+### Glossary
+
+- **Source alias**: `sources/*.yaml:id` (referenced by contracts under `source:`).
+- **Stream id**: `contracts/*.yaml:id` (referenced by `dataset.yaml` under `record_stream:`).
+- **Partition**: dimension keys appended to feature IDs, driven by `contract.partition_by`.
+- **Group**: vector “bucket” cadence set by `dataset.group_by` (controls how records become samples).
+- **Stage**: debug/preview level for `jerry serve --stage 0-7` (DTOs → domain records → features → vectors).
 
 ### Dataset Project (YAML Config)
 
@@ -138,7 +146,7 @@ paths:
   sources: ./sources
   dataset: dataset.yaml
   postprocess: postprocess.yaml
-  artifacts: ../build/datasets/${project_name}
+  artifacts: ../artifacts/${project_name}/v${version}
   tasks: ./tasks
 globals:
   start_time: 2021-01-01T00:00:00Z
@@ -303,7 +311,7 @@ debug:
 Define engineered streams that depend on other canonical streams directly in contracts. The runtime builds each input to stage 4 (ordered + regularized), stream‑aligns by partition + timestamp, runs your composer, and emits fresh records for the derived stream.
 
 ```yaml
-# contracts/air_density.processed.yaml
+# <project_root>/contracts/air_density.processed.yaml
 kind: composed
 id: air_density.processed
 inputs:
@@ -420,6 +428,7 @@ enabled: true
 
 All commands live under the `jerry` entry point (`src/datapipeline/cli/app.py`).
 Pass `--help` on any command for flags.
+All commands that take a project accept either `--project <path/to/project.yaml>` or `--dataset <alias>` (from `jerry.yaml datasets:`).
 
 ### Preview Stages
 
@@ -478,7 +487,7 @@ Pass `--help` on any command for flags.
 
 ## Transform & Filter Library
 
-### Record Filters (`config/contracts[].record`)
+### Record Filters (`<project_root>/contracts/*.yaml:record`)
 
 - Binary comparisons: `eq`, `ne`, `lt`, `le`, `gt`, `ge` (timezone-aware for ISO
   or datetime literals).
@@ -618,7 +627,7 @@ and `src/datapipeline/filters/`.
   `jerry plugin init`.
 - `datapipeline.services.scaffold.source.create_source` – writes loader/parser
   stubs and updates entry points.
-- `datapipeline.services.scaffold.domain.create_domain` – domain DTO skeleton.
+- `datapipeline.services.scaffold.domain.create_domain` – domain record skeleton.
 - `datapipeline.services.scaffold.filter.create_filter` – custom filter stub.
 - `datapipeline.services.scaffold.mappers.attach_source_to_domain` – helper for
   programmatically wiring sources to domain mappers and emitting stream
@@ -660,7 +669,7 @@ raw source ──▶ loader/parser DTOs ──▶ canonical stream ──▶ rec
 
 1. **Loader/parser (Stage 0)** – raw bytes become typed DTOs. Loaders fetch from
    FS/HTTP/synthetic sources; parsers map bytes to DTOs. Register them via entry
-   points (`loaders`, `parsers`) and wire them in `config/sources/*.yaml`.
+   points (`loaders`, `parsers`) and wire them in `<project_root>/sources/*.yaml`.
 2. **Canonical stream mapping (Stage 1)** – mappers attach domain semantics and
    partition keys, producing domain `TemporalRecord`s.
 3. **Record policies (Stage 2)** – contract `record` rules (filters, floor, lag)
@@ -686,8 +695,8 @@ flowchart TB
     cliContract[jerry contract]
     cliServe[jerry serve]
     project[[project.yaml]]
-    sourcesCfg[config/sources/*.yaml]
-    contractsCfg[config/contracts/*.yaml]
+    sourcesCfg[sources/*.yaml]
+    contractsCfg[contracts/*.yaml]
     datasetCfg[dataset.yaml]
     postprocessCfg[postprocess.yaml]
   end
