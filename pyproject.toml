@@ -73,6 +73,7 @@ identity = "datapipeline.mappers.noop:identity"
 
 [project.entry-points."datapipeline.loaders"]
 "core.io" = "datapipeline.sources.factory:build_loader"
+"core.foreach" = "datapipeline.sources.foreach:ForeachLoader"
 "core.synthetic.ticks" = "datapipeline.sources.synthetic.time.loader:make_time_loader"
 
 [project.entry-points."datapipeline.parsers"]
