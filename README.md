@@ -88,7 +88,14 @@ These live under `lib/<plugin>/src/<package>/`:
 - A **parser** turns each raw row into a typed DTO (or returns `None` to drop a row).
 - In most projects, your source YAML uses the built-in loader `core.io` and you only customize its `args` (`transport`, `format`, and a `path`/`url`).
 - You typically only implement a custom loader when you need specialized behavior (auth/pagination/rate limits, proprietary formats, or non-standard protocols).
-- `parser.args` are optional and only used when your parser supports configuration; many parsers don’t need any args.
+- `parser.args` are optional and only used when your parser supports configuration; many parsers don’t need any args since filtering etc is supported natively downstream.
+
+### DTOs & Domains
+
+- A **DTO** (Data Transfer Object) mirrors a single source’s schema (columns/fields) and stays “raw-shaped”; it’s what parsers emit.
+- A **domain record** is the canonical shape used across the pipeline. Mappers convert DTOs into domain records so multiple sources can land in the same domain model.
+- The base time-series type is `TemporalRecord` (`time` + `value`). Domains typically add identity fields (e.g. `symbol`, `station_id`) that make filtering/partitioning meaningful.
+- `time` must be timezone-aware (normalized to UTC); `value` is the measurement you engineer features from; extra fields act as the record’s “identity”.
 
 ### Dataset Project (YAML Config)
 
@@ -254,8 +261,8 @@ loader:
 
 ### `<project_root>/contracts/<stream_id>.yaml`
 
-Canonical stream contracts describe how the runtime should map and prepare a
-source. Use folders to organize by domain.
+Canonical stream contracts describe how the runtime should map and prepare a raw
+source. Use folders to organize by domain if you like.
 
 ```yaml
 kind: ingest
