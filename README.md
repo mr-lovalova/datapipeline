@@ -65,252 +65,61 @@ pip install -e lib/my-datapipeline
 
 ---
 
-## Fan-out Loaders (core.foreach)
+## Concepts
 
-Use `core.foreach` to expand a loader spec across a list without duplicating YAML.
-It interpolates string args and optionally injects the foreach value into each row.
+### Workspace (`jerry.yaml`)
 
-```yaml
-loader:
-  entrypoint: core.foreach
-  args:
-    foreach:
-      symbol: [AAPL, MSFT]
-    inject_field: symbol
-    loader:
-      entrypoint: core.io
-      args:
-        transport: http
-        format: csv
-        url: "https://stooq.com/q/d/l/?s=${symbol}&i=d"
-```
+- `datasets`: dataset aliases → `project.yaml` paths (relative to `jerry.yaml`).
+- `default_dataset`: which dataset `jerry serve/build/inspect` use when you omit `--dataset/--project`.
+- `plugin_root`: where scaffolding commands write Python code (`src/<package>/...`) and where they look for `pyproject.toml`.
 
----
+### Plugin Package (Python Code)
 
-## Pipeline Architecture
+These live under `lib/<plugin>/src/<package>/`:
 
-```text
-raw source ──▶ loader/parser DTOs ──▶ canonical stream ──▶ record policies
-      └──▶ feature wrapping ──▶ stream regularization ──▶ feature transforms/sequence
-      └──▶ vector assembly ──▶ postprocess transforms
-```
+- `sources/<provider>/<dataset>/dto.py` + `parser.py`: source DTO + parser (created by `jerry source add` unless `--identity`).
+- `domains/<domain>/model.py`: domain records (created by `jerry domain add`).
+- `mappers/<provider>/<dataset>/to_<domain>.py`: DTO → domain record mapping (usually created by `jerry contract`).
+- `pyproject.toml`: entry points for loaders/parsers/mappers/transforms (rerun `pip install -e lib/<plugin>` after changes).
 
-1. **Loader/parser (Stage 0)** – raw bytes become typed DTOs. Loaders fetch from
-   FS/HTTP/synthetic sources; parsers map bytes to DTOs. Register them via entry
-   points (`loaders`, `parsers`) and wire them in `config/sources/*.yaml`.
-2. **Canonical stream mapping (Stage 1)** – mappers attach domain semantics and
-   partition keys, producing domain `TemporalRecord`s.
-3. **Record policies (Stage 2)** – contract `record` rules (filters, floor, lag)
-   prune and normalize DTO-derived records.
-4. **Feature wrapping (Stage 3)** – records become `FeatureRecord`s before
-   sort/regularization.
-5. **Stream regularization (Stage 4)** – contract `stream` rules ensure cadence,
-   deduplicate timestamps, and impute where needed.
-6. **Feature transforms/sequence (Stage 5)** – dataset transforms (scale,
-   sequence windows) produce per-feature tensors or windows.
-7. **Vector assembly (Stage 6)** – features merge by `group_by` cadence into
-   `(group_key, Vector)` pairs, prior to postprocess tweaks.
-8. **Postprocess (Stage 7)** – optional vector transforms (fill/drop/etc.) run
-   before results are emitted to the configured output.
+### Loaders & Parsers
 
-#### Visual Flowchart
+- A **loader** yields raw rows (bytes/dicts) from some transport (FS/HTTP/synthetic/etc.).
+- A **parser** turns each raw row into a typed DTO (or returns `None` to drop a row).
+- In most projects, your source YAML uses the built-in loader `core.io` and you only customize its `args` (`transport`, `format`, and a `path`/`url`).
+- You typically only implement a custom loader when you need specialized behavior (auth/pagination/rate limits, proprietary formats, or non-standard protocols).
+- `parser.args` are optional and only used when your parser supports configuration; many parsers don’t need any args.
 
-```mermaid
-flowchart TB
-  subgraph CLI & Project config
-    cliSource[jerry source add]
-    cliDomain[jerry domain add]
-    cliContract[jerry contract]
-    cliServe[jerry serve]
-    project[[project.yaml]]
-    sourcesCfg[config/sources/*.yaml]
-    contractsCfg[config/contracts/*.yaml]
-    datasetCfg[dataset.yaml]
-    postprocessCfg[postprocess.yaml]
-  end
+### Dataset Project (YAML Config)
 
-  cliSource --> sourcesCfg
-  cliDomain --> domainPkg
-  cliContract --> contractsCfg
-  cliServe --> vectorSamples
-  project -.->|paths.sources| sourcesCfg
-  project -.->|paths.streams| contractsCfg
-  project -.->|paths.dataset| datasetCfg
-  project -.->|paths.postprocess| postprocessCfg
+These live under the dataset “project root” directory (the folder containing `project.yaml`):
 
-  subgraph Plugin code
-    domainPkg[domains/*]
-    mappersPkg[mappers/*]
-  end
+- `project.yaml`: paths + globals (single source of truth).
+- `sources/*.yaml`: raw sources (loader + parser wiring).
+- `contracts/*.yaml`: canonical streams (ingest or composed).
+- `dataset.yaml`: feature/target declarations.
+- `postprocess.yaml`: vector-level transforms.
+- `tasks/*.yaml`: serve presets and artifact task configs.
 
-  cliContract --> mappersPkg
-  domainPkg -. domain models .-> mappersPkg
+### Configuration & Resolution Order
 
-  subgraph Registries
-    registrySources[sources]
-    registryStreamSources[stream_sources]
-    registryMappers[mappers]
-    registryRecordOps[record_ops]
-    registryStreamOps[stream_ops]
-    registryDebugOps[debug_ops]
-  end
+Defaults are layered so you can set global preferences once, keep dataset/run
+files focused on per-project behavior, and still override anything from the CLI.
+For both `jerry serve` and `jerry build`, options are merged in the following
+order (highest precedence first):
 
-  subgraph Source wiring
-    rawData[(external data)]
-    transportSpec[transport + format]
-    loaderEP[loader ep]
-    parserEP[parser ep]
-    sourceArgs[loader args]
-    sourceNode[Source]
-    dtoStream[(DTOs)]
-  end
-
-  sourcesCfg --> transportSpec
-  sourcesCfg --> loaderEP
-  sourcesCfg --> parserEP
-  sourcesCfg --> sourceArgs
-  transportSpec -. select fs/http/synth .-> loaderEP
-  loaderEP -. build loader .-> sourceNode
-  parserEP -. build parser .-> sourceNode
-  sourceArgs -. paths/creds .-> sourceNode
-  rawData --> sourceNode --> dtoStream
-  sourcesCfg -. build_source_from_spec .-> registrySources
-  contractsCfg -. stream_id + source .-> registryStreamSources
-  registrySources -. alias -> Source .-> registryStreamSources
-
-  subgraph Canonical stream
-    mapperEP[mapper ep]
-    recordRules[record rules]
-    streamRules[stream rules]
-    debugRules[debug rules]
-    canonical[DTO -> record]
-    domainRecords((TemporalRecord))
-    recordStage[record xforms]
-    featureWrap[record -> feature]
-    featureRecords((FeatureRecord))
-    regularization[stream xforms]
-  end
-
-  dtoStream --> canonical --> domainRecords --> recordStage --> featureWrap --> featureRecords --> regularization
-  contractsCfg --> mapperEP
-  mappersPkg -. ep target .-> mapperEP
-  mapperEP -. build_mapper_from_spec .-> registryMappers
-  registryMappers --> canonical
-  contractsCfg --> recordRules
-  contractsCfg --> streamRules
-  contractsCfg --> debugRules
-  registryRecordOps --> recordRules
-  registryStreamOps --> streamRules
-  registryDebugOps --> debugRules
-  recordRules --> recordStage
-  streamRules --> regularization
-  debugRules --> regularization
-
-  subgraph Dataset shaping
-    featureSpec[feature cfg]
-    groupBySpec[group_by]
-    streamRefs[record_stream ids]
-    featureTrans[feature/seq xforms]
-    sequenceStream((seq/features))
-    vectorStage[vector assembly]
-    vectorSamples((samples))
-  end
-
-  datasetCfg --> featureSpec
-  datasetCfg --> groupBySpec
-  datasetCfg --> streamRefs
-  streamRefs -.->|build_feature_pipeline| registryStreamSources
-  registryStreamSources -.->|open_source_stream| sourceNode
-  featureRecords --> regularization --> featureTrans --> sequenceStream --> vectorStage --> vectorSamples
-  featureSpec -. scale/sequence .-> featureTrans
-  groupBySpec -. cadence .-> vectorStage
-
-  subgraph Postprocess
-    vectorTransforms[vector xforms]
-    postprocessNode[postprocess]
-  end
-
-  postprocessCfg --> vectorTransforms -. drop/fill .-> postprocessNode
-  vectorStage --> postprocessNode
-```
-
-style cliSource width:120px
-style cliDomain width:120px
-style cliContract width:120px
-style cliServe width:120px
-style sourcesCfg width:200px
-style contractsCfg width:200px
-style datasetCfg width:180px
-style postprocessCfg width:200px
-style registrySources width:160px
-style registryStreamSources width:180px
-style registryMappers width:160px
-style registryRecordOps width:180px
-style registryStreamOps width:180px
-style registryDebugOps width:180px
-style transportSpec width:180px
-style loaderEP width:140px
-style parserEP width:140px
-style sourceArgs width:160px
-style canonical width:180px
-style featureTrans width:180px
-style domainRecords width:140px
-style featureRecords width:140px
-style sequenceStream width:180px
-style vectorStage width:160px
-style vectorSamples width:180px
-style recordRules width:160px
-style streamRules width:160px
-style debugRules width:160px
-style domainPkg width:160px
-style mappersPkg width:160px
-
-Solid arrows trace runtime data flow; dashed edges highlight how the config files
-inject transports, entry points, or policies into each stage.
-
-CLI quick path:
-
-- `jerry source add <provider> <dataset> --transport fs|http|synthetic --format ...` → scaffolds DTO/parser/loader and writes `config/sources/*.yaml`.
-- `jerry domain add <name>` → creates `src/<pkg>/domains/<name>/model.py`.
-- `jerry contract` → picks a source + domain, scaffolds/links a mapper under `mappers/`, registers its entry point, and writes `config/contracts/<stream>.yaml`.
-- `jerry serve --project <project.yaml>` → builds/streams vectors using dataset `record_stream` IDs, registry wiring, and postprocess rules.
-
-`config/sources/*.yaml` determines both the transport and parsing strategy:
-you define transport (`fs`, `http`, `synthetic`, etc.), the payload format
-(`csv`, `json`, ...), and the loader/parser entry points. Loader `args`
-typically include file paths, bucket prefixes, or credential references—the
-runtime feeds those arguments into the instantiated loader so it knows exactly
-which external data store to read. Contracts bind each canonical stream to a
-`source` alias (connecting back to the loader/parser pair) and register a
-stream ID; they also specify mapper entry points, record/stream rules,
-partitioning, and batch sizes. Dataset features reference those canonical
-stream IDs via `record_stream`, so each feature config reuses the registered
-stream (and, by extension, the raw source) when you call
-`build_feature_pipeline()` (`src/datapipeline/pipeline/pipelines.py`). Finally,
-`postprocess.yaml` decorates the vector stream with additional filters/fills so
-serve/build outputs inherit the full set of policies. When you run the CLI,
-`bootstrap()` (`src/datapipeline/services/bootstrap/core.py`) loads each
-directory declared in `project.yaml`, instantiates loaders/parsers via
-`build_source_from_spec()` and `load_ep()`, attaches contract registries, and
-hands a fully wired `Runtime` to the pipeline stages in
-`src/datapipeline/pipeline/stages.py`.
-
-Every `record_stream` identifier ultimately resolves to the stream entry revived
-by the contract bootstrap step, so requesting stage outputs for a feature always
-walks the entire chain from dataset config → canonical contract → source
-definition. That is why `build_feature_pipeline()` starts by calling
-`open_source_stream(context, record_stream_id)` before stepping through record
-policies, stream policies, and feature transforms.
-
-The runtime (`src/datapipeline/runtime.py`) hosts registries for sources,
-transforms, artifacts, and postprocess rules. The CLI constructs lightweight
-`PipelineContext` objects to build iterators without mutating global state.
+1. **CLI flags** – anything you pass on the command line always wins.
+2. **Project task files** – `kind: serve` specs (under `project.paths.tasks`)
+   supply serve defaults; artifact tasks in the same directory drive `jerry build`.
+3. **`jerry.yaml` command blocks** – settings under `jerry.serve` and `jerry.build`.
+4. **`jerry.yaml.shared`** – shared fallbacks for visuals/progress/log-level style settings.
+5. **Built-in defaults** – runtime hard-coded defaults.
 
 ---
 
-## Configuration Files
+## YAML Config Reference
 
-All project configuration for a dataset lives under a single project root directory (for example `config/`), which contains `project.yaml` and its siblings.
+All dataset configuration is rooted at a single `project.yaml` file. Other YAML files are discovered via `project.paths.*` (relative to `project.yaml` unless absolute).
 
 ### `project.yaml`
 
@@ -363,7 +172,7 @@ throttle_ms: null # milliseconds to sleep between emitted vectors
 ```
 
 - Each serve task lives alongside artifact tasks under `paths.tasks`. Files are independent—no special directory structure required.
-- `output`, `limit`, `throttle_ms`, and `log_level` provide defaults for `jerry serve`; CLI flags still win per invocation (see _Configuration Resolution Order_). For filesystem outputs, set `transport: fs`, `directory: /path/to/root`, and omit file names—each run automatically writes to `<directory>/<run_name>/<run_name>.<ext>` unless you override the entire `output` block with a custom `filename`.
+- `output`, `limit`, `throttle_ms`, and `log_level` provide defaults for `jerry serve`; CLI flags still win per invocation (see _Configuration & Resolution Order_). For filesystem outputs, set `transport: fs`, `directory: /path/to/root`, and omit file names—each run automatically writes to `<directory>/<run_name>/<run_name>.<ext>` unless you override the entire `output` block with a custom `filename`.
 - Override `keep` (and other fields) per invocation via `jerry serve ... --keep val` etc.
 - Visuals backend: set `visuals: AUTO|TQDM|RICH|OFF` in the task or use `--visuals`. Pair with `progress: AUTO|SPINNER|BARS|OFF` or `--progress` to control progress layouts.
 - Add additional `kind: serve` files to the tasks directory for other splits (val/test/etc.); `jerry serve` runs each enabled file unless you pass `--run <name>`.
@@ -374,81 +183,87 @@ throttle_ms: null # milliseconds to sleep between emitted vectors
 Create an optional `jerry.yaml` in the directory where you run the CLI to share settings across commands. The CLI walks up from the current working directory to find the first `jerry.yaml`.
 
 ```yaml
-plugin_root: lib/power_plugin # optional repo path for scaffolding (relative to this file)
-config_root: configs/default # directory containing project.yaml (relative paths ok)
+plugin_root: lib/my-datapipeline # plugin workspace (relative to this file)
+
+# Dataset aliases for --dataset; values may be dirs (auto-append project.yaml).
+datasets:
+  example: lib/my-datapipeline/example/project.yaml
+default_dataset: example
 
 shared:
-  visuals: rich # default visual renderer (auto|tqdm|rich|off)
-  progress: bars # spinner|bars|auto|off
+  visuals: AUTO # AUTO | TQDM | RICH | OFF
+  progress: BARS # AUTO | SPINNER | BARS | OFF
+  log_level: INFO
 
 serve:
-  log_level: INFO
+  limit: null
+  stage: null
   output:
     transport: stdout
-    format: print
+    format: print # print | json-lines | json | csv | pickle
     # directory: artifacts/serve # Required when transport=fs
 
 build:
-  log_level: INFO
   mode: AUTO # AUTO | FORCE | OFF
 ```
 
 `jerry.yaml` sits near the root of your workspace, while dataset-specific overrides still live in individual `tasks/serve.*.yaml` files as needed.
 
-### Configuration Resolution Order
+### `<project_root>/sources/<alias>.yaml`
 
-Defaults are layered so you can set global preferences once, keep dataset/run
-files focused on per-project behavior, and still override anything from the CLI.
-For both `jerry serve` and `jerry build`, options are merged in the following
-order (highest precedence first):
-
-1. **CLI flags** – anything you pass on the command line always wins, even if a
-   value is already specified elsewhere.
-2. **Project task files** – `kind: serve` specs (under `project.paths.tasks`)
-   supply serve defaults; artifact tasks in the same directory drive `jerry build`.
-   These only apply to the dataset that owns the config directory.
-3. **`jerry.yaml` command blocks** – settings under `jerry.serve` and
-   `jerry.build` provide workspace-wide defaults for their respective commands.
-4. **`jerry.yaml.shared`** – shared fallbacks for visuals/progress/log-level
-   style settings that apply to every command when a more specific value is not
-   defined.
-5. **Built-in defaults** – the runtime’s hard-coded values used when nothing else
-   sets an option.
-
-This hierarchy lets you push opinionated defaults up to the workspace (so every
-project or dataset behaves consistently) while still giving each dataset and
-every CLI invocation the ability to tighten or override behaviors.
-
-### `config/sources/<alias>.yaml`
-
-Each file defines a loader/parser pair exposed under `<alias>` (also the
-`id` the rest of the pipeline references). Files may live in nested
-subdirectories under `config/sources/`; discovery is recursive.
+Each file defines a loader/parser pair exposed under `<alias>`. Files may live in nested
+subdirectories under `<project_root>/sources/`; discovery is recursive.
 
 ```yaml
-id: demo_weather
+# Source identifier (commonly `provider.dataset`). Contracts reference this under `source:`.
+id: stooq.ohlcv
 parser:
-  entrypoint: demo.weather_parser
-  args:
-    timezone: UTC
+  # Parser entry point name (registered in your plugin’s pyproject.toml).
+  entrypoint: stooq.ohlcv
 loader:
-  entrypoint: demo.csv_loader
+  # Most common loader: core.io (supports fs/http via args.transport + args.format).
+  entrypoint: core.io
   args:
-    path: data/weather.csv
+    transport: http
+    format: csv
+    url: "https://stooq.com/q/d/l/?s=aapl.us&i=d"
 ```
 
-### `config/contracts/<alias>.yaml`
+- `id`: the source alias; referenced by contracts under `source:`.
+- `parser.entrypoint`: which parser to use; `parser.args` are optional.
+- `loader.entrypoint`: which loader to use; `core.io` is the default for fs/http and is configured via `loader.args`.
+
+#### Fan-out Sources (`core.foreach`)
+
+Use `core.foreach` to expand any inner loader spec across a list without duplicating YAML. It interpolates string args and optionally injects the foreach value into each row.
+
+```yaml
+loader:
+  entrypoint: core.foreach
+  args:
+    foreach:
+      symbol: [AAPL, MSFT]
+    inject_field: symbol
+    loader:
+      entrypoint: core.io
+      args:
+        transport: http
+        format: csv
+        url: "https://stooq.com/q/d/l/?s=${symbol}&i=d"
+```
+
+### `<project_root>/contracts/<stream_id>.yaml`
 
 Canonical stream contracts describe how the runtime should map and prepare a
 source. Use folders to organize by domain.
 
 ```yaml
 kind: ingest
-id: demo_weather
-source: demo_weather
+id: equity.ohlcv # stream identifier (domain.dataset[.variant])
+source: stooq.ohlcv # references sources/<alias>.yaml:id
 
 mapper:
-  entrypoint: weather.domain.mapper
+  entrypoint: equity.ohlcv
   args: {}
 
 partition_by: station
@@ -526,14 +341,14 @@ Defines which canonical streams become features/targets and the vector bucketing
 group_by: 1h
 
 features:
-  - id: temp_c
-    record_stream: demo_weather
+  - id: close
+    record_stream: equity.ohlcv
     scale: true
     sequence: { size: 6, stride: 1 }
 
 targets:
-  - id: precip
-    record_stream: demo_weather
+  - id: returns_1d
+    record_stream: equity.ohlcv
 ```
 
 - `group_by` controls the cadence for vector partitioning (accepts `Xm|min|Xh`
@@ -620,7 +435,7 @@ Pass `--help` on any command for flags.
   the group key or metadata. Default is `sample`.
   - Set `--log-level DEBUG` (or set your serve task `log_level: DEBUG`) to reuse the tqdm progress bars when previewing stages.
   - When multiple serve tasks exist, add `--run val` (task name or filename stem) to target a single config; otherwise every enabled task is executed sequentially.
-  - Argument precedence follows the order described under _Configuration Resolution Order_.
+  - Argument precedence follows the order described under _Configuration & Resolution Order_.
   - Combine with `--skip-build` when you already have fresh artifacts and want to jump straight into streaming.
 
 ### Build & Quality
@@ -826,5 +641,151 @@ and `src/datapipeline/filters/`.
 - `examples/minimal_project/` – runnable demo showing config layout and Torch
   integration.
 
-Happy shipping! Build, inspect, and serve consistent time-series features with
-confidence.
+---
+
+## Pipeline Architecture (WIP)
+
+```text
+raw source ──▶ loader/parser DTOs ──▶ canonical stream ──▶ record policies
+      └──▶ feature wrapping ──▶ stream regularization ──▶ feature transforms/sequence
+      └──▶ vector assembly ──▶ postprocess transforms
+```
+
+1. **Loader/parser (Stage 0)** – raw bytes become typed DTOs. Loaders fetch from
+   FS/HTTP/synthetic sources; parsers map bytes to DTOs. Register them via entry
+   points (`loaders`, `parsers`) and wire them in `config/sources/*.yaml`.
+2. **Canonical stream mapping (Stage 1)** – mappers attach domain semantics and
+   partition keys, producing domain `TemporalRecord`s.
+3. **Record policies (Stage 2)** – contract `record` rules (filters, floor, lag)
+   prune and normalize DTO-derived records.
+4. **Feature wrapping (Stage 3)** – records become `FeatureRecord`s before
+   sort/regularization.
+5. **Stream regularization (Stage 4)** – contract `stream` rules ensure cadence,
+   deduplicate timestamps, and impute where needed.
+6. **Feature transforms/sequence (Stage 5)** – dataset transforms (scale,
+   sequence windows) produce per-feature tensors or windows.
+7. **Vector assembly (Stage 6)** – features merge by `group_by` cadence into
+   `(group_key, Vector)` pairs, prior to postprocess tweaks.
+8. **Postprocess (Stage 7)** – optional vector transforms (fill/drop/etc.) run
+   before results are emitted to the configured output.
+
+#### Visual Flowchart
+
+```mermaid
+flowchart TB
+  subgraph CLI & Project config
+    cliSource[jerry source add]
+    cliDomain[jerry domain add]
+    cliContract[jerry contract]
+    cliServe[jerry serve]
+    project[[project.yaml]]
+    sourcesCfg[config/sources/*.yaml]
+    contractsCfg[config/contracts/*.yaml]
+    datasetCfg[dataset.yaml]
+    postprocessCfg[postprocess.yaml]
+  end
+
+  cliSource --> sourcesCfg
+  cliDomain --> domainPkg
+  cliContract --> contractsCfg
+  cliServe --> vectorSamples
+  project -.->|paths.sources| sourcesCfg
+  project -.->|paths.streams| contractsCfg
+  project -.->|paths.dataset| datasetCfg
+  project -.->|paths.postprocess| postprocessCfg
+
+  subgraph Plugin code
+    domainPkg[domains/*]
+    mappersPkg[mappers/*]
+  end
+
+  cliContract --> mappersPkg
+  domainPkg -. domain models .-> mappersPkg
+
+  subgraph Registries
+    registrySources[sources]
+    registryStreamSources[stream_sources]
+    registryMappers[mappers]
+    registryRecordOps[record_ops]
+    registryStreamOps[stream_ops]
+    registryDebugOps[debug_ops]
+  end
+
+  subgraph Source wiring
+    rawData[(external data)]
+    transportSpec[transport + format]
+    loaderEP[loader ep]
+    parserEP[parser ep]
+    sourceArgs[loader args]
+    sourceNode[Source]
+    dtoStream[(DTOs)]
+  end
+
+  sourcesCfg --> transportSpec
+  sourcesCfg --> loaderEP
+  sourcesCfg --> parserEP
+  sourcesCfg --> sourceArgs
+  transportSpec -. select fs/http/synth .-> loaderEP
+  loaderEP -. build loader .-> sourceNode
+  parserEP -. build parser .-> sourceNode
+  sourceArgs -. paths/creds .-> sourceNode
+  rawData --> sourceNode --> dtoStream
+  sourcesCfg -. build_source_from_spec .-> registrySources
+  contractsCfg -. stream_id + source .-> registryStreamSources
+  registrySources -. alias -> Source .-> registryStreamSources
+
+  subgraph Canonical stream
+    mapperEP[mapper ep]
+    recordRules[record rules]
+    streamRules[stream rules]
+    debugRules[debug rules]
+    canonical[DTO -> record]
+    domainRecords((TemporalRecord))
+    recordStage[record xforms]
+    featureWrap[record -> feature]
+    featureRecords((FeatureRecord))
+    regularization[stream xforms]
+  end
+
+  dtoStream --> canonical --> domainRecords --> recordStage --> featureWrap --> featureRecords --> regularization
+  contractsCfg --> mapperEP
+  mappersPkg -. ep target .-> mapperEP
+  mapperEP -. build_mapper_from_spec .-> registryMappers
+  registryMappers --> canonical
+  contractsCfg --> recordRules
+  contractsCfg --> streamRules
+  contractsCfg --> debugRules
+  registryRecordOps --> recordRules
+  registryStreamOps --> streamRules
+  registryDebugOps --> debugRules
+  recordRules --> recordStage
+  streamRules --> regularization
+  debugRules --> regularization
+
+  subgraph Dataset shaping
+    featureSpec[feature cfg]
+    groupBySpec[group_by]
+    streamRefs[record_stream ids]
+    featureTrans[feature/seq xforms]
+    sequenceStream((seq/features))
+    vectorStage[vector assembly]
+    vectorSamples((samples))
+  end
+
+  datasetCfg --> featureSpec
+  datasetCfg --> groupBySpec
+  datasetCfg --> streamRefs
+  streamRefs -.->|build_feature_pipeline| registryStreamSources
+  registryStreamSources -.->|open_source_stream| sourceNode
+  featureRecords --> regularization --> featureTrans --> sequenceStream --> vectorStage --> vectorSamples
+  featureSpec -. scale/sequence .-> featureTrans
+  groupBySpec -. cadence .-> vectorStage
+
+  subgraph Postprocess
+    vectorTransforms[vector xforms]
+    postprocessNode[postprocess]
+  end
+
+  postprocessCfg --> vectorTransforms -. drop/fill .-> postprocessNode
+  vectorStage --> postprocessNode
+```
