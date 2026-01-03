@@ -130,8 +130,6 @@ order (highest precedence first):
 4. **`jerry.yaml.shared`** – shared fallbacks for visuals/progress/log-level style settings.
 5. **Built-in defaults** – runtime hard-coded defaults.
 
----
-
 ## YAML Config Reference
 
 All dataset configuration is rooted at a single `project.yaml` file. Other YAML files are discovered via `project.paths.*` (relative to `project.yaml` unless absolute).
@@ -421,6 +419,16 @@ enabled: true
 - `metadata.json` (from the `metadata` task) captures heavier statistics—present/null counts, inferred value types, list-length histograms, per-partition timestamps, and the dataset window. Configure `metadata.window_mode` with `union|intersection|strict|relaxed` (default `intersection`) to control how start/end bounds are derived. `union` considers base features, `intersection` uses their overlap, `strict` intersects every partition, and `relaxed` unions partitions independently.
 - Command tasks (`kind: serve`) live alongside artifact tasks; `jerry serve` reads them directly.
 - Shared run/build defaults (visuals/progress/log level/build mode) live in `jerry.yaml`.
+
+---
+
+### Versioning & Reproducibility
+
+- Jerry outputs are deterministic given a fixed config, plugin code, and source snapshot.
+- `jerry serve` runs are named by task/run and are reproducible when inputs + config are unchanged.
+- A git tag on the workspace (plus the plugin repo) can represent a dataset “version” you can always rebuild.
+- This pairs well with DVC: let DVC track raw inputs, and regenerate derived datasets from the tagged Jerry config when needed.
+- Still use DVC for outputs when rebuilds are too expensive, transforms are non-deterministic, or sources are not snapshot-stable.
 
 ---
 
