@@ -7,7 +7,7 @@ paths:
   postprocess: postprocess.yaml
   artifacts: ../artifacts/${project_name}/v${version}
   tasks: ./tasks
-globals:
+globals: # Globals to use in your .yaml files via ${var_name}.
   # Primary dataset cadence; referenced from dataset.yaml (group_by)
   # and contracts via ${group_by}.
   group_by: <your-bucket-cadence>

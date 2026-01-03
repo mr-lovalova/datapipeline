@@ -1,5 +1,7 @@
 from pathlib import Path
 
+from datapipeline.config.workspace import WorkspaceContext
+from datapipeline.cli.workspace_utils import resolve_default_project_yaml
 from datapipeline.services.scaffold.source import create_source
 
 
@@ -13,6 +15,7 @@ def handle(
     identity: bool = False,
     alias: str | None = None,
     plugin_root: Path | None = None,
+    workspace: WorkspaceContext | None = None,
 ) -> None:
     if subcmd in {"create", "add"}:
         # Allow: positional provider dataset, --provider/--dataset, --alias, or provider as 'prov.ds'
@@ -43,6 +46,7 @@ def handle(
         if transport in {"fs", "http"} and not format:
             print("[error] --format is required for fs/http transports (fs: csv|json|json-lines|pickle, http: csv|json|json-lines)")
             raise SystemExit(2)
+        project_yaml = resolve_default_project_yaml(workspace)
         create_source(
             provider=provider,
             dataset=dataset,
@@ -50,4 +54,5 @@ def handle(
             format=format,
             root=plugin_root,
             identity=identity,
+            **({"project_yaml": project_yaml} if project_yaml is not None else {}),
         )

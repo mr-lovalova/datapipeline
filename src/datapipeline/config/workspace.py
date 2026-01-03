@@ -125,6 +125,21 @@ class WorkspaceContext:
     def root(self) -> Path:
         return self.file_path.parent
 
+    def resolve_dataset_alias(self, alias: str) -> Optional[Path]:
+        """Resolve a dataset alias from jerry.yaml into an absolute project.yaml path."""
+        raw = (self.config.datasets or {}).get(alias)
+        if not raw:
+            return None
+        candidate = Path(raw)
+        candidate = (
+            candidate.resolve()
+            if candidate.is_absolute()
+            else (self.root / candidate).resolve()
+        )
+        if candidate.is_dir():
+            candidate = candidate / "project.yaml"
+        return candidate.resolve()
+
     def resolve_plugin_root(self) -> Optional[Path]:
         raw = self.config.plugin_root
         if not raw:

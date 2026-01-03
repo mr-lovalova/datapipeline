@@ -10,6 +10,6 @@ class RecordDatasetConfig(BaseModel):
 
 
 class FeatureDatasetConfig(BaseModel):
-    group_by: str = Field(..., pattern=r"^\d+(m|min|h)$")
+    group_by: str = Field(..., pattern=r"^\d+(m|min|h|d)$")
     features: List[FeatureRecordConfig] = Field(default_factory=list)
     targets:  List[FeatureRecordConfig] = Field(default_factory=list)
