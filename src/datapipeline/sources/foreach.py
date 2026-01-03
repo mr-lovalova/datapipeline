@@ -54,6 +54,10 @@ class ForeachLoader(BaseDataLoader):
         self._loader_spec = self._normalize_loader_spec(loader)
         self._inject_field = inject_field
         self._inject = inject
+        self._current_index: int | None = None
+        self._current_value: Any | None = None
+        self._current_args: dict[str, Any] | None = None
+        self._current_transport: Any | None = None
 
         if inject_field and inject:
             raise ValueError("core.foreach supports only one of inject_field or inject")
@@ -63,9 +67,14 @@ class ForeachLoader(BaseDataLoader):
             raise TypeError("inject must be a mapping when provided")
 
     def load(self) -> Iterator[Any]:
-        for value in self._values:
+        for i, value in enumerate(self._values, 1):
             vars_ = {self._key: value}
-            loader = self._build_loader(vars_)
+            loader_args = self._make_loader_args(vars_)
+            loader = self._build_loader(loader_args)
+            self._current_index = i
+            self._current_value = value
+            self._current_args = loader_args
+            self._current_transport = getattr(loader, "transport", None)
             inject_map = self._build_inject(vars_)
             for row in loader.load():
                 if inject_map:
@@ -77,7 +86,8 @@ class ForeachLoader(BaseDataLoader):
         total = 0
         for value in self._values:
             vars_ = {self._key: value}
-            loader = self._build_loader(vars_)
+            loader_args = self._make_loader_args(vars_)
+            loader = self._build_loader(loader_args)
             c = loader.count()
             if c is None:
                 return None
@@ -109,11 +119,13 @@ class ForeachLoader(BaseDataLoader):
             raise TypeError("core.foreach loader.args must be a mapping when provided")
         return dict(loader)
 
-    def _build_loader(self, vars_: Mapping[str, Any]) -> BaseDataLoader:
-        entrypoint = self._loader_spec["entrypoint"]
+    def _make_loader_args(self, vars_: Mapping[str, Any]) -> dict[str, Any]:
         args = self._loader_spec.get("args") or {}
         interpolated = _interpolate(args, vars_)
-        loader_args = normalize_args(interpolated)
+        return normalize_args(interpolated)
+
+    def _build_loader(self, loader_args: dict[str, Any]) -> BaseDataLoader:
+        entrypoint = self._loader_spec["entrypoint"]
         L = load_ep(LOADERS_EP, entrypoint)
         return L(**loader_args)
 

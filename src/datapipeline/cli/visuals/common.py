@@ -7,6 +7,7 @@ from typing import Optional, Sequence
 
 from urllib.parse import urlparse
 from datapipeline.sources.transports import FsGlobTransport, FsFileTransport, HttpTransport
+from datapipeline.sources.foreach import ForeachLoader
 
 logger = logging.getLogger(__name__)
 
@@ -238,3 +239,53 @@ def current_transport_label(transport, *, glob_root: Optional[Path] = None) -> O
         except Exception:
             return None
     return None
+
+
+def current_loader_label(loader, transport, *, glob_root: Optional[Path] = None) -> Optional[str]:
+    """Return a human-friendly label for the loader's current unit of work."""
+    if isinstance(loader, ForeachLoader):
+        value = getattr(loader, "_current_value", None)
+        if value is None:
+            return None
+        idx = getattr(loader, "_current_index", None)
+        values = getattr(loader, "_values", None)
+        total = len(values) if isinstance(values, list) else None
+
+        item_label = f"\"{value}\""
+        status = None
+        if isinstance(idx, int) and isinstance(total, int) and total > 0:
+            status = f"({idx}/{total})"
+
+        def _with_item(action: str | None) -> str:
+            parts = []
+            if action:
+                parts.append(action)
+            parts.append(item_label)
+            if status:
+                parts.append(status)
+            return " ".join(parts)
+
+        spec = getattr(loader, "_loader_spec", None) or {}
+        entrypoint = spec.get("entrypoint", "") if isinstance(spec, dict) else ""
+        args = getattr(loader, "_current_args", None)
+        inner_transport = getattr(loader, "_current_transport", None)
+
+        if entrypoint == "core.io" and isinstance(args, dict):
+            t = args.get("transport")
+            if t == "http":
+                parts = urlparse(str(args.get("url", "")))
+                host = parts.netloc or "http"
+                return _with_item(f"Downloading @{host}")
+            if t == "fs":
+                inner_root = None
+                if isinstance(inner_transport, FsGlobTransport):
+                    inner_root = compute_glob_root(getattr(inner_transport, "files", []))
+                label = current_transport_label(inner_transport, glob_root=inner_root)
+                action = f"Loading {label}" if label else "Loading fs"
+                return _with_item(action)
+
+        if entrypoint:
+            return _with_item(f"via {entrypoint}")
+        return _with_item(None)
+
+    return current_transport_label(transport, glob_root=glob_root)

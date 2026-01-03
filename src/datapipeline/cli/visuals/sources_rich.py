@@ -24,13 +24,14 @@ from rich.text import Text
 from .labels import progress_meta_for_loader
 from .common import (
     compute_glob_root,
-    current_transport_label,
+    current_loader_label,
     log_combined_stream,
     transport_debug_lines,
     transport_info_lines,
 )
 from datapipeline.runtime import Runtime
 from datapipeline.sources.models.source import Source
+from datapipeline.sources.foreach import ForeachLoader
 from datapipeline.sources.transports import FsGlobTransport, FsFileTransport, HttpTransport
 logger = logging.getLogger(__name__)
 
@@ -144,8 +145,12 @@ class _RichSourceProxy(Source):
             glob_root = compute_glob_root(
                 getattr(transport, "files", []))
 
+        is_foreach_loader = isinstance(loader, ForeachLoader)
+
         def compose_text(name: Optional[str]) -> str:
             if name:
+                if is_foreach_loader:
+                    return str(name)
                 base = header if sep else desc
                 return f"{base} {name}".rstrip()
             if tail:
@@ -173,8 +178,8 @@ class _RichSourceProxy(Source):
 
         try:
             for item in self._inner.stream():
-                current_label = current_transport_label(
-                    transport, glob_root=glob_root
+                current_label = current_loader_label(
+                    loader, transport, glob_root=glob_root
                 )
                 # On first item: emit Start + transport details
                 if not started_logged:
