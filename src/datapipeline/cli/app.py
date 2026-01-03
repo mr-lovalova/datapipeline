@@ -31,15 +31,9 @@ def _dataset_to_project_path(
     """Resolve a dataset selector (alias, folder, or file) into a project.yaml path."""
     # 1) Alias via jerry.yaml datasets (wins over local folders with same name)
     if workspace is not None:
-        datasets = getattr(workspace.config, "datasets", {}) or {}
-        raw = datasets.get(dataset)
-        if raw:
-            base = workspace.root
-            candidate = Path(raw)
-            candidate = candidate if candidate.is_absolute() else (base / candidate)
-            if candidate.is_dir():
-                candidate = candidate / "project.yaml"
-            return str(candidate.resolve())
+        resolved = workspace.resolve_dataset_alias(dataset)
+        if resolved is not None:
+            return str(resolved)
 
     # 2) Direct file path
     path = Path(dataset)
@@ -640,6 +634,7 @@ def main() -> None:
                 alias=getattr(args, "alias", None),
                 identity=getattr(args, "identity", False),
                 plugin_root=plugin_root,
+                workspace=workspace_context,
             )
         return
 
@@ -658,6 +653,7 @@ def main() -> None:
         handle_contract(
             plugin_root=plugin_root,
             use_identity=args.identity,
+            workspace=workspace_context,
         )
         return
 

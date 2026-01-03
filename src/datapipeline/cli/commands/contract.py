@@ -1,6 +1,8 @@
 import sys
 from pathlib import Path
 
+from datapipeline.config.workspace import WorkspaceContext
+from datapipeline.cli.workspace_utils import resolve_default_project_yaml
 from datapipeline.services.paths import pkg_root, resolve_base_pkg_dir
 from datapipeline.services.entrypoints import read_group_entries, inject_ep
 from datapipeline.services.constants import FILTERS_GROUP, MAPPERS_GROUP
@@ -31,8 +33,10 @@ def handle(
     *,
     plugin_root: Path | None = None,
     use_identity: bool = False,
+    workspace: WorkspaceContext | None = None,
 ) -> None:
     root_dir, name, pyproject = pkg_root(plugin_root)
+    default_project = resolve_default_project_yaml(workspace)
     # Select contract type: Ingest (source->stream) or Composed (streams->stream)
     print("Select contract type:", file=sys.stderr)
     print("  [1] Ingest (source → stream)", file=sys.stderr)
@@ -49,12 +53,13 @@ def handle(
             mapper_path=None,
             with_mapper_stub=True,
             plugin_root=plugin_root,
+            project_yaml=default_project,
         )
         return
 
     # Discover sources by scanning sources_dir YAMLs
     # Default to dataset-scoped project config
-    proj_path = resolve_project_yaml_path(root_dir)
+    proj_path = default_project or resolve_project_yaml_path(root_dir)
     # Ensure a minimal project scaffold so we can resolve dirs interactively
     ensure_project_scaffold(proj_path)
     sources_dir = resolve_sources_dir(proj_path)
@@ -187,6 +192,7 @@ def scaffold_conflux(
     mapper_path: str | None,
     with_mapper_stub: bool,
     plugin_root: Path | None,
+    project_yaml: Path | None,
 ) -> None:
     """Scaffold a composed (multi-input) contract and optional mapper stub.
 
@@ -195,7 +201,7 @@ def scaffold_conflux(
     """
     root_dir, name, _ = pkg_root(plugin_root)
     # Resolve default project path early for interactive selections
-    proj_path = resolve_project_yaml_path(root_dir)
+    proj_path = project_yaml or resolve_project_yaml_path(root_dir)
     ensure_project_scaffold(proj_path)
     # Defer target domain selection until after choosing inputs
 
