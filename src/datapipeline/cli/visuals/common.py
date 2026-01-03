@@ -217,23 +217,24 @@ def current_transport_label(transport, *, glob_root: Optional[Path] = None) -> O
         current = getattr(transport, "current_path", None)
         if not current:
             return None
-        return relative_label(current, glob_root)
+        return f"\"{relative_label(current, glob_root)}\""
     if isinstance(transport, FsFileTransport):
         path = getattr(transport, "path", None)
         if not path:
             return None
         try:
-            return Path(path).name or str(path)
+            name = Path(path).name or str(path)
+            return f"\"{name}\""
         except Exception:
-            return str(path)
+            return f"\"{path}\""
     if isinstance(transport, HttpTransport):
         url = getattr(transport, "url", None)
         if not url:
             return None
         try:
             parts = urlparse(url)
-            name = Path(parts.path or "").name
-            return name or (parts.netloc or "http")
+            host = parts.netloc or "http"
+            return f"@{host}"
         except Exception:
             return None
     return None
