@@ -18,8 +18,8 @@ transforms, and filters.
 
 - Materialize canonical time-series datasets from disparate sources.
 - Preview and debug each stage of the pipeline without writing ad-hoc scripts.
-- Enforce coverage/quality gates and publish artifacts (expected IDs, scaler
-  stats) for downstream ML teams.
+- Enforce coverage/quality gates and publish artifacts (schema, scaler stats)
+  for downstream ML teams.
 - Extend the runtime with entry-point driven plugins for domain-specific I/O or
   feature engineering.
 - Consume vectors directly from Python via iterators, Pandas DataFrames, or
@@ -56,8 +56,8 @@ pip install -e lib/my-datapipeline
 - `jerry plugin init <name> --out lib/`: scaffolds `lib/<name>/` and writes workspace `jerry.yaml`.
 - `jerry.yaml` (created by `plugin init`): sets `plugin_root` for scaffolding commands and `datasets/default_dataset` so you can omit `--project`/`--dataset`.
 - `jerry serve [--dataset <alias>|--project <path>] [--limit N] [--stage 0-7] [--skip-build]`: streams output; builds required artifacts unless `--skip-build`.
-- `jerry build [--dataset <alias>|--project <path>] [--force]`: materializes artifacts (schema, scaler, expected IDs, etc.).
-- `jerry inspect report|matrix|partitions|expected [--dataset <alias>|--project <path>]`: quality and metadata helpers.
+- `jerry build [--dataset <alias>|--project <path>] [--force]`: materializes artifacts (schema, scaler, etc.).
+- `jerry inspect report|matrix|partitions [--dataset <alias>|--project <path>]`: quality and metadata helpers.
 - `jerry source add <provider> <dataset> -t fs|http|synthetic -f csv|json|json-lines|pickle [--identity]`: scaffolds a source YAML and (unless `--identity`) a parser + entry point.
 - `jerry domain add <domain>`: scaffolds domain models under `src/<package>/domains/<domain>/`.
 - `jerry contract [--identity]`: interactive contract scaffolder; most users pick `[1] Ingest (source → stream)` (use `[2] Composed` for derived streams, e.g. air_density from temp + pressure).
@@ -96,6 +96,15 @@ These live under `lib/<plugin>/src/<package>/`:
 - A **domain record** is the canonical shape used across the pipeline. Mappers convert DTOs into domain records so multiple sources can land in the same domain model.
 - The base time-series type is `TemporalRecord` (`time` + `value`). Domains typically add identity fields (e.g. `symbol`, `station_id`) that make filtering/partitioning meaningful.
 - `time` must be timezone-aware (normalized to UTC); `value` is the measurement you engineer features from; all other fields act as the record’s “identity” (used by equality/deduping and commonly by `partition_by`).
+
+### Transforms (Record → Stream → Feature → Vector)
+
+- **Record transforms** run on raw canonical records before sorting or grouping (filters, time flooring, lagging). Each transform operates on one record at a time because order and partitions are not established yet. Configure in `contracts/*.yaml` under `record:`.
+- **Stream transforms** run on ordered, per-feature streams after feature wrapping (dedupe, cadence enforcement, rolling fills). These can, unlike record transforms, operate across a sequence of records for a given feature because they depend on sorted id/time order and cadence. Configure in `contracts/*.yaml` under `stream:`.
+- **Feature transforms** run after stream regularization and shape the per-feature payload for vectorization (scalers, sequence/windowing). These occur after feature ids are finalized and payloads are wrapped. Configure in `dataset.yaml` under each feature.
+- **Vector (postprocess) transforms** operate on assembled vectors (coverage/drop/fill/replace). Configure in `postprocess.yaml`.
+- **Debug transforms** run after stream transforms for validation only. Configure in `contracts/*.yaml` under `debug:`.
+- Custom transforms are registered in your plugin `pyproject.toml` under the matching entry-point group (`datapipeline.record`, `datapipeline.stream`, `datapipeline.feature`, `datapipeline.sequence`, `datapipeline.vector`, `datapipeline.debug`) and then referenced by name in the YAML.
 
 ### Glossary
 
@@ -470,8 +479,6 @@ All commands that take a project accept either `--project <path/to/project.yaml>
   - Add `--matrix csv|html` to persist an availability matrix.
 - `jerry inspect partitions --project <project.yaml> [--include-targets]`
   - Writes discovered partition suffixes to `partitions.json`.
-- `jerry inspect expected --project <project.yaml> [--include-targets]`
-  - Writes the full set of observed feature IDs to `expected.txt` (for external tooling; runtime uses `schema.json`).
 - `jerry build --project <project.yaml> [--force] [--visuals ...] [--progress ...]`
   - Regenerates artifact tasks declared under `project.paths.tasks` when the configuration hash changes.
 
@@ -557,9 +564,6 @@ appropriate group (`record`, `stream`, `feature`, `sequence`, `vector`,
 
 ## Artifacts & Postprocess
 
-- `expected.txt`: newline-delimited full feature IDs, generated on demand via
-  `jerry inspect expected`. Not required at runtime; transforms derive the
-  expected universe from `schema.json`.
 - `schema.json`: output of the `schema` task. Jerry automatically
   enforces this schema during postprocess to impose deterministic ordering and
   list cadence metadata (targets appear whenever the dataset defines them). Window metadata now lives in `metadata.json`.

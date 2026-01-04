@@ -185,7 +185,7 @@ def main() -> None:
     # build (materialize artifacts)
     p_build = sub.add_parser(
         "build",
-        help="materialize project artifacts (expected ids, hashes, etc.)",
+        help="materialize project artifacts (schema, hashes, etc.)",
         parents=[common],
     )
     p_build.add_argument(
@@ -461,24 +461,6 @@ def main() -> None:
         help="partitions manifest path (defaults to build/partitions.json)",
     )
 
-    # Expected IDs (newline list)
-    p_inspect_expected = inspect_sub.add_parser(
-        "expected",
-        help="discover full feature ids and write a newline list",
-        parents=[inspect_common],
-    )
-    p_inspect_expected.add_argument(
-        "--project",
-        "-p",
-        default=None,
-        help="path to project.yaml",
-    )
-    p_inspect_expected.add_argument(
-        "--output",
-        "-o",
-        default=None,
-        help="expected ids output path (defaults to build/datasets/<name>/expected.txt)",
-    )
 
     workspace_context = load_workspace_context(Path.cwd())
     args = parser.parse_args()
@@ -601,16 +583,6 @@ def main() -> None:
         elif subcmd == "partitions":
             from datapipeline.cli.commands.inspect import partitions as handle_inspect_partitions
             handle_inspect_partitions(
-                project=args.project,
-                output=getattr(args, "output", None),
-                visuals=inspect_visual_provider,
-                progress=inspect_progress_style,
-                log_level=base_level,
-                workspace=workspace_context,
-            )
-        elif subcmd == "expected":
-            from datapipeline.cli.commands.inspect import expected as handle_inspect_expected
-            handle_inspect_expected(
                 project=args.project,
                 output=getattr(args, "output", None),
                 visuals=inspect_visual_provider,

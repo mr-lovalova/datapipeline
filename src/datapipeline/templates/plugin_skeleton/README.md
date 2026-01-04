@@ -52,7 +52,6 @@ Analyze vectors
 - `jerry inspect report   --project example/project.yaml` (console only)
 - `jerry inspect partitions --project example/project.yaml` (writes build/partitions.json)
 - `jerry inspect matrix   --project example/project.yaml --format html` (writes build/matrix.html)
-- `jerry inspect expected --project example/project.yaml` (writes build/expected.txt)
 - Use post-processing transforms in `postprocess.yaml` to keep coverage high
   (history/horizontal fills, constants, or drop rules) before serving vectors.
   Add `payload: targets` inside a transform when you need to mutate label vectors.
@@ -94,10 +93,6 @@ Train/Val/Test splits (deterministic)
 Key selection guidance
 - `key: group` hashes the group key (commonly the time bucket). This yields a uniform random split per group but may allow the same entity to appear in multiple splits across time.
 - `key: feature:<id>` hashes a specific feature value, e.g., `feature:entity_id` or `feature:station_id`, ensuring all vectors for that entity land in the same split (recommended to avoid leakage).
-
-Postprocess expected IDs
-- Build once with `jerry build --project config/project.yaml` (or run `jerry inspect expected …`) to materialize `<paths.artifacts>/expected.txt`.
-- Bootstrap registers the artifact; postprocess transforms read it automatically. Per-transform `expected:` overrides are no longer required or supported — the build output is the single source of truth.
 
 Scaler statistics
 - Jerry computes scaler stats automatically. If you need custom paths or settings, add `tasks/scaler.yaml` and override the defaults.
