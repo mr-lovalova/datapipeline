@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from datapipeline.config.tasks import ServeOutputConfig
+from datapipeline.io.output import OutputResolutionError
 from datapipeline.config.workspace import WorkspaceContext
 
 
@@ -113,6 +114,15 @@ def workspace_output_defaults(
     if not serve_defaults or not serve_defaults.output:
         return None
     od = serve_defaults.output
+    transport = str(od.transport).lower() if od.transport is not None else None
+    if transport == "fs" and not od.directory:
+        raise OutputResolutionError(
+            "fs output requires a directory. Example:\n"
+            "  output:\n"
+            "    transport: fs\n"
+            "    format: json-lines\n"
+            "    directory: ./data/processed/jerry"
+        )
     output_dir = None
     if od.directory:
         candidate = Path(od.directory)
