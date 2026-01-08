@@ -65,11 +65,19 @@ class FsGlobTransport(Transport):
 
 
 class HttpTransport(Transport):
-    def __init__(self, url: str, headers: Optional[Dict[str, str]] = None, params: Optional[Dict[str, Any]] = None, chunk_size: int = 64 * 1024):
+    def __init__(
+        self,
+        url: str,
+        headers: Optional[Dict[str, str]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        chunk_size: int = 64 * 1024,
+        timeout_seconds: Optional[float] = None,
+    ):
         self.url = url
         self.headers = dict(headers or {})
         self.params: Dict[str, Any] = dict(params or {})
         self.chunk_size = chunk_size
+        self.timeout_seconds = timeout_seconds
 
     def _build_url(self) -> str:
         if not self.params:
@@ -88,7 +96,7 @@ class HttpTransport(Transport):
         req = Request(req_url, headers=self.headers)
 
         try:
-            resp = urlopen(req)
+            resp = urlopen(req, timeout=self.timeout_seconds)
         except (URLError, HTTPError) as e:
             raise RuntimeError(f"failed to fetch {self.url}: {e}") from e
 

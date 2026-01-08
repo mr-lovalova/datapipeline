@@ -19,7 +19,7 @@ def build_loader(*, transport: str, format: str | None = None, **kwargs: Any) ->
       transport: "fs" | "http"
       format: "csv" | "json" | "json-lines" | "pickle" (required for fs/http)
       fs: path (str), glob (bool, optional), encoding (str, default utf-8), delimiter (csv only)
-      http: url (str), headers (dict, optional), params (dict, optional), encoding (str, default utf-8)
+      http: url (str), headers (dict, optional), params (dict, optional), encoding (str, default utf-8), timeout_seconds (float, optional)
     """
 
     t = (transport or "").lower()
@@ -40,7 +40,8 @@ def build_loader(*, transport: str, format: str | None = None, **kwargs: Any) ->
         headers: Dict[str, str] = dict(kwargs.get("headers") or {})
         params: Dict[str, Any] = dict(kwargs.get("params") or {})
         encoding = kwargs.get("encoding", "utf-8")
-        source = HttpTransport(url, headers=headers, params=params)
+        timeout_seconds = kwargs.get("timeout_seconds")
+        source = HttpTransport(url, headers=headers, params=params, timeout_seconds=timeout_seconds)
     else:
         raise ValueError(f"unsupported transport: {transport}")
 
