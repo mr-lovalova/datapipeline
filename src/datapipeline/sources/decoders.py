@@ -33,7 +33,7 @@ def _iter_text_lines(chunks: Iterable[bytes], encoding: str) -> Iterator[str]:
             idx = buffer.find("\n")
             if idx == -1:
                 break
-            line, buffer = buffer[:idx], buffer[idx + 1 :]
+            line, buffer = buffer[:idx], buffer[idx + 1:]
             if line.endswith("\r"):
                 line = line[:-1]
             yield line
@@ -74,11 +74,13 @@ class CsvDecoder(Decoder):
         if self._error_prefixes:
             lowered = first.lstrip().lower()
             if any(lowered.startswith(p) for p in self._error_prefixes):
-                raise ValueError(f"csv response looks like error text: {first[:120]}")
+                raise ValueError(
+                    f"csv response looks like error text: {first[:120]}")
         return itertools.chain([first], lines)
 
     def decode(self, chunks: Iterable[bytes]) -> Iterator[dict]:
-        reader = csv.DictReader(self._iter_lines(chunks), delimiter=self.delimiter)
+        reader = csv.DictReader(self._iter_lines(
+            chunks), delimiter=self.delimiter)
         for row in reader:
             yield row
 
@@ -87,12 +89,23 @@ class CsvDecoder(Decoder):
 
 
 class JsonDecoder(Decoder):
-    def __init__(self, *, encoding: str = "utf-8"):
+    def __init__(self, *, encoding: str = "utf-8", array_field: Optional[str] = None):
         self.encoding = encoding
+        self.array_field = array_field
 
     def decode(self, chunks: Iterable[bytes]) -> Iterator[Any]:
         text = _read_all_text(chunks, self.encoding)
         data = json.loads(text)
+        if self.array_field:
+            if not isinstance(data, dict):
+                raise ValueError(
+                    "json array_field requires a top-level object")
+            if self.array_field not in data:
+                raise ValueError(
+                    f"json array_field missing: {self.array_field}")
+            data = data[self.array_field]
+            if data is None:
+                return  # MAYBE we NEED DO DO SOMETHING ABOUT THIS so we dont silence it
         if isinstance(data, list):
             for item in data:
                 yield item
@@ -103,6 +116,14 @@ class JsonDecoder(Decoder):
     def count(self, chunks: Iterable[bytes]) -> Optional[int]:
         text = _read_all_text(chunks, self.encoding)
         data = json.loads(text)
+        if self.array_field:
+            if not isinstance(data, dict):
+                raise ValueError(
+                    "json array_field requires a top-level object")
+            if self.array_field not in data:
+                raise ValueError(
+                    f"json array_field missing: {self.array_field}")
+            data = data[self.array_field]
         return len(data) if isinstance(data, list) else 1
 
 

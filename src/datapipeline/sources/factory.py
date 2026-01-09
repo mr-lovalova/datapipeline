@@ -21,6 +21,7 @@ def build_loader(*, transport: str, format: str | None = None, **kwargs: Any) ->
       fs: path (str), glob (bool, optional), encoding (str, default utf-8), delimiter (csv only)
       http: url (str), headers (dict, optional), params (dict, optional), encoding (str, default utf-8), timeout_seconds (float, optional)
       csv: error_prefixes (list[str], optional)
+      json: array_field (str, optional)
     """
 
     t = (transport or "").lower()
@@ -52,7 +53,8 @@ def build_loader(*, transport: str, format: str | None = None, **kwargs: Any) ->
         error_prefixes = kwargs.get("error_prefixes")
         decoder = CsvDecoder(delimiter=delimiter, encoding=encoding, error_prefixes=error_prefixes)
     elif fmt == "json":
-        decoder = JsonDecoder(encoding=encoding)
+        array_field = kwargs.get("array_field")
+        decoder = JsonDecoder(encoding=encoding, array_field=array_field)
     elif fmt == "json-lines":
         decoder = JsonLinesDecoder(encoding=encoding)
     elif fmt == "pickle":
