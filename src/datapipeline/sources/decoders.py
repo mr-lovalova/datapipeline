@@ -105,7 +105,7 @@ class JsonDecoder(Decoder):
                     f"json array_field missing: {self.array_field}")
             data = data[self.array_field]
             if data is None:
-                return  # MAYBE we NEED DO DO SOMETHING ABOUT THIS so we dont silence it
+                return  # TODO MAYBE we NEED DO DO SOMETHING ABOUT THIS so we dont silence it
         if isinstance(data, list):
             for item in data:
                 yield item
