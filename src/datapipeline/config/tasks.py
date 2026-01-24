@@ -23,7 +23,6 @@ class TaskBase(BaseModel):
     kind: str
     name: str | None = Field(default=None, description="Optional task identifier.")
     enabled: bool = Field(default=True, description="Disable to skip execution.")
-    depends_on: list[str] = Field(default_factory=list)
     source_path: Path | None = Field(default=None, exclude=True)
 
     def effective_name(self) -> str:
