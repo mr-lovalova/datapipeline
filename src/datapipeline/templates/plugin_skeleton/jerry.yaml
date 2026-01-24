@@ -1,34 +1,23 @@
-# Workspace defaults. The scaffolder copies this to your workspace root (where
-# you ran `jerry plugin init`). CLI commands walk upward from cwd to find it.
-
-# Relative path from this workspace file back to the plugin root.
-plugin_root: . # e.g., "lib/myplugin" if your plugin lives under lib/
-
-# Dataset aliases for `--dataset`; values may be dirs (auto-append project.yaml).
+# See reference/jerry.yaml for full options and explanations.
+plugin_root: .
 datasets:
-  example: example/project.yaml
-  your-second-example-dataset: your-dataset/project.yaml
+  servable-example: servable-example/project.yaml
+  your-dataset: your-dataset/project.yaml
+  interim-builder: your-interim-data-builder/project.yaml # use this to build interim data used by other datasets
 
-# Default dataset alias when --dataset/--project are omitted.
-default_dataset: example
+default_dataset: servable-example
 
-# Shared fallbacks used by all commands (unless overridden).
 shared:
-  visuals: AUTO # AUTO | TQDM | RICH | OFF
-  progress: BARS # AUTO | SPINNER | BARS | OFF
-  log_level: INFO # Default log level when not set elsewhere
+  visuals: AUTO
+  progress: BARS
+  log_level: INFO
 
-# Defaults for `jerry serve` (run-time options).
 serve:
-  # log_level: INFO # Uncomment to force INFO for serve runs
-  limit: null      # Cap vectors; null means unlimited
-  stage: null      # Preview a specific stage; null runs the full pipeline
+  limit: null
+  stage: null
   output:
     transport: stdout
-    format: print  # stdout: print|json-lines|json|csv|pickle
-    # directory: artifacts/serve # Required when transport=fs
+    format: print
 
-# Defaults for `jerry build` (artifact materialization).
 build:
-  # log_level: INFO # Uncomment to set build log level
-  mode: AUTO # AUTO | FORCE | OFF
+  mode: AUTO

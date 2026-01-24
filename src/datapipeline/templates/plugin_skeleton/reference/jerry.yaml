@@ -1,0 +1,28 @@
+# Jerry workspace config reference (all options).
+# This file is documentation only; uncomment the keys you want to use.
+#
+# plugin_root: ./path/to/your/plugin # optional
+#
+# datasets:                        # optional
+#   default: example/project.yaml  # optional (relative to jerry.yaml)
+# default_dataset: default         # optional (must be a key in datasets)
+#
+# shared:                          # optional
+#   visuals: AUTO                  # optional; AUTO | TQDM | RICH | OFF
+#   progress: AUTO                 # optional; AUTO | SPINNER | BARS | OFF
+#   log_level: INFO                # optional; CRITICAL | ERROR | WARNING | INFO | DEBUG
+#
+# serve:                           # optional
+#   log_level: INFO                # optional
+#   limit: 100                     # optional
+#   stage: 7                       # optional
+#   throttle_ms: 0                 # optional
+#   output:                        # optional
+#     transport: stdout            # optional; stdout | fs
+#     format: json-lines           # optional; stdout: print | json-lines | json
+#     payload: sample              # optional; sample | vector
+#     # directory: artifacts/serve # optional; fs only; relative to jerry.yaml
+#
+# build:                           # optional
+#   log_level: INFO                # optional
+#   mode: AUTO                     # optional; AUTO | FORCE | OFF (false -> OFF)

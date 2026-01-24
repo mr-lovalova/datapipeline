@@ -1,6 +1,6 @@
 # See ../reference/reference/project.yaml for full options.
 version: 1
-name: <your-dataset>
+name: <your-interim-data-builder>
 paths:
   streams: ./contracts
   sources: ./sources
@@ -12,8 +12,3 @@ globals:
   group_by: <your-bucket-cadence>
   start_time: null
   end_time: null
-  split:
-    mode: hash
-    key: group
-    seed: 42
-    ratios: { train: 0.8, val: 0.1, test: 0.1 }

@@ -1,0 +1,15 @@
+# Synthetic source reference.
+# This file is documentation only; uncomment the keys you want to use.
+#
+# id: synthetic.ticks          # required
+#
+# parser:
+#   entrypoint: core.synthetic.ticks # required
+#   args: {}                   # optional
+#
+# loader:
+#   entrypoint: core.synthetic.ticks # required
+#   args:
+#     start: "${start_time}"   # optional
+#     end: "${end_time}"       # optional
+#     frequency: "${group_by}" # optional

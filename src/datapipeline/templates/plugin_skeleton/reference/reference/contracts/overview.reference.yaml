@@ -1,0 +1,34 @@
+# Contract config reference (overview).
+# This file is documentation only; uncomment the keys you want to use.
+#
+# kind: ingest | composed
+# id: domain.dataset.variant
+# source: source.alias          # required when kind: ingest
+# inputs: [stream.id]           # required when kind: composed
+# mapper:                       # optional (defaults to identity)
+#   entrypoint: my_mapper
+#   args: {}
+# cadence: ${group_by}          # optional per-contract variable for interpolation
+# partition_by: station_id      # optional; string or list of strings
+# sort_batch_size: 100000       # optional; in-memory chunk size for sorting
+#
+# record transforms (one-key mappings; optional):
+# - filter: { operator: ge, field: time, comparand: "${start_time}" }
+#   # operator: eq|ne|lt|le|gt|ge|in|nin (aliases: ==, !=, >=, <=, etc.)
+# - floor_time: { cadence: "${cadence}" }
+# - lag: { lag: "${cadence}" }
+#
+# stream transforms (one-key mappings; optional):
+# - dedupe: {}
+# - granularity: { mode: first }   # first | last | mean | median
+# - ensure_cadence: { cadence: "${cadence}" }
+# - fill: { statistic: median, window: 6, min_samples: 1 }
+#   # statistic: mean | median; window must be > 0
+#
+# debug transforms (one-key mappings; optional):
+# - lint: { mode: error, tick: "${cadence}" }  # mode: warn | error
+# - identity: {}
+#
+# See also:
+# - ingest.reference.yaml
+# - composed.reference.yaml

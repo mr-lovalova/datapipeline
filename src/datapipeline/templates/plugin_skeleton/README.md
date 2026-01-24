@@ -24,6 +24,9 @@ Folder layout
   - `contracts/*.yaml` — canonical stream definitions
   - `sources/*.yaml` — raw source definitions (one file per source)
   - `tasks/*.yaml` — task specs (schema/scaler/metadata/serve)
+  - `reference/` — full option references for each config (not loaded by runtime)
+    - `reference/reference/` — example config references
+    - `reference/jerry.yaml` — workspace config reference (place next to repo root)
 - Every dataset `project.yaml` declares a `name`; reference it via `${project_name}`
   inside other config files (e.g., `paths.artifacts: ../artifacts/${project_name}`) to
   avoid hard-coding per-dataset directories.

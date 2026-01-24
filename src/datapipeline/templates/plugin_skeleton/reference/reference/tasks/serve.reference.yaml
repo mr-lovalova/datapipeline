@@ -1,0 +1,28 @@
+# Serve task reference (all options).
+# This file is documentation only; uncomment the keys you want to use.
+#
+# version: 1                  # optional
+# kind: serve
+# name: train                 # optional (defaults to filename stem)
+# enabled: true               # optional
+#
+# keep: train                  # optional; split label from globals.split (null disables filtering)
+#
+# output:                     # optional; omit to use CLI defaults
+#   transport: stdout          # stdout | fs
+#   format: json-lines         # stdout: print | json-lines | json
+#   payload: sample            # sample | vector
+#   # fs transport only:
+#   # transport: fs
+#   # format: csv        # csv | json | json-lines | pickle
+#   # payload: vector
+#   # directory: artifacts/serve
+#   # filename: vectors.train  # no extension, no path separators
+#
+# limit: 100                  # optional; null = unlimited
+# stage: 7                    # optional; 0-7; null lets CLI decide
+# throttle_ms: 0              # optional; milliseconds; null disables
+#
+# log_level: INFO             # optional; CRITICAL | ERROR | WARNING | INFO | DEBUG
+# visuals: AUTO               # optional; AUTO | TQDM | RICH | OFF (false -> OFF)
+# progress: AUTO              # optional; AUTO | SPINNER | BARS | OFF

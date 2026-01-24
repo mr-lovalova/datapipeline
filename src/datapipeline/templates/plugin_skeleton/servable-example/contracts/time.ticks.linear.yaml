@@ -1,0 +1,22 @@
+# See ../../reference/reference/contracts/ingest.reference.yaml for full options.
+kind: ingest
+source: synthetic.ticks
+id: time.ticks.linear
+cadence: ${group_by}
+
+mapper:
+  entrypoint: encode_time
+  args: { mode: linear }
+
+record:
+  - filter: { operator: ge, field: time, comparand: "${start_time}" }
+  - filter: { operator: le, field: time, comparand: "${end_time}" }
+  - floor_time: { cadence: "${cadence}" }
+
+stream:
+  - dedupe: {}
+  - granularity: { mode: first }
+  - ensure_cadence: { cadence: "${cadence}" }
+
+debug:
+  - lint: { mode: error, tick: "${cadence}" }

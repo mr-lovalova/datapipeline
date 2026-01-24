@@ -1,0 +1,18 @@
+# Source config reference (overview).
+# This file is documentation only; uncomment the keys you want to use.
+#
+# Required shape:
+# id: provider.dataset        # required
+# parser:
+#   entrypoint: module.path:callable # required
+#   args: {}                  # optional
+# loader:
+#   entrypoint: module.path:callable # required
+#   args: {}                  # optional
+#
+# See also:
+# - fs.reference.yaml
+# - http.reference.yaml
+# - synthetic.reference.yaml
+# - foreach.reference.yaml
+# - foreach.http.reference.yaml

@@ -1,0 +1,11 @@
+# See ../reference/reference/dataset.yaml for full options.
+group_by: ${group_by}
+
+features:
+  - id: time_linear
+    record_stream: time.ticks.linear
+    scale: true
+    sequence: { size: 6, stride: 1 }
+
+  - id: time_hour_sin
+    record_stream: time.ticks.hour_sin

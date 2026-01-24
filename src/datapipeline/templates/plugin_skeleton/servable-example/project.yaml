@@ -1,6 +1,6 @@
 # See ../reference/reference/project.yaml for full options.
 version: 1
-name: <your-dataset>
+name: servable-example
 paths:
   streams: ./contracts
   sources: ./sources
@@ -9,9 +9,9 @@ paths:
   artifacts: ../artifacts/${project_name}/v${version}
   tasks: ./tasks
 globals:
-  group_by: <your-bucket-cadence>
-  start_time: null
-  end_time: null
+  group_by: 1h
+  start_time: 2021-01-01T00:00:00Z
+  end_time: 2021-01-02T00:00:00Z
   split:
     mode: hash
     key: group

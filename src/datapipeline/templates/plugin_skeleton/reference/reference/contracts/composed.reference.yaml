@@ -1,0 +1,29 @@
+# Composed contract reference (kind: composed).
+# This file is documentation only; uncomment the keys you want to use.
+#
+# kind: composed
+# id: domain.dataset.variant
+# inputs:                      # required (list of stream ids or alias=stream)
+#   - alias=upstream.stream.id
+#   - other.stream.id
+# mapper:                       # optional (defaults to identity)
+#   entrypoint: my_composer
+#   args: {}
+# cadence: ${group_by}          # optional per-contract variable for interpolation
+# partition_by: station_id      # optional; string or list of strings
+# sort_batch_size: 100000       # optional; in-memory chunk size for sorting
+#
+# record transforms (one-key mappings; optional):
+# - filter: { operator: ge, field: time, comparand: "${start_time}" }
+# - floor_time: { cadence: "${cadence}" }
+# - lag: { lag: "${cadence}" }
+#
+# stream transforms (one-key mappings; optional):
+# - dedupe: {}
+# - granularity: { mode: first }
+# - ensure_cadence: { cadence: "${cadence}" }
+# - fill: { statistic: median, window: 6, min_samples: 1 }
+#
+# debug transforms (one-key mappings; optional):
+# - lint: { mode: error, tick: "${cadence}" }
+# - identity: {}

@@ -1,0 +1,32 @@
+# Project config reference (all options).
+# This file is documentation only; uncomment the keys you want to use.
+#
+# version: 1                  # optional
+# name: example               # optional
+# paths:
+#   streams: ./contracts      # required
+#   sources: ./sources        # required
+#   dataset: dataset.yaml     # required
+#   postprocess: postprocess.yaml # required
+#   artifacts: ../artifacts/${project_name}/v${version} # required
+#   tasks: ./tasks            # optional
+# globals:                    # optional; available via ${var}
+#   group_by: 1h              # optional; dataset cadence
+#   start_time: 2021-01-01T00:00:00Z # optional; used in contracts
+#   end_time: 2021-01-02T00:00:00Z   # optional; used in contracts
+#   split:                    # optional; applied at serve time after postprocess
+#     mode: hash              # hash | time
+#     ratios: { train: 0.8, val: 0.1, test: 0.1 }  # must sum to 1.0
+#     seed: 42                # deterministic hash seed
+#     key: group              # group | feature:<id>
+#
+# Time-based split (labels length must be len(boundaries) + 1):
+# globals:
+#   split:
+#     mode: time
+#     boundaries:
+#       - 2021-01-01T00:00:00Z  # first cutover (train -> val)
+#       - 2021-01-02T00:00:00Z  # second cutover (val -> test)
+#     labels: [train, val, test]
+#
+# Any extra keys under globals are allowed and can be referenced via ${var}.

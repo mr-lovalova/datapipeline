@@ -1,0 +1,24 @@
+# Foreach + HTTP loader reference (core.foreach + core.io).
+# This file is documentation only; uncomment the keys you want to use.
+#
+# id: provider.dataset         # required
+# parser:
+#   entrypoint: my_pkg.sources.provider.dataset:parse # required
+#   args: {}                   # optional
+# loader:
+#   entrypoint: core.foreach
+#   args:
+#     foreach:
+#       page: [1, 2, 3]        # required; exactly one key; list of values
+#     loader:
+#       entrypoint: {{DEFAULT_IO_LOADER_EP}}
+#       args:
+#         transport: http
+#         format: json-lines
+#         url: "https://example/api?page=${page}" # required
+#         headers: { Authorization: "Bearer ..." } # optional
+#         params: {}            # optional
+#         encoding: utf-8       # optional
+#         count_by_fetch: false # optional
+#     # inject_field: page      # optional
+#     # throttle_seconds: 0     # optional

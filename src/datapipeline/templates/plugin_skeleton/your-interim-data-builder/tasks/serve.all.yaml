@@ -1,0 +1,8 @@
+# See ../../reference/reference/tasks/serve.reference.yaml for full options.
+kind: serve
+name: all
+keep: null
+output:
+  transport: fs
+  format: json-lines
+  directory: data/interim/jerry
