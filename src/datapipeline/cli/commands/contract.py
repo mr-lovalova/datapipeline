@@ -13,6 +13,7 @@ from datapipeline.services.project_paths import (
     resolve_project_yaml_path,
 )
 from datapipeline.services.scaffold.mappers import attach_source_to_domain
+from datapipeline.services.scaffold.templates import render
 import re
 
 
@@ -151,33 +152,12 @@ def handle(
         streams_dir = streams_path if streams_path.is_dir() else streams_path.parent
         streams_dir.mkdir(parents=True, exist_ok=True)
         cfile = streams_dir / f"{canonical_alias}.yaml"
-        # Build a richer scaffold as YAML text to preserve comments
-        scaffold = f"""
-kind: ingest
-source: {src_key}
-id: {canonical_alias}  # format: domain.dataset.(variant)
-
-mapper:
-  entrypoint: {mapper_ep}
-  args: {{}}
-
-# partition_by: <field or [fields]> 
-# sort_batch_size: 100000              # in-memory sort chunk size
-
-record:                              # record-level transforms
-  - filter: {{ operator: ge, field: time, comparand: "${{start_time}}" }}
-  - filter: {{ operator: le, field: time, comparand: "${{end_time}}" }}
-#   - floor_time: {{ resolution: 10m }}
-#   - lag: {{ lag: 10m }}
-
-# stream:                              # per-feature transforms (input sorted by id,time)
-#   - ensure_ticks: {{ tick: 10m }}
-#   - granularity: {{ mode: first }}
-#   - fill: {{ statistic: median, window: 6, min_samples: 1 }}
-
-# debug:                               # optional validation-only checks
-#   - lint: {{ mode: warn, tick: 10m }}
-"""
+        scaffold = render(
+            "contracts/ingest.yaml.j2",
+            source=src_key,
+            stream_id=canonical_alias,
+            mapper_entrypoint=mapper_ep,
+        )
         with cfile.open("w", encoding="utf-8") as f:
             f.write(scaffold)
         print(f"[new] canonical spec: {cfile}")
@@ -266,6 +246,7 @@ def scaffold_conflux(
     inputs_list = "\n  - ".join(
         s.strip() for s in inputs.split(",") if s.strip()
     )
+    driver_key = inputs.split(",")[0].split("=")[0].strip()
 
     # If no stream_id, select target domain now and derive stream id (mirror ingest flow)
     if not stream_id:
@@ -311,20 +292,7 @@ def scaffold_conflux(
         mapper_file = map_pkg_dir / f"{domain}.py"
         if not mapper_file.exists():
             mapper_file.write_text(
-                """
-from typing import Iterator, Mapping
-from datapipeline.domain.record import TemporalRecord
-
-
-def mapper(
-    inputs: Mapping[str, Iterator[TemporalRecord]],
-    *, driver: str | None = None, aux: Mapping[str, Iterator[TemporalRecord]] | None = None, context=None, **params
-) -> Iterator[TemporalRecord]:
-    # TODO: implement domain math; inputs are ordered/regularized; aux is raw
-    key = driver or next(iter(inputs.keys()))
-    for rec in inputs[key]:
-        yield rec  # replace with your dataclass and computation
-""".lstrip()
+                render("mappers/composed.py.j2")
             )
             print(f"[new] {mapper_file}")
         # Register mapper entry point under datapipeline.mappers
@@ -358,16 +326,12 @@ def mapper(
         print(f"[info] Contract already exists, skipping: {cfile}")
         return
 
-    yaml_text = f"""
-kind: composed
-id: {stream_id}  # format: domain.dataset.(variant)
-# partition_by: <field or [fields]>
-inputs:
-  - {inputs_list}
-
-mapper:
-  entrypoint: {mapper_path}
-  args: {{ driver: {(inputs.split(',')[0].split('=')[0].strip() if '=' in inputs.split(',')[0] else inputs.split(',')[0].strip())} }}
-"""
+    yaml_text = render(
+        "contracts/composed.yaml.j2",
+        stream_id=stream_id,
+        inputs_list=inputs_list,
+        mapper_entrypoint=mapper_path,
+        driver_key=driver_key,
+    )
     cfile.write_text(yaml_text.strip() + "\n", encoding="utf-8")
     print(f"[new] composed contract: {cfile}")

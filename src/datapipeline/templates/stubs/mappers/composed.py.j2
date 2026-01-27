@@ -1,0 +1,13 @@
+from typing import Iterator, Mapping
+
+from datapipeline.domain.record import TemporalRecord
+
+
+def mapper(
+    inputs: Mapping[str, Iterator[TemporalRecord]],
+    *, driver: str | None = None, aux: Mapping[str, Iterator[TemporalRecord]] | None = None, context=None, **params
+) -> Iterator[TemporalRecord]:
+    # TODO: implement domain math; inputs are ordered/regularized; aux is raw
+    key = driver or next(iter(inputs.keys()))
+    for rec in inputs[key]:
+        yield rec  # replace with your dataclass and computation
