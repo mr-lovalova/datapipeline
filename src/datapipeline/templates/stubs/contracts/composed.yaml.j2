@@ -1,5 +1,6 @@
 kind: composed
 id: {{ stream_id }}  # format: domain.dataset.(variant)
+# cadence: ${group_by}          # optional per-contract cadence
 # partition_by: <field or [fields]>
 inputs:
   - {{ inputs_list }}
