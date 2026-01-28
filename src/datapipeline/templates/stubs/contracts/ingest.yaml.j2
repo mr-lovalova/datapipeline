@@ -1,0 +1,24 @@
+kind: ingest
+source: {{ source }}
+id: {{ stream_id }}  # format: domain.dataset.(variant)
+
+mapper:
+  entrypoint: {{ mapper_entrypoint }}
+  args: {}
+
+# partition_by: <field or [fields]>
+# sort_batch_size: 100000              # in-memory sort chunk size
+
+record:                              # record-level transforms
+  - filter: { operator: ge, field: time, comparand: "${start_time}" }
+  - filter: { operator: le, field: time, comparand: "${end_time}" }
+  - floor_time: { resolution: 10m }
+#   - lag: { lag: 10m }
+
+stream:                              # per-feature transforms (input sorted by id,time)
+  - ensure_ticks: { tick: 10m }
+  - granularity: { mode: first }
+#   - fill: { statistic: median, window: 6, min_samples: 1 }
+
+debug:                               # optional validation-only checks
+  - lint: { mode: warn, tick: 10m }

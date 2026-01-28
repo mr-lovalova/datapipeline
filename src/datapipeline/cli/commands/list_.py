@@ -1,7 +1,17 @@
 from pathlib import Path
 
+from datapipeline.config.workspace import WorkspaceContext
+from datapipeline.cli.workspace_utils import resolve_default_project_yaml
 from datapipeline.services.paths import pkg_root, resolve_base_pkg_dir
 from datapipeline.services.bootstrap.core import load_streams
+from datapipeline.services.scaffold.discovery import (
+    list_domains,
+    list_dtos,
+    list_loaders,
+    list_mappers,
+    list_parsers,
+)
+from datapipeline.services.scaffold.utils import error_exit
 
 
 def _default_project_path(root_dir: Path) -> Path | None:
@@ -19,27 +29,34 @@ def _default_project_path(root_dir: Path) -> Path | None:
     return None
 
 
-def handle(subcmd: str) -> None:
+def handle(subcmd: str, *, workspace: WorkspaceContext | None = None) -> None:
     root_dir, name, pyproject = pkg_root(None)
     if subcmd == "sources":
         # Discover sources by scanning sources_dir for YAML files
-        proj_path = _default_project_path(root_dir)
+        proj_path = resolve_default_project_yaml(workspace) if workspace is not None else None
         if proj_path is None:
-            print("[error] No project.yaml found under config/.")
-            return
+            proj_path = _default_project_path(root_dir)
+        if proj_path is None:
+            error_exit("No project.yaml found under config/.")
         try:
             streams = load_streams(proj_path)
         except FileNotFoundError as exc:
-            print(f"[error] {exc}")
-            return
+            error_exit(str(exc))
         aliases = sorted(streams.raw.keys())
         for alias in aliases:
             print(alias)
     elif subcmd == "domains":
-        base = resolve_base_pkg_dir(root_dir, name)
-        dom_dir = base / "domains"
-        if dom_dir.exists():
-            names = sorted(p.name for p in dom_dir.iterdir()
-                           if p.is_dir() and (p / "model.py").exists())
-            for k in names:
-                print(k)
+        for k in list_domains():
+            print(k)
+    elif subcmd == "parsers":
+        for k in sorted(list_parsers().keys()):
+            print(k)
+    elif subcmd == "mappers":
+        for k in sorted(list_mappers().keys()):
+            print(k)
+    elif subcmd == "loaders":
+        for k in sorted(list_loaders().keys()):
+            print(k)
+    elif subcmd == "dtos":
+        for k in sorted(list_dtos().keys()):
+            print(k)

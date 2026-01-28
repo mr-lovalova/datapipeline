@@ -1,0 +1,9 @@
+kind: composed
+id: {{ stream_id }}  # format: domain.dataset.(variant)
+# partition_by: <field or [fields]>
+inputs:
+  - {{ inputs_list }}
+
+mapper:
+  entrypoint: {{ mapper_entrypoint }}
+  args: { driver: {{ driver_key }} }

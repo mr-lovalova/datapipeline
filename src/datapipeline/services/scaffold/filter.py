@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Optional
 from datapipeline.services.scaffold.templates import render
+from datapipeline.services.scaffold.utils import status
 from ..constants import FILTERS_GROUP
 from ..entrypoints import inject_ep
 from ..paths import pkg_root, resolve_base_pkg_dir
@@ -19,7 +20,7 @@ def create_filter(*, name: str, root: Optional[Path]) -> None:
     path = filters_dir / f"{module_name}.py"
     if not path.exists():
         path.write_text(render("filter.py.j2", FUNCTION_NAME=name))
-        print(f"[new] {path}")
+        status("new", str(path))
 
     # Register entry point under datapipeline.filters
     toml_path = root_dir / "pyproject.toml"

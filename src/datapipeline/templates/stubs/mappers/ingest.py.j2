@@ -1,0 +1,18 @@
+from typing import Any, Iterator
+
+from {{DOMAIN_MODULE}} import {{DOMAIN_RECORD}}
+{% if INPUT_IMPORT != "typing" %}from {{INPUT_IMPORT}} import {{INPUT_CLASS}}
+{% endif %}
+
+
+def {{FUNCTION_NAME}}(
+    stream: Iterator[{{INPUT_CLASS}}],
+    **params: Any,
+) -> Iterator[{{DOMAIN_RECORD}}]:
+    """Map {{INPUT_CLASS}} records to domain-level {{DOMAIN_RECORD}} records."""
+    for record in stream:
+        # TODO: construct {{DOMAIN_RECORD}} from record fields
+        yield {{DOMAIN_RECORD}}(
+            time=record.time,  # required
+            value=record.value,  # required
+        )

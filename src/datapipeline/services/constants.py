@@ -12,6 +12,7 @@ LOADERS_GROUP = "loaders"
 MAPPERS_GROUP = "mappers"
 FILTERS_GROUP = "filters"
 DEFAULT_IO_LOADER_EP = "core.io"
+DEFAULT_SYNTHETIC_LOADER_EP = "core.synthetic.ticks"
 
 # POSTPROCESS_GLOBAL_KEY = "__global__"
 POSTPROCESS_TRANSFORMS = "transforms"

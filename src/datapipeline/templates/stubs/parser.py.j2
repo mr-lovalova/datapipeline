@@ -2,7 +2,11 @@ from typing import Any
 
 from datapipeline.sources.models.parser import DataParser
 
+{% if DTO_IMPORT -%}
+from {{DTO_IMPORT}} import {{DTO_CLASS}}
+{% else -%}
 from .dto import {{DTO_CLASS}}
+{% endif %}
 
 
 class {{CLASS_NAME}}(DataParser[{{DTO_CLASS}}]):
