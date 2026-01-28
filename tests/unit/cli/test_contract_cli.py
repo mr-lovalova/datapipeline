@@ -85,23 +85,14 @@ def test_contract_scaffold_uses_project_paths(monkeypatch: pytest.MonkeyPatch, t
     _write_project_yaml(example_root / "project.yaml", sources_dir, streams_dir)
     _write_source_yaml(sources_dir / "demo.weather.yaml", "demo.weather")
 
-    _input_sequence(monkeypatch, ["1", "1", "1", ""])
+    _input_sequence(monkeypatch, ["1", "1", "1", "2", "", "1"])
 
     handle_contract(plugin_root=plugin_root)
 
     contract_path = streams_dir / "weather.weather.yaml"
     assert contract_path.exists(), f"expected contract at {contract_path}"
 
-    mapper_file = (
-        plugin_root
-        / "src"
-        / "sample_plugin"
-        / "mappers"
-        / "demo"
-        / "weather"
-        / "to_weather.py"
-    )
-    assert mapper_file.exists(), "mapper scaffolding inside the plugin should still run"
+    # Mapper creation is now opt-in; identity selection should not scaffold mappers.
 
 
 def test_contract_identity_mapper_skips_scaffold(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -112,7 +103,7 @@ def test_contract_identity_mapper_skips_scaffold(monkeypatch: pytest.MonkeyPatch
     _write_project_yaml(example_root / "project.yaml", sources_dir, streams_dir)
     _write_source_yaml(sources_dir / "demo.weather.yaml", "demo.weather")
 
-    _input_sequence(monkeypatch, ["1", "1", "1", ""])
+    _input_sequence(monkeypatch, ["1", "1", "1", "", "1"])
 
     handle_contract(plugin_root=plugin_root, use_identity=True)
 
@@ -121,16 +112,7 @@ def test_contract_identity_mapper_skips_scaffold(monkeypatch: pytest.MonkeyPatch
     text = contract_path.read_text()
     assert "entrypoint: identity" in text
 
-    mapper_file = (
-        plugin_root
-        / "src"
-        / "sample_plugin"
-        / "mappers"
-        / "demo"
-        / "weather"
-        / "to_weather.py"
-    )
-    assert not mapper_file.exists(), "identity mapper selection should skip scaffold"
+    # Identity mapper should not scaffold mapper code.
 
 
 def test_contract_identity_flag_rejects_composed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

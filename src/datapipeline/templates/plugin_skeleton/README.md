@@ -6,9 +6,9 @@ Quick start
 - Initialize a plugin (already done if you’re reading this here):
 - `jerry plugin init {{DIST_NAME}}`
 - Add a source via CLI (transport-specific placeholders are scaffolded):
-  - File data: `jerry source add <provider> <dataset> -t fs -f <csv|json|json-lines|pickle>`
-  - HTTP data: `jerry source add <provider>.<dataset> -t http -f <json|json-lines|csv>`
-  - Synthetic: `jerry source add -p <provider> -d <dataset> -t synthetic`
+  - File data: `jerry source create <provider>.<dataset> -t fs -f <csv|json|json-lines|pickle>`
+  - HTTP data: `jerry source create <provider>.<dataset> -t http -f <json|json-lines|csv>`
+  - Synthetic: `jerry source create <provider>.<dataset> -t synthetic`
 - Edit the generated `config/sources/*.yaml` to fill in the `path`, delimiter, etc.
 - `jerry.yaml` is placed in your workspace root (alongside the plugin folder) so
   you can run CLI commands from there; `plugin_root` points back to this plugin.
@@ -31,9 +31,9 @@ Folder layout
   inside other config files (e.g., `paths.artifacts: ../artifacts/${project_name}`) to
   avoid hard-coding per-dataset directories.
 - `src/{{PACKAGE_NAME}}/`
-  - `sources/<provider>/<dataset>/dto.py` — DTO model for the source
-  - `sources/<provider>/<dataset>/parser.py` — parse raw → DTO
-  - Optional: `sources/<provider>/<dataset>/loader.py` for synthetic sources
+  - `dtos/*.py` — DTO models (raw source shapes)
+  - `parsers/*.py` — parse raw → DTO
+  - `loaders/*.py` — custom loaders (optional; fs/http use core loader)
   - `domains/<domain>/model.py` — domain record models
   - `mappers/*.py` — map DTOs → domain records
 

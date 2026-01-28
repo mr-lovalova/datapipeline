@@ -8,6 +8,11 @@ from datapipeline.cli.commands.plugin import bar as handle_bar
 from datapipeline.cli.commands.source import handle as handle_source
 from datapipeline.cli.commands.domain import handle as handle_domain
 from datapipeline.cli.commands.contract import handle as handle_contract
+from datapipeline.cli.commands.dto import handle as handle_dto
+from datapipeline.cli.commands.parser import handle as handle_parser
+from datapipeline.cli.commands.mapper import handle as handle_mapper
+from datapipeline.cli.commands.loader import handle as handle_loader
+from datapipeline.cli.commands.stream import handle as handle_stream
 from datapipeline.cli.commands.list_ import handle as handle_list
 from datapipeline.cli.commands.filter import handle as handle_filter
 from datapipeline.cli.commands.inspect import (
@@ -217,22 +222,38 @@ def main() -> None:
         help="progress display: auto (spinner unless DEBUG), spinner, bars, or off",
     )
 
+    # list
+    p_list = sub.add_parser(
+        "list",
+        help="list known resources",
+        parents=[common],
+    )
+    list_sub = p_list.add_subparsers(dest="list_cmd", required=True)
+    list_sub.add_parser("sources", help="list sources")
+    list_sub.add_parser("domains", help="list domains")
+    list_sub.add_parser("parsers", help="list parsers")
+    list_sub.add_parser("dtos", help="list DTOs")
+    list_sub.add_parser("mappers", help="list mappers")
+    list_sub.add_parser("loaders", help="list loaders")
+
     # source
     p_source = sub.add_parser(
         "source",
-        help="add or list raw sources",
+        help="create or list raw sources",
         parents=[common],
     )
     source_sub = p_source.add_subparsers(dest="source_cmd", required=True)
-    p_source_add = source_sub.add_parser(
-        "add",
-        help="create a provider+dataset source",
+    p_source_create = source_sub.add_parser(
+        "create",
+        help="create a provider+dataset source (yaml only)",
         description=(
-            "Scaffold a source using transport + format.\n\n"
+            "Create a source YAML using transport + format or a loader entrypoint.\n\n"
             "Usage:\n"
-            "  jerry source add <provider> <dataset> -t fs -f csv\n"
-            "  jerry source add <provider>.<dataset> -t http -f json\n"
-            "  jerry source add -p <provider> -d <dataset> -t synthetic\n\n"
+            "  jerry source create <provider>.<dataset> -t fs -f csv\n"
+            "  jerry source create <provider>.<dataset> -t http -f json\n"
+            "  jerry source create <provider>.<dataset> -t synthetic\n\n"
+            "  jerry source create <provider> <dataset> --loader mypkg.loaders.demo:Loader\n"
+            "  jerry source create <provider> <dataset> --parser myparser\n\n"
             "Examples:\n"
             "  fs CSV:        -t fs  -f csv\n"
             "  fs NDJSON:     -t fs  -f json-lines\n"
@@ -244,38 +265,47 @@ def main() -> None:
     # Support simple positionals, plus flags for compatibility
     # Allow either positionals or flags. Use distinct dest names for flags
     # to avoid ambiguity when both forms are present in some environments.
-    p_source_add.add_argument("provider", nargs="?", help="provider name")
-    p_source_add.add_argument("dataset", nargs="?", help="dataset slug")
-    p_source_add.add_argument("--provider", "-p", dest="provider_opt", metavar="PROVIDER", help="provider name")
-    p_source_add.add_argument("--dataset", "-d", dest="dataset_opt", metavar="DATASET", help="dataset slug")
-    p_source_add.add_argument("--alias", "-a", help="provider.dataset alias")
-    p_source_add.add_argument(
+    for p in (p_source_create,):
+        p.add_argument("provider", nargs="?", help="provider name")
+        p.add_argument("dataset", nargs="?", help="dataset slug")
+        p.add_argument("--provider", "-p", dest="provider_opt", metavar="PROVIDER", help="provider name")
+        p.add_argument("--dataset", "-d", dest="dataset_opt", metavar="DATASET", help="dataset slug")
+        p.add_argument("--alias", "-a", help="provider.dataset alias")
+        p.add_argument(
         "--transport", "-t",
         choices=["fs", "http", "synthetic"],
-        required=True,
+        required=False,
         help="how data is accessed: fs/http/synthetic",
-    )
-    p_source_add.add_argument(
-        "--format", "-f",
-        choices=["csv", "json", "json-lines", "pickle"],
-        help="data format for fs/http transports (ignored otherwise)",
-    )
-    p_source_add.add_argument(
-        "--identity",
-        action="store_true",
-        help="use the built-in identity parser (skips DTO/parser scaffolding)",
-    )
+        )
+        p.add_argument(
+            "--format", "-f",
+            choices=["csv", "json", "json-lines", "pickle"],
+            help="data format for fs/http transports (ignored otherwise)",
+        )
+        p.add_argument(
+            "--loader",
+            help="loader entrypoint (overrides --transport/--format)",
+        )
+        p.add_argument(
+            "--parser",
+            help="parser entrypoint (defaults to identity)",
+        )
+        p.add_argument(
+            "--identity",
+            action="store_true",
+            help="use the built-in identity parser (alias for --parser identity)",
+        )
     source_sub.add_parser("list", help="list known sources")
 
     # domain
     p_domain = sub.add_parser(
         "domain",
-        help="add or list domains",
+        help="create or list domains",
         parents=[common],
     )
     domain_sub = p_domain.add_subparsers(dest="domain_cmd", required=True)
     p_domain_add = domain_sub.add_parser(
-        "add",
+        "create",
         help="create a domain",
         description="Create a time-aware domain package rooted in TemporalRecord.",
     )
@@ -286,13 +316,64 @@ def main() -> None:
     )
     domain_sub.add_parser("list", help="list known domains")
 
+    # dto
+    p_dto = sub.add_parser(
+        "dto",
+        help="create DTOs",
+        parents=[common],
+    )
+    dto_sub = p_dto.add_subparsers(dest="dto_cmd", required=True)
+    p_dto_create = dto_sub.add_parser("create", help="create a DTO")
+    p_dto_create.add_argument("name", nargs="?", help="DTO class name")
+
+    # parser
+    p_parser = sub.add_parser(
+        "parser",
+        help="create parsers",
+        parents=[common],
+    )
+    parser_sub = p_parser.add_subparsers(dest="parser_cmd", required=True)
+    p_parser_create = parser_sub.add_parser("create", help="create a parser")
+    p_parser_create.add_argument("name", nargs="?", help="Parser class name")
+
+    # mapper
+    p_mapper = sub.add_parser(
+        "mapper",
+        help="create mappers",
+        parents=[common],
+    )
+    mapper_sub = p_mapper.add_subparsers(dest="mapper_cmd", required=True)
+    p_mapper_create = mapper_sub.add_parser("create", help="create a mapper")
+    p_mapper_create.add_argument("name", nargs="?", help="Mapper function name")
+
+    # loader
+    p_loader = sub.add_parser(
+        "loader",
+        help="create loaders",
+        parents=[common],
+    )
+    loader_sub = p_loader.add_subparsers(dest="loader_cmd", required=True)
+    p_loader_create = loader_sub.add_parser("create", help="create a loader")
+    p_loader_create.add_argument("name", nargs="?", help="Loader name")
+
+    # inflow
+    p_inflow = sub.add_parser(
+        "inflow",
+        help="create end-to-end inflow scaffolds",
+        parents=[common],
+    )
+    inflow_sub = p_inflow.add_subparsers(dest="inflow_cmd", required=True)
+    inflow_sub.add_parser("create", help="create an inflow")
+
     # contract (interactive: ingest or composed)
     p_contract = sub.add_parser(
         "contract",
         help="manage stream contracts (ingest or composed)",
         parents=[common],
     )
-    p_contract.add_argument(
+    contract_sub = p_contract.add_subparsers(dest="contract_cmd", required=True)
+    p_contract_create = contract_sub.add_parser("create", help="create a contract")
+    p_contract_create.add_argument(
         "--identity",
         action="store_true",
         help="use built-in identity mapper (skip mapper scaffolding)",
@@ -594,37 +675,78 @@ def main() -> None:
 
     if args.cmd == "source":
         if args.source_cmd == "list":
-            handle_list(subcmd="sources")
-        else:
-            # Merge positionals and flags for provider/dataset
-            handle_source(
-                subcmd="add",
-                provider=(getattr(args, "provider", None) or getattr(args, "provider_opt", None)),
-                dataset=(getattr(args, "dataset", None) or getattr(args, "dataset_opt", None)),
-                transport=getattr(args, "transport", None),
-                format=getattr(args, "format", None),
-                alias=getattr(args, "alias", None),
-                identity=getattr(args, "identity", False),
-                plugin_root=plugin_root,
-                workspace=workspace_context,
-            )
+            handle_list(subcmd="sources", workspace=workspace_context)
+            return
+        # Merge positionals and flags for provider/dataset
+        handle_source(
+            subcmd=args.source_cmd,
+            provider=(getattr(args, "provider", None) or getattr(args, "provider_opt", None)),
+            dataset=(getattr(args, "dataset", None) or getattr(args, "dataset_opt", None)),
+            transport=getattr(args, "transport", None),
+            format=getattr(args, "format", None),
+            alias=getattr(args, "alias", None),
+            identity=getattr(args, "identity", False),
+            loader=getattr(args, "loader", None),
+            parser=getattr(args, "parser", None),
+            plugin_root=plugin_root,
+            workspace=workspace_context,
+        )
+        return
+
+    if args.cmd == "list":
+        handle_list(subcmd=args.list_cmd, workspace=workspace_context)
         return
 
     if args.cmd == "domain":
         if args.domain_cmd == "list":
             handle_list(subcmd="domains")
-        else:
-            handle_domain(
-                subcmd="add",
-                domain=getattr(args, "domain", None),
-                plugin_root=plugin_root,
-            )
+            return
+        handle_domain(
+            subcmd=args.domain_cmd,
+            domain=getattr(args, "domain", None),
+            plugin_root=plugin_root,
+        )
+        return
+
+    if args.cmd == "dto":
+        handle_dto(
+            name=getattr(args, "name", None),
+            plugin_root=plugin_root,
+        )
+        return
+
+    if args.cmd == "parser":
+        handle_parser(
+            name=getattr(args, "name", None),
+            plugin_root=plugin_root,
+        )
+        return
+
+    if args.cmd == "mapper":
+        handle_mapper(
+            name=getattr(args, "name", None),
+            plugin_root=plugin_root,
+        )
+        return
+
+    if args.cmd == "loader":
+        handle_loader(
+            name=getattr(args, "name", None),
+            plugin_root=plugin_root,
+        )
+        return
+
+    if args.cmd == "inflow":
+        handle_stream(
+            plugin_root=plugin_root,
+            workspace=workspace_context,
+        )
         return
 
     if args.cmd == "contract":
         handle_contract(
             plugin_root=plugin_root,
-            use_identity=args.identity,
+            use_identity=getattr(args, "identity", False),
             workspace=workspace_context,
         )
         return
