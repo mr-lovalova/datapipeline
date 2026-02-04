@@ -12,7 +12,7 @@ from ..constants import DEFAULT_IO_LOADER_EP
 
 logger = logging.getLogger(__name__)
 
-_RESERVED_PACKAGE_NAMES = {"datapipeline"}
+_RESERVED_PACKAGE_NAMES = {"datapipeline", "test", "tests"}
 _STDLIB_MODULE_NAMES = getattr(sys, "stdlib_module_names", set())
 
 
