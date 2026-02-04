@@ -2,6 +2,7 @@ from importlib.resources import as_file, files
 from pathlib import Path
 import logging
 import os
+import sys
 
 import yaml
 
@@ -12,6 +13,7 @@ from ..constants import DEFAULT_IO_LOADER_EP
 logger = logging.getLogger(__name__)
 
 _RESERVED_PACKAGE_NAMES = {"datapipeline"}
+_STDLIB_MODULE_NAMES = getattr(sys, "stdlib_module_names", set())
 
 
 def _normalized_package_name(dist_name: str) -> str:
@@ -19,6 +21,12 @@ def _normalized_package_name(dist_name: str) -> str:
     if package_name in _RESERVED_PACKAGE_NAMES:
         logger.error(
             "`datapipeline` is reserved for the core package. Choose a different plugin name."
+        )
+        raise SystemExit(1)
+    if package_name in _STDLIB_MODULE_NAMES:
+        logger.error(
+            "Plugin name '%s' conflicts with a Python standard library module. Choose a different name.",
+            package_name,
         )
         raise SystemExit(1)
     if not package_name.isidentifier():
