@@ -29,38 +29,46 @@ transforms, and filters.
 
 ## Quick Start
 
-### Serve The Example
+### Serve The Demo Plugin (Recommended)
 
 ```bash
-pip install jerry-thomas
-jerry plugin init my-datapipeline --out lib/
-jerry serve --limit 3
+python -m pip install -U jerry-thomas
+jerry demo init
+python -m pip install -e demo
+jerry serve --dataset demo --limit 3
 ```
 
-### Create Your Own Stream
-
-Assumes you already ran `jerry plugin init ...` in this workspace (it writes `jerry.yaml` which the CLI uses for defaults and scaffolding paths).
-These scaffolding commands write YAML into the dataset selected by `default_dataset` in `jerry.yaml` (`example` by default).
+### Create Your Own Plugin + First Ingest
 
 ```bash
-jerry source add demo weather -t fs -f csv
-jerry domain add weather
-jerry contract
-pip install -e lib/my-datapipeline
+jerry plugin init my-datapipeline --out lib/
+python -m pip install -e lib/my-datapipeline
+
+# One-stop wizard: scaffolds source YAML + DTO/parser + domain + mapper + contract.
+jerry inflow create
+
+# Reinstall after commands that update entry points (pyproject.toml).
+python -m pip install -e lib/my-datapipeline
+
+jerry serve --dataset your-dataset --limit 3
 ```
 
 ---
 
 ## CLI Cheat Sheet
 
-- `jerry plugin init <name> --out lib/`: scaffolds `lib/<name>/` and writes workspace `jerry.yaml`.
-- `jerry.yaml` (created by `plugin init`): sets `plugin_root` for scaffolding commands and `datasets/default_dataset` so you can omit `--project`/`--dataset`.
+- `jerry demo init`: scaffolds a standalone demo plugin at `./demo/` and wires a `demo` dataset.
+- `jerry plugin init <name> --out lib/`: scaffolds `lib/<name>/` (writes workspace `jerry.yaml` when missing).
+- `jerry.yaml`: sets `plugin_root` for scaffolding commands and `datasets/default_dataset` so you can omit `--project`/`--dataset`.
 - `jerry serve [--dataset <alias>|--project <path>] [--limit N] [--stage 0-7] [--skip-build]`: streams output; builds required artifacts unless `--skip-build`.
 - `jerry build [--dataset <alias>|--project <path>] [--force]`: materializes artifacts (schema, scaler, etc.).
 - `jerry inspect report|matrix|partitions [--dataset <alias>|--project <path>]`: quality and metadata helpers.
-- `jerry source add <provider> <dataset> -t fs|http|synthetic -f csv|json|json-lines|pickle [--identity]`: scaffolds a source YAML and (unless `--identity`) a parser + entry point.
-- `jerry domain add <domain>`: scaffolds domain models under `src/<package>/domains/<domain>/`.
-- `jerry contract [--identity]`: interactive contract scaffolder; most users pick `[1] Ingest (source → stream)` (use `[2] Composed` for derived streams, e.g. air_density from temp + pressure).
+- `jerry inflow create`: interactive wizard to scaffold an end-to-end ingest stream (source + parser/DTO + mapper + contract).
+- `jerry source create <provider>.<dataset> ...`: scaffolds a source YAML (no Python code).
+- `jerry domain create <domain>`: scaffolds a domain record stub.
+- `jerry dto create`, `jerry parser create`, `jerry mapper create`, `jerry loader create`: scaffold Python code + register entry points (reinstall after).
+- `jerry contract [--identity]`: interactive contract scaffolder (YAML); use for canonical streams or composed streams.
+- `jerry list sources|domains|parsers|mappers|loaders|dtos`: introspection helpers.
 - `pip install -e lib/<name>`: rerun after commands that update `lib/<name>/pyproject.toml` (entry points), or after manual edits to it.
 
 ---
@@ -77,9 +85,11 @@ pip install -e lib/my-datapipeline
 
 These live under `lib/<plugin>/src/<package>/`:
 
-- `sources/<provider>/<dataset>/dto.py` + `parser.py`: source DTO + parser (created by `jerry source add` unless `--identity`).
-- `domains/<domain>/model.py`: domain records (created by `jerry domain add`).
-- `mappers/<provider>/<dataset>/to_<domain>.py`: DTO → domain record mapping (usually created by `jerry contract`).
+- `dtos/*.py`: DTO models (raw source shapes).
+- `parsers/*.py`: raw -> DTO parsers (referenced by source YAML via entry point).
+- `domains/<domain>/model.py`: domain record models.
+- `mappers/*.py`: DTO -> domain record mapping functions (referenced by contracts via entry point).
+- `loaders/*.py`: optional custom loaders (fs/http usually use the built-in core loader).
 - `pyproject.toml`: entry points for loaders/parsers/mappers/transforms (rerun `pip install -e lib/<plugin>` after changes).
 
 ### Loaders & Parsers
@@ -205,12 +215,12 @@ throttle_ms: null # milliseconds to sleep between emitted vectors
 Create an optional `jerry.yaml` in the directory where you run the CLI to share settings across commands. The CLI walks up from the current working directory to find the first `jerry.yaml`.
 
 ```yaml
-plugin_root: lib/my-datapipeline # plugin workspace (relative to this file)
+plugin_root: lib/my-datapipeline # active plugin workspace (relative to this file)
 
 # Dataset aliases for --dataset; values may be dirs (auto-append project.yaml).
 datasets:
-  example: lib/my-datapipeline/example/project.yaml
-default_dataset: example
+  your-dataset: lib/my-datapipeline/your-dataset/project.yaml
+default_dataset: your-dataset
 
 shared:
   visuals: AUTO # AUTO | TQDM | RICH | OFF
@@ -486,12 +496,14 @@ All commands that take a project accept either `--project <path/to/project.yaml>
 
 - `jerry plugin init <package> --out <dir>` (also supports `-n/--name`)
   - Generates a plugin project (pyproject, package skeleton, config templates).
-- `jerry source add <provider> <dataset> --transport fs|http|synthetic --format csv|json|json-lines|pickle`
-  - Also supports `<provider>.<dataset>` via `--alias` or as the first positional
-  - Flag form remains available: `--provider/--dataset`
-  - Creates loader/parser stubs, updates entry points, and drops a matching
-    source YAML.
-- `jerry domain add <name>` (also supports `-n/--name`)
+- `jerry demo init`
+  - Generates a standalone demo plugin at `./demo/` and wires a `demo` dataset alias.
+- `jerry inflow create`
+  - Wizard to scaffold a complete ingest flow (source YAML + parser/DTO + mapper + contract).
+- `jerry source create <provider>.<dataset> --transport fs|http|synthetic --format csv|json|json-lines|pickle`
+  - Also supports positional `<provider> <dataset>` and `--alias <provider>.<dataset>`.
+  - Creates a source YAML only (no Python code).
+- `jerry domain create <name>` (also supports `-n/--name`)
   - Adds a `domains/<name>/` package with a `model.py` stub.
 - `jerry filter create --name <identifier>`
   - Scaffolds an entry-point-ready filter (helpful for custom record predicates).
@@ -702,8 +714,9 @@ raw source ──▶ loader/parser DTOs ──▶ canonical stream ──▶ rec
 ```mermaid
 flowchart TB
   subgraph CLI & Project config
-    cliSource[jerry source add]
-    cliDomain[jerry domain add]
+    cliInflow[jerry inflow create]
+    cliSource[jerry source create]
+    cliDomain[jerry domain create]
     cliContract[jerry contract]
     cliServe[jerry serve]
     project[[project.yaml]]
@@ -713,6 +726,8 @@ flowchart TB
     postprocessCfg[postprocess.yaml]
   end
 
+  cliInflow --> sourcesCfg
+  cliInflow --> contractsCfg
   cliSource --> sourcesCfg
   cliDomain --> domainPkg
   cliContract --> contractsCfg
