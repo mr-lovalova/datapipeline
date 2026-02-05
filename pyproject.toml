@@ -39,6 +39,7 @@ where = ["src"]
 datapipeline = [
   "templates/dataset_config.yaml",
   "templates/plugin_skeleton/**",
+  "templates/demo_skeleton/**",
   "templates/stubs/**"
 ]
 
@@ -50,11 +51,15 @@ floor_time = "datapipeline.transforms.record.floor_time:floor_time"
 filter = "datapipeline.transforms.filter:filter"
 
 [project.entry-points."datapipeline.transforms.stream"]
+floor_time = "datapipeline.transforms.stream.floor_time:floor_time"
+lag = "datapipeline.transforms.stream.lag:apply_lag"
 ensure_cadence = "datapipeline.transforms.stream.ensure_ticks:ensure_cadence"
 fill = "datapipeline.transforms.stream.fill:FillTransformer"
 granularity = "datapipeline.transforms.stream.granularity:FeatureGranularityTransform"
 lint = "datapipeline.transforms.stream.lint:StreamLint"
 dedupe = "datapipeline.transforms.stream.dedupe:FeatureDeduplicateTransform"
+rolling = "datapipeline.transforms.stream.rolling:RollingTransformer"
+filter = "datapipeline.transforms.stream.filter:filter"
 
 [project.entry-points."datapipeline.transforms.feature"]
 scale = "datapipeline.transforms.feature.scaler:StandardScalerTransform"

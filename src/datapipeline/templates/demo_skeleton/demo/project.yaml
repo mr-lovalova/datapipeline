@@ -1,6 +1,6 @@
 # See ../reference/reference/project.yaml for full options.
 version: 1
-name: servable-example
+name: demo
 paths:
   streams: ./contracts
   sources: ./sources
@@ -9,9 +9,9 @@ paths:
   artifacts: ../artifacts/${project_name}/v${version}
   tasks: ./tasks
 globals:
-  group_by: 1h
+  group_by: 1d
   start_time: 2021-01-01T00:00:00Z
-  end_time: 2021-01-02T00:00:00Z
+  end_time: 2021-02-01T00:00:00Z
   split:
     mode: hash
     key: group

@@ -1,11 +1,10 @@
 # See reference/jerry.yaml for full options and explanations.
 plugin_root: .
 datasets:
-  servable-example: servable-example/project.yaml
   your-dataset: your-dataset/project.yaml
   interim-builder: your-interim-data-builder/project.yaml # use this to build interim data used by other datasets
 
-default_dataset: servable-example
+default_dataset: your-dataset
 
 shared:
   visuals: AUTO

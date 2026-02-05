@@ -2,10 +2,11 @@
 group_by: ${group_by}
 
 features:
-  - id: time_linear
+  - id: linear_time
     record_stream: time.ticks.linear
     scale: true
-    sequence: { size: 6, stride: 1 }
+    #sequence: { size: 6, stride: 1 }
 
-  - id: time_hour_sin
-    record_stream: time.ticks.hour_sin
+  - id: equity
+    record_stream: equity.ohlcv
+    scale: true

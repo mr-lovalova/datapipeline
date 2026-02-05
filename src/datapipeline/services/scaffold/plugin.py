@@ -55,7 +55,11 @@ def scaffold_plugin(name: str, outdir: Path) -> None:
         "{{DIST_NAME}}": name,
         "{{DEFAULT_IO_LOADER_EP}}": DEFAULT_IO_LOADER_EP,
     }
-    for p in (target / "pyproject.toml", target / "README.md"):
+    for p in target.rglob("*"):
+        if not p.is_file():
+            continue
+        if p.suffix not in {".py", ".toml", ".md", ".yaml", ".yml"}:
+            continue
         text = p.read_text()
         for placeholder, value in replacements.items():
             text = text.replace(placeholder, value)

@@ -5,6 +5,7 @@ from typing import Optional, Tuple
 
 from datapipeline.cli.commands.run import handle_serve
 from datapipeline.cli.commands.plugin import bar as handle_bar
+from datapipeline.cli.commands.demo import handle as handle_demo
 from datapipeline.cli.commands.source import handle as handle_source
 from datapipeline.cli.commands.domain import handle as handle_domain
 from datapipeline.cli.commands.contract import handle as handle_contract
@@ -220,6 +221,24 @@ def main() -> None:
         choices=["auto", "spinner", "bars", "off"],
         default=None,
         help="progress display: auto (spinner unless DEBUG), spinner, bars, or off",
+    )
+
+    # demo (optional demo dataset)
+    p_demo = sub.add_parser(
+        "demo",
+        help="create an optional demo dataset inside a plugin",
+        parents=[common],
+    )
+    demo_sub = p_demo.add_subparsers(dest="demo_cmd", required=True)
+    demo_init = demo_sub.add_parser(
+        "init",
+        help="create a standalone demo plugin named demo",
+        parents=[common],
+    )
+    demo_init.add_argument(
+        "--out",
+        "-o",
+        help="override parent directory (demo will be created inside)",
     )
 
     # list
@@ -756,6 +775,13 @@ def main() -> None:
             subcmd=args.bar_cmd,
             name=getattr(args, "name", None),
             out=getattr(args, "out", "."),
+        )
+        return
+
+    if args.cmd == "demo":
+        handle_demo(
+            subcmd=args.demo_cmd,
+            out=getattr(args, "out", None),
         )
         return
 
