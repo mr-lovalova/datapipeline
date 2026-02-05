@@ -38,6 +38,11 @@ python -m pip install -e demo
 jerry serve --dataset demo --limit 3
 ```
 
+Note: `jerry demo init` creates a workspace `jerry.yaml`. If you later run
+`jerry plugin init`, it won’t overwrite that file. Remove or edit
+`jerry.yaml` (or pass `--project`) to point at your new plugin.
+For example: `jerry serve --project lib/my-datapipeline/project.yaml`.
+
 ### Create Your Own Plugin + First Ingest
 
 ```bash
@@ -128,9 +133,11 @@ Stages 0-5 operate on a single stream at a time (per feature/target config). Sta
   - Output: Sample stream (still not split)
 
 Full run (no --stage)
+
 - Runs stages 0-7, then applies the configured train/val/test split and optional throttling, then writes output.
 
 Split timing (leakage note)
+
 - Split is applied after stage 7 in `jerry serve` (postprocess runs before split).
 - Feature engineering runs before split; keep it causal (no look-ahead, no future leakage).
 - Scaler statistics are fit by the build task `scaler.yaml` and are typically restricted to the `train` split (configurable via `split_label`).
@@ -202,7 +209,7 @@ These live under `lib/<plugin>/src/<package>/`:
   - `datapipeline.transforms.feature`
   - `datapipeline.transforms.vector`
   - `datapipeline.transforms.debug`
-  Then reference them by name in the YAML.
+    Then reference them by name in the YAML.
 
 ### Glossary
 
@@ -211,7 +218,6 @@ These live under `lib/<plugin>/src/<package>/`:
 - **Partition**: dimension keys appended to feature IDs, driven by `contract.partition_by`.
 - **Group**: vector “bucket” cadence set by `dataset.group_by` (controls how records become samples).
 - **Stage**: debug/preview level for `jerry serve --stage 0-7` (DTOs → domain records → features → vectors).
-
 
 ## Documentation
 
