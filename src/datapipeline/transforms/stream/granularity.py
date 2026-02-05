@@ -4,34 +4,36 @@ from statistics import mean, median
 from typing import Iterator
 
 from datapipeline.domain.feature import FeatureRecord
+from datapipeline.transforms.interfaces import FieldStreamTransformBase
+from datapipeline.transforms.utils import get_field, clone_record_with_field
 
 
-class FeatureGranularityTransform:
+class FeatureGranularityTransform(FieldStreamTransformBase):
     """Normalize same-timestamp duplicates for non-sequence features.
 
     Single-argument API (preferred for concise YAML):
       - "first" | "last" | "mean" | "median" => aggregate duplicates within a timestamp.
     """
 
-    def __init__(self, mode: str = "first") -> None:
+    def __init__(self, mode: str = "first", field: str = "value", to: str | None = None) -> None:
+        super().__init__(field=field, to=to)
         if mode not in {"first", "last", "mean", "median"}:
             raise ValueError(f"Unsupported granularity mode: {mode!r}")
         self.mode = mode
+        self.field = field
+        self.to = to or field
 
     def _aggregate(self, items: list[FeatureRecord]) -> FeatureRecord:
         vals: list[float] = []
         for fr in items:
-            vals.append(float(fr.record.value))
+            vals.append(float(get_field(fr.record, self.field)))
         if self.mode == "mean":
             agg_val = mean(vals)
         elif self.mode == "median":
             agg_val = median(vals)
         new = items[-1]
-        new.record.value = agg_val
-        return new
-
-    def __call__(self, stream: Iterator[FeatureRecord]) -> Iterator[FeatureRecord]:
-        return self.apply(stream)
+        new_record = clone_record_with_field(new.record, self.to, agg_val)
+        return FeatureRecord(record=new_record, id=new.id)
 
     def apply(self, stream: Iterator[FeatureRecord]) -> Iterator[FeatureRecord]:
         """Aggregate duplicates per timestamp while preserving order.
@@ -63,9 +65,29 @@ class FeatureGranularityTransform:
                 if not bucket:
                     continue
                 if self.mode == "last":
-                    out.append(bucket[-1])
+                    last = bucket[-1]
+                    out.append(
+                        FeatureRecord(
+                            record=clone_record_with_field(
+                                last.record,
+                                self.to,
+                                get_field(last.record, self.field),
+                            ),
+                            id=last.id,
+                        )
+                    )
                 elif self.mode == "first":
-                    out.append(bucket[0])
+                    first = bucket[0]
+                    out.append(
+                        FeatureRecord(
+                            record=clone_record_with_field(
+                                first.record,
+                                self.to,
+                                get_field(first.record, self.field),
+                            ),
+                            id=first.id,
+                        )
+                    )
                 else:
                     out.append(self._aggregate(bucket))
             return iter(out)

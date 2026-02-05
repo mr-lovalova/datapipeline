@@ -5,14 +5,14 @@ from typing import Iterator
 
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.utils.time import parse_timecode
+from datapipeline.transforms.interfaces import RecordTransformBase
 
 
-def _shift_record_time(record: TemporalRecord, lag: timedelta) -> TemporalRecord:
-    record.time = record.time - lag
-    return record
+class LagRecordTransform(RecordTransformBase):
+    def __init__(self, lag: str) -> None:
+        self.lag = parse_timecode(lag)
 
-
-def apply_lag(stream: Iterator[TemporalRecord], lag: str) -> Iterator[TemporalRecord]:
-    lag_td = parse_timecode(lag)
-    for record in stream:
-        yield _shift_record_time(record, lag_td)
+    def apply(self, stream: Iterator[TemporalRecord]) -> Iterator[TemporalRecord]:
+        for record in stream:
+            record.time = record.time - self.lag
+            yield record
