@@ -178,14 +178,14 @@ partition_by: station
 sort_batch_size: 50000
 
 record:
-  - filter: { operator: ge, field: time, comparand: "${start_time}" }
-  - filter: { operator: lt, field: time, comparand: "${end_time}" }
+  - filter: { field: time, operator: ge, comparand: "${start_time}" }
+  - filter: { field: time, operator: lt, comparand: "${end_time}" }
   - floor_time: { cadence: 10m }
 
 stream:
-  - ensure_cadence: { cadence: 10m }
-  - granularity: { mode: mean }
-  - fill: { statistic: median, window: 6, min_samples: 2 }
+  - ensure_cadence: { field: value, to: value, cadence: 10m }
+  - granularity: { field: value, to: value, mode: mean }
+  - fill: { field: value, to: value, statistic: median, window: 6, min_samples: 2 }
 
 debug:
   - lint: { mode: warn, tick: 10m }

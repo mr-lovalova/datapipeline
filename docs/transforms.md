@@ -6,24 +6,43 @@
   or datetime literals).
 - Membership: `in`, `nin`.
   ```yaml
-  - filter: { operator: ge, field: time, comparand: "${start_time}" }
-  - filter: { operator: in, field: station, comparand: [a, b, c] }
+  - filter: { field: time, operator: ge, comparand: "${start_time}" }
+  - filter: { field: station, operator: in, comparand: [a, b, c] }
   ```
 
 ### Record Transforms
 
 - `floor_time`: snap timestamps down to the nearest cadence (`10m`, `1h`, …).
-- `lag`: add lagged copies of records (see `src/datapipeline/transforms/record/lag.py` for options).
+- `lag`: shift record timestamps backward (see `src/datapipeline/transforms/record/lag.py`).
 
 ### Stream (Feature) Transforms
 
-- `ensure_cadence`: backfill missing ticks with `value=None` records to enforce a
-  strict cadence.
+- **Shared interface**: field-writing stream transforms accept `field` and
+  `to` keyword arguments (both default to `value`). Put these first in YAML
+  for clarity.
+  ```yaml
+  - rolling: { field: dollar_volume, to: adv5, window: 5, statistic: mean }
+  ```
+  Class signature shape:
+  ```python
+  class MyTransform(FieldStreamTransformBase):
+      def __init__(self, field: str = "value", to: str | None = None, **params) -> None:
+          super().__init__(field=field, to=to)
+          ...
+  ```
+  ABCs live in `src/datapipeline/transforms/interfaces.py`.
+
+- `ensure_cadence`: backfill missing ticks with `field=None` records to enforce a
+  strict cadence. Supports `field`/`to` (defaults to `value`).
 - `granularity`: merge duplicate timestamps using `first|last|mean|median`.
+  Supports `field`/`to` (defaults to `value`).
 - `dedupe`: drop exact duplicate records (same id, timestamp, and payload) from
   an already sorted feature stream.
 - `fill`: rolling statistic-based imputation within each feature stream.
-- Custom transforms can be registered under the `stream` entry-point group.
+  Supports `field`/`to` (defaults to `value`).
+- `rolling`: rolling statistic over the selected `field`, writing to `to`.
+- Custom transforms can be registered under the `datapipeline.transforms.stream`
+  entry-point group.
 
 ### Feature Transforms
 
@@ -55,7 +74,7 @@
 
 All transforms share a consistent entry-point signature and accept their config
 dict as keyword arguments. Register new ones in `pyproject.toml` under the
-appropriate group (`record`, `stream`, `feature`, `sequence`, `vector`,
-`filters`, `debug`).
+appropriate group (`datapipeline.transforms.record`, `.stream`, `.feature`,
+`.vector`, `.debug`, and `datapipeline.filters`).
 
 ---

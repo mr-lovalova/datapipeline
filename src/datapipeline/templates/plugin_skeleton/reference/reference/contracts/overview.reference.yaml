@@ -13,16 +13,16 @@
 # sort_batch_size: 100000       # optional; in-memory chunk size for sorting
 #
 # record transforms (one-key mappings; optional):
-# - filter: { operator: ge, field: time, comparand: "${start_time}" }
+# - filter: { field: time, operator: ge, comparand: "${start_time}" }
 #   # operator: eq|ne|lt|le|gt|ge|in|nin (aliases: ==, !=, >=, <=, etc.)
 # - floor_time: { cadence: "${cadence}" }
 # - lag: { lag: "${cadence}" }
 #
 # stream transforms (one-key mappings; optional):
 # - dedupe: {}
-# - granularity: { mode: first }   # first | last | mean | median
-# - ensure_cadence: { cadence: "${cadence}" }
-# - fill: { statistic: median, window: 6, min_samples: 1 }
+# - granularity: { field: value, to: value, mode: first }   # first | last | mean | median
+# - ensure_cadence: { field: value, to: value, cadence: "${cadence}" }
+# - fill: { field: value, to: value, statistic: median, window: 6, min_samples: 1 }
 #   # statistic: mean | median; window must be > 0
 #
 # debug transforms (one-key mappings; optional):

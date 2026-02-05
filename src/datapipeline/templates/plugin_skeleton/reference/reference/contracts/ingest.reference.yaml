@@ -12,15 +12,19 @@
 # sort_batch_size: 100000       # optional; in-memory chunk size for sorting
 #
 # record transforms (one-key mappings; optional):
-# - filter: { operator: ge, field: time, comparand: "${start_time}" }
+# - filter: { field: time, operator: ge, comparand: "${start_time}" }
 # - floor_time: { cadence: "${cadence}" }
 # - lag: { lag: "${cadence}" }
 #
 # stream transforms (one-key mappings; optional):
+# - floor_time: { cadence: "${cadence}" }
+# - lag: { lag: "${cadence}" }
+# - filter: { field: value, operator: ge, comparand: 1000000 }
 # - dedupe: {}
-# - granularity: { mode: first }
-# - ensure_cadence: { cadence: "${cadence}" }
-# - fill: { statistic: median, window: 6, min_samples: 1 }
+# - granularity: { field: value, to: value, mode: first }
+# - ensure_cadence: { field: value, to: value, cadence: "${cadence}" }
+# - rolling: { field: value, to: adv60, window: 60, statistic: mean, min_samples: 60 }
+# - fill: { field: value, to: value, statistic: median, window: 6, min_samples: 1 }
 #
 # debug transforms (one-key mappings; optional):
 # - lint: { mode: error, tick: "${cadence}" }

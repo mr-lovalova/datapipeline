@@ -11,15 +11,15 @@ cadence: ${group_by}                # optional per-contract cadence
 # sort_batch_size: 100000              # in-memory sort chunk size
 
 record:                              # record-level transforms
-  - filter: { operator: ge, field: time, comparand: "${start_time}" }
-  - filter: { operator: le, field: time, comparand: "${end_time}" }
+  - filter: { field: time, operator: ge, comparand: "${start_time}" }
+  - filter: { field: time, operator: le, comparand: "${end_time}" }
   - floor_time: { cadence: "${cadence}" }
 #   - lag: { lag: 10m }
 
 stream:                              # per-feature transforms (input sorted by id,time)
-  - ensure_cadence: { cadence: "${cadence}" }
-  - granularity: { mode: first }
-#   - fill: { statistic: median, window: 6, min_samples: 1 }
+  - ensure_cadence: { field: value, to: value, cadence: "${cadence}" }
+  - granularity: { field: value, to: value, mode: first }
+#   - fill: { field: value, to: value, statistic: median, window: 6, min_samples: 1 }
 
 debug:                               # optional validation-only checks
   - lint: { mode: warn, tick: "${cadence}" }
