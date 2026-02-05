@@ -9,8 +9,8 @@ mapper:
   args: { mode: linear }
 
 record:
-  - filter: { operator: ge, field: time, comparand: "${start_time}" }
-  - filter: { operator: le, field: time, comparand: "${end_time}" }
+  - filter: { field: time, operator: ge, comparand: "${start_time}" }
+  - filter: { field: time, operator: le, comparand: "${end_time}" }
   - floor_time: { cadence: "${cadence}" }
 
 stream:

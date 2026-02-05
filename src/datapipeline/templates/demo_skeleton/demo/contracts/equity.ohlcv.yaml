@@ -11,15 +11,22 @@ partition_by: ticker
 # sort_batch_size: 100000              # in-memory sort chunk size
 
 record: # record-level transforms
-  - filter: { operator: ge, field: time, comparand: "${start_time}" }
-  - filter: { operator: le, field: time, comparand: "${end_time}" }
+  - filter: { field: time, operator: ge, comparand: "${start_time}" }
+  - filter: { field: time, operator: le, comparand: "${end_time}" }
   - floor_time: { cadence: "${cadence}" }
 #   - lag: { lag: 10m }
 
 stream: # per-feature transforms (input sorted by id,time)
-  - ensure_cadence: { cadence: "${cadence}" }
-  - granularity: { mode: first }
-  - rolling: { window: 5, statistic: mean, min_samples: 5, out_id: adv5 }
+  # - ensure_cadence: { field: value, to: value, cadence: "${cadence}" }
+  # - granularity: { field: value, to: value, mode: first }
+  - rolling: {
+        field: dollar_volume,
+        to: adv5,
+        window: 5,
+        statistic: mean,
+        min_samples: 3,
+      } # compute 5-day average dollar volume (ADV5)
+  - filter: { field: adv5, operator: ge, comparand: 1_000_000 } # filter out illiquid stocks
 #   - fill: { statistic: median, window: 6, min_samples: 1 }
 
 debug: # optional validation-only checks

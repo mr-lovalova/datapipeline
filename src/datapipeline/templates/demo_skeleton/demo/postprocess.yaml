@@ -1,20 +1,19 @@
 # See ../reference/reference/postprocess.yaml for full options.
-- drop:
-    axis: vertical
-    payload: targets
-    threshold: 0.9
+# - drop: # no targets so no effect but included here for demonstration
+#     axis: vertical
+#     payload: targets
+#     threshold: 0.9
 
-- drop:
+- drop: # effectively drops features with >50% missing values. 0 drops in the demo, but included here for demonstration
     axis: vertical
     payload: features
-    threshold: 0.9
+    threshold: 0.5
 
-- drop:
+- drop: # this actually drops some vectors
     axis: horizontal
     payload: features
     threshold: 1
-
-- drop:
-    axis: horizontal
-    payload: targets
-    threshold: 1
+# - drop: # no targets so no effect but included here for demonstration
+#     axis: horizontal
+#     payload: targets
+#     threshold: 1
