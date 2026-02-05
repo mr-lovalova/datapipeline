@@ -7,7 +7,7 @@ mapper:
   args: {}
 
 cadence: ${group_by} # optional per-contract cadence
-# partition_by: <field or [fields]>
+partition_by: ticker
 # sort_batch_size: 100000              # in-memory sort chunk size
 
 record: # record-level transforms
