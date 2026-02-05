@@ -33,7 +33,11 @@ def test_scaffold_plugin_moves_jerry_to_workspace(tmp_path: Path, monkeypatch) -
 
     cfg = yaml.safe_load(workspace_jerry.read_text())
     assert cfg["plugin_root"] == "test-datapipeline"
-    assert cfg["datasets"]["servable-example"] == "test-datapipeline/servable-example/project.yaml"
+    assert cfg["datasets"]["your-dataset"] == "test-datapipeline/your-dataset/project.yaml"
+    assert (
+        cfg["datasets"]["interim-builder"]
+        == "test-datapipeline/your-interim-data-builder/project.yaml"
+    )
 
 
 def test_scaffold_plugin_respects_outdir(tmp_path: Path, monkeypatch) -> None:
@@ -50,7 +54,11 @@ def test_scaffold_plugin_respects_outdir(tmp_path: Path, monkeypatch) -> None:
     assert not (plugin_root / "jerry.yaml").exists()
     cfg = yaml.safe_load(workspace_jerry.read_text())
     assert cfg["plugin_root"] == "plugins/myplugin"
-    assert cfg["datasets"]["servable-example"] == "plugins/myplugin/servable-example/project.yaml"
+    assert cfg["datasets"]["your-dataset"] == "plugins/myplugin/your-dataset/project.yaml"
+    assert (
+        cfg["datasets"]["interim-builder"]
+        == "plugins/myplugin/your-interim-data-builder/project.yaml"
+    )
 
 
 @pytest.mark.parametrize("name", ["data pipeline", "datapipeline"])
