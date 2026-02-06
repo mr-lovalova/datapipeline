@@ -4,8 +4,7 @@ from datapipeline.integrations import dataframe_from_vectors
 
 
 def main() -> None:
-    project = Path(__file__).resolve().parent / \
-        "config/project.yaml"
+    project = Path(__file__).resolve().parent / "project.yaml"
     df = dataframe_from_vectors(
         project,
         limit=None,

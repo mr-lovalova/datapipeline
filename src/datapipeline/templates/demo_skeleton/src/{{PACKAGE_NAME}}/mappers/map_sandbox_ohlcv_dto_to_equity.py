@@ -12,7 +12,6 @@ def map_sandbox_ohlcv_dto_to_equity(
     for record in stream:
         yield EquityRecord(
             time=record.time,  # necessary for correct grouping and ordering
-            value=record.close,  # assuming 'close' price is the main value
 
             # filterable fields
             open=record.open,
@@ -22,7 +21,6 @@ def map_sandbox_ohlcv_dto_to_equity(
             volume=record.volume,
             dollar_volume=record.close * record.volume,
             hl_range=record.high - record.low,
-            adv5=None,  # derived via stream rolling example
             ticker=record.symbol,
             # filterable fields
         )

@@ -12,5 +12,5 @@ record:
   - filter: { operator: le, field: time, comparand: "${end_time}" }
 
 stream:
-  - ensure_cadence: { cadence: 1h }
-  - fill: { statistic: median, window: 3, min_samples: 1 }
+  - ensure_cadence: { cadence: 1h, field: value }
+  - fill: { statistic: median, window: 3, min_samples: 1, field: value }

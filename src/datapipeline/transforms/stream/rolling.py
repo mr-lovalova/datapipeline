@@ -3,34 +3,37 @@ from itertools import groupby
 from statistics import mean, median
 from typing import Iterator
 
-from datapipeline.domain.feature import FeatureRecord
+from datapipeline.domain.record import TemporalRecord
 from datapipeline.transforms.interfaces import FieldStreamTransformBase
 from datapipeline.transforms.utils import (
     get_field,
     is_missing,
     clone_record_with_field,
+    partition_key,
 )
 
 
 class RollingTransformer(FieldStreamTransformBase):
-    """Compute a rolling statistic over feature values.
+    """Compute a rolling statistic over record field values.
 
     - window: number of recent ticks to consider (including missing ticks).
     - min_samples: minimum number of valid samples required to emit a value.
     - statistic: 'mean' (default) or 'median'.
-    - field: record attribute to read (defaults to 'value').
+    - field: record attribute to read.
     - to: record attribute to write (defaults to field).
     """
 
     def __init__(
         self,
+        *,
+        field: str,
+        to: str | None = None,
         window: int,
         min_samples: int | None = None,
         statistic: str = "mean",
-        field: str = "value",
-        to: str | None = None,
+        partition_by: str | list[str] | None = None,
     ) -> None:
-        super().__init__(field=field, to=to)
+        super().__init__(field=field, to=to, partition_by=partition_by)
         if window <= 0:
             raise ValueError("window must be a positive integer")
         if min_samples is None:
@@ -46,17 +49,15 @@ class RollingTransformer(FieldStreamTransformBase):
 
         self.window = window
         self.min_samples = min_samples
-        self.field = field
-        self.to = to or field
 
-    def apply(self, stream: Iterator[FeatureRecord]) -> Iterator[FeatureRecord]:
-        grouped = groupby(stream, key=lambda fr: fr.id)
+    def apply(self, stream: Iterator[TemporalRecord]) -> Iterator[TemporalRecord]:
+        grouped = groupby(stream, key=lambda rec: partition_key(rec, self.partition_by))
 
-        for fid, feature_records in grouped:
+        for _, records in grouped:
             tick_window: deque[float | None] = deque(maxlen=self.window)
 
-            for fr in feature_records:
-                value = get_field(fr.record, self.field)
+            for record in records:
+                value = get_field(record, self.field)
                 if is_missing(value):
                     tick_window.append(None)
                 else:
@@ -68,5 +69,4 @@ class RollingTransformer(FieldStreamTransformBase):
                 else:
                     rolled = None
 
-                record = clone_record_with_field(fr.record, self.to, rolled)
-                yield FeatureRecord(record=record, id=fid)
+                yield clone_record_with_field(record, self.to, rolled)

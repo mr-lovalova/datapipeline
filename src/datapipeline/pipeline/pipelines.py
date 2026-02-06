@@ -1,4 +1,5 @@
 import heapq
+from collections import defaultdict
 from collections.abc import Iterator, Sequence
 from typing import Any
 from itertools import tee
@@ -12,8 +13,9 @@ from datapipeline.pipeline.stages import (
     open_source_stream,
     build_record_stream,
     apply_record_operations,
+    order_record_stream,
     build_feature_stream,
-    regularize_feature_stream,
+    apply_stream_operations,
     apply_feature_transforms,
     vector_assemble_stage,
     sample_assemble_stage,
@@ -21,15 +23,61 @@ from datapipeline.pipeline.stages import (
     window_keys,
 )
 from datapipeline.pipeline.context import PipelineContext
+from datapipeline.pipeline.utils.spool_cache import SpoolCache
 
 
-def build_feature_pipeline(
+def _time_then_id(item: Any):
+    rec = getattr(item, "record", None)
+    if rec is not None:
+        t = getattr(rec, "time", None)
+    else:
+        recs = getattr(item, "records", None)
+        t = getattr(recs[0], "time", None) if recs else None
+    return (t, getattr(item, "id", None))
+
+
+def _build_feature_from_records(
     context: PipelineContext,
+    records: Iterator[Any],
     cfg: FeatureRecordConfig,
     stage: int | None = None,
+    batch_size: int | None = None,
+    partition_by: str | None = None,
 ) -> Iterator[Any]:
     runtime = context.runtime
-    record_stream_id = cfg.record_stream
+
+    if partition_by is None:
+        partition_by = runtime.registries.partition_by.get(cfg.record_stream)
+
+    features = build_feature_stream(
+        records,
+        base_feature_id=cfg.id,
+        field=cfg.field,
+        partition_by=partition_by,
+    )
+    if stage == 5:
+        return features
+
+    transformed = apply_feature_transforms(
+        context, features, cfg.scale, cfg.sequence)
+    if stage == 6:
+        return transformed
+
+    if batch_size is None:
+        batch_size = runtime.registries.sort_batch_size.get(cfg.record_stream)
+    sorted_for_grouping = batch_sort(
+        transformed, batch_size=batch_size, key=_time_then_id
+    )
+    return sorted_for_grouping
+
+
+def build_record_pipeline(
+    context: PipelineContext,
+    record_stream_id: str,
+    stage: int | None = None,
+) -> Iterator[Any]:
+    """Build a canonical record stream through stream transforms."""
+    runtime = context.runtime
 
     dtos = open_source_stream(context, record_stream_id)
     if stage == 0:
@@ -43,35 +91,41 @@ def build_feature_pipeline(
     if stage == 2:
         return records
 
-    partition_by = runtime.registries.partition_by.get(record_stream_id)
-    features = build_feature_stream(records, cfg.id, partition_by)
+    batch_size = runtime.registries.sort_batch_size.get(record_stream_id)
+    records = order_record_stream(
+        context, records, record_stream_id, batch_size)
     if stage == 3:
-        return features
+        return records
+
+    records = apply_stream_operations(context, records, record_stream_id)
+    if stage == 4:
+        return records
+
+    return records
+
+
+def build_feature_pipeline(
+    context: PipelineContext,
+    cfg: FeatureRecordConfig,
+    stage: int | None = None,
+) -> Iterator[Any]:
+    runtime = context.runtime
+    record_stream_id = cfg.record_stream
+
+    records = build_record_pipeline(context, record_stream_id, stage=stage)
+    if stage is not None and stage <= 4:
+        return records
 
     batch_size = runtime.registries.sort_batch_size.get(record_stream_id)
-    regularized = regularize_feature_stream(
-        context, features, record_stream_id, batch_size)
-    if stage == 4:
-        return regularized
-
-    transformed = apply_feature_transforms(
-        context, regularized, cfg.scale, cfg.sequence)
-    if stage == 5:
-        return transformed
-
-    def _time_then_id(item: Any):
-        rec = getattr(item, "record", None)
-        if rec is not None:
-            t = getattr(rec, "time", None)
-        else:
-            recs = getattr(item, "records", None)
-            t = getattr(recs[0], "time", None) if recs else None
-        return (t, getattr(item, "id", None))
-
-    sorted_for_grouping = batch_sort(
-        transformed, batch_size=batch_size, key=_time_then_id
+    partition_by = runtime.registries.partition_by.get(record_stream_id)
+    return _build_feature_from_records(
+        context,
+        records,
+        cfg,
+        stage=stage,
+        batch_size=batch_size,
+        partition_by=partition_by,
     )
-    return sorted_for_grouping
 
 
 def build_vector_pipeline(
@@ -130,14 +184,45 @@ def _assemble_vectors(
 ) -> Iterator[tuple[tuple, Vector]]:
     if not configs:
         return iter(())
-    streams = [
-        build_feature_pipeline(
-            context,
-            cfg,
-        )
-        for cfg in configs
-    ]
+
+    runtime = context.runtime
+    grouped: dict[str, list[FeatureRecordConfig]] = defaultdict(list)
+    for cfg in configs:
+        grouped[cfg.record_stream].append(cfg)
+
+    streams: list[Iterator[Any]] = []
+    caches: list[SpoolCache] = []
+    for record_stream_id, cfgs in grouped.items():
+        records = build_record_pipeline(context, record_stream_id, stage=4)
+        if len(cfgs) == 1:
+            record_iters = (records,)
+        else:
+            cache = SpoolCache(records, name=record_stream_id)
+            caches.append(cache)
+            record_iters = tuple(cache.reader() for _ in cfgs)
+        batch_size = runtime.registries.sort_batch_size.get(record_stream_id)
+        partition_by = runtime.registries.partition_by.get(record_stream_id)
+
+        for cfg, rec_iter in zip(cfgs, record_iters):
+            streams.append(
+                _build_feature_from_records(
+                    context,
+                    rec_iter,
+                    cfg,
+                    batch_size=batch_size,
+                    partition_by=partition_by,
+                )
+            )
+
     merged = heapq.merge(
         *streams, key=lambda fr: group_key_for(fr, group_by_cadence)
     )
-    return vector_assemble_stage(merged, group_by_cadence)
+
+    def _with_cleanup() -> Iterator[tuple[tuple, Vector]]:
+        try:
+            yield from vector_assemble_stage(merged, group_by_cadence)
+        finally:
+            for cache in caches:
+                cache.close()
+
+    return _with_cleanup()

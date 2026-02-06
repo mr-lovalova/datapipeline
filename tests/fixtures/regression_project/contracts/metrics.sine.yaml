@@ -11,5 +11,5 @@ record:
   - filter: { operator: le, field: time, comparand: "${end_time}" }
 
 stream:
-  - ensure_cadence: { cadence: 30m }
-  - granularity: { mode: last }
+  - ensure_cadence: { cadence: 30m, field: value }
+  - granularity: { mode: last, field: value }

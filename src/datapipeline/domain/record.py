@@ -1,6 +1,5 @@
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any
 
 
 @dataclass
@@ -13,7 +12,6 @@ class TemporalRecord(Record):
     """Canonical time-series payload used throughout the pipeline."""
 
     time: datetime
-    value: Any
 
     def __post_init__(self) -> None:
         if self.time.tzinfo is None:
@@ -21,10 +19,13 @@ class TemporalRecord(Record):
         self.time = self.time.astimezone(timezone.utc)
 
     def _identity_fields(self) -> dict:
-        """Return a mapping of domain fields excluding 'time' and 'value'."""
-        data = asdict(self)
+        """Return a mapping of domain fields excluding 'time'."""
+        data = {
+            key: value
+            for key, value in self.__dict__.items()
+            if not key.startswith("_")
+        }
         data.pop("time", None)
-        data.pop("value", None)
         return data
 
     def __eq__(self, other: object) -> bool:
@@ -34,6 +35,5 @@ class TemporalRecord(Record):
             return NotImplemented
         return (
             self.time == other.time
-            and self.value == other.value
             and self._identity_fields() == other._identity_fields()
         )

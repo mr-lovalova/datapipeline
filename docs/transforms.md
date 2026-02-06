@@ -15,10 +15,10 @@
 - `floor_time`: snap timestamps down to the nearest cadence (`10m`, `1h`, …).
 - `lag`: shift record timestamps backward (see `src/datapipeline/transforms/record/lag.py`).
 
-### Stream (Feature) Transforms
+### Stream Transforms
 
 - **Shared interface**: field-writing stream transforms accept `field` and
-  `to` keyword arguments (both default to `value`). Put these first in YAML
+  `to` keyword arguments (`to` defaults to `field`). Put these first in YAML
   for clarity.
   ```yaml
   - rolling: { field: dollar_volume, to: adv5, window: 5, statistic: mean }
@@ -26,20 +26,20 @@
   Class signature shape:
   ```python
   class MyTransform(FieldStreamTransformBase):
-      def __init__(self, field: str = "value", to: str | None = None, **params) -> None:
+      def __init__(self, field: str, to: str | None = None, **params) -> None:
           super().__init__(field=field, to=to)
           ...
   ```
   ABCs live in `src/datapipeline/transforms/interfaces.py`.
 
 - `ensure_cadence`: backfill missing ticks with `field=None` records to enforce a
-  strict cadence. Supports `field`/`to` (defaults to `value`).
+  strict cadence. Supports `field`/`to`.
 - `granularity`: merge duplicate timestamps using `first|last|mean|median`.
-  Supports `field`/`to` (defaults to `value`).
-- `dedupe`: drop exact duplicate records (same id, timestamp, and payload) from
-  an already sorted feature stream.
-- `fill`: rolling statistic-based imputation within each feature stream.
-  Supports `field`/`to` (defaults to `value`).
+  Supports `field`/`to`.
+- `dedupe`: drop exact duplicate records (same timestamp + payload) from an
+  already sorted stream.
+- `fill`: rolling statistic-based imputation within each partition stream.
+  Supports `field`/`to`.
 - `rolling`: rolling statistic over the selected `field`, writing to `to`.
 - Custom transforms can be registered under the `datapipeline.transforms.stream`
   entry-point group.
@@ -59,7 +59,8 @@
 ### Sequence Transforms
 
 - `sequence`: sliding window generator (`size`, `stride`, optional `cadence` to
-  enforce contiguous windows). Emits `FeatureRecordSequence` payloads with `.records`.
+  enforce contiguous windows). Emits `FeatureRecordSequence` payloads with
+  `.records` and `.values`.
 
 ### Vector (Postprocess) Transforms
 

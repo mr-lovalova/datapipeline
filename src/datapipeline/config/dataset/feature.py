@@ -9,5 +9,6 @@ class BaseRecordConfig(BaseModel):
 
 class FeatureRecordConfig(BaseRecordConfig):
     id: str
+    field: str
     scale: Optional[Union[bool, Mapping[str, Any]]] = Field(default=False)
     sequence: Optional[Mapping[str, Any]] = Field(default=None)

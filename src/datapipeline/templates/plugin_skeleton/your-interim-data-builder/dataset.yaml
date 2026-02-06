@@ -6,3 +6,4 @@ group_by: ${group_by}
 features:
   - id: first_feature
     record_stream: your.stream.one
+    field: some_field

@@ -166,9 +166,9 @@ def main() -> None:
         "--stage",
         "-s",
         type=int,
-        choices=range(0, 8),
+        choices=range(0, 9),
         default=None,
-        help="preview a specific pipeline stage (0-5 feature stages, 6 assembled vectors, 7 transformed vectors)",
+        help="preview a specific pipeline stage (0-6 record/feature stages, 7 assembled vectors, 8 transformed vectors)",
     )
     p_serve.add_argument(
         "--visuals",

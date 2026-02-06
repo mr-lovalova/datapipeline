@@ -107,20 +107,32 @@ class VectorPickleSerializer(BasePickleSerializer):
 
 
 def _record_payload(value: Any) -> Any:
-    if value is None:
-        return None
-    if is_dataclass(value):
-        return asdict(value)
-    if isinstance(value, dict):
-        return value
-    attrs = getattr(value, "__dict__", None)
-    if attrs:
-        return {
-            k: v
-            for k, v in attrs.items()
-            if not k.startswith("_")
-        }
-    return value
+    def _convert(obj: Any) -> Any:
+        if obj is None:
+            return None
+        if is_dataclass(obj):
+            attrs = getattr(obj, "__dict__", None)
+            if attrs is not None:
+                return {
+                    k: _convert(v)
+                    for k, v in attrs.items()
+                    if not k.startswith("_")
+                }
+            return asdict(obj)
+        if isinstance(obj, dict):
+            return {k: _convert(v) for k, v in obj.items()}
+        if isinstance(obj, (list, tuple)):
+            return [_convert(v) for v in obj]
+        attrs = getattr(obj, "__dict__", None)
+        if attrs:
+            return {
+                k: _convert(v)
+                for k, v in attrs.items()
+                if not k.startswith("_")
+            }
+        return obj
+
+    return _convert(value)
 
 
 def _record_key(value: Any) -> Any:

@@ -9,7 +9,8 @@ application code:
 - `iter_vector_rows` / `collect_vector_rows` – handy for Pandas or custom sinks.
 - `dataframe_from_vectors` – eager helper that returns a Pandas DataFrame
   (requires `pandas`).
-- `torch_dataset` – builds a `torch.utils.data.Dataset` that yields tensors. See
-  `examples/minimal_project/run_torch.py` for usage.
+- `torch_dataset` – builds a `torch.utils.data.Dataset` that yields tensors. After
+  running `jerry demo init`, see `demo/scripts/run_torch.py` for usage (install
+  `jerry-thomas[ml]` first).
 
 ---

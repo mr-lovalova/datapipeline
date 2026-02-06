@@ -20,6 +20,12 @@ def _ts(hour: int, minute: int = 0) -> datetime:
     return datetime(2024, 1, 1, hour=hour, minute=minute, tzinfo=timezone.utc)
 
 
+def _record(ts: datetime, value: float | None) -> TemporalRecord:
+    rec = TemporalRecord(time=ts)
+    setattr(rec, "value", value)
+    return rec
+
+
 def _air_density(pressure_hpa: float, temp_c: float, rh_percent: float | None) -> float:
     pressure_pa = pressure_hpa * 100.0
     temp_k = temp_c + 273.15
@@ -109,7 +115,7 @@ def _register_partitioned_ids(runtime: Runtime, ids: list[str]) -> None:
 
 def test_vector_targets_respect_partitioned_ids(tmp_path) -> None:
     def _partitioned_record(value: float, code: str) -> TemporalRecord:
-        rec = TemporalRecord(time=_ts(0), value=value)
+        rec = _record(_ts(0), value)
         setattr(rec, "municipality", code)
         return rec
 
@@ -131,12 +137,18 @@ def test_vector_targets_respect_partitioned_ids(tmp_path) -> None:
 
     context = PipelineContext(runtime)
     feature_cfgs = [
-        FeatureRecordConfig(record_stream="wind_speed_stream",
-                            id="wind_speed"),
+        FeatureRecordConfig(
+            record_stream="wind_speed_stream",
+            id="wind_speed",
+            field="value",
+        ),
     ]
     target_cfgs = [
-        FeatureRecordConfig(record_stream="wind_production_stream",
-                            id="wind_production"),
+        FeatureRecordConfig(
+            record_stream="wind_production_stream",
+            id="wind_production",
+            field="value",
+        ),
     ]
 
     samples = list(
@@ -162,16 +174,16 @@ def test_regression_scaled_shapes_airpressure_high_freq_and_windspeed_hourly(tmp
     # Fake raw streams
     # high-frequency mock series (multiple samples per hour)
     high_freq_raw = [
-        TemporalRecord(time=_ts(0, 10), value=1010.0),
-        TemporalRecord(time=_ts(0, 20), value=1020.0),
-        TemporalRecord(time=_ts(0, 55), value=1000.0),
-        TemporalRecord(time=_ts(1, 5), value=1005.0),
-        TemporalRecord(time=_ts(1, 15), value=1007.0),
+        _record(_ts(0, 10), 1010.0),
+        _record(_ts(0, 20), 1020.0),
+        _record(_ts(0, 55), 1000.0),
+        _record(_ts(1, 5), 1005.0),
+        _record(_ts(1, 15), 1007.0),
     ]
     # hourly mock series (single sample per hour)
     hourly_raw = [
-        TemporalRecord(time=_ts(0, 0), value=5.0),
-        TemporalRecord(time=_ts(1, 0), value=7.0),
+        _record(_ts(0, 0), 5.0),
+        _record(_ts(1, 0), 7.0),
     ]
 
     streams = {
@@ -182,10 +194,18 @@ def test_regression_scaled_shapes_airpressure_high_freq_and_windspeed_hourly(tmp
     group_by = "1h"
 
     configs = [
-        FeatureRecordConfig(record_stream="air_pressure",
-                            id="air_pressure", scale=True),
-        FeatureRecordConfig(record_stream="wind_speed",
-                            id="wind_speed", scale=True),
+        FeatureRecordConfig(
+            record_stream="air_pressure",
+            id="air_pressure",
+            field="value",
+            scale=True,
+        ),
+        FeatureRecordConfig(
+            record_stream="wind_speed",
+            id="wind_speed",
+            field="value",
+            scale=True,
+        ),
     ]
 
     _register_scaler(runtime, configs, group_by)
@@ -220,14 +240,14 @@ def test_regression_scaled_shapes_airpressure_high_freq_and_windspeed_hourly(tmp
 def test_regression_fill_then_scale_with_missing_values(tmp_path) -> None:
     # air_pressure has a missing value in between two valid ones within the same hour
     series_high = [
-        TemporalRecord(time=_ts(0, 10), value=1000.0),
-        TemporalRecord(time=_ts(0, 20), value=None),  # missing
-        TemporalRecord(time=_ts(0, 40), value=1100.0),
+        _record(_ts(0, 10), 1000.0),
+        _record(_ts(0, 20), None),  # missing
+        _record(_ts(0, 40), 1100.0),
     ]
     # wind_speed hourly with a missing at hour 1
     series_hourly = [
-        TemporalRecord(time=_ts(0, 0), value=5.0),
-        TemporalRecord(time=_ts(1, 0), value=None),  # missing
+        _record(_ts(0, 0), 5.0),
+        _record(_ts(1, 0), None),  # missing
     ]
 
     streams = {"ap": series_high, "ws": series_hourly}
@@ -237,10 +257,24 @@ def test_regression_fill_then_scale_with_missing_values(tmp_path) -> None:
     # Fill then scale for both features
     stream_transforms = {
         "ap": [
-            {"fill": {"statistic": "median", "window": 10, "min_samples": 1}},
+            {
+                "fill": {
+                    "field": "value",
+                    "statistic": "median",
+                    "window": 10,
+                    "min_samples": 1,
+                }
+            },
         ],
         "ws": [
-            {"fill": {"statistic": "mean", "window": 10, "min_samples": 1}},
+            {
+                "fill": {
+                    "field": "value",
+                    "statistic": "mean",
+                    "window": 10,
+                    "min_samples": 1,
+                }
+            },
         ],
     }
 
@@ -248,9 +282,18 @@ def test_regression_fill_then_scale_with_missing_values(tmp_path) -> None:
                                     stream_transforms=stream_transforms)
 
     configs = [
-        FeatureRecordConfig(record_stream="ap",
-                            id="air_pressure", scale=True),
-        FeatureRecordConfig(record_stream="ws", id="wind_speed", scale=True),
+        FeatureRecordConfig(
+            record_stream="ap",
+            id="air_pressure",
+            field="value",
+            scale=True,
+        ),
+        FeatureRecordConfig(
+            record_stream="ws",
+            id="wind_speed",
+            field="value",
+            scale=True,
+        ),
     ]
 
     _register_scaler(runtime, configs, group_by)
