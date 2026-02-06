@@ -2,11 +2,12 @@
 
 Named after the famous bartender, Jerry Thomas is a time-series-first data
 pipeline runtime that mixes disparate data sources into fresh, ready-to-serve
-vectors with stage-by-stage observability along the way. It turns declarative
-YAML projects into iterators that stream records, engineered features, and
-model-ready vectors. The CLI lets you preview every stage, build deterministic
-artifacts, inspect quality, and scaffold plugins for custom loaders, parsers,
-transforms, and filters.
+vectors using declarative YAML recipes. Everything is on-demand, iterator-first:
+data streams through the pipeline without pre-batching the whole dataset in
+memory. Like any good bartender, Jerry obsesses over quality control and
+service, offering stage-by-stage observability along the way. And no bar is
+complete without proper tools: deterministic artifacts and plugin scaffolding
+for custom loaders, parsers, transforms, and filters.
 
 Contributing: PRs welcome on [GitHub](https://github.com/mr-lovalova/datapipeline).
 
