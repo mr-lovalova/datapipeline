@@ -1,6 +1,8 @@
 # Datapipeline Runtime
 
-Jerry Thomas is a time-series-first data pipeline runtime. It turns declarative
+Named after the famous bartender, Jerry Thomas is a time-series-first data
+pipeline runtime that mixes disparate data sources into fresh, ready-to-serve
+vectors with stage-by-stage observability along the way. It turns declarative
 YAML projects into iterators that stream records, engineered features, and
 model-ready vectors. The CLI lets you preview every stage, build deterministic
 artifacts, inspect quality, and scaffold plugins for custom loaders, parsers,
@@ -167,6 +169,19 @@ Split timing (leakage note)
 - `jerry contract create [--identity]`: interactive contract scaffolder (YAML); use for canonical streams or composed streams.
 - `jerry list sources|domains|parsers|mappers|loaders|dtos`: introspection helpers.
 - `pip install -e lib/<name>`: rerun after commands that update `lib/<name>/pyproject.toml` (entry points), or after manual edits to it.
+
+---
+
+## MLOps & Reproducibility
+
+- `jerry build` materializes deterministic artifacts (schema, scaler, metadata).
+  Builds are keyed by config hashes and skip work when nothing changed unless
+  you pass `--force`.
+- `jerry serve` runs are named (task/run) and can write outputs to
+  `<out-path>/<run_name>/` for auditing, sharing, or downstream training.
+- Versioning: tag the project config + plugin code in Git and pair with a data
+  versioning tool like DVC for raw sources. With those inputs pinned, interim
+  datasets and artifacts can be regenerated instead of stored.
 
 ---
 
