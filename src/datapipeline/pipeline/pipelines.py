@@ -4,7 +4,6 @@ from collections.abc import Iterator, Sequence
 from typing import Any
 from itertools import tee
 
-from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
 from datapipeline.pipeline.utils.keygen import group_key_for
 from datapipeline.pipeline.utils.memory_sort import batch_sort
