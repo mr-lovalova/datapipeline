@@ -25,7 +25,18 @@ from datapipeline.transforms.utils import get_field, partition_key
 
 def open_source_stream(context: PipelineContext, stream_alias: str) -> Source:
     runtime = context.runtime
-    return runtime.registries.stream_sources.get(stream_alias).stream()
+    registry = runtime.registries.stream_sources
+    try:
+        source = registry.get(stream_alias)
+    except KeyError as exc:
+        available = sorted(registry.keys())
+        available_text = ", ".join(available) if available else "(none)"
+        raise KeyError(
+            "Unknown record_stream "
+            f"'{stream_alias}'. Check dataset.yaml and contracts/ ids. "
+            f"Available streams: {available_text}"
+        ) from exc
+    return source.stream()
 
 
 def build_record_stream(
