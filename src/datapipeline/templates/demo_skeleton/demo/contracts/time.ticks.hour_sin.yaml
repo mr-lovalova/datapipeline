@@ -15,8 +15,8 @@ record:
 
 stream:
   - dedupe: {}
-  - granularity: { mode: first }
-  - ensure_cadence: { cadence: "${cadence}" }
+  - granularity: { field: value, to: value, mode: first }
+  - ensure_cadence: { field: value, to: value, cadence: "${cadence}" }
 
 debug:
   - lint: { mode: error, tick: "${cadence}" }

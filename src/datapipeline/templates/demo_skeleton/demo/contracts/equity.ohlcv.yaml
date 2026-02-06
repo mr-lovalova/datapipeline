@@ -16,9 +16,9 @@ record: # record-level transforms
   - floor_time: { cadence: "${cadence}" }
 #   - lag: { lag: 10m }
 
-stream: # per-feature transforms (input sorted by id,time)
-  # - ensure_cadence: { field: value, to: value, cadence: "${cadence}" }
-  # - granularity: { field: value, to: value, mode: first }
+stream: # per-stream transforms (input sorted by partition,time)
+  # - ensure_cadence: { field: close, to: close, cadence: "${cadence}" }
+  # - granularity: { field: close, to: close, mode: first }
   - rolling: {
         field: dollar_volume,
         to: adv5,
@@ -30,4 +30,4 @@ stream: # per-feature transforms (input sorted by id,time)
 #   - fill: { statistic: median, window: 6, min_samples: 1 }
 
 debug: # optional validation-only checks
-  - lint: { mode: warn, tick: "${cadence}" }
+  #- lint: { mode: warn, tick: "${cadence}" }

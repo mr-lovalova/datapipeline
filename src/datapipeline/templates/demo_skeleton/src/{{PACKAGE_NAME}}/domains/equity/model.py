@@ -15,5 +15,4 @@ class EquityRecord(TemporalRecord):
     volume: float
     dollar_volume: float
     hl_range: float
-    adv5: float | None  # 5-day average daily dollar volume
     ticker: str  # equity ticker symbol

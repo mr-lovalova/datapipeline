@@ -7,8 +7,7 @@ from datapipeline.integrations import torch_dataset
 
 
 def main() -> None:
-    project = Path(__file__).resolve().parent / \
-        "config/project.yaml"
+    project = Path(__file__).resolve().parent / "project.yaml"
     ds = torch_dataset(
         project,
         limit=256,

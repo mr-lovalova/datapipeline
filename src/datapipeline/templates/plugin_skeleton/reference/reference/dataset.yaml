@@ -9,6 +9,7 @@
 # features:                    # optional
 #   - id: time_linear
 #     record_stream: time.ticks.linear
+#     field: value
 #     scale: true           # optional; true | false | mapping (see below)
 #     # scale:
 #     #   model_path: ../artifacts/example/v1/scaler.pkl
@@ -21,7 +22,8 @@
 # targets:                     # optional
 #   - id: some_target
 #     record_stream: time.ticks.linear
+#     field: value
 #     scale: false            # optional
 #     sequence: null          # optional
 #
-# Record-only stage uses only record_stream entries; id/scale/sequence are ignored.
+# Record-only stage uses only record_stream entries; id/field/scale/sequence are ignored.

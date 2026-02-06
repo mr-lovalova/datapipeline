@@ -4,9 +4,16 @@ group_by: ${group_by}
 features:
   - id: linear_time
     record_stream: time.ticks.linear
+    field: value
     scale: true
-    #sequence: { size: 6, stride: 1 }
+    sequence: { size: 2, stride: 1 }
 
-  - id: equity
+  - id: closing_price
     record_stream: equity.ohlcv
+    field: close
+    scale: true
+
+  - id: opening_price
+    record_stream: equity.ohlcv
+    field: open
     scale: true

@@ -183,9 +183,9 @@ record:
   - floor_time: { cadence: 10m }
 
 stream:
-  - ensure_cadence: { field: value, to: value, cadence: 10m }
-  - granularity: { field: value, to: value, mode: mean }
-  - fill: { field: value, to: value, statistic: median, window: 6, min_samples: 2 }
+  - ensure_cadence: { field: close, to: close, cadence: 10m }
+  - granularity: { field: close, to: close, mode: mean }
+  - fill: { field: close, to: close, statistic: median, window: 6, min_samples: 2 }
 
 debug:
   - lint: { mode: warn, tick: 10m }
@@ -193,7 +193,7 @@ debug:
 
 - `record`: ordered record-level transforms (filters, floor/lag, custom
   transforms registered under the `record` entry-point group).
-- `stream`: transforms applied after feature wrapping, still per base feature.
+- `stream`: transforms applied after record transforms; operate on record fields before feature selection.
 - `debug`: instrumentation-only transforms (linters, assertions).
 - `partition_by`: optional keys used to suffix feature IDs (e.g., `temp__@station_id:XYZ`).
 - `sort_batch_size`: chunk size used by the in-memory sorter when normalizing
@@ -201,7 +201,7 @@ debug:
 
 ### Composed Streams (Engineered Domains)
 
-Define engineered streams that depend on other canonical streams directly in contracts. The runtime builds each input to stage 4 (ordered + regularized), stream‑aligns by partition + timestamp, runs your composer, and emits fresh records for the derived stream.
+Define engineered streams that depend on other canonical streams directly in contracts. The runtime builds each input to stage 4 (ordered + stream transforms applied), stream‑aligns by partition + timestamp, runs your composer, and emits fresh records for the derived stream.
 
 ```yaml
 # <project_root>/contracts/air_density.processed.yaml
@@ -233,6 +233,7 @@ group_by: 1h
 features:
   - id: air_density
     record_stream: air_density.processed
+    field: air_density
 ```
 
 Notes:
@@ -251,16 +252,19 @@ group_by: 1h
 features:
   - id: close
     record_stream: equity.ohlcv
+    field: close
     scale: true
     sequence: { size: 6, stride: 1 }
 
 targets:
   - id: returns_1d
     record_stream: equity.ohlcv
+    field: returns_1d
 ```
 
 - `group_by` controls the cadence for vector partitioning (must match `^\\d+(m|min|h|d)$`,
   e.g. `10m`, `60min`, `1h`, `1d`).
+- `field` selects the record attribute used as the feature/target value.
 - `scale: true` inserts the standard scaler feature transform (requires scaler
   stats artifact or inline statistics).
   - Downstream consumers can load the `scaler.pkl` artifact and call

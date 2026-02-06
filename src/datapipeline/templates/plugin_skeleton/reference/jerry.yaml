@@ -15,7 +15,7 @@
 # serve:                           # optional
 #   log_level: INFO                # optional
 #   limit: 100                     # optional
-#   stage: 7                       # optional
+#   stage: 8                       # optional
 #   throttle_ms: 0                 # optional
 #   output:                        # optional
 #     transport: stdout            # optional; stdout | fs

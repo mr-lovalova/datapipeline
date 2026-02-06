@@ -84,12 +84,12 @@ flowchart TB
     canonical[DTO -> record]
     domainRecords((TemporalRecord))
     recordStage[record xforms]
-    featureWrap[record -> feature]
+    streamXforms[stream xforms]
+    featureWrap[record -> feature (field select)]
     featureRecords((FeatureRecord))
-    regularization[stream xforms]
   end
 
-  dtoStream --> canonical --> domainRecords --> recordStage --> featureWrap --> featureRecords --> regularization
+  dtoStream --> canonical --> domainRecords --> recordStage --> streamXforms --> featureWrap --> featureRecords
   contractsCfg --> mapperEP
   mappersPkg -. ep target .-> mapperEP
   mapperEP -. build_mapper_from_spec .-> registryMappers
@@ -101,8 +101,8 @@ flowchart TB
   registryStreamOps --> streamRules
   registryDebugOps --> debugRules
   recordRules --> recordStage
-  streamRules --> regularization
-  debugRules --> regularization
+  streamRules --> streamXforms
+  debugRules --> streamXforms
 
   subgraph Dataset shaping
     featureSpec[feature cfg]

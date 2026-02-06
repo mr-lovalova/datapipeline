@@ -27,6 +27,7 @@ jerry serve --dataset your-dataset --limit 3
   - Replace placeholders (`path`/`url`, headers/params, delimiter, etc.)
 - `your-dataset/dataset.yaml`
   - Ensure `record_stream:` points at the contract id you created.
+  - Select a `field:` for each feature/target (record attribute to use as value).
   - Ensure `group_by` matches `^\d+(m|min|h|d)$` (e.g. `10m`, `1h`, `1d`).
 
 If you add/edit entry points in `pyproject.toml`, reinstall the plugin:

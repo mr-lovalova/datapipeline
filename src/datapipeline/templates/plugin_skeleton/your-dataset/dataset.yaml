@@ -5,12 +5,15 @@ group_by: ${group_by}
 features:
   - id: first_feature
     record_stream: your.stream.one
+    field: some_field
     scale: true
     sequence: { size: 6, stride: 1 }
 
   - id: second_feature
     record_stream: your.stream.two
+    field: some_field
 
 # targets:
 #   - id: target_feature
 #     record_stream: your.target.stream
+#     field: some_field

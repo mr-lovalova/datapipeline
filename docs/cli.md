@@ -6,17 +6,18 @@ All commands that take a project accept either `--project <path/to/project.yaml>
 
 ### Preview Stages
 
-- `jerry serve --project <project.yaml> --stage <0-7> --limit N [--log-level LEVEL] [--visuals auto|tqdm|rich|off] [--progress auto|spinner|bars|off]`
+- `jerry serve --project <project.yaml> --stage <0-8> --limit N [--log-level LEVEL] [--visuals auto|tqdm|rich|off] [--progress auto|spinner|bars|off]`
   - Stage 0: raw DTOs
   - Stage 1: domain `TemporalRecord`s
   - Stage 2: record transforms applied
-  - Stage 3: feature records (before sort/regularization)
-  - Stage 4: feature regularization (post stream transforms)
-  - Stage 5: feature transforms/sequence outputs
-  - Stage 6: vectors assembled (no postprocess)
-  - Stage 7: vectors + postprocess transforms
+  - Stage 3: ordered record stream
+  - Stage 4: stream transforms (ensure_cadence, fill, granularity, debug)
+  - Stage 5: feature records (field selected)
+  - Stage 6: feature transforms/sequence outputs
+  - Stage 7: vectors assembled (no postprocess)
+  - Stage 8: vectors + postprocess transforms
   - Use `--log-level DEBUG` for progress bars; the default is typically `INFO` (or `jerry.yaml.shared.log_level` when set).
-  - Ensures build artifacts are current before streaming; the build step only runs when the configuration hash changes unless you pass `--stage` 0-5 (auto-skip) or opt out with `--skip-build`.
+  - Ensures build artifacts are current before streaming; the build step only runs when the configuration hash changes unless you pass `--stage` 0-6 (auto-skip) or opt out with `--skip-build`. Stage 6 may require scaler artifacts.
 - `jerry serve --project <project.yaml> --out-transport stdout --out-format json-lines --limit N [--log-level LEVEL] [--visuals ...] [--progress ...] [--run name]`
   - Applies postprocess transforms and optional dataset split before emitting.
   - Use `--out-transport fs --out-format json-lines --out-path build/serve` (or `csv`, `pickle`, etc.) to write artifacts to disk instead of stdout; files land under `<out-path>/<run_name>/`.
