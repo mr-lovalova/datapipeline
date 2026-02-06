@@ -64,6 +64,8 @@ def apply_filter(
     op, fn = resolve_filter(operator, comparand=comparand)
     if fn is None:
         return stream
+    if getattr(fn, "__module__", None) != _filters.__name__:
+        return fn(stream, field, comparand)
 
     if op in {"in_", "nin"}:
         bag = _filters._as_set(comparand)

@@ -122,6 +122,8 @@ class JsonDecoder(Decoder):
                 raise ValueError(
                     f"json array_field missing: {self.array_field}")
             data = data[self.array_field]
+            if data is None:
+                return 0
         return len(data) if isinstance(data, list) else 1
 
 
