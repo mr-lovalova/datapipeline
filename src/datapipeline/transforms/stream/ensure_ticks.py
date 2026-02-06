@@ -1,40 +1,49 @@
 from typing import Iterator
 
-from datapipeline.domain.feature import FeatureRecord
-from datapipeline.utils.time import parse_timecode
+from datapipeline.domain.record import TemporalRecord
 from datapipeline.transforms.interfaces import FieldStreamTransformBase
-from datapipeline.transforms.utils import clone_record
+from datapipeline.transforms.utils import clone_record, get_field, partition_key
+from datapipeline.utils.time import parse_timecode
 
 
 class EnsureCadenceTransform(FieldStreamTransformBase):
-    """Insert placeholder FeatureRecords so timestamps are exactly one cadence apart per feature id.
+    """Insert placeholder records so timestamps are exactly one cadence apart per partition.
 
     - cadence: duration string (e.g., "10m", "1h", "30s").
-    - Placeholders carry value=None and inherit the feature id; group bucketing
-      is applied later at vector assembly from record.time.
-    - Assumes input sorted by (feature_id, record.time).
+    - Placeholders carry field=None and inherit partition metadata.
+    - Assumes input sorted by (partition_key, record.time).
     """
 
-    def __init__(self, cadence: str, field: str = "value", to: str | None = None) -> None:
-        super().__init__(field=field, to=to)
+    def __init__(
+        self,
+        *,
+        cadence: str,
+        field: str,
+        to: str | None = None,
+        partition_by: str | list[str] | None = None,
+    ) -> None:
+        super().__init__(field=field, to=to, partition_by=partition_by)
         self.cadence = cadence
 
-    def apply(self, stream: Iterator[FeatureRecord]) -> Iterator[FeatureRecord]:
+    def apply(self, stream: Iterator[TemporalRecord]) -> Iterator[TemporalRecord]:
         step = parse_timecode(self.cadence)
-        last: FeatureRecord | None = None
-        for fr in stream:
-            if (last is None) or (last.id != fr.id):
-                yield fr
-                last = fr
+        last: TemporalRecord | None = None
+        last_key: tuple | None = None
+        for record in stream:
+            if self.to != self.field:
+                record = self._ensure_output_field(
+                    record, get_field(record, self.field)
+                )
+            key = partition_key(record, self.partition_by)
+            if last is None or last_key != key:
+                yield record
+                last = record
+                last_key = key
                 continue
 
-            expect = last.record.time + step
-            while expect < fr.record.time:
-                yield FeatureRecord(
-                    record=clone_record(last.record, time=expect, **{self.to: None}),
-                    id=fr.id,
-                )
+            expect = last.time + step
+            while expect < record.time:
+                yield clone_record(last, time=expect, **{self.to: None})
                 expect = expect + step
-            yield fr
-            last = fr
-
+            yield record
+            last = record

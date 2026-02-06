@@ -43,12 +43,12 @@ def required_artifacts_for(
     needs_metadata = False
     for demand in demands:
         stage = demand.stage
-        effective_stage = 7 if stage is None else stage
+        effective_stage = 8 if stage is None else stage
 
-        if effective_stage >= 5 and _requires_scaler(dataset):
+        if effective_stage >= 6 and _requires_scaler(dataset):
             required.add(SCALER_STATISTICS)
 
-        if effective_stage >= 6:
+        if effective_stage >= 7:
             required.add(VECTOR_SCHEMA)
             needs_metadata = True
 

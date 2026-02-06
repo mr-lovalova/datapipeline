@@ -1,6 +1,4 @@
-from datapipeline.domain.record import TemporalRecord
-from typing import Dict
-from typing import Union
+from typing import Dict, Union, Any
 
 from dataclasses import dataclass
 
@@ -25,13 +23,13 @@ class Vector:
         return self.values[key]
 
 
-def vectorize_record_group(values: Dict[str, list[TemporalRecord]]) -> Vector:
+def vectorize_record_group(values: Dict[str, list[Any]]) -> Vector:
     structured: Dict[str, Union[float, list[float]]] = {}
 
-    for key, records in values.items():
-        if len(records) == 1:
-            structured[key] = records[0].value
+    for key, items in values.items():
+        if len(items) == 1:
+            structured[key] = items[0]
         else:
-            structured[key] = [r.value for r in records]
+            structured[key] = list(items)
 
     return Vector(values=structured)

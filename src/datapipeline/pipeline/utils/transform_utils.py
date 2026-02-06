@@ -41,17 +41,35 @@ def _split_params(params: Any) -> Tuple[Tuple[Any, ...], dict[str, Any]]:
     return (params,), {}
 
 
+def _merge_extra_kwargs(
+    fn: Callable[..., Any],
+    kwargs: dict[str, Any],
+    extra_kwargs: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    if not extra_kwargs:
+        return kwargs
+    merged = dict(kwargs)
+    for key, value in extra_kwargs.items():
+        if key in merged:
+            continue
+        if _supports_parameter(fn, key):
+            merged[key] = value
+    return merged
+
+
 def _call_with_params(
     fn: Callable,
     stream: Iterator[Any],
     params: Any,
     context: Optional[PipelineContext],
+    extra_kwargs: Mapping[str, Any] | None = None,
 ) -> Iterator[Any]:
     """Invoke an entry-point callable with optional params semantics."""
 
     args, kwargs = _split_params(params)
     if context and _supports_parameter(fn, "context") and "context" not in kwargs:
         kwargs["context"] = context
+    kwargs = _merge_extra_kwargs(fn, kwargs, extra_kwargs)
     return fn(stream, *args, **kwargs)
 
 
@@ -59,12 +77,14 @@ def _instantiate_entry_point(
     cls: Callable[..., Any],
     params: Any,
     context: Optional[PipelineContext],
+    extra_kwargs: Mapping[str, Any] | None = None,
 ) -> Any:
     """Instantiate a transform class with parameters from the config."""
 
     args, kwargs = _split_params(params)
     if context and _supports_parameter(cls.__init__, "context") and "context" not in kwargs:
         kwargs["context"] = context
+    kwargs = _merge_extra_kwargs(cls.__init__, kwargs, extra_kwargs)
     return cls(*args, **kwargs)
 
 
@@ -83,6 +103,7 @@ def apply_transforms(
     context: Optional[PipelineContext] = None,
     observer: Callable[[TransformEvent], None] | None = None,
     observer_registry: ObserverRegistry | None = None,
+    extra_kwargs: Mapping[str, Any] | None = None,
 ) -> Iterator[Any]:
     """Instantiate and apply configured transforms in order."""
 
@@ -97,7 +118,9 @@ def apply_transforms(
             name, params = _extract_single_pair(transform, "Transform")
             ep = load_ep(group=group, name=name)
             if isclass(ep):
-                inst = _instantiate_entry_point(ep, params, context)
+                inst = _instantiate_entry_point(
+                    ep, params, context, extra_kwargs=extra_kwargs
+                )
                 _bind_context(inst, context)
                 eff_observer = observer
                 if eff_observer is None and registry:
@@ -107,7 +130,9 @@ def apply_transforms(
                 _attach_observer(inst, eff_observer)
                 stream = inst(stream)
             else:
-                stream = _call_with_params(ep, stream, params, context)
+                stream = _call_with_params(
+                    ep, stream, params, context, extra_kwargs=extra_kwargs
+                )
     return stream
 
 

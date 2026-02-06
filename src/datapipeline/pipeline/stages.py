@@ -20,6 +20,7 @@ from datapipeline.sources.models.source import Source
 from datapipeline.transforms.vector import VectorEnsureSchemaTransform
 from datapipeline.config.dataset.normalize import floor_time_to_bucket
 from datapipeline.utils.time import parse_timecode
+from datapipeline.transforms.utils import get_field, partition_key
 
 
 def open_source_stream(context: PipelineContext, stream_alias: str) -> Source:
@@ -49,45 +50,66 @@ def apply_record_operations(
     return records
 
 
+def _record_has_field(record: Any, field: str) -> bool:
+    if isinstance(record, dict):
+        return field in record
+    return hasattr(record, field)
+
+
 def build_feature_stream(
     record_stream: Iterable[TemporalRecord],
     base_feature_id: str,
+    field: str,
     partition_by: Any | None = None,
 ) -> Iterator[FeatureRecord]:
-
     keygen = FeatureIdGenerator(partition_by)
 
     for rec in record_stream:
+        if not _record_has_field(rec, field):
+            raise KeyError(
+                f"Record field '{field}' not found on {type(rec).__name__}")
         yield FeatureRecord(
             record=rec,
             id=keygen.generate(base_feature_id, rec),
+            value=get_field(rec, field),
         )
 
 
-def regularize_feature_stream(
+def order_record_stream(
     context: PipelineContext,
-    feature_stream: Iterable[FeatureRecord],
+    record_stream: Iterable[TemporalRecord],
     stream_id: str,
     batch_size: int,
-) -> Iterator[FeatureRecord]:
-    """Apply feature transforms defined in contract policies in order."""
-    # Sort by (id, time) to satisfy stream transforms (ensure_cadence/fill)
-    sorted = batch_sort(
-        feature_stream,
+) -> Iterator[TemporalRecord]:
+    """Return records sorted by (partition_key, time)."""
+    partition_by = context.runtime.registries.partition_by.get(stream_id)
+    return batch_sort(
+        record_stream,
         batch_size=batch_size,
-        key=lambda fr: (fr.id, fr.record.time),
+        key=lambda rec: (partition_key(rec, partition_by), rec.time),
     )
+
+
+def apply_stream_operations(
+    context: PipelineContext,
+    record_stream: Iterable[TemporalRecord],
+    stream_id: str,
+) -> Iterator[TemporalRecord]:
+    """Apply stream/debug transforms (expects input sorted by partition_key + time)."""
+    partition_by = context.runtime.registries.partition_by.get(stream_id)
     transformed = apply_transforms(
-        sorted,
+        record_stream,
         STREAM_TRANFORMS_EP,
         context.runtime.registries.stream_operations.get(stream_id),
         context,
+        extra_kwargs={"partition_by": partition_by},
     )
     transformed = apply_transforms(
         transformed,
         DEBUG_TRANSFORMS_EP,
         context.runtime.registries.debug_operations.get(stream_id),
         context,
+        extra_kwargs={"partition_by": partition_by},
     )
     return transformed
 
@@ -135,10 +157,9 @@ def vector_assemble_stage(
         feature_map = defaultdict(list)
         for fr in group:
             if isinstance(fr, FeatureRecordSequence):
-                records = fr.records
+                feature_map[fr.id].extend(fr.values)
             else:
-                records = [fr.record]
-            feature_map[fr.id].extend(records)
+                feature_map[fr.id].append(fr.value)
         vector = vectorize_record_group(feature_map)
         yield group_key, vector
 
@@ -242,16 +263,19 @@ def _apply_vector_schema(
 
         if not feature_entries:
             if context.schema_required:
-                raise RuntimeError("Schema missing for payload 'features'. Run `jerry build` to materialize schema.json.")
+                raise RuntimeError(
+                    "Schema missing for payload 'features'. Run `jerry build` to materialize schema.json.")
             feature_stream = stream
         else:
-            feature_schema = VectorEnsureSchemaTransform(on_missing="fill", on_extra="drop")
+            feature_schema = VectorEnsureSchemaTransform(
+                on_missing="fill", on_extra="drop")
             feature_schema.bind_context(context)
             feature_stream = feature_schema(stream)
 
         def _apply_targets(upstream: Iterator[Sample]) -> Iterator[Sample]:
             if target_entries:
-                target_schema = VectorEnsureSchemaTransform(payload="targets", on_missing="fill", on_extra="drop")
+                target_schema = VectorEnsureSchemaTransform(
+                    payload="targets", on_missing="fill", on_extra="drop")
                 target_schema.bind_context(context)
                 return target_schema(upstream)
             if not context.schema_required:
@@ -264,6 +288,7 @@ def _apply_vector_schema(
                 return iter(())
             if first.targets is None:
                 return chain([first], iterator)
-            raise RuntimeError("Schema missing for payload 'targets'. Run `jerry build` to materialize schema.json.")
+            raise RuntimeError(
+                "Schema missing for payload 'targets'. Run `jerry build` to materialize schema.json.")
 
         return _apply_targets(feature_stream)

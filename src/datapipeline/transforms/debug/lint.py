@@ -3,7 +3,8 @@ from datetime import timedelta
 from itertools import groupby
 from typing import Iterator
 
-from datapipeline.domain.feature import FeatureRecord
+from datapipeline.domain.record import TemporalRecord
+from datapipeline.transforms.utils import partition_key
 from datapipeline.utils.time import parse_timecode
 
 
@@ -23,9 +24,11 @@ class StreamLint:
         *,
         mode: str = "warn",
         tick: str | None = None,
+        partition_by: str | list[str] | None = None,
     ) -> None:
         self.mode = mode
         self.tick = tick
+        self.partition_by = partition_by
 
         # Pre-compute tick step in seconds when provided to avoid repeated parsing.
         self._tick_seconds: int | None = None
@@ -38,7 +41,7 @@ class StreamLint:
                 )
                 self._tick_seconds = None
 
-    def __call__(self, stream: Iterator[FeatureRecord]) -> Iterator[FeatureRecord]:
+    def __call__(self, stream: Iterator[TemporalRecord]) -> Iterator[TemporalRecord]:
         return self.apply(stream)
 
     def _violation(self, msg: str) -> None:
@@ -46,25 +49,25 @@ class StreamLint:
             raise ValueError(msg)
         logger.warning(msg)
 
-    def apply(self, stream: Iterator[FeatureRecord]) -> Iterator[FeatureRecord]:
-        # Group by base feature id to keep state local
-        for fid, records in groupby(stream, key=lambda fr: fr.id):
+    def apply(self, stream: Iterator[TemporalRecord]) -> Iterator[TemporalRecord]:
+        # Group by partition key to keep state local
+        for key, records in groupby(stream, key=lambda rec: partition_key(rec, self.partition_by)):
             last_time = None
             seen_times: set = set()
-            for fr in records:
-                t = getattr(fr.record, "time", None)
+            for record in records:
+                t = getattr(record, "time", None)
 
                 # Check ordering
                 if last_time is not None and t is not None and t < last_time:
                     self._violation(
-                        f"out-of-order timestamp for feature '{fid}': {t} < {last_time}. "
+                        f"out-of-order timestamp for partition '{key}': {t} < {last_time}. "
                         f"Consider sorting upstream or fixing loader."
                     )
 
                 # Check duplicates
                 if t in seen_times:
                     self._violation(
-                        f"duplicate timestamp for feature '{fid}' at {t}. "
+                        f"duplicate timestamp for partition '{key}' at {t}. "
                         f"Consider a granularity transform (first/last/mean/median)."
                     )
                 seen_times.add(t)
@@ -78,9 +81,9 @@ class StreamLint:
                     expect = last_time + timedelta(seconds=self._tick_seconds)
                     if t != expect and t > expect:
                         self._violation(
-                            f"skipped tick(s) for feature '{fid}': expected {expect}, got {t}. "
+                            f"skipped tick(s) for partition '{key}': expected {expect}, got {t}. "
                             f"Consider using ensure_cadence."
                         )
 
                 last_time = t
-                yield fr
+                yield record

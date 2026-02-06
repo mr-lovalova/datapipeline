@@ -6,8 +6,7 @@ from datapipeline.mappers.noop import identity
 from datapipeline.utils.placeholders import normalize_args
 from datapipeline.sources.models.base import SourceInterface
 from datapipeline.pipeline.context import PipelineContext
-from datapipeline.config.dataset.feature import FeatureRecordConfig
-from datapipeline.pipeline.pipelines import build_feature_pipeline
+from datapipeline.pipeline.pipelines import build_record_pipeline
 from datapipeline.pipeline.utils.transform_utils import _supports_parameter
 from inspect import isclass
 from typing import Iterator, Any, Optional
@@ -52,7 +51,7 @@ class _ComposedSource(SourceInterface):
 
         # Build aligned/aux iterators (unwrap FeatureRecord -> record for aligned)
         aligned_iters: dict[str, Iterator[Any]] = {
-            k: (fr.record for fr in v["iter"])  # stage>=3 yields FeatureRecord
+            k: (getattr(item, "record", item) for item in v["iter"])
             for k, v in aligned.items()
         }
         aux_iters: dict[str, Iterator[Any]] = {
@@ -111,7 +110,7 @@ class _ComposedSource(SourceInterface):
         """Parse and resolve composed inputs into iterators.
 
         Grammar: "[alias=]stream_id" only. All inputs are built to stage 4
-        and are alignable (FeatureRecord -> domain record unwrapped).
+        and are alignable (domain records with stream transforms applied).
         """
         runtime = context.runtime
         known_streams = set(runtime.registries.stream_sources.keys())
@@ -123,8 +122,7 @@ class _ComposedSource(SourceInterface):
                 raise ValueError(
                     f"Unknown input stream '{ref}'. Known streams: {sorted(known_streams)}"
                 )
-            cfg = FeatureRecordConfig(record_stream=ref, id=alias)
-            it = build_feature_pipeline(context, cfg, stage=4)
+            it = build_record_pipeline(context, ref, stage=4)
             out[alias] = {"iter": it, "aligned": True}
 
         return out
