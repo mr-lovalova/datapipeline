@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import shutil
 
 from datapipeline.build.tasks.metadata import materialize_metadata

@@ -1,6 +1,5 @@
-from __future__ import annotations
-
 import re
+import time
 from typing import Any, Iterator, Mapping
 
 from datapipeline.plugins import LOADERS_EP
@@ -49,11 +48,13 @@ class ForeachLoader(BaseDataLoader):
         loader: Mapping[str, Any],
         inject_field: str | None = None,
         inject: Mapping[str, Any] | None = None,
+        throttle_seconds: float | None = None,
     ):
         self._key, self._values = self._normalize_foreach(foreach)
         self._loader_spec = self._normalize_loader_spec(loader)
         self._inject_field = inject_field
         self._inject = inject
+        self._throttle_seconds = self._normalize_throttle(throttle_seconds)
         self._current_index: int | None = None
         self._current_value: Any | None = None
         self._current_args: dict[str, Any] | None = None
@@ -68,6 +69,8 @@ class ForeachLoader(BaseDataLoader):
 
     def load(self) -> Iterator[Any]:
         for i, value in enumerate(self._values, 1):
+            if self._throttle_seconds and i > 1:
+                time.sleep(self._throttle_seconds)
             vars_ = {self._key: value}
             loader_args = self._make_loader_args(vars_)
             loader = self._build_loader(loader_args)
@@ -84,7 +87,9 @@ class ForeachLoader(BaseDataLoader):
 
     def count(self):
         total = 0
-        for value in self._values:
+        for i, value in enumerate(self._values, 1):
+            if self._throttle_seconds and i > 1:
+                time.sleep(self._throttle_seconds)
             vars_ = {self._key: value}
             loader_args = self._make_loader_args(vars_)
             loader = self._build_loader(loader_args)
@@ -118,6 +123,16 @@ class ForeachLoader(BaseDataLoader):
         if args is not None and not isinstance(args, Mapping):
             raise TypeError("core.foreach loader.args must be a mapping when provided")
         return dict(loader)
+
+    @staticmethod
+    def _normalize_throttle(throttle_seconds: float | None) -> float:
+        if throttle_seconds is None:
+            return 0.0
+        if not isinstance(throttle_seconds, (int, float)):
+            raise TypeError("core.foreach throttle_seconds must be a number")
+        if throttle_seconds < 0:
+            raise ValueError("core.foreach throttle_seconds must be >= 0")
+        return float(throttle_seconds)
 
     def _make_loader_args(self, vars_: Mapping[str, Any]) -> dict[str, Any]:
         args = self._loader_spec.get("args") or {}

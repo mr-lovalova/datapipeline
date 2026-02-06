@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from datetime import datetime, timezone
 from typing import Any, Mapping
 from zoneinfo import ZoneInfo
@@ -81,7 +79,8 @@ class TemporalCsvValueParser(DataParser[TemporalRecord]):
         ts = _parse_time(time_raw, self.time_format, self.tz)
         value = _parse_value(value_raw, self.decimal)
 
-        rec = TemporalRecord(time=ts, value=value)
+        rec = TemporalRecord(time=ts)
+        setattr(rec, "value", value)
         for attr, field in self.attributes.items():
             setattr(rec, attr, raw.get(field))
         return rec

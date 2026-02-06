@@ -1,0 +1,17 @@
+# HTTP loader reference (generic I/O loader).
+# This file is documentation only; uncomment the keys you want to use.
+#
+# id: provider.dataset         # required
+# parser:
+#   entrypoint: my_pkg.sources.provider.dataset:parse # required
+#   args: {}                   # optional
+# loader:
+#   entrypoint: {{DEFAULT_IO_LOADER_EP}}
+#   args:
+#     transport: http
+#     format: json-lines     # required; json | json-lines | csv
+#     url: https://example/api # required
+#     params: { key: value } # optional
+#     headers: { Authorization: "Bearer ..." } # optional
+#     encoding: utf-8        # optional
+#     count_by_fetch: false  # optional

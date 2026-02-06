@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import logging
 import time
 from itertools import islice
@@ -70,7 +68,7 @@ def report_serve(target: OutputTarget, count: int) -> None:
 
 
 def _is_full_pipeline_stage(stage: int | None) -> bool:
-    return stage is None or stage >= 6
+    return stage is None or stage >= 7
 
 
 def serve_with_runtime(
@@ -99,12 +97,12 @@ def serve_with_runtime(
             run_status = "success"
             return
 
-        rectangular = stage is None or stage > 5
+        rectangular = stage is None or stage > 6
 
-        if stage is not None and stage <= 5:
+        if stage is not None and stage <= 6:
             if target.payload != "sample":
                 logger.warning(
-                    "Ignoring payload '%s' for stage %s preview; preview outputs stream raw records.",
+                    "Ignoring payload '%s' for stage %s preview; preview outputs record/feature streams.",
                     target.payload,
                     stage,
                 )
@@ -129,7 +127,7 @@ def serve_with_runtime(
             rectangular=rectangular,
         )
 
-        if stage in (None, 7):
+        if stage in (None, 8):
             vectors = post_process(context, vectors)
         if stage is None:
             vectors = apply_split_stage(runtime, vectors)

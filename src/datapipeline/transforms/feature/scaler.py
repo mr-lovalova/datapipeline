@@ -3,12 +3,11 @@ from collections import defaultdict
 from itertools import groupby
 from numbers import Real
 from pathlib import Path
-from typing import Any, Callable, Iterator, Literal, Mapping
+from typing import Any, Callable, Iterator, Literal
 
 from datapipeline.domain.feature import FeatureRecord
 from datapipeline.domain.sample import Sample
 from datapipeline.transforms.feature.model import FeatureTransform
-from datapipeline.transforms.utils import clone_record_with_value
 from datapipeline.utils.pickle_model import PicklePersistanceMixin
 from datapipeline.pipeline.observability import TransformEvent
 
@@ -86,7 +85,7 @@ class StandardScaler(PicklePersistanceMixin):
             mean = float(stats.get("mean", 0.0))
             std = float(stats.get("std", 1.0))
             for fr in records:
-                value = fr.record.value
+                value = fr.value
                 if not isinstance(value, Real):
                     if value is None and on_none == "skip":
                         self.missing_counts[feature_id] = (
@@ -114,10 +113,7 @@ class StandardScaler(PicklePersistanceMixin):
                     normalized -= mean
                 if self.with_std:
                     normalized /= std
-                yield FeatureRecord(
-                    record=clone_record_with_value(fr.record, normalized),
-                    id=fr.id,
-                )
+                yield FeatureRecord(record=fr.record, id=fr.id, value=normalized)
 
     def inverse_transform(
         self,
@@ -136,7 +132,7 @@ class StandardScaler(PicklePersistanceMixin):
             mean = float(stats.get("mean", 0.0))
             std = float(stats.get("std", 1.0))
             for fr in records:
-                value = fr.record.value
+                value = fr.value
                 if not isinstance(value, Real):
                     raise TypeError(
                         f"Record value must be numeric, got {value!r}")
@@ -145,10 +141,7 @@ class StandardScaler(PicklePersistanceMixin):
                     restored *= std
                 if self.with_mean:
                     restored += mean
-                yield FeatureRecord(
-                    record=clone_record_with_value(fr.record, restored),
-                    id=fr.id,
-                )
+                yield FeatureRecord(record=fr.record, id=fr.id, value=restored)
 
     class _RunningStats:
         __slots__ = ("count", "mean", "m2")

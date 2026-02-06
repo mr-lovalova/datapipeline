@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import logging
 from pathlib import Path
 from typing import Iterator, List, NamedTuple, Optional, Sequence
@@ -93,7 +91,7 @@ def determine_preview_stage(
             return None, None
         stages.append(cfg_stage)
 
-    if not stages or any(stage > 5 for stage in stages):
+    if not stages or any(stage > 6 for stage in stages):
         return None, None
 
     if len(set(stages)) == 1:

@@ -1,0 +1,21 @@
+# Foreach loader reference (core.foreach).
+# This file is documentation only; uncomment the keys you want to use.
+#
+# id: provider.dataset         # required
+# parser:
+#   entrypoint: my_pkg.sources.provider.dataset:parse # required
+#   args: {}                   # optional
+# loader:
+#   entrypoint: core.foreach
+#   args:
+#     foreach:
+#       month: ["2024-01", "2024-02"]  # required; exactly one key; list of values
+#     loader:
+#       entrypoint: {{DEFAULT_IO_LOADER_EP}}
+#       args:
+#         transport: fs
+#         format: csv          # required
+#         path: ./data/${month}.csv # required
+#     # inject_field: month    # optional; mapping output only
+#     # inject: { month: "${month}" } # optional; mapping output only
+#     # throttle_seconds: 0    # optional

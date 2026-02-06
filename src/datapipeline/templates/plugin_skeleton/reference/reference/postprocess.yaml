@@ -1,0 +1,25 @@
+# Postprocess config reference (vector transforms).
+# This file is documentation only; uncomment the keys you want to use.
+# Each list item is a one-key mapping: <transform_name>: <params>.
+#
+# - drop:
+#     axis: vertical           # optional; horizontal | vertical
+#     payload: targets         # optional; features | targets | both (both only for horizontal)
+#     threshold: 0.9           # required; 0.0 - 1.0
+#     only: [feature_id]       # optional
+#     exclude: [feature_id]    # optional
+#
+# - fill:
+#     statistic: median        # optional; mean | median
+#     window: 48               # optional; rolling window size
+#     min_samples: 6           # optional
+#     payload: features        # optional; features | targets | both
+#     only: [feature_id]       # optional
+#     exclude: [feature_id]    # optional
+#
+# - replace:
+#     value: 0.0               # required
+#     payload: targets         # optional; features | targets | both
+#     target: null             # optional; replace only when value equals target; default replaces missing
+#     only: [feature_id]       # optional
+#     exclude: [feature_id]    # optional

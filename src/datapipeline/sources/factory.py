@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from typing import Any, Dict
 
 from datapipeline.sources.data_loader import DataLoader
@@ -19,7 +17,9 @@ def build_loader(*, transport: str, format: str | None = None, **kwargs: Any) ->
       transport: "fs" | "http"
       format: "csv" | "json" | "json-lines" | "pickle" (required for fs/http)
       fs: path (str), glob (bool, optional), encoding (str, default utf-8), delimiter (csv only)
-      http: url (str), headers (dict, optional), params (dict, optional), encoding (str, default utf-8)
+      http: url (str), headers (dict, optional), params (dict, optional), encoding (str, default utf-8), timeout_seconds (float, optional)
+      csv: error_prefixes (list[str], optional)
+      json: array_field (str, optional)
     """
 
     t = (transport or "").lower()
@@ -40,16 +40,19 @@ def build_loader(*, transport: str, format: str | None = None, **kwargs: Any) ->
         headers: Dict[str, str] = dict(kwargs.get("headers") or {})
         params: Dict[str, Any] = dict(kwargs.get("params") or {})
         encoding = kwargs.get("encoding", "utf-8")
-        source = HttpTransport(url, headers=headers, params=params)
+        timeout_seconds = kwargs.get("timeout_seconds")
+        source = HttpTransport(url, headers=headers, params=params, timeout_seconds=timeout_seconds)
     else:
         raise ValueError(f"unsupported transport: {transport}")
 
     # Build decoder
     if fmt == "csv":
         delimiter = kwargs.get("delimiter", ";")
-        decoder = CsvDecoder(delimiter=delimiter, encoding=encoding)
+        error_prefixes = kwargs.get("error_prefixes")
+        decoder = CsvDecoder(delimiter=delimiter, encoding=encoding, error_prefixes=error_prefixes)
     elif fmt == "json":
-        decoder = JsonDecoder(encoding=encoding)
+        array_field = kwargs.get("array_field")
+        decoder = JsonDecoder(encoding=encoding, array_field=array_field)
     elif fmt == "json-lines":
         decoder = JsonLinesDecoder(encoding=encoding)
     elif fmt == "pickle":

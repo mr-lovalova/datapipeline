@@ -1,0 +1,31 @@
+# Ingest contract reference (kind: ingest).
+# This file is documentation only; uncomment the keys you want to use.
+#
+# kind: ingest
+# id: domain.dataset.variant
+# source: source.alias          # required
+# mapper:                       # optional (defaults to identity)
+#   entrypoint: my_mapper
+#   args: {}
+# cadence: ${group_by}          # optional per-contract variable for interpolation
+# partition_by: station_id      # optional; string or list of strings
+# sort_batch_size: 100000       # optional; in-memory chunk size for sorting
+#
+# record transforms (one-key mappings; optional):
+# - filter: { field: time, operator: ge, comparand: "${start_time}" }
+# - floor_time: { cadence: "${cadence}" }
+# - lag: { lag: "${cadence}" }
+#
+# stream transforms (one-key mappings; optional; operate on record fields):
+# - floor_time: { cadence: "${cadence}" }
+# - lag: { lag: "${cadence}" }
+# - filter: { field: close, operator: ge, comparand: 1000000 }
+# - dedupe: {}
+# - granularity: { field: close, to: close, mode: first }
+# - ensure_cadence: { field: close, to: close, cadence: "${cadence}" }
+# - rolling: { field: dollar_volume, to: adv60, window: 60, statistic: mean, min_samples: 60 }
+# - fill: { field: close, to: close, statistic: median, window: 6, min_samples: 1 }
+#
+# debug transforms (one-key mappings; optional):
+# - lint: { mode: error, tick: "${cadence}" }
+# - identity: {}

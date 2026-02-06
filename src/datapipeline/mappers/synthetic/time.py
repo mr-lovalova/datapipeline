@@ -1,7 +1,14 @@
-from typing import Iterator
+from dataclasses import dataclass
 from datetime import datetime
 from math import sin, pi
+from typing import Iterator
+
 from datapipeline.domain.record import TemporalRecord
+
+
+@dataclass
+class TimeEncodedRecord(TemporalRecord):
+    value: float
 
 
 def encode(stream: Iterator[TemporalRecord], mode: str) -> Iterator[TemporalRecord]:
@@ -15,4 +22,4 @@ def encode(stream: Iterator[TemporalRecord], mode: str) -> Iterator[TemporalReco
             val = t.timestamp()
         else:
             raise ValueError(f"Unsupported encode_time mode: {mode}")
-        yield TemporalRecord(time=rec.time, value=val)
+        yield TimeEncodedRecord(time=rec.time, value=val)

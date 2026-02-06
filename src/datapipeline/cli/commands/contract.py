@@ -3,30 +3,63 @@ from pathlib import Path
 
 from datapipeline.config.workspace import WorkspaceContext
 from datapipeline.cli.workspace_utils import resolve_default_project_yaml
-from datapipeline.services.paths import pkg_root, resolve_base_pkg_dir
-from datapipeline.services.entrypoints import read_group_entries, inject_ep
-from datapipeline.services.constants import FILTERS_GROUP, MAPPERS_GROUP
-from datapipeline.services.project_paths import (
-    sources_dir as resolve_sources_dir,
-    streams_dir as resolve_streams_dir,
-    ensure_project_scaffold,
-    resolve_project_yaml_path,
+from datapipeline.services.paths import pkg_root
+from datapipeline.services.entrypoints import read_group_entries
+from datapipeline.services.constants import FILTERS_GROUP
+from datapipeline.services.project_paths import resolve_project_yaml_path
+from datapipeline.services.scaffold.contract_yaml import (
+    write_ingest_contract,
+    write_composed_contract,
+    compose_inputs,
 )
-from datapipeline.services.scaffold.mappers import attach_source_to_domain
-import re
+from datapipeline.services.scaffold.discovery import (
+    list_domains,
+    list_mappers,
+    list_sources,
+    list_streams,
+)
+from datapipeline.services.scaffold.utils import (
+    info,
+    status,
+    error_exit,
+    pick_from_menu,
+    pick_from_list,
+    pick_multiple_from_list,
+    choose_name,
+)
+from datapipeline.services.scaffold.layout import default_stream_id
+from datapipeline.cli.commands.mapper import handle as handle_mapper
+from datapipeline.services.scaffold.mapper import create_composed_mapper
 
 
-def _pick_from_list(prompt: str, options: list[str]) -> str:
-    print(prompt, file=sys.stderr)
-    for i, opt in enumerate(options, 1):
-        print(f"  [{i}] {opt}", file=sys.stderr)
-    while True:
-        sel = input("> ").strip()
-        if sel.isdigit():
-            idx = int(sel)
-            if 1 <= idx <= len(options):
-                return options[idx - 1]
-        print("Please enter a number from the list.", file=sys.stderr)
+def _select_mapper(*, allow_identity: bool, allow_create: bool, root: Path | None) -> str:
+    mappers = list_mappers(root=root)
+    options: list[tuple[str, str]] = []
+    if allow_create:
+        options.append(("create", "Create new mapper (default)"))
+    if mappers:
+        options.append(("existing", "Select existing mapper"))
+    if allow_identity:
+        options.append(("identity", "Identity mapper"))
+    options.append(("custom", "Custom mapper"))
+
+    if not options:
+        error_exit("No mapper options available")
+
+    choice = pick_from_menu("Mapper:", options)
+    if choice == "existing":
+        return pick_from_menu(
+            "Select mapper entrypoint:",
+            [(k, k) for k in sorted(mappers.keys())],
+        )
+    if choice == "create":
+        return handle_mapper(name=None, plugin_root=root)
+    if choice == "identity":
+        return "identity"
+    ep = input("Mapper entrypoint: ").strip()
+    if not ep:
+        error_exit("Mapper entrypoint is required")
+    return ep
 
 
 def handle(
@@ -38,20 +71,19 @@ def handle(
     root_dir, name, pyproject = pkg_root(plugin_root)
     default_project = resolve_default_project_yaml(workspace)
     # Select contract type: Ingest (source->stream) or Composed (streams->stream)
-    print("Select contract type:", file=sys.stderr)
-    print("  [1] Ingest (source → stream)", file=sys.stderr)
-    print("  [2] Composed (streams → stream)", file=sys.stderr)
+    info("Contract type:")
+    info("  [1] Ingest (source → stream)")
+    info("  [2] Composed (streams → stream)")
     sel = input("> ").strip()
     if sel == "2":
         if use_identity:
-            print("[error] --identity is only supported for ingest contracts.", file=sys.stderr)
-            raise SystemExit(2)
+            error_exit("--identity is only supported for ingest contracts.")
         # Defer to composed scaffolder (fully interactive)
         scaffold_conflux(
             stream_id=None,
             inputs=None,
             mapper_path=None,
-            with_mapper_stub=True,
+            with_mapper_stub=False,
             plugin_root=plugin_root,
             project_yaml=default_project,
         )
@@ -60,129 +92,47 @@ def handle(
     # Discover sources by scanning sources_dir YAMLs
     # Default to dataset-scoped project config
     proj_path = default_project or resolve_project_yaml_path(root_dir)
-    # Ensure a minimal project scaffold so we can resolve dirs interactively
-    ensure_project_scaffold(proj_path)
-    sources_dir = resolve_sources_dir(proj_path)
-    source_options: list[str] = []
-    if sources_dir.exists():
-        # Recursively scan YAMLs and read declared source id (alias)
-        from datapipeline.utils.load import load_yaml
-        from datapipeline.services.constants import PARSER_KEY, LOADER_KEY, SOURCE_ID_KEY
-        for p in sorted(sources_dir.rglob("*.y*ml")):
-            try:
-                data = load_yaml(p)
-            except Exception:
-                continue
-            if isinstance(data, dict) and isinstance(data.get(PARSER_KEY), dict) and isinstance(data.get(LOADER_KEY), dict):
-                alias = data.get(SOURCE_ID_KEY)
-                if isinstance(alias, str):
-                    source_options.append(alias)
-        source_options = sorted(set(source_options))
+    source_options = list_sources(proj_path)
     if not source_options:
-        print("[error] No sources found. Create one first (jerry source add ...)")
-        raise SystemExit(2)
+        error_exit("No sources found. Create one first (jerry source create ...)")
 
-    src_key = _pick_from_list(
-        "Select a source for the contract:", source_options)
+    src_key = pick_from_list("Select source:", source_options)
     # Expect aliases as 'provider.dataset' (from source file's id)
     parts = src_key.split(".", 1)
     if len(parts) != 2:
-        print("[error] Source alias must be 'provider.dataset' (from source file's id)", file=sys.stderr)
-        raise SystemExit(2)
+        error_exit("Source alias must be 'provider.dataset' (from source file's id)")
     provider, dataset = parts[0], parts[1]
 
-    # Discover domains by scanning the package, fallback to EPs if needed
-    base = resolve_base_pkg_dir(root_dir, name)
-    domain_options = []
-    for dirname in ("domains",):
-        dom_dir = base / dirname
-        if dom_dir.exists():
-            domain_options.extend(
-                [p.name for p in dom_dir.iterdir() if p.is_dir()
-                 and (p / "model.py").exists()]
-            )
-    domain_options = sorted(set(domain_options))
+    domain_options = list_domains(root=plugin_root)
     if not domain_options:
         domain_options = sorted(
             read_group_entries(pyproject, FILTERS_GROUP).keys())
     if not domain_options:
-        print("[error] No domains found. Create one first (jerry domain add ...)")
-        raise SystemExit(2)
+        error_exit("No domains found. Create one first (jerry domain create ...)")
 
-    dom_name = _pick_from_list(
-        "Select a domain to contract with:", domain_options)
-
-    def _slug(s: str) -> str:
-        s = s.strip().lower()
-        s = re.sub(r"[^a-z0-9]+", "_", s)
-        return s.strip("_")
+    dom_name = pick_from_list("Select domain:", domain_options)
 
     if use_identity:
         mapper_ep = "identity"
-        print("[ok] Using built-in mapper entry point 'identity'.")
+        status("ok", "Using built-in mapper entry point 'identity'.")
     else:
-        # create mapper + EP (domain.origin)
-        attach_source_to_domain(
-            domain=dom_name,
-            provider=provider,
-            dataset=dataset,
+        mapper_ep = _select_mapper(
+            allow_identity=True,
+            allow_create=True,
             root=plugin_root,
         )
-        ep_key = f"{_slug(dom_name)}.{_slug(dataset)}"
-        print(f"[ok] Registered mapper entry point as '{ep_key}'.")
-        mapper_ep = ep_key
 
     # Derive canonical stream id as domain.dataset[.variant]
-    print("Optional variant suffix (press Enter to skip):", file=sys.stderr)
+    info("Optional variant suffix (press Enter to skip):")
     variant = input("> ").strip()
-    if variant:
-        canonical_alias = f"{_slug(dom_name)}.{_slug(dataset)}.{_slug(variant)}"
-    else:
-        canonical_alias = f"{_slug(dom_name)}.{_slug(dataset)}"
+    stream_id = choose_name("Stream id", default=default_stream_id(dom_name, dataset, variant or None))
 
-    # Inject per-file canonical stream into streams directory
-    streams_path = resolve_streams_dir(proj_path)
-
-    # canonical_alias and mapper_ep defined above
-    # Write a single-file canonical spec into streams directory, matching
-    # ContractConfig schema with helpful commented placeholders per stage.
-    try:
-        # Ensure streams_path is a directory path
-        streams_dir = streams_path if streams_path.is_dir() else streams_path.parent
-        streams_dir.mkdir(parents=True, exist_ok=True)
-        cfile = streams_dir / f"{canonical_alias}.yaml"
-        # Build a richer scaffold as YAML text to preserve comments
-        scaffold = f"""
-kind: ingest
-source: {src_key}
-id: {canonical_alias}  # format: domain.dataset.(variant)
-
-mapper:
-  entrypoint: {mapper_ep}
-  args: {{}}
-
-# partition_by: <field or [fields]> 
-# sort_batch_size: 100000              # in-memory sort chunk size
-
-record:                              # record-level transforms
-  - filter: {{ operator: ge, field: time, comparand: "${{start_time}}" }}
-  - filter: {{ operator: le, field: time, comparand: "${{end_time}}" }}
-#   - floor_time: {{ resolution: 10m }}
-#   - lag: {{ lag: 10m }}
-
-# stream:                              # per-feature transforms (input sorted by id,time)
-#   - ensure_ticks: {{ tick: 10m }}
-#   - granularity: {{ mode: first }}
-#   - fill: {{ statistic: median, window: 6, min_samples: 1 }}
-
-# debug:                               # optional validation-only checks
-#   - lint: {{ mode: warn, tick: 10m }}
-"""
-        with cfile.open("w", encoding="utf-8") as f:
-            f.write(scaffold)
-        print(f"[new] canonical spec: {cfile}")
-    except Exception as e:
-        print(f"[error] Failed to write canonical spec: {e}", file=sys.stderr)
+    write_ingest_contract(
+        project_yaml=proj_path,
+        stream_id=stream_id,
+        source=src_key,
+        mapper_entrypoint=mapper_ep,
+    )
 
 
 def scaffold_conflux(
@@ -200,174 +150,86 @@ def scaffold_conflux(
     mapper_path default: <pkg>.domains.<domain>:mapper where domain = stream_id.split('.')[0]
     """
     root_dir, name, _ = pkg_root(plugin_root)
-    # Resolve default project path early for interactive selections
     proj_path = project_yaml or resolve_project_yaml_path(root_dir)
-    ensure_project_scaffold(proj_path)
-    # Defer target domain selection until after choosing inputs
-
-    # We will write the contract after selecting inputs and target domain
-    # Build inputs string first: interactive select, then target domain
     if not inputs:
-        # Interactive selection of canonical streams (scan recursively, read ids)
-        streams: list[str] = []
-        sdir = resolve_streams_dir(proj_path)
-        if sdir.exists():
-            from datapipeline.utils.load import load_yaml
-            from datapipeline.services.constants import STREAM_ID_KEY
-            for p in sorted(sdir.rglob("*.y*ml")):
-                try:
-                    data = load_yaml(p)
-                except Exception:
-                    continue
-                if isinstance(data, dict) and data.get("kind") in {"ingest", "composed"}:
-                    sid = data.get(STREAM_ID_KEY)
-                    if isinstance(sid, str) and sid:
-                        streams.append(sid)
-        streams = sorted(set(streams))
+        streams = list_streams(proj_path)
         if not streams:
-            print(
-                "[error] No canonical streams found. Create them first via 'jerry contract' (ingest).", file=sys.stderr)
-            raise SystemExit(2)
-        print(
-            "Select one or more input streams (comma-separated numbers):", file=sys.stderr)
-        for i, sid in enumerate(streams, 1):
-            print(f"  [{i}] {sid}", file=sys.stderr)
-        sel = input("> ").strip()
-        try:
-            idxs = [int(x) for x in sel.split(',') if x.strip()]
-        except ValueError:
-            print("[error] Invalid selection.", file=sys.stderr)
-            raise SystemExit(2)
-        picked = []
-        for i in idxs:
-            if 1 <= i <= len(streams):
-                picked.append(streams[i-1])
-        if not picked:
-            print("[error] No inputs selected.", file=sys.stderr)
-            raise SystemExit(2)
-        # Build default aliases using domain+variant to avoid collisions.
-        # Stream id format: domain.dataset.variant (variant optional)
-        built = []
-        for ref in picked:
-            parts = ref.split(".")
-            if len(parts) >= 3:
-                domain, variant = parts[0], parts[-1]
-                alias = f"{domain}_{variant}"
-            elif len(parts) == 2:
-                # No explicit variant -> use domain as alias
-                alias = parts[0]
-            else:
-                # Fallback to full ref if unexpected
-                alias = ref
-            built.append(f"{alias}={ref}")
-        inputs = ",".join(built)
-
-    # YAML list items do not need commas; avoid embedding commas in item text
-    inputs_list = "\n  - ".join(
-        s.strip() for s in inputs.split(",") if s.strip()
-    )
+            error_exit("No canonical streams found. Create them first via 'jerry contract' (ingest).")
+        picked = pick_multiple_from_list(
+            "Select one or more input streams (comma-separated numbers):",
+            streams,
+        )
+        inputs_list, driver_key = compose_inputs(picked)
+    else:
+        inputs_list = "\n  - ".join(s.strip() for s in inputs.split(",") if s.strip())
+        driver_key = inputs.split(",")[0].split("=")[0].strip()
 
     # If no stream_id, select target domain now and derive stream id (mirror ingest flow)
     if not stream_id:
-        base = resolve_base_pkg_dir(root_dir, name)
-        domain_options: list[str] = []
-        dom_dir = base / "domains"
-        if dom_dir.exists():
-            domain_options.extend(
-                [p.name for p in dom_dir.iterdir() if p.is_dir()
-                 and (p / "model.py").exists()]
-            )
-        domain_options = sorted(set(domain_options))
+        domain_options = list_domains(root=plugin_root)
         if not domain_options:
-            print("[error] No domains found. Create one first (jerry domain add ...)")
-            raise SystemExit(2)
-        print("Select a target domain for the composed stream:", file=sys.stderr)
+            error_exit("No domains found. Create one first (jerry domain create ...)")
+        info("Select domain:")
         for i, opt in enumerate(domain_options, 1):
-            print(f"  [{i}] {opt}", file=sys.stderr)
+            info(f"  [{i}] {opt}")
         sel = input("> ").strip()
         try:
             idx = int(sel)
             if idx < 1 or idx > len(domain_options):
                 raise ValueError
         except Exception:
-            print("[error] Invalid selection.", file=sys.stderr)
-            raise SystemExit(2)
+            error_exit("Invalid selection.")
         domain = domain_options[idx - 1]
         stream_id = f"{domain}.processed"
-        # Default mapper path uses import-safe package dir, not project name
-        pkg_base = resolve_base_pkg_dir(root_dir, name).name
-        mapper_path = mapper_path or f"{pkg_base}.mappers.{domain}:mapper"
     else:
-        domain = stream_id.split('.')[0]
-        pkg_base = resolve_base_pkg_dir(root_dir, name).name
-        mapper_path = mapper_path or f"{pkg_base}.mappers.{domain}:mapper"
+        domain = stream_id.split(".")[0]
 
-    # Optional mapper stub under mappers/
-    if with_mapper_stub:
-        base = resolve_base_pkg_dir(root_dir, name)
-        map_pkg_dir = base / "mappers"
-        map_pkg_dir.mkdir(parents=True, exist_ok=True)
-        (map_pkg_dir / "__init__.py").touch(exist_ok=True)
-        mapper_file = map_pkg_dir / f"{domain}.py"
-        if not mapper_file.exists():
-            mapper_file.write_text(
-                """
-from typing import Iterator, Mapping
-from datapipeline.domain.record import TemporalRecord
-
-
-def mapper(
-    inputs: Mapping[str, Iterator[TemporalRecord]],
-    *, driver: str | None = None, aux: Mapping[str, Iterator[TemporalRecord]] | None = None, context=None, **params
-) -> Iterator[TemporalRecord]:
-    # TODO: implement domain math; inputs are ordered/regularized; aux is raw
-    key = driver or next(iter(inputs.keys()))
-    for rec in inputs[key]:
-        yield rec  # replace with your dataclass and computation
-""".lstrip()
+    # Mapper selection for composed contracts (no identity)
+    if not mapper_path:
+        mappers = list_mappers(root=plugin_root)
+        if mappers:
+            choice = pick_from_menu(
+                "Mapper:",
+                [
+                    ("create", "Create new composed mapper (default)"),
+                    ("existing", "Select existing mapper"),
+                    ("custom", "Custom mapper"),
+                ],
             )
-            print(f"[new] {mapper_file}")
-        # Register mapper entry point under datapipeline.mappers
-        # Choose EP name equal to stream_id for clarity/reuse
-        ep_key = stream_id
-        # If mapper_path looks like a dotted target (module:attr), use it; otherwise build default target
-        package_name = base.name  # filesystem package dir is import-safe (underscored)
-        default_target = f"{package_name}.mappers.{domain}:mapper"
-        ep_target = mapper_path if (
-            mapper_path and ":" in mapper_path) else default_target
-        pyproj_path = root_dir / "pyproject.toml"
-        try:
-            toml_text = pyproj_path.read_text()
-            updated = inject_ep(toml_text, MAPPERS_GROUP, ep_key, ep_target)
-            if updated != toml_text:
-                pyproj_path.write_text(updated)
-                print(
-                    f"[ok] Registered mapper entry point '{ep_key}' -> {ep_target}")
-        except FileNotFoundError:
-            print(
-                "[info] pyproject.toml not found; skipping entry point registration", file=sys.stderr)
-        # From here on, reference the EP name in the YAML
-        mapper_path = ep_key
-    # Contract file path (now that stream_id is known)
-    ensure_project_scaffold(proj_path)
-    streams_path = resolve_streams_dir(proj_path)
-    streams_dir = streams_path if streams_path.is_dir() else streams_path.parent
-    streams_dir.mkdir(parents=True, exist_ok=True)
-    cfile = streams_dir / f"{stream_id}.yaml"
-    if cfile.exists():
-        print(f"[info] Contract already exists, skipping: {cfile}")
-        return
+        else:
+            choice = pick_from_menu(
+                "Mapper:",
+                [
+                    ("create", "Create new composed mapper (default)"),
+                    ("custom", "Custom mapper"),
+                ],
+            )
+        if choice == "existing":
+            mapper_path = pick_from_menu(
+                "Select mapper entrypoint:",
+                [(k, k) for k in sorted(mappers.keys())],
+            )
+            with_mapper_stub = False
+        elif choice == "create":
+            with_mapper_stub = True
+        else:
+            mapper_path = input("Mapper entrypoint: ").strip()
+            if not mapper_path:
+                error_exit("Mapper entrypoint is required")
+            with_mapper_stub = False
 
-    yaml_text = f"""
-kind: composed
-id: {stream_id}  # format: domain.dataset.(variant)
-# partition_by: <field or [fields]>
-inputs:
-  - {inputs_list}
-
-mapper:
-  entrypoint: {mapper_path}
-  args: {{ driver: {(inputs.split(',')[0].split('=')[0].strip() if '=' in inputs.split(',')[0] else inputs.split(',')[0].strip())} }}
-"""
-    cfile.write_text(yaml_text.strip() + "\n", encoding="utf-8")
-    print(f"[new] composed contract: {cfile}")
+    # Optional mapper stub under mappers/ (composed signature)
+    if with_mapper_stub:
+        mapper_path = create_composed_mapper(
+            domain=domain,
+            stream_id=stream_id,
+            root=plugin_root,
+            mapper_path=mapper_path,
+        )
+    write_composed_contract(
+        project_yaml=proj_path,
+        stream_id=stream_id,
+        inputs_list=inputs_list,
+        mapper_entrypoint=mapper_path,
+        driver_key=driver_key,
+    )

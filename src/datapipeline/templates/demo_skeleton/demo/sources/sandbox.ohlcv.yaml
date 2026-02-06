@@ -1,0 +1,17 @@
+# Required identifier for this raw source. Contracts reference it under `source:`.
+id: "sandbox.ohlcv" # suggested format: provider.dataset
+
+# parser.entrypoint: registered parser name (not a file path)
+parser:
+  entrypoint: "sandbox_ohlcv_dto_parser"
+  args: {}
+
+# loader.entrypoint: registered loader name (not a file path)
+loader:
+  entrypoint: "core.io"
+  args:
+    transport: fs
+    format: json-lines
+    path: demo/data/*.jsonl
+    glob: true
+    encoding: utf-8

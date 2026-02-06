@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import math
 from datetime import datetime, timezone
 
@@ -22,7 +20,11 @@ def test_collect_schema_entries_counts_nan(monkeypatch, tmp_path):
     project_yaml = tmp_path / "project.yaml"
     project_yaml.write_text("version: 1\n", encoding="utf-8")
     runtime = Runtime(project_yaml=project_yaml, artifacts_root=artifacts_root)
-    cfg = FeatureRecordConfig(id="wind_speed", record_stream="met.obs")
+    cfg = FeatureRecordConfig(
+        id="wind_speed",
+        record_stream="met.obs",
+        field="value",
+    )
     sample = Sample(key=(0,), features=Vector(values={"wind_speed": math.nan}))
 
     def fake_pipeline(context, configs, group_by_cadence, target_configs=None, *, rectangular=True):

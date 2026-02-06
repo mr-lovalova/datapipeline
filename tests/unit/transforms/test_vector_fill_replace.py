@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
 from datapipeline.transforms.vector import VectorFillTransform, VectorReplaceTransform

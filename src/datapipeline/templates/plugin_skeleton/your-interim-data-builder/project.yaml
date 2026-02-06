@@ -1,0 +1,14 @@
+# See ../reference/reference/project.yaml for full options.
+version: 1
+name: <your-interim-data-builder>
+paths:
+  streams: ./contracts
+  sources: ./sources
+  dataset: dataset.yaml
+  postprocess: postprocess.yaml
+  artifacts: ../artifacts/${project_name}/v${version}
+  tasks: ./tasks
+globals:
+  group_by: <your-bucket-cadence>
+  start_time: null
+  end_time: null

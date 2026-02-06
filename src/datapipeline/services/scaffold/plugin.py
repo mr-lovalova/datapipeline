@@ -2,6 +2,7 @@ from importlib.resources import as_file, files
 from pathlib import Path
 import logging
 import os
+import sys
 
 import yaml
 
@@ -11,7 +12,8 @@ from ..constants import DEFAULT_IO_LOADER_EP
 
 logger = logging.getLogger(__name__)
 
-_RESERVED_PACKAGE_NAMES = {"datapipeline"}
+_RESERVED_PACKAGE_NAMES = {"datapipeline", "test", "tests"}
+_STDLIB_MODULE_NAMES = getattr(sys, "stdlib_module_names", set())
 
 
 def _normalized_package_name(dist_name: str) -> str:
@@ -19,6 +21,12 @@ def _normalized_package_name(dist_name: str) -> str:
     if package_name in _RESERVED_PACKAGE_NAMES:
         logger.error(
             "`datapipeline` is reserved for the core package. Choose a different plugin name."
+        )
+        raise SystemExit(1)
+    if package_name in _STDLIB_MODULE_NAMES:
+        logger.error(
+            "Plugin name '%s' conflicts with a Python standard library module. Choose a different name.",
+            package_name,
         )
         raise SystemExit(1)
     if not package_name.isidentifier():
@@ -47,7 +55,11 @@ def scaffold_plugin(name: str, outdir: Path) -> None:
         "{{DIST_NAME}}": name,
         "{{DEFAULT_IO_LOADER_EP}}": DEFAULT_IO_LOADER_EP,
     }
-    for p in (target / "pyproject.toml", target / "README.md"):
+    for p in target.rglob("*"):
+        if not p.is_file():
+            continue
+        if p.suffix not in {".py", ".toml", ".md", ".yaml", ".yml"}:
+            continue
         text = p.read_text()
         for placeholder, value in replacements.items():
             text = text.replace(placeholder, value)

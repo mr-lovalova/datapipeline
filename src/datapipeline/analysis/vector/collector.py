@@ -1,4 +1,3 @@
-from __future__ import annotations
 from collections import Counter, defaultdict
 from typing import Any, Hashable, Iterable, Literal
 from datapipeline.transforms.vector_utils import base_id as _base_id

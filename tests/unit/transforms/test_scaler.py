@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from math import isclose
 
 import pytest
@@ -30,7 +28,7 @@ def test_standard_scaler_normalizes_feature_stream():
 
     transformed = list(scaler.apply(stream))
 
-    values = [fr.record.value for fr in transformed]
+    values = [fr.value for fr in transformed]
     expected = [-1.22474487, 0.0, 1.22474487]
     for observed, target in zip(values, expected):
         assert isclose(observed, target, rel_tol=1e-6)
@@ -56,7 +54,7 @@ def test_standard_scaler_uses_provided_statistics():
 
     transformed = list(scaler.apply(stream))
 
-    assert [fr.record.value for fr in transformed] == [1.0, 1.2]
+    assert [fr.value for fr in transformed] == [1.0, 1.2]
 
 
 def test_standard_scaler_inverse_transform_round_trip():
@@ -83,7 +81,7 @@ def test_standard_scaler_inverse_transform_round_trip():
     restored = list(transform.inverse(iter(scaled)))
 
     original = [1.0, 2.0, 3.0]
-    values = [fr.record.value for fr in restored]
+    values = [fr.value for fr in restored]
     for observed, expected in zip(values, original):
         assert isclose(observed, expected, rel_tol=1e-6)
 
@@ -159,7 +157,7 @@ def test_standard_scaler_passthrough_missing_counts():
     )
 
     transformed = list(transform.apply(stream))
-    values = [fr.record.value for fr in transformed]
+    values = [fr.value for fr in transformed]
     assert values == [-1.0, None, 1.0]
     assert transform.missing_counts == {"temp": 1}
 
@@ -181,7 +179,7 @@ def test_standard_scaler_matches_sklearn():
 
     stream = iter([make_feature_record(v, i, "x") for i, v in enumerate(values)])
     transformed = list(StandardScalerTransform(scaler=scaler).apply(stream))
-    ours = [fr.record.value for fr in transformed]
+    ours = [fr.value for fr in transformed]
     theirs = sk_scaler.transform([[v] for v in values]).flatten().tolist()
 
     assert pytest.approx(ours) == theirs
@@ -224,6 +222,6 @@ def test_standard_scaler_warn_callback_invoked_with_counts():
 
     transformed = list(transform.apply(stream))
 
-    assert [fr.record.value for fr in transformed] == [-1.0, None, None]
+    assert [fr.value for fr in transformed] == [-1.0, None, None]
     assert transform.missing_counts == {"temp": 2}
     assert calls == [("temp", 1, 1), ("temp", 2, 2)]

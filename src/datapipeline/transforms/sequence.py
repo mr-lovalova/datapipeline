@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from collections import deque
 from itertools import groupby
 from typing import Iterator
@@ -33,7 +31,7 @@ class WindowTransformer:
         """Assumes input is pre-sorted by (feature_id, record.time).
 
         Produces sliding windows per feature_id. Each output carries a
-        list[Record] in ``records``.
+        list[Record] in ``records`` and the selected values in ``values``.
         """
 
         grouped = groupby(stream, key=lambda fr: fr.id)
@@ -46,6 +44,7 @@ class WindowTransformer:
                 if len(window) == self.size and step % self.stride == 0:
                     yield FeatureRecordSequence(
                         records=[r.record for r in window],
+                        values=[r.value for r in window],
                         id=fid,
                     )
                 step += 1

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from dataclasses import dataclass
 import json
 from pathlib import Path
@@ -80,8 +78,7 @@ class ArtifactManager:
         except FileNotFoundError as exc:
             message = (
                 f"Artifact file not found: {path}. "
-                "Run `jerry build --project <project.yaml>` (preferred) or "
-                "`jerry inspect expected --project <project.yaml>` to regenerate it."
+                "Run `jerry build --project <project.yaml>` to regenerate it."
             )
             raise RuntimeError(message) from exc
 

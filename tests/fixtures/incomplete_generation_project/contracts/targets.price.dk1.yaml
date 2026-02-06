@@ -12,5 +12,5 @@ record:
   - filter: { operator: eq, field: area, comparand: DK1 }
 
 stream:
-  - ensure_cadence: { cadence: 1h }
-  - fill: { statistic: mean, window: 2, min_samples: 1 }
+  - ensure_cadence: { cadence: 1h, field: value }
+  - fill: { statistic: mean, window: 2, min_samples: 1, field: value }

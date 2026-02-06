@@ -1,0 +1,29 @@
+# Dataset config reference (all options).
+# This file is documentation only; uncomment the keys you want to use.
+#
+# Feature/vector stages require group_by.
+# group_by must match ^\d+(m|min|h|d)$ (e.g., 10m, 1h, 1d).
+#
+# group_by: ${group_by}        # required for feature/vector stages
+#
+# features:                    # optional
+#   - id: time_linear
+#     record_stream: time.ticks.linear
+#     field: value
+#     scale: true           # optional; true | false | mapping (see below)
+#     # scale:
+#     #   model_path: ../artifacts/example/v1/scaler.pkl
+#     #   with_mean: true
+#     #   with_std: true
+#     #   epsilon: 1.0e-12
+#     #   on_none: skip      # skip | error
+#     sequence: { size: 6, stride: 1 }  # optional
+#
+# targets:                     # optional
+#   - id: some_target
+#     record_stream: time.ticks.linear
+#     field: value
+#     scale: false            # optional
+#     sequence: null          # optional
+#
+# Record-only stage uses only record_stream entries; id/field/scale/sequence are ignored.

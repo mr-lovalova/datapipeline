@@ -1,17 +1,19 @@
+from collections import deque
 from itertools import groupby
 from statistics import mean, median
-from typing import Any, Iterator
-from collections import deque
+from typing import Iterator
 
-from datapipeline.domain.feature import FeatureRecord, FeatureRecordSequence
-from datapipeline.transforms.utils import is_missing, clone_record_with_value
+from datapipeline.domain.record import TemporalRecord
+from datapipeline.transforms.interfaces import FieldStreamTransformBase
+from datapipeline.transforms.utils import (
+    get_field,
+    is_missing,
+    clone_record_with_field,
+    partition_key,
+)
 
 
-def _extract_value(record: Any) -> Any:
-    return getattr(record, "value", None)
-
-
-class FillTransformer:
+class FillTransformer(FieldStreamTransformBase):
     """Time-aware imputer using a strict rolling tick window.
 
     - window: number of recent ticks to consider (including missing ticks). A
@@ -23,7 +25,17 @@ class FillTransformer:
       window.
     """
 
-    def __init__(self, statistic: str = "median", window: int | None = None, min_samples: int = 1) -> None:
+    def __init__(
+        self,
+        *,
+        field: str,
+        to: str | None = None,
+        statistic: str = "median",
+        window: int | None = None,
+        min_samples: int = 1,
+        partition_by: str | list[str] | None = None,
+    ) -> None:
+        super().__init__(field=field, to=to, partition_by=partition_by)
         if window is None or window <= 0:
             raise ValueError("window must be a positive integer")
         if min_samples <= 0:
@@ -43,21 +55,19 @@ class FillTransformer:
             return None
         return float(self.statistic(values))
 
-    def __call__(self, stream: Iterator[FeatureRecord]) -> Iterator[FeatureRecordSequence]:
-        return self.apply(stream)
+    def apply(self, stream: Iterator[TemporalRecord]) -> Iterator[TemporalRecord]:
+        grouped = groupby(stream, key=lambda rec: partition_key(rec, self.partition_by))
 
-    def apply(self, stream: Iterator[FeatureRecord]) -> Iterator[FeatureRecordSequence]:
-        grouped = groupby(stream, key=lambda fr: fr.id)
-
-        for id, feature_records in grouped:
+        for _, records in grouped:
             # Store the last `window` ticks with a flag marking whether the tick
             # had an original (non-filled) valid value, and its numeric value.
             tick_window: deque[tuple[bool, float | None]] = deque(maxlen=self.window)
 
-            for fr in feature_records:
-                if isinstance(fr.record, FeatureRecordSequence):
-                    raise TypeError("Fills should run before windowing transforms")
-                value = _extract_value(fr.record)
+            for record in records:
+                value = get_field(record, self.field)
+                record = self._ensure_output_field(
+                    record, None if is_missing(value) else value
+                )
 
                 if is_missing(value):
                     # Count valid values in the current window
@@ -67,15 +77,14 @@ class FillTransformer:
                         if fill is not None:
                             # Do NOT treat filled value as original valid; append a missing marker
                             tick_window.append((False, None))
-                            yield FeatureRecord(
-                                record=clone_record_with_value(fr.record, fill),
-                                id=id,
+                            yield clone_record_with_field(
+                                record, self.to, fill
                             )
                             continue
                     # Not enough valid samples in window: pass through missing
                     tick_window.append((False, None))
-                    yield fr
+                    yield record
                 else:
                     as_float = float(value)
                     tick_window.append((True, as_float))
-                    yield fr
+                    yield record

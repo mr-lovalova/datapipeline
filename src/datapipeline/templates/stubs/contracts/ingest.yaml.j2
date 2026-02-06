@@ -1,0 +1,25 @@
+kind: ingest
+source: {{ source }}
+id: {{ stream_id }}  # format: domain.dataset.(variant)
+
+mapper:
+  entrypoint: {{ mapper_entrypoint }}
+  args: {}
+
+cadence: ${group_by}                # optional per-contract cadence
+# partition_by: <field or [fields]>
+# sort_batch_size: 100000              # in-memory sort chunk size
+
+record:                              # record-level transforms
+  - filter: { field: time, operator: ge, comparand: "${start_time}" }
+  - filter: { field: time, operator: le, comparand: "${end_time}" }
+  - floor_time: { cadence: "${cadence}" }
+#   - lag: { lag: 10m }
+
+stream:                              # per-stream transforms (input sorted by partition,time)
+  - ensure_cadence: { field: some_field, to: some_field, cadence: "${cadence}" }
+  - granularity: { field: some_field, to: some_field, mode: first }
+#   - fill: { field: some_field, to: some_field, statistic: median, window: 6, min_samples: 1 }
+
+debug:                               # optional validation-only checks
+  - lint: { mode: warn, tick: "${cadence}" }

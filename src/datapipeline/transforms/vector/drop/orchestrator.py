@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from collections.abc import Iterator
 from typing import Literal
 
@@ -56,4 +54,3 @@ class VectorDropTransform:
 
     def apply(self, stream: Iterator[Sample]) -> Iterator[Sample]:
         return getattr(self._impl, "apply")(stream)
-

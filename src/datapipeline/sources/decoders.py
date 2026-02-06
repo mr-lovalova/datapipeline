@@ -1,12 +1,11 @@
-from __future__ import annotations
-
 from abc import ABC, abstractmethod
-from typing import Iterable, Iterator, Any, Optional
+from typing import Iterable, Iterator, Any, Optional, Sequence
 import codecs
 import csv
 import io
 import json
 import pickle
+import itertools
 
 
 class Decoder(ABC):
@@ -32,7 +31,7 @@ def _iter_text_lines(chunks: Iterable[bytes], encoding: str) -> Iterator[str]:
             idx = buffer.find("\n")
             if idx == -1:
                 break
-            line, buffer = buffer[:idx], buffer[idx + 1 :]
+            line, buffer = buffer[:idx], buffer[idx + 1:]
             if line.endswith("\r"):
                 line = line[:-1]
             yield line
@@ -53,26 +52,58 @@ def _read_all_text(chunks: Iterable[bytes], encoding: str) -> str:
 
 
 class CsvDecoder(Decoder):
-    def __init__(self, *, delimiter: str = ";", encoding: str = "utf-8"):
+    def __init__(
+        self,
+        *,
+        delimiter: str = ";",
+        encoding: str = "utf-8",
+        error_prefixes: Optional[Sequence[str]] = None,
+    ):
         self.delimiter = delimiter
         self.encoding = encoding
+        self._error_prefixes = [p.lower() for p in (error_prefixes or [])]
+
+    def _iter_lines(self, chunks: Iterable[bytes]) -> Iterator[str]:
+        lines = _iter_text_lines(chunks, self.encoding)
+        try:
+            first = next(lines)
+        except StopIteration:
+            return iter(())
+        if self._error_prefixes:
+            lowered = first.lstrip().lower()
+            if any(lowered.startswith(p) for p in self._error_prefixes):
+                raise ValueError(
+                    f"csv response looks like error text: {first[:120]}")
+        return itertools.chain([first], lines)
 
     def decode(self, chunks: Iterable[bytes]) -> Iterator[dict]:
-        reader = csv.DictReader(_iter_text_lines(chunks, self.encoding), delimiter=self.delimiter)
+        reader = csv.DictReader(self._iter_lines(
+            chunks), delimiter=self.delimiter)
         for row in reader:
             yield row
 
     def count(self, chunks: Iterable[bytes]) -> Optional[int]:
-        return sum(1 for _ in csv.DictReader(_iter_text_lines(chunks, self.encoding), delimiter=self.delimiter))
+        return sum(1 for _ in csv.DictReader(self._iter_lines(chunks), delimiter=self.delimiter))
 
 
 class JsonDecoder(Decoder):
-    def __init__(self, *, encoding: str = "utf-8"):
+    def __init__(self, *, encoding: str = "utf-8", array_field: Optional[str] = None):
         self.encoding = encoding
+        self.array_field = array_field
 
     def decode(self, chunks: Iterable[bytes]) -> Iterator[Any]:
         text = _read_all_text(chunks, self.encoding)
         data = json.loads(text)
+        if self.array_field:
+            if not isinstance(data, dict):
+                raise ValueError(
+                    "json array_field requires a top-level object")
+            if self.array_field not in data:
+                raise ValueError(
+                    f"json array_field missing: {self.array_field}")
+            data = data[self.array_field]
+            if data is None:
+                return  # TODO MAYBE we NEED DO DO SOMETHING ABOUT THIS so we dont silence it
         if isinstance(data, list):
             for item in data:
                 yield item
@@ -83,6 +114,16 @@ class JsonDecoder(Decoder):
     def count(self, chunks: Iterable[bytes]) -> Optional[int]:
         text = _read_all_text(chunks, self.encoding)
         data = json.loads(text)
+        if self.array_field:
+            if not isinstance(data, dict):
+                raise ValueError(
+                    "json array_field requires a top-level object")
+            if self.array_field not in data:
+                raise ValueError(
+                    f"json array_field missing: {self.array_field}")
+            data = data[self.array_field]
+            if data is None:
+                return 0
         return len(data) if isinstance(data, list) else 1
 
 

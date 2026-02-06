@@ -1,0 +1,9 @@
+# Early-stage dataset definition (record/feature prep only).
+# Populate record_stream entries with your canonical stream ids.
+
+group_by: ${group_by}
+
+features:
+  - id: first_feature
+    record_stream: your.stream.one
+    field: some_field

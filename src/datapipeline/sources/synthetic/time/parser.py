@@ -6,4 +6,4 @@ from datapipeline.domain.record import TemporalRecord
 class TimeRowParser(DataParser[TemporalRecord]):
     def parse(self, raw: Dict[str, Any]) -> Optional[TemporalRecord]:
         t = raw["time"]
-        return TemporalRecord(time=t, value=t)
+        return TemporalRecord(time=t)

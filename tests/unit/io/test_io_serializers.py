@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import json
 from datetime import datetime, timezone
 
@@ -12,7 +10,8 @@ from datapipeline.io.serializers import (
 
 
 def test_record_json_serializer_handles_temporal_record() -> None:
-    rec = TemporalRecord(time=datetime(2024, 1, 1, tzinfo=timezone.utc), value=42.5)
+    rec = TemporalRecord(time=datetime(2024, 1, 1, tzinfo=timezone.utc))
+    setattr(rec, "value", 42.5)
     serializer = record_json_line_serializer()
 
     line = serializer(rec)
@@ -23,8 +22,9 @@ def test_record_json_serializer_handles_temporal_record() -> None:
 
 
 def test_record_csv_serializer_uses_nested_record_time() -> None:
-    record = TemporalRecord(time=datetime(2024, 7, 4, tzinfo=timezone.utc), value=7.0)
-    feature = FeatureRecord(id="feature_a", record=record)
+    record = TemporalRecord(time=datetime(2024, 7, 4, tzinfo=timezone.utc))
+    setattr(record, "value", 7.0)
+    feature = FeatureRecord(id="feature_a", record=record, value=7.0)
     serializer = record_csv_row_serializer()
 
     key_text, payload_text = serializer(feature)

@@ -1,0 +1,19 @@
+# See ../reference/reference/project.yaml for full options.
+version: 1
+name: demo
+paths:
+  streams: ./contracts
+  sources: ./sources
+  dataset: dataset.yaml
+  postprocess: postprocess.yaml
+  artifacts: ../artifacts/${project_name}/v${version}
+  tasks: ./tasks
+globals:
+  group_by: 1d
+  start_time: 2021-01-01T00:00:00Z
+  end_time: 2021-02-01T00:00:00Z
+  split:
+    mode: hash
+    key: group
+    seed: 42
+    ratios: { train: 0.8, val: 0.1, test: 0.1 }
