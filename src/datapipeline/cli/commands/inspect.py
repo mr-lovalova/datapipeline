@@ -101,19 +101,55 @@ def _run_inspect_job(
     )
 
 
+def _merge_sample_values(sample) -> dict:
+    merged = dict(sample.features.values)
+    if sample.targets:
+        merged.update(sample.targets.values)
+    return merged
+
+
+def _iter_merged_vectors(
+    dataset_ctx,
+    *,
+    apply_postprocess: bool,
+    progress_style: str,
+    label: str = "Processing vectors",
+):
+    context = dataset_ctx.pipeline_context
+    dataset = dataset_ctx.dataset
+    feature_cfgs = list(dataset_ctx.features or [])
+    target_cfgs = list(dataset_ctx.targets or [])
+
+    context.window_bounds(rectangular_required=True)
+    vectors = build_vector_pipeline(
+        context,
+        feature_cfgs,
+        dataset.group_by,
+        target_configs=target_cfgs,
+        rectangular=True,
+    )
+    if apply_postprocess:
+        vectors = post_process(context, vectors)
+
+    vector_iter = _iter_with_progress(
+        vectors,
+        progress_style=progress_style,
+        label=label,
+    )
+    for sample in vector_iter:
+        yield sample.key, _merge_sample_values(sample)
+
+
 def report(
     project: str,
     *,
-    output: str | None = None,
     threshold: float = 0.95,
     match_partition: str = "base",
     matrix: str = "none",  # one of: none|csv|html
-    matrix_output: str | None = None,
+    output: str | None = None,
     rows: int = 20,
     cols: int = 10,
-    fmt: str | None = None,
     quiet: bool = False,
-    write_coverage: bool = True,
     apply_postprocess: bool = True,
     visuals: str | None = None,
     progress: str | None = None,
@@ -121,10 +157,9 @@ def report(
     sort: str = "missing",
     workspace=None,
 ) -> None:
-    """Compute a quality report and optionally export coverage JSON and/or a matrix.
+    """Compute a quality report and optionally export a matrix.
 
     - Always prints a human-readable report (unless quiet=True).
-    - When output is set, writes trimmed coverage summary JSON.
     - When matrix != 'none', writes an availability matrix in the requested format.
     """
 
@@ -134,18 +169,14 @@ def report(
         progress=progress,
         workspace=workspace,
     )
-    coverage_path: Path | None = None
 
     def _work(dataset_ctx, progress_style):
         project_path = dataset_ctx.project
-        context = dataset_ctx.pipeline_context
-        dataset = dataset_ctx.dataset
 
         feature_cfgs = dataset_ctx.features
-        target_cfgs = dataset_ctx.targets
         expected_feature_ids = [cfg.id for cfg in feature_cfgs]
 
-        matrix_fmt = (fmt or matrix) if matrix in {"csv", "html"} else None
+        matrix_fmt = matrix if matrix in {"csv", "html"} else None
         if matrix_fmt:
             filename = "matrix.html" if matrix_fmt == "html" else "matrix.csv"
         else:
@@ -153,7 +184,7 @@ def report(
         base_artifacts = artifacts_root(project_path)
         matrix_path = None
         if matrix_fmt:
-            matrix_path = Path(matrix_output) if matrix_output else (base_artifacts / filename)
+            matrix_path = Path(output) if output else (base_artifacts / filename)
 
         schema_entries = dataset_ctx.pipeline_context.load_schema(payload="features")
         schema_meta = {entry["id"]: entry for entry in (schema_entries or []) if isinstance(entry.get("id"), str)}
@@ -169,125 +200,20 @@ def report(
             matrix_output=(str(matrix_path) if matrix_path else None),
             matrix_format=(matrix_fmt or "html"),
         )
-
-        context.window_bounds(rectangular_required=True)
-        vectors = build_vector_pipeline(
-            context,
-            feature_cfgs,
-            dataset.group_by,
-            target_configs=target_cfgs,
-            rectangular=True,
-        )
-        if apply_postprocess:
-            vectors = post_process(context, vectors)
-
-        vector_iter = _iter_with_progress(
-            vectors,
+        for key, merged in _iter_merged_vectors(
+            dataset_ctx,
+            apply_postprocess=apply_postprocess,
             progress_style=progress_style,
-            label="Processing vectors",
-        )
-        for sample in vector_iter:
-            merged = dict(sample.features.values)
-            if sample.targets:
-                merged.update(sample.targets.values)
-            collector.update(sample.key, merged)
+        ):
+            collector.update(key, merged)
 
         buffer = io.StringIO()
         with redirect_stdout(buffer):
-            summary = collector.print_report(sort_key=sort)
+            collector.print_report(sort_key=sort)
         if not quiet:
             report_text = buffer.getvalue()
             if report_text.strip():
                 print(report_text, end="")
-
-        if write_coverage:
-            output_path = Path(output) if output else (base_artifacts / "coverage.json")
-            ensure_parent(output_path)
-
-            feature_stats = summary.get("feature_stats", [])
-            partition_stats = summary.get("partition_stats", [])
-
-            trimmed = {
-                "total_vectors": summary.get("total_vectors", collector.total_vectors),
-                "empty_vectors": summary.get("empty_vectors", collector.empty_vectors),
-                "threshold": threshold,
-                "match_partition": match_partition,
-                "features": {
-                    "keep": summary.get("keep_features", []),
-                    "below": summary.get("below_features", []),
-                    "coverage": {stat["id"]: stat["coverage"] for stat in feature_stats},
-                    "availability": {
-                        stat["id"]: (
-                            stat["present"] / stat["opportunities"]
-                            if stat.get("opportunities")
-                            else 0
-                        )
-                        for stat in feature_stats
-                    },
-                    "nulls": {stat["id"]: stat.get("nulls", 0) for stat in feature_stats},
-                    "null_rate": {
-                        stat["id"]: (
-                            stat.get("nulls", 0) / stat["opportunities"]
-                            if stat.get("opportunities")
-                            else 0
-                        )
-                        for stat in feature_stats
-                    },
-                    "cadence_nulls": {
-                        stat["id"]: stat.get("cadence_nulls")
-                        for stat in feature_stats
-                        if stat.get("cadence_opportunities")
-                    },
-                    "cadence_opportunities": {
-                        stat["id"]: stat.get("cadence_opportunities")
-                        for stat in feature_stats
-                        if stat.get("cadence_opportunities")
-                    },
-                },
-                "partitions": {
-                    "keep": summary.get("keep_partitions", []),
-                    "below": summary.get("below_partitions", []),
-                    "keep_suffixes": summary.get("keep_suffixes", []),
-                    "below_suffixes": summary.get("below_suffixes", []),
-                    "keep_values": summary.get("keep_partition_values", []),
-                    "below_values": summary.get("below_partition_values", []),
-                    "coverage": {stat["id"]: stat["coverage"] for stat in partition_stats},
-                    "availability": {
-                        stat["id"]: (
-                            stat["present"] / stat["opportunities"]
-                            if stat.get("opportunities")
-                            else 0
-                        )
-                        for stat in partition_stats
-                    },
-                    "nulls": {
-                        stat["id"]: stat.get("nulls", 0) for stat in partition_stats
-                    },
-                    "null_rate": {
-                        stat["id"]: (
-                            stat.get("nulls", 0) / stat["opportunities"]
-                            if stat.get("opportunities")
-                            else 0
-                        )
-                        for stat in partition_stats
-                    },
-                    "cadence_nulls": {
-                        stat["id"]: stat.get("cadence_nulls")
-                        for stat in partition_stats
-                        if stat.get("cadence_opportunities")
-                    },
-                    "cadence_opportunities": {
-                        stat["id"]: stat.get("cadence_opportunities")
-                        for stat in partition_stats
-                        if stat.get("cadence_opportunities")
-                    },
-                },
-            }
-
-            with output_path.open("w", encoding="utf-8") as fh:
-                json.dump(trimmed, fh, indent=2)
-            print(f"[write] Saved coverage summary to {output_path}")
-            coverage_path = output_path
 
     _run_inspect_job(
         project,
@@ -298,9 +224,6 @@ def report(
         section="report",
         work=_work,
     )
-
-    if write_coverage and coverage_path:
-        print(f"[inspect] Coverage summary available at {coverage_path}")
 
 
 def partitions(
@@ -330,9 +253,7 @@ def partitions(
     def _work(dataset_ctx, progress_style):
         project_path = dataset_ctx.project
 
-        dataset = dataset_ctx.dataset
-        feature_cfgs = list(dataset.features or [])
-        target_cfgs = list(dataset.targets or [])
+        feature_cfgs = list(dataset_ctx.dataset.features or [])
         expected_feature_ids = [cfg.id for cfg in feature_cfgs]
 
         base_artifacts = artifacts_root(project_path)
@@ -345,26 +266,12 @@ def partitions(
             show_matrix=False,
         )
 
-        context = dataset_ctx.pipeline_context
-        context.window_bounds(rectangular_required=True)
-        vectors = build_vector_pipeline(
-            context,
-            feature_cfgs,
-            dataset.group_by,
-            target_configs=target_cfgs,
-            rectangular=True,
-        )
-        vectors = post_process(context, vectors)
-        vector_iter = _iter_with_progress(
-            vectors,
+        for key, merged in _iter_merged_vectors(
+            dataset_ctx,
+            apply_postprocess=True,
             progress_style=progress_style,
-            label="Processing vectors",
-        )
-        for sample in vector_iter:
-            merged = dict(sample.features.values)
-            if sample.targets:
-                merged.update(sample.targets.values)
-            collector.update(sample.key, merged)
+        ):
+            collector.update(key, merged)
 
         ensure_parent(output_path)
 
@@ -401,4 +308,3 @@ def partitions(
         section="partitions",
         work=_work,
     )
-

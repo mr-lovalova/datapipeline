@@ -78,41 +78,35 @@ def _entry_sections(run_root: Optional[Path], entry: RunEntry) -> tuple[str, ...
 def _build_cli_output_config(
     transport: Optional[str],
     fmt: Optional[str],
-    path: Optional[str],
+    directory: Optional[str],
     payload: Optional[str],
 ) -> tuple[ServeOutputConfig | None, Optional[str]]:
-    payload_style = None
-    if payload is not None:
-        payload_style = payload.lower()
-        if payload_style not in {"sample", "vector"}:
-            logger.error("--out-payload must be 'sample' or 'vector'")
-            raise SystemExit(2)
+    payload_style = _normalize_payload(payload)
 
-    if transport is None and fmt is None and path is None:
+    if transport is None and fmt is None and directory is None:
         return None, payload_style
 
     if not transport or not fmt:
-        logger.error(
-            "--out-transport and --out-format must be provided together")
+        logger.error("--output-transport and --output-format must be provided together")
         raise SystemExit(2)
     transport = transport.lower()
     fmt = fmt.lower()
     if transport == "fs":
-        if not path:
+        if not directory:
             logger.error(
-                "--out-path is required when --out-transport=fs (directory)")
+                "--output-directory is required when --output-transport=fs")
             raise SystemExit(2)
         return (
             ServeOutputConfig(
                 transport="fs",
                 format=fmt,
-                directory=Path(path),
+                directory=Path(directory),
                 payload=payload_style or "sample",
             ),
             None,
         )
-    if path:
-        logger.error("--out-path is only valid when --out-transport=fs")
+    if directory:
+        logger.error("--output-directory is only valid when --output-transport=fs")
         raise SystemExit(2)
     return (
         ServeOutputConfig(
@@ -122,6 +116,67 @@ def _build_cli_output_config(
         ),
         None,
     )
+
+
+def _normalize_payload(payload: Optional[str]) -> Optional[str]:
+    if payload is None:
+        return None
+    payload_style = payload.lower()
+    if payload_style not in {"sample", "vector"}:
+        logger.error("--output-payload must be 'sample' or 'vector'")
+        raise SystemExit(2)
+    return payload_style
+
+
+def _resolve_profiles(
+    *,
+    project_path: Path,
+    run_entries,
+    keep: Optional[str],
+    stage: Optional[int],
+    limit: Optional[int],
+    cli_output: ServeOutputConfig | None,
+    cli_payload: Optional[str],
+    workspace,
+    cli_log_level: Optional[str],
+    base_log_level: str,
+    cli_visuals: Optional[str],
+    cli_progress: Optional[str],
+    create_run: bool,
+):
+    return resolve_run_profiles(
+        project_path=project_path,
+        run_entries=run_entries,
+        keep=keep,
+        stage=stage,
+        limit=limit,
+        cli_output=cli_output,
+        cli_payload=cli_payload,
+        workspace=workspace,
+        cli_log_level=cli_log_level,
+        base_log_level=base_log_level,
+        cli_visuals=cli_visuals,
+        cli_progress=cli_progress,
+        create_run=create_run,
+    )
+
+
+def _dataset_name_for_stage(stage: Optional[int]) -> str:
+    return "vectors" if stage is None else "features"
+
+
+def _load_dataset_for_profile(
+    *,
+    cache: dict[str, object],
+    project_path: Path,
+    stage: Optional[int],
+):
+    dataset_name = _dataset_name_for_stage(stage)
+    dataset = cache.get(dataset_name)
+    if dataset is None:
+        dataset = load_dataset(project_path, dataset_name)
+        cache[dataset_name] = dataset
+    return dataset
 
 
 def ensure_stage_artifacts(
@@ -152,10 +207,10 @@ def handle_serve(
     keep: Optional[str] = None,
     run_name: Optional[str] = None,
     stage: Optional[int] = None,
-    out_transport: Optional[str] = None,
-    out_format: Optional[str] = None,
-    out_payload: Optional[str] = None,
-    out_path: Optional[str] = None,
+    output_transport: Optional[str] = None,
+    output_format: Optional[str] = None,
+    output_payload: Optional[str] = None,
+    output_directory: Optional[str] = None,
     skip_build: bool = False,
     *,
     cli_log_level: Optional[str],
@@ -168,17 +223,17 @@ def handle_serve(
     run_entries, run_root = resolve_run_entries(project_path, run_name)
 
     cli_output_cfg, payload_override = _build_cli_output_config(
-        out_transport, out_format, out_path, out_payload)
+        output_transport, output_format, output_directory, output_payload)
+    cli_payload = payload_override
     try:
-        profiles = resolve_run_profiles(
+        profiles = _resolve_profiles(
             project_path=project_path,
             run_entries=run_entries,
             keep=keep,
             stage=stage,
             limit=limit,
             cli_output=cli_output_cfg,
-            cli_payload=payload_override or (
-                out_payload.lower() if out_payload else None),
+            cli_payload=cli_payload,
             workspace=workspace,
             cli_log_level=cli_log_level,
             base_log_level=base_log_level,
@@ -204,15 +259,14 @@ def handle_serve(
             cli_progress=cli_progress,
             workspace=workspace,
         )
-        profiles = resolve_run_profiles(
+        profiles = _resolve_profiles(
             project_path=project_path,
             run_entries=run_entries,
             keep=keep,
             stage=stage,
             limit=limit,
             cli_output=cli_output_cfg,
-            cli_payload=payload_override or (
-                out_payload.lower() if out_payload else None),
+            cli_payload=cli_payload,
             workspace=workspace,
             cli_log_level=cli_log_level,
             base_log_level=base_log_level,
@@ -224,11 +278,11 @@ def handle_serve(
     datasets: dict[str, object] = {}
     datasets["vectors"] = vector_dataset
     for profile in profiles:
-        dataset_name = "vectors" if profile.stage is None else "features"
-        dataset = datasets.get(dataset_name)
-        if dataset is None:
-            dataset = load_dataset(project_path, dataset_name)
-            datasets[dataset_name] = dataset
+        dataset = _load_dataset_for_profile(
+            cache=datasets,
+            project_path=project_path,
+            stage=profile.stage,
+        )
 
         root_logger = logging.getLogger()
         if root_logger.level != profile.log_decision.value:
