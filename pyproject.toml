@@ -10,6 +10,7 @@ readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "Anders Skott Lind" }]
+urls = { "Homepage" = "https://github.com/mr-lovalova/datapipeline", "Repository" = "https://github.com/mr-lovalova/datapipeline", "Issues" = "https://github.com/mr-lovalova/datapipeline/issues" }
 dependencies = [
   "numpy>=1.24,<3.0",
   "pydantic>=2.0",

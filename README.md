@@ -6,6 +6,8 @@ model-ready vectors. The CLI lets you preview every stage, build deterministic
 artifacts, inspect quality, and scaffold plugins for custom loaders, parsers,
 transforms, and filters.
 
+Contributing: PRs welcome on [GitHub](https://github.com/mr-lovalova/datapipeline).
+
 > **Core assumptions**
 >
 > - Every record carries a timezone-aware `time` attribute and a numeric
