@@ -9,7 +9,7 @@
 #   entrypoint: {{DEFAULT_IO_LOADER_EP}}
 #   args:
 #     transport: http
-#     format: json-lines     # required; json | json-lines | csv
+#     format: jsonl     # required; json | jsonl | csv
 #     url: https://example/api # required
 #     params: { key: value } # optional
 #     headers: { Authorization: "Bearer ..." } # optional

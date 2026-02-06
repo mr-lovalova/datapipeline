@@ -14,7 +14,7 @@
 #       entrypoint: {{DEFAULT_IO_LOADER_EP}}
 #       args:
 #         transport: http
-#         format: json-lines
+#         format: jsonl
 #         url: "https://example/api?page=${page}" # required
 #         headers: { Authorization: "Bearer ..." } # optional
 #         params: {}            # optional

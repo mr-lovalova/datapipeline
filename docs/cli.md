@@ -18,10 +18,10 @@ All commands that take a project accept either `--project <path/to/project.yaml>
   - Stage 8: vectors + postprocess transforms
   - Use `--log-level DEBUG` for progress bars; the default is typically `INFO` (or `jerry.yaml.shared.log_level` when set).
   - Ensures build artifacts are current before streaming; the build step only runs when the configuration hash changes unless you pass `--stage` 0-6 (auto-skip) or opt out with `--skip-build`. Stage 6 may require scaler artifacts.
-- `jerry serve --project <project.yaml> --out-transport stdout --out-format json-lines --limit N [--log-level LEVEL] [--visuals ...] [--progress ...] [--run name]`
+- `jerry serve --project <project.yaml> --output-transport stdout --output-format jsonl --limit N [--log-level LEVEL] [--visuals ...] [--progress ...] [--run name]`
   - Applies postprocess transforms and optional dataset split before emitting.
-  - Use `--out-transport fs --out-format json-lines --out-path build/serve` (or `csv`, `pickle`, etc.) to write artifacts to disk instead of stdout; files land under `<out-path>/<run_name>/`.
-- `--out-payload vector` emits only the vector payload with features/targets
+  - Use `--output-transport fs --output-format jsonl --output-directory build/serve` (or `csv`, `pickle`, etc.) to write artifacts to disk instead of stdout; files land under `<output-directory>/<run_name>/`.
+- `--output-payload vector` emits only the vector payload with features/targets
   flattened into schema-ordered lists (no identifier keys) when you don't need
   the group key or metadata. Default is `sample`.
   - Set `--log-level DEBUG` (or set your serve task `log_level: DEBUG`) to reuse the tqdm progress bars when previewing stages.
@@ -49,7 +49,7 @@ All commands that take a project accept either `--project <path/to/project.yaml>
   - Generates a standalone demo plugin at `./demo/` and wires a `demo` dataset alias.
 - `jerry inflow create`
   - Wizard to scaffold a complete ingest flow (source YAML + parser/DTO + mapper + contract).
-- `jerry source create <provider>.<dataset> --transport fs|http|synthetic --format csv|json|json-lines|pickle`
+- `jerry source create <provider>.<dataset> --transport fs|http|synthetic --format csv|json|jsonl|pickle`
   - Also supports positional `<provider> <dataset>` and `--alias <provider>.<dataset>`.
   - Creates a source YAML only (no Python code).
 - `jerry domain create <name>` (also supports `-n/--name`)

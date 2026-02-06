@@ -19,7 +19,7 @@ def _loader_args(transport: str, fmt: Optional[str]) -> dict:
     if transport == "fs":
         args = {
             "transport": "fs",
-            "format": fmt or "<FORMAT (csv|json|json-lines|pickle)>",
+            "format": fmt or "<FORMAT (csv|json|jsonl|pickle)>",
             "path": "<PATH OR GLOB>",
             "glob": False,
             "encoding": "utf-8",
@@ -30,7 +30,7 @@ def _loader_args(transport: str, fmt: Optional[str]) -> dict:
     if transport == "http":
         args = {
             "transport": "http",
-            "format": fmt or "<FORMAT (json|json-lines|csv)>",
+            "format": fmt or "<FORMAT (json|jsonl|csv)>",
             "url": "<https://api.example.com/data.json>",
             "headers": {},
             "params": {},

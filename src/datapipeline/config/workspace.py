@@ -125,17 +125,16 @@ class WorkspaceContext:
     def root(self) -> Path:
         return self.file_path.parent
 
+    def resolve_path(self, raw_path: str | Path) -> Path:
+        """Resolve absolute/relative paths using workspace root for relatives."""
+        return resolve_with_workspace(raw_path, self)
+
     def resolve_dataset_alias(self, alias: str) -> Optional[Path]:
         """Resolve a dataset alias from jerry.yaml into an absolute project.yaml path."""
         raw = (self.config.datasets or {}).get(alias)
         if not raw:
             return None
-        candidate = Path(raw)
-        candidate = (
-            candidate.resolve()
-            if candidate.is_absolute()
-            else (self.root / candidate).resolve()
-        )
+        candidate = self.resolve_path(raw)
         if candidate.is_dir():
             candidate = candidate / "project.yaml"
         return candidate.resolve()
@@ -144,12 +143,19 @@ class WorkspaceContext:
         raw = self.config.plugin_root
         if not raw:
             return None
-        candidate = Path(raw)
-        return (
-            candidate.resolve()
-            if candidate.is_absolute()
-            else (self.root / candidate).resolve()
-        )
+        return self.resolve_path(raw)
+
+
+def resolve_with_workspace(
+    raw_path: str | Path,
+    workspace: WorkspaceContext | None,
+) -> Path:
+    """Resolve paths against workspace root when present, else current dir."""
+    path = Path(raw_path)
+    if path.is_absolute():
+        return path.resolve()
+    base = workspace.root if workspace is not None else Path.cwd().resolve()
+    return (base / path).resolve()
 
 
 def load_workspace_context(start_dir: Optional[Path] = None) -> Optional[WorkspaceContext]:

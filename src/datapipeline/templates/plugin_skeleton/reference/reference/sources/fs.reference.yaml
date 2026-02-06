@@ -9,7 +9,7 @@
 #   entrypoint: {{DEFAULT_IO_LOADER_EP}}
 #   args:
 #     transport: fs
-#     format: csv            # required; csv | json | json-lines | pickle
+#     format: csv            # required; csv | json | jsonl | pickle
 #     path: ./data/file.csv  # optional (use path or glob)
 #     glob: ./data/*.csv     # optional (use path or glob)
 #     encoding: utf-8        # optional

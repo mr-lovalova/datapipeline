@@ -1,11 +1,10 @@
 import logging
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, Optional
 
 from datapipeline.config.tasks import ServeOutputConfig
 from datapipeline.io.output import OutputResolutionError
-from datapipeline.config.workspace import WorkspaceContext
+from datapipeline.config.workspace import WorkspaceContext, resolve_with_workspace
 
 
 def cascade(*values, fallback=None):
@@ -118,17 +117,12 @@ def workspace_output_defaults(
             "fs output requires a directory. Example:\n"
             "  output:\n"
             "    transport: fs\n"
-            "    format: json-lines\n"
+            "    format: jsonl\n"
             "    directory: ./data/processed/jerry"
         )
     output_dir = None
     if od.directory:
-        candidate = Path(od.directory)
-        output_dir = (
-            candidate
-            if candidate.is_absolute()
-            else (workspace.root / candidate).resolve()
-        )
+        output_dir = resolve_with_workspace(od.directory, workspace)
     return ServeOutputConfig(
         transport=od.transport,
         format=od.format,

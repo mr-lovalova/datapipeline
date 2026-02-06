@@ -8,7 +8,7 @@ from datapipeline.services.runs import RunPaths, start_run_for_directory
 
 def _format_suffix(fmt: str) -> str:
     suffix_map = {
-        "json-lines": ".jsonl",
+        "jsonl": ".jsonl",
         "json": ".json",
         "csv": ".csv",
         "pickle": ".pkl",
@@ -34,7 +34,7 @@ class OutputTarget:
     """Resolved writer target describing how and where to emit records."""
 
     transport: str  # stdout | fs
-    format: str     # print | json-lines | json | csv | pickle
+    format: str     # print | jsonl | json | csv | pickle
     destination: Optional[Path]
     payload: str = "sample"
     run: RunPaths | None = None

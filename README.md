@@ -166,7 +166,7 @@ Split timing (leakage note)
   Builds are keyed by config hashes and skip work when nothing changed unless
   you pass `--force`.
 - `jerry serve` runs are named (task/run) and can write outputs to
-  `<out-path>/<run_name>/` for auditing, sharing, or downstream training.
+  `<output-directory>/<run_name>/` for auditing, sharing, or downstream training.
 - Versioning: tag the project config + plugin code in Git and pair with a data
   versioning tool like DVC for raw sources. With those inputs pinned, interim
   datasets and artifacts can be regenerated instead of stored.

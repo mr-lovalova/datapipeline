@@ -23,11 +23,52 @@ from datapipeline.cli.commands.build import handle as handle_build
 from datapipeline.config.workspace import (
     WorkspaceContext,
     load_workspace_context,
+    resolve_with_workspace,
+)
+from datapipeline.config.options import (
+    OUTPUT_FORMATS,
+    OUTPUT_TRANSPORTS,
+    PROGRESS_CHOICES,
+    SOURCE_FS_FORMATS,
+    SOURCE_TRANSPORTS,
+    VISUAL_CHOICES,
 )
 from datapipeline.config.resolution import resolve_visuals
 from datapipeline.utils.rich_compat import suppress_file_proxy_shutdown_errors
 
 suppress_file_proxy_shutdown_errors()
+
+
+def _add_dataset_flag(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--dataset",
+        "-d",
+        help="dataset alias, folder, or project.yaml path",
+    )
+
+
+def _add_project_flag(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--project",
+        "-p",
+        default=None,
+        help="path to project.yaml",
+    )
+
+
+def _add_visual_flags(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--visuals",
+        choices=VISUAL_CHOICES,
+        default=None,
+        help="visuals renderer: auto (default), tqdm, rich, or off",
+    )
+    parser.add_argument(
+        "--progress",
+        choices=PROGRESS_CHOICES,
+        default=None,
+        help="progress display: auto (spinner unless DEBUG), spinner, bars, or off",
+    )
 
 
 def _dataset_to_project_path(
@@ -44,11 +85,12 @@ def _dataset_to_project_path(
     # 2) Direct file path
     path = Path(dataset)
     if path.suffix in {".yaml", ".yml"}:
-        return str(path if path.is_absolute() else (Path.cwd() / path).resolve())
+        return str(resolve_with_workspace(path, workspace))
 
     # 3) Directory: assume project.yaml inside
-    if path.is_dir():
-        candidate = path / "project.yaml"
+    candidate_dir = resolve_with_workspace(path, workspace)
+    if candidate_dir.is_dir():
+        candidate = candidate_dir / "project.yaml"
         return str(candidate.resolve())
 
     raise SystemExit(f"Unknown dataset '{dataset}'. Define it under datasets: in jerry.yaml or pass a valid path.")
@@ -97,6 +139,148 @@ def _resolve_project_from_args(
     )
 
 
+def _run_inspect_command(
+    *,
+    args: argparse.Namespace,
+    shared_defaults,
+    base_level: int,
+    workspace_context: WorkspaceContext | None,
+) -> None:
+    subcmd = getattr(args, "inspect_cmd", None)
+    shared_visuals_default = shared_defaults.visuals if shared_defaults else None
+    shared_progress_default = shared_defaults.progress if shared_defaults else None
+    inspect_visuals = resolve_visuals(
+        cli_visuals=getattr(args, "visuals", None),
+        config_visuals=None,
+        workspace_visuals=shared_visuals_default,
+        cli_progress=getattr(args, "progress", None),
+        config_progress=None,
+        workspace_progress=shared_progress_default,
+    )
+    inspect_visual_provider = inspect_visuals.visuals or "auto"
+    inspect_progress_style = inspect_visuals.progress or "auto"
+    base_kwargs = {
+        "project": args.project,
+        "threshold": getattr(args, "threshold", 0.95),
+        "apply_postprocess": (getattr(args, "mode", "final") == "final"),
+        "visuals": inspect_visual_provider,
+        "progress": inspect_progress_style,
+        "log_level": base_level,
+        "sort": getattr(args, "sort", "missing"),
+        "workspace": workspace_context,
+    }
+    if subcmd in (None, "report"):
+        handle_inspect_report(
+            **base_kwargs,
+            match_partition=getattr(args, "match_partition", "base"),
+            matrix="none",
+            rows=20,
+            cols=10,
+            quiet=False,
+        )
+        return
+    if subcmd == "matrix":
+        handle_inspect_report(
+            **base_kwargs,
+            match_partition="base",
+            matrix=getattr(args, "format", "html"),
+            output=getattr(args, "output", None),
+            rows=getattr(args, "rows", 20),
+            cols=getattr(args, "cols", 10),
+            quiet=getattr(args, "quiet", False),
+        )
+        return
+    if subcmd == "partitions":
+        from datapipeline.cli.commands.inspect import partitions as handle_inspect_partitions
+
+        handle_inspect_partitions(
+            project=args.project,
+            output=getattr(args, "output", None),
+            visuals=inspect_visual_provider,
+            progress=inspect_progress_style,
+            log_level=base_level,
+            workspace=workspace_context,
+        )
+
+
+def _dispatch_non_project_command(
+    *,
+    args: argparse.Namespace,
+    plugin_root: Path | None,
+    workspace_context: WorkspaceContext | None,
+) -> bool:
+    if args.cmd == "source":
+        if args.source_cmd == "list":
+            handle_list(subcmd="sources", workspace=workspace_context)
+            return True
+        handle_source(
+            subcmd=args.source_cmd,
+            provider=(getattr(args, "provider", None) or getattr(args, "provider_opt", None)),
+            dataset=(getattr(args, "dataset", None) or getattr(args, "dataset_opt", None)),
+            transport=getattr(args, "transport", None),
+            format=getattr(args, "format", None),
+            alias=getattr(args, "alias", None),
+            identity=getattr(args, "identity", False),
+            loader=getattr(args, "loader", None),
+            parser=getattr(args, "parser", None),
+            plugin_root=plugin_root,
+            workspace=workspace_context,
+        )
+        return True
+    if args.cmd == "list":
+        handle_list(subcmd=args.list_cmd, workspace=workspace_context)
+        return True
+    if args.cmd == "domain":
+        if args.domain_cmd == "list":
+            handle_list(subcmd="domains")
+            return True
+        handle_domain(
+            subcmd=args.domain_cmd,
+            domain=getattr(args, "domain", None),
+            plugin_root=plugin_root,
+        )
+        return True
+    named_handlers = {
+        "dto": handle_dto,
+        "parser": handle_parser,
+        "mapper": handle_mapper,
+        "loader": handle_loader,
+    }
+    handler = named_handlers.get(args.cmd)
+    if handler is not None:
+        handler(name=getattr(args, "name", None), plugin_root=plugin_root)
+        return True
+    if args.cmd == "inflow":
+        handle_stream(plugin_root=plugin_root, workspace=workspace_context)
+        return True
+    if args.cmd == "contract":
+        handle_contract(
+            plugin_root=plugin_root,
+            use_identity=getattr(args, "identity", False),
+            workspace=workspace_context,
+        )
+        return True
+    if args.cmd == "plugin":
+        handle_bar(
+            subcmd=args.bar_cmd,
+            name=getattr(args, "name", None),
+            out=getattr(args, "out", "."),
+            workspace=workspace_context,
+        )
+        return True
+    if args.cmd == "demo":
+        handle_demo(
+            subcmd=args.demo_cmd,
+            out=getattr(args, "out", None),
+            workspace=workspace_context,
+        )
+        return True
+    if args.cmd == "filter":
+        handle_filter(subcmd=args.filter_cmd, name=getattr(args, "name", None))
+        return True
+    return False
+
+
 def main() -> None:
     # Common options shared by top-level and subcommands
     common = argparse.ArgumentParser(add_help=False)
@@ -120,39 +304,30 @@ def main() -> None:
         help="produce vectors with configurable logging",
         parents=[common],
     )
-    p_serve.add_argument(
-        "--dataset",
-        "-d",
-        help="dataset alias, folder, or project.yaml path",
-    )
-    p_serve.add_argument(
-        "--project",
-        "-p",
-        default=None,
-        help="path to project.yaml",
-    )
+    _add_dataset_flag(p_serve)
+    _add_project_flag(p_serve)
     p_serve.add_argument(
         "--limit", "-n", type=int, default=None,
         help="optional cap on the number of vectors to emit",
     )
     p_serve.add_argument(
-        "--out-transport",
-        choices=["stdout", "fs"],
+        "--output-transport",
+        choices=OUTPUT_TRANSPORTS,
         help="output transport (stdout or fs) for serve runs",
     )
     p_serve.add_argument(
-        "--out-format",
-        choices=["print", "json-lines", "json", "csv", "pickle"],
-        help="output format (print/json-lines/csv/pickle) for serve runs",
+        "--output-format",
+        choices=OUTPUT_FORMATS,
+        help="output format (print/jsonl/json/csv/pickle) for serve runs",
     )
     p_serve.add_argument(
-        "--out-payload",
+        "--output-payload",
         choices=["sample", "vector"],
         help="payload structure: full sample (default) or vector-only body",
     )
     p_serve.add_argument(
-        "--out-path",
-        help="destination file path when using fs transport",
+        "--output-directory",
+        help="destination directory when using fs transport",
     )
     p_serve.add_argument(
         "--keep",
@@ -170,18 +345,7 @@ def main() -> None:
         default=None,
         help="preview a specific pipeline stage (0-6 record/feature stages, 7 assembled vectors, 8 transformed vectors)",
     )
-    p_serve.add_argument(
-        "--visuals",
-        choices=["auto", "tqdm", "rich", "off"],
-        default=None,
-        help="visuals renderer: auto (default), tqdm, rich, or off",
-    )
-    p_serve.add_argument(
-        "--progress",
-        choices=["auto", "spinner", "bars", "off"],
-        default=None,
-        help="progress display: auto (spinner unless DEBUG), spinner, bars, or off",
-    )
+    _add_visual_flags(p_serve)
     p_serve.add_argument(
         "--skip-build",
         action="store_true",
@@ -194,34 +358,14 @@ def main() -> None:
         help="materialize project artifacts (schema, hashes, etc.)",
         parents=[common],
     )
-    p_build.add_argument(
-        "--dataset",
-        "-d",
-        help="dataset alias, folder, or project.yaml path",
-    )
-    p_build.add_argument(
-        "--project",
-        "-p",
-        default=None,
-        help="path to project.yaml",
-    )
+    _add_dataset_flag(p_build)
+    _add_project_flag(p_build)
     p_build.add_argument(
         "--force",
         action="store_true",
         help="rebuild even when the configuration hash matches the last run",
     )
-    p_build.add_argument(
-        "--visuals",
-        choices=["auto", "tqdm", "rich", "off"],
-        default=None,
-        help="visuals renderer: auto (default), tqdm, rich, or off",
-    )
-    p_build.add_argument(
-        "--progress",
-        choices=["auto", "spinner", "bars", "off"],
-        default=None,
-        help="progress display: auto (spinner unless DEBUG), spinner, bars, or off",
-    )
+    _add_visual_flags(p_build)
 
     # demo (optional demo dataset)
     p_demo = sub.add_parser(
@@ -275,45 +419,42 @@ def main() -> None:
             "  jerry source create <provider> <dataset> --parser myparser\n\n"
             "Examples:\n"
             "  fs CSV:        -t fs  -f csv\n"
-            "  fs NDJSON:     -t fs  -f json-lines\n"
+            "  fs NDJSON:     -t fs  -f jsonl\n"
             "  HTTP JSON:     -t http -f json\n"
             "  Synthetic:     -t synthetic\n\n"
             "Note: set 'glob: true' in the generated YAML if your 'path' contains wildcards."
         ),
     )
-    # Support simple positionals, plus flags for compatibility
-    # Allow either positionals or flags. Use distinct dest names for flags
-    # to avoid ambiguity when both forms are present in some environments.
-    for p in (p_source_create,):
-        p.add_argument("provider", nargs="?", help="provider name")
-        p.add_argument("dataset", nargs="?", help="dataset slug")
-        p.add_argument("--provider", "-p", dest="provider_opt", metavar="PROVIDER", help="provider name")
-        p.add_argument("--dataset", "-d", dest="dataset_opt", metavar="DATASET", help="dataset slug")
-        p.add_argument("--alias", "-a", help="provider.dataset alias")
-        p.add_argument(
+    # Support simple positionals, plus flags for compatibility.
+    p_source_create.add_argument("provider", nargs="?", help="provider name")
+    p_source_create.add_argument("dataset", nargs="?", help="dataset slug")
+    p_source_create.add_argument("--provider", "-p", dest="provider_opt", metavar="PROVIDER", help="provider name")
+    p_source_create.add_argument("--dataset", "-d", dest="dataset_opt", metavar="DATASET", help="dataset slug")
+    p_source_create.add_argument("--alias", "-a", help="provider.dataset alias")
+    p_source_create.add_argument(
         "--transport", "-t",
-        choices=["fs", "http", "synthetic"],
+        choices=SOURCE_TRANSPORTS,
         required=False,
         help="how data is accessed: fs/http/synthetic",
-        )
-        p.add_argument(
-            "--format", "-f",
-            choices=["csv", "json", "json-lines", "pickle"],
-            help="data format for fs/http transports (ignored otherwise)",
-        )
-        p.add_argument(
-            "--loader",
-            help="loader entrypoint (overrides --transport/--format)",
-        )
-        p.add_argument(
-            "--parser",
-            help="parser entrypoint (defaults to identity)",
-        )
-        p.add_argument(
-            "--identity",
-            action="store_true",
-            help="use the built-in identity parser (alias for --parser identity)",
-        )
+    )
+    p_source_create.add_argument(
+        "--format", "-f",
+        choices=SOURCE_FS_FORMATS,
+        help="data format for fs/http transports (ignored otherwise)",
+    )
+    p_source_create.add_argument(
+        "--loader",
+        help="loader entrypoint (overrides --transport/--format)",
+    )
+    p_source_create.add_argument(
+        "--parser",
+        help="parser entrypoint (defaults to identity)",
+    )
+    p_source_create.add_argument(
+        "--identity",
+        action="store_true",
+        help="use the built-in identity parser (alias for --parser identity)",
+    )
     source_sub.add_parser("list", help="list known sources")
 
     # domain
@@ -424,23 +565,8 @@ def main() -> None:
 
     # Shared visuals/progress controls for inspect commands
     inspect_common = argparse.ArgumentParser(add_help=False)
-    inspect_common.add_argument(
-        "--visuals",
-        choices=["auto", "tqdm", "rich", "off"],
-        default=None,
-        help="visuals renderer: auto (default), tqdm, rich, or off",
-    )
-    inspect_common.add_argument(
-        "--progress",
-        choices=["auto", "spinner", "bars", "off"],
-        default=None,
-        help="progress display: auto (spinner unless DEBUG), spinner, bars, or off",
-    )
-    inspect_common.add_argument(
-        "--dataset",
-        "-d",
-        help="dataset alias, folder, or project.yaml path",
-    )
+    _add_visual_flags(inspect_common)
+    _add_dataset_flag(inspect_common)
 
     # inspect (metadata helpers)
     p_inspect = sub.add_parser(
@@ -456,12 +582,7 @@ def main() -> None:
         help="print a quality report to stdout",
         parents=[inspect_common],
     )
-    p_inspect_report.add_argument(
-        "--project",
-        "-p",
-        default=None,
-        help="path to project.yaml",
-    )
+    _add_project_flag(p_inspect_report)
     p_inspect_report.add_argument(
         "--threshold",
         "-t",
@@ -494,12 +615,7 @@ def main() -> None:
         help="export availability matrix",
         parents=[inspect_common],
     )
-    p_inspect_matrix.add_argument(
-        "--project",
-        "-p",
-        default=None,
-        help="path to project.yaml",
-    )
+    _add_project_flag(p_inspect_matrix)
     p_inspect_matrix.add_argument(
         "--threshold",
         "-t",
@@ -548,12 +664,7 @@ def main() -> None:
         help="discover partitions and write a manifest JSON",
         parents=[inspect_common],
     )
-    p_inspect_parts.add_argument(
-        "--project",
-        "-p",
-        default=None,
-        help="path to project.yaml",
-    )
+    _add_project_flag(p_inspect_parts)
     p_inspect_parts.add_argument(
         "--output",
         "-o",
@@ -605,10 +716,10 @@ def main() -> None:
             keep=getattr(args, "keep", None),
             run_name=getattr(args, "run", None),
             stage=getattr(args, "stage", None),
-            out_transport=getattr(args, "out_transport", None),
-            out_format=getattr(args, "out_format", None),
-            out_payload=getattr(args, "out_payload", None),
-            out_path=getattr(args, "out_path", None),
+            output_transport=getattr(args, "output_transport", None),
+            output_format=getattr(args, "output_format", None),
+            output_payload=getattr(args, "output_payload", None),
+            output_directory=getattr(args, "output_directory", None),
             skip_build=getattr(args, "skip_build", False),
             cli_log_level=cli_level_arg,
             base_log_level=base_level_name,
@@ -628,163 +739,17 @@ def main() -> None:
         return
 
     if args.cmd == "inspect":
-        # Default to 'report' when no subcommand is given
-        subcmd = getattr(args, "inspect_cmd", None)
-        shared_visuals_default = shared_defaults.visuals if shared_defaults else None
-        shared_progress_default = shared_defaults.progress if shared_defaults else None
-        inspect_visuals = resolve_visuals(
-            cli_visuals=getattr(args, "visuals", None),
-            config_visuals=None,
-            workspace_visuals=shared_visuals_default,
-            cli_progress=getattr(args, "progress", None),
-            config_progress=None,
-            workspace_progress=shared_progress_default,
-        )
-        inspect_visual_provider = inspect_visuals.visuals or "auto"
-        inspect_progress_style = inspect_visuals.progress or "auto"
-        if subcmd in (None, "report"):
-            handle_inspect_report(
-                project=args.project,
-                output=None,
-                threshold=getattr(args, "threshold", 0.95),
-                match_partition=getattr(args, "match_partition", "base"),
-                matrix="none",
-                matrix_output=None,
-                rows=20,
-                cols=10,
-                quiet=False,
-                write_coverage=False,
-                apply_postprocess=(getattr(args, "mode", "final") == "final"),
-                visuals=inspect_visual_provider,
-                progress=inspect_progress_style,
-                log_level=base_level,
-                sort=getattr(args, "sort", "missing"),
-                workspace=workspace_context,
-            )
-        elif subcmd == "matrix":
-            handle_inspect_report(
-                project=args.project,
-                output=None,
-                threshold=getattr(args, "threshold", 0.95),
-                match_partition="base",
-                matrix=getattr(args, "format", "html"),
-                matrix_output=getattr(args, "output", None),
-                rows=getattr(args, "rows", 20),
-                cols=getattr(args, "cols", 10),
-                quiet=getattr(args, "quiet", False),
-                write_coverage=False,
-                apply_postprocess=(getattr(args, "mode", "final") == "final"),
-                visuals=inspect_visual_provider,
-                progress=inspect_progress_style,
-                log_level=base_level,
-                sort=getattr(args, "sort", "missing"),
-                workspace=workspace_context,
-            )
-        elif subcmd == "partitions":
-            from datapipeline.cli.commands.inspect import partitions as handle_inspect_partitions
-            handle_inspect_partitions(
-                project=args.project,
-                output=getattr(args, "output", None),
-                visuals=inspect_visual_provider,
-                progress=inspect_progress_style,
-                log_level=base_level,
-                workspace=workspace_context,
-            )
-        return
-
-    if args.cmd == "source":
-        if args.source_cmd == "list":
-            handle_list(subcmd="sources", workspace=workspace_context)
-            return
-        # Merge positionals and flags for provider/dataset
-        handle_source(
-            subcmd=args.source_cmd,
-            provider=(getattr(args, "provider", None) or getattr(args, "provider_opt", None)),
-            dataset=(getattr(args, "dataset", None) or getattr(args, "dataset_opt", None)),
-            transport=getattr(args, "transport", None),
-            format=getattr(args, "format", None),
-            alias=getattr(args, "alias", None),
-            identity=getattr(args, "identity", False),
-            loader=getattr(args, "loader", None),
-            parser=getattr(args, "parser", None),
-            plugin_root=plugin_root,
-            workspace=workspace_context,
+        _run_inspect_command(
+            args=args,
+            shared_defaults=shared_defaults,
+            base_level=base_level,
+            workspace_context=workspace_context,
         )
         return
 
-    if args.cmd == "list":
-        handle_list(subcmd=args.list_cmd, workspace=workspace_context)
-        return
-
-    if args.cmd == "domain":
-        if args.domain_cmd == "list":
-            handle_list(subcmd="domains")
-            return
-        handle_domain(
-            subcmd=args.domain_cmd,
-            domain=getattr(args, "domain", None),
-            plugin_root=plugin_root,
-        )
-        return
-
-    if args.cmd == "dto":
-        handle_dto(
-            name=getattr(args, "name", None),
-            plugin_root=plugin_root,
-        )
-        return
-
-    if args.cmd == "parser":
-        handle_parser(
-            name=getattr(args, "name", None),
-            plugin_root=plugin_root,
-        )
-        return
-
-    if args.cmd == "mapper":
-        handle_mapper(
-            name=getattr(args, "name", None),
-            plugin_root=plugin_root,
-        )
-        return
-
-    if args.cmd == "loader":
-        handle_loader(
-            name=getattr(args, "name", None),
-            plugin_root=plugin_root,
-        )
-        return
-
-    if args.cmd == "inflow":
-        handle_stream(
-            plugin_root=plugin_root,
-            workspace=workspace_context,
-        )
-        return
-
-    if args.cmd == "contract":
-        handle_contract(
-            plugin_root=plugin_root,
-            use_identity=getattr(args, "identity", False),
-            workspace=workspace_context,
-        )
-        return
-
-    if args.cmd == "plugin":
-        handle_bar(
-            subcmd=args.bar_cmd,
-            name=getattr(args, "name", None),
-            out=getattr(args, "out", "."),
-        )
-        return
-
-    if args.cmd == "demo":
-        handle_demo(
-            subcmd=args.demo_cmd,
-            out=getattr(args, "out", None),
-        )
-        return
-
-    if args.cmd == "filter":
-        handle_filter(subcmd=args.filter_cmd, name=getattr(args, "name", None))
+    if _dispatch_non_project_command(
+        args=args,
+        plugin_root=plugin_root,
+        workspace_context=workspace_context,
+    ):
         return
