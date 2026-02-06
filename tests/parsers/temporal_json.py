@@ -72,7 +72,8 @@ class TemporalJsonPathParser(DataParser[TemporalRecord]):
             ts = ts.astimezone(self.tz)
 
         value = _coerce_float(value_raw)
-        rec = TemporalRecord(time=ts, value=value)
+        rec = TemporalRecord(time=ts)
+        setattr(rec, "value", value)
         for attr, path in self.attributes.items():
             setattr(rec, attr, _dig(raw, path))
         return rec

@@ -10,16 +10,18 @@ from datapipeline.domain.vector import Vector
 
 
 def make_time_record(value: float | None, hour: int) -> TemporalRecord:
-    return TemporalRecord(
+    record = TemporalRecord(
         time=datetime(2024, 1, 1, hour=hour, tzinfo=timezone.utc),
-        value=value,
     )
+    setattr(record, "value", value)
+    return record
 
 
 def make_feature_record(value: float | None, hour: int, feature_id: str) -> FeatureRecord:
     return FeatureRecord(
         record=make_time_record(value, hour),
         id=feature_id,
+        value=value,
     )
 
 
