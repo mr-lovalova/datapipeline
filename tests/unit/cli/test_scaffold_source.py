@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from pathlib import Path
 
 from datapipeline.services.scaffold.source_yaml import create_source_yaml, default_loader_config

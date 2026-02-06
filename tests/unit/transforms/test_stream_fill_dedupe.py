@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from datapipeline.transforms.stream.dedupe import FeatureDeduplicateTransform
 from datapipeline.transforms.stream.fill import FillTransformer as FeatureFill
 from tests.unit.transforms.helpers import make_time_record

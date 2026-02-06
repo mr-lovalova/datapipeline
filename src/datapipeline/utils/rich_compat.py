@@ -1,6 +1,3 @@
-from __future__ import annotations
-
-
 def suppress_file_proxy_shutdown_errors() -> None:
     """Patch rich.file_proxy.FileProxy.flush to ignore shutdown ImportErrors.
 

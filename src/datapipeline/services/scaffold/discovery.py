@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from pathlib import Path
 import ast
 from typing import Optional

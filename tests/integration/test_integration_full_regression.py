@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import pytest
 
 from datapipeline.config.context import load_dataset_context

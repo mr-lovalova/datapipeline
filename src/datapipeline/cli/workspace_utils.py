@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from pathlib import Path
 
 from datapipeline.config.workspace import WorkspaceContext
@@ -22,4 +20,3 @@ def resolve_default_project_yaml(workspace: WorkspaceContext | None) -> Path | N
             f"Unknown default_dataset '{alias}'. Define it under datasets: in jerry.yaml."
         )
     return resolved
-

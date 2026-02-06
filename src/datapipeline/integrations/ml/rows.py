@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import Any

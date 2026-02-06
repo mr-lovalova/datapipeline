@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from statistics import mean, median
 from typing import Iterator
 

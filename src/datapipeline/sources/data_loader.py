@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from typing import Iterator, Any, Optional
 from .models.loader import BaseDataLoader
 from .transports import Transport, HttpTransport

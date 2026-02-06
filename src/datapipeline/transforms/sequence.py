@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from collections import deque
 from itertools import groupby
 from typing import Iterator

@@ -3,7 +3,7 @@ from collections import defaultdict
 from itertools import groupby
 from numbers import Real
 from pathlib import Path
-from typing import Any, Callable, Iterator, Literal, Mapping
+from typing import Any, Callable, Iterator, Literal
 
 from datapipeline.domain.feature import FeatureRecord
 from datapipeline.domain.sample import Sample

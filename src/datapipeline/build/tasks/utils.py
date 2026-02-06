@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from collections import Counter, OrderedDict
 from datetime import datetime
 from typing import Any

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from datapipeline.sources.foreach import ForeachLoader
 from datapipeline.utils import load as dp_load
 

@@ -1,7 +1,5 @@
-from __future__ import annotations
-
 from pathlib import Path
-from typing import Annotated, Iterable, List, Literal, Sequence
+from typing import Annotated, Literal, Sequence
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic.type_adapter import TypeAdapter
@@ -21,8 +19,10 @@ PayloadMode = Literal["sample", "vector"]
 class TaskBase(BaseModel):
     version: int = Field(default=1)
     kind: str
-    name: str | None = Field(default=None, description="Optional task identifier.")
-    enabled: bool = Field(default=True, description="Disable to skip execution.")
+    name: str | None = Field(
+        default=None, description="Optional task identifier.")
+    enabled: bool = Field(
+        default=True, description="Disable to skip execution.")
     source_path: Path | None = Field(default=None, exclude=True)
 
     def effective_name(self) -> str:
@@ -77,7 +77,8 @@ class RuntimeTask(TaskBase):
 
 class ServeOutputConfig(BaseModel):
     transport: Transport = Field(..., description="fs | stdout")
-    format: Format = Field(..., description="csv | json | json-lines | print | pickle")
+    format: Format = Field(...,
+                           description="csv | json | json-lines | print | pickle")
     payload: PayloadMode = Field(
         default="sample",
         description="sample (key + metadata) or vector payload (features [+targets]).",

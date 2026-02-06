@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 
 

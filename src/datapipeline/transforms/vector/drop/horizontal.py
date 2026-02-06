@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from collections.abc import Iterator
 from typing import Literal
 
@@ -76,4 +74,3 @@ class VectorDropHorizontalTransform(VectorPostprocessBase):
             value = vector.values.get(fid)
             total += cell_coverage(value)
         return total / float(len(baseline))
-
