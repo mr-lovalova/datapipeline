@@ -9,6 +9,7 @@ paths:
   artifacts: ../artifacts/${project_name}/v${version}
   tasks: ./tasks
 globals:
-  group_by: <your-bucket-cadence>
+  # TODO: Set your grouping cadence (must match ^\d+(m|min|h|d)$).
+  group_by: 1h
   start_time: null
   end_time: null

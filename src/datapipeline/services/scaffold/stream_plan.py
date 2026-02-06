@@ -8,6 +8,7 @@ from datapipeline.services.scaffold.mapper import create_mapper
 from datapipeline.services.scaffold.source_yaml import create_source_yaml
 from datapipeline.services.scaffold.contract_yaml import write_ingest_contract
 from datapipeline.services.scaffold.discovery import list_dtos
+from datapipeline.services.paths import pkg_root
 from datapipeline.services.scaffold.utils import error_exit, status
 
 
@@ -50,6 +51,17 @@ class StreamPlan:
 
 
 def execute_stream_plan(plan: StreamPlan) -> None:
+    pyproject_path = None
+    before_pyproject = None
+    try:
+        root_dir, _, pyproject = pkg_root(plan.root)
+        pyproject_path = pyproject
+        if pyproject_path.exists():
+            before_pyproject = pyproject_path.read_text()
+    except SystemExit:
+        pyproject_path = None
+        before_pyproject = None
+
     if plan.create_domain and plan.domain:
         create_domain(domain=plan.domain, root=plan.root)
 
@@ -108,3 +120,10 @@ def execute_stream_plan(plan: StreamPlan) -> None:
         mapper_entrypoint=mapper_ep or "identity",
     )
     status("ok", "Stream created.")
+    if pyproject_path and before_pyproject is not None:
+        after_pyproject = pyproject_path.read_text()
+        if after_pyproject != before_pyproject:
+            status(
+                "note",
+                f"Entry points updated; reinstall plugin: pip install -e {pyproject_path.parent}",
+            )

@@ -8,7 +8,16 @@ def pkg_root(start: Optional[Path] = None) -> tuple[Path, str, Path]:
     for d in [here, *here.parents]:
         pyproject = d / "pyproject.toml"
         if pyproject.exists():
-            return d, d.name, pyproject
+            pkg_name = d.name
+            src_dir = d / "src"
+            if src_dir.exists():
+                candidates = [
+                    p for p in src_dir.iterdir()
+                    if p.is_dir() and (p / "__init__.py").exists()
+                ]
+                if len(candidates) == 1:
+                    pkg_name = candidates[0].name
+            return d, pkg_name, pyproject
     print("[error] pyproject.toml not found (searched current and parent dirs)", file=sys.stderr)
     raise SystemExit(1)
 
