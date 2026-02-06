@@ -39,11 +39,12 @@ from datapipeline.services.scaffold.utils import (
 
 def handle(*, plugin_root: Path | None = None, workspace: WorkspaceContext | None = None) -> None:
     root_dir, pkg_name, _ = pkg_root(plugin_root)
-    project_yaml = resolve_default_project_yaml(workspace) or resolve_project_yaml_path(root_dir)
+    project_yaml = resolve_default_project_yaml(
+        workspace) or resolve_project_yaml_path(root_dir)
 
     # Shared context
-    provider = prompt_required("Provider")
-    dataset = prompt_required("Dataset")
+    provider = prompt_required("Provider name (e.g. nasa)")
+    dataset = prompt_required("Dataset name (e.g. weather)")
     source_id = f"{provider}.{dataset}"
 
     # Collected actions (execute at end)
@@ -110,7 +111,8 @@ def handle(*, plugin_root: Path | None = None, workspace: WorkspaceContext | Non
                 ]
                 if choice == "fs":
                     fmt_options.append(("pickle", "pickle"))
-                fmt = pick_from_menu("Format:", fmt_options, allow_default=False)
+                fmt = pick_from_menu(
+                    "Format:", fmt_options, allow_default=False)
             else:
                 fmt = None
             loader_ep, loader_args = default_loader_config(choice, fmt)
@@ -142,7 +144,8 @@ def handle(*, plugin_root: Path | None = None, workspace: WorkspaceContext | Non
                 [(k, k) for k in sorted(parsers.keys())],
             )
         elif pchoice == "create":
-            dto_default = dto_class_name(f"{provider}_{dataset}") if provider and dataset else None
+            dto_default = dto_class_name(
+                f"{provider}_{dataset}") if provider and dataset else None
             dto_class, parser_create_dto = choose_existing_or_create_name(
                 label=LABEL_DTO_FOR_PARSER,
                 existing=sorted(list_dtos(root=plugin_root).keys()),
@@ -228,7 +231,8 @@ def handle(*, plugin_root: Path | None = None, workspace: WorkspaceContext | Non
                 default=default_mapper_name_for_identity(domain),
             )
         else:
-            mapper_name = choose_name("Mapper name", default=default_mapper_name(mapper_input_module, domain))
+            mapper_name = choose_name(
+                "Mapper name", default=default_mapper_name(mapper_input_module, domain))
     elif mchoice == "identity":
         mapper_ep = "identity"
     else:
@@ -264,9 +268,11 @@ def handle(*, plugin_root: Path | None = None, workspace: WorkspaceContext | Non
             domain=domain,
         )
     elif mchoice == "existing":
-        mapper_plan = MapperPlan(create=False, mapper_ep=mapper_ep, domain=domain)
+        mapper_plan = MapperPlan(
+            create=False, mapper_ep=mapper_ep, domain=domain)
     else:
-        mapper_plan = MapperPlan(create=False, mapper_ep="identity", domain=domain)
+        mapper_plan = MapperPlan(
+            create=False, mapper_ep="identity", domain=domain)
 
     plan = StreamPlan(
         provider=provider,

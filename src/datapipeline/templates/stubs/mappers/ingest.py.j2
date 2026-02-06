@@ -10,6 +10,9 @@ def {{FUNCTION_NAME}}(
     **params: Any,
 ) -> Iterator[{{DOMAIN_RECORD}}]:
     """Map {{INPUT_CLASS}} records to domain-level {{DOMAIN_RECORD}} records."""
+    raise NotImplementedError(
+        "Implement mapper logic for {{INPUT_CLASS}} -> {{DOMAIN_RECORD}}"
+    )
     for record in stream:
         # TODO: construct {{DOMAIN_RECORD}} from record fields
         yield {{DOMAIN_RECORD}}(
