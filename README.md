@@ -52,28 +52,15 @@ For example: `jerry serve --project lib/my-datapipeline/project.yaml`.
 
 ```bash
 jerry plugin init my-datapipeline --out lib/
-python -m pip install -e lib/my-datapipeline
+
+# Note: import paths use the package name (hyphens become underscores), e.g.
+# `my_datapipeline` even if the dist folder is `my-datapipeline`.
 
 # One-stop wizard: scaffolds source YAML + DTO/parser + domain + mapper + contract.
 jerry inflow create
 
-# Wizard tips (identity vs custom)
-#
-# - Parser:
-#   - Choose "Identity parser" when the loader already yields dicts/objects that match your DTO shape,
-#     and no type conversion is needed.
-#   - Choose "Create new parser" when you need to parse timestamps, coerce types, rename fields,
-#     or drop/validate rows.
-#
-# - Mapper:
-#   - Choose "Identity mapper" only when your DTO already is the final domain record shape (for example you might have used jerry to output interim datasets):
-#     `time` is timezone-aware and identity fields are present.
-#   - Otherwise, choose "Create new mapper" to map DTO -> domain record and add light derived fields.
-#
-# After scaffolding, you typically still need to:
-# - Fill placeholders in `sources/*.yaml` (path/url/headers/etc.).
-# - Reference your stream contract id in `dataset.yaml` under `record_stream: <contract_id>` and pick a `field` for each feature.
-#
+# See `docs/cli.md` for wizard tips and identity vs custom guidance.
+
 # Reinstall after commands that update entry points (pyproject.toml).
 python -m pip install -e lib/my-datapipeline
 
