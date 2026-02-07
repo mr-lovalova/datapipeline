@@ -19,6 +19,20 @@ Contributing: PRs welcome on [GitHub](https://github.com/mr-lovalova/datapipelin
 
 ---
 
+## Quick Demo
+
+From zero to served vectors in under a minute.
+
+![Jerry demo](docs/assets/demo.gif)
+
+```bash
+jerry demo init
+python -m pip install -e demo
+jerry serve -n 1
+```
+
+---
+
 ## Why You Might Use It
 
 - Materialize canonical time-series datasets from disparate sources.
