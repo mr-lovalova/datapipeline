@@ -65,7 +65,7 @@ def test_workspace_output_defaults_handles_relative_paths(tmp_path):
             "serve": {
                 "output": {
                     "transport": "fs",
-                    "format": "json-lines",
+                    "format": "jsonl",
                     "directory": "outputs",
                 }
             }
@@ -74,7 +74,7 @@ def test_workspace_output_defaults_handles_relative_paths(tmp_path):
     context = WorkspaceContext(file_path=workspace_file, config=cfg)
     resolved = workspace_output_defaults(context)
     assert resolved.transport == "fs"
-    assert resolved.format == "json-lines"
+    assert resolved.format == "jsonl"
     assert resolved.directory == (tmp_path / "outputs").resolve()
 
 

@@ -15,7 +15,7 @@ def build_loader(*, transport: str, format: str | None = None, **kwargs: Any) ->
 
     Args (by transport/format):
       transport: "fs" | "http"
-      format: "csv" | "json" | "json-lines" | "pickle" (required for fs/http)
+      format: "csv" | "json" | "jsonl" | "pickle" (required for fs/http)
       fs: path (str), glob (bool, optional), encoding (str, default utf-8), delimiter (csv only)
       http: url (str), headers (dict, optional), params (dict, optional), encoding (str, default utf-8), timeout_seconds (float, optional)
       csv: error_prefixes (list[str], optional)
@@ -53,7 +53,7 @@ def build_loader(*, transport: str, format: str | None = None, **kwargs: Any) ->
     elif fmt == "json":
         array_field = kwargs.get("array_field")
         decoder = JsonDecoder(encoding=encoding, array_field=array_field)
-    elif fmt == "json-lines":
+    elif fmt == "jsonl":
         decoder = JsonLinesDecoder(encoding=encoding)
     elif fmt == "pickle":
         if t != "fs":

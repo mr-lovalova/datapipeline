@@ -6,11 +6,10 @@ from datapipeline.services.scaffold.source_yaml import (
     create_source_yaml,
     default_loader_config,
 )
+from datapipeline.config.options import SOURCE_TRANSPORTS, source_formats_for
 from datapipeline.services.scaffold.discovery import list_loaders, list_parsers
 from datapipeline.services.scaffold.utils import (
     error_exit,
-    info,
-    choose_name,
     pick_from_menu,
     prompt_required,
 )
@@ -72,7 +71,7 @@ def handle(
                     options.append(("existing", "Select existing loader"))
                 options.append(("custom", "Custom loader"))
                 choice = pick_from_menu("Loader:", options)
-                if choice in {"fs", "http", "synthetic"}:
+                if choice in SOURCE_TRANSPORTS:
                     transport = choice
                 elif choice == "existing":
                     loader_ep = pick_from_menu(
@@ -83,14 +82,10 @@ def handle(
                     loader_ep = prompt_required("Loader entrypoint")
             if not loader_ep:
                 if transport in {"fs", "http"} and not format:
-                    format_options = [
-                        ("csv", "csv"),
-                        ("json", "json"),
-                        ("json-lines", "json-lines"),
-                    ]
-                    if transport == "fs":
-                        format_options.append(("pickle", "pickle"))
-                    format = pick_from_menu("Format:", format_options)
+                    format = pick_from_menu(
+                        "Format:",
+                        [(name, name) for name in source_formats_for(transport)],
+                    )
                 if not transport:
                     error_exit("--transport is required when no --loader is provided")
                 loader_ep, loader_args = default_loader_config(transport, format)

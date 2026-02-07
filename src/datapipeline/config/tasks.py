@@ -4,6 +4,7 @@ from typing import Annotated, Literal, Sequence
 from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic.type_adapter import TypeAdapter
 
+from datapipeline.config.options import OUTPUT_STDOUT_FORMATS
 from datapipeline.services.project_paths import tasks_dir
 from datapipeline.utils.load import load_yaml
 
@@ -12,7 +13,7 @@ VALID_VISUAL_PROVIDERS = ("AUTO", "TQDM", "RICH", "OFF")
 VALID_PROGRESS_STYLES = ("AUTO", "SPINNER", "BARS", "OFF")
 
 Transport = Literal["fs", "stdout"]
-Format = Literal["csv", "json", "json-lines", "print", "pickle"]
+Format = Literal["csv", "json", "jsonl", "print", "pickle"]
 PayloadMode = Literal["sample", "vector"]
 
 
@@ -78,7 +79,7 @@ class RuntimeTask(TaskBase):
 class ServeOutputConfig(BaseModel):
     transport: Transport = Field(..., description="fs | stdout")
     format: Format = Field(...,
-                           description="csv | json | json-lines | print | pickle")
+                           description="csv | json | jsonl | print | pickle")
     payload: PayloadMode = Field(
         default="sample",
         description="sample (key + metadata) or vector payload (features [+targets]).",
@@ -113,9 +114,9 @@ class ServeOutputConfig(BaseModel):
                 raise ValueError("stdout cannot define a directory")
             if self.filename is not None:
                 raise ValueError("stdout outputs do not support filenames")
-            if self.format not in {"print", "json-lines", "json"}:
+            if self.format not in set(OUTPUT_STDOUT_FORMATS):
                 raise ValueError(
-                    "stdout output supports 'print', 'json-lines', or 'json' formats"
+                    f"stdout output supports {', '.join(repr(x) for x in OUTPUT_STDOUT_FORMATS)} formats"
                 )
             return self
 

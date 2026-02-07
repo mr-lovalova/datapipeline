@@ -4,5 +4,5 @@ name: all
 keep: null
 output:
   transport: fs
-  format: json-lines
+  format: jsonl
   directory: data/interim/jerry

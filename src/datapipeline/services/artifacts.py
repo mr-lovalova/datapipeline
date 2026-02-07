@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Generic, Mapping, Optional, TypeVar
 
 from datapipeline.services.constants import VECTOR_SCHEMA, VECTOR_SCHEMA_METADATA
+from datapipeline.services.path_policy import resolve_relative_to_base
 
 ArtifactValue = TypeVar("ArtifactValue")
 
@@ -24,8 +25,7 @@ class ArtifactRecord:
     meta: Mapping[str, Any]
 
     def resolve(self, root: Path) -> Path:
-        path = Path(self.relative_path)
-        return path if path.is_absolute() else (root / path)
+        return resolve_relative_to_base(self.relative_path, root, resolve=False)
 
 
 class ArtifactNotRegisteredError(RuntimeError):
@@ -43,7 +43,7 @@ class ArtifactManager:
     def root(self) -> Path:
         return self._root
 
-    def register(self, key: str, *, relative_path: str, meta: Optional[Mapping[str, Any]] = None) -> None:
+    def register(self, key: str, relative_path: str, meta: Optional[Mapping[str, Any]] = None) -> None:
         self._records[key] = ArtifactRecord(
             key=key,
             relative_path=relative_path,

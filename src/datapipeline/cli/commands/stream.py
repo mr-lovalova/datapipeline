@@ -1,7 +1,9 @@
+from dataclasses import dataclass
 from pathlib import Path
 
 from datapipeline.config.workspace import WorkspaceContext
 from datapipeline.cli.workspace_utils import resolve_default_project_yaml
+from datapipeline.config.options import SOURCE_TRANSPORTS, source_formats_for
 from datapipeline.services.paths import pkg_root
 from datapipeline.services.project_paths import resolve_project_yaml_path
 from datapipeline.services.scaffold.discovery import (
@@ -26,32 +28,114 @@ from datapipeline.services.scaffold.layout import (
 )
 from datapipeline.services.scaffold.stream_plan import StreamPlan, ParserPlan, MapperPlan, execute_stream_plan
 from datapipeline.services.scaffold.utils import (
-    choose_existing_or_create,
     choose_name,
-    choose_existing_or_create_name,
     error_exit,
     info,
     pick_from_list,
     pick_from_menu,
     prompt_required,
+    choose_existing_or_create_name,
 )
 
 
-def handle(*, plugin_root: Path | None = None, workspace: WorkspaceContext | None = None) -> None:
-    root_dir, pkg_name, _ = pkg_root(plugin_root)
-    project_yaml = resolve_default_project_yaml(
-        workspace) or resolve_project_yaml_path(root_dir)
+@dataclass
+class StreamSelection:
+    provider: str
+    dataset: str
+    source_id: str
+    create_source: bool
+    loader_ep: str | None
+    loader_args: dict | None
+    pchoice: str
+    parser_create_dto: bool
+    dto_class: str | None
+    dto_module: str | None
+    parser_name: str | None
+    parser_ep: str | None
+    domain: str
+    create_domain: bool
+    mchoice: str
+    mapper_create_dto: bool
+    mapper_input_class: str | None
+    mapper_input_module: str | None
+    mapper_name: str | None
+    mapper_ep: str | None
+    stream_id: str
 
+
+def _parser_menu_options(parsers: dict[str, str]) -> list[tuple[str, str]]:
+    base = [("create", "Create new parser (default)"), ("identity", "Identity parser")]
+    if parsers:
+        return [base[0], ("existing", "Select existing parser"), base[1]]
+    return base
+
+
+def _mapper_menu_options(mappers: dict[str, str]) -> list[tuple[str, str]]:
+    base = [("create", "Create new mapper (default)"), ("identity", "Identity mapper")]
+    if mappers:
+        return [base[0], ("existing", "Select existing mapper"), base[1]]
+    return base
+
+
+def _build_parser_plan(
+    *,
+    choice: str,
+    create_dto: bool,
+    dto_class: str | None,
+    dto_module: str | None,
+    parser_name: str | None,
+    parser_ep: str | None,
+) -> ParserPlan:
+    if choice == "create":
+        return ParserPlan(
+            create=True,
+            create_dto=create_dto,
+            dto_class=dto_class,
+            dto_module=dto_module,
+            parser_name=parser_name,
+        )
+    if choice == "existing":
+        return ParserPlan(create=False, parser_ep=parser_ep)
+    return ParserPlan(create=False, parser_ep="identity")
+
+
+def _build_mapper_plan(
+    *,
+    choice: str,
+    create_dto: bool,
+    input_class: str | None,
+    input_module: str | None,
+    mapper_name: str | None,
+    mapper_ep: str | None,
+    domain: str,
+) -> MapperPlan:
+    if choice == "create":
+        return MapperPlan(
+            create=True,
+            create_dto=create_dto,
+            input_class=input_class,
+            input_module=input_module,
+            mapper_name=mapper_name,
+            domain=domain,
+        )
+    if choice == "existing":
+        return MapperPlan(create=False, mapper_ep=mapper_ep, domain=domain)
+    return MapperPlan(create=False, mapper_ep="identity", domain=domain)
+
+
+def _collect_stream_selection(
+    *,
+    plugin_root: Path | None,
+    pkg_name: str,
+    project_yaml: Path,
+) -> StreamSelection:
     # Shared context
     provider = prompt_required("Provider name (e.g. nasa)")
     dataset = prompt_required("Dataset name (e.g. weather)")
     source_id = f"{provider}.{dataset}"
 
-    # Collected actions (execute at end)
     create_source = False
-    create_domain_flag = False
-    create_parser_flag = False
-    create_mapper_flag = False
+    create_domain = False
     parser_create_dto = False
     mapper_create_dto = False
 
@@ -66,8 +150,8 @@ def handle(*, plugin_root: Path | None = None, workspace: WorkspaceContext | Non
     parser_name = None
     mapper_name = None
     pchoice = "identity"
+    mchoice = "identity"
 
-    # Source selection (may override shared context if existing is chosen)
     source_choice = pick_from_menu(
         "Source:",
         [
@@ -102,17 +186,13 @@ def handle(*, plugin_root: Path | None = None, workspace: WorkspaceContext | Non
             ],
             allow_default=False,
         )
-        if choice in {"fs", "http", "synthetic"}:
+        if choice in SOURCE_TRANSPORTS:
             if choice in {"fs", "http"}:
-                fmt_options = [
-                    ("csv", "csv"),
-                    ("json", "json"),
-                    ("json-lines", "json-lines"),
-                ]
-                if choice == "fs":
-                    fmt_options.append(("pickle", "pickle"))
                 fmt = pick_from_menu(
-                    "Format:", fmt_options, allow_default=False)
+                    "Format:",
+                    [(name, name) for name in source_formats_for(choice)],
+                    allow_default=False,
+                )
             else:
                 fmt = None
             loader_ep, loader_args = default_loader_config(choice, fmt)
@@ -121,23 +201,7 @@ def handle(*, plugin_root: Path | None = None, workspace: WorkspaceContext | Non
 
         # Parser selection
         parsers = list_parsers(root=plugin_root)
-        if parsers:
-            pchoice = pick_from_menu(
-                "Parser:",
-                [
-                    ("create", "Create new parser (default)"),
-                    ("existing", "Select existing parser"),
-                    ("identity", "Identity parser"),
-                ],
-            )
-        else:
-            pchoice = pick_from_menu(
-                "Parser:",
-                [
-                    ("create", "Create new parser (default)"),
-                    ("identity", "Identity parser"),
-                ],
-            )
+        pchoice = pick_from_menu("Parser:", _parser_menu_options(parsers))
         if pchoice == "existing":
             parser_ep = pick_from_menu(
                 "Select parser entrypoint:",
@@ -158,14 +222,12 @@ def handle(*, plugin_root: Path | None = None, workspace: WorkspaceContext | Non
                 default=default_parser_name(dto_class),
             )
             dto_module = dto_module_path(pkg_name, dto_class)
-            create_parser_flag = True
         elif pchoice == "identity":
             parser_ep = "identity"
         else:
             parser_ep = "identity"
 
-    # Domain selection
-    domain, create_domain_flag = choose_existing_or_create_name(
+    domain, create_domain = choose_existing_or_create_name(
         label=LABEL_DOMAIN_TO_MAP,
         existing=list_domains(root=plugin_root),
         create_label="Create new domain",
@@ -173,32 +235,14 @@ def handle(*, plugin_root: Path | None = None, workspace: WorkspaceContext | Non
         default_new=dataset,
     )
 
-    # Mapper selection
     mappers = list_mappers(root=plugin_root)
-    if mappers:
-        mchoice = pick_from_menu(
-            "Mapper:",
-            [
-                ("create", "Create new mapper (default)"),
-                ("existing", "Select existing mapper"),
-                ("identity", "Identity mapper"),
-            ],
-        )
-    else:
-        mchoice = pick_from_menu(
-            "Mapper:",
-            [
-                ("create", "Create new mapper (default)"),
-                ("identity", "Identity mapper"),
-            ],
-        )
+    mchoice = pick_from_menu("Mapper:", _mapper_menu_options(mappers))
     if mchoice == "existing":
         mapper_ep = pick_from_menu(
             "Select mapper entrypoint:",
             [(k, k) for k in sorted(mappers.keys())],
         )
     elif mchoice == "create":
-        create_mapper_flag = True
         input_choice = pick_from_menu(
             f"{LABEL_MAPPER_INPUT}:",
             [
@@ -238,55 +282,88 @@ def handle(*, plugin_root: Path | None = None, workspace: WorkspaceContext | Non
     else:
         mapper_ep = "identity"
 
-    # Stream id and contract
     default_id = default_stream_id(domain, dataset or "dataset", None)
     stream_id = choose_name("Stream id", default=default_id)
 
-    # Build plan and execute (no side effects during selection)
-    parser_plan = None
-    if pchoice == "create":
-        parser_plan = ParserPlan(
-            create=True,
-            create_dto=parser_create_dto,
-            dto_class=dto_class,
-            dto_module=dto_module,
-            parser_name=parser_name,
-        )
-    elif pchoice == "existing":
-        parser_plan = ParserPlan(create=False, parser_ep=parser_ep)
-    else:
-        parser_plan = ParserPlan(create=False, parser_ep="identity")
-
-    mapper_plan = None
-    if mchoice == "create":
-        mapper_plan = MapperPlan(
-            create=True,
-            create_dto=mapper_create_dto,
-            input_class=mapper_input_class,
-            input_module=mapper_input_module,
-            mapper_name=mapper_name,
-            domain=domain,
-        )
-    elif mchoice == "existing":
-        mapper_plan = MapperPlan(
-            create=False, mapper_ep=mapper_ep, domain=domain)
-    else:
-        mapper_plan = MapperPlan(
-            create=False, mapper_ep="identity", domain=domain)
-
-    plan = StreamPlan(
+    return StreamSelection(
         provider=provider,
         dataset=dataset,
         source_id=source_id,
-        project_yaml=project_yaml,
-        stream_id=stream_id,
-        root=plugin_root,
         create_source=create_source,
         loader_ep=loader_ep,
         loader_args=loader_args,
+        pchoice=pchoice,
+        parser_create_dto=parser_create_dto,
+        dto_class=dto_class,
+        dto_module=dto_module,
+        parser_name=parser_name,
+        parser_ep=parser_ep,
+        domain=domain,
+        create_domain=create_domain,
+        mchoice=mchoice,
+        mapper_create_dto=mapper_create_dto,
+        mapper_input_class=mapper_input_class,
+        mapper_input_module=mapper_input_module,
+        mapper_name=mapper_name,
+        mapper_ep=mapper_ep,
+        stream_id=stream_id,
+    )
+
+
+def _build_stream_plan_from_selection(
+    *,
+    selection: StreamSelection,
+    project_yaml: Path,
+    plugin_root: Path | None,
+) -> StreamPlan:
+    parser_plan = _build_parser_plan(
+        choice=selection.pchoice,
+        create_dto=selection.parser_create_dto,
+        dto_class=selection.dto_class,
+        dto_module=selection.dto_module,
+        parser_name=selection.parser_name,
+        parser_ep=selection.parser_ep,
+    )
+
+    mapper_plan = _build_mapper_plan(
+        choice=selection.mchoice,
+        create_dto=selection.mapper_create_dto,
+        input_class=selection.mapper_input_class,
+        input_module=selection.mapper_input_module,
+        mapper_name=selection.mapper_name,
+        mapper_ep=selection.mapper_ep,
+        domain=selection.domain,
+    )
+
+    return StreamPlan(
+        provider=selection.provider,
+        dataset=selection.dataset,
+        source_id=selection.source_id,
+        project_yaml=project_yaml,
+        stream_id=selection.stream_id,
+        root=plugin_root,
+        create_source=selection.create_source,
+        loader_ep=selection.loader_ep,
+        loader_args=selection.loader_args,
         parser=parser_plan,
         mapper=mapper_plan,
-        domain=domain,
-        create_domain=create_domain_flag,
+        domain=selection.domain,
+        create_domain=selection.create_domain,
+    )
+
+
+def handle(*, plugin_root: Path | None = None, workspace: WorkspaceContext | None = None) -> None:
+    root_dir, pkg_name, _ = pkg_root(plugin_root)
+    project_yaml = resolve_default_project_yaml(
+        workspace) or resolve_project_yaml_path(root_dir)
+    selection = _collect_stream_selection(
+        plugin_root=plugin_root,
+        pkg_name=pkg_name,
+        project_yaml=project_yaml,
+    )
+    plan = _build_stream_plan_from_selection(
+        selection=selection,
+        project_yaml=project_yaml,
+        plugin_root=plugin_root,
     )
     execute_stream_plan(plan)

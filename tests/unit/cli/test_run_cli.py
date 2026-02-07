@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+from datapipeline.cli.commands.run import _build_cli_output_config
 from datapipeline.cli.commands.run_config import RunEntry
 from datapipeline.config.context import _run_config_value, resolve_run_profiles
 from datapipeline.config.tasks import ServeTask
@@ -62,3 +63,20 @@ def test_run_profiles_inherit_workspace_throttle(monkeypatch, tmp_path):
     )
 
     assert profiles[0].throttle_ms == 250
+
+
+def test_cli_output_directory_resolves_relative_to_workspace(tmp_path):
+    workspace_cfg = WorkspaceConfig.model_validate({})
+    workspace = WorkspaceContext(file_path=tmp_path / "jerry.yaml", config=workspace_cfg)
+
+    cfg, payload = _build_cli_output_config(
+        "fs",
+        "json",
+        ".",
+        None,
+        workspace,
+    )
+
+    assert payload is None
+    assert cfg is not None
+    assert cfg.directory == tmp_path.resolve()

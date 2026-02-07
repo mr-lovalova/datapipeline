@@ -28,6 +28,7 @@ from .common import (
     log_combined_stream,
     transport_debug_lines,
     transport_info_lines,
+    resolve_progress_style_mode,
 )
 from datapipeline.runtime import Runtime
 from datapipeline.sources.models.source import Source
@@ -229,14 +230,6 @@ class _RichSourceProxy(Source):
             # No explicit end separator; completion line is sufficient
 
 
-def _style_mode(progress_style: str, log_level: int | None) -> str:
-    mode = (progress_style or "auto").lower()
-    if mode == "auto":
-        level = log_level if log_level is not None else logging.INFO
-        return "bars" if level <= logging.DEBUG else "spinner"
-    return mode
-
-
 @contextmanager
 def visual_sources(runtime: Runtime, log_level: int | None, progress_style: str = "auto"):
     level = log_level if log_level is not None else logging.INFO
@@ -244,7 +237,7 @@ def visual_sources(runtime: Runtime, log_level: int | None, progress_style: str 
         yield
         return
 
-    style_mode = _style_mode(progress_style, log_level)
+    style_mode = resolve_progress_style_mode(progress_style, log_level)
     if style_mode == "off":
         yield
         return

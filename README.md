@@ -19,6 +19,20 @@ Contributing: PRs welcome on [GitHub](https://github.com/mr-lovalova/datapipelin
 
 ---
 
+## Quick Demo
+
+From zero to served vectors in under a minute.
+
+![Jerry demo](docs/assets/demo.gif)
+
+```bash
+jerry demo init
+python -m pip install -e demo
+jerry serve -n 1
+```
+
+---
+
 ## Why You Might Use It
 
 - Materialize canonical time-series datasets from disparate sources.
@@ -166,7 +180,7 @@ Split timing (leakage note)
   Builds are keyed by config hashes and skip work when nothing changed unless
   you pass `--force`.
 - `jerry serve` runs are named (task/run) and can write outputs to
-  `<out-path>/<run_name>/` for auditing, sharing, or downstream training.
+  `<output-directory>/<run_name>/` for auditing, sharing, or downstream training.
 - Versioning: tag the project config + plugin code in Git and pair with a data
   versioning tool like DVC for raw sources. With those inputs pinned, interim
   datasets and artifacts can be regenerated instead of stored.
@@ -234,6 +248,7 @@ These live under `lib/<plugin>/src/<package>/`:
 ## Documentation
 
 - `docs/config.md`: config layout, resolution order, and YAML reference.
+- `docs/dataflow.md`: end-to-end YAML reference chain (`jerry.yaml -> project -> source -> contract -> dataset -> outputs`).
 - `docs/cli.md`: CLI reference (beyond the cheat sheet).
 - `docs/transforms.md`: built-in transforms and filters.
 - `docs/artifacts.md`: artifacts, postprocess, and split timing.

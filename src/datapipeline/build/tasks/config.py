@@ -2,12 +2,8 @@ import hashlib
 from pathlib import Path
 from typing import Iterable
 
+from datapipeline.services.path_policy import resolve_project_path
 from datapipeline.services.project_paths import read_project
-
-
-def _resolve_relative(project_yaml: Path, value: str) -> Path:
-    path = Path(value)
-    return path if path.is_absolute() else (project_yaml.parent / path)
 
 
 def _normalized_label(path: Path, base_dir: Path) -> str:
@@ -39,8 +35,8 @@ def compute_config_hash(project_yaml: Path, tasks_path: Path) -> str:
 
     required = [
         project_yaml.resolve(),
-        _resolve_relative(project_yaml, cfg.paths.dataset).resolve(),
-        _resolve_relative(project_yaml, cfg.paths.postprocess).resolve(),
+        resolve_project_path(project_yaml, cfg.paths.dataset),
+        resolve_project_path(project_yaml, cfg.paths.postprocess),
     ]
 
     for path in required:
@@ -59,7 +55,7 @@ def compute_config_hash(project_yaml: Path, tasks_path: Path) -> str:
         _hash_file(hasher, p, base_dir)
 
     for dir_value in (cfg.paths.sources, cfg.paths.streams):
-        directory = _resolve_relative(project_yaml, dir_value)
+        directory = resolve_project_path(project_yaml, dir_value)
         hasher.update(
             f"[dir]{_normalized_label(directory, base_dir)}".encode("utf-8")
         )

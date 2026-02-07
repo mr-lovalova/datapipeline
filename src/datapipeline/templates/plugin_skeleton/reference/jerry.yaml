@@ -19,7 +19,7 @@
 #   throttle_ms: 0                 # optional
 #   output:                        # optional
 #     transport: stdout            # optional; stdout | fs
-#     format: json-lines           # optional; stdout: print | json-lines | json
+#     format: jsonl           # optional; stdout: print | jsonl | json
 #     payload: sample              # optional; sample | vector
 #     # directory: artifacts/serve # optional; fs only; relative to jerry.yaml
 #

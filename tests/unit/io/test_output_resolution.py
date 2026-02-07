@@ -10,7 +10,7 @@ from datapipeline.io.output import resolve_output_target
 def test_resolve_output_target_uses_directory_and_run_name(tmp_path):
     default_dir = tmp_path / "outputs"
     default_dir.mkdir()
-    cfg = ServeOutputConfig(transport="fs", format="json-lines", directory=default_dir)
+    cfg = ServeOutputConfig(transport="fs", format="jsonl", directory=default_dir)
 
     target = resolve_output_target(
         cli_output=None,
@@ -21,7 +21,7 @@ def test_resolve_output_target_uses_directory_and_run_name(tmp_path):
     )
 
     assert target.transport == "fs"
-    assert target.format == "json-lines"
+    assert target.format == "jsonl"
     assert target.destination == (default_dir / "train" / "train.jsonl").resolve()
     assert target.payload == "sample"
 
@@ -29,7 +29,7 @@ def test_resolve_output_target_uses_directory_and_run_name(tmp_path):
 def test_resolve_output_target_honors_custom_filename(tmp_path):
     base_dir = tmp_path / "outputs"
     base_dir.mkdir()
-    cfg = ServeOutputConfig(transport="fs", format="json-lines", directory=base_dir, filename="custom")
+    cfg = ServeOutputConfig(transport="fs", format="jsonl", directory=base_dir, filename="custom")
 
     target = resolve_output_target(
         cli_output=None,
@@ -46,7 +46,7 @@ def test_resolve_output_target_preserves_payload_setting(tmp_path):
     base_dir = tmp_path / "vectors_out"
     base_dir.mkdir()
     cfg = ServeOutputConfig(
-        transport="fs", format="json-lines", directory=base_dir, payload="vector"
+        transport="fs", format="jsonl", directory=base_dir, payload="vector"
     )
 
     target = resolve_output_target(

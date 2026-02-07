@@ -6,6 +6,7 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
+from datapipeline.services.path_policy import resolve_workspace_path, workspace_cwd
 from datapipeline.config.tasks import (
     VALID_PROGRESS_STYLES,
     VALID_VISUAL_PROVIDERS,
@@ -125,17 +126,16 @@ class WorkspaceContext:
     def root(self) -> Path:
         return self.file_path.parent
 
+    def resolve_path(self, raw_path: str | Path) -> Path:
+        """Resolve absolute/relative paths using workspace root for relatives."""
+        return resolve_with_workspace(raw_path, self)
+
     def resolve_dataset_alias(self, alias: str) -> Optional[Path]:
         """Resolve a dataset alias from jerry.yaml into an absolute project.yaml path."""
         raw = (self.config.datasets or {}).get(alias)
         if not raw:
             return None
-        candidate = Path(raw)
-        candidate = (
-            candidate.resolve()
-            if candidate.is_absolute()
-            else (self.root / candidate).resolve()
-        )
+        candidate = self.resolve_path(raw)
         if candidate.is_dir():
             candidate = candidate / "project.yaml"
         return candidate.resolve()
@@ -144,17 +144,23 @@ class WorkspaceContext:
         raw = self.config.plugin_root
         if not raw:
             return None
-        candidate = Path(raw)
-        return (
-            candidate.resolve()
-            if candidate.is_absolute()
-            else (self.root / candidate).resolve()
-        )
+        return self.resolve_path(raw)
+
+
+def resolve_with_workspace(
+    raw_path: str | Path,
+    workspace: WorkspaceContext | None,
+) -> Path:
+    """Resolve paths against workspace root when present, else current dir."""
+    return resolve_workspace_path(
+        raw_path,
+        workspace.root if workspace is not None else None,
+    )
 
 
 def load_workspace_context(start_dir: Optional[Path] = None) -> Optional[WorkspaceContext]:
     """Search from start_dir upward for jerry.yaml and return parsed config."""
-    directory = (start_dir or Path.cwd()).resolve()
+    directory = (start_dir or workspace_cwd()).resolve()
     for path in [directory, *directory.parents]:
         candidate = path / "jerry.yaml"
         if candidate.is_file():

@@ -16,7 +16,7 @@ Provider: noaa
 Dataset: weather
 Source: create (default)
 Loader: fs
-Format: json-lines
+Format: jsonl
 Parser: create
 DTO class name: WeatherNoaaDTO
 Parser class name: WeatherNoaaDTOParser

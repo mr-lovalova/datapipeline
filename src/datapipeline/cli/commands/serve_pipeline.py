@@ -61,7 +61,7 @@ def report_serve(target: OutputTarget, count: int) -> None:
     if target.destination:
         logger.info("Saved %d items to %s", count, target.destination)
         return
-    if target.transport == "stdout" and target.format in {"json-lines", "json", "jsonl"}:
+    if target.transport == "stdout" and target.format in {"jsonl", "json"}:
         logger.info("(streamed %d items)", count)
         return
     logger.info("(printed %d items to stdout)", count)

@@ -22,6 +22,12 @@ from datapipeline.io.serializers import (
 from datapipeline.io.sinks import StdoutTextSink, RichStdoutSink, ReprRichFormatter, JsonRichFormatter, PlainRichFormatter
 from datapipeline.io.output import OutputTarget
 
+_JSON_LINE_FORMATS = {"json", "jsonl"}
+
+
+def _is_json_line_format(value: str) -> bool:
+    return value in _JSON_LINE_FORMATS
+
 
 def stdout_sink_for(format_: str, visuals: Optional[str]) -> StdoutTextSink:
     """Select an appropriate stdout sink given format and visuals preference.
@@ -39,7 +45,7 @@ def stdout_sink_for(format_: str, visuals: Optional[str]) -> StdoutTextSink:
 
     # Prefer Rich when possible; gracefully degrade to plain stdout on any failure.
     try:
-        if fmt in {"json", "json-lines", "jsonl"}:
+        if _is_json_line_format(fmt):
             return RichStdoutSink(JsonRichFormatter())
         if fmt == "print":
             return RichStdoutSink(ReprRichFormatter())
@@ -63,7 +69,7 @@ def writer_factory(
 
     if transport == "stdout":
         sink = stdout_sink_for(format_, visuals)
-        if format_ in {"json-lines", "json", "jsonl"}:
+        if _is_json_line_format(format_):
             serializer = (
                 record_json_line_serializer()
                 if item_type == "record"
@@ -85,7 +91,7 @@ def writer_factory(
     destination.parent.mkdir(parents=True, exist_ok=True)
 
     suffix = "".join(destination.suffixes).lower()
-    if format_ in {"json-lines", "json", "jsonl"}:
+    if _is_json_line_format(format_):
         serializer = (
             record_json_line_serializer()
             if item_type == "record"

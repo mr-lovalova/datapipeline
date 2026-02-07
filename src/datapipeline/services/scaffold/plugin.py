@@ -1,12 +1,12 @@
 from importlib.resources import as_file, files
 from pathlib import Path
 import logging
-import os
 import sys
 
 import yaml
 
 from datapipeline.utils.load import load_yaml
+from datapipeline.services.path_policy import relative_to_workspace, workspace_cwd
 
 from ..constants import DEFAULT_IO_LOADER_EP
 
@@ -71,18 +71,10 @@ def scaffold_plugin(name: str, outdir: Path) -> None:
     # relative to the workspace. Do not overwrite an existing workspace
     # jerry.yaml.
     plugin_jerry = target / "jerry.yaml"
-    workspace_root = Path.cwd().resolve()
+    workspace_root = workspace_cwd()
     workspace_jerry = workspace_root / "jerry.yaml"
     if plugin_jerry.exists() and not workspace_jerry.exists():
-        try:
-            plugin_root_rel = target.relative_to(workspace_root)
-        except ValueError:
-            # Fall back to a relative path between arbitrary directories; this
-            # may include ".." segments.
-            try:
-                plugin_root_rel = Path(os.path.relpath(target, workspace_root))
-            except Exception:
-                plugin_root_rel = target
+        plugin_root_rel = relative_to_workspace(target, workspace_root)
 
         data = load_yaml(plugin_jerry)
         data["plugin_root"] = plugin_root_rel.as_posix()

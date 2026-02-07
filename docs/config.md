@@ -70,7 +70,7 @@ name: train # defaults to filename stem when omitted
 keep: train # select active split label (null disables filtering)
 output:
   transport: stdout # stdout | fs
-  format: print # print | json-lines | json | csv | pickle
+  format: print # print | jsonl | json | csv | pickle
 limit: 100 # cap vectors per serve run (null = unlimited)
 throttle_ms: null # milliseconds to sleep between emitted vectors
 # Optional overrides:
@@ -108,7 +108,7 @@ serve:
   stage: null
   output:
     transport: stdout
-    format: print # print | json-lines | json | csv | pickle
+    format: print # print | jsonl | json | csv | pickle
     # directory: artifacts/serve # Required when transport=fs
 
 build:
