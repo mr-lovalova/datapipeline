@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from datapipeline.config.project import ProjectConfig
+from datapipeline.services.path_policy import resolve_project_path
 from datapipeline.utils.load import load_yaml
 from datapipeline.utils.placeholders import MissingInterpolation, is_missing
 
@@ -59,15 +60,13 @@ def artifacts_root(project_yaml: Path) -> Path:
     Single source of truth: project.paths.artifacts must be provided.
     If relative, it is resolved against the folder containing project.yaml.
     """
-    pj = project_yaml.resolve()
     paths = _paths(project_yaml)
     a = paths.get("artifacts")
     if not a:
         raise ValueError(
             "project.paths.artifacts must be set (absolute or relative to project.yaml)"
         )
-    ap = Path(a)
-    return (pj.parent / ap).resolve() if not ap.is_absolute() else ap
+    return resolve_project_path(project_yaml, a)
 
 
 def run_root(project_yaml: Path, run_id: str | None = None) -> Path:
@@ -98,9 +97,7 @@ def _load_by_key(
     p = _paths(project_yaml).get(key)
     if not p:
         raise FileNotFoundError(f"project.paths must include '{key}'.")
-    path = Path(p)
-    if not path.is_absolute():
-        path = project_yaml.parent / path
+    path = resolve_project_path(project_yaml, p)
     return load_yaml(path, require_mapping=require_mapping)
 
 

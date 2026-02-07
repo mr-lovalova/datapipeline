@@ -4,7 +4,8 @@ from typing import Any, Optional
 
 from datapipeline.config.tasks import ServeOutputConfig
 from datapipeline.io.output import OutputResolutionError
-from datapipeline.config.workspace import WorkspaceContext, resolve_with_workspace
+from datapipeline.config.workspace import WorkspaceContext
+from datapipeline.services.path_policy import resolve_workspace_path
 
 
 def cascade(*values, fallback=None):
@@ -122,7 +123,10 @@ def workspace_output_defaults(
         )
     output_dir = None
     if od.directory:
-        output_dir = resolve_with_workspace(od.directory, workspace)
+        output_dir = resolve_workspace_path(
+            od.directory,
+            workspace.root if workspace is not None else None,
+        )
     return ServeOutputConfig(
         transport=od.transport,
         format=od.format,

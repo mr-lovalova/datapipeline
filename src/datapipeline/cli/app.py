@@ -23,7 +23,6 @@ from datapipeline.cli.commands.build import handle as handle_build
 from datapipeline.config.workspace import (
     WorkspaceContext,
     load_workspace_context,
-    resolve_with_workspace,
 )
 from datapipeline.config.options import (
     OUTPUT_FORMATS,
@@ -34,6 +33,7 @@ from datapipeline.config.options import (
     VISUAL_CHOICES,
 )
 from datapipeline.config.resolution import resolve_visuals
+from datapipeline.services.path_policy import resolve_workspace_path, workspace_cwd
 from datapipeline.utils.rich_compat import suppress_file_proxy_shutdown_errors
 
 suppress_file_proxy_shutdown_errors()
@@ -85,10 +85,18 @@ def _dataset_to_project_path(
     # 2) Direct file path
     path = Path(dataset)
     if path.suffix in {".yaml", ".yml"}:
-        return str(resolve_with_workspace(path, workspace))
+        return str(
+            resolve_workspace_path(
+                path,
+                workspace.root if workspace is not None else None,
+            )
+        )
 
     # 3) Directory: assume project.yaml inside
-    candidate_dir = resolve_with_workspace(path, workspace)
+    candidate_dir = resolve_workspace_path(
+        path,
+        workspace.root if workspace is not None else None,
+    )
     if candidate_dir.is_dir():
         candidate = candidate_dir / "project.yaml"
         return str(candidate.resolve())
@@ -673,7 +681,7 @@ def main() -> None:
     )
 
 
-    workspace_context = load_workspace_context(Path.cwd())
+    workspace_context = load_workspace_context(workspace_cwd())
     args = parser.parse_args()
 
     # Resolve dataset/project selection for commands that use a project.

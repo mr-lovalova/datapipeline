@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Optional
 
 from datapipeline.config.tasks import ServeOutputConfig
+from datapipeline.services.path_policy import resolve_relative_to_base, workspace_cwd
 from datapipeline.services.runs import RunPaths, start_run_for_directory
 
 
@@ -79,7 +80,7 @@ def resolve_output_target(
     Resolve the effective output target using CLI override, run config, or default.
     """
 
-    base_path = base_path or Path.cwd()
+    base_path = base_path or workspace_cwd()
 
     config = cli_output or config_output or default
     if config is None:
@@ -98,11 +99,7 @@ def resolve_output_target(
 
     if config.directory is None:
         raise OutputResolutionError("fs output requires a directory")
-    directory = (
-        config.directory
-        if config.directory.is_absolute()
-        else (base_path / config.directory).resolve()
-    )
+    directory = resolve_relative_to_base(config.directory, base_path, resolve=True)
     if create_run:
         run_paths, _ = start_run_for_directory(directory, stage=stage)
         base_dest_dir = run_paths.dataset_dir

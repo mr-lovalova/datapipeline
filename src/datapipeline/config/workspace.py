@@ -6,6 +6,7 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
+from datapipeline.services.path_policy import resolve_workspace_path, workspace_cwd
 from datapipeline.config.tasks import (
     VALID_PROGRESS_STYLES,
     VALID_VISUAL_PROVIDERS,
@@ -151,16 +152,15 @@ def resolve_with_workspace(
     workspace: WorkspaceContext | None,
 ) -> Path:
     """Resolve paths against workspace root when present, else current dir."""
-    path = Path(raw_path)
-    if path.is_absolute():
-        return path.resolve()
-    base = workspace.root if workspace is not None else Path.cwd().resolve()
-    return (base / path).resolve()
+    return resolve_workspace_path(
+        raw_path,
+        workspace.root if workspace is not None else None,
+    )
 
 
 def load_workspace_context(start_dir: Optional[Path] = None) -> Optional[WorkspaceContext]:
     """Search from start_dir upward for jerry.yaml and return parsed config."""
-    directory = (start_dir or Path.cwd()).resolve()
+    directory = (start_dir or workspace_cwd()).resolve()
     for path in [directory, *directory.parents]:
         candidate = path / "jerry.yaml"
         if candidate.is_file():

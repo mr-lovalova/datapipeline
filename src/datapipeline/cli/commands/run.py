@@ -16,6 +16,7 @@ from datapipeline.config.dataset.loader import load_dataset
 from datapipeline.config.tasks import ServeOutputConfig
 from datapipeline.io.output import OutputResolutionError
 from datapipeline.pipeline.artifacts import StageDemand, required_artifacts_for
+from datapipeline.services.path_policy import resolve_workspace_path
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +81,7 @@ def _build_cli_output_config(
     fmt: Optional[str],
     directory: Optional[str],
     payload: Optional[str],
+    workspace=None,
 ) -> tuple[ServeOutputConfig | None, Optional[str]]:
     payload_style = _normalize_payload(payload)
 
@@ -96,11 +98,15 @@ def _build_cli_output_config(
             logger.error(
                 "--output-directory is required when --output-transport=fs")
             raise SystemExit(2)
+        resolved_directory = resolve_workspace_path(
+            directory,
+            workspace.root if workspace is not None else None,
+        )
         return (
             ServeOutputConfig(
                 transport="fs",
                 format=fmt,
-                directory=Path(directory),
+                directory=resolved_directory,
                 payload=payload_style or "sample",
             ),
             None,
@@ -223,7 +229,7 @@ def handle_serve(
     run_entries, run_root = resolve_run_entries(project_path, run_name)
 
     cli_output_cfg, payload_override = _build_cli_output_config(
-        output_transport, output_format, output_directory, output_payload)
+        output_transport, output_format, output_directory, output_payload, workspace)
     cli_payload = payload_override
     try:
         profiles = _resolve_profiles(

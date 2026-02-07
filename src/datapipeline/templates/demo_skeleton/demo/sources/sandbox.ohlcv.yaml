@@ -12,6 +12,6 @@ loader:
   args:
     transport: fs
     format: jsonl
-    path: demo/data/*.jsonl
+    path: data/*.jsonl
     glob: true
     encoding: utf-8

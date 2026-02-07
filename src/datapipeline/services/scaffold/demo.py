@@ -1,12 +1,12 @@
 from importlib.resources import as_file, files
 from pathlib import Path
 import logging
-import os
 import shutil
 
 import yaml
 
 from datapipeline.services.entrypoints import inject_ep
+from datapipeline.services.path_policy import relative_to_workspace, workspace_cwd
 from datapipeline.services.paths import pkg_root, resolve_base_pkg_dir
 from datapipeline.utils.load import load_yaml
 
@@ -110,32 +110,13 @@ def scaffold_demo(root: Path | None = None) -> None:
 
     _inject_demo_entrypoints(pyproject, pkg_name)
 
-    workspace_root = Path.cwd().resolve()
-    try:
-        plugin_root_rel = root_dir.relative_to(workspace_root)
-    except ValueError:
-        plugin_root_rel = Path(os.path.relpath(root_dir, workspace_root))
+    workspace_root = workspace_cwd()
+    plugin_root_rel = relative_to_workspace(root_dir, workspace_root)
 
     _update_workspace_jerry(
         workspace_root,
         plugin_root_rel,
         Path("demo/project.yaml"),
     )
-
-    # Rewrite demo source YAMLs to use plugin-root-relative paths so
-    # workspace-level runs resolve sample data correctly.
-    sources_dir = target_demo / "sources"
-    for src_file in sources_dir.glob("*.yaml"):
-        src_data = load_yaml(src_file)
-        loader = (src_data or {}).get("loader") or {}
-        args = loader.get("args") or {}
-        path = args.get("path")
-        if isinstance(path, str) and path and not Path(path).is_absolute():
-            args["path"] = (plugin_root_rel / path).as_posix()
-            loader["args"] = args
-            src_data["loader"] = loader
-            src_file.write_text(
-                yaml.safe_dump(src_data, sort_keys=False), encoding="utf-8"
-            )
 
     logger.info("demo dataset created at %s", target_demo)

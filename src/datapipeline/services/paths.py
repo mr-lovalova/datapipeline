@@ -2,9 +2,11 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+from datapipeline.services.path_policy import workspace_cwd
+
 
 def pkg_root(start: Optional[Path] = None) -> tuple[Path, str, Path]:
-    here = start or Path.cwd()
+    here = start or workspace_cwd()
     for d in [here, *here.parents]:
         pyproject = d / "pyproject.toml"
         if pyproject.exists():

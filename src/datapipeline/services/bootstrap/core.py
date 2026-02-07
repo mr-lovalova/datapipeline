@@ -5,6 +5,7 @@ from datapipeline.utils.load import load_yaml
 from datapipeline.config.catalog import StreamsConfig
 from datapipeline.config.tasks import default_serve_task
 from datapipeline.services.project_paths import streams_dir, sources_dir
+from datapipeline.services.path_policy import resolve_relative_fs_loader_path
 from datapipeline.build.state import load_build_state
 from datapipeline.services.constants import (
     PARSER_KEY,
@@ -61,9 +62,42 @@ def _load_sources_from_dir(project_yaml: Path, vars_: dict[str, Any]) -> dict:
             if not alias:
                 raise ValueError(
                     f"Missing 'id' in source file: {path.relative_to(src_dir)}")
-            out[alias] = _interpolate(data, vars_)
+            source_doc = _interpolate(data, vars_)
+            _normalize_source_loader_paths(
+                source_doc,
+                project_yaml=project_yaml,
+                source_yaml=path,
+            )
+            out[alias] = source_doc
             continue
     return out
+
+
+def _normalize_source_loader_paths(
+    source_doc: dict[str, Any],
+    project_yaml: Path,
+    source_yaml: Path,
+) -> None:
+    loader = source_doc.get(SRC_LOADER_KEY)
+    if not isinstance(loader, dict):
+        return
+    args = loader.get("args")
+    if not isinstance(args, dict):
+        return
+    if str(args.get("transport", "")).lower() != "fs":
+        return
+    raw_path = args.get("path")
+    if not isinstance(raw_path, str) or not raw_path:
+        return
+    if Path(raw_path).is_absolute():
+        return
+    use_glob = bool(args.get("glob", False))
+    args["path"] = resolve_relative_fs_loader_path(
+        raw_path,
+        project_yaml.parent.resolve(),
+        source_yaml.parent.resolve(),
+        use_glob,
+    )
 
 
 def _load_canonical_streams(project_yaml: Path, vars_: dict[str, Any]) -> dict:
