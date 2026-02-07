@@ -248,6 +248,7 @@ These live under `lib/<plugin>/src/<package>/`:
 ## Documentation
 
 - `docs/config.md`: config layout, resolution order, and YAML reference.
+- `docs/dataflow.md`: end-to-end YAML reference chain (`jerry.yaml -> project -> source -> contract -> dataset -> outputs`).
 - `docs/cli.md`: CLI reference (beyond the cheat sheet).
 - `docs/transforms.md`: built-in transforms and filters.
 - `docs/artifacts.md`: artifacts, postprocess, and split timing.
