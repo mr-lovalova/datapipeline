@@ -48,7 +48,6 @@ def test_build_cli_output_config_fs_populates_output() -> None:
     assert config is not None
     assert config.transport == "fs"
     assert config.format == "jsonl"
-    assert config.directory == Path("artifacts")
+    assert config.directory == Path("artifacts").resolve()
     assert config.payload == "sample"
     assert payload is None
-
