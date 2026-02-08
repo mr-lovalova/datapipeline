@@ -1,10 +1,11 @@
 from pathlib import Path
+import codecs
 from typing import Annotated, Literal, Sequence
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic.type_adapter import TypeAdapter
 
-from datapipeline.config.options import OUTPUT_STDOUT_FORMATS
+from datapipeline.config.options import OUTPUT_STDOUT_FORMATS, OUTPUT_VIEWS
 from datapipeline.services.project_paths import tasks_dir
 from datapipeline.utils.load import load_yaml
 
@@ -13,8 +14,8 @@ VALID_VISUAL_PROVIDERS = ("AUTO", "TQDM", "RICH", "OFF")
 VALID_PROGRESS_STYLES = ("AUTO", "SPINNER", "BARS", "OFF")
 
 Transport = Literal["fs", "stdout"]
-Format = Literal["csv", "json", "jsonl", "print", "pickle"]
-PayloadMode = Literal["sample", "vector"]
+Format = Literal["csv", "jsonl", "print", "pickle"]
+View = Literal["flat", "raw", "numeric"]
 
 
 class TaskBase(BaseModel):
@@ -79,10 +80,10 @@ class RuntimeTask(TaskBase):
 class ServeOutputConfig(BaseModel):
     transport: Transport = Field(..., description="fs | stdout")
     format: Format = Field(...,
-                           description="csv | json | jsonl | print | pickle")
-    payload: PayloadMode = Field(
-        default="sample",
-        description="sample (key + metadata) or vector payload (features [+targets]).",
+                           description="csv | jsonl | print | pickle")
+    view: View | None = Field(
+        default=None,
+        description="flat | raw | numeric (unset uses format default)",
     )
     directory: Path | None = Field(
         default=None,
@@ -91,6 +92,10 @@ class ServeOutputConfig(BaseModel):
     filename: str | None = Field(
         default=None,
         description="Filename stem (format controls extension) for fs outputs.",
+    )
+    encoding: str | None = Field(
+        default=None,
+        description="Text encoding for fs jsonl/csv outputs (default utf-8).",
     )
 
     @field_validator("filename", mode="before")
@@ -107,6 +112,28 @@ class ServeOutputConfig(BaseModel):
             raise ValueError("filename must not include an extension")
         return text
 
+    @field_validator("view", mode="before")
+    @classmethod
+    def _normalize_view(cls, value):
+        if value is None:
+            return None
+        text = str(value).strip().lower()
+        if not text:
+            return None
+        if text not in set(OUTPUT_VIEWS):
+            raise ValueError(
+                f"view must be one of {', '.join(repr(x) for x in OUTPUT_VIEWS)}"
+            )
+        return text
+
+    @field_validator("encoding", mode="before")
+    @classmethod
+    def _normalize_encoding(cls, value):
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
+
     @model_validator(mode="after")
     def _validate(self):
         if self.transport == "stdout":
@@ -114,28 +141,32 @@ class ServeOutputConfig(BaseModel):
                 raise ValueError("stdout cannot define a directory")
             if self.filename is not None:
                 raise ValueError("stdout outputs do not support filenames")
+            if self.encoding is not None:
+                raise ValueError("stdout outputs do not support encoding")
             if self.format not in set(OUTPUT_STDOUT_FORMATS):
                 raise ValueError(
                     f"stdout output supports {', '.join(repr(x) for x in OUTPUT_STDOUT_FORMATS)} formats"
                 )
-            return self
-
-        if self.format == "print":
+        elif self.format == "print":
             raise ValueError("fs transport cannot use 'print' format")
-        if self.directory is None:
+        elif self.directory is None:
             raise ValueError("fs outputs require a directory")
+        if self.format == "csv" and self.view not in {None, "flat", "numeric"}:
+            raise ValueError("csv output supports only view='flat' or view='numeric'")
+        if self.transport == "fs":
+            if self.format == "pickle":
+                if self.encoding is not None:
+                    raise ValueError("pickle output does not support encoding")
+            elif self.format in {"jsonl", "csv"}:
+                if self.encoding is None:
+                    self.encoding = "utf-8"
+                try:
+                    codecs.lookup(self.encoding)
+                except LookupError as exc:
+                    raise ValueError(
+                        f"Unknown encoding '{self.encoding}'"
+                    ) from exc
         return self
-
-    @field_validator("payload", mode="before")
-    @classmethod
-    def _normalize_payload(cls, value):
-        if value is None:
-            return "sample"
-        name = str(value).lower()
-        if name not in {"sample", "vector"}:
-            raise ValueError("payload must be 'sample' or 'vector'")
-        return name
-
 
 class ServeTask(RuntimeTask):
     kind: Literal["serve"]

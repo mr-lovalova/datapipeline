@@ -27,6 +27,7 @@ from datapipeline.config.workspace import (
 from datapipeline.config.options import (
     OUTPUT_FORMATS,
     OUTPUT_TRANSPORTS,
+    OUTPUT_VIEWS,
     PROGRESS_CHOICES,
     SOURCE_FS_FORMATS,
     SOURCE_TRANSPORTS,
@@ -326,16 +327,20 @@ def main() -> None:
     p_serve.add_argument(
         "--output-format",
         choices=OUTPUT_FORMATS,
-        help="output format (print/jsonl/json/csv/pickle) for serve runs",
-    )
-    p_serve.add_argument(
-        "--output-payload",
-        choices=["sample", "vector"],
-        help="payload structure: full sample (default) or vector-only body",
+        help="output format (print/jsonl/csv/pickle) for serve runs",
     )
     p_serve.add_argument(
         "--output-directory",
         help="destination directory when using fs transport",
+    )
+    p_serve.add_argument(
+        "--output-encoding",
+        help="text encoding for fs jsonl/csv outputs (default: utf-8)",
+    )
+    p_serve.add_argument(
+        "--output-view",
+        choices=OUTPUT_VIEWS,
+        help="output representation view (flat/raw/numeric); csv supports flat|numeric",
     )
     p_serve.add_argument(
         "--keep",
@@ -726,8 +731,9 @@ def main() -> None:
             stage=getattr(args, "stage", None),
             output_transport=getattr(args, "output_transport", None),
             output_format=getattr(args, "output_format", None),
-            output_payload=getattr(args, "output_payload", None),
             output_directory=getattr(args, "output_directory", None),
+            output_encoding=getattr(args, "output_encoding", None),
+            output_view=getattr(args, "output_view", None),
             skip_build=getattr(args, "skip_build", False),
             cli_log_level=cli_level_arg,
             base_log_level=base_level_name,

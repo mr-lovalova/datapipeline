@@ -22,8 +22,9 @@ def test_resolve_output_target_uses_directory_and_run_name(tmp_path):
 
     assert target.transport == "fs"
     assert target.format == "jsonl"
+    assert target.view == "raw"
+    assert target.encoding == "utf-8"
     assert target.destination == (default_dir / "train" / "train.jsonl").resolve()
-    assert target.payload == "sample"
 
 
 def test_resolve_output_target_honors_custom_filename(tmp_path):
@@ -40,13 +41,17 @@ def test_resolve_output_target_honors_custom_filename(tmp_path):
     )
 
     assert target.destination == (base_dir / "train" / "custom.jsonl").resolve()
+    assert target.encoding == "utf-8"
 
 
-def test_resolve_output_target_preserves_payload_setting(tmp_path):
-    base_dir = tmp_path / "vectors_out"
-    base_dir.mkdir()
+def test_resolve_output_target_honors_view(tmp_path):
+    out_dir = tmp_path / "outputs"
+    out_dir.mkdir()
     cfg = ServeOutputConfig(
-        transport="fs", format="jsonl", directory=base_dir, payload="vector"
+        transport="fs",
+        format="jsonl",
+        view="numeric",
+        directory=out_dir,
     )
 
     target = resolve_output_target(
@@ -54,29 +59,35 @@ def test_resolve_output_target_preserves_payload_setting(tmp_path):
         config_output=cfg,
         default=None,
         base_path=Path("."),
-        run_name="eval",
+        run_name="train",
     )
 
-    assert target.payload == "vector"
+    assert target.view == "numeric"
 
 
-def test_resolve_output_target_respects_payload_override(tmp_path):
-    cfg = ServeOutputConfig(transport="stdout", format="print", payload="sample")
+def test_resolve_output_target_honors_encoding(tmp_path):
+    out_dir = tmp_path / "outputs"
+    out_dir.mkdir()
+    cfg = ServeOutputConfig(
+        transport="fs",
+        format="jsonl",
+        encoding="utf-8-sig",
+        directory=out_dir,
+    )
 
     target = resolve_output_target(
         cli_output=None,
         config_output=cfg,
         default=None,
-        base_path=tmp_path,
-        run_name=None,
-        payload_override="vector",
+        base_path=Path("."),
+        run_name="train",
     )
 
-    assert target.payload == "vector"
+    assert target.encoding == "utf-8-sig"
 
 
-def test_json_serializer_vector_payload_excludes_key():
-    serializer = json_line_serializer("vector")
+def test_json_serializer_includes_sample_key_and_vectors():
+    serializer = json_line_serializer()
     sample = Sample(
         key=("2024-01-01T00:00:00Z",),
         features=Vector(values={"a": 1.0}),
@@ -84,6 +95,28 @@ def test_json_serializer_vector_payload_excludes_key():
     )
 
     line = serializer(sample)
-    assert '"features": [1.0]' in line
-    assert '"targets": [2.0]' in line
-    assert "2024" not in line  # key omitted
+    assert '"kind": "Sample"' in line
+    assert '"key": ["2024-01-01T00:00:00Z"]' in line
+    assert '"fields": {"features.a": 1.0, "targets.t": 2.0}' in line
+
+
+def test_stdout_print_defaults_to_raw_view():
+    target = resolve_output_target(
+        cli_output=ServeOutputConfig(transport="stdout", format="print"),
+        config_output=None,
+        default=None,
+        base_path=Path("."),
+        run_name="train",
+    )
+    assert target.view == "raw"
+
+
+def test_stdout_jsonl_defaults_to_raw_view():
+    target = resolve_output_target(
+        cli_output=ServeOutputConfig(transport="stdout", format="jsonl"),
+        config_output=None,
+        default=None,
+        base_path=Path("."),
+        run_name="train",
+    )
+    assert target.view == "raw"

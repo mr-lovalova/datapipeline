@@ -54,7 +54,6 @@ def test_run_profiles_inherit_workspace_throttle(monkeypatch, tmp_path):
         stage=None,
         limit=None,
         cli_output=None,
-        cli_payload=None,
         workspace=workspace,
         cli_log_level=None,
         base_log_level="INFO",
@@ -69,14 +68,12 @@ def test_cli_output_directory_resolves_relative_to_workspace(tmp_path):
     workspace_cfg = WorkspaceConfig.model_validate({})
     workspace = WorkspaceContext(file_path=tmp_path / "jerry.yaml", config=workspace_cfg)
 
-    cfg, payload = _build_cli_output_config(
+    cfg = _build_cli_output_config(
         "fs",
-        "json",
+        "jsonl",
         ".",
-        None,
-        workspace,
+        workspace=workspace,
     )
 
-    assert payload is None
     assert cfg is not None
     assert cfg.directory == tmp_path.resolve()
