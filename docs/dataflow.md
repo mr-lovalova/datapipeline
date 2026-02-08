@@ -13,7 +13,7 @@ jerry.yaml: default_dataset
         -> contracts/*.yaml: source: <sources.id>, id: <stream_id>
           -> dataset.yaml: record_stream: <contracts.id>, field: <record_field>
             -> jerry serve
-              -> runs/<run_id>/dataset/<split>.jsonl|json|csv|...
+              -> runs/<run_id>/dataset/<split>.jsonl|csv|...
 ```
 
 ## 1) Workspace selects dataset project
@@ -126,7 +126,7 @@ Screenshot slot:
 Run command:
 
 ```bash
-jerry serve --output-transport fs --output-format json --output-directory vectors
+jerry serve --output-transport fs --output-format jsonl --output-directory vectors
 ```
 
 Output layout:
@@ -135,9 +135,9 @@ Output layout:
 vectors/
   runs/<run_id>/
     dataset/
-      test.json
-      train.json
-      val.json
+      test.jsonl
+      train.jsonl
+      val.jsonl
 ```
 
 Expected behavior:
