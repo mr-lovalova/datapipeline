@@ -340,7 +340,7 @@ def main() -> None:
     p_serve.add_argument(
         "--output-view",
         choices=OUTPUT_VIEWS,
-        help="output representation view (flat/raw/numeric); csv supports flat|numeric",
+        help="output representation view (flat/raw/values); csv supports flat|values",
     )
     p_serve.add_argument(
         "--keep",

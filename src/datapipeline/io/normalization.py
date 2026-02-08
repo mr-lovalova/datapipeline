@@ -6,7 +6,7 @@ from typing import Any, Literal
 from datapipeline.domain.sample import Sample
 
 ItemType = Literal["sample", "record"]
-View = Literal["flat", "raw", "numeric"]
+View = Literal["flat", "raw", "values"]
 
 
 @dataclass(frozen=True)
@@ -32,26 +32,16 @@ def normalized_payload(row: NormalizedRow, view: View = "flat") -> dict[str, Any
         return {**base, "fields": row.fields}
     if view == "raw":
         return {**base, "raw": row.raw}
-    if view == "numeric":
-        return {**base, "values": _numeric_values(row.fields)}
+    if view == "values":
+        return {**base, "values": _ordered_values(row.fields)}
     raise ValueError(f"Unsupported view '{view}'")
 
 
-def _numeric_values(fields: dict[str, Any]) -> list[float]:
-    values: list[float] = []
+def _ordered_values(fields: dict[str, Any]) -> list[Any]:
+    values: list[Any] = []
     for key in sorted(fields):
-        values.append(_coerce_numeric(key, fields[key]))
+        values.append(fields[key])
     return values
-
-
-def _coerce_numeric(key: str, value: Any) -> float:
-    if isinstance(value, bool):
-        return float(int(value))
-    if isinstance(value, (int, float)):
-        return float(value)
-    raise ValueError(
-        f"Field '{key}' is non-numeric in numeric view (got {type(value).__name__})"
-    )
 
 
 def _normalize_sample(sample: Sample) -> NormalizedRow:

@@ -45,7 +45,7 @@ class OutputTarget:
 
     transport: str  # stdout | fs
     format: str     # print | jsonl | csv | pickle
-    view: str       # flat | raw | numeric
+    view: str       # flat | raw | values
     encoding: str | None
     destination: Optional[Path]
     run: RunPaths | None = None

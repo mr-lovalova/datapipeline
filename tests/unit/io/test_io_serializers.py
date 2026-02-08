@@ -87,26 +87,26 @@ def test_json_serializer_flat_view_excludes_raw() -> None:
     assert "raw" not in payload
 
 
-def test_json_serializer_numeric_view_includes_values_only() -> None:
-    serializer = json_line_serializer(view="numeric")
+def test_json_serializer_values_view_includes_values_only() -> None:
+    serializer = json_line_serializer(view="values")
     sample = Sample(
         key="k1",
-        features=Vector(values={"x": 1.0}),
+        features=Vector(values={"x": 1.0, "label": "sunny"}),
     )
 
     payload = json.loads(serializer(sample))
-    assert payload["values"] == [1.0]
+    assert payload["values"] == ["sunny", 1.0]
     assert "fields" not in payload
     assert "raw" not in payload
 
 
 def test_csv_serializer_rejects_non_flat_view() -> None:
-    with pytest.raises(ValueError, match="csv output supports only view='flat' or view='numeric'"):
+    with pytest.raises(ValueError, match="csv output supports only view='flat' or view='values'"):
         csv_row_serializer(view="raw")
 
 
-def test_csv_serializer_numeric_view_emits_value_columns() -> None:
-    serializer = csv_row_serializer(view="numeric")
+def test_csv_serializer_values_view_emits_value_columns() -> None:
+    serializer = csv_row_serializer(view="values")
     sample = Sample(
         key="k1",
         features=Vector(values={"x": 1.0, "y": 2.0}),

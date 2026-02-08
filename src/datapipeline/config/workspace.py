@@ -73,7 +73,7 @@ class ServeDefaults(BaseModel):
         format: str
         view: Optional[str] = Field(
             default=None,
-            description="flat | raw | numeric",
+            description="flat | raw | values",
         )
         encoding: Optional[str] = Field(
             default=None,

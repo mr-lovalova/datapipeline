@@ -15,7 +15,7 @@ VALID_PROGRESS_STYLES = ("AUTO", "SPINNER", "BARS", "OFF")
 
 Transport = Literal["fs", "stdout"]
 Format = Literal["csv", "jsonl", "print", "pickle"]
-View = Literal["flat", "raw", "numeric"]
+View = Literal["flat", "raw", "values"]
 
 
 class TaskBase(BaseModel):
@@ -83,7 +83,7 @@ class ServeOutputConfig(BaseModel):
                            description="csv | jsonl | print | pickle")
     view: View | None = Field(
         default=None,
-        description="flat | raw | numeric (unset uses format default)",
+        description="flat | raw | values (unset uses format default)",
     )
     directory: Path | None = Field(
         default=None,
@@ -151,8 +151,8 @@ class ServeOutputConfig(BaseModel):
             raise ValueError("fs transport cannot use 'print' format")
         elif self.directory is None:
             raise ValueError("fs outputs require a directory")
-        if self.format == "csv" and self.view not in {None, "flat", "numeric"}:
-            raise ValueError("csv output supports only view='flat' or view='numeric'")
+        if self.format == "csv" and self.view not in {None, "flat", "values"}:
+            raise ValueError("csv output supports only view='flat' or view='values'")
         if self.transport == "fs":
             if self.format == "pickle":
                 if self.encoding is not None:

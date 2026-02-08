@@ -24,11 +24,11 @@ logger = logging.getLogger(__name__)
 
 _OUTPUT_MATRIX_HELP = (
     "Valid output combinations:\n"
-    "  stdout: format=print|jsonl, view=flat|raw|numeric\n"
+    "  stdout: format=print|jsonl, view=flat|raw|values\n"
     "          encoding is not supported\n"
-    "  fs:     format=jsonl|csv|pickle, view=flat|raw|numeric\n"
+    "  fs:     format=jsonl|csv|pickle, view=flat|raw|values\n"
     "          encoding is supported only for jsonl/csv (default utf-8)\n"
-    "          csv supports view=flat|numeric\n"
+    "          csv supports view=flat|values\n"
 )
 
 

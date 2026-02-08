@@ -33,8 +33,8 @@ class PrintSerializer:
 
 class CsvRowSerializer:
     def __init__(self, item_type: ItemType, view: View) -> None:
-        if view not in {"flat", "numeric"}:
-            raise ValueError("csv output supports only view='flat' or view='numeric'")
+        if view not in {"flat", "values"}:
+            raise ValueError("csv output supports only view='flat' or view='values'")
         self._item_type = item_type
         self._view = view
 
@@ -48,7 +48,7 @@ class CsvRowSerializer:
                 out[f"field.{field}"] = value
             return out
 
-        payload = normalized_payload(row, "numeric")
+        payload = normalized_payload(row, "values")
         for idx, value in enumerate(payload["values"]):
             out[f"value_{idx}"] = value
         return out

@@ -71,7 +71,7 @@ keep: train # select active split label (null disables filtering)
 output:
   transport: stdout # stdout | fs
   format: print # print | jsonl | csv | pickle
-  # view: raw # optional; flat | raw | numeric (default: print/jsonl->raw, csv/pickle->flat)
+  # view: raw # optional; flat | raw | values (default: print/jsonl->raw, csv/pickle->flat)
   # encoding: utf-8 # fs jsonl/csv only
 limit: 100 # cap vectors per serve run (null = unlimited)
 throttle_ms: null # milliseconds to sleep between emitted vectors
@@ -112,7 +112,7 @@ serve:
   output:
     transport: stdout
     format: print # print | jsonl | csv | pickle
-    # view: raw # optional; flat | raw | numeric (default: print/jsonl->raw, csv/pickle->flat)
+    # view: raw # optional; flat | raw | values (default: print/jsonl->raw, csv/pickle->flat)
     # encoding: utf-8 # fs jsonl/csv only
     # directory: artifacts/serve # Required when transport=fs
 

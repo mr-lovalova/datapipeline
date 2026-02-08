@@ -47,7 +47,7 @@ def test_resolve_output_target_honors_view(tmp_path):
     cfg = ServeOutputConfig(
         transport="fs",
         format="jsonl",
-        view="numeric",
+        view="values",
         directory=out_dir,
     )
 
@@ -59,7 +59,7 @@ def test_resolve_output_target_honors_view(tmp_path):
         run_name="train",
     )
 
-    assert target.view == "numeric"
+    assert target.view == "values"
 
 
 def test_resolve_output_target_honors_encoding(tmp_path):

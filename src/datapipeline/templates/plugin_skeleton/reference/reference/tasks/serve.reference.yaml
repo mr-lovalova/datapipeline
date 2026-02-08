@@ -11,7 +11,7 @@
 # output:                     # optional; omit to use CLI defaults
 #   transport: stdout          # stdout | fs
 #   format: jsonl              # stdout: print | jsonl
-#   # view: raw               # optional; flat | raw | numeric
+#   # view: raw               # optional; flat | raw | values
 #   #                         # default: print/jsonl->raw, csv/pickle->flat
 #   # encoding: utf-8          # fs jsonl/csv only
 #   # fs transport only:

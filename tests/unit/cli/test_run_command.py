@@ -54,10 +54,10 @@ def test_build_cli_output_config_honors_view() -> None:
         transport="stdout",
         fmt="jsonl",
         directory=None,
-        view="numeric",
+        view="values",
     )
     assert config is not None
-    assert config.view == "numeric"
+    assert config.view == "values"
 
 
 def test_build_cli_output_config_rejects_non_flat_csv_view() -> None:
