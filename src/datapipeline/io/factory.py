@@ -14,15 +14,11 @@ from datapipeline.io.serializers import (
     print_serializer,
     csv_row_serializer,
     pickle_serializer,
-    record_json_line_serializer,
-    record_print_serializer,
-    record_csv_row_serializer,
-    record_pickle_serializer,
 )
 from datapipeline.io.sinks import StdoutTextSink, RichStdoutSink, ReprRichFormatter, JsonRichFormatter, PlainRichFormatter
 from datapipeline.io.output import OutputTarget
 
-_JSON_LINE_FORMATS = {"json", "jsonl"}
+_JSON_LINE_FORMATS = {"jsonl"}
 
 
 def _is_json_line_format(value: str) -> bool:
@@ -62,7 +58,6 @@ def writer_factory(
 ) -> Writer:
     transport = target.transport.lower()
     format_ = target.format.lower()
-    payload = target.payload
 
     if item_type not in {"sample", "record"}:
         raise ValueError(f"Unsupported writer item_type '{item_type}'")
@@ -70,18 +65,10 @@ def writer_factory(
     if transport == "stdout":
         sink = stdout_sink_for(format_, visuals)
         if _is_json_line_format(format_):
-            serializer = (
-                record_json_line_serializer()
-                if item_type == "record"
-                else json_line_serializer(payload)
-            )
+            serializer = json_line_serializer(item_type, target.view)
             return LineWriter(sink, serializer)
         if format_ == "print":
-            serializer = (
-                record_print_serializer()
-                if item_type == "record"
-                else print_serializer(payload)
-            )
+            serializer = print_serializer(item_type, target.view)
             return LineWriter(sink, serializer)
         raise ValueError(f"Unsupported stdout format '{target.format}'")
 
@@ -89,30 +76,19 @@ def writer_factory(
     if destination is None:
         raise ValueError("fs output requires a destination path")
     destination.parent.mkdir(parents=True, exist_ok=True)
+    text_encoding = target.encoding or "utf-8"
 
     suffix = "".join(destination.suffixes).lower()
     if _is_json_line_format(format_):
-        serializer = (
-            record_json_line_serializer()
-            if item_type == "record"
-            else json_line_serializer(payload)
-        )
-        if suffix.endswith(".jsonl.gz") or suffix.endswith(".json.gz") or suffix.endswith(".gz"):
-            return GzipJsonLinesWriter(destination, serializer=serializer)
-        return JsonLinesFileWriter(destination, serializer=serializer)
+        serializer = json_line_serializer(item_type, target.view)
+        if suffix.endswith(".jsonl.gz") or suffix.endswith(".gz"):
+            return GzipJsonLinesWriter(destination, serializer=serializer, encoding=text_encoding)
+        return JsonLinesFileWriter(destination, serializer=serializer, encoding=text_encoding)
     if format_ == "csv":
-        serializer = (
-            record_csv_row_serializer()
-            if item_type == "record"
-            else csv_row_serializer(payload)
-        )
-        return CsvFileWriter(destination, serializer=serializer)
+        serializer = csv_row_serializer(item_type, target.view)
+        return CsvFileWriter(destination, serializer=serializer, encoding=text_encoding)
     if format_ == "pickle":
-        serializer = (
-            record_pickle_serializer()
-            if item_type == "record"
-            else pickle_serializer(payload)
-        )
+        serializer = pickle_serializer(item_type, target.view)
         return PickleFileWriter(destination, serializer=serializer)
 
     raise ValueError(f"Unsupported fs format '{target.format}'")

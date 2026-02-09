@@ -19,8 +19,10 @@
 #   throttle_ms: 0                 # optional
 #   output:                        # optional
 #     transport: stdout            # optional; stdout | fs
-#     format: jsonl           # optional; stdout: print | jsonl | json
-#     payload: sample              # optional; sample | vector
+#     format: jsonl                # optional; stdout: print | jsonl
+#     # view: raw                  # optional; flat | raw | values
+#     #                            # default: print/jsonl->raw, csv/pickle->flat
+#     # encoding: utf-8            # optional; fs jsonl/csv only
 #     # directory: artifacts/serve # optional; fs only; relative to jerry.yaml
 #
 # build:                           # optional

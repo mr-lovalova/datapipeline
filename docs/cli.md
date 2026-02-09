@@ -18,12 +18,16 @@ All commands that take a project accept either `--project <path/to/project.yaml>
   - Stage 8: vectors + postprocess transforms
   - Use `--log-level DEBUG` for progress bars; the default is typically `INFO` (or `jerry.yaml.shared.log_level` when set).
   - Ensures build artifacts are current before streaming; the build step only runs when the configuration hash changes unless you pass `--stage` 0-6 (auto-skip) or opt out with `--skip-build`. Stage 6 may require scaler artifacts.
-- `jerry serve --project <project.yaml> --output-transport stdout --output-format jsonl --limit N [--log-level LEVEL] [--visuals ...] [--progress ...] [--run name]`
+- `jerry serve --project <project.yaml> --output-transport stdout --output-format jsonl --output-view flat|raw|values --output-encoding <codec> --limit N [--log-level LEVEL] [--visuals ...] [--progress ...] [--run name]`
   - Applies postprocess transforms and optional dataset split before emitting.
-  - Use `--output-transport fs --output-format jsonl --output-directory build/serve` (or `csv`, `pickle`, etc.) to write artifacts to disk instead of stdout; files land under `<output-directory>/<run_name>/`.
-- `--output-payload vector` emits only the vector payload with features/targets
-  flattened into schema-ordered lists (no identifier keys) when you don't need
-  the group key or metadata. Default is `sample`.
+  - Use `--output-transport fs --output-format jsonl --output-directory build/serve` (or `csv`, `pickle`) to write artifacts to disk instead of stdout; files land under `<output-directory>/<run_name>/`.
+  - `--output-view` controls payload shape:
+    - `flat`: key + kind + flattened fields
+    - `raw`: key + kind + raw object
+    - `values`: key + kind + ordered values (mixed primitive types allowed)
+  - If `--output-view` is omitted: `print/jsonl -> raw`, `csv/pickle -> flat`.
+  - `csv` supports `flat` and `values` views.
+  - `--output-encoding` applies to fs `jsonl`/`csv` outputs (default `utf-8`).
   - Set `--log-level DEBUG` (or set your serve task `log_level: DEBUG`) to reuse the tqdm progress bars when previewing stages.
   - When multiple serve tasks exist, add `--run val` (task name or filename stem) to target a single config; otherwise every enabled task is executed sequentially.
   - Argument precedence follows the order described under _Configuration & Resolution Order_.

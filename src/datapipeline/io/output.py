@@ -10,11 +10,20 @@ from datapipeline.services.runs import RunPaths, start_run_for_directory
 def _format_suffix(fmt: str) -> str:
     suffix_map = {
         "jsonl": ".jsonl",
-        "json": ".json",
         "csv": ".csv",
         "pickle": ".pkl",
     }
     return suffix_map.get(fmt, ".out")
+
+
+def _default_view_for_format(fmt: str) -> str:
+    if fmt in {"print", "jsonl"}:
+        return "raw"
+    return "flat"
+
+
+def _resolve_view(fmt: str, configured_view: str | None) -> str:
+    return configured_view or _default_view_for_format(fmt)
 
 
 def _default_filename_for_format(fmt: str) -> str:
@@ -35,9 +44,10 @@ class OutputTarget:
     """Resolved writer target describing how and where to emit records."""
 
     transport: str  # stdout | fs
-    format: str     # print | jsonl | json | csv | pickle
+    format: str     # print | jsonl | csv | pickle
+    view: str       # flat | raw | values
+    encoding: str | None
     destination: Optional[Path]
-    payload: str = "sample"
     run: RunPaths | None = None
 
     def for_feature(self, feature_id: str) -> "OutputTarget":
@@ -55,8 +65,9 @@ class OutputTarget:
         return OutputTarget(
             transport=self.transport,
             format=self.format,
+            view=self.view,
+            encoding=self.encoding,
             destination=new_path,
-            payload=self.payload,
             run=self.run,
         )
 
@@ -72,7 +83,6 @@ def resolve_output_target(
     default: ServeOutputConfig | None = None,
     base_path: Path | None = None,
     run_name: str | None = None,
-    payload_override: str | None = None,
     stage: int | None = None,
     create_run: bool = False,
 ) -> OutputTarget:
@@ -86,14 +96,13 @@ def resolve_output_target(
     if config is None:
         config = ServeOutputConfig(transport="stdout", format="print")
 
-    payload = payload_override or config.payload or "sample"
-
     if config.transport == "stdout":
         return OutputTarget(
             transport="stdout",
             format=config.format,
+            view=_resolve_view(config.format, config.view),
+            encoding=None,
             destination=None,
-            payload=payload,
             run=None,
         )
 
@@ -121,7 +130,8 @@ def resolve_output_target(
     return OutputTarget(
         transport="fs",
         format=config.format,
+        view=_resolve_view(config.format, config.view),
+        encoding=config.encoding,
         destination=dest_path,
-        payload=payload,
         run=run_paths,
     )

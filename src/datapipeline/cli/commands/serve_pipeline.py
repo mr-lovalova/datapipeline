@@ -20,6 +20,30 @@ from datapipeline.services.runs import finish_run_failed, finish_run_success, se
 logger = logging.getLogger(__name__)
 
 
+def _preview_plan(
+    preview_cfgs: list,
+    stage: int,
+) -> list[tuple[str, object]]:
+    """Plan preview outputs for stage-based serve.
+
+    Stages 0-4 are record-stream scoped; dedupe repeated feature configs
+    that point to the same record_stream.
+    Stages 5-6 are feature scoped; keep one entry per feature/target config.
+    """
+    if stage <= 4:
+        seen: set[str] = set()
+        plan: list[tuple[str, object]] = []
+        for cfg in preview_cfgs:
+            stream_id = cfg.record_stream
+            if stream_id in seen:
+                continue
+            seen.add(stream_id)
+            plan.append((stream_id, cfg))
+        return plan
+
+    return [(cfg.id, cfg) for cfg in preview_cfgs]
+
+
 def limit_items(items: Iterator[object], limit: Optional[int]) -> Iterator[object]:
     if limit is None:
         yield from items
@@ -61,7 +85,7 @@ def report_serve(target: OutputTarget, count: int) -> None:
     if target.destination:
         logger.info("Saved %d items to %s", count, target.destination)
         return
-    if target.transport == "stdout" and target.format in {"jsonl", "json"}:
+    if target.transport == "stdout" and target.format == "jsonl":
         logger.info("(streamed %d items)", count)
         return
     logger.info("(printed %d items to stdout)", count)
@@ -100,15 +124,9 @@ def serve_with_runtime(
         rectangular = stage is None or stage > 6
 
         if stage is not None and stage <= 6:
-            if target.payload != "sample":
-                logger.warning(
-                    "Ignoring payload '%s' for stage %s preview; preview outputs record/feature streams.",
-                    target.payload,
-                    stage,
-                )
-            for cfg in preview_cfgs:
+            for output_id, cfg in _preview_plan(preview_cfgs, stage):
                 stream = build_feature_pipeline(context, cfg, stage=stage)
-                feature_target = target.for_feature(cfg.id)
+                feature_target = target.for_feature(output_id)
                 writer = writer_factory(
                     feature_target, visuals=visuals, item_type="record")
                 count = serve_stream(stream, limit, writer=writer)

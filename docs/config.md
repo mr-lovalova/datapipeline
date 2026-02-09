@@ -70,7 +70,9 @@ name: train # defaults to filename stem when omitted
 keep: train # select active split label (null disables filtering)
 output:
   transport: stdout # stdout | fs
-  format: print # print | jsonl | json | csv | pickle
+  format: print # print | jsonl | csv | pickle
+  # view: raw # optional; flat | raw | values (default: print/jsonl->raw, csv/pickle->flat)
+  # encoding: utf-8 # fs jsonl/csv only
 limit: 100 # cap vectors per serve run (null = unlimited)
 throttle_ms: null # milliseconds to sleep between emitted vectors
 # Optional overrides:
@@ -81,6 +83,7 @@ throttle_ms: null # milliseconds to sleep between emitted vectors
 
 - Each serve task lives alongside artifact tasks under `paths.tasks`. Files are independent—no special directory structure required.
 - `output`, `limit`, `throttle_ms`, and `log_level` provide defaults for `jerry serve`; CLI flags still win per invocation (see _Configuration & Resolution Order_). For filesystem outputs, set `transport: fs`, `directory: /path/to/root`, and omit file names—each run automatically writes to `<directory>/<run_name>/<run_name>.<ext>` unless you override the entire `output` block with a custom `filename`.
+- `output.encoding` is supported for fs `jsonl`/`csv` outputs (default `utf-8`); it is invalid for `stdout` and `pickle`.
 - Override `keep` (and other fields) per invocation via `jerry serve ... --keep val` etc.
 - Visuals backend: set `visuals: AUTO|TQDM|RICH|OFF` in the task or use `--visuals`. Pair with `progress: AUTO|SPINNER|BARS|OFF` or `--progress` to control progress layouts.
 - Add additional `kind: serve` files to the tasks directory for other splits (val/test/etc.); `jerry serve` runs each enabled file unless you pass `--run <name>`.
@@ -108,7 +111,9 @@ serve:
   stage: null
   output:
     transport: stdout
-    format: print # print | jsonl | json | csv | pickle
+    format: print # print | jsonl | csv | pickle
+    # view: raw # optional; flat | raw | values (default: print/jsonl->raw, csv/pickle->flat)
+    # encoding: utf-8 # fs jsonl/csv only
     # directory: artifacts/serve # Required when transport=fs
 
 build:

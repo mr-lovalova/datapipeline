@@ -71,7 +71,14 @@ class ServeDefaults(BaseModel):
     class OutputDefaults(BaseModel):
         transport: str
         format: str
-        payload: str = Field(default="sample")
+        view: Optional[str] = Field(
+            default=None,
+            description="flat | raw | values",
+        )
+        encoding: Optional[str] = Field(
+            default=None,
+            description="Text encoding for fs jsonl/csv outputs.",
+        )
         directory: Optional[str] = Field(
             default=None,
             description="Base directory for fs outputs (relative paths are resolved from jerry.yaml).",

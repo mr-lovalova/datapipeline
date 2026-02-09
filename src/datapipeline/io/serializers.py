@@ -1,229 +1,110 @@
 import json
-from dataclasses import asdict, is_dataclass
-from typing import Any, Dict, Type
+from datetime import date, datetime
+from typing import Any, Literal
+
+from datapipeline.io.normalization import View, normalize_item, normalized_payload
 
-from datapipeline.domain.sample import Sample
+ItemType = Literal["sample", "record"]
 
 
-class BaseSerializer:
-    payload_mode = "sample"
-
-    def serialize_payload(self, sample: Sample) -> Any:  # pragma: no cover - abstract
-        raise NotImplementedError
-
-
-class BaseJsonLineSerializer(BaseSerializer):
-    def __call__(self, sample: Sample) -> str:
-        data = self.serialize_payload(sample)
-        return json.dumps(data, ensure_ascii=False, default=str) + "\n"
-
-
-class SampleJsonLineSerializer(BaseJsonLineSerializer):
-    payload_mode = "sample"
-
-    def serialize_payload(self, sample: Sample) -> Any:
-        return sample.as_full_payload()
-
-
-class VectorJsonLineSerializer(BaseJsonLineSerializer):
-    payload_mode = "vector"
-
-    def serialize_payload(self, sample: Sample) -> Any:
-        return sample.as_vector_payload()
-
-
-class BasePrintSerializer(BaseSerializer):
-    def __call__(self, sample: Sample) -> str:
-        value = self.serialize_payload(sample)
-        return f"{value}\n"
-
-
-class SamplePrintSerializer(BasePrintSerializer):
-    payload_mode = "sample"
-
-    def serialize_payload(self, sample: Sample) -> Any:
-        return sample.as_full_payload()
-
-
-class VectorPrintSerializer(BasePrintSerializer):
-    payload_mode = "vector"
-
-    def serialize_payload(self, sample: Sample) -> Any:
-        return sample.as_vector_payload()
-
-
-class BaseCsvRowSerializer(BaseSerializer):
-    def __call__(self, sample: Sample) -> list[str | Any]:
-        key_value = sample.key
-        if isinstance(key_value, tuple):
-            key_struct = list(key_value)
-        else:
-            key_struct = key_value
-        if isinstance(key_struct, (list, dict)):
-            key_text = json.dumps(key_struct, ensure_ascii=False, default=str)
-        else:
-            key_text = "" if key_struct is None else str(key_struct)
-
-        payload_data = self.serialize_payload(sample)
-        if isinstance(payload_data, dict):
-            payload_data.pop("key", None)
-        payload_text = json.dumps(payload_data, ensure_ascii=False, default=str)
-        return [key_text, payload_text]
-
-
-class SampleCsvRowSerializer(BaseCsvRowSerializer):
-    payload_mode = "sample"
-
-    def serialize_payload(self, sample: Sample) -> Any:
-        return sample.as_full_payload()
-
-
-class VectorCsvRowSerializer(BaseCsvRowSerializer):
-    payload_mode = "vector"
-
-    def serialize_payload(self, sample: Sample) -> Any:
-        return sample.as_vector_payload()
-
-
-class BasePickleSerializer(BaseSerializer):
-    def __call__(self, sample: Sample) -> Any:
-        return self.serialize_payload(sample)
-
-
-class SamplePickleSerializer(BasePickleSerializer):
-    payload_mode = "sample"
-
-    def serialize_payload(self, sample: Sample) -> Any:
-        return sample
-
-
-class VectorPickleSerializer(BasePickleSerializer):
-    payload_mode = "vector"
-
-    def serialize_payload(self, sample: Sample) -> Any:
-        return sample.as_vector_payload()
-
-
-def _record_payload(value: Any) -> Any:
-    def _convert(obj: Any) -> Any:
-        if obj is None:
-            return None
-        if is_dataclass(obj):
-            attrs = getattr(obj, "__dict__", None)
-            if attrs is not None:
-                return {
-                    k: _convert(v)
-                    for k, v in attrs.items()
-                    if not k.startswith("_")
-                }
-            return asdict(obj)
-        if isinstance(obj, dict):
-            return {k: _convert(v) for k, v in obj.items()}
-        if isinstance(obj, (list, tuple)):
-            return [_convert(v) for v in obj]
-        attrs = getattr(obj, "__dict__", None)
-        if attrs:
-            return {
-                k: _convert(v)
-                for k, v in attrs.items()
-                if not k.startswith("_")
-            }
-        return obj
-
-    return _convert(value)
-
-
-def _record_key(value: Any) -> Any:
-    direct = getattr(value, "time", None)
-    if direct is not None:
-        return direct
-    record = getattr(value, "record", None)
-    if record is not None:
-        return getattr(record, "time", None)
-    return None
-
-
-class RecordJsonLineSerializer:
-    def __call__(self, record: Any) -> str:
-        payload = _record_payload(record)
-        return json.dumps(payload, ensure_ascii=False, default=str) + "\n"
-
-
-class RecordPrintSerializer:
-    def __call__(self, record: Any) -> str:
-        return f"{_record_payload(record)}\n"
-
-
-class RecordCsvRowSerializer:
-    def __call__(self, record: Any) -> list[str | Any]:
-        key_value = _record_key(record)
-        key_text = "" if key_value is None else str(key_value)
-        payload = json.dumps(_record_payload(record), ensure_ascii=False, default=str)
-        return [key_text, payload]
-
-
-class RecordPickleSerializer:
-    def __call__(self, record: Any) -> Any:
-        return record
-
-
-def _serializer_factory(
-    registry: Dict[str, Type[BaseSerializer]],
-    payload: str,
-    default_cls: Type[BaseSerializer],
-) -> BaseSerializer:
-    cls = registry.get(payload, default_cls)
-    return cls()
-
-
-JSON_SERIALIZERS: Dict[str, Type[BaseJsonLineSerializer]] = {
-    SampleJsonLineSerializer.payload_mode: SampleJsonLineSerializer,
-    VectorJsonLineSerializer.payload_mode: VectorJsonLineSerializer,
-}
-
-PRINT_SERIALIZERS: Dict[str, Type[BasePrintSerializer]] = {
-    SamplePrintSerializer.payload_mode: SamplePrintSerializer,
-    VectorPrintSerializer.payload_mode: VectorPrintSerializer,
-}
-
-CSV_SERIALIZERS: Dict[str, Type[BaseCsvRowSerializer]] = {
-    SampleCsvRowSerializer.payload_mode: SampleCsvRowSerializer,
-    VectorCsvRowSerializer.payload_mode: VectorCsvRowSerializer,
-}
-
-PICKLE_SERIALIZERS: Dict[str, Type[BasePickleSerializer]] = {
-    SamplePickleSerializer.payload_mode: SamplePickleSerializer,
-    VectorPickleSerializer.payload_mode: VectorPickleSerializer,
-}
-
-
-def json_line_serializer(payload: str) -> BaseJsonLineSerializer:
-    return _serializer_factory(JSON_SERIALIZERS, payload, SampleJsonLineSerializer)
-
-
-def print_serializer(payload: str) -> BasePrintSerializer:
-    return _serializer_factory(PRINT_SERIALIZERS, payload, SamplePrintSerializer)
-
-
-def csv_row_serializer(payload: str) -> BaseCsvRowSerializer:
-    return _serializer_factory(CSV_SERIALIZERS, payload, SampleCsvRowSerializer)
-
-
-def pickle_serializer(payload: str) -> BasePickleSerializer:
-    return _serializer_factory(PICKLE_SERIALIZERS, payload, SamplePickleSerializer)
-
-
-def record_json_line_serializer() -> RecordJsonLineSerializer:
-    return RecordJsonLineSerializer()
-
-
-def record_print_serializer() -> RecordPrintSerializer:
-    return RecordPrintSerializer()
-
-
-def record_csv_row_serializer() -> RecordCsvRowSerializer:
-    return RecordCsvRowSerializer()
-
-
-def record_pickle_serializer() -> RecordPickleSerializer:
-    return RecordPickleSerializer()
+class JsonLineSerializer:
+    def __init__(self, item_type: ItemType, view: View) -> None:
+        self._item_type = item_type
+        self._view = view
+
+    def __call__(self, item: Any) -> str:
+        row = normalize_item(item, self._item_type)
+        return json.dumps(
+            normalized_payload(row, self._view),
+            ensure_ascii=False,
+            default=str,
+        ) + "\n"
+
+
+class PrintSerializer:
+    def __init__(self, item_type: ItemType, view: View) -> None:
+        self._item_type = item_type
+        self._view = view
+
+    def __call__(self, item: Any) -> str:
+        row = normalize_item(item, self._item_type)
+        return f"{normalized_payload(row, self._view)}\n"
+
+
+class CsvRowSerializer:
+    def __init__(self, item_type: ItemType, view: View) -> None:
+        if view not in {"flat", "values"}:
+            raise ValueError("csv output supports only view='flat' or view='values'")
+        self._item_type = item_type
+        self._view = view
+
+    def __call__(self, item: Any) -> dict[str, Any]:
+        row = normalize_item(item, self._item_type)
+        out: dict[str, Any] = {}
+        _add_key_columns(row.key, out)
+        out["kind"] = row.kind
+        if self._view == "flat":
+            for field, value in row.fields.items():
+                out[f"field.{field}"] = value
+            return out
+
+        payload = normalized_payload(row, "values")
+        for idx, value in enumerate(payload["values"]):
+            out[f"value_{idx}"] = value
+        return out
+
+
+class PickleSerializer:
+    def __init__(self, item_type: ItemType, view: View) -> None:
+        self._item_type = item_type
+        self._view = view
+
+    def __call__(self, item: Any) -> Any:
+        row = normalize_item(item, self._item_type)
+        return normalized_payload(row, self._view)
+
+
+def json_line_serializer(
+    item_type: ItemType = "sample",
+    view: View = "flat",
+) -> JsonLineSerializer:
+    return JsonLineSerializer(item_type, view)
+
+
+def print_serializer(
+    item_type: ItemType = "sample",
+    view: View = "flat",
+) -> PrintSerializer:
+    return PrintSerializer(item_type, view)
+
+
+def csv_row_serializer(
+    item_type: ItemType = "sample",
+    view: View = "flat",
+) -> CsvRowSerializer:
+    return CsvRowSerializer(item_type, view)
+
+
+def pickle_serializer(
+    item_type: ItemType = "sample",
+    view: View = "flat",
+) -> PickleSerializer:
+    return PickleSerializer(item_type, view)
+
+
+def _add_key_columns(key: Any, row: dict[str, Any]) -> None:
+    if isinstance(key, tuple):
+        for idx, value in enumerate(key):
+            row[f"key_{idx}"] = _csv_cell_value(value)
+        return
+    if isinstance(key, list):
+        for idx, value in enumerate(key):
+            row[f"key_{idx}"] = _csv_cell_value(value)
+        return
+    row["key"] = _csv_cell_value(key)
+
+
+def _csv_cell_value(value: Any) -> Any:
+    if isinstance(value, (datetime, date)):
+        return str(value)
+    return value

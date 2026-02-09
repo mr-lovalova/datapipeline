@@ -10,12 +10,13 @@
 #
 # output:                     # optional; omit to use CLI defaults
 #   transport: stdout          # stdout | fs
-#   format: jsonl         # stdout: print | jsonl | json
-#   payload: sample            # sample | vector
+#   format: jsonl              # stdout: print | jsonl
+#   # view: raw               # optional; flat | raw | values
+#   #                         # default: print/jsonl->raw, csv/pickle->flat
+#   # encoding: utf-8          # fs jsonl/csv only
 #   # fs transport only:
 #   # transport: fs
-#   # format: csv        # csv | json | jsonl | pickle
-#   # payload: vector
+#   # format: csv             # csv | jsonl | pickle
 #   # directory: artifacts/serve
 #   # filename: vectors.train  # no extension, no path separators
 #

@@ -130,6 +130,7 @@ def workspace_output_defaults(
     return ServeOutputConfig(
         transport=od.transport,
         format=od.format,
-        payload=od.payload,
+        view=od.view,
+        encoding=od.encoding,
         directory=output_dir,
     )

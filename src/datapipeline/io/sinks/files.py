@@ -7,13 +7,13 @@ from .base import BaseSink
 
 
 class AtomicTextFileSink(BaseSink):
-    def __init__(self, dest: Path):
+    def __init__(self, dest: Path, encoding: str = "utf-8"):
         self._dest = dest
         dest.parent.mkdir(parents=True, exist_ok=True)
         self._tmp = Path(
             tempfile.NamedTemporaryFile(dir=str(dest.parent), delete=False).name
         )
-        self._fh = open(self._tmp, "w", encoding="utf-8")
+        self._fh = open(self._tmp, "w", encoding=encoding)
 
     @property
     def file_path(self) -> Path:

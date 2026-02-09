@@ -3,6 +3,8 @@ import logging
 from pathlib import Path
 from typing import Optional
 
+from pydantic import ValidationError
+
 from datapipeline.cli.commands.build import run_build_if_needed
 from datapipeline.cli.commands.run_config import (
     RunEntry,
@@ -19,6 +21,15 @@ from datapipeline.pipeline.artifacts import StageDemand, required_artifacts_for
 from datapipeline.services.path_policy import resolve_workspace_path
 
 logger = logging.getLogger(__name__)
+
+_OUTPUT_MATRIX_HELP = (
+    "Valid output combinations:\n"
+    "  stdout: format=print|jsonl, view=flat|raw|values\n"
+    "          encoding is not supported\n"
+    "  fs:     format=jsonl|csv|pickle, view=flat|raw|values\n"
+    "          encoding is supported only for jsonl/csv (default utf-8)\n"
+    "          csv supports view=flat|values\n"
+)
 
 
 def _profile_debug_payload(profile) -> dict[str, object]:
@@ -45,7 +56,8 @@ def _profile_debug_payload(profile) -> dict[str, object]:
         "output": {
             "transport": profile.output.transport,
             "format": profile.output.format,
-            "payload": profile.output.payload,
+            "view": profile.output.view,
+            "encoding": profile.output.encoding,
             "destination": str(profile.output.destination)
             if profile.output.destination
             else None,
@@ -80,13 +92,18 @@ def _build_cli_output_config(
     transport: Optional[str],
     fmt: Optional[str],
     directory: Optional[str],
-    payload: Optional[str],
+    output_encoding: Optional[str] = None,
     workspace=None,
-) -> tuple[ServeOutputConfig | None, Optional[str]]:
-    payload_style = _normalize_payload(payload)
-
-    if transport is None and fmt is None and directory is None:
-        return None, payload_style
+    view: Optional[str] = None,
+) -> ServeOutputConfig | None:
+    if (
+        transport is None
+        and fmt is None
+        and directory is None
+        and view is None
+        and output_encoding is None
+    ):
+        return None
 
     if not transport or not fmt:
         logger.error("--output-transport and --output-format must be provided together")
@@ -102,37 +119,32 @@ def _build_cli_output_config(
             directory,
             workspace.root if workspace is not None else None,
         )
-        return (
-            ServeOutputConfig(
+        try:
+            return ServeOutputConfig(
                 transport="fs",
                 format=fmt,
+                view=view,
+                encoding=output_encoding,
                 directory=resolved_directory,
-                payload=payload_style or "sample",
-            ),
-            None,
-        )
+            )
+        except ValidationError as exc:
+            logger.error("Invalid output configuration: %s", exc.errors()[0]["msg"])
+            logger.error(_OUTPUT_MATRIX_HELP)
+            raise SystemExit(2) from exc
     if directory:
         logger.error("--output-directory is only valid when --output-transport=fs")
         raise SystemExit(2)
-    return (
-        ServeOutputConfig(
+    try:
+        return ServeOutputConfig(
             transport="stdout",
             format=fmt,
-            payload=payload_style or "sample",
-        ),
-        None,
-    )
-
-
-def _normalize_payload(payload: Optional[str]) -> Optional[str]:
-    if payload is None:
-        return None
-    payload_style = payload.lower()
-    if payload_style not in {"sample", "vector"}:
-        logger.error("--output-payload must be 'sample' or 'vector'")
-        raise SystemExit(2)
-    return payload_style
-
+            view=view,
+            encoding=output_encoding,
+        )
+    except ValidationError as exc:
+        logger.error("Invalid output configuration: %s", exc.errors()[0]["msg"])
+        logger.error(_OUTPUT_MATRIX_HELP)
+        raise SystemExit(2) from exc
 
 def _resolve_profiles(
     *,
@@ -142,7 +154,6 @@ def _resolve_profiles(
     stage: Optional[int],
     limit: Optional[int],
     cli_output: ServeOutputConfig | None,
-    cli_payload: Optional[str],
     workspace,
     cli_log_level: Optional[str],
     base_log_level: str,
@@ -157,7 +168,6 @@ def _resolve_profiles(
         stage=stage,
         limit=limit,
         cli_output=cli_output,
-        cli_payload=cli_payload,
         workspace=workspace,
         cli_log_level=cli_log_level,
         base_log_level=base_log_level,
@@ -215,8 +225,9 @@ def handle_serve(
     stage: Optional[int] = None,
     output_transport: Optional[str] = None,
     output_format: Optional[str] = None,
-    output_payload: Optional[str] = None,
     output_directory: Optional[str] = None,
+    output_encoding: Optional[str] = None,
+    output_view: Optional[str] = None,
     skip_build: bool = False,
     *,
     cli_log_level: Optional[str],
@@ -228,9 +239,14 @@ def handle_serve(
     project_path = Path(project)
     run_entries, run_root = resolve_run_entries(project_path, run_name)
 
-    cli_output_cfg, payload_override = _build_cli_output_config(
-        output_transport, output_format, output_directory, output_payload, workspace)
-    cli_payload = payload_override
+    cli_output_cfg = _build_cli_output_config(
+        output_transport,
+        output_format,
+        output_directory,
+        output_encoding,
+        workspace=workspace,
+        view=output_view,
+    )
     try:
         profiles = _resolve_profiles(
             project_path=project_path,
@@ -239,7 +255,6 @@ def handle_serve(
             stage=stage,
             limit=limit,
             cli_output=cli_output_cfg,
-            cli_payload=cli_payload,
             workspace=workspace,
             cli_log_level=cli_log_level,
             base_log_level=base_log_level,
@@ -272,7 +287,6 @@ def handle_serve(
             stage=stage,
             limit=limit,
             cli_output=cli_output_cfg,
-            cli_payload=cli_payload,
             workspace=workspace,
             cli_log_level=cli_log_level,
             base_log_level=base_log_level,
