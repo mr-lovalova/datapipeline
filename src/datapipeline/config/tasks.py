@@ -40,7 +40,7 @@ class ArtifactTask(TaskBase):
 
 class ScalerTask(ArtifactTask):
     kind: Literal["scaler"]
-    output: str = Field(default="scaler.pkl")
+    output: str = Field(default="scaler.json")
     split_label: str = Field(
         default="train",
         description="Split label to use when fitting scaler statistics.",

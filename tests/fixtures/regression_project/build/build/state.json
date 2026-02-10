@@ -6,7 +6,7 @@
     },
     "scaler_statistics": {
       "meta": {},
-      "relative_path": "scaler.pkl"
+      "relative_path": "scaler.json"
     }
   },
   "config_hash": "fixture",

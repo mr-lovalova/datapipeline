@@ -94,7 +94,7 @@ def _register_scaler(runtime: Runtime, configs: list[FeatureRecordConfig], group
         raise RuntimeError(
             "Unable to compute scaler statistics for test runtime.")
 
-    destination = runtime.artifacts_root / "scaler.pkl"
+    destination = runtime.artifacts_root / "scaler.json"
     scaler.save(destination)
     runtime.artifacts.register(
         SCALER_STATISTICS,
