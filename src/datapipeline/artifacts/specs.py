@@ -1,9 +1,6 @@
 from dataclasses import dataclass
 from typing import Callable, Generic, Iterable, Sequence, TypeVar
 
-from datapipeline.build.tasks.metadata import materialize_metadata
-from datapipeline.build.tasks.scaler import materialize_scaler_statistics
-from datapipeline.build.tasks.schema import materialize_vector_schema
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.config.tasks import (
@@ -39,9 +36,6 @@ class ArtifactDefinition(Generic[TTask]):
     task_type: type[TTask] | None = None
     materialize: ArtifactMaterializer[TTask] | None = None
 
-    def supports(self, task: ArtifactTask) -> bool:
-        return self.task_type is not None and isinstance(task, self.task_type)
-
     def run(self, runtime: Runtime, task: ArtifactTask) -> MaterializeResult:
         if self.task_type is None or self.materialize is None:
             raise RuntimeError(f"Artifact '{self.key}' has no materializer binding")
@@ -71,6 +65,21 @@ def _requires_scaler(dataset: FeatureDatasetConfig) -> bool:
     return False
 
 
+def _materialize_schema(runtime: Runtime, task: SchemaTask) -> MaterializeResult:
+    from datapipeline.build.tasks.schema import materialize_vector_schema
+    return materialize_vector_schema(runtime, task)
+
+
+def _materialize_metadata(runtime: Runtime, task: MetadataTask) -> MaterializeResult:
+    from datapipeline.build.tasks.metadata import materialize_metadata
+    return materialize_metadata(runtime, task)
+
+
+def _materialize_scaler(runtime: Runtime, task: ScalerTask) -> MaterializeResult:
+    from datapipeline.build.tasks.scaler import materialize_scaler_statistics
+    return materialize_scaler_statistics(runtime, task)
+
+
 ARTIFACT_DEFINITIONS: tuple[
     ArtifactDefinition[SchemaTask]
     | ArtifactDefinition[MetadataTask]
@@ -82,7 +91,7 @@ ARTIFACT_DEFINITIONS: tuple[
         task_kind="schema",
         min_stage=7,
         task_type=SchemaTask,
-        materialize=materialize_vector_schema,
+        materialize=_materialize_schema,
     ),
     ArtifactDefinition(
         key=VECTOR_SCHEMA_METADATA,
@@ -90,7 +99,7 @@ ARTIFACT_DEFINITIONS: tuple[
         min_stage=7,
         dependencies=(VECTOR_SCHEMA,),
         task_type=MetadataTask,
-        materialize=materialize_metadata,
+        materialize=_materialize_metadata,
     ),
     ArtifactDefinition(
         key=SCALER_STATISTICS,
@@ -98,7 +107,7 @@ ARTIFACT_DEFINITIONS: tuple[
         min_stage=6,
         required_if=_requires_scaler,
         task_type=ScalerTask,
-        materialize=materialize_scaler_statistics,
+        materialize=_materialize_scaler,
     ),
 )
 

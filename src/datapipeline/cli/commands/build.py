@@ -165,11 +165,6 @@ def run_build_if_needed(
         task = tasks_by_kind.get(definition.task_kind)
         if task is None:
             continue
-        if not definition.supports(task):
-            raise TypeError(
-                f"Artifact '{definition.key}' does not support task type "
-                f"{type(task).__name__}"
-            )
         job_specs.append((definition, task))
 
     total_jobs = len(job_specs)
