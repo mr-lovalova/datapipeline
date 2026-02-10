@@ -272,7 +272,7 @@ targets:
 - `field` selects the record attribute used as the feature/target value.
 - `scale: true` inserts the standard scaler feature transform (requires scaler
   stats artifact or inline statistics).
-  - Downstream consumers can load the `scaler.pkl` artifact and call
+  - Downstream consumers can load the `scaler.json` artifact and call
     `StandardScaler.inverse_transform` (or `StandardScalerTransform.inverse`)
     to undo scaling.
 - `sequence` emits `FeatureRecordSequence` windows (size, stride, optional
@@ -312,12 +312,12 @@ Add a YAML file only when you need to override paths or other parameters.
 
 ```yaml
 kind: scaler
-output: scaler.pkl
+output: scaler.json
 split_label: train
 enabled: true
 ```
 
-- `scaler.pkl` is a pickled standard scaler fitted on the requested split.
+- `scaler.json` stores standard scaler statistics fitted on the requested split.
 - `schema.json` (from the `schema` task) enumerates the discovered feature/target identifiers (including partitions), their kinds (scalar/list), and cadence hints used to enforce ordering downstream.
   - Configure the `schema` task to choose a cadence strategy (currently `max`). Per-feature overrides will be added later; for now every list-valued feature records the max observed length as its enforcement target.
 - `metadata.json` (from the `metadata` task) captures heavier statistics—present/null counts, inferred value types, list-length histograms, per-partition timestamps, and the dataset window. Configure `metadata.window_mode` with `union|intersection|strict|relaxed` (default `intersection`) to control how start/end bounds are derived. `union` considers base features, `intersection` uses their overlap, `strict` intersects every partition, and `relaxed` unions partitions independently.

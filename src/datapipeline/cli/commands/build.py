@@ -1,26 +1,21 @@
 import json
 import logging
 from pathlib import Path
-from typing import Callable, Optional
 
 from datapipeline.build.state import BuildState, load_build_state, save_build_state
-from datapipeline.build.tasks import (
-    compute_config_hash,
-    materialize_scaler_statistics,
-    materialize_vector_schema,
-    materialize_metadata,
-)
+from datapipeline.build.tasks import compute_config_hash
 from datapipeline.cli.visuals import get_visuals_backend
 from datapipeline.cli.visuals.runner import run_job
 from datapipeline.cli.visuals.sections import sections_from_path
-from datapipeline.config.tasks import ArtifactTask, MetadataTask, ScalerTask, SchemaTask, artifact_tasks
+from datapipeline.config.tasks import ArtifactTask, artifact_tasks
 from datapipeline.config.context import resolve_build_settings
-from datapipeline.services.bootstrap import artifacts_root, bootstrap
-from datapipeline.services.constants import (
-    SCALER_STATISTICS,
-    VECTOR_SCHEMA,
-    VECTOR_SCHEMA_METADATA,
+from datapipeline.artifacts.specs import (
+    ArtifactDefinition,
+    artifact_build_order,
+    artifact_definition_for_key,
+    artifact_keys_for_task_kinds,
 )
+from datapipeline.services.bootstrap import artifacts_root, bootstrap
 from datapipeline.services.project_paths import tasks_dir
 
 
@@ -54,6 +49,25 @@ def _log_task_overview(tasks: list[ArtifactTask]) -> None:
         for task in tasks
     ]
     logger.debug("Artifact tasks:\n%s", json.dumps(payload, indent=2, default=str))
+
+
+def _run_artifact_builder(
+    *,
+    runtime,
+    definition: ArtifactDefinition,
+    task: ArtifactTask,
+):
+    res = definition.run(runtime, task)
+    if not res:
+        return None
+    rel_path, meta = res
+    full_path = (runtime.artifacts_root / rel_path).resolve()
+    details = ", ".join(f"{k}={v}" for k, v in meta.items())
+    suffix = f" ({details})" if details else ""
+    logger.info("Materialized %s -> %s%s", definition.key, full_path, suffix)
+    meta_out = {"relative_path": rel_path}
+    meta_out.update(meta)
+    return meta_out
 
 
 def run_build_if_needed(
@@ -137,90 +151,28 @@ def run_build_if_needed(
 
     artifacts = {}
 
-    def _work_scaler(task: ScalerTask):
-        res = materialize_scaler_statistics(runtime, task)
-        if not res:
-            return None
-        rel_path, meta = res
-        full_path = (runtime.artifacts_root / rel_path).resolve()
-        meta_out = {"relative_path": rel_path}
-        meta_out.update(meta)
-        details = ", ".join(f"{k}={v}" for k, v in meta.items())
-        suffix = f" ({details})" if details else ""
-        logger.info(
-            "Materialized %s -> %s%s",
-            SCALER_STATISTICS,
-            full_path,
-            suffix,
-        )
-        return meta_out
+    if required_artifacts is None:
+        selected_keys = artifact_keys_for_task_kinds(tasks_by_kind.keys())
+    else:
+        selected_keys = set(required_artifacts)
 
-    def _work_schema(task: SchemaTask):
-        res = materialize_vector_schema(runtime, task)
-        if not res:
-            return None
-        rel_path, meta = res
-        full_path = (runtime.artifacts_root / rel_path).resolve()
-        meta_out = {"relative_path": rel_path}
-        meta_out.update(meta)
-        details = ", ".join(f"{k}={v}" for k, v in meta.items())
-        suffix = f" ({details})" if details else ""
-        logger.info("Materialized %s -> %s%s", VECTOR_SCHEMA, full_path, suffix)
-        return meta_out
-
-    def _work_metadata(task: MetadataTask):
-        res = materialize_metadata(runtime, task)
-        if not res:
-            return None
-        rel_path, meta = res
-        full_path = (runtime.artifacts_root / rel_path).resolve()
-        meta_out = {"relative_path": rel_path}
-        meta_out.update(meta)
-        details = ", ".join(f"{k}={v}" for k, v in meta.items())
-        suffix = f" ({details})" if details else ""
-        logger.info("Materialized %s -> %s%s", VECTOR_SCHEMA_METADATA, full_path, suffix)
-        return meta_out
-
-    job_specs: list[tuple[str, str, Callable[[], object], Optional[Path]]] = []
-
-    schema_task = tasks_by_kind.get("schema")
-    if schema_task and (required_artifacts is None or VECTOR_SCHEMA in required_artifacts):
-        job_specs.append(
-            (
-                "schema",
-                VECTOR_SCHEMA,
-                lambda task=schema_task: _work_schema(task),
-                schema_task.source_path,
-            )
-        )
-
-    metadata_task = tasks_by_kind.get("metadata")
-    if metadata_task and (required_artifacts is None or VECTOR_SCHEMA_METADATA in required_artifacts):
-        job_specs.append(
-            (
-                "metadata",
-                VECTOR_SCHEMA_METADATA,
-                lambda task=metadata_task: _work_metadata(task),
-                metadata_task.source_path,
-            )
-        )
-
-    scaler_task = tasks_by_kind.get("scaler")
-    if scaler_task and (required_artifacts is None or SCALER_STATISTICS in required_artifacts):
-        job_specs.append(
-            (
-                "scaler",
-                SCALER_STATISTICS,
-                lambda task=scaler_task: _work_scaler(task),
-                scaler_task.source_path,
-            )
-        )
+    ordered_keys = artifact_build_order(selected_keys)
+    job_specs: list[tuple[ArtifactDefinition, ArtifactTask]] = []
+    for key in ordered_keys:
+        definition = artifact_definition_for_key(key)
+        if definition is None:
+            continue
+        task = tasks_by_kind.get(definition.task_kind)
+        if task is None:
+            continue
+        job_specs.append((definition, task))
 
     total_jobs = len(job_specs)
-    for idx, (job_label, artifact_key, job_work, config_path) in enumerate(job_specs, start=1):
+    for idx, (definition, task) in enumerate(job_specs, start=1):
         # Prefix sections with a phase label for visuals; keep path-based detail.
-        path_sections = sections_from_path(tasks_root, config_path or tasks_root)
+        path_sections = sections_from_path(tasks_root, task.source_path or tasks_root)
         sections = ("Build Tasks",) + tuple(path_sections[1:])
+        job_label = definition.task_kind
         result = run_job(
             sections=sections,
             label=job_label,
@@ -228,12 +180,16 @@ def run_build_if_needed(
             progress_style=effective_style,
             level=effective_level,
             runtime=runtime,
-            work=job_work,
+            work=lambda definition=definition, task=task: _run_artifact_builder(
+                runtime=runtime,
+                definition=definition,
+                task=task,
+            ),
             idx=idx,
             total=total_jobs,
         )
         if result:
-            artifacts[artifact_key] = result
+            artifacts[definition.key] = result
 
     new_state = BuildState(config_hash=config_hash)
     for key, info in artifacts.items():

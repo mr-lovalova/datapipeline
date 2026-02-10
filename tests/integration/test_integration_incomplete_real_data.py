@@ -21,7 +21,7 @@ def _vector_samples(project_yaml):
     if schema_rel:
         runtime.artifacts.register(VECTOR_SCHEMA, relative_path=schema_rel[0])
     scaler_rel = materialize_scaler_statistics(
-        runtime, ScalerTask(kind="scaler", split_label="all", output="scaler.pkl")
+        runtime, ScalerTask(kind="scaler", split_label="all", output="scaler.json")
     )
     if scaler_rel:
         runtime.artifacts.register(SCALER_STATISTICS, relative_path=scaler_rel[0])

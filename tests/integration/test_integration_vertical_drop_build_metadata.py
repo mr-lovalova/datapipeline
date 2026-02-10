@@ -35,7 +35,7 @@ def test_vertical_drop_respects_element_coverage_after_metadata_build(copy_fixtu
         runtime.artifacts.register(VECTOR_SCHEMA, relative_path=schema_rel[0])
     scaler_rel = materialize_scaler_statistics(
         runtime,
-        ScalerTask(kind="scaler", split_label="all", output="scaler.pkl"),
+        ScalerTask(kind="scaler", split_label="all", output="scaler.json"),
     )
     if scaler_rel:
         runtime.artifacts.register(SCALER_STATISTICS, relative_path=scaler_rel[0])

@@ -17,7 +17,7 @@ from datapipeline.config.context import resolve_run_profiles
 from datapipeline.config.dataset.loader import load_dataset
 from datapipeline.config.tasks import ServeOutputConfig
 from datapipeline.io.output import OutputResolutionError
-from datapipeline.pipeline.artifacts import StageDemand, required_artifacts_for
+from datapipeline.artifacts.specs import StageDemand, required_artifacts_for
 from datapipeline.services.path_policy import resolve_workspace_path
 
 logger = logging.getLogger(__name__)

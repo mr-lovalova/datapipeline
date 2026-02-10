@@ -97,7 +97,7 @@ def test_standard_scaler_fit_and_serialize(tmp_path):
     scaler = StandardScaler()
     total = scaler.fit(vectors)
     assert total == 4
-    path = tmp_path / "scaler.pkl"
+    path = tmp_path / "scaler.json"
     scaler.save(path)
     restored = StandardScaler.load(path)
     transform = StandardScalerTransform(model_path=path)

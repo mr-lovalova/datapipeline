@@ -3,7 +3,7 @@
 - `schema.json`: output of the `schema` task. Jerry automatically
   enforces this schema during postprocess to impose deterministic ordering and
   list cadence metadata (targets appear whenever the dataset defines them). Window metadata now lives in `metadata.json`.
-- `scaler.pkl`: pickled standard scaler fitted on the configured split. Loaded
+- `scaler.json`: JSON standard scaler statistics fitted on the configured split. Loaded
   lazily by feature transforms at runtime.
 - Build state is tracked in `artifacts/build/state.json`; config hashes avoid
   redundant runs.

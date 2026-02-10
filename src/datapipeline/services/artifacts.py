@@ -1,10 +1,10 @@
 from dataclasses import dataclass
-import json
 from pathlib import Path
 from typing import Any, Callable, Dict, Generic, Mapping, Optional, TypeVar
 
 from datapipeline.services.constants import VECTOR_SCHEMA, VECTOR_SCHEMA_METADATA
 from datapipeline.services.path_policy import resolve_relative_to_base
+from datapipeline.utils.json_artifact import read_json_artifact
 
 ArtifactValue = TypeVar("ArtifactValue")
 
@@ -84,8 +84,7 @@ class ArtifactManager:
 
 
 def _read_schema(path: Path) -> dict:
-    with path.open("r", encoding="utf-8") as fh:
-        return json.load(fh)
+    return read_json_artifact(path)
 
 
 VECTOR_SCHEMA_SPEC = ArtifactSpec[dict](

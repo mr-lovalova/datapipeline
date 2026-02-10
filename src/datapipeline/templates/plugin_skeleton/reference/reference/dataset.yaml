@@ -12,7 +12,7 @@
 #     field: value
 #     scale: true           # optional; true | false | mapping (see below)
 #     # scale:
-#     #   model_path: ../artifacts/example/v1/scaler.pkl
+#     #   model_path: ../artifacts/example/v1/scaler.json
 #     #   with_mean: true
 #     #   with_std: true
 #     #   epsilon: 1.0e-12

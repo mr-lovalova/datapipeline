@@ -8,8 +8,8 @@ from typing import Any, Callable, Iterator, Literal
 from datapipeline.domain.feature import FeatureRecord
 from datapipeline.domain.sample import Sample
 from datapipeline.transforms.feature.model import FeatureTransform
-from datapipeline.utils.pickle_model import PicklePersistanceMixin
 from datapipeline.pipeline.observability import TransformEvent
+from datapipeline.utils.json_artifact import read_json_artifact, write_json_artifact
 
 
 def _iter_numeric_values(value: Any) -> Iterator[float]:
@@ -25,7 +25,7 @@ def _iter_numeric_values(value: Any) -> Iterator[float]:
             yield v
 
 
-class StandardScaler(PicklePersistanceMixin):
+class StandardScaler:
     """Fit and apply per-feature scaling statistics."""
 
     def __init__(
@@ -62,6 +62,63 @@ class StandardScaler(PicklePersistanceMixin):
             if tracker.count
         }
         return total
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "kind": "standard_scaler",
+            "version": 1,
+            "with_mean": self.with_mean,
+            "with_std": self.with_std,
+            "epsilon": self.epsilon,
+            "statistics": self.statistics,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> "StandardScaler":
+        if payload.get("kind") != "standard_scaler":
+            raise ValueError("Invalid scaler payload kind")
+        scaler = cls(
+            with_mean=bool(payload.get("with_mean", True)),
+            with_std=bool(payload.get("with_std", True)),
+            epsilon=float(payload.get("epsilon", 1e-12)),
+        )
+        raw_stats = payload.get("statistics")
+        if not isinstance(raw_stats, dict):
+            raise ValueError("Scaler payload missing 'statistics' dictionary")
+
+        parsed_stats: dict[str, dict[str, float | int]] = {}
+        for feature_id, stats in raw_stats.items():
+            if not isinstance(feature_id, str) or not isinstance(stats, dict):
+                continue
+            parsed_stats[feature_id] = {
+                "mean": float(stats.get("mean", 0.0)),
+                "std": float(stats.get("std", 1.0)),
+                "count": int(stats.get("count", 0)),
+            }
+        scaler.statistics = parsed_stats
+        return scaler
+
+    def save(
+        self,
+        path: str | Path,
+        *,
+        split: str | None = None,
+        observations: int | None = None,
+    ) -> None:
+        target = Path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        payload = self.to_dict()
+        if split is not None:
+            payload["split"] = split
+        if observations is not None:
+            payload["observations"] = int(observations)
+        write_json_artifact(target, payload)
+
+    @classmethod
+    def load(cls, path: str | Path) -> "StandardScaler":
+        target = Path(path)
+        payload = read_json_artifact(target)
+        return cls.from_dict(payload)
 
     def transform(
         self,

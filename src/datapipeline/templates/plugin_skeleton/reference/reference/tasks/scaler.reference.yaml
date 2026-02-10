@@ -6,5 +6,5 @@
 # name: scaler              # optional (defaults to filename stem)
 # enabled: true             # optional
 #
-# output: scaler.pkl         # optional; relative to project.paths.artifacts
+# output: scaler.json        # optional; relative to project.paths.artifacts
 # split_label: train         # optional; split label from globals.split

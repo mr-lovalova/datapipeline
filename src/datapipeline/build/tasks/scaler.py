@@ -43,8 +43,9 @@ def materialize_scaler_statistics(runtime: Runtime, task_cfg: ScalerTask) -> Tup
         )
 
     def _train_stream() -> Iterator[Sample]:
+        include_all = task_cfg.split_label == "all"
         for sample in vectors:
-            if labeler and labeler.label(sample.key, sample.features) != task_cfg.split_label:
+            if not include_all and labeler and labeler.label(sample.key, sample.features) != task_cfg.split_label:
                 continue
             yield sample
 
@@ -60,7 +61,11 @@ def materialize_scaler_statistics(runtime: Runtime, task_cfg: ScalerTask) -> Tup
     destination = (runtime.artifacts_root / relative_path).resolve()
     ensure_parent(destination)
 
-    scaler.save(destination)
+    scaler.save(
+        destination,
+        split=task_cfg.split_label,
+        observations=total_observations,
+    )
 
     meta: Dict[str, object] = {
         "features": len(scaler.statistics),
