@@ -1,5 +1,4 @@
 import heapq
-from collections import defaultdict
 from collections.abc import Iterator, Sequence
 from typing import Any
 from itertools import tee
@@ -22,7 +21,6 @@ from datapipeline.pipeline.stages import (
     window_keys,
 )
 from datapipeline.pipeline.context import PipelineContext
-from datapipeline.pipeline.utils.spool_cache import SpoolCache
 
 
 def _time_then_id(item: Any):
@@ -183,45 +181,15 @@ def _assemble_vectors(
 ) -> Iterator[tuple[tuple, Vector]]:
     if not configs:
         return iter(())
-
-    runtime = context.runtime
-    grouped: dict[str, list[FeatureRecordConfig]] = defaultdict(list)
-    for cfg in configs:
-        grouped[cfg.record_stream].append(cfg)
-
-    streams: list[Iterator[Any]] = []
-    caches: list[SpoolCache] = []
-    for record_stream_id, cfgs in grouped.items():
-        records = build_record_pipeline(context, record_stream_id, stage=4)
-        if len(cfgs) == 1:
-            record_iters = (records,)
-        else:
-            cache = SpoolCache(records, name=record_stream_id)
-            caches.append(cache)
-            record_iters = tuple(cache.reader() for _ in cfgs)
-        batch_size = runtime.registries.sort_batch_size.get(record_stream_id)
-        partition_by = runtime.registries.partition_by.get(record_stream_id)
-
-        for cfg, rec_iter in zip(cfgs, record_iters):
-            streams.append(
-                _build_feature_from_records(
-                    context,
-                    rec_iter,
-                    cfg,
-                    batch_size=batch_size,
-                    partition_by=partition_by,
-                )
-            )
+    streams = [
+        build_feature_pipeline(
+            context,
+            cfg,
+        )
+        for cfg in configs
+    ]
 
     merged = heapq.merge(
         *streams, key=lambda fr: group_key_for(fr, group_by_cadence)
     )
-
-    def _with_cleanup() -> Iterator[tuple[tuple, Vector]]:
-        try:
-            yield from vector_assemble_stage(merged, group_by_cadence)
-        finally:
-            for cache in caches:
-                cache.close()
-
-    return _with_cleanup()
+    return vector_assemble_stage(merged, group_by_cadence)
