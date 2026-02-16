@@ -354,9 +354,8 @@ def main() -> None:
         "--stage",
         "-s",
         type=int,
-        choices=range(0, 9),
         default=None,
-        help="preview a specific pipeline stage (0-6 record/feature stages, 7 assembled vectors, 8 transformed vectors)",
+        help="preview up to a 0-based feature-pipeline node index",
     )
     _add_visual_flags(p_serve)
     p_serve.add_argument(

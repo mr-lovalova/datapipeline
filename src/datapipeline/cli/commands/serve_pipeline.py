@@ -3,6 +3,7 @@ import time
 from itertools import islice
 from typing import Iterator, Optional
 
+from datapipeline.execution.nodes.feature_nodes import RECORD_NODE_COUNT
 from datapipeline.pipeline.observability import default_observer_registry
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.domain.sample import Sample
@@ -24,13 +25,12 @@ def _preview_plan(
     preview_cfgs: list,
     stage: int,
 ) -> list[tuple[str, object]]:
-    """Plan preview outputs for stage-based serve.
+    """Plan preview outputs for stage-index based serve.
 
-    Stages 0-4 are record-stream scoped; dedupe repeated feature configs
-    that point to the same record_stream.
-    Stages 5-6 are feature scoped; keep one entry per feature/target config.
+    Early indices map to record nodes and are record-stream scoped.
+    Later indices map to feature nodes and are feature scoped.
     """
-    if stage <= 4:
+    if stage <= (RECORD_NODE_COUNT - 1):
         seen: set[str] = set()
         plan: list[tuple[str, object]] = []
         for cfg in preview_cfgs:
@@ -92,7 +92,7 @@ def report_serve(target: OutputTarget, count: int) -> None:
 
 
 def _is_full_pipeline_stage(stage: int | None) -> bool:
-    return stage is None or stage >= 7
+    return stage is None
 
 
 def serve_with_runtime(
@@ -121,9 +121,7 @@ def serve_with_runtime(
             run_status = "success"
             return
 
-        rectangular = stage is None or stage > 6
-
-        if stage is not None and stage <= 6:
+        if stage is not None:
             for output_id, cfg in _preview_plan(preview_cfgs, stage):
                 stream = build_feature_pipeline(context, cfg, stage=stage)
                 feature_target = target.for_feature(output_id)
@@ -134,22 +132,19 @@ def serve_with_runtime(
             run_status = "success"
             return
 
-        if rectangular:
-            runtime.window_bounds = resolve_window_bounds(runtime, True)
+        runtime.window_bounds = resolve_window_bounds(runtime, True)
 
         vectors = build_vector_pipeline(
             context,
             feature_cfgs,
             dataset.group_by,
             target_configs=target_cfgs,
-            rectangular=rectangular,
+            rectangular=True,
         )
 
-        if stage in (None, 8):
-            vectors = post_process(context, vectors)
-        if stage is None:
-            vectors = apply_split_stage(runtime, vectors)
-            vectors = throttle_vectors(vectors, throttle_ms)
+        vectors = post_process(context, vectors)
+        vectors = apply_split_stage(runtime, vectors)
+        vectors = throttle_vectors(vectors, throttle_ms)
 
         writer = writer_factory(target, visuals=visuals)
 

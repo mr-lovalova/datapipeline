@@ -195,11 +195,20 @@ def required_artifacts_for(
     required: set[str] = set()
     definitions = ARTIFACT_DEFINITIONS
     for demand in demands:
-        effective_stage = 8 if demand.stage is None else demand.stage
-        for requirement in definitions:
-            if effective_stage < requirement.min_stage:
-                continue
-            if not requirement.required_if(dataset):
-                continue
-            required.add(requirement.key)
+        if demand.stage is None:
+            effective_stage = 8
+            for requirement in definitions:
+                if effective_stage < requirement.min_stage:
+                    continue
+                if not requirement.required_if(dataset):
+                    continue
+                required.add(requirement.key)
+            continue
+
+        # Stage previews are feature-pipeline node-index cutoffs.
+        # Only scaler artifacts can be required there (feature transforms node).
+        if demand.stage >= 6:
+            scaler_def = artifact_definition_for_key(SCALER_STATISTICS, definitions)
+            if scaler_def is not None and scaler_def.required_if(dataset):
+                required.add(SCALER_STATISTICS)
     return _requirement_closure(required, definitions=definitions)

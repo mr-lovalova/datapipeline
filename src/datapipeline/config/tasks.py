@@ -183,9 +183,8 @@ class ServeTask(RuntimeTask):
     )
     stage: int | None = Field(
         default=None,
-        description="Default pipeline stage preview (0-8).",
+        description="Default pipeline node-index preview cutoff (0-based).",
         ge=0,
-        le=8,
     )
     throttle_ms: float | None = Field(
         default=None,

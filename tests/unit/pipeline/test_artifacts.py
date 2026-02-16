@@ -47,8 +47,16 @@ def test_scaler_but_not_metadata_for_transform_stage():
     assert VECTOR_SCHEMA_METADATA not in required
 
 
-def test_metadata_required_once_vectors_needed():
+def test_metadata_not_required_for_feature_preview_tail_stage():
     required = required_artifacts_for(_dataset(), [StageDemand(stage=7)])
+
+    assert VECTOR_SCHEMA not in required
+    assert VECTOR_SCHEMA_METADATA not in required
+    assert SCALER_STATISTICS not in required
+
+
+def test_metadata_required_for_full_pipeline_run():
+    required = required_artifacts_for(_dataset(), [StageDemand(stage=None)])
 
     assert VECTOR_SCHEMA in required
     assert VECTOR_SCHEMA_METADATA in required
