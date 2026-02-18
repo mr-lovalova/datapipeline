@@ -1,4 +1,4 @@
-from typing import Iterator, Generic, TypeVar, Optional
+from typing import Iterator, Generic, TypeVar
 from .base import SourceInterface
 from .loader import BaseDataLoader
 from .parser import DataParser
@@ -20,9 +20,3 @@ class Source(SourceInterface[TRecord], Generic[TRecord]):
                     yield parsed
             except Exception as exc:
                 raise ParsingError(row=row, index=i, original_exc=exc) from exc
-
-    def count(self) -> Optional[int]:
-        try:
-            return self.loader.count()
-        except Exception:
-            return None

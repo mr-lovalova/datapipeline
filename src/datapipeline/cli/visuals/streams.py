@@ -42,7 +42,7 @@ class VisualsBackend:
 
 class _BasicBackend(VisualsBackend):
     def wrap_sources(self, runtime: Runtime, log_level: int, progress_style: str):
-        from .sources_basic import visual_sources as basic
+        from .streams_basic import visual_sources as basic
         return basic(runtime, log_level, progress_style)
 
 
@@ -98,7 +98,7 @@ class _RichBackend(VisualsBackend):
             return False
 
     def wrap_sources(self, runtime: Runtime, log_level: int, progress_style: str):
-        from .sources_rich import visual_sources as rich_vs
+        from .streams_rich import visual_sources as rich_vs
         return rich_vs(runtime, log_level, progress_style)
 
     def on_streams_complete(self) -> bool:
@@ -108,7 +108,7 @@ class _RichBackend(VisualsBackend):
 
 class _OffBackend(VisualsBackend):
     def wrap_sources(self, runtime: Runtime, log_level: int, progress_style: str):
-        from .sources_off import visual_sources as off_vs
+        from .streams_off import visual_sources as off_vs
         return off_vs(runtime, log_level, progress_style)
 
 

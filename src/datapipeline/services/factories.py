@@ -1,16 +1,18 @@
-from datapipeline.utils.load import load_ep
-from datapipeline.plugins import PARSERS_EP, LOADERS_EP, MAPPERS_EP
-from datapipeline.sources.models.source import Source
-from datapipeline.config.catalog import SourceConfig, EPArgs, ContractConfig
-from datapipeline.mappers.noop import identity
-from datapipeline.utils.placeholders import normalize_args
-from datapipeline.sources.models.base import SourceInterface
-from datapipeline.pipelines.record.nodes import RECORD_NODE_COUNT
-from datapipeline.dag.context import PipelineContext
-from datapipeline.pipelines import build_record_pipeline
-from datapipeline.transforms.engine import _supports_parameter
 from inspect import isclass
-from typing import Iterator, Any, Optional
+from typing import Any, Iterator, Optional
+
+from datapipeline.config.catalog import ContractConfig, EPArgs, SourceConfig
+from datapipeline.dag.context import PipelineContext
+from datapipeline.mappers.noop import identity
+from datapipeline.parsers.identity import IdentityParser
+from datapipeline.pipelines import build_record_pipeline
+from datapipeline.pipelines.record.nodes import RECORD_NODE_COUNT
+from datapipeline.plugins import LOADERS_EP, MAPPERS_EP, PARSERS_EP
+from datapipeline.sources.models.loader import BaseDataLoader
+from datapipeline.sources.models.source import Source
+from datapipeline.transforms.engine import _supports_parameter
+from datapipeline.utils.load import load_ep
+from datapipeline.utils.placeholders import normalize_args
 
 
 def build_source_from_spec(spec: SourceConfig) -> Source:
@@ -32,25 +34,23 @@ def build_mapper_from_spec(spec: EPArgs | None):
     return fn
 
 
-class _ComposedSource(SourceInterface):
+class _ComposedLoader(BaseDataLoader):
     def __init__(self, runtime, stream_id: str, spec: ContractConfig):
         self._runtime = runtime
         self._stream_id = stream_id
         self._spec = spec
 
-    def stream(self):
+    def load(self):
         context = PipelineContext(self._runtime)
         raw_inputs = self._spec.inputs
         input_specs = list(raw_inputs or [])
         if not input_specs:
             return iter(())
 
-        # Resolve inputs: "[alias=]stream_id" (streams only)
         resolved = self._resolve_inputs(context, input_specs)
         aligned = {k: v for k, v in resolved.items() if v["aligned"]}
         aux = {k: v for k, v in resolved.items() if not v["aligned"]}
 
-        # Build aligned/aux iterators (unwrap FeatureRecord -> record for aligned)
         aligned_iters: dict[str, Iterator[Any]] = {
             k: (getattr(item, "record", item) for item in v["iter"])
             for k, v in aligned.items()
@@ -58,7 +58,6 @@ class _ComposedSource(SourceInterface):
         aux_iters: dict[str, Iterator[Any]] = {
             k: v["iter"] for k, v in aux.items()}
 
-        # Load mapper (composer) from contract
         mapper = self._spec.mapper
         if not mapper or not mapper.entrypoint:
             raise ValueError(
@@ -67,16 +66,13 @@ class _ComposedSource(SourceInterface):
         ep = load_ep(MAPPERS_EP, mapper.entrypoint)
         kwargs = normalize_args(mapper.args)
 
-        # Choose driver among aligned inputs
         aligned_keys = list(aligned_iters.keys())
         if not aligned_keys:
             driver_key = None
         else:
             driver_key = kwargs.pop("driver", None) or aligned_keys[0]
 
-        # Mapper adapters: Simple vs Advanced
         if not isclass(ep) and not _supports_parameter(ep, "inputs"):
-            # Simple: expect a single iterator when exactly one aligned input and no aux
             if len(aligned_iters) == 1 and not aux_iters:
                 single_iter = next(iter(aligned_iters.values()))
                 for rec in ep(single_iter):
@@ -86,7 +82,6 @@ class _ComposedSource(SourceInterface):
                 "Mapper must accept inputs=... for multi-input or aux-enabled contracts"
             )
 
-        # Advanced: pass inputs / aux / driver / context when supported
         call_kwargs = dict(kwargs)
         if _supports_parameter(ep, "context") and "context" not in call_kwargs:
             call_kwargs["context"] = context
@@ -106,6 +101,10 @@ class _ComposedSource(SourceInterface):
 
         for rec in ep(inputs=aligned_iters, **call_kwargs):
             yield getattr(rec, "record", rec)
+
+    def count(self):
+        # Compose/join logic may change cardinality; unknown by design.
+        return None
 
     def _resolve_inputs(self, context: PipelineContext, specs: list[str]):
         """Parse and resolve composed inputs into iterators.
@@ -130,7 +129,6 @@ class _ComposedSource(SourceInterface):
 
     @staticmethod
     def _parse_input(text: str) -> tuple[str, str]:
-        # alias=stream_id
         if "@" in text:
             raise ValueError(
                 "composed inputs may not include '@stage'; streams align by default")
@@ -142,5 +140,8 @@ class _ComposedSource(SourceInterface):
         return alias, ref
 
 
-def build_composed_source(stream_id: str, spec: ContractConfig, runtime) -> SourceInterface:
-    return _ComposedSource(runtime=runtime, stream_id=stream_id, spec=spec)
+def build_composed_source(stream_id: str, spec: ContractConfig, runtime) -> Source:
+    return Source(
+        loader=_ComposedLoader(runtime=runtime, stream_id=stream_id, spec=spec),
+        parser=IdentityParser(),
+    )

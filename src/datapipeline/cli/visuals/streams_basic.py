@@ -1,24 +1,17 @@
-from typing import Iterator, Any, Optional
+from typing import Iterator, Any, Optional, Callable
 from contextlib import contextmanager
 from itertools import cycle
-from pathlib import Path
 import logging
-import os
 import threading
 import time
 
-from .labels import progress_meta_for_loader
 from datapipeline.runtime import Runtime
 from datapipeline.sources.models.source import Source
-from datapipeline.sources.transports import FsGlobTransport
 from tqdm import tqdm
 from .common import (
-    compute_glob_root,
-    current_transport_label,
-    log_combined_stream,
-    log_transport_details,
     resolve_progress_style_mode,
 )
+from .source_observability import SourceObservabilityAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -26,9 +19,9 @@ logger = logging.getLogger(__name__)
 class VisualSourceProxy(Source):
     """Proxy wrapping Source.stream() with CLI feedback scaled by logging level."""
 
-    def __init__(self, inner: Source, alias: str, verbosity: int):
-        self._inner = inner
-        self._alias = alias
+    def __init__(self, stream_source: Source, stream_id: str, verbosity: int):
+        self._inner = stream_source
+        self._stream_id = stream_id
         self._verbosity = max(0, min(verbosity, 2))
 
     @staticmethod
@@ -79,68 +72,49 @@ class VisualSourceProxy(Source):
             except Exception:
                 pass
 
-    def _count_with_indicator(self, label: str) -> Optional[int]:
+    def _count_with_indicator(self, label: str, count_fn: Callable[[], Optional[int]]) -> Optional[int]:
         try:
             _, stop_event, worker, bar = self._start_spinner(label)
         except Exception:
             # If spinner setup fails, silently fall back to raw count
-            return self._safe_count()
+            return count_fn()
 
         try:
-            return self._safe_count()
+            return count_fn()
         finally:
             self._stop_spinner(stop_event, worker, bar)
 
-    def _safe_count(self) -> Optional[int]:
-        try:
-            return self._inner.count()
-        except Exception:
-            return None
-
-    def _log_source_details(self, transport, root: Optional[Path]) -> None:
-        # Use visuals-agnostic helper so behavior matches rich/basic
-        log_transport_details(transport, self._alias)
-
     def stream(self) -> Iterator[Any]:
-        loader = getattr(self._inner, "loader", None)
-        desc, unit = progress_meta_for_loader(loader)
-        prefix, sep, suffix = desc.partition(": ")
-        header = f"{prefix}:" if sep else desc
-        tail = suffix if sep else None
-        label = f"[{self._alias}] Preparing data stream"
-
-        transport = getattr(loader, "transport", None)
-
-        glob_root: Optional[Path] = None
-        if isinstance(transport, FsGlobTransport):
-            glob_root = compute_glob_root(transport.files)
+        adapter = SourceObservabilityAdapter(self._inner, self._stream_id)
+        label = adapter.preparing_label()
 
         last_path_label: Optional[str] = None
 
-        def compose_desc(name: Optional[str]) -> str:
-            if name:
-                base = header if sep else desc
-                return f"[{self._alias}] {base} {name}".rstrip()
-            if tail:
-                return f"[{self._alias}] {header} {tail}".rstrip()
-            return f"[{self._alias}] {desc}"
-
         def maybe_update_label(apply_label):
             nonlocal last_path_label
-            current_label = current_transport_label(transport, glob_root=glob_root)
+            current_label = adapter.current_label()
             if not current_label or current_label == last_path_label:
                 return
             last_path_label = current_label
             apply_label(current_label)
 
+        def log_start_details() -> None:
+            adapter.log_composed_details()
+            if logger.isEnabledFor(logging.INFO):
+                for line in adapter.info_lines():
+                    logger.info("[%s] %s", self._stream_id, line)
+            if logger.isEnabledFor(logging.DEBUG):
+                for line in adapter.debug_lines():
+                    logger.debug("[%s] %s", self._stream_id, line)
+
         emitted = 0
         if self._verbosity >= 2:
-            total = self._count_with_indicator(label)
+            total = self._count_with_indicator(label, adapter.count)
 
             bar = tqdm(
                 total=total,
-                desc=compose_desc(None),
-                unit=unit,
+                desc=adapter.format_label(),
+                unit=adapter.unit,
                 dynamic_ncols=True,
                 mininterval=0.0,
                 miniters=1,
@@ -150,14 +124,14 @@ class VisualSourceProxy(Source):
             started = False
 
             def update_progress(name: str) -> None:
-                bar.set_description_str(compose_desc(name))
+                bar.set_description_str(adapter.format_label(name))
                 bar.refresh()
 
             try:
                 for item in self._inner.stream():
                     if not started:
                         # Emit transport details on first item for correct ordering (DEBUG verbosity)
-                        self._log_source_details(transport, glob_root)
+                        log_start_details()
                         started = True
                     maybe_update_label(update_progress)
                     bar.update()
@@ -167,23 +141,23 @@ class VisualSourceProxy(Source):
                 bar.close()
                 if logger.isEnabledFor(logging.INFO):
                     try:
-                        unit_label = f" {unit}" if unit else ""
+                        unit_label = f" {adapter.unit}" if adapter.unit else ""
                         logger.info("[%s] Stream complete (%d%s) ✔",
-                                    self._alias, emitted, unit_label)
+                                    self._stream_id, emitted, unit_label)
                     except Exception:
                         pass
             return
 
         try:
             state, stop_event, worker, bar = self._start_spinner(
-                compose_desc(None))
+                adapter.format_label())
         except Exception:
             # Spinner isn't critical; fall back to raw stream
             yield from self._inner.stream()
             return
 
         def update_spinner(name: str) -> None:
-            state["base"] = compose_desc(name)
+            state["base"] = adapter.format_label(name)
             bar.set_description_str(state["base"])
             bar.refresh()
 
@@ -192,7 +166,7 @@ class VisualSourceProxy(Source):
             for item in self._inner.stream():
                 if not started:
                     # Emit transport details at the start for correct grouping
-                    self._log_source_details(transport, glob_root)
+                    log_start_details()
                     started = True
                 maybe_update_label(update_spinner)
                 emitted += 1
@@ -201,9 +175,9 @@ class VisualSourceProxy(Source):
             self._stop_spinner(stop_event, worker, bar)
             if logger.isEnabledFor(logging.INFO):
                 try:
-                    unit_label = f" {unit}" if unit else ""
+                    unit_label = f" {adapter.unit}" if adapter.unit else ""
                     logger.info("[%s] Stream complete (%d%s) ✔",
-                                self._alias, emitted, unit_label)
+                                self._stream_id, emitted, unit_label)
                 except Exception:
                     pass
 
@@ -222,32 +196,13 @@ def visual_sources(runtime: Runtime, log_level: int | None, progress_style: str 
     reg = runtime.registries.stream_sources
     originals = dict(reg.items())
     try:
-        # Lightweight proxy that only prints a composed header when actually streamed
-        class _ComposedHeaderProxy:
-            def __init__(self, inner, alias: str):
-                self._inner = inner
-                self._alias = alias
-
-            def stream(self):  # Iterator[Any]
-                detail_entries: Optional[list[str]] = None
-                try:
-                    spec = getattr(self._inner, "_spec", None)
-                    inputs = getattr(spec, "inputs", None)
-                    if isinstance(inputs, (list, tuple)) and inputs:
-                        detail_entries = [str(item) for item in inputs]
-                except Exception:
-                    detail_entries = None
-                log_combined_stream(self._alias, detail_entries)
-                yield from self._inner.stream()
-
-        for alias, src in originals.items():
-            # Wrap composed/virtual sources with a header-only proxy; others with visuals
-            if getattr(src, "loader", None) is None:
-                reg.register(alias, _ComposedHeaderProxy(src, alias))
-            else:
-                reg.register(alias, VisualSourceProxy(src, alias, verbosity))
+        for stream_id, stream_source in originals.items():
+            reg.register(
+                stream_id,
+                VisualSourceProxy(stream_source, stream_id, verbosity),
+            )
         yield
     finally:
         # Restore original sources
-        for alias, src in originals.items():
-            reg.register(alias, src)
+        for stream_id, stream_source in originals.items():
+            reg.register(stream_id, stream_source)

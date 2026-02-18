@@ -1,9 +1,7 @@
 from contextlib import contextmanager
 from typing import Iterator, Any, Optional, Deque, Dict, Tuple
-from pathlib import Path
 from math import ceil
 import logging
-import os
 
 from collections import deque
 
@@ -21,19 +19,12 @@ from rich.progress import (
 )
 from rich.text import Text
 
-from .labels import progress_meta_for_loader
 from .common import (
-    compute_glob_root,
-    current_loader_label,
-    log_combined_stream,
-    transport_debug_lines,
-    transport_info_lines,
     resolve_progress_style_mode,
 )
+from .source_observability import SourceObservabilityAdapter
 from datapipeline.runtime import Runtime
 from datapipeline.sources.models.source import Source
-from datapipeline.sources.foreach import ForeachLoader
-from datapipeline.sources.transports import FsGlobTransport, FsFileTransport, HttpTransport
 logger = logging.getLogger(__name__)
 
 
@@ -110,9 +101,9 @@ class AverageTimeRemainingColumn(ProgressColumn):
 
 
 class _RichSourceProxy(Source):
-    def __init__(self, inner: Source, alias: str, verbosity: int, progress: Progress, unit: Optional[str] = None, shared_task_id: Optional[int] = None, finalize: Optional[callable] = None, started: Optional[callable] = None):
-        self._inner = inner
-        self._alias = alias
+    def __init__(self, stream_source: Source, stream_id: str, verbosity: int, progress: Progress, unit: Optional[str] = None, shared_task_id: Optional[int] = None, finalize: Optional[callable] = None, started: Optional[callable] = None):
+        self._inner = stream_source
+        self._stream_id = stream_id
         self._verbosity = max(0, min(verbosity, 2))
         self._progress = progress
         self._task_id = None
@@ -123,49 +114,21 @@ class _RichSourceProxy(Source):
         self._started = started
 
     def _format_text(self, message: str) -> str:
-        # Plain alias prefix to avoid Rich markup issues
-        return f"[{self._alias}] {message}" if message else f"[{self._alias}]"
-
-    def _safe_count(self) -> Optional[int]:
-        try:
-            return self._inner.count()
-        except Exception:
-            return None
+        # Plain stream-id prefix to avoid Rich markup issues
+        return f"[{self._stream_id}] {message}" if message else f"[{self._stream_id}]"
 
     def stream(self) -> Iterator[Any]:
-        loader = getattr(self._inner, "loader", None)
-        desc, unit = progress_meta_for_loader(loader)
-        self._unit = unit
-        prefix, sep, suffix = desc.partition(": ")
-        header = f"{prefix}:" if sep else desc
-        tail = suffix if sep else None
-
-        transport = getattr(loader, "transport", None)
-        glob_root: Optional[Path] = None
-        if isinstance(transport, FsGlobTransport):
-            glob_root = compute_glob_root(
-                getattr(transport, "files", []))
-
-        is_foreach_loader = isinstance(loader, ForeachLoader)
-
-        def compose_text(name: Optional[str]) -> str:
-            if name:
-                if is_foreach_loader:
-                    return str(name)
-                base = header if sep else desc
-                return f"{base} {name}".rstrip()
-            if tail:
-                return f"{header} {tail}".rstrip()
-            return f"{desc}"
+        adapter = SourceObservabilityAdapter(self._inner, self._stream_id)
+        self._unit = adapter.unit
 
         # Create task lazily with no total (DEBUG) or reuse shared spinner (INFO)
         if self._verbosity >= 2 or self._shared_task_id is None:
             self._task_id = self._progress.add_task(
-                "", start=False, total=None, text=self._format_text(compose_text(None)))
+                "", start=False, total=None, text=self._format_text(adapter.format_label(include_stream_id=False)))
 
         # If verbose, try to resolve total and show a real bar
         if self._verbosity >= 2 and self._task_id is not None:
-            total = self._safe_count()
+            total = adapter.count()
             if total is not None:
                 self._progress.update(self._task_id, total=total)
 
@@ -179,29 +142,27 @@ class _RichSourceProxy(Source):
 
         try:
             for item in self._inner.stream():
-                current_label = current_loader_label(
-                    loader, transport, glob_root=glob_root
-                )
+                current_label = adapter.current_label()
                 # On first item: emit Start + transport details
                 if not started_logged:
+                    adapter.log_composed_details()
                     try:
                         if callable(self._started):
-                            info_lines = transport_info_lines(transport)
-                            debug_lines = transport_debug_lines(
-                                transport) if self._verbosity >= 2 else []
-                            self._started(self._alias, info_lines, debug_lines)
+                            info_lines = adapter.info_lines()
+                            debug_lines = adapter.debug_lines() if self._verbosity >= 2 else []
+                            self._started(self._stream_id, info_lines, debug_lines)
                     except Exception:
                         pass
                     started_logged = True
                 # Initialize shared spinner text on first item (INFO)
                 if not shared_init_done and self._shared_task_id is not None:
                     base = current_label if current_label else None
-                    text0 = self._format_text(compose_text(base))
+                    text0 = self._format_text(adapter.format_label(base, include_stream_id=False))
                     self._progress.update(self._shared_task_id, text=text0)
                     shared_init_done = True
                 if current_label and current_label != last_path_label:
                     last_path_label = current_label
-                    text = self._format_text(compose_text(current_label))
+                    text = self._format_text(adapter.format_label(current_label, include_stream_id=False))
                     if self._verbosity >= 2 and self._task_id is not None:
                         self._progress.update(self._task_id, text=text)
                     elif self._shared_task_id is not None:
@@ -217,10 +178,10 @@ class _RichSourceProxy(Source):
                     self._progress.stop_task(self._task_id)
                 unit = self._unit or "item"
                 unit_suffix = "" if emitted == 1 else "s"
-                completed_text = f"[{self._alias}] Stream complete ({emitted} {unit}{unit_suffix})"
+                completed_text = f"[{self._stream_id}] Stream complete ({emitted} {unit}{unit_suffix})"
                 if callable(self._finalize):
                     try:
-                        self._finalize(self._alias, completed_text)
+                        self._finalize(self._stream_id, completed_text)
                     except Exception:
                         pass
             except Exception:
@@ -250,7 +211,7 @@ def visual_sources(runtime: Runtime, log_level: int | None, progress_style: str 
     _vis_console = _Console(file=_sys.stderr, markup=False,
                             highlight=False, soft_wrap=True)
 
-    # Columns tuned by style; alias is embedded in text
+    # Columns tuned by style; stream id is embedded in text
     if verbosity >= 2:
         columns = [
             TextColumn("{task.fields[text]}", markup=False),
@@ -323,7 +284,7 @@ def visual_sources(runtime: Runtime, log_level: int | None, progress_style: str 
     with Live(renderable, console=_vis_console, refresh_per_second=10, transient=True) as live:
         try:
             shared_task_id: Optional[int] = None
-            active_alias: Optional[str] = None
+            active_stream_id: Optional[str] = None
             pending_starts: list[tuple[str, list[tuple[str, str]]]] = []
             seen_messages: set[str] = set()
 
@@ -339,72 +300,50 @@ def visual_sources(runtime: Runtime, log_level: int | None, progress_style: str 
                         logger.info(line)
 
             def _flush_next_start() -> None:
-                nonlocal active_alias
-                if active_alias is not None:
+                nonlocal active_stream_id
+                if active_stream_id is not None:
                     return
                 while pending_starts:
-                    next_alias, entries = pending_starts.pop(0)
+                    next_stream_id, entries = pending_starts.pop(0)
                     if not entries:
                         continue
-                    active_alias = next_alias
+                    active_stream_id = next_stream_id
                     _emit_entries(entries)
                     break
 
-            def _append_completed(alias: str, text: str):
+            def _append_completed(stream_id: str, text: str):
                 _emit_entries([("info", f"{text} ✔")])
-                nonlocal active_alias
-                if active_alias == alias:
-                    active_alias = None
+                nonlocal active_stream_id
+                if active_stream_id == stream_id:
+                    active_stream_id = None
                 _flush_next_start()
 
-            def _append_started(alias: str, info_lines: list[str], debug_lines: list[str]):
-                nonlocal active_alias
+            def _append_started(stream_id: str, info_lines: list[str], debug_lines: list[str]):
+                nonlocal active_stream_id
                 entries: list[tuple[str, str]] = []
                 for line in info_lines:
-                    entries.append(("info", f"[{alias}] {line}"))
+                    entries.append(("info", f"[{stream_id}] {line}"))
                 for line in debug_lines:
-                    entries.append(("debug", f"[{alias}] {line}"))
+                    entries.append(("debug", f"[{stream_id}] {line}"))
                 if not entries:
-                    entries = [("info", f"[{alias}] Stream starting")]
-                if active_alias is None:
-                    active_alias = alias
+                    entries = [("info", f"[{stream_id}] Stream starting")]
+                if active_stream_id is None:
+                    active_stream_id = stream_id
                     _emit_entries(entries)
                     return
-                pending_starts.append((alias, entries))
+                pending_starts.append((stream_id, entries))
             if verbosity < 2:
                 shared_task_id = progress.add_task("", total=None, text="")
-            for alias, src in originals.items():
-                # Composed/virtual sources (no loader): attach header-only proxy to emit when streamed
-                if getattr(src, "loader", None) is None:
-                    class _ComposedHeaderProxy:
-                        def __init__(self, inner, alias: str):
-                            self._inner = inner
-                            self._alias = alias
-
-                        def stream(self):
-                            detail_entries: Optional[list[str]] = None
-                            try:
-                                spec = getattr(self._inner, "_spec", None)
-                                inputs = getattr(spec, "inputs", None)
-                                if isinstance(inputs, (list, tuple)) and inputs:
-                                    detail_entries = [str(item)
-                                                      for item in inputs]
-                            except Exception:
-                                detail_entries = None
-                            log_combined_stream(self._alias, detail_entries)
-                            yield from self._inner.stream()
-
-                    reg.register(alias, _ComposedHeaderProxy(src, alias))
-                else:
-                    proxy = _RichSourceProxy(inner=src, alias=alias, verbosity=verbosity, progress=progress,
-                                             shared_task_id=shared_task_id, finalize=_append_completed, started=_append_started)
-                    proxies[alias] = proxy
-                    reg.register(alias, proxy)
+            for stream_id, stream_source in originals.items():
+                proxy = _RichSourceProxy(stream_source=stream_source, stream_id=stream_id, verbosity=verbosity, progress=progress,
+                                         shared_task_id=shared_task_id, finalize=_append_completed, started=_append_started)
+                proxies[stream_id] = proxy
+                reg.register(stream_id, proxy)
             yield
         finally:
             # Restore original sources
-            for alias, src in originals.items():
-                reg.register(alias, src)
+            for stream_id, stream_source in originals.items():
+                reg.register(stream_id, stream_source)
     # After Live finishes: restore logging handlers
     if rich_handler is not None:
         # Restore original handlers and filters
