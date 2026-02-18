@@ -16,7 +16,6 @@ def test_shared_visuals_config(tmp_path):
         """
         shared:
           visuals: OFF
-          progress: bars
         """,
     )
 
@@ -24,7 +23,6 @@ def test_shared_visuals_config(tmp_path):
     assert context
     shared = context.config.shared
     assert shared.visuals == "OFF"
-    assert shared.progress == "BARS"
 
 
 def test_shared_visuals_defaults_when_missing(tmp_path):
@@ -32,15 +30,14 @@ def test_shared_visuals_defaults_when_missing(tmp_path):
         tmp_path,
         """
         shared:
-          visuals: auto
+          visuals: on
         """,
     )
 
     context = load_workspace_context(tmp_path)
     assert context
     shared = context.config.shared
-    assert shared.visuals == "AUTO"
-    assert shared.progress is None
+    assert shared.visuals == "ON"
 
 
 def test_workspace_serve_defaults_limit(tmp_path):

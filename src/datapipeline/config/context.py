@@ -54,7 +54,6 @@ class RunProfile:
 @dataclass(frozen=True)
 class BuildSettings:
     visuals: str
-    progress: str
     mode: str
     force: bool
 
@@ -92,13 +91,11 @@ def resolve_build_settings(
     *,
     workspace: WorkspaceContext | None,
     cli_visuals: Optional[str],
-    cli_progress: Optional[str],
     force_flag: bool,
 ) -> BuildSettings:
     shared = workspace.config.shared if workspace else None
     build_defaults = workspace.config.build if workspace else None
     shared_visuals = shared.visuals if shared else None
-    shared_progress = shared.progress if shared else None
     build_mode_default = (
         build_defaults.mode.upper() if build_defaults and build_defaults.mode else None
     )
@@ -106,9 +103,6 @@ def resolve_build_settings(
         cli_visuals=cli_visuals,
         config_visuals=None,
         workspace_visuals=shared_visuals,
-        cli_progress=cli_progress,
-        config_progress=None,
-        workspace_progress=shared_progress,
     )
     effective_mode = "FORCE" if force_flag else (
         cascade(build_mode_default, "AUTO") or "AUTO")
@@ -116,7 +110,6 @@ def resolve_build_settings(
     force_build = force_flag or effective_mode == "FORCE"
     return BuildSettings(
         visuals=visuals.visuals,
-        progress=visuals.progress,
         mode=effective_mode,
         force=force_build,
     )
@@ -134,13 +127,11 @@ def resolve_run_profiles(
     cli_log_level: Optional[str],
     base_log_level: str,
     cli_visuals: Optional[str],
-    cli_progress: Optional[str],
     create_run: bool = False,
 ) -> list[RunProfile]:
     shared = workspace.config.shared if workspace else None
     serve_defaults = workspace.config.serve if workspace else None
     shared_visuals_default = shared.visuals if shared else None
-    shared_progress_default = shared.progress if shared else None
     shared_log_level_default = shared.log_level if shared else None
     serve_log_level_default = serve_defaults.log_level if serve_defaults else None
     serve_limit_default = serve_defaults.limit if serve_defaults else None
@@ -172,14 +163,10 @@ def resolve_run_profiles(
         )
 
         run_visuals = _run_config_value(run_cfg, "visuals")
-        run_progress = _run_config_value(run_cfg, "progress")
         visuals = resolve_visuals(
             cli_visuals=cli_visuals,
             config_visuals=run_visuals,
             workspace_visuals=shared_visuals_default,
-            cli_progress=cli_progress,
-            config_progress=run_progress,
-            workspace_progress=shared_progress_default,
         )
 
         runtime_output_cfg = workspace_output_cfg.model_copy() if workspace_output_cfg else None

@@ -28,7 +28,6 @@ from datapipeline.config.options import (
     OUTPUT_FORMATS,
     OUTPUT_TRANSPORTS,
     OUTPUT_VIEWS,
-    PROGRESS_CHOICES,
     SOURCE_FS_FORMATS,
     SOURCE_TRANSPORTS,
     VISUAL_CHOICES,
@@ -62,13 +61,7 @@ def _add_visual_flags(parser: argparse.ArgumentParser) -> None:
         "--visuals",
         choices=VISUAL_CHOICES,
         default=None,
-        help="visuals renderer: auto (default), tqdm, rich, or off",
-    )
-    parser.add_argument(
-        "--progress",
-        choices=PROGRESS_CHOICES,
-        default=None,
-        help="progress display: auto (spinner unless DEBUG), spinner, bars, or off",
+        help="visuals mode: on (default) or off",
     )
 
 
@@ -157,23 +150,17 @@ def _run_inspect_command(
 ) -> None:
     subcmd = getattr(args, "inspect_cmd", None)
     shared_visuals_default = shared_defaults.visuals if shared_defaults else None
-    shared_progress_default = shared_defaults.progress if shared_defaults else None
     inspect_visuals = resolve_visuals(
         cli_visuals=getattr(args, "visuals", None),
         config_visuals=None,
         workspace_visuals=shared_visuals_default,
-        cli_progress=getattr(args, "progress", None),
-        config_progress=None,
-        workspace_progress=shared_progress_default,
     )
-    inspect_visual_provider = inspect_visuals.visuals or "auto"
-    inspect_progress_style = inspect_visuals.progress or "auto"
+    inspect_visual_provider = inspect_visuals.visuals or "on"
     base_kwargs = {
         "project": args.project,
         "threshold": getattr(args, "threshold", 0.95),
         "apply_postprocess": (getattr(args, "mode", "final") == "final"),
         "visuals": inspect_visual_provider,
-        "progress": inspect_progress_style,
         "log_level": base_level,
         "sort": getattr(args, "sort", "missing"),
         "workspace": workspace_context,
@@ -206,7 +193,6 @@ def _run_inspect_command(
             project=args.project,
             output=getattr(args, "output", None),
             visuals=inspect_visual_provider,
-            progress=inspect_progress_style,
             log_level=base_level,
             workspace=workspace_context,
         )
@@ -575,7 +561,7 @@ def main() -> None:
         help="filter entrypoint name and function/module name",
     )
 
-    # Shared visuals/progress controls for inspect commands
+    # Shared visuals controls for inspect commands
     inspect_common = argparse.ArgumentParser(add_help=False)
     _add_visual_flags(inspect_common)
     _add_dataset_flag(inspect_common)
@@ -737,7 +723,6 @@ def main() -> None:
             cli_log_level=cli_level_arg,
             base_log_level=base_level_name,
             cli_visuals=getattr(args, "visuals", None),
-            cli_progress=getattr(args, "progress", None),
             workspace=workspace_context,
         )
         return
@@ -746,7 +731,6 @@ def main() -> None:
             project=args.project,
             force=getattr(args, "force", False),
             cli_visuals=getattr(args, "visuals", None),
-            cli_progress=getattr(args, "progress", None),
             workspace=workspace_context,
         )
         return

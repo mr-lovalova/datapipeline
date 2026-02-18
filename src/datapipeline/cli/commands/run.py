@@ -51,7 +51,6 @@ def _profile_debug_payload(profile) -> dict[str, object]:
         },
         "visuals": {
             "provider": profile.visuals.visuals,
-            "progress": profile.visuals.progress,
         },
         "output": {
             "transport": profile.output.transport,
@@ -158,7 +157,6 @@ def _resolve_profiles(
     cli_log_level: Optional[str],
     base_log_level: str,
     cli_visuals: Optional[str],
-    cli_progress: Optional[str],
     create_run: bool,
 ):
     return resolve_run_profiles(
@@ -172,7 +170,6 @@ def _resolve_profiles(
         cli_log_level=cli_log_level,
         base_log_level=base_log_level,
         cli_visuals=cli_visuals,
-        cli_progress=cli_progress,
         create_run=create_run,
     )
 
@@ -201,7 +198,6 @@ def ensure_stage_artifacts(
     profiles,
     *,
     cli_visuals: Optional[str],
-    cli_progress: Optional[str],
     workspace,
 ) -> None:
     demands = [StageDemand(profile.stage) for profile in profiles]
@@ -211,7 +207,6 @@ def ensure_stage_artifacts(
     run_build_if_needed(
         project_path,
         cli_visuals=cli_visuals,
-        cli_progress=cli_progress,
         workspace=workspace,
         required_artifacts=required,
     )
@@ -233,7 +228,6 @@ def handle_serve(
     cli_log_level: Optional[str],
     base_log_level: str,
     cli_visuals: Optional[str] = None,
-    cli_progress: Optional[str] = None,
     workspace=None,
 ) -> None:
     project_path = Path(project)
@@ -259,7 +253,6 @@ def handle_serve(
             cli_log_level=cli_log_level,
             base_log_level=base_log_level,
             cli_visuals=cli_visuals,
-            cli_progress=cli_progress,
             create_run=False,
         )
     except OutputResolutionError as exc:
@@ -277,7 +270,6 @@ def handle_serve(
             vector_dataset,
             profiles,
             cli_visuals=cli_visuals,
-            cli_progress=cli_progress,
             workspace=workspace,
         )
         profiles = _resolve_profiles(
@@ -291,7 +283,6 @@ def handle_serve(
             cli_log_level=cli_log_level,
             base_log_level=base_log_level,
             cli_visuals=cli_visuals,
-            cli_progress=cli_progress,
             create_run=True,
         )
 
@@ -324,8 +315,8 @@ def handle_serve(
         run_job(
             sections=sections,
             label=profile.label,
-            visuals=profile.visuals.visuals or "auto",
-            progress_style=profile.visuals.progress or "auto",
+            visuals=profile.visuals.visuals or "on",
+            progress_style="bars",
             level=profile.log_decision.value,
             runtime=profile.runtime,
             work=_work,

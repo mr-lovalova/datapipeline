@@ -7,8 +7,7 @@ datasets:
 default_dataset: your-dataset
 
 shared:
-  visuals: AUTO
-  progress: BARS
+  visuals: ON
   log_level: INFO
 
 serve:

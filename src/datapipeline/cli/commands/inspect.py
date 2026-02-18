@@ -25,7 +25,6 @@ def _prepare_inspect_build(
     project: str | Path,
     *,
     visuals: str | None,
-    progress: str | None,
     workspace=None,
 ) -> None:
     project_path = Path(project)
@@ -38,7 +37,6 @@ def _prepare_inspect_build(
         project_path,
         required_artifacts=required,
         cli_visuals=visuals,
-        cli_progress=progress,
         workspace=workspace,
     )
 
@@ -51,8 +49,7 @@ def _iter_with_progress(
 ) -> Iterator[T]:
     style = (progress_style or "auto").lower()
     if style == "auto":
-        # Default to a light spinner unless DEBUG logging is active.
-        style = "bars" if logging.getLogger().isEnabledFor(logging.DEBUG) else "spinner"
+        style = "bars"
     if style == "off":
         yield from iterable
         return
@@ -79,7 +76,6 @@ def _run_inspect_job(
     project: str,
     *,
     visuals: str | None,
-    progress: str | None,
     log_level: int | None,
     label: str,
     section: str,
@@ -87,8 +83,8 @@ def _run_inspect_job(
 ) -> None:
     dataset_ctx = load_dataset_context(project)
     level_value = log_level if log_level is not None else logging.getLogger().getEffectiveLevel()
-    visuals_provider = visuals or "auto"
-    progress_style = progress or "auto"
+    visuals_provider = visuals or "on"
+    progress_style = "off" if visuals_provider == "off" else "bars"
 
     run_job(
         sections=("inspect", section),
@@ -152,7 +148,6 @@ def report(
     quiet: bool = False,
     apply_postprocess: bool = True,
     visuals: str | None = None,
-    progress: str | None = None,
     log_level: int | None = None,
     sort: str = "missing",
     workspace=None,
@@ -166,7 +161,6 @@ def report(
     _prepare_inspect_build(
         project,
         visuals=visuals,
-        progress=progress,
         workspace=workspace,
     )
 
@@ -218,7 +212,6 @@ def report(
     _run_inspect_job(
         project,
         visuals=visuals,
-        progress=progress,
         log_level=log_level,
         label="Inspect report",
         section="report",
@@ -231,7 +224,6 @@ def partitions(
     *,
     output: str | None = None,
     visuals: str | None = None,
-    progress: str | None = None,
     log_level: int | None = None,
     workspace=None,
 ) -> None:
@@ -246,7 +238,6 @@ def partitions(
     _prepare_inspect_build(
         project,
         visuals=visuals,
-        progress=progress,
         workspace=workspace,
     )
 
@@ -302,7 +293,6 @@ def partitions(
     _run_inspect_job(
         project,
         visuals=visuals,
-        progress=progress,
         log_level=log_level,
         label="Inspect partitions",
         section="partitions",

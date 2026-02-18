@@ -29,13 +29,13 @@ def stdout_sink_for(format_: str, visuals: Optional[str]) -> StdoutTextSink:
     """Select an appropriate stdout sink given format and visuals preference.
 
     Behavior:
-    - visuals == "rich" or "auto" -> attempt Rich formatting; fallback to plain on error.
-    - anything else               -> plain stdout (no Rich formatting).
+    - visuals == "rich", "auto", or "on" -> attempt Rich formatting; fallback to plain on error.
+    - anything else                      -> plain stdout (no Rich formatting).
     """
     fmt = (format_ or "print").lower()
     provider = (visuals or "auto").lower()
 
-    use_rich = provider == "rich" or provider == "auto"
+    use_rich = provider in {"rich", "auto", "on"}
     if not use_rich:
         return StdoutTextSink()
 

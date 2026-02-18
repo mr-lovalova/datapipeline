@@ -32,7 +32,7 @@ def _runtime() -> Runtime:
 
 
 @patch("datapipeline.cli.visuals.runner.logging_redirect_tqdm")
-def test_run_job_auto_mode_skips_redirect_when_backend_is_rich(mock_redirect):
+def test_run_job_on_mode_skips_redirect_when_backend_is_rich(mock_redirect):
     mock_redirect.return_value.__enter__.return_value = None
     mock_redirect.return_value.__exit__.return_value = None
     backend = _StubBackend(redirect=False)
@@ -40,7 +40,7 @@ def test_run_job_auto_mode_skips_redirect_when_backend_is_rich(mock_redirect):
         runner.run_job(
             sections=("Runs",),
             label="demo",
-            visuals="auto",
+            visuals="on",
             progress_style="auto",
             level=logging.INFO,
             runtime=_runtime(),
@@ -58,7 +58,7 @@ def test_run_with_backend_uses_redirect_for_basic_backends(mock_redirect):
     backend = _StubBackend(redirect=True)
     with patch("datapipeline.cli.visuals.runner.get_visuals_backend", return_value=backend):
         runner.run_with_backend(
-            visuals="basic",
+            visuals="on",
             progress_style="auto",
             runtime=_runtime(),
             level=logging.INFO,

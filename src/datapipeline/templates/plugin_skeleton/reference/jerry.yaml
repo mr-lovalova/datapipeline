@@ -8,8 +8,7 @@
 # default_dataset: default         # optional (must be a key in datasets)
 #
 # shared:                          # optional
-#   visuals: AUTO                  # optional; AUTO | TQDM | RICH | OFF
-#   progress: AUTO                 # optional; AUTO | SPINNER | BARS | OFF
+#   visuals: ON                    # optional; ON | OFF
 #   log_level: INFO                # optional; CRITICAL | ERROR | WARNING | INFO | DEBUG
 #
 # serve:                           # optional

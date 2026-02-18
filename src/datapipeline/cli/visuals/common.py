@@ -292,6 +292,5 @@ def current_loader_label(loader, transport, *, glob_root: Optional[Path] = None)
 def resolve_progress_style_mode(progress_style: str, log_level: int | None) -> str:
     mode = (progress_style or "auto").lower()
     if mode == "auto":
-        level = log_level if log_level is not None else logging.INFO
-        return "bars" if level <= logging.DEBUG else "spinner"
+        return "bars"
     return mode

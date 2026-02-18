@@ -13,8 +13,7 @@ SOURCE_TRANSPORTS = ("fs", "http", "synthetic")
 SOURCE_FS_HTTP_FORMATS = ("csv", "json", "jsonl")
 SOURCE_FS_FORMATS = (*SOURCE_FS_HTTP_FORMATS, "pickle")
 
-VISUAL_CHOICES = ("auto", "tqdm", "rich", "off")
-PROGRESS_CHOICES = ("auto", "spinner", "bars", "off")
+VISUAL_CHOICES = ("on", "off")
 
 
 def source_formats_for(transport: str) -> tuple[str, ...]:

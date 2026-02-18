@@ -25,5 +25,4 @@
 # throttle_ms: 0              # optional; milliseconds; null disables
 #
 # log_level: INFO             # optional; CRITICAL | ERROR | WARNING | INFO | DEBUG
-# visuals: AUTO               # optional; AUTO | TQDM | RICH | OFF (false -> OFF)
-# progress: AUTO              # optional; AUTO | SPINNER | BARS | OFF
+# visuals: ON                 # optional; ON | OFF (false -> OFF)

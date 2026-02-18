@@ -6,7 +6,6 @@ from pydantic import BaseModel, Field, field_validator
 
 from datapipeline.services.path_policy import resolve_workspace_path, workspace_cwd
 from datapipeline.config.tasks import (
-    VALID_PROGRESS_STYLES,
     VALID_VISUAL_PROVIDERS,
 )
 from datapipeline.utils.load import load_yaml
@@ -14,14 +13,11 @@ from datapipeline.utils.load import load_yaml
 
 class SharedDefaults(BaseModel):
     visuals: Optional[str] = Field(
-        default=None, description="AUTO | TQDM | RICH | OFF"
-    )
-    progress: Optional[str] = Field(
-        default=None, description="AUTO | SPINNER | BARS | OFF"
+        default=None, description="ON | OFF"
     )
     log_level: Optional[str] = Field(default=None, description="DEFAULT LOG LEVEL")
 
-    @field_validator("visuals", "progress", "log_level", mode="before")
+    @field_validator("visuals", "log_level", mode="before")
     @classmethod
     def _normalize(cls, value: object):
         if value is None:
@@ -37,25 +33,11 @@ class SharedDefaults(BaseModel):
         if value is None:
             return None
         if isinstance(value, bool):
-            return "OFF" if value is False else "AUTO"
+            return "OFF" if value is False else "ON"
         name = str(value).upper()
         if name not in VALID_VISUAL_PROVIDERS:
             raise ValueError(
                 f"visuals must be one of {', '.join(VALID_VISUAL_PROVIDERS)}, got {value!r}"
-            )
-        return name
-
-    @field_validator("progress", mode="before")
-    @classmethod
-    def _normalize_progress(cls, value):
-        if value is None:
-            return None
-        if isinstance(value, bool):
-            return "OFF" if value is False else "AUTO"
-        name = str(value).upper()
-        if name not in VALID_PROGRESS_STYLES:
-            raise ValueError(
-                f"progress must be one of {', '.join(VALID_PROGRESS_STYLES)}, got {value!r}"
             )
         return name
 

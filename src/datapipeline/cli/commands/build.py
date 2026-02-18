@@ -30,7 +30,6 @@ def _log_build_settings_debug(project_path: Path, settings) -> None:
         "mode": settings.mode,
         "force": settings.force,
         "visuals": settings.visuals,
-        "progress": settings.progress,
     }
     logger.debug("Build settings:\n%s", json.dumps(
         payload, indent=2, default=str))
@@ -75,7 +74,6 @@ def run_build_if_needed(
     *,
     force: bool = False,
     cli_visuals: str | None = None,
-    cli_progress: str | None = None,
     workspace=None,
     required_artifacts: set[str] | None = None,
 ) -> bool:
@@ -87,11 +85,9 @@ def run_build_if_needed(
     settings = resolve_build_settings(
         workspace=workspace,
         cli_visuals=cli_visuals,
-        cli_progress=cli_progress,
         force_flag=force,
     )
     effective_provider = settings.visuals
-    effective_style = settings.progress
 
     if settings.mode == "OFF":
         logger.info("Build skipped (jerry.yaml build.mode=OFF).")
@@ -177,7 +173,7 @@ def run_build_if_needed(
             sections=sections,
             label=job_label,
             visuals=effective_provider,
-            progress_style=effective_style,
+            progress_style="bars",
             level=effective_level,
             runtime=runtime,
             work=lambda definition=definition, task=task: _run_artifact_builder(
@@ -206,7 +202,6 @@ def handle(
     *,
     force: bool = False,
     cli_visuals: str | None = None,
-    cli_progress: str | None = None,
     workspace=None,
 ) -> None:
     """Materialize build artifacts for the configured project."""
@@ -214,6 +209,5 @@ def handle(
         project,
         force=force,
         cli_visuals=cli_visuals,
-        cli_progress=cli_progress,
         workspace=workspace,
     )

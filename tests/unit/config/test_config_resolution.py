@@ -18,26 +18,18 @@ def test_cascade_prefers_first_non_null():
 
 def test_resolve_visuals_applies_priority():
     visuals = resolve_visuals(
-        cli_visuals="RICH",
-        config_visuals="TQDM",
-        workspace_visuals="auto",
-        cli_progress=None,
-        config_progress="BARS",
-        workspace_progress="spinner",
+        cli_visuals="OFF",
+        config_visuals="ON",
+        workspace_visuals="ON",
     )
-    assert visuals.visuals == "rich"
-    assert visuals.progress == "bars"
+    assert visuals.visuals == "off"
 
     visuals = resolve_visuals(
         cli_visuals=None,
         config_visuals=None,
-        workspace_visuals="tqdm",
-        cli_progress=None,
-        config_progress=None,
-        workspace_progress="spinner",
+        workspace_visuals="ON",
     )
-    assert visuals.visuals == "tqdm"
-    assert visuals.progress == "spinner"
+    assert visuals.visuals == "on"
 
 
 def test_resolve_log_level_handles_fallbacks():

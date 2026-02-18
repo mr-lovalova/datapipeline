@@ -11,25 +11,22 @@ def test_run_config_value_ignores_model_defaults():
     cfg = ServeTask.model_validate({"kind": "serve"})
 
     assert _run_config_value(cfg, "visuals") is None
-    assert _run_config_value(cfg, "progress") is None
     assert _run_config_value(cfg, "log_level") is None
 
 
 def test_run_config_value_respects_explicit_overrides():
     cfg = ServeTask.model_validate(
-        {"kind": "serve", "visuals": "rich", "progress": "bars", "log_level": "debug"}
+        {"kind": "serve", "visuals": "off", "log_level": "debug"}
     )
 
-    assert _run_config_value(cfg, "visuals") == "RICH"
-    assert _run_config_value(cfg, "progress") == "BARS"
+    assert _run_config_value(cfg, "visuals") == "OFF"
     assert _run_config_value(cfg, "log_level") == "DEBUG"
 
 
 def test_run_config_value_preserves_explicit_null():
-    cfg = ServeTask.model_validate({"kind": "serve", "visuals": None, "progress": None})
+    cfg = ServeTask.model_validate({"kind": "serve", "visuals": None})
 
     assert _run_config_value(cfg, "visuals") is None
-    assert _run_config_value(cfg, "progress") is None
 
 
 def test_run_profiles_inherit_workspace_throttle(monkeypatch, tmp_path):
@@ -58,7 +55,6 @@ def test_run_profiles_inherit_workspace_throttle(monkeypatch, tmp_path):
         cli_log_level=None,
         base_log_level="INFO",
         cli_visuals=None,
-        cli_progress=None,
     )
 
     assert profiles[0].throttle_ms == 250

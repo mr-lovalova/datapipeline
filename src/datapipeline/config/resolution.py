@@ -40,7 +40,6 @@ def _level_value(value: Any) -> Optional[int]:
 @dataclass(frozen=True)
 class VisualSettings:
     visuals: str
-    progress: str
 
 
 def resolve_visuals(
@@ -48,11 +47,7 @@ def resolve_visuals(
     cli_visuals: str | None,
     config_visuals: str | None,
     workspace_visuals: str | None,
-    cli_progress: str | None,
-    config_progress: str | None,
-    workspace_progress: str | None,
-    default_visuals: str = "auto",
-    default_progress: str = "auto",
+    default_visuals: str = "on",
 ) -> VisualSettings:
     visuals = cascade(
         _normalize_lower(cli_visuals),
@@ -60,13 +55,7 @@ def resolve_visuals(
         _normalize_lower(workspace_visuals),
         default_visuals,
     ) or default_visuals
-    progress = cascade(
-        _normalize_lower(cli_progress),
-        _normalize_lower(config_progress),
-        _normalize_lower(workspace_progress),
-        default_progress,
-    ) or default_progress
-    return VisualSettings(visuals=visuals, progress=progress)
+    return VisualSettings(visuals=visuals)
 
 
 @dataclass(frozen=True)

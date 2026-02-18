@@ -10,8 +10,7 @@ from datapipeline.services.project_paths import tasks_dir
 from datapipeline.utils.load import load_yaml
 
 VALID_LOG_LEVELS = ("CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG")
-VALID_VISUAL_PROVIDERS = ("AUTO", "TQDM", "RICH", "OFF")
-VALID_PROGRESS_STYLES = ("AUTO", "SPINNER", "BARS", "OFF")
+VALID_VISUAL_PROVIDERS = ("ON", "OFF")
 
 Transport = Literal["fs", "stdout"]
 Format = Literal["csv", "jsonl", "print", "pickle"]
@@ -196,12 +195,8 @@ class ServeTask(RuntimeTask):
         description="Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL).",
     )
     visuals: str | None = Field(
-        default="AUTO",
-        description="Visuals provider: AUTO, TQDM, RICH, or OFF.",
-    )
-    progress: str | None = Field(
-        default="AUTO",
-        description="Progress style: AUTO, SPINNER, BARS, or OFF.",
+        default="ON",
+        description="Visuals mode: ON or OFF.",
     )
 
     @field_validator("log_level")
@@ -222,23 +217,11 @@ class ServeTask(RuntimeTask):
         if value is None:
             return None
         if isinstance(value, bool):
-            return "OFF" if value is False else "AUTO"
+            return "OFF" if value is False else "ON"
         name = str(value).upper()
         if name not in VALID_VISUAL_PROVIDERS:
             raise ValueError(
                 f"visuals must be one of {', '.join(VALID_VISUAL_PROVIDERS)}, got {value!r}"
-            )
-        return name
-
-    @field_validator("progress", mode="before")
-    @classmethod
-    def _validate_progress_run(cls, value):
-        if value is None:
-            return None
-        name = str(value).upper()
-        if name not in VALID_PROGRESS_STYLES:
-            raise ValueError(
-                f"progress must be one of {', '.join(VALID_PROGRESS_STYLES)}, got {value!r}"
             )
         return name
 
