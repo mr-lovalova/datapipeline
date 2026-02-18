@@ -27,7 +27,7 @@ def test_collect_schema_entries_counts_nan(monkeypatch, tmp_path):
     )
     sample = Sample(key=(0,), features=Vector(values={"wind_speed": math.nan}))
 
-    def fake_pipeline(context, configs, group_by_cadence, target_configs=None, *, rectangular=True):
+    def fake_pipeline(context, configs, group_by_cadence, target_configs=None, rectangular=True):
         assert not rectangular
         return iter([sample])
 

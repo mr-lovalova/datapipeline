@@ -110,7 +110,7 @@ class AverageTimeRemainingColumn(ProgressColumn):
 
 
 class _RichSourceProxy(Source):
-    def __init__(self, *, inner: Source, alias: str, verbosity: int, progress: Progress, unit: Optional[str] = None, shared_task_id: Optional[int] = None, finalize: Optional[callable] = None, started: Optional[callable] = None):
+    def __init__(self, inner: Source, alias: str, verbosity: int, progress: Progress, unit: Optional[str] = None, shared_task_id: Optional[int] = None, finalize: Optional[callable] = None, started: Optional[callable] = None):
         self._inner = inner
         self._alias = alias
         self._verbosity = max(0, min(verbosity, 2))

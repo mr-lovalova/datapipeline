@@ -1,4 +1,3 @@
-from __future__ import annotations
 from typing import Any, Literal, TYPE_CHECKING
 import logging
 
@@ -12,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 def print_report(
-    collector: VectorStatsCollector,
+    collector: "VectorStatsCollector",
     *,
     sort_key: Literal["missing", "nulls"] = "missing",
 ) -> dict[str, Any]:

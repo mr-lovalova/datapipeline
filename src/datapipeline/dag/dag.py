@@ -1,8 +1,6 @@
-from __future__ import annotations
-
 from dataclasses import dataclass
 
-from datapipeline.execution.nodes.spec import PipelineNode
+from datapipeline.dag.node import PipelineNode
 
 
 @dataclass(frozen=True)

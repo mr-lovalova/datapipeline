@@ -5,9 +5,10 @@ from datapipeline.config.catalog import SourceConfig, EPArgs, ContractConfig
 from datapipeline.mappers.noop import identity
 from datapipeline.utils.placeholders import normalize_args
 from datapipeline.sources.models.base import SourceInterface
-from datapipeline.pipeline.context import PipelineContext
-from datapipeline.pipeline.pipelines import build_record_pipeline
-from datapipeline.pipeline.utils.transform_utils import _supports_parameter
+from datapipeline.pipelines.record.nodes import RECORD_NODE_COUNT
+from datapipeline.dag.context import PipelineContext
+from datapipeline.pipelines import build_record_pipeline
+from datapipeline.transforms.engine import _supports_parameter
 from inspect import isclass
 from typing import Iterator, Any, Optional
 
@@ -32,7 +33,7 @@ def build_mapper_from_spec(spec: EPArgs | None):
 
 
 class _ComposedSource(SourceInterface):
-    def __init__(self, *, runtime, stream_id: str, spec: ContractConfig):
+    def __init__(self, runtime, stream_id: str, spec: ContractConfig):
         self._runtime = runtime
         self._stream_id = stream_id
         self._spec = spec
@@ -122,7 +123,7 @@ class _ComposedSource(SourceInterface):
                 raise ValueError(
                     f"Unknown input stream '{ref}'. Known streams: {sorted(known_streams)}"
                 )
-            it = build_record_pipeline(context, ref, stage=4)
+            it = build_record_pipeline(context, ref, stage=RECORD_NODE_COUNT - 1)
             out[alias] = {"iter": it, "aligned": True}
 
         return out

@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from datapipeline.config.split import TimeSplitConfig
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
-from datapipeline.pipeline.split import apply_split_stage
+from datapipeline.pipelines.full.split import apply_split_stage
 
 
 def _vector_stream():

@@ -5,8 +5,8 @@ from datapipeline.build.tasks.schema import materialize_vector_schema
 from datapipeline.build.tasks.scaler import materialize_scaler_statistics
 from datapipeline.config.context import load_dataset
 from datapipeline.config.tasks import MetadataTask, SchemaTask, ScalerTask
-from datapipeline.pipeline.context import PipelineContext
-from datapipeline.pipeline.pipelines import build_vector_pipeline
+from datapipeline.dag.context import PipelineContext
+from datapipeline.pipelines import build_vector_pipeline
 from datapipeline.services.bootstrap import bootstrap
 from datapipeline.services.constants import (
     VECTOR_SCHEMA_METADATA,

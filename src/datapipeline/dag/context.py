@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import logging
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -8,7 +6,7 @@ from typing import Iterator, Mapping, Any, Callable, Optional
 from datetime import datetime
 
 from datapipeline.runtime import Runtime
-from datapipeline.pipeline.observability import ObserverRegistry
+from datapipeline.dag.transform_observability import ObserverRegistry
 from datapipeline.services.artifacts import (
     ArtifactNotRegisteredError,
     ArtifactManager,
@@ -20,7 +18,7 @@ from datapipeline.utils.window import resolve_window_bounds
 
 logger = logging.getLogger(__name__)
 
-_current_context: ContextVar[PipelineContext | None] = ContextVar(
+_current_context: ContextVar["PipelineContext | None"] = ContextVar(
     "datapipeline_pipeline_context", default=None
 )
 
@@ -109,7 +107,7 @@ class PipelineContext:
         return end
 
     @contextmanager
-    def activate(self) -> Iterator[PipelineContext]:
+    def activate(self) -> Iterator["PipelineContext"]:
         token = _current_context.set(self)
         try:
             yield self

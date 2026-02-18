@@ -2,7 +2,7 @@ from typing import Literal
 
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
-from datapipeline.pipeline.context import (
+from datapipeline.dag.context import (
     PipelineContext,
     try_get_current_context,
 )

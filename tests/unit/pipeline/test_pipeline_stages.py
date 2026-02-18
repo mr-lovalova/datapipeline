@@ -5,13 +5,15 @@ from pathlib import Path
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.domain.feature import FeatureRecordSequence
 from datapipeline.domain.record import TemporalRecord
-from datapipeline.pipeline.context import PipelineContext
-from datapipeline.pipeline.pipelines import (
+from datapipeline.dag.context import PipelineContext
+from datapipeline.pipelines import (
+    build_full_pipeline,
     build_feature_pipeline,
     build_record_pipeline,
     build_vector_pipeline,
 )
-from datapipeline.pipeline.stages import post_process
+from datapipeline.pipelines.full.nodes import post_process
+from datapipeline.pipelines.full.split import apply_split_stage
 from datapipeline.runtime import Runtime
 from datapipeline.services.constants import POSTPROCESS_TRANSFORMS, VECTOR_SCHEMA
 
@@ -124,7 +126,7 @@ def test_stage_4_applies_stream_transforms(tmp_path: Path) -> None:
     ]
 
 
-def test_stage_5_wraps_feature_values(tmp_path: Path) -> None:
+def test_stage_6_wraps_feature_values(tmp_path: Path) -> None:
     rows = [{"time": _ts(0), "value": 3.0, "symbol": "X"}]
     runtime = _runtime_with_rows(tmp_path, rows, partition_by="symbol")
     ctx = PipelineContext(runtime)
@@ -134,14 +136,14 @@ def test_stage_5_wraps_feature_values(tmp_path: Path) -> None:
         field="value",
     )
 
-    features = list(build_feature_pipeline(ctx, cfg, stage=5))
+    features = list(build_feature_pipeline(ctx, cfg, stage=6))
     assert len(features) == 1
     feature = features[0]
     assert feature.value == 3.0
     assert feature.id == "price__@symbol:X"
 
 
-def test_stage_6_applies_feature_transforms(tmp_path: Path) -> None:
+def test_stage_7_applies_feature_transforms(tmp_path: Path) -> None:
     rows = [
         {"time": _ts(0), "value": 1.0},
         {"time": _ts(1), "value": 2.0},
@@ -156,7 +158,7 @@ def test_stage_6_applies_feature_transforms(tmp_path: Path) -> None:
         sequence={"size": 2, "stride": 1},
     )
 
-    sequences = list(build_feature_pipeline(ctx, cfg, stage=6))
+    sequences = list(build_feature_pipeline(ctx, cfg, stage=7))
     assert len(sequences) == 2
     assert isinstance(sequences[0], FeatureRecordSequence)
     assert sequences[0].values == [1.0, 2.0]
@@ -188,3 +190,33 @@ def test_stage_7_vs_8_postprocess(tmp_path: Path) -> None:
 
     processed = list(post_process(ctx, iter(raw)))
     assert processed[0].features.values["price"] == 0
+
+
+def test_full_pipeline_matches_manual_chain(tmp_path: Path) -> None:
+    rows = [
+        {"time": _ts(0), "value": None},
+        {"time": _ts(1), "value": 2.0},
+    ]
+    runtime = _runtime_with_rows(tmp_path, rows)
+    schema_path = runtime.artifacts_root / "schema.json"
+    schema_doc = {"features": [{"id": "price"}], "targets": []}
+    schema_path.write_text(json.dumps(schema_doc, indent=2), encoding="utf-8")
+    runtime.artifacts.register(
+        VECTOR_SCHEMA,
+        relative_path=schema_path.relative_to(runtime.artifacts_root).as_posix(),
+    )
+    runtime.registries.postprocesses.register(
+        POSTPROCESS_TRANSFORMS,
+        [{"replace": {"value": 0}}],
+    )
+    ctx = PipelineContext(runtime)
+    cfg = FeatureRecordConfig(record_stream="stream", id="price", field="value")
+
+    full_out = list(build_full_pipeline(ctx, [cfg], "1h", rectangular=False))
+
+    manual = build_vector_pipeline(ctx, [cfg], "1h", rectangular=False)
+    manual = post_process(ctx, manual)
+    manual = apply_split_stage(runtime, manual)
+    manual_out = list(manual)
+
+    assert full_out == manual_out

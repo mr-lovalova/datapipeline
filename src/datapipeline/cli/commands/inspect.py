@@ -12,8 +12,8 @@ from datapipeline.config.context import load_dataset_context
 from datapipeline.config.dataset.loader import load_dataset
 from datapipeline.utils.paths import ensure_parent
 from datapipeline.services.bootstrap import artifacts_root
-from datapipeline.pipeline.pipelines import build_vector_pipeline
-from datapipeline.pipeline.stages import post_process
+from datapipeline.pipelines.full.nodes import post_process
+from datapipeline.pipelines import build_vector_pipeline
 from datapipeline.artifacts.specs import StageDemand, required_artifacts_for
 from datapipeline.cli.commands.build import run_build_if_needed
 from tqdm import tqdm

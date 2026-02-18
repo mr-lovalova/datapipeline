@@ -1,9 +1,7 @@
-from __future__ import annotations
-
 import logging
 from typing import Protocol
 
-from datapipeline.execution.run_events import DagRunEvent, NodeRunEvent
+from datapipeline.dag.events import DagRunEvent, NodeRunEvent
 
 
 class ExecutionObserver(Protocol):
@@ -39,8 +37,8 @@ class LoggingExecutionObserver:
         self._logger = logger
 
     def on_dag_start(self, *, dag_name: str, node_count: int) -> None:
-        if self._logger.isEnabledFor(logging.DEBUG):
-            self._logger.debug(
+        if self._logger.isEnabledFor(logging.INFO):
+            self._logger.info(
                 "DAG started name=%s nodes=%d",
                 dag_name,
                 node_count,
@@ -68,12 +66,11 @@ class LoggingExecutionObserver:
             )
 
     def on_dag_end(self, event: DagRunEvent) -> None:
-        if self._logger.isEnabledFor(logging.DEBUG):
-            self._logger.debug(
+        if self._logger.isEnabledFor(logging.INFO):
+            self._logger.info(
                 "DAG finished name=%s status=%s items=%d elapsed=%.6fs",
                 event.dag_name,
                 event.status,
                 event.output_items,
                 event.elapsed_seconds,
             )
-

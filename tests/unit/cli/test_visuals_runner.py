@@ -8,7 +8,7 @@ from datapipeline.runtime import Runtime
 
 
 class _StubBackend:
-    def __init__(self, *, redirect: bool):
+    def __init__(self, redirect: bool):
         self._redirect = redirect
 
     def requires_logging_redirect(self) -> bool:

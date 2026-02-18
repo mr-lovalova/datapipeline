@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from datapipeline.pipeline.utils.keygen import FeatureIdGenerator
+from datapipeline.pipelines.feature.keygen import FeatureIdGenerator
 
 
 @dataclass

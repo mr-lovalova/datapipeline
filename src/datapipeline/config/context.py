@@ -18,7 +18,7 @@ from datapipeline.io.output import (
     OutputTarget,
     resolve_output_target,
 )
-from datapipeline.pipeline.context import PipelineContext
+from datapipeline.dag.context import PipelineContext
 from datapipeline.runtime import Runtime
 from datapipeline.services.bootstrap import bootstrap
 

@@ -3,14 +3,12 @@ import time
 from itertools import islice
 from typing import Iterator, Optional
 
-from datapipeline.execution.nodes.feature_nodes import RECORD_NODE_COUNT
-from datapipeline.pipeline.observability import default_observer_registry
+from datapipeline.pipelines.record.nodes import RECORD_NODE_COUNT
+from datapipeline.dag.transform_observability import default_observer_registry
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.domain.sample import Sample
-from datapipeline.pipeline.context import PipelineContext
-from datapipeline.pipeline.pipelines import build_feature_pipeline, build_vector_pipeline
-from datapipeline.pipeline.stages import post_process
-from datapipeline.pipeline.split import apply_split_stage
+from datapipeline.dag.context import PipelineContext
+from datapipeline.pipelines import build_feature_pipeline, build_full_pipeline
 from datapipeline.runtime import Runtime
 from datapipeline.utils.window import resolve_window_bounds
 from datapipeline.io.factory import writer_factory
@@ -134,16 +132,13 @@ def serve_with_runtime(
 
         runtime.window_bounds = resolve_window_bounds(runtime, True)
 
-        vectors = build_vector_pipeline(
+        vectors = build_full_pipeline(
             context,
             feature_cfgs,
             dataset.group_by,
             target_configs=target_cfgs,
             rectangular=True,
         )
-
-        vectors = post_process(context, vectors)
-        vectors = apply_split_stage(runtime, vectors)
         vectors = throttle_vectors(vectors, throttle_ms)
 
         writer = writer_factory(target, visuals=visuals)

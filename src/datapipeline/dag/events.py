@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import Literal
 
@@ -23,4 +21,3 @@ class DagRunEvent:
     output_items: int
     elapsed_seconds: float
     status: RunStatus
-

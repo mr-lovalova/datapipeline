@@ -7,7 +7,7 @@ from .decoders import Decoder
 class DataLoader(BaseDataLoader):
     """Compose a Transport with a row Decoder."""
 
-    def __init__(self, transport: Transport, decoder: Decoder, *, allow_network_count: bool = False):
+    def __init__(self, transport: Transport, decoder: Decoder, allow_network_count: bool = False):
         self.transport = transport
         self.decoder = decoder
         self._allow_net_count = bool(allow_network_count)

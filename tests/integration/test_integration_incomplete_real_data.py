@@ -5,8 +5,8 @@ from datapipeline.build.tasks.schema import materialize_vector_schema
 from datapipeline.build.tasks.scaler import materialize_scaler_statistics
 from datapipeline.config.tasks import SchemaTask, ScalerTask
 from datapipeline.services.constants import VECTOR_SCHEMA, SCALER_STATISTICS
-from datapipeline.pipeline.pipelines import build_vector_pipeline
-from datapipeline.pipeline.stages import post_process
+from datapipeline.pipelines.full.nodes import post_process
+from datapipeline.pipelines import build_vector_pipeline
 
 
 def _vector_samples(project_yaml):

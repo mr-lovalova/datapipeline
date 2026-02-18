@@ -4,9 +4,9 @@ from typing import Dict, Iterator, Tuple
 from datapipeline.config.tasks import ScalerTask
 from datapipeline.config.dataset.loader import load_dataset
 from datapipeline.domain.sample import Sample
-from datapipeline.pipeline.context import PipelineContext
-from datapipeline.pipeline.pipelines import build_vector_pipeline
-from datapipeline.pipeline.split import build_labeler
+from datapipeline.dag.context import PipelineContext
+from datapipeline.pipelines import build_vector_pipeline
+from datapipeline.pipelines.full.split import build_labeler
 from datapipeline.runtime import Runtime
 from datapipeline.transforms.feature.scaler import StandardScaler
 from datapipeline.utils.paths import ensure_parent

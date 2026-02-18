@@ -18,14 +18,13 @@ def _run_work(backend, runtime: Runtime, level: int, progress_style: str, work: 
         return work()
 
 
-def run_with_backend(*, visuals: str, progress_style: str, runtime: Runtime, level: int, work: Callable[[], Any]):
+def run_with_backend(visuals: str, progress_style: str, runtime: Runtime, level: int, work: Callable[[], Any]):
     """Execute a unit of work inside a visuals backend context."""
     backend = get_visuals_backend(visuals)
     return _run_work(backend, runtime, level, progress_style, work)
 
 
 def run_job(
-    *,
     sections: Sequence[str] | None,
     label: str,
     visuals: str,

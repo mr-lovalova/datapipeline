@@ -4,7 +4,7 @@ import shutil
 from datapipeline.config.context import load_dataset_context
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
-from datapipeline.pipeline.context import PipelineContext
+from datapipeline.dag.context import PipelineContext
 from datapipeline.transforms.vector import VectorDropTransform
 from datapipeline.services.constants import VECTOR_SCHEMA_METADATA
 

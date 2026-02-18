@@ -1,13 +1,14 @@
-from __future__ import annotations
-
 from pathlib import Path
+import logging
 
 import pytest
 
-from datapipeline.execution.dag_stream import run_stage_dag
-from datapipeline.execution.nodes.spec import PipelineNode
-from datapipeline.execution.stage_dag import StageDag
-from datapipeline.pipeline.context import PipelineContext
+from datapipeline.dag.events import DagRunEvent, NodeRunEvent
+from datapipeline.dag.observer import LoggingExecutionObserver
+from datapipeline.dag.runner import run_stage_dag
+from datapipeline.dag.node import PipelineNode
+from datapipeline.dag.dag import StageDag
+from datapipeline.dag.context import PipelineContext
 from datapipeline.runtime import Runtime
 
 
@@ -44,9 +45,9 @@ def test_stage_dag_upto_stage_filters_nodes() -> None:
     dag = StageDag(
         name="demo",
         nodes=(
-            PipelineNode(name="a", run=lambda _ctx, _up: [1]),
-            PipelineNode(name="b", run=lambda _ctx, up: up or ()),
-            PipelineNode(name="c", run=lambda _ctx, up: up or ()),
+            PipelineNode(name="a", op=lambda: [1]),
+            PipelineNode(name="b", op=lambda up: up or (), input="a"),
+            PipelineNode(name="c", op=lambda up: up or (), input="b"),
         ),
     )
 
@@ -61,10 +62,11 @@ def test_run_stage_dag_emits_node_and_dag_events(tmp_path: Path) -> None:
     dag = StageDag(
         name="linear-demo",
         nodes=(
-            PipelineNode(name="seed", run=lambda _ctx, _up: [1, 2, 3]),
+            PipelineNode(name="seed", op=lambda: [1, 2, 3]),
             PipelineNode(
                 name="plus_one",
-                run=lambda _ctx, up: (x + 1 for x in (up or ())),
+                op=lambda up: (x + 1 for x in (up or ())),
+                input="seed",
             ),
         ),
     )
@@ -85,7 +87,7 @@ def test_run_stage_dag_propagates_error_and_marks_failure(tmp_path: Path) -> Non
     observer = _CollectingObserver()
     ctx = _context(tmp_path)
 
-    def _explode(_ctx, up):
+    def _explode(up):
         for value in up or ():
             if value == 2:
                 raise RuntimeError("boom")
@@ -94,8 +96,8 @@ def test_run_stage_dag_propagates_error_and_marks_failure(tmp_path: Path) -> Non
     dag = StageDag(
         name="error-demo",
         nodes=(
-            PipelineNode(name="seed", run=lambda _ctx, _up: [1, 2, 3]),
-            PipelineNode(name="explode", run=_explode),
+            PipelineNode(name="seed", op=lambda: [1, 2, 3]),
+            PipelineNode(name="explode", op=_explode, input="seed"),
         ),
     )
 
@@ -117,8 +119,8 @@ def test_run_stage_dag_tracks_empty_nodes(tmp_path: Path) -> None:
     dag = StageDag(
         name="empty-demo",
         nodes=(
-            PipelineNode(name="seed", run=lambda _ctx, _up: []),
-            PipelineNode(name="passthrough", run=lambda _ctx, up: up or ()),
+            PipelineNode(name="seed", op=lambda: []),
+            PipelineNode(name="passthrough", op=lambda up: up or (), input="seed"),
         ),
     )
 
@@ -136,8 +138,8 @@ def test_run_stage_dag_derives_stage_from_index(tmp_path: Path) -> None:
     dag = StageDag(
         name="index-demo",
         nodes=(
-            PipelineNode(name="first", run=lambda _ctx, _up: [1]),
-            PipelineNode(name="second", run=lambda _ctx, up: up or ()),
+            PipelineNode(name="first", op=lambda: [1]),
+            PipelineNode(name="second", op=lambda up: up or (), input="first"),
         ),
     )
 
@@ -145,3 +147,54 @@ def test_run_stage_dag_derives_stage_from_index(tmp_path: Path) -> None:
     assert output == [1]
     assert [stage for _, _, stage in observer.node_started] == [1, 0]
     assert [event.stage for event in observer.node_events] == [0, 1]
+
+
+def test_run_stage_dag_fails_on_missing_input(tmp_path: Path) -> None:
+    ctx = _context(tmp_path)
+    dag = StageDag(
+        name="keyed-demo",
+        nodes=(
+            PipelineNode(
+                name="consumer",
+                op=lambda _up: [],
+                input="missing",
+            ),
+        ),
+    )
+
+    with pytest.raises(KeyError, match="missing input"):
+        list(run_stage_dag(ctx, dag))
+
+
+def test_logging_observer_logs_dag_at_info_and_nodes_at_debug(caplog) -> None:
+    logger = logging.getLogger("datapipeline.dag.observer.test")
+    observer = LoggingExecutionObserver(logger)
+
+    with caplog.at_level(logging.INFO, logger=logger.name):
+        observer.on_dag_start(dag_name="demo", node_count=2)
+        observer.on_node_start(dag_name="demo", node_name="node_a", stage=0)
+        observer.on_node_end(
+            NodeRunEvent(
+                dag_name="demo",
+                node_name="node_a",
+                stage=0,
+                output_items=3,
+                elapsed_seconds=0.01,
+                status="success",
+            )
+        )
+        observer.on_dag_end(
+            DagRunEvent(
+                dag_name="demo",
+                node_count=2,
+                output_items=3,
+                elapsed_seconds=0.02,
+                status="success",
+            )
+        )
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert any(message.startswith("DAG started name=demo") for message in messages)
+    assert any(message.startswith("DAG finished name=demo") for message in messages)
+    assert not any(message.startswith("Node started ") for message in messages)
+    assert not any(message.startswith("Node finished ") for message in messages)

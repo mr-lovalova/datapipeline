@@ -4,8 +4,8 @@ from typing import Any, Optional, Tuple
 from inspect import isclass, signature, Parameter
 from contextlib import nullcontext
 
-from datapipeline.pipeline.context import PipelineContext
-from datapipeline.pipeline.observability import ObserverRegistry, SupportsObserver, TransformEvent
+from datapipeline.dag.context import PipelineContext
+from datapipeline.dag.transform_observability import ObserverRegistry, SupportsObserver, TransformEvent
 
 from datapipeline.utils.load import load_ep
 

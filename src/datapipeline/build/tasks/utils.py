@@ -2,8 +2,8 @@ from collections import Counter, OrderedDict
 from datetime import datetime
 from typing import Any
 
-from datapipeline.pipeline.context import PipelineContext
-from datapipeline.pipeline.pipelines import build_vector_pipeline
+from datapipeline.dag.context import PipelineContext
+from datapipeline.pipelines import build_vector_pipeline
 from datapipeline.runtime import Runtime
 from datapipeline.transforms.vector_utils import base_id as _base_feature_id
 from datapipeline.transforms.utils import is_missing

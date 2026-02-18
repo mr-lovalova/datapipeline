@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from datapipeline.config.context import load_dataset_context
-from datapipeline.pipeline.pipelines import build_vector_pipeline
-from datapipeline.pipeline.stages import post_process
+from datapipeline.pipelines.full.nodes import post_process
+from datapipeline.pipelines import build_vector_pipeline
 
 
 def test_drop_with_schema_and_partitioned_streams(copy_fixture):

@@ -14,7 +14,7 @@ class Transport(ABC):
 
 
 class FsFileTransport(Transport):
-    def __init__(self, path: str, *, chunk_size: int = 65536):
+    def __init__(self, path: str, chunk_size: int = 65536):
         self.path = path
         self.chunk_size = chunk_size
 
@@ -30,7 +30,7 @@ class FsFileTransport(Transport):
 
 
 class FsGlobTransport(Transport):
-    def __init__(self, pattern: str, *, chunk_size: int = 65536):
+    def __init__(self, pattern: str, chunk_size: int = 65536):
         import glob as _glob
 
         self.pattern = pattern
