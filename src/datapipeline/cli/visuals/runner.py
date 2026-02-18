@@ -1,8 +1,6 @@
 import logging
 from typing import Callable, Any, Sequence, Tuple
 
-from tqdm.contrib.logging import logging_redirect_tqdm
-
 from datapipeline.cli.visuals import get_visuals_backend
 from datapipeline.runtime import Runtime
 
@@ -12,9 +10,6 @@ logger = logging.getLogger(__name__)
 
 def _run_work(backend, runtime: Runtime, level: int, progress_style: str, work: Callable[[], Any]):
     with backend.wrap_sources(runtime, level, progress_style):
-        if backend.requires_logging_redirect():
-            with logging_redirect_tqdm():
-                return work()
         return work()
 
 

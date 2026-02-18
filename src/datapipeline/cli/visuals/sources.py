@@ -32,10 +32,6 @@ class VisualsBackend:
         """Return True if backend surfaced a final completion line visually."""
         return False
 
-    def requires_logging_redirect(self) -> bool:
-        """Return True when console logging should be routed via tqdm."""
-        return True
-
     def wrap_sources(self, runtime: Runtime, log_level: int, progress_style: str):  # contextmanager
         @contextmanager
         def _noop():
@@ -109,14 +105,8 @@ class _RichBackend(VisualsBackend):
         # Rich backend manages its own persistent final line; signal handled
         return True
 
-    def requires_logging_redirect(self) -> bool:
-        return False
-
 
 class _OffBackend(VisualsBackend):
-    def requires_logging_redirect(self) -> bool:
-        return False
-
     def wrap_sources(self, runtime: Runtime, log_level: int, progress_style: str):
         from .sources_off import visual_sources as off_vs
         return off_vs(runtime, log_level, progress_style)
@@ -131,14 +121,10 @@ def _rich_available() -> bool:
 
 
 def get_visuals_backend(provider: Optional[str]) -> VisualsBackend:
-    mode = (provider or "auto").lower()
+    mode = (provider or "on").lower()
     if mode == "off":
         return _OffBackend()
-    if mode == "tqdm":
-        return _BasicBackend()
-    if mode == "rich":
-        return _RichBackend() if _rich_available() else _BasicBackend()
-    # auto
+    # on
     if _rich_available() and _is_tty():
         return _RichBackend()
     return _BasicBackend()
