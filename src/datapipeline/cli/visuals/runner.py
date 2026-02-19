@@ -9,7 +9,7 @@ from datapipeline.runtime import Runtime
 logger = logging.getLogger(__name__)
 
 
-def _run_work(backend, runtime: Runtime, level: int, progress_style: str, work: Callable[[], Any]):
+def _run_work(backend, runtime: Runtime, level: int, work: Callable[[], Any]):
     previous_observer = getattr(runtime, "execution_observer", None)
     installed = previous_observer is None
     if installed:
@@ -17,24 +17,23 @@ def _run_work(backend, runtime: Runtime, level: int, progress_style: str, work: 
             logging.getLogger("datapipeline.dag.observer")
         )
     try:
-        with backend.wrap_sources(runtime, level, progress_style):
+        with backend.wrap_sources(runtime, level):
             return work()
     finally:
         if installed:
             runtime.execution_observer = previous_observer
 
 
-def run_with_backend(visuals: str, progress_style: str, runtime: Runtime, level: int, work: Callable[[], Any]):
+def run_with_backend(visuals: str, runtime: Runtime, level: int, work: Callable[[], Any]):
     """Execute a unit of work inside a visuals backend context."""
     backend = get_visuals_backend(visuals)
-    return _run_work(backend, runtime, level, progress_style, work)
+    return _run_work(backend, runtime, level, work)
 
 
 def run_job(
     sections: Sequence[str] | None,
     label: str,
     visuals: str,
-    progress_style: str,
     level: int,
     runtime: Runtime,
     work: Callable[[], Any],
@@ -59,7 +58,7 @@ def run_job(
         else:
             logger.info("%s: '%s'", prefix, label)
 
-    result = _run_work(backend, runtime, level, progress_style, work)
+    result = _run_work(backend, runtime, level, work)
 
     try:
         handled = backend.on_streams_complete()

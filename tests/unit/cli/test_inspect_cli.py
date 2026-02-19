@@ -28,12 +28,6 @@ def test_iter_merged_vectors_applies_postprocess_toggle(monkeypatch) -> None:
         "build_vector_pipeline",
         lambda *args, **kwargs: iter([sample]),
     )
-    monkeypatch.setattr(
-        inspect,
-        "_iter_with_progress",
-        lambda iterable, **kwargs: iterable,
-    )
-
     def _post_process(context, vectors):
         calls["post_process"] += 1
         return vectors
@@ -44,7 +38,6 @@ def test_iter_merged_vectors_applies_postprocess_toggle(monkeypatch) -> None:
         inspect._iter_merged_vectors(
             dataset_ctx,
             apply_postprocess=True,
-            progress_style="off",
         )
     )
 

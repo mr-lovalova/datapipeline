@@ -1,11 +1,8 @@
 from contextlib import contextmanager
-import logging
 import sys
 from typing import Optional, Tuple
 
 from datapipeline.runtime import Runtime
-
-logger = logging.getLogger(__name__)
 
 
 def _is_tty() -> bool:
@@ -32,7 +29,7 @@ class VisualsBackend:
         """Return True if backend surfaced a final completion line visually."""
         return False
 
-    def wrap_sources(self, runtime: Runtime, log_level: int, progress_style: str):  # contextmanager
+    def wrap_sources(self, runtime: Runtime, log_level: int):  # contextmanager
         @contextmanager
         def _noop():
             yield
@@ -41,9 +38,9 @@ class VisualsBackend:
 
 
 class _BasicBackend(VisualsBackend):
-    def wrap_sources(self, runtime: Runtime, log_level: int, progress_style: str):
+    def wrap_sources(self, runtime: Runtime, log_level: int):
         from .streams_basic import visual_sources as basic
-        return basic(runtime, log_level, progress_style)
+        return basic(runtime, log_level)
 
 
 class _RichBackend(VisualsBackend):
@@ -97,9 +94,9 @@ class _RichBackend(VisualsBackend):
         except Exception:
             return False
 
-    def wrap_sources(self, runtime: Runtime, log_level: int, progress_style: str):
+    def wrap_sources(self, runtime: Runtime, log_level: int):
         from .streams_rich import visual_sources as rich_vs
-        return rich_vs(runtime, log_level, progress_style)
+        return rich_vs(runtime, log_level)
 
     def on_streams_complete(self) -> bool:
         # Rich backend manages its own persistent final line; signal handled
@@ -107,9 +104,12 @@ class _RichBackend(VisualsBackend):
 
 
 class _OffBackend(VisualsBackend):
-    def wrap_sources(self, runtime: Runtime, log_level: int, progress_style: str):
-        from .streams_off import visual_sources as off_vs
-        return off_vs(runtime, log_level, progress_style)
+    def wrap_sources(self, runtime: Runtime, log_level: int):
+        @contextmanager
+        def _noop():
+            yield
+
+        return _noop()
 
 
 def _rich_available() -> bool:
@@ -131,7 +131,7 @@ def get_visuals_backend(provider: Optional[str]) -> VisualsBackend:
 
 
 @contextmanager
-def visual_sources(runtime: Runtime, log_level: int, provider: Optional[str] = None, progress_style: str = "auto"):
+def visual_sources(runtime: Runtime, log_level: int, provider: Optional[str] = None):
     backend = get_visuals_backend(provider)
-    with backend.wrap_sources(runtime, log_level, progress_style):
+    with backend.wrap_sources(runtime, log_level):
         yield

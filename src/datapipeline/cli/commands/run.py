@@ -316,7 +316,6 @@ def handle_serve(
             sections=sections,
             label=profile.label,
             visuals=profile.visuals.visuals or "on",
-            progress_style="bars",
             level=profile.log_decision.value,
             runtime=profile.runtime,
             work=_work,

@@ -173,7 +173,6 @@ def run_build_if_needed(
             sections=sections,
             label=job_label,
             visuals=effective_provider,
-            progress_style="bars",
             level=effective_level,
             runtime=runtime,
             work=lambda definition=definition, task=task: _run_artifact_builder(

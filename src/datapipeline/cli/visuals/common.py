@@ -287,10 +287,3 @@ def current_loader_label(loader, transport, *, glob_root: Optional[Path] = None)
         return _with_item(None)
 
     return current_transport_label(transport, glob_root=glob_root)
-
-
-def resolve_progress_style_mode(progress_style: str, log_level: int | None) -> str:
-    mode = (progress_style or "auto").lower()
-    if mode == "auto":
-        return "bars"
-    return mode

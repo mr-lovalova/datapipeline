@@ -1,10 +1,8 @@
 import io
 import json
 import logging
-import sys
 from contextlib import redirect_stdout
 from pathlib import Path
-from typing import Iterable, Iterator, TypeVar
 
 from datapipeline.analysis.vector.collector import VectorStatsCollector
 from datapipeline.cli.visuals.runner import run_job
@@ -17,9 +15,6 @@ from datapipeline.pipelines.full.nodes import post_process
 from datapipeline.pipelines import build_vector_pipeline
 from datapipeline.artifacts.specs import StageDemand, required_artifacts_for
 from datapipeline.cli.commands.build import run_build_if_needed
-from tqdm import tqdm
-
-T = TypeVar("T")
 
 
 def _prepare_inspect_build(
@@ -42,37 +37,6 @@ def _prepare_inspect_build(
     )
 
 
-def _iter_with_progress(
-    iterable: Iterable[T],
-    *,
-    progress_style: str | None,
-    label: str,
-) -> Iterator[T]:
-    style = (progress_style or "auto").lower()
-    if style == "auto":
-        style = "bars"
-    if style == "off":
-        yield from iterable
-        return
-    bar_kwargs = {
-        "desc": label,
-        "unit": "vec",
-        "dynamic_ncols": True,
-        "mininterval": 0.2,
-        "leave": False,
-        # Avoid noisy multi-line progress when stdout is not a TTY (e.g., logs)
-        "disable": not sys.stderr.isatty(),
-    }
-    if style == "spinner":
-        bar_kwargs["bar_format"] = "{desc} {n_fmt}{unit}"
-    bar = tqdm(iterable, **bar_kwargs)
-    try:
-        for item in bar:
-            yield item
-    finally:
-        bar.close()
-
-
 def _run_inspect_job(
     project: str,
     *,
@@ -85,7 +49,6 @@ def _run_inspect_job(
     dataset_ctx = load_dataset_context(project)
     level_value = log_level if log_level is not None else logging.getLogger().getEffectiveLevel()
     visuals_provider = visuals or "on"
-    progress_style = "off" if visuals_provider == "off" else "bars"
     observer = make_execution_observer(
         logging.getLogger("datapipeline.dag.observer")
     )
@@ -96,10 +59,9 @@ def _run_inspect_job(
         sections=("inspect", section),
         label=label,
         visuals=visuals_provider,
-        progress_style=progress_style,
         level=level_value,
         runtime=dataset_ctx.runtime,
-        work=lambda: work(dataset_ctx, progress_style),
+        work=lambda: work(dataset_ctx),
     )
 
 
@@ -114,8 +76,6 @@ def _iter_merged_vectors(
     dataset_ctx,
     *,
     apply_postprocess: bool,
-    progress_style: str,
-    label: str = "Processing vectors",
 ):
     context = dataset_ctx.pipeline_context
     dataset = dataset_ctx.dataset
@@ -133,12 +93,7 @@ def _iter_merged_vectors(
     if apply_postprocess:
         vectors = post_process(context, vectors)
 
-    vector_iter = _iter_with_progress(
-        vectors,
-        progress_style=progress_style,
-        label=label,
-    )
-    for sample in vector_iter:
+    for sample in vectors:
         yield sample.key, _merge_sample_values(sample)
 
 
@@ -170,7 +125,7 @@ def report(
         workspace=workspace,
     )
 
-    def _work(dataset_ctx, progress_style):
+    def _work(dataset_ctx):
         project_path = dataset_ctx.project
 
         feature_cfgs = dataset_ctx.features
@@ -203,7 +158,6 @@ def report(
         for key, merged in _iter_merged_vectors(
             dataset_ctx,
             apply_postprocess=apply_postprocess,
-            progress_style=progress_style,
         ):
             collector.update(key, merged)
 
@@ -247,7 +201,7 @@ def partitions(
         workspace=workspace,
     )
 
-    def _work(dataset_ctx, progress_style):
+    def _work(dataset_ctx):
         project_path = dataset_ctx.project
 
         feature_cfgs = list(dataset_ctx.dataset.features or [])
@@ -266,7 +220,6 @@ def partitions(
         for key, merged in _iter_merged_vectors(
             dataset_ctx,
             apply_postprocess=True,
-            progress_style=progress_style,
         ):
             collector.update(key, merged)
 

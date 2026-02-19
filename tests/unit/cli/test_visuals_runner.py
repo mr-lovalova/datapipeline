@@ -8,7 +8,7 @@ from datapipeline.runtime import Runtime
 
 
 class _StubBackend:
-    def wrap_sources(self, runtime, level, progress_style):
+    def wrap_sources(self, runtime, level):
         @contextmanager
         def _cm():
             yield
@@ -33,7 +33,6 @@ def test_run_job_executes_work():
             sections=("Runs",),
             label="demo",
             visuals="on",
-            progress_style="auto",
             level=logging.INFO,
             runtime=_runtime(),
             work=lambda: called.__setitem__("ok", True),
@@ -49,7 +48,6 @@ def test_run_with_backend_executes_work():
     with patch("datapipeline.cli.visuals.runner.get_visuals_backend", return_value=backend):
         runner.run_with_backend(
             visuals="on",
-            progress_style="auto",
             runtime=_runtime(),
             level=logging.INFO,
             work=lambda: called.__setitem__("ok", True),

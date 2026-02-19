@@ -9,7 +9,6 @@ from rich.live import Live
 from rich.progress import (
     Progress,
     ProgressColumn,
-    SpinnerColumn,
     TextColumn,
     BarColumn,
     MofNCompleteColumn,
@@ -19,9 +18,6 @@ from rich.progress import (
 )
 from rich.text import Text
 
-from .common import (
-    resolve_progress_style_mode,
-)
 from .execution_context import current_dag_indent
 from .source_observability import SourceObservabilityAdapter
 from datapipeline.runtime import Runtime
@@ -102,13 +98,11 @@ class AverageTimeRemainingColumn(ProgressColumn):
 
 
 class _RichSourceProxy(Source):
-    def __init__(self, stream_source: Source, stream_id: str, verbosity: int, progress: Progress, unit: Optional[str] = None, shared_task_id: Optional[int] = None, finalize: Optional[callable] = None, started: Optional[callable] = None):
+    def __init__(self, stream_source: Source, stream_id: str, progress: Progress, unit: Optional[str] = None, finalize: Optional[callable] = None, started: Optional[callable] = None):
         self._inner = stream_source
         self._stream_id = stream_id
-        self._verbosity = max(0, min(verbosity, 2))
         self._progress = progress
         self._task_id = None
-        self._shared_task_id = shared_task_id
         self._unit = unit
         self._emitted = 0
         self._finalize = finalize
@@ -123,20 +117,20 @@ class _RichSourceProxy(Source):
         adapter = SourceObservabilityAdapter(self._inner, self._stream_id)
         self._unit = adapter.unit
 
-        # Create task lazily with no total (DEBUG) or reuse shared spinner (INFO)
-        if self._verbosity >= 2 or self._shared_task_id is None:
-            self._task_id = self._progress.add_task(
-                "", start=False, total=None, text=self._format_text(adapter.format_label(include_stream_id=False, include_dag_indent=False)))
+        self._task_id = self._progress.add_task(
+            "",
+            start=False,
+            total=None,
+            text=self._format_text(adapter.format_label(include_stream_id=False, include_dag_indent=False)),
+        )
 
-        # If verbose, try to resolve total and show a real bar
-        if self._verbosity >= 2 and self._task_id is not None:
+        if self._task_id is not None:
             total = adapter.count()
             if total is not None:
                 self._progress.update(self._task_id, total=total)
 
         emitted = 0
         last_path_label: Optional[str] = None
-        shared_init_done = False
         started_logged = False
 
         if self._task_id is not None:
@@ -151,31 +145,23 @@ class _RichSourceProxy(Source):
                     try:
                         if callable(self._started):
                             info_lines = adapter.info_lines()
-                            debug_lines = adapter.debug_lines() if self._verbosity >= 2 else []
+                            debug_lines = adapter.debug_lines()
                             self._started(self._stream_id, info_lines, debug_lines)
                     except Exception:
                         pass
                     started_logged = True
-                # Initialize shared spinner text on first item (INFO)
-                if not shared_init_done and self._shared_task_id is not None:
-                    base = current_label if current_label else None
-                    text0 = self._format_text(adapter.format_label(base, include_stream_id=False, include_dag_indent=False))
-                    self._progress.update(self._shared_task_id, text=text0)
-                    shared_init_done = True
                 if current_label and current_label != last_path_label:
                     last_path_label = current_label
                     text = self._format_text(adapter.format_label(current_label, include_stream_id=False, include_dag_indent=False))
-                    if self._verbosity >= 2 and self._task_id is not None:
+                    if self._task_id is not None:
                         self._progress.update(self._task_id, text=text)
-                    elif self._shared_task_id is not None:
-                        self._progress.update(self._shared_task_id, text=text)
-                if self._verbosity >= 2 and self._task_id is not None:
+                if self._task_id is not None:
                     self._progress.advance(self._task_id, 1)
                 emitted += 1
                 yield item
         finally:
             try:
-                if self._verbosity >= 2 and self._task_id is not None:
+                if self._task_id is not None:
                     self._progress.update(self._task_id, completed=emitted)
                     self._progress.stop_task(self._task_id)
                 unit = self._unit or "item"
@@ -194,18 +180,11 @@ class _RichSourceProxy(Source):
 
 
 @contextmanager
-def visual_sources(runtime: Runtime, log_level: int | None, progress_style: str = "auto"):
+def visual_sources(runtime: Runtime, log_level: int | None):
     level = log_level if log_level is not None else logging.INFO
     if level > logging.INFO:
         yield
         return
-
-    style_mode = resolve_progress_style_mode(progress_style, log_level)
-    if style_mode == "off":
-        yield
-        return
-
-    verbosity = 2 if style_mode == "bars" else 1
 
     # Build a console on stderr for visuals/logs
     from rich.console import Console as _Console
@@ -213,21 +192,14 @@ def visual_sources(runtime: Runtime, log_level: int | None, progress_style: str 
     _vis_console = _Console(file=_sys.stderr, markup=False,
                             highlight=False, soft_wrap=True)
 
-    # Columns tuned by style; stream id is embedded in text
-    if verbosity >= 2:
-        columns = [
-            TextColumn("{task.fields[text]}", markup=False),
-            BarColumn(),
-            MofNCompleteColumn(),
-            TaskProgressColumn(),
-            TimeElapsedColumn(),
-            AverageTimeRemainingColumn(),
-        ]
-    else:
-        columns = [
-            TextColumn("{task.fields[text]}", markup=False),
-            SpinnerColumn(spinner_name="runner"),
-        ]
+    columns = [
+        TextColumn("{task.fields[text]}", markup=False),
+        BarColumn(),
+        MofNCompleteColumn(),
+        TaskProgressColumn(),
+        TimeElapsedColumn(),
+        AverageTimeRemainingColumn(),
+    ]
 
     # Keep Live output transient so the spinner/bars disappear once completed
     progress = Progress(*columns, transient=True, console=_vis_console)
@@ -271,8 +243,6 @@ def visual_sources(runtime: Runtime, log_level: int | None, progress_style: str 
 
     reg = runtime.registries.stream_sources
     originals = dict(reg.items())
-    proxies: dict[str, _RichSourceProxy] = {}
-
     # Swap handlers if RichHandler is available
     if rich_handler is not None:
         # Replace handlers with Rich and add a simple de-dup filter to avoid
@@ -283,9 +253,8 @@ def visual_sources(runtime: Runtime, log_level: int | None, progress_style: str 
 
     renderable = progress
 
-    with Live(renderable, console=_vis_console, refresh_per_second=10, transient=True) as live:
+    with Live(renderable, console=_vis_console, refresh_per_second=10, transient=True):
         try:
-            shared_task_id: Optional[int] = None
             active_stream_id: Optional[str] = None
             pending_starts: list[tuple[str, list[tuple[str, str]]]] = []
             seen_messages: set[str] = set()
@@ -335,12 +304,14 @@ def visual_sources(runtime: Runtime, log_level: int | None, progress_style: str 
                     _emit_entries(entries)
                     return
                 pending_starts.append((stream_id, entries))
-            if verbosity < 2:
-                shared_task_id = progress.add_task("", total=None, text="")
             for stream_id, stream_source in originals.items():
-                proxy = _RichSourceProxy(stream_source=stream_source, stream_id=stream_id, verbosity=verbosity, progress=progress,
-                                         shared_task_id=shared_task_id, finalize=_append_completed, started=_append_started)
-                proxies[stream_id] = proxy
+                proxy = _RichSourceProxy(
+                    stream_source=stream_source,
+                    stream_id=stream_id,
+                    progress=progress,
+                    finalize=_append_completed,
+                    started=_append_started,
+                )
                 reg.register(stream_id, proxy)
             yield
         finally:
