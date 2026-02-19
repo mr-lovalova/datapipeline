@@ -204,25 +204,6 @@ def visual_sources(runtime: Runtime, log_level: int | None):
     # Keep Live output transient so the spinner/bars disappear once completed
     progress = Progress(*columns, transient=True, console=_vis_console)
 
-    # Install a temporary Rich logging handler for clean log rendering during Live
-    class _DedupFilter(logging.Filter):
-        def __init__(self):
-            super().__init__()
-            self._last: tuple[int, str] | None = None
-
-        # type: ignore[override]
-        def filter(self, record: logging.LogRecord) -> bool:
-            try:
-                msg = record.getMessage()
-            except Exception:
-                msg = record.msg if isinstance(
-                    record.msg, str) else str(record.msg)
-            key = (record.levelno, msg)
-            if self._last == key:
-                return False
-            self._last = key
-            return True
-
     rich_handler = None
     root_logger = logging.getLogger()
     old_handlers = list(root_logger.handlers)
@@ -245,11 +226,8 @@ def visual_sources(runtime: Runtime, log_level: int | None):
     originals = dict(reg.items())
     # Swap handlers if RichHandler is available
     if rich_handler is not None:
-        # Replace handlers with Rich and add a simple de-dup filter to avoid
-        # double-rendered lines if another handler slips in.
+        # Replace handlers with Rich for clean rendering during Live.
         root_logger.handlers = [rich_handler]
-        dedup = _DedupFilter()
-        root_logger.addFilter(dedup)
 
     renderable = progress
 
@@ -257,14 +235,9 @@ def visual_sources(runtime: Runtime, log_level: int | None):
         try:
             active_stream_id: Optional[str] = None
             pending_starts: list[tuple[str, list[tuple[str, str]]]] = []
-            seen_messages: set[str] = set()
 
             def _emit_entries(entries: list[tuple[str, str]]) -> None:
                 for level, line in entries:
-                    key = f"{level}:{line}"
-                    if key in seen_messages:
-                        continue
-                    seen_messages.add(key)
                     if level == "debug":
                         logger.debug(line)
                     else:
