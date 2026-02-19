@@ -13,7 +13,7 @@ VALID_LOG_LEVELS = ("CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG")
 VALID_VISUAL_PROVIDERS = ("ON", "OFF")
 
 Transport = Literal["fs", "stdout"]
-Format = Literal["csv", "jsonl", "print", "pickle"]
+Format = Literal["csv", "jsonl", "pickle"]
 View = Literal["flat", "raw", "values"]
 
 
@@ -79,7 +79,7 @@ class RuntimeTask(TaskBase):
 class ServeOutputConfig(BaseModel):
     transport: Transport = Field(..., description="fs | stdout")
     format: Format = Field(...,
-                           description="csv | jsonl | print | pickle")
+                           description="csv | jsonl | pickle")
     view: View | None = Field(
         default=None,
         description="flat | raw | values (unset uses format default)",
@@ -146,8 +146,6 @@ class ServeOutputConfig(BaseModel):
                 raise ValueError(
                     f"stdout output supports {', '.join(repr(x) for x in OUTPUT_STDOUT_FORMATS)} formats"
                 )
-        elif self.format == "print":
-            raise ValueError("fs transport cannot use 'print' format")
         elif self.directory is None:
             raise ValueError("fs outputs require a directory")
         if self.format == "csv" and self.view not in {None, "flat", "values"}:

@@ -1,5 +1,4 @@
 import logging
-import sys
 import time
 from itertools import islice
 from typing import Iterator, Optional
@@ -68,17 +67,10 @@ def serve_stream(
     items: Iterator[object],
     limit: Optional[int],
     writer: Writer,
-    emit_stdout_separator: bool = False,
 ) -> int:
     count = 0
     try:
         for item in limit_items(items, limit):
-            if emit_stdout_separator and count == 0:
-                try:
-                    sys.stdout.write("\n")
-                    sys.stdout.flush()
-                except Exception:
-                    pass
             writer.write(item)
             count += 1
     except KeyboardInterrupt:
@@ -92,20 +84,14 @@ def report_serve(target: OutputTarget, count: int) -> None:
     if target.destination:
         logger.info("Saved %d items to %s", count, target.destination)
         return
-    if target.transport == "stdout" and target.format == "jsonl":
+    if target.transport == "stdout":
         logger.info("(streamed %d items)", count)
         return
-    logger.info("(printed %d items to stdout)", count)
+    logger.info("(emitted %d items)", count)
 
 
 def _is_full_pipeline_stage(stage: int | None) -> bool:
     return stage is None
-
-
-def _should_emit_stdout_separator(target: OutputTarget, visuals: Optional[str]) -> bool:
-    if target.transport != "stdout":
-        return False
-    return (visuals or "on").lower() != "off"
 
 
 def serve_with_runtime(
@@ -144,10 +130,6 @@ def serve_with_runtime(
                     stream,
                     limit,
                     writer=writer,
-                    emit_stdout_separator=_should_emit_stdout_separator(
-                        feature_target,
-                        visuals,
-                    ),
                 )
                 report_serve(feature_target, count)
             run_status = "success"
@@ -171,7 +153,6 @@ def serve_with_runtime(
             vectors,
             limit,
             writer=writer,
-            emit_stdout_separator=_should_emit_stdout_separator(target, visuals),
         )
         report_serve(target, result_count)
         run_status = "success"

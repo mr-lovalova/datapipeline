@@ -5,8 +5,8 @@ stay in sync.
 """
 
 OUTPUT_TRANSPORTS = ("stdout", "fs")
-OUTPUT_FORMATS = ("print", "jsonl", "csv", "pickle")
-OUTPUT_STDOUT_FORMATS = ("print", "jsonl")
+OUTPUT_FORMATS = ("jsonl", "csv", "pickle")
+OUTPUT_STDOUT_FORMATS = ("jsonl",)
 OUTPUT_VIEWS = ("flat", "raw", "values")
 
 SOURCE_TRANSPORTS = ("fs", "http", "synthetic")

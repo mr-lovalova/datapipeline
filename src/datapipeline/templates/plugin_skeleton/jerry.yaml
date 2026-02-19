@@ -15,7 +15,7 @@ serve:
   stage: null
   output:
     transport: stdout
-    format: print
+    format: jsonl
 
 build:
   mode: AUTO

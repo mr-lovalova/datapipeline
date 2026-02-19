@@ -21,16 +21,6 @@ class JsonLineSerializer:
         ) + "\n"
 
 
-class PrintSerializer:
-    def __init__(self, item_type: ItemType, view: View) -> None:
-        self._item_type = item_type
-        self._view = view
-
-    def __call__(self, item: Any) -> str:
-        row = normalize_item(item, self._item_type)
-        return f"{normalized_payload(row, self._view)}\n"
-
-
 class CsvRowSerializer:
     def __init__(self, item_type: ItemType, view: View) -> None:
         if view not in {"flat", "values"}:
@@ -69,13 +59,6 @@ def json_line_serializer(
     view: View = "flat",
 ) -> JsonLineSerializer:
     return JsonLineSerializer(item_type, view)
-
-
-def print_serializer(
-    item_type: ItemType = "sample",
-    view: View = "flat",
-) -> PrintSerializer:
-    return PrintSerializer(item_type, view)
 
 
 def csv_row_serializer(

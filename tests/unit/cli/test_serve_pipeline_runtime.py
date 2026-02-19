@@ -1,10 +1,6 @@
 from dataclasses import dataclass, field
 
-from datapipeline.cli.commands.serve_pipeline import (
-    _should_emit_stdout_separator,
-    serve_stream,
-)
-from datapipeline.io.output import OutputTarget
+from datapipeline.cli.commands.serve_pipeline import serve_stream
 
 
 @dataclass
@@ -19,39 +15,27 @@ class _Writer:
         self.closed = True
 
 
-def _target(transport: str) -> OutputTarget:
-    return OutputTarget(
-        transport=transport,
-        format="print",
-        view="raw",
-        encoding=None,
-        destination=None,
-    )
-
-
-def test_serve_stream_emits_single_stderr_separator_when_enabled(capsys):
+def test_serve_stream_writes_all_items_and_closes_writer(capsys):
     writer = _Writer()
     count = serve_stream(
         iter([1, 2]),
         limit=None,
         writer=writer,
-        emit_stdout_separator=True,
     )
 
     captured = capsys.readouterr()
     assert count == 2
     assert writer.writes == [1, 2]
     assert writer.closed is True
-    assert captured.out == "\n"
+    assert captured.out == ""
 
 
-def test_serve_stream_skips_stderr_separator_when_disabled(capsys):
+def test_serve_stream_honors_limit_and_closes_writer(capsys):
     writer = _Writer()
     count = serve_stream(
-        iter([1]),
-        limit=None,
+        iter([1, 2, 3]),
+        limit=1,
         writer=writer,
-        emit_stdout_separator=False,
     )
 
     captured = capsys.readouterr()
@@ -59,14 +43,3 @@ def test_serve_stream_skips_stderr_separator_when_disabled(capsys):
     assert writer.writes == [1]
     assert writer.closed is True
     assert captured.out == ""
-
-
-def test_should_emit_stdout_separator_depends_on_transport_and_visuals():
-    stdout_target = _target("stdout")
-    fs_target = _target("fs")
-
-    assert _should_emit_stdout_separator(stdout_target, "on") is True
-    assert _should_emit_stdout_separator(stdout_target, "auto") is True
-    assert _should_emit_stdout_separator(stdout_target, "off") is False
-    assert _should_emit_stdout_separator(stdout_target, None) is True
-    assert _should_emit_stdout_separator(fs_target, "on") is False

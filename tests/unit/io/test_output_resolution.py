@@ -83,17 +83,6 @@ def test_resolve_output_target_honors_encoding(tmp_path):
     assert target.encoding == "utf-8-sig"
 
 
-def test_stdout_print_defaults_to_raw_view():
-    target = resolve_output_target(
-        cli_output=ServeOutputConfig(transport="stdout", format="print"),
-        config_output=None,
-        default=None,
-        base_path=Path("."),
-        run_name="train",
-    )
-    assert target.view == "raw"
-
-
 def test_stdout_jsonl_defaults_to_raw_view():
     target = resolve_output_target(
         cli_output=ServeOutputConfig(transport="stdout", format="jsonl"),

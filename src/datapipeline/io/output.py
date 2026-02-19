@@ -17,7 +17,7 @@ def _format_suffix(fmt: str) -> str:
 
 
 def _default_view_for_format(fmt: str) -> str:
-    if fmt in {"print", "jsonl"}:
+    if fmt == "jsonl":
         return "raw"
     return "flat"
 
@@ -44,7 +44,7 @@ class OutputTarget:
     """Resolved writer target describing how and where to emit records."""
 
     transport: str  # stdout | fs
-    format: str     # print | jsonl | csv | pickle
+    format: str     # jsonl | csv | pickle
     view: str       # flat | raw | values
     encoding: str | None
     destination: Optional[Path]
@@ -94,7 +94,7 @@ def resolve_output_target(
 
     config = cli_output or config_output or default
     if config is None:
-        config = ServeOutputConfig(transport="stdout", format="print")
+        config = ServeOutputConfig(transport="stdout", format="jsonl")
 
     if config.transport == "stdout":
         return OutputTarget(

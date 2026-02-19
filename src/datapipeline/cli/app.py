@@ -313,7 +313,7 @@ def main() -> None:
     p_serve.add_argument(
         "--output-format",
         choices=OUTPUT_FORMATS,
-        help="output format (print/jsonl/csv/pickle) for serve runs",
+        help="output format (jsonl/csv/pickle) for serve runs",
     )
     p_serve.add_argument(
         "--output-directory",

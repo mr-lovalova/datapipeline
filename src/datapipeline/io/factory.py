@@ -2,7 +2,6 @@ from typing import Optional
 
 from datapipeline.io.writers import (
     JsonLinesFileWriter,
-    JsonLinesStdoutWriter,
     GzipJsonLinesWriter,
     CsvFileWriter,
     PickleFileWriter,
@@ -11,11 +10,10 @@ from datapipeline.io.writers import (
 from datapipeline.io.protocols import Writer
 from datapipeline.io.serializers import (
     json_line_serializer,
-    print_serializer,
     csv_row_serializer,
     pickle_serializer,
 )
-from datapipeline.io.sinks import StdoutTextSink, RichStdoutSink, ReprRichFormatter, JsonRichFormatter, PlainRichFormatter
+from datapipeline.io.sinks import StdoutTextSink
 from datapipeline.io.output import OutputTarget
 
 _JSON_LINE_FORMATS = {"jsonl"}
@@ -23,31 +21,6 @@ _JSON_LINE_FORMATS = {"jsonl"}
 
 def _is_json_line_format(value: str) -> bool:
     return value in _JSON_LINE_FORMATS
-
-
-def stdout_sink_for(format_: str, visuals: Optional[str]) -> StdoutTextSink:
-    """Select an appropriate stdout sink given format and visuals preference.
-
-    Behavior:
-    - visuals == "rich", "auto", or "on" -> attempt Rich formatting; fallback to plain on error.
-    - anything else                      -> plain stdout (no Rich formatting).
-    """
-    fmt = (format_ or "print").lower()
-    provider = (visuals or "auto").lower()
-
-    use_rich = provider in {"rich", "auto", "on"}
-    if not use_rich:
-        return StdoutTextSink()
-
-    # Prefer Rich when possible; gracefully degrade to plain stdout on any failure.
-    try:
-        if _is_json_line_format(fmt):
-            return RichStdoutSink(JsonRichFormatter())
-        if fmt == "print":
-            return RichStdoutSink(ReprRichFormatter())
-        return RichStdoutSink(PlainRichFormatter())
-    except Exception:
-        return StdoutTextSink()
 
 
 def writer_factory(
@@ -63,12 +36,9 @@ def writer_factory(
         raise ValueError(f"Unsupported writer item_type '{item_type}'")
 
     if transport == "stdout":
-        sink = stdout_sink_for(format_, visuals)
+        sink = StdoutTextSink()
         if _is_json_line_format(format_):
             serializer = json_line_serializer(item_type, target.view)
-            return LineWriter(sink, serializer)
-        if format_ == "print":
-            serializer = print_serializer(item_type, target.view)
             return LineWriter(sink, serializer)
         raise ValueError(f"Unsupported stdout format '{target.format}'")
 
