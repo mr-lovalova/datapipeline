@@ -74,6 +74,9 @@ def serve_stream(
             writer.write(item)
             count += 1
     finally:
+        closer = getattr(items, "close", None)
+        if callable(closer):
+            closer()
         writer.close()
     return count
 
