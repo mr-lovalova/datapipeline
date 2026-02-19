@@ -137,7 +137,6 @@ def serve_with_runtime(
             return
 
         runtime.window_bounds = resolve_window_bounds(runtime, True)
-        logger.info("Run started pipeline=%s", _FULL_PIPELINE_DAG_NAME)
 
         vectors = build_full_pipeline(
             context,
