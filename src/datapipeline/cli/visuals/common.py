@@ -39,20 +39,6 @@ def relative_label(path: str, root: Optional[Path]) -> str:
     return Path(path).name or path
 
 
-def _emit_info(msg: str, alias: str | None) -> None:
-    if alias:
-        logger.info("[%s] %s", alias, msg)
-    else:
-        logger.info(msg)
-
-
-def _emit_debug(msg: str, alias: str | None) -> None:
-    if alias:
-        logger.debug("[%s] %s", alias, msg)
-    else:
-        logger.debug(msg)
-
-
 def _fs_glob_info_lines(transport: FsGlobTransport) -> list[str]:
     pattern = getattr(transport, "pattern", "")
     files = transport.files
@@ -73,33 +59,10 @@ def _fs_glob_info_lines(transport: FsGlobTransport) -> list[str]:
     return lines
 
 
-def _log_fs_glob_details(transport: FsGlobTransport, alias: str | None) -> None:
-    files = getattr(transport, "files", [])
-    total = len(files)
-    # INFO: summary + minimal context (first/last)
-    if logger.isEnabledFor(logging.INFO):
-        for line in _fs_glob_info_lines(transport):
-            _emit_info(line, alias)
-    # DEBUG: detailed listing
-    if logger.isEnabledFor(logging.DEBUG) and total > 0:
-        root = compute_glob_root(files)
-        rel_files = [relative_label(path, root) for path in files]
-        for idx, path in enumerate(rel_files, start=1):
-            _emit_debug(f"fs.glob file {idx}/{total}: {path}", alias)
-
-
 def _fs_file_info_lines(transport: FsFileTransport) -> list[str]:
     path = getattr(transport, "path", "")
     name = Path(path).name or str(path)
     return [f"fs.file streaming {name}"]
-
-
-def _log_fs_file_details(transport: FsFileTransport, alias: str | None) -> None:
-    if logger.isEnabledFor(logging.INFO):
-        for line in _fs_file_info_lines(transport):
-            _emit_info(line, alias)
-    if logger.isEnabledFor(logging.DEBUG):
-        _emit_debug(f"fs.file full path: {getattr(transport, 'path', '')}", alias)
 
 
 def _http_info_lines(transport: HttpTransport) -> list[str]:
@@ -115,32 +78,6 @@ def _http_info_lines(transport: HttpTransport) -> list[str]:
     if resource:
         lines.append(f"http resource: {resource}")
     return lines
-
-
-def _log_http_details(transport: HttpTransport, alias: str | None) -> None:
-    if logger.isEnabledFor(logging.INFO):
-        for line in _http_info_lines(transport):
-            _emit_info(line, alias)
-    if logger.isEnabledFor(logging.DEBUG):
-        _emit_debug(f"http full: {getattr(transport, 'url', '')}", alias)
-
-
-def log_transport_details(transport, alias: str | None = None) -> None:
-    """Emit visuals-agnostic transport details at INFO/DEBUG.
-
-    - FsGlobTransport: summary + first/last (INFO), per-file list (DEBUG)
-    - FsFileTransport: filename (INFO), full path (DEBUG)
-    - HttpTransport: host (+ resource) (INFO), full URL (DEBUG)
-    """
-    if isinstance(transport, FsGlobTransport):
-        _log_fs_glob_details(transport, alias)
-        return
-    if isinstance(transport, FsFileTransport):
-        _log_fs_file_details(transport, alias)
-        return
-    if isinstance(transport, HttpTransport):
-        _log_http_details(transport, alias)
-        return
 
 
 def transport_info_lines(transport) -> list[str]:

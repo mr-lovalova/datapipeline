@@ -58,7 +58,6 @@ def test_source_observability_adapter_exposes_count_labels_and_details():
     adapter = SourceObservabilityAdapter(_SourceWithLoader(), "demo")
 
     assert adapter.count() == 7
-    assert adapter.preparing_label() == "[demo] Preparing data stream"
     assert adapter.format_label() == "[demo] _DummyLoader"
     assert adapter.current_label() == '"demo.csv"'
     assert adapter.info_lines() == ["fs.file streaming demo.csv"]

@@ -148,7 +148,11 @@ class _RichSourceProxy(Source):
                             debug_lines = adapter.debug_lines()
                             self._started(self._stream_id, info_lines, debug_lines)
                     except Exception:
-                        pass
+                        logger.debug(
+                            "visuals: failed to emit stream-start entries for %s",
+                            self._stream_id,
+                            exc_info=True,
+                        )
                     started_logged = True
                 if current_label and current_label != last_path_label:
                     last_path_label = current_label
@@ -171,9 +175,17 @@ class _RichSourceProxy(Source):
                     try:
                         self._finalize(self._stream_id, completed_text)
                     except Exception:
-                        pass
+                        logger.debug(
+                            "visuals: failed to emit stream-complete entry for %s",
+                            self._stream_id,
+                            exc_info=True,
+                        )
             except Exception:
-                pass
+                logger.debug(
+                    "visuals: failed to finalize progress task for %s",
+                    self._stream_id,
+                    exc_info=True,
+                )
             # Defer logging of completion to the session footer to avoid interleaving
             self._emitted = emitted
             # No explicit end separator; completion line is sufficient

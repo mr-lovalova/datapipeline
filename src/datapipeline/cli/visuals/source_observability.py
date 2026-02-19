@@ -69,9 +69,6 @@ class SourceObservabilityAdapter:
     def debug_lines(self) -> list[str]:
         return transport_debug_lines(self.transport)
 
-    def preparing_label(self) -> str:
-        return f"{self.current_indent()}[{self.stream_id}] Preparing data stream"
-
     def current_indent(self) -> str:
         return current_dag_indent()
 
