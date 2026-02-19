@@ -73,8 +73,6 @@ def serve_stream(
         for item in limit_items(items, limit):
             writer.write(item)
             count += 1
-    except KeyboardInterrupt:
-        pass
     finally:
         writer.close()
     return count

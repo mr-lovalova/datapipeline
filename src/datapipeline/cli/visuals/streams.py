@@ -7,7 +7,7 @@ from datapipeline.runtime import Runtime
 
 def _is_tty() -> bool:
     try:
-        return hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
+        return hasattr(sys.stderr, "isatty") and sys.stderr.isatty()
     except Exception:
         return False
 

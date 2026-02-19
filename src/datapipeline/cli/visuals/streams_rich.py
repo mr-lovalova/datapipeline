@@ -205,9 +205,10 @@ def visual_sources(runtime: Runtime, log_level: int | None):
     progress = Progress(*columns, transient=True, console=_vis_console)
 
     rich_handler = None
-    root_logger = logging.getLogger()
-    old_handlers = list(root_logger.handlers)
-    old_filters = list(root_logger.filters)
+    pipeline_logger = logging.getLogger("datapipeline")
+    old_handlers = list(pipeline_logger.handlers)
+    old_propagate = pipeline_logger.propagate
+    old_level = pipeline_logger.level
     try:
         from rich.logging import RichHandler
         console = _vis_console
@@ -224,10 +225,10 @@ def visual_sources(runtime: Runtime, log_level: int | None):
 
     reg = runtime.registries.stream_sources
     originals = dict(reg.items())
-    # Swap handlers if RichHandler is available
+    # Route datapipeline logs through Rich during Live rendering.
     if rich_handler is not None:
-        # Replace handlers with Rich for clean rendering during Live.
-        root_logger.handlers = [rich_handler]
+        pipeline_logger.handlers = [rich_handler]
+        pipeline_logger.propagate = False
 
     renderable = progress
 
@@ -291,8 +292,8 @@ def visual_sources(runtime: Runtime, log_level: int | None):
             # Restore original sources
             for stream_id, stream_source in originals.items():
                 reg.register(stream_id, stream_source)
-    # After Live finishes: restore logging handlers
+    # After Live finishes: restore logging configuration
     if rich_handler is not None:
-        # Restore original handlers and filters
-        root_logger.handlers = old_handlers
-        root_logger.filters = old_filters
+        pipeline_logger.handlers = old_handlers
+        pipeline_logger.propagate = old_propagate
+        pipeline_logger.setLevel(old_level)
