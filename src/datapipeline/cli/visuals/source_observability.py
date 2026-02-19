@@ -2,10 +2,11 @@ from typing import Any, Optional
 
 from datapipeline.sources.foreach import ForeachLoader
 from datapipeline.sources.transports import FsGlobTransport
+from datapipeline.sources.observability import describe_loader
 
 from .common import (
     compute_glob_root,
-    current_loader_label,
+    current_transport_label,
     log_combined_stream,
     transport_debug_lines,
     transport_info_lines,
@@ -19,16 +20,12 @@ class SourceObservabilityAdapter:
         self.loader = getattr(stream_source, "loader", None)
         if self.loader is None:
             raise TypeError(f"Stream source '{stream_id}' must expose a loader")
-        self.transport = getattr(self.loader, "transport", None)
         self.description, self.unit = progress_meta_for_loader(self.loader)
 
         prefix, sep, suffix = self.description.partition(": ")
         self._header = f"{prefix}:" if sep else self.description
         self._tail = suffix if sep else None
         self._is_foreach = isinstance(self.loader, ForeachLoader)
-        self._glob_root = None
-        if isinstance(self.transport, FsGlobTransport):
-            self._glob_root = compute_glob_root(getattr(self.transport, "files", []))
 
     def count(self) -> Optional[int]:
         try:
@@ -37,14 +34,7 @@ class SourceObservabilityAdapter:
             return None
 
     def composed_inputs(self) -> Optional[list[str]]:
-        try:
-            spec = getattr(self.loader, "_spec", None)
-            inputs = getattr(spec, "inputs", None)
-            if isinstance(inputs, (list, tuple)) and inputs:
-                return [str(item) for item in inputs]
-        except Exception:
-            return None
-        return None
+        return describe_loader(self.loader).composed_inputs
 
     def log_composed_details(self) -> None:
         details = self.composed_inputs()
@@ -57,17 +47,20 @@ class SourceObservabilityAdapter:
         )
 
     def current_label(self) -> Optional[str]:
-        return current_loader_label(
-            self.loader,
-            self.transport,
-            glob_root=self._glob_root,
-        )
+        observability = describe_loader(self.loader)
+        if observability.current_label:
+            return observability.current_label
+        transport = observability.transport
+        glob_root = None
+        if isinstance(transport, FsGlobTransport):
+            glob_root = compute_glob_root(getattr(transport, "files", []))
+        return current_transport_label(transport, glob_root=glob_root)
 
     def info_lines(self) -> list[str]:
-        return transport_info_lines(self.transport)
+        return transport_info_lines(describe_loader(self.loader).transport)
 
     def debug_lines(self) -> list[str]:
-        return transport_debug_lines(self.transport)
+        return transport_debug_lines(describe_loader(self.loader).transport)
 
     def current_indent(self) -> str:
         return current_dag_indent()
