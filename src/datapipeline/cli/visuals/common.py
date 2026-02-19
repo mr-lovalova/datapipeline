@@ -184,7 +184,7 @@ def transport_debug_lines(transport) -> list[str]:
     return lines
 
 
-def log_combined_stream(alias: str, details: Optional[Sequence[str] | str]) -> None:
+def log_combined_stream(stream_id: str, details: Optional[Sequence[str] | str], indent: str = "") -> None:
     """Emit descriptive logs for composed/virtual sources."""
 
     entries: list[str] = []
@@ -198,16 +198,16 @@ def log_combined_stream(alias: str, details: Optional[Sequence[str] | str]) -> N
             entries = [item]
 
     if entries:
-        logger.info("[%s] Feature engineering from:", alias)
+        logger.info("%s[%s] Feature engineering from:", indent, stream_id)
         for entry in entries:
             left, sep, right = entry.partition("=")
             if sep:
                 mapping = f"{left.strip()} -> {right.strip()}"
             else:
                 mapping = entry
-            logger.info("[%s]   - %s", alias, mapping)
+            logger.info("%s[%s]   - %s", indent, stream_id, mapping)
     else:
-        logger.info("[%s] Feature engineering from upstream inputs", alias)
+        logger.info("%s[%s] Feature engineering from upstream inputs", indent, stream_id)
 
 
 def current_transport_label(transport, *, glob_root: Optional[Path] = None) -> Optional[str]:

@@ -99,13 +99,14 @@ class VisualSourceProxy(Source):
             apply_label(current_label)
 
         def log_start_details() -> None:
+            indent = adapter.current_indent()
             adapter.log_composed_details()
             if logger.isEnabledFor(logging.INFO):
                 for line in adapter.info_lines():
-                    logger.info("[%s] %s", self._stream_id, line)
+                    logger.info("%s[%s] %s", indent, self._stream_id, line)
             if logger.isEnabledFor(logging.DEBUG):
                 for line in adapter.debug_lines():
-                    logger.debug("[%s] %s", self._stream_id, line)
+                    logger.debug("%s[%s] %s", indent, self._stream_id, line)
 
         emitted = 0
         if self._verbosity >= 2:
@@ -141,9 +142,10 @@ class VisualSourceProxy(Source):
                 bar.close()
                 if logger.isEnabledFor(logging.INFO):
                     try:
+                        indent = adapter.current_indent()
                         unit_label = f" {adapter.unit}" if adapter.unit else ""
-                        logger.info("[%s] Stream complete (%d%s) ✔",
-                                    self._stream_id, emitted, unit_label)
+                        logger.info("%s[%s] Stream complete (%d%s) ✔",
+                                    indent, self._stream_id, emitted, unit_label)
                     except Exception:
                         pass
             return
@@ -175,9 +177,10 @@ class VisualSourceProxy(Source):
             self._stop_spinner(stop_event, worker, bar)
             if logger.isEnabledFor(logging.INFO):
                 try:
+                    indent = adapter.current_indent()
                     unit_label = f" {adapter.unit}" if adapter.unit else ""
-                    logger.info("[%s] Stream complete (%d%s) ✔",
-                                self._stream_id, emitted, unit_label)
+                    logger.info("%s[%s] Stream complete (%d%s) ✔",
+                                indent, self._stream_id, emitted, unit_label)
                 except Exception:
                     pass
 

@@ -22,20 +22,22 @@ class _OffSourceProxy(Source):
         try:
             for item in self._inner.stream():
                 if not started:
+                    indent = adapter.current_indent()
                     adapter.log_composed_details()
                     if logger.isEnabledFor(logging.INFO):
                         for line in adapter.info_lines():
-                            logger.info("[%s] %s", self._stream_id, line)
+                            logger.info("%s[%s] %s", indent, self._stream_id, line)
                     if logger.isEnabledFor(logging.DEBUG):
                         for line in adapter.debug_lines():
-                            logger.debug("[%s] %s", self._stream_id, line)
+                            logger.debug("%s[%s] %s", indent, self._stream_id, line)
                     started = True
                 emitted += 1
                 yield item
         finally:
             if logger.isEnabledFor(logging.INFO):
+                indent = adapter.current_indent()
                 unit_label = f" {adapter.unit}" if adapter.unit else ""
-                logger.info("[%s] Stream complete (%d%s) ✔", self._stream_id, emitted, unit_label)
+                logger.info("%s[%s] Stream complete (%d%s) ✔", indent, self._stream_id, emitted, unit_label)
 
 
 @contextmanager

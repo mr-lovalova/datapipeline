@@ -10,6 +10,7 @@ from .common import (
     transport_debug_lines,
     transport_info_lines,
 )
+from .execution_context import current_dag_indent
 from .labels import progress_meta_for_loader
 
 class SourceObservabilityAdapter:
@@ -46,7 +47,14 @@ class SourceObservabilityAdapter:
         return None
 
     def log_composed_details(self) -> None:
-        log_combined_stream(self.stream_id, self.composed_inputs())
+        details = self.composed_inputs()
+        if not details:
+            return
+        log_combined_stream(
+            self.stream_id,
+            details,
+            indent=self.current_indent(),
+        )
 
     def current_label(self) -> Optional[str]:
         return current_loader_label(
@@ -62,9 +70,12 @@ class SourceObservabilityAdapter:
         return transport_debug_lines(self.transport)
 
     def preparing_label(self) -> str:
-        return f"[{self.stream_id}] Preparing data stream"
+        return f"{self.current_indent()}[{self.stream_id}] Preparing data stream"
 
-    def format_label(self, name: Optional[str] = None, include_stream_id: bool = True) -> str:
+    def current_indent(self) -> str:
+        return current_dag_indent()
+
+    def format_label(self, name: Optional[str] = None, include_stream_id: bool = True, include_dag_indent: bool = True) -> str:
         if name:
             if self._is_foreach:
                 message = str(name)
@@ -74,6 +85,7 @@ class SourceObservabilityAdapter:
             message = f"{self._header} {self._tail}".rstrip()
         else:
             message = self.description
+        indent = self.current_indent() if include_dag_indent else ""
         if include_stream_id:
-            return f"[{self.stream_id}] {message}"
-        return message
+            return f"{indent}[{self.stream_id}] {message}"
+        return f"{indent}{message}"

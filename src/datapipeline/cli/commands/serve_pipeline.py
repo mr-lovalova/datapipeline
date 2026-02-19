@@ -1,4 +1,5 @@
 import logging
+import sys
 import time
 from itertools import islice
 from typing import Iterator, Optional
@@ -17,6 +18,7 @@ from datapipeline.io.protocols import Writer
 from datapipeline.services.runs import finish_run_failed, finish_run_success, set_latest_run
 
 logger = logging.getLogger(__name__)
+_FULL_PIPELINE_DAG_NAME = "pipeline:serve"
 
 
 def _preview_plan(
@@ -66,10 +68,17 @@ def serve_stream(
     items: Iterator[object],
     limit: Optional[int],
     writer: Writer,
+    emit_stdout_separator: bool = False,
 ) -> int:
     count = 0
     try:
         for item in limit_items(items, limit):
+            if emit_stdout_separator and count == 0:
+                try:
+                    sys.stdout.write("\n")
+                    sys.stdout.flush()
+                except Exception:
+                    pass
             writer.write(item)
             count += 1
     except KeyboardInterrupt:
@@ -91,6 +100,12 @@ def report_serve(target: OutputTarget, count: int) -> None:
 
 def _is_full_pipeline_stage(stage: int | None) -> bool:
     return stage is None
+
+
+def _should_emit_stdout_separator(target: OutputTarget, visuals: Optional[str]) -> bool:
+    if target.transport != "stdout":
+        return False
+    return (visuals or "on").lower() != "off"
 
 
 def serve_with_runtime(
@@ -125,12 +140,21 @@ def serve_with_runtime(
                 feature_target = target.for_feature(output_id)
                 writer = writer_factory(
                     feature_target, visuals=visuals, item_type="record")
-                count = serve_stream(stream, limit, writer=writer)
+                count = serve_stream(
+                    stream,
+                    limit,
+                    writer=writer,
+                    emit_stdout_separator=_should_emit_stdout_separator(
+                        feature_target,
+                        visuals,
+                    ),
+                )
                 report_serve(feature_target, count)
             run_status = "success"
             return
 
         runtime.window_bounds = resolve_window_bounds(runtime, True)
+        logger.info("Run started pipeline=%s", _FULL_PIPELINE_DAG_NAME)
 
         vectors = build_full_pipeline(
             context,
@@ -143,7 +167,12 @@ def serve_with_runtime(
 
         writer = writer_factory(target, visuals=visuals)
 
-        result_count = serve_stream(vectors, limit, writer=writer)
+        result_count = serve_stream(
+            vectors,
+            limit,
+            writer=writer,
+            emit_stdout_separator=_should_emit_stdout_separator(target, visuals),
+        )
         report_serve(target, result_count)
         run_status = "success"
     except KeyboardInterrupt:

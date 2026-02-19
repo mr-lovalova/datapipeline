@@ -1,6 +1,7 @@
 import logging
 from typing import Callable, Any, Sequence, Tuple
 
+from datapipeline.cli.visuals.execution import make_execution_observer
 from datapipeline.cli.visuals import get_visuals_backend
 from datapipeline.runtime import Runtime
 
@@ -9,8 +10,18 @@ logger = logging.getLogger(__name__)
 
 
 def _run_work(backend, runtime: Runtime, level: int, progress_style: str, work: Callable[[], Any]):
-    with backend.wrap_sources(runtime, level, progress_style):
-        return work()
+    previous_observer = getattr(runtime, "execution_observer", None)
+    installed = previous_observer is None
+    if installed:
+        runtime.execution_observer = make_execution_observer(
+            logging.getLogger("datapipeline.dag.observer")
+        )
+    try:
+        with backend.wrap_sources(runtime, level, progress_style):
+            return work()
+    finally:
+        if installed:
+            runtime.execution_observer = previous_observer
 
 
 def run_with_backend(visuals: str, progress_style: str, runtime: Runtime, level: int, work: Callable[[], Any]):

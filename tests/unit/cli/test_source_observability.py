@@ -2,6 +2,7 @@ from dataclasses import dataclass
 
 import pytest
 
+from datapipeline.cli.visuals.execution_context import set_current_dag_depth
 from datapipeline.cli.visuals.source_observability import SourceObservabilityAdapter
 from datapipeline.sources.transports import FsFileTransport
 
@@ -53,6 +54,7 @@ class _ComposedSourceWithLoader:
 
 
 def test_source_observability_adapter_exposes_count_labels_and_details():
+    set_current_dag_depth(0)
     adapter = SourceObservabilityAdapter(_SourceWithLoader(), "demo")
 
     assert adapter.count() == 7
@@ -76,17 +78,43 @@ def test_source_observability_adapter_requires_loader():
 
 
 def test_source_observability_adapter_logs_composed_details(monkeypatch):
-    captured: list[tuple[str, list[str] | None]] = []
+    captured: list[tuple[str, list[str] | None, str]] = []
 
-    def _capture(alias, details):
-        captured.append((alias, details))
+    def _capture(stream_id, details, indent=""):
+        captured.append((stream_id, details, indent))
 
     monkeypatch.setattr(
         "datapipeline.cli.visuals.source_observability.log_combined_stream",
         _capture,
     )
 
+    set_current_dag_depth(2)
     adapter = SourceObservabilityAdapter(_ComposedSourceWithLoader(), "combined")
     adapter.log_composed_details()
 
-    assert captured == [("combined", ["a=left", "b=right"])]
+    assert captured == [("combined", ["a=left", "b=right"], "    ")]
+
+
+
+def test_source_observability_adapter_skips_composed_details_for_non_composed(monkeypatch):
+    captured: list[tuple[str, list[str] | None, str]] = []
+
+    def _capture(stream_id, details, indent=""):
+        captured.append((stream_id, details, indent))
+
+    monkeypatch.setattr(
+        "datapipeline.cli.visuals.source_observability.log_combined_stream",
+        _capture,
+    )
+
+    adapter = SourceObservabilityAdapter(_SourceWithLoader(), "demo")
+    adapter.log_composed_details()
+
+    assert captured == []
+
+
+def test_source_observability_adapter_formats_with_current_dag_indent():
+    set_current_dag_depth(2)
+    adapter = SourceObservabilityAdapter(_SourceWithLoader(), "demo")
+    assert adapter.current_indent() == "    "
+    assert adapter.format_label() == "    [demo] _DummyLoader"

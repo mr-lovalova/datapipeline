@@ -30,7 +30,16 @@ class PipelineContext:
     runtime: Runtime
     transform_observer: Callable[..., None] | None = None
     observer_registry: Optional[ObserverRegistry] = None
+    execution_observer: object | None = None
     _cache: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.execution_observer is None:
+            self.execution_observer = getattr(
+                self.runtime,
+                "execution_observer",
+                None,
+            )
 
     @property
     def artifacts(self) -> ArtifactManager:

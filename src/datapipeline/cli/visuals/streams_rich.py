@@ -22,6 +22,7 @@ from rich.text import Text
 from .common import (
     resolve_progress_style_mode,
 )
+from .execution_context import current_dag_indent
 from .source_observability import SourceObservabilityAdapter
 from datapipeline.runtime import Runtime
 from datapipeline.sources.models.source import Source
@@ -115,7 +116,8 @@ class _RichSourceProxy(Source):
 
     def _format_text(self, message: str) -> str:
         # Plain stream-id prefix to avoid Rich markup issues
-        return f"[{self._stream_id}] {message}" if message else f"[{self._stream_id}]"
+        indent = current_dag_indent()
+        return f"{indent}[{self._stream_id}] {message}" if message else f"{indent}[{self._stream_id}]"
 
     def stream(self) -> Iterator[Any]:
         adapter = SourceObservabilityAdapter(self._inner, self._stream_id)
@@ -124,7 +126,7 @@ class _RichSourceProxy(Source):
         # Create task lazily with no total (DEBUG) or reuse shared spinner (INFO)
         if self._verbosity >= 2 or self._shared_task_id is None:
             self._task_id = self._progress.add_task(
-                "", start=False, total=None, text=self._format_text(adapter.format_label(include_stream_id=False)))
+                "", start=False, total=None, text=self._format_text(adapter.format_label(include_stream_id=False, include_dag_indent=False)))
 
         # If verbose, try to resolve total and show a real bar
         if self._verbosity >= 2 and self._task_id is not None:
@@ -157,12 +159,12 @@ class _RichSourceProxy(Source):
                 # Initialize shared spinner text on first item (INFO)
                 if not shared_init_done and self._shared_task_id is not None:
                     base = current_label if current_label else None
-                    text0 = self._format_text(adapter.format_label(base, include_stream_id=False))
+                    text0 = self._format_text(adapter.format_label(base, include_stream_id=False, include_dag_indent=False))
                     self._progress.update(self._shared_task_id, text=text0)
                     shared_init_done = True
                 if current_label and current_label != last_path_label:
                     last_path_label = current_label
-                    text = self._format_text(adapter.format_label(current_label, include_stream_id=False))
+                    text = self._format_text(adapter.format_label(current_label, include_stream_id=False, include_dag_indent=False))
                     if self._verbosity >= 2 and self._task_id is not None:
                         self._progress.update(self._task_id, text=text)
                     elif self._shared_task_id is not None:
@@ -178,7 +180,7 @@ class _RichSourceProxy(Source):
                     self._progress.stop_task(self._task_id)
                 unit = self._unit or "item"
                 unit_suffix = "" if emitted == 1 else "s"
-                completed_text = f"[{self._stream_id}] Stream complete ({emitted} {unit}{unit_suffix})"
+                completed_text = f"{adapter.current_indent()}[{self._stream_id}] Stream complete ({emitted} {unit}{unit_suffix})"
                 if callable(self._finalize):
                     try:
                         self._finalize(self._stream_id, completed_text)
@@ -321,12 +323,13 @@ def visual_sources(runtime: Runtime, log_level: int | None, progress_style: str 
             def _append_started(stream_id: str, info_lines: list[str], debug_lines: list[str]):
                 nonlocal active_stream_id
                 entries: list[tuple[str, str]] = []
+                indent = current_dag_indent()
                 for line in info_lines:
-                    entries.append(("info", f"[{stream_id}] {line}"))
+                    entries.append(("info", f"{indent}[{stream_id}] {line}"))
                 for line in debug_lines:
-                    entries.append(("debug", f"[{stream_id}] {line}"))
+                    entries.append(("debug", f"{indent}[{stream_id}] {line}"))
                 if not entries:
-                    entries = [("info", f"[{stream_id}] Stream starting")]
+                    entries = [("info", f"{indent}[{stream_id}] Stream starting")]
                 if active_stream_id is None:
                     active_stream_id = stream_id
                     _emit_entries(entries)

@@ -8,6 +8,7 @@ from typing import Iterable, Iterator, TypeVar
 
 from datapipeline.analysis.vector.collector import VectorStatsCollector
 from datapipeline.cli.visuals.runner import run_job
+from datapipeline.cli.visuals.execution import make_execution_observer
 from datapipeline.config.context import load_dataset_context
 from datapipeline.config.dataset.loader import load_dataset
 from datapipeline.utils.paths import ensure_parent
@@ -85,6 +86,11 @@ def _run_inspect_job(
     level_value = log_level if log_level is not None else logging.getLogger().getEffectiveLevel()
     visuals_provider = visuals or "on"
     progress_style = "off" if visuals_provider == "off" else "bars"
+    observer = make_execution_observer(
+        logging.getLogger("datapipeline.dag.observer")
+    )
+    dataset_ctx.runtime.execution_observer = observer
+    dataset_ctx.pipeline_context.execution_observer = observer
 
     run_job(
         sections=("inspect", section),

@@ -1,4 +1,3 @@
-from itertools import chain
 from collections.abc import Iterator
 
 from datapipeline.domain.sample import Sample
@@ -51,15 +50,21 @@ def _apply_vector_schema(
                 return target_schema(upstream)
             if not context.schema_required:
                 return upstream
-            iterator = iter(upstream)
-            try:
-                first = next(iterator)
-            except StopIteration:
-                return iter(())
-            if first.targets is None:
-                return chain([first], iterator)
-            raise RuntimeError(
-                "Schema missing for payload 'targets'. Run `jerry build` to materialize schema.json."
-            )
+
+            def _validate_targets() -> Iterator[Sample]:
+                iterator = iter(upstream)
+                try:
+                    first = next(iterator)
+                except StopIteration:
+                    return
+                if first.targets is None:
+                    yield first
+                    yield from iterator
+                    return
+                raise RuntimeError(
+                    "Schema missing for payload 'targets'. Run `jerry build` to materialize schema.json."
+                )
+
+            return _validate_targets()
 
         return _apply_targets(feature_stream)
