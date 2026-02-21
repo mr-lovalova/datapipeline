@@ -24,6 +24,29 @@ class TimeTicksGenerator(DataGenerator):
             raise ValueError("frequency must be positive")
         return int((self.end - self.start).total_seconds() // secs) + 1
 
+    def info_lines(self) -> list[str]:
+        def _fmt(dt):
+            return dt.astimezone().strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        def _fmt_freq():
+            secs = int(self.frequency.total_seconds())
+            if secs > 0 and secs % 86400 == 0:
+                return f"{secs // 86400}d"
+            if secs > 0 and secs % 3600 == 0:
+                return f"{secs // 3600}h"
+            if secs > 0 and secs % 60 == 0:
+                return f"{secs // 60}m"
+            if secs > 0:
+                return f"{secs}s"
+            return str(self.frequency)
+
+        return [
+            "synthetic.generate: "
+            f"start={_fmt(self.start)} "
+            f"end={_fmt(self.end)} "
+            f"freq={_fmt_freq()}"
+        ]
+
 
 logger = logging.getLogger(__name__)
 

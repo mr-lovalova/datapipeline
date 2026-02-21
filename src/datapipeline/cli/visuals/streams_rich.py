@@ -1,15 +1,13 @@
 from contextlib import contextmanager
-from typing import Iterator, Any, Optional, Deque, Dict, Tuple
+from typing import Iterator, Any, Optional, Deque, Dict, Tuple, Callable
 from math import ceil
 import logging
-
 from collections import deque
 
 from rich.live import Live
 from rich.progress import (
     Progress,
     ProgressColumn,
-    TextColumn,
     BarColumn,
     MofNCompleteColumn,
     TaskProgressColumn,
@@ -18,7 +16,18 @@ from rich.progress import (
 )
 from rich.text import Text
 
-from .execution_context import current_dag_indent
+from .execution import (
+    ExecutionEventFormatter,
+    ExecutionEventSink,
+    ExecutionLogEvent,
+)
+from .execution_context import (
+    reset_current_execution_event_sink,
+    reset_current_visual_log_level,
+    set_current_execution_event_sink,
+    set_current_visual_log_level,
+    visible_dag_indent,
+)
 from .source_observability import SourceObservabilityAdapter
 from datapipeline.runtime import Runtime
 from datapipeline.sources.models.source import Source
@@ -97,31 +106,101 @@ class AverageTimeRemainingColumn(ProgressColumn):
         return Text(self._format_seconds(eta_seconds), style=style)
 
 
+def _styled_source_label(line: str) -> Text:
+    text = Text()
+    working = str(line or "")
+    indent_len = len(working) - len(working.lstrip(" "))
+    if indent_len:
+        text.append(working[:indent_len])
+    working = working[indent_len:]
+    if working.startswith("[") and "]" in working:
+        end = working.find("]")
+        stream_id = working[1:end]
+        rest = working[end + 1 :]
+        text.append("[", style="cyan")
+        text.append(stream_id, style="bold cyan")
+        text.append("]", style="cyan")
+        text.append(rest)
+        return text
+    text.append(working)
+    return text
+
+
+class SourceLabelColumn(ProgressColumn):
+    def render(self, task: Task) -> Text:
+        raw = task.fields.get("text", "")
+        return _styled_source_label(str(raw))
+
+
+def _is_stream_task(task: Task) -> bool:
+    return str(task.fields.get("kind", "stream")) == "stream"
+
+
+class GatedColumn(ProgressColumn):
+    def __init__(
+        self,
+        inner: ProgressColumn,
+        predicate: Callable[[Task], bool],
+    ) -> None:
+        self._inner = inner
+        self._predicate = predicate
+        super().__init__()
+
+    def render(self, task: Task) -> Text:
+        if not self._predicate(task):
+            return Text("")
+        return self._inner.render(task)
+
+    def get_table_column(self):
+        return self._inner.get_table_column()
+
+
 class _RichSourceProxy(Source):
-    def __init__(self, stream_source: Source, stream_id: str, progress: Progress, unit: Optional[str] = None, finalize: Optional[callable] = None, started: Optional[callable] = None):
+    def __init__(
+        self,
+        stream_source: Source,
+        stream_id: str,
+        progress: Progress,
+        unit: Optional[str] = None,
+    ):
         self._inner = stream_source
         self._stream_id = stream_id
         self._progress = progress
         self._task_id = None
         self._unit = unit
         self._emitted = 0
-        self._finalize = finalize
-        self._started = started
 
-    def _format_text(self, message: str) -> str:
+    def _format_text(self, stream_label: str, message: str) -> str:
         # Plain stream-id prefix to avoid Rich markup issues
-        indent = current_dag_indent()
-        return f"{indent}[{self._stream_id}] {message}" if message else f"{indent}[{self._stream_id}]"
+        indent = visible_dag_indent(logging.INFO)
+        return f"{indent}[{stream_label}] {message}" if message else f"{indent}[{stream_label}]"
 
     def stream(self) -> Iterator[Any]:
         adapter = SourceObservabilityAdapter(self._inner, self._stream_id)
         self._unit = adapter.unit
+        stream_label = self._stream_id
+        info_lines = adapter.info_lines()
+        initial_message = adapter.format_label(
+            include_stream_id=False,
+            include_dag_indent=False,
+        )
+
+        for line in info_lines:
+            self._progress.add_task(
+                "",
+                total=1,
+                completed=1,
+                text=self._format_text(stream_label, line),
+                kind="meta",
+                start=False,
+            )
 
         self._task_id = self._progress.add_task(
             "",
             start=False,
             total=None,
-            text=self._format_text(adapter.format_label(include_stream_id=False, include_dag_indent=False)),
+            text=self._format_text(stream_label, initial_message),
+            kind="stream",
         )
 
         if self._task_id is not None:
@@ -131,32 +210,23 @@ class _RichSourceProxy(Source):
 
         emitted = 0
         last_path_label: Optional[str] = None
-        started_logged = False
-
         if self._task_id is not None:
             self._progress.start_task(self._task_id)
 
         try:
             for item in self._inner.stream():
                 current_label = adapter.current_label()
-                # On first item: emit Start + transport details
-                if not started_logged:
-                    adapter.log_composed_details()
-                    try:
-                        if callable(self._started):
-                            info_lines = adapter.info_lines()
-                            debug_lines = adapter.debug_lines()
-                            self._started(self._stream_id, info_lines, debug_lines)
-                    except Exception:
-                        logger.debug(
-                            "visuals: failed to emit stream-start entries for %s",
-                            self._stream_id,
-                            exc_info=True,
-                        )
-                    started_logged = True
                 if current_label and current_label != last_path_label:
                     last_path_label = current_label
-                    text = self._format_text(adapter.format_label(current_label, include_stream_id=False, include_dag_indent=False))
+                    row_message = adapter.format_label(
+                        current_label,
+                        include_stream_id=False,
+                        include_dag_indent=False,
+                    )
+                    text = self._format_text(
+                        stream_label,
+                        row_message,
+                    )
                     if self._task_id is not None:
                         self._progress.update(self._task_id, text=text)
                 if self._task_id is not None:
@@ -168,18 +238,6 @@ class _RichSourceProxy(Source):
                 if self._task_id is not None:
                     self._progress.update(self._task_id, completed=emitted)
                     self._progress.stop_task(self._task_id)
-                unit = self._unit or "item"
-                unit_suffix = "" if emitted == 1 else "s"
-                completed_text = f"{adapter.current_indent()}[{self._stream_id}] Stream complete ({emitted} {unit}{unit_suffix})"
-                if callable(self._finalize):
-                    try:
-                        self._finalize(self._stream_id, completed_text)
-                    except Exception:
-                        logger.debug(
-                            "visuals: failed to emit stream-complete entry for %s",
-                            self._stream_id,
-                            exc_info=True,
-                        )
             except Exception:
                 logger.debug(
                     "visuals: failed to finalize progress task for %s",
@@ -191,12 +249,70 @@ class _RichSourceProxy(Source):
             # No explicit end separator; completion line is sufficient
 
 
+class _RichConsoleExecutionSink(ExecutionEventSink):
+    def __init__(self, level: int, console, live_ref: dict[str, Live | None]) -> None:
+        self._level = int(level)
+        self._console = console
+        self._live_ref = live_ref
+
+    def emit(self, event: ExecutionLogEvent) -> None:
+        event_level = ExecutionEventFormatter.level(event)
+        if event_level < self._level:
+            return
+        text = self._render_event(event)
+        live = self._live_ref.get("live")
+        if live is not None:
+            live.console.print(text)
+            return
+        self._console.print(text)
+
+    def _render_event(self, event: ExecutionLogEvent) -> Text:
+        indent = "  " * max(0, event.depth)
+        text = Text(indent)
+        if event.kind == "dag_info":
+            text.append("[", style="cyan")
+            text.append(event.dag_name, style="bold cyan")
+            text.append("] ", style="cyan")
+            text.append(event.info_line or "", style="dim")
+            return text
+        if event.kind == "dag_start":
+            text.append("DAG started", style="bold cyan")
+            text.append(f" name={event.dag_name} nodes={event.node_count}")
+            return text
+        if event.kind == "dag_end":
+            status_style = "green" if event.status == "success" else "red"
+            text.append("DAG finished", style="bold cyan")
+            text.append(f" name={event.dag_name} ")
+            text.append(f"status={event.status}", style=status_style)
+            text.append(
+                f" items={event.output_items} elapsed={event.elapsed_seconds:.6f}s"
+            )
+            return text
+        if event.kind == "node_start":
+            text.append("Node started", style="dim cyan")
+            text.append(
+                f" dag={event.dag_name} node={event.node_name} stage={event.stage}",
+                style="dim",
+            )
+            return text
+        status_style = "green" if event.status == "success" else "red"
+        text.append("Node finished", style="dim cyan")
+        text.append(
+            f" dag={event.dag_name} node={event.node_name} stage={event.stage}",
+            style="dim",
+        )
+        text.append(" ")
+        text.append(f"status={event.status}", style=f"dim {status_style}")
+        text.append(
+            f" items={event.output_items} elapsed={event.elapsed_seconds:.6f}s",
+            style="dim",
+        )
+        return text
+
+
 @contextmanager
 def visual_sources(runtime: Runtime, log_level: int | None):
     level = log_level if log_level is not None else logging.INFO
-    if level > logging.INFO:
-        yield
-        return
 
     # Build a console on stderr for visuals/logs
     from rich.console import Console as _Console
@@ -205,107 +321,40 @@ def visual_sources(runtime: Runtime, log_level: int | None):
                             highlight=False, soft_wrap=True)
 
     columns = [
-        TextColumn("{task.fields[text]}", markup=False),
-        BarColumn(),
-        MofNCompleteColumn(),
-        TaskProgressColumn(),
-        TimeElapsedColumn(),
-        AverageTimeRemainingColumn(),
+        SourceLabelColumn(),
+        GatedColumn(BarColumn(), _is_stream_task),
+        GatedColumn(MofNCompleteColumn(), _is_stream_task),
+        GatedColumn(TaskProgressColumn(), _is_stream_task),
+        GatedColumn(TimeElapsedColumn(), _is_stream_task),
+        GatedColumn(AverageTimeRemainingColumn(), _is_stream_task),
     ]
 
     # Keep Live output transient so the spinner/bars disappear once completed
     progress = Progress(*columns, transient=True, console=_vis_console)
-
-    rich_handler = None
-    pipeline_logger = logging.getLogger("datapipeline")
-    old_handlers = list(pipeline_logger.handlers)
-    old_propagate = pipeline_logger.propagate
-    old_level = pipeline_logger.level
-    try:
-        from rich.logging import RichHandler
-        console = _vis_console
-        rich_handler = RichHandler(
-            console=console,
-            show_time=False,
-            show_level=False,
-            show_path=False,
-            markup=False,
-            rich_tracebacks=False,
-        )
-    except Exception:
-        rich_handler = None
+    live_ref: dict[str, Live | None] = {"live": None}
 
     reg = runtime.registries.stream_sources
     originals = dict(reg.items())
-    # Route datapipeline logs through Rich during Live rendering.
-    if rich_handler is not None:
-        pipeline_logger.handlers = [rich_handler]
-        pipeline_logger.propagate = False
+    level_token = set_current_visual_log_level(level)
+    execution_sink_token = set_current_execution_event_sink(
+        _RichConsoleExecutionSink(level=level, console=_vis_console, live_ref=live_ref)
+    )
 
-    renderable = progress
-
-    with Live(renderable, console=_vis_console, refresh_per_second=10, transient=True):
+    with Live(progress, console=_vis_console, refresh_per_second=10, transient=True) as live:
         try:
-            active_stream_id: Optional[str] = None
-            pending_starts: list[tuple[str, list[tuple[str, str]]]] = []
-
-            def _emit_entries(entries: list[tuple[str, str]]) -> None:
-                for level, line in entries:
-                    if level == "debug":
-                        logger.debug(line)
-                    else:
-                        logger.info(line)
-
-            def _flush_next_start() -> None:
-                nonlocal active_stream_id
-                if active_stream_id is not None:
-                    return
-                while pending_starts:
-                    next_stream_id, entries = pending_starts.pop(0)
-                    if not entries:
-                        continue
-                    active_stream_id = next_stream_id
-                    _emit_entries(entries)
-                    break
-
-            def _append_completed(stream_id: str, text: str):
-                _emit_entries([("info", f"{text} ✔")])
-                nonlocal active_stream_id
-                if active_stream_id == stream_id:
-                    active_stream_id = None
-                _flush_next_start()
-
-            def _append_started(stream_id: str, info_lines: list[str], debug_lines: list[str]):
-                nonlocal active_stream_id
-                entries: list[tuple[str, str]] = []
-                indent = current_dag_indent()
-                for line in info_lines:
-                    entries.append(("info", f"{indent}[{stream_id}] {line}"))
-                for line in debug_lines:
-                    entries.append(("debug", f"{indent}[{stream_id}] {line}"))
-                if not entries:
-                    entries = [("info", f"{indent}[{stream_id}] Stream starting")]
-                if active_stream_id is None:
-                    active_stream_id = stream_id
-                    _emit_entries(entries)
-                    return
-                pending_starts.append((stream_id, entries))
+            live_ref["live"] = live
             for stream_id, stream_source in originals.items():
                 proxy = _RichSourceProxy(
                     stream_source=stream_source,
                     stream_id=stream_id,
                     progress=progress,
-                    finalize=_append_completed,
-                    started=_append_started,
                 )
                 reg.register(stream_id, proxy)
             yield
         finally:
+            live_ref["live"] = None
             # Restore original sources
             for stream_id, stream_source in originals.items():
                 reg.register(stream_id, stream_source)
-    # After Live finishes: restore logging configuration
-    if rich_handler is not None:
-        pipeline_logger.handlers = old_handlers
-        pipeline_logger.propagate = old_propagate
-        pipeline_logger.setLevel(old_level)
+            reset_current_execution_event_sink(execution_sink_token)
+            reset_current_visual_log_level(level_token)

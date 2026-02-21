@@ -1,11 +1,17 @@
 import logging
-from typing import Protocol
+from typing import Any, Protocol
 
 from datapipeline.dag.events import DagRunEvent, NodeRunEvent
 
 
 class ExecutionObserver(Protocol):
-    def on_dag_start(self, *, dag_name: str, node_count: int) -> None:
+    def on_dag_start(
+        self,
+        *,
+        dag_name: str,
+        node_count: int,
+        dag_metadata: dict[str, Any] | None = None,
+    ) -> None:
         ...
 
     def on_node_start(self, *, dag_name: str, node_name: str, stage: int) -> None:
@@ -19,7 +25,13 @@ class ExecutionObserver(Protocol):
 
 
 class NoopExecutionObserver:
-    def on_dag_start(self, *, dag_name: str, node_count: int) -> None:
+    def on_dag_start(
+        self,
+        *,
+        dag_name: str,
+        node_count: int,
+        dag_metadata: dict[str, Any] | None = None,
+    ) -> None:
         pass
 
     def on_node_start(self, *, dag_name: str, node_name: str, stage: int) -> None:
@@ -36,7 +48,13 @@ class LoggingExecutionObserver:
     def __init__(self, logger: logging.Logger) -> None:
         self._logger = logger
 
-    def on_dag_start(self, *, dag_name: str, node_count: int) -> None:
+    def on_dag_start(
+        self,
+        *,
+        dag_name: str,
+        node_count: int,
+        dag_metadata: dict[str, Any] | None = None,
+    ) -> None:
         if self._logger.isEnabledFor(logging.INFO):
             self._logger.info(
                 "DAG started name=%s nodes=%d",

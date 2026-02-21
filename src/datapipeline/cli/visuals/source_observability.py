@@ -1,4 +1,5 @@
 from typing import Any, Optional
+import logging
 
 from datapipeline.sources.foreach import ForeachLoader
 from datapipeline.sources.transports import FsGlobTransport
@@ -11,7 +12,7 @@ from .common import (
     transport_debug_lines,
     transport_info_lines,
 )
-from .execution_context import current_dag_indent
+from .execution_context import visible_dag_indent
 from .labels import progress_meta_for_loader
 
 class SourceObservabilityAdapter:
@@ -36,14 +37,14 @@ class SourceObservabilityAdapter:
     def composed_inputs(self) -> Optional[list[str]]:
         return describe_loader(self.loader).composed_inputs
 
-    def log_composed_details(self) -> None:
+    def log_composed_details(self, level: int = logging.INFO) -> None:
         details = self.composed_inputs()
         if not details:
             return
         log_combined_stream(
             self.stream_id,
             details,
-            indent=self.current_indent(),
+            indent=self.current_indent(level),
         )
 
     def current_label(self) -> Optional[str]:
@@ -57,15 +58,31 @@ class SourceObservabilityAdapter:
         return current_transport_label(transport, glob_root=glob_root)
 
     def info_lines(self) -> list[str]:
-        return transport_info_lines(describe_loader(self.loader).transport)
+        observability = describe_loader(self.loader)
+        lines: list[str] = []
+        if observability.info_lines:
+            lines.extend(observability.info_lines)
+        lines.extend(transport_info_lines(observability.transport))
+        return lines
 
     def debug_lines(self) -> list[str]:
-        return transport_debug_lines(describe_loader(self.loader).transport)
+        observability = describe_loader(self.loader)
+        lines: list[str] = []
+        if observability.debug_lines:
+            lines.extend(observability.debug_lines)
+        lines.extend(transport_debug_lines(observability.transport))
+        return lines
 
-    def current_indent(self) -> str:
-        return current_dag_indent()
+    def current_indent(self, level: int = logging.INFO) -> str:
+        return visible_dag_indent(level)
 
-    def format_label(self, name: Optional[str] = None, include_stream_id: bool = True, include_dag_indent: bool = True) -> str:
+    def format_label(
+        self,
+        name: Optional[str] = None,
+        include_stream_id: bool = True,
+        include_dag_indent: bool = True,
+        level: int = logging.INFO,
+    ) -> str:
         if name:
             if self._is_foreach:
                 message = str(name)
@@ -75,7 +92,7 @@ class SourceObservabilityAdapter:
             message = f"{self._header} {self._tail}".rstrip()
         else:
             message = self.description
-        indent = self.current_indent() if include_dag_indent else ""
+        indent = self.current_indent(level) if include_dag_indent else ""
         if include_stream_id:
             return f"{indent}[{self.stream_id}] {message}"
         return f"{indent}{message}"

@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from datapipeline.sources.foreach import ForeachLoader
+from datapipeline.sources.models.loader import SyntheticLoader
 
 
 @dataclass(frozen=True)
@@ -9,11 +10,15 @@ class LoaderObservability:
     transport: Any | None
     current_label: str | None
     composed_inputs: list[str] | None
+    info_lines: list[str] | None = None
+    debug_lines: list[str] | None = None
 
 
 def describe_loader(loader: Any) -> LoaderObservability:
     if isinstance(loader, ForeachLoader):
         return _describe_foreach_loader(loader)
+    if isinstance(loader, SyntheticLoader):
+        return _describe_synthetic_loader(loader)
 
     return LoaderObservability(
         transport=getattr(loader, "transport", None),
@@ -59,6 +64,31 @@ def _describe_foreach_loader(loader: ForeachLoader) -> LoaderObservability:
         transport=getattr(loader, "_current_transport", None),
         current_label=current_label,
         composed_inputs=None,
+    )
+
+
+def _describe_synthetic_loader(loader: SyntheticLoader) -> LoaderObservability:
+    generator = getattr(loader, "generator", None)
+    generator_name = type(generator).__name__ if generator is not None else "generator"
+    info_lines = []
+    debug_lines = []
+    if generator is not None:
+        try:
+            info_lines = list(getattr(generator, "info_lines", lambda: [])() or [])
+        except Exception:
+            info_lines = []
+        try:
+            debug_lines = list(getattr(generator, "debug_lines", lambda: [])() or [])
+        except Exception:
+            debug_lines = []
+    if not info_lines:
+        info_lines = [f"synthetic.generate: {generator_name}"]
+    return LoaderObservability(
+        transport=getattr(loader, "transport", None),
+        current_label=None,
+        composed_inputs=None,
+        info_lines=info_lines,
+        debug_lines=debug_lines or None,
     )
 
 

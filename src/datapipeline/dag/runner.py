@@ -134,7 +134,11 @@ def _observe_dag_stream(
         start_time = time.perf_counter()
         item_count = 0
         status = "success"
-        observer.on_dag_start(dag_name=dag.name, node_count=len(dag.nodes))
+        observer.on_dag_start(
+            dag_name=dag.name,
+            node_count=len(dag.nodes),
+            dag_metadata=dag.metadata,
+        )
         iterator = iter(()) if stream is None else iter(stream)
         try:
             for item in iterator:

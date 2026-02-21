@@ -61,7 +61,7 @@ def _fs_glob_info_lines(transport: FsGlobTransport) -> list[str]:
 def _fs_file_info_lines(transport: FsFileTransport) -> list[str]:
     path = getattr(transport, "path", "")
     name = Path(path).name or str(path)
-    return [f"fs.file streaming {name}"]
+    return [f"fs.file: {name}"]
 
 
 def _http_info_lines(transport: HttpTransport) -> list[str]:
@@ -73,9 +73,9 @@ def _http_info_lines(transport: HttpTransport) -> list[str]:
     except Exception:
         host = "http"
         resource = ""
-    lines = [f"http fetching from {host}"]
+    lines = [f"http.fetch: host={host}"]
     if resource:
-        lines.append(f"http resource: {resource}")
+        lines.append(f"http.fetch: resource={resource}")
     return lines
 
 
@@ -173,4 +173,3 @@ def current_transport_label(transport, *, glob_root: Optional[Path] = None) -> O
         except Exception:
             return None
     return None
-

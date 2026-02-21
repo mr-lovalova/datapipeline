@@ -1,5 +1,6 @@
-from pathlib import Path
 import logging
+from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -19,7 +20,13 @@ class _CollectingObserver:
         self.node_events = []
         self.dag_events = []
 
-    def on_dag_start(self, *, dag_name: str, node_count: int) -> None:
+    def on_dag_start(
+        self,
+        *,
+        dag_name: str,
+        node_count: int,
+        dag_metadata: dict[str, Any] | None = None,
+    ) -> None:
         self.dag_started.append((dag_name, node_count))
 
     def on_node_start(self, *, dag_name: str, node_name: str, stage: int) -> None:
