@@ -105,6 +105,9 @@ def _observe_node_stream(
             for item in iterator:
                 item_count += 1
                 yield item
+        except KeyboardInterrupt:
+            status = "error"
+            raise
         except Exception:
             status = "error"
             raise
@@ -144,6 +147,9 @@ def _observe_dag_stream(
             for item in iterator:
                 item_count += 1
                 yield item
+        except KeyboardInterrupt:
+            status = "error"
+            raise
         except Exception:
             status = "error"
             raise

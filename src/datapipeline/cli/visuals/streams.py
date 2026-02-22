@@ -120,12 +120,27 @@ def _rich_available() -> bool:
         return False
 
 
+def _rich_live_supported() -> bool:
+    try:
+        from rich.console import Console as _Console
+        import sys as _sys
+        console = _Console(file=_sys.stderr, markup=False, highlight=False)
+        return bool(
+            console.is_terminal
+            and console.is_interactive
+            and not console.is_dumb_terminal
+            and console.color_system is not None
+        )
+    except Exception:
+        return False
+
+
 def get_visuals_backend(provider: Optional[str]) -> VisualsBackend:
     mode = (provider or "on").lower()
     if mode == "off":
         return _OffBackend()
     # on
-    if _rich_available() and _is_tty():
+    if _rich_available() and _is_tty() and _rich_live_supported():
         return _RichBackend()
     return _BasicBackend()
 

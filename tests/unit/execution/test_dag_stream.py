@@ -119,6 +119,35 @@ def test_run_stage_dag_propagates_error_and_marks_failure(tmp_path: Path) -> Non
     assert observer.dag_events[-1].status == "error"
 
 
+def test_run_stage_dag_keyboard_interrupt_marks_failure(tmp_path: Path) -> None:
+    observer = _CollectingObserver()
+    ctx = _context(tmp_path)
+
+    def _interrupt(up):
+        for value in up or ():
+            if value == 2:
+                raise KeyboardInterrupt()
+            yield value
+
+    dag = StageDag(
+        name="interrupt-demo",
+        nodes=(
+            PipelineNode(name="seed", op=lambda: [1, 2, 3]),
+            PipelineNode(name="interrupt", op=_interrupt, input="seed"),
+        ),
+    )
+
+    with pytest.raises(KeyboardInterrupt):
+        list(run_stage_dag(ctx, dag, observer=observer))
+
+    interrupt_events = [
+        event for event in observer.node_events if event.node_name == "interrupt"
+    ]
+    assert interrupt_events
+    assert interrupt_events[-1].status == "error"
+    assert observer.dag_events[-1].status == "error"
+
+
 def test_run_stage_dag_tracks_empty_nodes(tmp_path: Path) -> None:
     observer = _CollectingObserver()
     ctx = _context(tmp_path)

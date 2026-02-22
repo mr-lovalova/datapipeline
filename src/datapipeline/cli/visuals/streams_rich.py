@@ -1,10 +1,9 @@
 from contextlib import contextmanager
-from typing import Iterator, Any, Optional, Deque, Dict, Tuple, Callable
+from typing import Iterator, Any, Optional, Deque, Dict, Tuple
 from math import ceil
 import logging
 from collections import deque
 
-from rich.live import Live
 from rich.progress import (
     Progress,
     ProgressColumn,
@@ -15,6 +14,7 @@ from rich.progress import (
     Task,
 )
 from rich.text import Text
+from rich.table import Column
 
 from .execution import (
     ExecutionEventFormatter,
@@ -127,32 +127,14 @@ def _styled_source_label(line: str) -> Text:
 
 
 class SourceLabelColumn(ProgressColumn):
+    def get_table_column(self):
+        # Keep one physical terminal line per task row so Live transient cleanup
+        # can reliably clear the rendered table at context exit.
+        return Column(no_wrap=True, overflow="ellipsis")
+
     def render(self, task: Task) -> Text:
         raw = task.fields.get("text", "")
         return _styled_source_label(str(raw))
-
-
-def _is_stream_task(task: Task) -> bool:
-    return str(task.fields.get("kind", "stream")) == "stream"
-
-
-class GatedColumn(ProgressColumn):
-    def __init__(
-        self,
-        inner: ProgressColumn,
-        predicate: Callable[[Task], bool],
-    ) -> None:
-        self._inner = inner
-        self._predicate = predicate
-        super().__init__()
-
-    def render(self, task: Task) -> Text:
-        if not self._predicate(task):
-            return Text("")
-        return self._inner.render(task)
-
-    def get_table_column(self):
-        return self._inner.get_table_column()
 
 
 class _RichSourceProxy(Source):
@@ -161,59 +143,53 @@ class _RichSourceProxy(Source):
         stream_source: Source,
         stream_id: str,
         progress: Progress,
-        unit: Optional[str] = None,
     ):
         self._inner = stream_source
         self._stream_id = stream_id
         self._progress = progress
         self._task_id = None
-        self._unit = unit
-        self._emitted = 0
 
     def _format_text(self, stream_label: str, message: str) -> str:
         # Plain stream-id prefix to avoid Rich markup issues
         indent = visible_dag_indent(logging.INFO)
         return f"{indent}[{stream_label}] {message}" if message else f"{indent}[{stream_label}]"
 
+    @staticmethod
+    def _compose_initial_message(initial_message: str, info_lines: list[str]) -> str:
+        summary = "; ".join(str(line).strip() for line in info_lines if str(line).strip())
+        if not summary:
+            return initial_message
+        if not initial_message:
+            return summary
+        return f"{initial_message} ({summary})"
+
     def stream(self) -> Iterator[Any]:
         adapter = SourceObservabilityAdapter(self._inner, self._stream_id)
-        self._unit = adapter.unit
         stream_label = self._stream_id
         info_lines = adapter.info_lines()
         initial_message = adapter.format_label(
             include_stream_id=False,
             include_dag_indent=False,
         )
-
-        for line in info_lines:
-            self._progress.add_task(
-                "",
-                total=1,
-                completed=1,
-                text=self._format_text(stream_label, line),
-                kind="meta",
-                start=False,
-            )
-
-        self._task_id = self._progress.add_task(
-            "",
-            start=False,
-            total=None,
-            text=self._format_text(stream_label, initial_message),
-            kind="stream",
-        )
-
-        if self._task_id is not None:
-            total = adapter.count()
-            if total is not None:
-                self._progress.update(self._task_id, total=total)
+        initial_message = self._compose_initial_message(initial_message, info_lines)
 
         emitted = 0
         last_path_label: Optional[str] = None
-        if self._task_id is not None:
-            self._progress.start_task(self._task_id)
 
         try:
+            self._task_id = self._progress.add_task(
+                "",
+                start=False,
+                total=None,
+                text=self._format_text(stream_label, initial_message),
+            )
+
+            if self._task_id is not None:
+                total = adapter.count()
+                if total is not None:
+                    self._progress.update(self._task_id, total=total)
+                self._progress.start_task(self._task_id)
+
             for item in self._inner.stream():
                 current_label = adapter.current_label()
                 if current_label and current_label != last_path_label:
@@ -234,37 +210,69 @@ class _RichSourceProxy(Source):
                 emitted += 1
                 yield item
         finally:
-            try:
-                if self._task_id is not None:
+            if self._task_id is not None:
+                try:
                     self._progress.update(self._task_id, completed=emitted)
                     self._progress.stop_task(self._task_id)
+                except Exception:
+                    logger.debug(
+                        "visuals: failed to finalize progress task for %s",
+                        self._stream_id,
+                        exc_info=True,
+                    )
+                try:
+                    # Remove completed stream rows so finished bars don't linger
+                    # while other sources are still running in the same Live table.
+                    self._progress.remove_task(self._task_id)
+                except Exception:
+                    logger.debug(
+                        "visuals: failed to remove progress task for %s",
+                        self._stream_id,
+                        exc_info=True,
+                    )
+            try:
+                # Force a repaint after removals to prevent stale terminal rows
+                # from persisting between stream transitions.
+                self._progress.refresh()
             except Exception:
                 logger.debug(
-                    "visuals: failed to finalize progress task for %s",
+                    "visuals: failed to refresh progress for %s",
                     self._stream_id,
                     exc_info=True,
                 )
-            # Defer logging of completion to the session footer to avoid interleaving
-            self._emitted = emitted
-            # No explicit end separator; completion line is sufficient
+            self._task_id = None
 
 
 class _RichConsoleExecutionSink(ExecutionEventSink):
-    def __init__(self, level: int, console, live_ref: dict[str, Live | None]) -> None:
+    def __init__(self, level: int, console) -> None:
         self._level = int(level)
         self._console = console
-        self._live_ref = live_ref
+        self._live_console = None
+        self._deferred_events: list[ExecutionLogEvent] = []
+
+    def set_live_console(self, live_console) -> None:
+        self._live_console = live_console
 
     def emit(self, event: ExecutionLogEvent) -> None:
         event_level = ExecutionEventFormatter.level(event)
         if event_level < self._level:
             return
+        if self._live_console is not None and event.kind == "dag_end":
+            self._deferred_events.append(event)
+            return
         text = self._render_event(event)
-        live = self._live_ref.get("live")
-        if live is not None:
-            live.console.print(text)
+        if self._live_console is not None:
+            self._live_console.print(text)
             return
         self._console.print(text)
+
+    def flush(self) -> None:
+        if not self._deferred_events:
+            return
+        for event in self._deferred_events:
+            text = self._render_event(event)
+            self._console.print(text)
+        self._deferred_events.clear()
 
     def _render_event(self, event: ExecutionLogEvent) -> Text:
         indent = "  " * max(0, event.depth)
@@ -317,44 +325,49 @@ def visual_sources(runtime: Runtime, log_level: int | None):
     # Build a console on stderr for visuals/logs
     from rich.console import Console as _Console
     import sys as _sys
-    _vis_console = _Console(file=_sys.stderr, markup=False,
-                            highlight=False, soft_wrap=True)
-
-    columns = [
-        SourceLabelColumn(),
-        GatedColumn(BarColumn(), _is_stream_task),
-        GatedColumn(MofNCompleteColumn(), _is_stream_task),
-        GatedColumn(TaskProgressColumn(), _is_stream_task),
-        GatedColumn(TimeElapsedColumn(), _is_stream_task),
-        GatedColumn(AverageTimeRemainingColumn(), _is_stream_task),
-    ]
+    _vis_console = _Console(file=_sys.stderr, markup=False, highlight=False)
 
     # Keep Live output transient so the spinner/bars disappear once completed
-    progress = Progress(*columns, transient=True, console=_vis_console)
-    live_ref: dict[str, Live | None] = {"live": None}
+    progress = Progress(
+        SourceLabelColumn(),
+        BarColumn(),
+        MofNCompleteColumn(),
+        TaskProgressColumn(),
+        TimeElapsedColumn(),
+        AverageTimeRemainingColumn(),
+        transient=True,
+        console=_vis_console,
+        refresh_per_second=10,
+    )
+    execution_sink = _RichConsoleExecutionSink(level=level, console=_vis_console)
 
     reg = runtime.registries.stream_sources
     originals = dict(reg.items())
     level_token = set_current_visual_log_level(level)
     execution_sink_token = set_current_execution_event_sink(
-        _RichConsoleExecutionSink(level=level, console=_vis_console, live_ref=live_ref)
+        execution_sink
     )
 
-    with Live(progress, console=_vis_console, refresh_per_second=10, transient=True) as live:
+    try:
+        with progress:
+            try:
+                execution_sink.set_live_console(progress.live.console if progress.live else None)
+                for stream_id, stream_source in originals.items():
+                    proxy = _RichSourceProxy(
+                        stream_source=stream_source,
+                        stream_id=stream_id,
+                        progress=progress,
+                    )
+                    reg.register(stream_id, proxy)
+                yield
+            finally:
+                # Restore original sources
+                for stream_id, stream_source in originals.items():
+                    reg.register(stream_id, stream_source)
+    finally:
+        execution_sink.set_live_console(None)
         try:
-            live_ref["live"] = live
-            for stream_id, stream_source in originals.items():
-                proxy = _RichSourceProxy(
-                    stream_source=stream_source,
-                    stream_id=stream_id,
-                    progress=progress,
-                )
-                reg.register(stream_id, proxy)
-            yield
+            execution_sink.flush()
         finally:
-            live_ref["live"] = None
-            # Restore original sources
-            for stream_id, stream_source in originals.items():
-                reg.register(stream_id, stream_source)
             reset_current_execution_event_sink(execution_sink_token)
             reset_current_visual_log_level(level_token)

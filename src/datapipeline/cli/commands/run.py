@@ -312,13 +312,17 @@ def handle_serve(
             )
 
         sections = _entry_sections(run_root, profile.entry)
-        run_job(
-            sections=sections,
-            label=profile.label,
-            visuals=profile.visuals.visuals or "on",
-            level=profile.log_decision.value,
-            runtime=profile.runtime,
-            work=_work,
-            idx=profile.idx,
-            total=profile.total,
-        )
+        try:
+            run_job(
+                sections=sections,
+                label=profile.label,
+                visuals=profile.visuals.visuals or "on",
+                level=profile.log_decision.value,
+                runtime=profile.runtime,
+                work=_work,
+                idx=profile.idx,
+                total=profile.total,
+            )
+        except KeyboardInterrupt:
+            logger.info("Serve interrupted by user")
+            raise SystemExit(130) from None

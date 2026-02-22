@@ -157,8 +157,8 @@ def serve_with_runtime(
         report_serve(target, result_count)
         run_status = "success"
     except KeyboardInterrupt:
-        logger.info("Serve interrupted by user")
         run_status = "failed"
+        raise
     except Exception:
         run_status = "failed"
         raise
