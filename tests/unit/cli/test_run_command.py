@@ -106,7 +106,7 @@ def test_build_cli_output_config_rejects_unknown_encoding() -> None:
     assert exc.value.code == 2
 
 
-def test_handle_serve_exits_immediately_on_keyboard_interrupt(monkeypatch) -> None:
+def test_handle_serve_propagates_keyboard_interrupt(monkeypatch) -> None:
     profile = SimpleNamespace(
         stage=None,
         log_decision=SimpleNamespace(value=20, name="INFO"),
@@ -157,7 +157,7 @@ def test_handle_serve_exits_immediately_on_keyboard_interrupt(monkeypatch) -> No
         _interrupting_run_job,
     )
 
-    with pytest.raises(SystemExit) as exc:
+    with pytest.raises(KeyboardInterrupt):
         handle_serve(
             project="project.yaml",
             limit=None,
@@ -176,5 +176,4 @@ def test_handle_serve_exits_immediately_on_keyboard_interrupt(monkeypatch) -> No
             workspace=None,
         )
 
-    assert exc.value.code == 130
     assert calls["run_job"] == 1

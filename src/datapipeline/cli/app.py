@@ -1,5 +1,6 @@
 import argparse
 import logging
+import sys
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -707,46 +708,51 @@ def main() -> None:
         workspace_context.resolve_plugin_root() if workspace_context else None
     )
 
-    if args.cmd == "serve":
-        handle_serve(
-            project=args.project,
-            limit=getattr(args, "limit", None),
-            keep=getattr(args, "keep", None),
-            run_name=getattr(args, "run", None),
-            stage=getattr(args, "stage", None),
-            output_transport=getattr(args, "output_transport", None),
-            output_format=getattr(args, "output_format", None),
-            output_directory=getattr(args, "output_directory", None),
-            output_encoding=getattr(args, "output_encoding", None),
-            output_view=getattr(args, "output_view", None),
-            skip_build=getattr(args, "skip_build", False),
-            cli_log_level=cli_level_arg,
-            base_log_level=base_level_name,
-            cli_visuals=getattr(args, "visuals", None),
-            workspace=workspace_context,
-        )
-        return
-    if args.cmd == "build":
-        handle_build(
-            project=args.project,
-            force=getattr(args, "force", False),
-            cli_visuals=getattr(args, "visuals", None),
-            workspace=workspace_context,
-        )
-        return
+    try:
+        if args.cmd == "serve":
+            handle_serve(
+                project=args.project,
+                limit=getattr(args, "limit", None),
+                keep=getattr(args, "keep", None),
+                run_name=getattr(args, "run", None),
+                stage=getattr(args, "stage", None),
+                output_transport=getattr(args, "output_transport", None),
+                output_format=getattr(args, "output_format", None),
+                output_directory=getattr(args, "output_directory", None),
+                output_encoding=getattr(args, "output_encoding", None),
+                output_view=getattr(args, "output_view", None),
+                skip_build=getattr(args, "skip_build", False),
+                cli_log_level=cli_level_arg,
+                base_log_level=base_level_name,
+                cli_visuals=getattr(args, "visuals", None),
+                workspace=workspace_context,
+            )
+            return
+        if args.cmd == "build":
+            handle_build(
+                project=args.project,
+                force=getattr(args, "force", False),
+                cli_visuals=getattr(args, "visuals", None),
+                workspace=workspace_context,
+            )
+            return
 
-    if args.cmd == "inspect":
-        _run_inspect_command(
+        if args.cmd == "inspect":
+            _run_inspect_command(
+                args=args,
+                shared_defaults=shared_defaults,
+                base_level=base_level,
+                workspace_context=workspace_context,
+            )
+            return
+
+        if _dispatch_non_project_command(
             args=args,
-            shared_defaults=shared_defaults,
-            base_level=base_level,
+            plugin_root=plugin_root,
             workspace_context=workspace_context,
-        )
-        return
-
-    if _dispatch_non_project_command(
-        args=args,
-        plugin_root=plugin_root,
-        workspace_context=workspace_context,
-    ):
-        return
+        ):
+            return
+    except KeyboardInterrupt:
+        message = "Serve interrupted by user" if args.cmd == "serve" else "Interrupted by user"
+        print(message, file=sys.stderr)
+        raise SystemExit(130) from None

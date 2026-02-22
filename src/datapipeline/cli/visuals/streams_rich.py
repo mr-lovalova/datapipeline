@@ -149,6 +149,17 @@ class _RichSourceProxy(Source):
         self._progress = progress
         self._task_id = None
 
+    def _safe_progress_call(self, operation: str, fn, *args, **kwargs) -> None:
+        try:
+            fn(*args, **kwargs)
+        except Exception:
+            logger.debug(
+                "visuals: failed to %s for %s",
+                operation,
+                self._stream_id,
+                exc_info=True,
+            )
+
     def _format_text(self, stream_label: str, message: str) -> str:
         # Plain stream-id prefix to avoid Rich markup issues
         indent = visible_dag_indent(logging.INFO)
@@ -210,37 +221,33 @@ class _RichSourceProxy(Source):
                 emitted += 1
                 yield item
         finally:
-            if self._task_id is not None:
-                try:
-                    self._progress.update(self._task_id, completed=emitted)
-                    self._progress.stop_task(self._task_id)
-                except Exception:
-                    logger.debug(
-                        "visuals: failed to finalize progress task for %s",
-                        self._stream_id,
-                        exc_info=True,
-                    )
-                try:
-                    # Remove completed stream rows so finished bars don't linger
-                    # while other sources are still running in the same Live table.
-                    self._progress.remove_task(self._task_id)
-                except Exception:
-                    logger.debug(
-                        "visuals: failed to remove progress task for %s",
-                        self._stream_id,
-                        exc_info=True,
-                    )
-            try:
-                # Force a repaint after removals to prevent stale terminal rows
-                # from persisting between stream transitions.
-                self._progress.refresh()
-            except Exception:
-                logger.debug(
-                    "visuals: failed to refresh progress for %s",
-                    self._stream_id,
-                    exc_info=True,
-                )
+            task_id = self._task_id
             self._task_id = None
+            if task_id is not None:
+                self._safe_progress_call(
+                    "finalize progress task",
+                    self._progress.update,
+                    task_id,
+                    completed=emitted,
+                )
+                self._safe_progress_call("stop progress task", self._progress.stop_task, task_id)
+                # Remove completed stream rows so finished bars don't linger
+                # while other sources are still running in the same Live table.
+                self._safe_progress_call("remove progress task", self._progress.remove_task, task_id)
+
+
+def _clear_progress_tasks(progress: Progress) -> None:
+    # Keep cleanup centralized at the context boundary so interrupted streams
+    # don't leave orphan rows behind.
+    for task in list(progress.tasks):
+        try:
+            progress.remove_task(task.id)
+        except Exception:
+            logger.debug(
+                "visuals: failed to remove orphan progress task %s",
+                task.id,
+                exc_info=True,
+            )
 
 
 class _RichConsoleExecutionSink(ExecutionEventSink):
@@ -361,6 +368,7 @@ def visual_sources(runtime: Runtime, log_level: int | None):
                     reg.register(stream_id, proxy)
                 yield
             finally:
+                _clear_progress_tasks(progress)
                 # Restore original sources
                 for stream_id, stream_source in originals.items():
                     reg.register(stream_id, stream_source)

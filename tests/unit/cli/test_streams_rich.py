@@ -18,6 +18,7 @@ from datapipeline.cli.visuals.execution_context import (
 from datapipeline.cli.visuals.streams_rich import (
     _RichConsoleExecutionSink,
     _RichSourceProxy,
+    _clear_progress_tasks,
     SourceLabelColumn,
     visual_sources,
 )
@@ -225,6 +226,36 @@ def test_rich_source_proxy_cleans_tasks_when_count_is_interrupted() -> None:
     assert progress.tasks == []
 
 
+def test_clear_progress_tasks_removes_orphan_rows() -> None:
+    console = Console(
+        file=StringIO(),
+        markup=False,
+        highlight=False,
+        force_terminal=False,
+    )
+    progress = Progress(SourceLabelColumn(), console=console)
+    proxy = _RichSourceProxy(
+        stream_source=_SyntheticSource(),
+        stream_id="time.ticks.linear",
+        progress=progress,
+    )
+
+    original_safe_call = proxy._safe_progress_call
+
+    def _skip_remove(op, fn, *args, **kwargs):
+        if op == "remove progress task":
+            return None
+        return original_safe_call(op, fn, *args, **kwargs)
+
+    proxy._safe_progress_call = _skip_remove  # type: ignore[method-assign]
+
+    with progress:
+        list(proxy.stream())
+        assert len(progress.tasks) == 1
+        _clear_progress_tasks(progress)
+        assert progress.tasks == []
+
+
 def test_rich_source_proxy_cleans_meta_when_interrupted_during_task_setup() -> None:
     progress = _InterruptingAddProgress()
     proxy = _RichSourceProxy(
@@ -257,3 +288,31 @@ def test_visual_sources_resets_context_when_live_fails(monkeypatch) -> None:
     finally:
         reset_current_execution_event_sink(sink_token)
         reset_current_visual_log_level(level_token)
+
+
+def test_visual_sources_runs_central_task_cleanup_on_interrupt(monkeypatch) -> None:
+    runtime = SimpleNamespace(
+        registries=SimpleNamespace(stream_sources=_StreamRegistry())
+    )
+    runtime.registries.stream_sources.register("time.ticks.linear", _SyntheticSource())
+
+    called = {"count": 0}
+    original_clear = _clear_progress_tasks
+
+    def _capture_clear(progress):
+        called["count"] += 1
+        original_clear(progress)
+
+    monkeypatch.setattr(
+        "datapipeline.cli.visuals.streams_rich._clear_progress_tasks",
+        _capture_clear,
+    )
+
+    with pytest.raises(KeyboardInterrupt):
+        with visual_sources(runtime, logging.INFO):
+            wrapped = runtime.registries.stream_sources._items["time.ticks.linear"]
+            iterator = wrapped.stream()
+            next(iterator)
+            raise KeyboardInterrupt()
+
+    assert called["count"] == 1

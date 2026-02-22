@@ -1,6 +1,7 @@
 import sys
 from pathlib import Path
 
+import pytest
 from datapipeline.cli import app
 from datapipeline.config.workspace import WorkspaceConfig, WorkspaceContext
 
@@ -129,3 +130,24 @@ def test_resolve_project_from_args_requires_selection_without_workspace_default(
         assert "No dataset/project selected" in str(exc)
     else:
         raise AssertionError("Expected SystemExit when no project selection is available")
+
+
+def test_main_handles_keyboard_interrupt_at_top_level(monkeypatch, capsys):
+    monkeypatch.setattr(app, "load_workspace_context", lambda _cwd: None)
+    monkeypatch.setattr(
+        app,
+        "handle_serve",
+        lambda **_kwargs: (_ for _ in ()).throw(KeyboardInterrupt()),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["jerry", "serve", "--project", "project.yaml"],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        app.main()
+
+    captured = capsys.readouterr()
+    assert exc.value.code == 130
+    assert "Serve interrupted by user" in captured.err
