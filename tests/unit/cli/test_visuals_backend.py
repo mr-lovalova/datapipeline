@@ -1,3 +1,5 @@
+from contextlib import contextmanager
+
 from datapipeline.cli.visuals.streams import (
     _BasicBackend,
     _OffBackend,
@@ -31,3 +33,28 @@ def test_get_visuals_backend_off_mode(monkeypatch):
 
     backend = get_visuals_backend("off")
     assert isinstance(backend, _OffBackend)
+
+
+def test_off_backend_wraps_sources_with_basic_logging(monkeypatch):
+    calls = {"count": 0, "runtime": None, "level": None}
+
+    @contextmanager
+    def _fake_basic(runtime, log_level):
+        calls["count"] += 1
+        calls["runtime"] = runtime
+        calls["level"] = log_level
+        yield
+
+    monkeypatch.setattr(
+        "datapipeline.cli.visuals.streams_basic.visual_sources",
+        _fake_basic,
+    )
+
+    backend = _OffBackend()
+    runtime = object()
+    with backend.wrap_sources(runtime, 20):
+        pass
+
+    assert calls["count"] == 1
+    assert calls["runtime"] is runtime
+    assert calls["level"] == 20

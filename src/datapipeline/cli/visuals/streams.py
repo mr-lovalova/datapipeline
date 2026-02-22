@@ -105,11 +105,10 @@ class _RichBackend(VisualsBackend):
 
 class _OffBackend(VisualsBackend):
     def wrap_sources(self, runtime: Runtime, log_level: int):
-        @contextmanager
-        def _noop():
-            yield
-
-        return _noop()
+        # OFF disables rich/live visuals, but keeps source-level observability
+        # in plain logs so verbosity remains governed by log level.
+        from .streams_basic import visual_sources as basic
+        return basic(runtime, log_level)
 
 
 def _rich_available() -> bool:
