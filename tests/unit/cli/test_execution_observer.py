@@ -29,8 +29,8 @@ def test_hierarchical_observer_logs_only_root_dag_at_info(caplog):
     observer = HierarchicalExecutionObserver(LoggerExecutionEventSink(logger))
 
     with caplog.at_level(logging.INFO, logger=logger.name):
-        observer.on_dag_start(dag_name="outer", node_count=2)
-        observer.on_dag_start(dag_name="inner", node_count=1)
+        observer.on_dag_start(dag_name="outer", node_count=2, depth=0)
+        observer.on_dag_start(dag_name="inner", node_count=1, depth=1)
         observer.on_dag_end(
             DagRunEvent(
                 dag_name="inner",
@@ -38,6 +38,7 @@ def test_hierarchical_observer_logs_only_root_dag_at_info(caplog):
                 output_items=3,
                 elapsed_seconds=0.01,
                 status="success",
+                depth=1,
             )
         )
         observer.on_dag_end(
@@ -47,6 +48,7 @@ def test_hierarchical_observer_logs_only_root_dag_at_info(caplog):
                 output_items=3,
                 elapsed_seconds=0.02,
                 status="success",
+                depth=0,
             )
         )
 
@@ -60,8 +62,8 @@ def test_hierarchical_observer_logs_nested_dags_at_debug(caplog):
     observer = HierarchicalExecutionObserver(LoggerExecutionEventSink(logger))
 
     with caplog.at_level(logging.DEBUG, logger=logger.name):
-        observer.on_dag_start(dag_name="outer", node_count=2)
-        observer.on_dag_start(dag_name="inner", node_count=1)
+        observer.on_dag_start(dag_name="outer", node_count=2, depth=0)
+        observer.on_dag_start(dag_name="inner", node_count=1, depth=1)
         observer.on_dag_end(
             DagRunEvent(
                 dag_name="inner",
@@ -69,6 +71,7 @@ def test_hierarchical_observer_logs_nested_dags_at_debug(caplog):
                 output_items=3,
                 elapsed_seconds=0.01,
                 status="success",
+                depth=1,
             )
         )
         observer.on_dag_end(
@@ -78,6 +81,7 @@ def test_hierarchical_observer_logs_nested_dags_at_debug(caplog):
                 output_items=3,
                 elapsed_seconds=0.02,
                 status="success",
+                depth=0,
             )
         )
 
@@ -92,8 +96,8 @@ def test_hierarchical_observer_logs_node_events_at_debug(caplog):
     observer = HierarchicalExecutionObserver(LoggerExecutionEventSink(logger))
 
     with caplog.at_level(logging.DEBUG, logger=logger.name):
-        observer.on_dag_start(dag_name="demo", node_count=1)
-        observer.on_node_start(dag_name="demo", node_name="n", stage=0)
+        observer.on_dag_start(dag_name="demo", node_count=1, depth=0)
+        observer.on_node_start(dag_name="demo", node_name="n", stage=0, depth=1)
         observer.on_node_end(
             NodeRunEvent(
                 dag_name="demo",
@@ -102,6 +106,7 @@ def test_hierarchical_observer_logs_node_events_at_debug(caplog):
                 output_items=2,
                 elapsed_seconds=0.01,
                 status="success",
+                depth=1,
             )
         )
 
@@ -116,9 +121,9 @@ def test_hierarchical_observer_updates_context_depth():
     observer = HierarchicalExecutionObserver(LoggerExecutionEventSink(logger))
 
     assert current_dag_depth() == 0
-    observer.on_dag_start(dag_name="outer", node_count=1)
+    observer.on_dag_start(dag_name="outer", node_count=1, depth=0)
     assert current_dag_depth() == 1
-    observer.on_dag_start(dag_name="inner", node_count=1)
+    observer.on_dag_start(dag_name="inner", node_count=1, depth=1)
     assert current_dag_depth() == 2
     observer.on_dag_end(
         DagRunEvent(
@@ -127,6 +132,7 @@ def test_hierarchical_observer_updates_context_depth():
             output_items=0,
             elapsed_seconds=0.0,
             status="success",
+            depth=1,
         )
     )
     assert current_dag_depth() == 1
@@ -137,19 +143,20 @@ def test_hierarchical_observer_updates_context_depth():
             output_items=0,
             elapsed_seconds=0.0,
             status="success",
+            depth=0,
         )
     )
     assert current_dag_depth() == 0
 
 
-def test_hierarchical_observer_keeps_siblings_flat_and_parent_finishes_last(caplog):
+def test_hierarchical_observer_respects_explicit_depth_when_events_finish_out_of_order(caplog):
     logger = logging.getLogger("datapipeline.cli.visuals.execution.test.siblings")
     observer = HierarchicalExecutionObserver(LoggerExecutionEventSink(logger))
 
     with caplog.at_level(logging.INFO, logger=logger.name):
-        observer.on_dag_start(dag_name="vector:assemble", node_count=2)
-        observer.on_dag_start(dag_name="feature:linear_time", node_count=9)
-        observer.on_dag_start(dag_name="feature:closing_price", node_count=9)
+        observer.on_dag_start(dag_name="vector:assemble", node_count=2, depth=0)
+        observer.on_dag_start(dag_name="feature:linear_time", node_count=9, depth=1)
+        observer.on_dag_start(dag_name="feature:closing_price", node_count=9, depth=1)
 
         observer.on_dag_end(
             DagRunEvent(
@@ -158,6 +165,7 @@ def test_hierarchical_observer_keeps_siblings_flat_and_parent_finishes_last(capl
                 output_items=23,
                 elapsed_seconds=9.0,
                 status="success",
+                depth=0,
             )
         )
         observer.on_dag_end(
@@ -167,6 +175,7 @@ def test_hierarchical_observer_keeps_siblings_flat_and_parent_finishes_last(capl
                 output_items=33,
                 elapsed_seconds=8.0,
                 status="success",
+                depth=1,
             )
         )
         observer.on_dag_end(
@@ -176,13 +185,14 @@ def test_hierarchical_observer_keeps_siblings_flat_and_parent_finishes_last(capl
                 output_items=29,
                 elapsed_seconds=9.5,
                 status="success",
+                depth=1,
             )
         )
 
     messages = [record.getMessage() for record in caplog.records]
     assert messages[0].startswith("DAG started name=vector:assemble")
     assert messages[1].startswith("DAG finished name=vector:assemble")
-    assert current_dag_depth() == 0
+    assert current_dag_depth() == 1
 
 
 def test_hierarchical_observer_emits_structured_log_fields(caplog):
@@ -190,7 +200,7 @@ def test_hierarchical_observer_emits_structured_log_fields(caplog):
     observer = HierarchicalExecutionObserver(LoggerExecutionEventSink(logger))
 
     with caplog.at_level(logging.INFO, logger=logger.name):
-        observer.on_dag_start(dag_name="pipeline:serve", node_count=3)
+        observer.on_dag_start(dag_name="pipeline:serve", node_count=3, depth=0)
         observer.on_dag_end(
             DagRunEvent(
                 dag_name="pipeline:serve",
@@ -198,6 +208,7 @@ def test_hierarchical_observer_emits_structured_log_fields(caplog):
                 output_items=1,
                 elapsed_seconds=0.5,
                 status="success",
+                depth=0,
             )
         )
 
@@ -213,7 +224,7 @@ def test_hierarchical_observer_includes_error_type_on_failure(caplog):
     observer = HierarchicalExecutionObserver(LoggerExecutionEventSink(logger))
 
     with caplog.at_level(logging.INFO, logger=logger.name):
-        observer.on_dag_start(dag_name="pipeline:serve", node_count=3)
+        observer.on_dag_start(dag_name="pipeline:serve", node_count=3, depth=0)
         observer.on_dag_end(
             DagRunEvent(
                 dag_name="pipeline:serve",
@@ -222,6 +233,7 @@ def test_hierarchical_observer_includes_error_type_on_failure(caplog):
                 elapsed_seconds=0.5,
                 status="error",
                 error_type="KeyboardInterrupt",
+                depth=0,
             )
         )
 
@@ -245,7 +257,7 @@ def test_make_execution_observer_accepts_single_custom_sink():
     sink = _CaptureSink()
     observer = make_execution_observer(sink=sink)
 
-    observer.on_dag_start(dag_name="pipeline:serve", node_count=3)
+    observer.on_dag_start(dag_name="pipeline:serve", node_count=3, depth=0)
     observer.on_dag_end(
         DagRunEvent(
             dag_name="pipeline:serve",
@@ -253,6 +265,7 @@ def test_make_execution_observer_accepts_single_custom_sink():
             output_items=1,
             elapsed_seconds=0.5,
             status="success",
+            depth=0,
         )
     )
 
@@ -266,6 +279,7 @@ def test_hierarchical_observer_emits_dag_metadata_as_info_events():
     observer.on_dag_start(
         dag_name="feature:closing_price",
         node_count=9,
+        depth=1,
         dag_metadata={
             "feature.config": {
                 "id": "closing_price",
@@ -292,10 +306,11 @@ def test_hierarchical_observer_formats_dag_metadata_with_context(caplog):
     observer = HierarchicalExecutionObserver(LoggerExecutionEventSink(logger))
 
     with caplog.at_level(logging.INFO, logger=logger.name):
-        observer.on_dag_start(dag_name="pipeline:serve", node_count=3)
+        observer.on_dag_start(dag_name="pipeline:serve", node_count=3, depth=0)
         observer.on_dag_start(
             dag_name="feature:closing_price",
             node_count=9,
+            depth=1,
             dag_metadata={
                 "feature.config": {
                     "id": "closing_price",
@@ -320,10 +335,11 @@ def test_hierarchical_observer_shows_nested_dag_metadata_at_debug(caplog):
     observer = HierarchicalExecutionObserver(LoggerExecutionEventSink(logger))
 
     with caplog.at_level(logging.DEBUG, logger=logger.name):
-        observer.on_dag_start(dag_name="pipeline:serve", node_count=3)
+        observer.on_dag_start(dag_name="pipeline:serve", node_count=3, depth=0)
         observer.on_dag_start(
             dag_name="feature:closing_price",
             node_count=9,
+            depth=1,
             dag_metadata={
                 "feature.config": {
                     "id": "closing_price",
@@ -348,7 +364,7 @@ def test_make_execution_observer_fans_out_to_multiple_sinks():
     right = _CaptureSink()
     observer = make_execution_observer(sinks=[left, right])
 
-    observer.on_dag_start(dag_name="pipeline:serve", node_count=3)
+    observer.on_dag_start(dag_name="pipeline:serve", node_count=3, depth=0)
     observer.on_dag_end(
         DagRunEvent(
             dag_name="pipeline:serve",
@@ -356,6 +372,7 @@ def test_make_execution_observer_fans_out_to_multiple_sinks():
             output_items=1,
             elapsed_seconds=0.5,
             status="success",
+            depth=0,
         )
     )
 
@@ -378,7 +395,7 @@ def test_make_execution_observer_uses_context_sink_when_present(caplog):
     try:
         observer = make_execution_observer(logger=logger)
         with caplog.at_level(logging.INFO, logger=logger.name):
-            observer.on_dag_start(dag_name="pipeline:serve", node_count=3)
+            observer.on_dag_start(dag_name="pipeline:serve", node_count=3, depth=0)
             observer.on_dag_end(
                 DagRunEvent(
                     dag_name="pipeline:serve",
@@ -386,6 +403,7 @@ def test_make_execution_observer_uses_context_sink_when_present(caplog):
                     output_items=1,
                     elapsed_seconds=0.5,
                     status="success",
+                    depth=0,
                 )
             )
         assert [event.kind for event in capture.events] == ["dag_start", "dag_end"]
@@ -398,7 +416,7 @@ def test_make_execution_observer_falls_back_to_logger_without_context_sink(caplo
     logger = logging.getLogger("datapipeline.cli.visuals.execution.test.logger_fallback")
     observer = make_execution_observer(logger=logger)
     with caplog.at_level(logging.INFO, logger=logger.name):
-        observer.on_dag_start(dag_name="pipeline:serve", node_count=3)
+        observer.on_dag_start(dag_name="pipeline:serve", node_count=3, depth=0)
         observer.on_dag_end(
             DagRunEvent(
                 dag_name="pipeline:serve",
@@ -406,8 +424,35 @@ def test_make_execution_observer_falls_back_to_logger_without_context_sink(caplo
                 output_items=1,
                 elapsed_seconds=0.5,
                 status="success",
+                depth=0,
             )
         )
     messages = [record.getMessage() for record in caplog.records]
     assert any(msg.startswith("DAG started name=pipeline:serve") for msg in messages)
     assert any(msg.startswith("DAG finished name=pipeline:serve") for msg in messages)
+
+
+def test_make_execution_observer_keeps_bound_context_sink_after_context_reset(caplog):
+    logger = logging.getLogger("datapipeline.cli.visuals.execution.test.sticky_context")
+    capture = _CaptureSink()
+    token = set_current_execution_event_sink(capture)
+    try:
+        observer = make_execution_observer(logger=logger)
+        observer.on_dag_start(dag_name="pipeline:serve", node_count=3, depth=0)
+    finally:
+        reset_current_execution_event_sink(token)
+
+    with caplog.at_level(logging.INFO, logger=logger.name):
+        observer.on_dag_end(
+            DagRunEvent(
+                dag_name="pipeline:serve",
+                node_count=3,
+                output_items=1,
+                elapsed_seconds=0.5,
+                status="success",
+                depth=0,
+            )
+        )
+
+    assert [event.kind for event in capture.events] == ["dag_start", "dag_end"]
+    assert caplog.records == []

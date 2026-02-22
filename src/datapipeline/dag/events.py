@@ -13,6 +13,7 @@ class NodeRunEvent:
     elapsed_seconds: float
     status: RunStatus
     error_type: str | None = None
+    depth: int = 0
 
 
 @dataclass(frozen=True)
@@ -23,3 +24,4 @@ class DagRunEvent:
     elapsed_seconds: float
     status: RunStatus
     error_type: str | None = None
+    depth: int = 0

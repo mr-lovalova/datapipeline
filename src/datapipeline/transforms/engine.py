@@ -9,6 +9,39 @@ from datapipeline.dag.transform_observability import ObserverRegistry, SupportsO
 
 from datapipeline.utils.load import load_ep
 
+logger = logging.getLogger(__name__)
+
+
+def _close_iterator(iterator: Any) -> None:
+    closer = getattr(iterator, "close", None)
+    if not callable(closer):
+        return
+    try:
+        closer()
+    except Exception:
+        logger.debug(
+            "Failed to close transform iterator during teardown",
+            exc_info=True,
+        )
+
+
+def _with_close_cascade(
+    stream: Iterator[Any],
+    upstream: Iterator[Any],
+) -> Iterator[Any]:
+    if stream is upstream:
+        return stream
+
+    def _iter() -> Iterator[Any]:
+        iterator = iter(stream)
+        try:
+            yield from iterator
+        finally:
+            _close_iterator(iterator)
+            _close_iterator(upstream)
+
+    return _iter()
+
 
 def _extract_single_pair(clause: Mapping[str, Any], kind: str) -> Tuple[str, Any]:
     """Validate that *clause* is a one-key mapping and return that pair."""
@@ -115,6 +148,7 @@ def apply_transforms(
     context_cm = context.activate() if context else nullcontext()
     with context_cm:
         for transform in transforms or ():
+            upstream = stream
             name, params = _extract_single_pair(transform, "Transform")
             ep = load_ep(group=group, name=name)
             if isclass(ep):
@@ -133,6 +167,7 @@ def apply_transforms(
                 stream = _call_with_params(
                     ep, stream, params, context, extra_kwargs=extra_kwargs
                 )
+            stream = _with_close_cascade(stream, upstream)
     return stream
 
 

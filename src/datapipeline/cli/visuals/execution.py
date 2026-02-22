@@ -139,43 +139,23 @@ class LoggerExecutionEventSink(ExecutionEventSink):
 class ContextOrLoggerExecutionEventSink(ExecutionEventSink):
     def __init__(self, logger_sink: LoggerExecutionEventSink) -> None:
         self._logger_sink = logger_sink
+        self._bound_context_sink: ExecutionEventSink | None = None
 
     def emit(self, event: ExecutionLogEvent) -> None:
         context_sink = current_execution_event_sink()
         if context_sink is not None and context_sink is not self:
+            self._bound_context_sink = context_sink
             context_sink.emit(event)
             return
+        if self._bound_context_sink is not None and self._bound_context_sink is not self:
+            self._bound_context_sink.emit(event)
+            return
         self._logger_sink.emit(event)
-
-
-@dataclass
-class _DagFrame:
-    name: str
-    prefix: str
-    depth: int
-
 
 class HierarchicalExecutionObserver(ExecutionObserver):
     def __init__(self, sink: ExecutionEventSink) -> None:
         self._sink = sink
-        self._dag_stack: list[_DagFrame] = []
         set_current_dag_depth(0)
-
-    @staticmethod
-    def _prefix(dag_name: str) -> str:
-        return dag_name.split(":", 1)[0] if ":" in dag_name else dag_name
-
-    def _active_depth(self) -> int:
-        if not self._dag_stack:
-            return 0
-        return self._dag_stack[-1].depth + 1
-
-    def _find_frame_index(self, dag_name: str) -> int:
-        for idx in range(len(self._dag_stack) - 1, -1, -1):
-            frame = self._dag_stack[idx]
-            if frame.name == dag_name:
-                return idx
-        return -1
 
     def _emit(self, event: ExecutionLogEvent) -> None:
         self._sink.emit(event)
@@ -198,21 +178,15 @@ class HierarchicalExecutionObserver(ExecutionObserver):
         *,
         dag_name: str,
         node_count: int,
+        depth: int = 0,
         dag_metadata: dict[str, Any] | None = None,
     ) -> None:
-        if not self._dag_stack:
-            depth = 0
-        else:
-            parent = self._dag_stack[-1]
-            if parent.prefix == self._prefix(dag_name):
-                depth = parent.depth
-            else:
-                depth = parent.depth + 1
+        dag_depth = max(0, int(depth))
         self._emit(
             ExecutionLogEvent(
                 kind="dag_start",
                 dag_name=dag_name,
-                depth=depth,
+                depth=dag_depth,
                 node_count=node_count,
             )
         )
@@ -221,38 +195,39 @@ class HierarchicalExecutionObserver(ExecutionObserver):
                 ExecutionLogEvent(
                     kind="dag_info",
                     dag_name=dag_name,
-                    depth=depth + 1,
+                    depth=dag_depth + 1,
                     info_line=line,
                 )
             )
-        self._dag_stack.append(
-            _DagFrame(
-                name=dag_name,
-                prefix=self._prefix(dag_name),
-                depth=depth,
-            )
-        )
-        set_current_dag_depth(self._active_depth())
+        set_current_dag_depth(dag_depth + 1)
 
-    def on_node_start(self, *, dag_name: str, node_name: str, stage: int) -> None:
-        depth = self._active_depth()
+    def on_node_start(
+        self,
+        *,
+        dag_name: str,
+        node_name: str,
+        stage: int,
+        depth: int = 0,
+    ) -> None:
+        node_depth = max(0, int(depth))
         self._emit(
             ExecutionLogEvent(
                 kind="node_start",
                 dag_name=dag_name,
-                depth=depth,
+                depth=node_depth,
                 node_name=node_name,
                 stage=stage,
             )
         )
+        set_current_dag_depth(node_depth)
 
     def on_node_end(self, event: NodeRunEvent) -> None:
-        depth = self._active_depth()
+        node_depth = max(0, int(event.depth))
         self._emit(
             ExecutionLogEvent(
                 kind="node_end",
                 dag_name=event.dag_name,
-                depth=depth,
+                depth=node_depth,
                 node_name=event.node_name,
                 stage=event.stage,
                 status=event.status,
@@ -261,20 +236,15 @@ class HierarchicalExecutionObserver(ExecutionObserver):
                 elapsed_seconds=event.elapsed_seconds,
             )
         )
+        set_current_dag_depth(node_depth)
 
     def on_dag_end(self, event: DagRunEvent) -> None:
-        idx = self._find_frame_index(event.dag_name)
-        depth = 0
-        if idx < 0:
-            depth = 0
-        else:
-            depth = self._dag_stack[idx].depth
-            self._dag_stack.pop(idx)
+        dag_depth = max(0, int(event.depth))
         self._emit(
             ExecutionLogEvent(
                 kind="dag_end",
                 dag_name=event.dag_name,
-                depth=depth,
+                depth=dag_depth,
                 node_count=event.node_count,
                 status=event.status,
                 error_type=event.error_type,
@@ -282,7 +252,7 @@ class HierarchicalExecutionObserver(ExecutionObserver):
                 elapsed_seconds=event.elapsed_seconds,
             )
         )
-        set_current_dag_depth(self._active_depth())
+        set_current_dag_depth(dag_depth)
 
 
 def make_execution_observer(

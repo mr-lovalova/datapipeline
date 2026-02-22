@@ -8,10 +8,12 @@ from rich.progress import Progress
 
 from datapipeline.cli.visuals.execution import ExecutionLogEvent
 from datapipeline.cli.visuals.execution_context import (
+    current_dag_depth,
     current_execution_event_sink,
     current_visual_log_level,
     reset_current_execution_event_sink,
     reset_current_visual_log_level,
+    set_current_dag_depth,
     set_current_execution_event_sink,
     set_current_visual_log_level,
 )
@@ -142,7 +144,7 @@ def _lines(buffer: StringIO) -> list[str]:
     return [line for line in buffer.getvalue().splitlines() if line.strip()]
 
 
-def test_rich_execution_sink_defers_dag_end_until_flush() -> None:
+def test_rich_execution_sink_emits_dag_end_immediately() -> None:
     buffer = StringIO()
     console = Console(file=buffer, markup=False, highlight=False, force_terminal=False)
     sink = _RichConsoleExecutionSink(level=0, console=console)
@@ -170,12 +172,7 @@ def test_rich_execution_sink_defers_dag_end_until_flush() -> None:
 
     current = _lines(buffer)
     assert any(line.startswith("DAG started name=pipeline:serve") for line in current)
-    assert not any(line.startswith("DAG finished name=pipeline:serve") for line in current)
-
-    sink.set_live_console(None)
-    sink.flush()
-    final = _lines(buffer)
-    assert any(line.startswith("DAG finished name=pipeline:serve") for line in final)
+    assert any(line.startswith("DAG finished name=pipeline:serve") for line in current)
 
 
 def test_rich_execution_sink_renders_error_type_for_failed_dag_end() -> None:
@@ -252,6 +249,33 @@ def test_rich_source_proxy_cleans_tasks_when_count_is_interrupted() -> None:
     assert progress.tasks == []
 
 
+def test_rich_source_proxy_ignores_missing_task_during_teardown(caplog) -> None:
+    console = Console(
+        file=StringIO(),
+        markup=False,
+        highlight=False,
+        force_terminal=False,
+    )
+    progress = Progress(SourceLabelColumn(), console=console)
+    proxy = _RichSourceProxy(
+        stream_source=_SyntheticSource(),
+        stream_id="equity.ohlcv",
+        progress=progress,
+    )
+
+    with progress:
+        iterator = proxy.stream()
+        next(iterator)
+        _clear_progress_tasks(progress)
+        with caplog.at_level(logging.DEBUG, logger="datapipeline.cli.visuals.streams_rich"):
+            iterator.close()
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert not any("visuals: failed to finalize progress task" in msg for msg in messages)
+    assert not any("visuals: failed to stop progress task" in msg for msg in messages)
+    assert not any("visuals: failed to remove progress task" in msg for msg in messages)
+
+
 def test_clear_progress_tasks_removes_orphan_rows() -> None:
     console = Console(
         file=StringIO(),
@@ -304,6 +328,7 @@ def test_visual_sources_resets_context_when_live_fails(monkeypatch) -> None:
     )
     level_token = set_current_visual_log_level(logging.WARNING)
     sink_token = set_current_execution_event_sink("sentinel")
+    set_current_dag_depth(3)
     try:
         with pytest.raises(RuntimeError, match="live boom"):
             with visual_sources(runtime, logging.INFO):
@@ -311,6 +336,7 @@ def test_visual_sources_resets_context_when_live_fails(monkeypatch) -> None:
 
         assert current_visual_log_level() == logging.WARNING
         assert current_execution_event_sink() == "sentinel"
+        assert current_dag_depth() == 0
     finally:
         reset_current_execution_event_sink(sink_token)
         reset_current_visual_log_level(level_token)

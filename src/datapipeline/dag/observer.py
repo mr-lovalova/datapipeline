@@ -10,11 +10,19 @@ class ExecutionObserver(Protocol):
         *,
         dag_name: str,
         node_count: int,
+        depth: int = 0,
         dag_metadata: dict[str, Any] | None = None,
     ) -> None:
         ...
 
-    def on_node_start(self, *, dag_name: str, node_name: str, stage: int) -> None:
+    def on_node_start(
+        self,
+        *,
+        dag_name: str,
+        node_name: str,
+        stage: int,
+        depth: int = 0,
+    ) -> None:
         ...
 
     def on_node_end(self, event: NodeRunEvent) -> None:
@@ -30,11 +38,19 @@ class NoopExecutionObserver:
         *,
         dag_name: str,
         node_count: int,
+        depth: int = 0,
         dag_metadata: dict[str, Any] | None = None,
     ) -> None:
         pass
 
-    def on_node_start(self, *, dag_name: str, node_name: str, stage: int) -> None:
+    def on_node_start(
+        self,
+        *,
+        dag_name: str,
+        node_name: str,
+        stage: int,
+        depth: int = 0,
+    ) -> None:
         pass
 
     def on_node_end(self, event: NodeRunEvent) -> None:
@@ -53,6 +69,7 @@ class LoggingExecutionObserver:
         *,
         dag_name: str,
         node_count: int,
+        depth: int = 0,
         dag_metadata: dict[str, Any] | None = None,
     ) -> None:
         if self._logger.isEnabledFor(logging.INFO):
@@ -62,7 +79,14 @@ class LoggingExecutionObserver:
                 node_count,
             )
 
-    def on_node_start(self, *, dag_name: str, node_name: str, stage: int) -> None:
+    def on_node_start(
+        self,
+        *,
+        dag_name: str,
+        node_name: str,
+        stage: int,
+        depth: int = 0,
+    ) -> None:
         if self._logger.isEnabledFor(logging.DEBUG):
             self._logger.debug(
                 "Node started dag=%s node=%s stage=%d",

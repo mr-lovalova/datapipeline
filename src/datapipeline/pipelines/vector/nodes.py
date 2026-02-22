@@ -11,21 +11,30 @@ from datapipeline.pipelines.vector.keygen import group_key_for
 from datapipeline.utils.time import parse_timecode
 
 
+def _close_iterator(iterator) -> None:
+    closer = getattr(iterator, "close", None)
+    if callable(closer):
+        closer()
+
+
 def vector_assemble_stage(
     merged: Iterator[FeatureRecord | FeatureRecordSequence],
     group_by_cadence: str,
 ) -> Iterator[tuple[tuple, Vector]]:
-    for group_key, group in groupby(
-        merged, key=lambda fr: group_key_for(fr, group_by_cadence)
-    ):
-        feature_map = defaultdict(list)
-        for fr in group:
-            if isinstance(fr, FeatureRecordSequence):
-                feature_map[fr.id].extend(fr.values)
-            else:
-                feature_map[fr.id].append(fr.value)
-        vector = vectorize_record_group(feature_map)
-        yield group_key, vector
+    try:
+        for group_key, group in groupby(
+            merged, key=lambda fr: group_key_for(fr, group_by_cadence)
+        ):
+            feature_map = defaultdict(list)
+            for fr in group:
+                if isinstance(fr, FeatureRecordSequence):
+                    feature_map[fr.id].extend(fr.values)
+                else:
+                    feature_map[fr.id].append(fr.value)
+            vector = vectorize_record_group(feature_map)
+            yield group_key, vector
+    finally:
+        _close_iterator(merged)
 
 
 def window_keys(
@@ -57,19 +66,27 @@ def align_stream(
     stream: Iterator[tuple[tuple, Vector]] | None,
     keys: Iterator[tuple] | None,
 ) -> Iterator[tuple[tuple, Vector]]:
+    stream_iter = iter(stream or ())
     if keys is None:
-        yield from (stream or ())
+        try:
+            yield from stream_iter
+        finally:
+            _close_iterator(stream_iter)
         return
-    it = iter(stream or ())
-    current = next(it, None)
-    for key in keys:
-        while current and current[0] < key:
-            current = next(it, None)
-        if current and current[0] == key:
-            yield current
-            current = next(it, None)
-        else:
-            yield (key, Vector(values={}))
+    keys_iter = iter(keys)
+    try:
+        current = next(stream_iter, None)
+        for key in keys_iter:
+            while current and current[0] < key:
+                current = next(stream_iter, None)
+            if current and current[0] == key:
+                yield current
+                current = next(stream_iter, None)
+            else:
+                yield (key, Vector(values={}))
+    finally:
+        _close_iterator(stream_iter)
+        _close_iterator(keys_iter)
 
 
 def sample_assemble_stage(
@@ -85,19 +102,23 @@ def sample_assemble_stage(
         except StopIteration:
             return None
 
-    current_feature = _advance(feature_iter)
-    current_target = _advance(target_iter)
-
-    while current_feature:
-        feature_key, feature_vector = current_feature
-        targets = None
-
-        while current_target and current_target[0] < feature_key:
-            current_target = _advance(target_iter)
-
-        if current_target and current_target[0] == feature_key:
-            targets = current_target[1]
-            current_target = _advance(target_iter)
-
-        yield Sample(key=feature_key, features=feature_vector, targets=targets)
+    try:
         current_feature = _advance(feature_iter)
+        current_target = _advance(target_iter)
+
+        while current_feature:
+            feature_key, feature_vector = current_feature
+            targets = None
+
+            while current_target and current_target[0] < feature_key:
+                current_target = _advance(target_iter)
+
+            if current_target and current_target[0] == feature_key:
+                targets = current_target[1]
+                current_target = _advance(target_iter)
+
+            yield Sample(key=feature_key, features=feature_vector, targets=targets)
+            current_feature = _advance(feature_iter)
+    finally:
+        _close_iterator(feature_iter)
+        _close_iterator(target_iter)

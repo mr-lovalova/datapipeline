@@ -1,4 +1,5 @@
 import heapq
+import logging
 from collections.abc import Iterator, Sequence
 from itertools import tee
 from typing import Any
@@ -17,6 +18,18 @@ from datapipeline.pipelines.vector.nodes import (
 )
 from datapipeline.dag.context import PipelineContext
 from datapipeline.pipelines.vector.keygen import group_key_for
+
+logger = logging.getLogger(__name__)
+
+
+def _close_iterator(iterator: Any) -> None:
+    closer = getattr(iterator, "close", None)
+    if not callable(closer):
+        return
+    try:
+        closer()
+    except Exception:
+        logger.debug("Failed to close vector iterator during teardown", exc_info=True)
 
 
 def build_vector_pipeline(
@@ -86,9 +99,19 @@ def _assemble_vectors(
     if not configs:
         return iter(())
 
-    streams = [build_feature_pipeline(context, cfg) for cfg in configs]
-    merged = heapq.merge(
-        *streams,
-        key=lambda fr: group_key_for(fr, group_by_cadence),
-    )
-    return vector_assemble_stage(merged, group_by_cadence)
+    def _merged_feature_streams() -> Iterator[Any]:
+        streams = [build_feature_pipeline(context, cfg) for cfg in configs]
+        if not streams:
+            return
+        merged_stream = heapq.merge(
+            *streams,
+            key=lambda fr: group_key_for(fr, group_by_cadence),
+        )
+        try:
+            yield from merged_stream
+        finally:
+            _close_iterator(merged_stream)
+            for stream in streams:
+                _close_iterator(stream)
+
+    return vector_assemble_stage(_merged_feature_streams(), group_by_cadence)

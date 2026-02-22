@@ -6,6 +6,7 @@ import pytest
 
 from datapipeline.dag.events import DagRunEvent, NodeRunEvent
 from datapipeline.dag.observer import LoggingExecutionObserver
+from datapipeline.dag import runner as dag_runner
 from datapipeline.dag.runner import run_stage_dag
 from datapipeline.dag.node import PipelineNode
 from datapipeline.dag.dag import StageDag
@@ -25,11 +26,19 @@ class _CollectingObserver:
         *,
         dag_name: str,
         node_count: int,
+        depth: int = 0,
         dag_metadata: dict[str, Any] | None = None,
     ) -> None:
         self.dag_started.append((dag_name, node_count))
 
-    def on_node_start(self, *, dag_name: str, node_name: str, stage: int) -> None:
+    def on_node_start(
+        self,
+        *,
+        dag_name: str,
+        node_name: str,
+        stage: int,
+        depth: int = 0,
+    ) -> None:
         self.node_started.append((dag_name, node_name, stage))
 
     def on_node_end(self, event) -> None:
@@ -86,8 +95,10 @@ def test_run_stage_dag_emits_node_and_dag_events(tmp_path: Path) -> None:
     assert [event.node_name for event in observer.node_events] == ["seed", "plus_one"]
     assert [event.status for event in observer.node_events] == ["success", "success"]
     assert [event.output_items for event in observer.node_events] == [3, 3]
+    assert [event.depth for event in observer.node_events] == [1, 1]
     assert observer.dag_events[0].status == "success"
     assert observer.dag_events[0].output_items == 3
+    assert observer.dag_events[0].depth == 0
 
 
 def test_run_stage_dag_propagates_error_and_marks_failure(tmp_path: Path) -> None:
@@ -117,8 +128,10 @@ def test_run_stage_dag_propagates_error_and_marks_failure(tmp_path: Path) -> Non
     assert explode_events
     assert explode_events[-1].status == "error"
     assert explode_events[-1].error_type == "RuntimeError"
+    assert explode_events[-1].depth == 1
     assert observer.dag_events[-1].status == "error"
     assert observer.dag_events[-1].error_type == "RuntimeError"
+    assert observer.dag_events[-1].depth == 0
 
 
 def test_run_stage_dag_keyboard_interrupt_marks_failure(tmp_path: Path) -> None:
@@ -148,8 +161,68 @@ def test_run_stage_dag_keyboard_interrupt_marks_failure(tmp_path: Path) -> None:
     assert interrupt_events
     assert interrupt_events[-1].status == "error"
     assert interrupt_events[-1].error_type == "KeyboardInterrupt"
+    assert interrupt_events[-1].depth == 1
     assert observer.dag_events[-1].status == "error"
     assert observer.dag_events[-1].error_type == "KeyboardInterrupt"
+    assert observer.dag_events[-1].depth == 0
+
+
+def test_interrupt_state_persists_until_next_root_run(tmp_path: Path) -> None:
+    ctx = _context(tmp_path)
+
+    interrupt_dag = StageDag(
+        name="interrupt-demo",
+        nodes=(
+            PipelineNode(name="seed", op=lambda: [1, 2]),
+            PipelineNode(
+                name="interrupt",
+                op=lambda up: (
+                    value if value == 1 else (_ for _ in ()).throw(KeyboardInterrupt())
+                    for value in (up or ())
+                ),
+                input="seed",
+            ),
+        ),
+    )
+
+    with pytest.raises(KeyboardInterrupt):
+        list(run_stage_dag(ctx, interrupt_dag))
+
+    assert dag_runner._run_interrupted() is True
+
+    success_dag = StageDag(
+        name="success-demo",
+        nodes=(PipelineNode(name="seed", op=lambda: [1]),),
+    )
+    assert list(run_stage_dag(ctx, success_dag)) == [1]
+    assert dag_runner._run_interrupted() is False
+
+
+def test_run_stage_dag_emits_explicit_depth_for_nested_dags(tmp_path: Path) -> None:
+    observer = _CollectingObserver()
+    ctx = _context(tmp_path)
+
+    def _inner_stream():
+        inner = StageDag(
+            name="inner",
+            nodes=(PipelineNode(name="seed_inner", op=lambda: [1, 2]),),
+        )
+        return run_stage_dag(ctx, inner, observer=observer)
+
+    outer = StageDag(
+        name="outer",
+        nodes=(PipelineNode(name="open_inner", op=_inner_stream),),
+    )
+
+    output = list(run_stage_dag(ctx, outer, observer=observer))
+    assert output == [1, 2]
+
+    dag_by_name = {event.dag_name: event for event in observer.dag_events}
+    assert dag_by_name["outer"].depth == 0
+    assert dag_by_name["inner"].depth == 1
+    node_depths = {event.node_name: event.depth for event in observer.node_events}
+    assert node_depths["open_inner"] == 1
+    assert node_depths["seed_inner"] == 2
 
 
 def test_run_stage_dag_tracks_empty_nodes(tmp_path: Path) -> None:

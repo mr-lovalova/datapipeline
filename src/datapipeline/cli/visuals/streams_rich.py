@@ -24,6 +24,7 @@ from .execution import (
 from .execution_context import (
     reset_current_execution_event_sink,
     reset_current_visual_log_level,
+    set_current_dag_depth,
     set_current_execution_event_sink,
     set_current_visual_log_level,
     visible_dag_indent,
@@ -152,6 +153,10 @@ class _RichSourceProxy(Source):
     def _safe_progress_call(self, operation: str, fn, *args, **kwargs) -> None:
         try:
             fn(*args, **kwargs)
+        except KeyError:
+            # Common during interrupt teardown when centralized cleanup removes
+            # tasks before stream-local finalizers run.
+            return
         except Exception:
             logger.debug(
                 "visuals: failed to %s for %s",
@@ -255,7 +260,6 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
         self._level = int(level)
         self._console = console
         self._live_console = None
-        self._deferred_events: list[ExecutionLogEvent] = []
 
     def set_live_console(self, live_console) -> None:
         self._live_console = live_console
@@ -264,9 +268,6 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
         event_level = ExecutionEventFormatter.level(event)
         if event_level < self._level:
             return
-        if self._live_console is not None and event.kind == "dag_end":
-            self._deferred_events.append(event)
-            return
         text = self._render_event(event)
         if self._live_console is not None:
             self._live_console.print(text)
@@ -274,12 +275,7 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
         self._console.print(text)
 
     def flush(self) -> None:
-        if not self._deferred_events:
-            return
-        for event in self._deferred_events:
-            text = self._render_event(event)
-            self._console.print(text)
-        self._deferred_events.clear()
+        return
 
     def _render_event(self, event: ExecutionLogEvent) -> Text:
         indent = "  " * max(0, event.depth)
@@ -378,6 +374,7 @@ def visual_sources(runtime: Runtime, log_level: int | None):
                     reg.register(stream_id, stream_source)
     finally:
         execution_sink.set_live_console(None)
+        set_current_dag_depth(0)
         try:
             execution_sink.flush()
         finally:
