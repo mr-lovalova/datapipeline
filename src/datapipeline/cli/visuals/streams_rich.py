@@ -402,16 +402,16 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
             )
             return text
         if event.kind == "node_start":
-            text.append("Node started", style="dim cyan")
+            text.append("Node activated", style="dim cyan")
             text.append(
-                f" dag={event.dag_name} node={event.node_name} stage={event.stage}",
+                f" dag={event.dag_name} node={event.node_name} index={event.stage}",
                 style="dim",
             )
             return text
         status_style = "green" if event.status == "success" else "red"
         text.append("Node finished", style="dim cyan")
         text.append(
-            f" dag={event.dag_name} node={event.node_name} stage={event.stage}",
+            f" dag={event.dag_name} node={event.node_name} index={event.stage}",
             style="dim",
         )
         text.append(" ")

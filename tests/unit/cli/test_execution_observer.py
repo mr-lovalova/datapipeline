@@ -114,10 +114,9 @@ def test_hierarchical_observer_logs_node_events_at_debug(caplog):
         )
 
     messages = [record.getMessage() for record in caplog.records]
-    assert any(msg.startswith("  Node started dag=demo") for msg in messages)
+    assert any(msg.startswith("  Node activated dag=demo") for msg in messages)
     assert any(msg.startswith("  Node finished dag=demo") for msg in messages)
-
-
+    assert any("index=0" in msg for msg in messages)
 
 def test_hierarchical_observer_updates_context_depth():
     logger = logging.getLogger("datapipeline.cli.visuals.execution.test.depth")
@@ -224,6 +223,24 @@ def test_hierarchical_observer_emits_structured_log_fields(caplog):
     assert getattr(first, "dp_event_kind", None) == "dag_start"
     assert getattr(first, "dp_dag_name", None) == "pipeline:serve"
     assert getattr(first, "dp_depth", None) == 0
+
+
+def test_hierarchical_observer_emits_index_field_for_node_events(caplog):
+    logger = logging.getLogger("datapipeline.cli.visuals.execution.test.node.index")
+    observer = HierarchicalExecutionObserver(LoggerExecutionEventSink(logger))
+
+    with caplog.at_level(logging.DEBUG, logger=logger.name):
+        observer.on_dag_start(dag_name="demo", node_count=1, depth=0)
+        observer.on_node_start(dag_name="demo", node_name="n", stage=2, depth=1)
+
+    node_start = next(
+        record
+        for record in caplog.records
+        if getattr(record, "dp_event_kind", None) == "node_start"
+    )
+    assert "index=2" in node_start.getMessage()
+    assert getattr(node_start, "dp_stage", None) is None
+    assert getattr(node_start, "dp_index", None) == 2
 
 
 def test_hierarchical_observer_includes_error_type_on_failure(caplog):

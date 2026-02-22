@@ -97,8 +97,8 @@ class ExecutionEventFormatter:
             )
         if event.kind == "node_start":
             return (
-                f"{indent}Node started dag={event.dag_name} "
-                f"node={event.node_name} stage={event.stage}"
+                f"{indent}Node activated dag={event.dag_name} "
+                f"node={event.node_name} index={event.stage}"
             )
         error_suffix = (
             f" error={event.error_type}"
@@ -107,7 +107,7 @@ class ExecutionEventFormatter:
         )
         return (
             f"{indent}Node finished dag={event.dag_name} "
-            f"node={event.node_name} stage={event.stage} "
+            f"node={event.node_name} index={event.stage} "
             f"status={event.status}{error_suffix} items={event.output_items} "
             f"elapsed={event.elapsed_seconds:.6f}s"
         )
@@ -123,7 +123,7 @@ class ExecutionEventFormatter:
             "dp_log_level": event.log_level,
             "dp_node_count": event.node_count,
             "dp_node_name": event.node_name,
-            "dp_stage": event.stage,
+            "dp_index": event.stage,
             "dp_status": event.status,
             "dp_error_type": event.error_type,
             "dp_output_items": event.output_items,

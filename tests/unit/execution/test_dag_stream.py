@@ -309,5 +309,5 @@ def test_logging_observer_logs_dag_at_info_and_nodes_at_debug(caplog) -> None:
     messages = [record.getMessage() for record in caplog.records]
     assert any(message.startswith("DAG started name=demo") for message in messages)
     assert any(message.startswith("DAG finished name=demo") for message in messages)
-    assert not any(message.startswith("Node started ") for message in messages)
+    assert not any(message.startswith("Node activated ") for message in messages)
     assert not any(message.startswith("Node finished ") for message in messages)

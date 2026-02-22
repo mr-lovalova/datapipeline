@@ -89,7 +89,7 @@ class LoggingExecutionObserver:
     ) -> None:
         if self._logger.isEnabledFor(logging.DEBUG):
             self._logger.debug(
-                "Node started dag=%s node=%s stage=%d",
+                "Node activated dag=%s node=%s index=%d",
                 dag_name,
                 node_name,
                 stage,
@@ -103,7 +103,7 @@ class LoggingExecutionObserver:
                 else ""
             )
             self._logger.debug(
-                "Node finished dag=%s node=%s stage=%d status=%s%s items=%d elapsed=%.6fs",
+                "Node finished dag=%s node=%s index=%d status=%s%s items=%d elapsed=%.6fs",
                 event.dag_name,
                 event.node_name,
                 event.stage,
