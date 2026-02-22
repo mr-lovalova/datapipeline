@@ -53,14 +53,8 @@ def current_execution_event_sink() -> Any | None:
 
 
 def visible_dag_depth(level: int) -> int:
-    depth = current_dag_depth()
-    session_level = current_visual_log_level()
-    if session_level <= logging.DEBUG:
-        return depth
-    # Keep INFO logs compact: show only top-level nesting.
-    if level <= logging.DEBUG:
-        return depth
-    return min(depth, 1)
+    _ = level
+    return current_dag_depth()
 
 
 def visible_dag_indent(level: int) -> str:

@@ -328,7 +328,7 @@ def test_hierarchical_observer_formats_dag_metadata_with_context(caplog):
         )
 
     messages = [record.getMessage() for record in caplog.records]
-    assert not any(
+    assert any(
         msg.startswith(
             "    [feature:closing_price] feature.config: "
             "id=closing_price stream=equity.ohlcv field=close"

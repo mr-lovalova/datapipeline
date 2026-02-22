@@ -48,13 +48,11 @@ class VisualSourceProxy(Source):
         finally:
             if logger.isEnabledFor(logging.INFO):
                 indent = adapter.current_indent(logging.INFO)
-                unit = adapter.unit or "item"
                 logger.info(
-                    "%s[%s] Stream complete items=%d unit=%s",
+                    "%s[%s] Stream complete items=%d",
                     indent,
                     self._stream_id,
                     emitted,
-                    unit,
                 )
 
 

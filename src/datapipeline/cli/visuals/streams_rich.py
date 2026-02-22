@@ -20,8 +20,10 @@ from .execution import (
     ExecutionEventFormatter,
     ExecutionEventSink,
     ExecutionLogEvent,
+    emit_execution_message,
 )
 from .execution_context import (
+    current_dag_depth,
     reset_current_execution_event_sink,
     reset_current_visual_log_level,
     set_current_dag_depth,
@@ -100,7 +102,8 @@ class AverageTimeRemainingColumn(ProgressColumn):
         if not completed or elapsed is None or remaining is None:
             return Text("--:--" if self.compact else "-:--:--", style=style)
         recent = self._recent_seconds_per_item(task)
-        avg_seconds_per_item = recent if recent is not None else (elapsed / completed)
+        avg_seconds_per_item = recent if recent is not None else (
+            elapsed / completed)
         if avg_seconds_per_item <= 0:
             return Text("--:--" if self.compact else "-:--:--", style=style)
         eta_seconds = int(max(0, ceil(remaining * avg_seconds_per_item)))
@@ -117,7 +120,7 @@ def _styled_source_label(line: str) -> Text:
     if working.startswith("[") and "]" in working:
         end = working.find("]")
         stream_id = working[1:end]
-        rest = working[end + 1 :]
+        rest = working[end + 1:]
         text.append("[", style="cyan")
         text.append(stream_id, style="bold cyan")
         text.append("]", style="cyan")
@@ -135,8 +138,7 @@ class SourceLabelColumn(ProgressColumn):
 
     def render(self, task: Task) -> Text:
         raw = task.fields.get("text", "")
-        indent = visible_dag_indent(logging.INFO)
-        return _styled_source_label(f"{indent}{raw}")
+        return _styled_source_label(str(raw))
 
 
 class _RichSourceProxy(Source):
@@ -149,7 +151,6 @@ class _RichSourceProxy(Source):
         self._inner = stream_source
         self._stream_id = stream_id
         self._progress = progress
-        self._task_id = None
 
     def _safe_progress_call(self, operation: str, fn, *args, **kwargs) -> None:
         try:
@@ -167,44 +168,85 @@ class _RichSourceProxy(Source):
             )
 
     def _format_text(self, stream_label: str, message: str) -> str:
-        # Plain stream-id prefix to avoid Rich markup issues
-        return f"[{stream_label}] {message}" if message else f"[{stream_label}]"
+        # Compute indent at stream update time (inside DAG context), then keep
+        # it embedded in task text so Live rendering remains context-accurate.
+        indent = visible_dag_indent(logging.INFO)
+        return (
+            f"{indent}[{stream_label}] {message}"
+            if message
+            else f"{indent}[{stream_label}]"
+        )
 
-    @staticmethod
-    def _compose_initial_message(initial_message: str, info_lines: list[str]) -> str:
-        summary = "; ".join(str(line).strip() for line in info_lines if str(line).strip())
-        if not summary:
-            return initial_message
-        if not initial_message:
-            return summary
-        return f"{initial_message} ({summary})"
+    def _start_task(self, *, text: str, total: Optional[int]) -> int:
+        task_id = self._progress.add_task(
+            "",
+            start=False,
+            total=total,
+            text=text,
+        )
+        self._progress.start_task(task_id)
+        return int(task_id)
+
+    def _finalize_task(self, *, task_id: int, completed: int, remove: bool = True) -> None:
+        self._safe_progress_call(
+            "finalize progress task",
+            self._progress.update,
+            task_id,
+            completed=completed,
+        )
+        self._safe_progress_call("stop progress task",
+                                 self._progress.stop_task, task_id)
+        if remove:
+            # Remove completed stream rows so finished bars don't linger
+            # while other sources are still running in the same Live table.
+            self._safe_progress_call(
+                "remove progress task", self._progress.remove_task, task_id)
 
     def stream(self) -> Iterator[Any]:
         adapter = SourceObservabilityAdapter(self._inner, self._stream_id)
         stream_label = self._stream_id
-        info_lines = adapter.info_lines()
+        task_id: Optional[int] = None
+        sequence_entries = getattr(
+            adapter, "progress_sequence", lambda: None)()
+        sequence_index = 0
+        task_emitted = 0
+        retired_task_ids: list[int] = []
+        info_lines = [str(line).strip()
+                      for line in adapter.info_lines() if str(line).strip()]
         initial_message = adapter.format_label(
             include_stream_id=False,
             include_dag_indent=False,
         )
-        initial_message = self._compose_initial_message(initial_message, info_lines)
-
-        emitted = 0
-        last_path_label: Optional[str] = None
-
-        try:
-            self._task_id = self._progress.add_task(
-                "",
-                start=False,
-                total=None,
-                text=self._format_text(stream_label, initial_message),
+        initial_path_label = adapter.initial_label()
+        if initial_path_label:
+            initial_message = adapter.format_label(
+                initial_path_label,
+                include_stream_id=False,
+                include_dag_indent=False,
+            )
+        for line in info_lines:
+            emit_execution_message(
+                f"[{stream_label}] {line}",
+                level=logging.INFO,
+                logger=logger,
+                depth=current_dag_depth(),
+                message_kind="source_info",
             )
 
-            if self._task_id is not None:
-                total = adapter.count()
-                if total is not None:
-                    self._progress.update(self._task_id, total=total)
-                self._progress.start_task(self._task_id)
+        emitted = 0
+        refreshed_after_start = False
+        last_path_label: Optional[str] = initial_path_label
+
+        try:
+            total = adapter.count()
+            if sequence_entries:
+                total = sequence_entries[0].total
+            task_id = self._start_task(
+                text=self._format_text(stream_label, initial_message),
+                total=total,
+            )
+            self._safe_progress_call(
+                "refresh progress", self._progress.refresh)
 
             for item in self._inner.stream():
                 current_label = adapter.current_label()
@@ -215,30 +257,65 @@ class _RichSourceProxy(Source):
                         include_stream_id=False,
                         include_dag_indent=False,
                     )
-                    text = self._format_text(
-                        stream_label,
-                        row_message,
-                    )
-                    if self._task_id is not None:
-                        self._progress.update(self._task_id, text=text)
-                if self._task_id is not None:
-                    self._progress.advance(self._task_id, 1)
+                    if task_id is not None:
+                        if sequence_entries:
+                            self._finalize_task(
+                                task_id=task_id,
+                                completed=task_emitted,
+                                remove=False,
+                            )
+                            retired_task_ids.append(task_id)
+                            task_emitted = 0
+                            sequence_index += 1
+                            next_total: Optional[int] = None
+                            if 0 <= sequence_index < len(sequence_entries):
+                                next_total = sequence_entries[sequence_index].total
+                            task_id = self._start_task(
+                                text=self._format_text(
+                                    stream_label, row_message),
+                                total=next_total,
+                            )
+                        else:
+                            self._progress.update(
+                                task_id,
+                                text=self._format_text(
+                                    stream_label, row_message),
+                            )
+                        # File transitions can be brief; refresh immediately so
+                        # short-lived labels (e.g. first file in a sequence) render.
+                        self._safe_progress_call(
+                            "refresh progress", self._progress.refresh)
+                if task_id is not None:
+                    self._progress.advance(task_id, 1)
+                    task_emitted += 1
+                    if not refreshed_after_start:
+                        refreshed_after_start = True
+                        self._safe_progress_call(
+                            "refresh progress", self._progress.refresh)
                 emitted += 1
                 yield item
         finally:
-            task_id = self._task_id
-            self._task_id = None
             if task_id is not None:
-                self._safe_progress_call(
-                    "finalize progress task",
-                    self._progress.update,
-                    task_id,
-                    completed=emitted,
+                self._finalize_task(
+                    task_id=int(task_id),
+                    completed=task_emitted if sequence_entries else emitted,
+                    remove=False if sequence_entries else True,
                 )
-                self._safe_progress_call("stop progress task", self._progress.stop_task, task_id)
-                # Remove completed stream rows so finished bars don't linger
-                # while other sources are still running in the same Live table.
-                self._safe_progress_call("remove progress task", self._progress.remove_task, task_id)
+                if sequence_entries:
+                    retired_task_ids.append(int(task_id))
+            for retired_task_id in retired_task_ids:
+                self._safe_progress_call(
+                    "remove progress task",
+                    self._progress.remove_task,
+                    retired_task_id,
+                )
+            emit_execution_message(
+                f"[{stream_label}] Stream complete items={emitted}",
+                level=logging.INFO,
+                logger=logger,
+                depth=current_dag_depth(),
+                message_kind="source_info",
+            )
 
 
 def _clear_progress_tasks(progress: Progress) -> None:
@@ -281,7 +358,8 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
         indent = "  " * max(0, event.depth)
         text = Text(indent)
         if event.kind == "message":
-            style = "dim" if ExecutionEventFormatter.level(event) <= logging.DEBUG else ""
+            style = "dim" if ExecutionEventFormatter.level(
+                event) <= logging.DEBUG else ""
             message = event.message or ""
             if "\n" in message:
                 message = message.replace("\n", f"\n{indent}")
@@ -290,6 +368,9 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
                 text.append(prefix, style="bold cyan")
                 if rest:
                     text.append(f" {rest}", style=style)
+                return text
+            if event.message_kind == "source_info":
+                text.append_text(_styled_source_label(message))
                 return text
             if event.message_kind in {"build_settings", "task_config"}:
                 prefix, _, rest = message.partition("\n")
@@ -385,7 +466,8 @@ def visual_sources(runtime: Runtime, log_level: int | None):
         console=_vis_console,
         refresh_per_second=10,
     )
-    execution_sink = _RichConsoleExecutionSink(level=level, console=_vis_console)
+    execution_sink = _RichConsoleExecutionSink(
+        level=level, console=_vis_console)
 
     reg = runtime.registries.stream_sources
     originals = dict(reg.items())
@@ -397,7 +479,8 @@ def visual_sources(runtime: Runtime, log_level: int | None):
     try:
         with progress:
             try:
-                execution_sink.set_live_console(progress.live.console if progress.live else None)
+                execution_sink.set_live_console(
+                    progress.live.console if progress.live else None)
                 for stream_id, stream_source in originals.items():
                     proxy = _RichSourceProxy(
                         stream_source=stream_source,
