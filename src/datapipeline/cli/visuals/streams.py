@@ -1,4 +1,5 @@
 from contextlib import contextmanager
+import logging
 import sys
 from typing import Optional, Tuple
 
@@ -102,6 +103,12 @@ class _RichBackend(VisualsBackend):
             return False
 
     def wrap_sources(self, runtime: Runtime, log_level: int):
+        if int(log_level) > logging.INFO:
+            @contextmanager
+            def _noop():
+                yield
+
+            return _noop()
         from .streams_rich import visual_sources as rich_vs
         return rich_vs(runtime, log_level)
 

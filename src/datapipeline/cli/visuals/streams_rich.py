@@ -135,7 +135,8 @@ class SourceLabelColumn(ProgressColumn):
 
     def render(self, task: Task) -> Text:
         raw = task.fields.get("text", "")
-        return _styled_source_label(str(raw))
+        indent = visible_dag_indent(logging.INFO)
+        return _styled_source_label(f"{indent}{raw}")
 
 
 class _RichSourceProxy(Source):
@@ -167,8 +168,7 @@ class _RichSourceProxy(Source):
 
     def _format_text(self, stream_label: str, message: str) -> str:
         # Plain stream-id prefix to avoid Rich markup issues
-        indent = visible_dag_indent(logging.INFO)
-        return f"{indent}[{stream_label}] {message}" if message else f"{indent}[{stream_label}]"
+        return f"[{stream_label}] {message}" if message else f"[{stream_label}]"
 
     @staticmethod
     def _compose_initial_message(initial_message: str, info_lines: list[str]) -> str:

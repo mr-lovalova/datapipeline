@@ -93,14 +93,14 @@ def report_serve(target: OutputTarget, count: int) -> None:
         return
     if target.transport == "stdout":
         emit_execution_message(
-            f"(streamed {count} items)",
+            f"Streamed {count} items: stdout",
             level=logging.INFO,
             logger=logger,
             message_kind="saved",
         )
         return
     emit_execution_message(
-        f"(emitted {count} items)",
+        f"Emitted {count} items",
         level=logging.INFO,
         logger=logger,
         message_kind="saved",

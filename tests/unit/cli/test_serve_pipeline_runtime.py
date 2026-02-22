@@ -118,3 +118,35 @@ def test_report_serve_emits_saved_message_via_execution_events(monkeypatch):
     )
 
     assert captured == [("Saved 14 items: /tmp/train.jsonl", 20, "saved")]
+
+
+def test_report_serve_emits_streamed_message_via_execution_events(monkeypatch):
+    captured: list[tuple[str, int, str | None]] = []
+
+    monkeypatch.setattr(
+        "datapipeline.cli.commands.serve_pipeline.emit_execution_message",
+        lambda message, level, logger, message_kind=None: captured.append((message, level, message_kind)),
+    )
+
+    report_serve(
+        target=SimpleNamespace(destination=None, transport="stdout"),
+        count=14,
+    )
+
+    assert captured == [("Streamed 14 items: stdout", 20, "saved")]
+
+
+def test_report_serve_emits_emitted_message_for_non_stdout_without_destination(monkeypatch):
+    captured: list[tuple[str, int, str | None]] = []
+
+    monkeypatch.setattr(
+        "datapipeline.cli.commands.serve_pipeline.emit_execution_message",
+        lambda message, level, logger, message_kind=None: captured.append((message, level, message_kind)),
+    )
+
+    report_serve(
+        target=SimpleNamespace(destination=None, transport="memory"),
+        count=14,
+    )
+
+    assert captured == [("Emitted 14 items", 20, "saved")]

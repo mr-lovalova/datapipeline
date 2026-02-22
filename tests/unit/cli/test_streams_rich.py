@@ -244,6 +244,15 @@ def test_source_label_column_is_single_line_truncated() -> None:
     assert column.no_wrap is True
 
 
+def test_source_label_column_applies_visible_info_indent() -> None:
+    set_current_dag_depth(3)
+    try:
+        text = SourceLabelColumn().render(SimpleNamespace(fields={"text": "[equity.ohlcv] Loading"}))
+        assert str(text).startswith("  [equity.ohlcv] Loading")
+    finally:
+        set_current_dag_depth(0)
+
+
 def test_rich_source_proxy_removes_finished_stream_task() -> None:
     console = Console(
         file=StringIO(),

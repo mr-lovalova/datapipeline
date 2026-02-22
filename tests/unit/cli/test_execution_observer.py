@@ -25,7 +25,7 @@ class _CaptureSink(ExecutionEventSink):
         self.events.append(event)
 
 
-def test_hierarchical_observer_logs_only_root_dag_at_info(caplog):
+def test_hierarchical_observer_logs_all_dags_at_info(caplog):
     logger = logging.getLogger("datapipeline.cli.visuals.execution.test")
     observer = HierarchicalExecutionObserver(LoggerExecutionEventSink(logger))
 
@@ -54,8 +54,10 @@ def test_hierarchical_observer_logs_only_root_dag_at_info(caplog):
         )
 
     messages = [record.getMessage() for record in caplog.records]
-    assert messages[0].startswith("DAG started name=outer")
-    assert messages[1].startswith("DAG finished name=outer")
+    assert any(msg.startswith("DAG started name=outer") for msg in messages)
+    assert any(msg.startswith("  DAG started name=inner") for msg in messages)
+    assert any(msg.startswith("  DAG finished name=inner") for msg in messages)
+    assert any(msg.startswith("DAG finished name=outer") for msg in messages)
 
 
 def test_hierarchical_observer_logs_nested_dags_at_debug(caplog):
@@ -192,7 +194,11 @@ def test_hierarchical_observer_respects_explicit_depth_when_events_finish_out_of
 
     messages = [record.getMessage() for record in caplog.records]
     assert messages[0].startswith("DAG started name=vector:assemble")
-    assert messages[1].startswith("DAG finished name=vector:assemble")
+    assert any(msg.startswith("  DAG started name=feature:linear_time") for msg in messages)
+    assert any(msg.startswith("  DAG started name=feature:closing_price") for msg in messages)
+    assert any(msg.startswith("DAG finished name=vector:assemble") for msg in messages)
+    assert any(msg.startswith("  DAG finished name=feature:closing_price") for msg in messages)
+    assert any(msg.startswith("  DAG finished name=feature:linear_time") for msg in messages)
     assert current_dag_depth() == 1
 
 

@@ -53,15 +53,16 @@ class ExecutionEventFormatter:
     def level(event: ExecutionLogEvent) -> int:
         if event.kind == "message":
             return int(event.log_level) if event.log_level is not None else logging.INFO
+        if event.kind in {"dag_start", "dag_end"}:
+            # Keep DAG lifecycle visible at INFO, regardless of nesting depth.
+            return logging.INFO
         if event.kind == "dag_info":
             if event.depth <= 1:
                 return logging.INFO
             return logging.DEBUG
         if event.kind in {"node_start", "node_end"}:
             return logging.DEBUG
-        if event.depth == 0:
-            return logging.INFO
-        return logging.DEBUG
+        return logging.INFO
 
     @classmethod
     def message(cls, event: ExecutionLogEvent) -> str:
