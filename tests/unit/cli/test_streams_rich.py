@@ -178,6 +178,32 @@ def test_rich_execution_sink_defers_dag_end_until_flush() -> None:
     assert any(line.startswith("DAG finished name=pipeline:serve") for line in final)
 
 
+def test_rich_execution_sink_renders_error_type_for_failed_dag_end() -> None:
+    buffer = StringIO()
+    console = Console(file=buffer, markup=False, highlight=False, force_terminal=False)
+    sink = _RichConsoleExecutionSink(level=0, console=console)
+    sink.emit(
+        ExecutionLogEvent(
+            kind="dag_end",
+            dag_name="pipeline:serve",
+            depth=0,
+            node_count=3,
+            status="error",
+            error_type="KeyboardInterrupt",
+            output_items=0,
+            elapsed_seconds=0.5,
+        )
+    )
+
+    lines = _lines(buffer)
+    assert any(
+        line.startswith(
+            "DAG finished name=pipeline:serve status=error error=KeyboardInterrupt"
+        )
+        for line in lines
+    )
+
+
 def test_source_label_column_is_single_line_truncated() -> None:
     column = SourceLabelColumn().get_table_column()
     assert column.no_wrap is True

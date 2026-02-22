@@ -299,6 +299,8 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
             text.append("DAG finished", style="bold cyan")
             text.append(f" name={event.dag_name} ")
             text.append(f"status={event.status}", style=status_style)
+            if event.status == "error" and event.error_type:
+                text.append(f" error={event.error_type}", style="red")
             text.append(
                 f" items={event.output_items} elapsed={event.elapsed_seconds:.6f}s"
             )
@@ -318,6 +320,8 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
         )
         text.append(" ")
         text.append(f"status={event.status}", style=f"dim {status_style}")
+        if event.status == "error" and event.error_type:
+            text.append(f" error={event.error_type}", style="dim red")
         text.append(
             f" items={event.output_items} elapsed={event.elapsed_seconds:.6f}s",
             style="dim",

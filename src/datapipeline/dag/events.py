@@ -12,6 +12,7 @@ class NodeRunEvent:
     output_items: int
     elapsed_seconds: float
     status: RunStatus
+    error_type: str | None = None
 
 
 @dataclass(frozen=True)
@@ -21,3 +22,4 @@ class DagRunEvent:
     output_items: int
     elapsed_seconds: float
     status: RunStatus
+    error_type: str | None = None

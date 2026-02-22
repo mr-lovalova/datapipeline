@@ -29,6 +29,7 @@ class ExecutionLogEvent:
     node_name: str | None = None
     stage: int | None = None
     status: str | None = None
+    error_type: str | None = None
     output_items: int | None = None
     elapsed_seconds: float | None = None
     info_line: str | None = None
@@ -67,9 +68,14 @@ class ExecutionEventFormatter:
                 f"nodes={event.node_count}"
             )
         if event.kind == "dag_end":
+            error_suffix = (
+                f" error={event.error_type}"
+                if event.status == "error" and event.error_type
+                else ""
+            )
             return (
                 f"{indent}DAG finished name={event.dag_name} "
-                f"status={event.status} items={event.output_items} "
+                f"status={event.status}{error_suffix} items={event.output_items} "
                 f"elapsed={event.elapsed_seconds:.6f}s"
             )
         if event.kind == "node_start":
@@ -77,10 +83,15 @@ class ExecutionEventFormatter:
                 f"{indent}Node started dag={event.dag_name} "
                 f"node={event.node_name} stage={event.stage}"
             )
+        error_suffix = (
+            f" error={event.error_type}"
+            if event.status == "error" and event.error_type
+            else ""
+        )
         return (
             f"{indent}Node finished dag={event.dag_name} "
             f"node={event.node_name} stage={event.stage} "
-            f"status={event.status} items={event.output_items} "
+            f"status={event.status}{error_suffix} items={event.output_items} "
             f"elapsed={event.elapsed_seconds:.6f}s"
         )
 
@@ -94,6 +105,7 @@ class ExecutionEventFormatter:
             "dp_node_name": event.node_name,
             "dp_stage": event.stage,
             "dp_status": event.status,
+            "dp_error_type": event.error_type,
             "dp_output_items": event.output_items,
             "dp_elapsed_seconds": event.elapsed_seconds,
             "dp_info_line": event.info_line,
@@ -244,6 +256,7 @@ class HierarchicalExecutionObserver(ExecutionObserver):
                 node_name=event.node_name,
                 stage=event.stage,
                 status=event.status,
+                error_type=event.error_type,
                 output_items=event.output_items,
                 elapsed_seconds=event.elapsed_seconds,
             )
@@ -264,6 +277,7 @@ class HierarchicalExecutionObserver(ExecutionObserver):
                 depth=depth,
                 node_count=event.node_count,
                 status=event.status,
+                error_type=event.error_type,
                 output_items=event.output_items,
                 elapsed_seconds=event.elapsed_seconds,
             )

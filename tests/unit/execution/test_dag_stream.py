@@ -116,7 +116,9 @@ def test_run_stage_dag_propagates_error_and_marks_failure(tmp_path: Path) -> Non
     ]
     assert explode_events
     assert explode_events[-1].status == "error"
+    assert explode_events[-1].error_type == "RuntimeError"
     assert observer.dag_events[-1].status == "error"
+    assert observer.dag_events[-1].error_type == "RuntimeError"
 
 
 def test_run_stage_dag_keyboard_interrupt_marks_failure(tmp_path: Path) -> None:
@@ -145,7 +147,9 @@ def test_run_stage_dag_keyboard_interrupt_marks_failure(tmp_path: Path) -> None:
     ]
     assert interrupt_events
     assert interrupt_events[-1].status == "error"
+    assert interrupt_events[-1].error_type == "KeyboardInterrupt"
     assert observer.dag_events[-1].status == "error"
+    assert observer.dag_events[-1].error_type == "KeyboardInterrupt"
 
 
 def test_run_stage_dag_tracks_empty_nodes(tmp_path: Path) -> None:

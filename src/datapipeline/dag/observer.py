@@ -73,22 +73,34 @@ class LoggingExecutionObserver:
 
     def on_node_end(self, event: NodeRunEvent) -> None:
         if self._logger.isEnabledFor(logging.DEBUG):
+            error_suffix = (
+                f" error={event.error_type}"
+                if event.status == "error" and event.error_type
+                else ""
+            )
             self._logger.debug(
-                "Node finished dag=%s node=%s stage=%d status=%s items=%d elapsed=%.6fs",
+                "Node finished dag=%s node=%s stage=%d status=%s%s items=%d elapsed=%.6fs",
                 event.dag_name,
                 event.node_name,
                 event.stage,
                 event.status,
+                error_suffix,
                 event.output_items,
                 event.elapsed_seconds,
             )
 
     def on_dag_end(self, event: DagRunEvent) -> None:
         if self._logger.isEnabledFor(logging.INFO):
+            error_suffix = (
+                f" error={event.error_type}"
+                if event.status == "error" and event.error_type
+                else ""
+            )
             self._logger.info(
-                "DAG finished name=%s status=%s items=%d elapsed=%.6fs",
+                "DAG finished name=%s status=%s%s items=%d elapsed=%.6fs",
                 event.dag_name,
                 event.status,
+                error_suffix,
                 event.output_items,
                 event.elapsed_seconds,
             )

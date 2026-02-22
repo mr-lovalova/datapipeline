@@ -95,6 +95,7 @@ def _observe_node_stream(
         item_count = 0
         start_time = time.perf_counter()
         status = "success"
+        error_type: str | None = None
         observer.on_node_start(
             dag_name=dag_name,
             node_name=node_name,
@@ -105,11 +106,13 @@ def _observe_node_stream(
             for item in iterator:
                 item_count += 1
                 yield item
-        except KeyboardInterrupt:
+        except KeyboardInterrupt as exc:
             status = "error"
+            error_type = type(exc).__name__
             raise
-        except Exception:
+        except Exception as exc:
             status = "error"
+            error_type = type(exc).__name__
             raise
         finally:
             elapsed = time.perf_counter() - start_time
@@ -121,6 +124,7 @@ def _observe_node_stream(
                     output_items=item_count,
                     elapsed_seconds=elapsed,
                     status=status,
+                    error_type=error_type,
                 )
             )
 
@@ -137,6 +141,7 @@ def _observe_dag_stream(
         start_time = time.perf_counter()
         item_count = 0
         status = "success"
+        error_type: str | None = None
         observer.on_dag_start(
             dag_name=dag.name,
             node_count=len(dag.nodes),
@@ -147,11 +152,13 @@ def _observe_dag_stream(
             for item in iterator:
                 item_count += 1
                 yield item
-        except KeyboardInterrupt:
+        except KeyboardInterrupt as exc:
             status = "error"
+            error_type = type(exc).__name__
             raise
-        except Exception:
+        except Exception as exc:
             status = "error"
+            error_type = type(exc).__name__
             raise
         finally:
             observer.on_dag_end(
@@ -161,6 +168,7 @@ def _observe_dag_stream(
                     output_items=item_count,
                     elapsed_seconds=(time.perf_counter() - start_time),
                     status=status,
+                    error_type=error_type,
                 )
             )
 

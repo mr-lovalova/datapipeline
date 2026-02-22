@@ -208,6 +208,39 @@ def test_hierarchical_observer_emits_structured_log_fields(caplog):
     assert getattr(first, "dp_depth", None) == 0
 
 
+def test_hierarchical_observer_includes_error_type_on_failure(caplog):
+    logger = logging.getLogger("datapipeline.cli.visuals.execution.test.error_type")
+    observer = HierarchicalExecutionObserver(LoggerExecutionEventSink(logger))
+
+    with caplog.at_level(logging.INFO, logger=logger.name):
+        observer.on_dag_start(dag_name="pipeline:serve", node_count=3)
+        observer.on_dag_end(
+            DagRunEvent(
+                dag_name="pipeline:serve",
+                node_count=3,
+                output_items=0,
+                elapsed_seconds=0.5,
+                status="error",
+                error_type="KeyboardInterrupt",
+            )
+        )
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert any(
+        msg.startswith(
+            "DAG finished name=pipeline:serve status=error error=KeyboardInterrupt"
+        )
+        for msg in messages
+    )
+    dag_end_records = [
+        record
+        for record in caplog.records
+        if getattr(record, "dp_event_kind", None) == "dag_end"
+    ]
+    assert dag_end_records
+    assert getattr(dag_end_records[-1], "dp_error_type", None) == "KeyboardInterrupt"
+
+
 def test_make_execution_observer_accepts_single_custom_sink():
     sink = _CaptureSink()
     observer = make_execution_observer(sink=sink)
