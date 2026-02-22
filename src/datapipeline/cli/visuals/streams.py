@@ -36,6 +36,13 @@ class VisualsBackend:
 
         return _noop()
 
+    def wrap_events(self, log_level: int):  # contextmanager
+        @contextmanager
+        def _noop():
+            yield
+
+        return _noop()
+
 
 class _BasicBackend(VisualsBackend):
     def wrap_sources(self, runtime: Runtime, log_level: int):
@@ -97,6 +104,10 @@ class _RichBackend(VisualsBackend):
     def wrap_sources(self, runtime: Runtime, log_level: int):
         from .streams_rich import visual_sources as rich_vs
         return rich_vs(runtime, log_level)
+
+    def wrap_events(self, log_level: int):
+        from .streams_rich import visual_event_sink
+        return visual_event_sink(log_level)
 
     def on_streams_complete(self) -> bool:
         # Rich backend manages its own persistent final line; signal handled

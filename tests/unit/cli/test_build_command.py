@@ -30,27 +30,11 @@ def test_log_build_settings_debug_emits_execution_message(monkeypatch):
     assert captured
     message, level, message_kind = captured[0]
     assert message.startswith("Build settings:")
+    assert '"mode": "FORCE"' in message
+    assert '"visuals": "on"' in message
+    assert '"force"' not in message
     assert level == 10
     assert message_kind == "build_settings"
-
-
-def test_log_task_overview_emits_execution_message(monkeypatch):
-    captured: list[tuple[str, int, str | None]] = []
-    monkeypatch.setattr(
-        "datapipeline.cli.commands.build.emit_execution_message",
-        lambda message, level, logger, depth=0, message_kind=None: captured.append(
-            (message, level, message_kind)
-        ),
-    )
-
-    tasks = [_TaskStub(name="schema", kind="schema", output="schema.json")]
-    build_cmd._log_task_overview(tasks)
-
-    assert captured
-    message, level, message_kind = captured[0]
-    assert message.startswith("Artifact tasks:")
-    assert level == 10
-    assert message_kind == "artifact_tasks"
 
 
 def test_run_artifact_builder_emits_materialized_message(monkeypatch):

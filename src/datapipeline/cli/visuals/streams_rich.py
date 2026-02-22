@@ -291,7 +291,7 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
                 if rest:
                     text.append(f" {rest}", style=style)
                 return text
-            if event.message_kind in {"build_settings", "artifact_tasks", "task_config"}:
+            if event.message_kind in {"build_settings", "task_config"}:
                 prefix, _, rest = message.partition("\n")
                 text.append(prefix, style="bold cyan")
                 if rest:
@@ -342,6 +342,26 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
             style="dim",
         )
         return text
+
+
+@contextmanager
+def visual_event_sink(log_level: int | None):
+    level = log_level if log_level is not None else logging.INFO
+    from rich.console import Console as _Console
+    import sys as _sys
+
+    console = _Console(file=_sys.stderr, markup=False, highlight=False)
+    sink = _RichConsoleExecutionSink(level=level, console=console)
+    level_token = set_current_visual_log_level(level)
+    sink_token = set_current_execution_event_sink(sink)
+    try:
+        yield
+    finally:
+        sink.flush()
+        reset_current_execution_event_sink(sink_token)
+        reset_current_visual_log_level(level_token)
+        # Guard against leaked depth from pre-task debug blocks.
+        set_current_dag_depth(0)
 
 
 @contextmanager

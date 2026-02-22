@@ -27,7 +27,6 @@ def _log_build_settings_debug(project_path: Path, settings) -> None:
     payload = {
         "project": str(project_path),
         "mode": settings.mode,
-        "force": settings.force,
         "visuals": settings.visuals,
     }
     emit_execution_message(
@@ -35,24 +34,6 @@ def _log_build_settings_debug(project_path: Path, settings) -> None:
         level=logging.DEBUG,
         logger=logger,
         message_kind="build_settings",
-    )
-
-
-def _log_task_overview(tasks: list[ArtifactTask]) -> None:
-    payload = [
-        {
-            "name": task.effective_name(),
-            "kind": task.kind,
-            "enabled": task.enabled,
-            "output": getattr(task, "output", None),
-        }
-        for task in tasks
-    ]
-    emit_execution_message(
-        f"Artifact tasks:\n{json.dumps(payload, indent=2, default=str)}",
-        level=logging.DEBUG,
-        logger=logger,
-        message_kind="artifact_tasks",
     )
 
 
@@ -156,7 +137,8 @@ def run_build_if_needed(
         compact = "/".join(parts) if parts else project_path.name
         logger.info("project: %s", compact)
 
-    _log_build_settings_debug(project_path, settings)
+    with backend.wrap_events(effective_level):
+        _log_build_settings_debug(project_path, settings)
 
     missing_required = set(required_artifacts or [])
     if missing_required:
@@ -171,7 +153,6 @@ def run_build_if_needed(
         return False
 
     task_configs = artifact_tasks(project_path)
-    _log_task_overview(task_configs)
     runtime = bootstrap(project_path)
 
     tasks_by_kind = {
