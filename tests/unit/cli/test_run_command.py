@@ -1,8 +1,13 @@
 from pathlib import Path
 from types import SimpleNamespace
+import logging
 
 import pytest
-from datapipeline.cli.commands.run import _build_cli_output_config, handle_serve
+from datapipeline.cli.commands.run import (
+    _build_cli_output_config,
+    _log_profile_start_debug,
+    handle_serve,
+)
 
 
 def test_build_cli_output_config_fs_requires_directory() -> None:
@@ -177,3 +182,39 @@ def test_handle_serve_propagates_keyboard_interrupt(monkeypatch) -> None:
         )
 
     assert calls["run_job"] == 1
+
+
+def test_log_profile_start_debug_emits_execution_message(monkeypatch, caplog) -> None:
+    profile = SimpleNamespace(
+        idx=1,
+        total=1,
+        label="train",
+        stage=None,
+        limit=None,
+        throttle_ms=None,
+        log_decision=SimpleNamespace(name="DEBUG", value=10),
+        visuals=SimpleNamespace(visuals="on"),
+        output=SimpleNamespace(
+            transport="fs",
+            format="jsonl",
+            view="raw",
+            encoding="utf-8",
+            destination=Path("/tmp/train.jsonl"),
+        ),
+        entry=SimpleNamespace(name="train", path=Path("tasks/serve.train.yaml"), config=None),
+    )
+
+    captured: list[tuple[str, int, str | None]] = []
+    monkeypatch.setattr(
+        "datapipeline.cli.commands.run.emit_execution_message",
+        lambda message, level, logger, message_kind=None: captured.append((message, level, message_kind)),
+    )
+
+    with caplog.at_level(logging.DEBUG, logger="datapipeline.cli.commands.run"):
+        _log_profile_start_debug(profile)
+
+    assert captured
+    message, level, message_kind = captured[0]
+    assert message.startswith("Run profile start (1/1):")
+    assert level == 10
+    assert message_kind == "task_config"

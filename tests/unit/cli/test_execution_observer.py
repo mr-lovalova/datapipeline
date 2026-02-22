@@ -6,6 +6,7 @@ from datapipeline.cli.visuals.execution import (
     ExecutionEventSink,
     HierarchicalExecutionObserver,
     LoggerExecutionEventSink,
+    emit_execution_message,
     make_execution_observer,
 )
 from datapipeline.cli.visuals.execution_context import (
@@ -456,3 +457,47 @@ def test_make_execution_observer_keeps_bound_context_sink_after_context_reset(ca
 
     assert [event.kind for event in capture.events] == ["dag_start", "dag_end"]
     assert caplog.records == []
+
+
+def test_emit_execution_message_uses_context_sink_when_available():
+    capture = _CaptureSink()
+    token = set_current_execution_event_sink(capture)
+    try:
+        emit_execution_message("Saved 2 items: /tmp/out.jsonl")
+    finally:
+        reset_current_execution_event_sink(token)
+
+    assert len(capture.events) == 1
+    event = capture.events[0]
+    assert event.kind == "message"
+    assert event.message == "Saved 2 items: /tmp/out.jsonl"
+    assert event.message_kind is None
+    assert event.log_level == logging.INFO
+
+
+def test_emit_execution_message_supports_message_kind():
+    capture = _CaptureSink()
+    token = set_current_execution_event_sink(capture)
+    try:
+        emit_execution_message(
+            "Materialized schema: /tmp/schema.json",
+            message_kind="materialized",
+        )
+    finally:
+        reset_current_execution_event_sink(token)
+
+    assert len(capture.events) == 1
+    event = capture.events[0]
+    assert event.kind == "message"
+    assert event.message_kind == "materialized"
+
+
+def test_emit_execution_message_falls_back_to_logger(caplog):
+    logger = logging.getLogger("datapipeline.cli.visuals.execution.test.message_fallback")
+
+    with caplog.at_level(logging.INFO, logger=logger.name):
+        emit_execution_message("Saved 3 items", logger=logger)
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert "Saved 3 items" in messages
+    assert getattr(caplog.records[-1], "dp_event_kind", None) == "message"

@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 from types import SimpleNamespace
 
 import pytest
+from datapipeline.cli.commands.serve_pipeline import report_serve
 from datapipeline.cli.commands.serve_pipeline import serve_stream
 from datapipeline.cli.commands.serve_pipeline import serve_with_runtime
 
@@ -101,3 +102,19 @@ def test_serve_with_runtime_reraises_keyboard_interrupt_and_marks_run_failed(mon
 
     assert calls["failed"] == 1
     assert calls["success"] == 0
+
+
+def test_report_serve_emits_saved_message_via_execution_events(monkeypatch):
+    captured: list[tuple[str, int, str | None]] = []
+
+    monkeypatch.setattr(
+        "datapipeline.cli.commands.serve_pipeline.emit_execution_message",
+        lambda message, level, logger, message_kind=None: captured.append((message, level, message_kind)),
+    )
+
+    report_serve(
+        target=SimpleNamespace(destination="/tmp/train.jsonl", transport="fs"),
+        count=14,
+    )
+
+    assert captured == [("Saved 14 items: /tmp/train.jsonl", 20, "saved")]

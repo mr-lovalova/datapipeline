@@ -11,6 +11,7 @@ from datapipeline.cli.commands.run_config import (
     resolve_run_entries,
 )
 from datapipeline.cli.commands.serve_pipeline import serve_with_runtime
+from datapipeline.cli.visuals.execution import emit_execution_message
 from datapipeline.cli.visuals.runner import run_job
 from datapipeline.cli.visuals.sections import sections_from_path
 from datapipeline.config.context import resolve_run_profiles
@@ -70,14 +71,15 @@ def _profile_debug_payload(profile) -> dict[str, object]:
 
 
 def _log_profile_start_debug(profile) -> None:
-    if not logger.isEnabledFor(logging.DEBUG):
-        return
     payload = _profile_debug_payload(profile)
-    logger.debug(
-        "Run profile start (%s/%s):\n%s",
-        profile.idx,
-        profile.total,
-        json.dumps(payload, indent=2, default=str),
+    emit_execution_message(
+        (
+            f"Run profile start ({profile.idx}/{profile.total}):\n"
+            f"{json.dumps(payload, indent=2, default=str)}"
+        ),
+        level=logging.DEBUG,
+        logger=logger,
+        message_kind="task_config",
     )
 
 

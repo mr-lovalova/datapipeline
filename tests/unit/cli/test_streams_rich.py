@@ -201,6 +201,44 @@ def test_rich_execution_sink_renders_error_type_for_failed_dag_end() -> None:
     )
 
 
+def test_rich_execution_sink_renders_message_event() -> None:
+    buffer = StringIO()
+    console = Console(file=buffer, markup=False, highlight=False, force_terminal=False)
+    sink = _RichConsoleExecutionSink(level=0, console=console)
+    sink.emit(
+        ExecutionLogEvent(
+            kind="message",
+            dag_name="",
+            depth=0,
+            message="Saved 14 items: /tmp/train.jsonl",
+            message_kind="saved",
+            log_level=logging.INFO,
+        )
+    )
+
+    lines = _lines(buffer)
+    assert any(line.startswith("Saved 14 items: /tmp/train.jsonl") for line in lines)
+
+
+def test_rich_execution_sink_indents_multiline_message_event_by_depth() -> None:
+    buffer = StringIO()
+    console = Console(file=buffer, markup=False, highlight=False, force_terminal=False)
+    sink = _RichConsoleExecutionSink(level=0, console=console)
+    sink.emit(
+        ExecutionLogEvent(
+            kind="message",
+            dag_name="",
+            depth=2,
+            message="line1\nline2",
+            log_level=logging.DEBUG,
+        )
+    )
+
+    lines = _lines(buffer)
+    assert lines[0].startswith("    line1")
+    assert lines[1].startswith("    line2")
+
+
 def test_source_label_column_is_single_line_truncated() -> None:
     column = SourceLabelColumn().get_table_column()
     assert column.no_wrap is True

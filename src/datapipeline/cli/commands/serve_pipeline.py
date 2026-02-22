@@ -4,6 +4,7 @@ from itertools import islice
 from typing import Iterator, Optional
 
 from datapipeline.pipelines.record.nodes import RECORD_NODE_COUNT
+from datapipeline.cli.visuals.execution import emit_execution_message
 from datapipeline.dag.transform_observability import default_observer_registry
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.domain.sample import Sample
@@ -83,12 +84,27 @@ def serve_stream(
 
 def report_serve(target: OutputTarget, count: int) -> None:
     if target.destination:
-        logger.info("Saved %d items to %s", count, target.destination)
+        emit_execution_message(
+            f"Saved {count} items: {target.destination}",
+            level=logging.INFO,
+            logger=logger,
+            message_kind="saved",
+        )
         return
     if target.transport == "stdout":
-        logger.info("(streamed %d items)", count)
+        emit_execution_message(
+            f"(streamed {count} items)",
+            level=logging.INFO,
+            logger=logger,
+            message_kind="saved",
+        )
         return
-    logger.info("(emitted %d items)", count)
+    emit_execution_message(
+        f"(emitted {count} items)",
+        level=logging.INFO,
+        logger=logger,
+        message_kind="saved",
+    )
 
 
 def _is_full_pipeline_stage(stage: int | None) -> bool:

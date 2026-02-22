@@ -12,6 +12,7 @@ from datapipeline.cli.visuals.execution_context import (
 
 
 ExecutionEventKind = Literal[
+    "message",
     "dag_start",
     "dag_info",
     "dag_end",
@@ -25,6 +26,9 @@ class ExecutionLogEvent:
     kind: ExecutionEventKind
     dag_name: str
     depth: int
+    message: str | None = None
+    message_kind: str | None = None
+    log_level: int | None = None
     node_count: int | None = None
     node_name: str | None = None
     stage: int | None = None
@@ -47,6 +51,8 @@ class ExecutionEventFormatter:
 
     @staticmethod
     def level(event: ExecutionLogEvent) -> int:
+        if event.kind == "message":
+            return int(event.log_level) if event.log_level is not None else logging.INFO
         if event.kind == "dag_info":
             if event.depth <= 1:
                 return logging.INFO
@@ -60,6 +66,11 @@ class ExecutionEventFormatter:
     @classmethod
     def message(cls, event: ExecutionLogEvent) -> str:
         indent = cls.indent(event.depth)
+        if event.kind == "message":
+            message = event.message or ""
+            if not indent or "\n" not in message:
+                return f"{indent}{message}"
+            return f"{indent}" + message.replace("\n", f"\n{indent}")
         if event.kind == "dag_info":
             return f"{indent}[{event.dag_name}] {event.info_line or ''}"
         if event.kind == "dag_start":
@@ -101,6 +112,9 @@ class ExecutionEventFormatter:
             "dp_event_kind": event.kind,
             "dp_dag_name": event.dag_name,
             "dp_depth": event.depth,
+            "dp_message": event.message,
+            "dp_message_kind": event.message_kind,
+            "dp_log_level": event.log_level,
             "dp_node_count": event.node_count,
             "dp_node_name": event.node_name,
             "dp_stage": event.stage,
@@ -151,6 +165,30 @@ class ContextOrLoggerExecutionEventSink(ExecutionEventSink):
             self._bound_context_sink.emit(event)
             return
         self._logger_sink.emit(event)
+
+
+def emit_execution_message(
+    message: str,
+    *,
+    level: int = logging.INFO,
+    logger: logging.Logger | None = None,
+    depth: int = 0,
+    message_kind: str | None = None,
+) -> None:
+    event = ExecutionLogEvent(
+        kind="message",
+        dag_name="",
+        depth=max(0, int(depth)),
+        message=message,
+        message_kind=message_kind,
+        log_level=int(level),
+    )
+    context_sink = current_execution_event_sink()
+    if context_sink is not None:
+        context_sink.emit(event)
+        return
+    LoggerExecutionEventSink(logger or logging.getLogger(__name__)).emit(event)
+
 
 class HierarchicalExecutionObserver(ExecutionObserver):
     def __init__(self, sink: ExecutionEventSink) -> None:

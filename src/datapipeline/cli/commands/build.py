@@ -4,6 +4,7 @@ from pathlib import Path
 
 from datapipeline.build.state import BuildState, load_build_state, save_build_state
 from datapipeline.build.tasks import compute_config_hash
+from datapipeline.cli.visuals.execution import emit_execution_message
 from datapipeline.cli.visuals import get_visuals_backend
 from datapipeline.cli.visuals.runner import run_job
 from datapipeline.cli.visuals.sections import sections_from_path
@@ -23,21 +24,21 @@ logger = logging.getLogger(__name__)
 
 
 def _log_build_settings_debug(project_path: Path, settings) -> None:
-    if not logger.isEnabledFor(logging.DEBUG):
-        return
     payload = {
         "project": str(project_path),
         "mode": settings.mode,
         "force": settings.force,
         "visuals": settings.visuals,
     }
-    logger.debug("Build settings:\n%s", json.dumps(
-        payload, indent=2, default=str))
+    emit_execution_message(
+        f"Build settings:\n{json.dumps(payload, indent=2, default=str)}",
+        level=logging.DEBUG,
+        logger=logger,
+        message_kind="build_settings",
+    )
 
 
 def _log_task_overview(tasks: list[ArtifactTask]) -> None:
-    if not logger.isEnabledFor(logging.DEBUG):
-        return
     payload = [
         {
             "name": task.effective_name(),
@@ -47,7 +48,36 @@ def _log_task_overview(tasks: list[ArtifactTask]) -> None:
         }
         for task in tasks
     ]
-    logger.debug("Artifact tasks:\n%s", json.dumps(payload, indent=2, default=str))
+    emit_execution_message(
+        f"Artifact tasks:\n{json.dumps(payload, indent=2, default=str)}",
+        level=logging.DEBUG,
+        logger=logger,
+        message_kind="artifact_tasks",
+    )
+
+
+def _log_task_config_debug(
+    *,
+    definition: ArtifactDefinition,
+    task: ArtifactTask,
+    idx: int,
+    total: int,
+) -> None:
+    payload = {
+        "idx": idx,
+        "total": total,
+        "name": task.effective_name(),
+        "kind": task.kind,
+        "artifact": definition.key,
+        "output": getattr(task, "output", None),
+        "enabled": task.enabled,
+    }
+    emit_execution_message(
+        f"Build task config:\n{json.dumps(payload, indent=2, default=str)}",
+        level=logging.DEBUG,
+        logger=logger,
+        message_kind="task_config",
+    )
 
 
 def _run_artifact_builder(
@@ -63,7 +93,12 @@ def _run_artifact_builder(
     full_path = (runtime.artifacts_root / rel_path).resolve()
     details = ", ".join(f"{k}={v}" for k, v in meta.items())
     suffix = f" ({details})" if details else ""
-    logger.info("Materialized %s -> %s%s", definition.key, full_path, suffix)
+    emit_execution_message(
+        f"Materialized {definition.key}: {full_path}{suffix}",
+        level=logging.INFO,
+        logger=logger,
+        message_kind="materialized",
+    )
     meta_out = {"relative_path": rel_path}
     meta_out.update(meta)
     return meta_out
@@ -169,17 +204,32 @@ def run_build_if_needed(
         path_sections = sections_from_path(tasks_root, task.source_path or tasks_root)
         sections = ("Build Tasks",) + tuple(path_sections[1:])
         job_label = definition.task_kind
+
+        def _work(
+            definition=definition,
+            task=task,
+            idx=idx,
+            total_jobs=total_jobs,
+        ):
+            _log_task_config_debug(
+                definition=definition,
+                task=task,
+                idx=idx,
+                total=total_jobs,
+            )
+            return _run_artifact_builder(
+                runtime=runtime,
+                definition=definition,
+                task=task,
+            )
+
         result = run_job(
             sections=sections,
             label=job_label,
             visuals=effective_provider,
             level=effective_level,
             runtime=runtime,
-            work=lambda definition=definition, task=task: _run_artifact_builder(
-                runtime=runtime,
-                definition=definition,
-                task=task,
-            ),
+            work=_work,
             idx=idx,
             total=total_jobs,
         )

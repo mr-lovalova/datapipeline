@@ -280,6 +280,25 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
     def _render_event(self, event: ExecutionLogEvent) -> Text:
         indent = "  " * max(0, event.depth)
         text = Text(indent)
+        if event.kind == "message":
+            style = "dim" if ExecutionEventFormatter.level(event) <= logging.DEBUG else ""
+            message = event.message or ""
+            if "\n" in message:
+                message = message.replace("\n", f"\n{indent}")
+            if event.message_kind in {"saved", "materialized"}:
+                prefix, _, rest = message.partition(" ")
+                text.append(prefix, style="bold cyan")
+                if rest:
+                    text.append(f" {rest}", style=style)
+                return text
+            if event.message_kind in {"build_settings", "artifact_tasks", "task_config"}:
+                prefix, _, rest = message.partition("\n")
+                text.append(prefix, style="bold cyan")
+                if rest:
+                    text.append(f"\n{rest}", style="dim")
+                return text
+            text.append(message, style=style)
+            return text
         if event.kind == "dag_info":
             text.append("[", style="cyan")
             text.append(event.dag_name, style="bold cyan")
