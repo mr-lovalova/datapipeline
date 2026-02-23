@@ -5,13 +5,14 @@ from contextvars import ContextVar
 from typing import Any
 
 from datapipeline.dag.dag import StageDag
-from datapipeline.dag.events import DagRunEvent, NodeRunEvent
+from datapipeline.dag.events import DagParentRef, DagRunEvent, StepRunEvent
 from datapipeline.dag.observer import (
     ExecutionObserver,
     LoggingExecutionObserver,
     NoopExecutionObserver,
 )
 from datapipeline.dag.context import PipelineContext
+from datapipeline.dag.node import StepKind
 
 logger = logging.getLogger(__name__)
 _LOG_OBSERVER = LoggingExecutionObserver(logger)
@@ -24,6 +25,10 @@ _CURRENT_RUN_INTERRUPTED: ContextVar[bool] = ContextVar(
     "datapipeline_runner_interrupted",
     default=False,
 )
+_CURRENT_RUN_ACTIVE_STEP: ContextVar[DagParentRef | None] = ContextVar(
+    "datapipeline_runner_active_step",
+    default=None,
+)
 
 
 def _current_run_dag_depth() -> int:
@@ -32,6 +37,10 @@ def _current_run_dag_depth() -> int:
 
 def _run_interrupted() -> bool:
     return bool(_CURRENT_RUN_INTERRUPTED.get())
+
+
+def _current_run_active_step() -> DagParentRef | None:
+    return _CURRENT_RUN_ACTIVE_STEP.get()
 
 
 def _close_iterator(iterator: Iterable[Any]) -> None:
@@ -55,33 +64,41 @@ def run_stage_dag(
     dag_depth = _current_run_dag_depth()
     is_root_run = dag_depth == 0
     construction_token = _CURRENT_RUN_DAG_DEPTH.set(dag_depth + 1)
+    if is_root_run:
+        _CURRENT_RUN_ACTIVE_STEP.set(None)
     stream: Iterable[Any] | None = seed
     try:
         state: dict[str, Iterable[Any] | None] = {}
         if seed is not None:
             state["seed"] = seed
-        for index, node in enumerate(dag.nodes):
-            if node.input is None:
-                node_input = stream
+        for index, step in enumerate(dag.steps):
+            if step.input is None:
+                step_input = stream
             else:
-                if node.input not in state:
+                if step.input not in state:
                     available = ", ".join(sorted(state.keys())) or "(none)"
                     raise KeyError(
-                        f"Node '{node.name}' requested missing input "
-                        f"'{node.input}' in DAG '{dag.name}'. "
+                        f"Step '{step.name}' requested missing input "
+                        f"'{step.input}' in DAG '{dag.name}'. "
                         f"Available outputs: {available}"
                     )
-                node_input = state[node.input]
-            produced = _run_node(node, node_input, include_input=(node.input is not None))
-            stream = _observe_node_stream(
+                step_input = state[step.input]
+            produced = _run_step(
+                step,
+                step_input,
+                include_input=(step.input is not None),
+            )
+            stream = _observe_step_stream(
                 dag_name=dag.name,
-                node_name=node.name,
-                stage=index,
+                step_name=step.name,
+                step_index=index,
+                step_kind=step.kind,
+                step_calls_dag=step.calls_dag,
                 depth=dag_depth + 1,
                 stream=produced,
                 observer=active_observer,
             )
-            state[node.output or node.name] = stream
+            state[step.output or step.name] = stream
         return _observe_dag_stream(
             dag=dag,
             depth=dag_depth,
@@ -91,6 +108,8 @@ def run_stage_dag(
         )
     finally:
         _CURRENT_RUN_DAG_DEPTH.reset(construction_token)
+        if is_root_run:
+            _CURRENT_RUN_ACTIVE_STEP.set(None)
 
 
 def _resolve_observer(
@@ -107,41 +126,49 @@ def _resolve_observer(
     return _NOOP_OBSERVER
 
 
-def _run_node(
-    node,
-    node_input: Iterable[Any] | None,
+def _run_step(
+    step,
+    step_input: Iterable[Any] | None,
     *,
     include_input: bool,
 ) -> Iterable[Any] | None:
-    kwargs = dict(node.kwargs or {})
+    kwargs = dict(step.kwargs or {})
     if include_input:
-        return node.op(*node.args, node_input, **kwargs)
-    return node.op(*node.args, **kwargs)
+        return step.op(*step.args, step_input, **kwargs)
+    return step.op(*step.args, **kwargs)
 
 
-def _observe_node_stream(
+def _observe_step_stream(
     *,
     dag_name: str,
-    node_name: str,
-    stage: int,
+    step_name: str,
+    step_index: int,
+    step_kind: StepKind,
+    step_calls_dag: str | None,
     depth: int,
     stream: Iterable[Any] | None,
     observer: ExecutionObserver,
 ) -> Iterator[Any]:
     def _iter() -> Iterator[Any]:
-        node_depth = max(0, int(depth))
+        step_depth = max(0, int(depth))
         item_count = 0
         start_time = time.perf_counter()
         status = "success"
         error_type: str | None = None
-        observer.on_node_start(
-            dag_name=dag_name,
-            node_name=node_name,
-            stage=stage,
-            depth=node_depth,
+        iterator: Iterator[Any] = iter(())
+        active_step_token = _CURRENT_RUN_ACTIVE_STEP.set(
+            DagParentRef(dag_name=dag_name, step_name=step_name, step_index=step_index)
         )
-        iterator = iter(()) if stream is None else iter(stream)
         try:
+            observer.on_step_start(
+                dag_name=dag_name,
+                step_name=step_name,
+                step_index=step_index,
+                step_kind=step_kind,
+                step_calls_dag=step_calls_dag,
+                depth=step_depth,
+            )
+            iterator = iter(()) if stream is None else iter(stream)
             for item in iterator:
                 item_count += 1
                 yield item
@@ -155,23 +182,28 @@ def _observe_node_stream(
             error_type = type(exc).__name__
             raise
         finally:
-            _close_iterator(iterator)
-            if status == "success" and _run_interrupted():
-                status = "error"
-                error_type = "KeyboardInterrupt"
-            elapsed = time.perf_counter() - start_time
-            observer.on_node_end(
-                NodeRunEvent(
-                    dag_name=dag_name,
-                    node_name=node_name,
-                    stage=stage,
-                    output_items=item_count,
-                    elapsed_seconds=elapsed,
-                    status=status,
-                    error_type=error_type,
-                    depth=node_depth,
+            try:
+                _close_iterator(iterator)
+                if status == "success" and _run_interrupted():
+                    status = "error"
+                    error_type = "KeyboardInterrupt"
+                elapsed = time.perf_counter() - start_time
+                observer.on_step_end(
+                    StepRunEvent(
+                        dag_name=dag_name,
+                        step_name=step_name,
+                        step_index=step_index,
+                        output_items=item_count,
+                        elapsed_seconds=elapsed,
+                        status=status,
+                        step_kind=step_kind,
+                        step_calls_dag=step_calls_dag,
+                        error_type=error_type,
+                        depth=step_depth,
+                    )
                 )
-            )
+            finally:
+                _CURRENT_RUN_ACTIVE_STEP.reset(active_step_token)
 
     return _iter()
 
@@ -186,6 +218,7 @@ def _observe_dag_stream(
 ) -> Iterator[Any]:
     def _iter() -> Iterator[Any]:
         dag_depth = max(0, int(depth))
+        dag_parent = _current_run_active_step()
         if reset_interrupt:
             _CURRENT_RUN_INTERRUPTED.set(False)
         depth_token = _CURRENT_RUN_DAG_DEPTH.set(dag_depth + 1)
@@ -195,9 +228,10 @@ def _observe_dag_stream(
         error_type: str | None = None
         observer.on_dag_start(
             dag_name=dag.name,
-            node_count=len(dag.nodes),
+            step_count=len(dag.nodes),
             depth=dag_depth,
             dag_metadata=dag.metadata,
+            dag_parent=dag_parent,
         )
         iterator = iter(()) if stream is None else iter(stream)
         try:
@@ -222,12 +256,13 @@ def _observe_dag_stream(
                 observer.on_dag_end(
                     DagRunEvent(
                         dag_name=dag.name,
-                        node_count=len(dag.nodes),
+                        step_count=len(dag.nodes),
                         output_items=item_count,
                         elapsed_seconds=(time.perf_counter() - start_time),
                         status=status,
                         error_type=error_type,
                         depth=dag_depth,
+                        parent=dag_parent,
                     )
                 )
             finally:

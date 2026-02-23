@@ -3,7 +3,7 @@ from typing import Any
 
 from datapipeline.dag.dag import StageDag
 from datapipeline.dag.runner import run_stage_dag
-from datapipeline.dag.node import PipelineNode
+from datapipeline.dag.node import PipelineStep
 from datapipeline.pipelines.record.nodes import (
     apply_debug_operations,
     apply_record_operations,
@@ -30,7 +30,7 @@ def build_record_pipeline(
 def build_record_nodes(
     context: PipelineContext,
     record_stream_id: str,
-) -> tuple[PipelineNode, ...]:
+) -> tuple[PipelineStep, ...]:
     registries = context.runtime.registries
     source = _require_source(context, record_stream_id)
     mapper = registries.mappers.get(record_stream_id)
@@ -40,41 +40,41 @@ def build_record_nodes(
     partition_by = registries.partition_by.get(record_stream_id)
     batch_size = registries.sort_batch_size.get(record_stream_id)
     return (
-        PipelineNode(
+        PipelineStep(
             name="open_source",
             op=open_source,
             args=(source,),
             output="dtos",
         ),
-        PipelineNode(
+        PipelineStep(
             input="dtos",
             name="map_records",
             op=map_records,
             args=(mapper,),
             output="mapped",
         ),
-        PipelineNode(
+        PipelineStep(
             input="mapped",
             name="record_transforms",
             op=apply_record_operations,
             args=(context, record_operations),
             output="transformed",
         ),
-        PipelineNode(
+        PipelineStep(
             input="transformed",
             name="order_records",
             op=order_records,
             args=(batch_size, partition_by),
             output="ordered",
         ),
-        PipelineNode(
+        PipelineStep(
             input="ordered",
             name="stream_transforms",
             op=apply_stream_operations,
             args=(context, stream_operations, partition_by),
             output="stream_transforms",
         ),
-        PipelineNode(
+        PipelineStep(
             input="stream_transforms",
             name="debug_transforms",
             op=apply_debug_operations,

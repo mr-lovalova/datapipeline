@@ -8,7 +8,7 @@ from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.domain.vector import Vector
 from datapipeline.dag.dag import StageDag
 from datapipeline.dag.runner import run_stage_dag
-from datapipeline.dag.node import PipelineNode
+from datapipeline.dag.node import PipelineStep
 from datapipeline.pipelines.feature.dag import build_feature_pipeline
 from datapipeline.pipelines.vector.nodes import (
     align_stream,
@@ -20,6 +20,7 @@ from datapipeline.dag.context import PipelineContext
 from datapipeline.pipelines.vector.keygen import group_key_for
 
 logger = logging.getLogger(__name__)
+VECTOR_ASSEMBLE_DAG_NAME = "vector:assemble"
 
 
 def _close_iterator(iterator: Any) -> None:
@@ -72,15 +73,15 @@ def build_vector_pipeline(
             target_vectors = align_stream(target_vectors, keys=keys_target)
 
     vector_dag = StageDag(
-        name="vector:assemble",
+        name=VECTOR_ASSEMBLE_DAG_NAME,
         nodes=(
-            PipelineNode(
+            PipelineStep(
                 name="align_feature_vectors",
                 op=align_stream,
                 input="seed",
                 kwargs={"keys": keys_feature},
             ),
-            PipelineNode(
+            PipelineStep(
                 name="sample_assembly",
                 op=sample_assemble_stage,
                 input="align_feature_vectors",

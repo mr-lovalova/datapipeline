@@ -199,7 +199,7 @@ def test_rich_execution_sink_emits_dag_end_immediately() -> None:
             kind="dag_start",
             dag_name="pipeline:serve",
             depth=0,
-            node_count=3,
+            step_count=3,
         )
     )
     sink.emit(
@@ -207,7 +207,7 @@ def test_rich_execution_sink_emits_dag_end_immediately() -> None:
             kind="dag_end",
             dag_name="pipeline:serve",
             depth=0,
-            node_count=3,
+            step_count=3,
             status="success",
             output_items=1,
             elapsed_seconds=0.5,
@@ -228,7 +228,7 @@ def test_rich_execution_sink_renders_error_type_for_failed_dag_end() -> None:
             kind="dag_end",
             dag_name="pipeline:serve",
             depth=0,
-            node_count=3,
+            step_count=3,
             status="error",
             error_type="KeyboardInterrupt",
             output_items=0,

@@ -1,7 +1,8 @@
 import logging
 from typing import Any, Protocol
 
-from datapipeline.dag.events import DagRunEvent, NodeRunEvent
+from datapipeline.dag.events import DagParentRef, DagRunEvent, StepRunEvent
+from datapipeline.dag.node import StepKind
 
 
 class ExecutionObserver(Protocol):
@@ -9,23 +10,26 @@ class ExecutionObserver(Protocol):
         self,
         *,
         dag_name: str,
-        node_count: int,
+        step_count: int,
         depth: int = 0,
         dag_metadata: dict[str, Any] | None = None,
+        dag_parent: DagParentRef | None = None,
     ) -> None:
         ...
 
-    def on_node_start(
+    def on_step_start(
         self,
         *,
         dag_name: str,
-        node_name: str,
-        stage: int,
+        step_name: str,
+        step_index: int,
+        step_kind: StepKind = "function",
+        step_calls_dag: str | None = None,
         depth: int = 0,
     ) -> None:
         ...
 
-    def on_node_end(self, event: NodeRunEvent) -> None:
+    def on_step_end(self, event: StepRunEvent) -> None:
         ...
 
     def on_dag_end(self, event: DagRunEvent) -> None:
@@ -37,23 +41,26 @@ class NoopExecutionObserver:
         self,
         *,
         dag_name: str,
-        node_count: int,
+        step_count: int,
         depth: int = 0,
         dag_metadata: dict[str, Any] | None = None,
+        dag_parent: DagParentRef | None = None,
     ) -> None:
         pass
 
-    def on_node_start(
+    def on_step_start(
         self,
         *,
         dag_name: str,
-        node_name: str,
-        stage: int,
+        step_name: str,
+        step_index: int,
+        step_kind: StepKind = "function",
+        step_calls_dag: str | None = None,
         depth: int = 0,
     ) -> None:
         pass
 
-    def on_node_end(self, event: NodeRunEvent) -> None:
+    def on_step_end(self, event: StepRunEvent) -> None:
         pass
 
     def on_dag_end(self, event: DagRunEvent) -> None:
@@ -68,34 +75,52 @@ class LoggingExecutionObserver:
         self,
         *,
         dag_name: str,
-        node_count: int,
+        step_count: int,
         depth: int = 0,
         dag_metadata: dict[str, Any] | None = None,
+        dag_parent: DagParentRef | None = None,
     ) -> None:
         if self._logger.isEnabledFor(logging.INFO):
+            if dag_parent is None:
+                self._logger.info(
+                    "DAG started name=%s steps=%d",
+                    dag_name,
+                    step_count,
+                )
+                return
             self._logger.info(
-                "DAG started name=%s nodes=%d",
+                (
+                    "DAG started name=%s steps=%d "
+                    "parent_dag=%s parent_step=%s parent_step_index=%d"
+                ),
                 dag_name,
-                node_count,
+                step_count,
+                dag_parent.dag_name,
+                dag_parent.step_name,
+                dag_parent.step_index,
             )
 
-    def on_node_start(
+    def on_step_start(
         self,
         *,
         dag_name: str,
-        node_name: str,
-        stage: int,
+        step_name: str,
+        step_index: int,
+        step_kind: StepKind = "function",
+        step_calls_dag: str | None = None,
         depth: int = 0,
     ) -> None:
         if self._logger.isEnabledFor(logging.DEBUG):
+            calls_suffix = f" calls={step_calls_dag}" if step_calls_dag else ""
             self._logger.debug(
-                "Node activated dag=%s node=%s index=%d",
+                f"Step activated dag=%s step=%s index=%d kind=%s{calls_suffix}",
                 dag_name,
-                node_name,
-                stage,
+                step_name,
+                step_index,
+                step_kind,
             )
 
-    def on_node_end(self, event: NodeRunEvent) -> None:
+    def on_step_end(self, event: StepRunEvent) -> None:
         if self._logger.isEnabledFor(logging.DEBUG):
             error_suffix = (
                 f" error={event.error_type}"
@@ -103,10 +128,14 @@ class LoggingExecutionObserver:
                 else ""
             )
             self._logger.debug(
-                "Node finished dag=%s node=%s index=%d status=%s%s items=%d elapsed=%.6fs",
+                (
+                    "Step finished dag=%s step=%s index=%d kind=%s "
+                    "status=%s%s items=%d elapsed=%.6fs"
+                ),
                 event.dag_name,
-                event.node_name,
-                event.stage,
+                event.step_name,
+                event.step_index,
+                event.step_kind,
                 event.status,
                 error_suffix,
                 event.output_items,

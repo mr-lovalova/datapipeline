@@ -1,13 +1,13 @@
 from dataclasses import dataclass
 from typing import Any
 
-from datapipeline.dag.node import PipelineNode
+from datapipeline.dag.node import PipelineStep
 
 
 @dataclass(frozen=True)
 class StageDag:
     name: str
-    nodes: tuple[PipelineNode, ...]
+    nodes: tuple[PipelineStep, ...]
     metadata: dict[str, Any] | None = None
 
     def upto_stage(self, stage: int | None) -> "StageDag":
@@ -20,3 +20,7 @@ class StageDag:
             nodes=self.nodes[: stage + 1],
             metadata=self.metadata,
         )
+
+    @property
+    def steps(self) -> tuple[PipelineStep, ...]:
+        return self.nodes

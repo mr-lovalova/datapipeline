@@ -1,6 +1,12 @@
 from datapipeline.dag.dag import StageDag
-from datapipeline.dag.events import DagRunEvent, NodeRunEvent, RunStatus
-from datapipeline.dag.node import NodeInput, NodeOp, NodeOutput, PipelineNode
+from datapipeline.dag.events import DagRunEvent, StepRunEvent, RunStatus
+from datapipeline.dag.node import (
+    PipelineStep,
+    StepInput,
+    StepKind,
+    StepOp,
+    StepOutput,
+)
 from datapipeline.dag.observer import (
     ExecutionObserver,
     LoggingExecutionObserver,
@@ -10,15 +16,16 @@ from datapipeline.dag.runner import run_stage_dag
 
 __all__ = [
     "StageDag",
-    "PipelineNode",
-    "NodeInput",
-    "NodeOutput",
-    "NodeOp",
+    "PipelineStep",
+    "StepKind",
+    "StepInput",
+    "StepOutput",
+    "StepOp",
     "run_stage_dag",
     "ExecutionObserver",
     "LoggingExecutionObserver",
     "NoopExecutionObserver",
     "RunStatus",
-    "NodeRunEvent",
+    "StepRunEvent",
     "DagRunEvent",
 ]
