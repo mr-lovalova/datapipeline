@@ -1,0 +1,12 @@
+# Metadata task reference (all options).
+# This file is documentation only; uncomment the keys you want to use.
+#
+# version: 1                # optional
+# kind: metadata
+# name: metadata            # optional (defaults to filename stem)
+# entrypoint: core.build.metadata # optional; build runner id
+#
+# output: metadata.json      # optional; relative to project.paths.artifacts
+# dependencies: [schema]     # optional; artifact task kinds this task depends on
+# cadence_strategy: max      # optional; currently only "max"
+# window_mode: intersection  # optional; union | intersection | strict | relaxed

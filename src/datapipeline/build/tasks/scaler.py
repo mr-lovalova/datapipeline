@@ -13,9 +13,6 @@ from datapipeline.utils.paths import ensure_parent
 
 
 def materialize_scaler_statistics(runtime: Runtime, task_cfg: ScalerTask) -> Tuple[str, Dict[str, object]] | None:
-    if not task_cfg.enabled:
-        return None
-
     dataset = load_dataset(runtime.project_yaml, "vectors")
     feature_cfgs = list(dataset.features or [])
     target_cfgs = list(dataset.targets or [])

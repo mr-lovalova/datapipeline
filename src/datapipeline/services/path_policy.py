@@ -67,6 +67,15 @@ def path_has_content(path: Path, use_glob: bool) -> bool:
     return path.exists()
 
 
+def sanitize_path_segment(value: str, *, default: str = "run") -> str:
+    """Return a filesystem-safe path segment for user-provided labels."""
+    cleaned = "".join(
+        ch if ch.isalnum() or ch in ("_", "-", ".") else "_"
+        for ch in str(value).strip()
+    )
+    return cleaned or default
+
+
 def resolve_relative_fs_loader_path(
     raw_path: str,
     project_root: Path,

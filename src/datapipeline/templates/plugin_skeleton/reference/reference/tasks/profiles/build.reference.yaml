@@ -1,0 +1,19 @@
+# Build profile reference (all options).
+# This file is documentation only; uncomment the keys you want to use.
+#
+# version: 1                  # optional
+# kind: build
+# name: default               # optional (defaults to filename stem)
+# enabled: true               # optional; profile-level switch
+#
+# mode: AUTO                  # optional; AUTO | FORCE | OFF
+# target: schema              # required; artifact task kind to build
+#
+# observability:              # optional
+#   visuals: OFF              # optional; ON | OFF
+#   logging:                  # optional
+#     level: INFO             # optional; CRITICAL | ERROR | WARNING | INFO | DEBUG
+#     outputs:                # optional; ordered list (GLOBAL scope only)
+#       - transport: FS       # STDERR | STDOUT | FS
+#         scope: GLOBAL
+#         path: ./logs/build.log # resolved relative to project.yaml directory

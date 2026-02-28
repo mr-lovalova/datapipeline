@@ -1,0 +1,4 @@
+# See ../../../../plugin_skeleton/reference/reference/tasks/operations/scaler.reference.yaml for full options.
+kind: scaler
+entrypoint: core.build.scaler
+split_label: train

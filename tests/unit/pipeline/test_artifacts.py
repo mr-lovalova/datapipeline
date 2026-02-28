@@ -6,10 +6,13 @@ from datapipeline.artifacts.specs import (
     ARTIFACT_DEFINITIONS,
     ArtifactDefinition,
     StageDemand,
+    artifact_definitions_with_task_dependencies,
     artifact_build_order,
     artifact_keys_for_task_kinds,
     required_artifacts_for,
 )
+from datapipeline.cli.commands.build_operations import BUILD_OPERATION_RUNNERS
+from datapipeline.config.tasks import MetadataTask, ScalerTask, SchemaTask
 from datapipeline.services.constants import (
     SCALER_STATISTICS,
     VECTOR_SCHEMA,
@@ -64,7 +67,17 @@ def test_metadata_required_for_full_pipeline_run():
 
 
 def test_artifact_build_order_resolves_dependencies():
-    ordered = artifact_build_order({VECTOR_SCHEMA_METADATA, SCALER_STATISTICS})
+    definitions = artifact_definitions_with_task_dependencies(
+        [
+            SchemaTask(kind="schema"),
+            MetadataTask(kind="metadata"),
+            ScalerTask(kind="scaler"),
+        ]
+    )
+    ordered = artifact_build_order(
+        {VECTOR_SCHEMA_METADATA, SCALER_STATISTICS},
+        definitions=definitions,
+    )
     assert ordered == [VECTOR_SCHEMA, VECTOR_SCHEMA_METADATA, SCALER_STATISTICS]
 
 
@@ -82,7 +95,12 @@ def test_artifact_build_order_detects_cycles():
         artifact_build_order({"a"}, definitions=specs)
 
 
-def test_artifact_definitions_include_build_bindings():
+def test_artifact_definitions_have_runner_bound_entrypoints():
+    task_by_kind = {
+        "schema": SchemaTask(kind="schema"),
+        "metadata": MetadataTask(kind="metadata"),
+        "scaler": ScalerTask(kind="scaler"),
+    }
     for definition in ARTIFACT_DEFINITIONS:
-        assert definition.task_type is not None
-        assert definition.materialize is not None
+        task = task_by_kind[definition.task_kind]
+        assert task.entrypoint in BUILD_OPERATION_RUNNERS

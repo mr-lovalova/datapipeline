@@ -8,11 +8,25 @@
 # default_dataset: default         # optional (must be a key in datasets)
 #
 # shared:                          # optional
-#   visuals: ON                    # optional; ON | OFF
-#   log_level: INFO                # optional; CRITICAL | ERROR | WARNING | INFO | DEBUG
+#   observability:                 # optional
+#     visuals: ON                  # optional; ON | OFF
+#     logging:                     # optional
+#       level: INFO                # optional; CRITICAL | ERROR | WARNING | INFO | DEBUG
+#       outputs:                   # optional; fanout list for the selected config layer
+#         - transport: STDERR      # STDERR | STDOUT | FS
+#         - transport: FS
+#           scope: GLOBAL          # GLOBAL | RUN
+#           path: ./logs/jerry.log # required for FS+GLOBAL
 #
 # serve:                           # optional
-#   log_level: INFO                # optional
+#   observability:                 # optional
+#     visuals: ON                  # optional
+#     logging:                     # optional; overrides shared for serve
+#       level: INFO                # optional
+#       outputs:                   # precedence layer: CLI > serve profile > serve > shared (first non-empty layer wins)
+#         - transport: FS
+#           scope: RUN             # writes under each run directory
+#           path: logs/serve.log   # optional for RUN (default logs/serve.<task>.log)
 #   limit: 100                     # optional
 #   stage: 8                       # optional
 #   throttle_ms: 0                 # optional
@@ -25,5 +39,12 @@
 #     # directory: artifacts/serve # optional; fs only; relative to jerry.yaml
 #
 # build:                           # optional
-#   log_level: INFO                # optional
+#   observability:                 # optional; overrides shared for build
+#     visuals: OFF                 # optional; ON | OFF
+#     logging:                     # optional
+#       level: INFO                # optional
+#       outputs:                   # optional; GLOBAL scope only for build
+#         - transport: FS
+#           scope: GLOBAL
+#           path: ./logs/build.log
 #   mode: AUTO                     # optional; AUTO | FORCE | OFF (false -> OFF)

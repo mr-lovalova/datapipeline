@@ -5,45 +5,16 @@ from typing import Any, Optional
 from pydantic import BaseModel, Field, field_validator
 
 from datapipeline.services.path_policy import resolve_workspace_path, workspace_cwd
-from datapipeline.config.tasks import (
-    VALID_VISUAL_PROVIDERS,
-)
+from datapipeline.config.observability import ObservabilityConfig
 from datapipeline.utils.load import load_yaml
 
 
 class SharedDefaults(BaseModel):
-    visuals: Optional[str] = Field(
-        default=None, description="ON | OFF"
-    )
-    log_level: Optional[str] = Field(default=None, description="DEFAULT LOG LEVEL")
-
-    @field_validator("visuals", "log_level", mode="before")
-    @classmethod
-    def _normalize(cls, value: object):
-        if value is None:
-            return None
-        if isinstance(value, str):
-            text = value.strip()
-            return text if text else None
-        return value
-
-    @field_validator("visuals", mode="before")
-    @classmethod
-    def _normalize_visuals(cls, value):
-        if value is None:
-            return None
-        if isinstance(value, bool):
-            return "OFF" if value is False else "ON"
-        name = str(value).upper()
-        if name not in VALID_VISUAL_PROVIDERS:
-            raise ValueError(
-                f"visuals must be one of {', '.join(VALID_VISUAL_PROVIDERS)}, got {value!r}"
-            )
-        return name
+    observability: Optional[ObservabilityConfig] = Field(default=None)
 
 
 class ServeDefaults(BaseModel):
-    log_level: Optional[str] = None
+    observability: Optional[ObservabilityConfig] = None
     limit: Optional[int] = None
     stage: Optional[int] = None
     throttle_ms: Optional[float] = None
@@ -68,7 +39,7 @@ class ServeDefaults(BaseModel):
 
 
 class BuildDefaults(BaseModel):
-    log_level: Optional[str] = None
+    observability: Optional[ObservabilityConfig] = None
     mode: Optional[str] = None
 
     @field_validator("mode", mode="before")

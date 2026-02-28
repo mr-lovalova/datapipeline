@@ -136,7 +136,7 @@ def test_main_handles_keyboard_interrupt_at_top_level(monkeypatch, capsys):
     monkeypatch.setattr(app, "load_workspace_context", lambda _cwd: None)
     monkeypatch.setattr(
         app,
-        "handle_serve",
+        "execute_command",
         lambda **_kwargs: (_ for _ in ()).throw(KeyboardInterrupt()),
     )
     monkeypatch.setattr(
@@ -151,3 +151,33 @@ def test_main_handles_keyboard_interrupt_at_top_level(monkeypatch, capsys):
     captured = capsys.readouterr()
     assert exc.value.code == 130
     assert "Serve interrupted by user" in captured.err
+
+
+def test_main_resolves_project_for_inspect_without_subcommand(monkeypatch, tmp_path):
+    project_file = tmp_path / "datasets" / "demo" / "project.yaml"
+    project_file.parent.mkdir(parents=True)
+    project_file.write_text("version: 1\nname: demo\npaths: {}\n", encoding="utf-8")
+    workspace = WorkspaceContext(
+        file_path=tmp_path / "jerry.yaml",
+        config=WorkspaceConfig.model_validate(
+            {
+                "datasets": {"demo": "datasets/demo/project.yaml"},
+                "default_dataset": "demo",
+            }
+        ),
+    )
+    monkeypatch.setattr(app, "load_workspace_context", lambda _cwd: workspace)
+    captured: dict[str, object] = {}
+
+    def _capture_execute_command(**kwargs):
+        captured["project"] = kwargs["args"].project
+        captured["inspect_cmd"] = kwargs["args"].inspect_cmd
+        return True
+
+    monkeypatch.setattr(app, "execute_command", _capture_execute_command)
+    monkeypatch.setattr(sys, "argv", ["jerry", "inspect"])
+
+    app.main()
+
+    assert Path(captured["project"]) == project_file.resolve()
+    assert captured["inspect_cmd"] is None

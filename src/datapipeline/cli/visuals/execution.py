@@ -184,21 +184,14 @@ class LoggerExecutionEventSink(ExecutionEventSink):
         )
 
 
-class ContextOrLoggerExecutionEventSink(ExecutionEventSink):
-    def __init__(self, logger_sink: LoggerExecutionEventSink) -> None:
-        self._logger_sink = logger_sink
-        self._bound_context_sink: ExecutionEventSink | None = None
+class ContextExecutionEventSink(ExecutionEventSink):
+    """Optional additive sink bound in execution context (used by visuals)."""
 
     def emit(self, event: ExecutionLogEvent) -> None:
-        context_sink = current_execution_event_sink()
-        if context_sink is not None and context_sink is not self:
-            self._bound_context_sink = context_sink
-            context_sink.emit(event)
+        sink = current_execution_event_sink()
+        if sink is None or sink is self:
             return
-        if self._bound_context_sink is not None and self._bound_context_sink is not self:
-            self._bound_context_sink.emit(event)
-            return
-        self._logger_sink.emit(event)
+        sink.emit(event)
 
 
 def emit_execution_message(
@@ -217,11 +210,9 @@ def emit_execution_message(
         message_kind=message_kind,
         log_level=int(level),
     )
-    context_sink = current_execution_event_sink()
-    if context_sink is not None:
-        context_sink.emit(event)
-        return
-    LoggerExecutionEventSink(logger or logging.getLogger(__name__)).emit(event)
+    logger_sink = LoggerExecutionEventSink(logger or logging.getLogger(__name__))
+    logger_sink.emit(event)
+    ContextExecutionEventSink().emit(event)
 
 
 class HierarchicalExecutionObserver(ExecutionObserver):
@@ -352,7 +343,7 @@ def make_execution_observer(
         sink_list = list(sinks)
     else:
         logger_sink = LoggerExecutionEventSink(logger or logging.getLogger(__name__))
-        sink_list = [ContextOrLoggerExecutionEventSink(logger_sink)]
+        sink_list = [logger_sink, ContextExecutionEventSink()]
 
     if not sink_list:
         raise ValueError("'sinks' must contain at least one sink")

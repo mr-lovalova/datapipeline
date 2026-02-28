@@ -1,33 +1,35 @@
 import logging
 from pathlib import Path
-from typing import Iterator, List, NamedTuple, Optional, Sequence
+from typing import Optional
 
-from datapipeline.config.tasks import ServeTask, serve_tasks
-from datapipeline.runtime import Runtime
-from datapipeline.services.bootstrap import bootstrap
+from datapipeline.config.tasks import (
+    load_task_catalog,
+)
+from datapipeline.services.run_entries import RunEntry
 
 logger = logging.getLogger(__name__)
 
 
-class RunEntry(NamedTuple):
-    name: Optional[str]
-    config: Optional[ServeTask]
-    path: Optional[Path]
-
-
-def resolve_run_entries(project_path: Path, run_name: Optional[str]) -> tuple[List[RunEntry], Optional[Path]]:
+def resolve_run_entries(project_path: Path, run_name: Optional[str]) -> tuple[list[RunEntry], Optional[Path]]:
     try:
-        raw_entries = serve_tasks(project_path)
+        catalog = load_task_catalog(project_path)
+        raw_entries = list(catalog.serve_profiles)
+        operations = list(catalog.serve_operation_tasks)
     except FileNotFoundError:
         raw_entries = []
+        operations = []
     except Exception as exc:
-        logger.error("Failed to load serve tasks: %s", exc)
+        logger.error("Failed to load serve configuration: %s", exc)
         raise SystemExit(2) from exc
 
-    entries: List[RunEntry] = []
+    entries: list[RunEntry] = []
     root_path: Optional[Path] = None
 
     if raw_entries:
+        operations_by_name = {task.effective_name(): task for task in operations}
+        if not operations_by_name:
+            logger.error("Project does not define serve operations.")
+            raise SystemExit(2)
         if not run_name:
             raw_entries = [task for task in raw_entries if task.enabled]
         if run_name:
@@ -37,9 +39,17 @@ def resolve_run_entries(project_path: Path, run_name: Optional[str]) -> tuple[Li
                 if task.effective_name() == run_name
             ]
             if not raw_entries:
-                logger.error("Unknown run task '%s'", run_name)
+                logger.error("Unknown run profile '%s'", run_name)
                 raise SystemExit(2)
         for task in raw_entries:
+            operation = operations_by_name.get(task.target)
+            if operation is None:
+                logger.error(
+                    "Serve profile '%s' references unknown serve operation '%s'.",
+                    task.effective_name(),
+                    task.target,
+                )
+                raise SystemExit(2)
             path = getattr(task, "source_path", None)
             if root_path is None and path is not None:
                 root_path = path.parent
@@ -47,53 +57,11 @@ def resolve_run_entries(project_path: Path, run_name: Optional[str]) -> tuple[Li
                 RunEntry(
                     name=task.effective_name(),
                     config=task,
+                    operation=operation,
                     path=path,
                 )
             )
     else:
-        if run_name:
-            logger.error("Project does not define serve tasks.")
-            raise SystemExit(2)
-        entries = [RunEntry(name=None, config=None, path=None)]
+        logger.error("Project does not define serve profiles.")
+        raise SystemExit(2)
     return entries, root_path
-
-
-def iter_runtime_runs(
-    project_path: Path,
-    run_entries: Sequence[RunEntry],
-    keep_override: Optional[str],
-) -> Iterator[tuple[int, int, RunEntry, Runtime]]:
-    total_runs = len(run_entries)
-    for idx, entry in enumerate(run_entries, start=1):
-        run_cfg = entry.config
-        runtime = bootstrap(project_path)
-        if run_cfg is not None:
-            runtime.run = run_cfg
-            split_keep = getattr(runtime.split, "keep", None)
-            runtime.split_keep = run_cfg.keep or split_keep
-        if keep_override:
-            runtime.split_keep = keep_override
-        yield idx, total_runs, entry, runtime
-
-
-def determine_preview_stage(
-    cli_stage: Optional[int],
-    run_entries: Sequence[RunEntry],
-) -> tuple[Optional[int], Optional[str]]:
-    if cli_stage is not None:
-        return cli_stage, "CLI flag"
-
-    stages: List[int] = []
-    for entry in run_entries:
-        run_cfg = entry.config
-        cfg_stage = getattr(run_cfg, "stage", None) if run_cfg else None
-        if cfg_stage is None:
-            return None, None
-        stages.append(cfg_stage)
-
-    if not stages or any(stage > 6 for stage in stages):
-        return None, None
-
-    if len(set(stages)) == 1:
-        return stages[0], "run config"
-    return min(stages), "run configs"

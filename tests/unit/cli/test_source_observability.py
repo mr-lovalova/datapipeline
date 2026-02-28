@@ -14,8 +14,8 @@ from datapipeline.sources.decoders import JsonLinesDecoder
 from datapipeline.sources.foreach import ForeachLoader
 from datapipeline.sources.models.generator import DataGenerator
 from datapipeline.sources.models.loader import SyntheticLoader
-from datapipeline.sources.transports import FsFileTransport
-from datapipeline.sources.transports import FsGlobTransport
+from datapipeline.sources.adapters.fs import FsFileTransport
+from datapipeline.sources.adapters.fs import FsGlobTransport
 
 
 @dataclass

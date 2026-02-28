@@ -7,8 +7,15 @@ datasets:
 default_dataset: your-dataset
 
 shared:
-  visuals: ON
-  log_level: INFO
+  observability:
+    visuals: ON
+    logging:
+      level: INFO
+      outputs:
+        - transport: STDERR
+        - transport: FS
+          scope: GLOBAL
+          path: ./logs/jerry.log
 
 serve:
   limit: null

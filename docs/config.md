@@ -9,7 +9,8 @@ These live under the dataset “project root” directory (the folder containing
 - `contracts/*.yaml`: canonical streams (ingest or composed).
 - `dataset.yaml`: feature/target declarations.
 - `postprocess.yaml`: vector-level transforms.
-- `tasks/*.yaml`: serve presets and artifact task configs.
+- `tasks/profiles/*.yaml`: serve/build profile configs.
+- `tasks/operations/*.yaml`: artifact operation configs.
 
 ### Configuration & Resolution Order
 
@@ -19,10 +20,10 @@ For both `jerry serve` and `jerry build`, options are merged in the following
 order (highest precedence first):
 
 1. **CLI flags** – anything you pass on the command line always wins.
-2. **Project task files** – `kind: serve` specs (under `project.paths.tasks`)
-   supply serve defaults; artifact tasks in the same directory drive `jerry build`.
+2. **Project task files** – profile tasks under `project.paths.tasks` (`kind: serve`,
+   `kind: build`) supply per-command defaults and selection policy.
 3. **`jerry.yaml` command blocks** – settings under `jerry.serve` and `jerry.build`.
-4. **`jerry.yaml.shared`** – shared fallbacks for visuals/progress/log-level style settings.
+4. **`jerry.yaml.shared.observability`** – shared fallbacks for visuals/logging settings.
 5. **Built-in defaults** – runtime hard-coded defaults.
 
 ## YAML Config Reference
@@ -55,39 +56,85 @@ globals:
 - `paths.*` are resolved relative to the project file unless absolute; they also support `${var}` interpolation.
 - `globals` provide values for `${var}` interpolation across YAML files. Datetime
   values are normalized to strict UTC `YYYY-MM-DDTHH:MM:SSZ`.
-- `split` config defines how labels are assigned; serve tasks or CLI flags pick the active label via `keep`.
+- `split` config defines how labels are assigned; serve profiles or CLI flags pick the active label via `keep`.
 - `paths.tasks` points to a directory of task specs. Each `*.yaml` file declares `kind: ...`
-  (`scaler`, `schema`, `metadata`, `serve`, …). Artifact tasks drive `jerry build`; command
-  tasks (currently `kind: serve`) provide presets for `jerry serve`. When multiple serve tasks
-  exist, `jerry serve --run <name>` selects by `name`/filename stem.
+  (`scaler`, `schema`, `metadata`, `serve_operation`, `serve`, `build`, …). Artifact tasks (`scaler`/`schema`/`metadata`)
+  define what can be materialized; serve operation tasks (`serve_operation`) define executable serve runners;
+  profile tasks (`serve`/`build`) define how commands run.
+  When multiple serve/build profiles exist, `jerry serve --run <name>` and
+  `jerry build --run <name>` select by `name`/filename stem.
 - Label names are free-form: match whatever keys you declare in `split.ratios` (hash) or `split.labels` (time).
 
-### Serve Tasks (`tasks/serve.<name>.yaml`)
+### Serve Profiles (`tasks/profiles/serve.<name>.yaml`)
 
 ```yaml
 kind: serve
 name: train # defaults to filename stem when omitted
+target: serve # serve operation name from tasks/operations
 keep: train # select active split label (null disables filtering)
 output:
   transport: stdout # stdout | fs
-  format: print # print | jsonl | csv | pickle
-  # view: raw # optional; flat | raw | values (default: print/jsonl->raw, csv/pickle->flat)
+  format: jsonl # stdout: jsonl
+  # view: raw # optional; flat | raw | values (default: jsonl->raw, csv/pickle->flat)
   # encoding: utf-8 # fs jsonl/csv only
 limit: 100 # cap vectors per serve run (null = unlimited)
 throttle_ms: null # milliseconds to sleep between emitted vectors
 # Optional overrides:
-# log_level: INFO   # DEBUG=progress bars, INFO=spinner, WARNING=quiet
-# visuals: AUTO     # AUTO | TQDM | RICH | OFF
-# progress: AUTO    # AUTO | SPINNER | BARS | OFF
+# observability:
+#   visuals: ON      # ON | OFF
+#   logging:
+#     level: INFO    # CRITICAL | ERROR | WARNING | INFO | DEBUG
+#     outputs:
+#       - transport: STDERR # STDERR | STDOUT | FS
+#       - transport: FS
+#         scope: RUN        # GLOBAL | RUN
+#         path: logs/serve.log # optional; default logs/serve.<task>.log
 ```
 
-- Each serve task lives alongside artifact tasks under `paths.tasks`. Files are independent—no special directory structure required.
-- `output`, `limit`, `throttle_ms`, and `log_level` provide defaults for `jerry serve`; CLI flags still win per invocation (see _Configuration & Resolution Order_). For filesystem outputs, set `transport: fs`, `directory: /path/to/root`, and omit file names—each run automatically writes to `<directory>/<run_name>/<run_name>.<ext>` unless you override the entire `output` block with a custom `filename`.
+- Each serve profile lives under `tasks/profiles/`.
+- `output`, `limit`, `throttle_ms`, and `observability` provide defaults for `jerry serve`; CLI flags still win per invocation (see _Configuration & Resolution Order_). For filesystem outputs, set `transport: fs`, `directory: /path/to/root`, and omit file names—each run automatically writes to `<directory>/<run_name>/<run_name>.<ext>` unless you override the entire `output` block with a custom `filename`.
 - `output.encoding` is supported for fs `jsonl`/`csv` outputs (default `utf-8`); it is invalid for `stdout` and `pickle`.
 - Override `keep` (and other fields) per invocation via `jerry serve ... --keep val` etc.
-- Visuals backend: set `visuals: AUTO|TQDM|RICH|OFF` in the task or use `--visuals`. Pair with `progress: AUTO|SPINNER|BARS|OFF` or `--progress` to control progress layouts.
-- Add additional `kind: serve` files to the tasks directory for other splits (val/test/etc.); `jerry serve` runs each enabled file unless you pass `--run <name>`.
-- Use `jerry.yaml` next to the project or workspace root to define shared defaults (visuals/progress/log level/output); CLI flags still take precedence.
+- Visuals backend: set `observability.visuals: ON|OFF` in the task or use `--visuals on|off`.
+- Add additional `kind: serve` files under `tasks/profiles/` for other splits (val/test/etc.); `jerry serve` runs each enabled profile unless you pass `--run <name>`.
+- Use `jerry.yaml` next to the project or workspace root to define shared defaults (`shared.observability.*` and output defaults); CLI flags still take precedence.
+
+### Build Profiles (`tasks/profiles/build.<name>.yaml`)
+
+```yaml
+kind: build
+name: schema # defaults to filename stem when omitted
+target: schema # required; artifact task kind to execute
+mode: AUTO # AUTO | FORCE | OFF
+# enabled: true # optional; profile-level switch
+# Optional overrides:
+# observability:
+#   visuals: OFF
+#   logging:
+#     level: INFO
+#     outputs:
+#       - transport: FS
+#         scope: GLOBAL
+#         path: ./logs/build.log
+```
+
+- `kind: build` profiles are orchestration profiles; they do not replace artifact task definitions.
+- `target` selects the artifact task kind for that profile (`schema`, `scaler`, `metadata`, ...).
+- Build profile `observability.logging.outputs[].path` values are resolved relative to the dataset project root (`project.yaml` directory).
+- `jerry build` runs enabled build profiles when they exist; `jerry build --run <name>` targets one profile.
+- Precedence for build settings: CLI > build profile > `jerry.yaml build` > `jerry.yaml shared` > defaults.
+
+### Serve Operations (`tasks/operations/serve_operation.yaml`)
+
+```yaml
+kind: serve_operation
+name: serve
+entrypoint: core.serve_pipeline
+dependencies: [] # optional artifact task kinds
+```
+
+- Serve operations are executable units; serve profiles reference them via `target`.
+- `entrypoint` must resolve to a registered serve operation runner.
 
 ### Workspace Defaults (`jerry.yaml`)
 
@@ -102,25 +149,44 @@ datasets:
 default_dataset: your-dataset
 
 shared:
-  visuals: AUTO # AUTO | TQDM | RICH | OFF
-  progress: BARS # AUTO | SPINNER | BARS | OFF
-  log_level: INFO
+  observability:
+    visuals: ON # ON | OFF
+    logging:
+      level: INFO
+      outputs:
+        - transport: STDERR
+        - transport: FS
+          scope: GLOBAL
+          path: ./logs/jerry.log
 
 serve:
+  observability:
+    logging:
+      outputs:
+        - transport: FS
+          scope: RUN # logs under each run directory
   limit: null
   stage: null
   output:
     transport: stdout
-    format: print # print | jsonl | csv | pickle
-    # view: raw # optional; flat | raw | values (default: print/jsonl->raw, csv/pickle->flat)
+    format: jsonl # stdout: jsonl
+    # view: raw # optional; flat | raw | values (default: jsonl->raw, csv/pickle->flat)
     # encoding: utf-8 # fs jsonl/csv only
     # directory: artifacts/serve # Required when transport=fs
 
 build:
+  observability:
+    visuals: OFF
+    logging:
+      level: INFO
+      outputs:
+        - transport: FS
+          scope: GLOBAL
+          path: ./logs/build.log
   mode: AUTO # AUTO | FORCE | OFF
 ```
 
-`jerry.yaml` sits near the root of your workspace, while dataset-specific overrides still live in individual `tasks/serve.*.yaml` files as needed.
+`jerry.yaml` sits near the root of your workspace, while dataset-specific overrides live in `tasks/profiles/*.yaml` and `tasks/operations/*.yaml`.
 
 ### `<project_root>/sources/<alias>.yaml`
 
@@ -302,27 +368,29 @@ Project-scoped vector transforms that run after assembly and before serving.
   and scaler stats when scaling is enabled. When no transforms are configured
   the stream passes through unchanged.
 
-### Task Specs (`tasks/*.yaml`)
+### Task Specs (`tasks/operations/*.yaml`)
 
 Declare artifact and command tasks under `project.paths.tasks` (default `tasks/`).
 Artifact specs are optional; if you omit them, Jerry falls back to built-in defaults.
 Add a YAML file only when you need to override paths or other parameters.
 
-`tasks/scaler.yaml`
+`tasks/operations/scaler.yaml`
 
 ```yaml
 kind: scaler
+entrypoint: core.build.scaler
 output: scaler.json
 split_label: train
-enabled: true
 ```
 
 - `scaler.json` stores standard scaler statistics fitted on the requested split.
 - `schema.json` (from the `schema` task) enumerates the discovered feature/target identifiers (including partitions), their kinds (scalar/list), and cadence hints used to enforce ordering downstream.
   - Configure the `schema` task to choose a cadence strategy (currently `max`). Per-feature overrides will be added later; for now every list-valued feature records the max observed length as its enforcement target.
 - `metadata.json` (from the `metadata` task) captures heavier statistics—present/null counts, inferred value types, list-length histograms, per-partition timestamps, and the dataset window. Configure `metadata.window_mode` with `union|intersection|strict|relaxed` (default `intersection`) to control how start/end bounds are derived. `union` considers base features, `intersection` uses their overlap, `strict` intersects every partition, and `relaxed` unions partitions independently.
-- Command tasks (`kind: serve`) live alongside artifact tasks; `jerry serve` reads them directly.
-- Shared run/build defaults (visuals/progress/log level/build mode) live in `jerry.yaml`.
+- Artifact operation dependencies are declared explicitly on task specs via `dependencies` (for example, `metadata` defaults to `dependencies: [schema]`).
+- All operation tasks share the same execution interface: `entrypoint` selects the runner; profiles select operations via `target`.
+- Serve profiles (`kind: serve`) must target a serve operation (`kind: serve_operation`, usually `name: serve`).
+- Shared run/build defaults (visuals/logging level/build mode) live in `jerry.yaml`.
 
 ---
 

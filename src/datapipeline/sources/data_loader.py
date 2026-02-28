@@ -1,13 +1,14 @@
 from typing import Iterator, Any, Optional
 from .models.loader import BaseDataLoader
-from .transports import Transport, HttpTransport
+from .ports import SourceTransport
+from .adapters.http import HttpTransport
 from .decoders import Decoder
 
 
 class DataLoader(BaseDataLoader):
-    """Compose a Transport with a row Decoder."""
+    """Compose a SourceTransport with a row Decoder."""
 
-    def __init__(self, transport: Transport, decoder: Decoder, allow_network_count: bool = False):
+    def __init__(self, transport: SourceTransport, decoder: Decoder, allow_network_count: bool = False):
         self.transport = transport
         self.decoder = decoder
         self._allow_net_count = bool(allow_network_count)

@@ -14,6 +14,8 @@ SOURCE_FS_HTTP_FORMATS = ("csv", "json", "jsonl")
 SOURCE_FS_FORMATS = (*SOURCE_FS_HTTP_FORMATS, "pickle")
 
 VISUAL_CHOICES = ("on", "off")
+LOG_TRANSPORT_CHOICES = ("stderr", "stdout", "fs")
+LOG_SCOPE_CHOICES = ("global", "run")
 
 
 def source_formats_for(transport: str) -> tuple[str, ...]:

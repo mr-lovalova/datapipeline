@@ -1,0 +1,3 @@
+# See ../../../reference/reference/tasks/operations/schema.reference.yaml for full options.
+kind: schema
+entrypoint: core.build.schema

@@ -482,7 +482,9 @@ def test_make_execution_observer_uses_context_sink_when_present(caplog):
                 )
             )
         assert [event.kind for event in capture.events] == ["dag_start", "dag_end"]
-        assert caplog.records == []
+        messages = [record.getMessage() for record in caplog.records]
+        assert any(msg.startswith("DAG started name=pipeline:serve") for msg in messages)
+        assert any(msg.startswith("DAG finished name=pipeline:serve") for msg in messages)
     finally:
         reset_current_execution_event_sink(token)
 
@@ -507,8 +509,8 @@ def test_make_execution_observer_falls_back_to_logger_without_context_sink(caplo
     assert any(msg.startswith("DAG finished name=pipeline:serve") for msg in messages)
 
 
-def test_make_execution_observer_keeps_bound_context_sink_after_context_reset(caplog):
-    logger = logging.getLogger("datapipeline.cli.visuals.execution.test.sticky_context")
+def test_make_execution_observer_stops_context_sink_after_context_reset(caplog):
+    logger = logging.getLogger("datapipeline.cli.visuals.execution.test.context_reset")
     capture = _CaptureSink()
     token = set_current_execution_event_sink(capture)
     try:
@@ -529,15 +531,18 @@ def test_make_execution_observer_keeps_bound_context_sink_after_context_reset(ca
             )
         )
 
-    assert [event.kind for event in capture.events] == ["dag_start", "dag_end"]
-    assert caplog.records == []
+    assert [event.kind for event in capture.events] == ["dag_start"]
+    messages = [record.getMessage() for record in caplog.records]
+    assert any(msg.startswith("DAG finished name=pipeline:serve") for msg in messages)
 
 
-def test_emit_execution_message_uses_context_sink_when_available():
+def test_emit_execution_message_uses_context_sink_when_available(caplog):
     capture = _CaptureSink()
+    logger = logging.getLogger("datapipeline.cli.visuals.execution.test.message_context")
     token = set_current_execution_event_sink(capture)
     try:
-        emit_execution_message("Saved 2 items: /tmp/out.jsonl")
+        with caplog.at_level(logging.INFO, logger=logger.name):
+            emit_execution_message("Saved 2 items: /tmp/out.jsonl", logger=logger)
     finally:
         reset_current_execution_event_sink(token)
 
@@ -547,6 +552,7 @@ def test_emit_execution_message_uses_context_sink_when_available():
     assert event.message == "Saved 2 items: /tmp/out.jsonl"
     assert event.message_kind is None
     assert event.log_level == logging.INFO
+    assert any(record.getMessage() == "Saved 2 items: /tmp/out.jsonl" for record in caplog.records)
 
 
 def test_emit_execution_message_supports_message_kind():

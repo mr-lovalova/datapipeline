@@ -27,7 +27,7 @@ from datapipeline.cli.visuals.streams_rich import (
 from datapipeline.sources.models.generator import DataGenerator
 from datapipeline.sources.foreach import ForeachLoader
 from datapipeline.sources.models.loader import BaseDataLoader, SyntheticLoader
-from datapipeline.sources.transports import FsGlobTransport
+from datapipeline.sources.adapters.fs import FsGlobTransport
 
 
 class _DummyGenerator(DataGenerator):

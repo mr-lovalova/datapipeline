@@ -4,7 +4,8 @@ import os
 from typing import Optional, Sequence
 
 from urllib.parse import urlparse
-from datapipeline.sources.transports import FsGlobTransport, FsFileTransport, HttpTransport
+from datapipeline.sources.adapters.fs import FsFileTransport, FsGlobTransport
+from datapipeline.sources.adapters.http import HttpTransport
 
 logger = logging.getLogger(__name__)
 

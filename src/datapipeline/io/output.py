@@ -3,7 +3,11 @@ from pathlib import Path
 from typing import Optional
 
 from datapipeline.config.tasks import ServeOutputConfig
-from datapipeline.services.path_policy import resolve_relative_to_base, workspace_cwd
+from datapipeline.services.path_policy import (
+    resolve_relative_to_base,
+    sanitize_path_segment,
+    workspace_cwd,
+)
 from datapipeline.services.runs import RunPaths, start_run_for_directory
 
 
@@ -29,14 +33,6 @@ def _resolve_view(fmt: str, configured_view: str | None) -> str:
 def _default_filename_for_format(fmt: str) -> str:
     suffix = _format_suffix(fmt)
     return f"vectors{suffix}"
-
-
-def _sanitize_segment(value: str) -> str:
-    cleaned = "".join(
-        ch if ch.isalnum() or ch in ("_", "-", ".") else "_"
-        for ch in value.strip()
-    )
-    return cleaned or "run"
 
 
 @dataclass(frozen=True)
@@ -118,9 +114,11 @@ def resolve_output_target(
         # run_name subdirectory to keep layouts consistent with tests/CLI.
         base_dest_dir = directory
         if run_name:
-            base_dest_dir = base_dest_dir / _sanitize_segment(run_name)
+            base_dest_dir = base_dest_dir / sanitize_path_segment(run_name)
     suffix = _format_suffix(config.format)
-    filename_stem = config.filename or run_name
+    filename_stem = config.filename or (
+        sanitize_path_segment(run_name) if run_name else None
+    )
     if filename_stem:
         filename = f"{filename_stem}{suffix}"
     else:

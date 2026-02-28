@@ -13,8 +13,6 @@ from .utils import collect_schema_entries, schema_entries_from_stats
 
 
 def materialize_vector_schema(runtime: Runtime, task_cfg: SchemaTask) -> Tuple[str, Dict[str, object]] | None:
-    if not task_cfg.enabled:
-        return None
     dataset = load_dataset(runtime.project_yaml, "vectors")
     features_cfgs = list(dataset.features or [])
     feature_stats, feature_vectors, feature_min, feature_max = collect_schema_entries(

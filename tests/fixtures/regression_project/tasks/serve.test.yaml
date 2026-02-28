@@ -1,3 +1,4 @@
 kind: serve
 name: test
+target: serve
 keep: test

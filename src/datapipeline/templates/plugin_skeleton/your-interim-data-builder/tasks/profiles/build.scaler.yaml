@@ -1,0 +1,5 @@
+# See ../../../reference/reference/tasks/profiles/build.reference.yaml for full options.
+kind: build
+name: scaler
+target: scaler
+mode: AUTO

@@ -41,6 +41,22 @@ def test_resolve_output_target_honors_custom_filename(tmp_path):
     assert target.encoding == "utf-8"
 
 
+def test_resolve_output_target_sanitizes_derived_filename_stem(tmp_path):
+    base_dir = tmp_path / "outputs"
+    base_dir.mkdir()
+    cfg = ServeOutputConfig(transport="fs", format="jsonl", directory=base_dir)
+
+    target = resolve_output_target(
+        cli_output=None,
+        config_output=cfg,
+        default=None,
+        base_path=Path("."),
+        run_name="train/val",
+    )
+
+    assert target.destination == (base_dir / "train_val" / "train_val.jsonl").resolve()
+
+
 def test_resolve_output_target_honors_view(tmp_path):
     out_dir = tmp_path / "outputs"
     out_dir.mkdir()

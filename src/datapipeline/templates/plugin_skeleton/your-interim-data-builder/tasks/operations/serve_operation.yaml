@@ -1,0 +1,4 @@
+# See ../../../reference/reference/tasks/operations/serve_operation.reference.yaml for full options.
+kind: serve_operation
+name: serve
+entrypoint: core.serve_pipeline

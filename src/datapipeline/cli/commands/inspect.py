@@ -3,36 +3,52 @@ import json
 import logging
 from contextlib import redirect_stdout
 from pathlib import Path
+from typing import Sequence
 
 from datapipeline.analysis.vector.collector import VectorStatsCollector
 from datapipeline.cli.visuals.runner import run_job
 from datapipeline.cli.visuals.execution import make_execution_observer
 from datapipeline.config.context import load_dataset_context
 from datapipeline.config.dataset.loader import load_dataset
+from datapipeline.config.tasks import artifact_tasks
 from datapipeline.utils.paths import ensure_parent
 from datapipeline.services.bootstrap import artifacts_root
 from datapipeline.pipelines.full.nodes import post_process
 from datapipeline.pipelines import build_vector_pipeline
-from datapipeline.artifacts.specs import StageDemand, required_artifacts_for
+from datapipeline.artifacts.specs import (
+    StageDemand,
+    artifact_definitions_with_task_dependencies,
+    required_artifacts_for,
+)
 from datapipeline.cli.commands.build import run_build_if_needed
+from datapipeline.config.resolution import LogOutputTarget
+
+logger = logging.getLogger(__name__)
 
 
 def _prepare_inspect_build(
     project: str | Path,
     *,
     visuals: str | None,
+    cli_log_outputs: Sequence[LogOutputTarget] | None = None,
     workspace=None,
 ) -> None:
     project_path = Path(project)
     dataset = load_dataset(project_path, "vectors")
     demands = [StageDemand(stage=None)]
-    required = required_artifacts_for(dataset, demands)
+    try:
+        definitions = artifact_definitions_with_task_dependencies(artifact_tasks(project_path))
+    except ValueError as exc:
+        logger.error("Invalid artifact task dependencies: %s", exc)
+        raise SystemExit(2) from exc
+    required = required_artifacts_for(dataset, demands, definitions=definitions)
     if not required:
         return
     run_build_if_needed(
         project_path,
         required_artifacts=required,
         cli_visuals=visuals,
+        cli_log_outputs=list(cli_log_outputs or []),
         workspace=workspace,
     )
 
@@ -111,6 +127,7 @@ def report(
     visuals: str | None = None,
     log_level: int | None = None,
     sort: str = "missing",
+    cli_log_outputs: Sequence[LogOutputTarget] | None = None,
     workspace=None,
 ) -> None:
     """Compute a quality report and optionally export a matrix.
@@ -122,6 +139,7 @@ def report(
     _prepare_inspect_build(
         project,
         visuals=visuals,
+        cli_log_outputs=cli_log_outputs,
         workspace=workspace,
     )
 
@@ -185,6 +203,7 @@ def partitions(
     output: str | None = None,
     visuals: str | None = None,
     log_level: int | None = None,
+    cli_log_outputs: Sequence[LogOutputTarget] | None = None,
     workspace=None,
 ) -> None:
     """Discover observed partitions and write a manifest JSON.
@@ -198,6 +217,7 @@ def partitions(
     _prepare_inspect_build(
         project,
         visuals=visuals,
+        cli_log_outputs=cli_log_outputs,
         workspace=workspace,
     )
 

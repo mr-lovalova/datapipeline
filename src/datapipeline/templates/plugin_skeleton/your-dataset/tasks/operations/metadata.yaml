@@ -1,0 +1,5 @@
+# See ../../../reference/reference/tasks/operations/metadata.reference.yaml for full options.
+kind: metadata
+entrypoint: core.build.metadata
+dependencies:
+  - schema

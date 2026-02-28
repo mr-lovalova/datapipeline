@@ -1,7 +1,8 @@
 from typing import Any, Dict
 
 from datapipeline.sources.data_loader import DataLoader
-from datapipeline.sources.transports import FsFileTransport, FsGlobTransport, HttpTransport
+from datapipeline.sources.adapters.fs import FsFileTransport, FsGlobTransport
+from datapipeline.sources.adapters.http import HttpTransport
 from datapipeline.sources.decoders import (
     CsvDecoder,
     JsonDecoder,

@@ -1,0 +1,37 @@
+# Serve profile reference (all options).
+# This file is documentation only; uncomment the keys you want to use.
+#
+# version: 1                  # optional
+# kind: serve
+# name: train                 # optional (defaults to filename stem)
+# target: serve               # required; serve operation name
+# enabled: true               # optional
+#
+# keep: train                  # optional; split label from globals.split (null disables filtering)
+#
+# output:                     # optional; omit to use CLI defaults
+#   transport: stdout          # stdout | fs
+#   format: jsonl              # stdout: jsonl
+#   # view: raw               # optional; flat | raw | values
+#   #                         # default: jsonl->raw, csv/pickle->flat
+#   # encoding: utf-8          # fs jsonl/csv only
+#   # fs transport only:
+#   # transport: fs
+#   # format: csv             # csv | jsonl | pickle
+#   # directory: artifacts/serve
+#   # filename: vectors.train  # no extension, no path separators
+#
+# limit: 100                  # optional; null = unlimited
+# stage: 8                    # optional; 0-8; null lets CLI decide
+# throttle_ms: 0              # optional; milliseconds; null disables
+#
+# observability:              # optional
+#   visuals: ON               # optional; ON | OFF (false -> OFF)
+#   logging:                  # optional
+#     level: INFO             # optional; CRITICAL | ERROR | WARNING | INFO | DEBUG
+#     outputs:                # optional; ordered list
+#       - transport: STDERR   # STDERR | STDOUT | FS
+#       # - transport: FS
+#       #   scope: RUN        # GLOBAL | RUN
+#       #   path: logs/serve.log  # required for FS+GLOBAL; optional for RUN (default logs/serve.<task>.log)
+# precedence: CLI --log-output > this profile > jerry.yaml serve > jerry.yaml shared
