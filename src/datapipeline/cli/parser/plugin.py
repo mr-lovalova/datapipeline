@@ -1,7 +1,7 @@
 import argparse
 
 
-def add_plugin_command(sub, *, common: argparse.ArgumentParser) -> None:
+def add_plugin_command(sub,  common: argparse.ArgumentParser) -> None:
     parser = sub.add_parser(
         "plugin",
         help="scaffold plugin workspaces",

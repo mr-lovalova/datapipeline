@@ -19,7 +19,7 @@ def compute_glob_root(files: list[str]) -> Optional[Path]:
         return None
 
 
-def compact_root(path: Path, *, segments: int = 3) -> str:
+def compact_root(path: Path,  segments: int = 3) -> str:
     parts = [part for part in path.as_posix().split("/") if part]
     if len(parts) > segments:
         parts = ["..."] + parts[-segments:]
@@ -147,7 +147,7 @@ def log_combined_stream(stream_id: str, details: Optional[Sequence[str] | str], 
         logger.info("%s[%s] Feature engineering from upstream inputs", indent, stream_id)
 
 
-def current_transport_label(transport, *, glob_root: Optional[Path] = None) -> Optional[str]:
+def current_transport_label(transport,  glob_root: Optional[Path] = None) -> Optional[str]:
     """Return a human-friendly label for the transport's current unit of work."""
     if isinstance(transport, FsGlobTransport):
         current = getattr(transport, "current_path", None)

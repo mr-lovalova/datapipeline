@@ -77,7 +77,7 @@ class RunProfile:
 def resolve_run_profiles(
     project_path: Path,
     run_entries: Sequence[RunEntry],
-    *,
+    
     keep: Optional[str],
     stage: Optional[int],
     limit: Optional[int],
@@ -85,8 +85,8 @@ def resolve_run_profiles(
     workspace: WorkspaceContext | None,
     cli_log_level: Optional[str],
     cli_log_outputs: Sequence[LogOutputTarget] | None = None,
-    base_log_level: str,
-    cli_visuals: Optional[str],
+    base_log_level: str = "INFO",
+    cli_visuals: Optional[str] = None,
     create_run: bool = False,
 ) -> list[RunProfile]:
     shared = workspace.config.shared if workspace else None

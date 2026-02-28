@@ -3,7 +3,7 @@ import argparse
 from .common import add_dataset_flag, add_project_flag, add_visual_flags
 
 
-def add_inspect_command(sub, *, common: argparse.ArgumentParser) -> None:
+def add_inspect_command(sub,  common: argparse.ArgumentParser) -> None:
     inspect_common = argparse.ArgumentParser(add_help=False)
     add_visual_flags(inspect_common)
     add_dataset_flag(inspect_common)

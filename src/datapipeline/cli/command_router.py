@@ -1,4 +1,3 @@
-from __future__ import annotations
 
 import argparse
 from pathlib import Path
@@ -23,7 +22,7 @@ from datapipeline.config.workspace import WorkspaceContext
 
 
 def _run_inspect_command(
-    *,
+    
     args: argparse.Namespace,
     shared_defaults,
     base_level: int,
@@ -87,7 +86,7 @@ def _run_inspect_command(
 
 
 def _dispatch_non_project_command(
-    *,
+    
     args: argparse.Namespace,
     plugin_root: Path | None,
     workspace_context: WorkspaceContext | None,
@@ -165,7 +164,7 @@ def _dispatch_non_project_command(
 
 
 def execute_command(
-    *,
+    
     args: argparse.Namespace,
     plugin_root: Path | None,
     workspace_context: WorkspaceContext | None,

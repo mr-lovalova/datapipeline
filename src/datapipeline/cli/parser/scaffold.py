@@ -3,7 +3,7 @@ import argparse
 
 def add_simple_scaffold_command(
     sub,
-    *,
+    
     common: argparse.ArgumentParser,
     cmd: str,
     help_text: str,

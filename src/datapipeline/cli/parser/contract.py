@@ -1,7 +1,7 @@
 import argparse
 
 
-def add_contract_command(sub, *, common: argparse.ArgumentParser) -> None:
+def add_contract_command(sub,  common: argparse.ArgumentParser) -> None:
     parser = sub.add_parser(
         "contract",
         help="manage stream contracts (ingest or composed)",

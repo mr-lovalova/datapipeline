@@ -1,4 +1,3 @@
-from __future__ import annotations
 
 from typing import Callable
 
@@ -20,7 +19,7 @@ BUILD_OPERATION_RUNNERS: dict[str, BuildOperationRunner] = {
 
 
 def run_build_operation(
-    *,
+    
     operation: ArtifactTask,
     runtime,
 ) -> BuildOperationResult:

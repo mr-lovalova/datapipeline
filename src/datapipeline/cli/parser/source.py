@@ -3,7 +3,7 @@ import argparse
 from datapipeline.config.options import SOURCE_FS_FORMATS, SOURCE_TRANSPORTS
 
 
-def add_source_command(sub, *, common: argparse.ArgumentParser) -> None:
+def add_source_command(sub,  common: argparse.ArgumentParser) -> None:
     parser = sub.add_parser(
         "source",
         help="create or list raw sources",

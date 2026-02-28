@@ -1,7 +1,7 @@
 import argparse
 
 
-def add_domain_command(sub, *, common: argparse.ArgumentParser) -> None:
+def add_domain_command(sub,  common: argparse.ArgumentParser) -> None:
     parser = sub.add_parser(
         "domain",
         help="create or list domains",

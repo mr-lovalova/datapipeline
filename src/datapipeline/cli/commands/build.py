@@ -46,7 +46,7 @@ def _log_build_settings_debug(project_path: Path, settings) -> None:
 
 
 def _log_task_config_debug(
-    *,
+    
     definition: ArtifactDefinition,
     task: ArtifactTask,
     idx: int,
@@ -69,7 +69,7 @@ def _log_task_config_debug(
 
 
 def _run_artifact_builder(
-    *,
+    
     runtime,
     definition: ArtifactDefinition,
     task: ArtifactTask,
@@ -114,7 +114,7 @@ def _resolve_build_profiles(
     return [task for task in profiles if task.enabled], True
 
 
-def _emit_project_banner(*, backend, project_path: Path) -> None:
+def _emit_project_banner( backend, project_path: Path) -> None:
     # Present headline before deciding to skip or run.
     try:
         handled = backend.on_build_start(project_path)
@@ -137,7 +137,7 @@ def _emit_project_banner(*, backend, project_path: Path) -> None:
 
 
 def _merge_build_state(
-    *,
+    
     previous_state: BuildState | None,
     built_artifacts: dict[str, dict[str, object]],
     config_hash: str,
@@ -164,7 +164,7 @@ def _merge_build_state(
 
 def run_build_if_needed(
     project: Path | str,
-    *,
+    
     force: bool = False,
     cli_log_level: str | None = None,
     cli_visuals: str | None = None,
@@ -338,7 +338,7 @@ def run_build_if_needed(
 
 def handle(
     project: str,
-    *,
+    
     run_name: str | None = None,
     force: bool = False,
     cli_log_level: str | None = None,

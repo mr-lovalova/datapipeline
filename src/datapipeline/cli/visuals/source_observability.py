@@ -192,7 +192,7 @@ class SourceObservabilityAdapter:
     @staticmethod
     def _count_fs_file(
         path: str,
-        *,
+        
         chunk_size: int,
         loader: DataLoader,
     ) -> Optional[int]:

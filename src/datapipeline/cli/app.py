@@ -84,7 +84,7 @@ def _resolve_project_from_args(
 
 
 def _resolve_project_arguments(
-    *,
+    
     args: argparse.Namespace,
     workspace_context: WorkspaceContext | None,
 ) -> None:
@@ -106,7 +106,7 @@ def _resolve_project_arguments(
 
 
 def _configure_cli_logging(
-    *,
+    
     parser: argparse.ArgumentParser,
     args: argparse.Namespace,
     workspace_context: WorkspaceContext | None,

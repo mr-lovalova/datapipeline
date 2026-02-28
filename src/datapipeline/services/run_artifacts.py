@@ -1,4 +1,3 @@
-from __future__ import annotations
 
 import json
 from pathlib import Path
@@ -15,7 +14,7 @@ def serve_profile_path(paths: RunPaths, task_label: str) -> Path:
 
 
 def write_serve_profile(
-    *,
+    
     paths: RunPaths,
     task_label: str,
     payload: Mapping[str, Any],

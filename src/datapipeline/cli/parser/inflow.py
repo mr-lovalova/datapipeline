@@ -1,7 +1,7 @@
 import argparse
 
 
-def add_inflow_command(sub, *, common: argparse.ArgumentParser) -> None:
+def add_inflow_command(sub,  common: argparse.ArgumentParser) -> None:
     parser = sub.add_parser(
         "inflow",
         help="create end-to-end inflow scaffolds",

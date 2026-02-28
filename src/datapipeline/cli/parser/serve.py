@@ -5,7 +5,7 @@ from datapipeline.config.options import OUTPUT_FORMATS, OUTPUT_TRANSPORTS, OUTPU
 from .common import add_dataset_flag, add_project_flag, add_visual_flags
 
 
-def add_serve_command(sub, *, common: argparse.ArgumentParser) -> None:
+def add_serve_command(sub,  common: argparse.ArgumentParser) -> None:
     parser = sub.add_parser(
         "serve",
         help="produce vectors with configurable logging",

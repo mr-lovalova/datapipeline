@@ -114,7 +114,7 @@ def _persist_profile_artifact(profile) -> Path | None:
         return None
 
 
-def _log_profile_start_debug(profile, *, profile_path: Path | None = None) -> None:
+def _log_profile_start_debug(profile,  profile_path: Path | None = None) -> None:
     output = profile.output
     message = (
         f"Run profile start ({profile.idx}/{profile.total}) "
@@ -200,7 +200,7 @@ def _build_cli_output_config(
 
 
 def _resolve_profiles_or_exit(
-    *,
+    
     project_path: Path,
     run_entries,
     keep: Optional[str],
@@ -242,7 +242,7 @@ def _dataset_name_for_stage(stage: Optional[int]) -> str:
 
 
 def _load_dataset_for_profile(
-    *,
+    
     cache: dict[str, object],
     project_path: Path,
     stage: Optional[int],
@@ -259,7 +259,7 @@ def ensure_stage_artifacts(
     project_path: Path,
     dataset,
     profiles,
-    *,
+    
     cli_log_level: Optional[str],
     cli_visuals: Optional[str],
     cli_log_outputs: Sequence[LogOutputTarget] | None,
@@ -303,10 +303,10 @@ def handle_serve(
     output_encoding: Optional[str] = None,
     output_view: Optional[str] = None,
     skip_build: bool = False,
-    *,
-    cli_log_level: Optional[str],
+    
+    cli_log_level: Optional[str] = None,
     cli_log_outputs: Sequence[LogOutputTarget] | None = None,
-    base_log_level: str,
+    base_log_level: str = "INFO",
     cli_visuals: Optional[str] = None,
     workspace=None,
 ) -> None:

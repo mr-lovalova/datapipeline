@@ -73,7 +73,7 @@ class OutputResolutionError(ValueError):
 
 
 def resolve_output_target(
-    *,
+    
     cli_output: ServeOutputConfig | None,
     config_output: ServeOutputConfig | None,
     default: ServeOutputConfig | None = None,

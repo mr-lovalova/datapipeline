@@ -87,15 +87,15 @@ def test_run_build_if_needed_forwards_cli_log_outputs(monkeypatch, tmp_path):
     captured: dict[str, object] = {}
 
     def _fake_resolve_build_settings(
-        *,
+        
         project_path=None,
-        workspace,
-        cli_log_level,
-        cli_visuals,
-        cli_log_outputs,
-        force_flag,
-        base_log_level,
-        build_profile,
+        workspace=None,
+        cli_log_level=None,
+        cli_visuals=None,
+        cli_log_outputs=None,
+        force_flag=False,
+        base_log_level=None,
+        build_profile=None,
     ):
         captured["workspace"] = workspace
         captured["cli_log_level"] = cli_log_level

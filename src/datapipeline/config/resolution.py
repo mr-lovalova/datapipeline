@@ -48,7 +48,7 @@ class VisualSettings:
 
 
 def resolve_visuals(
-    *,
+    
     cli_visuals: str | None,
     config_visuals: str | None,
     workspace_visuals: str | None,
@@ -99,7 +99,7 @@ class LogOutputSettings:
 
 def log_output_targets_from_config(
     outputs,
-    *,
+    
     resolve_global_path: Callable[[str], Path],
 ) -> list[LogOutputTarget]:
     """Map validated config models into normalized LogOutputTarget values."""
@@ -129,7 +129,7 @@ def log_output_targets_from_config(
 
 def resolve_workspace_log_outputs(
     outputs,
-    *,
+    
     workspace: WorkspaceContext | None,
 ) -> list[LogOutputTarget]:
     return log_output_targets_from_config(
@@ -143,7 +143,7 @@ def resolve_workspace_log_outputs(
 
 def resolve_project_log_outputs(
     outputs,
-    *,
+    
     project_path: Path,
 ) -> list[LogOutputTarget]:
     return log_output_targets_from_config(
@@ -156,7 +156,7 @@ def resolve_project_log_outputs(
 
 def parse_log_output_specs(
     specs: Sequence[str] | None,
-    *,
+    
     resolve_global_path: Callable[[str], Path],
 ) -> list[LogOutputTarget]:
     """Parse CLI --log-output specs into normalized targets."""
@@ -208,7 +208,7 @@ def parse_log_output_specs(
 
 def _normalize_log_outputs(
     output_candidates: Sequence[Sequence[LogOutputTarget] | None],
-    *,
+    
     allow_run_scope: bool,
 ) -> list[LogOutputTarget]:
     for candidate in output_candidates:
@@ -268,7 +268,7 @@ def _normalize_log_outputs(
 
 
 def resolve_log_output(
-    *,
+    
     output_candidates: Sequence[Sequence[LogOutputTarget] | None] = (),
     default_transport: str = "stderr",
     allow_run_scope: bool = False,
@@ -289,7 +289,7 @@ def resolve_log_output(
 
 
 def materialize_log_output_for_run(
-    *,
+    
     settings: LogOutputSettings,
     run_dir: Path | None,
     run_label: str | None = None,

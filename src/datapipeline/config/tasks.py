@@ -20,7 +20,7 @@ View = Literal["flat", "raw", "values"]
 
 def _normalize_string_list(
     value,
-    *,
+    
     field_name: str,
     lower: bool = False,
 ) -> list[str]:
@@ -45,7 +45,7 @@ def _normalize_string_list(
 
 def _normalize_required_text(
     value,
-    *,
+    
     field_name: str,
     lower: bool = False,
 ) -> str:
@@ -311,7 +311,7 @@ class TaskCatalog:
 
 def _ensure_unique_tasks(
     tasks: Sequence[TaskBase],
-    *,
+    
     error_template: str,
     key_fn,
 ) -> None:

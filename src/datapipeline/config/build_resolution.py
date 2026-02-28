@@ -48,13 +48,13 @@ class BuildSettings:
 
 
 def resolve_build_settings(
-    *,
+    
     project_path: Path | None = None,
-    workspace: WorkspaceContext | None,
-    cli_log_level: Optional[str],
-    cli_visuals: Optional[str],
-    cli_log_outputs: Sequence[LogOutputTarget] | None,
-    force_flag: bool,
+    workspace: WorkspaceContext | None = None,
+    cli_log_level: Optional[str] = None,
+    cli_visuals: Optional[str] = None,
+    cli_log_outputs: Sequence[LogOutputTarget] | None = None,
+    force_flag: bool = False,
     base_log_level: str | None = None,
     build_profile=None,
 ) -> BuildSettings:

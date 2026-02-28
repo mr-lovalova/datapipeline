@@ -1,4 +1,3 @@
-from __future__ import annotations
 
 from typing import Callable
 
@@ -15,7 +14,7 @@ SERVE_OPERATION_RUNNERS: dict[str, ServeOperationRunner] = {
 
 
 def run_serve_operation(
-    *,
+    
     operation: ServeOperationTask,
     runtime,
     dataset,

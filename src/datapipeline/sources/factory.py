@@ -11,7 +11,7 @@ from datapipeline.sources.decoders import (
 )
 
 
-def build_loader(*, transport: str, format: str | None = None, **kwargs: Any) -> DataLoader:
+def build_loader( transport: str, format: str | None = None, **kwargs: Any) -> DataLoader:
     """Factory entrypoint that composes a transport and a decoder.
 
     Args (by transport/format):

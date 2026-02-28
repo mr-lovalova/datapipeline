@@ -67,7 +67,7 @@ def _range_intersection(ranges):
 def _window_bounds_from_stats(
     feature_stats: list[dict],
     target_stats: list[dict],
-    *,
+    
     mode: str,
 ) -> tuple[datetime | None, datetime | None]:
     base_ranges = _group_ranges(

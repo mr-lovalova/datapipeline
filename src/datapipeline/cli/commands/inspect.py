@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 def _prepare_inspect_build(
     project: str | Path,
-    *,
+    
     visuals: str | None,
     cli_log_outputs: Sequence[LogOutputTarget] | None = None,
     workspace=None,
@@ -55,7 +55,7 @@ def _prepare_inspect_build(
 
 def _run_inspect_job(
     project: str,
-    *,
+    
     visuals: str | None,
     log_level: int | None,
     label: str,
@@ -90,7 +90,7 @@ def _merge_sample_values(sample) -> dict:
 
 def _iter_merged_vectors(
     dataset_ctx,
-    *,
+    
     apply_postprocess: bool,
 ):
     context = dataset_ctx.pipeline_context
@@ -115,7 +115,7 @@ def _iter_merged_vectors(
 
 def report(
     project: str,
-    *,
+    
     threshold: float = 0.95,
     match_partition: str = "base",
     matrix: str = "none",  # one of: none|csv|html
@@ -199,7 +199,7 @@ def report(
 
 def partitions(
     project: str,
-    *,
+    
     output: str | None = None,
     visuals: str | None = None,
     log_level: int | None = None,

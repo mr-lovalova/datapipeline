@@ -1,4 +1,3 @@
-from __future__ import annotations
 
 from typing import Callable, Mapping, TypeVar
 
@@ -9,7 +8,7 @@ OperationRunner = Callable[..., TReturn]
 
 
 def dispatch_operation(
-    *,
+    
     operation: OperationTask,
     registry: Mapping[str, OperationRunner[TReturn]],
     operation_type: str,
