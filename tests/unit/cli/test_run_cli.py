@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 from datapipeline.cli.commands.run import _build_cli_output_config
 from datapipeline.cli.commands.run_config import RunEntry
-from datapipeline.config.context import _run_config_value, resolve_run_profiles
+from datapipeline.config.serve_resolution import _run_config_value, resolve_run_profiles
 from datapipeline.config.resolution import LogOutputTarget
 from datapipeline.config.tasks import ServeOperationTask, ServeOutputConfig, ServeTask
 from datapipeline.config.workspace import WorkspaceConfig, WorkspaceContext
@@ -63,7 +63,7 @@ def test_run_profiles_inherit_workspace_throttle(monkeypatch, tmp_path):
             yield idx, total, entry, runtime
 
     monkeypatch.setattr(
-        "datapipeline.config.context.iter_runtime_runs", fake_iter_runtime_runs
+        "datapipeline.config.serve_resolution.iter_runtime_runs", fake_iter_runtime_runs
     )
 
     profiles = resolve_run_profiles(
@@ -99,7 +99,7 @@ def test_run_profiles_use_serve_visuals_defaults(monkeypatch, tmp_path):
             yield idx, total, entry, runtime
 
     monkeypatch.setattr(
-        "datapipeline.config.context.iter_runtime_runs", fake_iter_runtime_runs
+        "datapipeline.config.serve_resolution.iter_runtime_runs", fake_iter_runtime_runs
     )
 
     profiles = resolve_run_profiles(
@@ -142,7 +142,7 @@ def test_run_profiles_run_visuals_override_serve_defaults(monkeypatch, tmp_path)
             yield idx, total, entry, runtime
 
     monkeypatch.setattr(
-        "datapipeline.config.context.iter_runtime_runs", fake_iter_runtime_runs
+        "datapipeline.config.serve_resolution.iter_runtime_runs", fake_iter_runtime_runs
     )
 
     profiles = resolve_run_profiles(
@@ -197,7 +197,7 @@ def test_run_profiles_resolve_log_output_precedence(monkeypatch, tmp_path):
             yield idx, total, entry, runtime
 
     monkeypatch.setattr(
-        "datapipeline.config.context.iter_runtime_runs", fake_iter_runtime_runs
+        "datapipeline.config.serve_resolution.iter_runtime_runs", fake_iter_runtime_runs
     )
 
     profiles = resolve_run_profiles(
@@ -212,8 +212,8 @@ def test_run_profiles_resolve_log_output_precedence(monkeypatch, tmp_path):
         base_log_level="INFO",
         cli_visuals=None,
     )
-    assert profiles[0].log_output.transport == "stdout"
-    assert profiles[0].log_output.destination is None
+    assert profiles[0].log_output.outputs[0].transport == "stdout"
+    assert profiles[0].log_output.outputs[0].destination is None
 
     profiles_cli = resolve_run_profiles(
         project_path=tmp_path / "project.yaml",
@@ -231,8 +231,8 @@ def test_run_profiles_resolve_log_output_precedence(monkeypatch, tmp_path):
         base_log_level="INFO",
         cli_visuals=None,
     )
-    assert profiles_cli[0].log_output.transport == "fs"
-    assert profiles_cli[0].log_output.destination == (tmp_path / "logs" / "cli.log")
+    assert profiles_cli[0].log_output.outputs[0].transport == "fs"
+    assert profiles_cli[0].log_output.outputs[0].destination == (tmp_path / "logs" / "cli.log")
 
 
 def test_run_scoped_logs_materialize_only_for_create_run(monkeypatch, tmp_path):
@@ -258,7 +258,7 @@ def test_run_scoped_logs_materialize_only_for_create_run(monkeypatch, tmp_path):
             yield idx, total, entry, runtime
 
     monkeypatch.setattr(
-        "datapipeline.config.context.iter_runtime_runs", fake_iter_runtime_runs
+        "datapipeline.config.serve_resolution.iter_runtime_runs", fake_iter_runtime_runs
     )
 
     cli_output = ServeOutputConfig(
@@ -299,7 +299,7 @@ def test_run_scoped_logs_materialize_only_for_create_run(monkeypatch, tmp_path):
     run_profile = run_profiles[0]
     assert run_profile.output.run is not None
     assert run_profile.log_output.outputs[0].scope == "global"
-    assert run_profile.log_output.destination == (
+    assert run_profile.log_output.outputs[0].destination == (
         run_profile.output.run.dataset_dir / "logs" / "run.log"
     )
 
@@ -328,7 +328,7 @@ def test_run_scoped_logs_default_to_task_specific_filename(monkeypatch, tmp_path
             yield idx, total, entry, runtime
 
     monkeypatch.setattr(
-        "datapipeline.config.context.iter_runtime_runs", fake_iter_runtime_runs
+        "datapipeline.config.serve_resolution.iter_runtime_runs", fake_iter_runtime_runs
     )
 
     cli_output = ServeOutputConfig(
@@ -353,7 +353,7 @@ def test_run_scoped_logs_default_to_task_specific_filename(monkeypatch, tmp_path
     run_profile = run_profiles[0]
     assert run_profile.output.run is not None
     assert run_profile.log_output.outputs[0].scope == "global"
-    assert run_profile.log_output.destination == (
+    assert run_profile.log_output.outputs[0].destination == (
         run_profile.output.run.dataset_dir / "logs" / "serve.val.log"
     )
 

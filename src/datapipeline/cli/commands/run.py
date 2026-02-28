@@ -13,7 +13,7 @@ from datapipeline.cli.visuals.execution import emit_execution_message
 from datapipeline.cli.logging_setup import configure_root_logging
 from datapipeline.cli.visuals.runner import run_job
 from datapipeline.cli.visuals.sections import sections_from_path
-from datapipeline.config.context import resolve_run_profiles
+from datapipeline.config.serve_resolution import resolve_run_profiles
 from datapipeline.config.dataset.loader import load_dataset
 from datapipeline.config.resolution import LogOutputTarget
 from datapipeline.config.tasks import ServeOutputConfig, artifact_tasks

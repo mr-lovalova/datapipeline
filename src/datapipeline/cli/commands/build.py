@@ -12,7 +12,7 @@ from datapipeline.cli.visuals import get_visuals_backend
 from datapipeline.cli.visuals.runner import run_job
 from datapipeline.cli.visuals.sections import sections_from_path
 from datapipeline.config.tasks import ArtifactTask, BuildTask, TaskCatalog, artifact_tasks, load_task_catalog
-from datapipeline.config.context import resolve_build_settings
+from datapipeline.config.build_resolution import resolve_build_settings
 from datapipeline.config.resolution import LogOutputTarget
 from datapipeline.artifacts.specs import (
     ArtifactDefinition,

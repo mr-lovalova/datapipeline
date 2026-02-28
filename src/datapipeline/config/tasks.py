@@ -395,10 +395,3 @@ def serve_operation_tasks(project_yaml: Path) -> list[ServeOperationTask]:
 
 def build_tasks(project_yaml: Path) -> list[BuildTask]:
     return list(load_task_catalog(project_yaml).build_profiles)
-
-
-def default_serve_task(project_yaml: Path) -> ServeTask | None:
-    for task in serve_tasks(project_yaml):
-        if task.enabled:
-            return task
-    return None

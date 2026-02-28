@@ -2,8 +2,9 @@ from pathlib import Path
 from types import SimpleNamespace
 import contextlib
 
+import pytest
 from datapipeline.cli.commands import build as build_cmd
-from datapipeline.config.context import resolve_build_settings
+from datapipeline.config.build_resolution import resolve_build_settings
 from datapipeline.config.tasks import BuildTask, SchemaTask, ScalerTask
 from datapipeline.config.resolution import LogOutputSettings, LogOutputTarget
 from datapipeline.config.workspace import WorkspaceConfig, WorkspaceContext
@@ -173,8 +174,8 @@ def test_resolve_build_settings_prefers_build_observability(tmp_path):
 
     assert settings.visuals == "on"
     assert settings.log_decision.name == "DEBUG"
-    assert settings.log_output.transport == "fs"
-    assert settings.log_output.destination == (tmp_path / "logs" / "build.log").resolve()
+    assert settings.log_output.outputs[0].transport == "fs"
+    assert settings.log_output.outputs[0].destination == (tmp_path / "logs" / "build.log").resolve()
     assert settings.profile_name is None
 
 
@@ -207,7 +208,7 @@ def test_resolve_build_settings_cli_overrides_build_observability(tmp_path):
 
     assert settings.visuals == "off"
     assert settings.log_decision.name == "ERROR"
-    assert settings.log_output.transport == "stdout"
+    assert settings.log_output.outputs[0].transport == "stdout"
 
 
 def test_resolve_build_settings_prefers_profile_over_workspace_build(tmp_path):
@@ -243,6 +244,7 @@ def test_resolve_build_settings_prefers_profile_over_workspace_build(tmp_path):
     )
 
     settings = resolve_build_settings(
+        project_path=tmp_path / "project.yaml",
         workspace=workspace,
         cli_log_level=None,
         cli_visuals=None,
@@ -256,8 +258,33 @@ def test_resolve_build_settings_prefers_profile_over_workspace_build(tmp_path):
     assert settings.mode == "FORCE"
     assert settings.visuals == "on"
     assert settings.log_decision.name == "DEBUG"
-    assert settings.log_output.transport == "fs"
-    assert settings.log_output.destination == (tmp_path / "logs" / "nightly.log").resolve()
+    assert settings.log_output.outputs[0].transport == "fs"
+    assert settings.log_output.outputs[0].destination == (tmp_path / "logs" / "nightly.log").resolve()
+
+
+def test_resolve_build_settings_requires_project_path_with_profile(tmp_path):
+    workspace = WorkspaceContext(
+        file_path=tmp_path / "jerry.yaml",
+        config=WorkspaceConfig.model_validate({}),
+    )
+    profile = BuildTask.model_validate(
+        {
+            "kind": "build",
+            "name": "nightly",
+            "target": "schema",
+        }
+    )
+
+    with pytest.raises(ValueError, match="project_path is required"):
+        resolve_build_settings(
+            workspace=workspace,
+            cli_log_level=None,
+            cli_visuals=None,
+            cli_log_outputs=None,
+            force_flag=False,
+            base_log_level="INFO",
+            build_profile=profile,
+        )
 
 
 def test_resolve_build_settings_profile_log_paths_are_project_relative(tmp_path):
@@ -294,7 +321,7 @@ def test_resolve_build_settings_profile_log_paths_are_project_relative(tmp_path)
         base_log_level="INFO",
         build_profile=profile,
     )
-    assert settings.log_output.destination == (project_root / "logs" / "nightly.log").resolve()
+    assert settings.log_output.outputs[0].destination == (project_root / "logs" / "nightly.log").resolve()
 
 
 def test_resolve_build_settings_ignores_run_scoped_workspace_outputs(tmp_path):
@@ -320,8 +347,8 @@ def test_resolve_build_settings_ignores_run_scoped_workspace_outputs(tmp_path):
         base_log_level="INFO",
     )
 
-    assert settings.log_output.transport == "stderr"
-    assert settings.log_output.destination is None
+    assert settings.log_output.outputs[0].transport == "stderr"
+    assert settings.log_output.outputs[0].destination is None
 
 
 def test_run_build_if_needed_preserves_previous_artifacts_in_state(monkeypatch, tmp_path):

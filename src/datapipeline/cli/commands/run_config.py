@@ -1,4 +1,5 @@
 import logging
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -23,7 +24,7 @@ def resolve_run_entries(project_path: Path, run_name: Optional[str]) -> tuple[li
         raise SystemExit(2) from exc
 
     entries: list[RunEntry] = []
-    root_path: Optional[Path] = None
+    entry_paths: list[Path] = []
 
     if raw_entries:
         operations_by_name = {task.effective_name(): task for task in operations}
@@ -51,8 +52,8 @@ def resolve_run_entries(project_path: Path, run_name: Optional[str]) -> tuple[li
                 )
                 raise SystemExit(2)
             path = getattr(task, "source_path", None)
-            if root_path is None and path is not None:
-                root_path = path.parent
+            if path is not None:
+                entry_paths.append(path.parent)
             entries.append(
                 RunEntry(
                     name=task.effective_name(),
@@ -64,4 +65,10 @@ def resolve_run_entries(project_path: Path, run_name: Optional[str]) -> tuple[li
     else:
         logger.error("Project does not define serve profiles.")
         raise SystemExit(2)
+    if not entry_paths:
+        return entries, None
+    try:
+        root_path = Path(os.path.commonpath([str(path) for path in entry_paths]))
+    except ValueError:
+        root_path = entry_paths[0]
     return entries, root_path

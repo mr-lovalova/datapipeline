@@ -96,14 +96,6 @@ class LogOutputTarget:
 class LogOutputSettings:
     outputs: tuple[LogOutputTarget, ...]
 
-    @property
-    def transport(self) -> str:
-        return self.outputs[0].transport if self.outputs else "stderr"
-
-    @property
-    def destination(self) -> Path | None:
-        return self.outputs[0].destination if self.outputs else None
-
 
 def log_output_targets_from_config(
     outputs,

@@ -3,7 +3,6 @@ from typing import Any
 
 from datapipeline.utils.load import load_yaml
 from datapipeline.config.catalog import StreamsConfig
-from datapipeline.config.tasks import default_serve_task
 from datapipeline.services.project_paths import streams_dir, sources_dir
 from datapipeline.services.path_policy import resolve_relative_fs_loader_path
 from datapipeline.build.state import load_build_state
@@ -196,14 +195,8 @@ def bootstrap(project_yaml: Path) -> Runtime:
     except Exception:
         runtime.split = None
 
-    try:
-        runtime.run = default_serve_task(project_yaml)
-    except Exception:
-        runtime.run = None
-
-    run_keep = runtime.run.keep if runtime.run else None
-    split_keep = getattr(runtime.split, "keep", None)
-    runtime.split_keep = run_keep or split_keep
+    runtime.run = None
+    runtime.split_keep = getattr(runtime.split, "keep", None)
 
     streams = load_streams(project_yaml)
     init_streams(streams, runtime)

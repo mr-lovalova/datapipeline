@@ -55,8 +55,8 @@ def test_resolve_log_output_prefers_first_non_empty_candidate():
             [LogOutputTarget(transport="fs", destination=Path("/tmp/ignored.log"))],
         )
     )
-    assert resolved.transport == "stdout"
-    assert resolved.destination is None
+    assert resolved.outputs[0].transport == "stdout"
+    assert resolved.outputs[0].destination is None
 
 
 def test_resolve_log_output_validates_file_destination():
@@ -88,8 +88,8 @@ def test_materialize_log_output_for_run_resolves_under_run_directory(tmp_path):
         settings=settings,
         run_dir=tmp_path / "runs" / "r1" / "dataset",
     )
-    assert resolved.transport == "fs"
-    assert resolved.destination == (
+    assert resolved.outputs[0].transport == "fs"
+    assert resolved.outputs[0].destination == (
         tmp_path / "runs" / "r1" / "dataset" / "logs" / "serve.run.log"
     )
 

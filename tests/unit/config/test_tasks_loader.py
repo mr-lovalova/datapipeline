@@ -5,7 +5,6 @@ import pytest
 from datapipeline.config.tasks import (
     artifact_tasks,
     build_tasks,
-    default_serve_task,
     serve_operation_tasks,
     serve_tasks,
 )
@@ -64,17 +63,7 @@ def test_serve_tasks_respect_name_and_enabled(tmp_path):
     tasks = serve_tasks(project_yaml)
 
     assert [task.effective_name() for task in tasks] == ["train", "serve.val"]
-    default = default_serve_task(project_yaml)
-    assert default is not None
-    assert default.keep == "train"
-
-
-def test_default_serve_task_returns_none_when_missing(tmp_path):
-    project_yaml = _write_project(tmp_path, tasks_ref="tasks")
-    tasks_dir = project_yaml.parent / "tasks"
-    tasks_dir.mkdir()
-
-    assert default_serve_task(project_yaml) is None
+    assert [task.keep for task in tasks if task.enabled] == ["train"]
 
 
 def test_build_profiles_load_and_respect_enabled(tmp_path):
