@@ -1,5 +1,6 @@
 import importlib
 import importlib.metadata as md
+import tomllib
 from functools import lru_cache
 from pathlib import Path
 
@@ -11,6 +12,28 @@ _EP_OVERRIDES = {}
 
 
 @lru_cache
+def _local_project_entrypoints(group: str) -> dict[str, str]:
+    repo_root = Path(__file__).resolve().parents[3]
+    pyproject = repo_root / "pyproject.toml"
+    if not pyproject.exists():
+        return {}
+    try:
+        data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    project = data.get("project", {})
+    entrypoints = project.get("entry-points", {})
+    group_values = entrypoints.get(group, {})
+    if not isinstance(group_values, dict):
+        return {}
+    result: dict[str, str] = {}
+    for key, value in group_values.items():
+        if isinstance(key, str) and isinstance(value, str):
+            result[key] = value
+    return result
+
+
+@lru_cache
 def load_ep(group: str, name: str):
     target = _EP_OVERRIDES.get((group, name))
     if target:
@@ -19,6 +42,10 @@ def load_ep(group: str, name: str):
 
     eps = md.entry_points().select(group=group, name=name)
     if not eps:
+        local_target = _local_project_entrypoints(group).get(name)
+        if local_target:
+            module, attr = local_target.split(":")
+            return getattr(importlib.import_module(module), attr)
         available = ", ".join(
             sorted(ep.name for ep in md.entry_points().select(group=group))
         )

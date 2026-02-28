@@ -1,20 +1,9 @@
-
-from typing import Callable
-
-from datapipeline.cli.commands.serve_pipeline import serve_with_runtime
 from datapipeline.config.tasks import ServeOperationTask
 from datapipeline.operations.dispatch import dispatch_operation
-
-ServeOperationRunner = Callable[..., None]
-
-
-SERVE_OPERATION_RUNNERS: dict[str, ServeOperationRunner] = {
-    "core.serve_pipeline": serve_with_runtime,
-}
+from datapipeline.plugins import SERVE_OPERATIONS_EP
 
 
 def run_serve_operation(
-    
     operation: ServeOperationTask,
     runtime,
     dataset,
@@ -26,7 +15,7 @@ def run_serve_operation(
 ) -> None:
     dispatch_operation(
         operation=operation,
-        registry=SERVE_OPERATION_RUNNERS,
+        operation_group=SERVE_OPERATIONS_EP,
         operation_type="serve operation",
         runtime=runtime,
         dataset=dataset,

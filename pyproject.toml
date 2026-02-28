@@ -86,6 +86,14 @@ identity = "datapipeline.mappers.noop:identity"
 identity = "datapipeline.parsers.identity:IdentityParser"
 "core.synthetic.ticks" = "datapipeline.sources.synthetic.time.parser:TimeRowParser"
 
+[project.entry-points."datapipeline.operations.build"]
+"core.build.schema" = "datapipeline.build.tasks.schema:materialize_vector_schema"
+"core.build.metadata" = "datapipeline.build.tasks.metadata:materialize_metadata"
+"core.build.scaler" = "datapipeline.build.tasks.scaler:materialize_scaler_statistics"
+
+[project.entry-points."datapipeline.operations.serve"]
+"core.serve_pipeline" = "datapipeline.cli.commands.serve_pipeline:serve_with_runtime"
+
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 [project.entry-points."datapipeline.transforms.debug"]

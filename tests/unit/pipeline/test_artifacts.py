@@ -11,13 +11,14 @@ from datapipeline.artifacts.specs import (
     artifact_keys_for_task_kinds,
     required_artifacts_for,
 )
-from datapipeline.cli.commands.build_operations import BUILD_OPERATION_RUNNERS
 from datapipeline.config.tasks import MetadataTask, ScalerTask, SchemaTask
+from datapipeline.plugins import BUILD_OPERATIONS_EP
 from datapipeline.services.constants import (
     SCALER_STATISTICS,
     VECTOR_SCHEMA,
     VECTOR_SCHEMA_METADATA,
 )
+from datapipeline.utils.load import load_ep
 
 
 def _dataset(scale: bool = False) -> FeatureDatasetConfig:
@@ -103,4 +104,5 @@ def test_artifact_definitions_have_runner_bound_entrypoints():
     }
     for definition in ARTIFACT_DEFINITIONS:
         task = task_by_kind[definition.task_kind]
-        assert task.entrypoint in BUILD_OPERATION_RUNNERS
+        runner = load_ep(BUILD_OPERATIONS_EP, task.entrypoint)
+        assert callable(runner)
