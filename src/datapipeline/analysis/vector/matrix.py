@@ -68,10 +68,10 @@ def render_matrix(
     logger.info("    Legend: # present | ! null | . missing")
 
 
-def export_matrix_data(collector: "VectorStatsCollector") -> None:
+def export_matrix_data(collector: "VectorStatsCollector") -> Path | None:
     output = collector.matrix_output
     if not output:
-        return
+        return None
 
     path = Path(output)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -80,11 +80,11 @@ def export_matrix_data(collector: "VectorStatsCollector") -> None:
             _write_matrix_html(collector, path)
         else:
             _write_matrix_csv(collector, path)
-        message = f"[write] Saved availability matrix to {path}"
-        logger.info("\n%s", message)
+        return path
     except OSError as exc:
         warning = f"[warn] Failed to write availability matrix to {path}: {exc}"
         logger.warning("\n%s", warning)
+        return None
 
 
 def _write_matrix_csv(collector: "VectorStatsCollector", path: Path) -> None:

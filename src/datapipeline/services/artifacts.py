@@ -2,7 +2,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Generic, Mapping, Optional, TypeVar
 
-from datapipeline.services.constants import VECTOR_SCHEMA, VECTOR_SCHEMA_METADATA
+from datapipeline.services.constants import (
+    VECTOR_SCHEMA,
+    VECTOR_SCHEMA_METADATA,
+    VECTOR_STATS,
+)
 from datapipeline.services.path_policy import resolve_relative_to_base
 from datapipeline.utils.json_artifact import read_json_artifact
 
@@ -83,16 +87,21 @@ class ArtifactManager:
             raise RuntimeError(message) from exc
 
 
-def _read_schema(path: Path) -> dict:
+def _read_json(path: Path) -> dict:
     return read_json_artifact(path)
 
 
 VECTOR_SCHEMA_SPEC = ArtifactSpec[dict](
     key=VECTOR_SCHEMA,
-    loader=_read_schema,
+    loader=_read_json,
 )
 
 VECTOR_METADATA_SPEC = ArtifactSpec[dict](
     key=VECTOR_SCHEMA_METADATA,
-    loader=_read_schema,
+    loader=_read_json,
+)
+
+VECTOR_STATS_SPEC = ArtifactSpec[dict](
+    key=VECTOR_STATS,
+    loader=_read_json,
 )

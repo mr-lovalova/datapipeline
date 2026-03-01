@@ -18,12 +18,14 @@ from datapipeline.config.tasks import (
     MetadataTask,
     ScalerTask,
     SchemaTask,
+    StatsTask,
 )
 from datapipeline.plugins import BUILD_OPERATIONS_EP
 from datapipeline.services.constants import (
     SCALER_STATISTICS,
     VECTOR_SCHEMA,
     VECTOR_SCHEMA_METADATA,
+    VECTOR_STATS,
 )
 
 
@@ -86,6 +88,7 @@ def test_metadata_required_for_full_pipeline_run():
     assert VECTOR_SCHEMA in required
     assert VECTOR_SCHEMA_METADATA in required
     assert SCALER_STATISTICS not in required
+    assert VECTOR_STATS not in required
 
 
 def test_artifact_build_order_resolves_dependencies():
@@ -104,8 +107,8 @@ def test_artifact_build_order_resolves_dependencies():
 
 
 def test_artifact_keys_for_task_ids():
-    keys = artifact_keys_for_task_ids({"schema", "scaler"})
-    assert keys == {VECTOR_SCHEMA, SCALER_STATISTICS}
+    keys = artifact_keys_for_task_ids({"schema", "scaler", "stats"})
+    assert keys == {VECTOR_SCHEMA, SCALER_STATISTICS, VECTOR_STATS}
 
 
 def test_artifact_build_order_detects_cycles():
@@ -123,6 +126,7 @@ def test_artifact_definitions_have_runner_bound_entrypoints():
         "schema": SchemaTask(id="schema"),
         "metadata": MetadataTask(id="metadata"),
         "scaler": ScalerTask(id="scaler"),
+        "stats": StatsTask(id="stats", mode="final"),
     }
     for definition in ARTIFACT_DEFINITIONS:
         task = task_by_id[definition.task_id]

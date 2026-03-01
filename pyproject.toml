@@ -90,12 +90,14 @@ identity = "datapipeline.parsers.identity:IdentityParser"
 "core.build.schema" = "datapipeline.build.tasks.schema:materialize_vector_schema"
 "core.build.metadata" = "datapipeline.build.tasks.metadata:materialize_metadata"
 "core.build.scaler" = "datapipeline.build.tasks.scaler:materialize_scaler_statistics"
+"core.build.stats" = "datapipeline.build.tasks.stats:materialize_vector_stats"
 
 [project.entry-points."datapipeline.operations.serve"]
 "core.serve_pipeline" = "datapipeline.cli.commands.serve_pipeline:serve_with_runtime"
 
 [project.entry-points."datapipeline.operations.inspect"]
-"core.inspect.report" = "datapipeline.operations.inspect:inspect_report_with_runtime"
+"core.inspect.coverage" = "datapipeline.operations.inspect:inspect_coverage_with_runtime"
+"core.inspect.thresholds" = "datapipeline.operations.inspect:inspect_thresholds_with_runtime"
 "core.inspect.matrix" = "datapipeline.operations.inspect:inspect_matrix_with_runtime"
 
 [tool.pytest.ini_options]

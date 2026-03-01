@@ -332,31 +332,10 @@ class VectorStatsCollector:
         counter_opps[identifier] += expected_len
         counter_nulls[identifier] += missing
 
-    def _render_matrix(
-        self,
-        *,
-        features: list[str],
-        partitions: bool = False,
-        column_width: int = 6,
-    ) -> None:
-        from .matrix import render_matrix
-
-        render_matrix(
-            self,
-            features=features,
-            partitions=partitions,
-            column_width=column_width,
-        )
-
     def print_report(self, *, sort_key: str = "missing") -> dict[str, Any]:
         from .report import print_report as _print_report
 
         return _print_report(self, sort_key=sort_key)
-
-    def _export_matrix_data(self) -> None:
-        from .matrix import export_matrix_data
-
-        export_matrix_data(self)
 
     def _collect_feature_ids(self) -> list[str]:
         feature_ids: set[str] = set()

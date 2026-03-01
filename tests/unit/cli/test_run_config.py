@@ -42,16 +42,16 @@ def test_serve_entries_reject_inspect_target(tmp_path: Path):
         "id: serve\nentrypoint: core.serve_pipeline\n",
     )
     _write_op(
-        ops / "report.yaml",
-        "id: report\nentrypoint: core.inspect.report\n",
+        ops / "coverage.yaml",
+        "id: coverage\nentrypoint: core.inspect.coverage\n",
     )
-    (profiles / "serve.report.yaml").write_text(
-        "type: serve\nname: report\ntarget: report\n",
+    (profiles / "serve.coverage.yaml").write_text(
+        "type: serve\nname: coverage\ntarget: coverage\n",
         encoding="utf-8",
     )
 
     with pytest.raises(SystemExit) as exc:
-        resolve_runtime_entries(project_yaml, run_name="report", kind="serve")
+        resolve_runtime_entries(project_yaml, run_name="coverage", kind="serve")
     assert exc.value.code == 2
 
 
@@ -67,18 +67,18 @@ def test_inspect_entries_resolve_inspect_operations(tmp_path: Path):
         "id: serve\nentrypoint: core.serve_pipeline\n",
     )
     _write_op(
-        ops / "report.yaml",
-        "id: report\nentrypoint: core.inspect.report\n",
+        ops / "coverage.yaml",
+        "id: coverage\nentrypoint: core.inspect.coverage\n",
     )
-    (profiles / "inspect.report.yaml").write_text(
-        "type: inspect\nname: report\ntarget: report\n",
+    (profiles / "inspect.coverage.yaml").write_text(
+        "type: inspect\nname: coverage\ntarget: coverage\n",
         encoding="utf-8",
     )
 
-    entries = resolve_runtime_entries(project_yaml, run_name="report", kind="inspect")
+    entries = resolve_runtime_entries(project_yaml, run_name="coverage", kind="inspect")
     assert len(entries) == 1
-    assert entries[0].operation.id == "report"
-    assert entries[0].operation.entrypoint == "core.inspect.report"
+    assert entries[0].operation.id == "coverage"
+    assert entries[0].operation.entrypoint == "core.inspect.coverage"
 
 
 def test_inspect_entries_default_to_enabled_profiles(tmp_path: Path):
@@ -89,15 +89,15 @@ def test_inspect_entries_default_to_enabled_profiles(tmp_path: Path):
     profiles.mkdir(parents=True, exist_ok=True)
 
     _write_op(
-        ops / "report.yaml",
-        "id: report\nentrypoint: core.inspect.report\n",
+        ops / "coverage.yaml",
+        "id: coverage\nentrypoint: core.inspect.coverage\n",
     )
     _write_op(
         ops / "matrix.yaml",
         "id: matrix\nentrypoint: core.inspect.matrix\n",
     )
-    (profiles / "inspect.report.yaml").write_text(
-        "type: inspect\nname: report\ntarget: report\nenabled: false\n",
+    (profiles / "inspect.coverage.yaml").write_text(
+        "type: inspect\nname: coverage\ntarget: coverage\nenabled: false\n",
         encoding="utf-8",
     )
     (profiles / "inspect.matrix.yaml").write_text(

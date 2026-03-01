@@ -87,6 +87,9 @@ def _run_artifact_builder(
     )
     meta_out = {"relative_path": rel_path}
     meta_out.update(meta)
+    artifacts = getattr(runtime, "artifacts", None)
+    if artifacts is not None and hasattr(artifacts, "register"):
+        artifacts.register(definition.key, relative_path=rel_path, meta=meta)
     return meta_out
 
 

@@ -7,6 +7,7 @@ from datapipeline.config.tasks import (
     OperationTask,
     ScalerTask,
     SchemaTask,
+    StatsTask,
     Task,
 )
 from datapipeline.services.project_paths import tasks_dir
@@ -17,6 +18,7 @@ ARTIFACT_OPERATION_MODELS: dict[str, type[ArtifactTask]] = {
     "schema": SchemaTask,
     "scaler": ScalerTask,
     "metadata": MetadataTask,
+    "stats": StatsTask,
 }
 
 

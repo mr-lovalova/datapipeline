@@ -1,11 +1,7 @@
 # See ../../../../plugin_skeleton/reference/reference/tasks/operations/inspect.reference.yaml for full options.
-id: report
-entrypoint: core.inspect.report
+id: coverage
+entrypoint: core.inspect.coverage
 dependencies:
-  - schema
-  - metadata
-  - scaler
+  - stats
 options:
-  mode: final
   sort: missing
-  threshold: 0.95

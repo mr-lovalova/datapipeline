@@ -77,7 +77,6 @@ class RunProfile:
 def resolve_run_profiles(
     project_path: Path,
     run_entries: Sequence[RunEntry],
-    
     keep: Optional[str],
     stage: Optional[int],
     limit: Optional[int],

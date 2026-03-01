@@ -7,11 +7,11 @@ from datapipeline.services.run_entries import RunEntry, iter_runtime_runs
 
 
 def test_iter_runtime_runs_clears_split_keep_for_inspect(monkeypatch):
-    profile = InspectProfile(type="inspect", name="report", target="report")
+    profile = InspectProfile(type="inspect", name="coverage", target="coverage")
     operation = OperationTask.model_validate(
-        {"id": "report", "entrypoint": "core.inspect.report"}
+        {"id": "coverage", "entrypoint": "core.inspect.coverage"}
     )
-    entry = RunEntry(name="report", config=profile, operation=operation)
+    entry = RunEntry(name="coverage", config=profile, operation=operation)
     runtime = SimpleNamespace(split=SimpleNamespace(keep="train"), split_keep=None, run=None)
 
     monkeypatch.setattr(

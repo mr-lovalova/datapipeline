@@ -87,6 +87,33 @@ def test_artifact_tasks_load_configs(tmp_path):
     assert scaler.output == "stats.pkl"
 
 
+def test_stats_task_loads_configs(tmp_path):
+    project_yaml = _write_project(tmp_path, tasks_ref="tasks")
+    tasks_dir = _operations_dir(project_yaml)
+    (tasks_dir / "stats.yaml").write_text(
+        "id: stats\noutput: build/custom-stats.json\nmode: raw\n",
+        encoding="utf-8",
+    )
+
+    tasks = _artifact_tasks(project_yaml)
+    assert [task.id for task in tasks] == ["stats"]
+    stats = tasks[0]
+    assert stats.output == "build/custom-stats.json"
+    assert stats.mode == "raw"
+
+
+def test_stats_task_requires_explicit_mode(tmp_path):
+    project_yaml = _write_project(tmp_path, tasks_ref="tasks")
+    tasks_dir = _operations_dir(project_yaml)
+    (tasks_dir / "stats.yaml").write_text(
+        "id: stats\noutput: build/custom-stats.json\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="mode|Field required"):
+        _artifact_tasks(project_yaml)
+
+
 def test_serve_tasks_respect_name_and_enabled(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     tasks_dir = _profile_kind_dir(project_yaml)
@@ -137,17 +164,17 @@ def test_inspect_profiles_load_and_respect_enabled(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     tasks_dir = _profile_kind_dir(project_yaml)
     (tasks_dir / "inspect.default.yaml").write_text(
-        "type: inspect\nname: default\nenabled: true\ntarget: report\n",
+        "type: inspect\nname: default\nenabled: true\ntarget: coverage\n",
         encoding="utf-8",
     )
     (tasks_dir / "inspect.extra.yaml").write_text(
-        "type: inspect\nname: extra\nenabled: false\ntarget: report\n",
+        "type: inspect\nname: extra\nenabled: false\ntarget: coverage\n",
         encoding="utf-8",
     )
 
     tasks = _inspect_profiles(project_yaml)
     assert [task.name for task in tasks] == ["default", "extra"]
-    assert tasks[0].target == "report"
+    assert tasks[0].target == "coverage"
     assert tasks[0].enabled is True
     assert tasks[1].enabled is False
 
@@ -274,11 +301,11 @@ def test_duplicate_inspect_profile_names_raise(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     tasks_dir = _profile_kind_dir(project_yaml)
     (tasks_dir / "inspect.a.yaml").write_text(
-        "type: inspect\nname: inspect\ntarget: report\n",
+        "type: inspect\nname: inspect\ntarget: coverage\n",
         encoding="utf-8",
     )
     (tasks_dir / "inspect.b.yaml").write_text(
-        "type: inspect\nname: inspect\ntarget: report\n",
+        "type: inspect\nname: inspect\ntarget: coverage\n",
         encoding="utf-8",
     )
 

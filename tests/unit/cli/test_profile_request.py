@@ -60,15 +60,15 @@ def test_inspect_request_rejects_run_scoped_log_output(tmp_path: Path, monkeypat
     profiles = tmp_path / "profiles"
     ops.mkdir(parents=True, exist_ok=True)
     profiles.mkdir(parents=True, exist_ok=True)
-    (ops / "report.yaml").write_text(
-        "id: report\nentrypoint: core.inspect.report\n",
+    (ops / "coverage.yaml").write_text(
+        "id: coverage\nentrypoint: core.inspect.coverage\n",
         encoding="utf-8",
     )
-    (profiles / "inspect.report.yaml").write_text(
+    (profiles / "inspect.coverage.yaml").write_text(
         (
             "type: inspect\n"
-            "name: report\n"
-            "target: report\n"
+            "name: coverage\n"
+            "target: coverage\n"
             "enabled: true\n"
             "build:\n"
             "  mode: AUTO\n"

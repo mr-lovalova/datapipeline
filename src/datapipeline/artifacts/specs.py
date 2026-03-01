@@ -8,6 +8,7 @@ from datapipeline.services.constants import (
     SCALER_STATISTICS,
     VECTOR_SCHEMA,
     VECTOR_SCHEMA_METADATA,
+    VECTOR_STATS,
 )
 
 @dataclass(frozen=True)
@@ -19,7 +20,7 @@ class StageDemand:
 class ArtifactDefinition:
     key: str
     task_id: str
-    min_stage: int
+    min_stage: int | None
     dependencies: tuple[str, ...] = ()
     required_if: Callable[[FeatureDatasetConfig], bool] = lambda _dataset: True
 
@@ -61,6 +62,11 @@ ARTIFACT_DEFINITIONS: tuple[
         task_id="scaler",
         min_stage=6,
         required_if=_requires_scaler,
+    ),
+    ArtifactDefinition(
+        key=VECTOR_STATS,
+        task_id="stats",
+        min_stage=None,
     ),
 )
 
@@ -206,6 +212,8 @@ def required_artifacts_for(
         if demand.stage is None:
             effective_stage = 8
             for requirement in items:
+                if requirement.min_stage is None:
+                    continue
                 if effective_stage < requirement.min_stage:
                     continue
                 if not requirement.required_if(dataset):

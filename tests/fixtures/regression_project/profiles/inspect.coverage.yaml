@@ -1,6 +1,6 @@
 type: inspect
-name: matrix
-target: matrix
+name: coverage
+target: coverage
 enabled: true
 build:
   mode: AUTO

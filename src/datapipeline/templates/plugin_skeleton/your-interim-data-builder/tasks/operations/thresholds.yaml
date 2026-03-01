@@ -1,8 +1,8 @@
 # See ../../../reference/reference/tasks/operations/inspect.reference.yaml for full options.
-id: matrix
-entrypoint: core.inspect.matrix
+id: thresholds
+entrypoint: core.inspect.thresholds
 dependencies:
   - stats
 options:
-  format: html
-  quiet: true
+  sort: missing
+  threshold: 0.95
