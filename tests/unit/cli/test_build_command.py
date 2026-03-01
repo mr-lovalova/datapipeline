@@ -44,11 +44,11 @@ def test_log_build_decision_emits_execution_message(monkeypatch):
     assert captured
     message, level, message_kind = captured[0]
     assert message.startswith("Build decision:")
-    assert "action=skip" in message
-    assert "reason=up_to_date" in message
-    assert "mode=AUTO" in message
-    assert "profile=metadata" in message
-    assert "selected_artifacts=1" in message
+    assert '"action": "skip"' in message
+    assert '"reason": "up_to_date"' in message
+    assert '"mode": "AUTO"' in message
+    assert '"profile": "metadata"' in message
+    assert '"selected_artifacts": 1' in message
     assert level == 20
     assert message_kind == "build_decision"
 
@@ -542,4 +542,4 @@ def test_run_build_if_needed_emits_run_decision(monkeypatch, tmp_path):
 
     assert did_build is True
     decisions = [message for message, kind in captured if kind == "build_decision"]
-    assert any("action=run" in message and "reason=force" in message for message in decisions)
+    assert any('"action": "run"' in message and '"reason": "force"' in message for message in decisions)

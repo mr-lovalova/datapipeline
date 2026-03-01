@@ -1,5 +1,4 @@
 from typing import Any, Literal, TYPE_CHECKING
-import logging
 
 from .matrix import export_matrix_data, render_matrix
 
@@ -7,7 +6,8 @@ if TYPE_CHECKING:
     from .collector import VectorStatsCollector
 
 
-logger = logging.getLogger(__name__)
+def _emit(message: str, *args: Any) -> None:
+    print(message % args if args else message)
 
 
 def print_report(
@@ -35,20 +35,20 @@ def print_report(
         "threshold": collector.threshold,
     }
 
-    logger.info("\n=== Vector Quality Report ===")
-    logger.info("Total vectors processed: %d", collector.total_vectors)
-    logger.info("Empty vectors: %d", collector.empty_vectors)
-    logger.info(
+    _emit("\n=== Vector Quality Report ===")
+    _emit("Total vectors processed: %d", collector.total_vectors)
+    _emit("Empty vectors: %d", collector.empty_vectors)
+    _emit(
         "Features tracked (%s): %d",
         collector.match_partition,
         len(tracked_features),
     )
     if collector.match_partition == "full":
-        logger.info("Partitions observed: %d",
+        _emit("Partitions observed: %d",
                     len(collector.discovered_partitions))
 
     if not collector.total_vectors:
-        logger.info("(no vectors analyzed)")
+        _emit("(no vectors analyzed)")
         summary.update(
             {
                 "feature_stats": [],
@@ -65,7 +65,7 @@ def print_report(
 
     feature_stats = []
     sort_label = "null" if sort_key == "nulls" else "missing"
-    logger.info("\n-> Feature coverage (sorted by %s count):", sort_label)
+    _emit("\n-> Feature coverage (sorted by %s count):", sort_label)
     if sort_key == "nulls":
         def _feature_sort(fid):
             return collector._feature_null_count(fid)
@@ -98,7 +98,7 @@ def print_report(
         )
         if sample_note:
             line += f"; samples: {sample_note}"
-        logger.info(line)
+        _emit(line)
         feature_stats.append(
             {
                 "id": feature_id,
@@ -159,7 +159,7 @@ def print_report(
             )
 
         sort_label_partitions = "null" if sort_key == "nulls" else "absent"
-        logger.info("\n-> Partition details (top by %s count):", sort_label_partitions)
+        _emit("\n-> Partition details (top by %s count):", sort_label_partitions)
         def _partition_sort(stats):
             return stats["nulls"] if sort_key == "nulls" else stats["missing"]
         for stats in sorted(
@@ -169,7 +169,7 @@ def print_report(
                 f"  - {stats['id']} (base: {stats['base']}): present {stats['present']}/{stats['opportunities']}"
                 f" ({stats['coverage']:.1%}) | absent {stats['missing']} | null/invalid {stats['nulls']}"
             )
-            logger.info(line)
+            _emit(line)
 
     summary["partition_stats"] = partition_stats
 
@@ -318,11 +318,11 @@ def print_report(
         ]
         group_missing = [item for item in group_missing if item[1] > 0]
         if group_missing:
-            logger.info("\n-> Time buckets with missing features:")
+            _emit("\n-> Time buckets with missing features:")
             for group, count in sorted(
                 group_missing, key=lambda item: item[1], reverse=True
             )[:10]:
-                logger.info(
+                _emit(
                     "  - %s: %d features missing",
                     collector._format_group_key(group),
                     count,
@@ -344,11 +344,11 @@ def print_report(
             partition_missing = [
                 item for item in partition_missing if item[1] > 0]
             if partition_missing:
-                logger.info("\n-> Time buckets with missing partitions:")
+                _emit("\n-> Time buckets with missing partitions:")
                 for group, count in sorted(
                     partition_missing, key=lambda item: item[1], reverse=True
                 )[:10]:
-                    logger.info(
+                    _emit(
                         "  - %s: %d partitions missing",
                         collector._format_group_key(group),
                         count,
@@ -364,17 +364,17 @@ def print_report(
         if stats.get("cadence_opportunities")
     ]
     if partition_cadence:
-        logger.info("\n-> Record-level gaps (expected cadence; null/invalid elements):")
+        _emit("\n-> Record-level gaps (expected cadence; null/invalid elements):")
         total_missing = sum(s.get("cadence_nulls", 0) or 0 for s in partition_cadence)
         total_opps = sum(s.get("cadence_opportunities", 0) or 0 for s in partition_cadence)
         if total_opps:
-            logger.info(
+            _emit(
                 "  Total null/invalid elements: %d/%d (%.1f%%)",
                 total_missing,
                 total_opps,
                 (total_missing / total_opps) * 100,
             )
-        logger.info("  Top partitions by null/invalid elements:")
+        _emit("  Top partitions by null/invalid elements:")
         for stats in sorted(
             partition_cadence,
             key=lambda s: (s.get("cadence_nulls") or 0),
@@ -383,7 +383,7 @@ def print_report(
             missing_elems = stats.get("cadence_nulls") or 0
             opps = stats.get("cadence_opportunities") or 0
             frac = (missing_elems / opps) if opps else 0
-            logger.info(
+            _emit(
                 "  - %s (base: %s): vectors present %d/%d | absent %d | cadence null/invalid %d/%d elements (%.1f%%)",
                 stats["id"],
                 stats.get("base"),
@@ -397,43 +397,43 @@ def print_report(
 
     if collector.threshold is not None:
         thr = collector.threshold
-        logger.warning(
+        _emit(
             "\n[low] Features below %.0f%% coverage:\n  below_features = %s",
             thr * 100,
             below_features,
         )
-        logger.info(
+        _emit(
             "[high] Features at/above %.0f%% coverage:\n  keep_features = %s",
             thr * 100,
             above_features,
         )
         if partition_stats:
-            logger.warning(
+            _emit(
                 "\n[low] Partitions below %.0f%% coverage:\n  below_partitions = %s",
                 thr * 100,
                 below_partitions,
             )
-            logger.warning("  below_suffixes = %s", below_suffixes)
+            _emit("  below_suffixes = %s", below_suffixes)
             if below_partition_values:
-                logger.warning("  below_partition_values = %s",
+                _emit("  below_partition_values = %s",
                                below_partition_values)
-            logger.info(
+            _emit(
                 "[high] Partitions at/above %.0f%% coverage:\n  keep_partitions = %s",
                 thr * 100,
                 above_partitions,
             )
-            logger.info("  keep_suffixes = %s", above_suffixes)
+            _emit("  keep_suffixes = %s", above_suffixes)
             if above_partition_values:
-                logger.info(
+                _emit(
                     "  keep_partition_values = %s", above_partition_values)
             if below_partitions_cadence:
-                logger.warning(
+                _emit(
                     "[low] Partitions below %.0f%% cadence fill:\n  below_partitions_cadence = %s",
                     thr * 100,
                     below_partitions_cadence,
                 )
             if above_partitions_cadence:
-                logger.info(
+                _emit(
                     "[high] Partitions at/above %.0f%% cadence fill:\n  keep_partitions_cadence = %s",
                     thr * 100,
                     above_partitions_cadence,

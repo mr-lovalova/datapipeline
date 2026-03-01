@@ -1,10 +1,9 @@
 import json
-import logging
 
 from datapipeline.analysis.vector.collector import VectorStatsCollector
 
 
-def test_vector_analyzer_summary_is_serializable(caplog):
+def test_vector_analyzer_summary_is_serializable(capsys):
     collector = VectorStatsCollector(
         expected_feature_ids=["speed", "temp"],
         threshold=0.8,
@@ -13,8 +12,7 @@ def test_vector_analyzer_summary_is_serializable(caplog):
     collector.update("g0", {"speed__stationA": None})
     collector.update("g1", {"temp": 7.0})
 
-    with caplog.at_level(logging.INFO, logger="datapipeline.analysis.vector.report"):
-        summary = collector.print_report()
+    summary = collector.print_report()
 
     json.dumps(summary)
 
@@ -30,4 +28,5 @@ def test_vector_analyzer_summary_is_serializable(caplog):
     assert temp_stats["present"] == 1
     assert temp_stats["missing"] == 1
 
-    assert any("Vector Quality Report" in record.message for record in caplog.records)
+    captured = capsys.readouterr()
+    assert "Vector Quality Report" in captured.out

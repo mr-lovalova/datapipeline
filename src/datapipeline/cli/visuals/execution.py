@@ -1,4 +1,5 @@
 import logging
+from contextlib import contextmanager
 from dataclasses import dataclass
 from collections.abc import Sequence
 from typing import Any, Literal
@@ -7,6 +8,9 @@ from datapipeline.dag.events import DagParentRef, DagRunEvent, StepRunEvent
 from datapipeline.dag.node import StepKind
 from datapipeline.dag.observer import ExecutionObserver
 from datapipeline.cli.visuals.execution_context import (
+    current_execution_scope,
+    reset_current_execution_scope,
+    set_current_execution_scope,
     current_execution_event_sink,
     set_current_dag_depth,
 )
@@ -41,6 +45,11 @@ class ExecutionLogEvent:
     elapsed_seconds: float | None = None
     info_line: str | None = None
     dag_parent: DagParentRef | None = None
+    scope_phase: str | None = None
+    scope_profile_kind: str | None = None
+    scope_profile_name: str | None = None
+    scope_target_id: str | None = None
+    scope_task_id: str | None = None
 
 
 class ExecutionEventSink:
@@ -157,7 +166,74 @@ class ExecutionEventFormatter:
             "dp_parent_step_index": (
                 event.dag_parent.step_index if event.dag_parent is not None else None
             ),
+            "dp_scope_phase": event.scope_phase,
+            "dp_scope_profile_kind": event.scope_profile_kind,
+            "dp_scope_profile_name": event.scope_profile_name,
+            "dp_scope_target_id": event.scope_target_id,
+            "dp_scope_task_id": event.scope_task_id,
         }
+
+
+def _scope_fields() -> dict[str, str | None]:
+    scope = current_execution_scope() or {}
+    return {
+        "scope_phase": scope.get("phase"),
+        "scope_profile_kind": scope.get("profile_kind"),
+        "scope_profile_name": scope.get("profile_name"),
+        "scope_target_id": scope.get("target_id"),
+        "scope_task_id": scope.get("task_id"),
+    }
+
+
+def _scope_message(scope: dict[str, str]) -> str:
+    parts: list[str] = []
+    if scope.get("phase"):
+        parts.append(f"phase={scope['phase']}")
+    if scope.get("profile_kind") and scope.get("profile_name"):
+        parts.append(f"profile={scope['profile_kind']}:{scope['profile_name']}")
+    elif scope.get("profile_name"):
+        parts.append(f"profile={scope['profile_name']}")
+    if scope.get("target_id"):
+        parts.append(f"target={scope['target_id']}")
+    if scope.get("task_id"):
+        parts.append(f"task={scope['task_id']}")
+    return "Scope: " + (" ".join(parts) if parts else "(empty)")
+
+
+@contextmanager
+def execution_scope(
+    *,
+    phase: str | None = None,
+    profile_kind: str | None = None,
+    profile_name: str | None = None,
+    target_id: str | None = None,
+    task_id: str | None = None,
+    announce: bool = False,
+):
+    merged = dict(current_execution_scope() or {})
+    updates = {
+        "phase": phase,
+        "profile_kind": profile_kind,
+        "profile_name": profile_name,
+        "target_id": target_id,
+        "task_id": task_id,
+    }
+    for key, value in updates.items():
+        if value is not None:
+            merged[key] = str(value)
+
+    token = set_current_execution_scope(merged)
+    try:
+        if announce:
+            emit_execution_message(
+                _scope_message(merged),
+                level=logging.INFO,
+                logger=logging.getLogger(__name__),
+                message_kind="scope_start",
+            )
+        yield
+    finally:
+        reset_current_execution_scope(token)
 
 
 class CompositeExecutionEventSink(ExecutionEventSink):
@@ -209,6 +285,7 @@ def emit_execution_message(
         message=message,
         message_kind=message_kind,
         log_level=int(level),
+        **_scope_fields(),
     )
     logger_sink = LoggerExecutionEventSink(logger or logging.getLogger(__name__))
     logger_sink.emit(event)
@@ -253,6 +330,7 @@ class HierarchicalExecutionObserver(ExecutionObserver):
                 depth=dag_depth,
                 step_count=step_count,
                 dag_parent=dag_parent,
+                **_scope_fields(),
             )
         )
         for line in self._metadata_lines(dag_metadata):
@@ -262,6 +340,7 @@ class HierarchicalExecutionObserver(ExecutionObserver):
                     dag_name=dag_name,
                     depth=dag_depth + 1,
                     info_line=line,
+                    **_scope_fields(),
                 )
             )
         set_current_dag_depth(dag_depth + 1)
@@ -286,6 +365,7 @@ class HierarchicalExecutionObserver(ExecutionObserver):
                 step_index=step_index,
                 step_kind=step_kind,
                 step_calls_dag=step_calls_dag,
+                **_scope_fields(),
             )
         )
         set_current_dag_depth(step_depth)
@@ -305,6 +385,7 @@ class HierarchicalExecutionObserver(ExecutionObserver):
                 error_type=event.error_type,
                 output_items=event.output_items,
                 elapsed_seconds=event.elapsed_seconds,
+                **_scope_fields(),
             )
         )
         set_current_dag_depth(step_depth)
@@ -322,6 +403,7 @@ class HierarchicalExecutionObserver(ExecutionObserver):
                 output_items=event.output_items,
                 elapsed_seconds=event.elapsed_seconds,
                 dag_parent=event.parent,
+                **_scope_fields(),
             )
         )
         set_current_dag_depth(dag_depth)

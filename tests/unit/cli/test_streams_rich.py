@@ -286,6 +286,30 @@ def test_rich_execution_sink_renders_source_info_message() -> None:
     )
 
 
+def test_rich_execution_sink_renders_scope_start_as_header() -> None:
+    buffer = StringIO()
+    console = Console(file=buffer, markup=False, highlight=False, force_terminal=False)
+    sink = _RichConsoleExecutionSink(level=0, console=console)
+    sink.emit(
+        ExecutionLogEvent(
+            kind="message",
+            dag_name="",
+            depth=0,
+            message="Scope: phase=build profile=serve:test target=serve task=schema",
+            message_kind="scope_start",
+            log_level=logging.INFO,
+            scope_phase="build",
+            scope_profile_kind="serve",
+            scope_profile_name="test",
+            scope_target_id="serve",
+            scope_task_id="schema",
+        )
+    )
+
+    lines = _lines(buffer)
+    assert any("Build Scope: schema [serve:test]" in line for line in lines)
+
+
 def test_rich_execution_sink_keeps_fs_glob_source_info_when_live_at_info() -> None:
     buffer = StringIO()
     console = Console(file=buffer, markup=False, highlight=False, force_terminal=False)

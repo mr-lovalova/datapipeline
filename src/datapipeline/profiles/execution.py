@@ -3,6 +3,7 @@ from pathlib import Path
 
 from datapipeline.artifacts.executor import run_build_if_needed
 from datapipeline.build.state import load_build_state
+from datapipeline.cli.visuals.execution import execution_scope
 from datapipeline.config.build_resolution import BuildSettings
 from datapipeline.config.tasks import OperationTask, Task
 from datapipeline.operations.dispatch import dispatch_operation
@@ -129,7 +130,8 @@ def execute_runtime_profile(
         task = tasks_by_id[task_id]
         if not isinstance(task, OperationTask):
             continue
-        run_runtime_task(task, profile)
+        with execution_scope(phase="runtime", task_id=task.id, announce=True):
+            run_runtime_task(task, profile)
 
 
 def execute_build_profile(

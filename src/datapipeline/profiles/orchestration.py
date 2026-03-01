@@ -1,4 +1,5 @@
 from datapipeline.profiles.executor import ProfileExecutionSpec, run_profile
+from datapipeline.cli.visuals.execution import execution_scope
 from datapipeline.services.bootstrap import bootstrap
 from .execution import execute_build_profile, execute_runtime_profile
 from .models import ProfileRunRequest, RuntimeExecutionProfile
@@ -35,17 +36,27 @@ def run_profiles(request: ProfileRunRequest) -> None:
         )
         if is_runtime_profile:
             def work(profile=profile):
-                return execute_runtime_profile(
-                    profile=profile,
-                    request=request,
-                    tasks_by_id=tasks_by_id,
-                )
+                with execution_scope(
+                    profile_kind=profile.kind,
+                    profile_name=profile.name,
+                    target_id=profile.target_id,
+                ):
+                    return execute_runtime_profile(
+                        profile=profile,
+                        request=request,
+                        tasks_by_id=tasks_by_id,
+                    )
         else:
             def work(profile=profile, runtime=runtime):
-                return execute_build_profile(
-                    profile=profile,
-                    request=request,
-                    tasks_by_id=tasks_by_id,
-                    runtime_override=runtime,
-                )
+                with execution_scope(
+                    profile_kind=profile.kind,
+                    profile_name=profile.name,
+                    target_id=profile.target_id,
+                ):
+                    return execute_build_profile(
+                        profile=profile,
+                        request=request,
+                        tasks_by_id=tasks_by_id,
+                        runtime_override=runtime,
+                    )
         run_profile(spec=spec, work=work)

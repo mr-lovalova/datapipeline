@@ -6,6 +6,7 @@ from datapipeline.cli.visuals.execution import (
     ExecutionEventSink,
     HierarchicalExecutionObserver,
     LoggerExecutionEventSink,
+    execution_scope,
     emit_execution_message,
     make_execution_observer,
 )
@@ -581,3 +582,30 @@ def test_emit_execution_message_logs_without_context_sink(caplog):
     messages = [record.getMessage() for record in caplog.records]
     assert "Saved 3 items" in messages
     assert getattr(caplog.records[-1], "dp_event_kind", None) == "message"
+
+
+def test_execution_scope_applies_to_messages_and_dag_events():
+    capture = _CaptureSink()
+    observer = make_execution_observer(sink=capture)
+    token = set_current_execution_event_sink(capture)
+
+    try:
+        with execution_scope(
+            profile_kind="serve",
+            profile_name="test",
+            target_id="serve",
+            phase="build",
+            task_id="schema",
+        ):
+            emit_execution_message("in scope")
+            observer.on_dag_start(dag_name="vector:assemble", step_count=2, depth=0)
+    finally:
+        reset_current_execution_event_sink(token)
+
+    assert len(capture.events) == 2
+    for event in capture.events:
+        assert event.scope_profile_kind == "serve"
+        assert event.scope_profile_name == "test"
+        assert event.scope_target_id == "serve"
+        assert event.scope_phase == "build"
+        assert event.scope_task_id == "schema"
