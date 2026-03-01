@@ -11,6 +11,7 @@ from datapipeline.plugins import INSPECT_OPERATIONS_EP, SERVE_OPERATIONS_EP
 from datapipeline.runtime import Runtime
 from datapipeline.services.bootstrap import build_state_path
 
+from .executor import ProfileExecutionSpec, run_profile
 from .models import (
     BuildExecutionProfile,
     ProfileRunRequest,
@@ -83,6 +84,38 @@ def run_runtime_task(
         raise SystemExit(2) from exc
 
 
+def run_runtime_artifact_dependencies(
+    *,
+    profile: RuntimeExecutionProfile,
+    request: ProfileRunRequest,
+    artifact_task_ids: list[str],
+) -> None:
+    if profile.skip_artifacts or not artifact_task_ids:
+        return
+
+    spec = ProfileExecutionSpec(
+        kind="build",
+        name=f"{profile.name}.dependencies",
+        idx=1,
+        total=1,
+        visuals=profile.visuals or "on",
+        log_decision=profile.log_decision,
+        log_output=profile.log_output,
+        sections=(f"{profile.kind.title()} Dependencies",),
+        label=profile.name,
+        use_visual_runner=False,
+    )
+    run_profile(
+        spec=spec,
+        work=lambda: run_selected_artifacts(
+            request=request,
+            artifact_task_ids=artifact_task_ids,
+            build_options=profile.build_options,
+            runtime_override=profile.runtime,
+        ),
+    )
+
+
 def sync_runtime_artifacts_from_state(
     profile: RuntimeExecutionProfile,
     project_path: Path,
@@ -117,13 +150,11 @@ def execute_runtime_profile(
         raise SystemExit(2) from exc
 
     artifact_task_ids = artifact_task_ids_for_order(ordered_ids, tasks_by_id)
-    if not profile.skip_artifacts:
-        run_selected_artifacts(
-            request=request,
-            artifact_task_ids=artifact_task_ids,
-            build_options=profile.build_options,
-            runtime_override=profile.runtime,
-        )
+    run_runtime_artifact_dependencies(
+        profile=profile,
+        request=request,
+        artifact_task_ids=artifact_task_ids,
+    )
     sync_runtime_artifacts_from_state(profile, request.project_path)
 
     for task_id in runtime_task_ids_for_order(ordered_ids, tasks_by_id):
@@ -166,6 +197,7 @@ def execute_build_profile(
 __all__ = [
     "execute_build_profile",
     "execute_runtime_profile",
+    "run_runtime_artifact_dependencies",
     "run_selected_artifacts",
     "run_runtime_task",
     "sync_runtime_artifacts_from_state",
