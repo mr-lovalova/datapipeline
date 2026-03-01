@@ -39,3 +39,20 @@ class VectorMetadata(BaseModel):
     counts: Dict[str, int] = Field(default_factory=dict)
 
     # Window is the single source of truth; no legacy fallbacks.
+
+
+def build_vector_metadata_lookup(
+    payload: Any,
+) -> tuple[List[str], Dict[str, Dict[str, Any]]]:
+    doc = VectorMetadata.model_validate(payload)
+    expected_feature_ids = [
+        entry["id"]
+        for entry in doc.features
+        if isinstance(entry, dict) and isinstance(entry.get("id"), str)
+    ]
+    schema_meta_by_id = {
+        entry["id"]: entry
+        for entry in [*doc.features, *doc.targets]
+        if isinstance(entry, dict) and isinstance(entry.get("id"), str)
+    }
+    return expected_feature_ids, schema_meta_by_id

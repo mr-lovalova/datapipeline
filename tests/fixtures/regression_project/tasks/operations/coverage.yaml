@@ -2,5 +2,6 @@ id: coverage
 entrypoint: core.inspect.coverage
 dependencies:
   - stats
+  - metadata
 options:
   sort: missing

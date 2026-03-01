@@ -7,10 +7,11 @@ from datapipeline.analysis.vector.snapshot import collector_from_snapshot
 from datapipeline.analysis.vector.matrix import export_matrix_data
 from datapipeline.cli.visuals.execution import emit_execution_message
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
+from datapipeline.config.metadata import build_vector_metadata_lookup
 from datapipeline.config.tasks import OperationTask
 from datapipeline.dag.context import PipelineContext
 from datapipeline.runtime import Runtime
-from datapipeline.services.artifacts import VECTOR_STATS_SPEC
+from datapipeline.services.artifacts import VECTOR_METADATA_SPEC, VECTOR_STATS_SPEC
 from datapipeline.utils.paths import ensure_parent
 
 logger = logging.getLogger(__name__)
@@ -48,11 +49,17 @@ def _load_collector(
     matrix_format: str | None = None,
     matrix_path: Path | None = None,
 ) -> VectorStatsCollector:
-    snapshot = PipelineContext(runtime).require_artifact(VECTOR_STATS_SPEC)
+    context = PipelineContext(runtime)
+    snapshot = context.require_artifact(VECTOR_STATS_SPEC)
     if not isinstance(snapshot, dict):
         raise RuntimeError("Invalid vector stats artifact; expected a JSON object.")
+    expected_feature_ids, schema_meta = build_vector_metadata_lookup(
+        context.require_artifact(VECTOR_METADATA_SPEC)
+    )
     return collector_from_snapshot(
         snapshot,
+        expected_feature_ids=expected_feature_ids,
+        schema_meta=schema_meta,
         threshold=float(_option(options, "threshold", 0.95)),
         show_matrix=False,
         matrix_rows=int(_option(options, "rows", 20)),

@@ -8,7 +8,6 @@
 #
 # output: build/stats.json   # optional; relative to project.paths.artifacts
 # dependencies:              # explicit artifact prerequisites used to collect stats
-#   - schema
 #   - metadata
 #   - scaler
-# mode: final                # optional; final | raw
+# mode: final                # required; final | raw

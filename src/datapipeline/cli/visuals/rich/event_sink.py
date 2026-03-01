@@ -46,9 +46,13 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
                 message = message.replace("\n", f"\n{indent}")
             if event.message_kind == "scope_start":
                 scope_text = self._scope_header(event, message)
+                if event.depth == 0:
+                    text.append("\n")
                 text.append("── ", style="cyan")
-                text.append(scope_text, style="bold cyan")
+                text.append(scope_text, style="cyan")
                 text.append(" ──", style="cyan")
+                if event.depth == 0:
+                    text.append("\n")
                 return text
             if event.message_kind in {"saved", "materialized"}:
                 prefix, _, rest = message.partition(" ")
@@ -139,19 +143,12 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
         else:
             phase_label = "Execution"
 
-        task = event.scope_task_id or event.scope_target_id
-        if event.scope_profile_kind and event.scope_profile_name:
-            profile = f"{event.scope_profile_kind}:{event.scope_profile_name}"
-        else:
-            profile = event.scope_profile_name
-
-        if task is None and profile is None:
+        task = event.scope_task_id or event.scope_target_id or event.scope_profile_name
+        if task is None:
             return fallback or "Scope"
-        header = f"{phase_label} Scope"
-        if task:
-            header = f"{header}: {task}"
-        if profile:
-            header = f"{header} [{profile}]"
+        header = f"{phase_label}: {task}"
+        if event.scope_item_index and event.scope_item_total:
+            header = f"{header} ({event.scope_item_index}/{event.scope_item_total})"
         return header
 
 

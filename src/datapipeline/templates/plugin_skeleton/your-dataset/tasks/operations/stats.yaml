@@ -2,7 +2,6 @@
 id: stats
 entrypoint: core.build.stats
 dependencies:
-  - schema
   - metadata
   - scaler
 mode: final

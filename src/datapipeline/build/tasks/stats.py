@@ -6,11 +6,13 @@ from datapipeline.analysis.vector.collector import VectorStatsCollector
 from datapipeline.analysis.vector.snapshot import snapshot_from_collector
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.dataset.loader import load_dataset
+from datapipeline.config.metadata import build_vector_metadata_lookup
 from datapipeline.config.tasks import StatsTask
 from datapipeline.dag.context import PipelineContext
 from datapipeline.pipelines import build_vector_pipeline
 from datapipeline.pipelines.full.nodes import post_process
 from datapipeline.runtime import Runtime
+from datapipeline.services.artifacts import VECTOR_METADATA_SPEC
 from datapipeline.utils.paths import ensure_parent
 
 
@@ -51,13 +53,10 @@ def materialize_vector_stats(
     task_cfg: StatsTask,
 ) -> Tuple[str, Dict[str, object]] | None:
     dataset = load_dataset(runtime.project_yaml, "vectors")
-    expected_feature_ids = [cfg.id for cfg in (dataset.features or [])]
-    schema_entries = PipelineContext(runtime).load_schema(payload="features")
-    schema_meta = {
-        entry["id"]: entry
-        for entry in (schema_entries or [])
-        if isinstance(entry.get("id"), str)
-    }
+    context = PipelineContext(runtime)
+    expected_feature_ids, schema_meta = build_vector_metadata_lookup(
+        context.require_artifact(VECTOR_METADATA_SPEC)
+    )
 
     collector = VectorStatsCollector(
         expected_feature_ids or None,

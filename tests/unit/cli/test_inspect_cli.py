@@ -4,33 +4,28 @@ import pytest
 from pathlib import Path
 
 from datapipeline.operations import inspect as inspect_ops
-from datapipeline.services.constants import VECTOR_STATS
+from datapipeline.services.constants import VECTOR_SCHEMA_METADATA, VECTOR_STATS
 
 
 def _snapshot() -> dict:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "match_partition": "base",
-        "expected_features": ["speed"],
         "sample_limit": 5,
         "total_vectors": 1,
         "empty_vectors": 0,
-        "discovered_features": ["speed"],
-        "discovered_partitions": ["speed"],
-        "seen_counts": {"speed": 1},
-        "null_counts_features": {"speed": 0},
-        "seen_counts_partitions": {"speed": 1},
-        "null_counts_partitions": {"speed": 0},
-        "cadence_null_counts": {},
-        "cadence_opportunities": {},
-        "cadence_null_counts_partitions": {},
-        "cadence_opportunities_partitions": {},
-        "missing_samples": {},
-        "missing_partition_samples": {},
-        "group_feature_status": {"t0": {"speed": "present"}},
-        "group_partition_status": {"t0": {"speed": "present"}},
+        "group_feature_status": {"t0": {"speed": 1}},
+        "group_partition_status": {"t0": {"speed": 1}},
         "group_feature_sub": {},
         "group_partition_sub": {},
+    }
+
+
+def _metadata() -> dict:
+    return {
+        "schema_version": 1,
+        "features": [{"id": "speed"}],
+        "targets": [],
     }
 
 
@@ -40,8 +35,10 @@ def test_inspect_coverage_reads_stats_artifact(monkeypatch, capsys) -> None:
             self.runtime = runtime
 
         def require_artifact(self, spec):
-            assert spec.key == VECTOR_STATS
-            return _snapshot()
+            if spec.key == VECTOR_STATS:
+                return _snapshot()
+            assert spec.key == VECTOR_SCHEMA_METADATA
+            return _metadata()
 
     monkeypatch.setattr(inspect_ops, "PipelineContext", _Ctx)
 
@@ -62,8 +59,10 @@ def test_inspect_thresholds_reads_stats_artifact(monkeypatch, capsys) -> None:
             self.runtime = runtime
 
         def require_artifact(self, spec):
-            assert spec.key == VECTOR_STATS
-            return _snapshot()
+            if spec.key == VECTOR_STATS:
+                return _snapshot()
+            assert spec.key == VECTOR_SCHEMA_METADATA
+            return _metadata()
 
     monkeypatch.setattr(inspect_ops, "PipelineContext", _Ctx)
 
@@ -101,8 +100,10 @@ def test_inspect_matrix_emits_materialized_message(monkeypatch, tmp_path: Path) 
             self.runtime = runtime
 
         def require_artifact(self, spec):
-            assert spec.key == VECTOR_STATS
-            return _snapshot()
+            if spec.key == VECTOR_STATS:
+                return _snapshot()
+            assert spec.key == VECTOR_SCHEMA_METADATA
+            return _metadata()
 
     emitted: list[tuple[str, str | None]] = []
     monkeypatch.setattr(inspect_ops, "PipelineContext", _Ctx)

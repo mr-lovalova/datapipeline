@@ -26,6 +26,7 @@ class ProfileExecutionSpec:
     label: str | None = None
     runtime: Runtime | None = None
     use_visual_runner: bool = True
+    render_header: bool = True
     artifact_payload: Mapping[str, Any] | None = None
     artifact_writer: Callable[[Mapping[str, Any]], Path | None] | None = None
 
@@ -55,14 +56,11 @@ def _persist_profile_artifact(
 def _log_profile_start(
     kind: str,
     name: str,
-    idx: int,
-    total: int,
     visuals: str,
     log_decision: LogLevelDecision,
     log_output: LogOutputSettings,
     profile_path: Path | None,
 ) -> None:
-    _ = idx, total
     message = (
         "Profile start "
         f"kind={kind} "
@@ -113,8 +111,6 @@ def run_profile(
             _log_profile_start(
                 kind=spec.kind,
                 name=spec.name,
-                idx=spec.idx,
-                total=spec.total,
                 visuals=spec.visuals,
                 log_decision=spec.log_decision,
                 log_output=spec.log_output,
@@ -132,12 +128,11 @@ def run_profile(
             idx=spec.idx,
             total=spec.total,
         )
-    _render_profile_header(spec)
+    if spec.render_header:
+        _render_profile_header(spec)
     _log_profile_start(
         kind=spec.kind,
         name=spec.name,
-        idx=spec.idx,
-        total=spec.total,
         visuals=spec.visuals,
         log_decision=spec.log_decision,
         log_output=spec.log_output,

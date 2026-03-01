@@ -1,73 +1,117 @@
-from collections import Counter, defaultdict
+from collections import defaultdict
 from typing import Any, Hashable
 
 from .collector import VectorStatsCollector
+
+_SNAPSHOT_SCHEMA_VERSION = 2
+
+_STATUS_TO_CODE = {
+    "absent": 0,
+    "present": 1,
+    "null": 2,
+}
+_CODE_TO_STATUS = {code: status for status, code in _STATUS_TO_CODE.items()}
 
 
 def _group_key(value: Hashable) -> str:
     return VectorStatsCollector._format_group_key(value)
 
 
-def _serialize_group_map(
-    values: dict[Hashable, dict[str, str]] | dict[Hashable, dict[str, list[str]]],
-) -> dict[str, dict[str, str] | dict[str, list[str]]]:
-    return {_group_key(group): dict(statuses) for group, statuses in values.items()}
+def _encode_status(status: str) -> int:
+    code = _STATUS_TO_CODE.get(status)
+    if code is None:
+        raise ValueError(f"Unknown status '{status}' in stats snapshot.")
+    return code
 
 
-def _serialize_samples(
-    values: defaultdict[str, list[tuple[Hashable, str]]],
-) -> dict[str, list[list[str]]]:
+def _decode_status(code: Any) -> str:
+    status = _CODE_TO_STATUS.get(code)
+    if status is None:
+        raise ValueError(f"Unknown status code '{code}' in stats snapshot.")
+    return status
+
+
+def _serialize_status_map(
+    values: dict[Hashable, dict[str, str]],
+) -> dict[str, dict[str, int]]:
     return {
-        identifier: [[_group_key(group), status] for group, status in samples]
-        for identifier, samples in values.items()
+        _group_key(group): {
+            identifier: _encode_status(status)
+            for identifier, status in statuses.items()
+        }
+        for group, statuses in values.items()
     }
 
 
-def _deserialize_group_map(values: dict[str, Any]) -> defaultdict[str, dict]:
-    return defaultdict(dict, {group: dict(statuses) for group, statuses in values.items()})
+def _serialize_sub_map(
+    values: dict[Hashable, dict[str, list[str]]],
+) -> dict[str, dict[str, list[int]]]:
+    return {
+        _group_key(group): {
+            identifier: [_encode_status(status) for status in statuses]
+            for identifier, statuses in sub.items()
+        }
+        for group, sub in values.items()
+    }
 
 
-def _deserialize_samples(values: dict[str, list[list[str]]]) -> defaultdict[str, list[tuple[str, str]]]:
+def _deserialize_status_map(values: dict[str, Any]) -> defaultdict[str, dict[str, str]]:
     return defaultdict(
-        list,
+        dict,
         {
-            identifier: [(group, status) for group, status in samples]
-            for identifier, samples in values.items()
+            group: {
+                str(identifier): _decode_status(code)
+                for identifier, code in statuses.items()
+            }
+            for group, statuses in values.items()
+            if isinstance(statuses, dict)
+        },
+    )
+
+
+def _deserialize_sub_map(values: dict[str, Any]) -> defaultdict[str, dict[str, list[str]]]:
+    return defaultdict(
+        dict,
+        {
+            group: {
+                str(identifier): [_decode_status(code) for code in statuses]
+                for identifier, statuses in sub.items()
+                if isinstance(statuses, list)
+            }
+            for group, sub in values.items()
+            if isinstance(sub, dict)
         },
     )
 
 
 def snapshot_from_collector(collector: VectorStatsCollector) -> dict[str, Any]:
     return {
-        "schema_version": 1,
+        "schema_version": _SNAPSHOT_SCHEMA_VERSION,
         "match_partition": collector.match_partition,
-        "expected_features": sorted(collector.expected_features),
-        "schema_meta": collector.schema_meta,
         "sample_limit": collector.sample_limit,
         "total_vectors": collector.total_vectors,
         "empty_vectors": collector.empty_vectors,
-        "discovered_features": sorted(collector.discovered_features),
-        "discovered_partitions": sorted(collector.discovered_partitions),
-        "seen_counts": dict(collector.seen_counts),
-        "null_counts_features": dict(collector.null_counts_features),
-        "seen_counts_partitions": dict(collector.seen_counts_partitions),
-        "null_counts_partitions": dict(collector.null_counts_partitions),
-        "cadence_null_counts": dict(collector.cadence_null_counts),
-        "cadence_opportunities": dict(collector.cadence_opportunities),
-        "cadence_null_counts_partitions": dict(collector.cadence_null_counts_partitions),
-        "cadence_opportunities_partitions": dict(collector.cadence_opportunities_partitions),
-        "missing_samples": _serialize_samples(collector.missing_samples),
-        "missing_partition_samples": _serialize_samples(collector.missing_partition_samples),
-        "group_feature_status": _serialize_group_map(collector.group_feature_status),
-        "group_partition_status": _serialize_group_map(collector.group_partition_status),
-        "group_feature_sub": _serialize_group_map(collector.group_feature_sub),
-        "group_partition_sub": _serialize_group_map(collector.group_partition_sub),
+        "group_feature_status": _serialize_status_map(collector.group_feature_status),
+        "group_partition_status": _serialize_status_map(collector.group_partition_status),
+        "group_feature_sub": _serialize_sub_map(collector.group_feature_sub),
+        "group_partition_sub": _serialize_sub_map(collector.group_partition_sub),
     }
+
+
+def _require_schema_version(snapshot: dict[str, Any]) -> None:
+    version = snapshot.get("schema_version")
+    if version != _SNAPSHOT_SCHEMA_VERSION:
+        raise ValueError(
+            "Unsupported vector stats snapshot schema version "
+            f"'{version}'. Expected '{_SNAPSHOT_SCHEMA_VERSION}'. Rebuild stats."
+        )
 
 
 def collector_from_snapshot(
     snapshot: dict[str, Any],
     *,
+    expected_feature_ids: list[str] | None,
+    schema_meta: dict[str, dict[str, Any]] | None,
     threshold: float | None,
     show_matrix: bool,
     matrix_rows: int,
@@ -75,10 +119,11 @@ def collector_from_snapshot(
     matrix_output: str | None,
     matrix_format: str,
 ) -> VectorStatsCollector:
+    _require_schema_version(snapshot)
     collector = VectorStatsCollector(
-        expected_feature_ids=snapshot.get("expected_features"),
+        expected_feature_ids=expected_feature_ids,
         match_partition=snapshot.get("match_partition", "base"),
-        schema_meta=snapshot.get("schema_meta"),
+        schema_meta=schema_meta,
         sample_limit=snapshot.get("sample_limit", 5),
         threshold=threshold,
         show_matrix=show_matrix,
@@ -90,37 +135,17 @@ def collector_from_snapshot(
 
     collector.total_vectors = snapshot.get("total_vectors", 0)
     collector.empty_vectors = snapshot.get("empty_vectors", 0)
-    collector.discovered_features = set(snapshot.get("discovered_features", []))
-    collector.discovered_partitions = set(snapshot.get("discovered_partitions", []))
-
-    collector.seen_counts = Counter(snapshot.get("seen_counts", {}))
-    collector.null_counts_features = Counter(snapshot.get("null_counts_features", {}))
-    collector.seen_counts_partitions = Counter(snapshot.get("seen_counts_partitions", {}))
-    collector.null_counts_partitions = Counter(snapshot.get("null_counts_partitions", {}))
-    collector.cadence_null_counts = Counter(snapshot.get("cadence_null_counts", {}))
-    collector.cadence_opportunities = Counter(snapshot.get("cadence_opportunities", {}))
-    collector.cadence_null_counts_partitions = Counter(
-        snapshot.get("cadence_null_counts_partitions", {})
-    )
-    collector.cadence_opportunities_partitions = Counter(
-        snapshot.get("cadence_opportunities_partitions", {})
-    )
-
-    collector.missing_samples = _deserialize_samples(snapshot.get("missing_samples", {}))
-    collector.missing_partition_samples = _deserialize_samples(
-        snapshot.get("missing_partition_samples", {})
-    )
-    collector.group_feature_status = _deserialize_group_map(
+    collector.group_feature_status = _deserialize_status_map(
         snapshot.get("group_feature_status", {})
     )
-    collector.group_partition_status = _deserialize_group_map(
+    collector.group_partition_status = _deserialize_status_map(
         snapshot.get("group_partition_status", {})
     )
-    collector.group_feature_sub = _deserialize_group_map(
+    collector.group_feature_sub = _deserialize_sub_map(
         snapshot.get("group_feature_sub", {})
     )
-    collector.group_partition_sub = _deserialize_group_map(
+    collector.group_partition_sub = _deserialize_sub_map(
         snapshot.get("group_partition_sub", {})
     )
+    collector.rebuild_from_group_maps()
     return collector
-

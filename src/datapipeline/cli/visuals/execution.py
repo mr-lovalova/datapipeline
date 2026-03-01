@@ -50,6 +50,8 @@ class ExecutionLogEvent:
     scope_profile_name: str | None = None
     scope_target_id: str | None = None
     scope_task_id: str | None = None
+    scope_item_index: str | None = None
+    scope_item_total: str | None = None
 
 
 class ExecutionEventSink:
@@ -171,6 +173,8 @@ class ExecutionEventFormatter:
             "dp_scope_profile_name": event.scope_profile_name,
             "dp_scope_target_id": event.scope_target_id,
             "dp_scope_task_id": event.scope_task_id,
+            "dp_scope_item_index": event.scope_item_index,
+            "dp_scope_item_total": event.scope_item_total,
         }
 
 
@@ -182,6 +186,8 @@ def _scope_fields() -> dict[str, str | None]:
         "scope_profile_name": scope.get("profile_name"),
         "scope_target_id": scope.get("target_id"),
         "scope_task_id": scope.get("task_id"),
+        "scope_item_index": scope.get("item_index"),
+        "scope_item_total": scope.get("item_total"),
     }
 
 
@@ -197,6 +203,8 @@ def _scope_message(scope: dict[str, str]) -> str:
         parts.append(f"target={scope['target_id']}")
     if scope.get("task_id"):
         parts.append(f"task={scope['task_id']}")
+    if scope.get("item_index") and scope.get("item_total"):
+        parts.append(f"item={scope['item_index']}/{scope['item_total']}")
     return "Scope: " + (" ".join(parts) if parts else "(empty)")
 
 
@@ -208,6 +216,8 @@ def execution_scope(
     profile_name: str | None = None,
     target_id: str | None = None,
     task_id: str | None = None,
+    item_index: int | None = None,
+    item_total: int | None = None,
     announce: bool = False,
 ):
     merged = dict(current_execution_scope() or {})
@@ -217,6 +227,8 @@ def execution_scope(
         "profile_name": profile_name,
         "target_id": target_id,
         "task_id": task_id,
+        "item_index": item_index,
+        "item_total": item_total,
     }
     for key, value in updates.items():
         if value is not None:

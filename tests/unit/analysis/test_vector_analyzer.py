@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from datapipeline.analysis.vector.collector import VectorStatsCollector
 from datapipeline.analysis.vector.snapshot import (
     collector_from_snapshot,
@@ -45,8 +47,14 @@ def test_vector_analyzer_snapshot_round_trip():
     collector.update("g1", {"speed": [None, None], "temp": None})
 
     snapshot = snapshot_from_collector(collector)
+    assert "schema_meta" not in snapshot
+    assert "expected_features" not in snapshot
+    assert "discovered_features" not in snapshot
+    assert "discovered_partitions" not in snapshot
     restored = collector_from_snapshot(
         snapshot,
+        expected_feature_ids=["speed", "temp"],
+        schema_meta={},
         threshold=0.95,
         show_matrix=False,
         matrix_rows=20,
@@ -59,3 +67,24 @@ def test_vector_analyzer_snapshot_round_trip():
     assert restored.seen_counts["speed"] == collector.seen_counts["speed"]
     assert restored.null_counts_partitions["temp"] == collector.null_counts_partitions["temp"]
     assert "g0" in restored.group_feature_status
+
+
+def test_vector_analyzer_snapshot_rejects_unknown_schema_version():
+    with pytest.raises(ValueError, match="Unsupported vector stats snapshot schema version"):
+        collector_from_snapshot(
+            {
+                "schema_version": 999,
+                "group_feature_status": {},
+                "group_partition_status": {},
+                "group_feature_sub": {},
+                "group_partition_sub": {},
+            },
+            expected_feature_ids=[],
+            schema_meta={},
+            threshold=0.95,
+            show_matrix=False,
+            matrix_rows=20,
+            matrix_cols=10,
+            matrix_output=None,
+            matrix_format="html",
+        )

@@ -303,11 +303,13 @@ def test_rich_execution_sink_renders_scope_start_as_header() -> None:
             scope_profile_name="test",
             scope_target_id="serve",
             scope_task_id="schema",
+            scope_item_index="1",
+            scope_item_total="3",
         )
     )
 
     lines = _lines(buffer)
-    assert any("Build Scope: schema [serve:test]" in line for line in lines)
+    assert any("Build: schema (1/3)" in line for line in lines)
 
 
 def test_rich_execution_sink_keeps_fs_glob_source_info_when_live_at_info() -> None:

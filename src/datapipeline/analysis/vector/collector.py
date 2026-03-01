@@ -332,6 +332,91 @@ class VectorStatsCollector:
         counter_opps[identifier] += expected_len
         counter_nulls[identifier] += missing
 
+    def _reset_derived_counters(self) -> None:
+        self.seen_counts = Counter()
+        self.null_counts_features = Counter()
+        self.seen_counts_partitions = Counter()
+        self.null_counts_partitions = Counter()
+        self.cadence_null_counts = Counter()
+        self.cadence_opportunities = Counter()
+        self.cadence_null_counts_partitions = Counter()
+        self.cadence_opportunities_partitions = Counter()
+        self.missing_samples = defaultdict(list)
+        self.missing_partition_samples = defaultdict(list)
+
+    def rebuild_from_group_maps(self) -> None:
+        self._reset_derived_counters()
+        self.discovered_features = {
+            identifier
+            for statuses in self.group_feature_status.values()
+            for identifier in statuses.keys()
+        }
+        self.discovered_partitions = {
+            identifier
+            for statuses in self.group_partition_status.values()
+            for identifier in statuses.keys()
+        }
+        base_meta_by_id = {
+            str(entry["base_id"]): entry
+            for entry in self.schema_meta.values()
+            if isinstance(entry, dict) and isinstance(entry.get("base_id"), str)
+        }
+
+        dimensions = (
+            (
+                self.group_feature_status,
+                self.group_feature_sub,
+                self.seen_counts,
+                self.null_counts_features,
+                self.cadence_opportunities,
+                self.cadence_null_counts,
+                self.missing_samples,
+            ),
+            (
+                self.group_partition_status,
+                self.group_partition_sub,
+                self.seen_counts_partitions,
+                self.null_counts_partitions,
+                self.cadence_opportunities_partitions,
+                self.cadence_null_counts_partitions,
+                self.missing_partition_samples,
+            ),
+        )
+        for (
+            status_map,
+            sub_map,
+            seen_counts,
+            null_counts,
+            cadence_opportunities,
+            cadence_null_counts,
+            missing_samples,
+        ) in dimensions:
+            for group, statuses in status_map.items():
+                sub_by_id = sub_map.get(group, {})
+                for identifier, status in statuses.items():
+                    if status != "absent":
+                        seen_counts[identifier] += 1
+                    if status == "null":
+                        null_counts[identifier] += 1
+                    if (
+                        status in {"absent", "null"}
+                        and len(missing_samples[identifier]) < self.sample_limit
+                    ):
+                        missing_samples[identifier].append((group, status))
+                    meta = self.schema_meta.get(identifier)
+                    if meta is None and "__" not in identifier:
+                        meta = base_meta_by_id.get(identifier)
+                    expected = self._cadence_expected_length(meta) if meta else None
+                    if expected is None:
+                        continue
+                    sub_statuses = sub_by_id.get(identifier)
+                    if isinstance(sub_statuses, list) and sub_statuses:
+                        present = sum(1 for item in sub_statuses if item == "present")
+                    else:
+                        present = 1 if status == "present" else 0
+                    cadence_opportunities[identifier] += expected
+                    cadence_null_counts[identifier] += max(expected - present, 0)
+
     def print_report(self, *, sort_key: str = "missing") -> dict[str, Any]:
         from .report import print_report as _print_report
 

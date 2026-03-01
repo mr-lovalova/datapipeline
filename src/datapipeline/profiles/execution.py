@@ -35,6 +35,7 @@ def run_selected_artifacts(
     settings: BuildSettings | None = None,
     build_options: RuntimeBuildOptions | None = None,
     runtime_override: Runtime | None = None,
+    profile_name_override: str | None = None,
 ) -> None:
     if not artifact_task_ids:
         return
@@ -51,6 +52,7 @@ def run_selected_artifacts(
         required_artifacts=required_artifacts,
         artifact_task_configs=list(request.artifact_task_configs),
         settings=settings,
+        profile_name_override=profile_name_override,
         skip_logging_setup=True,
         runtime_override=runtime_override,
     )
@@ -93,27 +95,53 @@ def run_runtime_artifact_dependencies(
     if profile.skip_artifacts or not artifact_task_ids:
         return
 
+    dependency_profile = _dependency_profile_name(profile)
     spec = ProfileExecutionSpec(
         kind="build",
-        name=f"{profile.name}.dependencies",
+        name=dependency_profile,
         idx=1,
         total=1,
         visuals=profile.visuals or "on",
         log_decision=profile.log_decision,
         log_output=profile.log_output,
-        sections=(f"{profile.kind.title()} Dependencies",),
-        label=profile.name,
         use_visual_runner=False,
+        render_header=False,
     )
     run_profile(
         spec=spec,
-        work=lambda: run_selected_artifacts(
+        work=lambda: _run_runtime_dependencies_in_scope(
+            profile=profile,
+            request=request,
+            artifact_task_ids=artifact_task_ids,
+            dependency_profile=dependency_profile,
+        ),
+    )
+
+
+def _run_runtime_dependencies_in_scope(
+    *,
+    profile: RuntimeExecutionProfile,
+    request: ProfileRunRequest,
+    artifact_task_ids: list[str],
+    dependency_profile: str,
+) -> None:
+    with execution_scope(
+        phase="dependencies",
+        profile_kind="build",
+        profile_name=dependency_profile,
+        target_id="dependencies",
+    ):
+        run_selected_artifacts(
             request=request,
             artifact_task_ids=artifact_task_ids,
             build_options=profile.build_options,
             runtime_override=profile.runtime,
-        ),
-    )
+            profile_name_override=dependency_profile,
+        )
+
+
+def _dependency_profile_name(profile: RuntimeExecutionProfile) -> str:
+    return f"{profile.name}.dependencies"
 
 
 def sync_runtime_artifacts_from_state(
@@ -157,11 +185,19 @@ def execute_runtime_profile(
     )
     sync_runtime_artifacts_from_state(profile, request.project_path)
 
-    for task_id in runtime_task_ids_for_order(ordered_ids, tasks_by_id):
+    runtime_task_ids = runtime_task_ids_for_order(ordered_ids, tasks_by_id)
+    total_runtime_tasks = len(runtime_task_ids)
+    for idx, task_id in enumerate(runtime_task_ids, start=1):
         task = tasks_by_id[task_id]
         if not isinstance(task, OperationTask):
             continue
-        with execution_scope(phase="runtime", task_id=task.id, announce=True):
+        with execution_scope(
+            phase="runtime",
+            task_id=task.id,
+            item_index=idx,
+            item_total=total_runtime_tasks,
+            announce=True,
+        ):
             run_runtime_task(task, profile)
 
 

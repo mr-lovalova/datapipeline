@@ -2,6 +2,7 @@ id: thresholds
 entrypoint: core.inspect.thresholds
 dependencies:
   - stats
+  - metadata
 options:
   sort: missing
   threshold: 0.95

@@ -2,6 +2,7 @@ id: matrix
 entrypoint: core.inspect.matrix
 dependencies:
   - stats
+  - metadata
 options:
   format: html
   quiet: true
