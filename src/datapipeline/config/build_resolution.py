@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Sequence
 
+from datapipeline.config.profiles import BuildProfile
 from datapipeline.config.resolution import (
     LogLevelDecision,
     LogOutputSettings,
@@ -56,7 +57,7 @@ def resolve_build_settings(
     cli_log_outputs: Sequence[LogOutputTarget] | None = None,
     force_flag: bool = False,
     base_log_level: str | None = None,
-    build_profile=None,
+    build_profile: BuildProfile | None = None,
 ) -> BuildSettings:
     shared = workspace.config.shared if workspace else None
     shared_observability = shared.observability if shared else None

@@ -13,12 +13,15 @@ from datapipeline.config.loaders.profiles import profile_specs
 from datapipeline.config.profiles import ServeOutputConfig
 from datapipeline.config.resolution import LogOutputTarget
 from datapipeline.config.serve_resolution import resolve_run_profiles
+from datapipeline.config.workspace import WorkspaceContext
 from datapipeline.io.output import OutputResolutionError
-from datapipeline.profiles import (
+from datapipeline.profiles.models import (
     BuildExecutionProfile,
     ExecutionProfile,
+    ProfileDataset,
     ProfileRunRequest,
     RuntimeBuildOptions,
+    RuntimeKind,
     RuntimeExecutionProfile,
 )
 from datapipeline.services.path_policy import resolve_workspace_path
@@ -40,7 +43,6 @@ _OUTPUT_MATRIX_HELP = (
 
 @dataclass(frozen=True)
 class ProfileResolveParams:
-    kind: ProfileKind
     project_path: Path
     run_name: Optional[str]
     force: bool
@@ -57,10 +59,8 @@ class ProfileResolveParams:
     cli_log_outputs: Sequence[LogOutputTarget] | None
     base_log_level: str
     cli_visuals: Optional[str]
-    workspace: Any
+    workspace: WorkspaceContext | None
 
-
-RuntimeKind = Literal["serve", "inspect"]
 ProfileResolver: TypeAlias = Callable[[ProfileResolveParams], list[ExecutionProfile]]
 
 
@@ -146,7 +146,7 @@ def _runtime_execution_profile(
     payload: dict[str, object],
     profile,
     params: ProfileResolveParams,
-    datasets: dict[str, object],
+    datasets: dict[str, ProfileDataset],
 ) -> RuntimeExecutionProfile:
     return RuntimeExecutionProfile(
         kind=profile_kind,
@@ -242,10 +242,10 @@ def build_cli_output_config(
 
 
 def _load_dataset_for_profile(
-    cache: dict[str, object],
+    cache: dict[str, ProfileDataset],
     project_path: Path,
     stage: Optional[int],
-):
+) -> ProfileDataset:
     dataset_name = "vectors" if stage is None else "features"
     dataset = cache.get(dataset_name)
     if dataset is None:
@@ -372,7 +372,9 @@ def _runtime_profiles_to_execution(
     profiles,
     params: ProfileResolveParams,
 ) -> list[ExecutionProfile]:
-    datasets: dict[str, object] = {"vectors": load_dataset(params.project_path, "vectors")}
+    datasets: dict[str, ProfileDataset] = {
+        "vectors": load_dataset(params.project_path, "vectors")
+    }
     resolved: list[ExecutionProfile] = []
     for profile in profiles:
         payload = _profile_debug_payload(profile)
@@ -407,11 +409,10 @@ def build_profile_run_request(
     cli_log_outputs: Sequence[LogOutputTarget] | None = None,
     base_log_level: str = "INFO",
     cli_visuals: Optional[str] = None,
-    workspace=None,
+    workspace: WorkspaceContext | None = None,
 ) -> ProfileRunRequest | None:
     project_path = Path(project).resolve()
     params = ProfileResolveParams(
-        kind=kind,
         project_path=project_path,
         run_name=run_name,
         force=force,

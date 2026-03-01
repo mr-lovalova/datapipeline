@@ -2,7 +2,8 @@ from types import SimpleNamespace
 
 from datapipeline.build.state import BuildState, save_build_state
 from datapipeline.config.tasks import MetadataTask, OperationTask, SchemaTask
-from datapipeline.profiles import ProfileRunRequest, RuntimeExecutionProfile, run_profiles
+from datapipeline.profiles.models import ProfileRunRequest, RuntimeExecutionProfile
+from datapipeline.profiles.orchestration import run_profiles
 from datapipeline.services.artifacts import ArtifactManager
 from datapipeline.services.bootstrap import build_state_path
 from datapipeline.services.constants import VECTOR_SCHEMA_METADATA

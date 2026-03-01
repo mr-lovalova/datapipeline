@@ -68,7 +68,7 @@ def test_log_build_status_emits_structured_message(monkeypatch):
     assert message.startswith("Build status:")
     assert '"status": "skipped"' in message
     assert '"reason": "up_to_date"' in message
-    assert '"profile": "metadata"' in message
+    assert '"build_profile": "metadata"' in message
     assert '"mode": "AUTO"' in message
     assert '"selected_artifacts": 1' in message
     assert level == 20

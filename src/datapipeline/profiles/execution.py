@@ -1,12 +1,13 @@
 import logging
 from pathlib import Path
-from typing import Any
 
 from datapipeline.artifacts.executor import run_build_if_needed
 from datapipeline.build.state import load_build_state
+from datapipeline.config.build_resolution import BuildSettings
 from datapipeline.config.tasks import OperationTask, Task
 from datapipeline.operations.dispatch import dispatch_operation
 from datapipeline.plugins import INSPECT_OPERATIONS_EP, SERVE_OPERATIONS_EP
+from datapipeline.runtime import Runtime
 from datapipeline.services.bootstrap import build_state_path
 
 from .models import (
@@ -29,9 +30,9 @@ def run_selected_artifacts(
     *,
     request: ProfileRunRequest,
     artifact_task_ids: list[str],
-    settings: Any | None = None,
+    settings: BuildSettings | None = None,
     build_options: RuntimeBuildOptions | None = None,
-    runtime_override: Any | None = None,
+    runtime_override: Runtime | None = None,
 ) -> None:
     if not artifact_task_ids:
         return
@@ -134,7 +135,7 @@ def execute_build_profile(
     profile: BuildExecutionProfile,
     request: ProfileRunRequest,
     tasks_by_id: dict[str, Task],
-    runtime_override: Any | None = None,
+    runtime_override: Runtime | None = None,
 ) -> None:
     try:
         ordered_ids = resolve_task_order(profile, tasks_by_id)

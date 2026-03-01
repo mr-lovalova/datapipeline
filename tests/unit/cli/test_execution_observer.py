@@ -489,8 +489,8 @@ def test_make_execution_observer_uses_context_sink_when_present(caplog):
         reset_current_execution_event_sink(token)
 
 
-def test_make_execution_observer_falls_back_to_logger_without_context_sink(caplog):
-    logger = logging.getLogger("datapipeline.cli.visuals.execution.test.logger_fallback")
+def test_make_execution_observer_logs_without_context_sink(caplog):
+    logger = logging.getLogger("datapipeline.cli.visuals.execution.test.logger_default")
     observer = make_execution_observer(logger=logger)
     with caplog.at_level(logging.INFO, logger=logger.name):
         observer.on_dag_start(dag_name="pipeline:serve", step_count=3, depth=0)
@@ -572,8 +572,8 @@ def test_emit_execution_message_supports_message_kind():
     assert event.message_kind == "materialized"
 
 
-def test_emit_execution_message_falls_back_to_logger(caplog):
-    logger = logging.getLogger("datapipeline.cli.visuals.execution.test.message_fallback")
+def test_emit_execution_message_logs_without_context_sink(caplog):
+    logger = logging.getLogger("datapipeline.cli.visuals.execution.test.message_default")
 
     with caplog.at_level(logging.INFO, logger=logger.name):
         emit_execution_message("Saved 3 items", logger=logger)

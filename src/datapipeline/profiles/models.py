@@ -2,9 +2,23 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Literal, Mapping, Sequence, TypeAlias
 
+from datapipeline.config.build_resolution import BuildSettings
+from datapipeline.config.dataset.dataset import (
+    FeatureDatasetConfig,
+    RecordDatasetConfig,
+)
+from datapipeline.config.resolution import (
+    LogLevelDecision,
+    LogOutputSettings,
+    LogOutputTarget,
+)
+from datapipeline.config.workspace import WorkspaceContext
+from datapipeline.config.profiles import ServeOutputConfig
 from datapipeline.config.tasks import ArtifactTask, Task
+from datapipeline.runtime import Runtime
 
 RuntimeKind = Literal["serve", "inspect"]
+ProfileDataset = FeatureDatasetConfig | RecordDatasetConfig
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -13,8 +27,8 @@ class BaseExecutionProfile:
     name: str
     target_id: str
     visuals: str
-    log_decision: Any
-    log_output: Any
+    log_decision: LogLevelDecision
+    log_output: LogOutputSettings
     sections: tuple[str, ...] = ()
     label: str | None = None
     artifact_payload: Mapping[str, Any] | None = None
@@ -25,17 +39,17 @@ class BaseExecutionProfile:
 class RuntimeBuildOptions:
     cli_log_level: str | None = None
     cli_visuals: str | None = None
-    cli_log_outputs: Sequence[Any] = field(default_factory=tuple)
-    workspace: Any = None
+    cli_log_outputs: Sequence[LogOutputTarget] = field(default_factory=tuple)
+    workspace: WorkspaceContext | None = None
 
 
 @dataclass(frozen=True, kw_only=True)
 class RuntimeExecutionProfile(BaseExecutionProfile):
     kind: RuntimeKind
-    runtime: Any
-    dataset: Any
+    runtime: Runtime
+    dataset: ProfileDataset
     limit: int | None = None
-    output: Any | None = None
+    output: ServeOutputConfig | None = None
     throttle_ms: float | None = None
     stage: int | None = None
     skip_artifacts: bool = False
@@ -45,7 +59,7 @@ class RuntimeExecutionProfile(BaseExecutionProfile):
 @dataclass(frozen=True, kw_only=True)
 class BuildExecutionProfile(BaseExecutionProfile):
     kind: Literal["build"]
-    build_settings: Any | None = None
+    build_settings: BuildSettings | None = None
 
 
 ExecutionProfile: TypeAlias = RuntimeExecutionProfile | BuildExecutionProfile
@@ -63,6 +77,7 @@ __all__ = [
     "BaseExecutionProfile",
     "BuildExecutionProfile",
     "ExecutionProfile",
+    "ProfileDataset",
     "ProfileRunRequest",
     "RuntimeBuildOptions",
     "RuntimeExecutionProfile",

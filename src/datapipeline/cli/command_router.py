@@ -18,7 +18,7 @@ from datapipeline.cli.commands.source import handle as handle_source
 from datapipeline.cli.commands.stream import handle as handle_stream
 from datapipeline.config.resolution import LogOutputTarget
 from datapipeline.config.workspace import WorkspaceContext
-from datapipeline.profiles import run_profiles
+from datapipeline.profiles.orchestration import run_profiles
 
 logger = logging.getLogger(__name__)
 

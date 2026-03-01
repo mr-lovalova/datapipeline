@@ -29,6 +29,7 @@ from datapipeline.config.loaders.operations import operation_specs
 from datapipeline.config.tasks import ArtifactTask
 from datapipeline.operations.dispatch import dispatch_operation
 from datapipeline.plugins import BUILD_OPERATIONS_EP
+from datapipeline.runtime import Runtime
 from datapipeline.services.bootstrap import bootstrap, build_state_path
 from datapipeline.services.project_paths import tasks_dir
 
@@ -61,7 +62,7 @@ def _log_build_status(
     payload: dict[str, object] = {
         "status": status,
         "reason": reason,
-        "profile": settings.profile_name,
+        "build_profile": settings.profile_name,
         "mode": settings.mode,
     }
     if selected_artifacts is not None:
@@ -161,7 +162,7 @@ def run_build_if_needed(
     artifact_task_configs: list[ArtifactTask] | None = None,
     settings: BuildSettings | None = None,
     skip_logging_setup: bool = False,
-    runtime_override=None,
+    runtime_override: Runtime | None = None,
 ) -> bool:
     """Execute artifact-producing operations when selected artifacts are stale."""
     project_path = Path(project).resolve()
