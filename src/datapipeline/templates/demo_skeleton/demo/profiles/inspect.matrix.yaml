@@ -3,3 +3,5 @@ type: inspect
 name: matrix
 target: matrix
 enabled: true
+build:
+  mode: AUTO

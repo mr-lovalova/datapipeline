@@ -56,6 +56,114 @@ def test_run_config_value_preserves_explicit_null():
     assert _run_config_value(cfg, "observability") is None
 
 
+def test_run_profiles_require_explicit_build_mode(monkeypatch, tmp_path):
+    entries = [RunEntry(name="demo", config=None, operation=_SERVE_OPERATION, path=None)]
+
+    def fake_iter_runtime_runs(project_path, run_entries, keep):
+        total = len(run_entries)
+        for idx, entry in enumerate(run_entries, start=1):
+            runtime = SimpleNamespace(run=entry.config)
+            yield idx, total, entry, runtime
+
+    monkeypatch.setattr(
+        "datapipeline.config.serve_resolution.iter_runtime_runs", fake_iter_runtime_runs
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="must define build.mode or pass --build-mode",
+    ):
+        resolve_run_profiles(
+            project_path=tmp_path,
+            run_entries=entries,
+            keep=None,
+            stage=None,
+            limit=None,
+            cli_build_mode=None,
+            cli_output=None,
+            workspace=None,
+            cli_log_level=None,
+            base_log_level="INFO",
+            cli_visuals=None,
+        )
+
+
+def test_run_profiles_cli_build_mode_overrides_profile(monkeypatch, tmp_path):
+    run_cfg = ServeProfile.model_validate(
+        {
+            "type": "serve",
+            "name": "demo",
+            "target": "serve",
+            "build": {"mode": "OFF"},
+        }
+    )
+    entries = [RunEntry(name="demo", config=run_cfg, operation=_SERVE_OPERATION, path=None)]
+
+    def fake_iter_runtime_runs(project_path, run_entries, keep):
+        total = len(run_entries)
+        for idx, entry in enumerate(run_entries, start=1):
+            runtime = SimpleNamespace(run=entry.config)
+            yield idx, total, entry, runtime
+
+    monkeypatch.setattr(
+        "datapipeline.config.serve_resolution.iter_runtime_runs", fake_iter_runtime_runs
+    )
+
+    profiles = resolve_run_profiles(
+        project_path=tmp_path,
+        run_entries=entries,
+        keep=None,
+        stage=None,
+        limit=None,
+        cli_build_mode="FORCE",
+        cli_output=None,
+        workspace=None,
+        cli_log_level=None,
+        base_log_level="INFO",
+        cli_visuals=None,
+    )
+
+    assert profiles[0].build_mode == "FORCE"
+
+
+def test_run_profiles_use_profile_build_mode_when_cli_not_set(monkeypatch, tmp_path):
+    run_cfg = ServeProfile.model_validate(
+        {
+            "type": "serve",
+            "name": "demo",
+            "target": "serve",
+            "build": {"mode": "OFF"},
+        }
+    )
+    entries = [RunEntry(name="demo", config=run_cfg, operation=_SERVE_OPERATION, path=None)]
+
+    def fake_iter_runtime_runs(project_path, run_entries, keep):
+        total = len(run_entries)
+        for idx, entry in enumerate(run_entries, start=1):
+            runtime = SimpleNamespace(run=entry.config)
+            yield idx, total, entry, runtime
+
+    monkeypatch.setattr(
+        "datapipeline.config.serve_resolution.iter_runtime_runs", fake_iter_runtime_runs
+    )
+
+    profiles = resolve_run_profiles(
+        project_path=tmp_path,
+        run_entries=entries,
+        keep=None,
+        stage=None,
+        limit=None,
+        cli_build_mode=None,
+        cli_output=None,
+        workspace=None,
+        cli_log_level=None,
+        base_log_level="INFO",
+        cli_visuals=None,
+    )
+
+    assert profiles[0].build_mode == "OFF"
+
+
 def test_run_profiles_do_not_inherit_workspace_throttle(monkeypatch, tmp_path):
     workspace_cfg = WorkspaceConfig.model_validate({})
     workspace = WorkspaceContext(file_path=tmp_path / "jerry.yaml", config=workspace_cfg)
@@ -77,6 +185,7 @@ def test_run_profiles_do_not_inherit_workspace_throttle(monkeypatch, tmp_path):
         keep=None,
         stage=None,
         limit=None,
+        cli_build_mode="AUTO",
         cli_output=None,
         workspace=workspace,
         cli_log_level=None,
@@ -112,6 +221,7 @@ def test_run_profiles_use_shared_visuals_defaults(monkeypatch, tmp_path):
         keep=None,
         stage=None,
         limit=None,
+        cli_build_mode="AUTO",
         cli_output=None,
         workspace=workspace,
         cli_log_level=None,
@@ -155,6 +265,7 @@ def test_run_profiles_run_visuals_override_shared_defaults(monkeypatch, tmp_path
         keep=None,
         stage=None,
         limit=None,
+        cli_build_mode="AUTO",
         cli_output=None,
         workspace=workspace,
         cli_log_level=None,
@@ -204,6 +315,7 @@ def test_run_profiles_resolve_log_output_precedence(monkeypatch, tmp_path):
         keep=None,
         stage=None,
         limit=None,
+        cli_build_mode="AUTO",
         cli_output=None,
         workspace=workspace,
         cli_log_level=None,
@@ -219,6 +331,7 @@ def test_run_profiles_resolve_log_output_precedence(monkeypatch, tmp_path):
         keep=None,
         stage=None,
         limit=None,
+        cli_build_mode="AUTO",
         cli_output=None,
         workspace=workspace,
         cli_log_level=None,
@@ -276,6 +389,7 @@ def test_run_scoped_logs_materialize_only_for_create_run(monkeypatch, tmp_path):
             keep=None,
             stage=None,
             limit=None,
+            cli_build_mode="AUTO",
             cli_output=cli_output,
             workspace=None,
             cli_log_level=None,
@@ -290,6 +404,7 @@ def test_run_scoped_logs_materialize_only_for_create_run(monkeypatch, tmp_path):
         keep=None,
         stage=None,
         limit=None,
+        cli_build_mode="AUTO",
         cli_output=cli_output,
         workspace=None,
         cli_log_level=None,
@@ -344,6 +459,7 @@ def test_run_scoped_logs_default_to_task_specific_filename(monkeypatch, tmp_path
         keep=None,
         stage=None,
         limit=None,
+        cli_build_mode="AUTO",
         cli_output=cli_output,
         workspace=None,
         cli_log_level=None,

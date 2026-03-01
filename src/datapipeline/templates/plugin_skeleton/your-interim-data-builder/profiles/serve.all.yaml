@@ -3,6 +3,8 @@ type: serve
 name: all
 target: serve
 enabled: true
+build:
+  mode: AUTO
 keep: null
 output:
   transport: fs

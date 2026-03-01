@@ -17,11 +17,11 @@ from datapipeline.cli.visuals.execution_context import (
     set_current_execution_event_sink,
     set_current_visual_log_level,
 )
-from datapipeline.cli.visuals.streams_rich import (
-    _RichConsoleExecutionSink,
+from datapipeline.cli.visuals.rich.columns import SourceLabelColumn
+from datapipeline.cli.visuals.rich.event_sink import _RichConsoleExecutionSink
+from datapipeline.cli.visuals.rich.sources import (
     _RichSourceProxy,
     _clear_progress_tasks,
-    SourceLabelColumn,
     visual_sources,
 )
 from datapipeline.sources.models.generator import DataGenerator
@@ -380,7 +380,7 @@ def test_rich_source_proxy_formats_text_with_context_indent() -> None:
 def test_rich_source_proxy_emits_glob_summary_as_source_info_event(monkeypatch) -> None:
     captured: list[tuple[str, int, int, str | None]] = []
     monkeypatch.setattr(
-        "datapipeline.cli.visuals.streams_rich.emit_execution_message",
+        "datapipeline.cli.visuals.rich.sources.emit_execution_message",
         lambda message, level, logger, depth=0, message_kind=None: captured.append(
             (message, level, depth, message_kind)
         ),
@@ -410,7 +410,7 @@ def test_rich_source_proxy_emits_glob_summary_as_source_info_event(monkeypatch) 
             return None
 
     monkeypatch.setattr(
-        "datapipeline.cli.visuals.streams_rich.SourceObservabilityAdapter",
+        "datapipeline.cli.visuals.rich.sources.SourceObservabilityAdapter",
         lambda stream_source, stream_id: _Adapter(),
     )
 
@@ -467,7 +467,7 @@ def test_rich_source_proxy_tracks_glob_file_transitions_as_progress_rows(monkeyp
             return '"MSFT.jsonl"'
 
     monkeypatch.setattr(
-        "datapipeline.cli.visuals.streams_rich.SourceObservabilityAdapter",
+        "datapipeline.cli.visuals.rich.sources.SourceObservabilityAdapter",
         lambda stream_source, stream_id: _Adapter(),
     )
 
@@ -514,7 +514,7 @@ def test_rich_source_proxy_clears_glob_rows_between_invocations(monkeypatch) -> 
             return '"MSFT.jsonl"'
 
     monkeypatch.setattr(
-        "datapipeline.cli.visuals.streams_rich.SourceObservabilityAdapter",
+        "datapipeline.cli.visuals.rich.sources.SourceObservabilityAdapter",
         lambda stream_source, stream_id: _Adapter(),
     )
 
@@ -541,7 +541,7 @@ def test_rich_source_proxy_clears_glob_rows_between_invocations(monkeypatch) -> 
 def test_rich_source_proxy_handles_foreach_fs_sequence_with_empty_first_value(monkeypatch) -> None:
     captured: list[tuple[str, int, int, str | None]] = []
     monkeypatch.setattr(
-        "datapipeline.cli.visuals.streams_rich.emit_execution_message",
+        "datapipeline.cli.visuals.rich.sources.emit_execution_message",
         lambda message, level, logger, depth=0, message_kind=None: captured.append(
             (message, level, depth, message_kind)
         ),
@@ -654,7 +654,7 @@ def test_rich_source_proxy_ignores_missing_task_during_teardown(caplog) -> None:
         iterator = proxy.stream()
         next(iterator)
         _clear_progress_tasks(progress)
-        with caplog.at_level(logging.DEBUG, logger="datapipeline.cli.visuals.streams_rich"):
+        with caplog.at_level(logging.DEBUG, logger="datapipeline.cli.visuals.rich.sources"):
             iterator.close()
 
     messages = [record.getMessage() for record in caplog.records]
@@ -739,7 +739,7 @@ def test_rich_source_proxy_keeps_task_updates_isolated_across_concurrent_streams
             return f'"APPL-{self._id}.jsonl"'
 
     monkeypatch.setattr(
-        "datapipeline.cli.visuals.streams_rich.SourceObservabilityAdapter",
+        "datapipeline.cli.visuals.rich.sources.SourceObservabilityAdapter",
         lambda stream_source, stream_id: _Adapter(),
     )
 
@@ -772,7 +772,7 @@ def test_rich_source_proxy_keeps_task_updates_isolated_across_concurrent_streams
 
 
 def test_visual_sources_resets_context_when_live_fails(monkeypatch) -> None:
-    monkeypatch.setattr("datapipeline.cli.visuals.streams_rich.Progress", _BrokenProgress)
+    monkeypatch.setattr("datapipeline.cli.visuals.rich.sources.Progress", _BrokenProgress)
     runtime = SimpleNamespace(
         registries=SimpleNamespace(stream_sources=_StreamRegistry())
     )
@@ -806,7 +806,7 @@ def test_visual_sources_runs_central_task_cleanup_on_interrupt(monkeypatch) -> N
         original_clear(progress)
 
     monkeypatch.setattr(
-        "datapipeline.cli.visuals.streams_rich._clear_progress_tasks",
+        "datapipeline.cli.visuals.rich.sources._clear_progress_tasks",
         _capture_clear,
     )
 

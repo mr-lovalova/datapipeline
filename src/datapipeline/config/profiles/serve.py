@@ -7,6 +7,7 @@ from datapipeline.config.observability import ObservabilityConfig
 
 from .base import Profile
 from .output import ServeOutputConfig
+from .runtime_build import RuntimeBuildConfig
 
 
 class ServeProfile(Profile):
@@ -14,6 +15,7 @@ class ServeProfile(Profile):
     target: str
     output: ServeOutputConfig | None = None
     observability: ObservabilityConfig | None = Field(default=None)
+    build: RuntimeBuildConfig | None = Field(default=None)
     keep: str | None = Field(default=None, min_length=1)
     limit: int | None = Field(default=None, ge=1)
     stage: int | None = Field(default=None, ge=0)

@@ -1,4 +1,3 @@
-import json
 import logging
 from pathlib import Path
 
@@ -37,62 +36,27 @@ logger = logging.getLogger(__name__)
 _ARTIFACT_CONFIG_HASH_META_KEY = "_config_hash"
 
 
-def _log_build_settings_debug(project_path: Path, settings) -> None:
-    payload = {
-        "project": str(project_path),
-        "mode": settings.mode,
-        "visuals": settings.visuals,
-        "profile": settings.profile_name,
-    }
-    emit_execution_message(
-        f"Build settings:\n{json.dumps(payload, indent=2, default=str)}",
-        level=logging.DEBUG,
-        logger=logger,
-        message_kind="build_settings",
-    )
-
-
-def _log_build_status(
+def _log_build_decision(
     *,
-    status: str,
+    action: str,
     reason: str,
     settings: BuildSettings,
     selected_artifacts: int | None = None,
 ) -> None:
-    payload: dict[str, object] = {
-        "status": status,
-        "reason": reason,
-        "build_profile": settings.profile_name,
-        "mode": settings.mode,
-    }
+    message = (
+        "Build decision: "
+        f"action={action} "
+        f"reason={reason} "
+        f"mode={settings.mode} "
+        f"profile={settings.profile_name}"
+    )
     if selected_artifacts is not None:
-        payload["selected_artifacts"] = selected_artifacts
+        message = f"{message} selected_artifacts={selected_artifacts}"
     emit_execution_message(
-        f"Build status:\n{json.dumps(payload, indent=2, default=str)}",
+        message,
         level=logging.INFO,
         logger=logger,
-        message_kind="build_status",
-    )
-
-
-def _log_task_config_debug(
-    definition: ArtifactDefinition,
-    task: ArtifactTask,
-    idx: int,
-    total: int,
-) -> None:
-    payload = {
-        "idx": idx,
-        "total": total,
-        "id": task.id,
-        "artifact": definition.key,
-        "output": getattr(task, "output", None),
-    }
-    emit_execution_message(
-        f"Build task config:\n{json.dumps(payload, indent=2, default=str)}",
-        level=logging.DEBUG,
-        logger=logger,
-        message_kind="task_config",
+        message_kind="build_decision",
     )
 
 
@@ -153,6 +117,7 @@ def _merge_build_state(
 def run_build_if_needed(
     project: Path | str,
     force: bool = False,
+    runtime_build_mode: str | None = None,
     cli_log_level: str | None = None,
     cli_visuals: str | None = None,
     cli_log_outputs: list[LogOutputTarget] | None = None,
@@ -178,6 +143,7 @@ def run_build_if_needed(
                 cli_visuals=cli_visuals,
                 cli_log_outputs=cli_log_outputs,
                 force_flag=force,
+                runtime_build_mode=runtime_build_mode,
                 base_log_level=base_level_name,
                 build_profile=build_profile,
             )
@@ -189,8 +155,8 @@ def run_build_if_needed(
         configure_root_logging(level=effective_level, output=settings.log_output)
 
     if settings.mode == "OFF":
-        _log_build_status(
-            status="skipped",
+        _log_build_decision(
+            action="skip",
             reason="mode_off",
             settings=settings,
         )
@@ -201,8 +167,6 @@ def run_build_if_needed(
 
     state_path = build_state_path(project_path)
     state = load_build_state(state_path)
-
-    _log_build_settings_debug(project_path, settings)
 
     if artifact_task_configs is not None:
         task_configs = list(artifact_task_configs)
@@ -225,8 +189,8 @@ def run_build_if_needed(
         raise SystemExit(2) from exc
 
     if not selected_keys:
-        _log_build_status(
-            status="skipped",
+        _log_build_decision(
+            action="skip",
             reason="no_artifacts_selected",
             settings=settings,
             selected_artifacts=0,
@@ -240,13 +204,19 @@ def run_build_if_needed(
         hash_meta_key=_ARTIFACT_CONFIG_HASH_META_KEY,
     )
     if not force and not missing_required:
-        _log_build_status(
-            status="skipped",
+        _log_build_decision(
+            action="skip",
             reason="up_to_date",
             settings=settings,
             selected_artifacts=len(selected_keys),
         )
         return False
+    _log_build_decision(
+        action="run",
+        reason="force" if force else "stale",
+        settings=settings,
+        selected_artifacts=len(selected_keys),
+    )
 
     runtime = runtime_override if runtime_override is not None else bootstrap(project_path)
     job_specs: list[tuple[ArtifactDefinition, ArtifactTask]] = []
@@ -267,14 +237,7 @@ def run_build_if_needed(
         )
     try:
         artifacts: dict[str, dict[str, object]] = {}
-        total_jobs = len(job_specs)
-        for idx, (definition, task) in enumerate(job_specs, start=1):
-            _log_task_config_debug(
-                definition=definition,
-                task=task,
-                idx=idx,
-                total=total_jobs,
-            )
+        for definition, task in job_specs:
             result = _run_artifact_builder(
                 runtime=runtime,
                 definition=definition,

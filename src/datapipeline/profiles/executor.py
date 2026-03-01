@@ -1,4 +1,3 @@
-import json
 from dataclasses import dataclass
 import logging
 from pathlib import Path
@@ -64,21 +63,21 @@ def _log_profile_start(
     profile_path: Path | None,
 ) -> None:
     _ = idx, total
-    payload: dict[str, object] = {
-        "kind": kind,
-        "name": name,
-        "log_level": log_decision.name,
-        "visuals": visuals,
-        "log_outputs": _format_outputs(log_output),
-    }
+    message = (
+        "Profile start "
+        f"kind={kind} "
+        f"name={name} "
+        f"log_level={log_decision.name} "
+        f"visuals={visuals} "
+        f"log_outputs={_format_outputs(log_output)}"
+    )
     if profile_path is not None:
-        payload["profile"] = str(profile_path)
-    message = f"Profile:\n{json.dumps(payload, indent=2, default=str)}"
+        message = f"{message} profile={profile_path}"
     emit_execution_message(
         message,
         level=logging.DEBUG,
         logger=logger,
-        message_kind="task_config",
+        message_kind="profile_start",
     )
 
 

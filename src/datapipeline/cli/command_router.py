@@ -116,6 +116,7 @@ def execute_command(
             project=args.project,
             run_name=getattr(args, "run", None),
             force=getattr(args, "force", False),
+            build_mode=getattr(args, "build_mode", None),
             limit=getattr(args, "limit", None),
             keep=getattr(args, "keep", None),
             stage=getattr(args, "stage", None),

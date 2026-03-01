@@ -65,7 +65,14 @@ def test_inspect_request_rejects_run_scoped_log_output(tmp_path: Path, monkeypat
         encoding="utf-8",
     )
     (profiles / "inspect.report.yaml").write_text(
-        "type: inspect\nname: report\ntarget: report\nenabled: true\n",
+        (
+            "type: inspect\n"
+            "name: report\n"
+            "target: report\n"
+            "enabled: true\n"
+            "build:\n"
+            "  mode: AUTO\n"
+        ),
         encoding="utf-8",
     )
     (tmp_path / "sources").mkdir(parents=True, exist_ok=True)

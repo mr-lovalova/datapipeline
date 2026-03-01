@@ -72,7 +72,7 @@ def test_rich_backend_wraps_sources_when_level_is_info_or_debug(monkeypatch):
         yield
 
     monkeypatch.setattr(
-        "datapipeline.cli.visuals.streams_rich.visual_sources",
+        "datapipeline.cli.visuals.rich.sources.visual_sources",
         _fake_rich,
     )
 
@@ -100,7 +100,7 @@ def test_rich_backend_suppresses_source_visuals_at_warning_or_higher(monkeypatch
         yield
 
     monkeypatch.setattr(
-        "datapipeline.cli.visuals.streams_rich.visual_sources",
+        "datapipeline.cli.visuals.rich.sources.visual_sources",
         _fake_rich,
     )
 

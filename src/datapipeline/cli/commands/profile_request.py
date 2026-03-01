@@ -46,6 +46,7 @@ class ProfileResolveParams:
     project_path: Path
     run_name: Optional[str]
     force: bool
+    build_mode: Optional[str]
     limit: Optional[int]
     keep: Optional[str]
     stage: Optional[int]
@@ -175,6 +176,7 @@ def _runtime_execution_profile(
         stage=profile.stage,
         skip_artifacts=params.skip_build,
         build_options=RuntimeBuildOptions(
+            build_mode=profile.build_mode,
             cli_log_level=params.cli_log_level,
             cli_visuals=params.cli_visuals,
             cli_log_outputs=tuple(params.cli_log_outputs or ()),
@@ -344,6 +346,7 @@ def _resolve_runtime_profiles(
             keep=keep,
             stage=stage,
             limit=params.limit,
+            cli_build_mode=params.build_mode,
             cli_output=cli_output_cfg,
             workspace=params.workspace,
             cli_log_level=params.cli_log_level,
@@ -353,7 +356,7 @@ def _resolve_runtime_profiles(
             create_run=create_run,
         )
     except ValueError as exc:
-        logger.error("Invalid log output configuration: %s", exc)
+        logger.error("%s", exc)
         raise SystemExit(2) from exc
     except OutputResolutionError as exc:
         logger.error("Invalid output configuration: %s", exc)
@@ -396,6 +399,7 @@ def build_profile_run_request(
     project: str,
     run_name: Optional[str] = None,
     force: bool = False,
+    build_mode: Optional[str] = None,
     limit: Optional[int] = None,
     keep: Optional[str] = None,
     stage: Optional[int] = None,
@@ -416,6 +420,7 @@ def build_profile_run_request(
         project_path=project_path,
         run_name=run_name,
         force=force,
+        build_mode=build_mode,
         limit=limit,
         keep=keep,
         stage=stage,

@@ -7,6 +7,9 @@
 # target: matrix              # required; inspect operation id from tasks/operations
 # enabled: true               # optional
 #
+# build:                      # required unless CLI --build-mode is provided
+#   mode: AUTO                # AUTO | FORCE | OFF
+#
 # output:                     # optional; omit to use CLI defaults
 #   transport: stdout          # stdout | fs
 #   format: jsonl              # stdout: jsonl

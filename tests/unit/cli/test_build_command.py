@@ -24,29 +24,7 @@ class _TaskStub:
         self.entrypoint = entrypoint
 
 
-def test_log_build_settings_debug_emits_execution_message(monkeypatch):
-    captured: list[tuple[str, int, str | None]] = []
-    monkeypatch.setattr(
-        "datapipeline.artifacts.executor.emit_execution_message",
-        lambda message, level, logger, depth=0, message_kind=None: captured.append(
-            (message, level, message_kind)
-        ),
-    )
-
-    settings = SimpleNamespace(mode="FORCE", force=True, visuals="on", profile_name=None)
-    build_exec._log_build_settings_debug(Path("/tmp/project.yaml"), settings)
-
-    assert captured
-    message, level, message_kind = captured[0]
-    assert message.startswith("Build settings:")
-    assert '"mode": "FORCE"' in message
-    assert '"visuals": "on"' in message
-    assert '"force"' not in message
-    assert level == 10
-    assert message_kind == "build_settings"
-
-
-def test_log_build_status_emits_structured_message(monkeypatch):
+def test_log_build_decision_emits_execution_message(monkeypatch):
     captured: list[tuple[str, int, str | None]] = []
     monkeypatch.setattr(
         "datapipeline.artifacts.executor.emit_execution_message",
@@ -56,8 +34,8 @@ def test_log_build_status_emits_structured_message(monkeypatch):
     )
 
     settings = SimpleNamespace(mode="AUTO", profile_name="metadata")
-    build_exec._log_build_status(
-        status="skipped",
+    build_exec._log_build_decision(
+        action="skip",
         reason="up_to_date",
         settings=settings,
         selected_artifacts=1,
@@ -65,14 +43,14 @@ def test_log_build_status_emits_structured_message(monkeypatch):
 
     assert captured
     message, level, message_kind = captured[0]
-    assert message.startswith("Build status:")
-    assert '"status": "skipped"' in message
-    assert '"reason": "up_to_date"' in message
-    assert '"build_profile": "metadata"' in message
-    assert '"mode": "AUTO"' in message
-    assert '"selected_artifacts": 1' in message
+    assert message.startswith("Build decision:")
+    assert "action=skip" in message
+    assert "reason=up_to_date" in message
+    assert "mode=AUTO" in message
+    assert "profile=metadata" in message
+    assert "selected_artifacts=1" in message
     assert level == 20
-    assert message_kind == "build_status"
+    assert message_kind == "build_decision"
 
 
 def test_run_artifact_builder_emits_materialized_message(monkeypatch):
@@ -118,6 +96,7 @@ def test_run_build_if_needed_forwards_cli_log_outputs(monkeypatch, tmp_path):
         cli_visuals=None,
         cli_log_outputs=None,
         force_flag=False,
+        runtime_build_mode=None,
         base_log_level=None,
         build_profile=None,
     ):
@@ -126,6 +105,7 @@ def test_run_build_if_needed_forwards_cli_log_outputs(monkeypatch, tmp_path):
         captured["cli_visuals"] = cli_visuals
         captured["cli_log_outputs"] = cli_log_outputs
         captured["force_flag"] = force_flag
+        captured["runtime_build_mode"] = runtime_build_mode
         captured["base_log_level"] = base_log_level
         captured["build_profile"] = build_profile
         return SimpleNamespace(
@@ -159,6 +139,7 @@ def test_run_build_if_needed_forwards_cli_log_outputs(monkeypatch, tmp_path):
     )]
     assert captured["cli_log_level"] is None
     assert captured["build_profile"] is None
+    assert captured["runtime_build_mode"] is None
 
 
 def test_resolve_build_settings_uses_shared_observability_defaults(tmp_path):
@@ -214,6 +195,24 @@ def test_resolve_build_settings_cli_overrides_shared_observability(tmp_path):
     assert settings.visuals == "off"
     assert settings.log_decision.name == "ERROR"
     assert settings.log_output.outputs[0].transport == "stdout"
+
+
+def test_resolve_build_settings_runtime_mode_override(tmp_path):
+    settings = resolve_build_settings(
+        workspace=WorkspaceContext(
+            file_path=tmp_path / "jerry.yaml",
+            config=WorkspaceConfig.model_validate({}),
+        ),
+        cli_log_level=None,
+        cli_visuals=None,
+        cli_log_outputs=None,
+        force_flag=False,
+        runtime_build_mode="OFF",
+        base_log_level="INFO",
+    )
+
+    assert settings.mode == "OFF"
+    assert settings.force is False
 
 
 def test_resolve_build_settings_prefers_profile_over_workspace_shared(tmp_path):
@@ -478,3 +477,69 @@ def test_run_build_if_needed_rebuilds_stale_profile_artifact(monkeypatch, tmp_pa
     did_build = build_exec.run_build_if_needed(project_path, build_profile=scaler_profile)
     assert did_build is True
     assert calls["build_artifact"] == 1
+
+
+def test_run_build_if_needed_emits_run_decision(monkeypatch, tmp_path):
+    project_path = tmp_path / "project.yaml"
+    project_path.write_text(
+        "\n".join(
+            [
+                "version: 1",
+                "paths:",
+                "  streams: ./streams",
+                "  sources: ./sources",
+                "  dataset: ./dataset.yaml",
+                "  postprocess: ./postprocess.yaml",
+                "  artifacts: ./artifacts",
+                "  tasks: ./tasks",
+                "  profiles: ./profiles",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    tasks_root = tmp_path / "tasks"
+    tasks_root.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setattr(
+        "datapipeline.artifacts.executor.resolve_build_settings",
+        lambda **kwargs: SimpleNamespace(
+            visuals="off",
+            log_decision=SimpleNamespace(name="INFO", value=20),
+            log_output=LogOutputSettings(outputs=(LogOutputTarget(transport="stderr"),)),
+            mode="FORCE",
+            force=True,
+            profile_name="schema",
+        ),
+    )
+    monkeypatch.setattr("datapipeline.artifacts.executor.tasks_dir", lambda _: tasks_root)
+    monkeypatch.setattr("datapipeline.artifacts.executor.compute_config_hash", lambda *_: "hash-1")
+    monkeypatch.setattr("datapipeline.artifacts.executor.configure_root_logging", lambda **kwargs: None)
+    monkeypatch.setattr(
+        "datapipeline.artifacts.executor.bootstrap",
+        lambda _: SimpleNamespace(artifacts_root=tmp_path / "artifacts"),
+    )
+    schema_task = SchemaTask(id="schema")
+    schema_task.source_path = tasks_root / "schema.yaml"
+    monkeypatch.setattr(
+        "datapipeline.artifacts.executor.operation_specs",
+        lambda _: ([schema_task], []),
+    )
+    monkeypatch.setattr(
+        "datapipeline.artifacts.executor._run_artifact_builder",
+        lambda *, definition, **kwargs: {"relative_path": f"{definition.task_id}.json"},
+    )
+
+    captured: list[tuple[str, str | None]] = []
+    monkeypatch.setattr(
+        "datapipeline.artifacts.executor.emit_execution_message",
+        lambda message, level, logger, depth=0, message_kind=None: captured.append(
+            (message, message_kind)
+        ),
+    )
+
+    schema_profile = BuildProfile.model_validate({"type": "build", "name": "schema", "target": "schema"})
+    did_build = build_exec.run_build_if_needed(project_path, build_profile=schema_profile)
+
+    assert did_build is True
+    decisions = [message for message, kind in captured if kind == "build_decision"]
+    assert any("action=run" in message and "reason=force" in message for message in decisions)

@@ -1,6 +1,7 @@
 import argparse
 
 from datapipeline.config.options import OUTPUT_FORMATS, OUTPUT_TRANSPORTS, OUTPUT_VIEWS
+from datapipeline.config.profiles import VALID_BUILD_MODES
 
 from .common import add_dataset_flag, add_project_flag, add_visual_flags
 
@@ -51,5 +52,12 @@ def add_inspect_command(sub, common: argparse.ArgumentParser) -> None:
         "--skip-build",
         action="store_true",
         help="skip automatic artifact dependency builds before inspect operations",
+    )
+    parser.add_argument(
+        "--build-mode",
+        choices=VALID_BUILD_MODES,
+        type=str.upper,
+        default=None,
+        help="build policy for artifact dependencies: AUTO | FORCE | OFF",
     )
     add_visual_flags(parser)

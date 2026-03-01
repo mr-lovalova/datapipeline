@@ -56,6 +56,7 @@ def resolve_build_settings(
     cli_visuals: Optional[str] = None,
     cli_log_outputs: Sequence[LogOutputTarget] | None = None,
     force_flag: bool = False,
+    runtime_build_mode: str | None = None,
     base_log_level: str | None = None,
     build_profile: BuildProfile | None = None,
 ) -> BuildSettings:
@@ -76,6 +77,11 @@ def resolve_build_settings(
     profile_mode_default = (
         str(getattr(build_profile, "mode")).upper()
         if build_profile is not None and getattr(build_profile, "mode", None)
+        else None
+    )
+    runtime_mode_default = (
+        str(runtime_build_mode).strip().upper()
+        if runtime_build_mode is not None
         else None
     )
     profile_visuals = _observability_value(profile_observability, "visuals")
@@ -107,7 +113,11 @@ def resolve_build_settings(
         shared_log_level_default,
         fallback=str(base_log_level).upper() if base_log_level else "INFO",
     )
-    effective_mode = "FORCE" if force_flag else (cascade(profile_mode_default, "AUTO") or "AUTO")
+    effective_mode = (
+        "FORCE"
+        if force_flag
+        else (cascade(runtime_mode_default, profile_mode_default, "AUTO") or "AUTO")
+    )
     effective_mode = effective_mode.upper()
     force_build = force_flag or effective_mode == "FORCE"
     return BuildSettings(

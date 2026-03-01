@@ -3,4 +3,6 @@ type: serve
 name: val
 target: serve
 enabled: true
+build:
+  mode: AUTO
 keep: val

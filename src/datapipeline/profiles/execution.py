@@ -41,6 +41,7 @@ def run_selected_artifacts(
         return
     run_build_if_needed(
         request.project_path,
+        runtime_build_mode=(build_options.build_mode if build_options is not None else None),
         cli_log_level=(build_options.cli_log_level if build_options is not None else None),
         cli_visuals=(build_options.cli_visuals if build_options is not None else None),
         cli_log_outputs=list(build_options.cli_log_outputs) if build_options is not None else [],

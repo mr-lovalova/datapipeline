@@ -67,6 +67,7 @@ class RunProfile:
     log_output: LogOutputSettings
     visuals: VisualSettings
     output: OutputTarget
+    build_mode: str
 
     @property
     def label(self) -> str:
@@ -80,6 +81,7 @@ def resolve_run_profiles(
     keep: Optional[str],
     stage: Optional[int],
     limit: Optional[int],
+    cli_build_mode: Optional[str],
     cli_output,
     workspace: WorkspaceContext | None,
     cli_log_level: Optional[str],
@@ -100,6 +102,15 @@ def resolve_run_profiles(
     ):
         entry_name = entry.name
         run_cfg = getattr(runtime, "run", None)
+        build_cfg = _run_config_value(run_cfg, "build")
+        profile_build_mode = getattr(build_cfg, "mode", None) if build_cfg is not None else None
+        resolved_build_mode = cascade(cli_build_mode, profile_build_mode)
+        if resolved_build_mode is None:
+            label = entry_name or f"run{idx}"
+            raise ValueError(
+                f"Runtime profile '{label}' must define build.mode or pass --build-mode."
+            )
+        resolved_build_mode = str(resolved_build_mode).upper()
 
         resolved_stage = cascade(stage, _run_config_value(run_cfg, "stage"))
         resolved_limit = cascade(limit, _run_config_value(run_cfg, "limit"))
@@ -163,6 +174,7 @@ def resolve_run_profiles(
                 log_output=log_output,
                 visuals=visuals,
                 output=target,
+                build_mode=resolved_build_mode,
             )
         )
     return profiles

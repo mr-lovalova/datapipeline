@@ -43,9 +43,9 @@ def test_run_profile_without_visual_runner(monkeypatch):
     assert result == "ok"
     assert called["work"] == 1
     assert configured
-    assert messages and messages[0].startswith("Profile:")
-    assert '"kind": "build"' in messages[0]
-    assert '"name": "schema"' in messages[0]
+    assert messages and messages[0].startswith("Profile start ")
+    assert "kind=build" in messages[0]
+    assert "name=schema" in messages[0]
 
 
 def test_run_profile_visual_runner_requires_runtime():

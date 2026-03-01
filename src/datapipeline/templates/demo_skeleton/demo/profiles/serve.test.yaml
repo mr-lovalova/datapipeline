@@ -3,4 +3,6 @@ type: serve
 name: test
 target: serve
 enabled: true
+build:
+  mode: AUTO
 keep: test

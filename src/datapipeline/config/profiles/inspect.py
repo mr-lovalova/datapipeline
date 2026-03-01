@@ -7,6 +7,7 @@ from datapipeline.config.observability import ObservabilityConfig
 
 from .base import Profile
 from .output import ServeOutputConfig
+from .runtime_build import RuntimeBuildConfig
 
 
 class InspectProfile(Profile):
@@ -14,6 +15,7 @@ class InspectProfile(Profile):
     target: str
     output: ServeOutputConfig | None = None
     observability: ObservabilityConfig | None = Field(default=None)
+    build: RuntimeBuildConfig | None = Field(default=None)
 
     @field_validator("target", mode="before")
     @classmethod

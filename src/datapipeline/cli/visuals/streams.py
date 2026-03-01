@@ -80,11 +80,11 @@ class _RichBackend(VisualsBackend):
                 yield
 
             return _noop()
-        from .streams_rich import visual_sources as rich_vs
+        from .rich.sources import visual_sources as rich_vs
         return rich_vs(runtime, log_level)
 
     def wrap_events(self, log_level: int):
-        from .streams_rich import visual_event_sink
+        from .rich.event_sink import visual_event_sink
         return visual_event_sink(log_level)
 
     def on_streams_complete(self) -> bool:

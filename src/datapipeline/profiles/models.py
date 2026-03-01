@@ -37,6 +37,7 @@ class BaseExecutionProfile:
 
 @dataclass(frozen=True, kw_only=True)
 class RuntimeBuildOptions:
+    build_mode: str | None = None
     cli_log_level: str | None = None
     cli_visuals: str | None = None
     cli_log_outputs: Sequence[LogOutputTarget] = field(default_factory=tuple)
