@@ -75,7 +75,7 @@ def test_inspect_entries_resolve_inspect_operations(tmp_path: Path):
         encoding="utf-8",
     )
 
-    entries, _root = resolve_runtime_entries(project_yaml, run_name="report", kind="inspect")
+    entries = resolve_runtime_entries(project_yaml, run_name="report", kind="inspect")
     assert len(entries) == 1
     assert entries[0].operation.id == "report"
     assert entries[0].operation.entrypoint == "core.inspect.report"
@@ -105,7 +105,7 @@ def test_inspect_entries_default_to_enabled_profiles(tmp_path: Path):
         encoding="utf-8",
     )
 
-    entries, _root = resolve_runtime_entries(project_yaml, run_name=None, kind="inspect")
+    entries = resolve_runtime_entries(project_yaml, run_name=None, kind="inspect")
     assert len(entries) == 1
     assert entries[0].name == "matrix"
     assert entries[0].operation.id == "matrix"

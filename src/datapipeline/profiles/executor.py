@@ -1,9 +1,11 @@
+import json
 from dataclasses import dataclass
 import logging
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from datapipeline.cli.logging_setup import configure_root_logging
+from datapipeline.cli.visuals import get_visuals_backend
 from datapipeline.cli.visuals.execution import emit_execution_message
 from datapipeline.cli.visuals.runner import run_job
 from datapipeline.config.resolution import LogLevelDecision, LogOutputSettings
@@ -61,22 +63,37 @@ def _log_profile_start(
     log_output: LogOutputSettings,
     profile_path: Path | None,
 ) -> None:
-    message = (
-        f"Profile start ({idx}/{total}) "
-        f"kind={kind} "
-        f"name={name} "
-        f"log_level={log_decision.name} "
-        f"visuals={visuals} "
-        f"log_outputs={_format_outputs(log_output)}"
-    )
+    _ = idx, total
+    payload: dict[str, object] = {
+        "kind": kind,
+        "name": name,
+        "log_level": log_decision.name,
+        "visuals": visuals,
+        "log_outputs": _format_outputs(log_output),
+    }
     if profile_path is not None:
-        message = f"{message} profile={profile_path}"
+        payload["profile"] = str(profile_path)
+    message = f"Profile:\n{json.dumps(payload, indent=2, default=str)}"
     emit_execution_message(
         message,
         level=logging.DEBUG,
         logger=logger,
         message_kind="task_config",
     )
+
+
+def _render_profile_header(spec: ProfileExecutionSpec) -> None:
+    backend = get_visuals_backend(spec.visuals or "on")
+    sections = tuple(section for section in spec.sections if section)
+    label = spec.label or spec.name
+    presented = False
+    try:
+        presented = backend.on_job_start(sections, label, spec.idx, spec.total)
+    except Exception:
+        presented = False
+    if not presented:
+        prefix = " / ".join(sections) if sections else "Job"
+        logger.info("%s: '%s' (%d/%d)", prefix, label, spec.idx, spec.total)
 
 
 def run_profile(
@@ -89,6 +106,34 @@ def run_profile(
         artifact_payload=spec.artifact_payload,
         artifact_writer=spec.artifact_writer,
     )
+    if spec.use_visual_runner:
+        if spec.runtime is None:
+            raise ValueError("runtime is required when use_visual_runner=True")
+
+        def _work_with_profile_start() -> Any:
+            _log_profile_start(
+                kind=spec.kind,
+                name=spec.name,
+                idx=spec.idx,
+                total=spec.total,
+                visuals=spec.visuals,
+                log_decision=spec.log_decision,
+                log_output=spec.log_output,
+                profile_path=profile_path,
+            )
+            return work()
+
+        return run_job(
+            sections=spec.sections,
+            label=spec.label or spec.name,
+            visuals=spec.visuals or "on",
+            level=spec.log_decision.value,
+            runtime=spec.runtime,
+            work=_work_with_profile_start,
+            idx=spec.idx,
+            total=spec.total,
+        )
+    _render_profile_header(spec)
     _log_profile_start(
         kind=spec.kind,
         name=spec.name,
@@ -99,18 +144,4 @@ def run_profile(
         log_output=spec.log_output,
         profile_path=profile_path,
     )
-
-    if spec.use_visual_runner:
-        if spec.runtime is None:
-            raise ValueError("runtime is required when use_visual_runner=True")
-        return run_job(
-            sections=spec.sections,
-            label=spec.label or spec.name,
-            visuals=spec.visuals or "on",
-            level=spec.log_decision.value,
-            runtime=spec.runtime,
-            work=work,
-            idx=spec.idx,
-            total=spec.total,
-        )
     return work()

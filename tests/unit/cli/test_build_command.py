@@ -1,6 +1,5 @@
 from pathlib import Path
 from types import SimpleNamespace
-import contextlib
 
 import pytest
 from datapipeline.artifacts import executor as build_exec
@@ -45,6 +44,35 @@ def test_log_build_settings_debug_emits_execution_message(monkeypatch):
     assert '"force"' not in message
     assert level == 10
     assert message_kind == "build_settings"
+
+
+def test_log_build_status_emits_structured_message(monkeypatch):
+    captured: list[tuple[str, int, str | None]] = []
+    monkeypatch.setattr(
+        "datapipeline.artifacts.executor.emit_execution_message",
+        lambda message, level, logger, depth=0, message_kind=None: captured.append(
+            (message, level, message_kind)
+        ),
+    )
+
+    settings = SimpleNamespace(mode="AUTO", profile_name="metadata")
+    build_exec._log_build_status(
+        status="skipped",
+        reason="up_to_date",
+        settings=settings,
+        selected_artifacts=1,
+    )
+
+    assert captured
+    message, level, message_kind = captured[0]
+    assert message.startswith("Build status:")
+    assert '"status": "skipped"' in message
+    assert '"reason": "up_to_date"' in message
+    assert '"profile": "metadata"' in message
+    assert '"mode": "AUTO"' in message
+    assert '"selected_artifacts": 1' in message
+    assert level == 20
+    assert message_kind == "build_status"
 
 
 def test_run_artifact_builder_emits_materialized_message(monkeypatch):
@@ -353,17 +381,8 @@ def test_run_build_if_needed_preserves_previous_artifacts_in_state(monkeypatch, 
     )
     monkeypatch.setattr("datapipeline.artifacts.executor.tasks_dir", lambda _: tasks_root)
     monkeypatch.setattr("datapipeline.artifacts.executor.compute_config_hash", lambda *_: "hash-1")
-    monkeypatch.setattr(
-        "datapipeline.artifacts.executor.get_visuals_backend",
-        lambda visuals: SimpleNamespace(
-            on_build_start=lambda project: True,
-            wrap_events=lambda level: contextlib.nullcontext(),
-        ),
-    )
     monkeypatch.setattr("datapipeline.artifacts.executor.configure_root_logging", lambda **kwargs: None)
     monkeypatch.setattr("datapipeline.artifacts.executor.bootstrap", lambda _: SimpleNamespace(artifacts_root=tmp_path / "artifacts"))
-    monkeypatch.setattr("datapipeline.artifacts.executor.sections_from_path", lambda *_: ("Build Tasks",))
-    monkeypatch.setattr("datapipeline.artifacts.executor.run_job", lambda **kwargs: kwargs["work"]())
     schema_task = SchemaTask(id="schema")
     schema_task.source_path = tasks_root / "schema.yaml"
     scaler_task = ScalerTask(id="scaler")
@@ -437,21 +456,16 @@ def test_run_build_if_needed_rebuilds_stale_profile_artifact(monkeypatch, tmp_pa
     )
     monkeypatch.setattr("datapipeline.artifacts.executor.tasks_dir", lambda _: tasks_root)
     monkeypatch.setattr("datapipeline.artifacts.executor.compute_config_hash", lambda *_: "hash-2")
-    monkeypatch.setattr(
-        "datapipeline.artifacts.executor.get_visuals_backend",
-        lambda visuals: SimpleNamespace(
-            on_build_start=lambda project: True,
-            wrap_events=lambda level: contextlib.nullcontext(),
-        ),
-    )
     monkeypatch.setattr("datapipeline.artifacts.executor.configure_root_logging", lambda **kwargs: None)
     monkeypatch.setattr("datapipeline.artifacts.executor.bootstrap", lambda _: SimpleNamespace(artifacts_root=tmp_path / "artifacts"))
-    monkeypatch.setattr("datapipeline.artifacts.executor.sections_from_path", lambda *_: ("Build Tasks",))
 
-    calls = {"run_job": 0}
+    calls = {"build_artifact": 0}
     monkeypatch.setattr(
-        "datapipeline.artifacts.executor.run_job",
-        lambda **kwargs: (calls.__setitem__("run_job", calls["run_job"] + 1) or kwargs["work"]()),
+        "datapipeline.artifacts.executor._run_artifact_builder",
+        lambda *, definition, **kwargs: (
+            calls.__setitem__("build_artifact", calls["build_artifact"] + 1)
+            or {"relative_path": f"{definition.task_id}.json"}
+        ),
     )
     scaler_task = ScalerTask(id="scaler")
     scaler_task.source_path = tasks_root / "scaler.yaml"
@@ -459,13 +473,8 @@ def test_run_build_if_needed_rebuilds_stale_profile_artifact(monkeypatch, tmp_pa
         "datapipeline.artifacts.executor.operation_specs",
         lambda _: ([scaler_task], []),
     )
-    monkeypatch.setattr(
-        "datapipeline.artifacts.executor._run_artifact_builder",
-        lambda *, definition, **kwargs: {"relative_path": f"{definition.task_id}.json"},
-    )
-
     scaler_profile = BuildProfile.model_validate({"type": "build", "name": "scaler", "target": "scaler"})
 
     did_build = build_exec.run_build_if_needed(project_path, build_profile=scaler_profile)
     assert did_build is True
-    assert calls["run_job"] == 1
+    assert calls["build_artifact"] == 1

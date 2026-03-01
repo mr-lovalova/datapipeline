@@ -31,6 +31,7 @@ def run_selected_artifacts(
     artifact_task_ids: list[str],
     settings: Any | None = None,
     build_options: RuntimeBuildOptions | None = None,
+    runtime_override: Any | None = None,
 ) -> None:
     if not artifact_task_ids:
         return
@@ -47,6 +48,7 @@ def run_selected_artifacts(
         artifact_task_configs=list(request.artifact_task_configs),
         settings=settings,
         skip_logging_setup=True,
+        runtime_override=runtime_override,
     )
 
 
@@ -117,6 +119,7 @@ def execute_runtime_profile(
             request=request,
             artifact_task_ids=artifact_task_ids,
             build_options=profile.build_options,
+            runtime_override=profile.runtime,
         )
     sync_runtime_artifacts_from_state(profile, request.project_path)
 
@@ -131,6 +134,7 @@ def execute_build_profile(
     profile: BuildExecutionProfile,
     request: ProfileRunRequest,
     tasks_by_id: dict[str, Task],
+    runtime_override: Any | None = None,
 ) -> None:
     try:
         ordered_ids = resolve_task_order(profile, tasks_by_id)
@@ -151,6 +155,7 @@ def execute_build_profile(
         request=request,
         artifact_task_ids=artifact_task_ids_for_order(ordered_ids, tasks_by_id),
         settings=profile.build_settings,
+        runtime_override=runtime_override,
     )
 
 

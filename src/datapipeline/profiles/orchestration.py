@@ -1,4 +1,5 @@
 from datapipeline.profiles.executor import ProfileExecutionSpec, run_profile
+from datapipeline.services.bootstrap import bootstrap
 from .execution import execute_build_profile, execute_runtime_profile
 from .models import ProfileRunRequest, RuntimeExecutionProfile
 
@@ -11,8 +12,12 @@ def run_profiles(request: ProfileRunRequest) -> None:
 
     total = len(profiles)
     for idx, profile in enumerate(profiles, start=1):
-        runtime = profile.runtime if isinstance(
-            profile, RuntimeExecutionProfile) else None
+        is_runtime_profile = isinstance(profile, RuntimeExecutionProfile)
+        runtime = (
+            profile.runtime
+            if is_runtime_profile
+            else bootstrap(request.project_path)
+        )
         spec = ProfileExecutionSpec(
             kind=profile.kind,
             name=profile.name,
@@ -24,11 +29,11 @@ def run_profiles(request: ProfileRunRequest) -> None:
             sections=profile.sections,
             label=profile.label or profile.name,
             runtime=runtime,
-            use_visual_runner=(runtime is not None),
+            use_visual_runner=True,
             artifact_payload=profile.artifact_payload,
             artifact_writer=profile.artifact_writer,
         )
-        if isinstance(profile, RuntimeExecutionProfile):
+        if is_runtime_profile:
             def work(profile=profile):
                 return execute_runtime_profile(
                     profile=profile,
@@ -36,10 +41,11 @@ def run_profiles(request: ProfileRunRequest) -> None:
                     tasks_by_id=tasks_by_id,
                 )
         else:
-            def work(profile=profile):
+            def work(profile=profile, runtime=runtime):
                 return execute_build_profile(
                     profile=profile,
                     request=request,
                     tasks_by_id=tasks_by_id,
+                    runtime_override=runtime,
                 )
         run_profile(spec=spec, work=work)

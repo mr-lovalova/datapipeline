@@ -16,12 +16,9 @@ def _is_tty() -> bool:
 class VisualsBackend:
     """Interface for visuals backends.
 
-    - on_build_start/on_job_start return True if the backend handled the headline, False to let caller log it.
+    - on_job_start returns True if the backend handled the headline, False to let caller log it.
     - wrap_sources returns a contextmanager that enables streaming visuals.
     """
-
-    def on_build_start(self, path) -> bool:  # Path-like
-        return False
 
     def on_job_start(self, sections: Tuple[str, ...], label: str, idx: int, total: int) -> bool:
         return False
@@ -72,32 +69,6 @@ class _RichBackend(VisualsBackend):
             indent = "  " * max(len(sections), 1)
             console.print(f"{indent}── {label} ({idx}/{total}) ──")
             console.print()
-            return True
-        except Exception:
-            return False
-
-    def on_build_start(self, path) -> bool:
-        try:
-            from rich.console import Console as _Console
-            from rich.rule import Rule as _Rule
-            import sys as _sys
-            from pathlib import Path as _Path
-            import os as _os
-            console = _Console(file=_sys.stderr, markup=True)
-            console.print(_Rule("Info", style="bold white"))
-            # Subheader with compact path to project.yaml
-            p = _Path(path)
-            try:
-                cwd = _Path(_os.getcwd())
-                rel = p.relative_to(cwd)
-                parts = [part for part in rel.as_posix().split("/") if part]
-            except Exception:
-                parts = [part for part in p.as_posix().split("/") if part]
-            if len(parts) > 3:
-                parts = ["..."] + parts[-3:]
-            compact = "/".join(parts) if parts else p.name
-            console.print(f"[cyan]project:[/cyan] {compact}")
-            console.print()  # spacer
             return True
         except Exception:
             return False

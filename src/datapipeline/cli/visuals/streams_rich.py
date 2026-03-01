@@ -372,7 +372,7 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
             if event.message_kind == "source_info":
                 text.append_text(_styled_source_label(message))
                 return text
-            if event.message_kind in {"build_settings", "task_config"}:
+            if event.message_kind in {"build_settings", "task_config", "build_status"}:
                 prefix, _, rest = message.partition("\n")
                 text.append(prefix, style="bold cyan")
                 if rest:

@@ -6,7 +6,6 @@ from typing import Any, Callable, Literal, Mapping, Optional, Sequence, TypeAlia
 from pydantic import ValidationError
 
 from datapipeline.cli.commands.run_config import resolve_runtime_entries
-from datapipeline.cli.visuals.sections import sections_from_path
 from datapipeline.config.build_resolution import resolve_build_settings
 from datapipeline.config.dataset.loader import load_dataset
 from datapipeline.config.loaders.operations import operation_specs
@@ -24,7 +23,6 @@ from datapipeline.profiles import (
 )
 from datapipeline.services.path_policy import resolve_workspace_path
 from datapipeline.services.run_artifacts import write_profile_artifact
-from datapipeline.services.run_entries import RunEntry
 
 logger = logging.getLogger(__name__)
 
@@ -146,7 +144,6 @@ def _profile_artifact_writer(
 def _runtime_execution_profile(
     profile_kind: RuntimeKind,
     payload: dict[str, object],
-    run_root: Path | None,
     profile,
     params: ProfileResolveParams,
     datasets: dict[str, object],
@@ -159,7 +156,7 @@ def _runtime_execution_profile(
         log_decision=profile.log_decision,
         log_output=profile.log_output,
         runtime=profile.runtime,
-        sections=_entry_sections(run_root, profile.entry),
+        sections=(f"{profile_kind.capitalize()} Profiles",),
         label=profile.label,
         artifact_payload=payload,
         artifact_writer=_profile_artifact_writer(
@@ -184,11 +181,6 @@ def _runtime_execution_profile(
             workspace=params.workspace,
         ),
     )
-
-
-def _entry_sections(run_root: Optional[Path], entry: RunEntry) -> tuple[str, ...]:
-    path_sections = sections_from_path(run_root, entry.path)
-    return ("Run Tasks",) + tuple(path_sections[1:])
 
 
 def build_cli_output_config(
@@ -326,7 +318,7 @@ def _resolve_runtime_profiles(
     kind: RuntimeKind,
     params: ProfileResolveParams,
 ) -> list[ExecutionProfile]:
-    run_entries, run_root = resolve_runtime_entries(
+    run_entries = resolve_runtime_entries(
         params.project_path,
         params.run_name,
         kind=kind,
@@ -370,7 +362,6 @@ def _resolve_runtime_profiles(
     return _runtime_profiles_to_execution(
         kind=kind,
         profiles=runtime_profiles,
-        run_root=run_root,
         params=params,
     )
 
@@ -379,7 +370,6 @@ def _runtime_profiles_to_execution(
     *,
     kind: RuntimeKind,
     profiles,
-    run_root: Path | None,
     params: ProfileResolveParams,
 ) -> list[ExecutionProfile]:
     datasets: dict[str, object] = {"vectors": load_dataset(params.project_path, "vectors")}
@@ -390,7 +380,6 @@ def _runtime_profiles_to_execution(
             _runtime_execution_profile(
                 profile_kind=kind,
                 payload=payload,
-                run_root=run_root,
                 profile=profile,
                 params=params,
                 datasets=datasets,
