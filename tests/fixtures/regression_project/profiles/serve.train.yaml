@@ -1,0 +1,5 @@
+type: serve
+name: train
+target: serve
+enabled: true
+keep: train

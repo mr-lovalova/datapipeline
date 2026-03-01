@@ -13,7 +13,7 @@ ExtraPolicy = Literal["error", "drop", "keep"]
 
 
 class VectorEnsureSchemaTransform(VectorContextMixin):
-    """Ensure vectors conform to the vector schema (`schema.json`) artifact.
+    """Ensure vectors conform to the vector schema (`build/schema.json`) artifact.
 
     Options allow filling or dropping rows with missing identifiers and
     pruning/raising on unexpected identifiers.
@@ -109,7 +109,7 @@ class VectorEnsureSchemaTransform(VectorContextMixin):
             if not ordered:
                 raise RuntimeError(
                     "Vector schema artifact is empty or unavailable; run `jerry build` "
-                    "to materialize `schema.json` via the `vector_schema` task."
+                    "to materialize `build/schema.json` via the `vector_schema` task."
                 )
             self._baseline = ordered
             self._schema_meta = {

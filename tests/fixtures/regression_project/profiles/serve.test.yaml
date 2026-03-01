@@ -1,0 +1,5 @@
+type: serve
+name: test
+target: serve
+enabled: true
+keep: test

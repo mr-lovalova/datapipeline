@@ -68,7 +68,7 @@ class PipelineContext:
                 logger.debug("Target schema entries missing; proceeding without target baseline.")
                 self._cache[key] = []
                 return []
-            raise RuntimeError("Vector schema artifact missing; run `jerry build` to materialize schema.json.")
+            raise RuntimeError("Vector schema artifact missing; run `jerry build` to materialize build/schema.json.")
         ids = [entry["id"] for entry in entries if isinstance(entry.get("id"), str)]
         self._cache[key] = ids
         return list(ids)

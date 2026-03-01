@@ -46,7 +46,7 @@ YAML config (dataset project root):
   - `contracts/*.yaml` (canonical streams)
   - `dataset.yaml` (features/targets)
   - `postprocess.yaml` (vector-level transforms)
-  - `tasks/profiles/*.yaml` (serve/build profiles; optional overrides)
+  - `profiles/serve.<name>.yaml`, `profiles/build.<name>.yaml`, `profiles/inspect.<name>.yaml` (profiles; optional overrides)
   - `tasks/operations/*.yaml` (artifact + serve operation configs; optional overrides)
 
 Python plugin code:

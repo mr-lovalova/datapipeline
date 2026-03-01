@@ -59,16 +59,14 @@ def resolve_build_settings(
     build_profile=None,
 ) -> BuildSettings:
     shared = workspace.config.shared if workspace else None
-    build_defaults = workspace.config.build if workspace else None
     shared_observability = shared.observability if shared else None
-    build_observability = build_defaults.observability if build_defaults else None
     profile_observability = (
         _observability_value(build_profile, "observability")
         if build_profile is not None
         else None
     )
     profile_name = (
-        build_profile.effective_name()
+        build_profile.name
         if build_profile is not None
         else None
     )
@@ -82,9 +80,7 @@ def resolve_build_settings(
     profile_visuals = _observability_value(profile_observability, "visuals")
     profile_log_level_default = _logging_value(profile_observability, "level")
     shared_log_level_default = _logging_value(shared_observability, "level")
-    build_log_level_default = _logging_value(build_observability, "level")
     shared_visuals = _observability_value(shared_observability, "visuals")
-    build_visuals = _observability_value(build_observability, "visuals")
     if build_profile is not None and project_path is not None:
         profile_log_outputs = resolve_project_log_outputs(
             _logging_value(profile_observability, "outputs"),
@@ -99,28 +95,18 @@ def resolve_build_settings(
         _logging_value(shared_observability, "outputs"),
         workspace=workspace,
     )
-    build_log_outputs = resolve_workspace_log_outputs(
-        _logging_value(build_observability, "outputs"),
-        workspace=workspace,
-    )
-    build_mode_default = (
-        build_defaults.mode.upper() if build_defaults and build_defaults.mode else None
-    )
     visuals = resolve_visuals(
         cli_visuals=cli_visuals,
-        config_visuals=cascade(profile_visuals, build_visuals),
+        config_visuals=profile_visuals,
         workspace_visuals=shared_visuals,
     )
     log_decision = resolve_log_level(
         cli_log_level,
         profile_log_level_default,
-        build_log_level_default,
         shared_log_level_default,
         fallback=str(base_log_level).upper() if base_log_level else "INFO",
     )
-    effective_mode = "FORCE" if force_flag else (
-        cascade(profile_mode_default, build_mode_default, "AUTO") or "AUTO"
-    )
+    effective_mode = "FORCE" if force_flag else (cascade(profile_mode_default, "AUTO") or "AUTO")
     effective_mode = effective_mode.upper()
     force_build = force_flag or effective_mode == "FORCE"
     return BuildSettings(
@@ -130,7 +116,6 @@ def resolve_build_settings(
             output_candidates=(
                 list(cli_log_outputs or []),
                 _global_log_outputs(profile_log_outputs),
-                _global_log_outputs(build_log_outputs),
                 _global_log_outputs(shared_log_outputs),
             ),
             allow_run_scope=False,

@@ -10,9 +10,8 @@ from datapipeline.config.resolution import (
     resolve_log_level,
     resolve_log_output,
     resolve_visuals,
-    workspace_output_defaults,
 )
-from datapipeline.config.workspace import WorkspaceConfig, WorkspaceContext
+from datapipeline.config.workspace import WorkspaceConfig
 
 
 def test_cascade_prefers_first_non_null():
@@ -121,30 +120,17 @@ def test_minimum_level_prefers_lowest_numeric():
     assert minimum_level(start=None) is None
 
 
-def test_workspace_output_defaults_handles_relative_paths(tmp_path):
-    workspace_file = tmp_path / "jerry.yaml"
-    workspace_file.write_text("shared: {}\n", encoding="utf-8")
-    cfg = WorkspaceConfig.model_validate(
-        {
-            "serve": {
-                "output": {
-                    "transport": "fs",
-                    "format": "jsonl",
-                    "directory": "outputs",
-                }
-            }
-        }
-    )
-    context = WorkspaceContext(file_path=workspace_file, config=cfg)
-    resolved = workspace_output_defaults(context)
-    assert resolved.transport == "fs"
-    assert resolved.format == "jsonl"
-    assert resolved.directory == (tmp_path / "outputs").resolve()
+def test_workspace_rejects_serve_and_build_blocks():
+    try:
+        WorkspaceConfig.model_validate({"serve": {"limit": 10}})
+    except Exception as exc:
+        assert "serve" in str(exc)
+    else:
+        raise AssertionError("Expected validation failure for workspace serve defaults")
 
-
-def test_workspace_build_mode_accepts_booleans():
-    cfg = WorkspaceConfig.model_validate({"build": {"mode": False}})
-    assert cfg.build.mode == "OFF"
-
-    cfg = WorkspaceConfig.model_validate({"build": {"mode": True}})
-    assert cfg.build.mode == "AUTO"
+    try:
+        WorkspaceConfig.model_validate({"build": {"mode": "AUTO"}})
+    except Exception as exc:
+        assert "build" in str(exc)
+    else:
+        raise AssertionError("Expected validation failure for workspace build defaults")

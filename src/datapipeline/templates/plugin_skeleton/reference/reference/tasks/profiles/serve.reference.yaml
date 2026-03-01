@@ -2,9 +2,9 @@
 # This file is documentation only; uncomment the keys you want to use.
 #
 # version: 1                  # optional
-# kind: serve
-# name: train                 # optional (defaults to filename stem)
-# target: serve               # required; serve operation name
+# type: serve
+# name: train                 # required; must be unique among serve profiles
+# target: serve               # required; serve operation id from tasks/operations
 # enabled: true               # optional
 #
 # keep: train                  # optional; split label from globals.split (null disables filtering)
@@ -34,4 +34,4 @@
 #       # - transport: FS
 #       #   scope: RUN        # GLOBAL | RUN
 #       #   path: logs/serve.log  # required for FS+GLOBAL; optional for RUN (default logs/serve.<task>.log)
-# precedence: CLI --log-output > this profile > jerry.yaml serve > jerry.yaml shared
+# precedence: CLI --log-output > this profile > jerry.yaml shared

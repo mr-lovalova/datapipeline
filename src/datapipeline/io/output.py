@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from datapipeline.config.tasks import ServeOutputConfig
+from datapipeline.config.profiles import ServeOutputConfig
 from datapipeline.services.path_policy import (
     resolve_relative_to_base,
     sanitize_path_segment,

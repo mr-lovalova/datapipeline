@@ -48,7 +48,7 @@ def test_materialize_scaler_statistics_split_all_ignores_label_filter(monkeypatc
 
     result = materialize_scaler_statistics(
         runtime,
-        ScalerTask(kind="scaler", split_label="all", output="scaler.json"),
+        ScalerTask(id="scaler", split_label="all", output="scaler.json"),
     )
 
     assert result is not None

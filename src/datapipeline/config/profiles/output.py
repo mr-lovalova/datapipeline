@@ -1,0 +1,89 @@
+import codecs
+from pathlib import Path
+from typing import Literal
+
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from datapipeline.config.options import OUTPUT_STDOUT_FORMATS, OUTPUT_VIEWS
+
+Transport = Literal["fs", "stdout"]
+Format = Literal["csv", "jsonl", "pickle"]
+View = Literal["flat", "raw", "values"]
+
+
+class ServeOutputConfig(BaseModel):
+    transport: Transport
+    format: Format
+    view: View | None = Field(default=None)
+    directory: Path | None = Field(default=None)
+    filename: str | None = Field(default=None)
+    encoding: str | None = Field(default=None)
+
+    @field_validator("filename", mode="before")
+    @classmethod
+    def _normalize_filename(cls, value):
+        if value is None:
+            return None
+        text = str(value).strip()
+        if not text:
+            return None
+        if any(sep in text for sep in ("/", "\\")):
+            raise ValueError("filename must not contain path separators")
+        if "." in Path(text).name:
+            raise ValueError("filename must not include an extension")
+        return text
+
+    @field_validator("view", mode="before")
+    @classmethod
+    def _normalize_view(cls, value):
+        if value is None:
+            return None
+        text = str(value).strip().lower()
+        if not text:
+            return None
+        if text not in set(OUTPUT_VIEWS):
+            raise ValueError(
+                f"view must be one of {', '.join(repr(x) for x in OUTPUT_VIEWS)}"
+            )
+        return text
+
+    @field_validator("encoding", mode="before")
+    @classmethod
+    def _normalize_encoding(cls, value):
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
+
+    @model_validator(mode="after")
+    def _validate(self):
+        if self.transport == "stdout":
+            if self.directory is not None:
+                raise ValueError("stdout cannot define a directory")
+            if self.filename is not None:
+                raise ValueError("stdout outputs do not support filenames")
+            if self.encoding is not None:
+                raise ValueError("stdout outputs do not support encoding")
+            if self.format not in set(OUTPUT_STDOUT_FORMATS):
+                raise ValueError(
+                    f"stdout output supports {', '.join(repr(x) for x in OUTPUT_STDOUT_FORMATS)} formats"
+                )
+        elif self.directory is None:
+            raise ValueError("fs outputs require a directory")
+        if self.format == "csv" and self.view not in {None, "flat", "values"}:
+            raise ValueError("csv output supports only view='flat' or view='values'")
+        if self.transport == "fs":
+            if self.format == "pickle":
+                if self.encoding is not None:
+                    raise ValueError("pickle output does not support encoding")
+            elif self.format in {"jsonl", "csv"}:
+                if self.encoding is None:
+                    self.encoding = "utf-8"
+                try:
+                    codecs.lookup(self.encoding)
+                except LookupError as exc:
+                    raise ValueError(f"Unknown encoding '{self.encoding}'") from exc
+        return self
+
+
+__all__ = ["Transport", "Format", "View", "ServeOutputConfig"]

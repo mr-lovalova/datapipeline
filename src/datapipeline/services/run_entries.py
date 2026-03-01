@@ -1,16 +1,16 @@
-
 from pathlib import Path
 from typing import Iterator, NamedTuple, Optional, Sequence
 
-from datapipeline.config.tasks import ServeOperationTask, ServeTask
+from datapipeline.config.profiles import Profile
+from datapipeline.config.tasks import OperationTask
 from datapipeline.runtime import Runtime
 from datapipeline.services.bootstrap import bootstrap
 
 
 class RunEntry(NamedTuple):
     name: Optional[str]
-    config: Optional[ServeTask]
-    operation: ServeOperationTask
+    config: Optional[Profile]
+    operation: OperationTask
     path: Optional[Path] = None
 
 
@@ -25,8 +25,12 @@ def iter_runtime_runs(
         runtime = bootstrap(project_path)
         if run_cfg is not None:
             runtime.run = run_cfg
-            split_keep = getattr(runtime.split, "keep", None)
-            runtime.split_keep = run_cfg.keep or split_keep
-        if keep_override:
-            runtime.split_keep = keep_override
+            if getattr(run_cfg, "type", None) == "serve":
+                split_keep = getattr(runtime.split, "keep", None)
+                run_keep = getattr(run_cfg, "keep", None)
+                runtime.split_keep = run_keep or split_keep
+                if keep_override:
+                    runtime.split_keep = keep_override
+            else:
+                runtime.split_keep = None
         yield idx, total_runs, entry, runtime

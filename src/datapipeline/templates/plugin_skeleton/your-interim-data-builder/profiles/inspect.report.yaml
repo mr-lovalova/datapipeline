@@ -1,0 +1,5 @@
+# See ../../reference/reference/tasks/profiles/inspect.reference.yaml for full options.
+type: inspect
+name: report
+target: report
+enabled: false

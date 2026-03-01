@@ -10,6 +10,9 @@ BUILD_OPERATIONS_EP = os.getenv(
 SERVE_OPERATIONS_EP = os.getenv(
     "DP_SERVE_OPERATIONS_EP", "datapipeline.operations.serve"
 )
+INSPECT_OPERATIONS_EP = os.getenv(
+    "DP_INSPECT_OPERATIONS_EP", "datapipeline.operations.inspect"
+)
 
 RECORD_TRANSFORMS_EP = os.getenv(
     "DP_RECORD_TRANSFORMS_EP", "datapipeline.transforms.record")

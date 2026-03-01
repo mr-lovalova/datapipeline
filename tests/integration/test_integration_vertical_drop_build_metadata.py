@@ -29,19 +29,19 @@ def test_vertical_drop_respects_element_coverage_after_metadata_build(copy_fixtu
     runtime = bootstrap(project)
     schema_rel = materialize_vector_schema(
         runtime,
-        SchemaTask(kind="schema", output="schema.json"),
+        SchemaTask(id="schema", output="schema.json"),
     )
     if schema_rel:
         runtime.artifacts.register(VECTOR_SCHEMA, relative_path=schema_rel[0])
     scaler_rel = materialize_scaler_statistics(
         runtime,
-        ScalerTask(kind="scaler", split_label="all", output="scaler.json"),
+        ScalerTask(id="scaler", split_label="all", output="scaler.json"),
     )
     if scaler_rel:
         runtime.artifacts.register(SCALER_STATISTICS, relative_path=scaler_rel[0])
     meta_rel = materialize_metadata(
         runtime,
-        MetadataTask(kind="metadata", output="metadata.json"),
+        MetadataTask(id="metadata", output="metadata.json"),
     )
     assert meta_rel is not None
     rel_path, _meta = meta_rel

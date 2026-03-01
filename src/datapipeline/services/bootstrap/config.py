@@ -69,6 +69,11 @@ def artifacts_root(project_yaml: Path) -> Path:
     return resolve_project_path(project_yaml, a)
 
 
+def build_state_path(project_yaml: Path) -> Path:
+    """Return the internal build-state ledger path."""
+    return (artifacts_root(project_yaml) / "_system" / "build" / "state.json").resolve()
+
+
 def run_root(project_yaml: Path, run_id: str | None = None) -> Path:
     """Return a per-run artifacts directory under the project artifacts root.
 
@@ -152,6 +157,7 @@ def _interpolate(obj, vars_: dict[str, Any]):
 
 __all__ = [
     "artifacts_root",
+    "build_state_path",
     "run_root",
     "_globals",
     "_interpolate",

@@ -10,6 +10,7 @@
 #   postprocess: postprocess.yaml # required
 #   artifacts: ../artifacts/${project_name}/v${version} # required
 #   tasks: ./tasks            # optional
+#   profiles: ./profiles      # optional (defaults to ./profiles)
 # globals:                    # optional; available via ${var}
 #   group_by: 1h              # optional; dataset cadence
 #   start_time: 2021-01-01T00:00:00Z # optional; used in contracts

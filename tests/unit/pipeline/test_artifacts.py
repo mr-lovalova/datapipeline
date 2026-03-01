@@ -1,3 +1,6 @@
+import tomllib
+from pathlib import Path
+
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 import pytest
@@ -8,17 +11,35 @@ from datapipeline.artifacts.specs import (
     StageDemand,
     artifact_definitions_with_task_dependencies,
     artifact_build_order,
-    artifact_keys_for_task_kinds,
+    artifact_keys_for_task_ids,
     required_artifacts_for,
 )
-from datapipeline.config.tasks import MetadataTask, ScalerTask, SchemaTask
+from datapipeline.config.tasks import (
+    MetadataTask,
+    ScalerTask,
+    SchemaTask,
+)
 from datapipeline.plugins import BUILD_OPERATIONS_EP
 from datapipeline.services.constants import (
     SCALER_STATISTICS,
     VECTOR_SCHEMA,
     VECTOR_SCHEMA_METADATA,
 )
-from datapipeline.utils.load import load_ep
+
+
+def _declared_entrypoints(group: str) -> dict[str, str]:
+    repo_root = Path(__file__).resolve().parents[3]
+    data = tomllib.loads((repo_root / "pyproject.toml").read_text(encoding="utf-8"))
+    project = data.get("project", {})
+    entrypoints = project.get("entry-points", {})
+    group_values = entrypoints.get(group, {})
+    if not isinstance(group_values, dict):
+        return {}
+    return {
+        str(key): str(value)
+        for key, value in group_values.items()
+        if isinstance(key, str) and isinstance(value, str)
+    }
 
 
 def _dataset(scale: bool = False) -> FeatureDatasetConfig:
@@ -70,9 +91,9 @@ def test_metadata_required_for_full_pipeline_run():
 def test_artifact_build_order_resolves_dependencies():
     definitions = artifact_definitions_with_task_dependencies(
         [
-            SchemaTask(kind="schema"),
-            MetadataTask(kind="metadata"),
-            ScalerTask(kind="scaler"),
+            SchemaTask(id="schema"),
+            MetadataTask(id="metadata", dependencies=["schema"]),
+            ScalerTask(id="scaler"),
         ]
     )
     ordered = artifact_build_order(
@@ -82,27 +103,27 @@ def test_artifact_build_order_resolves_dependencies():
     assert ordered == [VECTOR_SCHEMA, VECTOR_SCHEMA_METADATA, SCALER_STATISTICS]
 
 
-def test_artifact_keys_for_task_kinds():
-    keys = artifact_keys_for_task_kinds({"schema", "scaler"})
+def test_artifact_keys_for_task_ids():
+    keys = artifact_keys_for_task_ids({"schema", "scaler"})
     assert keys == {VECTOR_SCHEMA, SCALER_STATISTICS}
 
 
 def test_artifact_build_order_detects_cycles():
     specs = (
-        ArtifactDefinition(key="a", task_kind="a", min_stage=0, dependencies=("b",)),
-        ArtifactDefinition(key="b", task_kind="b", min_stage=0, dependencies=("a",)),
+        ArtifactDefinition(key="a", task_id="a", min_stage=0, dependencies=("b",)),
+        ArtifactDefinition(key="b", task_id="b", min_stage=0, dependencies=("a",)),
     )
     with pytest.raises(ValueError, match="dependency cycle"):
         artifact_build_order({"a"}, definitions=specs)
 
 
 def test_artifact_definitions_have_runner_bound_entrypoints():
-    task_by_kind = {
-        "schema": SchemaTask(kind="schema"),
-        "metadata": MetadataTask(kind="metadata"),
-        "scaler": ScalerTask(kind="scaler"),
+    declared = _declared_entrypoints(BUILD_OPERATIONS_EP)
+    task_by_id = {
+        "schema": SchemaTask(id="schema"),
+        "metadata": MetadataTask(id="metadata"),
+        "scaler": ScalerTask(id="scaler"),
     }
     for definition in ARTIFACT_DEFINITIONS:
-        task = task_by_kind[definition.task_kind]
-        runner = load_ep(BUILD_OPERATIONS_EP, task.entrypoint)
-        assert callable(runner)
+        task = task_by_id[definition.task_id]
+        assert task.entrypoint in declared

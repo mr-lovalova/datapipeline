@@ -1,4 +1,0 @@
-kind: serve
-name: train
-target: serve
-keep: train

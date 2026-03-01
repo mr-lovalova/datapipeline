@@ -29,19 +29,21 @@ All commands that take a project accept either `--project <path/to/project.yaml>
   - `csv` supports `flat` and `values` views.
   - `--output-encoding` applies to fs `jsonl`/`csv` outputs (default `utf-8`).
   - Set `--log-level DEBUG` (or set `observability.logging.level: DEBUG` in the serve profile) to increase log detail for stage previews.
-  - When multiple serve profiles exist, add `--run val` (profile name or filename stem) to target a single config; otherwise every enabled profile is executed sequentially.
+  - When multiple serve profiles exist, add `--run <profile-name>` to target a single config; otherwise every enabled profile is executed sequentially.
   - Argument precedence follows the order described under _Configuration & Resolution Order_.
   - Combine with `--skip-build` when you already have fresh artifacts and want to jump straight into streaming.
 
 ### Build & Quality
 
-- `jerry inspect report --project <project.yaml> [--threshold 0.95] [--match-partition base|full] [--mode final|raw] [--sort missing|nulls]`
-  - Prints a quality/coverage report to stdout.
-  - `--mode final` applies postprocess transforms; `--mode raw` skips them.
-- `jerry inspect matrix --project <project.yaml> [--format html|csv] [--output <path>] [--rows N] [--cols N] [--quiet] [--mode final|raw]`
-  - Writes an availability matrix (defaults to `build/matrix.html`).
-- `jerry inspect partitions --project <project.yaml> [--output <path>]`
-  - Writes a partitions manifest JSON (defaults to `build/partitions.json`).
+- `jerry inspect --project <project.yaml> [--run <inspect-profile>] [--skip-build] [--visuals on|off]`
+  - Runs inspect profiles declared as `profiles/inspect.<name>.yaml` (`type: inspect`).
+  - Without `--run`, executes all enabled inspect profiles.
+  - Use `--run report`, `--run matrix`, etc to execute one profile.
+  - Profile targets map to inspect operations in `tasks/operations/` (`core.inspect.report`, `core.inspect.matrix`).
+- `jerry inspect --project <project.yaml> --run matrix`
+  - Typical matrix profile run. Matrix output format/path is controlled via the target operation `options` and/or output flags.
+- `jerry inspect --project <project.yaml> --run report`
+  - Typical report profile run. Report behavior is controlled by the target operation `options` (for example `mode`, `sort`, `threshold`).
 - `jerry build --project <project.yaml> [--run <profile>] [--force] [--visuals on|off]`
   - Regenerates artifact tasks declared under `project.paths.tasks` when the configuration hash changes.
   - If `kind: build` profiles are defined, enabled profiles run by default; use `--run` to target one profile.

@@ -22,7 +22,7 @@ class Window(BaseModel):
 
 
 class VectorMetadata(BaseModel):
-    """Lightweight typed model for metadata.json.
+    """Lightweight typed model for build/metadata.json.
 
     Only window/counts/entries are modeled explicitly; all other fields are
     accepted via extra='allow' for forwards-compatibility.

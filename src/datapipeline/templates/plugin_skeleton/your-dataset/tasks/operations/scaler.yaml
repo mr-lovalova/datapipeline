@@ -1,4 +1,4 @@
 # See ../../../reference/reference/tasks/operations/scaler.reference.yaml for full options.
-kind: scaler
+id: scaler
 entrypoint: core.build.scaler
 split_label: train

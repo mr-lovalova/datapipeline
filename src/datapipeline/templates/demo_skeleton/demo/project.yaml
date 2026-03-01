@@ -8,6 +8,7 @@ paths:
   postprocess: postprocess.yaml
   artifacts: ../artifacts/${project_name}/v${version}
   tasks: ./tasks
+  profiles: ./profiles
 globals:
   group_by: 1d
   start_time: 2021-01-01T00:00:00Z

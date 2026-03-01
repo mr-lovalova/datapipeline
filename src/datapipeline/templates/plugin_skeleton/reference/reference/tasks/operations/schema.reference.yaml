@@ -2,10 +2,10 @@
 # This file is documentation only; uncomment the keys you want to use.
 #
 # version: 1                # optional
-# kind: schema
-# name: schema              # optional (defaults to filename stem)
+# id: schema
+
 # entrypoint: core.build.schema # optional; build runner id
 #
-# output: schema.json        # optional; relative to project.paths.artifacts
-# dependencies: []           # optional; artifact task kinds this task depends on
+# output: build/schema.json  # optional; relative to project.paths.artifacts
+# dependencies: []           # optional; artifact task ids this task depends on
 # cadence_strategy: max      # optional; currently only "max"

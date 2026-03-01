@@ -1,0 +1,4 @@
+id: metadata
+entrypoint: core.build.metadata
+dependencies:
+  - schema

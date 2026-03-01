@@ -12,6 +12,7 @@ class ProjectPaths(BaseModel):
     postprocess: str
     artifacts: str
     tasks: str | None = None
+    profiles: str | None = None
 
 
 class ProjectGlobals(BaseModel):

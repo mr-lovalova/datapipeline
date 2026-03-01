@@ -1,8 +1,0 @@
-# Serve operation task reference (all options).
-# This file is documentation only; uncomment the keys you want to use.
-#
-# version: 1                        # optional
-# kind: serve_operation
-# name: serve                       # optional (defaults to filename stem)
-# entrypoint: core.serve_pipeline   # required; built-in serve runner id
-# dependencies: []                  # optional; artifact task kinds required by this operation

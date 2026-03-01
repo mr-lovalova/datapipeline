@@ -110,7 +110,7 @@ def _configure_cli_logging(
     parser: argparse.ArgumentParser,
     args: argparse.Namespace,
     workspace_context: WorkspaceContext | None,
-) -> tuple[str | None, str, int, list[LogOutputTarget], object | None]:
+) -> tuple[str | None, str, list[LogOutputTarget]]:
     cli_level_arg = getattr(args, "log_level", None)
     cli_log_output_specs = getattr(args, "log_output", None)
 
@@ -151,7 +151,7 @@ def _configure_cli_logging(
         raise SystemExit(2) from exc
 
     configure_root_logging(level=base_level, output=base_log_output)
-    return cli_level_arg, base_level_name, base_level, cli_log_outputs, shared_defaults
+    return cli_level_arg, base_level_name, cli_log_outputs
 
 
 def main() -> None:
@@ -162,9 +162,7 @@ def main() -> None:
     (
         cli_level_arg,
         base_level_name,
-        base_level,
         cli_log_outputs,
-        shared_defaults,
     ) = _configure_cli_logging(
         parser=parser,
         args=args,
@@ -179,8 +177,6 @@ def main() -> None:
             args=args,
             plugin_root=plugin_root,
             workspace_context=workspace_context,
-            shared_defaults=shared_defaults,
-            base_level=base_level,
             cli_level_arg=cli_level_arg,
             base_level_name=base_level_name,
             cli_log_outputs=cli_log_outputs,

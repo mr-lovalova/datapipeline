@@ -1,3 +1,0 @@
-kind: serve_operation
-name: serve
-entrypoint: core.serve_pipeline

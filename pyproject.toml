@@ -94,6 +94,10 @@ identity = "datapipeline.parsers.identity:IdentityParser"
 [project.entry-points."datapipeline.operations.serve"]
 "core.serve_pipeline" = "datapipeline.cli.commands.serve_pipeline:serve_with_runtime"
 
+[project.entry-points."datapipeline.operations.inspect"]
+"core.inspect.report" = "datapipeline.operations.inspect:inspect_report_with_runtime"
+"core.inspect.matrix" = "datapipeline.operations.inspect:inspect_matrix_with_runtime"
+
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 [project.entry-points."datapipeline.transforms.debug"]

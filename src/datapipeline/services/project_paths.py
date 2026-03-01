@@ -40,6 +40,18 @@ def tasks_dir(project_yaml: Path) -> Path:
     return p
 
 
+def profiles_dir(project_yaml: Path) -> Path:
+    """Return the resolved profiles directory.
+
+    Resolution order:
+    1) project.paths.profiles when set
+    2) ./profiles relative to project.yaml
+    """
+    cfg = read_project(project_yaml)
+    profiles_path = getattr(cfg.paths, "profiles", None) or "./profiles"
+    return resolve_project_path(project_yaml, profiles_path)
+
+
 def ensure_project_scaffold(project_yaml: Path) -> None:
     """Ensure a minimal project scaffold exists.
 
@@ -60,6 +72,7 @@ def ensure_project_scaffold(project_yaml: Path) -> None:
             "  postprocess: postprocess.yaml\n"
             "  artifacts: ../artifacts/default\n"
             "  tasks: ./tasks\n"
+            "  profiles: ./profiles\n"
             "globals:\n"
             "  start_time: 2021-01-01T00:00:00Z\n"
             "  end_time: 2021-12-31T23:00:00Z\n"
@@ -79,6 +92,13 @@ def ensure_project_scaffold(project_yaml: Path) -> None:
         if tasks:
             tasks_path = resolve_project_path(project_yaml, tasks)
             tasks_path.mkdir(parents=True, exist_ok=True)
+        profiles = getattr(cfg.paths, "profiles", None)
+        profiles_path = (
+            resolve_project_path(project_yaml, profiles)
+            if profiles
+            else resolve_project_path(project_yaml, "./profiles")
+        )
+        profiles_path.mkdir(parents=True, exist_ok=True)
     except Exception:
         # If the file is malformed, leave it to callers to report; this helper
         # is best-effort to create a sensible starting point.

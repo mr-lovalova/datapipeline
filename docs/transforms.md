@@ -66,11 +66,11 @@
 
 - `drop`: apply coverage thresholds along the horizontal axis (vectors) or
   vertical axis (features/partitions) using `axis: horizontal|vertical` and
-  `threshold`. Vertical mode requires the optional `metadata.json`
+  `threshold`. Vertical mode requires the optional `build/metadata.json`
   artifact and internally prunes weak partitions.
 - `fill`: impute using rolling statistics from prior vectors (history-based).
 - `replace`: seed missing IDs with a constant or literal value.
-  (Jerry automatically enforces the `schema.json` vector schema—ordering +
+  (Jerry automatically enforces the `build/schema.json` vector schema—ordering +
   cadence—before any configured vector transforms run.)
 
 All transforms share a consistent entry-point signature and accept their config

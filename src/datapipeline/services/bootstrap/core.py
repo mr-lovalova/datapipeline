@@ -25,6 +25,7 @@ from datapipeline.runtime import Runtime
 from datapipeline.config.postprocess import PostprocessConfig
 from .config import (
     artifacts_root,
+    build_state_path,
     _globals,
     _interpolate,
     _load_by_key,
@@ -90,12 +91,9 @@ def _normalize_source_loader_paths(
         return
     if Path(raw_path).is_absolute():
         return
-    use_glob = bool(args.get("glob", False))
     args["path"] = resolve_relative_fs_loader_path(
         raw_path,
         project_yaml.parent.resolve(),
-        source_yaml.parent.resolve(),
-        use_glob,
     )
 
 
@@ -216,7 +214,7 @@ def bootstrap(project_yaml: Path) -> Runtime:
     runtime.registries.postprocesses.register(
         POSTPROCESS_TRANSFORMS, transforms)
 
-    state_path = (art_root / "build" / "state.json").resolve()
+    state_path = build_state_path(project_yaml)
     state = load_build_state(state_path)
     if state:
         for key, info in state.artifacts.items():

@@ -1,0 +1,11 @@
+# See ../../../reference/reference/tasks/operations/inspect.reference.yaml for full options.
+id: report
+entrypoint: core.inspect.report
+dependencies:
+  - schema
+  - metadata
+  - scaler
+options:
+  mode: final
+  sort: missing
+  threshold: 0.95

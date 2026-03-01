@@ -1,0 +1,5 @@
+# See ../../reference/reference/tasks/profiles/inspect.reference.yaml for full options.
+type: inspect
+name: matrix
+target: matrix
+enabled: true

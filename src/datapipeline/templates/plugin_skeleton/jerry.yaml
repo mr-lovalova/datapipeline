@@ -16,13 +16,3 @@ shared:
         - transport: FS
           scope: GLOBAL
           path: ./logs/jerry.log
-
-serve:
-  limit: null
-  stage: null
-  output:
-    transport: stdout
-    format: jsonl
-
-build:
-  mode: AUTO

@@ -3,8 +3,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional, Sequence
 
-from datapipeline.config.tasks import ServeOutputConfig
-from datapipeline.io.output import OutputResolutionError
 from datapipeline.config.workspace import WorkspaceContext
 from datapipeline.services.path_policy import resolve_workspace_path, sanitize_path_segment
 from datapipeline.config.options import LOG_SCOPE_CHOICES, LOG_TRANSPORT_CHOICES
@@ -330,36 +328,3 @@ def minimum_level(*levels: Any, start: int | None = None) -> int | None:
         if current is None or value < current:
             current = value
     return current
-
-
-def workspace_output_defaults(
-    workspace: WorkspaceContext | None,
-) -> ServeOutputConfig | None:
-    if workspace is None:
-        return None
-    serve_defaults = getattr(workspace.config, "serve", None)
-    if not serve_defaults or not serve_defaults.output:
-        return None
-    od = serve_defaults.output
-    transport = str(od.transport).lower() if od.transport is not None else None
-    if transport == "fs" and not od.directory:
-        raise OutputResolutionError(
-            "fs output requires a directory. Example:\n"
-            "  output:\n"
-            "    transport: fs\n"
-            "    format: jsonl\n"
-            "    directory: ./data/processed/jerry"
-        )
-    output_dir = None
-    if od.directory:
-        output_dir = resolve_workspace_path(
-            od.directory,
-            workspace.root if workspace is not None else None,
-        )
-    return ServeOutputConfig(
-        transport=od.transport,
-        format=od.format,
-        view=od.view,
-        encoding=od.encoding,
-        directory=output_dir,
-    )

@@ -1,12 +1,7 @@
 from datapipeline.sources.foreach import ForeachLoader
-from datapipeline.utils import load as dp_load
 
 
 def test_foreach_interpolates_and_injects():
-    dp_load._EP_OVERRIDES[("datapipeline.loaders", "tests.foreach.dummy")] = (
-        "tests.loaders.dummy:DummyLoader"
-    )
-
     loader = ForeachLoader(
         foreach={"symbol": ["AAPL", "MSFT"]},
         inject_field="symbol",

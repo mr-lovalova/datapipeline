@@ -18,7 +18,7 @@ class StageDemand:
 @dataclass(frozen=True)
 class ArtifactDefinition:
     key: str
-    task_kind: str
+    task_id: str
     min_stage: int
     dependencies: tuple[str, ...] = ()
     required_if: Callable[[FeatureDatasetConfig], bool] = lambda _dataset: True
@@ -48,17 +48,17 @@ ARTIFACT_DEFINITIONS: tuple[
 ] = (
     ArtifactDefinition(
         key=VECTOR_SCHEMA,
-        task_kind="schema",
+        task_id="schema",
         min_stage=7,
     ),
     ArtifactDefinition(
         key=VECTOR_SCHEMA_METADATA,
-        task_kind="metadata",
+        task_id="metadata",
         min_stage=7,
     ),
     ArtifactDefinition(
         key=SCALER_STATISTICS,
-        task_kind="scaler",
+        task_id="scaler",
         min_stage=6,
         required_if=_requires_scaler,
     ),
@@ -76,32 +76,32 @@ def artifact_definition_for_key(
     return None
 
 
-def artifact_key_for_task_kind(
-    task_kind: str,
+def artifact_key_for_task_id(
+    task_id: str,
     definitions: Sequence[ArtifactDefinition] | None = None,
 ) -> str | None:
     items = definitions if definitions is not None else ARTIFACT_DEFINITIONS
     for item in items:
-        if item.task_kind == task_kind:
+        if item.task_id == task_id:
             return item.key
     return None
 
 
-def task_kind_for_artifact_key(
+def task_id_for_artifact_key(
     key: str,
     definitions: Sequence[ArtifactDefinition] | None = None,
 ) -> str | None:
     item = artifact_definition_for_key(key, definitions)
-    return item.task_kind if item is not None else None
+    return item.task_id if item is not None else None
 
 
-def artifact_keys_for_task_kinds(
-    task_kinds: Iterable[str],
+def artifact_keys_for_task_ids(
+    task_ids: Iterable[str],
     definitions: Sequence[ArtifactDefinition] | None = None,
 ) -> set[str]:
-    selected = set(task_kinds)
+    selected = set(task_ids)
     items = definitions if definitions is not None else ARTIFACT_DEFINITIONS
-    return {item.key for item in items if item.task_kind in selected}
+    return {item.key for item in items if item.task_id in selected}
 
 
 def artifact_definitions_with_task_dependencies(
@@ -109,26 +109,26 @@ def artifact_definitions_with_task_dependencies(
     definitions: Sequence[ArtifactDefinition] | None = None,
 ) -> tuple[ArtifactDefinition, ...]:
     items = tuple(definitions if definitions is not None else ARTIFACT_DEFINITIONS)
-    key_by_kind = {item.task_kind: item.key for item in items}
+    key_by_id = {item.task_id: item.key for item in items}
     dependencies_by_key: dict[str, tuple[str, ...]] = {}
 
     for task in tasks:
-        key = key_by_kind.get(task.kind)
+        key = key_by_id.get(task.id)
         if key is None:
             continue
-        dep_keys: list[str] = []
+        dependency_keys: list[str] = []
         seen: set[str] = set()
-        for dep_kind in task.dependencies:
-            dep_key = key_by_kind.get(dep_kind)
-            if dep_key is None:
+        for dependency_id in task.dependencies:
+            dependency_key = key_by_id.get(dependency_id)
+            if dependency_key is None:
                 raise ValueError(
-                    f"Unknown dependency {dep_kind!r} for task kind {task.kind!r}"
+                    f"Unknown dependency {dependency_id!r} for task id {task.id!r}"
                 )
-            if dep_key in seen:
+            if dependency_key in seen:
                 continue
-            dep_keys.append(dep_key)
-            seen.add(dep_key)
-        dependencies_by_key[key] = tuple(dep_keys)
+            dependency_keys.append(dependency_key)
+            seen.add(dependency_key)
+        dependencies_by_key[key] = tuple(dependency_keys)
 
     updated: list[ArtifactDefinition] = []
     for item in items:

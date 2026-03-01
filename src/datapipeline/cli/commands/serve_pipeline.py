@@ -7,6 +7,7 @@ from datapipeline.pipelines.record.nodes import RECORD_NODE_COUNT
 from datapipeline.cli.visuals.execution import emit_execution_message
 from datapipeline.dag.transform_observability import default_observer_registry
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
+from datapipeline.config.tasks import OperationTask
 from datapipeline.domain.sample import Sample
 from datapipeline.dag.context import PipelineContext
 from datapipeline.pipelines import build_feature_pipeline, build_full_pipeline
@@ -119,7 +120,9 @@ def serve_with_runtime(
     throttle_ms: Optional[float],
     stage: Optional[int],
     visuals: Optional[str] = None,
+    operation_task: OperationTask | None = None,
 ) -> None:
+    _ = operation_task
     run_paths = target.run
     run_status: str | None = None
     try:

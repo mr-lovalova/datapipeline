@@ -1,0 +1,18 @@
+# Inspect operation task reference (all options).
+# This file is documentation only; uncomment the keys you want to use.
+#
+# version: 1                            # optional
+# id: matrix                            # any unique inspect operation id
+#
+# entrypoint: core.inspect.matrix       # core.inspect.report | core.inspect.matrix
+# dependencies:
+#   - schema
+#   - metadata
+#   - scaler
+# options:                              # operation-specific options (all optional)
+#   mode: final                         # final | raw
+#   sort: missing                       # report sort key
+#   threshold: 0.95                     # missingness threshold used by report
+#   quiet: true                         # suppress report stdout (useful for matrix)
+#   format: html                        # matrix only: html | csv
+#   output: ./artifacts/inspect.html    # matrix/partitions output path override

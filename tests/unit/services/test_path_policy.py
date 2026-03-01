@@ -6,7 +6,6 @@ from datapipeline.services.path_policy import (
     resolve_project_path,
     resolve_relative_to_base,
     resolve_workspace_path,
-    workspace_roots_for,
 )
 
 
@@ -35,18 +34,6 @@ def test_resolve_relative_to_base_can_skip_final_resolve(tmp_path: Path) -> None
     base = tmp_path / "artifacts"
     relative = resolve_relative_to_base("runs/latest/schema.json", base, resolve=False)
     assert relative == base / "runs" / "latest" / "schema.json"
-
-
-def test_workspace_roots_for_returns_all_ancestors_with_jerry_yaml(tmp_path: Path) -> None:
-    outer = tmp_path / "outer"
-    inner = outer / "inner"
-    target = inner / "project"
-    target.mkdir(parents=True)
-    (outer / "jerry.yaml").write_text("datasets: {}\n", encoding="utf-8")
-    (inner / "jerry.yaml").write_text("datasets: {}\n", encoding="utf-8")
-
-    roots = workspace_roots_for(target)
-    assert roots == [inner.resolve(), outer.resolve()]
 
 
 def test_relative_to_workspace_handles_outside_workspace(tmp_path: Path) -> None:

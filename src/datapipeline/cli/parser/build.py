@@ -18,6 +18,6 @@ def add_build_command(sub,  common: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--run",
-        help="select a build profile by name when project.paths.tasks contains build profiles",
+        help="select a build profile by name (project must declare build profiles under profiles/)",
     )
     add_visual_flags(parser)

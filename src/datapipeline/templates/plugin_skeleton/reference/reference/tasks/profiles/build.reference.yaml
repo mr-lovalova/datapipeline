@@ -2,12 +2,12 @@
 # This file is documentation only; uncomment the keys you want to use.
 #
 # version: 1                  # optional
-# kind: build
-# name: default               # optional (defaults to filename stem)
+# type: build
+# name: default               # required; must be unique among build profiles
 # enabled: true               # optional; profile-level switch
 #
 # mode: AUTO                  # optional; AUTO | FORCE | OFF
-# target: schema              # required; artifact task kind to build
+# target: schema              # required; artifact task id to build
 #
 # observability:              # optional
 #   visuals: OFF              # optional; ON | OFF

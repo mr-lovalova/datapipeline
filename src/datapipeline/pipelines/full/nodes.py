@@ -31,7 +31,7 @@ def _apply_vector_schema(
         if not feature_entries:
             if context.schema_required:
                 raise RuntimeError(
-                    "Schema missing for payload 'features'. Run `jerry build` to materialize schema.json."
+                    "Schema missing for payload 'features'. Run `jerry build` to materialize build/schema.json."
                 )
             feature_stream = stream
         else:
@@ -62,7 +62,7 @@ def _apply_vector_schema(
                     yield from iterator
                     return
                 raise RuntimeError(
-                    "Schema missing for payload 'targets'. Run `jerry build` to materialize schema.json."
+                    "Schema missing for payload 'targets'. Run `jerry build` to materialize build/schema.json."
                 )
 
             return _validate_targets()

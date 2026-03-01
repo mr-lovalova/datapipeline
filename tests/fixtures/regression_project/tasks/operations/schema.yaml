@@ -1,0 +1,2 @@
+id: schema
+entrypoint: core.build.schema

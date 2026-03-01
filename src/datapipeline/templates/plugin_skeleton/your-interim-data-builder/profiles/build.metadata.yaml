@@ -1,0 +1,6 @@
+# See ../../reference/reference/tasks/profiles/build.reference.yaml for full options.
+type: build
+name: metadata
+target: metadata
+enabled: true
+mode: AUTO

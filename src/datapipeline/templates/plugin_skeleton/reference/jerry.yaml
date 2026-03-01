@@ -17,34 +17,3 @@
 #         - transport: FS
 #           scope: GLOBAL          # GLOBAL | RUN
 #           path: ./logs/jerry.log # required for FS+GLOBAL
-#
-# serve:                           # optional
-#   observability:                 # optional
-#     visuals: ON                  # optional
-#     logging:                     # optional; overrides shared for serve
-#       level: INFO                # optional
-#       outputs:                   # precedence layer: CLI > serve profile > serve > shared (first non-empty layer wins)
-#         - transport: FS
-#           scope: RUN             # writes under each run directory
-#           path: logs/serve.log   # optional for RUN (default logs/serve.<task>.log)
-#   limit: 100                     # optional
-#   stage: 8                       # optional
-#   throttle_ms: 0                 # optional
-#   output:                        # optional
-#     transport: stdout            # optional; stdout | fs
-#     format: jsonl                # optional; stdout: jsonl
-#     # view: raw                  # optional; flat | raw | values
-#     #                            # default: jsonl->raw, csv/pickle->flat
-#     # encoding: utf-8            # optional; fs jsonl/csv only
-#     # directory: artifacts/serve # optional; fs only; relative to jerry.yaml
-#
-# build:                           # optional
-#   observability:                 # optional; overrides shared for build
-#     visuals: OFF                 # optional; ON | OFF
-#     logging:                     # optional
-#       level: INFO                # optional
-#       outputs:                   # optional; GLOBAL scope only for build
-#         - transport: FS
-#           scope: GLOBAL
-#           path: ./logs/build.log
-#   mode: AUTO                     # optional; AUTO | FORCE | OFF (false -> OFF)

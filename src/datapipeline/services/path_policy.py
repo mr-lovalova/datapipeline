@@ -1,16 +1,5 @@
-import glob as _glob
 import os
 from pathlib import Path
-
-
-def workspace_roots_for(path: Path) -> list[Path]:
-    """Return all ancestor directories that contain `jerry.yaml`."""
-    roots: list[Path] = []
-    resolved = path.resolve()
-    for candidate in [resolved, *resolved.parents]:
-        if (candidate / "jerry.yaml").is_file():
-            roots.append(candidate)
-    return roots
 
 
 def workspace_cwd() -> Path:
@@ -61,12 +50,6 @@ def relative_to_workspace(target: Path, workspace_root: Path) -> Path:
         return Path(os.path.relpath(target_resolved, workspace_resolved))
 
 
-def path_has_content(path: Path, use_glob: bool) -> bool:
-    if use_glob:
-        return bool(_glob.glob(str(path)))
-    return path.exists()
-
-
 def sanitize_path_segment(value: str,  default: str = "run") -> str:
     """Return a filesystem-safe path segment for user-provided labels."""
     cleaned = "".join(
@@ -79,26 +62,9 @@ def sanitize_path_segment(value: str,  default: str = "run") -> str:
 def resolve_relative_fs_loader_path(
     raw_path: str,
     project_root: Path,
-    source_dir: Path,
-    use_glob: bool,
 ) -> str:
     """Resolve a source `loader.args.path` using the shared fs path policy."""
     raw = Path(raw_path)
     if raw.is_absolute():
         return str(raw)
-
-    candidates: list[Path] = [
-        resolve_relative_to_base(raw, source_dir, resolve=True),
-        resolve_relative_to_base(raw, project_root, resolve=True),
-        resolve_relative_to_base(raw, project_root.parent, resolve=True),
-    ]
-    for workspace_root in workspace_roots_for(project_root):
-        candidates.append(resolve_relative_to_base(raw, workspace_root, resolve=True))
-    candidates.append(resolve_relative_to_base(raw, workspace_cwd(), resolve=True))
-
-    for candidate in candidates:
-        if path_has_content(candidate, use_glob):
-            return str(candidate)
-
-    # Deterministic fallback when no candidate currently exists.
     return str(resolve_relative_to_base(raw, project_root, resolve=True))

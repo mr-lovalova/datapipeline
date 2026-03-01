@@ -1,6 +1,6 @@
-from typing import Callable, TypeVar
+from typing import Any, Callable, TypeVar
 
-from datapipeline.config.tasks import OperationTask
+from datapipeline.config.tasks import Task
 from datapipeline.utils.load import load_ep
 
 TReturn = TypeVar("TReturn")
@@ -8,7 +8,7 @@ OperationRunner = Callable[..., TReturn]
 
 
 def dispatch_operation(
-    operation: OperationTask,
+    operation: Task,
     operation_group: str,
     operation_type: str,
     **kwargs,
@@ -18,7 +18,7 @@ def dispatch_operation(
     except ValueError as exc:
         raise ValueError(
             f"Unknown {operation_type} entrypoint '{operation.entrypoint}' "
-            f"for operation '{operation.effective_name()}'."
+            f"for operation '{operation.id}'."
         ) from exc
     if not callable(runner):
         raise TypeError(

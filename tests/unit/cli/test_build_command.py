@@ -3,43 +3,39 @@ from types import SimpleNamespace
 import contextlib
 
 import pytest
-from datapipeline.cli.commands import build as build_cmd
+from datapipeline.artifacts import executor as build_exec
 from datapipeline.config.build_resolution import resolve_build_settings
-from datapipeline.config.tasks import BuildTask, SchemaTask, ScalerTask
+from datapipeline.config.profiles import BuildProfile
 from datapipeline.config.resolution import LogOutputSettings, LogOutputTarget
+from datapipeline.config.tasks import SchemaTask, ScalerTask
 from datapipeline.config.workspace import WorkspaceConfig, WorkspaceContext
 
 
 class _TaskStub:
     def __init__(
         self,
-        name: str,
-        kind: str,
+        id: str,
         output: str,
         enabled: bool = True,
         entrypoint: str = "core.build.schema",
     ) -> None:
-        self._name = name
-        self.kind = kind
+        self.id = id
         self.output = output
         self.enabled = enabled
         self.entrypoint = entrypoint
-
-    def effective_name(self) -> str:
-        return self._name
 
 
 def test_log_build_settings_debug_emits_execution_message(monkeypatch):
     captured: list[tuple[str, int, str | None]] = []
     monkeypatch.setattr(
-        "datapipeline.cli.commands.build.emit_execution_message",
+        "datapipeline.artifacts.executor.emit_execution_message",
         lambda message, level, logger, depth=0, message_kind=None: captured.append(
             (message, level, message_kind)
         ),
     )
 
     settings = SimpleNamespace(mode="FORCE", force=True, visuals="on", profile_name=None)
-    build_cmd._log_build_settings_debug(Path("/tmp/project.yaml"), settings)
+    build_exec._log_build_settings_debug(Path("/tmp/project.yaml"), settings)
 
     assert captured
     message, level, message_kind = captured[0]
@@ -54,7 +50,7 @@ def test_log_build_settings_debug_emits_execution_message(monkeypatch):
 def test_run_artifact_builder_emits_materialized_message(monkeypatch):
     captured: list[tuple[str, int, str | None]] = []
     monkeypatch.setattr(
-        "datapipeline.cli.commands.build.emit_execution_message",
+        "datapipeline.artifacts.executor.emit_execution_message",
         lambda message, level, logger, depth=0, message_kind=None: captured.append(
             (message, level, message_kind)
         ),
@@ -62,13 +58,13 @@ def test_run_artifact_builder_emits_materialized_message(monkeypatch):
 
     runtime = SimpleNamespace(artifacts_root=Path("/tmp/artifacts"))
     definition = SimpleNamespace(key="vector_schema")
-    task = _TaskStub(name="schema", kind="schema", output="schema.json")
+    task = _TaskStub(id="schema", output="schema.json")
     monkeypatch.setattr(
-        "datapipeline.cli.commands.build.run_build_operation",
-        lambda operation, runtime: ("schema.json", {"features": 5, "targets": 0}),
+        "datapipeline.artifacts.executor.dispatch_operation",
+        lambda **kwargs: ("schema.json", {"features": 5, "targets": 0}),
     )
 
-    result = build_cmd._run_artifact_builder(
+    result = build_exec._run_artifact_builder(
         runtime=runtime,
         definition=definition,
         task=task,
@@ -114,11 +110,11 @@ def test_run_build_if_needed_forwards_cli_log_outputs(monkeypatch, tmp_path):
         )
 
     monkeypatch.setattr(
-        "datapipeline.cli.commands.build.resolve_build_settings",
+        "datapipeline.artifacts.executor.resolve_build_settings",
         _fake_resolve_build_settings,
     )
 
-    build_cmd.run_build_if_needed(
+    build_exec.run_build_if_needed(
         tmp_path / "project.yaml",
         force=False,
         cli_visuals="off",
@@ -137,7 +133,7 @@ def test_run_build_if_needed_forwards_cli_log_outputs(monkeypatch, tmp_path):
     assert captured["build_profile"] is None
 
 
-def test_resolve_build_settings_prefers_build_observability(tmp_path):
+def test_resolve_build_settings_uses_shared_observability_defaults(tmp_path):
     cfg = WorkspaceConfig.model_validate(
         {
             "shared": {
@@ -148,16 +144,6 @@ def test_resolve_build_settings_prefers_build_observability(tmp_path):
                         "outputs": [{"transport": "stderr"}],
                     },
                 }
-            },
-            "build": {
-                "mode": "AUTO",
-                "observability": {
-                    "visuals": "ON",
-                    "logging": {
-                        "level": "DEBUG",
-                        "outputs": [{"transport": "fs", "path": "./logs/build.log"}],
-                    },
-                },
             },
         }
     )
@@ -172,26 +158,17 @@ def test_resolve_build_settings_prefers_build_observability(tmp_path):
         base_log_level="WARNING",
     )
 
-    assert settings.visuals == "on"
-    assert settings.log_decision.name == "DEBUG"
-    assert settings.log_output.outputs[0].transport == "fs"
-    assert settings.log_output.outputs[0].destination == (tmp_path / "logs" / "build.log").resolve()
+    assert settings.visuals == "off"
+    assert settings.log_decision.name == "INFO"
+    assert settings.log_output.outputs[0].transport == "stderr"
+    assert settings.log_output.outputs[0].destination is None
     assert settings.profile_name is None
 
 
-def test_resolve_build_settings_cli_overrides_build_observability(tmp_path):
+def test_resolve_build_settings_cli_overrides_shared_observability(tmp_path):
     cfg = WorkspaceConfig.model_validate(
         {
-            "build": {
-                "mode": "AUTO",
-                "observability": {
-                    "visuals": "ON",
-                    "logging": {
-                        "level": "DEBUG",
-                        "outputs": [{"transport": "fs", "path": "./logs/build.log"}],
-                    },
-                },
-            },
+            "shared": {"observability": {"visuals": "ON", "logging": {"level": "DEBUG"}}},
         }
     )
     workspace = WorkspaceContext(file_path=tmp_path / "jerry.yaml", config=cfg)
@@ -211,25 +188,16 @@ def test_resolve_build_settings_cli_overrides_build_observability(tmp_path):
     assert settings.log_output.outputs[0].transport == "stdout"
 
 
-def test_resolve_build_settings_prefers_profile_over_workspace_build(tmp_path):
+def test_resolve_build_settings_prefers_profile_over_workspace_shared(tmp_path):
     cfg = WorkspaceConfig.model_validate(
         {
-            "build": {
-                "mode": "AUTO",
-                "observability": {
-                    "visuals": "OFF",
-                    "logging": {
-                        "level": "INFO",
-                        "outputs": [{"transport": "stderr"}],
-                    },
-                },
-            },
+            "shared": {"observability": {"visuals": "OFF", "logging": {"level": "INFO"}}},
         }
     )
     workspace = WorkspaceContext(file_path=tmp_path / "jerry.yaml", config=cfg)
-    profile = BuildTask.model_validate(
+    profile = BuildProfile.model_validate(
         {
-            "kind": "build",
+            "type": "build",
             "name": "nightly",
             "target": "schema",
             "mode": "FORCE",
@@ -267,9 +235,9 @@ def test_resolve_build_settings_requires_project_path_with_profile(tmp_path):
         file_path=tmp_path / "jerry.yaml",
         config=WorkspaceConfig.model_validate({}),
     )
-    profile = BuildTask.model_validate(
+    profile = BuildProfile.model_validate(
         {
-            "kind": "build",
+            "type": "build",
             "name": "nightly",
             "target": "schema",
         }
@@ -298,9 +266,9 @@ def test_resolve_build_settings_profile_log_paths_are_project_relative(tmp_path)
     )
     project_path = project_root / "project.yaml"
 
-    profile = BuildTask.model_validate(
+    profile = BuildProfile.model_validate(
         {
-            "kind": "build",
+            "type": "build",
             "name": "nightly",
             "target": "schema",
             "observability": {
@@ -353,12 +321,27 @@ def test_resolve_build_settings_ignores_run_scoped_workspace_outputs(tmp_path):
 
 def test_run_build_if_needed_preserves_previous_artifacts_in_state(monkeypatch, tmp_path):
     project_path = tmp_path / "project.yaml"
-    project_path.write_text("version: 1\npaths:\n  tasks: ./tasks\n", encoding="utf-8")
+    project_path.write_text(
+        "\n".join(
+            [
+                "version: 1",
+                "paths:",
+                "  streams: ./streams",
+                "  sources: ./sources",
+                "  dataset: ./dataset.yaml",
+                "  postprocess: ./postprocess.yaml",
+                "  artifacts: ./artifacts",
+                "  tasks: ./tasks",
+                "  profiles: ./profiles",
+            ]
+        ),
+        encoding="utf-8",
+    )
     tasks_root = tmp_path / "tasks"
     tasks_root.mkdir(parents=True, exist_ok=True)
 
     monkeypatch.setattr(
-        "datapipeline.cli.commands.build.resolve_build_settings",
+        "datapipeline.artifacts.executor.resolve_build_settings",
         lambda **kwargs: SimpleNamespace(
             visuals="off",
             log_decision=SimpleNamespace(name="INFO", value=20),
@@ -368,66 +351,81 @@ def test_run_build_if_needed_preserves_previous_artifacts_in_state(monkeypatch, 
             profile_name="schema",
         ),
     )
-    monkeypatch.setattr("datapipeline.cli.commands.build.tasks_dir", lambda _: tasks_root)
-    monkeypatch.setattr("datapipeline.cli.commands.build.compute_config_hash", lambda *_: "hash-1")
-    monkeypatch.setattr("datapipeline.cli.commands.build.artifacts_root", lambda _: tmp_path / "artifacts")
+    monkeypatch.setattr("datapipeline.artifacts.executor.tasks_dir", lambda _: tasks_root)
+    monkeypatch.setattr("datapipeline.artifacts.executor.compute_config_hash", lambda *_: "hash-1")
     monkeypatch.setattr(
-        "datapipeline.cli.commands.build.get_visuals_backend",
+        "datapipeline.artifacts.executor.get_visuals_backend",
         lambda visuals: SimpleNamespace(
             on_build_start=lambda project: True,
             wrap_events=lambda level: contextlib.nullcontext(),
         ),
     )
-    monkeypatch.setattr("datapipeline.cli.commands.build.configure_root_logging", lambda **kwargs: None)
-    monkeypatch.setattr("datapipeline.cli.commands.build.bootstrap", lambda _: SimpleNamespace(artifacts_root=tmp_path / "artifacts"))
-    monkeypatch.setattr("datapipeline.cli.commands.build.sections_from_path", lambda *_: ("Build Tasks",))
-    monkeypatch.setattr("datapipeline.cli.commands.build.run_job", lambda **kwargs: kwargs["work"]())
-    schema_task = SchemaTask(kind="schema")
+    monkeypatch.setattr("datapipeline.artifacts.executor.configure_root_logging", lambda **kwargs: None)
+    monkeypatch.setattr("datapipeline.artifacts.executor.bootstrap", lambda _: SimpleNamespace(artifacts_root=tmp_path / "artifacts"))
+    monkeypatch.setattr("datapipeline.artifacts.executor.sections_from_path", lambda *_: ("Build Tasks",))
+    monkeypatch.setattr("datapipeline.artifacts.executor.run_job", lambda **kwargs: kwargs["work"]())
+    schema_task = SchemaTask(id="schema")
     schema_task.source_path = tasks_root / "schema.yaml"
-    scaler_task = ScalerTask(kind="scaler")
+    scaler_task = ScalerTask(id="scaler")
     scaler_task.source_path = tasks_root / "scaler.yaml"
     monkeypatch.setattr(
-        "datapipeline.cli.commands.build.artifact_tasks",
-        lambda _: [schema_task, scaler_task],
+        "datapipeline.artifacts.executor.operation_specs",
+        lambda _: ([schema_task, scaler_task], []),
     )
     monkeypatch.setattr(
-        "datapipeline.cli.commands.build._run_artifact_builder",
-        lambda *, definition, **kwargs: {"relative_path": f"{definition.task_kind}.json"},
+        "datapipeline.artifacts.executor._run_artifact_builder",
+        lambda *, definition, **kwargs: {"relative_path": f"{definition.task_id}.json"},
     )
 
-    schema_profile = BuildTask.model_validate({"kind": "build", "name": "schema", "target": "schema"})
-    scaler_profile = BuildTask.model_validate({"kind": "build", "name": "scaler", "target": "scaler"})
+    schema_profile = BuildProfile.model_validate({"type": "build", "name": "schema", "target": "schema"})
+    scaler_profile = BuildProfile.model_validate({"type": "build", "name": "scaler", "target": "scaler"})
 
-    from datapipeline.cli.commands import build as build_cmd
     from datapipeline.build.state import load_build_state
+    from datapipeline.services.bootstrap import build_state_path
 
-    build_cmd.run_build_if_needed(project_path, build_profile=schema_profile)
-    build_cmd.run_build_if_needed(project_path, build_profile=scaler_profile)
+    build_exec.run_build_if_needed(project_path, build_profile=schema_profile)
+    build_exec.run_build_if_needed(project_path, build_profile=scaler_profile)
 
-    state = load_build_state(tmp_path / "artifacts" / "build" / "state.json")
+    state = load_build_state(build_state_path(project_path))
     assert state is not None
     assert set(state.artifacts.keys()) == {"vector_schema", "scaler_statistics"}
 
 
 def test_run_build_if_needed_rebuilds_stale_profile_artifact(monkeypatch, tmp_path):
     project_path = tmp_path / "project.yaml"
-    project_path.write_text("version: 1\npaths:\n  tasks: ./tasks\n", encoding="utf-8")
+    project_path.write_text(
+        "\n".join(
+            [
+                "version: 1",
+                "paths:",
+                "  streams: ./streams",
+                "  sources: ./sources",
+                "  dataset: ./dataset.yaml",
+                "  postprocess: ./postprocess.yaml",
+                "  artifacts: ./artifacts",
+                "  tasks: ./tasks",
+                "  profiles: ./profiles",
+            ]
+        ),
+        encoding="utf-8",
+    )
     tasks_root = tmp_path / "tasks"
     tasks_root.mkdir(parents=True, exist_ok=True)
 
     from datapipeline.build.state import BuildState, save_build_state
+    from datapipeline.services.bootstrap import build_state_path
 
-    state_path = tmp_path / "artifacts" / "build" / "state.json"
+    state_path = build_state_path(project_path)
     stale_state = BuildState(config_hash="hash-2")
     stale_state.register(
         "scaler_statistics",
-        "scaler.json",
+        "build/scaler.json",
         meta={"_config_hash": "hash-1"},
     )
     save_build_state(stale_state, state_path)
 
     monkeypatch.setattr(
-        "datapipeline.cli.commands.build.resolve_build_settings",
+        "datapipeline.artifacts.executor.resolve_build_settings",
         lambda **kwargs: SimpleNamespace(
             visuals="off",
             log_decision=SimpleNamespace(name="INFO", value=20),
@@ -437,39 +435,37 @@ def test_run_build_if_needed_rebuilds_stale_profile_artifact(monkeypatch, tmp_pa
             profile_name="scaler",
         ),
     )
-    monkeypatch.setattr("datapipeline.cli.commands.build.tasks_dir", lambda _: tasks_root)
-    monkeypatch.setattr("datapipeline.cli.commands.build.compute_config_hash", lambda *_: "hash-2")
-    monkeypatch.setattr("datapipeline.cli.commands.build.artifacts_root", lambda _: tmp_path / "artifacts")
+    monkeypatch.setattr("datapipeline.artifacts.executor.tasks_dir", lambda _: tasks_root)
+    monkeypatch.setattr("datapipeline.artifacts.executor.compute_config_hash", lambda *_: "hash-2")
     monkeypatch.setattr(
-        "datapipeline.cli.commands.build.get_visuals_backend",
+        "datapipeline.artifacts.executor.get_visuals_backend",
         lambda visuals: SimpleNamespace(
             on_build_start=lambda project: True,
             wrap_events=lambda level: contextlib.nullcontext(),
         ),
     )
-    monkeypatch.setattr("datapipeline.cli.commands.build.configure_root_logging", lambda **kwargs: None)
-    monkeypatch.setattr("datapipeline.cli.commands.build.bootstrap", lambda _: SimpleNamespace(artifacts_root=tmp_path / "artifacts"))
-    monkeypatch.setattr("datapipeline.cli.commands.build.sections_from_path", lambda *_: ("Build Tasks",))
+    monkeypatch.setattr("datapipeline.artifacts.executor.configure_root_logging", lambda **kwargs: None)
+    monkeypatch.setattr("datapipeline.artifacts.executor.bootstrap", lambda _: SimpleNamespace(artifacts_root=tmp_path / "artifacts"))
+    monkeypatch.setattr("datapipeline.artifacts.executor.sections_from_path", lambda *_: ("Build Tasks",))
 
     calls = {"run_job": 0}
     monkeypatch.setattr(
-        "datapipeline.cli.commands.build.run_job",
+        "datapipeline.artifacts.executor.run_job",
         lambda **kwargs: (calls.__setitem__("run_job", calls["run_job"] + 1) or kwargs["work"]()),
     )
-    scaler_task = ScalerTask(kind="scaler")
+    scaler_task = ScalerTask(id="scaler")
     scaler_task.source_path = tasks_root / "scaler.yaml"
     monkeypatch.setattr(
-        "datapipeline.cli.commands.build.artifact_tasks",
-        lambda _: [scaler_task],
+        "datapipeline.artifacts.executor.operation_specs",
+        lambda _: ([scaler_task], []),
     )
     monkeypatch.setattr(
-        "datapipeline.cli.commands.build._run_artifact_builder",
-        lambda *, definition, **kwargs: {"relative_path": f"{definition.task_kind}.json"},
+        "datapipeline.artifacts.executor._run_artifact_builder",
+        lambda *, definition, **kwargs: {"relative_path": f"{definition.task_id}.json"},
     )
 
-    scaler_profile = BuildTask.model_validate({"kind": "build", "name": "scaler", "target": "scaler"})
-    from datapipeline.cli.commands import build as build_cmd
+    scaler_profile = BuildProfile.model_validate({"type": "build", "name": "scaler", "target": "scaler"})
 
-    did_build = build_cmd.run_build_if_needed(project_path, build_profile=scaler_profile)
+    did_build = build_exec.run_build_if_needed(project_path, build_profile=scaler_profile)
     assert did_build is True
     assert calls["run_job"] == 1

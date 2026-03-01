@@ -1,5 +1,0 @@
-# See ../../../reference/reference/tasks/profiles/serve.reference.yaml for full options.
-kind: serve
-name: val
-target: serve
-keep: val

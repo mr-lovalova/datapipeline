@@ -1,0 +1,11 @@
+# Serve operation task reference (all options).
+# This file is documentation only; uncomment the keys you want to use.
+#
+# version: 1                        # optional
+# id: serve
+
+# entrypoint: core.serve_pipeline   # required; built-in serve runner id
+# dependencies:                     # optional; artifact task ids required by this operation
+#   - schema
+#   - metadata
+#   - scaler

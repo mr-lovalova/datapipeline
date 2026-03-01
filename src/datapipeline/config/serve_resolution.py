@@ -14,7 +14,6 @@ from datapipeline.config.resolution import (
     resolve_project_log_outputs,
     resolve_visuals,
     resolve_workspace_log_outputs,
-    workspace_output_defaults,
 )
 from datapipeline.config.workspace import WorkspaceContext
 from datapipeline.io.output import OutputTarget, resolve_output_target
@@ -90,19 +89,10 @@ def resolve_run_profiles(
     create_run: bool = False,
 ) -> list[RunProfile]:
     shared = workspace.config.shared if workspace else None
-    serve_defaults = workspace.config.serve if workspace else None
     shared_observability = shared.observability if shared else None
-    serve_observability = serve_defaults.observability if serve_defaults else None
     shared_visuals_default = _observability_value(shared_observability, "visuals")
     shared_log_level_default = _logging_value(shared_observability, "level")
     shared_log_outputs_default = _logging_value(shared_observability, "outputs")
-    serve_visuals_default = _observability_value(serve_observability, "visuals")
-    serve_log_level_default = _logging_value(serve_observability, "level")
-    serve_log_outputs_default = _logging_value(serve_observability, "outputs")
-    serve_limit_default = serve_defaults.limit if serve_defaults else None
-    serve_stage_default = serve_defaults.stage if serve_defaults else None
-    serve_throttle_default = serve_defaults.throttle_ms if serve_defaults else None
-    workspace_output_cfg = workspace_output_defaults(workspace)
 
     profiles: list[RunProfile] = []
     for idx, total_runs, entry, runtime in iter_runtime_runs(
@@ -111,26 +101,18 @@ def resolve_run_profiles(
         entry_name = entry.name
         run_cfg = getattr(runtime, "run", None)
 
-        resolved_stage = cascade(stage, _run_config_value(run_cfg, "stage"), serve_stage_default)
-        resolved_limit = cascade(limit, _run_config_value(run_cfg, "limit"), serve_limit_default)
-        throttle_ms = cascade(
-            _run_config_value(run_cfg, "throttle_ms"),
-            serve_throttle_default,
-        )
+        resolved_stage = cascade(stage, _run_config_value(run_cfg, "stage"))
+        resolved_limit = cascade(limit, _run_config_value(run_cfg, "limit"))
+        throttle_ms = _run_config_value(run_cfg, "throttle_ms")
         log_decision = resolve_log_level(
             cli_log_level,
             _run_logging_value(run_cfg, "level"),
-            serve_log_level_default,
             shared_log_level_default,
             fallback=str(base_log_level).upper(),
         )
         run_log_outputs = resolve_project_log_outputs(
             _run_logging_value(run_cfg, "outputs"),
             project_path=project_path,
-        )
-        serve_log_outputs = resolve_workspace_log_outputs(
-            serve_log_outputs_default,
-            workspace=workspace,
         )
         shared_log_outputs = resolve_workspace_log_outputs(
             shared_log_outputs_default,
@@ -140,24 +122,22 @@ def resolve_run_profiles(
             output_candidates=(
                 list(cli_log_outputs or []),
                 run_log_outputs,
-                serve_log_outputs,
                 shared_log_outputs,
             ),
-            allow_run_scope=True,
+            allow_run_scope=create_run,
         )
 
         run_visuals = _run_observability_value(run_cfg, "visuals")
         visuals = resolve_visuals(
             cli_visuals=cli_visuals,
-            config_visuals=cascade(run_visuals, serve_visuals_default),
+            config_visuals=run_visuals,
             workspace_visuals=shared_visuals_default,
         )
 
-        runtime_output_cfg = workspace_output_cfg.model_copy() if workspace_output_cfg else None
         target = resolve_output_target(
             cli_output=cli_output,
             config_output=getattr(run_cfg, "output", None),
-            default=runtime_output_cfg,
+            default=None,
             base_path=project_path.parent,
             run_name=entry_name or f"run{idx}",
             stage=resolved_stage,

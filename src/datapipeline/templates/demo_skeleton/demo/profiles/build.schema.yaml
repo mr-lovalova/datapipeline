@@ -1,0 +1,6 @@
+# See ../../../plugin_skeleton/reference/reference/tasks/profiles/build.reference.yaml for full options.
+type: build
+name: schema
+target: schema
+enabled: true
+mode: AUTO

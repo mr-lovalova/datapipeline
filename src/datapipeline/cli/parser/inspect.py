@@ -1,110 +1,55 @@
 import argparse
 
+from datapipeline.config.options import OUTPUT_FORMATS, OUTPUT_TRANSPORTS, OUTPUT_VIEWS
+
 from .common import add_dataset_flag, add_project_flag, add_visual_flags
 
 
-def add_inspect_command(sub,  common: argparse.ArgumentParser) -> None:
-    inspect_common = argparse.ArgumentParser(add_help=False)
-    add_visual_flags(inspect_common)
-    add_dataset_flag(inspect_common)
-
+def add_inspect_command(sub, common: argparse.ArgumentParser) -> None:
     parser = sub.add_parser(
         "inspect",
-        help="inspect dataset metadata: report, matrix, partitions",
-        parents=[common, inspect_common],
+        help="run inspect operations through inspect profiles",
+        parents=[common],
     )
+    add_dataset_flag(parser)
     add_project_flag(parser)
-    inspect_sub = parser.add_subparsers(dest="inspect_cmd", required=False)
-
-    report = inspect_sub.add_parser(
-        "report",
-        help="print a quality report to stdout",
-        parents=[inspect_common],
+    parser.add_argument(
+        "--run",
+        help="select an inspect profile by name (project must declare inspect profiles under profiles/)",
     )
-    add_project_flag(report)
-    report.add_argument(
-        "--threshold",
-        "-t",
-        type=float,
-        default=0.95,
-        help="coverage threshold (0-1) for keep/drop lists",
-    )
-    report.add_argument(
-        "--match-partition",
-        choices=["base", "full"],
-        default="base",
-        help="match features by base id or full partition id",
-    )
-    report.add_argument(
-        "--mode",
-        choices=["final", "raw"],
-        default="final",
-        help="whether to apply postprocess transforms (final) or skip them (raw)",
-    )
-    report.add_argument(
-        "--sort",
-        choices=["missing", "nulls"],
-        default="missing",
-        help="feature ranking metric in the report (missing or nulls)",
-    )
-
-    matrix = inspect_sub.add_parser(
-        "matrix",
-        help="export availability matrix",
-        parents=[inspect_common],
-    )
-    add_project_flag(matrix)
-    matrix.add_argument(
-        "--threshold",
-        "-t",
-        type=float,
-        default=0.95,
-        help="coverage threshold (used in the report)",
-    )
-    matrix.add_argument(
-        "--rows",
+    parser.add_argument(
+        "--limit",
+        "-n",
         type=int,
-        default=20,
-        help="max number of group buckets in the matrix (0 = all)",
-    )
-    matrix.add_argument(
-        "--cols",
-        type=int,
-        default=10,
-        help="max number of features/partitions in the matrix (0 = all)",
-    )
-    matrix.add_argument(
-        "--format",
-        choices=["csv", "html"],
-        default="html",
-        help="output format for the matrix",
-    )
-    matrix.add_argument(
-        "--output",
         default=None,
-        help="destination for the matrix (defaults to build/matrix.<fmt>)",
+        help="optional cap for inspect operations that stream records",
     )
-    matrix.add_argument(
-        "--quiet",
+    parser.add_argument(
+        "--output-transport",
+        choices=OUTPUT_TRANSPORTS,
+        help="optional output transport override (stdout or fs) for inspect profiles",
+    )
+    parser.add_argument(
+        "--output-format",
+        choices=OUTPUT_FORMATS,
+        help="optional output format override (jsonl/csv/pickle) for inspect profiles",
+    )
+    parser.add_argument(
+        "--output-directory",
+        help="destination directory when using fs transport",
+    )
+    parser.add_argument(
+        "--output-encoding",
+        help="text encoding for fs jsonl/csv outputs (default: utf-8)",
+    )
+    parser.add_argument(
+        "--output-view",
+        choices=OUTPUT_VIEWS,
+        help="output representation view (flat/raw/values); csv supports flat|values",
+    )
+    parser.add_argument(
+        "--skip-build",
         action="store_true",
-        help="suppress detailed console report; only print save messages",
+        help="skip automatic artifact dependency builds before inspect operations",
     )
-    matrix.add_argument(
-        "--mode",
-        choices=["final", "raw"],
-        default="final",
-        help="whether to apply postprocess transforms (final) or skip them (raw)",
-    )
-
-    parts = inspect_sub.add_parser(
-        "partitions",
-        help="discover partitions and write a manifest JSON",
-        parents=[inspect_common],
-    )
-    add_project_flag(parts)
-    parts.add_argument(
-        "--output",
-        "-o",
-        default=None,
-        help="partitions manifest path (defaults to build/partitions.json)",
-    )
+    add_visual_flags(parser)

@@ -25,6 +25,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     add_serve_command(sub, common=common)
+    add_inspect_command(sub, common=common)
     add_build_command(sub, common=common)
     add_demo_command(sub, common=common)
     add_list_command(sub, common=common)
@@ -62,5 +63,4 @@ def build_parser() -> argparse.ArgumentParser:
     add_contract_command(sub, common=common)
     add_plugin_command(sub, common=common)
     add_filter_command(sub, common=common)
-    add_inspect_command(sub, common=common)
     return parser

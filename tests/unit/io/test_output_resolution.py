@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from datapipeline.config.tasks import ServeOutputConfig
+from datapipeline.config.profiles import ServeOutputConfig
 from datapipeline.io.output import resolve_output_target
 
 

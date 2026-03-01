@@ -1,0 +1,29 @@
+# Inspect profile reference (all options).
+# This file is documentation only; uncomment the keys you want to use.
+#
+# version: 1                  # optional
+# type: inspect
+# name: matrix                # required; must be unique among inspect profiles
+# target: matrix              # required; inspect operation id from tasks/operations
+# enabled: true               # optional
+#
+# output:                     # optional; omit to use CLI defaults
+#   transport: stdout          # stdout | fs
+#   format: jsonl              # stdout: jsonl
+#   # view: raw               # optional; flat | raw | values
+#   # encoding: utf-8          # fs jsonl/csv only
+#   # fs transport only:
+#   # transport: fs
+#   # format: csv             # csv | jsonl | pickle
+#   # directory: artifacts/inspect
+#
+# observability:              # optional
+#   visuals: ON               # optional; ON | OFF (false -> OFF)
+#   logging:                  # optional
+#     level: INFO             # optional; CRITICAL | ERROR | WARNING | INFO | DEBUG
+#     outputs:                # optional; ordered list
+#       - transport: STDERR   # STDERR | STDOUT | FS
+#       # - transport: FS
+#       #   scope: RUN        # GLOBAL | RUN
+#       #   path: logs/inspect.log  # required for FS+GLOBAL; optional for RUN
+# precedence: CLI --log-output > this profile > jerry.yaml shared
