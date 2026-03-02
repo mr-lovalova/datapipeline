@@ -72,6 +72,37 @@ class OutputResolutionError(ValueError):
     """Raised when CLI/config output options cannot be resolved."""
 
 
+def resolve_destination(
+    target: OutputTarget | None,
+    *,
+    base_dir: Path,
+    default_filename: str,
+) -> Path:
+    if target is not None and target.destination is not None:
+        return target.destination.resolve()
+    return (base_dir / default_filename).resolve()
+
+
+def served_output_message(target: OutputTarget, count: int) -> str:
+    if target.destination:
+        return f"Saved {count} items: {target.destination}"
+    if target.transport == "stdout":
+        return f"Streamed {count} items: stdout"
+    return f"Emitted {count} items"
+
+
+def materialized_output_message(
+    artifact_key: str,
+    path: Path,
+    *,
+    meta: dict[str, object] | None = None,
+) -> str:
+    if not meta:
+        return f"Materialized {artifact_key}: {path}"
+    details = ", ".join(f"{k}={v}" for k, v in meta.items())
+    return f"Materialized {artifact_key}: {path} ({details})"
+
+
 def resolve_output_target(
     
     cli_output: ServeOutputConfig | None,

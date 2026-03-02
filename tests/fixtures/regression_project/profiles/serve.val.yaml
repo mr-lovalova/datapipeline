@@ -1,5 +1,5 @@
 type: serve
 name: val
-target: serve
+target: pipeline
 enabled: true
 keep: val

@@ -1,6 +1,8 @@
 # See ../../../reference/reference/tasks/operations/inspect.reference.yaml for full options.
 id: coverage
-entrypoint: core.inspect.coverage
+kind: runtime
+entrypoint: core.runtime.coverage
+runtime_kind: inspect
 dependencies:
   - stats
   - metadata

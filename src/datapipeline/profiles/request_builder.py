@@ -5,7 +5,7 @@ from typing import Any, Callable, Literal, Mapping, Optional, Sequence, TypeAlia
 
 from pydantic import ValidationError
 
-from datapipeline.cli.commands.run_config import resolve_runtime_entries
+from datapipeline.services.runtime_entries import resolve_runtime_entries
 from datapipeline.config.build_resolution import resolve_build_settings
 from datapipeline.config.dataset.loader import load_dataset
 from datapipeline.config.loaders.operations import operation_specs

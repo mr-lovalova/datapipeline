@@ -14,11 +14,7 @@ def run_profiles(request: ProfileRunRequest) -> None:
     total = len(profiles)
     for idx, profile in enumerate(profiles, start=1):
         is_runtime_profile = isinstance(profile, RuntimeExecutionProfile)
-        runtime = (
-            profile.runtime
-            if is_runtime_profile
-            else bootstrap(request.project_path)
-        )
+        runtime = profile.runtime if is_runtime_profile else bootstrap(request.project_path)
         spec = ProfileExecutionSpec(
             kind=profile.kind,
             name=profile.name,
@@ -35,28 +31,27 @@ def run_profiles(request: ProfileRunRequest) -> None:
             artifact_writer=profile.artifact_writer,
         )
         if is_runtime_profile:
-            def work(profile=profile):
-                with execution_scope(
-                    profile_kind=profile.kind,
-                    profile_name=profile.name,
-                    target_id=profile.target_id,
-                ):
-                    return execute_runtime_profile(
-                        profile=profile,
-                        request=request,
-                        tasks_by_id=tasks_by_id,
-                    )
+            def execute(profile=profile):
+                return execute_runtime_profile(
+                    profile=profile,
+                    request=request,
+                    tasks_by_id=tasks_by_id,
+                )
         else:
-            def work(profile=profile, runtime=runtime):
-                with execution_scope(
-                    profile_kind=profile.kind,
-                    profile_name=profile.name,
-                    target_id=profile.target_id,
-                ):
-                    return execute_build_profile(
-                        profile=profile,
-                        request=request,
-                        tasks_by_id=tasks_by_id,
-                        runtime_override=runtime,
-                    )
+            def execute(profile=profile, runtime=runtime):
+                return execute_build_profile(
+                    profile=profile,
+                    request=request,
+                    tasks_by_id=tasks_by_id,
+                    runtime_override=runtime,
+                )
+
+        def work(profile=profile, execute=execute):
+            with execution_scope(
+                profile_kind=profile.kind,
+                profile_name=profile.name,
+                target_id=profile.target_id,
+            ):
+                return execute()
+
         run_profile(spec=spec, work=work)

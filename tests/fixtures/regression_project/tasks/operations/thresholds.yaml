@@ -1,5 +1,7 @@
 id: thresholds
-entrypoint: core.inspect.thresholds
+kind: runtime
+entrypoint: core.runtime.thresholds
+runtime_kind: inspect
 dependencies:
   - stats
   - metadata

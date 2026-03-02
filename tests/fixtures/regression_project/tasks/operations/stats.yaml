@@ -1,5 +1,6 @@
 id: stats
-entrypoint: core.build.stats
+kind: artifact
+entrypoint: core.artifact.stats
 dependencies:
   - metadata
   - scaler

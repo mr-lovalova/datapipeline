@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 import json
 
-from datapipeline.build.tasks.scaler import materialize_scaler_statistics
+from datapipeline.operations.artifacts.scaler import materialize_scaler_statistics
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.config.split import TimeSplitConfig
@@ -38,11 +38,11 @@ def test_materialize_scaler_statistics_split_all_ignores_label_filter(monkeypatc
     ]
 
     monkeypatch.setattr(
-        "datapipeline.build.tasks.scaler.load_dataset",
+        "datapipeline.operations.artifacts.scaler.load_dataset",
         lambda *_args, **_kwargs: dataset,
     )
     monkeypatch.setattr(
-        "datapipeline.build.tasks.scaler.build_vector_pipeline",
+        "datapipeline.operations.artifacts.scaler.build_vector_pipeline",
         lambda *_args, **_kwargs: iter(samples),
     )
 

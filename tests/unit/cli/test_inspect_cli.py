@@ -3,7 +3,10 @@ from types import SimpleNamespace
 import pytest
 from pathlib import Path
 
-from datapipeline.operations import inspect as inspect_ops
+from datapipeline.operations.runtime import coverage as coverage_ops
+from datapipeline.operations.runtime import vector_stats_common
+from datapipeline.operations.runtime import matrix as matrix_ops
+from datapipeline.operations.runtime import thresholds as thresholds_ops
 from datapipeline.services.constants import VECTOR_SCHEMA_METADATA, VECTOR_STATS
 
 
@@ -40,9 +43,9 @@ def test_inspect_coverage_reads_stats_artifact(monkeypatch, capsys) -> None:
             assert spec.key == VECTOR_SCHEMA_METADATA
             return _metadata()
 
-    monkeypatch.setattr(inspect_ops, "PipelineContext", _Ctx)
+    monkeypatch.setattr(vector_stats_common, "PipelineContext", _Ctx)
 
-    inspect_ops.inspect_coverage_with_runtime(
+    coverage_ops.inspect_coverage_with_runtime(
         runtime=SimpleNamespace(),
         dataset=SimpleNamespace(),
         operation_task=SimpleNamespace(options={}),
@@ -64,9 +67,9 @@ def test_inspect_thresholds_reads_stats_artifact(monkeypatch, capsys) -> None:
             assert spec.key == VECTOR_SCHEMA_METADATA
             return _metadata()
 
-    monkeypatch.setattr(inspect_ops, "PipelineContext", _Ctx)
+    monkeypatch.setattr(vector_stats_common, "PipelineContext", _Ctx)
 
-    inspect_ops.inspect_thresholds_with_runtime(
+    thresholds_ops.inspect_thresholds_with_runtime(
         runtime=SimpleNamespace(),
         dataset=SimpleNamespace(),
         operation_task=SimpleNamespace(options={"threshold": 0.95}),
@@ -85,10 +88,10 @@ def test_load_collector_rejects_non_object_artifact(monkeypatch) -> None:
         def require_artifact(self, spec):
             return []
 
-    monkeypatch.setattr(inspect_ops, "PipelineContext", _Ctx)
+    monkeypatch.setattr(vector_stats_common, "PipelineContext", _Ctx)
 
     with pytest.raises(RuntimeError, match="Invalid vector stats artifact"):
-        inspect_ops._load_collector(
+        vector_stats_common.load_collector(
             runtime=SimpleNamespace(),
             options={},
         )
@@ -106,21 +109,21 @@ def test_inspect_matrix_emits_materialized_message(monkeypatch, tmp_path: Path) 
             return _metadata()
 
     emitted: list[tuple[str, str | None]] = []
-    monkeypatch.setattr(inspect_ops, "PipelineContext", _Ctx)
+    monkeypatch.setattr(vector_stats_common, "PipelineContext", _Ctx)
     monkeypatch.setattr(
-        inspect_ops,
+        matrix_ops,
         "export_matrix_data",
         lambda _collector: (tmp_path / "inspect" / "matrix.html"),
     )
     monkeypatch.setattr(
-        inspect_ops,
+        matrix_ops,
         "emit_execution_message",
         lambda message, level, logger, message_kind=None: emitted.append(
             (message, message_kind)
         ),
     )
 
-    inspect_ops.inspect_matrix_with_runtime(
+    matrix_ops.inspect_matrix_with_runtime(
         runtime=SimpleNamespace(artifacts_root=tmp_path),
         dataset=SimpleNamespace(),
         operation_task=SimpleNamespace(options={"format": "html", "quiet": True}),
@@ -129,3 +132,31 @@ def test_inspect_matrix_emits_materialized_message(monkeypatch, tmp_path: Path) 
     assert emitted
     assert emitted[0][1] == "materialized"
     assert emitted[0][0].startswith("Materialized inspect_matrix: ")
+
+
+def test_inspect_matrix_uses_target_destination(monkeypatch, tmp_path: Path) -> None:
+    class _Ctx:
+        def __init__(self, runtime):
+            self.runtime = runtime
+
+        def require_artifact(self, spec):
+            if spec.key == VECTOR_STATS:
+                return _snapshot()
+            assert spec.key == VECTOR_SCHEMA_METADATA
+            return _metadata()
+
+    monkeypatch.setattr(vector_stats_common, "PipelineContext", _Ctx)
+    expected = (tmp_path / "custom" / "matrix.html").resolve()
+
+    def _export(collector):
+        assert collector.matrix_output == expected
+        return expected
+
+    monkeypatch.setattr(matrix_ops, "export_matrix_data", _export)
+
+    matrix_ops.inspect_matrix_with_runtime(
+        runtime=SimpleNamespace(artifacts_root=tmp_path),
+        dataset=SimpleNamespace(),
+        target=SimpleNamespace(destination=expected),
+        operation_task=SimpleNamespace(options={"format": "html", "quiet": True}),
+    )

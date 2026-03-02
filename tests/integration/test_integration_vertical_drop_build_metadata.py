@@ -1,8 +1,8 @@
 import shutil
 
-from datapipeline.build.tasks.metadata import materialize_metadata
-from datapipeline.build.tasks.schema import materialize_vector_schema
-from datapipeline.build.tasks.scaler import materialize_scaler_statistics
+from datapipeline.operations.artifacts.metadata import materialize_metadata
+from datapipeline.operations.artifacts.schema import materialize_vector_schema
+from datapipeline.operations.artifacts.scaler import materialize_scaler_statistics
 from datapipeline.config.context import load_dataset
 from datapipeline.config.tasks import MetadataTask, SchemaTask, ScalerTask
 from datapipeline.dag.context import PipelineContext

@@ -7,7 +7,7 @@ from datapipeline.cli.visuals.execution import execution_scope
 from datapipeline.config.build_resolution import BuildSettings
 from datapipeline.config.tasks import OperationTask, Task
 from datapipeline.operations.dispatch import dispatch_operation
-from datapipeline.plugins import INSPECT_OPERATIONS_EP, SERVE_OPERATIONS_EP
+from datapipeline.plugins import RUNTIME_OPERATIONS_EP
 from datapipeline.runtime import Runtime
 from datapipeline.services.bootstrap import build_state_path
 
@@ -42,13 +42,24 @@ def run_selected_artifacts(
     required_artifacts = required_artifacts_for_task_ids(request, artifact_task_ids)
     if not required_artifacts:
         return
+    runtime_build_mode = None
+    cli_log_level = None
+    cli_visuals = None
+    cli_log_outputs: list = []
+    workspace = None
+    if build_options is not None:
+        runtime_build_mode = build_options.build_mode
+        cli_log_level = build_options.cli_log_level
+        cli_visuals = build_options.cli_visuals
+        cli_log_outputs = list(build_options.cli_log_outputs)
+        workspace = build_options.workspace
     run_build_if_needed(
         request.project_path,
-        runtime_build_mode=(build_options.build_mode if build_options is not None else None),
-        cli_log_level=(build_options.cli_log_level if build_options is not None else None),
-        cli_visuals=(build_options.cli_visuals if build_options is not None else None),
-        cli_log_outputs=list(build_options.cli_log_outputs) if build_options is not None else [],
-        workspace=(build_options.workspace if build_options is not None else None),
+        runtime_build_mode=runtime_build_mode,
+        cli_log_level=cli_log_level,
+        cli_visuals=cli_visuals,
+        cli_log_outputs=cli_log_outputs,
+        workspace=workspace,
         required_artifacts=required_artifacts,
         artifact_task_configs=list(request.artifact_task_configs),
         settings=settings,
@@ -63,14 +74,9 @@ def run_runtime_task(
     profile: RuntimeExecutionProfile,
 ) -> None:
     try:
-        operation_group = (
-            INSPECT_OPERATIONS_EP
-            if profile.kind == "inspect"
-            else SERVE_OPERATIONS_EP
-        )
         dispatch_operation(
             operation=task,
-            operation_group=operation_group,
+            operation_group=RUNTIME_OPERATIONS_EP,
             operation_type="operation",
             operation_task=task,
             runtime=profile.runtime,
@@ -95,7 +101,7 @@ def run_runtime_artifact_dependencies(
     if profile.skip_artifacts or not artifact_task_ids:
         return
 
-    dependency_profile = _dependency_profile_name(profile)
+    dependency_profile = f"{profile.name}.dependencies"
     spec = ProfileExecutionSpec(
         kind="build",
         name=dependency_profile,
@@ -138,10 +144,6 @@ def _run_runtime_dependencies_in_scope(
             runtime_override=profile.runtime,
             profile_name_override=dependency_profile,
         )
-
-
-def _dependency_profile_name(profile: RuntimeExecutionProfile) -> str:
-    return f"{profile.name}.dependencies"
 
 
 def sync_runtime_artifacts_from_state(

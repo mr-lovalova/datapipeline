@@ -16,7 +16,7 @@ class _TaskStub:
         id: str,
         output: str,
         enabled: bool = True,
-        entrypoint: str = "core.build.schema",
+        entrypoint: str = "core.artifact.schema",
     ) -> None:
         self.id = id
         self.output = output

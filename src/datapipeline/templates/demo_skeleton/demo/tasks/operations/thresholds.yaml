@@ -1,6 +1,8 @@
 # See ../../../../plugin_skeleton/reference/reference/tasks/operations/inspect.reference.yaml for full options.
 id: thresholds
-entrypoint: core.inspect.thresholds
+kind: runtime
+entrypoint: core.runtime.thresholds
+runtime_kind: inspect
 dependencies:
   - stats
   - metadata

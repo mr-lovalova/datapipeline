@@ -1,48 +1,27 @@
 from pathlib import Path
-from typing import Any, Mapping, Optional
-import logging
+from typing import Any, Mapping
 
 from datapipeline.analysis.vector.collector import VectorStatsCollector
 from datapipeline.analysis.vector.snapshot import collector_from_snapshot
-from datapipeline.analysis.vector.matrix import export_matrix_data
-from datapipeline.cli.visuals.execution import emit_execution_message
-from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.metadata import build_vector_metadata_lookup
 from datapipeline.config.tasks import OperationTask
 from datapipeline.dag.context import PipelineContext
 from datapipeline.runtime import Runtime
 from datapipeline.services.artifacts import VECTOR_METADATA_SPEC, VECTOR_STATS_SPEC
-from datapipeline.utils.paths import ensure_parent
 
-logger = logging.getLogger(__name__)
 
-def _option(options: Mapping[str, Any], key: str, default: Any) -> Any:
+def option(options: Mapping[str, Any], key: str, default: Any) -> Any:
     value = options.get(key, default)
     return default if value is None else value
 
 
-def _resolve_output_path(
-    runtime: Runtime,
-    *,
-    target,
-    options: Mapping[str, Any],
-    default_filename: str,
-) -> Path:
-    def _resolve(candidate: Path) -> Path:
-        if candidate.is_absolute():
-            return candidate
-        return (runtime.artifacts_root / candidate).resolve()
-
-    explicit = options.get("output")
-    if isinstance(explicit, str) and explicit.strip():
-        return _resolve(Path(explicit.strip()))
-    destination = getattr(target, "destination", None)
-    if destination is not None:
-        return _resolve(Path(destination))
-    return (runtime.artifacts_root / "inspect" / default_filename).resolve()
+def options_for_task(operation_task: OperationTask | None) -> Mapping[str, Any]:
+    if operation_task is None:
+        return {}
+    return operation_task.options
 
 
-def _load_collector(
+def load_collector(
     runtime: Runtime,
     *,
     options: Mapping[str, Any],
@@ -60,16 +39,16 @@ def _load_collector(
         snapshot,
         expected_feature_ids=expected_feature_ids,
         schema_meta=schema_meta,
-        threshold=float(_option(options, "threshold", 0.95)),
+        threshold=float(option(options, "threshold", 0.95)),
         show_matrix=False,
-        matrix_rows=int(_option(options, "rows", 20)),
-        matrix_cols=int(_option(options, "cols", 10)),
+        matrix_rows=int(option(options, "rows", 20)),
+        matrix_cols=int(option(options, "cols", 10)),
         matrix_output=(str(matrix_path) if matrix_path is not None else None),
         matrix_format=(matrix_format or "html"),
     )
 
 
-def _build_summary(
+def build_summary(
     collector: VectorStatsCollector,
     *,
     sort_key: str,
@@ -190,19 +169,19 @@ def _build_summary(
     }
 
 
-def _resolve_summary(
+def resolve_summary(
     runtime: Runtime,
     *,
     options: Mapping[str, Any],
 ) -> tuple[dict[str, Any], str, float]:
-    sort_key = str(_option(options, "sort", "missing"))
-    threshold = float(_option(options, "threshold", 0.95))
-    collector = _load_collector(runtime, options=options)
-    summary = _build_summary(collector, sort_key=sort_key, threshold=threshold)
+    sort_key = str(option(options, "sort", "missing"))
+    threshold = float(option(options, "threshold", 0.95))
+    collector = load_collector(runtime, options=options)
+    summary = build_summary(collector, sort_key=sort_key, threshold=threshold)
     return summary, sort_key, threshold
 
 
-def _print_coverage(summary: Mapping[str, Any], *, sort_key: str) -> None:
+def print_coverage(summary: Mapping[str, Any], *, sort_key: str) -> None:
     features = list(summary.get("feature_stats") or [])
     partitions = list(summary.get("partition_stats") or [])
     metric = "null" if sort_key == "nulls" else "missing"
@@ -226,7 +205,7 @@ def _print_coverage(summary: Mapping[str, Any], *, sort_key: str) -> None:
             )
 
 
-def _print_thresholds(summary: Mapping[str, Any], *, threshold: float) -> None:
+def print_thresholds(summary: Mapping[str, Any], *, threshold: float) -> None:
     pct = threshold * 100
     print("\n=== Vector Thresholds ===")
     print(f"Threshold: {pct:.0f}%")
@@ -248,78 +227,3 @@ def _print_thresholds(summary: Mapping[str, Any], *, threshold: float) -> None:
         print(f"  keep_partition_values = {keep_values}")
     print(f"[high] Partitions at/above {pct:.0f}% cadence fill:")
     print(f"  keep_partitions_cadence = {summary.get('keep_partitions_cadence', [])}")
-
-
-def inspect_coverage_with_runtime(
-    runtime: Runtime,
-    dataset: FeatureDatasetConfig,
-    limit: Optional[int] = None,
-    target=None,
-    throttle_ms: Optional[float] = None,
-    stage: Optional[int] = None,
-    visuals: Optional[str] = None,
-    operation_task: OperationTask | None = None,
-) -> None:
-    _ = dataset, limit, target, throttle_ms, stage, visuals
-    options = operation_task.options if operation_task is not None else {}
-    summary, sort_key, _ = _resolve_summary(runtime, options=options)
-    if not bool(_option(options, "quiet", False)):
-        _print_coverage(summary, sort_key=sort_key)
-
-
-def inspect_thresholds_with_runtime(
-    runtime: Runtime,
-    dataset: FeatureDatasetConfig,
-    limit: Optional[int] = None,
-    target=None,
-    throttle_ms: Optional[float] = None,
-    stage: Optional[int] = None,
-    visuals: Optional[str] = None,
-    operation_task: OperationTask | None = None,
-) -> None:
-    _ = dataset, limit, target, throttle_ms, stage, visuals
-    options = operation_task.options if operation_task is not None else {}
-    summary, _, threshold = _resolve_summary(runtime, options=options)
-    if not bool(_option(options, "quiet", False)):
-        _print_thresholds(summary, threshold=threshold)
-
-
-def inspect_matrix_with_runtime(
-    runtime: Runtime,
-    dataset: FeatureDatasetConfig,
-    limit: Optional[int] = None,
-    target=None,
-    throttle_ms: Optional[float] = None,
-    stage: Optional[int] = None,
-    visuals: Optional[str] = None,
-    operation_task: OperationTask | None = None,
-) -> None:
-    _ = dataset, limit, throttle_ms, stage, visuals
-    options = operation_task.options if operation_task is not None else {}
-    matrix_format = str(_option(options, "format", "html")).lower()
-    if matrix_format not in {"csv", "html"}:
-        raise ValueError(
-            f"Invalid inspect matrix format '{matrix_format}'. Use 'csv' or 'html'."
-        )
-    default_name = "matrix.csv" if matrix_format == "csv" else "matrix.html"
-    matrix_path = _resolve_output_path(
-        runtime,
-        target=target,
-        options=options,
-        default_filename=default_name,
-    )
-    ensure_parent(matrix_path)
-    collector = _load_collector(
-        runtime,
-        options=options,
-        matrix_format=matrix_format,
-        matrix_path=matrix_path,
-    )
-    written = export_matrix_data(collector)
-    if written is not None:
-        emit_execution_message(
-            f"Materialized inspect_matrix: {written} (format={matrix_format})",
-            level=logging.INFO,
-            logger=logger,
-            message_kind="materialized",
-        )

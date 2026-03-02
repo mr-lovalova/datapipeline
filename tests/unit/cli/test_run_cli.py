@@ -3,8 +3,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from datapipeline.cli.commands.profile_request import build_cli_output_config
-from datapipeline.cli.commands.run_config import RunEntry
+from datapipeline.profiles.request_builder import build_cli_output_config
+from datapipeline.services.runtime_entries import RunEntry
 from datapipeline.config.profiles import ServeOutputConfig, ServeProfile
 from datapipeline.config.serve_resolution import _run_config_value, resolve_run_profiles
 from datapipeline.config.resolution import LogOutputTarget
@@ -13,7 +13,9 @@ from datapipeline.config.workspace import WorkspaceConfig, WorkspaceContext
 
 _SERVE_OPERATION = OperationTask(
     id="serve",
-    entrypoint="core.serve_pipeline",
+    kind="runtime",
+    entrypoint="core.runtime.pipeline",
+    runtime_kind="serve",
 )
 
 

@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 import json
 
-from datapipeline.build.tasks.stats import materialize_vector_stats
+from datapipeline.operations.artifacts.stats import materialize_vector_stats
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.config.tasks import StatsTask
@@ -46,19 +46,19 @@ def test_materialize_vector_stats_reads_metadata_and_omits_schema_meta(monkeypat
             assert rectangular_required is True
 
     monkeypatch.setattr(
-        "datapipeline.build.tasks.stats.PipelineContext",
+        "datapipeline.operations.artifacts.stats.PipelineContext",
         _Ctx,
     )
     monkeypatch.setattr(
-        "datapipeline.build.tasks.stats.load_dataset",
+        "datapipeline.operations.artifacts.stats.load_dataset",
         lambda *_args, **_kwargs: dataset,
     )
     monkeypatch.setattr(
-        "datapipeline.build.tasks.stats.build_vector_pipeline",
+        "datapipeline.operations.artifacts.stats.build_vector_pipeline",
         lambda *_args, **_kwargs: iter(samples),
     )
     monkeypatch.setattr(
-        "datapipeline.build.tasks.stats.post_process",
+        "datapipeline.operations.artifacts.stats.post_process",
         lambda _context, vectors: vectors,
     )
 

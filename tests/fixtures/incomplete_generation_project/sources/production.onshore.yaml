@@ -13,5 +13,5 @@ loader:
   args:
     transport: fs
     format: csv
-    path: tests/fixtures/regression_project/data/incomplete/ProductionMunicipalityHour.csv
+    path: data/incomplete/ProductionMunicipalityHour.csv
     delimiter: ";"

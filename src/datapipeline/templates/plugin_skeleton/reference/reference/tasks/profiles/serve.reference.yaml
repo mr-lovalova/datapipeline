@@ -4,7 +4,7 @@
 # version: 1                  # optional
 # type: serve
 # name: train                 # required; must be unique among serve profiles
-# target: serve               # required; serve operation id from tasks/operations
+# target: pipeline               # required; serve operation id from tasks/operations
 # enabled: true               # optional
 #
 # keep: train                  # optional; split label from globals.split (null disables filtering)

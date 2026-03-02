@@ -3,8 +3,10 @@
 #
 # version: 1                            # optional
 # id: matrix                            # any unique inspect operation id
+# kind: runtime                         # required; runtime | artifact
+# runtime_kind: inspect                 # required for runtime tasks; serve | inspect
 #
-# entrypoint: core.inspect.coverage     # core.inspect.coverage | core.inspect.thresholds | core.inspect.matrix
+# entrypoint: core.runtime.coverage     # core.runtime.coverage | core.runtime.thresholds | core.runtime.matrix
 # dependencies:
 #   - stats
 #   - metadata
@@ -13,4 +15,4 @@
 #   threshold: 0.95                     # thresholds used by coverage/thresholds
 #   quiet: true                         # suppress operation stdout (useful for matrix)
 #   format: html                        # matrix only: html | csv
-#   output: ./artifacts/inspect.html    # matrix/partitions output path override
+#   # output path is resolved from profile output target (or default artifacts/inspect)

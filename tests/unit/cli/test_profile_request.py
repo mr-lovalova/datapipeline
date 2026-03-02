@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from datapipeline.cli.commands.profile_request import build_profile_run_request
+from datapipeline.profiles.request_builder import build_profile_run_request
 from datapipeline.config.resolution import LogOutputTarget
 
 
@@ -61,7 +61,7 @@ def test_inspect_request_rejects_run_scoped_log_output(tmp_path: Path, monkeypat
     ops.mkdir(parents=True, exist_ok=True)
     profiles.mkdir(parents=True, exist_ok=True)
     (ops / "coverage.yaml").write_text(
-        "id: coverage\nentrypoint: core.inspect.coverage\n",
+        "id: coverage\nkind: runtime\nentrypoint: core.runtime.coverage\nruntime_kind: inspect\n",
         encoding="utf-8",
     )
     (profiles / "inspect.coverage.yaml").write_text(

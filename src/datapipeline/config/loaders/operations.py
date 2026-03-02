@@ -23,13 +23,27 @@ ARTIFACT_OPERATION_MODELS: dict[str, type[ArtifactTask]] = {
 
 
 def _load_operation_entry(entry: dict) -> Task:
+    normalized_entry = dict(entry)
+    operation_kind = normalize_required_text(
+        normalized_entry.get("kind"),
+        field_name="kind",
+        lower=True,
+    )
+    normalized_entry["kind"] = operation_kind
+    if operation_kind == "runtime":
+        return OperationTask.model_validate(normalized_entry)
+    if operation_kind != "artifact":
+        raise ValueError(
+            f"Unsupported task kind '{operation_kind}'. Use 'artifact' or 'runtime'."
+        )
     operation_id = normalize_required_text(
-        entry.get("id"),
+        normalized_entry.get("id"),
         field_name="id",
         lower=True,
     )
-    model_cls = ARTIFACT_OPERATION_MODELS.get(operation_id, OperationTask)
-    return model_cls.model_validate(entry)
+    normalized_entry["id"] = operation_id
+    model_cls = ARTIFACT_OPERATION_MODELS.get(operation_id, ArtifactTask)
+    return model_cls.model_validate(normalized_entry)
 
 
 def _validate_operation_layout(root: Path) -> None:

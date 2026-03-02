@@ -2,9 +2,9 @@ from dataclasses import dataclass, field
 from types import SimpleNamespace
 
 import pytest
-from datapipeline.cli.commands.serve_pipeline import report_serve
-from datapipeline.cli.commands.serve_pipeline import serve_stream
-from datapipeline.cli.commands.serve_pipeline import serve_with_runtime
+from datapipeline.io.output import served_output_message
+from datapipeline.operations.runtime.pipeline import serve_stream
+from datapipeline.operations.runtime.pipeline import serve_with_runtime
 
 
 @dataclass
@@ -57,15 +57,15 @@ def test_serve_with_runtime_reraises_keyboard_interrupt_and_marks_run_failed(mon
     calls = {"failed": 0, "success": 0}
 
     monkeypatch.setattr(
-        "datapipeline.cli.commands.serve_pipeline.resolve_window_bounds",
+        "datapipeline.operations.runtime.pipeline.resolve_window_bounds",
         lambda runtime_obj, rectangular_required: (None, None),
     )
     monkeypatch.setattr(
-        "datapipeline.cli.commands.serve_pipeline.build_full_pipeline",
+        "datapipeline.operations.runtime.pipeline.build_full_pipeline",
         lambda *args, **kwargs: iter(()),
     )
     monkeypatch.setattr(
-        "datapipeline.cli.commands.serve_pipeline.writer_factory",
+        "datapipeline.operations.runtime.pipeline.writer_factory",
         lambda *args, **kwargs: object(),
     )
 
@@ -73,19 +73,19 @@ def test_serve_with_runtime_reraises_keyboard_interrupt_and_marks_run_failed(mon
         raise KeyboardInterrupt()
 
     monkeypatch.setattr(
-        "datapipeline.cli.commands.serve_pipeline.serve_stream",
+        "datapipeline.operations.runtime.pipeline.serve_stream",
         _raise_interrupt,
     )
     monkeypatch.setattr(
-        "datapipeline.cli.commands.serve_pipeline.finish_run_failed",
+        "datapipeline.operations.runtime.pipeline.finish_run_failed",
         lambda _paths: calls.__setitem__("failed", calls["failed"] + 1),
     )
     monkeypatch.setattr(
-        "datapipeline.cli.commands.serve_pipeline.finish_run_success",
+        "datapipeline.operations.runtime.pipeline.finish_run_success",
         lambda _paths: calls.__setitem__("success", calls["success"] + 1),
     )
     monkeypatch.setattr(
-        "datapipeline.cli.commands.serve_pipeline.set_latest_run",
+        "datapipeline.operations.runtime.pipeline.set_latest_run",
         lambda _paths: None,
     )
 
@@ -104,49 +104,31 @@ def test_serve_with_runtime_reraises_keyboard_interrupt_and_marks_run_failed(mon
     assert calls["success"] == 0
 
 
-def test_report_serve_emits_saved_message_via_execution_events(monkeypatch):
-    captured: list[tuple[str, int, str | None]] = []
-
-    monkeypatch.setattr(
-        "datapipeline.cli.commands.serve_pipeline.emit_execution_message",
-        lambda message, level, logger, message_kind=None: captured.append((message, level, message_kind)),
+def test_served_output_message_for_saved_destination():
+    assert (
+        served_output_message(
+            target=SimpleNamespace(destination="/tmp/train.jsonl", transport="fs"),
+            count=14,
+        )
+        == "Saved 14 items: /tmp/train.jsonl"
     )
 
-    report_serve(
-        target=SimpleNamespace(destination="/tmp/train.jsonl", transport="fs"),
-        count=14,
+
+def test_served_output_message_for_stdout():
+    assert (
+        served_output_message(
+            target=SimpleNamespace(destination=None, transport="stdout"),
+            count=14,
+        )
+        == "Streamed 14 items: stdout"
     )
 
-    assert captured == [("Saved 14 items: /tmp/train.jsonl", 20, "saved")]
 
-
-def test_report_serve_emits_streamed_message_via_execution_events(monkeypatch):
-    captured: list[tuple[str, int, str | None]] = []
-
-    monkeypatch.setattr(
-        "datapipeline.cli.commands.serve_pipeline.emit_execution_message",
-        lambda message, level, logger, message_kind=None: captured.append((message, level, message_kind)),
+def test_served_output_message_for_non_stdout_without_destination():
+    assert (
+        served_output_message(
+            target=SimpleNamespace(destination=None, transport="memory"),
+            count=14,
+        )
+        == "Emitted 14 items"
     )
-
-    report_serve(
-        target=SimpleNamespace(destination=None, transport="stdout"),
-        count=14,
-    )
-
-    assert captured == [("Streamed 14 items: stdout", 20, "saved")]
-
-
-def test_report_serve_emits_emitted_message_for_non_stdout_without_destination(monkeypatch):
-    captured: list[tuple[str, int, str | None]] = []
-
-    monkeypatch.setattr(
-        "datapipeline.cli.commands.serve_pipeline.emit_execution_message",
-        lambda message, level, logger, message_kind=None: captured.append((message, level, message_kind)),
-    )
-
-    report_serve(
-        target=SimpleNamespace(destination=None, transport="memory"),
-        count=14,
-    )
-
-    assert captured == [("Emitted 14 items", 20, "saved")]

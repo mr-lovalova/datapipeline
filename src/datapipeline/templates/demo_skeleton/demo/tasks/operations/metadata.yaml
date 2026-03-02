@@ -1,5 +1,6 @@
 # See ../../../../plugin_skeleton/reference/reference/tasks/operations/metadata.reference.yaml for full options.
 id: metadata
-entrypoint: core.build.metadata
+kind: artifact
+entrypoint: core.artifact.metadata
 dependencies:
   - schema

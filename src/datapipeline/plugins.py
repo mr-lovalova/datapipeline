@@ -7,11 +7,8 @@ FILTERS_EP = os.getenv("DP_FILTERS_EP",    "datapipeline.filters")
 BUILD_OPERATIONS_EP = os.getenv(
     "DP_BUILD_OPERATIONS_EP", "datapipeline.operations.build"
 )
-SERVE_OPERATIONS_EP = os.getenv(
-    "DP_SERVE_OPERATIONS_EP", "datapipeline.operations.serve"
-)
-INSPECT_OPERATIONS_EP = os.getenv(
-    "DP_INSPECT_OPERATIONS_EP", "datapipeline.operations.inspect"
+RUNTIME_OPERATIONS_EP = os.getenv(
+    "DP_RUNTIME_OPERATIONS_EP", "datapipeline.operations.runtime"
 )
 
 RECORD_TRANSFORMS_EP = os.getenv(

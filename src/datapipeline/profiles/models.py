@@ -13,8 +13,8 @@ from datapipeline.config.resolution import (
     LogOutputTarget,
 )
 from datapipeline.config.workspace import WorkspaceContext
-from datapipeline.config.profiles import ServeOutputConfig
 from datapipeline.config.tasks import ArtifactTask, Task
+from datapipeline.io.output import OutputTarget
 from datapipeline.runtime import Runtime
 
 RuntimeKind = Literal["serve", "inspect"]
@@ -50,7 +50,7 @@ class RuntimeExecutionProfile(BaseExecutionProfile):
     runtime: Runtime
     dataset: ProfileDataset
     limit: int | None = None
-    output: ServeOutputConfig | None = None
+    output: OutputTarget | None = None
     throttle_ms: float | None = None
     stage: int | None = None
     skip_artifacts: bool = False

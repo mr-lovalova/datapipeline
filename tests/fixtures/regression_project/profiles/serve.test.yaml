@@ -1,5 +1,5 @@
 type: serve
 name: test
-target: serve
+target: pipeline
 enabled: true
 keep: test

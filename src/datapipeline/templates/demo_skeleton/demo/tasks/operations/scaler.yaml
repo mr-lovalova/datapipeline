@@ -1,4 +1,5 @@
 # See ../../../../plugin_skeleton/reference/reference/tasks/operations/scaler.reference.yaml for full options.
 id: scaler
-entrypoint: core.build.scaler
+kind: artifact
+entrypoint: core.artifact.scaler
 split_label: train

@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from datapipeline.cli.commands.serve_pipeline import _preview_plan
+from datapipeline.operations.runtime.pipeline import _preview_plan
 from datapipeline.pipelines.record.nodes import RECORD_NODE_COUNT
 
 

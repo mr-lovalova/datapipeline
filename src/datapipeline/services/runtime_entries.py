@@ -1,6 +1,6 @@
 import logging
 from pathlib import Path
-from typing import Callable, Literal, Optional
+from typing import Literal, Optional
 
 from datapipeline.config.loaders.operations import operation_specs
 from datapipeline.config.loaders.profiles import profile_specs
@@ -9,17 +9,8 @@ from datapipeline.services.run_entries import RunEntry
 logger = logging.getLogger(__name__)
 RuntimeKind = Literal["serve", "inspect"]
 
-
-_RUNTIME_ENTRYPOINT_MATCHERS: dict[RuntimeKind, Callable[[str], bool]] = {
-    "serve": lambda entrypoint: entrypoint.startswith("core.serve.")
-    or entrypoint.startswith("core.serve_"),
-    "inspect": lambda entrypoint: entrypoint.startswith("core.inspect."),
-}
-
-
-def _matches_runtime_kind(kind: RuntimeKind, entrypoint: str) -> bool:
-    normalized = str(entrypoint or "").strip().lower()
-    return _RUNTIME_ENTRYPOINT_MATCHERS[kind](normalized)
+def _matches_runtime_kind(kind: RuntimeKind, runtime_kind: str) -> bool:
+    return str(runtime_kind).strip().lower() == kind
 
 
 def resolve_runtime_entries(
@@ -65,14 +56,14 @@ def resolve_runtime_entries(
                     task.target,
                 )
                 raise SystemExit(2)
-            if not _matches_runtime_kind(kind, operation.entrypoint):
+            if not _matches_runtime_kind(kind, operation.runtime_kind):
                 logger.error(
-                    "%s profile '%s' targets operation '%s' with entrypoint '%s', "
-                    "which is not a %s operation.",
+                    "%s profile '%s' targets operation '%s' with runtime_kind '%s', "
+                    "which is not a %s operation kind.",
                     kind.capitalize(),
                     task.name,
                     task.target,
-                    operation.entrypoint,
+                    operation.runtime_kind,
                     kind,
                 )
                 raise SystemExit(2)

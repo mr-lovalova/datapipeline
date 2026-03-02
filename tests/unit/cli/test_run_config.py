@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from datapipeline.cli.commands.run_config import resolve_runtime_entries
+from datapipeline.services.runtime_entries import resolve_runtime_entries
 
 
 def _write_project(tmp_path: Path) -> Path:
@@ -38,12 +38,12 @@ def test_serve_entries_reject_inspect_target(tmp_path: Path):
     profiles.mkdir(parents=True, exist_ok=True)
 
     _write_op(
-        ops / "serve.yaml",
-        "id: serve\nentrypoint: core.serve_pipeline\n",
+        ops / "pipeline.yaml",
+        "id: pipeline\nkind: runtime\nentrypoint: core.runtime.pipeline\nruntime_kind: serve\n",
     )
     _write_op(
         ops / "coverage.yaml",
-        "id: coverage\nentrypoint: core.inspect.coverage\n",
+        "id: coverage\nkind: runtime\nentrypoint: core.runtime.coverage\nruntime_kind: inspect\n",
     )
     (profiles / "serve.coverage.yaml").write_text(
         "type: serve\nname: coverage\ntarget: coverage\n",
@@ -63,12 +63,12 @@ def test_inspect_entries_resolve_inspect_operations(tmp_path: Path):
     profiles.mkdir(parents=True, exist_ok=True)
 
     _write_op(
-        ops / "serve.yaml",
-        "id: serve\nentrypoint: core.serve_pipeline\n",
+        ops / "pipeline.yaml",
+        "id: pipeline\nkind: runtime\nentrypoint: core.runtime.pipeline\nruntime_kind: serve\n",
     )
     _write_op(
         ops / "coverage.yaml",
-        "id: coverage\nentrypoint: core.inspect.coverage\n",
+        "id: coverage\nkind: runtime\nentrypoint: core.runtime.coverage\nruntime_kind: inspect\n",
     )
     (profiles / "inspect.coverage.yaml").write_text(
         "type: inspect\nname: coverage\ntarget: coverage\n",
@@ -78,7 +78,7 @@ def test_inspect_entries_resolve_inspect_operations(tmp_path: Path):
     entries = resolve_runtime_entries(project_yaml, run_name="coverage", kind="inspect")
     assert len(entries) == 1
     assert entries[0].operation.id == "coverage"
-    assert entries[0].operation.entrypoint == "core.inspect.coverage"
+    assert entries[0].operation.entrypoint == "core.runtime.coverage"
 
 
 def test_inspect_entries_default_to_enabled_profiles(tmp_path: Path):
@@ -90,11 +90,11 @@ def test_inspect_entries_default_to_enabled_profiles(tmp_path: Path):
 
     _write_op(
         ops / "coverage.yaml",
-        "id: coverage\nentrypoint: core.inspect.coverage\n",
+        "id: coverage\nkind: runtime\nentrypoint: core.runtime.coverage\nruntime_kind: inspect\n",
     )
     _write_op(
         ops / "matrix.yaml",
-        "id: matrix\nentrypoint: core.inspect.matrix\n",
+        "id: matrix\nkind: runtime\nentrypoint: core.runtime.matrix\nruntime_kind: inspect\n",
     )
     (profiles / "inspect.coverage.yaml").write_text(
         "type: inspect\nname: coverage\ntarget: coverage\nenabled: false\n",

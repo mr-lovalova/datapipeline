@@ -1,8 +1,8 @@
 import pytest
 
 from datapipeline.config.context import load_dataset_context
-from datapipeline.build.tasks.schema import materialize_vector_schema
-from datapipeline.build.tasks.scaler import materialize_scaler_statistics
+from datapipeline.operations.artifacts.schema import materialize_vector_schema
+from datapipeline.operations.artifacts.scaler import materialize_scaler_statistics
 from datapipeline.config.tasks import SchemaTask, ScalerTask
 from datapipeline.services.constants import VECTOR_SCHEMA, SCALER_STATISTICS
 from datapipeline.pipelines.full.nodes import post_process

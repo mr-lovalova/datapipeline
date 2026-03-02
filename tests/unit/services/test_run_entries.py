@@ -9,7 +9,12 @@ from datapipeline.services.run_entries import RunEntry, iter_runtime_runs
 def test_iter_runtime_runs_clears_split_keep_for_inspect(monkeypatch):
     profile = InspectProfile(type="inspect", name="coverage", target="coverage")
     operation = OperationTask.model_validate(
-        {"id": "coverage", "entrypoint": "core.inspect.coverage"}
+        {
+            "id": "coverage",
+            "kind": "runtime",
+            "entrypoint": "core.runtime.coverage",
+            "runtime_kind": "inspect",
+        }
     )
     entry = RunEntry(name="coverage", config=profile, operation=operation)
     runtime = SimpleNamespace(split=SimpleNamespace(keep="train"), split_keep=None, run=None)

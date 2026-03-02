@@ -1,26 +1,24 @@
 
 import argparse
-import logging
 from pathlib import Path
 
+from datapipeline.cli.commands.build import handle as handle_build
 from datapipeline.cli.commands.contract import handle as handle_contract
 from datapipeline.cli.commands.demo import handle as handle_demo
 from datapipeline.cli.commands.domain import handle as handle_domain
 from datapipeline.cli.commands.dto import handle as handle_dto
 from datapipeline.cli.commands.filter import handle as handle_filter
+from datapipeline.cli.commands.inspect import handle as handle_inspect
 from datapipeline.cli.commands.list_ import handle as handle_list
 from datapipeline.cli.commands.loader import handle as handle_loader
 from datapipeline.cli.commands.mapper import handle as handle_mapper
 from datapipeline.cli.commands.parser import handle as handle_parser
 from datapipeline.cli.commands.plugin import bar as handle_bar
-from datapipeline.cli.commands.profile_request import build_profile_run_request
+from datapipeline.cli.commands.serve import handle as handle_serve
 from datapipeline.cli.commands.source import handle as handle_source
 from datapipeline.cli.commands.stream import handle as handle_stream
 from datapipeline.config.resolution import LogOutputTarget
 from datapipeline.config.workspace import WorkspaceContext
-from datapipeline.profiles.orchestration import run_profiles
-
-logger = logging.getLogger(__name__)
 
 
 def _dispatch_non_project_command(
@@ -110,33 +108,30 @@ def execute_command(
     base_level_name: str,
     cli_log_outputs: list[LogOutputTarget],
 ) -> bool:
-    if args.cmd in {"serve", "build", "inspect"}:
-        request = build_profile_run_request(
-            kind=args.cmd,
-            project=args.project,
-            run_name=getattr(args, "run", None),
-            force=getattr(args, "force", False),
-            build_mode=getattr(args, "build_mode", None),
-            limit=getattr(args, "limit", None),
-            keep=getattr(args, "keep", None),
-            stage=getattr(args, "stage", None),
-            output_transport=getattr(args, "output_transport", None),
-            output_format=getattr(args, "output_format", None),
-            output_directory=getattr(args, "output_directory", None),
-            output_encoding=getattr(args, "output_encoding", None),
-            output_view=getattr(args, "output_view", None),
-            skip_build=getattr(args, "skip_build", False),
-            cli_log_level=cli_level_arg,
+    if args.cmd == "serve":
+        return handle_serve(
+            args=args,
+            workspace_context=workspace_context,
+            cli_level_arg=cli_level_arg,
+            base_level_name=base_level_name,
             cli_log_outputs=cli_log_outputs,
-            base_log_level=base_level_name,
-            cli_visuals=getattr(args, "visuals", None),
-            workspace=workspace_context,
         )
-        if request is None:
-            logger.info("No enabled %s profiles; skipping %s.", args.cmd, args.cmd)
-            return True
-        run_profiles(request)
-        return True
+    if args.cmd == "build":
+        return handle_build(
+            args=args,
+            workspace_context=workspace_context,
+            cli_level_arg=cli_level_arg,
+            base_level_name=base_level_name,
+            cli_log_outputs=cli_log_outputs,
+        )
+    if args.cmd == "inspect":
+        return handle_inspect(
+            args=args,
+            workspace_context=workspace_context,
+            cli_level_arg=cli_level_arg,
+            base_level_name=base_level_name,
+            cli_log_outputs=cli_log_outputs,
+        )
     return _dispatch_non_project_command(
         args=args,
         plugin_root=plugin_root,

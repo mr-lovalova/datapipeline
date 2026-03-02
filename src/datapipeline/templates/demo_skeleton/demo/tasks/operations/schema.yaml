@@ -1,3 +1,4 @@
 # See ../../../../plugin_skeleton/reference/reference/tasks/operations/schema.reference.yaml for full options.
 id: schema
-entrypoint: core.build.schema
+kind: artifact
+entrypoint: core.artifact.schema

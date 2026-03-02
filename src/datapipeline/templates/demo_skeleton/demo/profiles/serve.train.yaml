@@ -1,7 +1,7 @@
 # See ../../../plugin_skeleton/reference/reference/tasks/profiles/serve.reference.yaml for full options.
 type: serve
 name: train
-target: serve
+target: pipeline
 enabled: true
 build:
   mode: AUTO

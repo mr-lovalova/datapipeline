@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from datapipeline.cli.command_router import execute_command
-from datapipeline.cli.commands.profile_request import build_cli_output_config
+from datapipeline.profiles.request_builder import build_cli_output_config
 
 
 def _serve_args() -> SimpleNamespace:
@@ -145,7 +145,7 @@ def test_build_cli_output_config_rejects_unknown_encoding() -> None:
 
 def test_execute_serve_propagates_keyboard_interrupt(monkeypatch) -> None:
     monkeypatch.setattr(
-        "datapipeline.cli.command_router.build_profile_run_request",
+        "datapipeline.cli.commands.profile_runner.build_profile_run_request",
         lambda **kwargs: object(),
     )
 
@@ -156,7 +156,7 @@ def test_execute_serve_propagates_keyboard_interrupt(monkeypatch) -> None:
         raise KeyboardInterrupt()
 
     monkeypatch.setattr(
-        "datapipeline.cli.command_router.run_profiles",
+        "datapipeline.cli.commands.profile_runner.run_profiles",
         _interrupting_execute,
     )
 
@@ -176,7 +176,7 @@ def test_execute_serve_propagates_keyboard_interrupt(monkeypatch) -> None:
 def test_execute_serve_runs_request_from_builder(monkeypatch) -> None:
     sentinel_request = object()
     monkeypatch.setattr(
-        "datapipeline.cli.command_router.build_profile_run_request",
+        "datapipeline.cli.commands.profile_runner.build_profile_run_request",
         lambda **kwargs: sentinel_request,
     )
 
@@ -185,7 +185,7 @@ def test_execute_serve_runs_request_from_builder(monkeypatch) -> None:
     def _capture(request):
         seen["request"] = request
 
-    monkeypatch.setattr("datapipeline.cli.command_router.run_profiles", _capture)
+    monkeypatch.setattr("datapipeline.cli.commands.profile_runner.run_profiles", _capture)
 
     handled = execute_command(
         args=_serve_args(),
@@ -202,11 +202,11 @@ def test_execute_serve_runs_request_from_builder(monkeypatch) -> None:
 
 def test_execute_serve_skips_when_no_enabled_profiles(monkeypatch, caplog) -> None:
     monkeypatch.setattr(
-        "datapipeline.cli.command_router.build_profile_run_request",
+        "datapipeline.cli.commands.profile_runner.build_profile_run_request",
         lambda **kwargs: None,
     )
 
-    with caplog.at_level(logging.INFO, logger="datapipeline.cli.command_router"):
+    with caplog.at_level(logging.INFO, logger="datapipeline.cli.commands.profile_runner"):
         handled = execute_command(
             args=_serve_args(),
             plugin_root=None,
@@ -228,11 +228,11 @@ def test_execute_build_passes_build_kind(monkeypatch) -> None:
         return object()
 
     monkeypatch.setattr(
-        "datapipeline.cli.command_router.build_profile_run_request",
+        "datapipeline.cli.commands.profile_runner.build_profile_run_request",
         _capture_request,
     )
     monkeypatch.setattr(
-        "datapipeline.cli.command_router.run_profiles",
+        "datapipeline.cli.commands.profile_runner.run_profiles",
         lambda request: None,
     )
 
@@ -266,11 +266,11 @@ def test_execute_inspect_passes_inspect_kind(monkeypatch) -> None:
         return object()
 
     monkeypatch.setattr(
-        "datapipeline.cli.command_router.build_profile_run_request",
+        "datapipeline.cli.commands.profile_runner.build_profile_run_request",
         _capture_request,
     )
     monkeypatch.setattr(
-        "datapipeline.cli.command_router.run_profiles",
+        "datapipeline.cli.commands.profile_runner.run_profiles",
         lambda request: None,
     )
 
@@ -292,11 +292,11 @@ def test_execute_inspect_passes_inspect_kind(monkeypatch) -> None:
 
 def test_execute_inspect_skips_when_no_enabled_profiles(monkeypatch, caplog) -> None:
     monkeypatch.setattr(
-        "datapipeline.cli.command_router.build_profile_run_request",
+        "datapipeline.cli.commands.profile_runner.build_profile_run_request",
         lambda **kwargs: None,
     )
 
-    with caplog.at_level(logging.INFO, logger="datapipeline.cli.command_router"):
+    with caplog.at_level(logging.INFO, logger="datapipeline.cli.commands.profile_runner"):
         handled = execute_command(
             args=_inspect_args(),
             plugin_root=None,

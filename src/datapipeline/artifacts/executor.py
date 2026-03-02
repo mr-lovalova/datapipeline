@@ -19,7 +19,7 @@ from datapipeline.build.state import (
     load_build_state,
     save_build_state,
 )
-from datapipeline.build.tasks import compute_config_hash
+from datapipeline.build.config_hash import compute_config_hash
 from datapipeline.cli.logging_setup import configure_root_logging
 from datapipeline.cli.visuals.execution import make_execution_observer
 from datapipeline.cli.visuals.execution import emit_execution_message
@@ -29,6 +29,7 @@ from datapipeline.config.profiles import BuildProfile
 from datapipeline.config.resolution import LogOutputTarget
 from datapipeline.config.loaders.operations import operation_specs
 from datapipeline.config.tasks import ArtifactTask
+from datapipeline.io.output import materialized_output_message
 from datapipeline.operations.dispatch import dispatch_operation
 from datapipeline.plugins import BUILD_OPERATIONS_EP
 from datapipeline.runtime import Runtime
@@ -78,10 +79,8 @@ def _run_artifact_builder(
         return None
     rel_path, meta = res
     full_path = (runtime.artifacts_root / rel_path).resolve()
-    details = ", ".join(f"{k}={v}" for k, v in meta.items())
-    suffix = f" ({details})" if details else ""
     emit_execution_message(
-        f"Materialized {definition.key}: {full_path}{suffix}",
+        materialized_output_message(definition.key, full_path, meta=meta),
         level=logging.INFO,
         logger=logger,
         message_kind="materialized",

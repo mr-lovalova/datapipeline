@@ -1,2 +1,3 @@
 id: schema
-entrypoint: core.build.schema
+kind: artifact
+entrypoint: core.artifact.schema

@@ -87,18 +87,16 @@ identity = "datapipeline.parsers.identity:IdentityParser"
 "core.synthetic.ticks" = "datapipeline.sources.synthetic.time.parser:TimeRowParser"
 
 [project.entry-points."datapipeline.operations.build"]
-"core.build.schema" = "datapipeline.build.tasks.schema:materialize_vector_schema"
-"core.build.metadata" = "datapipeline.build.tasks.metadata:materialize_metadata"
-"core.build.scaler" = "datapipeline.build.tasks.scaler:materialize_scaler_statistics"
-"core.build.stats" = "datapipeline.build.tasks.stats:materialize_vector_stats"
+"core.artifact.schema" = "datapipeline.operations.artifacts.schema:materialize_vector_schema"
+"core.artifact.metadata" = "datapipeline.operations.artifacts.metadata:materialize_metadata"
+"core.artifact.scaler" = "datapipeline.operations.artifacts.scaler:materialize_scaler_statistics"
+"core.artifact.stats" = "datapipeline.operations.artifacts.stats:materialize_vector_stats"
 
-[project.entry-points."datapipeline.operations.serve"]
-"core.serve_pipeline" = "datapipeline.cli.commands.serve_pipeline:serve_with_runtime"
-
-[project.entry-points."datapipeline.operations.inspect"]
-"core.inspect.coverage" = "datapipeline.operations.inspect:inspect_coverage_with_runtime"
-"core.inspect.thresholds" = "datapipeline.operations.inspect:inspect_thresholds_with_runtime"
-"core.inspect.matrix" = "datapipeline.operations.inspect:inspect_matrix_with_runtime"
+[project.entry-points."datapipeline.operations.runtime"]
+"core.runtime.pipeline" = "datapipeline.operations.runtime.pipeline:serve_with_runtime"
+"core.runtime.coverage" = "datapipeline.operations.runtime.coverage:inspect_coverage_with_runtime"
+"core.runtime.thresholds" = "datapipeline.operations.runtime.thresholds:inspect_thresholds_with_runtime"
+"core.runtime.matrix" = "datapipeline.operations.runtime.matrix:inspect_matrix_with_runtime"
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

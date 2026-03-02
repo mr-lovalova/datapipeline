@@ -22,8 +22,10 @@ def test_run_profiles_executes_dependencies_then_target(monkeypatch, tmp_path):
     metadata = MetadataTask(id="metadata", dependencies=["schema"])
     serve = OperationTask.model_validate(
         {
-            "id": "serve",
-            "entrypoint": "core.serve_pipeline",
+            "id": "pipeline",
+            "kind": "runtime",
+            "entrypoint": "core.runtime.pipeline",
+            "runtime_kind": "serve",
             "dependencies": ["metadata"],
         }
     )
@@ -37,7 +39,7 @@ def test_run_profiles_executes_dependencies_then_target(monkeypatch, tmp_path):
             RuntimeExecutionProfile(
                 kind="serve",
                 name="serve",
-                target_id="serve",
+                target_id="pipeline",
                 visuals="on",
                 log_decision=log_decision,
                 log_output=log_output,
@@ -72,8 +74,10 @@ def test_run_profiles_can_skip_artifact_dependencies(monkeypatch, tmp_path):
     schema = SchemaTask(id="schema")
     serve = OperationTask.model_validate(
         {
-            "id": "serve",
-            "entrypoint": "core.serve_pipeline",
+            "id": "pipeline",
+            "kind": "runtime",
+            "entrypoint": "core.runtime.pipeline",
+            "runtime_kind": "serve",
             "dependencies": ["schema"],
         }
     )
@@ -87,7 +91,7 @@ def test_run_profiles_can_skip_artifact_dependencies(monkeypatch, tmp_path):
             RuntimeExecutionProfile(
                 kind="serve",
                 name="serve",
-                target_id="serve",
+                target_id="pipeline",
                 visuals="on",
                 log_decision=log_decision,
                 log_output=log_output,
@@ -139,8 +143,10 @@ def test_run_profiles_syncs_runtime_artifacts_after_build(monkeypatch, tmp_path)
     schema = SchemaTask(id="schema")
     serve = OperationTask.model_validate(
         {
-            "id": "serve",
-            "entrypoint": "core.serve_pipeline",
+            "id": "pipeline",
+            "kind": "runtime",
+            "entrypoint": "core.runtime.pipeline",
+            "runtime_kind": "serve",
             "dependencies": ["schema"],
         }
     )
@@ -155,7 +161,7 @@ def test_run_profiles_syncs_runtime_artifacts_after_build(monkeypatch, tmp_path)
             RuntimeExecutionProfile(
                 kind="serve",
                 name="serve",
-                target_id="serve",
+                target_id="pipeline",
                 visuals="on",
                 log_decision=log_decision,
                 log_output=log_output,
@@ -205,8 +211,10 @@ def test_run_profiles_forward_runtime_build_mode(monkeypatch, tmp_path):
     schema = SchemaTask(id="schema")
     serve = OperationTask.model_validate(
         {
-            "id": "serve",
-            "entrypoint": "core.serve_pipeline",
+            "id": "pipeline",
+            "kind": "runtime",
+            "entrypoint": "core.runtime.pipeline",
+            "runtime_kind": "serve",
             "dependencies": ["schema"],
         }
     )
@@ -220,7 +228,7 @@ def test_run_profiles_forward_runtime_build_mode(monkeypatch, tmp_path):
             RuntimeExecutionProfile(
                 kind="serve",
                 name="serve",
-                target_id="serve",
+                target_id="pipeline",
                 visuals="on",
                 log_decision=log_decision,
                 log_output=log_output,
@@ -261,8 +269,10 @@ def test_runtime_dependency_build_scope_isolated_from_parent_profile(monkeypatch
     schema = SchemaTask(id="schema")
     serve = OperationTask.model_validate(
         {
-            "id": "serve",
-            "entrypoint": "core.serve_pipeline",
+            "id": "pipeline",
+            "kind": "runtime",
+            "entrypoint": "core.runtime.pipeline",
+            "runtime_kind": "serve",
             "dependencies": ["schema"],
         }
     )
@@ -276,7 +286,7 @@ def test_runtime_dependency_build_scope_isolated_from_parent_profile(monkeypatch
             RuntimeExecutionProfile(
                 kind="inspect",
                 name="coverage",
-                target_id="serve",
+                target_id="pipeline",
                 visuals="on",
                 log_decision=log_decision,
                 log_output=log_output,

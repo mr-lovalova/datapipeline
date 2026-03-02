@@ -8,4 +8,4 @@ loader:
   args:
     transport: fs
     format: pickle
-    path: tests/fixtures/regression_project/data/humidity_partitioned.pkl
+    path: data/humidity_partitioned.pkl

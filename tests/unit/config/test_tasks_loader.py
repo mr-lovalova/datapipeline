@@ -70,10 +70,10 @@ def test_artifact_tasks_load_configs(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     tasks_dir = _operations_dir(project_yaml)
     (tasks_dir / "schema.yaml").write_text(
-        "id: schema\noutput: schema.json\n", encoding="utf-8"
+        "id: schema\nkind: artifact\noutput: schema.json\n", encoding="utf-8"
     )
     (tasks_dir / "scaler.yaml").write_text(
-        "id: scaler\nsplit_label: all\noutput: stats.pkl\n", encoding="utf-8"
+        "id: scaler\nkind: artifact\nsplit_label: all\noutput: stats.pkl\n", encoding="utf-8"
     )
 
     tasks = _artifact_tasks(project_yaml)
@@ -91,7 +91,7 @@ def test_stats_task_loads_configs(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     tasks_dir = _operations_dir(project_yaml)
     (tasks_dir / "stats.yaml").write_text(
-        "id: stats\noutput: build/custom-stats.json\nmode: raw\n",
+        "id: stats\nkind: artifact\noutput: build/custom-stats.json\nmode: raw\n",
         encoding="utf-8",
     )
 
@@ -106,7 +106,7 @@ def test_stats_task_requires_explicit_mode(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     tasks_dir = _operations_dir(project_yaml)
     (tasks_dir / "stats.yaml").write_text(
-        "id: stats\noutput: build/custom-stats.json\n",
+        "id: stats\nkind: artifact\noutput: build/custom-stats.json\n",
         encoding="utf-8",
     )
 
@@ -118,10 +118,10 @@ def test_serve_tasks_respect_name_and_enabled(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     tasks_dir = _profile_kind_dir(project_yaml)
     (tasks_dir / "serve.train.yaml").write_text(
-        "type: serve\nname: train\ntarget: serve\nkeep: train\n", encoding="utf-8"
+        "type: serve\nname: train\ntarget: pipeline\nkeep: train\n", encoding="utf-8"
     )
     (tasks_dir / "serve.val.yaml").write_text(
-        "type: serve\nname: val\ntarget: serve\nkeep: val\nenabled: false\n", encoding="utf-8"
+        "type: serve\nname: val\ntarget: pipeline\nkeep: val\nenabled: false\n", encoding="utf-8"
     )
 
     tasks = _serve_profiles(project_yaml)
@@ -134,7 +134,7 @@ def test_profile_name_is_required(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     tasks_dir = _profile_kind_dir(project_yaml)
     (tasks_dir / "serve.train.yaml").write_text(
-        "type: serve\ntarget: serve\nkeep: train\n", encoding="utf-8"
+        "type: serve\ntarget: pipeline\nkeep: train\n", encoding="utf-8"
     )
 
     with pytest.raises(ValueError, match="serve\\.name|Field required"):
@@ -183,7 +183,7 @@ def test_artifact_task_dependencies_are_normalized(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     tasks_dir = _operations_dir(project_yaml)
     (tasks_dir / "metadata.yaml").write_text(
-        "id: metadata\ndependencies:\n  - schema\n  - SCHEMA\n",
+        "id: metadata\nkind: artifact\ndependencies:\n  - schema\n  - SCHEMA\n",
         encoding="utf-8",
     )
 
@@ -195,27 +195,27 @@ def test_artifact_task_dependencies_are_normalized(tmp_path):
 def test_serve_operation_tasks_load(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     tasks_dir = _operations_dir(project_yaml)
-    (tasks_dir / "serve.yaml").write_text(
-        "id: serve\nentrypoint: core.serve_pipeline\n",
+    (tasks_dir / "pipeline.yaml").write_text(
+        "id: pipeline\nkind: runtime\nentrypoint: core.runtime.pipeline\nruntime_kind: serve\n",
         encoding="utf-8",
     )
 
     tasks = _all_tasks(project_yaml)
-    assert [task.id for task in tasks] == ["serve"]
-    assert tasks[0].entrypoint == "core.serve_pipeline"
+    assert [task.id for task in tasks] == ["pipeline"]
+    assert tasks[0].entrypoint == "core.runtime.pipeline"
 
 
 def test_operation_tasks_do_not_inject_missing_artifacts(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     tasks_dir = _operations_dir(project_yaml)
-    (tasks_dir / "serve.yaml").write_text(
-        "id: serve\nentrypoint: core.serve_pipeline\ndependencies:\n  - missing_artifact\n",
+    (tasks_dir / "pipeline.yaml").write_text(
+        "id: pipeline\nkind: runtime\nentrypoint: core.runtime.pipeline\nruntime_kind: serve\ndependencies:\n  - missing_artifact\n",
         encoding="utf-8",
     )
 
     tasks = _all_tasks(project_yaml)
     ids = {task.id for task in tasks}
-    assert "serve" in ids
+    assert "pipeline" in ids
     assert "missing_artifact" not in ids
 
 
@@ -223,17 +223,17 @@ def test_operation_tasks_load_declared_artifact_dependency(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     tasks_dir = _operations_dir(project_yaml)
     (tasks_dir / "schema.yaml").write_text(
-        "id: schema\noutput: schema.json\n",
+        "id: schema\nkind: artifact\noutput: schema.json\n",
         encoding="utf-8",
     )
-    (tasks_dir / "serve.yaml").write_text(
-        "id: serve\nentrypoint: core.serve_pipeline\ndependencies:\n  - schema\n",
+    (tasks_dir / "pipeline.yaml").write_text(
+        "id: pipeline\nkind: runtime\nentrypoint: core.runtime.pipeline\nruntime_kind: serve\ndependencies:\n  - schema\n",
         encoding="utf-8",
     )
 
     tasks = _all_tasks(project_yaml)
     ids = {task.id for task in tasks}
-    assert "serve" in ids
+    assert "pipeline" in ids
     assert "schema" in ids
 
 
@@ -241,10 +241,10 @@ def test_duplicate_artifact_kinds_raise(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     tasks_dir = _operations_dir(project_yaml)
     (tasks_dir / "schema.a.yaml").write_text(
-        "id: schema\noutput: schema-a.json\n", encoding="utf-8"
+        "id: schema\nkind: artifact\noutput: schema-a.json\n", encoding="utf-8"
     )
     (tasks_dir / "schema.b.yaml").write_text(
-        "id: schema\noutput: schema-b.json\n", encoding="utf-8"
+        "id: schema\nkind: artifact\noutput: schema-b.json\n", encoding="utf-8"
     )
 
     with pytest.raises(ValueError, match="Duplicate artifact task ids"):
@@ -255,10 +255,10 @@ def test_duplicate_serve_profile_names_raise(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     tasks_dir = _profile_kind_dir(project_yaml)
     (tasks_dir / "serve.a.yaml").write_text(
-        "type: serve\nname: train\ntarget: serve\n", encoding="utf-8"
+        "type: serve\nname: train\ntarget: pipeline\n", encoding="utf-8"
     )
     (tasks_dir / "serve.b.yaml").write_text(
-        "type: serve\nname: train\ntarget: serve\n", encoding="utf-8"
+        "type: serve\nname: train\ntarget: pipeline\n", encoding="utf-8"
     )
 
     with pytest.raises(ValueError, match="Duplicate serve profile names"):
@@ -268,12 +268,12 @@ def test_duplicate_serve_profile_names_raise(tmp_path):
 def test_duplicate_serve_operation_names_raise(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     tasks_dir = _operations_dir(project_yaml)
-    (tasks_dir / "serve.a.yaml").write_text(
-        "id: serve\nentrypoint: core.serve_pipeline\n",
+    (tasks_dir / "pipeline.a.yaml").write_text(
+        "id: pipeline\nkind: runtime\nentrypoint: core.runtime.pipeline\nruntime_kind: serve\n",
         encoding="utf-8",
     )
-    (tasks_dir / "serve.b.yaml").write_text(
-        "id: serve\nentrypoint: core.serve_pipeline\n",
+    (tasks_dir / "pipeline.b.yaml").write_text(
+        "id: pipeline\nkind: runtime\nentrypoint: core.runtime.pipeline\nruntime_kind: serve\n",
         encoding="utf-8",
     )
 
@@ -317,8 +317,8 @@ def test_root_level_task_files_are_rejected(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     tasks_root = project_yaml.parent / "tasks"
     tasks_root.mkdir(parents=True, exist_ok=True)
-    (tasks_root / "serve.yaml").write_text(
-        "id: serve\nentrypoint: core.serve_pipeline\n",
+    (tasks_root / "pipeline.yaml").write_text(
+        "id: pipeline\nkind: runtime\nentrypoint: core.runtime.pipeline\nruntime_kind: serve\n",
         encoding="utf-8",
     )
 
@@ -331,7 +331,7 @@ def test_nested_profile_files_are_rejected(tmp_path):
     profiles_root = _profiles_dir(project_yaml) / "serve"
     profiles_root.mkdir(parents=True, exist_ok=True)
     (profiles_root / "train.yaml").write_text(
-        "type: serve\nname: train\ntarget: serve\n",
+        "type: serve\nname: train\ntarget: pipeline\n",
         encoding="utf-8",
     )
 
@@ -343,7 +343,7 @@ def test_profile_kind_directory_mismatch_is_rejected(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     build_dir = _profile_kind_dir(project_yaml)
     (build_dir / "build.oops.yaml").write_text(
-        "type: serve\nname: oops\ntarget: serve\n",
+        "type: serve\nname: oops\ntarget: pipeline\n",
         encoding="utf-8",
     )
 
@@ -355,7 +355,7 @@ def test_profile_filename_prefix_is_required(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     profiles_root = _profiles_dir(project_yaml)
     (profiles_root / "oops.yaml").write_text(
-        "type: serve\nname: oops\ntarget: serve\n",
+        "type: serve\nname: oops\ntarget: pipeline\n",
         encoding="utf-8",
     )
 

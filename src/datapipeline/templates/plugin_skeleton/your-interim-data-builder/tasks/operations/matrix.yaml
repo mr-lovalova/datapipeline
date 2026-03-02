@@ -1,6 +1,8 @@
 # See ../../../reference/reference/tasks/operations/inspect.reference.yaml for full options.
 id: matrix
-entrypoint: core.inspect.matrix
+kind: runtime
+entrypoint: core.runtime.matrix
+runtime_kind: inspect
 dependencies:
   - stats
   - metadata

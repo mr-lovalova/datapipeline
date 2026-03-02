@@ -14,7 +14,7 @@ from datapipeline.pipelines import build_feature_pipeline, build_full_pipeline
 from datapipeline.runtime import Runtime
 from datapipeline.utils.window import resolve_window_bounds
 from datapipeline.io.factory import writer_factory
-from datapipeline.io.output import OutputTarget
+from datapipeline.io.output import OutputTarget, served_output_message
 from datapipeline.io.protocols import Writer
 from datapipeline.services.runs import finish_run_failed, finish_run_success, set_latest_run
 
@@ -83,31 +83,6 @@ def serve_stream(
     return count
 
 
-def report_serve(target: OutputTarget, count: int) -> None:
-    if target.destination:
-        emit_execution_message(
-            f"Saved {count} items: {target.destination}",
-            level=logging.INFO,
-            logger=logger,
-            message_kind="saved",
-        )
-        return
-    if target.transport == "stdout":
-        emit_execution_message(
-            f"Streamed {count} items: stdout",
-            level=logging.INFO,
-            logger=logger,
-            message_kind="saved",
-        )
-        return
-    emit_execution_message(
-        f"Emitted {count} items",
-        level=logging.INFO,
-        logger=logger,
-        message_kind="saved",
-    )
-
-
 def _is_full_pipeline_stage(stage: int | None) -> bool:
     return stage is None
 
@@ -151,7 +126,12 @@ def serve_with_runtime(
                     limit,
                     writer=writer,
                 )
-                report_serve(feature_target, count)
+                emit_execution_message(
+                    served_output_message(feature_target, count),
+                    level=logging.INFO,
+                    logger=logger,
+                    message_kind="saved",
+                )
             run_status = "success"
             return
 
@@ -173,7 +153,12 @@ def serve_with_runtime(
             limit,
             writer=writer,
         )
-        report_serve(target, result_count)
+        emit_execution_message(
+            served_output_message(target, result_count),
+            level=logging.INFO,
+            logger=logger,
+            message_kind="saved",
+        )
         run_status = "success"
     except KeyboardInterrupt:
         run_status = "failed"

@@ -1,6 +1,0 @@
-id: serve
-entrypoint: core.serve_pipeline
-dependencies:
-  - schema
-  - metadata
-  - scaler

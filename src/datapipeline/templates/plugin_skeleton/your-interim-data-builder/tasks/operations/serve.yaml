@@ -1,7 +1,0 @@
-# See ../../../reference/reference/tasks/operations/serve.reference.yaml for full options.
-id: serve
-entrypoint: core.serve_pipeline
-dependencies:
-  - schema
-  - metadata
-  - scaler
