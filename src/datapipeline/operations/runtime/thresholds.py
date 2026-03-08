@@ -3,9 +3,15 @@ from typing import Optional
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.tasks import OperationTask
 from datapipeline.io.output import OutputTarget
+from datapipeline.operations.persistence import RuntimeOutput
 from datapipeline.runtime import Runtime
 
-from .vector_stats_common import option, options_for_task, print_thresholds, resolve_summary
+from .vector_stats_common import (
+    options_for_task,
+    report_payload,
+    resolve_metrics,
+    write_summary_output,
+)
 
 
 def inspect_thresholds_with_runtime(
@@ -17,9 +23,13 @@ def inspect_thresholds_with_runtime(
     stage: Optional[int] = None,
     visuals: Optional[str] = None,
     operation_task: OperationTask | None = None,
-) -> None:
+) -> RuntimeOutput:
     _ = dataset, limit, target, throttle_ms, stage, visuals
     options = options_for_task(operation_task)
-    summary, _sort_key, threshold = resolve_summary(runtime, options=options)
-    if not bool(option(options, "quiet", False)):
-        print_thresholds(summary, threshold=threshold)
+    metrics, _sort_key, threshold = resolve_metrics(runtime, options=options)
+    payload = report_payload(
+        report="thresholds",
+        metrics=metrics,
+        threshold=threshold,
+    )
+    return write_summary_output(payload)

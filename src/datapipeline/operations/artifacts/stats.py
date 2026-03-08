@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from typing import Dict, Iterator, Tuple
+from typing import Dict, Iterator
 
 from datapipeline.analysis.vector.collector import VectorStatsCollector
 from datapipeline.analysis.vector.snapshot import snapshot_from_collector
@@ -9,6 +9,7 @@ from datapipeline.config.dataset.loader import load_dataset
 from datapipeline.config.metadata import build_vector_metadata_lookup
 from datapipeline.config.tasks import StatsTask
 from datapipeline.dag.context import PipelineContext
+from datapipeline.operations.persistence import ArtifactOutput
 from datapipeline.pipelines import build_vector_pipeline
 from datapipeline.pipelines.full.nodes import post_process
 from datapipeline.runtime import Runtime
@@ -51,7 +52,7 @@ def _iter_merged_vectors(
 def materialize_vector_stats(
     runtime: Runtime,
     task_cfg: StatsTask,
-) -> Tuple[str, Dict[str, object]] | None:
+) -> ArtifactOutput:
     dataset = load_dataset(runtime.project_yaml, "vectors")
     context = PipelineContext(runtime)
     expected_feature_ids, schema_meta = build_vector_metadata_lookup(
@@ -85,4 +86,4 @@ def materialize_vector_stats(
         "features": len(collector.discovered_features),
         "partitions": len(collector.discovered_partitions),
     }
-    return str(relative_path), meta
+    return ArtifactOutput(relative_path=str(relative_path), meta=meta)

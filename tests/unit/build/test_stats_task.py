@@ -68,8 +68,9 @@ def test_materialize_vector_stats_reads_metadata_and_omits_schema_meta(monkeypat
     )
 
     assert result is not None
-    rel_path, _meta = result
-    payload = json.loads((artifacts_root / rel_path).read_text(encoding="utf-8"))
+    payload = json.loads(
+        (artifacts_root / result.relative_path).read_text(encoding="utf-8")
+    )
     assert "schema_meta" not in payload
     assert "expected_features" not in payload
     assert "discovered_features" not in payload

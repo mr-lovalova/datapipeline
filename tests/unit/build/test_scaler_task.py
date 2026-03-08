@@ -52,12 +52,13 @@ def test_materialize_scaler_statistics_split_all_ignores_label_filter(monkeypatc
     )
 
     assert result is not None
-    rel_path, meta = result
-    assert rel_path == "scaler.json"
-    assert (artifacts_root / rel_path).exists()
-    assert meta["split"] == "all"
-    assert meta["observations"] == 2
-    payload = json.loads((artifacts_root / rel_path).read_text(encoding="utf-8"))
+    assert result.relative_path == "scaler.json"
+    assert (artifacts_root / result.relative_path).exists()
+    assert result.meta["split"] == "all"
+    assert result.meta["observations"] == 2
+    payload = json.loads(
+        (artifacts_root / result.relative_path).read_text(encoding="utf-8")
+    )
     assert payload["kind"] == "standard_scaler"
     assert payload["split"] == "all"
     assert payload["observations"] == 2

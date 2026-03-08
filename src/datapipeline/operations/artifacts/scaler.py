@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Dict, Iterator, Tuple
+from typing import Dict, Iterator
 
 from datapipeline.config.tasks import ScalerTask
 from datapipeline.config.dataset.loader import load_dataset
@@ -7,12 +7,16 @@ from datapipeline.domain.sample import Sample
 from datapipeline.dag.context import PipelineContext
 from datapipeline.pipelines import build_vector_pipeline
 from datapipeline.pipelines.full.split import build_labeler
+from datapipeline.operations.persistence import ArtifactOutput
 from datapipeline.runtime import Runtime
 from datapipeline.transforms.feature.scaler import StandardScaler
 from datapipeline.utils.paths import ensure_parent
 
 
-def materialize_scaler_statistics(runtime: Runtime, task_cfg: ScalerTask) -> Tuple[str, Dict[str, object]] | None:
+def materialize_scaler_statistics(
+    runtime: Runtime,
+    task_cfg: ScalerTask,
+) -> ArtifactOutput | None:
     dataset = load_dataset(runtime.project_yaml, "vectors")
     feature_cfgs = list(dataset.features or [])
     target_cfgs = list(dataset.targets or [])
@@ -70,4 +74,4 @@ def materialize_scaler_statistics(runtime: Runtime, task_cfg: ScalerTask) -> Tup
         "observations": total_observations,
     }
 
-    return str(relative_path), meta
+    return ArtifactOutput(relative_path=str(relative_path), meta=meta)

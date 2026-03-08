@@ -2,12 +2,11 @@ from types import SimpleNamespace
 
 from datapipeline.build.state import BuildState, save_build_state
 from datapipeline.config.tasks import MetadataTask, OperationTask, SchemaTask
-from datapipeline.profiles.models import ProfileRunRequest, RuntimeExecutionProfile
+from datapipeline.profiles.models import ExecutionProfile, ProfileRunRequest
 from datapipeline.profiles.orchestration import run_profiles
 from datapipeline.services.artifacts import ArtifactManager
 from datapipeline.services.bootstrap import build_state_path
-from datapipeline.services.constants import VECTOR_SCHEMA_METADATA
-from datapipeline.cli.visuals.execution_context import current_execution_scope
+from datapipeline.services.constants import VECTOR_SCHEMA
 
 
 def _log_config():
@@ -25,19 +24,17 @@ def test_run_profiles_executes_dependencies_then_target(monkeypatch, tmp_path):
             "id": "pipeline",
             "kind": "runtime",
             "entrypoint": "core.runtime.pipeline",
-            "runtime_kind": "serve",
-            "dependencies": ["metadata"],
         }
     )
 
     log_decision, log_output = _log_config()
     request = ProfileRunRequest(
+        command="serve",
         project_path=tmp_path / "project.yaml",
         tasks=[schema, metadata, serve],
         artifact_task_configs=[schema, metadata],
         profiles=[
-            RuntimeExecutionProfile(
-                kind="serve",
+            ExecutionProfile(
                 name="serve",
                 target_id="pipeline",
                 visuals="on",
@@ -60,13 +57,13 @@ def test_run_profiles_executes_dependencies_then_target(monkeypatch, tmp_path):
         lambda *args, **kwargs: calls.__setitem__("build", calls["build"] + 1),
     )
     monkeypatch.setattr(
-        "datapipeline.profiles.execution.dispatch_operation",
+        "datapipeline.profiles.execution.execute_operation",
         lambda **kwargs: calls.__setitem__("dispatch", calls["dispatch"] + 1),
     )
 
     run_profiles(request)
 
-    assert calls["build"] == 1
+    assert calls["build"] == 0
     assert calls["dispatch"] == 1
 
 
@@ -77,19 +74,18 @@ def test_run_profiles_can_skip_artifact_dependencies(monkeypatch, tmp_path):
             "id": "pipeline",
             "kind": "runtime",
             "entrypoint": "core.runtime.pipeline",
-            "runtime_kind": "serve",
-            "dependencies": ["schema"],
         }
     )
 
     log_decision, log_output = _log_config()
     request = ProfileRunRequest(
+        command="serve",
         project_path=tmp_path / "project.yaml",
         tasks=[schema, serve],
         artifact_task_configs=[schema],
+        skip_build=True,
         profiles=[
-            RuntimeExecutionProfile(
-                kind="serve",
+            ExecutionProfile(
                 name="serve",
                 target_id="pipeline",
                 visuals="on",
@@ -97,7 +93,6 @@ def test_run_profiles_can_skip_artifact_dependencies(monkeypatch, tmp_path):
                 log_output=log_output,
                 runtime=object(),
                 dataset=object(),
-                skip_artifacts=True,
             )
         ],
     )
@@ -112,7 +107,7 @@ def test_run_profiles_can_skip_artifact_dependencies(monkeypatch, tmp_path):
         lambda *args, **kwargs: calls.__setitem__("build", calls["build"] + 1),
     )
     monkeypatch.setattr(
-        "datapipeline.profiles.execution.dispatch_operation",
+        "datapipeline.profiles.execution.execute_operation",
         lambda **kwargs: calls.__setitem__("dispatch", calls["dispatch"] + 1),
     )
 
@@ -146,20 +141,18 @@ def test_run_profiles_syncs_runtime_artifacts_after_build(monkeypatch, tmp_path)
             "id": "pipeline",
             "kind": "runtime",
             "entrypoint": "core.runtime.pipeline",
-            "runtime_kind": "serve",
-            "dependencies": ["schema"],
         }
     )
 
     log_decision, log_output = _log_config()
     runtime = SimpleNamespace(artifacts=ArtifactManager(tmp_path / "artifacts"))
     request = ProfileRunRequest(
+        command="serve",
         project_path=tmp_path / "project.yaml",
         tasks=[schema, serve],
         artifact_task_configs=[schema],
         profiles=[
-            RuntimeExecutionProfile(
-                kind="serve",
+            ExecutionProfile(
                 name="serve",
                 target_id="pipeline",
                 visuals="on",
@@ -171,34 +164,25 @@ def test_run_profiles_syncs_runtime_artifacts_after_build(monkeypatch, tmp_path)
         ],
     )
 
-    def _fake_build(*args, **kwargs):
-        state = BuildState(config_hash="hash-1")
-        state.register(
-            VECTOR_SCHEMA_METADATA,
-            "build/metadata.json",
-            meta={"_config_hash": "hash-1"},
-        )
-        save_build_state(state, build_state_path(request.project_path))
+    state = BuildState(config_hash="hash-1")
+    state.register(
+        VECTOR_SCHEMA,
+        "build/metadata.json",
+        meta={"_config_hash": "hash-1"},
+    )
+    save_build_state(state, build_state_path(request.project_path))
 
     seen = {"synced": False}
 
     def _capture_dispatch(**kwargs):
-        seen["synced"] = kwargs["runtime"].artifacts.has(VECTOR_SCHEMA_METADATA)
+        seen["synced"] = kwargs["runtime"].artifacts.has(VECTOR_SCHEMA)
 
     monkeypatch.setattr(
         "datapipeline.profiles.orchestration.run_profile",
         lambda spec, work: work(),
     )
     monkeypatch.setattr(
-        "datapipeline.profiles.execution.run_build_if_needed",
-        _fake_build,
-    )
-    monkeypatch.setattr(
-        "datapipeline.profiles.execution.build_state_path",
-        lambda _project_path: build_state_path(request.project_path),
-    )
-    monkeypatch.setattr(
-        "datapipeline.profiles.execution.dispatch_operation",
+        "datapipeline.profiles.execution.execute_operation",
         _capture_dispatch,
     )
 
@@ -209,38 +193,23 @@ def test_run_profiles_syncs_runtime_artifacts_after_build(monkeypatch, tmp_path)
 
 def test_run_profiles_forward_runtime_build_mode(monkeypatch, tmp_path):
     schema = SchemaTask(id="schema")
-    serve = OperationTask.model_validate(
-        {
-            "id": "pipeline",
-            "kind": "runtime",
-            "entrypoint": "core.runtime.pipeline",
-            "runtime_kind": "serve",
-            "dependencies": ["schema"],
-        }
-    )
 
     log_decision, log_output = _log_config()
     request = ProfileRunRequest(
+        command="serve",
         project_path=tmp_path / "project.yaml",
-        tasks=[schema, serve],
+        tasks=[schema],
         artifact_task_configs=[schema],
         profiles=[
-            RuntimeExecutionProfile(
-                kind="serve",
+            ExecutionProfile(
                 name="serve",
-                target_id="pipeline",
+                target_id="schema",
                 visuals="on",
                 log_decision=log_decision,
                 log_output=log_output,
                 runtime=object(),
                 dataset=object(),
-                build_options=SimpleNamespace(
-                    build_mode="FORCE",
-                    cli_log_level=None,
-                    cli_visuals=None,
-                    cli_log_outputs=(),
-                    workspace=None,
-                ),
+                build_mode="FORCE",
             )
         ],
     )
@@ -255,14 +224,14 @@ def test_run_profiles_forward_runtime_build_mode(monkeypatch, tmp_path):
         lambda *args, **kwargs: seen.update(kwargs),
     )
     monkeypatch.setattr(
-        "datapipeline.profiles.execution.dispatch_operation",
+        "datapipeline.profiles.execution.execute_operation",
         lambda **kwargs: None,
     )
 
     run_profiles(request)
 
     assert seen["runtime_build_mode"] == "FORCE"
-    assert seen["profile_name_override"] == "serve.dependencies"
+    assert seen["profile_name_override"] == "serve"
 
 
 def test_runtime_dependency_build_scope_isolated_from_parent_profile(monkeypatch, tmp_path):
@@ -272,35 +241,32 @@ def test_runtime_dependency_build_scope_isolated_from_parent_profile(monkeypatch
             "id": "pipeline",
             "kind": "runtime",
             "entrypoint": "core.runtime.pipeline",
-            "runtime_kind": "serve",
-            "dependencies": ["schema"],
         }
     )
 
     log_decision, log_output = _log_config()
     request = ProfileRunRequest(
+        command="inspect",
         project_path=tmp_path / "project.yaml",
         tasks=[schema, serve],
         artifact_task_configs=[schema],
         profiles=[
-            RuntimeExecutionProfile(
-                kind="inspect",
+            ExecutionProfile(
                 name="coverage",
                 target_id="pipeline",
                 visuals="on",
                 log_decision=log_decision,
                 log_output=log_output,
-                runtime=object(),
+                runtime=SimpleNamespace(artifacts=ArtifactManager(tmp_path / "artifacts")),
                 dataset=object(),
             )
         ],
     )
 
-    captured_scope: dict[str, str] = {}
+    captured = {"count": 0}
 
     def _capture_selected_artifacts(**_kwargs):
-        scope = current_execution_scope() or {}
-        captured_scope.update({k: str(v) for k, v in scope.items()})
+        captured["count"] += 1
 
     monkeypatch.setattr(
         "datapipeline.profiles.orchestration.run_profile",
@@ -311,7 +277,7 @@ def test_runtime_dependency_build_scope_isolated_from_parent_profile(monkeypatch
         _capture_selected_artifacts,
     )
     monkeypatch.setattr(
-        "datapipeline.profiles.execution.dispatch_operation",
+        "datapipeline.profiles.execution.execute_operation",
         lambda **kwargs: None,
     )
     monkeypatch.setattr(
@@ -321,7 +287,4 @@ def test_runtime_dependency_build_scope_isolated_from_parent_profile(monkeypatch
 
     run_profiles(request)
 
-    assert captured_scope["profile_kind"] == "build"
-    assert captured_scope["profile_name"] == "coverage.dependencies"
-    assert captured_scope["phase"] == "dependencies"
-    assert captured_scope["target_id"] == "dependencies"
+    assert captured["count"] == 0

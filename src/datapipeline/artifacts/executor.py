@@ -29,8 +29,8 @@ from datapipeline.config.profiles import BuildProfile
 from datapipeline.config.resolution import LogOutputTarget
 from datapipeline.config.loaders.operations import operation_specs
 from datapipeline.config.tasks import ArtifactTask
-from datapipeline.io.output import materialized_output_message
-from datapipeline.operations.dispatch import dispatch_operation
+from datapipeline.operations.dispatch import execute_operation
+from datapipeline.operations.persistence import persist_artifact_output
 from datapipeline.plugins import BUILD_OPERATIONS_EP
 from datapipeline.runtime import Runtime
 from datapipeline.services.bootstrap import bootstrap, build_state_path
@@ -68,29 +68,18 @@ def _run_artifact_builder(
     definition: ArtifactDefinition,
     task: ArtifactTask,
 ):
-    res = dispatch_operation(
+    return execute_operation(
         operation=task,
         operation_group=BUILD_OPERATIONS_EP,
-        operation_type="build operation",
+        persist=lambda result: persist_artifact_output(
+            result,
+            artifact_key=definition.key,
+            runtime=runtime,
+            logger=logger,
+        ),
         runtime=runtime,
         task_cfg=task,
     )
-    if not res:
-        return None
-    rel_path, meta = res
-    full_path = (runtime.artifacts_root / rel_path).resolve()
-    emit_execution_message(
-        materialized_output_message(definition.key, full_path, meta=meta),
-        level=logging.INFO,
-        logger=logger,
-        message_kind="materialized",
-    )
-    meta_out = {"relative_path": rel_path}
-    meta_out.update(meta)
-    artifacts = getattr(runtime, "artifacts", None)
-    if artifacts is not None and hasattr(artifacts, "register"):
-        artifacts.register(definition.key, relative_path=rel_path, meta=meta)
-    return meta_out
 
 
 def _resolve_effective_settings(
@@ -221,11 +210,10 @@ def _execute_build_jobs(
         total = len(job_specs)
         for idx, (definition, task) in enumerate(job_specs, start=1):
             with execution_scope(
-                phase="build",
                 task_id=task.id,
                 item_index=idx,
                 item_total=total,
-                announce=True,
+                announce=total > 1,
             ):
                 result = _run_artifact_builder(
                     runtime=runtime,
@@ -263,6 +251,33 @@ def _merge_build_state(
         meta[_ARTIFACT_CONFIG_HASH_META_KEY] = config_hash
         new_state.register(key, relative_path, meta=meta)
     return new_state
+
+
+def _artifact_config_hash(
+    info: ArtifactInfo,
+    state: BuildState,
+) -> str:
+    value = (info.meta or {}).get(_ARTIFACT_CONFIG_HASH_META_KEY)
+    if isinstance(value, str) and value.strip():
+        return value
+    return state.config_hash
+
+
+def _hydrate_runtime_artifacts_from_state(
+    *,
+    runtime: Runtime,
+    state: BuildState | None,
+    config_hash: str,
+) -> None:
+    if state is None:
+        return
+    artifacts = getattr(runtime, "artifacts", None)
+    if artifacts is None or not hasattr(artifacts, "register"):
+        return
+    for key, info in state.artifacts.items():
+        if _artifact_config_hash(info, state) != config_hash:
+            continue
+        artifacts.register(key, relative_path=info.relative_path, meta=info.meta)
 
 
 def run_build_if_needed(
@@ -331,14 +346,20 @@ def run_build_if_needed(
     if not isinstance(config_hash, str) or not isinstance(state_path, Path):
         raise RuntimeError("Missing build plan state; cannot persist build results.")
 
+    previous_state_obj = previous_state if isinstance(previous_state, BuildState) else None
     runtime = runtime_override if runtime_override is not None else bootstrap(project_path)
+    _hydrate_runtime_artifacts_from_state(
+        runtime=runtime,
+        state=previous_state_obj,
+        config_hash=config_hash,
+    )
     artifacts = _execute_build_jobs(
         runtime=runtime,
         job_specs=job_specs,
     )
 
     new_state = _merge_build_state(
-        previous_state=previous_state if isinstance(previous_state, BuildState) else None,
+        previous_state=previous_state_obj,
         built_artifacts=artifacts,
         config_hash=config_hash,
     )

@@ -1,21 +1,18 @@
-import logging
+from pathlib import Path
 from typing import Optional
 
 from datapipeline.analysis.vector.matrix import export_matrix_data
-from datapipeline.cli.visuals.execution import emit_execution_message
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.tasks import OperationTask
-from datapipeline.io.output import (
-    OutputTarget,
-    materialized_output_message,
-    resolve_destination,
-)
+from datapipeline.io.output import OutputTarget
+from datapipeline.operations.persistence import RuntimeOutput
 from datapipeline.runtime import Runtime
 
-from .vector_stats_common import option, options_for_task, load_collector
-
-logger = logging.getLogger(__name__)
-
+from .vector_stats_common import (
+    load_collector,
+    matrix_status_rows,
+    options_for_task,
+)
 
 def inspect_matrix_with_runtime(
     runtime: Runtime,
@@ -26,34 +23,20 @@ def inspect_matrix_with_runtime(
     stage: Optional[int] = None,
     visuals: Optional[str] = None,
     operation_task: OperationTask | None = None,
-) -> None:
-    _ = dataset, limit, throttle_ms, stage, visuals
+) -> RuntimeOutput:
+    _ = dataset, limit, target, throttle_ms, stage, visuals
     options = options_for_task(operation_task)
-    matrix_format = str(option(options, "format", "html")).lower()
-    if matrix_format not in {"csv", "html"}:
-        raise ValueError(
-            f"Invalid inspect matrix format '{matrix_format}'. Use 'csv' or 'html'."
-        )
-    matrix_path = resolve_destination(
-        target,
-        base_dir=runtime.artifacts_root / "inspect",
-        default_filename=("matrix.csv" if matrix_format == "csv" else "matrix.html"),
+    collector = load_collector(runtime, options=options)
+    rows = matrix_status_rows(collector)
+
+    def _render_html(destination: Path) -> Path | None:
+        collector.matrix_format = "html"
+        collector.matrix_output = str(destination)
+        return export_matrix_data(collector)
+
+    return RuntimeOutput(
+        rows=rows,
+        html_renderer=_render_html,
+        materialized_key="inspect_matrix",
+        materialized_meta={"format": "html"},
     )
-    collector = load_collector(
-        runtime,
-        options=options,
-        matrix_format=matrix_format,
-        matrix_path=matrix_path,
-    )
-    written = export_matrix_data(collector)
-    if written is not None:
-        emit_execution_message(
-            materialized_output_message(
-                "inspect_matrix",
-                written,
-                meta={"format": matrix_format},
-            ),
-            level=logging.INFO,
-            logger=logger,
-            message_kind="materialized",
-        )

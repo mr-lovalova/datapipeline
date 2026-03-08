@@ -19,12 +19,14 @@ def _vector_samples(project_yaml):
         runtime, SchemaTask(id="schema", output="schema.json")
     )
     if schema_rel:
-        runtime.artifacts.register(VECTOR_SCHEMA, relative_path=schema_rel[0])
+        runtime.artifacts.register(VECTOR_SCHEMA, relative_path=schema_rel.relative_path)
     scaler_rel = materialize_scaler_statistics(
         runtime, ScalerTask(id="scaler", split_label="all", output="scaler.json")
     )
     if scaler_rel:
-        runtime.artifacts.register(SCALER_STATISTICS, relative_path=scaler_rel[0])
+        runtime.artifacts.register(
+            SCALER_STATISTICS, relative_path=scaler_rel.relative_path
+        )
 
     vectors = build_vector_pipeline(
         context,

@@ -6,8 +6,11 @@ from datapipeline.artifacts import executor as build_exec
 from datapipeline.config.build_resolution import resolve_build_settings
 from datapipeline.config.profiles import BuildProfile
 from datapipeline.config.resolution import LogOutputSettings, LogOutputTarget
-from datapipeline.config.tasks import SchemaTask, ScalerTask
+from datapipeline.config.tasks import SchemaTask, ScalerTask, StatsTask
 from datapipeline.config.workspace import WorkspaceConfig, WorkspaceContext
+from datapipeline.operations.persistence import ArtifactOutput
+from datapipeline.services.artifacts import ArtifactManager
+from datapipeline.services.constants import VECTOR_SCHEMA_METADATA, VECTOR_STATS
 
 
 class _TaskStub:
@@ -54,20 +57,28 @@ def test_log_build_decision_emits_execution_message(monkeypatch):
 
 
 def test_run_artifact_builder_emits_materialized_message(monkeypatch):
-    captured: list[tuple[str, int, str | None]] = []
-    monkeypatch.setattr(
-        "datapipeline.artifacts.executor.emit_execution_message",
-        lambda message, level, logger, depth=0, message_kind=None: captured.append(
-            (message, level, message_kind)
-        ),
-    )
+    captured: list[str] = []
 
     runtime = SimpleNamespace(artifacts_root=Path("/tmp/artifacts"))
     definition = SimpleNamespace(key="vector_schema")
     task = _TaskStub(id="schema", output="schema.json")
     monkeypatch.setattr(
-        "datapipeline.artifacts.executor.dispatch_operation",
-        lambda **kwargs: ("schema.json", {"features": 5, "targets": 0}),
+        "datapipeline.artifacts.executor.execute_operation",
+        lambda *, persist, **kwargs: persist(
+            ArtifactOutput(
+                relative_path="schema.json",
+                meta={"features": 5, "targets": 0},
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "datapipeline.artifacts.executor.persist_artifact_output",
+        lambda result, *, artifact_key, runtime, logger: (
+            captured.append(f"Materialized {artifact_key}: {result.relative_path}") or {
+                "relative_path": result.relative_path,
+                **dict(result.meta),
+            }
+        ),
     )
 
     result = build_exec._run_artifact_builder(
@@ -79,10 +90,7 @@ def test_run_artifact_builder_emits_materialized_message(monkeypatch):
     assert result is not None
     assert result["relative_path"] == "schema.json"
     assert captured
-    message, level, message_kind = captured[0]
-    assert message.startswith("Materialized vector_schema: ")
-    assert level == 20
-    assert message_kind == "materialized"
+    assert captured[0].startswith("Materialized vector_schema: ")
 
 
 def test_run_build_if_needed_forwards_cli_log_outputs(monkeypatch, tmp_path):
@@ -224,7 +232,7 @@ def test_resolve_build_settings_prefers_profile_over_workspace_shared(tmp_path):
     workspace = WorkspaceContext(file_path=tmp_path / "jerry.yaml", config=cfg)
     profile = BuildProfile.model_validate(
         {
-            "type": "build",
+            "cmd": "build",
             "name": "nightly",
             "target": "schema",
             "mode": "FORCE",
@@ -264,7 +272,7 @@ def test_resolve_build_settings_requires_project_path_with_profile(tmp_path):
     )
     profile = BuildProfile.model_validate(
         {
-            "type": "build",
+            "cmd": "build",
             "name": "nightly",
             "target": "schema",
         }
@@ -295,7 +303,7 @@ def test_resolve_build_settings_profile_log_paths_are_project_relative(tmp_path)
 
     profile = BuildProfile.model_validate(
         {
-            "type": "build",
+            "cmd": "build",
             "name": "nightly",
             "target": "schema",
             "observability": {
@@ -395,8 +403,8 @@ def test_run_build_if_needed_preserves_previous_artifacts_in_state(monkeypatch, 
         lambda *, definition, **kwargs: {"relative_path": f"{definition.task_id}.json"},
     )
 
-    schema_profile = BuildProfile.model_validate({"type": "build", "name": "schema", "target": "schema"})
-    scaler_profile = BuildProfile.model_validate({"type": "build", "name": "scaler", "target": "scaler"})
+    schema_profile = BuildProfile.model_validate({"cmd": "build", "name": "schema", "target": "schema"})
+    scaler_profile = BuildProfile.model_validate({"cmd": "build", "name": "scaler", "target": "scaler"})
 
     from datapipeline.build.state import load_build_state
     from datapipeline.services.bootstrap import build_state_path
@@ -472,11 +480,84 @@ def test_run_build_if_needed_rebuilds_stale_profile_artifact(monkeypatch, tmp_pa
         "datapipeline.artifacts.executor.operation_specs",
         lambda _: ([scaler_task], []),
     )
-    scaler_profile = BuildProfile.model_validate({"type": "build", "name": "scaler", "target": "scaler"})
+    scaler_profile = BuildProfile.model_validate({"cmd": "build", "name": "scaler", "target": "scaler"})
 
     did_build = build_exec.run_build_if_needed(project_path, build_profile=scaler_profile)
     assert did_build is True
     assert calls["build_artifact"] == 1
+
+
+def test_run_build_if_needed_hydrates_runtime_from_state_before_jobs(monkeypatch, tmp_path):
+    project_path = tmp_path / "project.yaml"
+    project_path.write_text(
+        "\n".join(
+            [
+                "version: 1",
+                "paths:",
+                "  streams: ./streams",
+                "  sources: ./sources",
+                "  dataset: ./dataset.yaml",
+                "  postprocess: ./postprocess.yaml",
+                "  artifacts: ./artifacts",
+                "  tasks: ./tasks",
+                "  profiles: ./profiles",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    tasks_root = tmp_path / "tasks"
+    tasks_root.mkdir(parents=True, exist_ok=True)
+
+    from datapipeline.build.state import BuildState, save_build_state
+    from datapipeline.services.bootstrap import build_state_path
+
+    state_path = build_state_path(project_path)
+    state = BuildState(config_hash="hash-1")
+    state.register(
+        VECTOR_SCHEMA_METADATA,
+        "build/metadata.json",
+        meta={"_config_hash": "hash-1"},
+    )
+    save_build_state(state, state_path)
+
+    monkeypatch.setattr(
+        "datapipeline.artifacts.executor.resolve_build_settings",
+        lambda **kwargs: SimpleNamespace(
+            visuals="off",
+            log_decision=SimpleNamespace(name="INFO", value=20),
+            log_output=LogOutputSettings(outputs=(LogOutputTarget(transport="stderr"),)),
+            mode="AUTO",
+            force=False,
+            profile_name="stats",
+        ),
+    )
+    monkeypatch.setattr("datapipeline.artifacts.executor.tasks_dir", lambda _: tasks_root)
+    monkeypatch.setattr("datapipeline.artifacts.executor.compute_config_hash", lambda *_: "hash-1")
+    monkeypatch.setattr("datapipeline.artifacts.executor.configure_root_logging", lambda **kwargs: None)
+
+    runtime = SimpleNamespace(
+        artifacts_root=tmp_path / "artifacts",
+        artifacts=ArtifactManager(tmp_path / "artifacts"),
+    )
+
+    def _fake_builder(*, runtime, **kwargs):
+        assert runtime.artifacts.has(VECTOR_SCHEMA_METADATA)
+        return {"relative_path": "build/stats.json"}
+
+    monkeypatch.setattr(
+        "datapipeline.artifacts.executor._run_artifact_builder",
+        _fake_builder,
+    )
+
+    stats_task = StatsTask(id="stats", mode="final")
+    did_build = build_exec.run_build_if_needed(
+        project_path,
+        required_artifacts={VECTOR_STATS},
+        artifact_task_configs=[stats_task],
+        runtime_override=runtime,
+    )
+
+    assert did_build is True
 
 
 def test_run_build_if_needed_emits_run_decision(monkeypatch, tmp_path):
@@ -537,7 +618,7 @@ def test_run_build_if_needed_emits_run_decision(monkeypatch, tmp_path):
         ),
     )
 
-    schema_profile = BuildProfile.model_validate({"type": "build", "name": "schema", "target": "schema"})
+    schema_profile = BuildProfile.model_validate({"cmd": "build", "name": "schema", "target": "schema"})
     did_build = build_exec.run_build_if_needed(project_path, build_profile=schema_profile)
 
     assert did_build is True

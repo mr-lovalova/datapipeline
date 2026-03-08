@@ -1,4 +1,3 @@
-from pathlib import Path
 from typing import Any, Mapping
 
 from datapipeline.analysis.vector.collector import VectorStatsCollector
@@ -6,6 +5,7 @@ from datapipeline.analysis.vector.snapshot import collector_from_snapshot
 from datapipeline.config.metadata import build_vector_metadata_lookup
 from datapipeline.config.tasks import OperationTask
 from datapipeline.dag.context import PipelineContext
+from datapipeline.operations.persistence import RuntimeOutput
 from datapipeline.runtime import Runtime
 from datapipeline.services.artifacts import VECTOR_METADATA_SPEC, VECTOR_STATS_SPEC
 
@@ -25,8 +25,6 @@ def load_collector(
     runtime: Runtime,
     *,
     options: Mapping[str, Any],
-    matrix_format: str | None = None,
-    matrix_path: Path | None = None,
 ) -> VectorStatsCollector:
     context = PipelineContext(runtime)
     snapshot = context.require_artifact(VECTOR_STATS_SPEC)
@@ -43,12 +41,12 @@ def load_collector(
         show_matrix=False,
         matrix_rows=int(option(options, "rows", 20)),
         matrix_cols=int(option(options, "cols", 10)),
-        matrix_output=(str(matrix_path) if matrix_path is not None else None),
-        matrix_format=(matrix_format or "html"),
+        matrix_output=None,
+        matrix_format="html",
     )
 
 
-def build_summary(
+def build_metrics(
     collector: VectorStatsCollector,
     *,
     sort_key: str,
@@ -169,7 +167,7 @@ def build_summary(
     }
 
 
-def resolve_summary(
+def resolve_metrics(
     runtime: Runtime,
     *,
     options: Mapping[str, Any],
@@ -177,53 +175,68 @@ def resolve_summary(
     sort_key = str(option(options, "sort", "missing"))
     threshold = float(option(options, "threshold", 0.95))
     collector = load_collector(runtime, options=options)
-    summary = build_summary(collector, sort_key=sort_key, threshold=threshold)
-    return summary, sort_key, threshold
+    metrics = build_metrics(collector, sort_key=sort_key, threshold=threshold)
+    return metrics, sort_key, threshold
 
 
-def print_coverage(summary: Mapping[str, Any], *, sort_key: str) -> None:
-    features = list(summary.get("feature_stats") or [])
-    partitions = list(summary.get("partition_stats") or [])
-    metric = "null" if sort_key == "nulls" else "missing"
+def report_payload(
+    report: str,
+    metrics: Mapping[str, Any],
+    *,
+    sort_key: str | None = None,
+    threshold: float | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "report": report,
+        "metrics": dict(metrics),
+    }
+    if sort_key is not None:
+        payload["sort"] = sort_key
+    if threshold is not None:
+        payload["threshold"] = threshold
+    return payload
 
-    print("\n=== Vector Coverage ===")
-    print(f"Total vectors processed: {summary.get('total_vectors', 0)}")
-    print(f"Empty vectors: {summary.get('empty_vectors', 0)}")
-    print(f"Features tracked: {len(summary.get('tracked_features') or [])}")
-    print(f"\n-> Feature coverage (sorted by {metric}):")
-    for stats in features:
-        print(
-            f"  - {stats['id']}: present {stats['present']}/{stats['opportunities']} "
-            f"({stats['coverage']:.1%}) | absent {stats['missing']} | null {stats['nulls']}"
-        )
-    if partitions:
-        print(f"\n-> Partition coverage (sorted by {metric}):")
-        for stats in partitions:
-            print(
-                f"  - {stats['id']} (base: {stats['base']}): present {stats['present']}/{stats['opportunities']} "
-                f"({stats['coverage']:.1%}) | absent {stats['missing']} | null {stats['nulls']}"
+
+def write_summary_output(
+    payload: Mapping[str, Any],
+) -> RuntimeOutput:
+    return RuntimeOutput(
+        payload=payload,
+    )
+
+
+def matrix_status_rows(
+    collector: VectorStatsCollector,
+) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for group, statuses in collector.group_feature_status.items():
+        group_key = collector._format_group_key(group)
+        for identifier, status in statuses.items():
+            rows.append(
+                {
+                    "matrix_kind": "feature",
+                    "identifier": identifier,
+                    "group_key": group_key,
+                    "status": status,
+                }
             )
-
-
-def print_thresholds(summary: Mapping[str, Any], *, threshold: float) -> None:
-    pct = threshold * 100
-    print("\n=== Vector Thresholds ===")
-    print(f"Threshold: {pct:.0f}%")
-    print(f"\n[low] Features below {pct:.0f}% coverage:")
-    print(f"  below_features = {summary.get('below_features', [])}")
-    print(f"[high] Features at/above {pct:.0f}% coverage:")
-    print(f"  keep_features = {summary.get('keep_features', [])}")
-    print(f"\n[low] Partitions below {pct:.0f}% coverage:")
-    print(f"  below_partitions = {summary.get('below_partitions', [])}")
-    print(f"  below_suffixes = {summary.get('below_suffixes', [])}")
-    values = summary.get("below_partition_values", [])
-    if values:
-        print(f"  below_partition_values = {values}")
-    print(f"[high] Partitions at/above {pct:.0f}% coverage:")
-    print(f"  keep_partitions = {summary.get('keep_partitions', [])}")
-    print(f"  keep_suffixes = {summary.get('keep_suffixes', [])}")
-    keep_values = summary.get("keep_partition_values", [])
-    if keep_values:
-        print(f"  keep_partition_values = {keep_values}")
-    print(f"[high] Partitions at/above {pct:.0f}% cadence fill:")
-    print(f"  keep_partitions_cadence = {summary.get('keep_partitions_cadence', [])}")
+    for group, statuses in collector.group_partition_status.items():
+        group_key = collector._format_group_key(group)
+        for identifier, status in statuses.items():
+            rows.append(
+                {
+                    "matrix_kind": "partition",
+                    "identifier": identifier,
+                    "group_key": group_key,
+                    "status": status,
+                }
+            )
+    rows.sort(
+        key=lambda row: (
+            row["matrix_kind"],
+            row["identifier"],
+            row["group_key"],
+            row["status"],
+        )
+    )
+    return rows

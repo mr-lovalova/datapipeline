@@ -1,18 +1,21 @@
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Dict
 
 from datapipeline.config.tasks import SchemaTask
 from datapipeline.config.dataset.loader import load_dataset
+from datapipeline.operations.persistence import ArtifactOutput
 from datapipeline.runtime import Runtime
 from datapipeline.utils.paths import ensure_parent
-from datapipeline.utils.window import resolve_window_bounds
 
 from .utils import collect_schema_entries, schema_entries_from_stats
 
 
-def materialize_vector_schema(runtime: Runtime, task_cfg: SchemaTask) -> Tuple[str, Dict[str, object]] | None:
+def materialize_vector_schema(
+    runtime: Runtime,
+    task_cfg: SchemaTask,
+) -> ArtifactOutput:
     dataset = load_dataset(runtime.project_yaml, "vectors")
     features_cfgs = list(dataset.features or [])
     feature_stats, feature_vectors, feature_min, feature_max = collect_schema_entries(
@@ -53,4 +56,4 @@ def materialize_vector_schema(runtime: Runtime, task_cfg: SchemaTask) -> Tuple[s
         "features": len(feature_entries),
         "targets": len(target_entries),
     }
-    return str(relative_path), meta
+    return ArtifactOutput(relative_path=str(relative_path), meta=meta)

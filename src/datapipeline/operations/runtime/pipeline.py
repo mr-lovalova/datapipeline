@@ -4,22 +4,21 @@ from itertools import islice
 from typing import Iterator, Optional
 
 from datapipeline.pipelines.record.nodes import RECORD_NODE_COUNT
-from datapipeline.cli.visuals.execution import emit_execution_message
 from datapipeline.dag.transform_observability import default_observer_registry
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.tasks import OperationTask
 from datapipeline.domain.sample import Sample
 from datapipeline.dag.context import PipelineContext
+from datapipeline.operations.persistence import RuntimeOutput, RuntimeOutputBatch
 from datapipeline.pipelines import build_feature_pipeline, build_full_pipeline
 from datapipeline.runtime import Runtime
 from datapipeline.utils.window import resolve_window_bounds
-from datapipeline.io.factory import writer_factory
-from datapipeline.io.output import OutputTarget, served_output_message
-from datapipeline.io.protocols import Writer
+from datapipeline.io.output import OutputTarget
 from datapipeline.services.runs import finish_run_failed, finish_run_success, set_latest_run
 
+from .output_rows import row_from_record, row_from_sample
+
 logger = logging.getLogger(__name__)
-_FULL_PIPELINE_DAG_NAME = "pipeline:serve"
 
 
 def _preview_plan(
@@ -65,22 +64,26 @@ def throttle_vectors(
         time.sleep(delay)
 
 
-def serve_stream(
-    items: Iterator[object],
-    limit: Optional[int],
-    writer: Writer,
-) -> int:
-    count = 0
+def _close_iterator(items: Iterator[object]) -> None:
+    closer = getattr(items, "close", None)
+    if callable(closer):
+        closer()
+
+
+def _record_rows(stream: Iterator[object]) -> Iterator[object]:
     try:
-        for item in limit_items(items, limit):
-            writer.write(item)
-            count += 1
+        for item in stream:
+            yield row_from_record(item)
     finally:
-        closer = getattr(items, "close", None)
-        if callable(closer):
-            closer()
-        writer.close()
-    return count
+        _close_iterator(stream)
+
+
+def _sample_rows(vectors: Iterator[Sample]) -> Iterator[object]:
+    try:
+        for sample in vectors:
+            yield row_from_sample(sample)
+    finally:
+        _close_iterator(vectors)
 
 
 def _is_full_pipeline_stage(stage: int | None) -> bool:
@@ -96,10 +99,20 @@ def serve_with_runtime(
     stage: Optional[int],
     visuals: Optional[str] = None,
     operation_task: OperationTask | None = None,
-) -> None:
-    _ = operation_task
+) -> RuntimeOutputBatch | None:
+    _ = operation_task, visuals
     run_paths = target.run
-    run_status: str | None = None
+
+    def _finish_run(success: bool) -> None:
+        if run_paths is None:
+            return
+        if success:
+            finish_run_success(run_paths)
+            if _is_full_pipeline_stage(stage):
+                set_latest_run(run_paths)
+            return
+        finish_run_failed(run_paths)
+
     try:
         context = PipelineContext(
             runtime,
@@ -112,28 +125,21 @@ def serve_with_runtime(
 
         if not preview_cfgs:
             logger.warning("(no features configured; nothing to serve)")
-            run_status = "success"
+            _finish_run(True)
             return
 
         if stage is not None:
+            outputs: list[RuntimeOutput] = []
             for output_id, cfg in _preview_plan(preview_cfgs, stage):
                 stream = build_feature_pipeline(context, cfg, stage=stage)
                 feature_target = target.for_feature(output_id)
-                writer = writer_factory(
-                    feature_target, visuals=visuals, item_type="record")
-                count = serve_stream(
-                    stream,
-                    limit,
-                    writer=writer,
+                outputs.append(
+                    RuntimeOutput(
+                        rows=limit_items(_record_rows(stream), limit),
+                        target=feature_target,
+                    )
                 )
-                emit_execution_message(
-                    served_output_message(feature_target, count),
-                    level=logging.INFO,
-                    logger=logger,
-                    message_kind="saved",
-                )
-            run_status = "success"
-            return
+            return RuntimeOutputBatch(outputs=tuple(outputs), on_complete=_finish_run)
 
         runtime.window_bounds = resolve_window_bounds(runtime, True)
 
@@ -144,33 +150,21 @@ def serve_with_runtime(
             target_configs=target_cfgs,
             rectangular=True,
         )
-        vectors = throttle_vectors(vectors, throttle_ms)
-
-        writer = writer_factory(target, visuals=visuals)
-
-        result_count = serve_stream(
-            vectors,
-            limit,
-            writer=writer,
+        return RuntimeOutputBatch(
+            outputs=(
+                RuntimeOutput(
+                    rows=limit_items(
+                        _sample_rows(throttle_vectors(vectors, throttle_ms)),
+                        limit,
+                    ),
+                    target=target,
+                ),
+            ),
+            on_complete=_finish_run,
         )
-        emit_execution_message(
-            served_output_message(target, result_count),
-            level=logging.INFO,
-            logger=logger,
-            message_kind="saved",
-        )
-        run_status = "success"
     except KeyboardInterrupt:
-        run_status = "failed"
+        _finish_run(False)
         raise
     except Exception:
-        run_status = "failed"
+        _finish_run(False)
         raise
-    finally:
-        if run_paths is not None and run_status is not None:
-            if run_status == "success":
-                finish_run_success(run_paths)
-                if _is_full_pipeline_stage(stage):
-                    set_latest_run(run_paths)
-            else:
-                finish_run_failed(run_paths)
