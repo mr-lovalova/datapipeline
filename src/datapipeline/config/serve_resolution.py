@@ -87,7 +87,6 @@ def resolve_run_profiles(
     cli_log_outputs: Sequence[LogOutputTarget] | None = None,
     base_log_level: str = "INFO",
     cli_visuals: Optional[str] = None,
-    create_run: bool = False,
 ) -> list[RunProfile]:
     shared = workspace.config.shared if workspace else None
     shared_observability = shared.observability if shared else None
@@ -103,16 +102,22 @@ def resolve_run_profiles(
         run_cfg = getattr(runtime, "run", None)
         build_cfg = _run_config_value(run_cfg, "build")
         profile_build_mode = getattr(build_cfg, "mode", None) if build_cfg is not None else None
-        resolved_build_mode = cascade(cli_build_mode, profile_build_mode)
-        if resolved_build_mode is None:
-            label = entry_name or f"run{idx}"
-            raise ValueError(
-                f"Runtime profile '{label}' must define build.mode or pass --build-mode."
-            )
-        resolved_build_mode = str(resolved_build_mode).upper()
+        resolved_build_mode = str(
+            cascade(cli_build_mode, profile_build_mode, "AUTO")
+        ).upper()
 
         resolved_stage = cascade(stage, _run_config_value(run_cfg, "stage"))
         resolved_limit = cascade(limit, _run_config_value(run_cfg, "limit"))
+        run_cmd = getattr(run_cfg, "cmd", None)
+        create_run = run_cmd == "serve"
+        if resolved_stage is not None and not create_run:
+            raise ValueError(
+                f"Runtime profile '{entry_name or f'run{idx}'}' does not support stage previews."
+            )
+        if keep is not None and not create_run:
+            raise ValueError(
+                f"Runtime profile '{entry_name or f'run{idx}'}' does not support keep filters."
+            )
         throttle_ms = _run_config_value(run_cfg, "throttle_ms")
         log_decision = resolve_log_level(
             cli_log_level,

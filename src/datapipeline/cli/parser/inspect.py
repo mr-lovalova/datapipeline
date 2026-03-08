@@ -1,6 +1,10 @@
 import argparse
 
-from datapipeline.config.options import OUTPUT_FORMATS, OUTPUT_TRANSPORTS, OUTPUT_VIEWS
+from datapipeline.config.options import (
+    OUTPUT_INSPECT_FORMATS,
+    OUTPUT_TRANSPORTS,
+    OUTPUT_VIEWS,
+)
 from datapipeline.config.profiles import VALID_BUILD_MODES
 
 from .common import add_dataset_flag, add_project_flag, add_visual_flags
@@ -32,8 +36,8 @@ def add_inspect_command(sub, common: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--output-format",
-        choices=OUTPUT_FORMATS,
-        help="optional output format override (jsonl/csv/pickle) for inspect profiles",
+        choices=OUTPUT_INSPECT_FORMATS,
+        help="optional output format override (jsonl/csv/pickle/txt/html) for inspect profiles",
     )
     parser.add_argument(
         "--output-directory",
@@ -41,7 +45,7 @@ def add_inspect_command(sub, common: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--output-encoding",
-        help="text encoding for fs jsonl/csv outputs (default: utf-8)",
+        help="text encoding for fs jsonl/csv/txt outputs (default: utf-8)",
     )
     parser.add_argument(
         "--output-view",
@@ -51,13 +55,13 @@ def add_inspect_command(sub, common: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--skip-build",
         action="store_true",
-        help="skip automatic artifact dependency builds before inspect operations",
+        help="skip artifact execution when the selected profile target is an artifact task",
     )
     parser.add_argument(
         "--build-mode",
         choices=VALID_BUILD_MODES,
         type=str.upper,
         default=None,
-        help="build policy for artifact dependencies: AUTO | FORCE | OFF",
+        help="artifact build policy when the selected profile target is an artifact task: AUTO | FORCE | OFF",
     )
     add_visual_flags(parser)

@@ -1,4 +1,4 @@
-type: serve
+cmd: serve
 name: val
 target: pipeline
 enabled: true

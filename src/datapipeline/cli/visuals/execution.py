@@ -45,7 +45,6 @@ class ExecutionLogEvent:
     elapsed_seconds: float | None = None
     info_line: str | None = None
     dag_parent: DagParentRef | None = None
-    scope_phase: str | None = None
     scope_profile_kind: str | None = None
     scope_profile_name: str | None = None
     scope_target_id: str | None = None
@@ -168,7 +167,6 @@ class ExecutionEventFormatter:
             "dp_parent_step_index": (
                 event.dag_parent.step_index if event.dag_parent is not None else None
             ),
-            "dp_scope_phase": event.scope_phase,
             "dp_scope_profile_kind": event.scope_profile_kind,
             "dp_scope_profile_name": event.scope_profile_name,
             "dp_scope_target_id": event.scope_target_id,
@@ -181,7 +179,6 @@ class ExecutionEventFormatter:
 def _scope_fields() -> dict[str, str | None]:
     scope = current_execution_scope() or {}
     return {
-        "scope_phase": scope.get("phase"),
         "scope_profile_kind": scope.get("profile_kind"),
         "scope_profile_name": scope.get("profile_name"),
         "scope_target_id": scope.get("target_id"),
@@ -192,26 +189,18 @@ def _scope_fields() -> dict[str, str | None]:
 
 
 def _scope_message(scope: dict[str, str]) -> str:
-    parts: list[str] = []
-    if scope.get("phase"):
-        parts.append(f"phase={scope['phase']}")
-    if scope.get("profile_kind") and scope.get("profile_name"):
-        parts.append(f"profile={scope['profile_kind']}:{scope['profile_name']}")
-    elif scope.get("profile_name"):
-        parts.append(f"profile={scope['profile_name']}")
-    if scope.get("target_id"):
-        parts.append(f"target={scope['target_id']}")
-    if scope.get("task_id"):
-        parts.append(f"task={scope['task_id']}")
+    task = scope.get("task_id") or scope.get("target_id") or scope.get("profile_name")
+    if task is None:
+        return "Scope"
+    item = ""
     if scope.get("item_index") and scope.get("item_total"):
-        parts.append(f"item={scope['item_index']}/{scope['item_total']}")
-    return "Scope: " + (" ".join(parts) if parts else "(empty)")
+        item = f" ({scope['item_index']}/{scope['item_total']})"
+    return f"Scope: task={task}{item}"
 
 
 @contextmanager
 def execution_scope(
     *,
-    phase: str | None = None,
     profile_kind: str | None = None,
     profile_name: str | None = None,
     target_id: str | None = None,
@@ -222,7 +211,6 @@ def execution_scope(
 ):
     merged = dict(current_execution_scope() or {})
     updates = {
-        "phase": phase,
         "profile_kind": profile_kind,
         "profile_name": profile_name,
         "target_id": target_id,

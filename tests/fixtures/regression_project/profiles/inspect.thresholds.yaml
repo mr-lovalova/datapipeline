@@ -1,4 +1,4 @@
-type: inspect
+cmd: inspect
 name: thresholds
 target: thresholds
 enabled: true

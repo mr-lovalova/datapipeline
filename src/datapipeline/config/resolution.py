@@ -229,7 +229,9 @@ def _normalize_log_outputs(
                 raise ValueError(f"log scope must be one of {choices}, got {scope!r}")
             if scope == "run":
                 if not allow_run_scope:
-                    raise ValueError("log scope 'run' is only valid for serve execution")
+                    raise ValueError(
+                        "log scope 'run' is only valid for run-scoped runtime operations"
+                    )
                 if transport != "fs":
                     raise ValueError("log scope 'run' requires transport='fs'")
                 if destination is not None and Path(destination).is_absolute():

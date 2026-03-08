@@ -90,6 +90,12 @@ def operation_specs(
         error_template="Duplicate operation task ids are not allowed: {details}",
         key_fn=lambda spec: spec.id,
     )
+    overlap = sorted({spec.id for spec in artifact_specs} & {spec.id for spec in operation_task_specs})
+    if overlap:
+        raise ValueError(
+            "Task ids must be globally unique across artifact/runtime tasks: "
+            + ", ".join(overlap)
+        )
     return artifact_specs, operation_task_specs
 
 

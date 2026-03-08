@@ -1,6 +1,7 @@
 # See ../../reference/reference/tasks/profiles/build.reference.yaml for full options.
-type: build
+cmd: build
 name: scaler
+order: 30
 target: scaler
 enabled: true
 mode: AUTO

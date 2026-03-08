@@ -2,16 +2,15 @@ from typing import Literal
 
 from pydantic import Field, field_validator
 
-from datapipeline.config.model_utils import normalize_required_text
 from datapipeline.config.observability import ObservabilityConfig
 
-from .base import Profile
+from .base import Profile, normalize_profile_target
 from .output import ServeOutputConfig
 from .runtime_build import RuntimeBuildConfig
 
 
 class ServeProfile(Profile):
-    type: Literal["serve"]
+    cmd: Literal["serve"]
     target: str
     output: ServeOutputConfig | None = None
     observability: ObservabilityConfig | None = Field(default=None)
@@ -24,7 +23,6 @@ class ServeProfile(Profile):
     @field_validator("target", mode="before")
     @classmethod
     def _normalize_target(cls, value):
-        return normalize_required_text(value, field_name="target")
-
+        return normalize_profile_target(value)
 
 __all__ = ["ServeProfile"]

@@ -73,7 +73,7 @@ def test_resolve_log_output_rejects_run_scope_when_not_allowed():
             output_candidates=([LogOutputTarget(transport="fs", scope="run")],),
         )
     except ValueError as exc:
-        assert "only valid for serve execution" in str(exc)
+        assert "only valid for run-scoped runtime operations" in str(exc)
     else:
         raise AssertionError("Expected ValueError for run scope outside serve")
 

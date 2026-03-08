@@ -1,7 +1,10 @@
 # See ../../../plugin_skeleton/reference/reference/tasks/profiles/inspect.reference.yaml for full options.
-type: inspect
+cmd: inspect
 name: matrix
+order: 60
 target: matrix
 enabled: true
-build:
-  mode: AUTO
+output:
+  transport: fs
+  format: html
+  directory: ../artifacts/inspect

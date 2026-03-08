@@ -133,20 +133,10 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
 
     @staticmethod
     def _scope_header(event: ExecutionLogEvent, fallback: str) -> str:
-        phase = (event.scope_phase or "").strip().lower()
-        if phase == "build":
-            phase_label = "Build"
-        elif phase == "runtime":
-            phase_label = "Runtime"
-        elif phase:
-            phase_label = phase.capitalize()
-        else:
-            phase_label = "Execution"
-
         task = event.scope_task_id or event.scope_target_id or event.scope_profile_name
         if task is None:
             return fallback or "Scope"
-        header = f"{phase_label}: {task}"
+        header = f"Task: {task}"
         if event.scope_item_index and event.scope_item_total:
             header = f"{header} ({event.scope_item_index}/{event.scope_item_total})"
         return header

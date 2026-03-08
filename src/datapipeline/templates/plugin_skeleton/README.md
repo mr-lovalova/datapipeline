@@ -49,6 +49,12 @@ YAML config (dataset project root):
   - `profiles/serve.<name>.yaml`, `profiles/build.<name>.yaml`, `profiles/inspect.<name>.yaml` (profiles; optional overrides)
   - `tasks/operations/*.yaml` (artifact + serve operation configs; optional overrides)
 
+Profile sequencing:
+- Profiles execute by `order` (ascending); unset falls back to filename order.
+- A common serve flow is `serve.schema` -> `serve.metadata` -> `serve.scaler` -> `serve.train/val/test`.
+- A common inspect flow is `inspect.schema` -> `inspect.metadata` -> `inspect.scaler` -> `inspect.stats` -> `inspect.coverage/matrix/thresholds`.
+- One profile targets one task (`target:`); sequencing is explicit in profile files, not inferred from runtime task dependency graphs.
+
 Python plugin code:
 
 - `src/{{PACKAGE_NAME}}/`

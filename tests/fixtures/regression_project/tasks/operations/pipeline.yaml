@@ -1,8 +1,3 @@
 id: pipeline
 kind: runtime
 entrypoint: core.runtime.pipeline
-runtime_kind: serve
-dependencies:
-  - schema
-  - metadata
-  - scaler

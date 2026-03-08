@@ -2,16 +2,18 @@ import codecs
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from datapipeline.config.options import OUTPUT_STDOUT_FORMATS, OUTPUT_VIEWS
 
 Transport = Literal["fs", "stdout"]
-Format = Literal["csv", "jsonl", "pickle"]
+Format = Literal["csv", "jsonl", "pickle", "txt", "html"]
 View = Literal["flat", "raw", "values"]
 
 
 class ServeOutputConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     transport: Transport
     format: Format
     view: View | None = Field(default=None)
@@ -72,11 +74,13 @@ class ServeOutputConfig(BaseModel):
             raise ValueError("fs outputs require a directory")
         if self.format == "csv" and self.view not in {None, "flat", "values"}:
             raise ValueError("csv output supports only view='flat' or view='values'")
+        if self.format in {"txt", "html"} and self.view is not None:
+            raise ValueError(f"{self.format} output does not support view")
         if self.transport == "fs":
-            if self.format == "pickle":
+            if self.format in {"pickle", "html"}:
                 if self.encoding is not None:
-                    raise ValueError("pickle output does not support encoding")
-            elif self.format in {"jsonl", "csv"}:
+                    raise ValueError(f"{self.format} output does not support encoding")
+            elif self.format in {"jsonl", "csv", "txt"}:
                 if self.encoding is None:
                     self.encoding = "utf-8"
                 try:

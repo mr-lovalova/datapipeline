@@ -1,7 +1,4 @@
 id: stats
 kind: artifact
 entrypoint: core.artifact.stats
-dependencies:
-  - metadata
-  - scaler
 mode: final

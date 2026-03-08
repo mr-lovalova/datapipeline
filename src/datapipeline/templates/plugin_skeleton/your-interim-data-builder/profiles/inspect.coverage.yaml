@@ -1,7 +1,9 @@
 # See ../../reference/reference/tasks/profiles/inspect.reference.yaml for full options.
-type: inspect
+cmd: inspect
 name: coverage
+order: 50
 target: coverage
 enabled: true
-build:
-  mode: AUTO
+output:
+  transport: stdout
+  format: txt

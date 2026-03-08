@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from datapipeline.config.options import LOG_SCOPE_CHOICES, LOG_TRANSPORT_CHOICES
 
@@ -11,6 +11,8 @@ VALID_LOG_SCOPES = tuple(value.upper() for value in LOG_SCOPE_CHOICES)
 
 
 class LogOutputConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     transport: str = Field(..., description="STDERR | STDOUT | FS")
     scope: str = Field(
         default="GLOBAL",
@@ -69,6 +71,8 @@ class LogOutputConfig(BaseModel):
 
 
 class LoggingConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     level: str | None = Field(
         default=None,
         description="Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL).",
@@ -92,6 +96,8 @@ class LoggingConfig(BaseModel):
 
 
 class ObservabilityConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     visuals: str | None = Field(
         default=None,
         description="Visuals mode: ON or OFF.",

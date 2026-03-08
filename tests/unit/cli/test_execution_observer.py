@@ -594,7 +594,6 @@ def test_execution_scope_applies_to_messages_and_dag_events():
             profile_kind="serve",
             profile_name="test",
             target_id="serve",
-            phase="build",
             task_id="schema",
         ):
             emit_execution_message("in scope")
@@ -607,5 +606,4 @@ def test_execution_scope_applies_to_messages_and_dag_events():
         assert event.scope_profile_kind == "serve"
         assert event.scope_profile_name == "test"
         assert event.scope_target_id == "serve"
-        assert event.scope_phase == "build"
         assert event.scope_task_id == "schema"

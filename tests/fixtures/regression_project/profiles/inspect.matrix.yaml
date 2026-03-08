@@ -1,6 +1,10 @@
-type: inspect
+cmd: inspect
 name: matrix
 target: matrix
 enabled: true
 build:
   mode: AUTO
+output:
+  transport: fs
+  format: html
+  directory: ../artifacts/inspect

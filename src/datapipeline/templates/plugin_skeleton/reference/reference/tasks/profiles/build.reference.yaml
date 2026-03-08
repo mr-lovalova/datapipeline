@@ -2,12 +2,13 @@
 # This file is documentation only; uncomment the keys you want to use.
 #
 # version: 1                  # optional
-# type: build
+# cmd: build
 # name: default               # required; must be unique among build profiles
+# order: 10                   # optional; lower runs first, unset uses filename order
 # enabled: true               # optional; profile-level switch
 #
 # mode: AUTO                  # optional; AUTO | FORCE | OFF
-# target: schema              # required; artifact task id to build
+# target: schema              # required; artifact task id from tasks/operations
 #
 # observability:              # optional
 #   visuals: OFF              # optional; ON | OFF

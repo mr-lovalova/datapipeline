@@ -1,10 +1,6 @@
 id: thresholds
 kind: runtime
 entrypoint: core.runtime.thresholds
-runtime_kind: inspect
-dependencies:
-  - stats
-  - metadata
 options:
   sort: missing
   threshold: 0.95

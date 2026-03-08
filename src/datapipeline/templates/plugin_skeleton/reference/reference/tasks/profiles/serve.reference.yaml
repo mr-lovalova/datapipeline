@@ -2,25 +2,26 @@
 # This file is documentation only; uncomment the keys you want to use.
 #
 # version: 1                  # optional
-# type: serve
+# cmd: serve
 # name: train                 # required; must be unique among serve profiles
-# target: pipeline               # required; serve operation id from tasks/operations
+# order: 10                   # optional; lower runs first, unset uses filename order
+# target: pipeline            # required; task id from tasks/operations
 # enabled: true               # optional
 #
 # keep: train                  # optional; split label from globals.split (null disables filtering)
 #
-# build:                      # required unless CLI --build-mode is provided
+# build:                      # optional; only used when target is an artifact task (e.g. schema/metadata/scaler)
 #   mode: AUTO                # AUTO | FORCE | OFF
 #
 # output:                     # optional; omit to use CLI defaults
 #   transport: stdout          # stdout | fs
-#   format: jsonl              # stdout: jsonl
+#   format: jsonl
 #   # view: raw               # optional; flat | raw | values
 #   #                         # default: jsonl->raw, csv/pickle->flat
 #   # encoding: utf-8          # fs jsonl/csv only
 #   # fs transport only:
 #   # transport: fs
-#   # format: csv             # csv | jsonl | pickle
+#   # format: csv
 #   # directory: artifacts/serve
 #   # filename: vectors.train  # no extension, no path separators
 #
@@ -37,4 +38,6 @@
 #       # - transport: FS
 #       #   scope: RUN        # GLOBAL | RUN
 #       #   path: logs/serve.log  # required for FS+GLOBAL; optional for RUN (default logs/serve.<task>.log)
+# note: explicit sequencing belongs in profile order (multiple serve.*.yaml files), not task dependency graphs.
+#       common pattern: serve.schema (order: 10), serve.metadata (20), serve.scaler (30), serve.train/val/test (40+).
 # precedence: CLI --log-output > this profile > jerry.yaml shared

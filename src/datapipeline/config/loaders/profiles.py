@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import Field
 from pydantic.type_adapter import TypeAdapter
@@ -11,11 +11,12 @@ from .common import ensure_unique_specs, load_specs, spec_files
 
 ProfileModel = Annotated[
     ServeProfile | BuildProfile | InspectProfile,
-    Field(discriminator="type"),
+    Field(discriminator="cmd"),
 ]
 
 PROFILE_ADAPTER = TypeAdapter(ProfileModel)
 PROFILE_KIND_PREFIXES = {"serve", "build", "inspect"}
+ProfileCmd = Literal["serve", "build", "inspect"]
 
 
 def _load_profile_entry(entry: dict) -> Profile:
@@ -66,10 +67,10 @@ def _load_profile_specs(project_yaml: Path) -> list[Profile]:
             continue
         loaded = load_specs(path, _load_profile_entry)
         for spec in loaded:
-            if spec.type != expected_kind:
+            if spec.cmd != expected_kind:
                 raise ValueError(
-                    f"{path} declares profile type '{spec.type}' but is located under "
-                    f"profiles/{expected_kind}/."
+                    f"{path} declares profile cmd '{spec.cmd}' but is located under "
+                    f"profiles/{expected_kind}.<name>.yaml."
                 )
             specs.append(spec)
     return specs
@@ -77,26 +78,31 @@ def _load_profile_specs(project_yaml: Path) -> list[Profile]:
 
 def profile_specs(
     project_yaml: Path,
-) -> tuple[list[ServeProfile], list[BuildProfile], list[InspectProfile]]:
+    cmd: ProfileCmd | None = None,
+) -> list[Profile]:
     specs = _load_profile_specs(project_yaml)
-    serve_specs: list[ServeProfile] = [spec for spec in specs if isinstance(spec, ServeProfile)]
-    build_specs: list[BuildProfile] = [spec for spec in specs if isinstance(spec, BuildProfile)]
-    inspect_specs: list[InspectProfile] = [
-        spec for spec in specs if isinstance(spec, InspectProfile)
-    ]
+    grouped: dict[str, list[Profile]] = {"serve": [], "build": [], "inspect": []}
+    for spec in specs:
+        grouped[spec.cmd].append(spec)
 
-    for kind, kind_specs in (
-        ("serve", serve_specs),
-        ("build", build_specs),
-        ("inspect", inspect_specs),
-    ):
+    for kind, kind_specs in grouped.items():
+        grouped[kind] = _ordered_profiles(kind_specs)
         ensure_unique_specs(
-            kind_specs,
+            grouped[kind],
             error_template=f"Duplicate {kind} profile names are not allowed: {{details}}",
             key_fn=lambda spec: spec.name,
         )
 
-    return serve_specs, build_specs, inspect_specs
+    if cmd is not None:
+        return list(grouped[cmd])
+    return grouped["serve"] + grouped["build"] + grouped["inspect"]
+
+
+def _ordered_profiles(specs: list[Profile]) -> list[Profile]:
+    ordered = [spec for spec in specs if spec.order is not None]
+    unordered = [spec for spec in specs if spec.order is None]
+    ordered.sort(key=lambda spec: (spec.order, spec.name))
+    return ordered + unordered
 
 
 __all__ = ["profile_specs"]

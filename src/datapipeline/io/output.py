@@ -16,6 +16,8 @@ def _format_suffix(fmt: str) -> str:
         "jsonl": ".jsonl",
         "csv": ".csv",
         "pickle": ".pkl",
+        "txt": ".txt",
+        "html": ".html",
     }
     return suffix_map.get(fmt, ".out")
 
@@ -40,7 +42,7 @@ class OutputTarget:
     """Resolved writer target describing how and where to emit records."""
 
     transport: str  # stdout | fs
-    format: str     # jsonl | csv | pickle
+    format: str     # jsonl | csv | pickle | html
     view: str       # flat | raw | values
     encoding: str | None
     destination: Optional[Path]

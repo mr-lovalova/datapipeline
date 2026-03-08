@@ -17,18 +17,15 @@ def _all_tasks(project_yaml: Path):
 
 
 def _serve_profiles(project_yaml: Path):
-    serve_specs, _, _ = profile_specs(project_yaml)
-    return list(serve_specs)
+    return list(profile_specs(project_yaml, cmd="serve"))
 
 
 def _build_profiles(project_yaml: Path):
-    _, build_specs, _ = profile_specs(project_yaml)
-    return list(build_specs)
+    return list(profile_specs(project_yaml, cmd="build"))
 
 
 def _inspect_profiles(project_yaml: Path):
-    _, _, inspect_specs = profile_specs(project_yaml)
-    return list(inspect_specs)
+    return list(profile_specs(project_yaml, cmd="inspect"))
 
 
 def _write_project(tmp_path: Path, tasks_ref: str | None = None) -> Path:
@@ -118,10 +115,10 @@ def test_serve_tasks_respect_name_and_enabled(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     tasks_dir = _profile_kind_dir(project_yaml)
     (tasks_dir / "serve.train.yaml").write_text(
-        "type: serve\nname: train\ntarget: pipeline\nkeep: train\n", encoding="utf-8"
+        "cmd: serve\nname: train\ntarget: pipeline\nkeep: train\n", encoding="utf-8"
     )
     (tasks_dir / "serve.val.yaml").write_text(
-        "type: serve\nname: val\ntarget: pipeline\nkeep: val\nenabled: false\n", encoding="utf-8"
+        "cmd: serve\nname: val\ntarget: pipeline\nkeep: val\nenabled: false\n", encoding="utf-8"
     )
 
     tasks = _serve_profiles(project_yaml)
@@ -134,7 +131,7 @@ def test_profile_name_is_required(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     tasks_dir = _profile_kind_dir(project_yaml)
     (tasks_dir / "serve.train.yaml").write_text(
-        "type: serve\ntarget: pipeline\nkeep: train\n", encoding="utf-8"
+        "cmd: serve\ntarget: pipeline\nkeep: train\n", encoding="utf-8"
     )
 
     with pytest.raises(ValueError, match="serve\\.name|Field required"):
@@ -145,11 +142,11 @@ def test_build_profiles_load_and_respect_enabled(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     tasks_dir = _profile_kind_dir(project_yaml)
     (tasks_dir / "build.fast.yaml").write_text(
-        "type: build\nname: fast\nenabled: true\nmode: auto\ntarget: schema\n",
+        "cmd: build\nname: fast\nenabled: true\nmode: auto\ntarget: schema\n",
         encoding="utf-8",
     )
     (tasks_dir / "build.full.yaml").write_text(
-        "type: build\nname: full\nenabled: false\nmode: force\ntarget: metadata\n",
+        "cmd: build\nname: full\nenabled: false\nmode: force\ntarget: metadata\n",
         encoding="utf-8",
     )
 
@@ -164,11 +161,11 @@ def test_inspect_profiles_load_and_respect_enabled(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     tasks_dir = _profile_kind_dir(project_yaml)
     (tasks_dir / "inspect.default.yaml").write_text(
-        "type: inspect\nname: default\nenabled: true\ntarget: coverage\n",
+        "cmd: inspect\nname: default\nenabled: true\ntarget: coverage\n",
         encoding="utf-8",
     )
     (tasks_dir / "inspect.extra.yaml").write_text(
-        "type: inspect\nname: extra\nenabled: false\ntarget: coverage\n",
+        "cmd: inspect\nname: extra\nenabled: false\ntarget: coverage\n",
         encoding="utf-8",
     )
 
@@ -177,6 +174,26 @@ def test_inspect_profiles_load_and_respect_enabled(tmp_path):
     assert tasks[0].target == "coverage"
     assert tasks[0].enabled is True
     assert tasks[1].enabled is False
+
+
+def test_profile_order_overrides_file_order(tmp_path):
+    project_yaml = _write_project(tmp_path, tasks_ref="tasks")
+    profiles_dir = _profile_kind_dir(project_yaml)
+    (profiles_dir / "serve.train.yaml").write_text(
+        "cmd: serve\nname: train\ntarget: pipeline\n",
+        encoding="utf-8",
+    )
+    (profiles_dir / "serve.val.yaml").write_text(
+        "cmd: serve\nname: val\norder: 2\ntarget: pipeline\n",
+        encoding="utf-8",
+    )
+    (profiles_dir / "serve.test.yaml").write_text(
+        "cmd: serve\nname: test\norder: 1\ntarget: pipeline\n",
+        encoding="utf-8",
+    )
+
+    tasks = _serve_profiles(project_yaml)
+    assert [task.name for task in tasks] == ["test", "val", "train"]
 
 
 def test_artifact_task_dependencies_are_normalized(tmp_path):
@@ -196,7 +213,7 @@ def test_serve_operation_tasks_load(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     tasks_dir = _operations_dir(project_yaml)
     (tasks_dir / "pipeline.yaml").write_text(
-        "id: pipeline\nkind: runtime\nentrypoint: core.runtime.pipeline\nruntime_kind: serve\n",
+        "id: pipeline\nkind: runtime\nentrypoint: core.runtime.pipeline\n",
         encoding="utf-8",
     )
 
@@ -205,36 +222,47 @@ def test_serve_operation_tasks_load(tmp_path):
     assert tasks[0].entrypoint == "core.runtime.pipeline"
 
 
-def test_operation_tasks_do_not_inject_missing_artifacts(tmp_path):
+def test_runtime_operation_options_load_and_normalize(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     tasks_dir = _operations_dir(project_yaml)
     (tasks_dir / "pipeline.yaml").write_text(
-        "id: pipeline\nkind: runtime\nentrypoint: core.runtime.pipeline\nruntime_kind: serve\ndependencies:\n  - missing_artifact\n",
+        (
+            "id: pipeline\n"
+            "kind: runtime\n"
+            "entrypoint: core.runtime.pipeline\n"
+            "options:\n"
+            "  sort: missing\n"
+        ),
         encoding="utf-8",
     )
 
     tasks = _all_tasks(project_yaml)
-    ids = {task.id for task in tasks}
-    assert "pipeline" in ids
-    assert "missing_artifact" not in ids
+    operation = tasks[0]
+    assert operation.options == {"sort": "missing"}
 
 
-def test_operation_tasks_load_declared_artifact_dependency(tmp_path):
+def test_runtime_operation_rejects_dependencies_field(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     tasks_dir = _operations_dir(project_yaml)
-    (tasks_dir / "schema.yaml").write_text(
-        "id: schema\nkind: artifact\noutput: schema.json\n",
-        encoding="utf-8",
-    )
     (tasks_dir / "pipeline.yaml").write_text(
-        "id: pipeline\nkind: runtime\nentrypoint: core.runtime.pipeline\nruntime_kind: serve\ndependencies:\n  - schema\n",
+        "id: pipeline\nkind: runtime\nentrypoint: core.runtime.pipeline\ndependencies:\n  - missing_artifact\n",
         encoding="utf-8",
     )
 
-    tasks = _all_tasks(project_yaml)
-    ids = {task.id for task in tasks}
-    assert "pipeline" in ids
-    assert "schema" in ids
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        _all_tasks(project_yaml)
+
+
+def test_runtime_operation_rejects_output_formats_field(tmp_path):
+    project_yaml = _write_project(tmp_path, tasks_ref="tasks")
+    tasks_dir = _operations_dir(project_yaml)
+    (tasks_dir / "pipeline.yaml").write_text(
+        "id: pipeline\nkind: runtime\nentrypoint: core.runtime.pipeline\noutput_formats:\n  - jsonl\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        _all_tasks(project_yaml)
 
 
 def test_duplicate_artifact_kinds_raise(tmp_path):
@@ -255,10 +283,10 @@ def test_duplicate_serve_profile_names_raise(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     tasks_dir = _profile_kind_dir(project_yaml)
     (tasks_dir / "serve.a.yaml").write_text(
-        "type: serve\nname: train\ntarget: pipeline\n", encoding="utf-8"
+        "cmd: serve\nname: train\ntarget: pipeline\n", encoding="utf-8"
     )
     (tasks_dir / "serve.b.yaml").write_text(
-        "type: serve\nname: train\ntarget: pipeline\n", encoding="utf-8"
+        "cmd: serve\nname: train\ntarget: pipeline\n", encoding="utf-8"
     )
 
     with pytest.raises(ValueError, match="Duplicate serve profile names"):
@@ -269,11 +297,11 @@ def test_duplicate_serve_operation_names_raise(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     tasks_dir = _operations_dir(project_yaml)
     (tasks_dir / "pipeline.a.yaml").write_text(
-        "id: pipeline\nkind: runtime\nentrypoint: core.runtime.pipeline\nruntime_kind: serve\n",
+        "id: pipeline\nkind: runtime\nentrypoint: core.runtime.pipeline\n",
         encoding="utf-8",
     )
     (tasks_dir / "pipeline.b.yaml").write_text(
-        "id: pipeline\nkind: runtime\nentrypoint: core.runtime.pipeline\nruntime_kind: serve\n",
+        "id: pipeline\nkind: runtime\nentrypoint: core.runtime.pipeline\n",
         encoding="utf-8",
     )
 
@@ -281,15 +309,31 @@ def test_duplicate_serve_operation_names_raise(tmp_path):
         _all_tasks(project_yaml)
 
 
+def test_task_ids_must_be_globally_unique_across_kinds(tmp_path):
+    project_yaml = _write_project(tmp_path, tasks_ref="tasks")
+    tasks_dir = _operations_dir(project_yaml)
+    (tasks_dir / "schema.artifact.yaml").write_text(
+        "id: schema\nkind: artifact\noutput: schema.json\n",
+        encoding="utf-8",
+    )
+    (tasks_dir / "schema.runtime.yaml").write_text(
+        "id: schema\nkind: runtime\nentrypoint: core.runtime.pipeline\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="globally unique"):
+        _all_tasks(project_yaml)
+
+
 def test_duplicate_build_profile_names_raise(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     tasks_dir = _profile_kind_dir(project_yaml)
     (tasks_dir / "build.a.yaml").write_text(
-        "type: build\nname: nightly\ntarget: schema\n",
+        "cmd: build\nname: nightly\ntarget: schema\n",
         encoding="utf-8",
     )
     (tasks_dir / "build.b.yaml").write_text(
-        "type: build\nname: nightly\ntarget: metadata\n",
+        "cmd: build\nname: nightly\ntarget: metadata\n",
         encoding="utf-8",
     )
 
@@ -301,11 +345,11 @@ def test_duplicate_inspect_profile_names_raise(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     tasks_dir = _profile_kind_dir(project_yaml)
     (tasks_dir / "inspect.a.yaml").write_text(
-        "type: inspect\nname: inspect\ntarget: coverage\n",
+        "cmd: inspect\nname: inspect\ntarget: coverage\n",
         encoding="utf-8",
     )
     (tasks_dir / "inspect.b.yaml").write_text(
-        "type: inspect\nname: inspect\ntarget: coverage\n",
+        "cmd: inspect\nname: inspect\ntarget: coverage\n",
         encoding="utf-8",
     )
 
@@ -318,7 +362,7 @@ def test_root_level_task_files_are_rejected(tmp_path):
     tasks_root = project_yaml.parent / "tasks"
     tasks_root.mkdir(parents=True, exist_ok=True)
     (tasks_root / "pipeline.yaml").write_text(
-        "id: pipeline\nkind: runtime\nentrypoint: core.runtime.pipeline\nruntime_kind: serve\n",
+        "id: pipeline\nkind: runtime\nentrypoint: core.runtime.pipeline\n",
         encoding="utf-8",
     )
 
@@ -331,7 +375,7 @@ def test_nested_profile_files_are_rejected(tmp_path):
     profiles_root = _profiles_dir(project_yaml) / "serve"
     profiles_root.mkdir(parents=True, exist_ok=True)
     (profiles_root / "train.yaml").write_text(
-        "type: serve\nname: train\ntarget: pipeline\n",
+        "cmd: serve\nname: train\ntarget: pipeline\n",
         encoding="utf-8",
     )
 
@@ -343,11 +387,11 @@ def test_profile_kind_directory_mismatch_is_rejected(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     build_dir = _profile_kind_dir(project_yaml)
     (build_dir / "build.oops.yaml").write_text(
-        "type: serve\nname: oops\ntarget: pipeline\n",
+        "cmd: serve\nname: oops\ntarget: pipeline\n",
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError, match="declares profile type 'serve'"):
+    with pytest.raises(ValueError, match="declares profile cmd 'serve'"):
         _build_profiles(project_yaml)
 
 
@@ -355,9 +399,38 @@ def test_profile_filename_prefix_is_required(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     profiles_root = _profiles_dir(project_yaml)
     (profiles_root / "oops.yaml").write_text(
-        "type: serve\nname: oops\ntarget: pipeline\n",
+        "cmd: serve\nname: oops\ntarget: pipeline\n",
         encoding="utf-8",
     )
 
     with pytest.raises(ValueError, match="must use \\{serve,build,inspect\\}"):
         _serve_profiles(project_yaml)
+
+
+def test_profile_rejects_unknown_fields(tmp_path):
+    project_yaml = _write_project(tmp_path, tasks_ref="tasks")
+    profiles_root = _profiles_dir(project_yaml)
+    (profiles_root / "build.schema.yaml").write_text(
+        "cmd: build\nname: schema\ntarget: schema\noutput: should-not-exist\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        _build_profiles(project_yaml)
+
+
+def test_operation_task_rejects_unknown_fields(tmp_path):
+    project_yaml = _write_project(tmp_path, tasks_ref="tasks")
+    tasks_dir = _operations_dir(project_yaml)
+    (tasks_dir / "pipeline.yaml").write_text(
+        (
+            "id: pipeline\n"
+            "kind: runtime\n"
+            "entrypoint: core.runtime.pipeline\n"
+            "runtime_kind: inspect\n"
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        _all_tasks(project_yaml)

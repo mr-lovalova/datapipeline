@@ -1,4 +1,4 @@
-type: inspect
+cmd: inspect
 name: coverage
 target: coverage
 enabled: true

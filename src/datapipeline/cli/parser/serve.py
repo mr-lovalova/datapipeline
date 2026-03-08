@@ -63,12 +63,12 @@ def add_serve_command(sub,  common: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--skip-build",
         action="store_true",
-        help="skip the automatic build step (useful for quick feature previews)",
+        help="skip artifact execution when the selected profile target is an artifact task",
     )
     parser.add_argument(
         "--build-mode",
         choices=VALID_BUILD_MODES,
         type=str.upper,
         default=None,
-        help="build policy for artifact dependencies: AUTO | FORCE | OFF",
+        help="artifact build policy when the selected profile target is an artifact task: AUTO | FORCE | OFF",
     )

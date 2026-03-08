@@ -26,7 +26,7 @@ def test_run_profile_without_visual_runner(monkeypatch):
 
     result = run_profile(
         spec=ProfileExecutionSpec(
-            kind="build",
+            command="build",
             name="schema",
             idx=1,
             total=1,
@@ -44,7 +44,7 @@ def test_run_profile_without_visual_runner(monkeypatch):
     assert called["work"] == 1
     assert configured
     assert messages and messages[0].startswith("Profile start ")
-    assert "kind=build" in messages[0]
+    assert "command=build" in messages[0]
     assert "name=schema" in messages[0]
 
 
@@ -52,7 +52,7 @@ def test_run_profile_visual_runner_requires_runtime():
     with pytest.raises(ValueError, match="runtime is required"):
         run_profile(
             spec=ProfileExecutionSpec(
-                kind="build",
+                command="build",
                 name="schema",
                 idx=1,
                 total=1,
@@ -86,7 +86,7 @@ def test_run_profile_can_skip_header_without_visual_runner(monkeypatch):
 
     run_profile(
         spec=ProfileExecutionSpec(
-            kind="build",
+            command="build",
             name="coverage.dependencies",
             idx=1,
             total=1,

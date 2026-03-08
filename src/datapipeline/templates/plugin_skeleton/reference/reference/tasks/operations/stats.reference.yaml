@@ -8,7 +8,4 @@
 # entrypoint: core.artifact.stats # optional; build runner id
 #
 # output: build/stats.json   # optional; relative to project.paths.artifacts
-# dependencies:              # explicit artifact prerequisites used to collect stats
-#   - metadata
-#   - scaler
 # mode: final                # required; final | raw

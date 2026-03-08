@@ -2,16 +2,15 @@ from typing import Literal
 
 from pydantic import Field, field_validator
 
-from datapipeline.config.model_utils import normalize_required_text
 from datapipeline.config.observability import ObservabilityConfig
 
-from .base import Profile
+from .base import Profile, normalize_profile_target
 
 VALID_BUILD_MODES = ("AUTO", "FORCE", "OFF")
 
 
 class BuildProfile(Profile):
-    type: Literal["build"]
+    cmd: Literal["build"]
     observability: ObservabilityConfig | None = Field(default=None)
     mode: str | None = Field(default=None)
     target: str
@@ -33,7 +32,7 @@ class BuildProfile(Profile):
     @field_validator("target", mode="before")
     @classmethod
     def _normalize_target(cls, value):
-        return normalize_required_text(value, field_name="target", lower=True)
+        return normalize_profile_target(value)
 
 
 __all__ = ["VALID_BUILD_MODES", "BuildProfile"]

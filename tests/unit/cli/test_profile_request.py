@@ -61,12 +61,12 @@ def test_inspect_request_rejects_run_scoped_log_output(tmp_path: Path, monkeypat
     ops.mkdir(parents=True, exist_ok=True)
     profiles.mkdir(parents=True, exist_ok=True)
     (ops / "coverage.yaml").write_text(
-        "id: coverage\nkind: runtime\nentrypoint: core.runtime.coverage\nruntime_kind: inspect\n",
+        "id: coverage\nkind: runtime\nentrypoint: core.runtime.coverage\n",
         encoding="utf-8",
     )
     (profiles / "inspect.coverage.yaml").write_text(
         (
-            "type: inspect\n"
+            "cmd: inspect\n"
             "name: coverage\n"
             "target: coverage\n"
             "enabled: true\n"

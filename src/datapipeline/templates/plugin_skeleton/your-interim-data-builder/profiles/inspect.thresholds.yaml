@@ -1,7 +1,9 @@
 # See ../../reference/reference/tasks/profiles/inspect.reference.yaml for full options.
-type: inspect
+cmd: inspect
 name: thresholds
+order: 70
 target: thresholds
 enabled: true
-build:
-  mode: AUTO
+output:
+  transport: stdout
+  format: txt

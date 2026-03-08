@@ -4,10 +4,5 @@
 # version: 1                        # optional
 # id: pipeline
 # kind: runtime                     # required; runtime | artifact
-# runtime_kind: serve               # required for runtime tasks; serve | inspect
 
 # entrypoint: core.runtime.pipeline   # required; built-in serve runner id
-# dependencies:                     # optional; artifact task ids required by this operation
-#   - schema
-#   - metadata
-#   - scaler

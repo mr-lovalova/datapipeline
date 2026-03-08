@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 import logging
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any, Callable
 
 from datapipeline.cli.logging_setup import configure_root_logging
 from datapipeline.cli.visuals import get_visuals_backend
@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class ProfileExecutionSpec:
-    kind: str
+    command: str
     name: str
     idx: int
     total: int
@@ -27,8 +27,7 @@ class ProfileExecutionSpec:
     runtime: Runtime | None = None
     use_visual_runner: bool = True
     render_header: bool = True
-    artifact_payload: Mapping[str, Any] | None = None
-    artifact_writer: Callable[[Mapping[str, Any]], Path | None] | None = None
+    profile_path: Path | None = None
 
 
 def _format_outputs(settings: LogOutputSettings) -> str:
@@ -39,22 +38,8 @@ def _format_outputs(settings: LogOutputSettings) -> str:
     return ",".join(parts) if parts else "-"
 
 
-def _persist_profile_artifact(
-    kind: str,
-    artifact_payload: Mapping[str, Any] | None,
-    artifact_writer: Callable[[Mapping[str, Any]], Path | None] | None,
-) -> Path | None:
-    if artifact_writer is None or artifact_payload is None:
-        return None
-    try:
-        return artifact_writer(artifact_payload)
-    except Exception:
-        logger.warning("Failed to persist %s profile artifact", kind, exc_info=True)
-        return None
-
-
 def _log_profile_start(
-    kind: str,
+    command: str,
     name: str,
     visuals: str,
     log_decision: LogLevelDecision,
@@ -63,7 +48,7 @@ def _log_profile_start(
 ) -> None:
     message = (
         "Profile start "
-        f"kind={kind} "
+        f"command={command} "
         f"name={name} "
         f"log_level={log_decision.name} "
         f"visuals={visuals} "
@@ -98,18 +83,14 @@ def run_profile(
     work: Callable[[], Any],
 ) -> Any:
     configure_root_logging(level=spec.log_decision.value, output=spec.log_output)
-    profile_path = _persist_profile_artifact(
-        kind=spec.kind,
-        artifact_payload=spec.artifact_payload,
-        artifact_writer=spec.artifact_writer,
-    )
+    profile_path = spec.profile_path
     if spec.use_visual_runner:
         if spec.runtime is None:
             raise ValueError("runtime is required when use_visual_runner=True")
 
         def _work_with_profile_start() -> Any:
             _log_profile_start(
-                kind=spec.kind,
+                command=spec.command,
                 name=spec.name,
                 visuals=spec.visuals,
                 log_decision=spec.log_decision,
@@ -131,7 +112,7 @@ def run_profile(
     if spec.render_header:
         _render_profile_header(spec)
     _log_profile_start(
-        kind=spec.kind,
+        command=spec.command,
         name=spec.name,
         visuals=spec.visuals,
         log_decision=spec.log_decision,

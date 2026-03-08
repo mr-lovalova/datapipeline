@@ -295,10 +295,9 @@ def test_rich_execution_sink_renders_scope_start_as_header() -> None:
             kind="message",
             dag_name="",
             depth=0,
-            message="Scope: phase=build profile=serve:test target=serve task=schema",
+            message="Scope: profile=serve:test target=serve task=schema",
             message_kind="scope_start",
             log_level=logging.INFO,
-            scope_phase="build",
             scope_profile_kind="serve",
             scope_profile_name="test",
             scope_target_id="serve",
@@ -309,7 +308,7 @@ def test_rich_execution_sink_renders_scope_start_as_header() -> None:
     )
 
     lines = _lines(buffer)
-    assert any("Build: schema (1/3)" in line for line in lines)
+    assert any("Task: schema (1/3)" in line for line in lines)
 
 
 def test_rich_execution_sink_keeps_fs_glob_source_info_when_live_at_info() -> None:

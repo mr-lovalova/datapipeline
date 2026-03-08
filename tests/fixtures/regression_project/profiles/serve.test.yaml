@@ -1,4 +1,4 @@
-type: serve
+cmd: serve
 name: test
 target: pipeline
 enabled: true

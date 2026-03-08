@@ -4,48 +4,23 @@ from datapipeline.artifacts.planning import build_planning_context
 from datapipeline.artifacts.specs import artifact_keys_for_task_ids
 from datapipeline.config.tasks import ArtifactTask, OperationTask, Task
 
-from .models import BaseExecutionProfile, ProfileRunRequest
-
-
-def target_ids_for_profile(
-    profile: BaseExecutionProfile,
-) -> list[str]:
-    return [profile.target_id]
-
-
-def ordered_task_ids(
-    target_ids: Sequence[str],
-    tasks_by_id: dict[str, Task],
-) -> list[str]:
-    ordered: list[str] = []
-    visiting: set[str] = set()
-    visited: set[str] = set()
-
-    def visit(task_id: str) -> None:
-        if task_id in visited:
-            return
-        if task_id in visiting:
-            raise ValueError(f"Dependency cycle detected at task '{task_id}'")
-        task = tasks_by_id.get(task_id)
-        if task is None:
-            raise ValueError(f"Unknown task dependency '{task_id}'")
-        visiting.add(task_id)
-        for dependency_id in task.dependencies:
-            visit(dependency_id)
-        visiting.remove(task_id)
-        visited.add(task_id)
-        ordered.append(task_id)
-
-    for target_id in target_ids:
-        visit(target_id)
-    return ordered
+from .models import ExecutionProfile, ProfileRunRequest
 
 
 def resolve_task_order(
-    profile: BaseExecutionProfile,
+    profile: ExecutionProfile,
     tasks_by_id: dict[str, Task],
 ) -> list[str]:
-    return ordered_task_ids(target_ids_for_profile(profile), tasks_by_id)
+    return ordered_task_ids(profile.target_id, tasks_by_id)
+
+
+def ordered_task_ids(
+    target_id: str,
+    tasks_by_id: dict[str, Task],
+) -> list[str]:
+    if target_id not in tasks_by_id:
+        raise ValueError(f"Unknown task target '{target_id}'")
+    return [target_id]
 
 
 def artifact_task_ids_for_order(
@@ -77,6 +52,7 @@ def required_artifacts_for_task_ids(
 
 __all__ = [
     "artifact_task_ids_for_order",
+    "ordered_task_ids",
     "required_artifacts_for_task_ids",
     "resolve_task_order",
     "runtime_task_ids_for_order",
