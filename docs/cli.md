@@ -17,7 +17,7 @@ All commands that take a project accept either `--project <path/to/project.yaml>
   - Stage 7: vectors assembled (no postprocess)
   - Stage 8: vectors + postprocess transforms
   - Use `--log-level DEBUG` for full debug output; default is `INFO` (or `jerry.yaml.shared.observability.logging.level` when set).
-  - Ensures build artifacts are current before streaming; the build step only runs when the configuration hash changes unless you pass `--stage` 0-6 (auto-skip) or opt out with `--skip-build`. Stage 6 may require scaler artifacts.
+  - Artifact preparation is profile-driven: keep artifact-targeted serve profiles (`serve.schema`, `serve.metadata`, `serve.scaler`) ahead of runtime targets (`serve.train`/`serve.val`/`serve.test`) using `order`.
 - `jerry serve --project <project.yaml> --output-transport stdout --output-format jsonl --output-view flat|raw|values --output-encoding <codec> --limit N [--log-level LEVEL] [--visuals on|off] [--run name]`
   - Applies postprocess transforms and optional dataset split before emitting.
   - Use `--output-transport fs --output-format jsonl --output-directory build/serve` (or `csv`, `pickle`) to write artifacts to disk instead of stdout; files land under `<output-directory>/<run_name>/`.
@@ -29,7 +29,8 @@ All commands that take a project accept either `--project <path/to/project.yaml>
   - `csv` supports `flat` and `values` views.
   - `--output-encoding` applies to fs `jsonl`/`csv` outputs (default `utf-8`).
   - Set `--log-level DEBUG` (or set `observability.logging.level: DEBUG` in the serve profile) to increase log detail for stage previews.
-  - When multiple serve profiles exist, add `--run <profile-name>` to target a single config; otherwise every enabled profile is executed sequentially.
+  - When multiple serve profiles exist, add `--run <profile-name>` to target a single profile; otherwise every enabled profile is executed sequentially.
+  - `--run` does not implicitly execute earlier serve profiles, so selecting a runtime profile assumes required artifacts already exist (or are produced by that selected profile).
   - Argument precedence follows the order described under _Configuration & Resolution Order_.
   - Combine with `--skip-build` when you already have fresh artifacts and want to jump straight into streaming.
 

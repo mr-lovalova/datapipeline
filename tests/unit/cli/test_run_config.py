@@ -151,3 +151,49 @@ def test_serve_profile_can_target_artifact_only_graph(monkeypatch, tmp_path: Pat
     ordered_ids = resolve_task_order(profile, tasks_by_id)
     runtime_ids = runtime_task_ids_for_order(ordered_ids, tasks_by_id)
     assert runtime_ids == []
+
+
+def test_serve_request_orders_enabled_profiles_and_run_targets_only_named_profile(
+    monkeypatch,
+    tmp_path: Path,
+):
+    _patch_runtime_resolution(monkeypatch)
+    project_yaml = _write_project(tmp_path)
+    ops = tmp_path / "tasks" / "operations"
+    profiles = tmp_path / "profiles"
+    ops.mkdir(parents=True, exist_ok=True)
+    profiles.mkdir(parents=True, exist_ok=True)
+
+    _write_op(
+        ops / "schema.yaml",
+        "id: schema\nkind: artifact\noutput: schema.json\n",
+    )
+    _write_op(
+        ops / "pipeline.yaml",
+        "id: pipeline\nkind: runtime\nentrypoint: core.runtime.pipeline\n",
+    )
+    (profiles / "serve.schema.yaml").write_text(
+        "cmd: serve\nname: schema\norder: 10\ntarget: schema\nenabled: true\n",
+        encoding="utf-8",
+    )
+    (profiles / "serve.train.yaml").write_text(
+        "cmd: serve\nname: train\norder: 40\ntarget: pipeline\nenabled: true\n",
+        encoding="utf-8",
+    )
+
+    request_all = build_profile_run_request(
+        kind="serve",
+        project=str(project_yaml),
+    )
+    assert request_all is not None
+    assert [profile.name for profile in request_all.profiles] == ["schema", "train"]
+    assert [profile.target_id for profile in request_all.profiles] == ["schema", "pipeline"]
+
+    request_train = build_profile_run_request(
+        kind="serve",
+        project=str(project_yaml),
+        run_name="train",
+    )
+    assert request_train is not None
+    assert [profile.name for profile in request_train.profiles] == ["train"]
+    assert [profile.target_id for profile in request_train.profiles] == ["pipeline"]
