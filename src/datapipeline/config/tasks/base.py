@@ -3,7 +3,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from datapipeline.config.model_utils import normalize_required_text, normalize_string_list
+from datapipeline.config.model_utils import normalize_required_text
 
 
 class Task(BaseModel):
@@ -30,21 +30,9 @@ class Task(BaseModel):
 class ArtifactTask(Task):
     kind: Literal["artifact"] = Field(default="artifact")
     output: str
-    dependencies: list[str] = Field(default_factory=list)
-
-    @field_validator("dependencies", mode="before")
-    @classmethod
-    def _normalize_dependencies(cls, value):
-        return normalize_string_list(
-            value,
-            field_name="dependencies",
-            lower=True,
-        )
 
     @model_validator(mode="after")
-    def _validate_dependencies(self):
-        if self.id in set(self.dependencies):
-            raise ValueError("dependencies must not include the task itself")
+    def _validate_output(self):
         output_path = Path(self.output)
         if output_path.is_absolute():
             raise ValueError("output must be a relative path under artifacts root")

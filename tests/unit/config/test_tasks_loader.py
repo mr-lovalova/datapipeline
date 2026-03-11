@@ -196,17 +196,16 @@ def test_profile_order_overrides_file_order(tmp_path):
     assert [task.name for task in tasks] == ["test", "val", "train"]
 
 
-def test_artifact_task_dependencies_are_normalized(tmp_path):
+def test_artifact_operation_rejects_dependencies_field(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     tasks_dir = _operations_dir(project_yaml)
     (tasks_dir / "metadata.yaml").write_text(
-        "id: metadata\nkind: artifact\ndependencies:\n  - schema\n  - SCHEMA\n",
+        "id: metadata\nkind: artifact\ndependencies:\n  - schema\n",
         encoding="utf-8",
     )
 
-    tasks = _artifact_tasks(project_yaml)
-    metadata = next(task for task in tasks if task.id == "metadata")
-    assert metadata.dependencies == ["schema"]
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        _artifact_tasks(project_yaml)
 
 
 def test_serve_operation_tasks_load(tmp_path):

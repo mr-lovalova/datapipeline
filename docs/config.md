@@ -133,7 +133,6 @@ mode: AUTO # AUTO | FORCE | OFF
 ```yaml
 id: serve
 entrypoint: core.serve_pipeline
-dependencies: [] # optional artifact task ids
 ```
 
 - Runtime operations are executable units; profiles reference them via `target`.
@@ -390,7 +389,7 @@ split_label: train
 - `build/schema.json` (from the `schema` task) enumerates the discovered feature/target identifiers (including partitions), their kinds (scalar/list), and cadence hints used to enforce ordering downstream.
   - Configure the `schema` task to choose a cadence strategy (currently `max`). Per-feature overrides will be added later; for now every list-valued feature records the max observed length as its enforcement target.
 - `build/metadata.json` (from the `metadata` task) captures heavier statistics—present/null counts, inferred value types, list-length histograms, per-partition timestamps, and the dataset window. Configure `metadata.window_mode` with `union|intersection|strict|relaxed` (default `intersection`) to control how start/end bounds are derived. `union` considers base features, `intersection` uses their overlap, `strict` intersects every partition, and `relaxed` unions partitions independently.
-- Artifact operation dependencies are declared explicitly on task specs via `dependencies` (for example, `metadata` defaults to `dependencies: [schema]`).
+- Artifact task execution order is driven by the selected profile sequence, not a dependency tree on operation specs.
 - All operation tasks share the same execution interface: `entrypoint` selects the runner; profiles select operations via `target`.
 - Serve profiles (`type: serve`) must target a runtime operation whose entrypoint is `core.serve.*` or `core.serve_*` (usually `id: serve`).
 - Shared run/build defaults (visuals/logging level/build mode) live in `jerry.yaml`.

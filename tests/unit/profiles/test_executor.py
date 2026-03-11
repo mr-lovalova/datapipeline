@@ -87,7 +87,7 @@ def test_run_profile_can_skip_header_without_visual_runner(monkeypatch):
     run_profile(
         spec=ProfileExecutionSpec(
             command="build",
-            name="coverage.dependencies",
+            name="coverage.skip_header",
             idx=1,
             total=1,
             visuals="on",

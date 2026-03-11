@@ -8,6 +8,5 @@
 # entrypoint: core.artifact.metadata # optional; build runner id
 #
 # output: build/metadata.json # optional; relative to project.paths.artifacts
-# dependencies: [schema]     # optional; artifact task ids this task depends on
 # cadence_strategy: max      # optional; currently only "max"
 # window_mode: intersection  # optional; union | intersection | strict | relaxed

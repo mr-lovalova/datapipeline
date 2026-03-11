@@ -16,9 +16,9 @@ def _log_config():
     )
 
 
-def test_run_profiles_executes_dependencies_then_target(monkeypatch, tmp_path):
+def test_run_profiles_executes_profile_target(monkeypatch, tmp_path):
     schema = SchemaTask(id="schema")
-    metadata = MetadataTask(id="metadata", dependencies=["schema"])
+    metadata = MetadataTask(id="metadata")
     serve = OperationTask.model_validate(
         {
             "id": "pipeline",
@@ -67,7 +67,7 @@ def test_run_profiles_executes_dependencies_then_target(monkeypatch, tmp_path):
     assert calls["dispatch"] == 1
 
 
-def test_run_profiles_can_skip_artifact_dependencies(monkeypatch, tmp_path):
+def test_run_profiles_can_skip_artifact_build(monkeypatch, tmp_path):
     schema = SchemaTask(id="schema")
     serve = OperationTask.model_validate(
         {

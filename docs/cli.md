@@ -48,7 +48,7 @@ All commands that take a project accept either `--project <path/to/project.yaml>
 - `jerry build --project <project.yaml> [--run <profile>] [--force] [--visuals on|off]`
   - Regenerates artifact tasks declared under `project.paths.tasks` when the configuration hash changes.
   - If `kind: build` profiles are defined, enabled profiles run by default; use `--run` to target one profile.
-  - Each build profile executes one configured `target` operation task (and its dependencies).
+  - Each build profile executes one configured `target` operation task.
 
 ### Scaffolding & Reference
 
