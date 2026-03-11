@@ -40,6 +40,19 @@ def _level_value(value: Any) -> Optional[int]:
     return logging._nameToLevel.get(name) if name else None
 
 
+def observability_value(observability, field: str):
+    if observability is None:
+        return None
+    return getattr(observability, field, None)
+
+
+def logging_value(observability, field: str):
+    logging_cfg = observability_value(observability, "logging")
+    if logging_cfg is None:
+        return None
+    return getattr(logging_cfg, field, None)
+
+
 @dataclass(frozen=True)
 class VisualSettings:
     visuals: str

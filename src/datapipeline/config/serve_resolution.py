@@ -8,7 +8,9 @@ from datapipeline.config.resolution import (
     LogOutputTarget,
     VisualSettings,
     cascade,
+    logging_value,
     materialize_log_output_for_run,
+    observability_value,
     resolve_log_level,
     resolve_log_output,
     resolve_project_log_outputs,
@@ -29,29 +31,6 @@ def _run_config_value(run_cfg, field: str):
     if fields_set is not None and field not in fields_set:
         return None
     return getattr(run_cfg, field, None)
-
-
-def _observability_value(observability, field: str):
-    if observability is None:
-        return None
-    return getattr(observability, field, None)
-
-
-def _logging_value(observability, field: str):
-    logging_cfg = _observability_value(observability, "logging")
-    if logging_cfg is None:
-        return None
-    return getattr(logging_cfg, field, None)
-
-
-def _run_observability_value(run_cfg, field: str):
-    observability = _run_config_value(run_cfg, "observability")
-    return _observability_value(observability, field)
-
-
-def _run_logging_value(run_cfg, field: str):
-    observability = _run_config_value(run_cfg, "observability")
-    return _logging_value(observability, field)
 
 
 @dataclass(frozen=True)
@@ -90,16 +69,23 @@ def resolve_run_profiles(
 ) -> list[RunProfile]:
     shared = workspace.config.shared if workspace else None
     shared_observability = shared.observability if shared else None
-    shared_visuals_default = _observability_value(shared_observability, "visuals")
-    shared_log_level_default = _logging_value(shared_observability, "level")
-    shared_log_outputs_default = _logging_value(shared_observability, "outputs")
+    fallback_log_level = str(base_log_level).upper()
+    cli_log_output_candidates = list(cli_log_outputs or [])
+    shared_visuals_default = observability_value(shared_observability, "visuals")
+    shared_log_level_default = logging_value(shared_observability, "level")
+    shared_log_outputs = resolve_workspace_log_outputs(
+        logging_value(shared_observability, "outputs"),
+        workspace=workspace,
+    )
 
     profiles: list[RunProfile] = []
     for idx, total_runs, entry, runtime in iter_runtime_runs(
         project_path, run_entries, keep
     ):
         entry_name = entry.name
+        run_label = entry_name or f"run{idx}"
         run_cfg = getattr(runtime, "run", None)
+        run_observability = _run_config_value(run_cfg, "observability")
         build_cfg = _run_config_value(run_cfg, "build")
         profile_build_mode = getattr(build_cfg, "mode", None) if build_cfg is not None else None
         resolved_build_mode = str(
@@ -112,37 +98,33 @@ def resolve_run_profiles(
         create_run = run_cmd == "serve"
         if resolved_stage is not None and not create_run:
             raise ValueError(
-                f"Runtime profile '{entry_name or f'run{idx}'}' does not support stage previews."
+                f"Runtime profile '{run_label}' does not support stage previews."
             )
         if keep is not None and not create_run:
             raise ValueError(
-                f"Runtime profile '{entry_name or f'run{idx}'}' does not support keep filters."
+                f"Runtime profile '{run_label}' does not support keep filters."
             )
         throttle_ms = _run_config_value(run_cfg, "throttle_ms")
         log_decision = resolve_log_level(
             cli_log_level,
-            _run_logging_value(run_cfg, "level"),
+            logging_value(run_observability, "level"),
             shared_log_level_default,
-            fallback=str(base_log_level).upper(),
+            fallback=fallback_log_level,
         )
         run_log_outputs = resolve_project_log_outputs(
-            _run_logging_value(run_cfg, "outputs"),
+            logging_value(run_observability, "outputs"),
             project_path=project_path,
-        )
-        shared_log_outputs = resolve_workspace_log_outputs(
-            shared_log_outputs_default,
-            workspace=workspace,
         )
         log_output = resolve_log_output(
             output_candidates=(
-                list(cli_log_outputs or []),
+                cli_log_output_candidates,
                 run_log_outputs,
                 shared_log_outputs,
             ),
             allow_run_scope=create_run,
         )
 
-        run_visuals = _run_observability_value(run_cfg, "visuals")
+        run_visuals = observability_value(run_observability, "visuals")
         visuals = resolve_visuals(
             cli_visuals=cli_visuals,
             config_visuals=run_visuals,
@@ -154,7 +136,7 @@ def resolve_run_profiles(
             config_output=getattr(run_cfg, "output", None),
             default=None,
             base_path=project_path.parent,
-            run_name=entry_name or f"run{idx}",
+            run_name=run_label,
             stage=resolved_stage,
             create_run=create_run,
         )
@@ -162,7 +144,7 @@ def resolve_run_profiles(
             log_output = materialize_log_output_for_run(
                 settings=log_output,
                 run_dir=(target.run.dataset_dir if target.run is not None else None),
-                run_label=entry_name or f"run{idx}",
+                run_label=run_label,
             )
 
         profiles.append(

@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field, field_validator
 
-from .build import VALID_BUILD_MODES
+from .build import normalize_build_mode
 
 
 class RuntimeBuildConfig(BaseModel):
@@ -9,16 +9,7 @@ class RuntimeBuildConfig(BaseModel):
     @field_validator("mode", mode="before")
     @classmethod
     def _normalize_mode(cls, value):
-        if value is None:
-            return None
-        if isinstance(value, bool):
-            return "OFF" if value is False else "AUTO"
-        name = str(value).strip().upper()
-        if name not in VALID_BUILD_MODES:
-            raise ValueError(
-                f"mode must be one of {', '.join(VALID_BUILD_MODES)}, got {value!r}"
-            )
-        return name
+        return normalize_build_mode(value)
 
 
 __all__ = ["RuntimeBuildConfig"]

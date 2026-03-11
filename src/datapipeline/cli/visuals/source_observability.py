@@ -36,7 +36,7 @@ class SourceObservabilityAdapter:
         self.loader = getattr(stream_source, "loader", None)
         if self.loader is None:
             raise TypeError(f"Stream source '{stream_id}' must expose a loader")
-        self.description, self.unit = progress_meta_for_loader(self.loader)
+        self.description, _unit = progress_meta_for_loader(self.loader)
 
         prefix, sep, suffix = self.description.partition(": ")
         self._header = f"{prefix}:" if sep else self.description

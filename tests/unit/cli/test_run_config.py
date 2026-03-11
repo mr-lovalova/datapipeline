@@ -1,7 +1,7 @@
 from pathlib import Path
 from types import SimpleNamespace
 
-from datapipeline.profiles.planning import resolve_task_order, runtime_task_ids_for_order
+from datapipeline.profiles.execution import resolve_task_order, runtime_task_ids_for_order
 from datapipeline.profiles.request_builder import build_profile_run_request
 
 

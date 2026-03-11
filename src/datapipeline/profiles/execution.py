@@ -2,10 +2,12 @@ import logging
 from pathlib import Path
 from typing import cast
 
+from datapipeline.artifacts.planning import build_planning_context
+from datapipeline.artifacts.specs import artifact_keys_for_task_ids
 from datapipeline.artifacts.executor import run_build_if_needed
 from datapipeline.build.state import load_build_state
 from datapipeline.cli.visuals.execution import execution_scope
-from datapipeline.config.tasks import OperationTask, Task
+from datapipeline.config.tasks import ArtifactTask, OperationTask, Task
 from datapipeline.operations.dispatch import execute_operation
 from datapipeline.operations.persistence import (
     persist_runtime_result,
@@ -18,14 +20,53 @@ from .models import (
     ExecutionProfile,
     ProfileRunRequest,
 )
-from .planning import (
-    artifact_task_ids_for_order,
-    required_artifacts_for_task_ids,
-    resolve_task_order,
-    runtime_task_ids_for_order,
-)
 
 logger = logging.getLogger(__name__)
+
+
+def resolve_task_order(
+    profile: ExecutionProfile,
+    tasks_by_id: dict[str, Task],
+) -> list[str]:
+    target_id = profile.target_id
+    if target_id not in tasks_by_id:
+        raise ValueError(f"Unknown task target '{target_id}'")
+    return [target_id]
+
+
+def artifact_task_ids_for_order(
+    ordered_ids: list[str],
+    tasks_by_id: dict[str, Task],
+) -> list[str]:
+    return [
+        task_id
+        for task_id in ordered_ids
+        if isinstance(tasks_by_id[task_id], ArtifactTask)
+    ]
+
+
+def runtime_task_ids_for_order(
+    ordered_ids: list[str],
+    tasks_by_id: dict[str, Task],
+) -> list[str]:
+    return [
+        task_id
+        for task_id in ordered_ids
+        if isinstance(tasks_by_id[task_id], OperationTask)
+    ]
+
+
+def required_artifacts_for_task_ids(
+    request: ProfileRunRequest,
+    artifact_task_ids: list[str],
+) -> set[str]:
+    context = build_planning_context(request.artifact_task_configs)
+    return set(
+        artifact_keys_for_task_ids(
+            set(artifact_task_ids),
+            context.definitions,
+        )
+    )
 
 
 def run_selected_artifacts(
@@ -122,24 +163,6 @@ def sync_runtime_artifacts_from_state(
         )
 
 
-def _execute_runtime_tasks(
-    profile: ExecutionProfile,
-    runtime: Runtime,
-    runtime_task_ids: list[str],
-    tasks_by_id: dict[str, Task],
-) -> None:
-    total_runtime_tasks = len(runtime_task_ids)
-    for idx, task_id in enumerate(runtime_task_ids, start=1):
-        task = cast(OperationTask, tasks_by_id[task_id])
-        with execution_scope(
-            task_id=task.id,
-            item_index=idx,
-            item_total=total_runtime_tasks,
-            announce=total_runtime_tasks > 1,
-        ):
-            run_runtime_task(task, profile, runtime)
-
-
 def execute_profile(
     profile: ExecutionProfile,
     request: ProfileRunRequest,
@@ -178,12 +201,25 @@ def execute_profile(
         )
         raise SystemExit(2)
     sync_runtime_artifacts_from_state(runtime, request.project_path)
-    _execute_runtime_tasks(profile, runtime, runtime_task_ids, tasks_by_id)
+    total_runtime_tasks = len(runtime_task_ids)
+    for idx, task_id in enumerate(runtime_task_ids, start=1):
+        task = cast(OperationTask, tasks_by_id[task_id])
+        with execution_scope(
+            task_id=task.id,
+            item_index=idx,
+            item_total=total_runtime_tasks,
+            announce=total_runtime_tasks > 1,
+        ):
+            run_runtime_task(task, profile, runtime)
 
 
 __all__ = [
+    "artifact_task_ids_for_order",
     "execute_profile",
+    "required_artifacts_for_task_ids",
+    "resolve_task_order",
     "run_selected_artifacts",
     "run_runtime_task",
+    "runtime_task_ids_for_order",
     "sync_runtime_artifacts_from_state",
 ]

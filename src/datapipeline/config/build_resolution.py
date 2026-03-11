@@ -8,6 +8,8 @@ from datapipeline.config.resolution import (
     LogOutputSettings,
     LogOutputTarget,
     cascade,
+    logging_value,
+    observability_value,
     resolve_log_level,
     resolve_log_output,
     resolve_project_log_outputs,
@@ -15,19 +17,6 @@ from datapipeline.config.resolution import (
     resolve_workspace_log_outputs,
 )
 from datapipeline.config.workspace import WorkspaceContext
-
-
-def _observability_value(observability, field: str):
-    if observability is None:
-        return None
-    return getattr(observability, field, None)
-
-
-def _logging_value(observability, field: str):
-    logging_cfg = _observability_value(observability, "logging")
-    if logging_cfg is None:
-        return None
-    return getattr(logging_cfg, field, None)
 
 
 def _global_log_outputs(
@@ -63,7 +52,7 @@ def resolve_build_settings(
     shared = workspace.config.shared if workspace else None
     shared_observability = shared.observability if shared else None
     profile_observability = (
-        _observability_value(build_profile, "observability")
+        observability_value(build_profile, "observability")
         if build_profile is not None
         else None
     )
@@ -84,22 +73,22 @@ def resolve_build_settings(
         if runtime_build_mode is not None
         else None
     )
-    profile_visuals = _observability_value(profile_observability, "visuals")
-    profile_log_level_default = _logging_value(profile_observability, "level")
-    shared_log_level_default = _logging_value(shared_observability, "level")
-    shared_visuals = _observability_value(shared_observability, "visuals")
+    profile_visuals = observability_value(profile_observability, "visuals")
+    profile_log_level_default = logging_value(profile_observability, "level")
+    shared_log_level_default = logging_value(shared_observability, "level")
+    shared_visuals = observability_value(shared_observability, "visuals")
     if build_profile is not None and project_path is not None:
         profile_log_outputs = resolve_project_log_outputs(
-            _logging_value(profile_observability, "outputs"),
+            logging_value(profile_observability, "outputs"),
             project_path=project_path,
         )
     else:
         profile_log_outputs = resolve_workspace_log_outputs(
-            _logging_value(profile_observability, "outputs"),
+            logging_value(profile_observability, "outputs"),
             workspace=workspace,
         )
     shared_log_outputs = resolve_workspace_log_outputs(
-        _logging_value(shared_observability, "outputs"),
+        logging_value(shared_observability, "outputs"),
         workspace=workspace,
     )
     visuals = resolve_visuals(

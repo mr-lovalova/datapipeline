@@ -7,10 +7,7 @@ from datapipeline.operations.persistence import RuntimeOutput
 from datapipeline.runtime import Runtime
 
 from .vector_stats_common import (
-    options_for_task,
-    report_payload,
-    resolve_metrics,
-    write_summary_output,
+    metrics_summary_output,
 )
 
 
@@ -25,11 +22,9 @@ def inspect_thresholds_with_runtime(
     operation_task: OperationTask | None = None,
 ) -> RuntimeOutput:
     _ = dataset, limit, target, throttle_ms, stage, visuals
-    options = options_for_task(operation_task)
-    metrics, _sort_key, threshold = resolve_metrics(runtime, options=options)
-    payload = report_payload(
+    return metrics_summary_output(
+        runtime,
+        operation_task,
         report="thresholds",
-        metrics=metrics,
-        threshold=threshold,
+        include_threshold=True,
     )
-    return write_summary_output(payload)

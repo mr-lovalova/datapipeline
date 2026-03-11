@@ -167,42 +167,28 @@ def build_metrics(
     }
 
 
-def resolve_metrics(
+def metrics_summary_output(
     runtime: Runtime,
+    operation_task: OperationTask | None,
     *,
-    options: Mapping[str, Any],
-) -> tuple[dict[str, Any], str, float]:
+    report: str,
+    include_sort: bool = False,
+    include_threshold: bool = False,
+) -> RuntimeOutput:
+    options = options_for_task(operation_task)
     sort_key = str(option(options, "sort", "missing"))
     threshold = float(option(options, "threshold", 0.95))
-    collector = load_collector(runtime, options=options)
-    metrics = build_metrics(collector, sort_key=sort_key, threshold=threshold)
-    return metrics, sort_key, threshold
-
-
-def report_payload(
-    report: str,
-    metrics: Mapping[str, Any],
-    *,
-    sort_key: str | None = None,
-    threshold: float | None = None,
-) -> dict[str, Any]:
-    payload: dict[str, Any] = {
-        "report": report,
-        "metrics": dict(metrics),
-    }
-    if sort_key is not None:
-        payload["sort"] = sort_key
-    if threshold is not None:
-        payload["threshold"] = threshold
-    return payload
-
-
-def write_summary_output(
-    payload: Mapping[str, Any],
-) -> RuntimeOutput:
-    return RuntimeOutput(
-        payload=payload,
+    metrics = build_metrics(
+        load_collector(runtime, options=options),
+        sort_key=sort_key,
+        threshold=threshold,
     )
+    payload: dict[str, Any] = {"report": report, "metrics": metrics}
+    if include_sort:
+        payload["sort"] = sort_key
+    if include_threshold:
+        payload["threshold"] = threshold
+    return RuntimeOutput(payload=payload)
 
 
 def matrix_status_rows(
