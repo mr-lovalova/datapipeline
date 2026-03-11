@@ -161,18 +161,27 @@ def _plan_build(
     config_hash = compute_config_hash(project_path, tasks_dir(project_path))
     state_path = build_state_path(project_path)
     previous_state = load_build_state(state_path)
-    missing_required = stale_artifact_keys(
+    stale_or_missing_required = stale_artifact_keys(
         selected_keys=selected_keys,
         state=previous_state,
         config_hash=config_hash,
         hash_meta_key=_ARTIFACT_CONFIG_HASH_META_KEY,
     )
-    if not settings.force and not missing_required:
+    if not settings.force and not stale_or_missing_required:
         return {
             "action": "skip",
             "reason": "up_to_date",
             "selected_artifacts": selected_count,
         }
+    missing_selected = (
+        set(selected_keys)
+        if previous_state is None
+        else {
+            key
+            for key in selected_keys
+            if previous_state.artifacts.get(key) is None
+        }
+    )
 
     job_specs: list[tuple[ArtifactDefinition, ArtifactTask]] = []
     for key in artifact_build_order(selected_keys, definitions=definitions):
@@ -185,7 +194,7 @@ def _plan_build(
         job_specs.append((definition, task))
     return {
         "action": "run",
-        "reason": "force" if settings.force else "stale",
+        "reason": "force" if settings.force else ("missing" if missing_selected else "stale"),
         "selected_artifacts": selected_count,
         "config_hash": config_hash,
         "state_path": state_path,
@@ -296,7 +305,7 @@ def run_build_if_needed(
     skip_logging_setup: bool = False,
     runtime_override: Runtime | None = None,
 ) -> bool:
-    """Execute artifact-producing operations when selected artifacts are stale."""
+    """Execute artifact-producing operations when selected artifacts are missing or stale."""
     project_path = Path(project).resolve()
     settings = _resolve_effective_settings(
         project_path=project_path,

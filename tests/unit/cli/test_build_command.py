@@ -465,6 +465,13 @@ def test_run_build_if_needed_rebuilds_stale_profile_artifact(monkeypatch, tmp_pa
     monkeypatch.setattr("datapipeline.artifacts.executor.compute_config_hash", lambda *_: "hash-2")
     monkeypatch.setattr("datapipeline.artifacts.executor.configure_root_logging", lambda **kwargs: None)
     monkeypatch.setattr("datapipeline.artifacts.executor.bootstrap", lambda _: SimpleNamespace(artifacts_root=tmp_path / "artifacts"))
+    captured: list[tuple[str, str | None]] = []
+    monkeypatch.setattr(
+        "datapipeline.artifacts.executor.emit_execution_message",
+        lambda message, level, logger, depth=0, message_kind=None: captured.append(
+            (message, message_kind)
+        ),
+    )
 
     calls = {"build_artifact": 0}
     monkeypatch.setattr(
@@ -485,6 +492,74 @@ def test_run_build_if_needed_rebuilds_stale_profile_artifact(monkeypatch, tmp_pa
     did_build = build_exec.run_build_if_needed(project_path, build_profile=scaler_profile)
     assert did_build is True
     assert calls["build_artifact"] == 1
+    decisions = [message for message, kind in captured if kind == "build_decision"]
+    assert any('"action": "run"' in message and '"reason": "stale"' in message for message in decisions)
+
+
+def test_run_build_if_needed_emits_missing_reason_when_artifact_not_built(monkeypatch, tmp_path):
+    project_path = tmp_path / "project.yaml"
+    project_path.write_text(
+        "\n".join(
+            [
+                "version: 1",
+                "paths:",
+                "  streams: ./streams",
+                "  sources: ./sources",
+                "  dataset: ./dataset.yaml",
+                "  postprocess: ./postprocess.yaml",
+                "  artifacts: ./artifacts",
+                "  tasks: ./tasks",
+                "  profiles: ./profiles",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    tasks_root = tmp_path / "tasks"
+    tasks_root.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setattr(
+        "datapipeline.artifacts.executor.resolve_build_settings",
+        lambda **kwargs: SimpleNamespace(
+            visuals="off",
+            log_decision=SimpleNamespace(name="INFO", value=20),
+            log_output=LogOutputSettings(outputs=(LogOutputTarget(transport="stderr"),)),
+            mode="AUTO",
+            force=False,
+            profile_name="schema",
+        ),
+    )
+    monkeypatch.setattr("datapipeline.artifacts.executor.tasks_dir", lambda _: tasks_root)
+    monkeypatch.setattr("datapipeline.artifacts.executor.compute_config_hash", lambda *_: "hash-1")
+    monkeypatch.setattr("datapipeline.artifacts.executor.configure_root_logging", lambda **kwargs: None)
+    monkeypatch.setattr(
+        "datapipeline.artifacts.executor.bootstrap",
+        lambda _: SimpleNamespace(artifacts_root=tmp_path / "artifacts"),
+    )
+    schema_task = SchemaTask(id="schema")
+    schema_task.source_path = tasks_root / "schema.yaml"
+    monkeypatch.setattr(
+        "datapipeline.artifacts.executor.operation_specs",
+        lambda _: ([schema_task], []),
+    )
+    monkeypatch.setattr(
+        "datapipeline.artifacts.executor._run_artifact_builder",
+        lambda *, definition, **kwargs: {"relative_path": f"{definition.task_id}.json"},
+    )
+
+    captured: list[tuple[str, str | None]] = []
+    monkeypatch.setattr(
+        "datapipeline.artifacts.executor.emit_execution_message",
+        lambda message, level, logger, depth=0, message_kind=None: captured.append(
+            (message, message_kind)
+        ),
+    )
+
+    schema_profile = BuildProfile.model_validate({"cmd": "build", "name": "schema", "target": "schema"})
+    did_build = build_exec.run_build_if_needed(project_path, build_profile=schema_profile)
+
+    assert did_build is True
+    decisions = [message for message, kind in captured if kind == "build_decision"]
+    assert any('"action": "run"' in message and '"reason": "missing"' in message for message in decisions)
 
 
 def test_run_build_if_needed_hydrates_runtime_from_state_before_jobs(monkeypatch, tmp_path):
