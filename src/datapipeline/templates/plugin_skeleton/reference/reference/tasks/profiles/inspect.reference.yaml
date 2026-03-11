@@ -1,0 +1,34 @@
+# Inspect profile reference (all options).
+# This file is documentation only; uncomment the keys you want to use.
+#
+# version: 1                  # optional
+# cmd: inspect
+# name: matrix                # required; must be unique among inspect profiles
+# order: 10                   # optional; lower runs first, unset uses filename order
+# target: matrix              # required; task id from tasks/operations
+# enabled: true               # optional
+# build:                      # optional; only used when target is an artifact task
+#   mode: AUTO                # AUTO | FORCE | OFF
+#
+# output:                     # optional; omit to use CLI defaults
+#   transport: stdout          # stdout | fs
+#   format: txt
+#   # view: raw               # optional; flat | raw | values
+#   # encoding: utf-8          # fs jsonl/csv/txt only
+#   # fs transport only:
+#   # transport: fs
+#   # format: txt
+#   # directory: artifacts/inspect
+#   # filename: matrix        # optional filename stem (no extension)
+#
+# observability:              # optional
+#   visuals: ON               # optional; ON | OFF (false -> OFF)
+#   logging:                  # optional
+#     level: INFO             # optional; CRITICAL | ERROR | WARNING | INFO | DEBUG
+#     outputs:                # optional; ordered list
+#       - transport: STDERR   # STDERR | STDOUT | FS
+#       # - transport: FS
+#       #   scope: RUN        # GLOBAL | RUN
+#       #   path: logs/inspect.log  # required for FS+GLOBAL; optional for RUN
+# note: explicit sequencing belongs in profile order (multiple inspect.*.yaml files), not task dependency graphs.
+# precedence: CLI --log-output > this profile > jerry.yaml shared

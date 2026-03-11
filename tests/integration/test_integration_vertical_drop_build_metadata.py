@@ -1,12 +1,12 @@
 import shutil
 
-from datapipeline.build.tasks.metadata import materialize_metadata
-from datapipeline.build.tasks.schema import materialize_vector_schema
-from datapipeline.build.tasks.scaler import materialize_scaler_statistics
+from datapipeline.operations.artifacts.metadata import materialize_metadata
+from datapipeline.operations.artifacts.schema import materialize_vector_schema
+from datapipeline.operations.artifacts.scaler import materialize_scaler_statistics
 from datapipeline.config.context import load_dataset
 from datapipeline.config.tasks import MetadataTask, SchemaTask, ScalerTask
-from datapipeline.pipeline.context import PipelineContext
-from datapipeline.pipeline.pipelines import build_vector_pipeline
+from datapipeline.dag.context import PipelineContext
+from datapipeline.pipelines import build_vector_pipeline
 from datapipeline.services.bootstrap import bootstrap
 from datapipeline.services.constants import (
     VECTOR_SCHEMA_METADATA,
@@ -29,25 +29,26 @@ def test_vertical_drop_respects_element_coverage_after_metadata_build(copy_fixtu
     runtime = bootstrap(project)
     schema_rel = materialize_vector_schema(
         runtime,
-        SchemaTask(kind="schema", output="schema.json"),
+        SchemaTask(id="schema", output="schema.json"),
     )
     if schema_rel:
-        runtime.artifacts.register(VECTOR_SCHEMA, relative_path=schema_rel[0])
+        runtime.artifacts.register(VECTOR_SCHEMA, relative_path=schema_rel.relative_path)
     scaler_rel = materialize_scaler_statistics(
         runtime,
-        ScalerTask(kind="scaler", split_label="all", output="scaler.json"),
+        ScalerTask(id="scaler", split_label="all", output="scaler.json"),
     )
     if scaler_rel:
-        runtime.artifacts.register(SCALER_STATISTICS, relative_path=scaler_rel[0])
+        runtime.artifacts.register(
+            SCALER_STATISTICS, relative_path=scaler_rel.relative_path
+        )
     meta_rel = materialize_metadata(
         runtime,
-        MetadataTask(kind="metadata", output="metadata.json"),
+        MetadataTask(id="metadata", output="metadata.json"),
     )
     assert meta_rel is not None
-    rel_path, _meta = meta_rel
     runtime.artifacts.register(
         VECTOR_SCHEMA_METADATA,
-        relative_path=rel_path,
+        relative_path=meta_rel.relative_path,
     )
 
     dataset = load_dataset(project, "vectors")

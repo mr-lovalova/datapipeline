@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
-from datapipeline.cli.commands.serve_pipeline import _preview_plan
+from datapipeline.operations.runtime.pipeline import _preview_plan
+from datapipeline.pipelines.record.nodes import RECORD_NODE_COUNT
 
 
 def _cfg(id_: str, record_stream: str):
@@ -28,7 +29,7 @@ def test_preview_plan_keeps_feature_scope_for_feature_stages() -> None:
         _cfg("opening_price", "equity.ohlcv"),
     ]
 
-    plan = _preview_plan(preview_cfgs, stage=5)
+    plan = _preview_plan(preview_cfgs, stage=RECORD_NODE_COUNT)
 
     assert plan == [
         ("closing_price", preview_cfgs[0]),

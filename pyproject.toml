@@ -12,10 +12,8 @@ license = { text = "MIT" }
 authors = [{ name = "Anders Skott Lind" }]
 urls = { "Homepage" = "https://github.com/mr-lovalova/datapipeline", "Repository" = "https://github.com/mr-lovalova/datapipeline", "Issues" = "https://github.com/mr-lovalova/datapipeline/issues" }
 dependencies = [
-  "numpy>=1.24,<3.0",
   "pydantic>=2.0",
   "PyYAML>=5.4",
-  "tqdm>=4.0",
   "jinja2>=3.0",
   "rich>=13",
 ]
@@ -85,6 +83,18 @@ identity = "datapipeline.mappers.noop:identity"
 [project.entry-points."datapipeline.parsers"]
 identity = "datapipeline.parsers.identity:IdentityParser"
 "core.synthetic.ticks" = "datapipeline.sources.synthetic.time.parser:TimeRowParser"
+
+[project.entry-points."datapipeline.operations.build"]
+"core.artifact.schema" = "datapipeline.operations.artifacts.schema:materialize_vector_schema"
+"core.artifact.metadata" = "datapipeline.operations.artifacts.metadata:materialize_metadata"
+"core.artifact.scaler" = "datapipeline.operations.artifacts.scaler:materialize_scaler_statistics"
+"core.artifact.stats" = "datapipeline.operations.artifacts.stats:materialize_vector_stats"
+
+[project.entry-points."datapipeline.operations.runtime"]
+"core.runtime.pipeline" = "datapipeline.operations.runtime.pipeline:serve_with_runtime"
+"core.runtime.coverage" = "datapipeline.operations.runtime.coverage:inspect_coverage_with_runtime"
+"core.runtime.thresholds" = "datapipeline.operations.runtime.thresholds:inspect_thresholds_with_runtime"
+"core.runtime.matrix" = "datapipeline.operations.runtime.matrix:inspect_matrix_with_runtime"
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

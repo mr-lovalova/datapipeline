@@ -1,0 +1,8 @@
+# Serve operation task reference (all options).
+# This file is documentation only; uncomment the keys you want to use.
+#
+# version: 1                        # optional
+# id: pipeline
+# kind: runtime                     # required; runtime | artifact
+
+# entrypoint: core.runtime.pipeline   # required; built-in serve runner id

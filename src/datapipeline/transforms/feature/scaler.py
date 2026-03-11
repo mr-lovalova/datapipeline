@@ -8,7 +8,7 @@ from typing import Any, Callable, Iterator, Literal
 from datapipeline.domain.feature import FeatureRecord
 from datapipeline.domain.sample import Sample
 from datapipeline.transforms.feature.model import FeatureTransform
-from datapipeline.pipeline.observability import TransformEvent
+from datapipeline.dag.transform_observability import TransformEvent
 from datapipeline.utils.json_artifact import read_json_artifact, write_json_artifact
 
 

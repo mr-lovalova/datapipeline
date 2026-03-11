@@ -1,22 +1,11 @@
-import importlib
 import importlib.metadata as md
 from functools import lru_cache
 from pathlib import Path
 
 import yaml
 
-# Local fallback map so newly added entrypoints remain usable in editable installs
-# before package metadata is refreshed.
-_EP_OVERRIDES = {}
-
-
 @lru_cache
 def load_ep(group: str, name: str):
-    target = _EP_OVERRIDES.get((group, name))
-    if target:
-        module, attr = target.split(":")
-        return getattr(importlib.import_module(module), attr)
-
     eps = md.entry_points().select(group=group, name=name)
     if not eps:
         available = ", ".join(
@@ -42,7 +31,7 @@ def load_ep(group: str, name: str):
     return ep.load()
 
 
-def load_yaml(p: Path, *, require_mapping: bool = True):
+def load_yaml(p: Path, require_mapping: bool = True):
     try:
         with p.open("r", encoding="utf-8") as f:
             data = yaml.safe_load(f)

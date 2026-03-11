@@ -1,0 +1,11 @@
+# See ../../reference/reference/tasks/profiles/serve.reference.yaml for full options.
+cmd: serve
+name: all
+order: 40
+target: pipeline
+enabled: true
+keep: null
+output:
+  transport: fs
+  format: jsonl
+  directory: data/interim/jerry

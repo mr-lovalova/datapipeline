@@ -1,4 +1,3 @@
-from __future__ import annotations
 import base64
 import csv
 import html
@@ -17,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 def render_matrix(
-    collector: VectorStatsCollector,
+    collector: "VectorStatsCollector",
     *,
     features: list[str],
     partitions: bool = False,
@@ -69,10 +68,10 @@ def render_matrix(
     logger.info("    Legend: # present | ! null | . missing")
 
 
-def export_matrix_data(collector: VectorStatsCollector) -> None:
+def export_matrix_data(collector: "VectorStatsCollector") -> Path | None:
     output = collector.matrix_output
     if not output:
-        return
+        return None
 
     path = Path(output)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -81,14 +80,14 @@ def export_matrix_data(collector: VectorStatsCollector) -> None:
             _write_matrix_html(collector, path)
         else:
             _write_matrix_csv(collector, path)
-        message = f"[write] Saved availability matrix to {path}"
-        logger.info("\n%s", message)
+        return path
     except OSError as exc:
         warning = f"[warn] Failed to write availability matrix to {path}: {exc}"
         logger.warning("\n%s", warning)
+        return None
 
 
-def _write_matrix_csv(collector: VectorStatsCollector, path: Path) -> None:
+def _write_matrix_csv(collector: "VectorStatsCollector", path: Path) -> None:
     rows: list[tuple[str, str, str, str]] = []
     for group, statuses in collector.group_feature_status.items():
         group_key = collector._format_group_key(group)
@@ -106,7 +105,7 @@ def _write_matrix_csv(collector: VectorStatsCollector, path: Path) -> None:
         writer.writerows(rows)
 
 
-def _write_matrix_html(collector: VectorStatsCollector, path: Path) -> None:
+def _write_matrix_html(collector: "VectorStatsCollector", path: Path) -> None:
     feature_ids = collector._collect_feature_ids()
     partition_ids = collector._collect_partition_ids()
     group_keys = collector._collect_group_keys()

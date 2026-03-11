@@ -1,0 +1,5 @@
+cmd: serve
+name: train
+target: pipeline
+enabled: true
+keep: train

@@ -1,8 +1,8 @@
 import math
 from datetime import datetime, timezone
 
-from datapipeline.build.tasks.metadata import _window_bounds_from_stats, _window_size
-from datapipeline.build.tasks.utils import (
+from datapipeline.operations.artifacts.metadata import _window_bounds_from_stats, _window_size
+from datapipeline.operations.artifacts.utils import (
     collect_schema_entries,
     metadata_entries_from_stats,
     schema_entries_from_stats,
@@ -27,12 +27,12 @@ def test_collect_schema_entries_counts_nan(monkeypatch, tmp_path):
     )
     sample = Sample(key=(0,), features=Vector(values={"wind_speed": math.nan}))
 
-    def fake_pipeline(context, configs, group_by_cadence, target_configs=None, *, rectangular=True):
+    def fake_pipeline(context, configs, group_by_cadence, target_configs=None, rectangular=True):
         assert not rectangular
         return iter([sample])
 
     monkeypatch.setattr(
-        "datapipeline.build.tasks.utils.build_vector_pipeline",
+        "datapipeline.operations.artifacts.utils.build_vector_pipeline",
         fake_pipeline,
     )
 

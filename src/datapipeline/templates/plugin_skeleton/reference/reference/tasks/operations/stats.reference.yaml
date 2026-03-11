@@ -1,0 +1,11 @@
+# Stats task reference (all options).
+# This file is documentation only; uncomment the keys you want to use.
+#
+# version: 1                 # optional
+# id: stats
+# kind: artifact             # required; runtime | artifact
+#
+# entrypoint: core.artifact.stats # optional; build runner id
+#
+# output: build/stats.json   # optional; relative to project.paths.artifacts
+# mode: final                # required; final | raw

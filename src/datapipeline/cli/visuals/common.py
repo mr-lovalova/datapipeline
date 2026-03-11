@@ -4,8 +4,8 @@ import os
 from typing import Optional, Sequence
 
 from urllib.parse import urlparse
-from datapipeline.sources.transports import FsGlobTransport, FsFileTransport, HttpTransport
-from datapipeline.sources.foreach import ForeachLoader
+from datapipeline.sources.adapters.fs import FsFileTransport, FsGlobTransport
+from datapipeline.sources.adapters.http import HttpTransport
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +19,7 @@ def compute_glob_root(files: list[str]) -> Optional[Path]:
         return None
 
 
-def compact_root(path: Path, *, segments: int = 3) -> str:
+def compact_root(path: Path,  segments: int = 3) -> str:
     parts = [part for part in path.as_posix().split("/") if part]
     if len(parts) > segments:
         parts = ["..."] + parts[-segments:]
@@ -37,20 +37,6 @@ def relative_label(path: str, root: Optional[Path]) -> str:
         except Exception:
             pass
     return Path(path).name or path
-
-
-def _emit_info(msg: str, alias: str | None) -> None:
-    if alias:
-        logger.info("[%s] %s", alias, msg)
-    else:
-        logger.info(msg)
-
-
-def _emit_debug(msg: str, alias: str | None) -> None:
-    if alias:
-        logger.debug("[%s] %s", alias, msg)
-    else:
-        logger.debug(msg)
 
 
 def _fs_glob_info_lines(transport: FsGlobTransport) -> list[str]:
@@ -73,33 +59,10 @@ def _fs_glob_info_lines(transport: FsGlobTransport) -> list[str]:
     return lines
 
 
-def _log_fs_glob_details(transport: FsGlobTransport, alias: str | None) -> None:
-    files = getattr(transport, "files", [])
-    total = len(files)
-    # INFO: summary + minimal context (first/last)
-    if logger.isEnabledFor(logging.INFO):
-        for line in _fs_glob_info_lines(transport):
-            _emit_info(line, alias)
-    # DEBUG: detailed listing
-    if logger.isEnabledFor(logging.DEBUG) and total > 0:
-        root = compute_glob_root(files)
-        rel_files = [relative_label(path, root) for path in files]
-        for idx, path in enumerate(rel_files, start=1):
-            _emit_debug(f"fs.glob file {idx}/{total}: {path}", alias)
-
-
 def _fs_file_info_lines(transport: FsFileTransport) -> list[str]:
     path = getattr(transport, "path", "")
     name = Path(path).name or str(path)
-    return [f"fs.file streaming {name}"]
-
-
-def _log_fs_file_details(transport: FsFileTransport, alias: str | None) -> None:
-    if logger.isEnabledFor(logging.INFO):
-        for line in _fs_file_info_lines(transport):
-            _emit_info(line, alias)
-    if logger.isEnabledFor(logging.DEBUG):
-        _emit_debug(f"fs.file full path: {getattr(transport, 'path', '')}", alias)
+    return [f"fs.file: {name}"]
 
 
 def _http_info_lines(transport: HttpTransport) -> list[str]:
@@ -111,36 +74,10 @@ def _http_info_lines(transport: HttpTransport) -> list[str]:
     except Exception:
         host = "http"
         resource = ""
-    lines = [f"http fetching from {host}"]
+    lines = [f"http.fetch: host={host}"]
     if resource:
-        lines.append(f"http resource: {resource}")
+        lines.append(f"http.fetch: resource={resource}")
     return lines
-
-
-def _log_http_details(transport: HttpTransport, alias: str | None) -> None:
-    if logger.isEnabledFor(logging.INFO):
-        for line in _http_info_lines(transport):
-            _emit_info(line, alias)
-    if logger.isEnabledFor(logging.DEBUG):
-        _emit_debug(f"http full: {getattr(transport, 'url', '')}", alias)
-
-
-def log_transport_details(transport, alias: str | None = None) -> None:
-    """Emit visuals-agnostic transport details at INFO/DEBUG.
-
-    - FsGlobTransport: summary + first/last (INFO), per-file list (DEBUG)
-    - FsFileTransport: filename (INFO), full path (DEBUG)
-    - HttpTransport: host (+ resource) (INFO), full URL (DEBUG)
-    """
-    if isinstance(transport, FsGlobTransport):
-        _log_fs_glob_details(transport, alias)
-        return
-    if isinstance(transport, FsFileTransport):
-        _log_fs_file_details(transport, alias)
-        return
-    if isinstance(transport, HttpTransport):
-        _log_http_details(transport, alias)
-        return
 
 
 def transport_info_lines(transport) -> list[str]:
@@ -184,7 +121,7 @@ def transport_debug_lines(transport) -> list[str]:
     return lines
 
 
-def log_combined_stream(alias: str, details: Optional[Sequence[str] | str]) -> None:
+def log_combined_stream(stream_id: str, details: Optional[Sequence[str] | str], indent: str = "") -> None:
     """Emit descriptive logs for composed/virtual sources."""
 
     entries: list[str] = []
@@ -198,19 +135,19 @@ def log_combined_stream(alias: str, details: Optional[Sequence[str] | str]) -> N
             entries = [item]
 
     if entries:
-        logger.info("[%s] Feature engineering from:", alias)
+        logger.info("%s[%s] Feature engineering from:", indent, stream_id)
         for entry in entries:
             left, sep, right = entry.partition("=")
             if sep:
                 mapping = f"{left.strip()} -> {right.strip()}"
             else:
                 mapping = entry
-            logger.info("[%s]   - %s", alias, mapping)
+            logger.info("%s[%s]   - %s", indent, stream_id, mapping)
     else:
-        logger.info("[%s] Feature engineering from upstream inputs", alias)
+        logger.info("%s[%s] Feature engineering from upstream inputs", indent, stream_id)
 
 
-def current_transport_label(transport, *, glob_root: Optional[Path] = None) -> Optional[str]:
+def current_transport_label(transport,  glob_root: Optional[Path] = None) -> Optional[str]:
     """Return a human-friendly label for the transport's current unit of work."""
     if isinstance(transport, FsGlobTransport):
         current = getattr(transport, "current_path", None)
@@ -237,61 +174,3 @@ def current_transport_label(transport, *, glob_root: Optional[Path] = None) -> O
         except Exception:
             return None
     return None
-
-
-def current_loader_label(loader, transport, *, glob_root: Optional[Path] = None) -> Optional[str]:
-    """Return a human-friendly label for the loader's current unit of work."""
-    if isinstance(loader, ForeachLoader):
-        value = getattr(loader, "_current_value", None)
-        if value is None:
-            return None
-        idx = getattr(loader, "_current_index", None)
-        values = getattr(loader, "_values", None)
-        total = len(values) if isinstance(values, list) else None
-
-        item_label = f"\"{value}\""
-        status = None
-        if isinstance(idx, int) and isinstance(total, int) and total > 0:
-            status = f"({idx}/{total})"
-
-        def _with_item(action: str | None) -> str:
-            parts = []
-            if action:
-                parts.append(action)
-            parts.append(item_label)
-            if status:
-                parts.append(status)
-            return " ".join(parts)
-
-        spec = getattr(loader, "_loader_spec", None) or {}
-        entrypoint = spec.get("entrypoint", "") if isinstance(spec, dict) else ""
-        args = getattr(loader, "_current_args", None)
-        inner_transport = getattr(loader, "_current_transport", None)
-
-        if entrypoint == "core.io" and isinstance(args, dict):
-            t = args.get("transport")
-            if t == "http":
-                parts = urlparse(str(args.get("url", "")))
-                host = parts.netloc or "http"
-                return _with_item(f"Downloading @{host}")
-            if t == "fs":
-                inner_root = None
-                if isinstance(inner_transport, FsGlobTransport):
-                    inner_root = compute_glob_root(getattr(inner_transport, "files", []))
-                label = current_transport_label(inner_transport, glob_root=inner_root)
-                action = f"Loading {label}" if label else "Loading fs"
-                return _with_item(action)
-
-        if entrypoint:
-            return _with_item(f"via {entrypoint}")
-        return _with_item(None)
-
-    return current_transport_label(transport, glob_root=glob_root)
-
-
-def resolve_progress_style_mode(progress_style: str, log_level: int | None) -> str:
-    mode = (progress_style or "auto").lower()
-    if mode == "auto":
-        level = log_level if log_level is not None else logging.INFO
-        return "bars" if level <= logging.DEBUG else "spinner"
-    return mode

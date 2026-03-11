@@ -1,0 +1,20 @@
+import argparse
+
+
+def add_demo_command(sub,  common: argparse.ArgumentParser) -> None:
+    parser = sub.add_parser(
+        "demo",
+        help="create an optional demo dataset inside a plugin",
+        parents=[common],
+    )
+    demo_sub = parser.add_subparsers(dest="demo_cmd", required=True)
+    demo_init = demo_sub.add_parser(
+        "init",
+        help="create a standalone demo plugin named demo",
+        parents=[common],
+    )
+    demo_init.add_argument(
+        "--out",
+        "-o",
+        help="override parent directory (demo will be created inside)",
+    )

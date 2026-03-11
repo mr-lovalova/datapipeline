@@ -3,9 +3,6 @@ from dataclasses import asdict, dataclass, is_dataclass
 from datetime import date, datetime
 from typing import Any, Literal
 
-from datapipeline.domain.sample import Sample
-
-ItemType = Literal["sample", "record"]
 View = Literal["flat", "raw", "values"]
 
 
@@ -17,12 +14,35 @@ class NormalizedRow:
     raw: Any
 
 
-def normalize_item(item: Any, item_type: ItemType) -> NormalizedRow:
-    if item_type == "sample":
-        return _normalize_sample(item)
-    if item_type == "record":
-        return _normalize_record(item)
-    raise ValueError(f"Unsupported item_type '{item_type}'")
+def normalized_record_row(item: Any) -> NormalizedRow:
+    raw = _jsonable(item)
+    fields: dict[str, Any] = {}
+    if isinstance(raw, dict):
+        for key, value in sorted(raw.items(), key=lambda kv: str(kv[0])):
+            flatten_fields(str(key), value, fields)
+    else:
+        flatten_fields("value", raw, fields)
+    return NormalizedRow(
+        key=_record_key(item),
+        kind=type(item).__name__,
+        fields=fields,
+        raw=raw,
+    )
+
+
+def normalized_row(
+    *,
+    key: Any,
+    kind: str,
+    raw: Any,
+    fields: dict[str, Any],
+) -> NormalizedRow:
+    return NormalizedRow(
+        key=key,
+        kind=kind,
+        fields=fields,
+        raw=raw,
+    )
 
 
 def normalized_payload(row: NormalizedRow, view: View = "flat") -> dict[str, Any]:
@@ -37,41 +57,26 @@ def normalized_payload(row: NormalizedRow, view: View = "flat") -> dict[str, Any
     raise ValueError(f"Unsupported view '{view}'")
 
 
+def flatten_fields(prefix: str, value: Any, out: dict[str, Any]) -> None:
+    if _is_scalar(value):
+        out[prefix] = value
+        return
+    if isinstance(value, dict):
+        for key, nested in sorted(value.items(), key=lambda kv: str(kv[0])):
+            flatten_fields(f"{prefix}.{key}", nested, out)
+        return
+    if isinstance(value, (list, tuple)):
+        if all(_is_scalar(item) for item in value):
+            for idx, nested in enumerate(value):
+                out[f"{prefix}.{idx}"] = nested
+            return
+        out[prefix] = json.dumps(value, ensure_ascii=False, default=str)
+        return
+    out[prefix] = str(value)
+
+
 def _ordered_values(fields: dict[str, Any]) -> list[Any]:
-    values: list[Any] = []
-    for key in sorted(fields):
-        values.append(fields[key])
-    return values
-
-
-def _normalize_sample(sample: Sample) -> NormalizedRow:
-    raw = sample.as_full_payload()
-    fields: dict[str, Any] = {}
-    _flatten_fields("features", sample.features.values, fields)
-    if sample.targets is not None:
-        _flatten_fields("targets", sample.targets.values, fields)
-    return NormalizedRow(
-        key=sample.key,
-        kind=type(sample).__name__,
-        fields=fields,
-        raw=raw,
-    )
-
-
-def _normalize_record(item: Any) -> NormalizedRow:
-    raw = _jsonable(item)
-    fields: dict[str, Any] = {}
-    if isinstance(raw, dict):
-        for key, value in sorted(raw.items(), key=lambda kv: str(kv[0])):
-            _flatten_fields(str(key), value, fields)
-    else:
-        _flatten_fields("value", raw, fields)
-    return NormalizedRow(
-        key=_record_key(item),
-        kind=type(item).__name__,
-        fields=fields,
-        raw=raw,
-    )
+    return [fields[key] for key in sorted(fields)]
 
 
 def _normalize_key_struct(key: Any) -> Any:
@@ -110,21 +115,3 @@ def _jsonable(value: Any) -> Any:
 
 def _is_scalar(value: Any) -> bool:
     return value is None or isinstance(value, (str, int, float, bool, datetime, date))
-
-
-def _flatten_fields(prefix: str, value: Any, out: dict[str, Any]) -> None:
-    if _is_scalar(value):
-        out[prefix] = value
-        return
-    if isinstance(value, dict):
-        for key, nested in sorted(value.items(), key=lambda kv: str(kv[0])):
-            _flatten_fields(f"{prefix}.{key}", nested, out)
-        return
-    if isinstance(value, (list, tuple)):
-        if all(_is_scalar(item) for item in value):
-            for idx, nested in enumerate(value):
-                out[f"{prefix}.{idx}"] = nested
-            return
-        out[prefix] = json.dumps(value, ensure_ascii=False, default=str)
-        return
-    out[prefix] = str(value)

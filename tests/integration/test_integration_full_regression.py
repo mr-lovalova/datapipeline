@@ -1,8 +1,8 @@
 import pytest
 
 from datapipeline.config.context import load_dataset_context
-from datapipeline.pipeline.pipelines import build_vector_pipeline
-from datapipeline.pipeline.stages import post_process
+from datapipeline.pipelines.full.nodes import post_process
+from datapipeline.pipelines import build_vector_pipeline
 
 
 def test_full_regression_project_vectors(copy_fixture) -> None:

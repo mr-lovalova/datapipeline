@@ -1,7 +1,8 @@
 from typing import Any, Dict
 
 from datapipeline.sources.data_loader import DataLoader
-from datapipeline.sources.transports import FsFileTransport, FsGlobTransport, HttpTransport
+from datapipeline.sources.adapters.fs import FsFileTransport, FsGlobTransport
+from datapipeline.sources.adapters.http import HttpTransport
 from datapipeline.sources.decoders import (
     CsvDecoder,
     JsonDecoder,
@@ -10,7 +11,7 @@ from datapipeline.sources.decoders import (
 )
 
 
-def build_loader(*, transport: str, format: str | None = None, **kwargs: Any) -> DataLoader:
+def build_loader( transport: str, format: str | None = None, **kwargs: Any) -> DataLoader:
     """Factory entrypoint that composes a transport and a decoder.
 
     Args (by transport/format):

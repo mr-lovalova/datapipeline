@@ -1,0 +1,4 @@
+id: stats
+kind: artifact
+entrypoint: core.artifact.stats
+mode: final

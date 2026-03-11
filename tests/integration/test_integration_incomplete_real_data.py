@@ -1,12 +1,12 @@
 import pytest
 
 from datapipeline.config.context import load_dataset_context
-from datapipeline.build.tasks.schema import materialize_vector_schema
-from datapipeline.build.tasks.scaler import materialize_scaler_statistics
+from datapipeline.operations.artifacts.schema import materialize_vector_schema
+from datapipeline.operations.artifacts.scaler import materialize_scaler_statistics
 from datapipeline.config.tasks import SchemaTask, ScalerTask
 from datapipeline.services.constants import VECTOR_SCHEMA, SCALER_STATISTICS
-from datapipeline.pipeline.pipelines import build_vector_pipeline
-from datapipeline.pipeline.stages import post_process
+from datapipeline.pipelines.full.nodes import post_process
+from datapipeline.pipelines import build_vector_pipeline
 
 
 def _vector_samples(project_yaml):
@@ -16,15 +16,17 @@ def _vector_samples(project_yaml):
 
     # Ensure artifacts are materialized for the test run.
     schema_rel = materialize_vector_schema(
-        runtime, SchemaTask(kind="schema", output="schema.json")
+        runtime, SchemaTask(id="schema", output="schema.json")
     )
     if schema_rel:
-        runtime.artifacts.register(VECTOR_SCHEMA, relative_path=schema_rel[0])
+        runtime.artifacts.register(VECTOR_SCHEMA, relative_path=schema_rel.relative_path)
     scaler_rel = materialize_scaler_statistics(
-        runtime, ScalerTask(kind="scaler", split_label="all", output="scaler.json")
+        runtime, ScalerTask(id="scaler", split_label="all", output="scaler.json")
     )
     if scaler_rel:
-        runtime.artifacts.register(SCALER_STATISTICS, relative_path=scaler_rel[0])
+        runtime.artifacts.register(
+            SCALER_STATISTICS, relative_path=scaler_rel.relative_path
+        )
 
     vectors = build_vector_pipeline(
         context,

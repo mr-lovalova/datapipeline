@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 import json
 
-from datapipeline.build.tasks.scaler import materialize_scaler_statistics
+from datapipeline.operations.artifacts.scaler import materialize_scaler_statistics
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.config.split import TimeSplitConfig
@@ -38,26 +38,27 @@ def test_materialize_scaler_statistics_split_all_ignores_label_filter(monkeypatc
     ]
 
     monkeypatch.setattr(
-        "datapipeline.build.tasks.scaler.load_dataset",
+        "datapipeline.operations.artifacts.scaler.load_dataset",
         lambda *_args, **_kwargs: dataset,
     )
     monkeypatch.setattr(
-        "datapipeline.build.tasks.scaler.build_vector_pipeline",
+        "datapipeline.operations.artifacts.scaler.build_vector_pipeline",
         lambda *_args, **_kwargs: iter(samples),
     )
 
     result = materialize_scaler_statistics(
         runtime,
-        ScalerTask(kind="scaler", split_label="all", output="scaler.json"),
+        ScalerTask(id="scaler", split_label="all", output="scaler.json"),
     )
 
     assert result is not None
-    rel_path, meta = result
-    assert rel_path == "scaler.json"
-    assert (artifacts_root / rel_path).exists()
-    assert meta["split"] == "all"
-    assert meta["observations"] == 2
-    payload = json.loads((artifacts_root / rel_path).read_text(encoding="utf-8"))
+    assert result.relative_path == "scaler.json"
+    assert (artifacts_root / result.relative_path).exists()
+    assert result.meta["split"] == "all"
+    assert result.meta["observations"] == 2
+    payload = json.loads(
+        (artifacts_root / result.relative_path).read_text(encoding="utf-8")
+    )
     assert payload["kind"] == "standard_scaler"
     assert payload["split"] == "all"
     assert payload["observations"] == 2

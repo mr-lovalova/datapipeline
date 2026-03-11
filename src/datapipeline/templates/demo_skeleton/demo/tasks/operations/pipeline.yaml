@@ -1,0 +1,4 @@
+# See ../../../../plugin_skeleton/reference/reference/tasks/operations/pipeline.reference.yaml for full options.
+id: pipeline
+kind: runtime
+entrypoint: core.runtime.pipeline

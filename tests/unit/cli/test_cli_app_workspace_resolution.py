@@ -1,6 +1,7 @@
 import sys
 from pathlib import Path
 
+import pytest
 from datapipeline.cli import app
 from datapipeline.config.workspace import WorkspaceConfig, WorkspaceContext
 
@@ -129,3 +130,52 @@ def test_resolve_project_from_args_requires_selection_without_workspace_default(
         assert "No dataset/project selected" in str(exc)
     else:
         raise AssertionError("Expected SystemExit when no project selection is available")
+
+
+def test_main_handles_keyboard_interrupt_at_top_level(monkeypatch, capsys):
+    monkeypatch.setattr(app, "load_workspace_context", lambda _cwd: None)
+    monkeypatch.setattr(
+        app,
+        "execute_command",
+        lambda **_kwargs: (_ for _ in ()).throw(KeyboardInterrupt()),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["jerry", "serve", "--project", "project.yaml"],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        app.main()
+
+    captured = capsys.readouterr()
+    assert exc.value.code == 130
+    assert "Serve interrupted by user" in captured.err
+
+
+def test_main_resolves_project_for_serve_with_workspace_default(monkeypatch, tmp_path):
+    project_file = tmp_path / "datasets" / "demo" / "project.yaml"
+    project_file.parent.mkdir(parents=True)
+    project_file.write_text("version: 1\nname: demo\npaths: {}\n", encoding="utf-8")
+    workspace = WorkspaceContext(
+        file_path=tmp_path / "jerry.yaml",
+        config=WorkspaceConfig.model_validate(
+            {
+                "datasets": {"demo": "datasets/demo/project.yaml"},
+                "default_dataset": "demo",
+            }
+        ),
+    )
+    monkeypatch.setattr(app, "load_workspace_context", lambda _cwd: workspace)
+    captured: dict[str, object] = {}
+
+    def _capture_execute_command(**kwargs):
+        captured["project"] = kwargs["args"].project
+        return True
+
+    monkeypatch.setattr(app, "execute_command", _capture_execute_command)
+    monkeypatch.setattr(sys, "argv", ["jerry", "serve"])
+
+    app.main()
+
+    assert Path(captured["project"]) == project_file.resolve()

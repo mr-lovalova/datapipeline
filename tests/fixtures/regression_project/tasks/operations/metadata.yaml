@@ -1,0 +1,5 @@
+id: metadata
+kind: artifact
+entrypoint: core.artifact.metadata
+dependencies:
+  - schema

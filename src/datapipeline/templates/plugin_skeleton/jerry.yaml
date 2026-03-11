@@ -7,16 +7,12 @@ datasets:
 default_dataset: your-dataset
 
 shared:
-  visuals: AUTO
-  progress: BARS
-  log_level: INFO
-
-serve:
-  limit: null
-  stage: null
-  output:
-    transport: stdout
-    format: print
-
-build:
-  mode: AUTO
+  observability:
+    visuals: ON
+    logging:
+      level: INFO
+      outputs:
+        - transport: STDERR
+        - transport: FS
+          scope: GLOBAL
+          path: ./logs/jerry.log

@@ -1,10 +1,15 @@
 import json
-import logging
+
+import pytest
 
 from datapipeline.analysis.vector.collector import VectorStatsCollector
+from datapipeline.analysis.vector.snapshot import (
+    collector_from_snapshot,
+    snapshot_from_collector,
+)
 
 
-def test_vector_analyzer_summary_is_serializable(caplog):
+def test_vector_analyzer_summary_is_serializable(capsys):
     collector = VectorStatsCollector(
         expected_feature_ids=["speed", "temp"],
         threshold=0.8,
@@ -13,8 +18,7 @@ def test_vector_analyzer_summary_is_serializable(caplog):
     collector.update("g0", {"speed__stationA": None})
     collector.update("g1", {"temp": 7.0})
 
-    with caplog.at_level(logging.INFO, logger="datapipeline.analysis.vector.report"):
-        summary = collector.print_report()
+    summary = collector.print_report()
 
     json.dumps(summary)
 
@@ -30,4 +34,57 @@ def test_vector_analyzer_summary_is_serializable(caplog):
     assert temp_stats["present"] == 1
     assert temp_stats["missing"] == 1
 
-    assert any("Vector Quality Report" in record.message for record in caplog.records)
+    captured = capsys.readouterr()
+    assert "Vector Quality Report" in captured.out
+
+
+def test_vector_analyzer_snapshot_round_trip():
+    collector = VectorStatsCollector(
+        expected_feature_ids=["speed", "temp"],
+        threshold=0.8,
+    )
+    collector.update("g0", {"speed": [1.0, None], "temp": 2.0})
+    collector.update("g1", {"speed": [None, None], "temp": None})
+
+    snapshot = snapshot_from_collector(collector)
+    assert "schema_meta" not in snapshot
+    assert "expected_features" not in snapshot
+    assert "discovered_features" not in snapshot
+    assert "discovered_partitions" not in snapshot
+    restored = collector_from_snapshot(
+        snapshot,
+        expected_feature_ids=["speed", "temp"],
+        schema_meta={},
+        threshold=0.95,
+        show_matrix=False,
+        matrix_rows=20,
+        matrix_cols=10,
+        matrix_output=None,
+        matrix_format="html",
+    )
+
+    assert restored.total_vectors == collector.total_vectors
+    assert restored.seen_counts["speed"] == collector.seen_counts["speed"]
+    assert restored.null_counts_partitions["temp"] == collector.null_counts_partitions["temp"]
+    assert "g0" in restored.group_feature_status
+
+
+def test_vector_analyzer_snapshot_rejects_unknown_schema_version():
+    with pytest.raises(ValueError, match="Unsupported vector stats snapshot schema version"):
+        collector_from_snapshot(
+            {
+                "schema_version": 999,
+                "group_feature_status": {},
+                "group_partition_status": {},
+                "group_feature_sub": {},
+                "group_partition_sub": {},
+            },
+            expected_feature_ids=[],
+            schema_meta={},
+            threshold=0.95,
+            show_matrix=False,
+            matrix_rows=20,
+            matrix_cols=10,
+            matrix_output=None,
+            matrix_format="html",
+        )

@@ -3,7 +3,6 @@ from typing import Any
 
 from datapipeline.utils.load import load_yaml
 from datapipeline.config.catalog import StreamsConfig
-from datapipeline.config.tasks import default_serve_task
 from datapipeline.services.project_paths import streams_dir, sources_dir
 from datapipeline.services.path_policy import resolve_relative_fs_loader_path
 from datapipeline.build.state import load_build_state
@@ -26,6 +25,7 @@ from datapipeline.runtime import Runtime
 from datapipeline.config.postprocess import PostprocessConfig
 from .config import (
     artifacts_root,
+    build_state_path,
     _globals,
     _interpolate,
     _load_by_key,
@@ -91,12 +91,9 @@ def _normalize_source_loader_paths(
         return
     if Path(raw_path).is_absolute():
         return
-    use_glob = bool(args.get("glob", False))
     args["path"] = resolve_relative_fs_loader_path(
         raw_path,
         project_yaml.parent.resolve(),
-        source_yaml.parent.resolve(),
-        use_glob,
     )
 
 
@@ -196,14 +193,8 @@ def bootstrap(project_yaml: Path) -> Runtime:
     except Exception:
         runtime.split = None
 
-    try:
-        runtime.run = default_serve_task(project_yaml)
-    except Exception:
-        runtime.run = None
-
-    run_keep = runtime.run.keep if runtime.run else None
-    split_keep = getattr(runtime.split, "keep", None)
-    runtime.split_keep = run_keep or split_keep
+    runtime.run = None
+    runtime.split_keep = getattr(runtime.split, "keep", None)
 
     streams = load_streams(project_yaml)
     init_streams(streams, runtime)
@@ -223,7 +214,7 @@ def bootstrap(project_yaml: Path) -> Runtime:
     runtime.registries.postprocesses.register(
         POSTPROCESS_TRANSFORMS, transforms)
 
-    state_path = (art_root / "build" / "state.json").resolve()
+    state_path = build_state_path(project_yaml)
     state = load_build_state(state_path)
     if state:
         for key, info in state.artifacts.items():

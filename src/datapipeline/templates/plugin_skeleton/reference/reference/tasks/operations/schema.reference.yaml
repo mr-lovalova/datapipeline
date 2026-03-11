@@ -1,0 +1,12 @@
+# Schema task reference (all options).
+# This file is documentation only; uncomment the keys you want to use.
+#
+# version: 1                # optional
+# id: schema
+# kind: artifact            # required; runtime | artifact
+
+# entrypoint: core.artifact.schema # optional; build runner id
+#
+# output: build/schema.json  # optional; relative to project.paths.artifacts
+# dependencies: []           # optional; artifact task ids this task depends on
+# cadence_strategy: max      # optional; currently only "max"

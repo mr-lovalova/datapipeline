@@ -1,0 +1,12 @@
+# Inspect operation task reference (all options).
+# This file is documentation only; uncomment the keys you want to use.
+#
+# version: 1                            # optional
+# id: matrix                            # any unique inspect operation id
+# kind: runtime                         # required; runtime | artifact
+#
+# entrypoint: core.runtime.coverage     # core.runtime.coverage | core.runtime.thresholds | core.runtime.matrix
+# options:                              # operation-specific options (all optional)
+#   sort: missing                       # coverage/thresholds sort key: missing | nulls
+#   threshold: 0.95                     # thresholds used by coverage/thresholds
+#   # output transport/format/path is resolved from profile output target

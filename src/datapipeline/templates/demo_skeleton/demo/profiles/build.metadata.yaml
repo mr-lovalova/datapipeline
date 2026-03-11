@@ -1,0 +1,7 @@
+# See ../../../plugin_skeleton/reference/reference/tasks/profiles/build.reference.yaml for full options.
+cmd: build
+name: metadata
+order: 20
+target: metadata
+enabled: true
+mode: AUTO

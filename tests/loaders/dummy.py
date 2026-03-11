@@ -4,7 +4,7 @@ from datapipeline.sources.models.loader import BaseDataLoader
 
 
 class DummyLoader(BaseDataLoader):
-    def __init__(self, *, value: Any, rows: int = 1):
+    def __init__(self, value: Any, rows: int = 1):
         self._value = value
         self._rows = int(rows)
 

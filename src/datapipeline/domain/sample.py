@@ -1,5 +1,5 @@
 from dataclasses import dataclass, asdict
-from typing import Any, Iterator, Optional, Literal
+from typing import Any, Optional, Literal
 
 from .vector import Vector
 
@@ -20,21 +20,6 @@ class Sample:
     key: Any
     features: Vector
     targets: Optional[Vector] = None
-
-    def __iter__(self) -> Iterator[Any]:
-        """Retain tuple-like unpacking compatibility."""
-        yield self.key
-        yield self.features
-
-    def __len__(self) -> int:
-        return 2
-
-    def __getitem__(self, idx: int) -> Any:
-        if idx == 0:
-            return self.key
-        if idx == 1:
-            return self.features
-        raise IndexError(idx)
 
     def with_targets(self, targets: Optional[Vector]) -> "Sample":
         return Sample(key=self.key, features=self.features, targets=targets)

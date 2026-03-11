@@ -1,0 +1,6 @@
+# See ../../reference/reference/tasks/profiles/serve.reference.yaml for full options.
+cmd: serve
+name: metadata
+order: 20
+target: metadata
+enabled: true

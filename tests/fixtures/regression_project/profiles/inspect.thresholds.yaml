@@ -1,0 +1,6 @@
+cmd: inspect
+name: thresholds
+target: thresholds
+enabled: true
+build:
+  mode: AUTO

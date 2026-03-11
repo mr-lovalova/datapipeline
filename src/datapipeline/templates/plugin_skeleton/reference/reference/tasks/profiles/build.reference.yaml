@@ -1,0 +1,20 @@
+# Build profile reference (all options).
+# This file is documentation only; uncomment the keys you want to use.
+#
+# version: 1                  # optional
+# cmd: build
+# name: default               # required; must be unique among build profiles
+# order: 10                   # optional; lower runs first, unset uses filename order
+# enabled: true               # optional; profile-level switch
+#
+# mode: AUTO                  # optional; AUTO | FORCE | OFF
+# target: schema              # required; artifact task id from tasks/operations
+#
+# observability:              # optional
+#   visuals: OFF              # optional; ON | OFF
+#   logging:                  # optional
+#     level: INFO             # optional; CRITICAL | ERROR | WARNING | INFO | DEBUG
+#     outputs:                # optional; ordered list (GLOBAL scope only)
+#       - transport: FS       # STDERR | STDOUT | FS
+#         scope: GLOBAL
+#         path: ./logs/build.log # resolved relative to project.yaml directory

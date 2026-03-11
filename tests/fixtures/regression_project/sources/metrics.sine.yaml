@@ -8,4 +8,4 @@ loader:
   args:
     transport: fs
     format: pickle
-    path: tests/fixtures/regression_project/data/sine_subhour.pkl
+    path: data/sine_subhour.pkl

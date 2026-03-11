@@ -1,0 +1,6 @@
+# See ../../reference/reference/tasks/profiles/serve.reference.yaml for full options.
+cmd: serve
+name: scaler
+order: 30
+target: scaler
+enabled: true

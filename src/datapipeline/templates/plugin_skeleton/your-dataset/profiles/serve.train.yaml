@@ -1,0 +1,7 @@
+# See ../../reference/reference/tasks/profiles/serve.reference.yaml for full options.
+cmd: serve
+name: train
+order: 40
+target: pipeline
+enabled: true
+keep: train

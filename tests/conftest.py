@@ -1,15 +1,31 @@
 from pathlib import Path
 import shutil
+from functools import lru_cache
+import importlib
 
 import pytest
 
 from datapipeline.utils import load as dp_load
 
-# Test-only entrypoint overrides for fixture parsers.
-dp_load._EP_OVERRIDES.update({
+# Test-only entrypoint declarations.
+_TEST_EP_TARGETS = {
     ("datapipeline.parsers", "core.temporal.csv"): "tests.parsers.temporal_csv:TemporalCsvValueParser",
     ("datapipeline.parsers", "core.temporal.jsonpath"): "tests.parsers.temporal_json:TemporalJsonPathParser",
-})
+    ("datapipeline.loaders", "tests.foreach.dummy"): "tests.loaders.dummy:DummyLoader",
+}
+_ORIGINAL_LOAD_EP = dp_load.load_ep
+
+
+@lru_cache(maxsize=None)
+def _load_ep_with_test_targets(group: str, name: str):
+    target = _TEST_EP_TARGETS.get((group, name))
+    if target:
+        module, attr = target.split(":")
+        return getattr(importlib.import_module(module), attr)
+    return _ORIGINAL_LOAD_EP(group, name)
+
+
+dp_load.load_ep = _load_ep_with_test_targets
 
 
 @pytest.fixture

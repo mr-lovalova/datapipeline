@@ -16,5 +16,11 @@ class DataGenerator(ABC):
     def count(self) -> Optional[int]:
         return None
 
+    def info_lines(self) -> list[str]:
+        return []
+
+    def debug_lines(self) -> list[str]:
+        return []
+
     def __iter__(self) -> Iterator[Any]:
         return self.generate()

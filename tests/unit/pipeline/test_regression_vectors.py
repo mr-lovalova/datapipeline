@@ -5,8 +5,8 @@ from pathlib import Path
 
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.domain.record import TemporalRecord
-from datapipeline.pipeline.context import PipelineContext
-from datapipeline.pipeline.pipelines import build_vector_pipeline
+from datapipeline.dag.context import PipelineContext
+from datapipeline.pipelines import build_vector_pipeline
 from datapipeline.runtime import Runtime
 from datapipeline.services.constants import SCALER_STATISTICS, VECTOR_SCHEMA
 from datapipeline.transforms.feature.scaler import StandardScaler

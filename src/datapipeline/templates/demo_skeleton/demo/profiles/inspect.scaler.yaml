@@ -1,0 +1,8 @@
+# See ../../../plugin_skeleton/reference/reference/tasks/profiles/inspect.reference.yaml for full options.
+cmd: inspect
+name: scaler
+order: 30
+target: scaler
+enabled: true
+build:
+  mode: AUTO
