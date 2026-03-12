@@ -5,7 +5,7 @@
 # id: domain.dataset.variant
 # source: source.alias          # required when kind: ingest
 # inputs: [stream.id]           # required when kind: composed
-# mapper:                       # optional (defaults to identity)
+# mapper:                       # optional for ingest; required for composed
 #   entrypoint: my_mapper
 #   args: {}
 # cadence: ${group_by}          # optional per-contract variable for interpolation

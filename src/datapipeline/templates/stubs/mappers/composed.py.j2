@@ -5,9 +5,12 @@ from datapipeline.domain.record import TemporalRecord
 
 def mapper(
     inputs: Mapping[str, Iterator[TemporalRecord]],
-    *, driver: str | None = None, aux: Mapping[str, Iterator[TemporalRecord]] | None = None, context=None, **params
+    *,
+    context,
+    driver: str | None = None,
+    **params,
 ) -> Iterator[TemporalRecord]:
-    # TODO: implement domain math; inputs are ordered/regularized; aux is raw
+    # TODO: implement domain math over aligned upstream stream iterators.
     key = driver or next(iter(inputs.keys()))
     for rec in inputs[key]:
         yield rec  # replace with your dataclass and computation

@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Any
 
 from datapipeline.utils.load import load_yaml
-from datapipeline.config.catalog import StreamsConfig
+from datapipeline.config.catalog import ContractConfig, StreamsConfig
 from datapipeline.services.project_paths import streams_dir, sources_dir
 from datapipeline.services.path_policy import resolve_relative_fs_loader_path
 from datapipeline.build.state import load_build_state
@@ -148,10 +148,63 @@ def load_streams(project_yaml: Path) -> StreamsConfig:
     return StreamsConfig(raw=raw, contracts=contracts)
 
 
+def _partition_signature(
+    value: str | list[str] | None,
+) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if isinstance(value, str):
+        return (value,)
+    return tuple(value)
+
+
+def _validate_composed_contracts(contracts: dict[str, ContractConfig]) -> None:
+    for stream_id, spec in contracts.items():
+        if spec.kind != "composed":
+            continue
+        inputs = list(spec.inputs or [])
+        refs: list[str] = []
+        for item in inputs:
+            _alias, ref = ContractConfig.parse_input_spec(item)
+            refs.append(ref)
+
+        missing = [ref for ref in refs if ref not in contracts]
+        if missing:
+            raise ValueError(
+                f"Composed stream '{stream_id}' references unknown stream(s): {missing}"
+            )
+
+        partition_by_per_input: dict[str, tuple[str, ...]] = {
+            ref: _partition_signature(contracts[ref].partition_by)
+            for ref in refs
+        }
+        unique_input_partitions = set(partition_by_per_input.values())
+        if len(unique_input_partitions) > 1:
+            details = ", ".join(
+                f"{ref}={list(partition_by_per_input[ref])}"
+                for ref in refs
+            )
+            raise ValueError(
+                "Composed stream "
+                f"'{stream_id}' inputs have incompatible partition_by settings: {details}"
+            )
+
+        if spec.partition_by is not None and unique_input_partitions:
+            input_partition = next(iter(unique_input_partitions))
+            composed_partition = _partition_signature(spec.partition_by)
+            if composed_partition != input_partition:
+                raise ValueError(
+                    "Composed stream "
+                    f"'{stream_id}' partition_by={list(composed_partition)} does not "
+                    f"match inputs partition_by={list(input_partition)}"
+                )
+
+
 def init_streams(cfg: StreamsConfig, runtime: Runtime) -> None:
     """Compile typed streams config into runtime registries."""
     regs = runtime.registries
     regs.clear_all()
+    _validate_composed_contracts(cfg.contracts or {})
 
     # Register per-stream policies and record transforms for runtime lookups
     for alias, spec in (cfg.contracts or {}).items():

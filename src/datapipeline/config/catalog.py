@@ -36,6 +36,16 @@ class ContractConfig(BaseModel):
     # Optional debug-only transforms (applied after stream transforms)
     debug: Optional[List[Mapping[str, Any]]] = Field(default=None)
 
+    @staticmethod
+    def parse_input_spec(spec: str) -> tuple[str, str]:
+        alias: Optional[str] = None
+        text = spec.strip()
+        if "=" in text:
+            alias, text = text.split("=", 1)
+            alias = alias.strip()
+        ref = text.strip()
+        return (alias or ref), ref
+
     @model_validator(mode='after')
     def _validate_mode(self):
         if self.kind == 'ingest':
@@ -48,14 +58,28 @@ class ContractConfig(BaseModel):
                 raise ValueError("composed contract requires 'inputs' (list of stream ids)")
             if self.source:
                 raise ValueError("composed contract cannot define 'source'")
+            if not self.mapper or not self.mapper.entrypoint:
+                raise ValueError("composed contract requires mapper.entrypoint")
             # Enforce simple grammar: alias=stream_id or stream_id, no stages/prefixes
+            aliases: set[str] = set()
             for item in self.inputs:
                 if '@' in item:
                     raise ValueError("composed inputs may not include '@stage'; streams are aligned by default")
-                # allow alias=ref
-                ref = item.split('=', 1)[1] if '=' in item else item
+                alias, ref = self.parse_input_spec(item)
+                if not alias or not ref:
+                    raise ValueError("composed inputs must not be empty")
                 if ':' in ref:
                     raise ValueError("composed inputs must reference canonical stream ids only")
+                if alias in aliases:
+                    raise ValueError(f"composed inputs contain duplicate alias '{alias}'")
+                aliases.add(alias)
+            driver = None
+            if self.mapper and isinstance(self.mapper.args, dict):
+                driver = self.mapper.args.get("driver")
+            if driver is not None and str(driver).strip() not in aliases:
+                raise ValueError(
+                    "composed mapper.args.driver must reference one of the declared input aliases"
+                )
         return self
 
 

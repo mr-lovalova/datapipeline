@@ -31,6 +31,7 @@ def _metric_with_fallback(record: TemporalRecord, primary: str, fallback: str) -
 def compose_equity_pair_aapl_msft(
     inputs: Mapping[str, Iterator[TemporalRecord]],
     *,
+    context: Any,
     driver: str | None = None,
     **params: Any,
 ) -> Iterator[EquityPairRecord]:
@@ -41,6 +42,7 @@ def compose_equity_pair_aapl_msft(
     - aapl=equity.aapl
     - msft=equity.msft
     """
+    del context
     del driver  # alignment is explicit and symmetric for this pair.
     del params
 
