@@ -195,9 +195,35 @@ def apply_profile_defaults(
         exclude_unset=True,
         exclude={"source_path"},
     )
-    merged_payload = {**defaults_payload, **profile_payload}
+    merged_payload = _deep_merge_dicts(
+        defaults_payload,
+        profile_payload,
+        replace_keys={"output"},
+    )
     merged = PROFILE_ADAPTER.validate_python(merged_payload)
     setattr(merged, "source_path", getattr(profile, "source_path", None))
+    return merged
+
+
+def _deep_merge_dicts(
+    base: dict,
+    override: dict,
+    *,
+    replace_keys: set[str],
+) -> dict:
+    merged = dict(base)
+    for key, value in override.items():
+        existing = merged.get(key)
+        if key in replace_keys:
+            merged[key] = value
+        elif isinstance(existing, dict) and isinstance(value, dict):
+            merged[key] = _deep_merge_dicts(
+                existing,
+                value,
+                replace_keys=replace_keys,
+            )
+        else:
+            merged[key] = value
     return merged
 
 

@@ -289,6 +289,54 @@ def test_serve_profile_fields_override_serve_defaults(monkeypatch, tmp_path: Pat
     assert profile.output.run is None
 
 
+def test_serve_profile_nested_observability_deep_merges_defaults(
+    monkeypatch,
+    tmp_path: Path,
+):
+    _patch_runtime_resolution(monkeypatch)
+    project_yaml = _write_project(tmp_path)
+    ops = tmp_path / "tasks" / "operations"
+    profiles = tmp_path / "profiles"
+    ops.mkdir(parents=True, exist_ok=True)
+    profiles.mkdir(parents=True, exist_ok=True)
+
+    _write_op(
+        ops / "pipeline.yaml",
+        "id: pipeline\nkind: runtime\nentrypoint: core.runtime.pipeline\n",
+    )
+    (profiles / "serve.defaults.yaml").write_text(
+        (
+            "cmd: serve\n"
+            "observability:\n"
+            "  logging:\n"
+            "    outputs:\n"
+            "      - transport: stdout\n"
+        ),
+        encoding="utf-8",
+    )
+    (profiles / "serve.train.yaml").write_text(
+        (
+            "cmd: serve\n"
+            "name: train\n"
+            "target: pipeline\n"
+            "observability:\n"
+            "  logging:\n"
+            "    level: debug\n"
+        ),
+        encoding="utf-8",
+    )
+
+    request = build_profile_run_request(
+        kind="serve",
+        project=str(project_yaml),
+        run_name="train",
+    )
+    assert request is not None
+    profile = request.profiles[0]
+    assert profile.log_decision.name == "DEBUG"
+    assert profile.log_output.outputs[0].transport == "stdout"
+
+
 def test_build_defaults_apply_to_build_profiles(tmp_path: Path):
     project_yaml = _write_project(tmp_path)
     ops = tmp_path / "tasks" / "operations"

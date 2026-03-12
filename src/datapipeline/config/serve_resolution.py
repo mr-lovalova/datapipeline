@@ -16,7 +16,6 @@ from datapipeline.config.resolution import (
     resolve_project_log_outputs,
     resolve_visuals,
 )
-from datapipeline.config.workspace import WorkspaceContext
 from datapipeline.io.output import OutputTarget, resolve_output_target
 from datapipeline.runtime import Runtime
 from datapipeline.services.run_entries import RunEntry, iter_runtime_runs
@@ -60,13 +59,11 @@ def resolve_run_profiles(
     limit: Optional[int],
     cli_build_mode: Optional[str],
     cli_output,
-    workspace: WorkspaceContext | None,
     cli_log_level: Optional[str],
     cli_log_outputs: Sequence[LogOutputTarget] | None = None,
     base_log_level: str = "INFO",
     cli_visuals: Optional[str] = None,
 ) -> list[RunProfile]:
-    _ = workspace
     fallback_log_level = str(base_log_level).upper()
     cli_log_output_candidates = list(cli_log_outputs or [])
 

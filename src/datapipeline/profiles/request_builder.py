@@ -208,7 +208,6 @@ def _resolve_runtime_execution_profiles(
             limit=params.limit,
             cli_build_mode=params.build_mode,
             cli_output=cli_output_cfg,
-            workspace=params.workspace,
             cli_log_level=params.cli_log_level,
             cli_log_outputs=params.cli_log_outputs,
             base_log_level=params.base_log_level,

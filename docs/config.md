@@ -364,7 +364,7 @@ split_label: train
 - `build/metadata.json` (from the `metadata` task) captures heavier statistics—present/null counts, inferred value types, list-length histograms, per-partition timestamps, and the dataset window. Configure `metadata.window_mode` with `union|intersection|strict|relaxed` (default `intersection`) to control how start/end bounds are derived. `union` considers base features, `intersection` uses their overlap, `strict` intersects every partition, and `relaxed` unions partitions independently.
 - Artifact task execution order is driven by the selected profile sequence, not a dependency tree on operation specs.
 - All operation tasks share the same execution interface: `entrypoint` selects the runner; profiles select operations via `target`.
-- Serve profiles (`type: serve`) must target a runtime operation whose entrypoint is `core.serve.*` or `core.serve_*` (usually `id: serve`).
+- Serve profiles (`cmd: serve`) must target a runtime operation whose entrypoint is `core.serve.*` or `core.serve_*` (usually `id: serve`).
 - Observability defaults (visuals/logging outputs) belong in profile files (`serve.<name>.yaml`, `build.<name>.yaml`, `inspect.<name>.yaml`) or per-kind defaults (`<kind>.defaults.yaml`).
 
 ---

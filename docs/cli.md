@@ -37,7 +37,7 @@ All commands that take a project accept either `--project <path/to/project.yaml>
 ### Build & Quality
 
 - `jerry inspect --project <project.yaml> [--run <inspect-profile>] [--skip-build] [--visuals on|off]`
-  - Runs inspect profiles declared as `profiles/inspect.<name>.yaml` (`type: inspect`).
+  - Runs inspect profiles declared as `profiles/inspect.<name>.yaml` (`cmd: inspect`).
   - Without `--run`, executes all enabled inspect profiles.
   - Use `--run report`, `--run matrix`, etc to execute one profile.
   - Profile targets map to inspect operations in `tasks/operations/` (`core.inspect.report`, `core.inspect.matrix`).
