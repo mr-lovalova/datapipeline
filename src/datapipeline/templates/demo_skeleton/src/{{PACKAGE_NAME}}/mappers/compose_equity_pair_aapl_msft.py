@@ -1,6 +1,7 @@
 from collections.abc import Iterator, Mapping
 from typing import Any
 
+from datapipeline.composed import align_many
 from datapipeline.domain.record import TemporalRecord
 
 from {{PACKAGE_NAME}}.domains.equity.model import EquityPairRecord
@@ -33,6 +34,7 @@ def compose_equity_pair_aapl_msft(
     *,
     context: Any,
     driver: str | None = None,
+    join: str = "inner",
     **params: Any,
 ) -> Iterator[EquityPairRecord]:
     """
@@ -43,23 +45,15 @@ def compose_equity_pair_aapl_msft(
     - msft=equity.msft
     """
     del context
-    del driver  # alignment is explicit and symmetric for this pair.
     del params
 
-    aapl_iter = iter(inputs["aapl"])
-    msft_iter = iter(inputs["msft"])
-
-    aapl = next(aapl_iter, None)
-    msft = next(msft_iter, None)
     prev_aapl_close: float | None = None
     prev_msft_close: float | None = None
 
-    while aapl is not None and msft is not None:
-        if aapl.time < msft.time:
-            aapl = next(aapl_iter, None)
-            continue
-        if msft.time < aapl.time:
-            msft = next(msft_iter, None)
+    for row in align_many(inputs, driver=driver or "aapl", join=join):
+        aapl = row.values.get("aapl")
+        msft = row.values.get("msft")
+        if aapl is None or msft is None:
             continue
 
         aapl_close = _as_float(getattr(aapl, "close", None), default=0.0)
@@ -75,7 +69,7 @@ def compose_equity_pair_aapl_msft(
             return_spread = aapl_ret - msft_ret
 
         yield EquityPairRecord(
-            time=aapl.time,
+            time=row.time,
             close_ratio=_safe_ratio(aapl_close, msft_close),
             return_spread_1d=return_spread,
             adv5_ratio=_safe_ratio(aapl_adv5, msft_adv5),
@@ -83,5 +77,3 @@ def compose_equity_pair_aapl_msft(
 
         prev_aapl_close = aapl_close
         prev_msft_close = msft_close
-        aapl = next(aapl_iter, None)
-        msft = next(msft_iter, None)

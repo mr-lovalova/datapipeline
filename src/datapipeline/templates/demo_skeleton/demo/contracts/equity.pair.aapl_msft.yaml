@@ -8,7 +8,7 @@ inputs:
 
 mapper:
   entrypoint: compose_equity_pair_aapl_msft
-  args: { driver: aapl }
+  args: { driver: aapl, join: inner }
 
 record:
   - filter: { field: time, operator: ge, comparand: "${start_time}" }

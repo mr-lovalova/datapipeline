@@ -264,6 +264,7 @@ mapper:
   entrypoint: mypkg.domains.air_density:compose_to_record
   args:
     driver: pressure.processed # optional; defaults to first input alias
+    join: inner                # optional: inner | left
 
 # Optional post‑compose policies (run after composition like any stream)
 # record: [...]
@@ -285,7 +286,9 @@ features:
 Notes:
 
 - Inputs always reference canonical stream_ids (not raw sources).
-- Composed mapper signature is `mapper(inputs, *, context, driver, **params)`.
+- Composed mapper signature is `mapper(inputs, *, context, driver, join="inner", **params)`.
+- Use `datapipeline.composed.align_many(inputs, driver=..., join=...)` in mappers for standard timestamp alignment.
+- `join: inner` emits only fully matched timestamps; `join: left` keeps driver timestamps and sets missing inputs to `None`.
 - The composed source outputs records; its own `record`/`stream`/`debug` rules still apply afterward.
 - Partitioning for the engineered domain is explicit via `partition_by` on the composed contract.
 

@@ -1,5 +1,6 @@
 from typing import Iterator, Mapping
 
+from datapipeline.composed import align_many
 from datapipeline.domain.record import TemporalRecord
 
 
@@ -8,9 +9,15 @@ def mapper(
     *,
     context,
     driver: str | None = None,
+    join: str = "inner",
     **params,
 ) -> Iterator[TemporalRecord]:
-    # TODO: implement domain math over aligned upstream stream iterators.
-    key = driver or next(iter(inputs.keys()))
-    for rec in inputs[key]:
+    # TODO: implement domain math over aligned rows (timestamp + alias->record).
+    del context
+    del params
+    for row in align_many(inputs, driver=driver, join=join):
+        key = driver or next(iter(row.values.keys()))
+        rec = row.values.get(key)
+        if rec is None:
+            continue
         yield rec  # replace with your dataclass and computation

@@ -8,7 +8,7 @@
 #   - other.stream.id
 # mapper:                       # required for composed streams
 #   entrypoint: my_composer
-#   args: { driver: alias }     # driver alias must be declared in inputs
+#   args: { driver: alias, join: inner }  # join: inner | left
 # cadence: ${group_by}          # optional per-contract variable for interpolation
 # partition_by: station_id      # optional; string or list of strings
 # sort_batch_size: 100000       # optional; in-memory chunk size for sorting
