@@ -5,14 +5,3 @@ datasets:
   interim-builder: your-interim-data-builder/project.yaml # use this to build interim data used by other datasets
 
 default_dataset: your-dataset
-
-shared:
-  observability:
-    visuals: ON
-    logging:
-      level: INFO
-      outputs:
-        - transport: STDERR
-        - transport: FS
-          scope: GLOBAL
-          path: ./logs/jerry.log

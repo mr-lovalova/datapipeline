@@ -16,9 +16,9 @@ def _log_config():
     )
 
 
-def test_run_profiles_executes_dependencies_then_target(monkeypatch, tmp_path):
+def test_run_profiles_executes_profile_target(monkeypatch, tmp_path):
     schema = SchemaTask(id="schema")
-    metadata = MetadataTask(id="metadata", dependencies=["schema"])
+    metadata = MetadataTask(id="metadata")
     serve = OperationTask.model_validate(
         {
             "id": "pipeline",
@@ -67,7 +67,7 @@ def test_run_profiles_executes_dependencies_then_target(monkeypatch, tmp_path):
     assert calls["dispatch"] == 1
 
 
-def test_run_profiles_can_skip_artifact_dependencies(monkeypatch, tmp_path):
+def test_run_profiles_can_skip_artifact_build(monkeypatch, tmp_path):
     schema = SchemaTask(id="schema")
     serve = OperationTask.model_validate(
         {
@@ -191,7 +191,7 @@ def test_run_profiles_syncs_runtime_artifacts_after_build(monkeypatch, tmp_path)
     assert seen["synced"] is True
 
 
-def test_run_profiles_forward_runtime_build_mode(monkeypatch, tmp_path):
+def test_run_profiles_forward_runtime_build_settings(monkeypatch, tmp_path):
     schema = SchemaTask(id="schema")
 
     log_decision, log_output = _log_config()
@@ -230,8 +230,10 @@ def test_run_profiles_forward_runtime_build_mode(monkeypatch, tmp_path):
 
     run_profiles(request)
 
-    assert seen["runtime_build_mode"] == "FORCE"
-    assert seen["profile_name_override"] == "serve"
+    settings = seen["settings"]
+    assert settings.mode == "FORCE"
+    assert settings.force is True
+    assert settings.profile_name == "serve"
 
 
 def test_runtime_dependency_build_scope_isolated_from_parent_profile(monkeypatch, tmp_path):

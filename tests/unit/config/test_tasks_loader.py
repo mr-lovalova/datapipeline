@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from datapipeline.config.loaders.operations import operation_specs
-from datapipeline.config.loaders.profiles import profile_specs
+from datapipeline.config.loaders.profiles import profile_defaults, profile_specs
 
 
 def _artifact_tasks(project_yaml: Path):
@@ -26,6 +26,10 @@ def _build_profiles(project_yaml: Path):
 
 def _inspect_profiles(project_yaml: Path):
     return list(profile_specs(project_yaml, cmd="inspect"))
+
+
+def _serve_defaults(project_yaml: Path):
+    return profile_defaults(project_yaml, cmd="serve")
 
 
 def _write_project(tmp_path: Path, tasks_ref: str | None = None) -> Path:
@@ -138,6 +142,30 @@ def test_profile_name_is_required(tmp_path):
         _serve_profiles(project_yaml)
 
 
+def test_profile_version_field_is_rejected(tmp_path):
+    project_yaml = _write_project(tmp_path, tasks_ref="tasks")
+    profiles_dir = _profile_kind_dir(project_yaml)
+    (profiles_dir / "serve.train.yaml").write_text(
+        "cmd: serve\nname: train\ntarget: pipeline\nversion: 1\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        _serve_profiles(project_yaml)
+
+
+def test_profile_defaults_version_field_is_rejected(tmp_path):
+    project_yaml = _write_project(tmp_path, tasks_ref="tasks")
+    profiles_dir = _profile_kind_dir(project_yaml)
+    (profiles_dir / "serve.defaults.yaml").write_text(
+        "cmd: serve\nversion: 1\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        _serve_profiles(project_yaml)
+
+
 def test_build_profiles_load_and_respect_enabled(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     tasks_dir = _profile_kind_dir(project_yaml)
@@ -196,17 +224,71 @@ def test_profile_order_overrides_file_order(tmp_path):
     assert [task.name for task in tasks] == ["test", "val", "train"]
 
 
-def test_artifact_task_dependencies_are_normalized(tmp_path):
+def test_serve_defaults_are_loaded_but_not_executable_profiles(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
-    tasks_dir = _operations_dir(project_yaml)
-    (tasks_dir / "metadata.yaml").write_text(
-        "id: metadata\nkind: artifact\ndependencies:\n  - schema\n  - SCHEMA\n",
+    profiles_dir = _profile_kind_dir(project_yaml)
+    (profiles_dir / "serve.defaults.yaml").write_text(
+        (
+            "cmd: serve\n"
+            "observability:\n"
+            "  logging:\n"
+            "    outputs:\n"
+            "      - transport: stdout\n"
+        ),
+        encoding="utf-8",
+    )
+    (profiles_dir / "serve.train.yaml").write_text(
+        "cmd: serve\nname: train\ntarget: pipeline\n",
         encoding="utf-8",
     )
 
-    tasks = _artifact_tasks(project_yaml)
-    metadata = next(task for task in tasks if task.id == "metadata")
-    assert metadata.dependencies == ["schema"]
+    tasks = _serve_profiles(project_yaml)
+    defaults = _serve_defaults(project_yaml)
+
+    assert [task.name for task in tasks] == ["train"]
+    assert defaults is not None
+    assert defaults.cmd == "serve"
+    assert defaults.observability is not None
+
+
+def test_profile_defaults_reject_executable_fields(tmp_path):
+    project_yaml = _write_project(tmp_path, tasks_ref="tasks")
+    profiles_dir = _profile_kind_dir(project_yaml)
+    (profiles_dir / "serve.defaults.yaml").write_text(
+        "cmd: serve\nname: should-not-exist\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        _serve_profiles(project_yaml)
+
+
+def test_duplicate_profile_defaults_per_kind_raise(tmp_path):
+    project_yaml = _write_project(tmp_path, tasks_ref="tasks")
+    profiles_dir = _profile_kind_dir(project_yaml)
+    (profiles_dir / "serve.defaults.yaml").write_text(
+        "cmd: serve\n",
+        encoding="utf-8",
+    )
+    (profiles_dir / "serve.defaults.yml").write_text(
+        "cmd: serve\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Duplicate serve defaults"):
+        _serve_profiles(project_yaml)
+
+
+def test_artifact_operation_rejects_dependencies_field(tmp_path):
+    project_yaml = _write_project(tmp_path, tasks_ref="tasks")
+    tasks_dir = _operations_dir(project_yaml)
+    (tasks_dir / "metadata.yaml").write_text(
+        "id: metadata\nkind: artifact\ndependencies:\n  - schema\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        _artifact_tasks(project_yaml)
 
 
 def test_serve_operation_tasks_load(tmp_path):

@@ -16,7 +16,7 @@ All commands that take a project accept either `--project <path/to/project.yaml>
   - Stage 6: feature transforms/sequence outputs
   - Stage 7: vectors assembled (no postprocess)
   - Stage 8: vectors + postprocess transforms
-  - Use `--log-level DEBUG` for full debug output; default is `INFO` (or `jerry.yaml.shared.observability.logging.level` when set).
+  - Use `--log-level DEBUG` for full debug output; default is `INFO`.
   - Artifact preparation is profile-driven: keep artifact-targeted serve profiles (`serve.schema`, `serve.metadata`, `serve.scaler`) ahead of runtime targets (`serve.train`/`serve.val`/`serve.test`) using `order`.
 - `jerry serve --project <project.yaml> --output-transport stdout --output-format jsonl --output-view flat|raw|values --output-encoding <codec> --limit N [--log-level LEVEL] [--visuals on|off] [--run name]`
   - Applies postprocess transforms and optional dataset split before emitting.
@@ -37,7 +37,7 @@ All commands that take a project accept either `--project <path/to/project.yaml>
 ### Build & Quality
 
 - `jerry inspect --project <project.yaml> [--run <inspect-profile>] [--skip-build] [--visuals on|off]`
-  - Runs inspect profiles declared as `profiles/inspect.<name>.yaml` (`type: inspect`).
+  - Runs inspect profiles declared as `profiles/inspect.<name>.yaml` (`cmd: inspect`).
   - Without `--run`, executes all enabled inspect profiles.
   - Use `--run report`, `--run matrix`, etc to execute one profile.
   - Profile targets map to inspect operations in `tasks/operations/` (`core.inspect.report`, `core.inspect.matrix`).
@@ -48,7 +48,7 @@ All commands that take a project accept either `--project <path/to/project.yaml>
 - `jerry build --project <project.yaml> [--run <profile>] [--force] [--visuals on|off]`
   - Regenerates artifact tasks declared under `project.paths.tasks` when the configuration hash changes.
   - If `kind: build` profiles are defined, enabled profiles run by default; use `--run` to target one profile.
-  - Each build profile executes one configured `target` operation task (and its dependencies).
+  - Each build profile executes one configured `target` operation task.
 
 ### Scaffolding & Reference
 

@@ -1,6 +1,5 @@
 import json
 import logging
-from dataclasses import replace
 from pathlib import Path
 
 from datapipeline.artifacts.planning import (
@@ -90,10 +89,8 @@ def _resolve_effective_settings(
     cli_log_level: str | None,
     cli_visuals: str | None,
     cli_log_outputs: list[LogOutputTarget] | None,
-    workspace,
     build_profile: BuildProfile | None,
     settings: BuildSettings | None,
-    profile_name_override: str | None,
 ) -> BuildSettings:
     if settings is None:
         base_level_name = str(
@@ -102,7 +99,6 @@ def _resolve_effective_settings(
         try:
             settings = resolve_build_settings(
                 project_path=project_path,
-                workspace=workspace,
                 cli_log_level=cli_log_level,
                 cli_visuals=cli_visuals,
                 cli_log_outputs=cli_log_outputs,
@@ -114,8 +110,6 @@ def _resolve_effective_settings(
         except ValueError as exc:
             logger.error("Invalid log output configuration: %s", exc)
             raise SystemExit(2) from exc
-    if profile_name_override is not None:
-        settings = replace(settings, profile_name=profile_name_override)
     return settings
 
 
@@ -222,7 +216,7 @@ def _execute_build_jobs(
                 task_id=task.id,
                 item_index=idx,
                 item_total=total,
-                announce=total > 1,
+                announce=True,
             ):
                 result = _run_artifact_builder(
                     runtime=runtime,
@@ -296,12 +290,10 @@ def run_build_if_needed(
     cli_log_level: str | None = None,
     cli_visuals: str | None = None,
     cli_log_outputs: list[LogOutputTarget] | None = None,
-    workspace=None,
     required_artifacts: set[str] | None = None,
     build_profile: BuildProfile | None = None,
     artifact_task_configs: list[ArtifactTask] | None = None,
     settings: BuildSettings | None = None,
-    profile_name_override: str | None = None,
     skip_logging_setup: bool = False,
     runtime_override: Runtime | None = None,
 ) -> bool:
@@ -314,10 +306,8 @@ def run_build_if_needed(
         cli_log_level=cli_log_level,
         cli_visuals=cli_visuals,
         cli_log_outputs=cli_log_outputs,
-        workspace=workspace,
         build_profile=build_profile,
         settings=settings,
-        profile_name_override=profile_name_override,
     )
     if not skip_logging_setup:
         configure_root_logging(

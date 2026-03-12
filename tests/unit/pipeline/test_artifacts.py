@@ -1,18 +1,10 @@
 import tomllib
 from pathlib import Path
 
-from datapipeline.config.dataset.dataset import FeatureDatasetConfig
-from datapipeline.config.dataset.feature import FeatureRecordConfig
-import pytest
-
 from datapipeline.artifacts.specs import (
     ARTIFACT_DEFINITIONS,
-    ArtifactDefinition,
-    StageDemand,
-    artifact_definitions_with_task_dependencies,
     artifact_build_order,
     artifact_keys_for_task_ids,
-    required_artifacts_for,
 )
 from datapipeline.config.tasks import (
     MetadataTask,
@@ -44,80 +36,16 @@ def _declared_entrypoints(group: str) -> dict[str, str]:
     }
 
 
-def _dataset(scale: bool = False) -> FeatureDatasetConfig:
-    return FeatureDatasetConfig(
-        group_by="1h",
-        features=[
-            FeatureRecordConfig(
-                record_stream="records",
-                id="temp",
-                field="value",
-                scale=scale,
-            )
-        ],
-        targets=[],
-    )
-
-
-def test_metadata_not_required_for_preview_stages():
-    required = required_artifacts_for(_dataset(), [StageDemand(stage=2)])
-
-    assert required == set()
-    assert VECTOR_SCHEMA_METADATA not in required
-
-
-def test_scaler_but_not_metadata_for_transform_stage():
-    required = required_artifacts_for(_dataset(scale=True), [StageDemand(stage=6)])
-
-    assert SCALER_STATISTICS in required
-    assert VECTOR_SCHEMA not in required
-    assert VECTOR_SCHEMA_METADATA not in required
-
-
-def test_metadata_not_required_for_feature_preview_tail_stage():
-    required = required_artifacts_for(_dataset(), [StageDemand(stage=7)])
-
-    assert VECTOR_SCHEMA not in required
-    assert VECTOR_SCHEMA_METADATA not in required
-    assert SCALER_STATISTICS not in required
-
-
-def test_metadata_required_for_full_pipeline_run():
-    required = required_artifacts_for(_dataset(), [StageDemand(stage=None)])
-
-    assert VECTOR_SCHEMA in required
-    assert VECTOR_SCHEMA_METADATA in required
-    assert SCALER_STATISTICS not in required
-    assert VECTOR_STATS not in required
-
-
-def test_artifact_build_order_resolves_dependencies():
-    definitions = artifact_definitions_with_task_dependencies(
-        [
-            SchemaTask(id="schema"),
-            MetadataTask(id="metadata", dependencies=["schema"]),
-            ScalerTask(id="scaler"),
-        ]
-    )
+def test_artifact_build_order_follows_definition_precedence():
     ordered = artifact_build_order(
         {VECTOR_SCHEMA_METADATA, SCALER_STATISTICS},
-        definitions=definitions,
     )
-    assert ordered == [VECTOR_SCHEMA, VECTOR_SCHEMA_METADATA, SCALER_STATISTICS]
+    assert ordered == [VECTOR_SCHEMA_METADATA, SCALER_STATISTICS]
 
 
 def test_artifact_keys_for_task_ids():
     keys = artifact_keys_for_task_ids({"schema", "scaler", "stats"})
     assert keys == {VECTOR_SCHEMA, SCALER_STATISTICS, VECTOR_STATS}
-
-
-def test_artifact_build_order_detects_cycles():
-    specs = (
-        ArtifactDefinition(key="a", task_id="a", min_stage=0, dependencies=("b",)),
-        ArtifactDefinition(key="b", task_id="b", min_stage=0, dependencies=("a",)),
-    )
-    with pytest.raises(ValueError, match="dependency cycle"):
-        artifact_build_order({"a"}, definitions=specs)
 
 
 def test_artifact_definitions_have_runner_bound_entrypoints():

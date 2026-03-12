@@ -8,5 +8,4 @@
 # entrypoint: core.artifact.schema # optional; build runner id
 #
 # output: build/schema.json  # optional; relative to project.paths.artifacts
-# dependencies: []           # optional; artifact task ids this task depends on
 # cadence_strategy: max      # optional; currently only "max"

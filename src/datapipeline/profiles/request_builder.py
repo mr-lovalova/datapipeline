@@ -8,7 +8,10 @@ from pydantic import ValidationError
 from datapipeline.config.build_resolution import resolve_build_settings
 from datapipeline.config.dataset.loader import load_dataset
 from datapipeline.config.loaders.operations import operation_specs
-from datapipeline.config.loaders.profiles import profile_specs
+from datapipeline.config.loaders.profiles import (
+    apply_profile_defaults,
+    profile_specs_with_defaults,
+)
 from datapipeline.config.profiles import (
     BuildProfile,
     InspectProfile,
@@ -119,7 +122,7 @@ def build_cli_output_config(
 
 def _select_profiles(params: ProfileResolveParams):
     try:
-        profiles = profile_specs(
+        profiles, defaults = profile_specs_with_defaults(
             params.project_path,
             cmd=params.command,
         )
@@ -130,11 +133,12 @@ def _select_profiles(params: ProfileResolveParams):
         logger.error("Project does not define %s profiles.", params.command)
         raise SystemExit(2)
     try:
-        return select_profiles(
+        selected = select_profiles(
             profiles,
             params.run_name,
             params.command,
         )
+        return [apply_profile_defaults(profile, defaults) for profile in selected]
     except ValueError as exc:
         logger.error("%s", exc)
         raise SystemExit(2) from exc
@@ -149,7 +153,6 @@ def _resolve_build_execution_profiles(
         try:
             settings = resolve_build_settings(
                 project_path=params.project_path,
-                workspace=params.workspace,
                 cli_log_level=params.cli_log_level,
                 cli_visuals=params.cli_visuals,
                 cli_log_outputs=params.cli_log_outputs,
@@ -205,7 +208,6 @@ def _resolve_runtime_execution_profiles(
             limit=params.limit,
             cli_build_mode=params.build_mode,
             cli_output=cli_output_cfg,
-            workspace=params.workspace,
             cli_log_level=params.cli_log_level,
             cli_log_outputs=params.cli_log_outputs,
             base_log_level=params.base_log_level,
@@ -321,8 +323,4 @@ def build_profile_run_request(
         artifact_task_configs=declared_artifact_tasks,
         profiles=profiles,
         skip_build=params.skip_build,
-        cli_log_level=params.cli_log_level,
-        cli_visuals=params.cli_visuals,
-        cli_log_outputs=tuple(params.cli_log_outputs or ()),
-        workspace=params.workspace,
     )

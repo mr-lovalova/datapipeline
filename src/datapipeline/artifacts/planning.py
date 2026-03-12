@@ -2,16 +2,12 @@ from dataclasses import dataclass
 from typing import Iterable
 
 from datapipeline.artifacts.specs import (
+    ARTIFACT_DEFINITIONS,
     ArtifactDefinition,
-    StageDemand,
-    artifact_build_order,
-    artifact_definitions_with_task_dependencies,
     artifact_key_for_task_id,
     artifact_keys_for_task_ids,
-    required_artifacts_for,
 )
 from datapipeline.build.state import BuildState
-from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.tasks import ArtifactTask
 
 
@@ -26,33 +22,11 @@ def build_planning_context(
     task_configs: Iterable[ArtifactTask],
 ) -> ArtifactPlanningContext:
     configs = tuple(task_configs)
-    definitions = artifact_definitions_with_task_dependencies(configs)
     return ArtifactPlanningContext(
         task_configs=configs,
-        definitions=definitions,
+        definitions=ARTIFACT_DEFINITIONS,
         tasks_by_id={task.id: task for task in configs},
     )
-
-
-def ordered_required_artifact_keys(
-    *,
-    dataset: FeatureDatasetConfig,
-    demands: Iterable[StageDemand],
-    context: ArtifactPlanningContext,
-    extra_task_ids: Iterable[str] = (),
-) -> list[str]:
-    required = required_artifacts_for(
-        dataset,
-        demands,
-        definitions=context.definitions,
-    )
-    extra_ids = {task_id for task_id in extra_task_ids if task_id}
-    if extra_ids:
-        required |= artifact_keys_for_task_ids(
-            extra_ids,
-            context.definitions,
-        )
-    return artifact_build_order(required, definitions=context.definitions)
 
 
 def selected_artifact_keys_for_build(

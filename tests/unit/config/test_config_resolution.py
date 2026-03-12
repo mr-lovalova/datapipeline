@@ -24,14 +24,13 @@ def test_resolve_visuals_applies_priority():
     visuals = resolve_visuals(
         cli_visuals="OFF",
         config_visuals="ON",
-        workspace_visuals="ON",
     )
     assert visuals.visuals == "off"
 
     visuals = resolve_visuals(
         cli_visuals=None,
         config_visuals=None,
-        workspace_visuals="ON",
+        default_visuals="on",
     )
     assert visuals.visuals == "on"
 

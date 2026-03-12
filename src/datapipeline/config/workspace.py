@@ -1,16 +1,11 @@
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from datapipeline.services.path_policy import resolve_workspace_path, workspace_cwd
-from datapipeline.config.observability import ObservabilityConfig
 from datapipeline.utils.load import load_yaml
-
-
-class SharedDefaults(BaseModel):
-    observability: Optional[ObservabilityConfig] = Field(default=None)
 
 
 class WorkspaceConfig(BaseModel):
@@ -25,7 +20,6 @@ class WorkspaceConfig(BaseModel):
         default=None,
         description="Optional default dataset alias when --dataset/--project are omitted.",
     )
-    shared: SharedDefaults = Field(default_factory=SharedDefaults)
 
 
 @dataclass
@@ -78,10 +72,6 @@ def load_workspace_context(start_dir: Optional[Path] = None) -> Optional[Workspa
             data = load_yaml(candidate)
             if not isinstance(data, dict):
                 raise TypeError("jerry.yaml must define a mapping at the top level")
-            # Allow users to set shared to null to fall back to defaults.
-            for key in ("shared",):
-                if key in data and data[key] is None:
-                    data.pop(key)
             cfg = WorkspaceConfig.model_validate(data)
             return WorkspaceContext(file_path=candidate, config=cfg)
     return None

@@ -1,0 +1,11 @@
+# See ../../reference/reference/tasks/profiles/serve.reference.yaml for full options.
+# Defaults for all serve.<name>.yaml profiles in this project.
+# precedence: CLI > serve.<name>.yaml > serve.defaults.yaml > built-ins
+cmd: serve
+# output:
+#   transport: stdout
+#   format: jsonl
+# observability:
+#   visuals: OFF
+#   logging:
+#     level: INFO

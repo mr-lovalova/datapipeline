@@ -7,7 +7,6 @@ from datapipeline.config.build_resolution import resolve_build_settings
 from datapipeline.config.profiles import BuildProfile
 from datapipeline.config.resolution import LogOutputSettings, LogOutputTarget
 from datapipeline.config.tasks import SchemaTask, ScalerTask, StatsTask
-from datapipeline.config.workspace import WorkspaceConfig, WorkspaceContext
 from datapipeline.operations.persistence import ArtifactOutput
 from datapipeline.services.artifacts import ArtifactManager
 from datapipeline.services.constants import VECTOR_SCHEMA_METADATA, VECTOR_STATS
@@ -99,7 +98,6 @@ def test_run_build_if_needed_forwards_cli_log_outputs(monkeypatch, tmp_path):
     def _fake_resolve_build_settings(
         
         project_path=None,
-        workspace=None,
         cli_log_level=None,
         cli_visuals=None,
         cli_log_outputs=None,
@@ -108,7 +106,6 @@ def test_run_build_if_needed_forwards_cli_log_outputs(monkeypatch, tmp_path):
         base_log_level=None,
         build_profile=None,
     ):
-        captured["workspace"] = workspace
         captured["cli_log_level"] = cli_log_level
         captured["cli_visuals"] = cli_visuals
         captured["cli_log_outputs"] = cli_log_outputs
@@ -138,7 +135,6 @@ def test_run_build_if_needed_forwards_cli_log_outputs(monkeypatch, tmp_path):
             transport="fs",
             destination=tmp_path / "logs" / "jerry.log",
         )],
-        workspace=SimpleNamespace(),
     )
 
     assert captured["cli_log_outputs"] == [LogOutputTarget(
@@ -150,24 +146,8 @@ def test_run_build_if_needed_forwards_cli_log_outputs(monkeypatch, tmp_path):
     assert captured["runtime_build_mode"] is None
 
 
-def test_resolve_build_settings_uses_shared_observability_defaults(tmp_path):
-    cfg = WorkspaceConfig.model_validate(
-        {
-            "shared": {
-                "observability": {
-                    "visuals": "OFF",
-                    "logging": {
-                        "level": "INFO",
-                        "outputs": [{"transport": "stderr"}],
-                    },
-                }
-            },
-        }
-    )
-    workspace = WorkspaceContext(file_path=tmp_path / "jerry.yaml", config=cfg)
-
+def test_resolve_build_settings_uses_builtin_observability_defaults(tmp_path):
     settings = resolve_build_settings(
-        workspace=workspace,
         cli_log_level=None,
         cli_visuals=None,
         cli_log_outputs=None,
@@ -175,24 +155,17 @@ def test_resolve_build_settings_uses_shared_observability_defaults(tmp_path):
         base_log_level="WARNING",
     )
 
-    assert settings.visuals == "off"
-    assert settings.log_decision.name == "INFO"
+    assert settings.visuals == "on"
+    assert settings.log_decision.name == "WARNING"
     assert settings.log_output.outputs[0].transport == "stderr"
     assert settings.log_output.outputs[0].destination is None
     assert settings.profile_name is None
 
 
-def test_resolve_build_settings_cli_overrides_shared_observability(tmp_path):
-    cfg = WorkspaceConfig.model_validate(
-        {
-            "shared": {"observability": {"visuals": "ON", "logging": {"level": "DEBUG"}}},
-        }
-    )
-    workspace = WorkspaceContext(file_path=tmp_path / "jerry.yaml", config=cfg)
+def test_resolve_build_settings_cli_overrides_defaults(tmp_path):
     cli_target = LogOutputTarget(transport="stdout")
 
     settings = resolve_build_settings(
-        workspace=workspace,
         cli_log_level="ERROR",
         cli_visuals="off",
         cli_log_outputs=[cli_target],
@@ -207,10 +180,6 @@ def test_resolve_build_settings_cli_overrides_shared_observability(tmp_path):
 
 def test_resolve_build_settings_runtime_mode_override(tmp_path):
     settings = resolve_build_settings(
-        workspace=WorkspaceContext(
-            file_path=tmp_path / "jerry.yaml",
-            config=WorkspaceConfig.model_validate({}),
-        ),
         cli_log_level=None,
         cli_visuals=None,
         cli_log_outputs=None,
@@ -223,13 +192,7 @@ def test_resolve_build_settings_runtime_mode_override(tmp_path):
     assert settings.force is False
 
 
-def test_resolve_build_settings_prefers_profile_over_workspace_shared(tmp_path):
-    cfg = WorkspaceConfig.model_validate(
-        {
-            "shared": {"observability": {"visuals": "OFF", "logging": {"level": "INFO"}}},
-        }
-    )
-    workspace = WorkspaceContext(file_path=tmp_path / "jerry.yaml", config=cfg)
+def test_resolve_build_settings_prefers_profile_over_defaults(tmp_path):
     profile = BuildProfile.model_validate(
         {
             "cmd": "build",
@@ -248,7 +211,6 @@ def test_resolve_build_settings_prefers_profile_over_workspace_shared(tmp_path):
 
     settings = resolve_build_settings(
         project_path=tmp_path / "project.yaml",
-        workspace=workspace,
         cli_log_level=None,
         cli_visuals=None,
         cli_log_outputs=None,
@@ -266,10 +228,6 @@ def test_resolve_build_settings_prefers_profile_over_workspace_shared(tmp_path):
 
 
 def test_resolve_build_settings_requires_project_path_with_profile(tmp_path):
-    workspace = WorkspaceContext(
-        file_path=tmp_path / "jerry.yaml",
-        config=WorkspaceConfig.model_validate({}),
-    )
     profile = BuildProfile.model_validate(
         {
             "cmd": "build",
@@ -280,7 +238,6 @@ def test_resolve_build_settings_requires_project_path_with_profile(tmp_path):
 
     with pytest.raises(ValueError, match="project_path is required"):
         resolve_build_settings(
-            workspace=workspace,
             cli_log_level=None,
             cli_visuals=None,
             cli_log_outputs=None,
@@ -291,14 +248,8 @@ def test_resolve_build_settings_requires_project_path_with_profile(tmp_path):
 
 
 def test_resolve_build_settings_profile_log_paths_are_project_relative(tmp_path):
-    workspace_root = tmp_path / "workspace"
-    project_root = workspace_root / "datasets" / "demo"
-    workspace_root.mkdir(parents=True, exist_ok=True)
+    project_root = tmp_path / "datasets" / "demo"
     project_root.mkdir(parents=True, exist_ok=True)
-    workspace = WorkspaceContext(
-        file_path=workspace_root / "jerry.yaml",
-        config=WorkspaceConfig.model_validate({}),
-    )
     project_path = project_root / "project.yaml"
 
     profile = BuildProfile.model_validate(
@@ -316,7 +267,6 @@ def test_resolve_build_settings_profile_log_paths_are_project_relative(tmp_path)
 
     settings = resolve_build_settings(
         project_path=project_path,
-        workspace=workspace,
         cli_log_level=None,
         cli_visuals=None,
         cli_log_outputs=None,
@@ -327,31 +277,33 @@ def test_resolve_build_settings_profile_log_paths_are_project_relative(tmp_path)
     assert settings.log_output.outputs[0].destination == (project_root / "logs" / "nightly.log").resolve()
 
 
-def test_resolve_build_settings_ignores_run_scoped_workspace_outputs(tmp_path):
-    cfg = WorkspaceConfig.model_validate(
+def test_resolve_build_settings_rejects_run_scoped_profile_outputs(tmp_path):
+    profile = BuildProfile.model_validate(
         {
-            "shared": {
-                "observability": {
-                    "logging": {
-                        "outputs": [{"transport": "fs", "scope": "run"}],
-                    },
-                }
+            "cmd": "build",
+            "name": "nightly",
+            "target": "schema",
+            "observability": {
+                "logging": {
+                    "outputs": [{"transport": "fs", "scope": "run"}],
+                },
             },
         }
     )
-    workspace = WorkspaceContext(file_path=tmp_path / "jerry.yaml", config=cfg)
 
-    settings = resolve_build_settings(
-        workspace=workspace,
-        cli_log_level=None,
-        cli_visuals=None,
-        cli_log_outputs=None,
-        force_flag=False,
-        base_log_level="INFO",
-    )
-
-    assert settings.log_output.outputs[0].transport == "stderr"
-    assert settings.log_output.outputs[0].destination is None
+    with pytest.raises(
+        ValueError,
+        match="only valid for run-scoped runtime operations",
+    ):
+        resolve_build_settings(
+            project_path=tmp_path / "project.yaml",
+            cli_log_level=None,
+            cli_visuals=None,
+            cli_log_outputs=None,
+            force_flag=False,
+            base_log_level="INFO",
+            build_profile=profile,
+        )
 
 
 def test_run_build_if_needed_preserves_previous_artifacts_in_state(monkeypatch, tmp_path):

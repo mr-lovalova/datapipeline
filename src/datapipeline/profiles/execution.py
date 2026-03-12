@@ -7,6 +7,7 @@ from datapipeline.artifacts.specs import artifact_keys_for_task_ids
 from datapipeline.artifacts.executor import run_build_if_needed
 from datapipeline.build.state import load_build_state
 from datapipeline.cli.visuals.execution import execution_scope
+from datapipeline.config.build_resolution import BuildSettings
 from datapipeline.config.tasks import ArtifactTask, OperationTask, Task
 from datapipeline.operations.dispatch import execute_operation
 from datapipeline.operations.persistence import (
@@ -81,28 +82,21 @@ def run_selected_artifacts(
     if not required_artifacts:
         return
     settings = profile.build_settings
-    runtime_build_mode = profile.build_mode
-    cli_log_level = request.cli_log_level
-    cli_visuals = request.cli_visuals
-    cli_log_outputs = request.cli_log_outputs
-    workspace = request.workspace
-    if settings is not None:
-        runtime_build_mode = None
-        cli_log_level = None
-        cli_visuals = None
-        cli_log_outputs = ()
-        workspace = None
+    if settings is None:
+        mode = str(profile.build_mode or "AUTO").upper()
+        settings = BuildSettings(
+            visuals=profile.visuals,
+            log_decision=profile.log_decision,
+            log_output=profile.log_output,
+            mode=mode,
+            force=(mode == "FORCE"),
+            profile_name=profile.name,
+        )
     run_build_if_needed(
         request.project_path,
-        runtime_build_mode=runtime_build_mode,
-        cli_log_level=cli_log_level,
-        cli_visuals=cli_visuals,
-        cli_log_outputs=list(cli_log_outputs or ()),
-        workspace=workspace,
         required_artifacts=required_artifacts,
         artifact_task_configs=list(request.artifact_task_configs),
         settings=settings,
-        profile_name_override=profile.name,
         skip_logging_setup=True,
         runtime_override=runtime_override,
     )
@@ -208,7 +202,7 @@ def execute_profile(
             task_id=task.id,
             item_index=idx,
             item_total=total_runtime_tasks,
-            announce=total_runtime_tasks > 1,
+            announce=True,
         ):
             run_runtime_task(task, profile, runtime)
 

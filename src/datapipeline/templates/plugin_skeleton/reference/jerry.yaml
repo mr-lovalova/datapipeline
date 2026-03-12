@@ -6,14 +6,3 @@
 # datasets:                        # optional
 #   default: example/project.yaml  # optional (relative to jerry.yaml)
 # default_dataset: default         # optional (must be a key in datasets)
-#
-# shared:                          # optional
-#   observability:                 # optional
-#     visuals: ON                  # optional; ON | OFF
-#     logging:                     # optional
-#       level: INFO                # optional; CRITICAL | ERROR | WARNING | INFO | DEBUG
-#       outputs:                   # optional; fanout list for the selected config layer
-#         - transport: STDERR      # STDERR | STDOUT | FS
-#         - transport: FS
-#           scope: GLOBAL          # GLOBAL | RUN
-#           path: ./logs/jerry.log # required for FS+GLOBAL

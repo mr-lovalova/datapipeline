@@ -9,7 +9,6 @@ class Profile(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    version: int = Field(default=1)
     cmd: str
     name: str
     order: int | None = Field(default=None, ge=0)
