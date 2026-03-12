@@ -11,7 +11,6 @@ from datapipeline.config.resolution import (
     LogOutputTarget,
     parse_log_output_specs,
     resolve_log_output,
-    resolve_workspace_log_outputs,
 )
 from datapipeline.config.workspace import WorkspaceContext, load_workspace_context
 from datapipeline.services.path_policy import resolve_workspace_path, workspace_cwd
@@ -114,17 +113,7 @@ def _configure_cli_logging(
     cli_level_arg = getattr(args, "log_level", None)
     cli_log_output_specs = getattr(args, "log_output", None)
 
-    shared_defaults = workspace_context.config.shared if workspace_context else None
-    shared_observability = shared_defaults.observability if shared_defaults else None
-    shared_logging_cfg = (
-        shared_observability.logging if shared_observability is not None else None
-    )
-    default_level_name = (
-        shared_logging_cfg.level.upper()
-        if shared_logging_cfg and shared_logging_cfg.level
-        else "INFO"
-    )
-    base_level_name = (cli_level_arg or default_level_name).upper()
+    base_level_name = (cli_level_arg or "INFO").upper()
     base_level = logging._nameToLevel.get(base_level_name, logging.WARNING)
 
     try:
@@ -135,14 +124,9 @@ def _configure_cli_logging(
                 workspace_context.root if workspace_context is not None else None,
             ),
         )
-        shared_log_outputs = resolve_workspace_log_outputs(
-            getattr(shared_logging_cfg, "outputs", None),
-            workspace=workspace_context,
-        )
         base_log_output = resolve_log_output(
             output_candidates=(
                 [item for item in cli_log_outputs if item.scope != "run"],
-                [item for item in shared_log_outputs if item.scope != "run"],
             ),
             allow_run_scope=False,
         )

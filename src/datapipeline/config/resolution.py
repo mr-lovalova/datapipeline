@@ -3,9 +3,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional, Sequence
 
-from datapipeline.config.workspace import WorkspaceContext
-from datapipeline.services.path_policy import resolve_workspace_path, sanitize_path_segment
 from datapipeline.config.options import LOG_SCOPE_CHOICES, LOG_TRANSPORT_CHOICES
+from datapipeline.services.path_policy import sanitize_path_segment
 
 LOG_TRANSPORT_SET = set(LOG_TRANSPORT_CHOICES)
 LOG_SCOPE_SET = set(LOG_SCOPE_CHOICES)
@@ -62,13 +61,11 @@ def resolve_visuals(
     
     cli_visuals: str | None,
     config_visuals: str | None,
-    workspace_visuals: str | None,
     default_visuals: str = "on",
 ) -> VisualSettings:
     visuals = cascade(
         _normalize_lower(cli_visuals),
         _normalize_lower(config_visuals),
-        _normalize_lower(workspace_visuals),
         default_visuals,
     ) or default_visuals
     return VisualSettings(visuals=visuals)
@@ -136,20 +133,6 @@ def log_output_targets_from_config(
             )
         )
     return resolved
-
-
-def resolve_workspace_log_outputs(
-    outputs,
-    
-    workspace: WorkspaceContext | None,
-) -> list[LogOutputTarget]:
-    return log_output_targets_from_config(
-        outputs,
-        resolve_global_path=lambda value: resolve_workspace_path(
-            value,
-            workspace.root if workspace is not None else None,
-        ),
-    )
 
 
 def resolve_project_log_outputs(

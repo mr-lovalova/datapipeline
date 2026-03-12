@@ -23,10 +23,9 @@ order (highest precedence first):
 
 1. **CLI flags** – anything you pass on the command line always wins.
 2. **Project profile files** – profile configs under `project.paths.profiles`
-   (`type: serve|build|inspect`) supply per-command defaults and selection policy.
-3. **`jerry.yaml` command blocks** – settings under `jerry.serve` and `jerry.build`.
-4. **`jerry.yaml.shared.observability`** – shared fallbacks for visuals/logging settings.
-5. **Built-in defaults** – runtime hard-coded defaults.
+   (`cmd: serve|build|inspect`) supply per-command defaults and selection policy.
+3. **Per-kind profile defaults** – optional `profiles/<kind>.defaults.yaml`.
+4. **Built-in defaults** – runtime hard-coded defaults.
 
 ## YAML Config Reference
 
@@ -65,6 +64,8 @@ globals:
   Runtime operations (`serve`, `report`, `matrix`, ...) define executable runtime steps.
 - `paths.profiles` points to profile specs grouped by type:
   `profiles/serve.<name>.yaml`, `profiles/build.<name>.yaml`, `profiles/inspect.<name>.yaml`.
+  Optional defaults files may also be declared once per kind:
+  `profiles/serve.defaults.yaml`, `profiles/build.defaults.yaml`, `profiles/inspect.defaults.yaml`.
   When multiple serve/build profiles exist, `jerry serve --run <name>` and
   `jerry build --run <name>` select by explicit profile `name`.
 - Label names are free-form: match whatever keys you declare in `split.ratios` (hash) or `split.labels` (time).
@@ -72,7 +73,7 @@ globals:
 ### Serve Profiles (`profiles/serve.<name>.yaml`)
 
 ```yaml
-type: serve
+cmd: serve
 name: train # required; unique among serve profiles
 target: serve # serve operation name from tasks/operations
 keep: train # select active split label (null disables filtering)
@@ -100,13 +101,13 @@ throttle_ms: null # milliseconds to sleep between emitted vectors
 - `output.encoding` is supported for fs `jsonl`/`csv` outputs (default `utf-8`); it is invalid for `stdout` and `pickle`.
 - Override `keep` (and other fields) per invocation via `jerry serve ... --keep val` etc.
 - Visuals backend: set `observability.visuals: ON|OFF` in the task or use `--visuals on|off`.
-- Add additional `type: serve` files under `profiles/` using the `serve.` prefix for other splits (val/test/etc.); `jerry serve` runs each enabled profile unless you pass `--run <name>`.
-- Use `jerry.yaml` next to the project or workspace root to define shared defaults (`shared.observability.*` and output defaults); CLI flags still take precedence.
+- Add additional `cmd: serve` files under `profiles/` using the `serve.` prefix for other splits (val/test/etc.); `jerry serve` runs each enabled profile unless you pass `--run <name>`.
+- Use `profiles/serve.defaults.yaml` for common serve defaults shared across all serve profiles in a project. CLI flags and concrete profiles still take precedence.
 
 ### Build Profiles (`profiles/build.<name>.yaml`)
 
 ```yaml
-type: build
+cmd: build
 name: schema # required; unique among build profiles
 target: schema # required; artifact task kind to execute
 mode: AUTO # AUTO | FORCE | OFF
@@ -122,11 +123,18 @@ mode: AUTO # AUTO | FORCE | OFF
 #         path: ./logs/build.log
 ```
 
-- `type: build` profiles are orchestration profiles; they do not replace artifact task definitions.
+- `cmd: build` profiles are orchestration profiles; they do not replace artifact task definitions.
 - `target` selects the artifact task kind for that profile (`schema`, `scaler`, `metadata`, ...).
 - Build profile `observability.logging.outputs[].path` values are resolved relative to the dataset project root (`project.yaml` directory).
 - `jerry build` runs enabled build profiles when they exist; `jerry build --run <name>` targets one profile.
-- Precedence for build settings: CLI > build profile > `jerry.yaml build` > `jerry.yaml shared` > defaults.
+- Precedence for build settings: CLI > `build.<name>.yaml` > `build.defaults.yaml` > built-ins.
+
+### Profile Defaults (`profiles/<kind>.defaults.yaml`)
+
+- Defaults files are optional and non-executable.
+- They must include only `cmd` plus non-routing defaults for that kind.
+- They must not include execution identity fields such as `name`, `target`, `enabled`, or `order`.
+- Recommended precedence for runtime/build settings: CLI > concrete profile > `<kind>.defaults.yaml` > built-ins.
 
 ### Runtime Operations (`tasks/operations/*.yaml`)
 
@@ -138,7 +146,7 @@ entrypoint: core.serve_pipeline
 - Runtime operations are executable units; profiles reference them via `target`.
 - `entrypoint` must resolve to a registered operation runner (`core.serve.*`, `core.inspect.*`, ...).
 
-### Workspace Defaults (`jerry.yaml`)
+### Workspace Routing (`jerry.yaml`)
 
 Create an optional `jerry.yaml` in the directory where you run the CLI to share settings across commands. The CLI walks up from the current working directory to find the first `jerry.yaml`.
 
@@ -149,46 +157,11 @@ plugin_root: lib/my-datapipeline # active plugin workspace (relative to this fil
 datasets:
   your-dataset: lib/my-datapipeline/your-dataset/project.yaml
 default_dataset: your-dataset
-
-shared:
-  observability:
-    visuals: ON # ON | OFF
-    logging:
-      level: INFO
-      outputs:
-        - transport: STDERR
-        - transport: FS
-          scope: GLOBAL
-          path: ./logs/jerry.log
-
-serve:
-  observability:
-    logging:
-      outputs:
-        - transport: FS
-          scope: RUN # logs under each run directory
-  limit: null
-  stage: null
-  output:
-    transport: stdout
-    format: jsonl # stdout: jsonl
-    # view: raw # optional; flat | raw | values (default: jsonl->raw, csv/pickle->flat)
-    # encoding: utf-8 # fs jsonl/csv only
-    # directory: artifacts/serve # Required when transport=fs
-
-build:
-  observability:
-    visuals: OFF
-    logging:
-      level: INFO
-      outputs:
-        - transport: FS
-          scope: GLOBAL
-          path: ./logs/build.log
-  mode: AUTO # AUTO | FORCE | OFF
 ```
 
-`jerry.yaml` sits near the root of your workspace, while dataset-specific overrides live in `profiles/{serve,build,inspect}.<name>.yaml` and `tasks/operations/*.yaml`.
+`jerry.yaml` sits near the root of your workspace and is only used for workspace routing (`plugin_root`, dataset aliases, default dataset).
+- Command/runtime settings belong in profile files under `profiles/`.
+- Run-scoped logs (`scope: RUN`) are configured on serve profiles (or via CLI `--log-output run[...]`).
 
 ### `<project_root>/sources/<alias>.yaml`
 
@@ -392,7 +365,7 @@ split_label: train
 - Artifact task execution order is driven by the selected profile sequence, not a dependency tree on operation specs.
 - All operation tasks share the same execution interface: `entrypoint` selects the runner; profiles select operations via `target`.
 - Serve profiles (`type: serve`) must target a runtime operation whose entrypoint is `core.serve.*` or `core.serve_*` (usually `id: serve`).
-- Shared run/build defaults (visuals/logging level/build mode) live in `jerry.yaml`.
+- Observability defaults (visuals/logging outputs) belong in profile files (`serve.<name>.yaml`, `build.<name>.yaml`, `inspect.<name>.yaml`) or per-kind defaults (`<kind>.defaults.yaml`).
 
 ---
 

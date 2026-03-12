@@ -197,3 +197,133 @@ def test_serve_request_orders_enabled_profiles_and_run_targets_only_named_profil
     assert request_train is not None
     assert [profile.name for profile in request_train.profiles] == ["train"]
     assert [profile.target_id for profile in request_train.profiles] == ["pipeline"]
+
+
+def test_serve_defaults_apply_when_profile_omits_fields(monkeypatch, tmp_path: Path):
+    _patch_runtime_resolution(monkeypatch)
+    project_yaml = _write_project(tmp_path)
+    ops = tmp_path / "tasks" / "operations"
+    profiles = tmp_path / "profiles"
+    ops.mkdir(parents=True, exist_ok=True)
+    profiles.mkdir(parents=True, exist_ok=True)
+
+    _write_op(
+        ops / "pipeline.yaml",
+        "id: pipeline\nkind: runtime\nentrypoint: core.runtime.pipeline\n",
+    )
+    (profiles / "serve.defaults.yaml").write_text(
+        (
+            "cmd: serve\n"
+            "output:\n"
+            "  transport: fs\n"
+            "  format: jsonl\n"
+            "  directory: ./artifacts/serve\n"
+            "observability:\n"
+            "  logging:\n"
+            "    outputs:\n"
+            "      - transport: stdout\n"
+        ),
+        encoding="utf-8",
+    )
+    (profiles / "serve.train.yaml").write_text(
+        "cmd: serve\nname: train\ntarget: pipeline\n",
+        encoding="utf-8",
+    )
+
+    request = build_profile_run_request(
+        kind="serve",
+        project=str(project_yaml),
+        run_name="train",
+    )
+    assert request is not None
+    profile = request.profiles[0]
+    assert profile.output is not None
+    assert profile.output.transport == "fs"
+    assert profile.output.run is not None
+    assert profile.log_output.outputs[0].transport == "stdout"
+
+
+def test_serve_profile_fields_override_serve_defaults(monkeypatch, tmp_path: Path):
+    _patch_runtime_resolution(monkeypatch)
+    project_yaml = _write_project(tmp_path)
+    ops = tmp_path / "tasks" / "operations"
+    profiles = tmp_path / "profiles"
+    ops.mkdir(parents=True, exist_ok=True)
+    profiles.mkdir(parents=True, exist_ok=True)
+
+    _write_op(
+        ops / "pipeline.yaml",
+        "id: pipeline\nkind: runtime\nentrypoint: core.runtime.pipeline\n",
+    )
+    (profiles / "serve.defaults.yaml").write_text(
+        (
+            "cmd: serve\n"
+            "output:\n"
+            "  transport: fs\n"
+            "  format: jsonl\n"
+            "  directory: ./artifacts/serve\n"
+        ),
+        encoding="utf-8",
+    )
+    (profiles / "serve.train.yaml").write_text(
+        (
+            "cmd: serve\n"
+            "name: train\n"
+            "target: pipeline\n"
+            "output:\n"
+            "  transport: stdout\n"
+            "  format: jsonl\n"
+        ),
+        encoding="utf-8",
+    )
+
+    request = build_profile_run_request(
+        kind="serve",
+        project=str(project_yaml),
+        run_name="train",
+    )
+    assert request is not None
+    profile = request.profiles[0]
+    assert profile.output is not None
+    assert profile.output.transport == "stdout"
+    assert profile.output.run is None
+
+
+def test_build_defaults_apply_to_build_profiles(tmp_path: Path):
+    project_yaml = _write_project(tmp_path)
+    ops = tmp_path / "tasks" / "operations"
+    profiles = tmp_path / "profiles"
+    ops.mkdir(parents=True, exist_ok=True)
+    profiles.mkdir(parents=True, exist_ok=True)
+
+    _write_op(
+        ops / "schema.yaml",
+        "id: schema\nkind: artifact\noutput: schema.json\n",
+    )
+    (profiles / "build.defaults.yaml").write_text(
+        (
+            "cmd: build\n"
+            "mode: force\n"
+            "observability:\n"
+            "  visuals: off\n"
+            "  logging:\n"
+            "    level: debug\n"
+        ),
+        encoding="utf-8",
+    )
+    (profiles / "build.schema.yaml").write_text(
+        "cmd: build\nname: schema\ntarget: schema\n",
+        encoding="utf-8",
+    )
+
+    request = build_profile_run_request(
+        kind="build",
+        project=str(project_yaml),
+        run_name="schema",
+    )
+    assert request is not None
+    profile = request.profiles[0]
+    assert profile.build_settings is not None
+    assert profile.build_settings.mode == "FORCE"
+    assert profile.build_settings.visuals == "off"
+    assert profile.build_settings.log_decision.name == "DEBUG"

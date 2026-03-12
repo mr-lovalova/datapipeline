@@ -58,7 +58,7 @@ def _log_profile_start(
         message = f"{message} profile={profile_path}"
     emit_execution_message(
         message,
-        level=logging.DEBUG,
+        level=logging.INFO,
         logger=logger,
         message_kind="profile_start",
     )

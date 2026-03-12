@@ -47,6 +47,7 @@ YAML config (dataset project root):
   - `dataset.yaml` (features/targets)
   - `postprocess.yaml` (vector-level transforms)
   - `profiles/serve.<name>.yaml`, `profiles/build.<name>.yaml`, `profiles/inspect.<name>.yaml` (profiles; optional overrides)
+  - `profiles/serve.defaults.yaml`, `profiles/build.defaults.yaml`, `profiles/inspect.defaults.yaml` (optional per-kind defaults)
   - `tasks/operations/*.yaml` (artifact + serve operation configs; optional overrides)
 
 Profile sequencing:

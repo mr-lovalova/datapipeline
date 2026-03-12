@@ -66,7 +66,8 @@ class LogOutputConfig(BaseModel):
             return self
         if self.scope != "GLOBAL":
             raise ValueError("scope=RUN requires transport=FS")
-        self.path = None
+        if self.path is not None:
+            raise ValueError("path is only valid when transport=FS")
         return self
 
 

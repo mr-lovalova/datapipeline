@@ -15,7 +15,6 @@ from datapipeline.config.resolution import (
     resolve_log_output,
     resolve_project_log_outputs,
     resolve_visuals,
-    resolve_workspace_log_outputs,
 )
 from datapipeline.config.workspace import WorkspaceContext
 from datapipeline.io.output import OutputTarget, resolve_output_target
@@ -67,16 +66,9 @@ def resolve_run_profiles(
     base_log_level: str = "INFO",
     cli_visuals: Optional[str] = None,
 ) -> list[RunProfile]:
-    shared = workspace.config.shared if workspace else None
-    shared_observability = shared.observability if shared else None
+    _ = workspace
     fallback_log_level = str(base_log_level).upper()
     cli_log_output_candidates = list(cli_log_outputs or [])
-    shared_visuals_default = observability_value(shared_observability, "visuals")
-    shared_log_level_default = logging_value(shared_observability, "level")
-    shared_log_outputs = resolve_workspace_log_outputs(
-        logging_value(shared_observability, "outputs"),
-        workspace=workspace,
-    )
 
     profiles: list[RunProfile] = []
     for idx, total_runs, entry, runtime in iter_runtime_runs(
@@ -108,7 +100,6 @@ def resolve_run_profiles(
         log_decision = resolve_log_level(
             cli_log_level,
             logging_value(run_observability, "level"),
-            shared_log_level_default,
             fallback=fallback_log_level,
         )
         run_log_outputs = resolve_project_log_outputs(
@@ -119,7 +110,6 @@ def resolve_run_profiles(
             output_candidates=(
                 cli_log_output_candidates,
                 run_log_outputs,
-                shared_log_outputs,
             ),
             allow_run_scope=create_run,
         )
@@ -128,7 +118,6 @@ def resolve_run_profiles(
         visuals = resolve_visuals(
             cli_visuals=cli_visuals,
             config_visuals=run_visuals,
-            workspace_visuals=shared_visuals_default,
         )
 
         target = resolve_output_target(

@@ -301,13 +301,7 @@ def test_run_profiles_do_not_inherit_workspace_throttle(monkeypatch, tmp_path):
     assert profiles[0].throttle_ms is None
 
 
-def test_run_profiles_use_shared_visuals_defaults(monkeypatch, tmp_path):
-    workspace_cfg = WorkspaceConfig.model_validate(
-        {
-            "shared": {"observability": {"visuals": "OFF"}},
-        }
-    )
-    workspace = WorkspaceContext(file_path=tmp_path / "jerry.yaml", config=workspace_cfg)
+def test_run_profiles_use_builtin_visuals_defaults(monkeypatch, tmp_path):
     entries = [_entry(name="demo", config=None, operation=_SERVE_OPERATION)]
 
     def fake_iter_runtime_runs(project_path, run_entries, keep):
@@ -328,22 +322,16 @@ def test_run_profiles_use_shared_visuals_defaults(monkeypatch, tmp_path):
         limit=None,
         cli_build_mode="AUTO",
         cli_output=None,
-        workspace=workspace,
+        workspace=None,
         cli_log_level=None,
         base_log_level="INFO",
         cli_visuals=None,
     )
 
-    assert profiles[0].visuals.visuals == "off"
+    assert profiles[0].visuals.visuals == "on"
 
 
-def test_run_profiles_run_visuals_override_shared_defaults(monkeypatch, tmp_path):
-    workspace_cfg = WorkspaceConfig.model_validate(
-        {
-            "shared": {"observability": {"visuals": "OFF"}},
-        }
-    )
-    workspace = WorkspaceContext(file_path=tmp_path / "jerry.yaml", config=workspace_cfg)
+def test_run_profiles_run_visuals_override_defaults(monkeypatch, tmp_path):
     run_cfg = ServeProfile.model_validate(
         {
             "cmd": "serve",
@@ -372,7 +360,7 @@ def test_run_profiles_run_visuals_override_shared_defaults(monkeypatch, tmp_path
         limit=None,
         cli_build_mode="AUTO",
         cli_output=None,
-        workspace=workspace,
+        workspace=None,
         cli_log_level=None,
         base_log_level="INFO",
         cli_visuals=None,
@@ -382,16 +370,6 @@ def test_run_profiles_run_visuals_override_shared_defaults(monkeypatch, tmp_path
 
 
 def test_run_profiles_resolve_log_output_precedence(monkeypatch, tmp_path):
-    workspace_cfg = WorkspaceConfig.model_validate(
-        {
-            "shared": {
-                "observability": {
-                    "logging": {"outputs": [{"transport": "stderr"}]}
-                }
-            },
-        }
-    )
-    workspace = WorkspaceContext(file_path=tmp_path / "jerry.yaml", config=workspace_cfg)
     run_cfg = ServeProfile.model_validate(
         {
             "cmd": "serve",
@@ -422,7 +400,7 @@ def test_run_profiles_resolve_log_output_precedence(monkeypatch, tmp_path):
         limit=None,
         cli_build_mode="AUTO",
         cli_output=None,
-        workspace=workspace,
+        workspace=None,
         cli_log_level=None,
         base_log_level="INFO",
         cli_visuals=None,
@@ -438,7 +416,7 @@ def test_run_profiles_resolve_log_output_precedence(monkeypatch, tmp_path):
         limit=None,
         cli_build_mode="AUTO",
         cli_output=None,
-        workspace=workspace,
+        workspace=None,
         cli_log_level=None,
         cli_log_outputs=[LogOutputTarget(
             transport="fs",

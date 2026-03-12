@@ -1,7 +1,6 @@
 # Inspect profile reference (all options).
 # This file is documentation only; uncomment the keys you want to use.
 #
-# version: 1                  # optional
 # cmd: inspect
 # name: matrix                # required; must be unique among inspect profiles
 # order: 10                   # optional; lower runs first, unset uses filename order
@@ -31,4 +30,5 @@
 #       #   scope: RUN        # GLOBAL | RUN
 #       #   path: logs/inspect.log  # required for FS+GLOBAL; optional for RUN
 # note: explicit sequencing belongs in profile order (multiple inspect.*.yaml files), not task dependency graphs.
-# precedence: CLI --log-output > this profile > jerry.yaml shared
+# note: common defaults can be set once in profiles/inspect.defaults.yaml.
+# precedence: CLI --log-output > inspect.<name>.yaml > inspect.defaults.yaml > built-ins
