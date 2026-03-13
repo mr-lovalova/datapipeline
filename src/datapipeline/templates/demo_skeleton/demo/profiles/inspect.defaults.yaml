@@ -7,5 +7,9 @@ cmd: inspect
 # output:
 #   transport: stdout
 #   format: txt
-# observability:
-#   visuals: OFF
+observability:
+  visuals: ON
+  logging:
+    level: INFO
+    outputs:
+      - transport: STDERR
