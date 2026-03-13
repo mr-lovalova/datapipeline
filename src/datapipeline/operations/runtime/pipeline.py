@@ -16,8 +16,6 @@ from datapipeline.utils.window import resolve_window_bounds
 from datapipeline.io.output import OutputTarget
 from datapipeline.services.runs import finish_run_failed, finish_run_success, set_latest_run
 
-from .output_rows import row_from_record, row_from_sample
-
 logger = logging.getLogger(__name__)
 
 
@@ -70,20 +68,11 @@ def _close_iterator(items: Iterator[object]) -> None:
         closer()
 
 
-def _record_rows(stream: Iterator[object]) -> Iterator[object]:
+def _managed_items(stream: Iterator[object]) -> Iterator[object]:
     try:
-        for item in stream:
-            yield row_from_record(item)
+        yield from stream
     finally:
         _close_iterator(stream)
-
-
-def _sample_rows(vectors: Iterator[Sample]) -> Iterator[object]:
-    try:
-        for sample in vectors:
-            yield row_from_sample(sample)
-    finally:
-        _close_iterator(vectors)
 
 
 def _is_full_pipeline_stage(stage: int | None) -> bool:
@@ -135,7 +124,7 @@ def serve_with_runtime(
                 feature_target = target.for_feature(output_id)
                 outputs.append(
                     RuntimeOutput(
-                        rows=limit_items(_record_rows(stream), limit),
+                        rows=limit_items(_managed_items(stream), limit),
                         target=feature_target,
                     )
                 )
@@ -154,7 +143,7 @@ def serve_with_runtime(
             outputs=(
                 RuntimeOutput(
                     rows=limit_items(
-                        _sample_rows(throttle_vectors(vectors, throttle_ms)),
+                        _managed_items(throttle_vectors(vectors, throttle_ms)),
                         limit,
                     ),
                     target=target,

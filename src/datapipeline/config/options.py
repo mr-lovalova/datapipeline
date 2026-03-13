@@ -8,7 +8,7 @@ OUTPUT_TRANSPORTS = ("stdout", "fs")
 OUTPUT_FORMATS = ("jsonl", "csv", "pickle")
 OUTPUT_INSPECT_FORMATS = ("jsonl", "csv", "pickle", "txt", "html")
 OUTPUT_STDOUT_FORMATS = ("jsonl", "txt")
-OUTPUT_VIEWS = ("flat", "raw", "values")
+OUTPUT_VIEWS = ("raw", "flat")
 
 SOURCE_TRANSPORTS = ("fs", "http", "synthetic")
 SOURCE_FS_HTTP_FORMATS = ("csv", "json", "jsonl")
