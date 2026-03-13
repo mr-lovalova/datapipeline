@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import TypeAlias
 
 from datapipeline.domain.record import TemporalRecord
+from datapipeline.transforms.utils import partition_key
 
 
 JoinMode: TypeAlias = str
@@ -20,6 +21,7 @@ def align_many(
     *,
     driver: str | None = None,
     join: JoinMode = "inner",
+    partition_by: str | list[str] | None = None,
 ) -> Iterator[AlignedRow]:
     if join not in {"inner", "left"}:
         raise ValueError(f"Unsupported join mode '{join}'. Use 'inner' or 'left'.")
@@ -34,14 +36,21 @@ def align_many(
         )
 
     if join == "inner":
-        yield from _align_inner(inputs, aliases)
+        yield from _align_inner(inputs, aliases, partition_by=partition_by)
         return
-    yield from _align_left(inputs, aliases, driver_alias)
+    yield from _align_left(
+        inputs,
+        aliases,
+        driver_alias,
+        partition_by=partition_by,
+    )
 
 
 def _align_inner(
     inputs: Mapping[str, Iterator[TemporalRecord]],
     aliases: list[str],
+    *,
+    partition_by: str | list[str] | None = None,
 ) -> Iterator[AlignedRow]:
     iterators = {alias: iter(inputs[alias]) for alias in aliases}
     current: dict[str, TemporalRecord | None] = {
@@ -50,12 +59,16 @@ def _align_inner(
 
     while all(record is not None for record in current.values()):
         assert all(record is not None for record in current.values())
-        times = {alias: record.time for alias, record in current.items() if record is not None}
-        min_time = min(times.values())
-        max_time = max(times.values())
-        if min_time == max_time:
+        keys = {
+            alias: _align_key(record, partition_by)
+            for alias, record in current.items()
+            if record is not None
+        }
+        min_key = min(keys.values())
+        max_key = max(keys.values())
+        if min_key == max_key:
             yield AlignedRow(
-                time=min_time,
+                time=min_key[1],
                 values={alias: current[alias] for alias in aliases},
             )
             for alias in aliases:
@@ -64,7 +77,7 @@ def _align_inner(
 
         for alias in aliases:
             record = current[alias]
-            if record is not None and record.time < max_time:
+            if record is not None and _align_key(record, partition_by) < max_key:
                 current[alias] = next(iterators[alias], None)
 
 
@@ -72,6 +85,8 @@ def _align_left(
     inputs: Mapping[str, Iterator[TemporalRecord]],
     aliases: list[str],
     driver_alias: str,
+    *,
+    partition_by: str | list[str] | None = None,
 ) -> Iterator[AlignedRow]:
     driver_iterator = iter(inputs[driver_alias])
     other_aliases = [alias for alias in aliases if alias != driver_alias]
@@ -82,15 +97,22 @@ def _align_left(
 
     for driver_record in driver_iterator:
         row: dict[str, TemporalRecord | None] = {driver_alias: driver_record}
-        t = driver_record.time
+        key = _align_key(driver_record, partition_by)
         for alias in other_aliases:
             record = current[alias]
-            while record is not None and record.time < t:
+            while record is not None and _align_key(record, partition_by) < key:
                 record = next(iterators[alias], None)
-            if record is not None and record.time == t:
+            if record is not None and _align_key(record, partition_by) == key:
                 row[alias] = record
                 current[alias] = next(iterators[alias], None)
             else:
                 row[alias] = None
                 current[alias] = record
-        yield AlignedRow(time=t, values=row)
+        yield AlignedRow(time=driver_record.time, values=row)
+
+
+def _align_key(
+    record: TemporalRecord,
+    partition_by: str | list[str] | None,
+) -> tuple[tuple, datetime]:
+    return partition_key(record, partition_by), record.time

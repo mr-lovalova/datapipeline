@@ -10,12 +10,18 @@ def mapper(
     context,
     driver: str | None = None,
     join: str = "inner",
+    partition_by: str | list[str] | None = None,
     **params,
 ) -> Iterator[TemporalRecord]:
     # TODO: implement domain math over aligned rows (timestamp + alias->record).
     del context
     del params
-    for row in align_many(inputs, driver=driver, join=join):
+    for row in align_many(
+        inputs,
+        driver=driver,
+        join=join,
+        partition_by=partition_by,
+    ):
         key = driver or next(iter(row.values.keys()))
         rec = row.values.get(key)
         if rec is None:

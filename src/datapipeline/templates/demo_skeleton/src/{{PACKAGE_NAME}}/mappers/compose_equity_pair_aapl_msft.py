@@ -35,6 +35,7 @@ def compose_equity_pair_aapl_msft(
     context: Any,
     driver: str | None = None,
     join: str = "inner",
+    partition_by: str | list[str] | None = None,
     **params: Any,
 ) -> Iterator[EquityPairRecord]:
     """
@@ -50,7 +51,12 @@ def compose_equity_pair_aapl_msft(
     prev_aapl_close: float | None = None
     prev_msft_close: float | None = None
 
-    for row in align_many(inputs, driver=driver or "aapl", join=join):
+    for row in align_many(
+        inputs,
+        driver=driver or "aapl",
+        join=join,
+        partition_by=partition_by,
+    ):
         aapl = row.values.get("aapl")
         msft = row.values.get("msft")
         if aapl is None or msft is None:
