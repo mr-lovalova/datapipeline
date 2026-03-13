@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from types import SimpleNamespace
 
 from datapipeline.build.state import BuildState, save_build_state
@@ -65,6 +66,59 @@ def test_run_profiles_executes_profile_target(monkeypatch, tmp_path):
 
     assert calls["build"] == 0
     assert calls["dispatch"] == 1
+
+
+def test_run_profiles_parent_scope_does_not_announce(monkeypatch, tmp_path):
+    serve = OperationTask.model_validate(
+        {
+            "id": "pipeline",
+            "kind": "runtime",
+            "entrypoint": "core.runtime.pipeline",
+        }
+    )
+
+    log_decision, log_output = _log_config()
+    request = ProfileRunRequest(
+        command="serve",
+        project_path=tmp_path / "project.yaml",
+        tasks=[serve],
+        artifact_task_configs=[],
+        profiles=[
+            ExecutionProfile(
+                name="serve",
+                target_id="pipeline",
+                visuals="on",
+                log_decision=log_decision,
+                log_output=log_output,
+                runtime=object(),
+                dataset=object(),
+            )
+        ],
+    )
+
+    captured: dict[str, object] = {}
+
+    @contextmanager
+    def _capture_scope(**kwargs):
+        captured.update(kwargs)
+        yield
+
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.execution_scope",
+        _capture_scope,
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.run_profile",
+        lambda spec, work: work(),
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.execution.execute_operation",
+        lambda **kwargs: None,
+    )
+
+    run_profiles(request)
+
+    assert captured.get("announce") is False
 
 
 def test_run_profiles_can_skip_artifact_build(monkeypatch, tmp_path):

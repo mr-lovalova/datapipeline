@@ -17,9 +17,11 @@ from ..execution import emit_execution_message
 from ..execution_context import (
     current_dag_depth,
     reset_current_execution_event_sink,
+    reset_current_terminal_log_proxy_sink,
     reset_current_visual_log_level,
     set_current_dag_depth,
     set_current_execution_event_sink,
+    set_current_terminal_log_proxy_sink,
     set_current_visual_log_level,
     visible_dag_indent,
 )
@@ -236,6 +238,7 @@ def visual_sources(runtime: Runtime, log_level: int | None):
     originals = dict(reg.items())
     level_token = set_current_visual_log_level(level)
     execution_sink_token = set_current_execution_event_sink(execution_sink)
+    proxy_token = set_current_terminal_log_proxy_sink(execution_sink)
 
     try:
         with progress:
@@ -260,6 +263,7 @@ def visual_sources(runtime: Runtime, log_level: int | None):
         try:
             execution_sink.flush()
         finally:
+            reset_current_terminal_log_proxy_sink(proxy_token)
             reset_current_execution_event_sink(execution_sink_token)
             reset_current_visual_log_level(level_token)
 
