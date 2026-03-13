@@ -267,6 +267,44 @@ def test_rich_execution_sink_renders_message_event() -> None:
     assert any(line.startswith("Saved 14 items: /tmp/train.jsonl") for line in lines)
 
 
+def test_rich_execution_sink_styles_warning_messages() -> None:
+    buffer = StringIO()
+    console = Console(file=buffer, markup=False, highlight=False, force_terminal=False)
+    sink = _RichConsoleExecutionSink(level=0, console=console)
+
+    text = sink._render_event(
+        ExecutionLogEvent(
+            kind="message",
+            dag_name="",
+            depth=0,
+            message="skipped tick(s) for partition '()'",
+            log_level=logging.WARNING,
+        )
+    )
+
+    assert str(text) == "skipped tick(s) for partition '()'"
+    assert any(span.style == "yellow" for span in text.spans)
+
+
+def test_rich_execution_sink_styles_error_messages() -> None:
+    buffer = StringIO()
+    console = Console(file=buffer, markup=False, highlight=False, force_terminal=False)
+    sink = _RichConsoleExecutionSink(level=0, console=console)
+
+    text = sink._render_event(
+        ExecutionLogEvent(
+            kind="message",
+            dag_name="",
+            depth=0,
+            message="failed to materialize artifact",
+            log_level=logging.ERROR,
+        )
+    )
+
+    assert str(text) == "failed to materialize artifact"
+    assert any(span.style == "bold red" for span in text.spans)
+
+
 def test_rich_execution_sink_renders_source_info_message() -> None:
     buffer = StringIO()
     console = Console(file=buffer, markup=False, highlight=False, force_terminal=False)

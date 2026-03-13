@@ -42,7 +42,7 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
         indent = "  " * max(0, event.depth)
         text = Text(indent)
         if event.kind == "message":
-            style = "dim" if ExecutionEventFormatter.level(event) <= logging.DEBUG else ""
+            style = self._message_style(ExecutionEventFormatter.level(event))
             message = event.message or ""
             if "\n" in message:
                 message = message.replace("\n", f"\n{indent}")
@@ -132,6 +132,16 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
             style="dim",
         )
         return text
+
+    @staticmethod
+    def _message_style(level: int) -> str:
+        if level >= logging.ERROR:
+            return "bold red"
+        if level >= logging.WARNING:
+            return "yellow"
+        if level <= logging.DEBUG:
+            return "dim"
+        return ""
 
     @staticmethod
     def _scope_header(event: ExecutionLogEvent, fallback: str) -> str:
