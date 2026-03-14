@@ -195,14 +195,11 @@ def execute_profile(
         )
         raise SystemExit(2)
     sync_runtime_artifacts_from_state(runtime, request.project_path)
-    total_runtime_tasks = len(runtime_task_ids)
-    for idx, task_id in enumerate(runtime_task_ids, start=1):
+    for task_id in runtime_task_ids:
         task = cast(OperationTask, tasks_by_id[task_id])
         with execution_scope(
             task_id=task.id,
-            item_index=idx,
-            item_total=total_runtime_tasks,
-            announce=True,
+            announce=False,
         ):
             run_runtime_task(task, profile, runtime)
 
