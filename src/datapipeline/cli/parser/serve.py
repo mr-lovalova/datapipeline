@@ -42,7 +42,7 @@ def add_serve_command(sub,  common: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--output-view",
         choices=OUTPUT_VIEWS,
-        help="output representation view (flat/raw/values); csv supports flat|values",
+        help="output representation view (jsonl: raw|flat, csv: flat, pickle: raw)",
     )
     parser.add_argument(
         "--keep",

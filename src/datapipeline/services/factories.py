@@ -1,5 +1,4 @@
-from inspect import isclass
-from typing import Any, Iterator, Optional
+from typing import Any, Iterator
 
 from datapipeline.config.catalog import ContractConfig, EPArgs, SourceConfig
 from datapipeline.dag.context import PipelineContext
@@ -10,7 +9,6 @@ from datapipeline.pipelines.record.nodes import RECORD_NODE_COUNT
 from datapipeline.plugins import LOADERS_EP, MAPPERS_EP, PARSERS_EP
 from datapipeline.sources.models.loader import BaseDataLoader
 from datapipeline.sources.models.source import Source
-from datapipeline.transforms.engine import _supports_parameter
 from datapipeline.utils.load import load_ep
 from datapipeline.utils.placeholders import normalize_args
 
@@ -45,18 +43,12 @@ class _ComposedLoader(BaseDataLoader):
         raw_inputs = self._spec.inputs
         input_specs = list(raw_inputs or [])
         if not input_specs:
-            return iter(())
+            return
 
-        resolved = self._resolve_inputs(context, input_specs)
-        aligned = {k: v for k, v in resolved.items() if v["aligned"]}
-        aux = {k: v for k, v in resolved.items() if not v["aligned"]}
-
-        aligned_iters: dict[str, Iterator[Any]] = {
-            k: (getattr(item, "record", item) for item in v["iter"])
-            for k, v in aligned.items()
+        input_iters: dict[str, Iterator[Any]] = {
+            alias: (getattr(item, "record", item) for item in iterator)
+            for alias, iterator in self._resolve_inputs(context, input_specs).items()
         }
-        aux_iters: dict[str, Iterator[Any]] = {
-            k: v["iter"] for k, v in aux.items()}
 
         mapper = self._spec.mapper
         if not mapper or not mapper.entrypoint:
@@ -65,41 +57,33 @@ class _ComposedLoader(BaseDataLoader):
             )
         ep = load_ep(MAPPERS_EP, mapper.entrypoint)
         kwargs = normalize_args(mapper.args)
+        if self._spec.partition_by is not None:
+            kwargs.setdefault("partition_by", self._spec.partition_by)
 
-        aligned_keys = list(aligned_iters.keys())
-        if not aligned_keys:
-            driver_key = None
-        else:
-            driver_key = kwargs.pop("driver", None) or aligned_keys[0]
-
-        if not isclass(ep) and not _supports_parameter(ep, "inputs"):
-            if len(aligned_iters) == 1 and not aux_iters:
-                single_iter = next(iter(aligned_iters.values()))
-                for rec in ep(single_iter):
-                    yield getattr(rec, "record", rec)
-                return
-            raise TypeError(
-                "Mapper must accept inputs=... for multi-input or aux-enabled contracts"
+        input_keys = list(input_iters.keys())
+        if not input_keys:
+            return
+        driver_key = kwargs.pop("driver", None) or input_keys[0]
+        if driver_key not in input_iters:
+            raise ValueError(
+                f"Unknown composed driver '{driver_key}' for stream "
+                f"'{self._stream_id}'. Available: {input_keys}"
             )
 
-        call_kwargs = dict(kwargs)
-        if _supports_parameter(ep, "context") and "context" not in call_kwargs:
-            call_kwargs["context"] = context
-        if _supports_parameter(ep, "aux"):
-            call_kwargs["aux"] = aux_iters
-        if driver_key and _supports_parameter(ep, "driver"):
-            call_kwargs["driver"] = driver_key
+        try:
+            composed_records = ep(
+                inputs=input_iters,
+                context=context,
+                driver=driver_key,
+                **kwargs,
+            )
+        except TypeError as exc:
+            raise TypeError(
+                "Composed mapper must use signature "
+                "`mapper(inputs, *, context, driver, **params)`"
+            ) from exc
 
-        if isclass(ep):
-            inst = ep(**call_kwargs) if call_kwargs else ep()
-            binder = getattr(inst, "bind_context", None)
-            if callable(binder):
-                binder(context)
-            for rec in inst(inputs=aligned_iters):
-                yield getattr(rec, "record", rec)
-            return
-
-        for rec in ep(inputs=aligned_iters, **call_kwargs):
+        for rec in composed_records:
             yield getattr(rec, "record", rec)
 
     def count(self):
@@ -110,20 +94,23 @@ class _ComposedLoader(BaseDataLoader):
         """Parse and resolve composed inputs into iterators.
 
         Grammar: "[alias=]stream_id" only. All inputs are built to stage 4
-        and are alignable (domain records with stream transforms applied).
+        with stream transforms applied.
         """
         runtime = context.runtime
         known_streams = set(runtime.registries.stream_sources.keys())
 
-        out: dict[str, dict] = {}
+        out: dict[str, Iterator[Any]] = {}
         for spec in specs:
             alias, ref = self._parse_input(spec)
             if ref not in known_streams:
                 raise ValueError(
                     f"Unknown input stream '{ref}'. Known streams: {sorted(known_streams)}"
                 )
-            it = build_record_pipeline(context, ref, stage=RECORD_NODE_COUNT - 1)
-            out[alias] = {"iter": it, "aligned": True}
+            out[alias] = build_record_pipeline(
+                context,
+                ref,
+                stage=RECORD_NODE_COUNT - 1,
+            )
 
         return out
 
@@ -132,12 +119,7 @@ class _ComposedLoader(BaseDataLoader):
         if "@" in text:
             raise ValueError(
                 "composed inputs may not include '@stage'; streams align by default")
-        alias: Optional[str] = None
-        if "=" in text:
-            alias, text = text.split("=", 1)
-        ref = text
-        alias = alias or ref
-        return alias, ref
+        return ContractConfig.parse_input_spec(text)
 
 
 def build_composed_source(stream_id: str, spec: ContractConfig, runtime) -> Source:

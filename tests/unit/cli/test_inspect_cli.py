@@ -144,8 +144,8 @@ def test_inspect_coverage_writes_jsonl_when_fs_target(monkeypatch, tmp_path: Pat
     rows = destination.read_text(encoding="utf-8").strip().splitlines()
     assert len(rows) == 1
     payload = json.loads(rows[0])
-    assert payload["raw"]["report"] == "coverage"
-    assert payload["raw"]["metrics"]["total_vectors"] == 1
+    assert payload["report"] == "coverage"
+    assert payload["metrics"]["total_vectors"] == 1
 
 
 def test_inspect_thresholds_writes_csv_when_fs_target(monkeypatch, tmp_path: Path) -> None:
@@ -169,9 +169,9 @@ def test_inspect_thresholds_writes_csv_when_fs_target(monkeypatch, tmp_path: Pat
     )
 
     csv_text = destination.read_text(encoding="utf-8")
-    assert "field.report" in csv_text
-    assert "field.metrics.total_vectors" in csv_text
-    assert "field.metrics.keep_features.0" in csv_text
+    assert "report" in csv_text
+    assert "metrics.total_vectors" in csv_text
+    assert "metrics.keep_features.0" in csv_text
 
 
 def test_load_collector_rejects_non_object_artifact(monkeypatch) -> None:
@@ -207,8 +207,8 @@ def test_inspect_matrix_writes_jsonl_when_output_target(monkeypatch, tmp_path: P
     rows = destination.read_text(encoding="utf-8").strip().splitlines()
     assert len(rows) >= 1
     payload = json.loads(rows[0])
-    assert payload["raw"]["matrix_kind"] in {"feature", "partition"}
-    assert "identifier" in payload["raw"]
+    assert payload["matrix_kind"] in {"feature", "partition"}
+    assert "identifier" in payload
 
 
 def test_inspect_matrix_requires_output_target(monkeypatch) -> None:

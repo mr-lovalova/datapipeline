@@ -10,11 +10,14 @@ from datapipeline.cli.visuals.execution import ExecutionLogEvent
 from datapipeline.cli.visuals.execution_context import (
     current_dag_depth,
     current_execution_event_sink,
+    current_terminal_log_proxy_sink,
     current_visual_log_level,
     reset_current_execution_event_sink,
+    reset_current_terminal_log_proxy_sink,
     reset_current_visual_log_level,
     set_current_dag_depth,
     set_current_execution_event_sink,
+    set_current_terminal_log_proxy_sink,
     set_current_visual_log_level,
 )
 from datapipeline.cli.visuals.rich.columns import SourceLabelColumn
@@ -262,6 +265,44 @@ def test_rich_execution_sink_renders_message_event() -> None:
 
     lines = _lines(buffer)
     assert any(line.startswith("Saved 14 items: /tmp/train.jsonl") for line in lines)
+
+
+def test_rich_execution_sink_styles_warning_messages() -> None:
+    buffer = StringIO()
+    console = Console(file=buffer, markup=False, highlight=False, force_terminal=False)
+    sink = _RichConsoleExecutionSink(level=0, console=console)
+
+    text = sink._render_event(
+        ExecutionLogEvent(
+            kind="message",
+            dag_name="",
+            depth=0,
+            message="skipped tick(s) for partition '()'",
+            log_level=logging.WARNING,
+        )
+    )
+
+    assert str(text) == "skipped tick(s) for partition '()'"
+    assert any(span.style == "yellow" for span in text.spans)
+
+
+def test_rich_execution_sink_styles_error_messages() -> None:
+    buffer = StringIO()
+    console = Console(file=buffer, markup=False, highlight=False, force_terminal=False)
+    sink = _RichConsoleExecutionSink(level=0, console=console)
+
+    text = sink._render_event(
+        ExecutionLogEvent(
+            kind="message",
+            dag_name="",
+            depth=0,
+            message="failed to materialize artifact",
+            log_level=logging.ERROR,
+        )
+    )
+
+    assert str(text) == "failed to materialize artifact"
+    assert any(span.style == "bold red" for span in text.spans)
 
 
 def test_rich_execution_sink_renders_source_info_message() -> None:
@@ -803,6 +844,7 @@ def test_visual_sources_resets_context_when_live_fails(monkeypatch) -> None:
     )
     level_token = set_current_visual_log_level(logging.WARNING)
     sink_token = set_current_execution_event_sink("sentinel")
+    proxy_token = set_current_terminal_log_proxy_sink("proxy-sentinel")
     set_current_dag_depth(3)
     try:
         with pytest.raises(RuntimeError, match="live boom"):
@@ -811,8 +853,10 @@ def test_visual_sources_resets_context_when_live_fails(monkeypatch) -> None:
 
         assert current_visual_log_level() == logging.WARNING
         assert current_execution_event_sink() == "sentinel"
+        assert current_terminal_log_proxy_sink() == "proxy-sentinel"
         assert current_dag_depth() == 0
     finally:
+        reset_current_terminal_log_proxy_sink(proxy_token)
         reset_current_execution_event_sink(sink_token)
         reset_current_visual_log_level(level_token)
 

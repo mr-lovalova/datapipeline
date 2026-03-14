@@ -247,7 +247,7 @@ debug:
 
 ### Composed Streams (Engineered Domains)
 
-Define engineered streams that depend on other canonical streams directly in contracts. The runtime builds each input to stage 4 (ordered + stream transforms applied), stream‑aligns by partition + timestamp, runs your composer, and emits fresh records for the derived stream.
+Define engineered streams that depend on other canonical streams directly in contracts. The runtime builds each input to stage 4 (ordered + stream transforms applied), exposes them as iterators keyed by alias, and calls your composer to emit fresh records for the derived stream.
 
 ```yaml
 # <project_root>/contracts/air_density.processed.yaml
@@ -260,10 +260,11 @@ partition_by: station_id
 sort_batch_size: 20000
 
 mapper:
-  # Function or class via dotted path; entry points optional
+  # Composer function via mapper entrypoint (required for composed streams)
   entrypoint: mypkg.domains.air_density:compose_to_record
   args:
-    driver: pressure.processed # optional; defaults to first input
+    driver: pressure.processed # optional; defaults to first input alias
+    join: inner                # optional: inner | left
 
 # Optional post‑compose policies (run after composition like any stream)
 # record: [...]
@@ -285,6 +286,9 @@ features:
 Notes:
 
 - Inputs always reference canonical stream_ids (not raw sources).
+- Composed mapper signature is `mapper(inputs, *, context, driver, join="inner", **params)`.
+- Use `datapipeline.composed.align_many(inputs, driver=..., join=...)` in mappers for standard timestamp alignment.
+- `join: inner` emits only fully matched timestamps; `join: left` keeps driver timestamps and sets missing inputs to `None`.
 - The composed source outputs records; its own `record`/`stream`/`debug` rules still apply afterward.
 - Partitioning for the engineered domain is explicit via `partition_by` on the composed contract.
 

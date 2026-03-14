@@ -3,7 +3,10 @@ import logging
 import sys
 from pathlib import Path
 
+from datapipeline.cli.visuals.execution import ExecutionLogEvent
 from datapipeline.cli.visuals.execution_context import current_execution_event_sink
+from datapipeline.cli.visuals.execution_context import current_dag_depth
+from datapipeline.cli.visuals.execution_context import current_terminal_log_proxy_sink
 from datapipeline.config.resolution import LogOutputSettings
 
 
@@ -14,6 +17,30 @@ class _TerminalExecutionEventDedupeFilter(logging.Filter):
         if getattr(record, "dp_event_kind", None) is None:
             return True
         return current_execution_event_sink() is None
+
+
+class _TerminalVisualProxyHandler(logging.StreamHandler):
+    """Route plain logger records into active rich visuals sink when available."""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        # Execution-event records are already routed via the context sink.
+        if getattr(record, "dp_event_kind", None) is None:
+            sink = current_terminal_log_proxy_sink()
+            if sink is not None:
+                try:
+                    sink.emit(
+                        ExecutionLogEvent(
+                            kind="message",
+                            dag_name="",
+                            depth=max(0, int(current_dag_depth())),
+                            message=self.format(record),
+                            log_level=int(record.levelno),
+                        )
+                    )
+                    return
+                except Exception:
+                    pass
+        super().emit(record)
 
 
 def configure_root_logging( level: int, output: LogOutputSettings) -> None:
@@ -32,10 +59,10 @@ def configure_root_logging( level: int, output: LogOutputSettings) -> None:
             continue
         seen.add(key)
         if transport == "stderr":
-            handler: logging.Handler = logging.StreamHandler(sys.stderr)
+            handler = _TerminalVisualProxyHandler(sys.stderr)
             handler.addFilter(_TerminalExecutionEventDedupeFilter())
         elif transport == "stdout":
-            handler = logging.StreamHandler(sys.stdout)
+            handler = _TerminalVisualProxyHandler(sys.stdout)
             handler.addFilter(_TerminalExecutionEventDedupeFilter())
         elif transport == "fs":
             if destination is None:

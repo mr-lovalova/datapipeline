@@ -8,7 +8,7 @@ from datapipeline.config.options import OUTPUT_STDOUT_FORMATS, OUTPUT_VIEWS
 
 Transport = Literal["fs", "stdout"]
 Format = Literal["csv", "jsonl", "pickle", "txt", "html"]
-View = Literal["flat", "raw", "values"]
+View = Literal["flat", "raw"]
 
 
 class ServeOutputConfig(BaseModel):
@@ -72,8 +72,10 @@ class ServeOutputConfig(BaseModel):
                 )
         elif self.directory is None:
             raise ValueError("fs outputs require a directory")
-        if self.format == "csv" and self.view not in {None, "flat", "values"}:
-            raise ValueError("csv output supports only view='flat' or view='values'")
+        if self.format == "csv" and self.view not in {None, "flat"}:
+            raise ValueError("csv output supports only view='flat'")
+        if self.format == "pickle" and self.view not in {None, "raw"}:
+            raise ValueError("pickle output supports only view='raw'")
         if self.format in {"txt", "html"} and self.view is not None:
             raise ValueError(f"{self.format} output does not support view")
         if self.transport == "fs":

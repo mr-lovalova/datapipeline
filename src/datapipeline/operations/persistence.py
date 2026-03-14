@@ -11,7 +11,6 @@ from datapipeline.io.output import (
     materialized_output_message,
     served_output_message,
 )
-from datapipeline.operations.runtime.output_rows import row_from_record
 
 
 @dataclass(frozen=True)
@@ -119,7 +118,7 @@ def _persist_runtime_output(
     count = 0
     try:
         for row in rows:
-            writer.write(row_from_record(row))
+            writer.write(row)
             count += 1
     finally:
         writer.close()

@@ -3,7 +3,9 @@
 # precedence: CLI > build.<name>.yaml > build.defaults.yaml > built-ins
 cmd: build
 # mode: AUTO
-# observability:
-#   visuals: OFF
-#   logging:
-#     level: INFO
+observability:
+  visuals: ON
+  logging:
+    level: INFO
+    outputs:
+      - transport: STDERR

@@ -65,7 +65,7 @@ def test_resolve_output_target_honors_view(tmp_path):
     cfg = ServeOutputConfig(
         transport="fs",
         format="jsonl",
-        view="values",
+        view="flat",
         directory=out_dir,
     )
 
@@ -77,7 +77,7 @@ def test_resolve_output_target_honors_view(tmp_path):
         run_name="train",
     )
 
-    assert target.view == "values"
+    assert target.view == "flat"
 
 
 def test_resolve_output_target_honors_encoding(tmp_path):
@@ -192,5 +192,17 @@ def test_txt_output_rejects_view(tmp_path):
             transport="fs",
             format="txt",
             view="raw",
+            directory=out_dir,
+        )
+
+
+def test_pickle_output_rejects_flat_view(tmp_path):
+    out_dir = tmp_path / "outputs"
+    out_dir.mkdir()
+    with pytest.raises(ValueError, match="pickle output supports only view='raw'"):
+        ServeOutputConfig(
+            transport="fs",
+            format="pickle",
+            view="flat",
             directory=out_dir,
         )

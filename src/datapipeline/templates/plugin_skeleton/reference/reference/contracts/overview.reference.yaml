@@ -5,9 +5,9 @@
 # id: domain.dataset.variant
 # source: source.alias          # required when kind: ingest
 # inputs: [stream.id]           # required when kind: composed
-# mapper:                       # optional (defaults to identity)
+# mapper:                       # optional for ingest; required for composed
 #   entrypoint: my_mapper
-#   args: {}
+#   args: {}                    # composed supports args.driver and args.join
 # cadence: ${group_by}          # optional per-contract variable for interpolation
 # partition_by: station_id      # optional; string or list of strings
 # sort_batch_size: 100000       # optional; in-memory chunk size for sorting

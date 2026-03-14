@@ -6,9 +6,11 @@ from rich.text import Text
 from ..execution import ExecutionEventFormatter, ExecutionEventSink, ExecutionLogEvent
 from ..execution_context import (
     reset_current_execution_event_sink,
+    reset_current_terminal_log_proxy_sink,
     reset_current_visual_log_level,
     set_current_dag_depth,
     set_current_execution_event_sink,
+    set_current_terminal_log_proxy_sink,
     set_current_visual_log_level,
 )
 from .columns import styled_source_label
@@ -40,7 +42,7 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
         indent = "  " * max(0, event.depth)
         text = Text(indent)
         if event.kind == "message":
-            style = "dim" if ExecutionEventFormatter.level(event) <= logging.DEBUG else ""
+            style = self._message_style(ExecutionEventFormatter.level(event))
             message = event.message or ""
             if "\n" in message:
                 message = message.replace("\n", f"\n{indent}")
@@ -132,6 +134,16 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
         return text
 
     @staticmethod
+    def _message_style(level: int) -> str:
+        if level >= logging.ERROR:
+            return "bold red"
+        if level >= logging.WARNING:
+            return "yellow"
+        if level <= logging.DEBUG:
+            return "dim"
+        return ""
+
+    @staticmethod
     def _scope_header(event: ExecutionLogEvent, fallback: str) -> str:
         task = event.scope_task_id or event.scope_target_id or event.scope_profile_name
         if task is None:
@@ -152,10 +164,12 @@ def visual_event_sink(log_level: int | None):
     sink = _RichConsoleExecutionSink(level=level, console=console)
     level_token = set_current_visual_log_level(level)
     sink_token = set_current_execution_event_sink(sink)
+    proxy_token = set_current_terminal_log_proxy_sink(sink)
     try:
         yield
     finally:
         sink.flush()
+        reset_current_terminal_log_proxy_sink(proxy_token)
         reset_current_execution_event_sink(sink_token)
         reset_current_visual_log_level(level_token)
         # Guard against leaked depth from pre-task debug blocks.

@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 _DEMO_DATASET_ALIAS = "demo"
 _DEMO_PARSER_EP = "sandbox_ohlcv_dto_parser"
 _DEMO_MAPPER_EP = "map_sandbox_ohlcv_dto_to_equity"
+_DEMO_COMPOSED_MAPPER_EP = "compose_equity_pair_aapl_msft"
 
 
 def _replace_placeholders(path: Path, replacements: dict[str, str]) -> None:
@@ -41,6 +42,12 @@ def _inject_demo_entrypoints(pyproject: Path, pkg_name: str) -> None:
         "mappers",
         _DEMO_MAPPER_EP,
         f"{pkg_name}.mappers.map_sandbox_ohlcv_dto_to_equity:map_sandbox_ohlcv_dto_to_equity",
+    )
+    toml = inject_ep(
+        toml,
+        "mappers",
+        _DEMO_COMPOSED_MAPPER_EP,
+        f"{pkg_name}.mappers.compose_equity_pair_aapl_msft:compose_equity_pair_aapl_msft",
     )
     pyproject.write_text(toml)
 
