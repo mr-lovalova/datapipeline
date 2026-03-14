@@ -57,6 +57,8 @@ class _ComposedLoader(BaseDataLoader):
             )
         ep = load_ep(MAPPERS_EP, mapper.entrypoint)
         kwargs = normalize_args(mapper.args)
+        if self._spec.partition_by is not None:
+            kwargs.setdefault("partition_by", self._spec.partition_by)
 
         input_keys = list(input_iters.keys())
         if not input_keys:

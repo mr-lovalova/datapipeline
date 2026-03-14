@@ -92,10 +92,10 @@ def test_build_cli_output_config_honors_view() -> None:
         transport="stdout",
         fmt="jsonl",
         directory=None,
-        view="values",
+        view="flat",
     )
     assert config is not None
-    assert config.view == "values"
+    assert config.view == "flat"
 
 
 def test_build_cli_output_config_rejects_non_flat_csv_view() -> None:
@@ -105,6 +105,17 @@ def test_build_cli_output_config_rejects_non_flat_csv_view() -> None:
             fmt="csv",
             directory="out",
             view="raw",
+    )
+    assert exc.value.code == 2
+
+
+def test_build_cli_output_config_rejects_non_raw_pickle_view() -> None:
+    with pytest.raises(SystemExit) as exc:
+        build_cli_output_config(
+            transport="fs",
+            fmt="pickle",
+            directory="out",
+            view="flat",
         )
     assert exc.value.code == 2
 

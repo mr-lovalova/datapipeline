@@ -38,11 +38,13 @@ logger = logging.getLogger(__name__)
 _OUTPUT_MATRIX_HELP = (
     "Valid output combinations:\n"
     "  stdout: format=jsonl|txt\n"
-    "          jsonl view=flat|raw|values, txt has no view\n"
+    "          jsonl view=raw|flat, txt has no view\n"
     "          encoding is not supported\n"
-    "  fs:     format=jsonl|csv|pickle|txt|html, view=flat|raw|values\n"
+    "  fs:     format=jsonl|csv|pickle|txt|html\n"
     "          encoding is supported only for jsonl/csv/txt (default utf-8)\n"
-    "          csv supports view=flat|values\n"
+    "          jsonl supports view=raw|flat\n"
+    "          csv supports view=flat\n"
+    "          pickle supports view=raw\n"
     "          txt/html output does not support view\n"
     "          html output support depends on the selected runtime operation\n"
 )

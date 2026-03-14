@@ -6,7 +6,6 @@ from datapipeline.artifacts.planning import build_planning_context
 from datapipeline.artifacts.specs import artifact_keys_for_task_ids
 from datapipeline.artifacts.executor import run_build_if_needed
 from datapipeline.build.state import load_build_state
-from datapipeline.cli.visuals.execution import execution_scope
 from datapipeline.config.build_resolution import BuildSettings
 from datapipeline.config.tasks import ArtifactTask, OperationTask, Task
 from datapipeline.operations.dispatch import execute_operation
@@ -195,16 +194,9 @@ def execute_profile(
         )
         raise SystemExit(2)
     sync_runtime_artifacts_from_state(runtime, request.project_path)
-    total_runtime_tasks = len(runtime_task_ids)
-    for idx, task_id in enumerate(runtime_task_ids, start=1):
+    for task_id in runtime_task_ids:
         task = cast(OperationTask, tasks_by_id[task_id])
-        with execution_scope(
-            task_id=task.id,
-            item_index=idx,
-            item_total=total_runtime_tasks,
-            announce=True,
-        ):
-            run_runtime_task(task, profile, runtime)
+        run_runtime_task(task, profile, runtime)
 
 
 __all__ = [

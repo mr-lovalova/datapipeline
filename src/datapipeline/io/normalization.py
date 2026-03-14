@@ -1,60 +1,45 @@
 import json
-from dataclasses import asdict, dataclass, is_dataclass
+from dataclasses import asdict, is_dataclass
 from datetime import date, datetime
 from typing import Any, Literal
 
-View = Literal["flat", "raw", "values"]
+from datapipeline.domain.sample import Sample
+
+View = Literal["flat", "raw"]
 
 
-@dataclass(frozen=True)
-class NormalizedRow:
-    key: Any
-    kind: str
-    fields: dict[str, Any]
-    raw: Any
+def payload_for_view(item: Any, view: View = "raw") -> Any:
+    if view == "raw":
+        return raw_payload(item)
+    if view == "flat":
+        return flat_payload(item)
+    raise ValueError(f"Unsupported view '{view}'")
 
 
-def normalized_record_row(item: Any) -> NormalizedRow:
-    raw = _jsonable(item)
-    fields: dict[str, Any] = {}
+def raw_payload(item: Any) -> Any:
+    if isinstance(item, Sample):
+        return item.as_full_payload()
+    return _jsonable(item)
+
+
+def flat_payload(item: Any) -> dict[str, Any]:
+    if isinstance(item, Sample):
+        payload: dict[str, Any] = {}
+        flatten_fields("key", _normalize_key_struct(item.key), payload)
+        flatten_fields("features", item.features.values, payload)
+        if item.targets is not None:
+            flatten_fields("targets", item.targets.values, payload)
+        return payload
+
+    raw = raw_payload(item)
+    payload: dict[str, Any] = {}
     if isinstance(raw, dict):
         for key, value in sorted(raw.items(), key=lambda kv: str(kv[0])):
-            flatten_fields(str(key), value, fields)
-    else:
-        flatten_fields("value", raw, fields)
-    return NormalizedRow(
-        key=_record_key(item),
-        kind=type(item).__name__,
-        fields=fields,
-        raw=raw,
-    )
+            flatten_fields(str(key), value, payload)
+        return payload
 
-
-def normalized_row(
-    *,
-    key: Any,
-    kind: str,
-    raw: Any,
-    fields: dict[str, Any],
-) -> NormalizedRow:
-    return NormalizedRow(
-        key=key,
-        kind=kind,
-        fields=fields,
-        raw=raw,
-    )
-
-
-def normalized_payload(row: NormalizedRow, view: View = "flat") -> dict[str, Any]:
-    key = _normalize_key_struct(row.key)
-    base = {"key": key, "kind": row.kind}
-    if view == "flat":
-        return {**base, "fields": row.fields}
-    if view == "raw":
-        return {**base, "raw": row.raw}
-    if view == "values":
-        return {**base, "values": _ordered_values(row.fields)}
-    raise ValueError(f"Unsupported view '{view}'")
+    flatten_fields("value", raw, payload)
+    return payload
 
 
 def flatten_fields(prefix: str, value: Any, out: dict[str, Any]) -> None:
@@ -75,24 +60,10 @@ def flatten_fields(prefix: str, value: Any, out: dict[str, Any]) -> None:
     out[prefix] = str(value)
 
 
-def _ordered_values(fields: dict[str, Any]) -> list[Any]:
-    return [fields[key] for key in sorted(fields)]
-
-
 def _normalize_key_struct(key: Any) -> Any:
     if isinstance(key, tuple):
         return list(key)
     return key
-
-
-def _record_key(value: Any) -> Any:
-    direct = getattr(value, "time", None)
-    if direct is not None:
-        return direct
-    record = getattr(value, "record", None)
-    if record is not None:
-        return getattr(record, "time", None)
-    return None
 
 
 def _jsonable(value: Any) -> Any:

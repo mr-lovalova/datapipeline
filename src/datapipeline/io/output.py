@@ -23,9 +23,9 @@ def _format_suffix(fmt: str) -> str:
 
 
 def _default_view_for_format(fmt: str) -> str:
-    if fmt == "jsonl":
-        return "raw"
-    return "flat"
+    if fmt == "csv":
+        return "flat"
+    return "raw"
 
 
 def _resolve_view(fmt: str, configured_view: str | None) -> str:
@@ -43,7 +43,7 @@ class OutputTarget:
 
     transport: str  # stdout | fs
     format: str     # jsonl | csv | pickle | html
-    view: str       # flat | raw | values
+    view: str       # flat | raw
     encoding: str | None
     destination: Optional[Path]
     run: RunPaths | None = None
