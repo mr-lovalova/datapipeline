@@ -22,7 +22,6 @@ from datapipeline.build.config_hash import compute_config_hash
 from datapipeline.cli.logging_setup import configure_root_logging
 from datapipeline.cli.visuals.execution import make_execution_observer
 from datapipeline.cli.visuals.execution import emit_execution_message
-from datapipeline.cli.visuals.execution import execution_scope
 from datapipeline.config.build_resolution import BuildSettings, resolve_build_settings
 from datapipeline.config.profiles import BuildProfile
 from datapipeline.config.resolution import LogOutputTarget
@@ -210,19 +209,12 @@ def _execute_build_jobs(
         )
     try:
         artifacts: dict[str, dict[str, object]] = {}
-        total = len(job_specs)
-        for idx, (definition, task) in enumerate(job_specs, start=1):
-            with execution_scope(
-                task_id=task.id,
-                item_index=idx,
-                item_total=total,
-                announce=True,
-            ):
-                result = _run_artifact_builder(
-                    runtime=runtime,
-                    definition=definition,
-                    task=task,
-                )
+        for definition, task in job_specs:
+            result = _run_artifact_builder(
+                runtime=runtime,
+                definition=definition,
+                task=task,
+            )
             if result:
                 artifacts[definition.key] = result
         return artifacts
