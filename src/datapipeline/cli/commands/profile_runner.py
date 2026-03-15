@@ -34,6 +34,7 @@ def handle_profile_command(
         output_directory=getattr(args, "output_directory", None),
         output_encoding=getattr(args, "output_encoding", None),
         output_view=getattr(args, "output_view", None),
+        cli_cache=getattr(args, "cache", None),
         skip_build=getattr(args, "skip_build", False),
         cli_log_level=cli_level_arg,
         cli_log_outputs=cli_log_outputs,
@@ -46,4 +47,3 @@ def handle_profile_command(
         return True
     run_profiles(request)
     return True
-

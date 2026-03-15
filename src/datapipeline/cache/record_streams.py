@@ -69,6 +69,13 @@ def cached_record_stream(context, record_stream_id: str) -> Iterator[Any]:
     )
 
     runtime = context.runtime
+    if not getattr(runtime, "cache_enabled", True):
+        return build_record_pipeline(
+            context,
+            record_stream_id,
+            stage=RECORD_NODE_COUNT - 1,
+        )
+
     partition_by = runtime.registries.partition_by.get(record_stream_id)
     debug_operations = runtime.registries.debug_operations.get(record_stream_id)
 

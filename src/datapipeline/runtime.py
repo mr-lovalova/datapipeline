@@ -68,6 +68,7 @@ class Runtime:
     project_yaml: Path
     artifacts_root: Path
     cache_root: Path | None = None
+    cache_enabled: bool = True
     registries: Registries = field(default_factory=Registries)
     split: Optional[SplitConfig] = None
     split_keep: Optional[str] = None

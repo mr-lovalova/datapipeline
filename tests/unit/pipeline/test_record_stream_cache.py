@@ -228,3 +228,34 @@ def test_runtime_preserves_explicit_cache_root(tmp_path: Path) -> None:
     runtime.cleanup_cache()
 
     assert cache_root.exists()
+
+
+def test_cached_record_stream_bypasses_cache_when_disabled(tmp_path: Path, monkeypatch) -> None:
+    project_yaml = _write_project(tmp_path)
+    runtime = Runtime(
+        project_yaml=project_yaml,
+        artifacts_root=artifacts_root(project_yaml),
+    )
+    runtime.cache_enabled = False
+    runtime.registries.partition_by.register("prices.aapl", None)
+    runtime.registries.debug_operations.register("prices.aapl", [])
+    context = PipelineContext(runtime)
+    records = [
+        _Rec(time=_ts(1), symbol="AAPL", value=1.0),
+        _Rec(time=_ts(2), symbol="AAPL", value=2.0),
+    ]
+    calls = {"count": 0, "stage": None}
+
+    def _build(*args, **kwargs):
+        calls["count"] += 1
+        calls["stage"] = kwargs.get("stage")
+        return iter(records)
+
+    monkeypatch.setattr("datapipeline.pipelines.record.dag.build_record_pipeline", _build)
+
+    first = list(cached_record_stream(context, "prices.aapl"))
+    second = list(cached_record_stream(context, "prices.aapl"))
+
+    assert first == records
+    assert second == records
+    assert calls["count"] == 2

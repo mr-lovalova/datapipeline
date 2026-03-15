@@ -73,6 +73,8 @@ def _shared_cache_root(
         return None
     if len(profiles) <= 1:
         return None
+    if not any(getattr(profile, "cache_enabled", True) for profile in profiles):
+        return None
     project_name = request.project_path.stem or "project"
     return Path(
         tempfile.mkdtemp(prefix=f"datapipeline-cache-{project_name}-")

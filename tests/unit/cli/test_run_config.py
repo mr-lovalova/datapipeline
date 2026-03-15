@@ -82,6 +82,32 @@ def test_serve_request_resolves_targeted_profile(monkeypatch, tmp_path: Path):
     assert any(task.id == "coverage" for task in request.tasks)
 
 
+def test_serve_request_resolves_cache_cli_override(monkeypatch, tmp_path: Path):
+    _patch_runtime_resolution(monkeypatch)
+    project_yaml = _write_project(tmp_path)
+    ops = tmp_path / "tasks" / "operations"
+    profiles = tmp_path / "profiles"
+    ops.mkdir(parents=True, exist_ok=True)
+    profiles.mkdir(parents=True, exist_ok=True)
+
+    _write_op(
+        ops / "pipeline.yaml",
+        "id: pipeline\nkind: runtime\nentrypoint: core.runtime.pipeline\n",
+    )
+    (profiles / "serve.train.yaml").write_text(
+        "cmd: serve\nname: train\ntarget: pipeline\ncache: false\n",
+        encoding="utf-8",
+    )
+
+    request = build_profile_run_request(
+        kind="serve",
+        project=str(project_yaml),
+        cli_cache=True,
+    )
+    assert request is not None
+    assert request.profiles[0].cache_enabled is True
+
+
 def test_inspect_request_defaults_to_enabled_profiles(monkeypatch, tmp_path: Path):
     _patch_runtime_resolution(monkeypatch)
     project_yaml = _write_project(tmp_path)

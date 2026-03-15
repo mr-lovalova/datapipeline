@@ -40,6 +40,7 @@ class RunProfile:
     stage: Optional[int]
     limit: Optional[int]
     throttle_ms: Optional[float]
+    cache_enabled: bool
     log_decision: LogLevelDecision
     log_output: LogOutputSettings
     visuals: VisualSettings
@@ -59,10 +60,11 @@ def resolve_run_profiles(
     limit: Optional[int],
     cli_build_mode: Optional[str],
     cli_output,
-    cli_log_level: Optional[str],
+    cli_log_level: Optional[str] = None,
     cli_log_outputs: Sequence[LogOutputTarget] | None = None,
     base_log_level: str = "INFO",
     cli_visuals: Optional[str] = None,
+    cli_cache: Optional[bool] = None,
 ) -> list[RunProfile]:
     fallback_log_level = str(base_log_level).upper()
     cli_log_output_candidates = list(cli_log_outputs or [])
@@ -83,6 +85,7 @@ def resolve_run_profiles(
 
         resolved_stage = cascade(stage, _run_config_value(run_cfg, "stage"))
         resolved_limit = cascade(limit, _run_config_value(run_cfg, "limit"))
+        resolved_cache = bool(cascade(cli_cache, _run_config_value(run_cfg, "cache"), True))
         run_cmd = getattr(run_cfg, "cmd", None)
         create_run = run_cmd == "serve"
         if resolved_stage is not None and not create_run:
@@ -94,6 +97,7 @@ def resolve_run_profiles(
                 f"Runtime profile '{run_label}' does not support keep filters."
             )
         throttle_ms = _run_config_value(run_cfg, "throttle_ms")
+        runtime.cache_enabled = resolved_cache
         log_decision = resolve_log_level(
             cli_log_level,
             logging_value(run_observability, "level"),
@@ -142,6 +146,7 @@ def resolve_run_profiles(
                 stage=resolved_stage,
                 limit=resolved_limit,
                 throttle_ms=throttle_ms,
+                cache_enabled=resolved_cache,
                 log_decision=log_decision,
                 log_output=log_output,
                 visuals=visuals,
