@@ -4,6 +4,9 @@ import sys
 from typing import Optional, Tuple
 
 from datapipeline.runtime import Runtime
+from datapipeline.sources.models.source import Source
+
+from .execution_context import current_source_visual_proxy_factory
 
 
 def _is_tty() -> bool:
@@ -131,6 +134,13 @@ def get_visuals_backend(provider: Optional[str]) -> VisualsBackend:
     if _rich_available() and _is_tty() and _rich_live_supported():
         return _RichBackend()
     return _BasicBackend()
+
+
+def observe_source(stream_source: Source, stream_id: str):
+    factory = current_source_visual_proxy_factory()
+    if factory is None:
+        return stream_source
+    return factory(stream_source, stream_id)
 
 
 @contextmanager

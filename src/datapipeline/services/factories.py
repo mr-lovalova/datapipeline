@@ -1,11 +1,10 @@
 from typing import Any, Iterator
 
+from datapipeline.cache import cached_record_stream
 from datapipeline.config.catalog import ContractConfig, EPArgs, SourceConfig
 from datapipeline.dag.context import PipelineContext
 from datapipeline.mappers.noop import identity
 from datapipeline.parsers.identity import IdentityParser
-from datapipeline.pipelines import build_record_pipeline
-from datapipeline.pipelines.record.nodes import RECORD_NODE_COUNT
 from datapipeline.plugins import LOADERS_EP, MAPPERS_EP, PARSERS_EP
 from datapipeline.sources.models.loader import BaseDataLoader
 from datapipeline.sources.models.source import Source
@@ -93,8 +92,7 @@ class _ComposedLoader(BaseDataLoader):
     def _resolve_inputs(self, context: PipelineContext, specs: list[str]):
         """Parse and resolve composed inputs into iterators.
 
-        Grammar: "[alias=]stream_id" only. All inputs are built to stage 4
-        with stream transforms applied.
+        Grammar: "[alias=]stream_id" only.
         """
         runtime = context.runtime
         known_streams = set(runtime.registries.stream_sources.keys())
@@ -106,11 +104,7 @@ class _ComposedLoader(BaseDataLoader):
                 raise ValueError(
                     f"Unknown input stream '{ref}'. Known streams: {sorted(known_streams)}"
                 )
-            out[alias] = build_record_pipeline(
-                context,
-                ref,
-                stage=RECORD_NODE_COUNT - 1,
-            )
+            out[alias] = cached_record_stream(context, ref)
 
         return out
 

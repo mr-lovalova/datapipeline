@@ -27,6 +27,7 @@ from datapipeline.cli.visuals.rich.sources import (
     _clear_progress_tasks,
     visual_sources,
 )
+from datapipeline.cli.visuals.streams import observe_source
 from datapipeline.sources.models.generator import DataGenerator
 from datapipeline.sources.foreach import ForeachLoader
 from datapipeline.sources.models.loader import BaseDataLoader, SyntheticLoader
@@ -887,3 +888,14 @@ def test_visual_sources_runs_central_task_cleanup_on_interrupt(monkeypatch) -> N
             raise KeyboardInterrupt()
 
     assert called["count"] == 1
+
+
+def test_rich_visual_sources_observe_dynamic_sources() -> None:
+    runtime = SimpleNamespace(
+        registries=SimpleNamespace(stream_sources=_StreamRegistry())
+    )
+
+    with visual_sources(runtime, logging.INFO):
+        observed = observe_source(_SyntheticSource(), "time.ticks.linear")
+
+    assert isinstance(observed, _RichSourceProxy)

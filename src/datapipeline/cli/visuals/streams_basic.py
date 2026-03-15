@@ -7,7 +7,9 @@ from datapipeline.sources.models.source import Source
 
 from .source_observability import SourceObservabilityAdapter
 from .execution_context import (
+    reset_current_source_visual_proxy_factory,
     reset_current_visual_log_level,
+    set_current_source_visual_proxy_factory,
     set_current_visual_log_level,
 )
 
@@ -64,6 +66,9 @@ def visual_sources(runtime: Runtime, log_level: int | None):
     reg = runtime.registries.stream_sources
     originals = dict(reg.items())
     level_token = set_current_visual_log_level(level)
+    proxy_token = set_current_source_visual_proxy_factory(
+        lambda stream_source, stream_id: VisualSourceProxy(stream_source, stream_id)
+    )
     try:
         for stream_id, stream_source in originals.items():
             reg.register(stream_id, VisualSourceProxy(stream_source, stream_id))
@@ -71,4 +76,5 @@ def visual_sources(runtime: Runtime, log_level: int | None):
     finally:
         for stream_id, stream_source in originals.items():
             reg.register(stream_id, stream_source)
+        reset_current_source_visual_proxy_factory(proxy_token)
         reset_current_visual_log_level(level_token)
