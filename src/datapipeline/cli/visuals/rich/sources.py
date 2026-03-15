@@ -93,11 +93,14 @@ class _RichSourceProxy(Source):
         adapter = SourceObservabilityAdapter(self._inner, self._stream_id)
         stream_label = self._stream_id
         task_id: Optional[int] = None
+        progress_visible = getattr(adapter, "progress_visible", lambda: True)()
         sequence_entries = getattr(adapter, "progress_sequence", lambda: None)()
         sequence_index = 0
         task_emitted = 0
         retired_task_ids: list[int] = []
-        info_lines = [str(line).strip() for line in adapter.info_lines() if str(line).strip()]
+        info_lines = [
+            str(line).rstrip() for line in adapter.info_lines() if str(line).strip()
+        ]
         initial_message = adapter.format_label(
             include_stream_id=False,
             include_dag_indent=False,
@@ -123,14 +126,15 @@ class _RichSourceProxy(Source):
         last_path_label: Optional[str] = initial_path_label
 
         try:
-            total = adapter.count()
-            if sequence_entries:
-                total = sequence_entries[0].total
-            task_id = self._start_task(
-                text=self._format_text(stream_label, initial_message),
-                total=total,
-            )
-            self._safe_progress_call("refresh progress", self._progress.refresh)
+            if progress_visible:
+                total = adapter.count()
+                if sequence_entries:
+                    total = sequence_entries[0].total
+                task_id = self._start_task(
+                    text=self._format_text(stream_label, initial_message),
+                    total=total,
+                )
+                self._safe_progress_call("refresh progress", self._progress.refresh)
 
             for item in self._inner.stream():
                 current_label = adapter.current_label()

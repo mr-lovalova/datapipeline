@@ -509,6 +509,66 @@ def test_rich_source_proxy_emits_glob_summary_as_source_info_event(monkeypatch) 
     )
 
 
+def test_rich_source_proxy_skips_progress_row_for_virtual_source(monkeypatch) -> None:
+    captured: list[tuple[str, int, int, str | None]] = []
+    monkeypatch.setattr(
+        "datapipeline.cli.visuals.rich.sources.emit_execution_message",
+        lambda message, level, logger, depth=0, message_kind=None: captured.append(
+            (message, level, depth, message_kind)
+        ),
+    )
+
+    class _Adapter:
+        def info_lines(self):
+            return ["Composed from: aapl=equity.aapl, msft=equity.msft"]
+
+        def format_label(self, name=None, **kwargs):
+            if name:
+                return f"Loading {name}"
+            return "ComposedLoader"
+
+        def initial_label(self):
+            return None
+
+        def count(self):
+            return None
+
+        def current_label(self):
+            return None
+
+        def progress_visible(self):
+            return False
+
+    monkeypatch.setattr(
+        "datapipeline.cli.visuals.rich.sources.SourceObservabilityAdapter",
+        lambda stream_source, stream_id: _Adapter(),
+    )
+
+    progress = _RecordingProgress()
+    source = SimpleNamespace(stream=lambda: iter([1]))
+    proxy = _RichSourceProxy(
+        stream_source=source,
+        stream_id="equity.pair.aapl_msft",
+        progress=progress,
+    )
+
+    set_current_dag_depth(2)
+    try:
+        list(proxy.stream())
+    finally:
+        set_current_dag_depth(0)
+
+    assert progress.added_texts == []
+    assert captured[:1] == [
+        (
+            "[equity.pair.aapl_msft] Composed from: aapl=equity.aapl, msft=equity.msft",
+            logging.INFO,
+            2,
+            "source_info",
+        ),
+    ]
+
+
 def test_rich_source_proxy_tracks_glob_file_transitions_as_progress_rows(monkeypatch) -> None:
     class _Adapter:
         def __init__(self):

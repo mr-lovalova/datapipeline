@@ -27,23 +27,29 @@ class VisualSourceProxy(Source):
         adapter = SourceObservabilityAdapter(self._inner, self._stream_id)
         emitted = 0
         started = False
+
+        def _emit_source_details() -> None:
+            info_indent = adapter.current_indent(logging.INFO)
+            debug_indent = adapter.current_indent(logging.DEBUG)
+            info_lines = adapter.info_lines()
+            debug_lines = adapter.debug_lines()
+            if logger.isEnabledFor(logging.INFO):
+                if info_lines:
+                    for line in info_lines:
+                        logger.info("%s[%s] %s", info_indent, self._stream_id, line)
+                else:
+                    logger.info("%s[%s] Stream starting", info_indent, self._stream_id)
+            if logger.isEnabledFor(logging.DEBUG):
+                for line in debug_lines:
+                    logger.debug("%s[%s] %s", debug_indent, self._stream_id, line)
+
         try:
+            if not getattr(adapter, "progress_visible", lambda: True)():
+                _emit_source_details()
+                started = True
             for item in self._inner.stream():
                 if not started:
-                    info_indent = adapter.current_indent(logging.INFO)
-                    debug_indent = adapter.current_indent(logging.DEBUG)
-                    adapter.log_composed_details(logging.INFO)
-                    info_lines = adapter.info_lines()
-                    debug_lines = adapter.debug_lines()
-                    if logger.isEnabledFor(logging.INFO):
-                        if info_lines:
-                            for line in info_lines:
-                                logger.info("%s[%s] %s", info_indent, self._stream_id, line)
-                        else:
-                            logger.info("%s[%s] Stream starting", info_indent, self._stream_id)
-                    if logger.isEnabledFor(logging.DEBUG):
-                        for line in debug_lines:
-                            logger.debug("%s[%s] %s", debug_indent, self._stream_id, line)
+                    _emit_source_details()
                     started = True
                 emitted += 1
                 yield item

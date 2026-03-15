@@ -1,6 +1,6 @@
+import logging
 from dataclasses import dataclass
 from typing import Any, Optional
-import logging
 
 from datapipeline.sources.data_loader import DataLoader
 from datapipeline.sources.foreach import ForeachLoader
@@ -16,7 +16,6 @@ from .common import (
     compute_glob_root,
     current_transport_label,
     relative_label,
-    log_combined_stream,
     transport_debug_lines,
     transport_info_lines,
 )
@@ -54,15 +53,22 @@ class SourceObservabilityAdapter:
     def composed_inputs(self) -> Optional[list[str]]:
         return describe_loader(self.loader).composed_inputs
 
-    def log_composed_details(self, level: int = logging.INFO) -> None:
+    def composed_detail_lines(self) -> list[str]:
         details = self.composed_inputs()
         if not details:
-            return
-        log_combined_stream(
-            self.stream_id,
-            details,
-            indent=self.current_indent(level),
-        )
+            return []
+        parts: list[str] = []
+        for entry in details:
+            left, sep, right = str(entry).partition("=")
+            if sep:
+                parts.append(f"{left.strip()}={right.strip()}")
+            else:
+                text = str(entry).strip()
+                if text:
+                    parts.append(text)
+        if not parts:
+            return []
+        return [f"Composed from: {', '.join(parts)}"]
 
     def current_label(self) -> Optional[str]:
         observability = describe_loader(self.loader)
@@ -115,6 +121,7 @@ class SourceObservabilityAdapter:
     def info_lines(self) -> list[str]:
         observability = describe_loader(self.loader)
         lines: list[str] = []
+        lines.extend(self.composed_detail_lines())
         if observability.info_lines:
             lines.extend(observability.info_lines)
         lines.extend(transport_info_lines(observability.transport))
@@ -130,6 +137,15 @@ class SourceObservabilityAdapter:
 
     def current_indent(self, level: int = logging.INFO) -> str:
         return visible_dag_indent(level)
+
+    def progress_visible(self) -> bool:
+        producer = getattr(self.loader, "progress_visible", None)
+        if not callable(producer):
+            return True
+        try:
+            return bool(producer())
+        except Exception:
+            return True
 
     def format_label(
         self,

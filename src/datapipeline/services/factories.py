@@ -1,4 +1,5 @@
-from typing import Any, Iterator
+from collections.abc import Iterator
+from typing import Any
 
 from datapipeline.cache import cached_record_stream
 from datapipeline.config.catalog import ContractConfig, EPArgs, SourceConfig
@@ -44,10 +45,15 @@ class _ComposedLoader(BaseDataLoader):
         if not input_specs:
             return
 
-        input_iters: dict[str, Iterator[Any]] = {
-            alias: (getattr(item, "record", item) for item in iterator)
-            for alias, iterator in self._resolve_inputs(context, input_specs).items()
-        }
+        resolved_inputs = self._resolve_inputs(context, input_specs)
+        upstream_iters: list[Iterator[Any]] = []
+        input_iters: dict[str, Iterator[Any]] = {}
+        for alias, iterator in resolved_inputs.items():
+            upstream_iter = iter(iterator)
+            upstream_iters.append(upstream_iter)
+            input_iters[alias] = (
+                getattr(item, "record", item) for item in upstream_iter
+            )
 
         mapper = self._spec.mapper
         if not mapper or not mapper.entrypoint:
@@ -82,12 +88,20 @@ class _ComposedLoader(BaseDataLoader):
                 "`mapper(inputs, *, context, driver, **params)`"
             ) from exc
 
-        for rec in composed_records:
-            yield getattr(rec, "record", rec)
+        try:
+            for rec in composed_records:
+                yield getattr(rec, "record", rec)
+        finally:
+            _close_iterator(composed_records)
+            for iterator in upstream_iters:
+                _close_iterator(iterator)
 
     def count(self):
         # Compose/join logic may change cardinality; unknown by design.
         return None
+
+    def progress_visible(self) -> bool:
+        return False
 
     def _resolve_inputs(self, context: PipelineContext, specs: list[str]):
         """Parse and resolve composed inputs into iterators.
@@ -121,3 +135,9 @@ def build_composed_source(stream_id: str, spec: ContractConfig, runtime) -> Sour
         loader=_ComposedLoader(runtime=runtime, stream_id=stream_id, spec=spec),
         parser=IdentityParser(),
     )
+
+
+def _close_iterator(iterator: Any) -> None:
+    closer = getattr(iterator, "close", None)
+    if callable(closer):
+        closer()
