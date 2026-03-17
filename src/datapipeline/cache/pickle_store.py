@@ -110,9 +110,14 @@ class PickleMaterializationStore:
         path: Path,
     ) -> Source:
         base_loader = build_loader(transport="fs", format="pickle", path=str(path))
+        logical_data_path = Path(manifest.relative_data_path).as_posix()
         loader = _ObservedMaterializationLoader(
             base_loader,
             progress_label="Loading cache",
+            info_lines=["Loaded contract output from cache"],
+            debug_lines=[f"cache.file: {logical_data_path}"],
+            include_transport_info=False,
+            include_transport_debug=False,
         )
         return Source(
             loader=loader,
@@ -128,11 +133,15 @@ class _ObservedMaterializationLoader(BaseDataLoader):
         progress_label: str | None = None,
         info_lines: Sequence[str] = (),
         debug_lines: Sequence[str] = (),
+        include_transport_info: bool = True,
+        include_transport_debug: bool = True,
     ) -> None:
         self._inner = inner
         self._progress_label = str(progress_label).strip() or None
         self._info_lines = tuple(str(line) for line in info_lines if str(line).strip())
         self._debug_lines = tuple(str(line) for line in debug_lines if str(line).strip())
+        self._include_transport_info = bool(include_transport_info)
+        self._include_transport_debug = bool(include_transport_debug)
         self.transport = getattr(inner, "transport", None)
         self.decoder = getattr(inner, "decoder", None)
 
@@ -150,3 +159,9 @@ class _ObservedMaterializationLoader(BaseDataLoader):
 
     def progress_label(self) -> str | None:
         return self._progress_label
+
+    def include_transport_info(self) -> bool:
+        return self._include_transport_info
+
+    def include_transport_debug(self) -> bool:
+        return self._include_transport_debug

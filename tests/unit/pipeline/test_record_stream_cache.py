@@ -193,6 +193,12 @@ def test_record_stream_cache_loader_exposes_cache_progress_label(tmp_path: Path)
 
     assert source is not None
     assert source.loader.progress_label() == "Loading cache"
+    assert source.loader.info_lines() == ["Loaded contract output from cache"]
+    assert source.loader.debug_lines() == [
+        "cache.file: record_stream/prices.aapl/stream_transforms/data.pkl"
+    ]
+    assert source.loader.include_transport_info() is False
+    assert source.loader.include_transport_debug() is False
 
 
 def test_runtime_uses_owned_temp_cache_root_and_cleans_it(tmp_path: Path) -> None:

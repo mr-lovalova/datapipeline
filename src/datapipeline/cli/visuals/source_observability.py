@@ -124,7 +124,8 @@ class SourceObservabilityAdapter:
         lines.extend(self.composed_detail_lines())
         if observability.info_lines:
             lines.extend(observability.info_lines)
-        lines.extend(transport_info_lines(observability.transport))
+        if self._include_transport_info():
+            lines.extend(transport_info_lines(observability.transport))
         return lines
 
     def debug_lines(self) -> list[str]:
@@ -132,7 +133,8 @@ class SourceObservabilityAdapter:
         lines: list[str] = []
         if observability.debug_lines:
             lines.extend(observability.debug_lines)
-        lines.extend(transport_debug_lines(observability.transport))
+        if self._include_transport_debug():
+            lines.extend(transport_debug_lines(observability.transport))
         return lines
 
     def current_indent(self, level: int = logging.INFO) -> str:
@@ -140,6 +142,24 @@ class SourceObservabilityAdapter:
 
     def progress_visible(self) -> bool:
         producer = getattr(self.loader, "progress_visible", None)
+        if not callable(producer):
+            return True
+        try:
+            return bool(producer())
+        except Exception:
+            return True
+
+    def _include_transport_info(self) -> bool:
+        producer = getattr(self.loader, "include_transport_info", None)
+        if not callable(producer):
+            return True
+        try:
+            return bool(producer())
+        except Exception:
+            return True
+
+    def _include_transport_debug(self) -> bool:
+        producer = getattr(self.loader, "include_transport_debug", None)
         if not callable(producer):
             return True
         try:
