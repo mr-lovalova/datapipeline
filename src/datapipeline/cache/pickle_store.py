@@ -84,8 +84,11 @@ class PickleMaterializationStore:
         path = self._manifest_path(ref)
         if not path.exists():
             return None
-        with path.open("r", encoding="utf-8") as handle:
-            data = json.load(handle)
+        try:
+            with path.open("r", encoding="utf-8") as handle:
+                data = json.load(handle)
+        except json.JSONDecodeError:
+            return None
         if not isinstance(data, dict):
             return None
         try:

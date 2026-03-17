@@ -123,6 +123,22 @@ def test_record_stream_cache_invalidates_when_contract_changes(tmp_path: Path) -
     assert invalidated.load("prices.aapl") is None
 
 
+def test_record_stream_cache_treats_malformed_manifest_as_cache_miss(tmp_path: Path) -> None:
+    project_yaml = _write_project(tmp_path)
+    cache = RecordStreamCache(
+        project_yaml=project_yaml,
+        root=(artifacts_root(project_yaml) / "_system" / "cache").resolve(),
+    )
+    list(cache.materialize("prices.aapl", iter([_Rec(time=_ts(1), symbol="AAPL", value=1.0)])))
+
+    ref = cache._materialization_ref("prices.aapl")
+    assert ref is not None
+    manifest_path = cache._store._manifest_path(ref)
+    manifest_path.write_text('{"signature_hash": ', encoding="utf-8")
+
+    assert cache.load("prices.aapl") is None
+
+
 def test_cached_record_stream_reuses_cache_without_rebuilding(tmp_path: Path, monkeypatch) -> None:
     project_yaml = _write_project(tmp_path)
     runtime = Runtime(
