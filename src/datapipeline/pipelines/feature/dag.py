@@ -18,7 +18,7 @@ from datapipeline.dag.context import PipelineContext
 def build_feature_pipeline(
     context: PipelineContext,
     cfg: FeatureRecordConfig,
-    stage: int | None = None,
+    step: int | None = None,
 ) -> Iterator[Any]:
     metadata = _feature_dag_metadata(
         record_stream_id=cfg.record_stream,
@@ -27,7 +27,7 @@ def build_feature_pipeline(
         scale=cfg.scale,
         sequence=cfg.sequence,
     )
-    if stage is None:
+    if step is None:
         record_stream = cached_record_stream(context, cfg.record_stream)
         dag = StageDag(
             name=f"feature:{cfg.id}",
@@ -58,7 +58,7 @@ def build_feature_pipeline(
                 sequence=cfg.sequence,
             ),
         ),
-    ).upto_stage(stage)
+    ).upto_step(step)
     return run_stage_dag(context, dag)
 
 

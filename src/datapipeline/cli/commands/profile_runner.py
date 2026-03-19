@@ -28,7 +28,7 @@ def handle_profile_command(
         build_mode=getattr(args, "build_mode", None),
         limit=getattr(args, "limit", None),
         keep=getattr(args, "keep", None),
-        stage=getattr(args, "stage", None),
+        step=getattr(args, "step", None),
         output_transport=getattr(args, "output_transport", None),
         output_format=getattr(args, "output_format", None),
         output_directory=getattr(args, "output_directory", None),

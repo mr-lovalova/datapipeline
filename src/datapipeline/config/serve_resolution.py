@@ -38,7 +38,7 @@ class RunProfile:
     total: int
     entry: RunEntry
     runtime: Runtime
-    stage: Optional[int]
+    step: Optional[int]
     limit: Optional[int]
     throttle_ms: Optional[float]
     cache_enabled: bool
@@ -57,7 +57,7 @@ def resolve_run_profiles(
     project_path: Path,
     run_entries: Sequence[RunEntry],
     keep: Optional[str],
-    stage: Optional[int],
+    step: Optional[int],
     limit: Optional[int],
     cli_build_mode: Optional[str],
     cli_output,
@@ -75,6 +75,12 @@ def resolve_run_profiles(
     resolved_entries = list(iter_runtime_runs(
         project_path, run_entries, keep
     ))
+    has_runtime_serve_profiles = any(
+        getattr(getattr(runtime, "run", None), "cmd", None) == "serve"
+        and (managed_target_ids is None or entry.target_id in managed_target_ids)
+        for _, _, entry, runtime in resolved_entries
+    )
+    shared_runtime_profile_counts: dict[Path, int] = {}
     shared_runs: dict[Path, RunPaths] = {}
     serve_roots: dict[int, Path | None] = {}
 
@@ -91,9 +97,17 @@ def resolve_run_profiles(
             getattr(run_cfg, "cmd", None) == "serve"
             and (managed_target_ids is None or entry.target_id in managed_target_ids)
             and serve_root is not None
+        ):
+            shared_runtime_profile_counts[serve_root] = (
+                shared_runtime_profile_counts.get(serve_root, 0) + 1
+            )
+        if (
+            getattr(run_cfg, "cmd", None) == "serve"
+            and (managed_target_ids is None or entry.target_id in managed_target_ids)
+            and serve_root is not None
             and serve_root not in shared_runs
         ):
-            run_paths, _ = start_run_for_directory(serve_root, stage=stage)
+            run_paths, _ = start_run_for_directory(serve_root, step=step)
             shared_runs[serve_root] = run_paths
 
     profiles: list[RunProfile] = []
@@ -108,20 +122,30 @@ def resolve_run_profiles(
             cascade(cli_build_mode, profile_build_mode, "AUTO")
         ).upper()
 
-        resolved_stage = cascade(stage, _run_config_value(run_cfg, "stage"))
+        resolved_step = cascade(step, _run_config_value(run_cfg, "step"))
         resolved_limit = cascade(limit, _run_config_value(run_cfg, "limit"))
         resolved_cache = bool(cascade(cli_cache, _run_config_value(run_cfg, "cache"), True))
         run_cmd = getattr(run_cfg, "cmd", None)
         create_run = run_cmd == "serve" and (
             managed_target_ids is None or entry.target_id in managed_target_ids
         )
-        if resolved_stage is not None and not create_run:
+        if resolved_step is not None and run_cmd != "serve":
             raise ValueError(
-                f"Runtime profile '{run_label}' does not support stage previews."
+                f"Runtime profile '{run_label}' does not support step previews."
             )
-        if keep is not None and not create_run:
+        if resolved_step is not None and not has_runtime_serve_profiles:
+            raise ValueError(
+                f"Serve profile '{run_label}' does not support step previews."
+            )
+        if not create_run:
+            resolved_step = None
+        if keep is not None and run_cmd != "serve":
             raise ValueError(
                 f"Runtime profile '{run_label}' does not support keep filters."
+            )
+        if keep is not None and run_cmd == "serve" and not has_runtime_serve_profiles:
+            raise ValueError(
+                f"Serve profile '{run_label}' does not support keep filters."
             )
         throttle_ms = _run_config_value(run_cfg, "throttle_ms")
         runtime.cache_enabled = resolved_cache
@@ -152,6 +176,17 @@ def resolve_run_profiles(
         serve_root = serve_roots.get(idx)
         if run_cmd == "serve" and serve_root is not None:
             shared_run = shared_runs.get(serve_root)
+        effective_output = cli_output or getattr(run_cfg, "output", None)
+        if (
+            create_run
+            and serve_root is not None
+            and shared_runtime_profile_counts.get(serve_root, 0) > 1
+            and effective_output is not None
+            and getattr(effective_output, "filename", None)
+        ):
+            raise ValueError(
+                f"Serve profile '{run_label}' cannot set output.filename when multiple runtime serve profiles share one run."
+            )
 
         target = resolve_output_target(
             cli_output=cli_output,
@@ -168,7 +203,7 @@ def resolve_run_profiles(
                 total=total_runs,
                 entry=entry,
                 runtime=runtime,
-                stage=resolved_stage,
+                step=resolved_step,
                 limit=resolved_limit,
                 throttle_ms=throttle_ms,
                 cache_enabled=resolved_cache,

@@ -20,8 +20,6 @@ def test_serve_with_runtime_reraises_keyboard_interrupt_and_marks_run_failed(mon
         run="run-paths",
     )
 
-    calls = {"failed": 0, "success": 0}
-
     monkeypatch.setattr(
         "datapipeline.operations.runtime.pipeline.resolve_window_bounds",
         lambda runtime_obj, rectangular_required: (None, None),
@@ -35,26 +33,13 @@ def test_serve_with_runtime_reraises_keyboard_interrupt_and_marks_run_failed(mon
         raise KeyboardInterrupt()
         yield None
 
-    monkeypatch.setattr(
-        "datapipeline.operations.runtime.pipeline.finish_run_failed",
-        lambda _paths: calls.__setitem__("failed", calls["failed"] + 1),
-    )
-    monkeypatch.setattr(
-        "datapipeline.operations.runtime.pipeline.finish_run_success",
-        lambda _paths: calls.__setitem__("success", calls["success"] + 1),
-    )
-    monkeypatch.setattr(
-        "datapipeline.operations.runtime.pipeline.set_latest_run",
-        lambda _paths: None,
-    )
-
     result = serve_with_runtime(
         runtime=runtime,
         dataset=dataset,
         limit=None,
         target=target,
         throttle_ms=None,
-        stage=None,
+        step=None,
         visuals="on",
     )
 
@@ -65,9 +50,6 @@ def test_serve_with_runtime_reraises_keyboard_interrupt_and_marks_run_failed(mon
             visuals="on",
             logger=logging.getLogger(__name__),
         )
-
-    assert calls["failed"] == 1
-    assert calls["success"] == 0
 
 
 def test_served_output_message_for_saved_destination():

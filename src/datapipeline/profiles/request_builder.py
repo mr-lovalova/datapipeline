@@ -67,7 +67,7 @@ class ProfileResolveParams:
     build_mode: Optional[str]
     limit: Optional[int]
     keep: Optional[str]
-    stage: Optional[int]
+    step: Optional[int]
     output_transport: Optional[str]
     output_format: Optional[str]
     output_directory: Optional[str]
@@ -232,7 +232,7 @@ def _resolve_runtime_execution_profiles(
                 for profile in profiles
             ],
             keep=params.keep,
-            stage=params.stage,
+            step=params.step,
             limit=params.limit,
             cli_build_mode=params.build_mode,
             cli_output=cli_output_cfg,
@@ -253,7 +253,7 @@ def _resolve_runtime_execution_profiles(
     datasets: dict[str, ProfileDataset] = {"vectors": load_dataset(params.project_path, "vectors")}
     resolved: list[ExecutionProfile] = []
     for profile in runtime_profiles:
-        dataset_name = "vectors" if profile.stage is None else "features"
+        dataset_name = "vectors" if profile.step is None else "features"
         dataset = datasets.get(dataset_name)
         if dataset is None:
             dataset = load_dataset(params.project_path, dataset_name)
@@ -280,7 +280,7 @@ def _resolve_runtime_execution_profiles(
                 output=profile.output,
                 throttle_ms=profile.throttle_ms,
                 cache_enabled=profile.cache_enabled,
-                stage=profile.stage,
+                step=profile.step,
                 build_mode=profile.build_mode,
             )
         )
@@ -296,7 +296,7 @@ def build_profile_run_request(
     build_mode: Optional[str] = None,
     limit: Optional[int] = None,
     keep: Optional[str] = None,
-    stage: Optional[int] = None,
+    step: Optional[int] = None,
     output_transport: Optional[str] = None,
     output_format: Optional[str] = None,
     output_directory: Optional[str] = None,
@@ -326,7 +326,7 @@ def build_profile_run_request(
         build_mode=build_mode,
         limit=limit,
         keep=keep,
-        stage=stage,
+        step=step,
         output_transport=output_transport,
         output_format=output_format,
         output_directory=output_directory,

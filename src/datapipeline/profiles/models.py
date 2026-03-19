@@ -37,7 +37,7 @@ class ExecutionProfile:
     output: OutputTarget | None = None
     throttle_ms: float | None = None
     cache_enabled: bool = True
-    stage: int | None = None
+    step: int | None = None
     build_mode: str | None = None
     build_settings: BuildSettings | None = None
 

@@ -108,7 +108,7 @@ def test_run_profiles_default_build_mode_is_auto(monkeypatch, tmp_path):
         project_path=tmp_path,
         run_entries=entries,
         keep=None,
-        stage=None,
+        step=None,
         limit=None,
         cli_build_mode=None,
         cli_output=None,
@@ -136,7 +136,7 @@ def test_run_profiles_default_cache_enabled(monkeypatch, tmp_path):
         project_path=tmp_path,
         run_entries=entries,
         keep=None,
-        stage=None,
+        step=None,
         limit=None,
         cli_build_mode=None,
         cli_output=None,
@@ -174,7 +174,7 @@ def test_run_profiles_profile_cache_false(monkeypatch, tmp_path):
         project_path=tmp_path,
         run_entries=entries,
         keep=None,
-        stage=None,
+        step=None,
         limit=None,
         cli_build_mode=None,
         cli_output=None,
@@ -212,7 +212,7 @@ def test_run_profiles_cli_cache_overrides_profile(monkeypatch, tmp_path):
         project_path=tmp_path,
         run_entries=entries,
         keep=None,
-        stage=None,
+        step=None,
         limit=None,
         cli_build_mode=None,
         cli_output=None,
@@ -226,7 +226,7 @@ def test_run_profiles_cli_cache_overrides_profile(monkeypatch, tmp_path):
     assert profiles[0].runtime.cache_enabled is True
 
 
-def test_operation_contract_rejects_stage_when_unsupported(monkeypatch, tmp_path):
+def test_operation_contract_rejects_step_when_unsupported(monkeypatch, tmp_path):
     run_cfg = InspectProfile.model_validate(
         {
             "cmd": "inspect",
@@ -249,13 +249,13 @@ def test_operation_contract_rejects_stage_when_unsupported(monkeypatch, tmp_path
 
     with pytest.raises(
         ValueError,
-        match="does not support stage previews",
+        match="does not support step previews",
     ):
         resolve_run_profiles(
             project_path=tmp_path,
             run_entries=entries,
             keep=None,
-            stage=1,
+            step=1,
             limit=None,
             cli_build_mode="AUTO",
             cli_output=None,
@@ -294,7 +294,7 @@ def test_operation_contract_rejects_keep_when_unsupported(monkeypatch, tmp_path)
             project_path=tmp_path,
             run_entries=entries,
             keep="train",
-            stage=None,
+            step=None,
             limit=None,
             cli_build_mode="AUTO",
             cli_output=None,
@@ -329,7 +329,7 @@ def test_run_profiles_cli_build_mode_overrides_profile(monkeypatch, tmp_path):
         project_path=tmp_path,
         run_entries=entries,
         keep=None,
-        stage=None,
+        step=None,
         limit=None,
         cli_build_mode="FORCE",
         cli_output=None,
@@ -366,7 +366,7 @@ def test_run_profiles_use_profile_build_mode_when_cli_not_set(monkeypatch, tmp_p
         project_path=tmp_path,
         run_entries=entries,
         keep=None,
-        stage=None,
+        step=None,
         limit=None,
         cli_build_mode=None,
         cli_output=None,
@@ -395,7 +395,7 @@ def test_run_profiles_do_not_inherit_workspace_throttle(monkeypatch, tmp_path):
         project_path=tmp_path,
         run_entries=entries,
         keep=None,
-        stage=None,
+        step=None,
         limit=None,
         cli_build_mode="AUTO",
         cli_output=None,
@@ -424,7 +424,7 @@ def test_run_profiles_use_builtin_visuals_defaults(monkeypatch, tmp_path):
         project_path=tmp_path,
         run_entries=entries,
         keep=None,
-        stage=None,
+        step=None,
         limit=None,
         cli_build_mode="AUTO",
         cli_output=None,
@@ -461,7 +461,7 @@ def test_run_profiles_run_visuals_override_defaults(monkeypatch, tmp_path):
         project_path=tmp_path,
         run_entries=entries,
         keep=None,
-        stage=None,
+        step=None,
         limit=None,
         cli_build_mode="AUTO",
         cli_output=None,
@@ -500,7 +500,7 @@ def test_run_profiles_resolve_log_output_precedence(monkeypatch, tmp_path):
         project_path=tmp_path / "project.yaml",
         run_entries=entries,
         keep=None,
-        stage=None,
+        step=None,
         limit=None,
         cli_build_mode="AUTO",
         cli_output=None,
@@ -515,7 +515,7 @@ def test_run_profiles_resolve_log_output_precedence(monkeypatch, tmp_path):
         project_path=tmp_path / "project.yaml",
         run_entries=entries,
         keep=None,
-        stage=None,
+        step=None,
         limit=None,
         cli_build_mode="AUTO",
         cli_output=None,
@@ -568,7 +568,7 @@ def test_execution_scoped_logs_can_be_resolved_for_inspect_profiles(monkeypatch,
         project_path=tmp_path / "project.yaml",
         run_entries=entries,
         keep=None,
-        stage=None,
+        step=None,
         limit=None,
         cli_build_mode="AUTO",
         cli_output=cli_output,
@@ -598,7 +598,7 @@ def test_execution_scoped_logs_can_be_resolved_for_inspect_profiles(monkeypatch,
         project_path=tmp_path / "project.yaml",
         run_entries=serve_entries,
         keep=None,
-        stage=None,
+        step=None,
         limit=None,
         cli_build_mode="AUTO",
         cli_output=cli_output,
@@ -649,7 +649,7 @@ def test_execution_scoped_logs_default_to_task_specific_filename(monkeypatch, tm
         project_path=tmp_path / "project.yaml",
         run_entries=entries,
         keep=None,
-        stage=None,
+        step=None,
         limit=None,
         cli_build_mode="AUTO",
         cli_output=cli_output,
@@ -693,7 +693,7 @@ def test_serve_runtime_profiles_share_one_managed_run(monkeypatch, tmp_path):
         project_path=tmp_path / "project.yaml",
         run_entries=entries,
         keep=None,
-        stage=None,
+        step=None,
         limit=None,
         cli_build_mode="AUTO",
         cli_output=cli_output,
@@ -715,6 +715,57 @@ def test_serve_runtime_profiles_share_one_managed_run(monkeypatch, tmp_path):
         "val.jsonl",
         "test.jsonl",
     }
+
+
+def test_shared_serve_runs_reject_explicit_output_filename(monkeypatch, tmp_path):
+    entries = [
+        _entry(
+            name=name,
+            config=ServeProfile.model_validate(
+                {
+                    "cmd": "serve",
+                    "name": name,
+                    "target": "serve",
+                    "output": {
+                        "transport": "fs",
+                        "format": "jsonl",
+                        "directory": str(tmp_path / "out"),
+                        "filename": "vectors",
+                    },
+                }
+            ),
+            operation=_SERVE_OPERATION,
+        )
+        for name in ("train", "val")
+    ]
+
+    def fake_iter_runtime_runs(project_path, run_entries, keep):
+        total = len(run_entries)
+        for idx, entry in enumerate(run_entries, start=1):
+            runtime = SimpleNamespace(run=entry.config)
+            yield idx, total, entry, runtime
+
+    monkeypatch.setattr(
+        "datapipeline.config.serve_resolution.iter_runtime_runs", fake_iter_runtime_runs
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="cannot set output.filename",
+    ):
+        resolve_run_profiles(
+            project_path=tmp_path / "project.yaml",
+            run_entries=entries,
+            keep=None,
+            step=None,
+            limit=None,
+            cli_build_mode="AUTO",
+            cli_output=None,
+            cli_log_level=None,
+            base_log_level="INFO",
+            cli_visuals=None,
+            managed_run_targets={"serve"},
+        )
 
 
 def test_artifact_only_serve_profile_reuses_shared_run_logs(monkeypatch, tmp_path):
@@ -759,7 +810,7 @@ def test_artifact_only_serve_profile_reuses_shared_run_logs(monkeypatch, tmp_pat
         project_path=tmp_path / "project.yaml",
         run_entries=entries,
         keep=None,
-        stage=None,
+        step=None,
         limit=None,
         cli_build_mode="AUTO",
         cli_output=cli_output,
@@ -774,6 +825,59 @@ def test_artifact_only_serve_profile_reuses_shared_run_logs(monkeypatch, tmp_pat
     assert artifact_profile.output.run is None
     assert artifact_profile.log_output.outputs[0].scope == "execution"
     assert artifact_profile.log_output.outputs[0].destination is None
+
+
+def test_artifact_only_serve_profile_ignores_step_in_mixed_serve_invocation(monkeypatch, tmp_path):
+    runtime_cfg = ServeProfile.model_validate(
+        {
+            "cmd": "serve",
+            "name": "train",
+            "target": "serve",
+        }
+    )
+    artifact_cfg = ServeProfile.model_validate(
+        {
+            "cmd": "serve",
+            "name": "schema",
+            "target": "schema",
+        }
+    )
+    entries = [
+        _entry(name="train", config=runtime_cfg, operation=_SERVE_OPERATION),
+        _entry(name="schema", config=artifact_cfg, operation=_ARTIFACT_SCHEMA_TASK),
+    ]
+
+    def fake_iter_runtime_runs(project_path, run_entries, keep):
+        total = len(run_entries)
+        for idx, entry in enumerate(run_entries, start=1):
+            runtime = SimpleNamespace(run=entry.config)
+            yield idx, total, entry, runtime
+
+    monkeypatch.setattr(
+        "datapipeline.config.serve_resolution.iter_runtime_runs", fake_iter_runtime_runs
+    )
+
+    profiles = resolve_run_profiles(
+        project_path=tmp_path / "project.yaml",
+        run_entries=entries,
+        keep=None,
+        step=2,
+        limit=None,
+        cli_build_mode="AUTO",
+        cli_output=ServeOutputConfig(
+            transport="fs",
+            format="jsonl",
+            directory=tmp_path / "out",
+        ),
+        cli_log_level=None,
+        base_log_level="INFO",
+        cli_visuals=None,
+        managed_run_targets={"serve"},
+    )
+
+    runtime_profile, artifact_profile = profiles
+    assert runtime_profile.step == 2
+    assert artifact_profile.step is None
 
 
 def test_cli_output_directory_resolves_relative_to_workspace(tmp_path):
@@ -821,7 +925,7 @@ def test_inspect_profiles_accept_html_output_for_matrix(monkeypatch, tmp_path):
         project_path=tmp_path,
         run_entries=entries,
         keep=None,
-        stage=None,
+        step=None,
         limit=None,
         cli_build_mode="AUTO",
         cli_output=None,
@@ -877,7 +981,7 @@ def test_inspect_profiles_accept_cli_html_override_for_non_matrix(monkeypatch, t
         project_path=tmp_path,
         run_entries=entries,
         keep=None,
-        stage=None,
+        step=None,
         limit=None,
         cli_build_mode="AUTO",
         cli_output=ServeOutputConfig(
@@ -934,7 +1038,7 @@ def test_serve_profiles_accept_cli_txt_override(monkeypatch, tmp_path):
         project_path=tmp_path,
         run_entries=entries,
         keep=None,
-        stage=None,
+        step=None,
         limit=None,
         cli_build_mode="AUTO",
         cli_output=ServeOutputConfig(
