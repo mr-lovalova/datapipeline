@@ -164,3 +164,18 @@ def test_vector_ensure_schema_raises_without_schema_artifact():
 
     with pytest.raises(RuntimeError):
         list(transform.apply(stream))
+
+
+def test_vector_ensure_schema_uses_schema_snapshot_captured_at_bind_time():
+    stream = iter([make_vector(0, {"wind__B": 5.0, "wind__A": 2.0})])
+    context = StubVectorContext(
+        [],
+        schema={"features": [{"id": "wind__A"}, {"id": "wind__B"}]},
+    )
+    transform = VectorEnsureSchemaTransform()
+    transform.bind_context(context)
+
+    context._schema_map["features"] = []
+
+    out = list(transform.apply(stream))
+    assert out[0].features.values == {"wind__A": 2.0, "wind__B": 5.0}

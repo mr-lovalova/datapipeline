@@ -1,5 +1,8 @@
 import logging
+from types import SimpleNamespace
 
+from datapipeline.cli.visuals.streams import observe_source
+from datapipeline.cli.visuals.streams_basic import visual_sources
 from datapipeline.cli.visuals.streams_basic import VisualSourceProxy
 from datapipeline.sources.models.generator import DataGenerator
 from datapipeline.sources.models.loader import SyntheticLoader
@@ -27,6 +30,17 @@ class _SyntheticSource:
         yield from self.loader.load()
 
 
+class _StreamRegistry:
+    def __init__(self) -> None:
+        self._items: dict[str, object] = {}
+
+    def items(self):
+        return self._items.items()
+
+    def register(self, stream_id: str, stream_source: object) -> None:
+        self._items[stream_id] = stream_source
+
+
 def test_visual_source_proxy_logs_ascii_stream_completion(caplog):
     proxy = VisualSourceProxy(_SyntheticSource(), "time.ticks.linear")
 
@@ -41,3 +55,14 @@ def test_visual_source_proxy_logs_ascii_stream_completion(caplog):
         for msg in messages
     )
     assert all("✔" not in msg for msg in messages)
+
+
+def test_basic_visual_sources_observe_dynamic_sources() -> None:
+    runtime = SimpleNamespace(
+        registries=SimpleNamespace(stream_sources=_StreamRegistry())
+    )
+
+    with visual_sources(runtime, logging.INFO):
+        observed = observe_source(_SyntheticSource(), "time.ticks.linear")
+
+    assert isinstance(observed, VisualSourceProxy)

@@ -112,6 +112,113 @@ def test_run_profiles_default_build_mode_is_auto(monkeypatch, tmp_path):
     assert profiles[0].build_mode == "AUTO"
 
 
+def test_run_profiles_default_cache_enabled(monkeypatch, tmp_path):
+    entries = [_entry(name="demo", config=None, operation=_SERVE_OPERATION)]
+
+    def fake_iter_runtime_runs(project_path, run_entries, keep):
+        total = len(run_entries)
+        for idx, entry in enumerate(run_entries, start=1):
+            runtime = SimpleNamespace(run=entry.config)
+            yield idx, total, entry, runtime
+
+    monkeypatch.setattr(
+        "datapipeline.config.serve_resolution.iter_runtime_runs", fake_iter_runtime_runs
+    )
+
+    profiles = resolve_run_profiles(
+        project_path=tmp_path,
+        run_entries=entries,
+        keep=None,
+        stage=None,
+        limit=None,
+        cli_build_mode=None,
+        cli_output=None,
+        cli_log_level=None,
+        base_log_level="INFO",
+        cli_visuals=None,
+    )
+
+    assert profiles[0].cache_enabled is True
+    assert profiles[0].runtime.cache_enabled is True
+
+
+def test_run_profiles_profile_cache_false(monkeypatch, tmp_path):
+    run_cfg = ServeProfile.model_validate(
+        {
+            "cmd": "serve",
+            "name": "demo",
+            "target": "serve",
+            "cache": False,
+        }
+    )
+    entries = [_entry(name="demo", config=run_cfg, operation=_SERVE_OPERATION)]
+
+    def fake_iter_runtime_runs(project_path, run_entries, keep):
+        total = len(run_entries)
+        for idx, entry in enumerate(run_entries, start=1):
+            runtime = SimpleNamespace(run=entry.config)
+            yield idx, total, entry, runtime
+
+    monkeypatch.setattr(
+        "datapipeline.config.serve_resolution.iter_runtime_runs", fake_iter_runtime_runs
+    )
+
+    profiles = resolve_run_profiles(
+        project_path=tmp_path,
+        run_entries=entries,
+        keep=None,
+        stage=None,
+        limit=None,
+        cli_build_mode=None,
+        cli_output=None,
+        cli_log_level=None,
+        base_log_level="INFO",
+        cli_visuals=None,
+    )
+
+    assert profiles[0].cache_enabled is False
+    assert profiles[0].runtime.cache_enabled is False
+
+
+def test_run_profiles_cli_cache_overrides_profile(monkeypatch, tmp_path):
+    run_cfg = ServeProfile.model_validate(
+        {
+            "cmd": "serve",
+            "name": "demo",
+            "target": "serve",
+            "cache": False,
+        }
+    )
+    entries = [_entry(name="demo", config=run_cfg, operation=_SERVE_OPERATION)]
+
+    def fake_iter_runtime_runs(project_path, run_entries, keep):
+        total = len(run_entries)
+        for idx, entry in enumerate(run_entries, start=1):
+            runtime = SimpleNamespace(run=entry.config)
+            yield idx, total, entry, runtime
+
+    monkeypatch.setattr(
+        "datapipeline.config.serve_resolution.iter_runtime_runs", fake_iter_runtime_runs
+    )
+
+    profiles = resolve_run_profiles(
+        project_path=tmp_path,
+        run_entries=entries,
+        keep=None,
+        stage=None,
+        limit=None,
+        cli_build_mode=None,
+        cli_output=None,
+        cli_log_level=None,
+        base_log_level="INFO",
+        cli_visuals=None,
+        cli_cache=True,
+    )
+
+    assert profiles[0].cache_enabled is True
+    assert profiles[0].runtime.cache_enabled is True
+
+
 def test_operation_contract_rejects_stage_when_unsupported(monkeypatch, tmp_path):
     run_cfg = InspectProfile.model_validate(
         {

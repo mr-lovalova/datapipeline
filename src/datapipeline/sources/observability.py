@@ -27,7 +27,21 @@ def describe_loader(loader: Any) -> LoaderObservability:
         composed_inputs=_coerce_inputs(
             getattr(getattr(loader, "_spec", None), "inputs", None)
         ),
+        info_lines=_loader_lines(loader, "info_lines"),
+        debug_lines=_loader_lines(loader, "debug_lines"),
     )
+
+
+def _loader_lines(loader: Any, attr: str) -> list[str] | None:
+    producer = getattr(loader, attr, None)
+    if not callable(producer):
+        return None
+    try:
+        values = list(producer() or [])
+    except Exception:
+        return None
+    lines = [str(value).strip() for value in values if str(value).strip()]
+    return lines or None
 
 
 def _describe_foreach_loader(loader: ForeachLoader) -> LoaderObservability:

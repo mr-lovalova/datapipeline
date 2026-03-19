@@ -1,6 +1,7 @@
 from collections.abc import Iterator
 from typing import Any, Mapping
 
+from datapipeline.cache import cached_record_stream
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.dag.dag import StageDag
 from datapipeline.dag.runner import run_stage_dag
@@ -19,15 +20,33 @@ def build_feature_pipeline(
     cfg: FeatureRecordConfig,
     stage: int | None = None,
 ) -> Iterator[Any]:
+    metadata = _feature_dag_metadata(
+        record_stream_id=cfg.record_stream,
+        feature_id=cfg.id,
+        field=cfg.field,
+        scale=cfg.scale,
+        sequence=cfg.sequence,
+    )
+    if stage is None:
+        record_stream = cached_record_stream(context, cfg.record_stream)
+        dag = StageDag(
+            name=f"feature:{cfg.id}",
+            metadata=metadata,
+            nodes=build_feature_nodes(
+                context,
+                record_stream_id=cfg.record_stream,
+                feature_id=cfg.id,
+                field=cfg.field,
+                scale=cfg.scale,
+                sequence=cfg.sequence,
+                record_input="seed",
+            ),
+        )
+        return run_stage_dag(context, dag, seed=record_stream)
+
     dag = StageDag(
         name=f"feature:{cfg.id}",
-        metadata=_feature_dag_metadata(
-            record_stream_id=cfg.record_stream,
-            feature_id=cfg.id,
-            field=cfg.field,
-            scale=cfg.scale,
-            sequence=cfg.sequence,
-        ),
+        metadata=metadata,
         nodes=(
             *build_record_nodes(context, cfg.record_stream),
             *build_feature_nodes(
@@ -74,6 +93,7 @@ def build_feature_nodes(
     field: str,
     scale: Mapping[str, Any] | bool | None,
     sequence: Mapping[str, Any] | None,
+    record_input: str = "stream_transforms",
 ) -> tuple[PipelineStep, ...]:
     partition_by = context.runtime.registries.partition_by.get(record_stream_id)
     batch_size = context.runtime.registries.sort_batch_size.get(record_stream_id)
@@ -82,7 +102,7 @@ def build_feature_nodes(
             name="build_feature_stream",
             op=build_feature_stream,
             args=(feature_id, field, partition_by),
-            input="stream_transforms",
+            input=record_input,
         ),
         PipelineStep(
             name="feature_transforms",

@@ -1,12 +1,8 @@
 from dataclasses import dataclass
-import logging
-
 import pytest
 
 from datapipeline.cli.visuals.execution_context import (
-    reset_current_visual_log_level,
     set_current_dag_depth,
-    set_current_visual_log_level,
 )
 from datapipeline.cli.visuals.source_observability import SourceObservabilityAdapter
 from datapipeline.sources.data_loader import DataLoader
@@ -83,6 +79,9 @@ class _ComposedLoader:
     def count(self):
         return None
 
+    def progress_visible(self):
+        return False
+
 
 class _ComposedSourceWithLoader:
     def __init__(self):
@@ -129,60 +128,25 @@ def test_source_observability_adapter_includes_synthetic_info_line():
 
 
 
-def test_source_observability_adapter_logs_composed_details(monkeypatch):
-    captured: list[tuple[str, list[str] | None, str]] = []
-
-    def _capture(stream_id, details, indent=""):
-        captured.append((stream_id, details, indent))
-
-    monkeypatch.setattr(
-        "datapipeline.cli.visuals.source_observability.log_combined_stream",
-        _capture,
-    )
-
-    set_current_dag_depth(2)
+def test_source_observability_adapter_includes_composed_details_in_info_lines():
     adapter = SourceObservabilityAdapter(_ComposedSourceWithLoader(), "combined")
-    adapter.log_composed_details()
 
-    assert captured == [("combined", ["a=left", "b=right"], "    ")]
+    assert adapter.info_lines() == [
+        "Composed from: a=left, b=right",
+    ]
 
 
+def test_source_observability_adapter_uses_loader_progress_visibility():
+    adapter = SourceObservabilityAdapter(_ComposedSourceWithLoader(), "combined")
 
-def test_source_observability_adapter_skips_composed_details_for_non_composed(monkeypatch):
-    captured: list[tuple[str, list[str] | None, str]] = []
-
-    def _capture(stream_id, details, indent=""):
-        captured.append((stream_id, details, indent))
-
-    monkeypatch.setattr(
-        "datapipeline.cli.visuals.source_observability.log_combined_stream",
-        _capture,
-    )
-
-    adapter = SourceObservabilityAdapter(_SourceWithLoader(), "demo")
-    adapter.log_composed_details()
-
-    assert captured == []
+    assert adapter.progress_visible() is False
 
 
 def test_source_observability_adapter_formats_with_current_dag_indent():
     set_current_dag_depth(2)
     adapter = SourceObservabilityAdapter(_SourceWithLoader(), "demo")
     assert adapter.current_indent() == "    "
-    assert adapter.current_indent(logging.DEBUG) == "    "
     assert adapter.format_label() == "    [demo] _DummyLoader"
-    assert adapter.format_label(level=logging.DEBUG) == "    [demo] _DummyLoader"
-
-
-def test_source_observability_adapter_uses_full_depth_in_debug_session():
-    set_current_dag_depth(2)
-    token = set_current_visual_log_level(logging.DEBUG)
-    try:
-        adapter = SourceObservabilityAdapter(_SourceWithLoader(), "demo")
-        assert adapter.current_indent(logging.INFO) == "    "
-        assert adapter.current_indent(logging.DEBUG) == "    "
-    finally:
-        reset_current_visual_log_level(token)
 
 
 def test_source_observability_adapter_initial_label_uses_first_glob_file():

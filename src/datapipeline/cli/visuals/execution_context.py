@@ -22,6 +22,10 @@ _CURRENT_EXECUTION_SCOPE: ContextVar[dict[str, str] | None] = ContextVar(
     "datapipeline_visual_current_execution_scope",
     default=None,
 )
+_CURRENT_SOURCE_VISUAL_PROXY_FACTORY: ContextVar[Any | None] = ContextVar(
+    "datapipeline_visual_current_source_visual_proxy_factory",
+    default=None,
+)
 
 
 def set_current_dag_depth(depth: int) -> None:
@@ -82,6 +86,18 @@ def reset_current_execution_scope(token) -> None:
 
 def current_execution_scope() -> dict[str, str] | None:
     return _CURRENT_EXECUTION_SCOPE.get()
+
+
+def set_current_source_visual_proxy_factory(factory: Any | None):
+    return _CURRENT_SOURCE_VISUAL_PROXY_FACTORY.set(factory)
+
+
+def reset_current_source_visual_proxy_factory(token) -> None:
+    _CURRENT_SOURCE_VISUAL_PROXY_FACTORY.reset(token)
+
+
+def current_source_visual_proxy_factory() -> Any | None:
+    return _CURRENT_SOURCE_VISUAL_PROXY_FACTORY.get()
 
 
 def visible_dag_depth(level: int) -> int:

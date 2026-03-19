@@ -42,6 +42,13 @@ class VectorEnsureSchemaTransform(VectorContextMixin):
     def __call__(self, stream: Iterator[Sample]) -> Iterator[Sample]:
         return self.apply(stream)
 
+    def bind_context(self, context) -> None:
+        super().bind_context(context)
+        # Snapshot schema entries when the transform is wired up so lazy stream
+        # iteration cannot observe a later artifact/context mismatch.
+        if self._schema_entries is None:
+            self._schema_entries = context.load_schema(payload=self._payload) or []
+
     def apply(self, stream: Iterator[Sample]) -> Iterator[Sample]:
         baseline = self._schema_ids()
         baseline_set = set(baseline)

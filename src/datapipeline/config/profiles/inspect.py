@@ -12,6 +12,7 @@ from .runtime_build import RuntimeBuildConfig
 class InspectProfile(Profile):
     cmd: Literal["inspect"]
     target: str
+    cache: bool | None = None
     output: ServeOutputConfig | None = None
     observability: ObservabilityConfig | None = Field(default=None)
     build: RuntimeBuildConfig | None = Field(default=None)
