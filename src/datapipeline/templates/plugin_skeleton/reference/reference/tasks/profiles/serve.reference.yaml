@@ -25,7 +25,7 @@
 #   # filename: vectors.train  # no extension, no path separators
 #
 # limit: 100                  # optional; null = unlimited
-# stage: 8                    # optional; 0-8; null lets CLI decide
+# step: 8                     # optional; 0-8; null lets CLI decide
 # throttle_ms: 0              # optional; milliseconds; null disables
 #
 # observability:              # optional
@@ -35,8 +35,8 @@
 #     outputs:                # optional; ordered list
 #       - transport: STDERR   # STDERR | STDOUT | FS
 #       # - transport: FS
-#       #   scope: RUN        # GLOBAL | RUN
-#       #   path: logs/serve.log  # required for FS+GLOBAL; optional for RUN (default logs/serve.<task>.log)
+#       #   scope: EXECUTION  # GLOBAL | EXECUTION
+#       #   path: logs/serve.log  # required for FS+GLOBAL; optional for EXECUTION (default logs/serve.<task>.log)
 # note: explicit sequencing belongs in profile order (multiple serve.*.yaml files), not task dependency graphs.
 #       common pattern: serve.schema (order: 10), serve.metadata (20), serve.scaler (30), serve.train/val/test (40+).
 # precedence: CLI > serve.<name>.yaml > serve.defaults.yaml > built-ins

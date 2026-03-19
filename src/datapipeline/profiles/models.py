@@ -14,6 +14,7 @@ from datapipeline.config.resolution import (
 from datapipeline.config.tasks import ArtifactTask, Task
 from datapipeline.io.output import OutputTarget
 from datapipeline.runtime import Runtime
+from datapipeline.services.executions import ExecutionPaths
 
 ProfileKind = Literal["serve", "build", "inspect"]
 ProfileDataset = FeatureDatasetConfig | RecordDatasetConfig
@@ -31,11 +32,12 @@ class ExecutionProfile:
     profile_report: Mapping[str, Any] | None = None
     runtime: Runtime | None = None
     dataset: ProfileDataset | None = None
+    execution: ExecutionPaths | None = None
     limit: int | None = None
     output: OutputTarget | None = None
     throttle_ms: float | None = None
     cache_enabled: bool = True
-    stage: int | None = None
+    step: int | None = None
     build_mode: str | None = None
     build_settings: BuildSettings | None = None
 

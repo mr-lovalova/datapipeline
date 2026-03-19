@@ -16,7 +16,7 @@ class LogOutputConfig(BaseModel):
     transport: str = Field(..., description="STDERR | STDOUT | FS")
     scope: str = Field(
         default="GLOBAL",
-        description="GLOBAL | RUN",
+        description="GLOBAL | EXECUTION",
     )
     path: str | None = Field(
         default=None,
@@ -58,14 +58,14 @@ class LogOutputConfig(BaseModel):
     @model_validator(mode="after")
     def _validate_scope_and_path(self):
         if self.transport == "FS":
-            if self.scope == "RUN":
+            if self.scope == "EXECUTION":
                 if self.path is not None and Path(self.path).is_absolute():
-                    raise ValueError("path must be relative when scope=RUN")
+                    raise ValueError("path must be relative when scope=EXECUTION")
             elif self.path is None:
                 raise ValueError("path must be set when transport=FS and scope=GLOBAL")
             return self
         if self.scope != "GLOBAL":
-            raise ValueError("scope=RUN requires transport=FS")
+            raise ValueError("scope=EXECUTION requires transport=FS")
         if self.path is not None:
             raise ValueError("path is only valid when transport=FS")
         return self

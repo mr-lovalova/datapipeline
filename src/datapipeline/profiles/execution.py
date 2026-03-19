@@ -126,7 +126,7 @@ def run_runtime_task(
             limit=profile.limit,
             target=profile.output,
             throttle_ms=profile.throttle_ms,
-            stage=profile.stage,
+            step=profile.step,
             visuals=profile.visuals,
         )
     except ValueError as exc:

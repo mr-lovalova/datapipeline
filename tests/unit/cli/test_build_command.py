@@ -277,7 +277,7 @@ def test_resolve_build_settings_profile_log_paths_are_project_relative(tmp_path)
     assert settings.log_output.outputs[0].destination == (project_root / "logs" / "nightly.log").resolve()
 
 
-def test_resolve_build_settings_rejects_run_scoped_profile_outputs(tmp_path):
+def test_resolve_build_settings_keeps_execution_scoped_profile_outputs_for_later_materialization(tmp_path):
     profile = BuildProfile.model_validate(
         {
             "cmd": "build",
@@ -285,25 +285,22 @@ def test_resolve_build_settings_rejects_run_scoped_profile_outputs(tmp_path):
             "target": "schema",
             "observability": {
                 "logging": {
-                    "outputs": [{"transport": "fs", "scope": "run"}],
+                    "outputs": [{"transport": "fs", "scope": "execution"}],
                 },
             },
         }
     )
 
-    with pytest.raises(
-        ValueError,
-        match="only valid for run-scoped runtime operations",
-    ):
-        resolve_build_settings(
-            project_path=tmp_path / "project.yaml",
-            cli_log_level=None,
-            cli_visuals=None,
-            cli_log_outputs=None,
-            force_flag=False,
-            base_log_level="INFO",
-            build_profile=profile,
-        )
+    settings = resolve_build_settings(
+        project_path=tmp_path / "project.yaml",
+        cli_log_level=None,
+        cli_visuals=None,
+        cli_log_outputs=None,
+        force_flag=False,
+        base_log_level="INFO",
+        build_profile=profile,
+    )
+    assert settings.log_output.outputs[0].scope == "execution"
 
 
 def test_run_build_if_needed_preserves_previous_artifacts_in_state(monkeypatch, tmp_path):

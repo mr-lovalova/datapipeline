@@ -17,11 +17,11 @@ def inspect_thresholds_with_runtime(
     limit: Optional[int] = None,
     target: OutputTarget | None = None,
     throttle_ms: Optional[float] = None,
-    stage: Optional[int] = None,
+    step: Optional[int] = None,
     visuals: Optional[str] = None,
     operation_task: OperationTask | None = None,
 ) -> RuntimeOutput:
-    _ = dataset, limit, target, throttle_ms, stage, visuals
+    _ = dataset, limit, target, throttle_ms, step, visuals
     return metrics_summary_output(
         runtime,
         operation_task,

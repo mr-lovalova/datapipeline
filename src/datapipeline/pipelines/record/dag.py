@@ -18,12 +18,12 @@ from datapipeline.dag.context import PipelineContext
 def build_record_pipeline(
     context: PipelineContext,
     record_stream_id: str,
-    stage: int | None = None,
+    step: int | None = None,
 ) -> Iterator[Any]:
     dag = StageDag(
         name=f"record:{record_stream_id}",
         nodes=build_record_nodes(context, record_stream_id),
-    ).upto_stage(stage)
+    ).upto_step(step)
     return run_stage_dag(context, dag)
 
 

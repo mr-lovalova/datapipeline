@@ -2,7 +2,7 @@ import logging
 from pathlib import Path
 from typing import Any, Mapping
 
-from datapipeline.services.run_artifacts import write_profile_artifact
+from datapipeline.services.execution_artifacts import write_profile_artifact
 
 from .models import ExecutionProfile
 
@@ -19,7 +19,7 @@ def runtime_profile_report_payload(profile) -> dict[str, object]:
             "name": entry.name,
             "path": str(entry.path) if entry.path else None,
         },
-        "stage": profile.stage,
+        "step": profile.step,
         "limit": profile.limit,
         "throttle_ms": profile.throttle_ms,
         "cache_enabled": profile.cache_enabled,
@@ -71,11 +71,12 @@ def persist_profile_report(
     if payload is None:
         return None
     output = profile.output
-    if output is None or output.run is None:
+    execution = profile.execution
+    if execution is None:
         return None
     try:
         return write_profile_artifact(
-            paths=output.run,
+            execution=execution,
             profile_kind=profile_kind,
             profile_name=profile.label or profile.name,
             payload=payload,

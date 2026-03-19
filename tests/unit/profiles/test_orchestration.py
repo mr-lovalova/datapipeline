@@ -1,20 +1,36 @@
 from contextlib import contextmanager
 from types import SimpleNamespace
 
+import pytest
+
 from datapipeline.build.state import BuildState, save_build_state
 from datapipeline.config.tasks import MetadataTask, OperationTask, SchemaTask
+from datapipeline.io.output import OutputTarget
 from datapipeline.profiles.models import ExecutionProfile, ProfileRunRequest
 from datapipeline.profiles.orchestration import run_profiles
 from datapipeline.runtime import Runtime
 from datapipeline.services.artifacts import ArtifactManager
 from datapipeline.services.bootstrap import build_state_path
 from datapipeline.services.constants import VECTOR_SCHEMA
+from datapipeline.services.runs import RunPaths
 
 
 def _log_config():
     return (
         SimpleNamespace(name="INFO", value=20),
         SimpleNamespace(outputs=()),
+    )
+
+
+def _run_paths(tmp_path):
+    run_root = tmp_path / "runs" / "r1"
+    return RunPaths(
+        serve_root=tmp_path,
+        runs_root=tmp_path / "runs",
+        run_id="r1",
+        run_root=run_root,
+        dataset_dir=run_root / "dataset",
+        metadata_path=run_root / "run.json",
     )
 
 
@@ -405,3 +421,160 @@ def test_run_profiles_share_ephemeral_cache_root_across_runtime_profiles(
     assert len(seen_roots) == 2
     assert seen_roots[0] == seen_roots[1]
     assert not seen_roots[0].exists()
+
+
+def test_run_profiles_finalize_shared_serve_run_once(monkeypatch, tmp_path):
+    serve = OperationTask.model_validate(
+        {
+            "id": "pipeline",
+            "kind": "runtime",
+            "entrypoint": "core.runtime.pipeline",
+        }
+    )
+    run_paths = _run_paths(tmp_path)
+    target = OutputTarget(
+        transport="fs",
+        format="jsonl",
+        view="raw",
+        encoding="utf-8",
+        destination=run_paths.dataset_dir / "train.jsonl",
+        run=run_paths,
+    )
+    log_decision, log_output = _log_config()
+    request = ProfileRunRequest(
+        command="serve",
+        project_path=tmp_path / "project.yaml",
+        tasks=[serve],
+        artifact_task_configs=[],
+        profiles=[
+            ExecutionProfile(
+                name="train",
+                target_id="pipeline",
+                visuals="on",
+                log_decision=log_decision,
+                log_output=log_output,
+                runtime=object(),
+                dataset=object(),
+                output=target,
+            ),
+            ExecutionProfile(
+                name="val",
+                target_id="pipeline",
+                visuals="on",
+                log_decision=log_decision,
+                log_output=log_output,
+                runtime=object(),
+                dataset=object(),
+                output=target,
+            ),
+        ],
+    )
+
+    calls = {"success": 0, "failed": 0, "latest": 0}
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.run_profile",
+        lambda spec, work: work(),
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.execute_profile",
+        lambda **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.finish_run_success",
+        lambda _run: calls.__setitem__("success", calls["success"] + 1),
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.finish_run_failed",
+        lambda _run: calls.__setitem__("failed", calls["failed"] + 1),
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.set_latest_run",
+        lambda _run: calls.__setitem__("latest", calls["latest"] + 1),
+    )
+
+    run_profiles(request)
+
+    assert calls == {"success": 1, "failed": 0, "latest": 1}
+
+
+def test_run_profiles_fail_shared_serve_run_once_when_later_profile_errors(monkeypatch, tmp_path):
+    serve = OperationTask.model_validate(
+        {
+            "id": "pipeline",
+            "kind": "runtime",
+            "entrypoint": "core.runtime.pipeline",
+        }
+    )
+    run_paths = _run_paths(tmp_path)
+    target = OutputTarget(
+        transport="fs",
+        format="jsonl",
+        view="raw",
+        encoding="utf-8",
+        destination=run_paths.dataset_dir / "train.jsonl",
+        run=run_paths,
+    )
+    log_decision, log_output = _log_config()
+    request = ProfileRunRequest(
+        command="serve",
+        project_path=tmp_path / "project.yaml",
+        tasks=[serve],
+        artifact_task_configs=[],
+        profiles=[
+            ExecutionProfile(
+                name="train",
+                target_id="pipeline",
+                visuals="on",
+                log_decision=log_decision,
+                log_output=log_output,
+                runtime=object(),
+                dataset=object(),
+                output=target,
+            ),
+            ExecutionProfile(
+                name="val",
+                target_id="pipeline",
+                visuals="on",
+                log_decision=log_decision,
+                log_output=log_output,
+                runtime=object(),
+                dataset=object(),
+                output=target,
+            ),
+        ],
+    )
+
+    state = {"calls": 0}
+    outcomes = {"success": 0, "failed": 0, "latest": 0}
+
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.run_profile",
+        lambda spec, work: work(),
+    )
+
+    def _execute_profile(**kwargs):
+        state["calls"] += 1
+        if state["calls"] == 2:
+            raise RuntimeError("boom")
+
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.execute_profile",
+        _execute_profile,
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.finish_run_success",
+        lambda _run: outcomes.__setitem__("success", outcomes["success"] + 1),
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.finish_run_failed",
+        lambda _run: outcomes.__setitem__("failed", outcomes["failed"] + 1),
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.set_latest_run",
+        lambda _run: outcomes.__setitem__("latest", outcomes["latest"] + 1),
+    )
+
+    with pytest.raises(RuntimeError, match="boom"):
+        run_profiles(request)
+
+    assert outcomes == {"success": 0, "failed": 1, "latest": 0}

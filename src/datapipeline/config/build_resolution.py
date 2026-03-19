@@ -92,7 +92,7 @@ def resolve_build_settings(
                 list(cli_log_outputs or []),
                 profile_log_outputs,
             ),
-            allow_run_scope=False,
+            allow_execution_scope=True,
         ),
         mode=effective_mode,
         force=force_build,

@@ -67,7 +67,7 @@ def _runtime_with_rows(
     return runtime
 
 
-def test_stage_0_to_2_record_pipeline(tmp_path: Path) -> None:
+def test_step_0_to_2_record_pipeline(tmp_path: Path) -> None:
     rows = [
         {"time": _ts(0, 30), "value": 1.0},
         {"time": _ts(0, 10), "value": 2.0},
@@ -79,18 +79,18 @@ def test_stage_0_to_2_record_pipeline(tmp_path: Path) -> None:
     )
     ctx = PipelineContext(runtime)
 
-    stage0 = list(build_record_pipeline(ctx, "stream", stage=0))
+    stage0 = list(build_record_pipeline(ctx, "stream", step=0))
     assert stage0 == rows
 
-    stage1 = list(build_record_pipeline(ctx, "stream", stage=1))
+    stage1 = list(build_record_pipeline(ctx, "stream", step=1))
     assert all(isinstance(rec, TemporalRecord) for rec in stage1)
     assert [rec.time for rec in stage1] == [rows[0]["time"], rows[1]["time"]]
 
-    stage2 = list(build_record_pipeline(ctx, "stream", stage=2))
+    stage2 = list(build_record_pipeline(ctx, "stream", step=2))
     assert all(rec.time.minute == 0 for rec in stage2)
 
 
-def test_stage_3_orders_by_partition_and_time(tmp_path: Path) -> None:
+def test_step_3_orders_by_partition_and_time(tmp_path: Path) -> None:
     rows = [
         {"time": _ts(1), "value": 10.0, "symbol": "B"},
         {"time": _ts(0), "value": 5.0, "symbol": "A"},
@@ -99,7 +99,7 @@ def test_stage_3_orders_by_partition_and_time(tmp_path: Path) -> None:
     runtime = _runtime_with_rows(tmp_path, rows, partition_by="symbol")
     ctx = PipelineContext(runtime)
 
-    ordered = list(build_record_pipeline(ctx, "stream", stage=3))
+    ordered = list(build_record_pipeline(ctx, "stream", step=3))
     assert [(rec.symbol, rec.time.hour) for rec in ordered] == [
         ("A", 0),
         ("A", 2),
@@ -107,7 +107,7 @@ def test_stage_3_orders_by_partition_and_time(tmp_path: Path) -> None:
     ]
 
 
-def test_stage_4_applies_stream_transforms(tmp_path: Path) -> None:
+def test_step_4_applies_stream_transforms(tmp_path: Path) -> None:
     rows = [
         {"time": _ts(0), "value": 1.0},
         {"time": _ts(2), "value": 2.0},
@@ -119,7 +119,7 @@ def test_stage_4_applies_stream_transforms(tmp_path: Path) -> None:
     )
     ctx = PipelineContext(runtime)
 
-    transformed = list(build_record_pipeline(ctx, "stream", stage=4))
+    transformed = list(build_record_pipeline(ctx, "stream", step=4))
     assert [(rec.time.hour, rec.value) for rec in transformed] == [
         (0, 1.0),
         (1, None),
@@ -127,7 +127,7 @@ def test_stage_4_applies_stream_transforms(tmp_path: Path) -> None:
     ]
 
 
-def test_stage_6_wraps_feature_values(tmp_path: Path) -> None:
+def test_step_6_wraps_feature_values(tmp_path: Path) -> None:
     rows = [{"time": _ts(0), "value": 3.0, "symbol": "X"}]
     runtime = _runtime_with_rows(tmp_path, rows, partition_by="symbol")
     ctx = PipelineContext(runtime)
@@ -137,14 +137,14 @@ def test_stage_6_wraps_feature_values(tmp_path: Path) -> None:
         field="value",
     )
 
-    features = list(build_feature_pipeline(ctx, cfg, stage=6))
+    features = list(build_feature_pipeline(ctx, cfg, step=6))
     assert len(features) == 1
     feature = features[0]
     assert feature.value == 3.0
     assert feature.id == "price__@symbol:X"
 
 
-def test_stage_7_applies_feature_transforms(tmp_path: Path) -> None:
+def test_step_7_applies_feature_transforms(tmp_path: Path) -> None:
     rows = [
         {"time": _ts(0), "value": 1.0},
         {"time": _ts(1), "value": 2.0},
@@ -159,14 +159,14 @@ def test_stage_7_applies_feature_transforms(tmp_path: Path) -> None:
         sequence={"size": 2, "stride": 1},
     )
 
-    sequences = list(build_feature_pipeline(ctx, cfg, stage=7))
+    sequences = list(build_feature_pipeline(ctx, cfg, step=7))
     assert len(sequences) == 2
     assert isinstance(sequences[0], FeatureRecordSequence)
     assert sequences[0].values == [1.0, 2.0]
     assert sequences[1].values == [2.0, 3.0]
 
 
-def test_stage_7_vs_8_postprocess(tmp_path: Path) -> None:
+def test_step_7_vs_8_postprocess(tmp_path: Path) -> None:
     rows = [
         {"time": _ts(0), "value": None},
         {"time": _ts(1), "value": 2.0},

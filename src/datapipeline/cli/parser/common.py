@@ -59,6 +59,6 @@ def build_common_parent() -> argparse.ArgumentParser:
         action="append",
         metavar="TARGET",
         default=None,
-        help="repeatable log output target: stderr | stdout | fs:<path> | run[:<relative-path>]",
+        help="repeatable log output target: stderr | stdout | fs:<path> | execution[:<relative-path>]",
     )
     return common

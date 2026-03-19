@@ -10,14 +10,14 @@ class StageDag:
     nodes: tuple[PipelineStep, ...]
     metadata: dict[str, Any] | None = None
 
-    def upto_stage(self, stage: int | None) -> "StageDag":
-        if stage is None:
+    def upto_step(self, step: int | None) -> "StageDag":
+        if step is None:
             return self
-        if stage < 0:
+        if step < 0:
             return StageDag(name=self.name, nodes=(), metadata=self.metadata)
         return StageDag(
             name=self.name,
-            nodes=self.nodes[: stage + 1],
+            nodes=self.nodes[: step + 1],
             metadata=self.metadata,
         )
 
