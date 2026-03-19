@@ -5,7 +5,7 @@ from typing import Optional, Sequence, cast
 
 from pydantic import ValidationError
 
-from datapipeline.config.build_resolution import resolve_build_settings
+from datapipeline.config.build_resolution import BuildSettings, resolve_build_settings
 from datapipeline.config.dataset.loader import load_dataset
 from datapipeline.config.loaders.operations import operation_specs
 from datapipeline.config.loaders.profiles import (
@@ -18,7 +18,10 @@ from datapipeline.config.profiles import (
     ServeOutputConfig,
     ServeProfile,
 )
-from datapipeline.config.resolution import LogOutputTarget
+from datapipeline.config.resolution import (
+    LogOutputTarget,
+    materialize_log_output_for_execution,
+)
 from datapipeline.config.serve_resolution import resolve_run_profiles
 from datapipeline.config.workspace import WorkspaceContext
 from datapipeline.io.output import OutputResolutionError
@@ -31,6 +34,11 @@ from datapipeline.profiles.models import (
 from datapipeline.profiles.reporting import runtime_profile_report_payload
 from datapipeline.profiles.selection import select_profiles
 from datapipeline.services.path_policy import resolve_workspace_path
+from datapipeline.services.executions import (
+    ExecutionPaths,
+    get_execution_paths,
+    start_execution,
+)
 from datapipeline.services.run_entries import RunEntry
 
 logger = logging.getLogger(__name__)
@@ -150,6 +158,7 @@ def _select_profiles(params: ProfileResolveParams):
 def _resolve_build_execution_profiles(
     profiles: Sequence[BuildProfile],
     params: ProfileResolveParams,
+    execution: ExecutionPaths,
 ) -> list[ExecutionProfile]:
     resolved: list[ExecutionProfile] = []
     for profile in profiles:
@@ -166,16 +175,30 @@ def _resolve_build_execution_profiles(
         except ValueError as exc:
             logger.error("Invalid log output configuration: %s", exc)
             raise SystemExit(2) from exc
+        log_output = materialize_log_output_for_execution(
+            settings=settings.log_output,
+            execution_dir=execution.root,
+            command=params.command,
+            label=profile.name,
+        )
         resolved.append(
             ExecutionProfile(
                 name=profile.name,
                 target_id=profile.target,
                 visuals=settings.visuals or "on",
                 log_decision=settings.log_decision,
-                log_output=settings.log_output,
+                log_output=log_output,
                 sections=("Build Profiles",),
                 label=profile.name,
-                build_settings=settings,
+                execution=execution,
+                build_settings=BuildSettings(
+                    visuals=settings.visuals,
+                    log_decision=settings.log_decision,
+                    log_output=log_output,
+                    mode=settings.mode,
+                    force=settings.force,
+                    profile_name=settings.profile_name,
+                ),
             )
         )
     return resolved
@@ -185,6 +208,8 @@ def _resolve_runtime_execution_profiles(
     *,
     profiles: Sequence[ServeProfile | InspectProfile],
     params: ProfileResolveParams,
+    execution: ExecutionPaths,
+    managed_run_targets: set[str] | None = None,
 ) -> list[ExecutionProfile]:
     cli_output_cfg = build_cli_output_config(
         params.output_transport,
@@ -216,6 +241,7 @@ def _resolve_runtime_execution_profiles(
             cli_log_outputs=params.cli_log_outputs,
             base_log_level=params.base_log_level,
             cli_visuals=params.cli_visuals,
+            managed_run_targets=managed_run_targets,
         )
     except ValueError as exc:
         logger.error("%s", exc)
@@ -238,12 +264,18 @@ def _resolve_runtime_execution_profiles(
                 target_id=profile.entry.target_id,
                 visuals=profile.visuals.visuals or "on",
                 log_decision=profile.log_decision,
-                log_output=profile.log_output,
+                log_output=materialize_log_output_for_execution(
+                    settings=profile.log_output,
+                    execution_dir=execution.root,
+                    command=params.command,
+                    label=profile.label,
+                ),
                 runtime=profile.runtime,
                 sections=(f"{params.command.capitalize()} Profiles",),
                 label=profile.label,
                 profile_report=runtime_profile_report_payload(profile),
                 dataset=dataset,
+                execution=execution,
                 limit=profile.limit,
                 output=profile.output,
                 throttle_ms=profile.throttle_ms,
@@ -309,19 +341,31 @@ def build_profile_run_request(
         workspace=workspace,
     )
     selected_profiles = _select_profiles(params)
+    if not selected_profiles:
+        return None
+
+    execution = get_execution_paths(project_path)
     if kind == "build":
         profiles = _resolve_build_execution_profiles(
             cast(Sequence[BuildProfile], selected_profiles),
             params,
+            execution,
         )
     else:
+        managed_run_targets = (
+            {task.id for task in declared_operation_tasks} if kind == "serve" else None
+        )
         profiles = _resolve_runtime_execution_profiles(
             profiles=cast(Sequence[ServeProfile | InspectProfile], selected_profiles),
             params=params,
+            execution=execution,
+            managed_run_targets=managed_run_targets,
         )
 
     if not profiles:
         return None
+
+    start_execution(execution, project_yaml=project_path, command=kind)
 
     return ProfileRunRequest(
         command=kind,

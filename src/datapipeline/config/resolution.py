@@ -165,18 +165,18 @@ def parse_log_output_specs(
         if lower in {"stderr", "stdout"}:
             parsed.append(LogOutputTarget(transport=lower))
             continue
-        if lower in {"run", "fs:run", "fs=run"}:
-            parsed.append(LogOutputTarget(transport="fs", scope="run"))
+        if lower in {"execution", "fs:execution", "fs=execution"}:
+            parsed.append(LogOutputTarget(transport="fs", scope="execution"))
             continue
-        if lower.startswith("run:") or lower.startswith("run="):
-            raw_path = spec[4:].strip()
+        if lower.startswith("execution:") or lower.startswith("execution="):
+            raw_path = spec[10:].strip()
             if not raw_path:
-                raise ValueError("--log-output run target requires a relative path")
+                raise ValueError("--log-output execution target requires a relative path")
             parsed.append(
                 LogOutputTarget(
                     transport="fs",
                     destination=Path(raw_path),
-                    scope="run",
+                    scope="execution",
                 )
             )
             continue
@@ -186,7 +186,7 @@ def parse_log_output_specs(
             raw_path = spec.split("=", 1)[1].strip()
         else:
             raise ValueError(
-                "invalid --log-output value. Use 'stderr', 'stdout', 'fs:<path>', or 'run[:<relative-path>]'"
+                "invalid --log-output value. Use 'stderr', 'stdout', 'fs:<path>', or 'execution[:<relative-path>]'"
             )
         if not raw_path:
             raise ValueError("--log-output fs target requires a path")
@@ -202,8 +202,7 @@ def parse_log_output_specs(
 
 def _normalize_log_outputs(
     output_candidates: Sequence[Sequence[LogOutputTarget] | None],
-    
-    allow_run_scope: bool,
+    allow_execution_scope: bool,
 ) -> list[LogOutputTarget]:
     for candidate in output_candidates:
         if not candidate:
@@ -223,20 +222,20 @@ def _normalize_log_outputs(
             if scope not in LOG_SCOPE_SET:
                 choices = ", ".join(LOG_SCOPE_CHOICES)
                 raise ValueError(f"log scope must be one of {choices}, got {scope!r}")
-            if scope == "run":
-                if not allow_run_scope:
+            if scope == "execution":
+                if not allow_execution_scope:
                     raise ValueError(
-                        "log scope 'run' is only valid for run-scoped runtime operations"
+                        "log scope 'execution' is only valid for execution-scoped operations"
                     )
                 if transport != "fs":
-                    raise ValueError("log scope 'run' requires transport='fs'")
+                    raise ValueError("log scope 'execution' requires transport='fs'")
                 if destination is not None and Path(destination).is_absolute():
-                    raise ValueError("run-scoped log path must be relative")
+                    raise ValueError("execution-scoped log path must be relative")
                 normalized.append(
                     LogOutputTarget(
                         transport="fs",
                         destination=Path(destination) if destination is not None else None,
-                        scope="run",
+                        scope="execution",
                     )
                 )
                 continue
@@ -267,11 +266,11 @@ def resolve_log_output(
     
     output_candidates: Sequence[Sequence[LogOutputTarget] | None] = (),
     default_transport: str = "stderr",
-    allow_run_scope: bool = False,
+    allow_execution_scope: bool = False,
 ) -> LogOutputSettings:
     explicit_outputs = _normalize_log_outputs(
         output_candidates,
-        allow_run_scope=allow_run_scope,
+        allow_execution_scope=allow_execution_scope,
     )
     if explicit_outputs:
         return LogOutputSettings(outputs=tuple(explicit_outputs))
@@ -284,32 +283,34 @@ def resolve_log_output(
     )
 
 
-def materialize_log_output_for_run(
-    
+def materialize_log_output_for_execution(
     settings: LogOutputSettings,
-    run_dir: Path | None,
-    run_label: str | None = None,
+    execution_dir: Path | None,
+    *,
+    command: str,
+    label: str | None = None,
 ) -> LogOutputSettings:
     outputs: list[LogOutputTarget] = []
     for target in settings.outputs:
-        if target.scope != "run":
+        if target.scope != "execution":
             outputs.append(target)
             continue
-        if run_dir is None:
+        if execution_dir is None:
             raise ValueError(
-                "log scope 'run' requires fs output so a run directory exists"
+                "log scope 'execution' requires an execution directory"
             )
         relative_path = target.destination
         if relative_path is None:
-            label = sanitize_path_segment(run_label or "run")
-            relative_path = Path("logs") / f"serve.{label}.log"
+            name = sanitize_path_segment(label or "execution")
+            prefix = sanitize_path_segment(command or "execution")
+            relative_path = Path("logs") / f"{prefix}.{name}.log"
         path = Path(relative_path)
         if path.is_absolute():
-            raise ValueError("run-scoped log path must be relative")
+            raise ValueError("execution-scoped log path must be relative")
         outputs.append(
             LogOutputTarget(
                 transport="fs",
-                destination=(run_dir / path).resolve(),
+                destination=(execution_dir / path).resolve(),
                 scope="global",
             )
         )

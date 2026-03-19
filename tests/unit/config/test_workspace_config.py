@@ -71,7 +71,7 @@ def test_workspace_rejects_serve_observability_block(tmp_path):
             logging:
               outputs:
                 - transport: fs
-                  scope: run
+                  scope: execution
         """,
     )
 

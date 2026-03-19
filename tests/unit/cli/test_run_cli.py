@@ -14,7 +14,7 @@ from datapipeline.config.profiles import (
 )
 from datapipeline.config.serve_resolution import _run_config_value, resolve_run_profiles
 from datapipeline.config.resolution import LogOutputTarget
-from datapipeline.config.tasks import OperationTask
+from datapipeline.config.tasks import ArtifactTask, OperationTask
 from datapipeline.config.workspace import WorkspaceConfig, WorkspaceContext
 
 _SERVE_OPERATION = OperationTask(
@@ -33,6 +33,13 @@ _INSPECT_COVERAGE_OPERATION = OperationTask(
     id="coverage",
     kind="runtime",
     entrypoint="core.runtime.coverage",
+)
+
+_ARTIFACT_SCHEMA_TASK = ArtifactTask(
+    id="schema",
+    kind="artifact",
+    entrypoint="core.build.schema",
+    output="build/schema.json",
 )
 
 
@@ -524,7 +531,7 @@ def test_run_profiles_resolve_log_output_precedence(monkeypatch, tmp_path):
     assert profiles_cli[0].log_output.outputs[0].destination == (tmp_path / "logs" / "cli.log")
 
 
-def test_run_scoped_logs_require_serve_profile(monkeypatch, tmp_path):
+def test_execution_scoped_logs_can_be_resolved_for_inspect_profiles(monkeypatch, tmp_path):
     run_cfg = InspectProfile.model_validate(
         {
             "cmd": "inspect",
@@ -533,7 +540,7 @@ def test_run_scoped_logs_require_serve_profile(monkeypatch, tmp_path):
             "observability": {
                 "logging": {
                     "outputs": [
-                        {"transport": "fs", "scope": "run", "path": "logs/run.log"}
+                        {"transport": "fs", "scope": "execution", "path": "logs/run.log"}
                     ]
                 }
             },
@@ -557,22 +564,20 @@ def test_run_scoped_logs_require_serve_profile(monkeypatch, tmp_path):
         directory=tmp_path / "out",
     )
 
-    with pytest.raises(
-        ValueError,
-        match="log scope 'run' is only valid for run-scoped runtime operations",
-    ):
-        resolve_run_profiles(
-            project_path=tmp_path / "project.yaml",
-            run_entries=entries,
-            keep=None,
-            stage=None,
-            limit=None,
-            cli_build_mode="AUTO",
-            cli_output=cli_output,
-            cli_log_level=None,
-            base_log_level="INFO",
-            cli_visuals=None,
-        )
+    inspect_profiles = resolve_run_profiles(
+        project_path=tmp_path / "project.yaml",
+        run_entries=entries,
+        keep=None,
+        stage=None,
+        limit=None,
+        cli_build_mode="AUTO",
+        cli_output=cli_output,
+        cli_log_level=None,
+        base_log_level="INFO",
+        cli_visuals=None,
+    )
+    assert inspect_profiles[0].log_output.outputs[0].scope == "execution"
+    assert inspect_profiles[0].log_output.outputs[0].destination == Path("logs/run.log")
 
     serve_cfg = ServeProfile.model_validate(
         {
@@ -582,7 +587,7 @@ def test_run_scoped_logs_require_serve_profile(monkeypatch, tmp_path):
             "observability": {
                 "logging": {
                     "outputs": [
-                        {"transport": "fs", "scope": "run", "path": "logs/run.log"}
+                        {"transport": "fs", "scope": "execution", "path": "logs/run.log"}
                     ]
                 }
             },
@@ -603,13 +608,11 @@ def test_run_scoped_logs_require_serve_profile(monkeypatch, tmp_path):
     )
     run_profile = run_profiles[0]
     assert run_profile.output.run is not None
-    assert run_profile.log_output.outputs[0].scope == "global"
-    assert run_profile.log_output.outputs[0].destination == (
-        run_profile.output.run.dataset_dir / "logs" / "run.log"
-    )
+    assert run_profile.log_output.outputs[0].scope == "execution"
+    assert run_profile.log_output.outputs[0].destination == Path("logs/run.log")
 
 
-def test_run_scoped_logs_default_to_task_specific_filename(monkeypatch, tmp_path):
+def test_execution_scoped_logs_default_to_task_specific_filename(monkeypatch, tmp_path):
     run_cfg = ServeProfile.model_validate(
         {
             "cmd": "serve",
@@ -618,7 +621,7 @@ def test_run_scoped_logs_default_to_task_specific_filename(monkeypatch, tmp_path
             "observability": {
                 "logging": {
                     "outputs": [
-                        {"transport": "fs", "scope": "run"}
+                        {"transport": "fs", "scope": "execution"}
                     ]
                 }
             },
@@ -656,10 +659,121 @@ def test_run_scoped_logs_default_to_task_specific_filename(monkeypatch, tmp_path
     )
     run_profile = run_profiles[0]
     assert run_profile.output.run is not None
-    assert run_profile.log_output.outputs[0].scope == "global"
-    assert run_profile.log_output.outputs[0].destination == (
-        run_profile.output.run.dataset_dir / "logs" / "serve.val.log"
+    assert run_profile.log_output.outputs[0].scope == "execution"
+    assert run_profile.log_output.outputs[0].destination is None
+
+
+def test_serve_runtime_profiles_share_one_managed_run(monkeypatch, tmp_path):
+    entries = [
+        _entry(
+            name=name,
+            config=ServeProfile.model_validate({"cmd": "serve", "name": name, "target": "serve"}),
+            operation=_SERVE_OPERATION,
+        )
+        for name in ("train", "val", "test")
+    ]
+
+    def fake_iter_runtime_runs(project_path, run_entries, keep):
+        total = len(run_entries)
+        for idx, entry in enumerate(run_entries, start=1):
+            runtime = SimpleNamespace(run=entry.config)
+            yield idx, total, entry, runtime
+
+    monkeypatch.setattr(
+        "datapipeline.config.serve_resolution.iter_runtime_runs", fake_iter_runtime_runs
     )
+
+    cli_output = ServeOutputConfig(
+        transport="fs",
+        format="jsonl",
+        directory=tmp_path / "out",
+    )
+
+    profiles = resolve_run_profiles(
+        project_path=tmp_path / "project.yaml",
+        run_entries=entries,
+        keep=None,
+        stage=None,
+        limit=None,
+        cli_build_mode="AUTO",
+        cli_output=cli_output,
+        cli_log_level=None,
+        base_log_level="INFO",
+        cli_visuals=None,
+        managed_run_targets={"serve"},
+    )
+
+    run_ids = {profile.output.run.run_id for profile in profiles if profile.output.run is not None}
+    dataset_dirs = {
+        profile.output.run.dataset_dir for profile in profiles if profile.output.run is not None
+    }
+
+    assert len(run_ids) == 1
+    assert len(dataset_dirs) == 1
+    assert {profile.output.destination.name for profile in profiles} == {
+        "train.jsonl",
+        "val.jsonl",
+        "test.jsonl",
+    }
+
+
+def test_artifact_only_serve_profile_reuses_shared_run_logs(monkeypatch, tmp_path):
+    runtime_cfg = ServeProfile.model_validate(
+        {
+            "cmd": "serve",
+            "name": "train",
+            "target": "serve",
+                "observability": {"logging": {"outputs": [{"transport": "fs", "scope": "execution"}]}},
+        }
+    )
+    artifact_cfg = ServeProfile.model_validate(
+        {
+            "cmd": "serve",
+            "name": "schema",
+            "target": "schema",
+                "observability": {"logging": {"outputs": [{"transport": "fs", "scope": "execution"}]}},
+        }
+    )
+    entries = [
+        _entry(name="train", config=runtime_cfg, operation=_SERVE_OPERATION),
+        _entry(name="schema", config=artifact_cfg, operation=_ARTIFACT_SCHEMA_TASK),
+    ]
+
+    def fake_iter_runtime_runs(project_path, run_entries, keep):
+        total = len(run_entries)
+        for idx, entry in enumerate(run_entries, start=1):
+            runtime = SimpleNamespace(run=entry.config)
+            yield idx, total, entry, runtime
+
+    monkeypatch.setattr(
+        "datapipeline.config.serve_resolution.iter_runtime_runs", fake_iter_runtime_runs
+    )
+
+    cli_output = ServeOutputConfig(
+        transport="fs",
+        format="jsonl",
+        directory=tmp_path / "out",
+    )
+
+    profiles = resolve_run_profiles(
+        project_path=tmp_path / "project.yaml",
+        run_entries=entries,
+        keep=None,
+        stage=None,
+        limit=None,
+        cli_build_mode="AUTO",
+        cli_output=cli_output,
+        cli_log_level=None,
+        base_log_level="INFO",
+        cli_visuals=None,
+        managed_run_targets={"serve"},
+    )
+
+    runtime_profile, artifact_profile = profiles
+    assert runtime_profile.output.run is not None
+    assert artifact_profile.output.run is None
+    assert artifact_profile.log_output.outputs[0].scope == "execution"
+    assert artifact_profile.log_output.outputs[0].destination is None
 
 
 def test_cli_output_directory_resolves_relative_to_workspace(tmp_path):

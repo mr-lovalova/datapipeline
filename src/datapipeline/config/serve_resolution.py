@@ -9,7 +9,6 @@ from datapipeline.config.resolution import (
     VisualSettings,
     cascade,
     logging_value,
-    materialize_log_output_for_run,
     observability_value,
     resolve_log_level,
     resolve_log_output,
@@ -17,7 +16,9 @@ from datapipeline.config.resolution import (
     resolve_visuals,
 )
 from datapipeline.io.output import OutputTarget, resolve_output_target
+from datapipeline.io.output import resolve_output_directory
 from datapipeline.runtime import Runtime
+from datapipeline.services.runs import RunPaths, start_run_for_directory
 from datapipeline.services.run_entries import RunEntry, iter_runtime_runs
 
 
@@ -65,14 +66,38 @@ def resolve_run_profiles(
     base_log_level: str = "INFO",
     cli_visuals: Optional[str] = None,
     cli_cache: Optional[bool] = None,
+    managed_run_targets: set[str] | None = None,
 ) -> list[RunProfile]:
     fallback_log_level = str(base_log_level).upper()
     cli_log_output_candidates = list(cli_log_outputs or [])
+    managed_target_ids = None if managed_run_targets is None else set(managed_run_targets)
+
+    resolved_entries = list(iter_runtime_runs(
+        project_path, run_entries, keep
+    ))
+    shared_runs: dict[Path, RunPaths] = {}
+    serve_roots: dict[int, Path | None] = {}
+
+    for idx, _, entry, runtime in resolved_entries:
+        entry_name = entry.name
+        run_label = entry_name or f"run{idx}"
+        run_cfg = getattr(runtime, "run", None)
+        serve_root = resolve_output_directory(
+            cli_output or getattr(run_cfg, "output", None),
+            base_path=project_path.parent,
+        )
+        serve_roots[idx] = serve_root
+        if (
+            getattr(run_cfg, "cmd", None) == "serve"
+            and (managed_target_ids is None or entry.target_id in managed_target_ids)
+            and serve_root is not None
+            and serve_root not in shared_runs
+        ):
+            run_paths, _ = start_run_for_directory(serve_root, stage=stage)
+            shared_runs[serve_root] = run_paths
 
     profiles: list[RunProfile] = []
-    for idx, total_runs, entry, runtime in iter_runtime_runs(
-        project_path, run_entries, keep
-    ):
+    for idx, total_runs, entry, runtime in resolved_entries:
         entry_name = entry.name
         run_label = entry_name or f"run{idx}"
         run_cfg = getattr(runtime, "run", None)
@@ -87,7 +112,9 @@ def resolve_run_profiles(
         resolved_limit = cascade(limit, _run_config_value(run_cfg, "limit"))
         resolved_cache = bool(cascade(cli_cache, _run_config_value(run_cfg, "cache"), True))
         run_cmd = getattr(run_cfg, "cmd", None)
-        create_run = run_cmd == "serve"
+        create_run = run_cmd == "serve" and (
+            managed_target_ids is None or entry.target_id in managed_target_ids
+        )
         if resolved_stage is not None and not create_run:
             raise ValueError(
                 f"Runtime profile '{run_label}' does not support stage previews."
@@ -112,7 +139,7 @@ def resolve_run_profiles(
                 cli_log_output_candidates,
                 run_log_outputs,
             ),
-            allow_run_scope=create_run,
+            allow_execution_scope=True,
         )
 
         run_visuals = observability_value(run_observability, "visuals")
@@ -121,21 +148,19 @@ def resolve_run_profiles(
             config_visuals=run_visuals,
         )
 
+        shared_run = None
+        serve_root = serve_roots.get(idx)
+        if run_cmd == "serve" and serve_root is not None:
+            shared_run = shared_runs.get(serve_root)
+
         target = resolve_output_target(
             cli_output=cli_output,
             config_output=getattr(run_cfg, "output", None),
             default=None,
             base_path=project_path.parent,
             run_name=run_label,
-            stage=resolved_stage,
-            create_run=create_run,
+            run_paths=shared_run if create_run else None,
         )
-        if create_run:
-            log_output = materialize_log_output_for_run(
-                settings=log_output,
-                run_dir=(target.run.dataset_dir if target.run is not None else None),
-                run_label=run_label,
-            )
 
         profiles.append(
             RunProfile(

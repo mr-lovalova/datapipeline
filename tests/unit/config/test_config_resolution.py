@@ -5,7 +5,7 @@ from datapipeline.config.resolution import (
     LogOutputTarget,
     cascade,
     parse_log_output_specs,
-    materialize_log_output_for_run,
+    materialize_log_output_for_execution,
     minimum_level,
     resolve_log_level,
     resolve_log_output,
@@ -69,36 +69,37 @@ def test_resolve_log_output_validates_file_destination():
 def test_resolve_log_output_rejects_run_scope_when_not_allowed():
     try:
         resolve_log_output(
-            output_candidates=([LogOutputTarget(transport="fs", scope="run")],),
+            output_candidates=([LogOutputTarget(transport="fs", scope="execution")],),
         )
     except ValueError as exc:
-        assert "only valid for run-scoped runtime operations" in str(exc)
+        assert "only valid for execution-scoped operations" in str(exc)
     else:
-        raise AssertionError("Expected ValueError for run scope outside serve")
+        raise AssertionError("Expected ValueError for execution scope outside execution-aware resolution")
 
 
-def test_materialize_log_output_for_run_resolves_under_run_directory(tmp_path):
+def test_materialize_log_output_for_execution_resolves_under_execution_directory(tmp_path):
     settings = resolve_log_output(
-        output_candidates=([LogOutputTarget(transport="fs", scope="run")],),
-        allow_run_scope=True,
+        output_candidates=([LogOutputTarget(transport="fs", scope="execution")],),
+        allow_execution_scope=True,
     )
-    resolved = materialize_log_output_for_run(
+    resolved = materialize_log_output_for_execution(
         settings=settings,
-        run_dir=tmp_path / "runs" / "r1" / "dataset",
+        execution_dir=tmp_path / "_system" / "executions" / "e1",
+        command="serve",
     )
     assert resolved.outputs[0].transport == "fs"
     assert resolved.outputs[0].destination == (
-        tmp_path / "runs" / "r1" / "dataset" / "logs" / "serve.run.log"
+        tmp_path / "_system" / "executions" / "e1" / "logs" / "serve.execution.log"
     )
 
 
 def test_parse_log_output_specs_parses_supported_targets(tmp_path):
     outputs = parse_log_output_specs(
-        ["stderr", "run:logs/serve.log", f"fs:{tmp_path / 'jerry.log'}"],
+        ["stderr", "execution:logs/serve.log", f"fs:{tmp_path / 'jerry.log'}"],
         resolve_global_path=lambda value: Path(value),
     )
     assert [item.transport for item in outputs] == ["stderr", "fs", "fs"]
-    assert [item.scope for item in outputs] == ["global", "run", "global"]
+    assert [item.scope for item in outputs] == ["global", "execution", "global"]
     assert outputs[1].destination == Path("logs/serve.log")
     assert outputs[2].destination == (tmp_path / "jerry.log")
 

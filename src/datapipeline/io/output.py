@@ -8,7 +8,7 @@ from datapipeline.services.path_policy import (
     sanitize_path_segment,
     workspace_cwd,
 )
-from datapipeline.services.runs import RunPaths, start_run_for_directory
+from datapipeline.services.runs import RunPaths
 
 
 def _format_suffix(fmt: str) -> str:
@@ -74,6 +74,18 @@ class OutputResolutionError(ValueError):
     """Raised when CLI/config output options cannot be resolved."""
 
 
+def resolve_output_directory(
+    config: ServeOutputConfig | None,
+    *,
+    base_path: Path | None = None,
+) -> Path | None:
+    """Resolve the filesystem output directory when the target uses fs transport."""
+    if config is None or config.transport != "fs" or config.directory is None:
+        return None
+    base = base_path or workspace_cwd()
+    return resolve_relative_to_base(config.directory, base, resolve=True)
+
+
 def resolve_destination(
     target: OutputTarget | None,
     *,
@@ -112,8 +124,7 @@ def resolve_output_target(
     default: ServeOutputConfig | None = None,
     base_path: Path | None = None,
     run_name: str | None = None,
-    stage: int | None = None,
-    create_run: bool = False,
+    run_paths: RunPaths | None = None,
 ) -> OutputTarget:
     """
     Resolve the effective output target using CLI override, run config, or default.
@@ -137,9 +148,10 @@ def resolve_output_target(
 
     if config.directory is None:
         raise OutputResolutionError("fs output requires a directory")
-    directory = resolve_relative_to_base(config.directory, base_path, resolve=True)
-    if create_run:
-        run_paths, _ = start_run_for_directory(directory, stage=stage)
+    directory = resolve_output_directory(config, base_path=base_path)
+    if directory is None:
+        raise OutputResolutionError("fs output requires a directory")
+    if run_paths is not None:
         base_dest_dir = run_paths.dataset_dir
     else:
         run_paths = None

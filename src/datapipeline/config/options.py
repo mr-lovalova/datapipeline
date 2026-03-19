@@ -16,7 +16,7 @@ SOURCE_FS_FORMATS = (*SOURCE_FS_HTTP_FORMATS, "pickle")
 
 VISUAL_CHOICES = ("on", "off")
 LOG_TRANSPORT_CHOICES = ("stderr", "stdout", "fs")
-LOG_SCOPE_CHOICES = ("global", "run")
+LOG_SCOPE_CHOICES = ("global", "execution")
 
 
 def source_formats_for(transport: str) -> tuple[str, ...]:

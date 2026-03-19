@@ -13,4 +13,4 @@ observability:
     outputs:
       - transport: STDERR
       - transport: FS
-        scope: RUN
+        scope: EXECUTION

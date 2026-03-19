@@ -126,9 +126,9 @@ def _configure_cli_logging(
         )
         base_log_output = resolve_log_output(
             output_candidates=(
-                [item for item in cli_log_outputs if item.scope != "run"],
+                [item for item in cli_log_outputs if item.scope != "execution"],
             ),
-            allow_run_scope=False,
+            allow_execution_scope=False,
         )
     except ValueError as exc:
         parser.error(str(exc))

@@ -27,8 +27,8 @@
 #     outputs:                # optional; ordered list
 #       - transport: STDERR   # STDERR | STDOUT | FS
 #       # - transport: FS
-#       #   scope: RUN        # GLOBAL | RUN
-#       #   path: logs/inspect.log  # required for FS+GLOBAL; optional for RUN
+#       #   scope: EXECUTION  # GLOBAL | EXECUTION
+#       #   path: logs/inspect.log  # required for FS+GLOBAL; optional for EXECUTION
 # note: explicit sequencing belongs in profile order (multiple inspect.*.yaml files), not task dependency graphs.
 # note: common defaults can be set once in profiles/inspect.defaults.yaml.
 # precedence: CLI --log-output > inspect.<name>.yaml > inspect.defaults.yaml > built-ins
