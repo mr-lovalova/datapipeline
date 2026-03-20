@@ -38,6 +38,21 @@ def test_temporal_record_parser_supports_custom_time_field() -> None:
     assert record.value == 1
 
 
+def test_temporal_record_parser_does_not_overwrite_time_with_residual_field() -> None:
+    parser = TemporalRecordParser(time_field="timestamp")
+
+    record = parser.parse(
+        {
+            "timestamp": "2024-01-01T12:00:00+01:00",
+            "time": "raw-label",
+            "value": 1,
+        }
+    )
+
+    assert record.time == datetime(2024, 1, 1, 11, 0, tzinfo=timezone.utc)
+    assert record.value == 1
+
+
 def test_temporal_record_parser_passes_through_existing_temporal_records() -> None:
     parser = TemporalRecordParser()
     raw = _WeatherRecord(

@@ -26,6 +26,7 @@ class TemporalRecordParser(DataParser[TemporalRecord]):
             )
 
         record = TemporalRecord(time=self._coerce_time(fields.pop(self._time_field)))
+        fields.pop("time", None)
         for key, value in fields.items():
             setattr(record, key, value)
         return record

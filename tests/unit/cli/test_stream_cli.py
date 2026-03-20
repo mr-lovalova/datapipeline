@@ -8,6 +8,7 @@ from datapipeline.cli.commands.stream import (
     _mapper_menu_options,
     _parser_menu_options,
 )
+from datapipeline.services.scaffold.utils import pick_from_menu
 
 
 def test_parser_menu_options_include_existing_when_available() -> None:
@@ -49,6 +50,21 @@ def test_build_parser_plan_temporal_record_defaults() -> None:
     )
     assert plan.create is False
     assert plan.parser_ep == "core.temporal_record"
+
+
+def test_pick_from_menu_blank_input_keeps_first_option_as_default(monkeypatch) -> None:
+    monkeypatch.setattr("builtins.input", lambda _: "")
+
+    choice = pick_from_menu(
+        "Parser:",
+        [
+            ("identity", "Identity parser (default)"),
+            ("temporal_record", "Temporal record rehydration"),
+            ("custom", "Custom parser"),
+        ],
+    )
+
+    assert choice == "identity"
 
 
 def test_build_mapper_plan_existing_keeps_domain() -> None:

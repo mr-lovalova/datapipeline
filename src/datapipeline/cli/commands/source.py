@@ -127,8 +127,8 @@ def handle(
                     choice = pick_from_menu(
                         "Parser:",
                         [
-                            ("temporal_record", "Temporal record rehydration"),
                             ("identity", "Identity parser (default)"),
+                            ("temporal_record", "Temporal record rehydration"),
                             ("custom", "Custom parser"),
                         ],
                     )
