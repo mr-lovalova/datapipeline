@@ -6,6 +6,7 @@ from datapipeline.services.scaffold.source_yaml import (
     create_source_yaml,
     default_loader_config,
 )
+from datapipeline.services.constants import DEFAULT_TEMPORAL_RECORD_PARSER_EP
 from datapipeline.config.options import SOURCE_TRANSPORTS, source_formats_for
 from datapipeline.services.scaffold.discovery import list_loaders, list_parsers
 from datapipeline.services.scaffold.utils import (
@@ -106,6 +107,7 @@ def handle(
                         "Parser:",
                         [
                             ("existing", "Select existing parser (default)"),
+                            ("temporal_record", "Temporal record rehydration"),
                             ("identity", "Identity parser"),
                             ("custom", "Custom parser"),
                         ],
@@ -115,6 +117,8 @@ def handle(
                             "Select parser entrypoint:",
                             [(k, k) for k in sorted(parsers.keys())],
                         )
+                    elif choice == "temporal_record":
+                        parser_ep = DEFAULT_TEMPORAL_RECORD_PARSER_EP
                     elif choice == "identity":
                         parser_ep = "identity"
                     else:
@@ -123,11 +127,17 @@ def handle(
                     choice = pick_from_menu(
                         "Parser:",
                         [
+                            ("temporal_record", "Temporal record rehydration"),
                             ("identity", "Identity parser (default)"),
                             ("custom", "Custom parser"),
                         ],
                     )
-                    parser_ep = "identity" if choice == "identity" else prompt_required("Parser entrypoint")
+                    if choice == "temporal_record":
+                        parser_ep = DEFAULT_TEMPORAL_RECORD_PARSER_EP
+                    elif choice == "identity":
+                        parser_ep = "identity"
+                    else:
+                        parser_ep = prompt_required("Parser entrypoint")
 
         project_yaml = resolve_default_project_yaml(workspace)
         create_source_yaml(

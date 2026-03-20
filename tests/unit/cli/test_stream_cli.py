@@ -12,7 +12,12 @@ from datapipeline.cli.commands.stream import (
 
 def test_parser_menu_options_include_existing_when_available() -> None:
     options = _parser_menu_options({"custom.parser": "custom.parser"})
-    assert [key for key, _ in options] == ["create", "existing", "identity"]
+    assert [key for key, _ in options] == [
+        "create",
+        "existing",
+        "temporal_record",
+        "identity",
+    ]
 
 
 def test_mapper_menu_options_skip_existing_when_empty() -> None:
@@ -31,6 +36,19 @@ def test_build_parser_plan_identity_defaults() -> None:
     )
     assert plan.create is False
     assert plan.parser_ep == "identity"
+
+
+def test_build_parser_plan_temporal_record_defaults() -> None:
+    plan = _build_parser_plan(
+        choice="temporal_record",
+        create_dto=False,
+        dto_class=None,
+        dto_module=None,
+        parser_name=None,
+        parser_ep=None,
+    )
+    assert plan.create is False
+    assert plan.parser_ep == "core.temporal_record"
 
 
 def test_build_mapper_plan_existing_keeps_domain() -> None:

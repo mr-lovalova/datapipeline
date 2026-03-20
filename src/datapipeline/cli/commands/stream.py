@@ -14,6 +14,7 @@ from datapipeline.services.scaffold.discovery import (
     list_dtos,
 )
 from datapipeline.services.scaffold.source_yaml import default_loader_config
+from datapipeline.services.constants import DEFAULT_TEMPORAL_RECORD_PARSER_EP
 from datapipeline.services.scaffold.layout import (
     default_stream_id,
     dto_class_name,
@@ -64,9 +65,13 @@ class StreamSelection:
 
 
 def _parser_menu_options(parsers: dict[str, str]) -> list[tuple[str, str]]:
-    base = [("create", "Create new parser (default)"), ("identity", "Identity parser")]
+    base = [
+        ("create", "Create new parser (default)"),
+        ("temporal_record", "Temporal record rehydration"),
+        ("identity", "Identity parser"),
+    ]
     if parsers:
-        return [base[0], ("existing", "Select existing parser"), base[1]]
+        return [base[0], ("existing", "Select existing parser"), *base[1:]]
     return base
 
 
@@ -96,6 +101,11 @@ def _build_parser_plan(
         )
     if choice == "existing":
         return ParserPlan(create=False, parser_ep=parser_ep)
+    if choice == "temporal_record":
+        return ParserPlan(
+            create=False,
+            parser_ep=DEFAULT_TEMPORAL_RECORD_PARSER_EP,
+        )
     return ParserPlan(create=False, parser_ep="identity")
 
 
@@ -222,6 +232,8 @@ def _collect_stream_selection(
                 default=default_parser_name(dto_class),
             )
             dto_module = dto_module_path(pkg_name, dto_class)
+        elif pchoice == "temporal_record":
+            parser_ep = DEFAULT_TEMPORAL_RECORD_PARSER_EP
         elif pchoice == "identity":
             parser_ep = "identity"
         else:
