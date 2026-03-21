@@ -8,11 +8,17 @@ from datapipeline.cli.commands.stream import (
     _mapper_menu_options,
     _parser_menu_options,
 )
+from datapipeline.services.scaffold.utils import pick_from_menu
 
 
 def test_parser_menu_options_include_existing_when_available() -> None:
     options = _parser_menu_options({"custom.parser": "custom.parser"})
-    assert [key for key, _ in options] == ["create", "existing", "identity"]
+    assert [key for key, _ in options] == [
+        "create",
+        "existing",
+        "temporal_record",
+        "identity",
+    ]
 
 
 def test_mapper_menu_options_skip_existing_when_empty() -> None:
@@ -31,6 +37,34 @@ def test_build_parser_plan_identity_defaults() -> None:
     )
     assert plan.create is False
     assert plan.parser_ep == "identity"
+
+
+def test_build_parser_plan_temporal_record_defaults() -> None:
+    plan = _build_parser_plan(
+        choice="temporal_record",
+        create_dto=False,
+        dto_class=None,
+        dto_module=None,
+        parser_name=None,
+        parser_ep=None,
+    )
+    assert plan.create is False
+    assert plan.parser_ep == "core.temporal_record"
+
+
+def test_pick_from_menu_blank_input_keeps_first_option_as_default(monkeypatch) -> None:
+    monkeypatch.setattr("builtins.input", lambda _: "")
+
+    choice = pick_from_menu(
+        "Parser:",
+        [
+            ("identity", "Identity parser (default)"),
+            ("temporal_record", "Temporal record rehydration"),
+            ("custom", "Custom parser"),
+        ],
+    )
+
+    assert choice == "identity"
 
 
 def test_build_mapper_plan_existing_keeps_domain() -> None:

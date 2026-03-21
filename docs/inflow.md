@@ -43,6 +43,10 @@ Choose **Identity parser** when your loader already emits dicts/objects that mat
 your DTO shape and no type conversion is needed. Choose **Create parser** when you
 need to parse timestamps, coerce types, rename fields, or drop/validate rows.
 
+For persisted domain-record-like JSON/JSONL rows, choose **Temporal record
+rehydration** (`core.temporal_record`) to rehydrate canonical records without
+creating a DTO or custom mapper.
+
 ### Mapper
 
 Choose **Identity mapper** only when your DTO is already the final domain record

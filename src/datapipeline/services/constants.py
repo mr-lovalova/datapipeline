@@ -13,6 +13,7 @@ MAPPERS_GROUP = "mappers"
 FILTERS_GROUP = "filters"
 DEFAULT_IO_LOADER_EP = "core.io"
 DEFAULT_SYNTHETIC_LOADER_EP = "core.synthetic.ticks"
+DEFAULT_TEMPORAL_RECORD_PARSER_EP = "core.temporal_record"
 
 # POSTPROCESS_GLOBAL_KEY = "__global__"
 POSTPROCESS_TRANSFORMS = "transforms"
