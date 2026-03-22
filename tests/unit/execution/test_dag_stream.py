@@ -62,7 +62,7 @@ def _context(tmp_path: Path) -> PipelineContext:
     return PipelineContext(runtime)
 
 
-def test_stage_dag_upto_stage_filters_nodes() -> None:
+def test_stage_dag_upto_step_filters_nodes() -> None:
     dag = StageDag(
         name="demo",
         nodes=(
@@ -72,7 +72,7 @@ def test_stage_dag_upto_stage_filters_nodes() -> None:
         ),
     )
 
-    filtered = dag.upto_stage(1)
+    filtered = dag.upto_step(1)
     assert [node.name for node in filtered.nodes] == ["a", "b"]
 
 
