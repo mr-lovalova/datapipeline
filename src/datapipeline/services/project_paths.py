@@ -1,6 +1,11 @@
 from pathlib import Path
 from typing import Optional
 
+from datapipeline.services.config_refs import (
+    interpolate_config_vars,
+    project_vars_from_data,
+    resolve_config_refs,
+)
 from datapipeline.services.path_policy import resolve_project_path
 from datapipeline.utils.load import load_yaml
 from datapipeline.config.project import ProjectConfig
@@ -13,7 +18,11 @@ _DEFAULT_DOTENV_EXAMPLE = (
 
 
 def read_project(project_yaml: Path) -> ProjectConfig:
-    data = load_yaml(project_yaml)
+    data = resolve_config_refs(load_yaml(project_yaml), project_yaml=project_yaml)
+    paths = data.get("paths")
+    vars_ = project_vars_from_data(data)
+    if isinstance(paths, dict) and vars_:
+        data["paths"] = interpolate_config_vars(paths, vars_)
     return ProjectConfig.model_validate(data)
 
 

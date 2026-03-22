@@ -23,6 +23,7 @@ from datapipeline.services.factories import (
 
 from datapipeline.runtime import Runtime
 from datapipeline.config.postprocess import PostprocessConfig
+from datapipeline.services.config_refs import resolve_config_refs
 from .config import (
     artifacts_root,
     build_state_path,
@@ -31,7 +32,6 @@ from .config import (
     _load_by_key,
     _project,
 )
-from .refs import resolve_config_refs
 
 
 SRC_PARSER_KEY = PARSER_KEY

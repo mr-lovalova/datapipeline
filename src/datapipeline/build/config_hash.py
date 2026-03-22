@@ -2,8 +2,13 @@ import hashlib
 from pathlib import Path
 from typing import Iterable
 
+from datapipeline.services.config_refs import (
+    collect_config_ref_keys,
+    merged_project_env,
+)
 from datapipeline.services.path_policy import resolve_project_path
 from datapipeline.services.project_paths import read_project
+from datapipeline.utils.load import load_yaml
 
 
 def _normalized_label(path: Path, base_dir: Path) -> str:
@@ -18,6 +23,30 @@ def _hash_file(hasher, path: Path, base_dir: Path) -> None:
     hasher.update(b"\0")
     hasher.update(path.read_bytes())
     hasher.update(b"\0")
+
+
+def _hash_env_refs(hasher, project_yaml: Path, config_files: list[Path]) -> None:
+    env_ref_names: set[str] = set()
+    for path in config_files:
+        data = load_yaml(path, require_mapping=False)
+        env_ref_names.update(
+            key
+            for _scheme, key in collect_config_ref_keys(data, scheme="env")
+        )
+
+    if not env_ref_names:
+        return
+
+    env = merged_project_env(project_yaml.resolve())
+    for name in sorted(env_ref_names):
+        hasher.update(f"[env]{name}".encode("utf-8"))
+        hasher.update(b"\0")
+        value = env.get(name)
+        if value is None:
+            hasher.update(b"[missing]")
+        else:
+            hasher.update(str(value).encode("utf-8"))
+        hasher.update(b"\0")
 
 
 def _yaml_files(directory: Path) -> Iterable[Path]:
@@ -38,11 +67,13 @@ def compute_config_hash(project_yaml: Path, tasks_path: Path) -> str:
         resolve_project_path(project_yaml, cfg.paths.dataset),
         resolve_project_path(project_yaml, cfg.paths.postprocess),
     ]
+    hashed_files: list[Path] = []
 
     for path in required:
         if not path.exists():
             raise FileNotFoundError(f"Expected config file missing: {path}")
         _hash_file(hasher, path, base_dir)
+        hashed_files.append(path)
 
     if not tasks_path.is_dir():
         raise TypeError(
@@ -53,6 +84,7 @@ def compute_config_hash(project_yaml: Path, tasks_path: Path) -> str:
     )
     for p in _yaml_files(tasks_path):
         _hash_file(hasher, p, base_dir)
+        hashed_files.append(p)
 
     for dir_value in (cfg.paths.sources, cfg.paths.streams):
         directory = resolve_project_path(project_yaml, dir_value)
@@ -64,5 +96,8 @@ def compute_config_hash(project_yaml: Path, tasks_path: Path) -> str:
             continue
         for path in _yaml_files(directory):
             _hash_file(hasher, path, base_dir)
+            hashed_files.append(path)
+
+    _hash_env_refs(hasher, project_yaml, hashed_files)
 
     return hasher.hexdigest()
