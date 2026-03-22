@@ -16,7 +16,7 @@
 #         transport: http
 #         format: jsonl
 #         url: "https://example/api?page=${page}" # required
-#         headers: { Authorization: "Bearer ..." } # optional
+#         headers: { Authorization: "Bearer ${env:API_KEY}" } # optional
 #         params: {}            # optional
 #         encoding: utf-8       # optional
 #         count_by_fetch: false # optional

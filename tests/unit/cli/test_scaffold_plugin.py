@@ -13,6 +13,8 @@ def test_scaffold_plugin_normalizes_hyphenated_name(tmp_path: Path, monkeypatch)
 
     plugin_root = tmp_path / "test-datapipeline"
     assert (plugin_root / "src" / "test_datapipeline").is_dir()
+    assert (plugin_root / "your-dataset" / ".env.example").is_file()
+    assert (plugin_root / "your-interim-data-builder" / ".env.example").is_file()
 
     pyproject = (plugin_root / "pyproject.toml").read_text()
     assert 'name = "test-datapipeline"' in pyproject

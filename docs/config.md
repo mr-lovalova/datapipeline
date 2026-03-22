@@ -47,6 +47,8 @@ paths:
 globals:
   start_time: 2021-01-01T00:00:00Z
   end_time: 2023-01-03T23:00:00Z
+  vendor_api_key: ${env:VENDOR_API_KEY}
+  raw_root: ${env:RAW_ROOT}
   split:
     mode: hash # hash | time
     key: group # group | feature:<id>
@@ -58,6 +60,9 @@ globals:
 - `paths.*` are resolved relative to the project file unless absolute; they also support `${var}` interpolation.
 - `globals` provide values for `${var}` interpolation across YAML files. Datetime
   values are normalized to strict UTC `YYYY-MM-DDTHH:MM:SSZ`.
+- External references use `${env:NAME}`. Resolution checks the process
+  environment first and then an optional project-root `.env` file.
+- New scaffolded dataset projects include a `.env.example` next to `project.yaml`.
 - `split` config defines how labels are assigned; serve profiles or CLI flags pick the active label via `keep`.
 - `paths.tasks` points to operation task specs under `tasks/operations/*.yaml`.
   Build artifact operations (`schema`/`scaler`/`metadata`) define what can be materialized.
@@ -181,11 +186,15 @@ loader:
     transport: http
     format: csv
     url: "https://stooq.com/q/d/l/?s=aapl.us&i=d"
+    headers:
+      Authorization: "Bearer ${env:STOOQ_API_KEY}"
 ```
 
 - `id`: the source alias; referenced by contracts under `source:`.
 - `parser.entrypoint`: which parser to use; `parser.args` are optional.
 - `loader.entrypoint`: which loader to use; `core.io` is the default for fs/http and is configured via `loader.args`.
+- Keep secrets and machine-local paths out of source files. Prefer `${env:...}`
+  directly or route them through `project.yaml.globals` aliases like `${raw_root}`.
 
 #### Fan-out Sources (`core.foreach`)
 

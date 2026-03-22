@@ -7,6 +7,7 @@ from datapipeline.config.project import ProjectConfig
 from datapipeline.services.path_policy import resolve_project_path
 from datapipeline.utils.load import load_yaml
 from datapipeline.utils.placeholders import MissingInterpolation, is_missing
+from .refs import resolve_config_refs
 
 
 def _serialize_global_value(value: Any) -> Any:
@@ -23,7 +24,7 @@ def _serialize_global_value(value: Any) -> Any:
 
 def _project(project_yaml: Path) -> ProjectConfig:
     """Load and validate project.yaml."""
-    data = load_yaml(project_yaml)
+    data = resolve_config_refs(load_yaml(project_yaml), project_yaml=project_yaml)
     vars_ = _project_vars(data)
     paths = data.get("paths")
     if isinstance(paths, dict) and vars_:
@@ -103,7 +104,10 @@ def _load_by_key(
     if not p:
         raise FileNotFoundError(f"project.paths must include '{key}'.")
     path = resolve_project_path(project_yaml, p)
-    return load_yaml(path, require_mapping=require_mapping)
+    return resolve_config_refs(
+        load_yaml(path, require_mapping=require_mapping),
+        project_yaml=project_yaml,
+    )
 
 
 def _globals(project_yaml: Path) -> dict[str, Any]:

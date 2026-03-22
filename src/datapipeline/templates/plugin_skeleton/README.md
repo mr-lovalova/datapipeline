@@ -25,6 +25,9 @@ jerry serve --dataset your-dataset --limit 3
 
 - `your-dataset/sources/*.yaml`
   - Replace placeholders (`path`/`url`, headers/params, delimiter, etc.)
+  - Prefer `${env:NAME}` for secrets or machine-local paths instead of literal values
+- `your-dataset/.env.example`
+  - Copy to `.env` next to `project.yaml` for local dataset-specific secrets and paths
 - `your-dataset/dataset.yaml`
   - Ensure `record_stream:` points at the contract id you created.
   - Select a `field:` for each feature/target (record attribute to use as value).

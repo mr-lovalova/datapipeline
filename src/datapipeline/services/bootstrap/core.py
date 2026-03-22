@@ -31,6 +31,7 @@ from .config import (
     _load_by_key,
     _project,
 )
+from .refs import resolve_config_refs
 
 
 SRC_PARSER_KEY = PARSER_KEY
@@ -54,7 +55,7 @@ def _load_sources_from_dir(project_yaml: Path, vars_: dict[str, Any]) -> dict:
         key=lambda p: p.relative_to(src_dir).as_posix(),
     )
     for path in candidates:
-        data = load_yaml(path)
+        data = resolve_config_refs(load_yaml(path), project_yaml=project_yaml)
         if not isinstance(data, dict):
             continue
         if isinstance(data.get(SRC_PARSER_KEY), dict) and isinstance(data.get(SRC_LOADER_KEY), dict):
@@ -111,7 +112,7 @@ def _load_canonical_streams(project_yaml: Path, vars_: dict[str, Any]) -> dict:
     for p in sorted(sdir.rglob("*.y*ml")):
         if not p.is_file():
             continue
-        data = load_yaml(p)
+        data = resolve_config_refs(load_yaml(p), project_yaml=project_yaml)
         # Contracts must declare kind: 'ingest' | 'composed'
         if not isinstance(data, dict):
             continue

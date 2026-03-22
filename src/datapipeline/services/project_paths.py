@@ -6,6 +6,12 @@ from datapipeline.utils.load import load_yaml
 from datapipeline.config.project import ProjectConfig
 
 
+_DEFAULT_DOTENV_EXAMPLE = (
+    "# Copy this file to .env next to project.yaml for local dataset-specific secrets.\n"
+    "RAW_ROOT=\n"
+)
+
+
 def read_project(project_yaml: Path) -> ProjectConfig:
     data = load_yaml(project_yaml)
     return ProjectConfig.model_validate(data)
@@ -99,6 +105,9 @@ def ensure_project_scaffold(project_yaml: Path) -> None:
             else resolve_project_path(project_yaml, "./profiles")
         )
         profiles_path.mkdir(parents=True, exist_ok=True)
+        dotenv_example = project_yaml.parent / ".env.example"
+        if not dotenv_example.exists():
+            dotenv_example.write_text(_DEFAULT_DOTENV_EXAMPLE, encoding="utf-8")
     except Exception:
         # If the file is malformed, leave it to callers to report; this helper
         # is best-effort to create a sensible starting point.
