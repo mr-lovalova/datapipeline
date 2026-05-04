@@ -1,7 +1,9 @@
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
-from datapipeline.config.split import TimeSplitConfig
+import pytest
+
+from datapipeline.config.split import HashSplitConfig, TimeSplitConfig
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
 from datapipeline.pipelines.full.split import apply_split_stage
@@ -47,3 +49,20 @@ def test_split_stage_passes_through_when_keep_missing():
     filtered = list(apply_split_stage(runtime, _vector_stream()))
 
     assert len(filtered) == 2
+
+
+def test_split_stage_raises_for_incomplete_time_split_config():
+    runtime = SimpleNamespace(
+        split=TimeSplitConfig(boundaries=None, labels=None),
+        split_keep="beta",
+    )
+
+    with pytest.raises(ValueError, match="time split requires"):
+        list(apply_split_stage(runtime, _vector_stream()))
+
+
+def test_split_stage_raises_for_incomplete_hash_split_config():
+    runtime = SimpleNamespace(split=HashSplitConfig(ratios=None), split_keep="train")
+
+    with pytest.raises(ValueError, match="hash split requires"):
+        list(apply_split_stage(runtime, _vector_stream()))

@@ -6,6 +6,7 @@ from typing import Any, Literal
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
 from datapipeline.config.split import (
+    HashSplitConfig,
     SplitConfig,
     TimeSplitConfig,
 )
@@ -144,7 +145,11 @@ class VectorSplitApplicator:
 
 def build_labeler(cfg: SplitConfig) -> BaseLabeler:
     if isinstance(cfg, TimeSplitConfig):
+        if cfg.boundaries is None or cfg.labels is None:
+            raise ValueError("time split requires 'boundaries' and 'labels'")
         return TimeLabeler(boundaries=cfg.boundaries, labels=cfg.labels)
+    if isinstance(cfg, HashSplitConfig) and cfg.ratios is None:
+        raise ValueError("hash split requires 'ratios'")
     return HashLabeler(ratios=cfg.ratios, key=cfg.key, seed=cfg.seed)
 
 
@@ -161,12 +166,9 @@ def apply_split_stage(runtime, stream: Iterator[Sample]) -> Iterator[Sample]:
     when configured, applies a VectorSplitApplicator. When not configured,
     passes stream through.
     """
-    try:
-        cfg = getattr(runtime, "split", None)
-        if not cfg:
-            return stream
-        keep = getattr(runtime, "split_keep", None)
-        applicator = build_applicator(cfg, keep=keep)
-        return applicator(stream)
-    except Exception:
+    cfg = getattr(runtime, "split", None)
+    if not cfg:
         return stream
+    keep = getattr(runtime, "split_keep", None)
+    applicator = build_applicator(cfg, keep=keep)
+    return applicator(stream)
