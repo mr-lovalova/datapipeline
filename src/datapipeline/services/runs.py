@@ -51,7 +51,7 @@ def _now_utc_iso() -> str:
 
 def make_run_id() -> str:
     """Create a filesystem-safe, sortable run identifier."""
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%S-%fZ")
 
 
 def get_serve_root(directory: str | Path) -> Path:

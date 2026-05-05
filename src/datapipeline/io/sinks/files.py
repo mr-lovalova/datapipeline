@@ -30,6 +30,10 @@ class AtomicTextFileSink(BaseSink):
         self._fh.close()
         os.replace(self._tmp, self._dest)
 
+    def abort(self) -> None:
+        self._fh.close()
+        self._tmp.unlink(missing_ok=True)
+
 
 class AtomicBinaryFileSink(BaseSink):
     def __init__(self, dest: Path):
@@ -55,6 +59,10 @@ class AtomicBinaryFileSink(BaseSink):
         self._fh.close()
         os.replace(self._tmp, self._dest)
 
+    def abort(self) -> None:
+        self._fh.close()
+        self._tmp.unlink(missing_ok=True)
+
 
 class GzipBinarySink(BaseSink):
     def __init__(self, dest: Path):
@@ -77,3 +85,8 @@ class GzipBinarySink(BaseSink):
         self._fh.close()
         self._raw.close()
         os.replace(self._tmp, self._dest)
+
+    def abort(self) -> None:
+        self._fh.close()
+        self._raw.close()
+        self._tmp.unlink(missing_ok=True)

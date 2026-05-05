@@ -116,12 +116,19 @@ def _persist_runtime_output(
 
     writer = writer_factory(effective_target, visuals=visuals)
     count = 0
+    success = False
     try:
         for row in rows:
             writer.write(row)
             count += 1
-    finally:
         writer.close()
+        success = True
+    finally:
+        if not success:
+            try:
+                writer.abort()
+            except Exception:
+                logger.debug("Failed to abort runtime output writer", exc_info=True)
 
     emit_message(
         served_output_message(effective_target, count),

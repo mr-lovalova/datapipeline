@@ -18,6 +18,13 @@ class LineWriter(Writer):
     def close(self) -> None:
         self.sink.close()
 
+    def abort(self) -> None:
+        abort = getattr(self.sink, "abort", None)
+        if callable(abort):
+            abort()
+        else:
+            self.close()
+
 
 class HeaderJsonlMixin(HeaderCapable):
     """Provide a header write by emitting one JSON line."""

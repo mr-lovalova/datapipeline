@@ -29,3 +29,6 @@ class CsvFileWriter(Writer, HasFilePath):
 
     def close(self) -> None:
         self.sink.close()
+
+    def abort(self) -> None:
+        self.sink.abort()
