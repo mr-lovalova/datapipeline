@@ -6,10 +6,10 @@ from typing import Any
 
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.domain.vector import Vector
-from datapipeline.dag.dag import StageDag
-from datapipeline.dag.runner import run_stage_dag
-from datapipeline.dag.node import PipelineStep
-from datapipeline.pipelines.feature.dag import build_feature_pipeline
+from datapipeline.dag.dag import Dag
+from datapipeline.dag.runner import run_dag
+from datapipeline.dag.node import PipelineNode
+from datapipeline.pipelines.feature.dag import build_feature_dag, build_feature_pipeline
 from datapipeline.pipelines.vector.nodes import (
     align_stream,
     sample_assemble_stage,
@@ -45,12 +45,27 @@ def build_vector_pipeline(
     if not feature_cfgs and not target_cfgs:
         return iter(())
 
-    feature_vectors = _assemble_vectors(
+    return run_dag(
         context,
-        feature_cfgs,
-        group_by_cadence,
+        build_vector_dag(
+            context,
+            feature_cfgs,
+            group_by_cadence,
+            target_configs=target_cfgs,
+            rectangular=rectangular,
+        ),
     )
 
+
+def build_vector_dag(
+    context: PipelineContext,
+    configs: Sequence[FeatureRecordConfig],
+    group_by_cadence: str,
+    target_configs: Sequence[FeatureRecordConfig] | None = None,
+    rectangular: bool = True,
+) -> Dag:
+    feature_cfgs = list(configs)
+    target_cfgs = list(target_configs or [])
     keys_feature = None
     keys_target = None
     if rectangular:
@@ -62,34 +77,61 @@ def build_vector_pipeline(
             else:
                 keys_feature = keys
 
-    target_vectors = None
+    nodes = [
+        PipelineNode(
+            name="feature_fanout",
+            op=_assemble_vectors,
+            args=(context, feature_cfgs, group_by_cadence),
+            output="feature_vectors",
+            kind="dag_fanout",
+            calls_dag="feature:*",
+            child_dags=tuple(build_feature_dag(context, cfg) for cfg in feature_cfgs),
+        ),
+        PipelineNode(
+            name="align_feature_vectors",
+            op=align_stream,
+            input="feature_vectors",
+            output="aligned_feature_vectors",
+            kwargs={"keys": keys_feature},
+        ),
+    ]
+    sample_kwinputs: dict[str, str] = {}
     if target_cfgs:
-        target_vectors = _assemble_vectors(
-            context,
-            target_cfgs,
-            group_by_cadence,
+        nodes.extend(
+            [
+                PipelineNode(
+                    name="target_fanout",
+                    op=_assemble_vectors,
+                    args=(context, target_cfgs, group_by_cadence),
+                    output="target_vectors",
+                    kind="dag_fanout",
+                    calls_dag="feature:*",
+                    child_dags=tuple(
+                        build_feature_dag(context, cfg) for cfg in target_cfgs
+                    ),
+                ),
+                PipelineNode(
+                    name="align_target_vectors",
+                    op=align_stream,
+                    input="target_vectors",
+                    output="aligned_target_vectors",
+                    kwargs={"keys": keys_target},
+                ),
+            ]
         )
-        if keys_target is not None:
-            target_vectors = align_stream(target_vectors, keys=keys_target)
-
-    vector_dag = StageDag(
+        sample_kwinputs["target_vectors"] = "aligned_target_vectors"
+    return Dag(
         name=VECTOR_ASSEMBLE_DAG_NAME,
         nodes=(
-            PipelineStep(
-                name="align_feature_vectors",
-                op=align_stream,
-                input="seed",
-                kwargs={"keys": keys_feature},
-            ),
-            PipelineStep(
+            *nodes,
+            PipelineNode(
                 name="sample_assembly",
                 op=sample_assemble_stage,
-                input="align_feature_vectors",
-                kwargs={"target_vectors": target_vectors},
+                input="aligned_feature_vectors",
+                kwinputs=sample_kwinputs,
             ),
         ),
     )
-    return run_stage_dag(context, vector_dag, seed=feature_vectors)
 
 
 def _assemble_vectors(

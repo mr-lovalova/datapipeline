@@ -158,7 +158,7 @@ Screenshot slot:
 
 3. Empty output:
 - Check source loader `path/url`.
-- Check parser/mapper output and stage previews (`jerry serve --stage 0..8`).
+- Check parser/mapper output and preview indices (`jerry serve --preview-index 0..11`).
 
 4. Wrong output location:
 - Check workspace root and `--output-directory` value.

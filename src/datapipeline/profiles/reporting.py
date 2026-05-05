@@ -19,7 +19,7 @@ def runtime_profile_report_payload(profile) -> dict[str, object]:
             "name": entry.name,
             "path": str(entry.path) if entry.path else None,
         },
-        "step": profile.step,
+        "preview_index": profile.preview_index,
         "limit": profile.limit,
         "throttle_ms": profile.throttle_ms,
         "cache_enabled": profile.cache_enabled,

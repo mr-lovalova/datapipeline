@@ -70,5 +70,5 @@ Python plugin code:
 
 ## Learn more
 
-- Pipeline stages and split/build timing: the Jerry Thomas runtime `README.md` ("Pipeline Stages (serve --stage)").
+- Preview indexs and split/build timing: the Jerry Thomas runtime `README.md` ("Preview Indices (serve --preview-index)").
 - Deep dives: runtime `docs/config.md`, `docs/transforms.md`, `docs/artifacts.md`, `docs/extending.md`, `docs/architecture.md`.

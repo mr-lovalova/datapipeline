@@ -6,7 +6,7 @@ raw source ──▶ loader/parser DTOs ──▶ canonical stream ──▶ rec
       └──▶ vector assembly ──▶ postprocess transforms
 ```
 
-See "Pipeline Stages (serve --stage)" for the detailed stage-by-stage breakdown.
+See "Preview Indices (serve --preview-index)" for the detailed preview-index breakdown.
 
 #### Visual Flowchart
 

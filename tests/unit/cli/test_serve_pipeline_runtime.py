@@ -2,16 +2,28 @@ import logging
 from types import SimpleNamespace
 
 import pytest
+from datapipeline.dag.dag import Dag
+from datapipeline.dag.node import PipelineNode
 from datapipeline.io.output import OutputTarget
 from datapipeline.io.output import served_output_message
 from datapipeline.operations.persistence import persist_runtime_result
 from datapipeline.operations.runtime.pipeline import serve_with_runtime
 
 
-def test_serve_with_runtime_reraises_keyboard_interrupt_and_marks_run_failed(monkeypatch):
-    runtime = SimpleNamespace(window_bounds=None, execution_observer=None)
-    dataset = SimpleNamespace(features=[object()], targets=[], group_by="1d")
-    target = OutputTarget(
+def _runtime():
+    return SimpleNamespace(window_bounds=None, execution_observer=None)
+
+
+def _dataset(*, targets=None):
+    return SimpleNamespace(
+        features=[object()],
+        targets=list(targets or []),
+        group_by="1d",
+    )
+
+
+def _target():
+    return OutputTarget(
         transport="stdout",
         format="jsonl",
         view="raw",
@@ -19,6 +31,55 @@ def test_serve_with_runtime_reraises_keyboard_interrupt_and_marks_run_failed(mon
         destination=None,
         run="run-paths",
     )
+
+
+def _serve(runtime, dataset, target, preview_index):
+    return serve_with_runtime(
+        runtime=runtime,
+        dataset=dataset,
+        limit=None,
+        target=target,
+        throttle_ms=None,
+        preview_index=preview_index,
+        visuals="on",
+    )
+
+
+def _split(runtime_obj, stream):
+    _ = runtime_obj
+    return (f"split:{item}" for item in stream)
+
+
+def _sample_preview_dag():
+    return Dag(
+        name="pipeline:serve",
+        nodes=(
+            PipelineNode(
+                name="vector_assemble",
+                op=lambda: iter(["vector"]),
+                output="vectors",
+            ),
+            PipelineNode(
+                name="post_process",
+                op=lambda stream: (f"post:{item}" for item in stream),
+                input="vectors",
+                output="post_processed",
+            ),
+            PipelineNode(
+                name="split",
+                op=lambda runtime_obj, stream: _split(runtime_obj, stream),
+                args=(object(),),
+                input="post_processed",
+                output="served",
+            ),
+        ),
+    )
+
+
+def test_serve_with_runtime_reraises_keyboard_interrupt_and_marks_run_failed(monkeypatch):
+    runtime = _runtime()
+    dataset = _dataset()
+    target = _target()
 
     monkeypatch.setattr(
         "datapipeline.operations.runtime.pipeline.resolve_window_bounds",
@@ -39,7 +100,7 @@ def test_serve_with_runtime_reraises_keyboard_interrupt_and_marks_run_failed(mon
         limit=None,
         target=target,
         throttle_ms=None,
-        step=None,
+        preview_index=None,
         visuals="on",
     )
 
@@ -50,6 +111,63 @@ def test_serve_with_runtime_reraises_keyboard_interrupt_and_marks_run_failed(mon
             visuals="on",
             logger=logging.getLogger(__name__),
         )
+
+
+def test_preview_index_9_previews_vector_assembly(monkeypatch):
+    runtime = _runtime()
+    dataset = _dataset(targets=[object()])
+    target = _target()
+    monkeypatch.setattr(
+        "datapipeline.operations.runtime.pipeline.resolve_window_bounds",
+        lambda runtime_obj, rectangular_required: ("start", "end"),
+    )
+    monkeypatch.setattr(
+        "datapipeline.operations.runtime.pipeline.build_full_dag",
+        lambda *args, **kwargs: _sample_preview_dag(),
+    )
+
+    result = _serve(runtime, dataset, target, preview_index=9)
+
+    assert runtime.window_bounds == ("start", "end")
+    assert len(result.outputs) == 1
+    assert result.outputs[0].target == target
+    assert list(result.outputs[0].rows) == ["vector"]
+
+
+@pytest.mark.parametrize(
+    ("preview_index", "expected"),
+    [
+        (10, ["post:vector"]),
+        (11, ["split:post:vector"]),
+    ],
+)
+def test_late_preview_indices_preview_postprocess_and_split(
+    monkeypatch,
+    preview_index,
+    expected,
+):
+    runtime = _runtime()
+    dataset = _dataset()
+    target = _target()
+
+    monkeypatch.setattr(
+        "datapipeline.operations.runtime.pipeline.resolve_window_bounds",
+        lambda runtime_obj, rectangular_required: (None, None),
+    )
+    monkeypatch.setattr(
+        "datapipeline.operations.runtime.pipeline.build_full_dag",
+        lambda *args, **kwargs: _sample_preview_dag(),
+    )
+
+    result = _serve(runtime, dataset, target, preview_index=preview_index)
+
+    assert list(result.outputs[0].rows) == expected
+
+
+@pytest.mark.parametrize("preview_index", [-1, 12])
+def test_preview_index_rejects_out_of_range_value(preview_index):
+    with pytest.raises(ValueError, match="preview_index must be between 0 and 11"):
+        _serve(_runtime(), _dataset(), _target(), preview_index=preview_index)
 
 
 def test_served_output_message_for_saved_destination():

@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Literal
 
-from datapipeline.dag.node import StepKind
+from datapipeline.dag.node import NodeKind
 
 RunStatus = Literal["success", "error"]
 
@@ -9,20 +9,21 @@ RunStatus = Literal["success", "error"]
 @dataclass(frozen=True)
 class DagParentRef:
     dag_name: str
-    step_name: str
-    step_index: int
+    node_name: str
+    node_index: int
 
 
 @dataclass(frozen=True)
-class StepRunEvent:
+class NodeExecutionEvent:
     dag_name: str
-    step_name: str
-    step_index: int
+    node_name: str
+    node_index: int
+    execution_index: int
     output_items: int
     elapsed_seconds: float
     status: RunStatus
-    step_kind: StepKind = "function"
-    step_calls_dag: str | None = None
+    node_kind: NodeKind = "function"
+    node_calls_dag: str | None = None
     error_type: str | None = None
     depth: int = 0
 
@@ -30,7 +31,7 @@ class StepRunEvent:
 @dataclass(frozen=True)
 class DagRunEvent:
     dag_name: str
-    step_count: int
+    node_count: int
     output_items: int
     elapsed_seconds: float
     status: RunStatus

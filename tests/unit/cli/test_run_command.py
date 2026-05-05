@@ -15,7 +15,7 @@ def _serve_args() -> SimpleNamespace:
         limit=None,
         keep=None,
         run=None,
-        step=None,
+        preview_index=None,
         output_transport=None,
         output_format=None,
         output_directory=None,

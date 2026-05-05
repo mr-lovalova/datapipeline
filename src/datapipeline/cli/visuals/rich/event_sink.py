@@ -84,13 +84,13 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
             return text
         if event.kind == "dag_start":
             text.append("DAG started", style="bold cyan")
-            text.append(f" name={event.dag_name} steps={event.step_count}")
+            text.append(f" name={event.dag_name} nodes={event.node_count}")
             if event.dag_parent is not None:
                 text.append(
                     " "
                     f"parent_dag={event.dag_parent.dag_name} "
-                    f"parent_step={event.dag_parent.step_name} "
-                    f"parent_step_index={event.dag_parent.step_index}"
+                    f"parent_node={event.dag_parent.node_name} "
+                    f"parent_node_index={event.dag_parent.node_index}"
                 )
             return text
         if event.kind == "dag_end":
@@ -102,24 +102,26 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
                 text.append(f" error={event.error_type}", style="red")
             text.append(f" items={event.output_items} elapsed={event.elapsed_seconds:.6f}s")
             return text
-        if event.kind == "step_start":
-            text.append("Step activated", style="dim cyan")
+        if event.kind == "node_start":
+            text.append("Node execution started", style="dim cyan")
             text.append(
                 (
-                    f" dag={event.dag_name} step={event.step_name} "
-                    f"index={event.step_index} kind={event.step_kind}"
+                    f" dag={event.dag_name} node={event.node_name} "
+                    f"index={event.node_index} execution_index={event.execution_index} "
+                    f"kind={event.node_kind}"
                 ),
                 style="dim",
             )
-            if event.step_calls_dag is not None:
-                text.append(f" calls={event.step_calls_dag}", style="dim")
+            if event.node_calls_dag is not None:
+                text.append(f" calls={event.node_calls_dag}", style="dim")
             return text
         status_style = "green" if event.status == "success" else "red"
-        text.append("Step finished", style="dim cyan")
+        text.append("Node execution finished", style="dim cyan")
         text.append(
             (
-                f" dag={event.dag_name} step={event.step_name} "
-                f"index={event.step_index} kind={event.step_kind}"
+                f" dag={event.dag_name} node={event.node_name} "
+                f"index={event.node_index} execution_index={event.execution_index} "
+                f"kind={event.node_kind}"
             ),
             style="dim",
         )

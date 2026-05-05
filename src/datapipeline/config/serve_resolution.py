@@ -38,7 +38,7 @@ class RunProfile:
     total: int
     entry: RunEntry
     runtime: Runtime
-    step: Optional[int]
+    preview_index: Optional[int]
     limit: Optional[int]
     throttle_ms: Optional[float]
     cache_enabled: bool
@@ -57,7 +57,7 @@ def resolve_run_profiles(
     project_path: Path,
     run_entries: Sequence[RunEntry],
     keep: Optional[str],
-    step: Optional[int],
+    preview_index: Optional[int],
     limit: Optional[int],
     cli_build_mode: Optional[str],
     cli_output,
@@ -107,7 +107,7 @@ def resolve_run_profiles(
             and serve_root is not None
             and serve_root not in shared_runs
         ):
-            run_paths, _ = start_run_for_directory(serve_root, step=step)
+            run_paths, _ = start_run_for_directory(serve_root, preview_index=preview_index)
             shared_runs[serve_root] = run_paths
 
     profiles: list[RunProfile] = []
@@ -122,23 +122,26 @@ def resolve_run_profiles(
             cascade(cli_build_mode, profile_build_mode, "AUTO")
         ).upper()
 
-        resolved_step = cascade(step, _run_config_value(run_cfg, "step"))
+        resolved_preview_index = cascade(
+            preview_index,
+            _run_config_value(run_cfg, "preview_index"),
+        )
         resolved_limit = cascade(limit, _run_config_value(run_cfg, "limit"))
         resolved_cache = bool(cascade(cli_cache, _run_config_value(run_cfg, "cache"), True))
         run_cmd = getattr(run_cfg, "cmd", None)
         create_run = run_cmd == "serve" and (
             managed_target_ids is None or entry.target_id in managed_target_ids
         )
-        if resolved_step is not None and run_cmd != "serve":
+        if resolved_preview_index is not None and run_cmd != "serve":
             raise ValueError(
-                f"Runtime profile '{run_label}' does not support step previews."
+                f"Runtime profile '{run_label}' does not support preview indices."
             )
-        if resolved_step is not None and not has_runtime_serve_profiles:
+        if resolved_preview_index is not None and not has_runtime_serve_profiles:
             raise ValueError(
-                f"Serve profile '{run_label}' does not support step previews."
+                f"Serve profile '{run_label}' does not support preview indices."
             )
         if not create_run:
-            resolved_step = None
+            resolved_preview_index = None
         if keep is not None and run_cmd != "serve":
             raise ValueError(
                 f"Runtime profile '{run_label}' does not support keep filters."
@@ -203,7 +206,7 @@ def resolve_run_profiles(
                 total=total_runs,
                 entry=entry,
                 runtime=runtime,
-                step=resolved_step,
+                preview_index=resolved_preview_index,
                 limit=resolved_limit,
                 throttle_ms=throttle_ms,
                 cache_enabled=resolved_cache,

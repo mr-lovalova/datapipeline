@@ -25,7 +25,7 @@ class ServeProfileDefaults(ProfileDefaults):
     build: RuntimeBuildConfig | None = Field(default=None)
     keep: str | None = Field(default=None, min_length=1)
     limit: int | None = Field(default=None, ge=1)
-    step: int | None = Field(default=None, ge=0)
+    preview_index: int | None = Field(default=None, ge=0)
     throttle_ms: float | None = Field(default=None, ge=0.0)
 
 

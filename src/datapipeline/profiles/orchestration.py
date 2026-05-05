@@ -102,7 +102,7 @@ def _managed_serve_runs(
         run = getattr(getattr(profile, "output", None), "run", None)
         if run is None:
             continue
-        runs[run] = runs.get(run, True) and profile.step is None
+        runs[run] = runs.get(run, True) and profile.preview_index is None
     return runs
 
 

@@ -3,9 +3,9 @@ from typing import Any, Mapping
 
 from datapipeline.cache import cached_record_stream
 from datapipeline.config.dataset.feature import FeatureRecordConfig
-from datapipeline.dag.dag import StageDag
-from datapipeline.dag.runner import run_stage_dag
-from datapipeline.dag.node import PipelineStep
+from datapipeline.dag.dag import Dag
+from datapipeline.dag.runner import run_dag
+from datapipeline.dag.node import PipelineNode
 from datapipeline.pipelines.feature.nodes import (
     build_feature_stream,
     feature_transforms,
@@ -18,8 +18,28 @@ from datapipeline.dag.context import PipelineContext
 def build_feature_pipeline(
     context: PipelineContext,
     cfg: FeatureRecordConfig,
-    step: int | None = None,
+    node: int | None = None,
 ) -> Iterator[Any]:
+    if node is None:
+        record_stream = cached_record_stream(context, cfg.record_stream)
+        return run_dag(
+            context,
+            build_feature_dag(context, cfg, include_record_nodes=False),
+            seed=record_stream,
+        )
+
+    return run_dag(
+        context,
+        build_feature_dag(context, cfg, include_record_nodes=True).upto_node(node),
+    )
+
+
+def build_feature_dag(
+    context: PipelineContext,
+    cfg: FeatureRecordConfig,
+    *,
+    include_record_nodes: bool = False,
+) -> Dag:
     metadata = _feature_dag_metadata(
         record_stream_id=cfg.record_stream,
         feature_id=cfg.id,
@@ -27,28 +47,13 @@ def build_feature_pipeline(
         scale=cfg.scale,
         sequence=cfg.sequence,
     )
-    if step is None:
-        record_stream = cached_record_stream(context, cfg.record_stream)
-        dag = StageDag(
-            name=f"feature:{cfg.id}",
-            metadata=metadata,
-            nodes=build_feature_nodes(
-                context,
-                record_stream_id=cfg.record_stream,
-                feature_id=cfg.id,
-                field=cfg.field,
-                scale=cfg.scale,
-                sequence=cfg.sequence,
-                record_input="seed",
-            ),
-        )
-        return run_stage_dag(context, dag, seed=record_stream)
-
-    dag = StageDag(
+    record_nodes = build_record_nodes(context, cfg.record_stream) if include_record_nodes else ()
+    record_input = "stream_transforms" if include_record_nodes else "seed"
+    return Dag(
         name=f"feature:{cfg.id}",
         metadata=metadata,
         nodes=(
-            *build_record_nodes(context, cfg.record_stream),
+            *record_nodes,
             *build_feature_nodes(
                 context,
                 record_stream_id=cfg.record_stream,
@@ -56,10 +61,10 @@ def build_feature_pipeline(
                 field=cfg.field,
                 scale=cfg.scale,
                 sequence=cfg.sequence,
+                record_input=record_input,
             ),
         ),
-    ).upto_step(step)
-    return run_stage_dag(context, dag)
+    )
 
 
 def _feature_dag_metadata(
@@ -94,23 +99,23 @@ def build_feature_nodes(
     scale: Mapping[str, Any] | bool | None,
     sequence: Mapping[str, Any] | None,
     record_input: str = "stream_transforms",
-) -> tuple[PipelineStep, ...]:
+) -> tuple[PipelineNode, ...]:
     partition_by = context.runtime.registries.partition_by.get(record_stream_id)
     batch_size = context.runtime.registries.sort_batch_size.get(record_stream_id)
     return (
-        PipelineStep(
+        PipelineNode(
             name="build_feature_stream",
             op=build_feature_stream,
             args=(feature_id, field, partition_by),
             input=record_input,
         ),
-        PipelineStep(
+        PipelineNode(
             name="feature_transforms",
             op=feature_transforms,
             args=(context, scale, sequence),
             input="build_feature_stream",
         ),
-        PipelineStep(
+        PipelineNode(
             name="order_feature_records",
             op=order_feature_records,
             args=(batch_size,),

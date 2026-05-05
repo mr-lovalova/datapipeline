@@ -5,7 +5,7 @@ pipeline runtime that mixes disparate data sources into fresh, ready-to-serve
 vectors using declarative YAML recipes. Everything is on-demand, iterator-first:
 data streams through the pipeline without pre-batching the whole dataset in
 memory. Like any good bartender, Jerry obsesses over quality control and
-service, offering stage-by-stage observability along the way. And no bar is
+service, offering node-by-node observability along the way. And no bar is
 complete without proper tools: deterministic artifacts and plugin scaffolding
 for custom loaders, parsers, transforms, and filters.
 
@@ -83,39 +83,43 @@ jerry serve --limit 3
 
 ---
 
-## Pipeline Stages (serve --stage)
+## Preview Indices (serve --preview-index)
 
-Stages 0-6 operate on a single stream at a time (per feature/target config). Stages 7-8 assemble full vectors across all configured features.
+`--preview-index` previews the serve pipeline up to a 0-based serve preview index. Indices 0-8 run per feature/target config; indices 9-11 switch to the combined sample stream.
 
-- Stage 0 (DTO stream)
+- Index 0 (DTO stream)
   - Input: raw source rows (loader transport + decoder)
   - Ops: loader -> decoder -> parser (raw -> DTO; return None to drop rows)
   - Output: DTO objects yielded by the parser
 
-- Stage 1 (record stream)
+- Index 1 (record stream)
   - Input: DTO stream
   - Ops: mapper (DTO -> domain TemporalRecord)
   - Output: TemporalRecord instances (must have timezone-aware `time`)
 
-- Stage 2 (record transforms)
+- Index 2 (record transforms)
   - Input: TemporalRecord stream
   - Ops: contract `record:` transforms (e.g. filter, floor_time); per-record only (no history)
   - Output: TemporalRecord stream (possibly filtered/mutated)
 
-- Stage 3 (ordered record stream)
+- Index 3 (ordered record stream)
   - Input: TemporalRecord stream
   - Ops:
-    - sort by `(partition_key, record.time)` (batch/in-memory sort; typically the expensive step)
+    - sort by `(partition_key, record.time)` (batch/in-memory sort; typically the expensive operation)
   - Output: TemporalRecord stream (sorted by partition,time)
 
-- Stage 4 (stream transforms)
+- Index 4 (stream transforms)
   - Input: ordered TemporalRecord stream
   - Ops:
     - apply contract `stream:` transforms (per-partition history; e.g. ensure_cadence, rolling, fill)
-    - apply contract `debug:` transforms (validation only; e.g. lint)
   - Output: TemporalRecord stream (sorted by partition,time)
 
-- Stage 5 (feature stream)
+- Index 5 (debug transforms)
+  - Input: TemporalRecord stream
+  - Ops: apply contract `debug:` transforms (validation only; e.g. lint)
+  - Output: TemporalRecord stream (validated, still sorted by partition,time)
+
+- Index 6 (feature stream)
   - Input: TemporalRecord stream
   - Ops: wrap each record as `FeatureRecord(id, record, value)`; `id` is derived from:
     - dataset `id:` (base feature id), and
@@ -123,13 +127,18 @@ Stages 0-6 operate on a single stream at a time (per feature/target config). Sta
     - `value` is selected from `dataset.yaml` via `field: <record_attr>`
   - Output: FeatureRecord stream (sorted by id,time within partitions)
 
-- Stage 6 (feature transforms)
+- Index 7 (feature transforms)
   - Input: FeatureRecord stream (sorted by id,time)
   - Ops: dataset-level feature transforms configured per feature (e.g. `scale`, `sequence`)
   - Output: FeatureRecord or FeatureRecordSequence
 
-- Stage 7 (vector assembly)
-  - Input: all features/targets after stage 6
+- Index 8 (ordered feature records)
+  - Input: FeatureRecord stream after feature transforms
+  - Ops: sort by `(feature_id, record.time)`
+  - Output: FeatureRecord or FeatureRecordSequence stream
+
+- Index 9 (vector assembly)
+  - Input: all features/targets after preview index 8
   - Ops:
     - merge feature streams by time bucket (`group_by`)
     - assemble `Vector` objects (feature_id -> value or sequence)
@@ -137,20 +146,25 @@ Stages 0-6 operate on a single stream at a time (per feature/target config). Sta
     - if rectangular mode is on, align to the expected time window keys (missing buckets become empty vectors)
   - Output: Sample stream (no postprocess, no split)
 
-- Stage 8 (postprocess)
+- Index 10 (postprocess)
   - Input: Sample stream
   - Ops:
     - ensure vector schema (fill missing configured feature ids, drop extras)
     - apply project `postprocess.yaml` vector transforms
-  - Output: Sample stream (still not split)
+  - Output: Sample stream (not split)
 
-Full run (no --stage)
+- Index 11 (split)
+  - Input: postprocessed Sample stream
+  - Ops: apply configured train/val/test split behavior
+  - Output: final Sample stream before persistence
 
-- Runs stages 0-8, then applies the configured train/val/test split and optional throttling, then writes output.
+Full run (no --preview-index)
+
+- Equivalent to preview index 11, plus normal output persistence.
 
 Split timing (leakage note)
 
-- Split is applied after stage 8 in `jerry serve` (postprocess runs before split).
+- Split is applied after postprocess in a full `jerry serve` run. Use preview index 9/10/11 to preview vector assembly, postprocess, and split boundaries separately.
 - Feature engineering runs before split; keep it causal (no look-ahead, no future leakage).
 - Scaler statistics are fit by the build task `scaler.yaml` and are typically restricted to the `train` split (configurable via `split_label`).
 
@@ -161,7 +175,7 @@ Split timing (leakage note)
 - `jerry demo init`: scaffolds a standalone demo plugin at `./demo/` and wires a `demo` dataset.
 - `jerry plugin init <name> --out lib/`: scaffolds `lib/<name>/` (writes workspace `jerry.yaml` when missing).
 - `jerry.yaml`: sets `plugin_root` for scaffolding commands and `datasets/default_dataset` so you can omit `--project`/`--dataset`.
-- `jerry serve [--dataset <alias>|--project <path>] [--limit N] [--stage 0-8] [--skip-build]`: streams output for enabled `serve.*` profiles in order. Typical flow uses artifact-targeted profiles first (`serve.schema`/`serve.metadata`/`serve.scaler`) and runtime profiles (`serve.train`/`serve.val`/`serve.test`) after.
+- `jerry serve [--dataset <alias>|--project <path>] [--limit N] [--preview-index 0-11] [--skip-build]`: streams output for enabled `serve.*` profiles in order. Typical flow uses artifact-targeted profiles first (`serve.schema`/`serve.metadata`/`serve.scaler`) and runtime profiles (`serve.train`/`serve.val`/`serve.test`) after.
 - `jerry build [--dataset <alias>|--project <path>] [--force]`: materializes artifacts (schema, scaler, etc.).
 - `jerry inspect [--dataset <alias>|--project <path>] [--run <inspect-profile>]`: runs enabled inspect profiles (or one selected profile).
 - `jerry inflow create`: interactive wizard to scaffold an end-to-end ingest stream (source + parser/DTO + mapper + contract).
@@ -242,7 +256,7 @@ These live under `lib/<plugin>/src/<package>/`:
 - **Stream id**: `contracts/*.yaml:id` (referenced by `dataset.yaml` under `record_stream:`).
 - **Partition**: dimension keys appended to feature IDs, driven by `contract.partition_by`.
 - **Group**: vector “bucket” cadence set by `dataset.group_by` (controls how records become samples).
-- **Stage**: debug/preview level for `jerry serve --stage 0-8` (DTOs → domain records → features → vectors).
+- **Preview index**: logical debug index for `jerry serve --preview-index 0-11` (DTOs -> domain records -> feature records -> samples).
 - **Fan-out**: when multiple features reference the same `record_stream`, the pipeline spools records to disk so each feature can read independently (records must be picklable).
 
 ## Documentation

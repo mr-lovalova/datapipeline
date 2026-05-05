@@ -1,9 +1,9 @@
 from collections.abc import Iterator
 from typing import Any
 
-from datapipeline.dag.dag import StageDag
-from datapipeline.dag.runner import run_stage_dag
-from datapipeline.dag.node import PipelineStep
+from datapipeline.dag.dag import Dag
+from datapipeline.dag.runner import run_dag
+from datapipeline.dag.node import PipelineNode
 from datapipeline.pipelines.record.nodes import (
     apply_debug_operations,
     apply_record_operations,
@@ -18,19 +18,26 @@ from datapipeline.dag.context import PipelineContext
 def build_record_pipeline(
     context: PipelineContext,
     record_stream_id: str,
-    step: int | None = None,
+    node: int | None = None,
 ) -> Iterator[Any]:
-    dag = StageDag(
+    dag = build_record_dag(context, record_stream_id).upto_node(node)
+    return run_dag(context, dag)
+
+
+def build_record_dag(
+    context: PipelineContext,
+    record_stream_id: str,
+) -> Dag:
+    return Dag(
         name=f"record:{record_stream_id}",
         nodes=build_record_nodes(context, record_stream_id),
-    ).upto_step(step)
-    return run_stage_dag(context, dag)
+    )
 
 
 def build_record_nodes(
     context: PipelineContext,
     record_stream_id: str,
-) -> tuple[PipelineStep, ...]:
+) -> tuple[PipelineNode, ...]:
     registries = context.runtime.registries
     source = _require_source(context, record_stream_id)
     mapper = registries.mappers.get(record_stream_id)
@@ -40,41 +47,41 @@ def build_record_nodes(
     partition_by = registries.partition_by.get(record_stream_id)
     batch_size = registries.sort_batch_size.get(record_stream_id)
     return (
-        PipelineStep(
+        PipelineNode(
             name="open_source",
             op=open_source,
             args=(source,),
             output="dtos",
         ),
-        PipelineStep(
+        PipelineNode(
             input="dtos",
             name="map_records",
             op=map_records,
             args=(mapper,),
             output="mapped",
         ),
-        PipelineStep(
+        PipelineNode(
             input="mapped",
             name="record_transforms",
             op=apply_record_operations,
             args=(context, record_operations),
             output="transformed",
         ),
-        PipelineStep(
+        PipelineNode(
             input="transformed",
             name="order_records",
             op=order_records,
             args=(batch_size, partition_by),
             output="ordered",
         ),
-        PipelineStep(
+        PipelineNode(
             input="ordered",
             name="stream_transforms",
             op=apply_stream_operations,
             args=(context, stream_operations, partition_by),
             output="stream_transforms",
         ),
-        PipelineStep(
+        PipelineNode(
             input="stream_transforms",
             name="debug_transforms",
             op=apply_debug_operations,

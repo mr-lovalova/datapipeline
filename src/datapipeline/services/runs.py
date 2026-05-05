@@ -42,7 +42,7 @@ class RunMetadata:
     finished_at: str | None = None
     status: str | None = None  # e.g. "running", "success", "failed"
     notes: str | None = None
-    step: int | None = None
+    preview_index: int | None = None
 
 
 def _now_utc_iso() -> str:
@@ -95,7 +95,7 @@ def start_run_for_directory(
     directory: str | Path,
     run_id: str | None = None,
     *,
-    step: int | None = None,
+    preview_index: int | None = None,
 ) -> Tuple[RunPaths, RunMetadata]:
     """Initialise a new run rooted at the given directory.
 
@@ -114,7 +114,7 @@ def start_run_for_directory(
         finished_at=None,
         status="running",
         notes=None,
-        step=step,
+        preview_index=preview_index,
     )
     _write_run_metadata(meta, paths.metadata_path)
     return paths, meta

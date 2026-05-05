@@ -7,9 +7,13 @@ from datapipeline.domain.feature import FeatureRecord, FeatureRecordSequence
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.dag.context import PipelineContext
 from datapipeline.pipelines import (
+    build_full_dag,
     build_full_pipeline,
+    build_feature_dag,
     build_feature_pipeline,
+    build_record_dag,
     build_record_pipeline,
+    build_vector_dag,
     build_vector_pipeline,
 )
 from datapipeline.pipelines.vector import dag as vector_dag
@@ -29,6 +33,38 @@ class _StubSource:
 
     def stream(self):
         return iter(self._rows)
+
+
+class _DagParentObserver:
+    def __init__(self) -> None:
+        self.dag_parents: list[tuple[str, str | None, str | None]] = []
+
+    def on_dag_start(
+        self,
+        *,
+        dag_name: str,
+        node_count: int,
+        depth: int = 0,
+        dag_metadata=None,
+        dag_parent=None,
+    ) -> None:
+        _ = node_count, depth, dag_metadata
+        self.dag_parents.append(
+            (
+                dag_name,
+                None if dag_parent is None else dag_parent.dag_name,
+                None if dag_parent is None else dag_parent.node_name,
+            )
+        )
+
+    def on_node_start(self, **kwargs) -> None:
+        pass
+
+    def on_node_end(self, event) -> None:
+        pass
+
+    def on_dag_end(self, event) -> None:
+        pass
 
 
 def _mapper(rows):
@@ -67,7 +103,7 @@ def _runtime_with_rows(
     return runtime
 
 
-def test_step_0_to_2_record_pipeline(tmp_path: Path) -> None:
+def test_node_0_to_2_record_pipeline(tmp_path: Path) -> None:
     rows = [
         {"time": _ts(0, 30), "value": 1.0},
         {"time": _ts(0, 10), "value": 2.0},
@@ -79,18 +115,46 @@ def test_step_0_to_2_record_pipeline(tmp_path: Path) -> None:
     )
     ctx = PipelineContext(runtime)
 
-    stage0 = list(build_record_pipeline(ctx, "stream", step=0))
+    stage0 = list(build_record_pipeline(ctx, "stream", node=0))
     assert stage0 == rows
 
-    stage1 = list(build_record_pipeline(ctx, "stream", step=1))
+    stage1 = list(build_record_pipeline(ctx, "stream", node=1))
     assert all(isinstance(rec, TemporalRecord) for rec in stage1)
     assert [rec.time for rec in stage1] == [rows[0]["time"], rows[1]["time"]]
 
-    stage2 = list(build_record_pipeline(ctx, "stream", step=2))
+    stage2 = list(build_record_pipeline(ctx, "stream", node=2))
     assert all(rec.time.minute == 0 for rec in stage2)
 
 
-def test_step_3_orders_by_partition_and_time(tmp_path: Path) -> None:
+def test_dag_builders_expose_structural_child_dags(tmp_path: Path) -> None:
+    runtime = _runtime_with_rows(tmp_path, [{"time": _ts(0), "value": 1.0}])
+    context = PipelineContext(runtime)
+    cfg = FeatureRecordConfig(record_stream="stream", id="price", field="value")
+
+    record_dag = build_record_dag(context, "stream")
+    feature_dag = build_feature_dag(context, cfg)
+    preview_feature_dag = build_feature_dag(context, cfg, include_record_nodes=True)
+    vector_dag = build_vector_dag(context, [cfg], "1h", rectangular=False)
+    full_dag = build_full_dag(context, [cfg], "1h", rectangular=False)
+
+    assert [node.name for node in record_dag.nodes[:2]] == ["open_source", "map_records"]
+    assert [node.name for node in feature_dag.nodes] == [
+        "build_feature_stream",
+        "feature_transforms",
+        "order_feature_records",
+    ]
+    assert preview_feature_dag.nodes[0].name == "open_source"
+
+    feature_fanout = vector_dag.nodes[0]
+    assert feature_fanout.kind == "dag_fanout"
+    assert [dag.name for dag in feature_fanout.child_dags] == ["feature:price"]
+
+    vector_assemble = full_dag.nodes[0]
+    assert vector_assemble.kind == "dag_call"
+    assert [dag.name for dag in vector_assemble.child_dags] == ["vector:assemble"]
+
+
+def test_node_3_orders_by_partition_and_time(tmp_path: Path) -> None:
     rows = [
         {"time": _ts(1), "value": 10.0, "symbol": "B"},
         {"time": _ts(0), "value": 5.0, "symbol": "A"},
@@ -99,7 +163,7 @@ def test_step_3_orders_by_partition_and_time(tmp_path: Path) -> None:
     runtime = _runtime_with_rows(tmp_path, rows, partition_by="symbol")
     ctx = PipelineContext(runtime)
 
-    ordered = list(build_record_pipeline(ctx, "stream", step=3))
+    ordered = list(build_record_pipeline(ctx, "stream", node=3))
     assert [(rec.symbol, rec.time.hour) for rec in ordered] == [
         ("A", 0),
         ("A", 2),
@@ -107,7 +171,7 @@ def test_step_3_orders_by_partition_and_time(tmp_path: Path) -> None:
     ]
 
 
-def test_step_4_applies_stream_transforms(tmp_path: Path) -> None:
+def test_node_4_applies_stream_transforms(tmp_path: Path) -> None:
     rows = [
         {"time": _ts(0), "value": 1.0},
         {"time": _ts(2), "value": 2.0},
@@ -119,7 +183,7 @@ def test_step_4_applies_stream_transforms(tmp_path: Path) -> None:
     )
     ctx = PipelineContext(runtime)
 
-    transformed = list(build_record_pipeline(ctx, "stream", step=4))
+    transformed = list(build_record_pipeline(ctx, "stream", node=4))
     assert [(rec.time.hour, rec.value) for rec in transformed] == [
         (0, 1.0),
         (1, None),
@@ -127,7 +191,7 @@ def test_step_4_applies_stream_transforms(tmp_path: Path) -> None:
     ]
 
 
-def test_step_6_wraps_feature_values(tmp_path: Path) -> None:
+def test_node_6_wraps_feature_values(tmp_path: Path) -> None:
     rows = [{"time": _ts(0), "value": 3.0, "symbol": "X"}]
     runtime = _runtime_with_rows(tmp_path, rows, partition_by="symbol")
     ctx = PipelineContext(runtime)
@@ -137,14 +201,14 @@ def test_step_6_wraps_feature_values(tmp_path: Path) -> None:
         field="value",
     )
 
-    features = list(build_feature_pipeline(ctx, cfg, step=6))
+    features = list(build_feature_pipeline(ctx, cfg, node=6))
     assert len(features) == 1
     feature = features[0]
     assert feature.value == 3.0
     assert feature.id == "price__@symbol:X"
 
 
-def test_step_7_applies_feature_transforms(tmp_path: Path) -> None:
+def test_node_7_applies_feature_transforms(tmp_path: Path) -> None:
     rows = [
         {"time": _ts(0), "value": 1.0},
         {"time": _ts(1), "value": 2.0},
@@ -159,14 +223,14 @@ def test_step_7_applies_feature_transforms(tmp_path: Path) -> None:
         sequence={"size": 2, "stride": 1},
     )
 
-    sequences = list(build_feature_pipeline(ctx, cfg, step=7))
+    sequences = list(build_feature_pipeline(ctx, cfg, node=7))
     assert len(sequences) == 2
     assert isinstance(sequences[0], FeatureRecordSequence)
     assert sequences[0].values == [1.0, 2.0]
     assert sequences[1].values == [2.0, 3.0]
 
 
-def test_step_7_vs_8_postprocess(tmp_path: Path) -> None:
+def test_node_7_vs_8_postprocess(tmp_path: Path) -> None:
     rows = [
         {"time": _ts(0), "value": None},
         {"time": _ts(1), "value": 2.0},
@@ -221,6 +285,24 @@ def test_full_pipeline_matches_manual_chain(tmp_path: Path) -> None:
     manual_out = list(manual)
 
     assert full_out == manual_out
+
+
+def test_vector_pipeline_parents_feature_dags_to_fanout_node(tmp_path: Path) -> None:
+    runtime = _runtime_with_rows(
+        tmp_path,
+        rows=[{"time": _ts(0), "value": 1.0}],
+    )
+    observer = _DagParentObserver()
+    context = PipelineContext(runtime, execution_observer=observer)
+    cfg = FeatureRecordConfig(record_stream="stream", id="price", field="value")
+
+    assert list(build_vector_pipeline(context, [cfg], "1h", rectangular=False))
+
+    assert (
+        "feature:price",
+        "vector:assemble",
+        "feature_fanout",
+    ) in observer.dag_parents
 
 
 def test_vector_assembly_closes_feature_streams_when_stopped_early(

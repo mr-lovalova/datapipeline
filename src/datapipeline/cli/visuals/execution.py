@@ -4,8 +4,8 @@ from dataclasses import dataclass
 from collections.abc import Sequence
 from typing import Any, Literal
 
-from datapipeline.dag.events import DagParentRef, DagRunEvent, StepRunEvent
-from datapipeline.dag.node import StepKind
+from datapipeline.dag.events import DagParentRef, DagRunEvent, NodeExecutionEvent
+from datapipeline.dag.node import NodeKind
 from datapipeline.dag.observer import ExecutionObserver
 from datapipeline.cli.visuals.execution_context import (
     current_execution_scope,
@@ -21,8 +21,8 @@ ExecutionEventKind = Literal[
     "dag_start",
     "dag_info",
     "dag_end",
-    "step_start",
-    "step_end",
+    "node_start",
+    "node_end",
 ]
 
 
@@ -34,11 +34,12 @@ class ExecutionLogEvent:
     message: str | None = None
     message_kind: str | None = None
     log_level: int | None = None
-    step_count: int | None = None
-    step_name: str | None = None
-    step_index: int | None = None
-    step_kind: StepKind = "function"
-    step_calls_dag: str | None = None
+    node_count: int | None = None
+    node_name: str | None = None
+    node_index: int | None = None
+    execution_index: int | None = None
+    node_kind: NodeKind = "function"
+    node_calls_dag: str | None = None
     status: str | None = None
     error_type: str | None = None
     output_items: int | None = None
@@ -79,7 +80,7 @@ class ExecutionEventFormatter:
             if event.depth <= 1:
                 return logging.INFO
             return logging.DEBUG
-        if event.kind in {"step_start", "step_end"}:
+        if event.kind in {"node_start", "node_end"}:
             return logging.DEBUG
         return logging.INFO
 
@@ -98,12 +99,12 @@ class ExecutionEventFormatter:
             if event.dag_parent is not None:
                 parent_suffix = (
                     f" parent_dag={event.dag_parent.dag_name}"
-                    f" parent_step={event.dag_parent.step_name}"
-                    f" parent_step_index={event.dag_parent.step_index}"
+                    f" parent_node={event.dag_parent.node_name}"
+                    f" parent_node_index={event.dag_parent.node_index}"
                 )
             return (
                 f"{indent}DAG started name={event.dag_name} "
-                f"steps={event.step_count}{parent_suffix}"
+                f"nodes={event.node_count}{parent_suffix}"
             )
         if event.kind == "dag_end":
             error_suffix = (
@@ -116,16 +117,17 @@ class ExecutionEventFormatter:
                 f"status={event.status}{error_suffix} items={event.output_items} "
                 f"elapsed={event.elapsed_seconds:.6f}s"
             )
-        if event.kind == "step_start":
+        if event.kind == "node_start":
             calls_suffix = (
-                f" calls={event.step_calls_dag}"
-                if event.step_calls_dag is not None
+                f" calls={event.node_calls_dag}"
+                if event.node_calls_dag is not None
                 else ""
             )
             return (
-                f"{indent}Step activated dag={event.dag_name} "
-                f"step={event.step_name} index={event.step_index} "
-                f"kind={event.step_kind}{calls_suffix}"
+                f"{indent}Node execution started dag={event.dag_name} "
+                f"node={event.node_name} index={event.node_index} "
+                f"execution_index={event.execution_index} "
+                f"kind={event.node_kind}{calls_suffix}"
             )
         error_suffix = (
             f" error={event.error_type}"
@@ -133,8 +135,9 @@ class ExecutionEventFormatter:
             else ""
         )
         return (
-            f"{indent}Step finished dag={event.dag_name} "
-            f"step={event.step_name} index={event.step_index} kind={event.step_kind} "
+            f"{indent}Node execution finished dag={event.dag_name} "
+            f"node={event.node_name} index={event.node_index} kind={event.node_kind} "
+            f"execution_index={event.execution_index} "
             f"status={event.status}{error_suffix} items={event.output_items} "
             f"elapsed={event.elapsed_seconds:.6f}s"
         )
@@ -148,11 +151,12 @@ class ExecutionEventFormatter:
             "dp_message": event.message,
             "dp_message_kind": event.message_kind,
             "dp_log_level": event.log_level,
-            "dp_step_count": event.step_count,
-            "dp_step_name": event.step_name,
-            "dp_index": event.step_index,
-            "dp_step_kind": event.step_kind,
-            "dp_step_calls_dag": event.step_calls_dag,
+            "dp_node_count": event.node_count,
+            "dp_node_name": event.node_name,
+            "dp_index": event.node_index,
+            "dp_execution_index": event.execution_index,
+            "dp_node_kind": event.node_kind,
+            "dp_node_calls_dag": event.node_calls_dag,
             "dp_status": event.status,
             "dp_error_type": event.error_type,
             "dp_output_items": event.output_items,
@@ -161,11 +165,11 @@ class ExecutionEventFormatter:
             "dp_parent_dag": (
                 event.dag_parent.dag_name if event.dag_parent is not None else None
             ),
-            "dp_parent_step": (
-                event.dag_parent.step_name if event.dag_parent is not None else None
+            "dp_parent_node": (
+                event.dag_parent.node_name if event.dag_parent is not None else None
             ),
-            "dp_parent_step_index": (
-                event.dag_parent.step_index if event.dag_parent is not None else None
+            "dp_parent_node_index": (
+                event.dag_parent.node_index if event.dag_parent is not None else None
             ),
             "dp_scope_profile_kind": event.scope_profile_kind,
             "dp_scope_profile_name": event.scope_profile_name,
@@ -317,7 +321,7 @@ class HierarchicalExecutionObserver(ExecutionObserver):
         self,
         
         dag_name: str,
-        step_count: int,
+        node_count: int,
         depth: int = 0,
         dag_metadata: dict[str, Any] | None = None,
         dag_parent: DagParentRef | None = None,
@@ -328,7 +332,7 @@ class HierarchicalExecutionObserver(ExecutionObserver):
                 kind="dag_start",
                 dag_name=dag_name,
                 depth=dag_depth,
-                step_count=step_count,
+                node_count=node_count,
                 dag_parent=dag_parent,
                 **_scope_fields(),
             )
@@ -345,42 +349,45 @@ class HierarchicalExecutionObserver(ExecutionObserver):
             )
         set_current_dag_depth(dag_depth + 1)
 
-    def on_step_start(
+    def on_node_start(
         self,
         
         dag_name: str,
-        step_name: str,
-        step_index: int,
-        step_kind: StepKind = "function",
-        step_calls_dag: str | None = None,
+        node_name: str,
+        node_index: int,
+        execution_index: int,
+        node_kind: NodeKind = "function",
+        node_calls_dag: str | None = None,
         depth: int = 0,
     ) -> None:
-        step_depth = max(0, int(depth))
+        node_depth = max(0, int(depth))
         self._emit(
             ExecutionLogEvent(
-                kind="step_start",
+                kind="node_start",
                 dag_name=dag_name,
-                depth=step_depth,
-                step_name=step_name,
-                step_index=step_index,
-                step_kind=step_kind,
-                step_calls_dag=step_calls_dag,
+                depth=node_depth,
+                node_name=node_name,
+                node_index=node_index,
+                execution_index=execution_index,
+                node_kind=node_kind,
+                node_calls_dag=node_calls_dag,
                 **_scope_fields(),
             )
         )
-        set_current_dag_depth(step_depth)
+        set_current_dag_depth(node_depth)
 
-    def on_step_end(self, event: StepRunEvent) -> None:
-        step_depth = max(0, int(event.depth))
+    def on_node_end(self, event: NodeExecutionEvent) -> None:
+        node_depth = max(0, int(event.depth))
         self._emit(
             ExecutionLogEvent(
-                kind="step_end",
+                kind="node_end",
                 dag_name=event.dag_name,
-                depth=step_depth,
-                step_name=event.step_name,
-                step_index=event.step_index,
-                step_kind=event.step_kind,
-                step_calls_dag=event.step_calls_dag,
+                depth=node_depth,
+                node_name=event.node_name,
+                node_index=event.node_index,
+                execution_index=event.execution_index,
+                node_kind=event.node_kind,
+                node_calls_dag=event.node_calls_dag,
                 status=event.status,
                 error_type=event.error_type,
                 output_items=event.output_items,
@@ -388,7 +395,7 @@ class HierarchicalExecutionObserver(ExecutionObserver):
                 **_scope_fields(),
             )
         )
-        set_current_dag_depth(step_depth)
+        set_current_dag_depth(node_depth)
 
     def on_dag_end(self, event: DagRunEvent) -> None:
         dag_depth = max(0, int(event.depth))
@@ -397,7 +404,7 @@ class HierarchicalExecutionObserver(ExecutionObserver):
                 kind="dag_end",
                 dag_name=event.dag_name,
                 depth=dag_depth,
-                step_count=event.step_count,
+                node_count=event.node_count,
                 status=event.status,
                 error_type=event.error_type,
                 output_items=event.output_items,

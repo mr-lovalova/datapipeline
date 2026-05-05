@@ -4,15 +4,15 @@ from collections.abc import Iterable, Iterator
 from contextvars import ContextVar
 from typing import Any
 
-from datapipeline.dag.dag import StageDag
-from datapipeline.dag.events import DagParentRef, DagRunEvent, StepRunEvent
+from datapipeline.dag.dag import Dag
+from datapipeline.dag.events import DagParentRef, DagRunEvent, NodeExecutionEvent
 from datapipeline.dag.observer import (
     ExecutionObserver,
     LoggingExecutionObserver,
     NoopExecutionObserver,
 )
 from datapipeline.dag.context import PipelineContext
-from datapipeline.dag.node import StepKind
+from datapipeline.dag.node import NodeKind
 
 logger = logging.getLogger(__name__)
 _LOG_OBSERVER = LoggingExecutionObserver(logger)
@@ -25,8 +25,12 @@ _CURRENT_RUN_INTERRUPTED: ContextVar[bool] = ContextVar(
     "datapipeline_runner_interrupted",
     default=False,
 )
-_CURRENT_RUN_ACTIVE_STEP: ContextVar[DagParentRef | None] = ContextVar(
-    "datapipeline_runner_active_step",
+_CURRENT_RUN_EXECUTION_INDEX: ContextVar[int] = ContextVar(
+    "datapipeline_runner_execution_index",
+    default=0,
+)
+_CURRENT_RUN_ACTIVE_NODE: ContextVar[DagParentRef | None] = ContextVar(
+    "datapipeline_runner_active_node",
     default=None,
 )
 
@@ -39,8 +43,14 @@ def _run_interrupted() -> bool:
     return bool(_CURRENT_RUN_INTERRUPTED.get())
 
 
-def _current_run_active_step() -> DagParentRef | None:
-    return _CURRENT_RUN_ACTIVE_STEP.get()
+def _current_run_active_node() -> DagParentRef | None:
+    return _CURRENT_RUN_ACTIVE_NODE.get()
+
+
+def _next_execution_index() -> int:
+    current = max(0, int(_CURRENT_RUN_EXECUTION_INDEX.get()))
+    _CURRENT_RUN_EXECUTION_INDEX.set(current + 1)
+    return current
 
 
 def _close_iterator(iterator: Iterable[Any]) -> None:
@@ -53,9 +63,9 @@ def _close_iterator(iterator: Iterable[Any]) -> None:
         logger.debug("Failed to close iterator during DAG teardown", exc_info=True)
 
 
-def run_stage_dag(
+def run_dag(
     context: PipelineContext,
-    dag: StageDag,
+    dag: Dag,
     *,
     seed: Iterable[Any] | None = None,
     observer: ExecutionObserver | None = None,
@@ -65,40 +75,42 @@ def run_stage_dag(
     is_root_run = dag_depth == 0
     construction_token = _CURRENT_RUN_DAG_DEPTH.set(dag_depth + 1)
     if is_root_run:
-        _CURRENT_RUN_ACTIVE_STEP.set(None)
+        _CURRENT_RUN_ACTIVE_NODE.set(None)
+        _CURRENT_RUN_EXECUTION_INDEX.set(0)
     stream: Iterable[Any] | None = seed
     try:
         state: dict[str, Iterable[Any] | None] = {}
         if seed is not None:
             state["seed"] = seed
-        for index, step in enumerate(dag.steps):
-            if step.input is None:
-                step_input = stream
+        for index, node in enumerate(dag.nodes):
+            if node.input is None:
+                node_input = stream
             else:
-                if step.input not in state:
+                if node.input not in state:
                     available = ", ".join(sorted(state.keys())) or "(none)"
                     raise KeyError(
-                        f"Step '{step.name}' requested missing input "
-                        f"'{step.input}' in DAG '{dag.name}'. "
+                        f"Node '{node.name}' requested missing input "
+                        f"'{node.input}' in DAG '{dag.name}'. "
                         f"Available outputs: {available}"
                     )
-                step_input = state[step.input]
-            produced = _run_step(
-                step,
-                step_input,
-                include_input=(step.input is not None),
+                node_input = state[node.input]
+            produced = _run_node(
+                node,
+                node_input,
+                state,
+                include_input=(node.input is not None),
             )
-            stream = _observe_step_stream(
+            stream = _observe_node_stream(
                 dag_name=dag.name,
-                step_name=step.name,
-                step_index=index,
-                step_kind=step.kind,
-                step_calls_dag=step.calls_dag,
+                node_name=node.name,
+                node_index=index,
+                node_kind=node.kind,
+                node_calls_dag=node.calls_dag,
                 depth=dag_depth + 1,
                 stream=produced,
                 observer=active_observer,
             )
-            state[step.output or step.name] = stream
+            state[node.output or node.name] = stream
         return _observe_dag_stream(
             dag=dag,
             depth=dag_depth,
@@ -109,7 +121,7 @@ def run_stage_dag(
     finally:
         _CURRENT_RUN_DAG_DEPTH.reset(construction_token)
         if is_root_run:
-            _CURRENT_RUN_ACTIVE_STEP.set(None)
+            _CURRENT_RUN_ACTIVE_NODE.set(None)
 
 
 def _resolve_observer(
@@ -126,47 +138,58 @@ def _resolve_observer(
     return _NOOP_OBSERVER
 
 
-def _run_step(
-    step,
-    step_input: Iterable[Any] | None,
+def _run_node(
+    node,
+    node_input: Iterable[Any] | None,
+    state: dict[str, Iterable[Any] | None],
     *,
     include_input: bool,
 ) -> Iterable[Any] | None:
-    kwargs = dict(step.kwargs or {})
+    kwargs = dict(node.kwargs or {})
+    for kwarg_name, state_key in dict(node.kwinputs or {}).items():
+        if state_key not in state:
+            available = ", ".join(sorted(state.keys())) or "(none)"
+            raise KeyError(
+                f"Node '{node.name}' requested missing kwinput "
+                f"'{state_key}'. Available outputs: {available}"
+            )
+        kwargs[kwarg_name] = state[state_key]
     if include_input:
-        return step.op(*step.args, step_input, **kwargs)
-    return step.op(*step.args, **kwargs)
+        return node.op(*node.args, node_input, **kwargs)
+    return node.op(*node.args, **kwargs)
 
 
-def _observe_step_stream(
+def _observe_node_stream(
     *,
     dag_name: str,
-    step_name: str,
-    step_index: int,
-    step_kind: StepKind,
-    step_calls_dag: str | None,
+    node_name: str,
+    node_index: int,
+    node_kind: NodeKind,
+    node_calls_dag: str | None,
     depth: int,
     stream: Iterable[Any] | None,
     observer: ExecutionObserver,
 ) -> Iterator[Any]:
     def _iter() -> Iterator[Any]:
-        step_depth = max(0, int(depth))
+        node_depth = max(0, int(depth))
         item_count = 0
         start_time = time.perf_counter()
         status = "success"
         error_type: str | None = None
         iterator: Iterator[Any] = iter(())
-        active_step_token = _CURRENT_RUN_ACTIVE_STEP.set(
-            DagParentRef(dag_name=dag_name, step_name=step_name, step_index=step_index)
+        active_node_token = _CURRENT_RUN_ACTIVE_NODE.set(
+            DagParentRef(dag_name=dag_name, node_name=node_name, node_index=node_index)
         )
+        execution_index = _next_execution_index()
         try:
-            observer.on_step_start(
+            observer.on_node_start(
                 dag_name=dag_name,
-                step_name=step_name,
-                step_index=step_index,
-                step_kind=step_kind,
-                step_calls_dag=step_calls_dag,
-                depth=step_depth,
+                node_name=node_name,
+                node_index=node_index,
+                execution_index=execution_index,
+                node_kind=node_kind,
+                node_calls_dag=node_calls_dag,
+                depth=node_depth,
             )
             iterator = iter(()) if stream is None else iter(stream)
             for item in iterator:
@@ -188,29 +211,30 @@ def _observe_step_stream(
                     status = "error"
                     error_type = "KeyboardInterrupt"
                 elapsed = time.perf_counter() - start_time
-                observer.on_step_end(
-                    StepRunEvent(
+                observer.on_node_end(
+                    NodeExecutionEvent(
                         dag_name=dag_name,
-                        step_name=step_name,
-                        step_index=step_index,
+                        node_name=node_name,
+                        node_index=node_index,
+                        execution_index=execution_index,
                         output_items=item_count,
                         elapsed_seconds=elapsed,
                         status=status,
-                        step_kind=step_kind,
-                        step_calls_dag=step_calls_dag,
+                        node_kind=node_kind,
+                        node_calls_dag=node_calls_dag,
                         error_type=error_type,
-                        depth=step_depth,
+                        depth=node_depth,
                     )
                 )
             finally:
-                _CURRENT_RUN_ACTIVE_STEP.reset(active_step_token)
+                _CURRENT_RUN_ACTIVE_NODE.reset(active_node_token)
 
     return _iter()
 
 
 def _observe_dag_stream(
     *,
-    dag: StageDag,
+    dag: Dag,
     depth: int,
     reset_interrupt: bool,
     stream: Iterable[Any] | None,
@@ -218,7 +242,7 @@ def _observe_dag_stream(
 ) -> Iterator[Any]:
     def _iter() -> Iterator[Any]:
         dag_depth = max(0, int(depth))
-        dag_parent = _current_run_active_step()
+        dag_parent = _current_run_active_node()
         if reset_interrupt:
             _CURRENT_RUN_INTERRUPTED.set(False)
         depth_token = _CURRENT_RUN_DAG_DEPTH.set(dag_depth + 1)
@@ -228,7 +252,7 @@ def _observe_dag_stream(
         error_type: str | None = None
         observer.on_dag_start(
             dag_name=dag.name,
-            step_count=len(dag.nodes),
+            node_count=len(dag.nodes),
             depth=dag_depth,
             dag_metadata=dag.metadata,
             dag_parent=dag_parent,
@@ -256,7 +280,7 @@ def _observe_dag_stream(
                 observer.on_dag_end(
                     DagRunEvent(
                         dag_name=dag.name,
-                        step_count=len(dag.nodes),
+                        node_count=len(dag.nodes),
                         output_items=item_count,
                         elapsed_seconds=(time.perf_counter() - start_time),
                         status=status,

@@ -4,18 +4,22 @@ All commands live under the `jerry` entry point (`src/datapipeline/cli/app.py`).
 Pass `--help` on any command for flags.
 All commands that take a project accept either `--project <path/to/project.yaml>` or `--dataset <alias>` (from `jerry.yaml datasets:`).
 
-### Preview Stages
+### Preview Indices
 
-- `jerry serve --project <project.yaml> --stage <0-8> --limit N [--log-level LEVEL] [--visuals on|off]`
-  - Stage 0: raw DTOs
-  - Stage 1: domain `TemporalRecord`s
-  - Stage 2: record transforms applied
-  - Stage 3: ordered record stream
-  - Stage 4: stream transforms (ensure_cadence, fill, granularity, debug)
-  - Stage 5: feature records (field selected)
-  - Stage 6: feature transforms/sequence outputs
-  - Stage 7: vectors assembled (no postprocess)
-  - Stage 8: vectors + postprocess transforms
+- `jerry serve --project <project.yaml> --preview-index <0-11> --limit N [--log-level LEVEL] [--visuals on|off]`
+  - Index 0: raw DTOs
+  - Index 1: domain `TemporalRecord`s
+  - Index 2: record transforms applied
+  - Index 3: ordered record stream
+  - Index 4: stream transforms (ensure_cadence, fill, granularity)
+  - Index 5: debug transforms
+  - Index 6: feature records (field selected)
+  - Index 7: feature transforms/sequence outputs
+  - Index 8: ordered feature records
+  - Index 9: vectors/samples assembled across configured features and targets
+  - Index 10: postprocess transforms applied
+  - Index 11: configured split applied
+  - Omit `--preview-index` to run the full pipeline and output persistence.
   - Use `--log-level DEBUG` for full debug output; default is `INFO`.
   - Artifact preparation is profile-driven: keep artifact-targeted serve profiles (`serve.schema`, `serve.metadata`, `serve.scaler`) ahead of runtime targets (`serve.train`/`serve.val`/`serve.test`) using `order`.
 - `jerry serve --project <project.yaml> --output-transport stdout --output-format jsonl --output-view flat|raw|values --output-encoding <codec> --limit N [--log-level LEVEL] [--visuals on|off] [--run name]`
@@ -28,7 +32,7 @@ All commands that take a project accept either `--project <path/to/project.yaml>
   - If `--output-view` is omitted: `jsonl -> raw`, `csv/pickle -> flat`.
   - `csv` supports `flat` and `values` views.
   - `--output-encoding` applies to fs `jsonl`/`csv` outputs (default `utf-8`).
-  - Set `--log-level DEBUG` (or set `observability.logging.level: DEBUG` in the serve profile) to increase log detail for stage previews.
+  - Set `--log-level DEBUG` (or set `observability.logging.level: DEBUG` in the serve profile) to increase log detail for preview indices.
   - When multiple serve profiles exist, add `--run <profile-name>` to target a single profile; otherwise every enabled profile is executed sequentially.
   - `--run` does not implicitly execute earlier serve profiles, so selecting a runtime profile assumes required artifacts already exist (or are produced by that selected profile).
   - Argument precedence follows the order described under _Configuration & Resolution Order_.

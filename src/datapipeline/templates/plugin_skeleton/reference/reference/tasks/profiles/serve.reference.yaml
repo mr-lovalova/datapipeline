@@ -25,7 +25,7 @@
 #   # filename: vectors.train  # no extension, no path separators
 #
 # limit: 100                  # optional; null = unlimited
-# step: 8                     # optional; 0-8; null lets CLI decide
+# preview_index: 8                     # optional; 0-11; null lets CLI decide
 # throttle_ms: 0              # optional; milliseconds; null disables
 #
 # observability:              # optional

@@ -266,11 +266,11 @@ def test_cached_record_stream_bypasses_cache_when_disabled(tmp_path: Path, monke
         _Rec(time=_ts(1), symbol="AAPL", value=1.0),
         _Rec(time=_ts(2), symbol="AAPL", value=2.0),
     ]
-    calls = {"count": 0, "step": None}
+    calls = {"count": 0, "node": None}
 
     def _build(*args, **kwargs):
         calls["count"] += 1
-        calls["step"] = kwargs.get("step")
+        calls["node"] = kwargs.get("node")
         return iter(records)
 
     monkeypatch.setattr("datapipeline.pipelines.record.dag.build_record_pipeline", _build)

@@ -53,11 +53,10 @@ def add_serve_command(sub,  common: argparse.ArgumentParser) -> None:
         help="select a serve profile by name when project.paths.tasks contains multiple entries",
     )
     parser.add_argument(
-        "--step",
-        "-s",
+        "--preview-index",
         type=int,
         default=None,
-        help="preview up to a 0-based pipeline step index",
+        help="preview a 0-based serve preview index",
     )
     add_visual_flags(parser)
     add_cache_flags(parser)

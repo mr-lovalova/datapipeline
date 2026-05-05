@@ -73,7 +73,7 @@ def cached_record_stream(context, record_stream_id: str) -> Iterator[Any]:
         return build_record_pipeline(
             context,
             record_stream_id,
-            step=RECORD_NODE_COUNT - 1,
+            node=RECORD_NODE_COUNT - 1,
         )
 
     partition_by = runtime.registries.partition_by.get(record_stream_id)
@@ -84,7 +84,7 @@ def cached_record_stream(context, record_stream_id: str) -> Iterator[Any]:
         base_stream = build_record_pipeline(
             context,
             record_stream_id,
-            step=RECORD_NODE_COUNT - 2,
+            node=RECORD_NODE_COUNT - 2,
         )
         stream = runtime.record_stream_cache.materialize(record_stream_id, base_stream)
 

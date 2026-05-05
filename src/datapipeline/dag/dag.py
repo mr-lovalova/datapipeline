@@ -1,26 +1,22 @@
 from dataclasses import dataclass
 from typing import Any
 
-from datapipeline.dag.node import PipelineStep
+from datapipeline.dag.node import PipelineNode
 
 
 @dataclass(frozen=True)
-class StageDag:
+class Dag:
     name: str
-    nodes: tuple[PipelineStep, ...]
+    nodes: tuple[PipelineNode, ...]
     metadata: dict[str, Any] | None = None
 
-    def upto_step(self, step: int | None) -> "StageDag":
-        if step is None:
+    def upto_node(self, node_index: int | None) -> "Dag":
+        if node_index is None:
             return self
-        if step < 0:
-            return StageDag(name=self.name, nodes=(), metadata=self.metadata)
-        return StageDag(
+        if node_index < 0:
+            return Dag(name=self.name, nodes=(), metadata=self.metadata)
+        return Dag(
             name=self.name,
-            nodes=self.nodes[: step + 1],
+            nodes=self.nodes[: node_index + 1],
             metadata=self.metadata,
         )
-
-    @property
-    def steps(self) -> tuple[PipelineStep, ...]:
-        return self.nodes

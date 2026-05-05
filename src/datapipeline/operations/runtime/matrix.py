@@ -20,11 +20,11 @@ def inspect_matrix_with_runtime(
     limit: Optional[int] = None,
     target: OutputTarget | None = None,
     throttle_ms: Optional[float] = None,
-    step: Optional[int] = None,
+    preview_index: Optional[int] = None,
     visuals: Optional[str] = None,
     operation_task: OperationTask | None = None,
 ) -> RuntimeOutput:
-    _ = dataset, limit, target, throttle_ms, step, visuals
+    _ = dataset, limit, target, throttle_ms, preview_index, visuals
     options = options_for_task(operation_task)
     collector = load_collector(runtime, options=options)
     rows = matrix_status_rows(collector)
