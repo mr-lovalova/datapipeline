@@ -83,7 +83,7 @@ def test_contract_scaffold_uses_project_paths(monkeypatch: pytest.MonkeyPatch, t
     _write_project_yaml(example_root / "project.yaml", sources_dir, streams_dir)
     _write_source_yaml(sources_dir / "demo.weather.yaml", "demo.weather")
 
-    _input_sequence(monkeypatch, ["1", "1", "1", "2", "", "1"])
+    _input_sequence(monkeypatch, ["1", "1", "2", "1", "2", "", "1"])
 
     handle_contract(plugin_root=plugin_root)
 
@@ -101,7 +101,7 @@ def test_contract_identity_mapper_skips_scaffold(monkeypatch: pytest.MonkeyPatch
     _write_project_yaml(example_root / "project.yaml", sources_dir, streams_dir)
     _write_source_yaml(sources_dir / "demo.weather.yaml", "demo.weather")
 
-    _input_sequence(monkeypatch, ["1", "1", "1", "", "1"])
+    _input_sequence(monkeypatch, ["1", "1", "2", "1", "", "1"])
 
     handle_contract(plugin_root=plugin_root, use_identity=True)
 
@@ -113,8 +113,76 @@ def test_contract_identity_mapper_skips_scaffold(monkeypatch: pytest.MonkeyPatch
     # Identity mapper should not scaffold mapper code.
 
 
+def test_ingest_contract_preserves_source_variant_in_default_stream_id(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    plugin_root = _create_plugin(tmp_path)
+    example_root = plugin_root / "example"
+    sources_dir = example_root / "sources"
+    streams_dir = example_root / "contracts"
+    _write_project_yaml(example_root / "project.yaml", sources_dir, streams_dir)
+    _write_source_yaml(
+        sources_dir / "demo.weather.benchmark.yaml",
+        "demo.weather.benchmark",
+    )
+
+    _input_sequence(monkeypatch, ["1", "1", "2", "1", "", "1"])
+
+    handle_contract(plugin_root=plugin_root, use_identity=True)
+
+    assert (streams_dir / "weather.weather.benchmark.yaml").exists()
+
+
 def test_contract_identity_flag_rejects_composed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     plugin_root = _create_plugin(tmp_path)
     _input_sequence(monkeypatch, ["2"])
     with pytest.raises(SystemExit):
         handle_contract(plugin_root=plugin_root, use_identity=True)
+
+
+def test_composed_contract_can_create_domain(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    plugin_root = _create_plugin(tmp_path)
+    example_root = plugin_root / "example"
+    sources_dir = example_root / "sources"
+    streams_dir = example_root / "contracts"
+    _write_project_yaml(example_root / "project.yaml", sources_dir, streams_dir)
+    _write_source_yaml(sources_dir / "demo.weather.yaml", "demo.weather")
+    streams_dir.mkdir(parents=True, exist_ok=True)
+    (streams_dir / "weather.weather.yaml").write_text(
+        textwrap.dedent(
+            """
+            kind: ingest
+            source: demo.weather
+            id: weather.weather
+            mapper:
+              entrypoint: identity
+              args: {}
+            """
+        ).strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    _input_sequence(
+        monkeypatch,
+        [
+            "2",        # composed contract
+            "1",        # input stream
+            "1",        # create new domain
+            "equity_target",
+            "equity_target.forward_excess_return",
+            "2",        # custom mapper
+            "compose_targets",
+        ],
+    )
+
+    handle_contract(plugin_root=plugin_root)
+
+    assert (plugin_root / "src" / "sample_plugin" / "domains" / "equity_target" / "model.py").exists()
+    contract_path = streams_dir / "equity_target.forward_excess_return.yaml"
+    assert contract_path.exists()
+    assert "entrypoint: compose_targets" in contract_path.read_text()

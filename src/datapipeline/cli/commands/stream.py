@@ -16,16 +16,17 @@ from datapipeline.services.scaffold.discovery import (
 from datapipeline.services.scaffold.source_yaml import default_loader_config
 from datapipeline.services.constants import DEFAULT_TEMPORAL_RECORD_PARSER_EP
 from datapipeline.services.scaffold.layout import (
-    default_stream_id,
     dto_class_name,
     default_parser_name,
     default_mapper_name,
     dto_module_path,
+    default_stream_id_for_source,
     LABEL_DTO_FOR_PARSER,
     LABEL_DTO_FOR_MAPPER,
     LABEL_DOMAIN_TO_MAP,
     LABEL_MAPPER_INPUT,
     default_mapper_name_for_identity,
+    source_id_parts,
 )
 from datapipeline.services.scaffold.stream_plan import StreamPlan, ParserPlan, MapperPlan, execute_stream_plan
 from datapipeline.services.scaffold.utils import (
@@ -175,9 +176,9 @@ def _collect_stream_selection(
         if not sources:
             error_exit("No sources found. Create one first.")
         source_id = pick_from_list("Select source:", sources)
-        parts = source_id.split(".", 1)
-        provider = parts[0] if len(parts) == 2 else provider
-        dataset = parts[1] if len(parts) == 2 else dataset
+        source_provider, source_dataset, _source_variant = source_id_parts(source_id)
+        provider = source_provider or provider
+        dataset = source_dataset or dataset
     else:
         source_id_default = f"{provider}.{dataset}"
         source_id = choose_name("Source id", default=source_id_default)
@@ -294,7 +295,7 @@ def _collect_stream_selection(
     else:
         mapper_ep = "identity"
 
-    default_id = default_stream_id(domain, dataset or "dataset", None)
+    default_id = default_stream_id_for_source(domain, source_id)
     stream_id = choose_name("Stream id", default=default_id)
 
     return StreamSelection(

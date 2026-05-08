@@ -1,11 +1,8 @@
-import sys
 from pathlib import Path
 
 from datapipeline.config.workspace import WorkspaceContext
 from datapipeline.cli.workspace_utils import resolve_default_project_yaml
 from datapipeline.services.paths import pkg_root
-from datapipeline.services.entrypoints import read_group_entries
-from datapipeline.services.constants import FILTERS_GROUP
 from datapipeline.services.project_paths import resolve_project_yaml_path
 from datapipeline.services.scaffold.contract_yaml import (
     write_ingest_contract,
@@ -26,9 +23,14 @@ from datapipeline.services.scaffold.utils import (
     pick_from_list,
     pick_multiple_from_list,
     choose_name,
+    choose_existing_or_create_name,
 )
-from datapipeline.services.scaffold.layout import default_stream_id
+from datapipeline.services.scaffold.layout import (
+    default_stream_id_for_source,
+    source_id_parts,
+)
 from datapipeline.cli.commands.mapper import handle as handle_mapper
+from datapipeline.services.scaffold.domain import create_domain
 from datapipeline.services.scaffold.mapper import create_composed_mapper
 
 
@@ -68,7 +70,7 @@ def handle(
     use_identity: bool = False,
     workspace: WorkspaceContext | None = None,
 ) -> None:
-    root_dir, name, pyproject = pkg_root(plugin_root)
+    root_dir, _name, _pyproject = pkg_root(plugin_root)
     default_project = resolve_default_project_yaml(workspace)
     # Select contract type: Ingest (source->stream) or Composed (streams->stream)
     info("Contract type:")
@@ -97,20 +99,21 @@ def handle(
         error_exit("No sources found. Create one first (jerry source create ...)")
 
     src_key = pick_from_list("Select source:", source_options)
-    # Expect aliases as 'provider.dataset' (from source file's id)
-    parts = src_key.split(".", 1)
-    if len(parts) != 2:
-        error_exit("Source alias must be 'provider.dataset' (from source file's id)")
-    provider, dataset = parts[0], parts[1]
+    _provider, dataset, source_variant = source_id_parts(src_key)
+    if not dataset:
+        error_exit(
+            "Source alias must be 'provider.dataset[.variant]' (from source file's id)"
+        )
 
-    domain_options = list_domains(root=plugin_root)
-    if not domain_options:
-        domain_options = sorted(
-            read_group_entries(pyproject, FILTERS_GROUP).keys())
-    if not domain_options:
-        error_exit("No domains found. Create one first (jerry domain create ...)")
-
-    dom_name = pick_from_list("Select domain:", domain_options)
+    dom_name, should_create_domain = choose_existing_or_create_name(
+        label="Domain",
+        existing=list_domains(root=plugin_root),
+        create_label="Create new domain",
+        prompt_new="Domain name",
+        default_new=dataset,
+    )
+    if should_create_domain:
+        create_domain(domain=dom_name, root=plugin_root)
 
     if use_identity:
         mapper_ep = "identity"
@@ -123,9 +126,13 @@ def handle(
         )
 
     # Derive canonical stream id as domain.dataset[.variant]
-    info("Optional variant suffix (press Enter to skip):")
+    variant_default = f" (default: {source_variant})" if source_variant else ""
+    info(f"Optional variant suffix{variant_default} (press Enter to skip):")
     variant = input("> ").strip()
-    stream_id = choose_name("Stream id", default=default_stream_id(dom_name, dataset, variant or None))
+    stream_id = choose_name(
+        "Stream id",
+        default=default_stream_id_for_source(dom_name, src_key, variant or None),
+    )
 
     write_ingest_contract(
         project_yaml=proj_path,
@@ -164,23 +171,17 @@ def scaffold_conflux(
         inputs_list = "\n  - ".join(s.strip() for s in inputs.split(",") if s.strip())
         driver_key = inputs.split(",")[0].split("=")[0].strip()
 
-    # If no stream_id, select target domain now and derive stream id (mirror ingest flow)
+    # Composed outputs are semantic, so require an explicit output stream id.
     if not stream_id:
-        domain_options = list_domains(root=plugin_root)
-        if not domain_options:
-            error_exit("No domains found. Create one first (jerry domain create ...)")
-        info("Select domain:")
-        for i, opt in enumerate(domain_options, 1):
-            info(f"  [{i}] {opt}")
-        sel = input("> ").strip()
-        try:
-            idx = int(sel)
-            if idx < 1 or idx > len(domain_options):
-                raise ValueError
-        except Exception:
-            error_exit("Invalid selection.")
-        domain = domain_options[idx - 1]
-        stream_id = f"{domain}.processed"
+        domain, should_create_domain = choose_existing_or_create_name(
+            label="Domain",
+            existing=list_domains(root=plugin_root),
+            create_label="Create new domain",
+            prompt_new="Domain name",
+        )
+        if should_create_domain:
+            create_domain(domain=domain, root=plugin_root)
+        stream_id = choose_name("Stream id")
     else:
         domain = stream_id.split(".")[0]
 
