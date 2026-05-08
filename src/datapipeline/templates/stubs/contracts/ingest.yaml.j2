@@ -17,6 +17,7 @@ record:                              # record-level transforms
 #   - lag: { lag: 10m }
 
 stream:                              # per-stream transforms (input sorted by partition,time)
+  - dedupe: {}
 #   - ensure_cadence: { field: some_field, cadence: "${cadence}" } # if you use sequencing, you might want to use ensure cadence to ensure aligned sequences.
 #   - granularity: { field: some_field, mode: first }
 #   - fill: { field: some_field, to: some_field, statistic: median, window: 6, min_samples: 1 }
