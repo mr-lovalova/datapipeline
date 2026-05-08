@@ -47,7 +47,7 @@ datapipeline = [
 [project.entry-points."datapipeline.transforms.record"]
 lag = "datapipeline.transforms.record.lag:LagRecordTransform"
 floor_time = "datapipeline.transforms.record.floor_time:FloorTimeRecordTransform"
-filter = "datapipeline.transforms.filter:filter"
+where = "datapipeline.transforms.where:where"
 
 [project.entry-points."datapipeline.transforms.stream"]
 floor_time = "datapipeline.transforms.stream.floor_time:FloorTimeTransform"
@@ -57,7 +57,7 @@ fill = "datapipeline.transforms.stream.fill:FillTransformer"
 granularity = "datapipeline.transforms.stream.granularity:FeatureGranularityTransform"
 dedupe = "datapipeline.transforms.stream.dedupe:FeatureDeduplicateTransform"
 rolling = "datapipeline.transforms.stream.rolling:RollingTransformer"
-filter = "datapipeline.transforms.stream.filter:FilterTransform"
+where = "datapipeline.transforms.stream.where:WhereTransform"
 
 [project.entry-points."datapipeline.transforms.feature"]
 scale = "datapipeline.transforms.feature.scaler:StandardScalerTransform"

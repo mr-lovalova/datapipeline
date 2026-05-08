@@ -7,8 +7,8 @@ mapper:
   args: {}
 
 record:
-  - filter: { operator: ge, field: time, comparand: "${start_time}" }
-  - filter: { operator: le, field: time, comparand: "${end_time}" }
+  - where: { operator: ge, field: time, comparand: "${start_time}" }
+  - where: { operator: le, field: time, comparand: "${end_time}" }
 
 stream:
   - ensure_cadence: { cadence: 1h, field: value }

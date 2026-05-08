@@ -9,9 +9,9 @@ mapper:
   args: {}
 
 record:
-  - filter: { field: time, operator: ge, comparand: "${start_time}" }
-  - filter: { field: time, operator: le, comparand: "${end_time}" }
-  - filter: { field: ticker, operator: eq, comparand: "AAPL" }
+  - where: { field: time, operator: ge, comparand: "${start_time}" }
+  - where: { field: time, operator: le, comparand: "${end_time}" }
+  - where: { field: ticker, operator: eq, comparand: "AAPL" }
   - floor_time: { cadence: "${cadence}" }
 
 stream:

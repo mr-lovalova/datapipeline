@@ -11,8 +11,8 @@ partition_by: ticker
 # sort_batch_size: 100000              # in-memory sort chunk size
 
 record: # record-level transforms
-  - filter: { field: time, operator: ge, comparand: "${start_time}" }
-  - filter: { field: time, operator: le, comparand: "${end_time}" }
+  - where: { field: time, operator: ge, comparand: "${start_time}" }
+  - where: { field: time, operator: le, comparand: "${end_time}" }
   - floor_time: { cadence: "${cadence}" }
 #   - lag: { lag: 10m }
 
@@ -26,7 +26,7 @@ stream: # per-stream transforms (input sorted by partition,time)
         statistic: mean,
         min_samples: 3,
       } # compute 5-day average dollar volume (ADV5)
-  - filter: { field: adv5, operator: ge, comparand: 1_000_000 } # filter out illiquid stocks
+  - where: { field: adv5, operator: ge, comparand: 1_000_000 } # keep liquid stocks
 #   - fill: { statistic: median, window: 6, min_samples: 1 }
 
 debug: # optional validation-only checks

@@ -15,7 +15,7 @@
 # sort_batch_size: 100000       # optional; in-memory chunk size for sorting
 #
 # record transforms (one-key mappings; optional):
-# - filter: { field: time, operator: ge, comparand: "${start_time}" }
+# - where: { field: time, operator: ge, comparand: "${start_time}" }
 # - floor_time: { cadence: "${cadence}" }
 # - lag: { lag: "${cadence}" }
 #

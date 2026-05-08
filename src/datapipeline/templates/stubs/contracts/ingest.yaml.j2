@@ -11,8 +11,8 @@ cadence: ${group_by}                # optional per-contract cadence
 # sort_batch_size: 100000              # in-memory sort chunk size
 
 record:                              # record-level transforms
-  - filter: { field: time, operator: ge, comparand: "${start_time}" }
-  - filter: { field: time, operator: le, comparand: "${end_time}" }
+  - where: { field: time, operator: ge, comparand: "${start_time}" }
+  - where: { field: time, operator: le, comparand: "${end_time}" }
   - floor_time: { cadence: "${cadence}" }
 #   - lag: { lag: 10m }
 
