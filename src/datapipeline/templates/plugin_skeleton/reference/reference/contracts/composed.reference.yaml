@@ -21,8 +21,8 @@
 #
 # stream transforms (one-key mappings; optional; operate on record fields):
 # - dedupe: {}
-# - granularity: { field: close, to: close, mode: first }
-# - ensure_cadence: { field: close, to: close, cadence: "${cadence}" }
+# - granularity: { field: close, mode: first }
+# - ensure_cadence: { field: close, cadence: "${cadence}" }
 # - fill: { field: close, to: close, statistic: median, window: 6, min_samples: 1 }
 #
 # debug transforms (one-key mappings; optional):

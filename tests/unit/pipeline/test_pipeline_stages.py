@@ -191,6 +191,29 @@ def test_node_4_applies_stream_transforms(tmp_path: Path) -> None:
     ]
 
 
+def test_ensure_cadence_placeholders_do_not_copy_payload_fields(
+    tmp_path: Path,
+) -> None:
+    rows = [
+        {"time": _ts(0), "symbol": "A", "value": 1.0, "volume": 100},
+        {"time": _ts(2), "symbol": "A", "value": 2.0, "volume": 200},
+    ]
+    runtime = _runtime_with_rows(
+        tmp_path,
+        rows,
+        partition_by="symbol",
+        stream_ops=[{"ensure_cadence": {"cadence": "1h", "field": "value"}}],
+    )
+    ctx = PipelineContext(runtime)
+
+    placeholder = list(build_record_pipeline(ctx, "stream", node=4))[1]
+
+    assert placeholder.time == _ts(1)
+    assert placeholder.symbol == "A"
+    assert placeholder.value is None
+    assert placeholder.volume is None
+
+
 def test_node_6_wraps_feature_values(tmp_path: Path) -> None:
     rows = [{"time": _ts(0), "value": 3.0, "symbol": "X"}]
     runtime = _runtime_with_rows(tmp_path, rows, partition_by="symbol")

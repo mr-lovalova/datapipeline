@@ -20,8 +20,8 @@
 #
 # stream transforms (one-key mappings; optional):
 # - dedupe: {}
-# - granularity: { field: close, to: close, mode: first }   # first | last | mean | median
-# - ensure_cadence: { field: close, to: close, cadence: "${cadence}" }
+# - granularity: { field: close, mode: first }   # first | last | mean | median
+# - ensure_cadence: { field: close, cadence: "${cadence}" }
 # - fill: { field: close, to: close, statistic: median, window: 6, min_samples: 1 }
 #   # statistic: mean | median; window must be > 0
 #

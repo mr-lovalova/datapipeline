@@ -17,8 +17,8 @@ record:
 
 stream:
   - dedupe: {}
-  - granularity: { field: close_ratio, to: close_ratio, mode: first }
-  - ensure_cadence: { field: close_ratio, to: close_ratio, cadence: "${cadence}" }
+  - granularity: { field: close_ratio, mode: first }
+  - ensure_cadence: { field: close_ratio, cadence: "${cadence}" }
 
 debug:
   - lint: { mode: warn, tick: "${cadence}" }

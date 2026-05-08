@@ -16,7 +16,7 @@ record:
 
 stream:
   - dedupe: {}
-  - granularity: { field: close, to: close, mode: first }
+  - granularity: { field: close, mode: first }
   - rolling:
       field: dollar_volume
       to: adv5

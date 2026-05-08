@@ -17,8 +17,8 @@ record: # record-level transforms
 #   - lag: { lag: 10m }
 
 stream: # per-stream transforms (input sorted by partition,time)
-  # - ensure_cadence: { field: close, to: close, cadence: "${cadence}" }
-  # - granularity: { field: close, to: close, mode: first }
+  # - ensure_cadence: { field: close, cadence: "${cadence}" }
+  # - granularity: { field: close, mode: first }
   - rolling: {
         field: dollar_volume,
         to: adv5,

@@ -21,8 +21,8 @@
 # - lag: { lag: "${cadence}" }
 # - filter: { field: close, operator: ge, comparand: 1000000 }
 # - dedupe: {}
-# - granularity: { field: close, to: close, mode: first }
-# - ensure_cadence: { field: close, to: close, cadence: "${cadence}" }
+# - granularity: { field: close, mode: first }
+# - ensure_cadence: { field: close, cadence: "${cadence}" }
 # - rolling: { field: dollar_volume, to: adv60, window: 60, statistic: mean, min_samples: 60 }
 # - fill: { field: close, to: close, statistic: median, window: 6, min_samples: 1 }
 #

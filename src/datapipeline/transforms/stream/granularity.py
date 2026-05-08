@@ -2,15 +2,14 @@ from statistics import mean, median
 from typing import Iterator
 
 from datapipeline.domain.record import TemporalRecord
-from datapipeline.transforms.interfaces import FieldStreamTransformBase
+from datapipeline.transforms.interfaces import PartitionedFieldStreamTransformBase
 from datapipeline.transforms.utils import (
     get_field,
     clone_record_with_field,
-    partition_key,
 )
 
 
-class FeatureGranularityTransform(FieldStreamTransformBase):
+class FeatureGranularityTransform(PartitionedFieldStreamTransformBase):
     """Normalize same-timestamp duplicates for non-sequence streams.
 
     Single-argument API (preferred for concise YAML):
@@ -21,11 +20,10 @@ class FeatureGranularityTransform(FieldStreamTransformBase):
         self,
         *,
         field: str,
-        to: str | None = None,
         mode: str = "first",
         partition_by: str | list[str] | None = None,
     ) -> None:
-        super().__init__(field=field, to=to, partition_by=partition_by)
+        super().__init__(field=field, partition_by=partition_by)
         if mode not in {"first", "last", "mean", "median"}:
             raise ValueError(f"Unsupported granularity mode: {mode!r}")
         self.mode = mode
@@ -36,10 +34,10 @@ class FeatureGranularityTransform(FieldStreamTransformBase):
             vals.append(float(get_field(rec, self.field)))
         if self.mode == "mean":
             agg_val = mean(vals)
-        elif self.mode == "median":
+        else:
             agg_val = median(vals)
         new = items[-1]
-        return clone_record_with_field(new, self.to, agg_val)
+        return clone_record_with_field(new, self.field, agg_val)
 
     def apply(self, stream: Iterator[TemporalRecord]) -> Iterator[TemporalRecord]:
         """Aggregate duplicates per timestamp while preserving order.
@@ -75,7 +73,7 @@ class FeatureGranularityTransform(FieldStreamTransformBase):
                     out.append(
                         clone_record_with_field(
                             last,
-                            self.to,
+                            self.field,
                             get_field(last, self.field),
                         )
                     )
@@ -84,7 +82,7 @@ class FeatureGranularityTransform(FieldStreamTransformBase):
                     out.append(
                         clone_record_with_field(
                             first,
-                            self.to,
+                            self.field,
                             get_field(first, self.field),
                         )
                     )
@@ -93,7 +91,7 @@ class FeatureGranularityTransform(FieldStreamTransformBase):
             return iter(out)
 
         for record in stream:
-            base_key = partition_key(record, self.partition_by)
+            base_key = self.partition_key(record)
             t = getattr(record, "time", None)
             # Start new base stream when partition key changes
             if current_key is not None and base_key != current_key:

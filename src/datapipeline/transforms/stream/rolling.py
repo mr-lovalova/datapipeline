@@ -4,16 +4,15 @@ from statistics import mean, median
 from typing import Iterator
 
 from datapipeline.domain.record import TemporalRecord
-from datapipeline.transforms.interfaces import FieldStreamTransformBase
+from datapipeline.transforms.interfaces import FieldValueStreamTransformBase
 from datapipeline.transforms.utils import (
     get_field,
     is_missing,
     clone_record_with_field,
-    partition_key,
 )
 
 
-class RollingTransformer(FieldStreamTransformBase):
+class RollingTransformer(FieldValueStreamTransformBase):
     """Compute a rolling statistic over record field values.
 
     - window: number of recent ticks to consider (including missing ticks).
@@ -51,7 +50,7 @@ class RollingTransformer(FieldStreamTransformBase):
         self.min_samples = min_samples
 
     def apply(self, stream: Iterator[TemporalRecord]) -> Iterator[TemporalRecord]:
-        grouped = groupby(stream, key=lambda rec: partition_key(rec, self.partition_by))
+        grouped = groupby(stream, key=self.partition_key)
 
         for _, records in grouped:
             tick_window: deque[float | None] = deque(maxlen=self.window)

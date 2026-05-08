@@ -3,6 +3,7 @@ from collections.abc import Iterator
 from typing import Any, TypeVar
 
 from datapipeline.domain.record import TemporalRecord
+from datapipeline.transforms.utils import partition_key
 
 
 class StreamTransformBase(ABC):
@@ -16,8 +17,42 @@ class StreamTransformBase(ABC):
         ...
 
 
-class FieldStreamTransformBase(StreamTransformBase):
-    """Base for stream transforms that read/write a record field."""
+class PartitionedStreamTransformBase(StreamTransformBase):
+    """Base for stream transforms that operate per partition."""
+
+    def __init__(
+        self,
+        partition_by: str | list[str] | None = None,
+    ) -> None:
+        self.partition_by = partition_by
+
+    def partition_fields(self) -> tuple[str, ...]:
+        if not self.partition_by:
+            return ()
+        if isinstance(self.partition_by, str):
+            return (self.partition_by,)
+        return tuple(self.partition_by)
+
+    def partition_key(self, record: TemporalRecord) -> tuple:
+        return partition_key(record, self.partition_by)
+
+
+class PartitionedFieldStreamTransformBase(PartitionedStreamTransformBase):
+    """Base for partitioned stream transforms that operate on one field."""
+
+    def __init__(
+        self,
+        field: str,
+        partition_by: str | list[str] | None = None,
+    ) -> None:
+        super().__init__(partition_by=partition_by)
+        if not field:
+            raise ValueError("field is required")
+        self.field = field
+
+
+class FieldValueStreamTransformBase(PartitionedFieldStreamTransformBase):
+    """Base for stream transforms that read one field and write another."""
 
     def __init__(
         self,
@@ -25,11 +60,8 @@ class FieldStreamTransformBase(StreamTransformBase):
         to: str | None = None,
         partition_by: str | list[str] | None = None,
     ) -> None:
-        if not field:
-            raise ValueError("field is required")
-        self.field = field
+        super().__init__(field=field, partition_by=partition_by)
         self.to = to or field
-        self.partition_by = partition_by
 
     def _ensure_output_field(
         self,
