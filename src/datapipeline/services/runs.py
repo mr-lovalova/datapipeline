@@ -22,7 +22,6 @@ class RunPaths:
               dataset/        # main output for this run
               run.json        # metadata for this run
           latest/             # symlink or copy pointing at the current live run
-          current_run.json    # pointer to the run currently marked as "latest"
     """
 
     serve_root: Path
@@ -153,14 +152,10 @@ def finish_run_failed(paths: RunPaths, notes: str | None = None) -> RunMetadata:
 def set_latest_run(paths: RunPaths) -> None:
     """Mark the given run as the latest/live run for its serve directory.
 
-    This updates two things under the serve root:
-
-      * `latest/` – a symlink (or copied directory as a fallback) pointing to
-        this run's root directory, so consumers can read from
-        `<directory>/latest/dataset`.
-
-      * `current_run.json` – a small pointer file recording which run is
-        currently live and when this pointer was updated.
+    This updates `latest/` under the serve root. It is a symlink (or copied
+    directory as a fallback) pointing to this run's root directory, so consumers
+    can read current outputs and metadata from `<directory>/latest/dataset` and
+    `<directory>/latest/run.json`.
     """
     serve_root = paths.serve_root
     latest_root = serve_root / "latest"
@@ -179,17 +174,6 @@ def set_latest_run(paths: RunPaths) -> None:
         latest_root.symlink_to(paths.run_root, target_is_directory=True)
     except OSError:
         shutil.copytree(paths.run_root, latest_root)
-
-    # Write/update current_run.json with a simple pointer
-    current_meta_path = serve_root / "current_run.json"
-    current_data: dict[str, Any] = {
-        "run_id": paths.run_id,
-        "run_root": str(paths.run_root),
-        "dataset_dir": str(paths.dataset_dir),
-        "updated_at": _now_utc_iso(),
-    }
-    with current_meta_path.open("w", encoding="utf-8") as f:
-        json.dump(current_data, f, indent=2, sort_keys=True)
 
 
 __all__ = [
