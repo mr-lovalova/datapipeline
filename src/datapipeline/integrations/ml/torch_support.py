@@ -2,9 +2,9 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Mapping
 
-from datapipeline.config.dataset.loader import load_dataset
+from datapipeline.dag.context import PipelineContext
 
-from .rows import collect_vector_rows
+from .adapter import VectorAdapter
 
 
 def _resolve_columns(
@@ -22,6 +22,18 @@ def _resolve_columns(
     if target_columns is None:
         target_columns = []
     return list(feature_columns), list(target_columns)
+
+
+def _schema_ids(entries: list[dict[str, Any]]) -> list[str]:
+    return [entry["id"] for entry in entries if isinstance(entry.get("id"), str)]
+
+
+def _schema_columns(adapter: VectorAdapter) -> tuple[list[str], list[str]]:
+    context = PipelineContext(adapter.runtime)
+    return (
+        _schema_ids(context.load_schema(payload="features")),
+        _schema_ids(context.load_schema(payload="targets")),
+    )
 
 
 def torch_dataset(
@@ -44,19 +56,22 @@ def torch_dataset(
             "torch is required for torch_dataset(); install torch in your project.",
         ) from exc
 
-    rows = collect_vector_rows(
-        project_yaml,
-        limit=limit,
-        include_group=False,
-        flatten_sequences=flatten_sequences,
+    adapter = VectorAdapter.from_project(project_yaml)
+    rows = list(
+        adapter.iter_rows(
+            limit=limit,
+            include_group=False,
+            flatten_sequences=flatten_sequences,
+        )
     )
 
+    schema_feature_columns, schema_target_columns = _schema_columns(adapter)
+    if feature_columns is None and schema_feature_columns:
+        feature_columns = schema_feature_columns
     if target_columns is None:
-        try:
-            ds = load_dataset(Path(project_yaml), "vectors")
-            target_columns = [cfg.id for cfg in getattr(ds, "targets", []) or []]
-        except Exception:
-            target_columns = None
+        target_columns = schema_target_columns or [
+            cfg.id for cfg in getattr(adapter.dataset, "targets", []) or []
+        ]
 
     feature_cols, target_cols = _resolve_columns(
         rows,
