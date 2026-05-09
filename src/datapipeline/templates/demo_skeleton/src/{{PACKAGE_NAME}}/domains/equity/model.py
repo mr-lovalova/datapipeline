@@ -21,7 +21,7 @@ class EquityRecord(TemporalRecord):
 @dataclass
 class EquityPairRecord(TemporalRecord):
     """
-    Domain record for composed pair analytics.
+    Domain record for pair analytics.
     """
     close_ratio: float
     return_spread_1d: float

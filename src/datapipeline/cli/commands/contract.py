@@ -6,8 +6,9 @@ from datapipeline.services.paths import pkg_root
 from datapipeline.services.project_paths import resolve_project_yaml_path
 from datapipeline.services.scaffold.contract_yaml import (
     write_ingest_contract,
-    write_composed_contract,
-    compose_inputs,
+    write_joined_contract,
+    write_manual_contract,
+    format_inputs,
 )
 from datapipeline.services.scaffold.discovery import (
     list_domains,
@@ -31,7 +32,10 @@ from datapipeline.services.scaffold.layout import (
 )
 from datapipeline.cli.commands.mapper import handle as handle_mapper
 from datapipeline.services.scaffold.domain import create_domain
-from datapipeline.services.scaffold.mapper import create_composed_mapper
+from datapipeline.services.scaffold.mapper import (
+    create_joined_mapper,
+    create_manual_mapper,
+)
 
 
 def _select_mapper(*, allow_identity: bool, allow_create: bool, root: Path | None) -> str:
@@ -72,16 +76,17 @@ def handle(
 ) -> None:
     root_dir, _name, _pyproject = pkg_root(plugin_root)
     default_project = resolve_default_project_yaml(workspace)
-    # Select contract type: Ingest (source->stream) or Composed (streams->stream)
+    # Select contract type.
     info("Contract type:")
     info("  [1] Ingest (source → stream)")
-    info("  [2] Composed (streams → stream)")
+    info("  [2] Joined (aligned streams → stream)")
+    info("  [3] Manual (raw streams → stream)")
     sel = input("> ").strip()
-    if sel == "2":
+    if sel in {"2", "3"}:
         if use_identity:
             error_exit("--identity is only supported for ingest contracts.")
-        # Defer to composed scaffolder (fully interactive)
-        scaffold_conflux(
+        scaffold_multistream_contract(
+            kind="joined" if sel == "2" else "manual",
             stream_id=None,
             inputs=None,
             mapper_path=None,
@@ -142,8 +147,9 @@ def handle(
     )
 
 
-def scaffold_conflux(
+def scaffold_multistream_contract(
     *,
+    kind: str,
     stream_id: str | None,
     inputs: str | None,
     mapper_path: str | None,
@@ -151,12 +157,37 @@ def scaffold_conflux(
     plugin_root: Path | None,
     project_yaml: Path | None,
 ) -> None:
-    """Scaffold a composed (multi-input) contract and optional mapper stub.
+    if kind == "joined":
+        _scaffold_joined_contract(
+            stream_id=stream_id,
+            inputs=inputs,
+            mapper_path=mapper_path,
+            with_mapper_stub=with_mapper_stub,
+            plugin_root=plugin_root,
+            project_yaml=project_yaml,
+        )
+        return
+    if kind == "manual":
+        _scaffold_manual_contract(
+            stream_id=stream_id,
+            inputs=inputs,
+            mapper_path=mapper_path,
+            with_mapper_stub=with_mapper_stub,
+            plugin_root=plugin_root,
+            project_yaml=project_yaml,
+        )
+        return
+    error_exit(f"Unsupported contract kind '{kind}'")
 
-    inputs: comma-separated list of "[alias=]ref[@stage]" strings.
-    mapper_path default: <pkg>.domains.<domain>:mapper where domain = stream_id.split('.')[0]
-    """
-    root_dir, name, _ = pkg_root(plugin_root)
+
+def _collect_multistream_base(
+    *,
+    stream_id: str | None,
+    inputs: str | None,
+    plugin_root: Path | None,
+    project_yaml: Path | None,
+) -> tuple[Path, str, str, str, str]:
+    root_dir, _name, _ = pkg_root(plugin_root)
     proj_path = project_yaml or resolve_project_yaml_path(root_dir)
     if not inputs:
         streams = list_streams(proj_path)
@@ -166,12 +197,11 @@ def scaffold_conflux(
             "Select one or more input streams (comma-separated numbers):",
             streams,
         )
-        inputs_list, driver_key = compose_inputs(picked)
+        inputs_list, driver_key = format_inputs(picked)
     else:
         inputs_list = "\n  - ".join(s.strip() for s in inputs.split(",") if s.strip())
         driver_key = inputs.split(",")[0].split("=")[0].strip()
 
-    # Composed outputs are semantic, so require an explicit output stream id.
     if not stream_id:
         domain, should_create_domain = choose_existing_or_create_name(
             label="Domain",
@@ -184,15 +214,22 @@ def scaffold_conflux(
         stream_id = choose_name("Stream id")
     else:
         domain = stream_id.split(".")[0]
+    return proj_path, domain, stream_id, inputs_list, driver_key
 
-    # Mapper selection for composed contracts (no identity)
+
+def _select_multistream_mapper(
+    *,
+    label: str,
+    plugin_root: Path | None,
+    mapper_path: str | None,
+) -> tuple[str | None, bool]:
     if not mapper_path:
         mappers = list_mappers(root=plugin_root)
         if mappers:
             choice = pick_from_menu(
                 "Mapper:",
                 [
-                    ("create", "Create new composed mapper (default)"),
+                    ("create", f"Create new {label} mapper (default)"),
                     ("existing", "Select existing mapper"),
                     ("custom", "Custom mapper"),
                 ],
@@ -201,7 +238,7 @@ def scaffold_conflux(
             choice = pick_from_menu(
                 "Mapper:",
                 [
-                    ("create", "Create new composed mapper (default)"),
+                    ("create", f"Create new {label} mapper (default)"),
                     ("custom", "Custom mapper"),
                 ],
             )
@@ -218,19 +255,80 @@ def scaffold_conflux(
             if not mapper_path:
                 error_exit("Mapper entrypoint is required")
             with_mapper_stub = False
+    else:
+        with_mapper_stub = False
+    return mapper_path, with_mapper_stub
 
-    # Optional mapper stub under mappers/ (composed signature)
+
+def _scaffold_manual_contract(
+    *,
+    stream_id: str | None,
+    inputs: str | None,
+    mapper_path: str | None,
+    with_mapper_stub: bool,
+    plugin_root: Path | None,
+    project_yaml: Path | None,
+) -> None:
+    proj_path, domain, stream_id, inputs_list, driver_key = _collect_multistream_base(
+        stream_id=stream_id,
+        inputs=inputs,
+        plugin_root=plugin_root,
+        project_yaml=project_yaml,
+    )
+    mapper_path, selected_stub = _select_multistream_mapper(
+        label="manual",
+        plugin_root=plugin_root,
+        mapper_path=mapper_path,
+    )
+    with_mapper_stub = with_mapper_stub or selected_stub
     if with_mapper_stub:
-        mapper_path = create_composed_mapper(
+        mapper_path = create_manual_mapper(
             domain=domain,
             stream_id=stream_id,
             root=plugin_root,
             mapper_path=mapper_path,
         )
-    write_composed_contract(
+    write_manual_contract(
         project_yaml=proj_path,
         stream_id=stream_id,
         inputs_list=inputs_list,
         mapper_entrypoint=mapper_path,
         driver_key=driver_key,
+    )
+
+
+def _scaffold_joined_contract(
+    *,
+    stream_id: str | None,
+    inputs: str | None,
+    mapper_path: str | None,
+    with_mapper_stub: bool,
+    plugin_root: Path | None,
+    project_yaml: Path | None,
+) -> None:
+    proj_path, domain, stream_id, inputs_list, primary_key = _collect_multistream_base(
+        stream_id=stream_id,
+        inputs=inputs,
+        plugin_root=plugin_root,
+        project_yaml=project_yaml,
+    )
+    mapper_path, selected_stub = _select_multistream_mapper(
+        label="joined",
+        plugin_root=plugin_root,
+        mapper_path=mapper_path,
+    )
+    with_mapper_stub = with_mapper_stub or selected_stub
+    if with_mapper_stub:
+        mapper_path = create_joined_mapper(
+            domain=domain,
+            stream_id=stream_id,
+            root=plugin_root,
+            mapper_path=mapper_path,
+        )
+    write_joined_contract(
+        project_yaml=proj_path,
+        stream_id=stream_id,
+        inputs_list=inputs_list,
+        mapper_entrypoint=mapper_path,
+        primary_key=primary_key,
     )

@@ -14,11 +14,12 @@
 # record transforms (one-key mappings; optional):
 # - where: { field: time, operator: ge, comparand: "${start_time}" }
 # - floor_time: { cadence: "${cadence}" }
-# - lag: { lag: "${cadence}" }
+# - shift_time: { by: "-1h" }
 #
 # stream transforms (one-key mappings; optional; operate on record fields):
 # - floor_time: { cadence: "${cadence}" }
-# - lag: { lag: "${cadence}" }
+# - lag: { field: close, to: close_lag_1, periods: 1 }
+# - lead: { field: close, to: close_lead_126, periods: 126 }
 # - where: { field: close, operator: ge, comparand: 1000000 }
 # - dedupe: {}
 # - granularity: { field: close, mode: first }

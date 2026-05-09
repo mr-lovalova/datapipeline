@@ -30,7 +30,8 @@ TPL_PARSER = "parser.py.j2"
 TPL_LOADER_BASIC = "loaders/basic.py.j2"
 TPL_LOADER_SYNTHETIC = "loader_synthetic.py.j2"
 TPL_MAPPER_INGEST = "mappers/ingest.py.j2"
-TPL_MAPPER_COMPOSED = "mappers/composed.py.j2"
+TPL_MAPPER_JOINED = "mappers/joined.py.j2"
+TPL_MAPPER_MANUAL = "mappers/manual.py.j2"
 TPL_DOMAIN_RECORD = "record.py.j2"
 
 

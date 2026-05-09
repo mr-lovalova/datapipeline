@@ -45,13 +45,14 @@ datapipeline = [
 [project.entry-points."datapipeline.filters"]
 
 [project.entry-points."datapipeline.transforms.record"]
-lag = "datapipeline.transforms.record.lag:LagRecordTransform"
 floor_time = "datapipeline.transforms.record.floor_time:FloorTimeRecordTransform"
+shift_time = "datapipeline.transforms.record.shift_time:ShiftTimeRecordTransform"
 where = "datapipeline.transforms.where:where"
 
 [project.entry-points."datapipeline.transforms.stream"]
 floor_time = "datapipeline.transforms.stream.floor_time:FloorTimeTransform"
-lag = "datapipeline.transforms.stream.lag:LagTransform"
+lag = "datapipeline.transforms.stream.lag:LagTransformer"
+lead = "datapipeline.transforms.stream.lead:LeadTransformer"
 ensure_cadence = "datapipeline.transforms.stream.ensure_ticks:EnsureCadenceTransform"
 fill = "datapipeline.transforms.stream.fill:FillTransformer"
 granularity = "datapipeline.transforms.stream.granularity:FeatureGranularityTransform"

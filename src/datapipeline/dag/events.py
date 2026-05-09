@@ -25,6 +25,7 @@ class NodeExecutionEvent:
     node_kind: NodeKind = "function"
     node_calls_dag: str | None = None
     error_type: str | None = None
+    error_message: str | None = None
     depth: int = 0
 
 
@@ -36,5 +37,6 @@ class DagRunEvent:
     elapsed_seconds: float
     status: RunStatus
     error_type: str | None = None
+    error_message: str | None = None
     depth: int = 0
     parent: DagParentRef | None = None

@@ -1,5 +1,5 @@
-# See ../../reference/reference/contracts/composed.reference.yaml for full options.
-kind: composed
+# See ../../reference/reference/contracts/manual.reference.yaml for full options.
+kind: manual
 id: equity.pair.aapl_msft
 cadence: ${group_by}
 inputs:
@@ -7,8 +7,8 @@ inputs:
   - msft=equity.msft
 
 mapper:
-  entrypoint: compose_equity_pair_aapl_msft
-  args: { driver: aapl, join: inner }
+  entrypoint: manual_equity_pair_aapl_msft
+  args: { driver: aapl }
 
 record:
   - where: { field: time, operator: ge, comparand: "${start_time}" }

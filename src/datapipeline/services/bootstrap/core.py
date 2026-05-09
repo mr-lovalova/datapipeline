@@ -15,10 +15,11 @@ from datapipeline.services.constants import (
     STREAM_ID_KEY,
     POSTPROCESS_TRANSFORMS,
 )
-from datapipeline.services.factories import (
+from datapipeline.services.streams import (
     build_source_from_spec,
     build_mapper_from_spec,
-    build_composed_source,
+    build_joined_source,
+    build_manual_source,
 )
 
 from datapipeline.runtime import Runtime
@@ -113,17 +114,22 @@ def _load_canonical_streams(project_yaml: Path, vars_: dict[str, Any]) -> dict:
         if not p.is_file():
             continue
         data = resolve_config_refs(load_yaml(p), project_yaml=project_yaml)
-        # Contracts must declare kind: 'ingest' | 'composed'
+        # Contracts must declare kind: 'ingest' | 'joined' | 'manual'
         if not isinstance(data, dict):
             continue
         kind = data.get("kind")
-        if kind not in {"ingest", "composed"}:
+        if kind == "composed":
+            raise ValueError(
+                "Contract kind 'composed' is no longer supported; "
+                "use 'joined' or 'manual'."
+            )
+        if kind not in {"ingest", "joined", "manual"}:
             continue
         if (STREAM_ID_KEY not in data):
             continue
         if kind == "ingest" and ("source" not in data):
             continue
-        if kind == "composed" and ("inputs" not in data):
+        if kind in {"joined", "manual"} and ("inputs" not in data):
             continue
         m = data.get(MAPPER_KEY)
         if (not isinstance(m, dict)) or (ENTRYPOINT_KEY not in (m or {})):
@@ -159,70 +165,105 @@ def _partition_signature(
     return tuple(value)
 
 
-def _validate_composed_contracts(contracts: dict[str, ContractConfig]) -> None:
+def _validate_stream_contracts(contracts: dict[str, ContractConfig]) -> None:
     for stream_id, spec in contracts.items():
-        if spec.kind != "composed":
+        if spec.kind not in {"joined", "manual"}:
             continue
         inputs = list(spec.inputs or [])
-        refs: list[str] = []
-        for item in inputs:
-            _alias, ref = ContractConfig.parse_input_spec(item)
-            refs.append(ref)
+        input_refs = {
+            alias: ref
+            for alias, ref in (
+                ContractConfig.parse_input_spec(item) for item in inputs
+            )
+        }
+        refs = list(input_refs.values())
 
         missing = [ref for ref in refs if ref not in contracts]
         if missing:
             raise ValueError(
-                f"Composed stream '{stream_id}' references unknown stream(s): {missing}"
+                f"{spec.kind.capitalize()} stream '{stream_id}' references "
+                f"unknown stream(s): {missing}"
             )
+        if spec.kind == "manual":
+            continue
 
-        partition_by_per_input: dict[str, tuple[str, ...]] = {
-            ref: _partition_signature(contracts[ref].partition_by)
-            for ref in refs
-        }
-        unique_input_partitions = set(partition_by_per_input.values())
-        if len(unique_input_partitions) > 1:
-            details = ", ".join(
-                f"{ref}={list(partition_by_per_input[ref])}"
-                for ref in refs
-            )
-            raise ValueError(
-                "Composed stream "
-                f"'{stream_id}' inputs have incompatible partition_by settings: {details}"
-            )
-
-        if spec.partition_by is not None and unique_input_partitions:
-            input_partition = next(iter(unique_input_partitions))
-            composed_partition = _partition_signature(spec.partition_by)
-            if composed_partition != input_partition:
+        join = spec.join
+        if join is None:
+            raise ValueError(f"Joined stream '{stream_id}' requires join config")
+        primary_ref = input_refs[join.primary]
+        primary_partition = _partition_signature(contracts[primary_ref].partition_by)
+        for alias, ref in input_refs.items():
+            if alias == join.primary:
+                continue
+            partition = _partition_signature(contracts[ref].partition_by)
+            if alias in join.broadcast:
+                if not set(partition).issubset(primary_partition):
+                    raise ValueError(
+                        "Joined stream "
+                        f"'{stream_id}' has incompatible partition_by: "
+                        f"input '{alias}' partition_by={list(partition)} "
+                        f"does not match primary partition_by={list(primary_partition)}"
+                    )
+                continue
+            if partition != primary_partition:
                 raise ValueError(
-                    "Composed stream "
-                    f"'{stream_id}' partition_by={list(composed_partition)} does not "
-                    f"match inputs partition_by={list(input_partition)}"
+                    "Joined stream "
+                    f"'{stream_id}' has incompatible partition_by: "
+                    f"input '{alias}' partition_by={list(partition)} "
+                    f"does not match primary partition_by={list(primary_partition)}"
                 )
+
+
+def _contract_partition_by(
+    contracts: dict[str, ContractConfig],
+    spec: ContractConfig,
+):
+    if spec.kind != "joined":
+        return spec.partition_by
+    if spec.join is None:
+        return None
+    input_refs = {
+        alias: ref
+        for alias, ref in (
+            ContractConfig.parse_input_spec(item) for item in (spec.inputs or [])
+        )
+    }
+    primary_ref = input_refs.get(spec.join.primary)
+    if not primary_ref:
+        return None
+    return contracts[primary_ref].partition_by
 
 
 def init_streams(cfg: StreamsConfig, runtime: Runtime) -> None:
     """Compile typed streams config into runtime registries."""
     regs = runtime.registries
     regs.clear_all()
-    _validate_composed_contracts(cfg.contracts or {})
+    contracts = cfg.contracts or {}
+    _validate_stream_contracts(contracts)
 
     # Register per-stream policies and record transforms for runtime lookups
-    for alias, spec in (cfg.contracts or {}).items():
+    for alias, spec in contracts.items():
         regs.stream_operations.register(alias, spec.stream)
         regs.debug_operations.register(alias, spec.debug)
-        regs.partition_by.register(alias, spec.partition_by)
+        regs.partition_by.register(
+            alias,
+            _contract_partition_by(contracts, spec),
+        )
         regs.sort_batch_size.register(alias, spec.sort_batch_size)
         ops = spec.record
         regs.record_operations.register(alias, ops)
 
     for alias, spec in (cfg.raw or {}).items():
         regs.sources.register(alias, build_source_from_spec(spec))
-    for alias, spec in (cfg.contracts or {}).items():
-        if getattr(spec, "kind", None) == "composed":
-            # Composed stream: register virtual source and identity mapper
+    for alias, spec in contracts.items():
+        if getattr(spec, "kind", None) == "manual":
             regs.stream_sources.register(
-                alias, build_composed_source(alias, spec, runtime)
+                alias, build_manual_source(alias, spec, runtime)
+            )
+            regs.mappers.register(alias, build_mapper_from_spec(None))
+        elif getattr(spec, "kind", None) == "joined":
+            regs.stream_sources.register(
+                alias, build_joined_source(alias, spec, runtime)
             )
             regs.mappers.register(alias, build_mapper_from_spec(None))
         else:

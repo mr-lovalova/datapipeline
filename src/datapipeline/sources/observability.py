@@ -10,7 +10,7 @@ from datapipeline.sources.models.loader import SyntheticLoader
 class LoaderObservability:
     transport: Any | None
     current_label: str | None
-    composed_inputs: list[str] | None
+    input_streams: list[str] | None
     info_lines: list[str] | None = None
     debug_lines: list[str] | None = None
 
@@ -24,7 +24,7 @@ def describe_loader(loader: Any) -> LoaderObservability:
     return LoaderObservability(
         transport=getattr(loader, "transport", None),
         current_label=None,
-        composed_inputs=_coerce_inputs(
+        input_streams=_coerce_inputs(
             getattr(getattr(loader, "_spec", None), "inputs", None)
         ),
         info_lines=_loader_lines(loader, "info_lines"),
@@ -68,7 +68,7 @@ def _describe_foreach_loader(loader: ForeachLoader) -> LoaderObservability:
     return LoaderObservability(
         transport=getattr(loader, "_current_transport", None),
         current_label=current_label,
-        composed_inputs=None,
+        input_streams=None,
         info_lines=info_lines,
     )
 
@@ -92,7 +92,7 @@ def _describe_synthetic_loader(loader: SyntheticLoader) -> LoaderObservability:
     return LoaderObservability(
         transport=getattr(loader, "transport", None),
         current_label=None,
-        composed_inputs=None,
+        input_streams=None,
         info_lines=info_lines,
         debug_lines=debug_lines or None,
     )

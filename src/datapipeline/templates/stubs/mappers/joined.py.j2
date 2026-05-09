@@ -1,0 +1,14 @@
+from datapipeline.domain.record import TemporalRecord
+from datapipeline.joined import JoinedRow
+
+
+def mapper(
+    row: JoinedRow,
+    *,
+    context,
+    **params,
+) -> TemporalRecord | None:
+    del context
+    del params
+    primary = next((record for record in row.values.values() if record is not None), None)
+    return primary

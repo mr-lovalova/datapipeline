@@ -1,4 +1,4 @@
-kind: composed
+kind: manual
 id: {{ stream_id }}  # format: domain.dataset.(variant)
 # cadence: ${group_by}          # optional per-contract cadence
 # partition_by: <field or [fields]>
@@ -7,4 +7,4 @@ inputs:
 
 mapper:
   entrypoint: {{ mapper_entrypoint }}
-  args: { driver: {{ driver_key }}, join: inner }
+  args: { driver: {{ driver_key }} }

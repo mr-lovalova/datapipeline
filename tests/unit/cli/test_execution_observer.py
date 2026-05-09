@@ -298,7 +298,7 @@ def test_hierarchical_observer_emits_index_field_for_node_events(caplog):
     assert getattr(node_start, "dp_node_kind", None) == "function"
 
 
-def test_hierarchical_observer_includes_error_type_on_failure(caplog):
+def test_hierarchical_observer_includes_error_details_on_failure(caplog):
     logger = logging.getLogger("datapipeline.cli.visuals.execution.test.error_type")
     observer = HierarchicalExecutionObserver(LoggerExecutionEventSink(logger))
 
@@ -311,7 +311,8 @@ def test_hierarchical_observer_includes_error_type_on_failure(caplog):
                 output_items=0,
                 elapsed_seconds=0.5,
                 status="error",
-                error_type="KeyboardInterrupt",
+                error_type="ValueError",
+                error_message="No entry point 'target_mapper'",
                 depth=0,
             )
         )
@@ -319,7 +320,8 @@ def test_hierarchical_observer_includes_error_type_on_failure(caplog):
     messages = [record.getMessage() for record in caplog.records]
     assert any(
         msg.startswith(
-            "DAG finished name=pipeline:serve status=error error=KeyboardInterrupt"
+            "DAG finished name=pipeline:serve status=error "
+            "error=ValueError: No entry point 'target_mapper'"
         )
         for msg in messages
     )
@@ -329,7 +331,11 @@ def test_hierarchical_observer_includes_error_type_on_failure(caplog):
         if getattr(record, "dp_event_kind", None) == "dag_end"
     ]
     assert dag_end_records
-    assert getattr(dag_end_records[-1], "dp_error_type", None) == "KeyboardInterrupt"
+    assert getattr(dag_end_records[-1], "dp_error_type", None) == "ValueError"
+    assert (
+        getattr(dag_end_records[-1], "dp_error_message", None)
+        == "No entry point 'target_mapper'"
+    )
 
 
 def test_make_execution_observer_accepts_single_custom_sink():

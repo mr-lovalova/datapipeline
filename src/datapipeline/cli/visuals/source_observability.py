@@ -50,11 +50,11 @@ class SourceObservabilityAdapter:
         except Exception:
             return None
 
-    def composed_inputs(self) -> Optional[list[str]]:
-        return describe_loader(self.loader).composed_inputs
+    def input_streams(self) -> Optional[list[str]]:
+        return describe_loader(self.loader).input_streams
 
-    def composed_detail_lines(self) -> list[str]:
-        details = self.composed_inputs()
+    def input_detail_lines(self) -> list[str]:
+        details = self.input_streams()
         if not details:
             return []
         parts: list[str] = []
@@ -68,7 +68,7 @@ class SourceObservabilityAdapter:
                     parts.append(text)
         if not parts:
             return []
-        return [f"Composed from: {', '.join(parts)}"]
+        return [f"Inputs: {', '.join(parts)}"]
 
     def current_label(self) -> Optional[str]:
         observability = describe_loader(self.loader)
@@ -121,7 +121,7 @@ class SourceObservabilityAdapter:
     def info_lines(self) -> list[str]:
         observability = describe_loader(self.loader)
         lines: list[str] = []
-        lines.extend(self.composed_detail_lines())
+        lines.extend(self.input_detail_lines())
         if observability.info_lines:
             lines.extend(observability.info_lines)
         if self._include_transport_info():

@@ -158,9 +158,11 @@ def test_run_dag_propagates_error_and_marks_failure(tmp_path: Path) -> None:
     assert explode_events
     assert explode_events[-1].status == "error"
     assert explode_events[-1].error_type == "RuntimeError"
+    assert explode_events[-1].error_message == "boom"
     assert explode_events[-1].depth == 1
     assert observer.dag_events[-1].status == "error"
     assert observer.dag_events[-1].error_type == "RuntimeError"
+    assert observer.dag_events[-1].error_message == "boom"
     assert observer.dag_events[-1].depth == 0
 
 

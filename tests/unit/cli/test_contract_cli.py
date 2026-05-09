@@ -134,14 +134,14 @@ def test_ingest_contract_preserves_source_variant_in_default_stream_id(
     assert (streams_dir / "weather.weather.benchmark.yaml").exists()
 
 
-def test_contract_identity_flag_rejects_composed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_contract_identity_flag_rejects_multistream(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     plugin_root = _create_plugin(tmp_path)
     _input_sequence(monkeypatch, ["2"])
     with pytest.raises(SystemExit):
         handle_contract(plugin_root=plugin_root, use_identity=True)
 
 
-def test_composed_contract_can_create_domain(
+def test_manual_contract_can_create_domain(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -170,13 +170,13 @@ def test_composed_contract_can_create_domain(
     _input_sequence(
         monkeypatch,
         [
-            "2",        # composed contract
+            "3",        # manual contract
             "1",        # input stream
             "1",        # create new domain
             "equity_target",
             "equity_target.forward_excess_return",
             "2",        # custom mapper
-            "compose_targets",
+            "manual_targets",
         ],
     )
 
@@ -185,4 +185,52 @@ def test_composed_contract_can_create_domain(
     assert (plugin_root / "src" / "sample_plugin" / "domains" / "equity_target" / "model.py").exists()
     contract_path = streams_dir / "equity_target.forward_excess_return.yaml"
     assert contract_path.exists()
-    assert "entrypoint: compose_targets" in contract_path.read_text()
+    text = contract_path.read_text()
+    assert "kind: manual" in text
+    assert "entrypoint: manual_targets" in text
+
+
+def test_joined_contract_scaffold_writes_join_config(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    plugin_root = _create_plugin(tmp_path)
+    example_root = plugin_root / "example"
+    sources_dir = example_root / "sources"
+    streams_dir = example_root / "contracts"
+    _write_project_yaml(example_root / "project.yaml", sources_dir, streams_dir)
+    streams_dir.mkdir(parents=True, exist_ok=True)
+    (streams_dir / "weather.weather.yaml").write_text(
+        textwrap.dedent(
+            """
+            kind: ingest
+            source: demo.weather
+            id: weather.weather
+            mapper:
+              entrypoint: identity
+              args: {}
+            """
+        ).strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    _input_sequence(
+        monkeypatch,
+        [
+            "2",        # joined contract
+            "1",        # input stream
+            "2",        # select existing domain
+            "1",        # weather
+            "weather.joined",
+            "2",        # custom mapper
+            "join_weather",
+        ],
+    )
+
+    handle_contract(plugin_root=plugin_root)
+
+    text = (streams_dir / "weather.joined.yaml").read_text()
+    assert "kind: joined" in text
+    assert "primary: weather" in text
+    assert "entrypoint: join_weather" in text

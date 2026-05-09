@@ -42,6 +42,7 @@ class ExecutionLogEvent:
     node_calls_dag: str | None = None
     status: str | None = None
     error_type: str | None = None
+    error_message: str | None = None
     output_items: int | None = None
     elapsed_seconds: float | None = None
     info_line: str | None = None
@@ -60,6 +61,16 @@ class ExecutionEventSink:
 
 
 class ExecutionEventFormatter:
+    @staticmethod
+    def error_suffix(event: ExecutionLogEvent) -> str:
+        if event.status != "error" or event.error_type is None:
+            return ""
+        suffix = f" error={event.error_type}"
+        if event.error_message:
+            message = event.error_message.replace("\n", "\\n")
+            suffix = f"{suffix}: {message}"
+        return suffix
+
     @staticmethod
     def indent(depth: int) -> str:
         return "  " * max(0, depth)
@@ -107,11 +118,7 @@ class ExecutionEventFormatter:
                 f"nodes={event.node_count}{parent_suffix}"
             )
         if event.kind == "dag_end":
-            error_suffix = (
-                f" error={event.error_type}"
-                if event.status == "error" and event.error_type
-                else ""
-            )
+            error_suffix = cls.error_suffix(event)
             return (
                 f"{indent}DAG finished name={event.dag_name} "
                 f"status={event.status}{error_suffix} items={event.output_items} "
@@ -129,11 +136,7 @@ class ExecutionEventFormatter:
                 f"execution_index={event.execution_index} "
                 f"kind={event.node_kind}{calls_suffix}"
             )
-        error_suffix = (
-            f" error={event.error_type}"
-            if event.status == "error" and event.error_type
-            else ""
-        )
+        error_suffix = cls.error_suffix(event)
         return (
             f"{indent}Node execution finished dag={event.dag_name} "
             f"node={event.node_name} index={event.node_index} kind={event.node_kind} "
@@ -159,6 +162,7 @@ class ExecutionEventFormatter:
             "dp_node_calls_dag": event.node_calls_dag,
             "dp_status": event.status,
             "dp_error_type": event.error_type,
+            "dp_error_message": event.error_message,
             "dp_output_items": event.output_items,
             "dp_elapsed_seconds": event.elapsed_seconds,
             "dp_info_line": event.info_line,
@@ -390,6 +394,7 @@ class HierarchicalExecutionObserver(ExecutionObserver):
                 node_calls_dag=event.node_calls_dag,
                 status=event.status,
                 error_type=event.error_type,
+                error_message=event.error_message,
                 output_items=event.output_items,
                 elapsed_seconds=event.elapsed_seconds,
                 **_scope_fields(),
@@ -407,6 +412,7 @@ class HierarchicalExecutionObserver(ExecutionObserver):
                 node_count=event.node_count,
                 status=event.status,
                 error_type=event.error_type,
+                error_message=event.error_message,
                 output_items=event.output_items,
                 elapsed_seconds=event.elapsed_seconds,
                 dag_parent=event.parent,

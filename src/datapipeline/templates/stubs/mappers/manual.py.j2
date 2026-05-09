@@ -1,0 +1,16 @@
+from typing import Iterator, Mapping
+
+from datapipeline.domain.record import TemporalRecord
+
+
+def mapper(
+    inputs: Mapping[str, Iterator[TemporalRecord]],
+    *,
+    context,
+    driver: str | None = None,
+    **params,
+) -> Iterator[TemporalRecord]:
+    del context
+    del params
+    key = driver or next(iter(inputs.keys()))
+    yield from inputs[key]

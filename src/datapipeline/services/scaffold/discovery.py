@@ -108,7 +108,7 @@ def list_streams(project_yaml: Path) -> list[str]:
             data = load_yaml(p)
         except Exception:
             continue
-        if isinstance(data, dict) and data.get("kind") in {"ingest", "composed"}:
+        if isinstance(data, dict) and data.get("kind") in {"ingest", "joined", "manual"}:
             sid = data.get(STREAM_ID_KEY)
             if isinstance(sid, str) and sid:
                 out.append(sid)

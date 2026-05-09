@@ -30,7 +30,7 @@ def write_ingest_contract(
     return cfile
 
 
-def write_composed_contract(
+def write_manual_contract(
     *,
     project_yaml: Path,
     stream_id: str,
@@ -45,7 +45,7 @@ def write_composed_contract(
     cfile = streams_dir / f"{stream_id}.yaml"
     cfile.write_text(
         render(
-            "contracts/composed.yaml.j2",
+            "contracts/manual.yaml.j2",
             stream_id=stream_id,
             inputs_list=inputs_list,
             mapper_entrypoint=mapper_entrypoint,
@@ -53,12 +53,41 @@ def write_composed_contract(
         ).strip() + "\n",
         encoding="utf-8",
     )
-    status("new", f"composed contract: {cfile}")
+    status("new", f"manual contract: {cfile}")
     return cfile
 
 
-def compose_inputs(picked: list[str]) -> tuple[str, str]:
-    """Build composed inputs list text and driver key."""
+def write_joined_contract(
+    *,
+    project_yaml: Path,
+    stream_id: str,
+    inputs_list: str,
+    mapper_entrypoint: str,
+    primary_key: str,
+    broadcast_keys: list[str] | None = None,
+) -> Path:
+    ensure_project_scaffold(project_yaml)
+    streams_path = resolve_streams_dir(project_yaml)
+    streams_dir = streams_path if streams_path.is_dir() else streams_path.parent
+    streams_dir.mkdir(parents=True, exist_ok=True)
+    cfile = streams_dir / f"{stream_id}.yaml"
+    cfile.write_text(
+        render(
+            "contracts/joined.yaml.j2",
+            stream_id=stream_id,
+            inputs_list=inputs_list,
+            mapper_entrypoint=mapper_entrypoint,
+            primary_key=primary_key,
+            broadcast_keys=broadcast_keys or [],
+        ).strip() + "\n",
+        encoding="utf-8",
+    )
+    status("new", f"joined contract: {cfile}")
+    return cfile
+
+
+def format_inputs(picked: list[str]) -> tuple[str, str]:
+    """Build input list text and default primary/driver key."""
     built: list[str] = []
     for ref in picked:
         parts = ref.split(".")

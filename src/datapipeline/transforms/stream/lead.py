@@ -1,7 +1,7 @@
 from datapipeline.transforms.stream.period_shift import PeriodShiftTransformer
 
 
-class LagTransformer(PeriodShiftTransformer):
+class LeadTransformer(PeriodShiftTransformer):
     def __init__(
         self,
         *,
@@ -13,7 +13,7 @@ class LagTransformer(PeriodShiftTransformer):
         super().__init__(
             field=field,
             periods=periods,
-            direction="lag",
+            direction="lead",
             to=to,
             partition_by=partition_by,
         )

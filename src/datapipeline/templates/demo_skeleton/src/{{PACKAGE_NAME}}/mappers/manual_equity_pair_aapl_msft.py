@@ -1,7 +1,6 @@
 from collections.abc import Iterator, Mapping
 from typing import Any
 
-from datapipeline.composed import align_many
 from datapipeline.domain.record import TemporalRecord
 
 from {{PACKAGE_NAME}}.domains.equity.model import EquityPairRecord
@@ -29,13 +28,11 @@ def _metric_with_fallback(record: TemporalRecord, primary: str, fallback: str) -
     return _as_float(value, default=0.0)
 
 
-def compose_equity_pair_aapl_msft(
+def manual_equity_pair_aapl_msft(
     inputs: Mapping[str, Iterator[TemporalRecord]],
     *,
     context: Any,
     driver: str | None = None,
-    join: str = "inner",
-    partition_by: str | list[str] | None = None,
     **params: Any,
 ) -> Iterator[EquityPairRecord]:
     """
@@ -50,16 +47,11 @@ def compose_equity_pair_aapl_msft(
 
     prev_aapl_close: float | None = None
     prev_msft_close: float | None = None
+    msft_by_time = {record.time: record for record in inputs["msft"]}
 
-    for row in align_many(
-        inputs,
-        driver=driver or "aapl",
-        join=join,
-        partition_by=partition_by,
-    ):
-        aapl = row.values.get("aapl")
-        msft = row.values.get("msft")
-        if aapl is None or msft is None:
+    for aapl in inputs[driver or "aapl"]:
+        msft = msft_by_time.get(aapl.time)
+        if msft is None:
             continue
 
         aapl_close = _as_float(getattr(aapl, "close", None), default=0.0)
@@ -75,7 +67,7 @@ def compose_equity_pair_aapl_msft(
             return_spread = aapl_ret - msft_ret
 
         yield EquityPairRecord(
-            time=row.time,
+            time=aapl.time,
             close_ratio=_safe_ratio(aapl_close, msft_close),
             return_spread_1d=return_spread,
             adv5_ratio=_safe_ratio(aapl_adv5, msft_adv5),

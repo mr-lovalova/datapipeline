@@ -71,7 +71,7 @@ class _SyntheticSourceWithLoader:
         self.loader = SyntheticLoader(_DummyGenerator())
 
 
-class _ComposedLoader:
+class _ManualLoader:
     def __init__(self):
         self._spec = type("Spec", (), {"inputs": ("a=left", "b=right")})()
         self.transport = None
@@ -83,9 +83,9 @@ class _ComposedLoader:
         return False
 
 
-class _ComposedSourceWithLoader:
+class _ManualSourceWithLoader:
     def __init__(self):
-        self.loader = _ComposedLoader()
+        self.loader = _ManualLoader()
 
 
 class _SourceWithForeachFsLoader:
@@ -128,16 +128,16 @@ def test_source_observability_adapter_includes_synthetic_info_line():
 
 
 
-def test_source_observability_adapter_includes_composed_details_in_info_lines():
-    adapter = SourceObservabilityAdapter(_ComposedSourceWithLoader(), "combined")
+def test_source_observability_adapter_includes_input_details_in_info_lines():
+    adapter = SourceObservabilityAdapter(_ManualSourceWithLoader(), "combined")
 
     assert adapter.info_lines() == [
-        "Composed from: a=left, b=right",
+        "Inputs: a=left, b=right",
     ]
 
 
 def test_source_observability_adapter_uses_loader_progress_visibility():
-    adapter = SourceObservabilityAdapter(_ComposedSourceWithLoader(), "combined")
+    adapter = SourceObservabilityAdapter(_ManualSourceWithLoader(), "combined")
 
     assert adapter.progress_visible() is False
 

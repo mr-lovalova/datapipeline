@@ -122,7 +122,7 @@ def transport_debug_lines(transport) -> list[str]:
 
 
 def log_combined_stream(stream_id: str, details: Optional[Sequence[str] | str], indent: str = "") -> None:
-    """Emit descriptive logs for composed/virtual sources."""
+    """Emit descriptive logs for virtual multi-input sources."""
 
     entries: list[str] = []
     if isinstance(details, str):

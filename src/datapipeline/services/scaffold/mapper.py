@@ -14,8 +14,9 @@ from datapipeline.services.scaffold.utils import (
 )
 from datapipeline.services.scaffold.layout import (
     DIR_MAPPERS,
-    TPL_MAPPER_COMPOSED,
     TPL_MAPPER_INGEST,
+    TPL_MAPPER_JOINED,
+    TPL_MAPPER_MANUAL,
     domain_record_class,
     entrypoint_target,
     pyproject_path,
@@ -85,8 +86,10 @@ def create_mapper(
     return ep_key
 
 
-def create_composed_mapper(
+def _create_stream_mapper(
     *,
+    kind: str,
+    template: str,
     domain: str,
     stream_id: str,
     root: Optional[Path],
@@ -97,7 +100,7 @@ def create_composed_mapper(
     map_pkg_dir = ensure_pkg_dir(base, DIR_MAPPERS)
     mapper_file = map_pkg_dir / f"{domain}.py"
     if not mapper_file.exists():
-        mapper_file.write_text(render(TPL_MAPPER_COMPOSED))
+        mapper_file.write_text(render(template))
         status("new", str(mapper_file))
 
     ep_key = stream_id
@@ -110,7 +113,41 @@ def create_composed_mapper(
         updated = inject_ep(toml_text, MAPPERS_GROUP, ep_key, ep_target)
         if updated != toml_text:
             pyproj_path.write_text(updated)
-            status("ok", f"Registered mapper entry point '{ep_key}' -> {ep_target}")
+            status("ok", f"Registered {kind} mapper entry point '{ep_key}' -> {ep_target}")
     except FileNotFoundError:
         info("pyproject.toml not found; skipping entry point registration")
     return ep_key
+
+
+def create_joined_mapper(
+    *,
+    domain: str,
+    stream_id: str,
+    root: Optional[Path],
+    mapper_path: str | None = None,
+) -> str:
+    return _create_stream_mapper(
+        kind="joined",
+        template=TPL_MAPPER_JOINED,
+        domain=domain,
+        stream_id=stream_id,
+        root=root,
+        mapper_path=mapper_path,
+    )
+
+
+def create_manual_mapper(
+    *,
+    domain: str,
+    stream_id: str,
+    root: Optional[Path],
+    mapper_path: str | None = None,
+) -> str:
+    return _create_stream_mapper(
+        kind="manual",
+        template=TPL_MAPPER_MANUAL,
+        domain=domain,
+        stream_id=stream_id,
+        root=root,
+        mapper_path=mapper_path,
+    )

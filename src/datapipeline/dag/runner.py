@@ -63,6 +63,11 @@ def _close_iterator(iterator: Iterable[Any]) -> None:
         logger.debug("Failed to close iterator during DAG teardown", exc_info=True)
 
 
+def _error_message(exc: BaseException) -> str | None:
+    message = str(exc).strip()
+    return message or None
+
+
 def run_dag(
     context: PipelineContext,
     dag: Dag,
@@ -176,6 +181,7 @@ def _observe_node_stream(
         start_time = time.perf_counter()
         status = "success"
         error_type: str | None = None
+        error_message: str | None = None
         iterator: Iterator[Any] = iter(())
         active_node_token = _CURRENT_RUN_ACTIVE_NODE.set(
             DagParentRef(dag_name=dag_name, node_name=node_name, node_index=node_index)
@@ -198,11 +204,13 @@ def _observe_node_stream(
         except KeyboardInterrupt as exc:
             status = "error"
             error_type = type(exc).__name__
+            error_message = _error_message(exc)
             _CURRENT_RUN_INTERRUPTED.set(True)
             raise
         except Exception as exc:
             status = "error"
             error_type = type(exc).__name__
+            error_message = _error_message(exc)
             raise
         finally:
             try:
@@ -223,6 +231,7 @@ def _observe_node_stream(
                         node_kind=node_kind,
                         node_calls_dag=node_calls_dag,
                         error_type=error_type,
+                        error_message=error_message,
                         depth=node_depth,
                     )
                 )
@@ -250,6 +259,7 @@ def _observe_dag_stream(
         item_count = 0
         status = "success"
         error_type: str | None = None
+        error_message: str | None = None
         observer.on_dag_start(
             dag_name=dag.name,
             node_count=len(dag.nodes),
@@ -265,11 +275,13 @@ def _observe_dag_stream(
         except KeyboardInterrupt as exc:
             status = "error"
             error_type = type(exc).__name__
+            error_message = _error_message(exc)
             _CURRENT_RUN_INTERRUPTED.set(True)
             raise
         except Exception as exc:
             status = "error"
             error_type = type(exc).__name__
+            error_message = _error_message(exc)
             raise
         finally:
             _close_iterator(iterator)
@@ -285,6 +297,7 @@ def _observe_dag_stream(
                         elapsed_seconds=(time.perf_counter() - start_time),
                         status=status,
                         error_type=error_type,
+                        error_message=error_message,
                         depth=dag_depth,
                         parent=dag_parent,
                     )

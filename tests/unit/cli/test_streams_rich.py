@@ -223,7 +223,7 @@ def test_rich_execution_sink_emits_dag_end_immediately() -> None:
     assert any(line.startswith("DAG finished name=pipeline:serve") for line in current)
 
 
-def test_rich_execution_sink_renders_error_type_for_failed_dag_end() -> None:
+def test_rich_execution_sink_renders_error_details_for_failed_dag_end() -> None:
     buffer = StringIO()
     console = Console(file=buffer, markup=False, highlight=False, force_terminal=False)
     sink = _RichConsoleExecutionSink(level=0, console=console)
@@ -234,19 +234,18 @@ def test_rich_execution_sink_renders_error_type_for_failed_dag_end() -> None:
             depth=0,
             node_count=3,
             status="error",
-            error_type="KeyboardInterrupt",
+            error_type="ValueError",
+            error_message="No entry point 'target_mapper'",
             output_items=0,
             elapsed_seconds=0.5,
         )
     )
 
-    lines = _lines(buffer)
-    assert any(
-        line.startswith(
-            "DAG finished name=pipeline:serve status=error error=KeyboardInterrupt"
-        )
-        for line in lines
-    )
+    output = buffer.getvalue().replace("\n", "")
+    assert (
+        "DAG finished name=pipeline:serve status=error "
+        "error=ValueError: No entry point 'target_mapper'"
+    ) in output
 
 
 def test_rich_execution_sink_renders_message_event() -> None:
@@ -520,12 +519,12 @@ def test_rich_source_proxy_skips_progress_row_for_virtual_source(monkeypatch) ->
 
     class _Adapter:
         def info_lines(self):
-            return ["Composed from: aapl=equity.aapl, msft=equity.msft"]
+            return ["Inputs: aapl=equity.aapl, msft=equity.msft"]
 
         def format_label(self, name=None, **kwargs):
             if name:
                 return f"Loading {name}"
-            return "ComposedLoader"
+            return "ManualLoader"
 
         def initial_label(self):
             return None
@@ -561,7 +560,7 @@ def test_rich_source_proxy_skips_progress_row_for_virtual_source(monkeypatch) ->
     assert progress.added_texts == []
     assert captured[:1] == [
         (
-            "[equity.pair.aapl_msft] Composed from: aapl=equity.aapl, msft=equity.msft",
+            "[equity.pair.aapl_msft] Inputs: aapl=equity.aapl, msft=equity.msft",
             logging.INFO,
             2,
             "source_info",

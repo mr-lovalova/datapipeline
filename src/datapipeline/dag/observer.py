@@ -5,6 +5,16 @@ from datapipeline.dag.events import DagParentRef, DagRunEvent, NodeExecutionEven
 from datapipeline.dag.node import NodeKind
 
 
+def _error_suffix(error_type: str | None, error_message: str | None) -> str:
+    if error_type is None:
+        return ""
+    suffix = f" error={error_type}"
+    if error_message:
+        message = error_message.replace("\n", "\\n")
+        suffix = f"{suffix}: {message}"
+    return suffix
+
+
 class ExecutionObserver(Protocol):
     def on_dag_start(
         self,
@@ -127,8 +137,8 @@ class LoggingExecutionObserver:
     def on_node_end(self, event: NodeExecutionEvent) -> None:
         if self._logger.isEnabledFor(logging.DEBUG):
             error_suffix = (
-                f" error={event.error_type}"
-                if event.status == "error" and event.error_type
+                _error_suffix(event.error_type, event.error_message)
+                if event.status == "error"
                 else ""
             )
             self._logger.debug(
@@ -150,8 +160,8 @@ class LoggingExecutionObserver:
     def on_dag_end(self, event: DagRunEvent) -> None:
         if self._logger.isEnabledFor(logging.INFO):
             error_suffix = (
-                f" error={event.error_type}"
-                if event.status == "error" and event.error_type
+                _error_suffix(event.error_type, event.error_message)
+                if event.status == "error"
                 else ""
             )
             self._logger.info(
