@@ -8,6 +8,7 @@ from datetime import datetime
 from datapipeline.cache import RecordStreamCache
 from datapipeline.config.profiles import ServeProfile
 from datapipeline.config.split import SplitConfig
+from datapipeline.domain.stream import RecordStream
 
 from datapipeline.registries.registry import Registry
 from datapipeline.sources.models.source import Source
@@ -24,7 +25,7 @@ class Registries:
 
     sources: Registry[str, Source] = field(default_factory=Registry)
     mappers: Registry[str, Any] = field(default_factory=Registry)
-    stream_sources: Registry[str, Any] = field(default_factory=Registry)
+    stream_sources: Registry[str, RecordStream[Any]] = field(default_factory=Registry)
     record_operations: Registry[str, Sequence[Mapping[str, object]]] = field(
         default_factory=Registry
     )

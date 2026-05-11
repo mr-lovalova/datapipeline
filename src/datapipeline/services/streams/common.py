@@ -34,3 +34,14 @@ def resolve_input_streams(
 def unwrap_records(iterator: Iterator[Any]) -> Iterator[Any]:
     for item in iterator:
         yield getattr(item, "record", item)
+
+
+def iter_mapped(value: Any) -> Iterator[Any]:
+    if value is None:
+        return
+    if isinstance(value, Iterator):
+        for item in value:
+            if item is not None:
+                yield getattr(item, "record", item)
+        return
+    yield getattr(value, "record", value)

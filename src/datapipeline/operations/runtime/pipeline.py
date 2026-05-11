@@ -32,7 +32,7 @@ class PreviewNode:
 
 
 SERVE_PREVIEW_NODES = (
-    PreviewNode("open_source", "record"),
+    PreviewNode("open_stream", "record"),
     PreviewNode("map_records", "record"),
     PreviewNode("record_transforms", "record"),
     PreviewNode("order_records", "record"),

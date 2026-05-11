@@ -137,13 +137,13 @@ def test_dag_builders_expose_structural_child_dags(tmp_path: Path) -> None:
     vector_dag = build_vector_dag(context, [cfg], "1h", rectangular=False)
     full_dag = build_full_dag(context, [cfg], "1h", rectangular=False)
 
-    assert [node.name for node in record_dag.nodes[:2]] == ["open_source", "map_records"]
+    assert [node.name for node in record_dag.nodes[:2]] == ["open_stream", "map_records"]
     assert [node.name for node in feature_dag.nodes] == [
         "build_feature_stream",
         "feature_transforms",
         "order_feature_records",
     ]
-    assert preview_feature_dag.nodes[0].name == "open_source"
+    assert preview_feature_dag.nodes[0].name == "open_stream"
 
     feature_fanout = vector_dag.nodes[0]
     assert feature_fanout.kind == "dag_fanout"

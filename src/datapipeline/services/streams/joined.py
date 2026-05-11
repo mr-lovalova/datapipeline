@@ -10,12 +10,9 @@ from datapipeline.dag.context import PipelineContext
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.joined.model import JoinedRow
 from datapipeline.parsers.identity import IdentityParser
-from datapipeline.plugins import MAPPERS_EP
 from datapipeline.sources.models.loader import BaseDataLoader
 from datapipeline.sources.models.source import Source
 from datapipeline.transforms.utils import get_field, partition_key
-from datapipeline.utils.load import load_ep
-from datapipeline.utils.placeholders import normalize_args
 
 from .common import close_iterator, resolve_input_streams, unwrap_records
 
@@ -31,13 +28,8 @@ class JoinedLoader(BaseDataLoader):
     def load(self):
         context = PipelineContext(self._runtime)
         join = self._spec.join
-        mapper = self._spec.mapper
         if join is None:
             raise ValueError(f"Joined stream '{self._stream_id}' requires join config")
-        if not mapper or not mapper.entrypoint:
-            raise ValueError(
-                f"Joined stream '{self._stream_id}' requires mapper.entrypoint"
-            )
 
         input_refs = _input_refs(self._spec)
         if join.primary not in input_refs:
@@ -53,9 +45,6 @@ class JoinedLoader(BaseDataLoader):
             upstream_iter = iter(iterator)
             upstream_iters.append(upstream_iter)
             record_iters[alias] = unwrap_records(upstream_iter)
-
-        entrypoint = load_ep(MAPPERS_EP, mapper.entrypoint)
-        kwargs = normalize_args(mapper.args)
 
         try:
             stats = _JoinStats(
@@ -74,9 +63,7 @@ class JoinedLoader(BaseDataLoader):
                 time_field=join.on,
                 stats=stats,
             )
-            for row in rows:
-                mapped = entrypoint(row, context=context, **kwargs)
-                yield from _iter_mapped(mapped)
+            yield from rows
             stats.emit()
         finally:
             for iterator in upstream_iters:
@@ -94,20 +81,6 @@ def build_joined_source(stream_id: str, spec: ContractConfig, runtime) -> Source
         loader=JoinedLoader(runtime=runtime, stream_id=stream_id, spec=spec),
         parser=IdentityParser(),
     )
-
-
-def _iter_mapped(value: Any) -> Iterator[Any]:
-    if value is None:
-        return
-    if isinstance(value, TemporalRecord):
-        yield value
-        return
-    if isinstance(value, Iterator):
-        for item in value:
-            if item is not None:
-                yield getattr(item, "record", item)
-        return
-    yield getattr(value, "record", value)
 
 
 def _input_refs(spec: ContractConfig) -> dict[str, str]:

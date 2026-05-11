@@ -265,7 +265,10 @@ def init_streams(cfg: StreamsConfig, runtime: Runtime) -> None:
             regs.stream_sources.register(
                 alias, build_joined_source(alias, spec, runtime)
             )
-            regs.mappers.register(alias, build_mapper_from_spec(None))
+            regs.mappers.register(
+                alias,
+                build_mapper_from_spec(spec.mapper, runtime=runtime, row_mapper=True),
+            )
         else:
             mapper = build_mapper_from_spec(spec.mapper)
             regs.mappers.register(alias, mapper)

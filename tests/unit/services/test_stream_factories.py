@@ -8,6 +8,8 @@ from datapipeline.cli.visuals.execution_context import (
     set_current_execution_event_sink,
 )
 from datapipeline.domain.record import TemporalRecord
+from datapipeline.joined import JoinedRow
+from datapipeline.services.streams.ingest import build_mapper_from_spec
 from datapipeline.services.streams.joined import JoinedLoader
 from datapipeline.services.streams.manual import ManualLoader
 
@@ -88,23 +90,6 @@ def _install_streams(monkeypatch, runtime) -> None:
     )
 
 
-def _install_join_mapper(monkeypatch):
-    def _mapper(row, *, context, **params):
-        del context
-        del params
-        primary = row.values["a"]
-        other = row.values.get("b")
-        if primary is None:
-            return None
-        value = primary.value + (0 if other is None else other.value)
-        return _Rec(time=primary.time, value=value)
-
-    monkeypatch.setattr(
-        "datapipeline.services.streams.joined.load_ep",
-        lambda _namespace, _entrypoint: _mapper,
-    )
-
-
 def _joined_spec(*, join: dict) -> ContractConfig:
     return ContractConfig.model_validate(
         {
@@ -158,6 +143,28 @@ def test_manual_loader_closes_upstream_iterators_when_closed(monkeypatch) -> Non
     assert upstream.closed == 1
 
 
+def test_row_mapper_adapter_maps_joined_rows(monkeypatch) -> None:
+    def _mapper(row, *, context, **params):
+        del context
+        return _Rec(time=row.time, value=row.values["a"].value + params["offset"])
+
+    monkeypatch.setattr(
+        "datapipeline.services.streams.ingest.load_ep",
+        lambda _namespace, _entrypoint: _mapper,
+    )
+
+    mapper = build_mapper_from_spec(
+        EPArgs(entrypoint="join.mapper", args={"offset": 3}),
+        runtime=SimpleNamespace(),
+        row_mapper=True,
+    )
+    rows = [
+        JoinedRow(time=_t(1), values={"a": _Rec(time=_t(1), value=2)}),
+    ]
+
+    assert [record.value for record in mapper(rows)] == [5]
+
+
 def test_joined_loader_matches_same_partition_and_time(monkeypatch) -> None:
     runtime = _runtime(
         streams={
@@ -172,11 +179,12 @@ def test_joined_loader_matches_same_partition_and_time(monkeypatch) -> None:
         partitions={"stream.a": "ticker", "stream.b": "ticker"},
     )
     _install_streams(monkeypatch, runtime)
-    _install_join_mapper(monkeypatch)
 
     rows = list(JoinedLoader(runtime, "joined.out", _joined_spec(join={"primary": "a"})).load())
 
-    assert [row.value for row in rows] == [22]
+    assert len(rows) == 1
+    assert rows[0].values["a"].ticker == "MSFT"
+    assert rows[0].values["b"].value == 20
 
 
 def test_joined_loader_broadcasts_unpartitioned_input_by_time(monkeypatch) -> None:
@@ -191,7 +199,6 @@ def test_joined_loader_broadcasts_unpartitioned_input_by_time(monkeypatch) -> No
         partitions={"stream.a": "ticker", "stream.b": None},
     )
     _install_streams(monkeypatch, runtime)
-    _install_join_mapper(monkeypatch)
 
     rows = list(
         JoinedLoader(
@@ -201,7 +208,8 @@ def test_joined_loader_broadcasts_unpartitioned_input_by_time(monkeypatch) -> No
         ).load()
     )
 
-    assert [row.value for row in rows] == [21, 22]
+    assert [row.values["a"].value for row in rows] == [1, 2]
+    assert [row.values["b"].value for row in rows] == [20, 20]
 
 
 def test_joined_loader_matches_unpartitioned_inputs_by_time(monkeypatch) -> None:
@@ -213,11 +221,12 @@ def test_joined_loader_matches_unpartitioned_inputs_by_time(monkeypatch) -> None
         partitions={"stream.a": None, "stream.b": None},
     )
     _install_streams(monkeypatch, runtime)
-    _install_join_mapper(monkeypatch)
 
     rows = list(JoinedLoader(runtime, "joined.out", _joined_spec(join={"primary": "a"})).load())
 
-    assert [row.value for row in rows] == [22]
+    assert len(rows) == 1
+    assert rows[0].values["a"].value == 2
+    assert rows[0].values["b"].value == 20
 
 
 def test_joined_loader_emits_join_diagnostics(monkeypatch) -> None:
@@ -229,7 +238,6 @@ def test_joined_loader_emits_join_diagnostics(monkeypatch) -> None:
         partitions={"stream.a": None, "stream.b": None},
     )
     _install_streams(monkeypatch, runtime)
-    _install_join_mapper(monkeypatch)
     capture = _CaptureSink()
     token = set_current_execution_event_sink(capture)
     try:
@@ -239,7 +247,9 @@ def test_joined_loader_emits_join_diagnostics(monkeypatch) -> None:
     finally:
         reset_current_execution_event_sink(token)
 
-    assert [row.value for row in rows] == [22]
+    assert len(rows) == 1
+    assert rows[0].values["a"].value == 2
+    assert rows[0].values["b"].value == 20
     messages = [event.message for event in capture.events]
     assert (
         "[joined.out] join: primary=a on=time mode=inner "
@@ -264,7 +274,6 @@ def test_joined_loader_broadcasts_subset_partition(monkeypatch) -> None:
         partitions={"stream.a": ["ticker", "horizon"], "stream.b": "ticker"},
     )
     _install_streams(monkeypatch, runtime)
-    _install_join_mapper(monkeypatch)
 
     rows = list(
         JoinedLoader(
@@ -274,4 +283,5 @@ def test_joined_loader_broadcasts_subset_partition(monkeypatch) -> None:
         ).load()
     )
 
-    assert [row.value for row in rows] == [21, 22]
+    assert [row.values["a"].value for row in rows] == [1, 2]
+    assert [row.values["b"].value for row in rows] == [20, 20]

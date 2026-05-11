@@ -16,7 +16,7 @@ def test_preview_plan_dedupes_shared_streams_for_early_preview_indices() -> None
 
     plan = _preview_plan(
         preview_cfgs,
-        PreviewNode("open_source", "record"),
+        PreviewNode("open_stream", "record"),
     )
 
     assert plan == [

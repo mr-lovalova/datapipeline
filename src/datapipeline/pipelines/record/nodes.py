@@ -14,8 +14,8 @@ from datapipeline.transforms.utils import partition_key
 RECORD_NODE_COUNT = 6
 
 
-def open_source(source):
-    return source.stream()
+def open_stream(stream):
+    return stream.stream()
 
 
 def map_records(mapper: Any, records: Iterable[Any] | None) -> Iterable[Any]:

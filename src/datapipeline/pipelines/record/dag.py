@@ -9,7 +9,7 @@ from datapipeline.pipelines.record.nodes import (
     apply_record_operations,
     apply_stream_operations,
     map_records,
-    open_source,
+    open_stream,
     order_records,
 )
 from datapipeline.dag.context import PipelineContext
@@ -48,8 +48,8 @@ def build_record_nodes(
     batch_size = registries.sort_batch_size.get(record_stream_id)
     return (
         PipelineNode(
-            name="open_source",
-            op=open_source,
+            name="open_stream",
+            op=open_stream,
             args=(source,),
             output="dtos",
         ),
