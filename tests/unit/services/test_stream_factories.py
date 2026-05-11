@@ -10,8 +10,8 @@ from datapipeline.cli.visuals.execution_context import (
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.joined import JoinedRow
 from datapipeline.services.streams.ingest import build_mapper_from_spec
-from datapipeline.services.streams.joined import JoinedLoader
-from datapipeline.services.streams.manual import ManualLoader
+from datapipeline.services.streams.joined import JoinedStream
+from datapipeline.services.streams.manual import ManualStream
 
 
 @dataclass
@@ -102,7 +102,7 @@ def _joined_spec(*, join: dict) -> ContractConfig:
     )
 
 
-def test_manual_loader_closes_upstream_iterators_when_closed(monkeypatch) -> None:
+def test_manual_stream_closes_upstream_iterators_when_closed(monkeypatch) -> None:
     upstream = _ClosableIterator([1, 2, 3])
 
     def _cached_record_stream(_context, _ref):
@@ -133,9 +133,9 @@ def test_manual_loader_closes_upstream_iterators_when_closed(monkeypatch) -> Non
         inputs=["aapl=equity.aapl"],
         mapper=EPArgs(entrypoint="test.mapper", args={}),
     )
-    loader = ManualLoader(runtime=runtime, stream_id=spec.id, spec=spec)
+    stream = ManualStream(runtime=runtime, stream_id=spec.id, spec=spec)
 
-    iterator = loader.load()
+    iterator = stream.stream()
     assert next(iterator) == 1
 
     iterator.close()
@@ -165,7 +165,7 @@ def test_row_mapper_adapter_maps_joined_rows(monkeypatch) -> None:
     assert [record.value for record in mapper(rows)] == [5]
 
 
-def test_joined_loader_matches_same_partition_and_time(monkeypatch) -> None:
+def test_joined_stream_matches_same_partition_and_time(monkeypatch) -> None:
     runtime = _runtime(
         streams={
             "stream.a": [
@@ -180,14 +180,18 @@ def test_joined_loader_matches_same_partition_and_time(monkeypatch) -> None:
     )
     _install_streams(monkeypatch, runtime)
 
-    rows = list(JoinedLoader(runtime, "joined.out", _joined_spec(join={"primary": "a"})).load())
+    rows = list(
+        JoinedStream(
+            runtime, "joined.out", _joined_spec(join={"primary": "a"})
+        ).stream()
+    )
 
     assert len(rows) == 1
     assert rows[0].values["a"].ticker == "MSFT"
     assert rows[0].values["b"].value == 20
 
 
-def test_joined_loader_broadcasts_unpartitioned_input_by_time(monkeypatch) -> None:
+def test_joined_stream_broadcasts_unpartitioned_input_by_time(monkeypatch) -> None:
     runtime = _runtime(
         streams={
             "stream.a": [
@@ -201,18 +205,18 @@ def test_joined_loader_broadcasts_unpartitioned_input_by_time(monkeypatch) -> No
     _install_streams(monkeypatch, runtime)
 
     rows = list(
-        JoinedLoader(
+        JoinedStream(
             runtime,
             "joined.out",
             _joined_spec(join={"primary": "a", "broadcast": ["b"]}),
-        ).load()
+        ).stream()
     )
 
     assert [row.values["a"].value for row in rows] == [1, 2]
     assert [row.values["b"].value for row in rows] == [20, 20]
 
 
-def test_joined_loader_matches_unpartitioned_inputs_by_time(monkeypatch) -> None:
+def test_joined_stream_matches_unpartitioned_inputs_by_time(monkeypatch) -> None:
     runtime = _runtime(
         streams={
             "stream.a": [_Rec(time=_t(1), value=1), _Rec(time=_t(2), value=2)],
@@ -222,14 +226,18 @@ def test_joined_loader_matches_unpartitioned_inputs_by_time(monkeypatch) -> None
     )
     _install_streams(monkeypatch, runtime)
 
-    rows = list(JoinedLoader(runtime, "joined.out", _joined_spec(join={"primary": "a"})).load())
+    rows = list(
+        JoinedStream(
+            runtime, "joined.out", _joined_spec(join={"primary": "a"})
+        ).stream()
+    )
 
     assert len(rows) == 1
     assert rows[0].values["a"].value == 2
     assert rows[0].values["b"].value == 20
 
 
-def test_joined_loader_emits_join_diagnostics(monkeypatch) -> None:
+def test_joined_stream_emits_join_diagnostics(monkeypatch) -> None:
     runtime = _runtime(
         streams={
             "stream.a": [_Rec(time=_t(1), value=1), _Rec(time=_t(2), value=2)],
@@ -242,7 +250,9 @@ def test_joined_loader_emits_join_diagnostics(monkeypatch) -> None:
     token = set_current_execution_event_sink(capture)
     try:
         rows = list(
-            JoinedLoader(runtime, "joined.out", _joined_spec(join={"primary": "a"})).load()
+            JoinedStream(
+                runtime, "joined.out", _joined_spec(join={"primary": "a"})
+            ).stream()
         )
     finally:
         reset_current_execution_event_sink(token)
@@ -262,7 +272,7 @@ def test_joined_loader_emits_join_diagnostics(monkeypatch) -> None:
     assert {event.message_kind for event in capture.events} == {"source_info"}
 
 
-def test_joined_loader_broadcasts_subset_partition(monkeypatch) -> None:
+def test_joined_stream_broadcasts_subset_partition(monkeypatch) -> None:
     runtime = _runtime(
         streams={
             "stream.a": [
@@ -276,11 +286,11 @@ def test_joined_loader_broadcasts_subset_partition(monkeypatch) -> None:
     _install_streams(monkeypatch, runtime)
 
     rows = list(
-        JoinedLoader(
+        JoinedStream(
             runtime,
             "joined.out",
             _joined_spec(join={"primary": "a", "broadcast": ["b"]}),
-        ).load()
+        ).stream()
     )
 
     assert [row.values["a"].value for row in rows] == [1, 2]

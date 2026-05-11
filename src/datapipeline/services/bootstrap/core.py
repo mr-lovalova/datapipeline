@@ -15,12 +15,12 @@ from datapipeline.services.constants import (
     STREAM_ID_KEY,
     POSTPROCESS_TRANSFORMS,
 )
-from datapipeline.services.streams import (
-    build_source_from_spec,
+from datapipeline.services.streams.ingest import (
     build_mapper_from_spec,
-    build_joined_source,
-    build_manual_source,
+    build_source_from_spec,
 )
+from datapipeline.services.streams.joined import build_joined_stream
+from datapipeline.services.streams.manual import build_manual_stream
 
 from datapipeline.runtime import Runtime
 from datapipeline.config.postprocess import PostprocessConfig
@@ -258,12 +258,12 @@ def init_streams(cfg: StreamsConfig, runtime: Runtime) -> None:
     for alias, spec in contracts.items():
         if getattr(spec, "kind", None) == "manual":
             regs.stream_sources.register(
-                alias, build_manual_source(alias, spec, runtime)
+                alias, build_manual_stream(alias, spec, runtime)
             )
             regs.mappers.register(alias, build_mapper_from_spec(None))
         elif getattr(spec, "kind", None) == "joined":
             regs.stream_sources.register(
-                alias, build_joined_source(alias, spec, runtime)
+                alias, build_joined_stream(alias, spec, runtime)
             )
             regs.mappers.register(
                 alias,

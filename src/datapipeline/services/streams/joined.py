@@ -8,10 +8,8 @@ from datapipeline.cli.visuals.execution_context import current_dag_depth
 from datapipeline.config.catalog import ContractConfig
 from datapipeline.dag.context import PipelineContext
 from datapipeline.domain.record import TemporalRecord
+from datapipeline.domain.stream import RecordStream
 from datapipeline.joined.model import JoinedRow
-from datapipeline.parsers.identity import IdentityParser
-from datapipeline.sources.models.loader import BaseDataLoader
-from datapipeline.sources.models.source import Source
 from datapipeline.transforms.utils import get_field, partition_key
 
 from .common import close_iterator, resolve_input_streams, unwrap_records
@@ -19,13 +17,13 @@ from .common import close_iterator, resolve_input_streams, unwrap_records
 logger = logging.getLogger(__name__)
 
 
-class JoinedLoader(BaseDataLoader):
+class JoinedStream(RecordStream[JoinedRow]):
     def __init__(self, runtime, stream_id: str, spec: ContractConfig):
         self._runtime = runtime
         self._stream_id = stream_id
         self._spec = spec
 
-    def load(self):
+    def stream(self):
         context = PipelineContext(self._runtime)
         join = self._spec.join
         if join is None:
@@ -69,18 +67,11 @@ class JoinedLoader(BaseDataLoader):
             for iterator in upstream_iters:
                 close_iterator(iterator)
 
-    def count(self):
-        return None
 
-    def progress_visible(self) -> bool:
-        return False
-
-
-def build_joined_source(stream_id: str, spec: ContractConfig, runtime) -> Source:
-    return Source(
-        loader=JoinedLoader(runtime=runtime, stream_id=stream_id, spec=spec),
-        parser=IdentityParser(),
-    )
+def build_joined_stream(
+    stream_id: str, spec: ContractConfig, runtime
+) -> RecordStream[JoinedRow]:
+    return JoinedStream(runtime=runtime, stream_id=stream_id, spec=spec)
 
 
 def _input_refs(spec: ContractConfig) -> dict[str, str]:

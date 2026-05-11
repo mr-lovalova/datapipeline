@@ -3,23 +3,21 @@ from typing import Any
 
 from datapipeline.config.catalog import ContractConfig
 from datapipeline.dag.context import PipelineContext
-from datapipeline.parsers.identity import IdentityParser
+from datapipeline.domain.stream import RecordStream
 from datapipeline.plugins import MAPPERS_EP
-from datapipeline.sources.models.loader import BaseDataLoader
-from datapipeline.sources.models.source import Source
 from datapipeline.utils.load import load_ep
 from datapipeline.utils.placeholders import normalize_args
 
 from .common import close_iterator, resolve_input_streams, unwrap_records
 
 
-class ManualLoader(BaseDataLoader):
+class ManualStream(RecordStream[Any]):
     def __init__(self, runtime, stream_id: str, spec: ContractConfig):
         self._runtime = runtime
         self._stream_id = stream_id
         self._spec = spec
 
-    def load(self):
+    def stream(self):
         context = PipelineContext(self._runtime)
         resolved_inputs = resolve_input_streams(context, self._spec)
         upstream_iters: list[Iterator[Any]] = []
@@ -68,15 +66,8 @@ class ManualLoader(BaseDataLoader):
             for iterator in upstream_iters:
                 close_iterator(iterator)
 
-    def count(self):
-        return None
 
-    def progress_visible(self) -> bool:
-        return False
-
-
-def build_manual_source(stream_id: str, spec: ContractConfig, runtime) -> Source:
-    return Source(
-        loader=ManualLoader(runtime=runtime, stream_id=stream_id, spec=spec),
-        parser=IdentityParser(),
-    )
+def build_manual_stream(
+    stream_id: str, spec: ContractConfig, runtime
+) -> RecordStream[Any]:
+    return ManualStream(runtime=runtime, stream_id=stream_id, spec=spec)
