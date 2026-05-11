@@ -446,9 +446,9 @@ def test_rich_source_proxy_formats_text_with_context_indent() -> None:
 def test_rich_source_proxy_emits_glob_summary_as_source_info_event(monkeypatch) -> None:
     captured: list[tuple[str, int, int, str | None]] = []
     monkeypatch.setattr(
-        "datapipeline.cli.visuals.rich.sources.emit_execution_message",
-        lambda message, level, logger, depth=0, message_kind=None: captured.append(
-            (message, level, depth, message_kind)
+        "datapipeline.cli.visuals.rich.sources.emit_source_info",
+        lambda stream_id, message, logger, depth=0: captured.append(
+            (f"[{stream_id}] {message}", logging.INFO, depth, "source_info")
         ),
     )
 
@@ -511,9 +511,9 @@ def test_rich_source_proxy_emits_glob_summary_as_source_info_event(monkeypatch) 
 def test_rich_source_proxy_skips_progress_row_for_virtual_source(monkeypatch) -> None:
     captured: list[tuple[str, int, int, str | None]] = []
     monkeypatch.setattr(
-        "datapipeline.cli.visuals.rich.sources.emit_execution_message",
-        lambda message, level, logger, depth=0, message_kind=None: captured.append(
-            (message, level, depth, message_kind)
+        "datapipeline.cli.visuals.rich.sources.emit_source_info",
+        lambda stream_id, message, logger, depth=0: captured.append(
+            (f"[{stream_id}] {message}", logging.INFO, depth, "source_info")
         ),
     )
 
@@ -667,9 +667,9 @@ def test_rich_source_proxy_clears_glob_rows_between_invocations(monkeypatch) -> 
 def test_rich_source_proxy_handles_foreach_fs_sequence_with_empty_first_value(monkeypatch) -> None:
     captured: list[tuple[str, int, int, str | None]] = []
     monkeypatch.setattr(
-        "datapipeline.cli.visuals.rich.sources.emit_execution_message",
-        lambda message, level, logger, depth=0, message_kind=None: captured.append(
-            (message, level, depth, message_kind)
+        "datapipeline.cli.visuals.rich.sources.emit_source_info",
+        lambda stream_id, message, logger, depth=0: captured.append(
+            (f"[{stream_id}] {message}", logging.INFO, depth, "source_info")
         ),
     )
 

@@ -5,8 +5,10 @@ import logging
 from datapipeline.runtime import Runtime
 from datapipeline.sources.models.source import Source
 
+from .execution import emit_source_info
 from .source_observability import SourceObservabilityAdapter
 from .execution_context import (
+    current_dag_depth,
     reset_current_source_visual_proxy_factory,
     reset_current_visual_log_level,
     set_current_source_visual_proxy_factory,
@@ -29,16 +31,16 @@ class VisualSourceProxy(Source):
         started = False
 
         def _emit_source_details() -> None:
-            info_indent = adapter.current_indent(logging.INFO)
             debug_indent = adapter.current_indent(logging.DEBUG)
             info_lines = adapter.info_lines()
             debug_lines = adapter.debug_lines()
-            if logger.isEnabledFor(logging.INFO):
-                if info_lines:
-                    for line in info_lines:
-                        logger.info("%s[%s] %s", info_indent, self._stream_id, line)
-                else:
-                    logger.info("%s[%s] Stream starting", info_indent, self._stream_id)
+            for line in info_lines or ["Stream starting"]:
+                emit_source_info(
+                    self._stream_id,
+                    line,
+                    logger=logger,
+                    depth=current_dag_depth(),
+                )
             if logger.isEnabledFor(logging.DEBUG):
                 for line in debug_lines:
                     logger.debug("%s[%s] %s", debug_indent, self._stream_id, line)
@@ -54,14 +56,12 @@ class VisualSourceProxy(Source):
                 emitted += 1
                 yield item
         finally:
-            if logger.isEnabledFor(logging.INFO):
-                indent = adapter.current_indent(logging.INFO)
-                logger.info(
-                    "%s[%s] Stream complete items=%d",
-                    indent,
-                    self._stream_id,
-                    emitted,
-                )
+            emit_source_info(
+                self._stream_id,
+                f"Stream complete items={emitted}",
+                logger=logger,
+                depth=current_dag_depth(),
+            )
 
 
 @contextmanager

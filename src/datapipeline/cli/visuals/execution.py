@@ -300,6 +300,22 @@ def emit_execution_message(
     ContextExecutionEventSink().emit(event)
 
 
+def emit_source_info(
+    stream_id: str,
+    message: str,
+    *,
+    logger: logging.Logger | None = None,
+    depth: int = 0,
+) -> None:
+    emit_execution_message(
+        f"[{stream_id}] {message}",
+        level=logging.INFO,
+        logger=logger,
+        depth=depth,
+        message_kind="source_info",
+    )
+
+
 class HierarchicalExecutionObserver(ExecutionObserver):
     def __init__(self, sink: ExecutionEventSink) -> None:
         self._sink = sink

@@ -3,6 +3,10 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from datapipeline.config.catalog import ContractConfig, EPArgs
+from datapipeline.cli.visuals.execution_context import (
+    reset_current_execution_event_sink,
+    set_current_execution_event_sink,
+)
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.services.streams.joined import JoinedLoader
 from datapipeline.services.streams.manual import ManualLoader
@@ -50,6 +54,14 @@ class _ClosableIterator:
 
     def close(self):
         self.closed += 1
+
+
+class _CaptureSink:
+    def __init__(self) -> None:
+        self.events = []
+
+    def emit(self, event) -> None:
+        self.events.append(event)
 
 
 def _t(day: int) -> datetime:
@@ -206,6 +218,38 @@ def test_joined_loader_matches_unpartitioned_inputs_by_time(monkeypatch) -> None
     rows = list(JoinedLoader(runtime, "joined.out", _joined_spec(join={"primary": "a"})).load())
 
     assert [row.value for row in rows] == [22]
+
+
+def test_joined_loader_emits_join_diagnostics(monkeypatch) -> None:
+    runtime = _runtime(
+        streams={
+            "stream.a": [_Rec(time=_t(1), value=1), _Rec(time=_t(2), value=2)],
+            "stream.b": [_Rec(time=_t(2), value=20)],
+        },
+        partitions={"stream.a": None, "stream.b": None},
+    )
+    _install_streams(monkeypatch, runtime)
+    _install_join_mapper(monkeypatch)
+    capture = _CaptureSink()
+    token = set_current_execution_event_sink(capture)
+    try:
+        rows = list(
+            JoinedLoader(runtime, "joined.out", _joined_spec(join={"primary": "a"})).load()
+        )
+    finally:
+        reset_current_execution_event_sink(token)
+
+    assert [row.value for row in rows] == [22]
+    messages = [event.message for event in capture.events]
+    assert (
+        "[joined.out] join: primary=a on=time mode=inner "
+        "primary_rows=2 output_rows=1"
+    ) in messages
+    assert (
+        "[joined.out] join.input: b=stream.b rows=1 matched=1 missed=1 "
+        "match_rate=50.0% broadcast=false"
+    ) in messages
+    assert {event.message_kind for event in capture.events} == {"source_info"}
 
 
 def test_joined_loader_broadcasts_subset_partition(monkeypatch) -> None:

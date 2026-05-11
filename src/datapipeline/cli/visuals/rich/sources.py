@@ -13,7 +13,7 @@ from rich.progress import (
 from datapipeline.runtime import Runtime
 from datapipeline.sources.models.source import Source
 
-from ..execution import emit_execution_message
+from ..execution import emit_source_info
 from ..execution_context import (
     current_dag_depth,
     reset_current_execution_event_sink,
@@ -113,12 +113,8 @@ class _RichSourceProxy(Source):
                 include_dag_indent=False,
             )
         for line in info_lines:
-            emit_execution_message(
-                f"[{stream_label}] {line}",
-                level=logging.INFO,
-                logger=logger,
-                depth=current_dag_depth(),
-                message_kind="source_info",
+            emit_source_info(
+                stream_label, line, logger=logger, depth=current_dag_depth()
             )
 
         emitted = 0
@@ -193,12 +189,11 @@ class _RichSourceProxy(Source):
                     self._progress.remove_task,
                     retired_task_id,
                 )
-            emit_execution_message(
-                f"[{stream_label}] Stream complete items={emitted}",
-                level=logging.INFO,
+            emit_source_info(
+                stream_label,
+                f"Stream complete items={emitted}",
                 logger=logger,
                 depth=current_dag_depth(),
-                message_kind="source_info",
             )
 
 
