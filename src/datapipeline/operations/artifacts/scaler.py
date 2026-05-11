@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Dict, Iterator
 
+from datapipeline.artifacts.specs import dataset_requires_scaler
 from datapipeline.config.tasks import ScalerTask
 from datapipeline.config.dataset.loader import load_dataset
 from datapipeline.domain.sample import Sample
@@ -20,7 +21,7 @@ def materialize_scaler_statistics(
     dataset = load_dataset(runtime.project_yaml, "vectors")
     feature_cfgs = list(dataset.features or [])
     target_cfgs = list(dataset.targets or [])
-    if not feature_cfgs and not target_cfgs:
+    if not dataset_requires_scaler(dataset):
         return None
 
     sanitized_features = [cfg.model_copy(update={"scale": False}) for cfg in feature_cfgs]

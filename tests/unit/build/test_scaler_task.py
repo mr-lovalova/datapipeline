@@ -1,6 +1,8 @@
 from datetime import datetime, timezone
 import json
 
+import pytest
+
 from datapipeline.operations.artifacts.scaler import materialize_scaler_statistics
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig
@@ -28,7 +30,14 @@ def test_materialize_scaler_statistics_split_all_ignores_label_filter(monkeypatc
 
     dataset = FeatureDatasetConfig(
         group_by="1h",
-        features=[FeatureRecordConfig(id="x", record_stream="stream", field="value")],
+        features=[
+            FeatureRecordConfig(
+                id="x",
+                record_stream="stream",
+                field="value",
+                scale=True,
+            )
+        ],
         targets=[],
     )
 
@@ -63,3 +72,35 @@ def test_materialize_scaler_statistics_split_all_ignores_label_filter(monkeypatc
     assert payload["split"] == "all"
     assert payload["observations"] == 2
     assert "x" in payload["statistics"]
+
+
+def test_materialize_scaler_statistics_skips_when_no_scaled_features(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    artifacts_root = tmp_path / "artifacts"
+    artifacts_root.mkdir()
+    project_yaml = tmp_path / "project.yaml"
+    project_yaml.write_text("version: 1\n", encoding="utf-8")
+    runtime = Runtime(project_yaml=project_yaml, artifacts_root=artifacts_root)
+    dataset = FeatureDatasetConfig(
+        group_by="1h",
+        features=[FeatureRecordConfig(id="x", record_stream="stream", field="value")],
+        targets=[],
+    )
+
+    monkeypatch.setattr(
+        "datapipeline.operations.artifacts.scaler.load_dataset",
+        lambda *_args, **_kwargs: dataset,
+    )
+    monkeypatch.setattr(
+        "datapipeline.operations.artifacts.scaler.build_vector_pipeline",
+        lambda *_args, **_kwargs: pytest.fail("vector pipeline should not run"),
+    )
+
+    result = materialize_scaler_statistics(
+        runtime,
+        ScalerTask(id="scaler", split_label="train", output="scaler.json"),
+    )
+
+    assert result is None

@@ -4,10 +4,12 @@ from typing import Iterable
 from datapipeline.artifacts.specs import (
     ARTIFACT_DEFINITIONS,
     ArtifactDefinition,
+    artifact_definition_for_key,
     artifact_key_for_task_id,
     artifact_keys_for_task_ids,
 )
 from datapipeline.build.state import BuildState
+from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.tasks import ArtifactTask
 
 
@@ -63,6 +65,32 @@ def selected_artifact_keys_for_build(
         if profile_keys is not None:
             selected &= profile_keys
     return selected
+
+
+def required_artifact_keys_for_dataset(
+    *,
+    context: ArtifactPlanningContext,
+    selected_keys: set[str],
+    dataset: FeatureDatasetConfig,
+) -> set[str]:
+    required: set[str] = set()
+    for key in selected_keys:
+        definition = artifact_definition_for_key(key, context.definitions)
+        if definition is None or definition.is_required_for(dataset):
+            required.add(key)
+    return required
+
+
+def has_dataset_requirements(
+    *,
+    context: ArtifactPlanningContext,
+    selected_keys: set[str],
+) -> bool:
+    for key in selected_keys:
+        definition = artifact_definition_for_key(key, context.definitions)
+        if definition is not None and definition.requires_dataset():
+            return True
+    return False
 
 
 def stale_artifact_keys(

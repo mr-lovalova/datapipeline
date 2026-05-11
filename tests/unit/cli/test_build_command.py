@@ -4,12 +4,18 @@ from types import SimpleNamespace
 import pytest
 from datapipeline.artifacts import executor as build_exec
 from datapipeline.config.build_resolution import resolve_build_settings
+from datapipeline.config.dataset.dataset import FeatureDatasetConfig
+from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.config.profiles import BuildProfile
 from datapipeline.config.resolution import LogOutputSettings, LogOutputTarget
 from datapipeline.config.tasks import SchemaTask, ScalerTask, StatsTask
 from datapipeline.operations.persistence import ArtifactOutput
 from datapipeline.services.artifacts import ArtifactManager
-from datapipeline.services.constants import VECTOR_SCHEMA_METADATA, VECTOR_STATS
+from datapipeline.services.constants import (
+    SCALER_STATISTICS,
+    VECTOR_SCHEMA_METADATA,
+    VECTOR_STATS,
+)
 
 
 class _TaskStub:
@@ -24,6 +30,21 @@ class _TaskStub:
         self.output = output
         self.enabled = enabled
         self.entrypoint = entrypoint
+
+
+def _dataset_with_feature(*, scale: bool) -> FeatureDatasetConfig:
+    return FeatureDatasetConfig(
+        group_by="1h",
+        features=[
+            FeatureRecordConfig(
+                id="x",
+                record_stream="stream",
+                field="value",
+                scale=scale,
+            )
+        ],
+        targets=[],
+    )
 
 
 def test_log_build_decision_emits_execution_message(monkeypatch):
@@ -339,6 +360,10 @@ def test_run_build_if_needed_preserves_previous_artifacts_in_state(monkeypatch, 
     monkeypatch.setattr("datapipeline.artifacts.executor.compute_config_hash", lambda *_: "hash-1")
     monkeypatch.setattr("datapipeline.artifacts.executor.configure_root_logging", lambda **kwargs: None)
     monkeypatch.setattr("datapipeline.artifacts.executor.bootstrap", lambda _: SimpleNamespace(artifacts_root=tmp_path / "artifacts"))
+    monkeypatch.setattr(
+        "datapipeline.artifacts.executor.load_dataset",
+        lambda *_args, **_kwargs: _dataset_with_feature(scale=True),
+    )
     schema_task = SchemaTask(id="schema")
     schema_task.source_path = tasks_root / "schema.yaml"
     scaler_task = ScalerTask(id="scaler")
@@ -414,6 +439,10 @@ def test_run_build_if_needed_rebuilds_stale_profile_artifact(monkeypatch, tmp_pa
     monkeypatch.setattr("datapipeline.artifacts.executor.compute_config_hash", lambda *_: "hash-2")
     monkeypatch.setattr("datapipeline.artifacts.executor.configure_root_logging", lambda **kwargs: None)
     monkeypatch.setattr("datapipeline.artifacts.executor.bootstrap", lambda _: SimpleNamespace(artifacts_root=tmp_path / "artifacts"))
+    monkeypatch.setattr(
+        "datapipeline.artifacts.executor.load_dataset",
+        lambda *_args, **_kwargs: _dataset_with_feature(scale=True),
+    )
     captured: list[tuple[str, str | None]] = []
     monkeypatch.setattr(
         "datapipeline.artifacts.executor.emit_execution_message",
@@ -648,3 +677,34 @@ def test_run_build_if_needed_emits_run_decision(monkeypatch, tmp_path):
     assert did_build is True
     decisions = [message for message, kind in captured if kind == "build_decision"]
     assert any('"action": "run"' in message and '"reason": "force"' in message for message in decisions)
+
+
+def test_plan_build_skips_scaler_when_dataset_has_no_scaled_features(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    project_path = tmp_path / "project.yaml"
+    project_path.write_text("version: 1\n", encoding="utf-8")
+    settings = SimpleNamespace(
+        mode="AUTO",
+        force=True,
+        profile_name="scaler",
+    )
+    monkeypatch.setattr(
+        "datapipeline.artifacts.executor.load_dataset",
+        lambda *_args, **_kwargs: _dataset_with_feature(scale=False),
+    )
+
+    plan = build_exec._plan_build(
+        project_path=project_path,
+        settings=settings,
+        build_profile=None,
+        required_artifacts={SCALER_STATISTICS},
+        artifact_task_configs=[ScalerTask(id="scaler")],
+    )
+
+    assert plan == {
+        "action": "skip",
+        "reason": "not_required",
+        "selected_artifacts": 0,
+    }

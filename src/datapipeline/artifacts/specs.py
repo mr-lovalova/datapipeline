@@ -16,7 +16,15 @@ class ArtifactDefinition:
     key: str
     task_id: str
     min_stage: int | None
-    required_if: Callable[[FeatureDatasetConfig], bool] = lambda _dataset: True
+    required_if: Callable[[FeatureDatasetConfig], bool] | None = None
+
+    def requires_dataset(self) -> bool:
+        return self.required_if is not None
+
+    def is_required_for(self, dataset: FeatureDatasetConfig) -> bool:
+        if self.required_if is None:
+            return True
+        return self.required_if(dataset)
 
 
 def _needs_scaler(configs: Iterable[FeatureRecordConfig]) -> bool:
@@ -29,7 +37,7 @@ def _needs_scaler(configs: Iterable[FeatureRecordConfig]) -> bool:
     return False
 
 
-def _requires_scaler(dataset: FeatureDatasetConfig) -> bool:
+def dataset_requires_scaler(dataset: FeatureDatasetConfig) -> bool:
     if _needs_scaler(dataset.features or []):
         return True
     if dataset.targets:
@@ -55,7 +63,7 @@ ARTIFACT_DEFINITIONS: tuple[
         key=SCALER_STATISTICS,
         task_id="scaler",
         min_stage=6,
-        required_if=_requires_scaler,
+        required_if=dataset_requires_scaler,
     ),
     ArtifactDefinition(
         key=VECTOR_STATS,

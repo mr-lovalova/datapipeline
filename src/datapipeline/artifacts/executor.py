@@ -4,6 +4,8 @@ from pathlib import Path
 
 from datapipeline.artifacts.planning import (
     build_planning_context,
+    has_dataset_requirements,
+    required_artifact_keys_for_dataset,
     selected_artifact_keys_for_build,
     stale_artifact_keys,
 )
@@ -23,6 +25,7 @@ from datapipeline.cli.logging_setup import configure_root_logging
 from datapipeline.cli.visuals.execution import make_execution_observer
 from datapipeline.cli.visuals.execution import emit_execution_message
 from datapipeline.config.build_resolution import BuildSettings, resolve_build_settings
+from datapipeline.config.dataset.loader import load_dataset
 from datapipeline.config.profiles import BuildProfile
 from datapipeline.config.resolution import LogOutputTarget
 from datapipeline.config.loaders.operations import operation_specs
@@ -143,11 +146,25 @@ def _plan_build(
         logger.error("%s", exc)
         raise SystemExit(2) from exc
 
-    selected_count = len(selected_keys)
     if not selected_keys:
         return {
             "action": "skip",
             "reason": "no_artifacts_selected",
+            "selected_artifacts": 0,
+        }
+
+    if has_dataset_requirements(context=context, selected_keys=selected_keys):
+        dataset = load_dataset(project_path, "vectors")
+        selected_keys = required_artifact_keys_for_dataset(
+            context=context,
+            selected_keys=selected_keys,
+            dataset=dataset,
+        )
+    selected_count = len(selected_keys)
+    if not selected_keys:
+        return {
+            "action": "skip",
+            "reason": "not_required",
             "selected_artifacts": 0,
         }
 
