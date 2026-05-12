@@ -1,4 +1,5 @@
 from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from typing import Any
 
 from datapipeline.cache import cached_record_stream
@@ -11,24 +12,29 @@ def close_iterator(iterator: Any) -> None:
         closer()
 
 
+@contextmanager
 def open_input_records(
     context: PipelineContext,
     refs: Mapping[str, str],
     owner: str,
-) -> tuple[dict[str, str], dict[str, Iterator[Any]], list[Iterator[Any]]]:
+) -> Iterator[dict[str, Iterator[Any]]]:
     known_streams = set(context.runtime.registries.stream_sources.keys())
     upstreams: list[Iterator[Any]] = []
     records: dict[str, Iterator[Any]] = {}
-    for alias, ref in refs.items():
-        if ref not in known_streams:
-            raise ValueError(
-                f"Stream '{owner}' references unknown stream '{ref}'. "
-                f"Known streams: {sorted(known_streams)}"
-            )
-        upstream = iter(cached_record_stream(context, ref))
-        upstreams.append(upstream)
-        records[alias] = _unwrap_records(upstream)
-    return refs, records, upstreams
+    try:
+        for alias, ref in refs.items():
+            if ref not in known_streams:
+                raise ValueError(
+                    f"Stream '{owner}' references unknown stream '{ref}'. "
+                    f"Known streams: {sorted(known_streams)}"
+                )
+            upstream = iter(cached_record_stream(context, ref))
+            upstreams.append(upstream)
+            records[alias] = _unwrap_records(upstream)
+        yield records
+    finally:
+        for upstream in upstreams:
+            close_iterator(upstream)
 
 
 def _unwrap_records(iterator: Iterator[Any]) -> Iterator[Any]:

@@ -10,10 +10,7 @@ from datapipeline.dag.context import PipelineContext
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.domain.stream import RecordStream
 from datapipeline.joined.model import JoinedRow
-from datapipeline.pipelines.record.inputs import (
-    close_iterator,
-    open_input_records,
-)
+from datapipeline.pipelines.record.inputs import open_input_records
 from datapipeline.services.streams.join_plan import (
     JoinInputPlan,
     build_join_input_plans,
@@ -36,9 +33,7 @@ class JoinedStream(RecordStream[JoinedRow]):
         if primary is None:
             raise ValueError(f"Joined stream '{self._stream_id}' requires from.primary")
 
-        refs, record_iters, upstream_iters = open_input_records(
-            context, self._spec.input_refs(), owner=self._stream_id
-        )
+        refs = self._spec.input_refs()
         input_plans = build_join_input_plans(
             stream_id=self._stream_id,
             input_refs=refs,
@@ -47,7 +42,7 @@ class JoinedStream(RecordStream[JoinedRow]):
             partition_by=self._runtime.registries.partition_by,
         )
 
-        try:
+        with open_input_records(context, refs, owner=self._stream_id) as record_iters:
             stats = _JoinStats(
                 stream_id=self._stream_id,
                 primary=primary,
@@ -64,9 +59,6 @@ class JoinedStream(RecordStream[JoinedRow]):
             )
             yield from rows
             stats.emit()
-        finally:
-            for iterator in upstream_iters:
-                close_iterator(iterator)
 
 
 def build_joined_stream(
