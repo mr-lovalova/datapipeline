@@ -14,7 +14,7 @@ from datapipeline.services.constants import (
     STREAM_FROM_KEY,
     STREAM_MAP_KEY,
     STREAM_CADENCE_KEY,
-    LEGACY_STREAM_KIND_KEY,
+    STREAM_KIND_KEY,
     POSTPROCESS_PATH_KEY,
     POSTPROCESS_TRANSFORMS,
 )
@@ -40,10 +40,6 @@ from .config import (
     _load_by_key,
     _project,
 )
-
-
-SRC_PARSER_KEY = PARSER_KEY
-SRC_LOADER_KEY = LOADER_KEY
 
 
 def _load_sources_from_dir(project_yaml: Path, vars_: dict[str, Any]) -> dict:
@@ -84,8 +80,8 @@ def _load_source_yaml(
 
 def _is_source_yaml(data: dict[str, Any]) -> bool:
     return (
-        isinstance(data.get(SRC_PARSER_KEY), dict)
-        and isinstance(data.get(SRC_LOADER_KEY), dict)
+        isinstance(data.get(PARSER_KEY), dict)
+        and isinstance(data.get(LOADER_KEY), dict)
     )
 
 
@@ -123,7 +119,7 @@ def _load_stream_yaml(path: Path, project_yaml: Path) -> dict[str, Any] | None:
     data = resolve_config_refs(load_yaml(path), project_yaml=project_yaml)
     if not isinstance(data, dict):
         return None
-    if LEGACY_STREAM_KIND_KEY in data:
+    if STREAM_KIND_KEY in data:
         raise ValueError(
             "Stream config field 'kind' is no longer supported; use 'from'."
         )
@@ -134,8 +130,7 @@ def _load_stream_yaml(path: Path, project_yaml: Path) -> dict[str, Any] | None:
 
 
 def _normalize_stream_map(data: dict[str, Any]) -> None:
-    mapper = data.get(STREAM_MAP_KEY)
-    if not isinstance(mapper, dict) or ENTRYPOINT_KEY not in mapper:
+    if STREAM_MAP_KEY not in data:
         data[STREAM_MAP_KEY] = None
 
 

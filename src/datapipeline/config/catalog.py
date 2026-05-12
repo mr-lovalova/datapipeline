@@ -1,10 +1,11 @@
-from typing import Dict, Optional, Any, List, Mapping, Union, Literal
+from typing import Any, Literal
+
 from pydantic import BaseModel, Field, ConfigDict, model_validator
 
 
 class EPArgs(BaseModel):
     entrypoint: str
-    args: Dict[str, Any] = Field(default_factory=dict)
+    args: dict[str, Any] = Field(default_factory=dict)
 
 
 class SourceConfig(BaseModel):
@@ -16,23 +17,23 @@ class SourceConfig(BaseModel):
 class StreamFromConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    source: Optional[str] = None
-    join: Optional[Dict[str, str]] = None
-    streams: Optional[Dict[str, str]] = None
-    primary: Optional[str] = None
+    source: str | None = None
+    join: dict[str, str] | None = None
+    streams: dict[str, str] | None = None
+    primary: str | None = None
     on: str = Field(default="time")
     mode: Literal["inner", "left"] = Field(default="inner")
-    broadcast: List[str] = Field(default_factory=list)
+    broadcast: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _validate_from(self):
         join_option_fields = {"primary", "on", "mode", "broadcast"}
-        sources = [
+        from_kinds = [
             self.source is not None,
             self.join is not None,
             self.streams is not None,
         ]
-        if sum(sources) != 1:
+        if sum(from_kinds) != 1:
             raise ValueError(
                 "from must define exactly one of 'source', 'join', or 'streams'"
             )
@@ -63,7 +64,7 @@ class StreamFromConfig(BaseModel):
         return self
 
 
-def _normalize_input_refs(label: str, refs: Dict[str, str]) -> dict[str, str]:
+def _normalize_input_refs(label: str, refs: dict[str, str]) -> dict[str, str]:
     if not refs:
         raise ValueError(f"from.{label} must not be empty")
     aliases: set[str] = set()
@@ -93,14 +94,14 @@ class StreamConfig(BaseModel):
 
     id: str
     from_: StreamFromConfig = Field(alias="from")
-    map: Optional[EPArgs] = None
-    cadence: Optional[Any] = None
-    partition_by: Optional[Union[str, List[str]]] = Field(default=None)
+    map: EPArgs | None = None
+    cadence: Any | None = None
+    partition_by: str | list[str] | None = Field(default=None)
     sort_batch_size: int = Field(default=100_000)
-    record: Optional[List[Mapping[str, Any]]] = Field(default=None)
-    stream: Optional[List[Mapping[str, Any]]] = Field(default=None)
+    record: list[dict[str, Any]] | None = Field(default=None)
+    stream: list[dict[str, Any]] | None = Field(default=None)
     # Optional debug-only transforms (applied after stream transforms)
-    debug: Optional[List[Mapping[str, Any]]] = Field(default=None)
+    debug: list[dict[str, Any]] | None = Field(default=None)
 
     @property
     def reads_source(self) -> bool:
@@ -140,5 +141,5 @@ class StreamConfig(BaseModel):
 
 
 class StreamsConfig(BaseModel):
-    raw: Dict[str, SourceConfig] = Field(default_factory=dict)
-    streams: Dict[str, StreamConfig] = Field(default_factory=dict)
+    raw: dict[str, SourceConfig] = Field(default_factory=dict)
+    streams: dict[str, StreamConfig] = Field(default_factory=dict)

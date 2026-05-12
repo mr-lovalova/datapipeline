@@ -9,7 +9,7 @@ STREAM_ID_KEY = "id"
 STREAM_FROM_KEY = "from"
 STREAM_MAP_KEY = "map"
 STREAM_CADENCE_KEY = "cadence"
-LEGACY_STREAM_KIND_KEY = "kind"
+STREAM_KIND_KEY = "kind"
 POSTPROCESS_PATH_KEY = "postprocess"
 
 PARSERS_GROUP = "parsers"

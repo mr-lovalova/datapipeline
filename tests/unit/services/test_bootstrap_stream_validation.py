@@ -1,7 +1,7 @@
 import pytest
 
 from datapipeline.config.catalog import StreamConfig
-from datapipeline.services.bootstrap.core import _load_canonical_streams
+from datapipeline.services.bootstrap.core import _load_canonical_streams, load_streams
 from datapipeline.services.streams.validation import validate_stream_configs
 
 
@@ -208,3 +208,40 @@ def test_load_canonical_streams_rejects_old_kind_shape(tmp_path) -> None:
 
     with pytest.raises(ValueError, match="'kind' is no longer supported"):
         _load_canonical_streams(project_yaml, {})
+
+
+def test_load_streams_rejects_malformed_map(tmp_path) -> None:
+    streams_dir = tmp_path / "streams"
+    sources_dir = tmp_path / "sources"
+    streams_dir.mkdir()
+    sources_dir.mkdir()
+    project_yaml = tmp_path / "project.yaml"
+    project_yaml.write_text(
+        "\n".join(
+            [
+                "version: 1",
+                "name: test",
+                "paths:",
+                "  streams: ./streams",
+                "  sources: ./sources",
+                "  dataset: dataset.yaml",
+                "  postprocess: postprocess.yaml",
+                "  artifacts: ./artifacts",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (streams_dir / "bad.yaml").write_text(
+        "\n".join(
+            [
+                "id: bad",
+                "from:",
+                "  source: demo.source",
+                "map: identity",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError):
+        load_streams(project_yaml)
