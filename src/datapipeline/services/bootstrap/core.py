@@ -166,38 +166,50 @@ def init_streams(cfg: StreamsConfig, runtime: Runtime) -> None:
     contracts = cfg.contracts or {}
     validate_stream_contracts(contracts)
 
-    # Register per-stream policies and record transforms for runtime lookups
     for alias, spec in contracts.items():
-        regs.stream_operations.register(alias, spec.stream)
-        regs.debug_operations.register(alias, spec.debug)
-        regs.partition_by.register(
-            alias,
-            contract_partition_by(contracts, spec),
-        )
-        regs.sort_batch_size.register(alias, spec.sort_batch_size)
-        ops = spec.record
-        regs.record_operations.register(alias, ops)
+        _register_stream_policy(runtime, alias, spec, contracts)
 
     for alias, spec in (cfg.raw or {}).items():
         regs.sources.register(alias, build_source_from_spec(spec))
+
     for alias, spec in contracts.items():
-        if getattr(spec, "kind", None) == "manual":
-            regs.stream_sources.register(
-                alias, build_manual_stream(alias, spec, runtime)
-            )
-            regs.mappers.register(alias, build_mapper_from_spec(None))
-        elif getattr(spec, "kind", None) == "joined":
-            regs.stream_sources.register(
-                alias, build_joined_stream(alias, spec, runtime)
-            )
-            regs.mappers.register(
-                alias,
-                build_mapper_from_spec(spec.mapper, runtime=runtime, row_mapper=True),
-            )
-        else:
-            mapper = build_mapper_from_spec(spec.mapper)
-            regs.mappers.register(alias, mapper)
-            regs.stream_sources.register(alias, regs.sources.get(spec.source))
+        _register_contract_stream(runtime, alias, spec)
+
+
+def _register_stream_policy(
+    runtime: Runtime,
+    alias: str,
+    spec: ContractConfig,
+    contracts: dict[str, ContractConfig],
+) -> None:
+    regs = runtime.registries
+    regs.stream_operations.register(alias, spec.stream)
+    regs.debug_operations.register(alias, spec.debug)
+    regs.partition_by.register(alias, contract_partition_by(contracts, spec))
+    regs.sort_batch_size.register(alias, spec.sort_batch_size)
+    regs.record_operations.register(alias, spec.record)
+
+
+def _register_contract_stream(
+    runtime: Runtime,
+    alias: str,
+    spec: ContractConfig,
+) -> None:
+    regs = runtime.registries
+    if spec.kind == "manual":
+        regs.stream_sources.register(alias, build_manual_stream(alias, spec, runtime))
+        regs.mappers.register(alias, build_mapper_from_spec(None))
+        return
+    if spec.kind == "joined":
+        regs.stream_sources.register(alias, build_joined_stream(alias, spec, runtime))
+        regs.mappers.register(
+            alias,
+            build_mapper_from_spec(spec.mapper, runtime=runtime, row_mapper=True),
+        )
+        return
+
+    regs.mappers.register(alias, build_mapper_from_spec(spec.mapper))
+    regs.stream_sources.register(alias, regs.sources.get(spec.source))
 
 
 def bootstrap(project_yaml: Path) -> Runtime:
