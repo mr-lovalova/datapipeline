@@ -22,7 +22,7 @@ def _ts(day: int) -> datetime:
 def _write_project(tmp_path: Path, *, partition_by: str | None = None) -> Path:
     project_root = tmp_path / "project"
     (project_root / "sources").mkdir(parents=True)
-    (project_root / "contracts").mkdir(parents=True)
+    (project_root / "streams").mkdir(parents=True)
     (project_root / "tasks").mkdir(parents=True)
     (project_root / "profiles").mkdir(parents=True)
 
@@ -34,7 +34,7 @@ def _write_project(tmp_path: Path, *, partition_by: str | None = None) -> Path:
                 "version: 1",
                 "name: demo",
                 "paths:",
-                "  streams: ./contracts",
+                "  streams: ./streams",
                 "  sources: ./sources",
                 "  dataset: ./dataset.yaml",
                 "  postprocess: ./postprocess.yaml",
@@ -64,21 +64,21 @@ def _write_project(tmp_path: Path, *, partition_by: str | None = None) -> Path:
         ),
         encoding="utf-8",
     )
-    contract_lines = [
-        "kind: ingest",
+    stream_lines = [
         "id: prices.aapl",
-        "source: raw.aapl",
-        "mapper:",
+        "from:",
+        "  source: raw.aapl",
+        "map:",
         "  entrypoint: identity",
         "record: []",
         "stream: []",
         "debug: []",
     ]
     if partition_by is not None:
-        contract_lines.append(f"partition_by: {partition_by}")
-    contract_lines.append("")
-    (project_root / "contracts" / "prices.aapl.yaml").write_text(
-        "\n".join(contract_lines),
+        stream_lines.append(f"partition_by: {partition_by}")
+    stream_lines.append("")
+    (project_root / "streams" / "prices.aapl.yaml").write_text(
+        "\n".join(stream_lines),
         encoding="utf-8",
     )
     return project_root / "project.yaml"
@@ -102,7 +102,7 @@ def test_record_stream_cache_materializes_and_replays(tmp_path: Path) -> None:
     assert replayed == records
 
 
-def test_record_stream_cache_invalidates_when_contract_changes(tmp_path: Path) -> None:
+def test_record_stream_cache_invalidates_when_stream_changes(tmp_path: Path) -> None:
     project_yaml = _write_project(tmp_path)
     cache = RecordStreamCache(
         project_yaml=project_yaml,
@@ -110,9 +110,9 @@ def test_record_stream_cache_invalidates_when_contract_changes(tmp_path: Path) -
     )
     list(cache.materialize("prices.aapl", iter([_Rec(time=_ts(1), symbol="AAPL", value=1.0)])))
 
-    contract_path = project_yaml.parent / "contracts" / "prices.aapl.yaml"
-    contract_path.write_text(
-        contract_path.read_text(encoding="utf-8") + "partition_by: symbol\n",
+    stream_path = project_yaml.parent / "streams" / "prices.aapl.yaml"
+    stream_path.write_text(
+        stream_path.read_text(encoding="utf-8") + "partition_by: symbol\n",
         encoding="utf-8",
     )
 
@@ -209,7 +209,7 @@ def test_record_stream_cache_loader_exposes_cache_progress_label(tmp_path: Path)
 
     assert source is not None
     assert source.loader.progress_label() == "Loading cache"
-    assert source.loader.info_lines() == ["Loaded contract output from cache"]
+    assert source.loader.info_lines() == ["Loaded stream output from cache"]
     assert source.loader.debug_lines() == [
         "cache.file: record_stream/prices.aapl/stream_transforms/data.pkl"
     ]

@@ -8,36 +8,93 @@ class EPArgs(BaseModel):
 
 
 class SourceConfig(BaseModel):
-    model_config = ConfigDict(extra='ignore')
+    model_config = ConfigDict(extra="ignore")
     parser: EPArgs
     loader: EPArgs
 
 
-class JoinConfig(BaseModel):
-    primary: str
+class StreamFromConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source: Optional[str] = None
+    join: Optional[Dict[str, str]] = None
+    streams: Optional[Dict[str, str]] = None
+    primary: Optional[str] = None
     on: str = Field(default="time")
     mode: Literal["inner", "left"] = Field(default="inner")
     broadcast: List[str] = Field(default_factory=list)
 
+    @model_validator(mode="after")
+    def _validate_from(self):
+        join_option_fields = {"primary", "on", "mode", "broadcast"}
+        sources = [
+            self.source is not None,
+            self.join is not None,
+            self.streams is not None,
+        ]
+        if sum(sources) != 1:
+            raise ValueError(
+                "from must define exactly one of 'source', 'join', or 'streams'"
+            )
+        if self.source is not None:
+            if join_option_fields & self.model_fields_set:
+                raise ValueError("from.source cannot define join options")
+            return self
+        if self.join is not None:
+            if not self.primary:
+                raise ValueError("from.join requires 'primary'")
+            self.join = _normalize_input_refs("join", self.join)
+            if self.primary not in self.join:
+                raise ValueError(
+                    "from.primary must reference one of the joined aliases"
+                )
+            unknown_broadcast = [
+                alias for alias in self.broadcast if alias not in self.join
+            ]
+            if unknown_broadcast:
+                raise ValueError(
+                    "from.broadcast contains unknown aliases: "
+                    + ", ".join(unknown_broadcast)
+                )
+            return self
+        if join_option_fields & self.model_fields_set:
+            raise ValueError("from.streams cannot define join options")
+        self.streams = _normalize_input_refs("streams", self.streams or {})
+        return self
 
-class ContractConfig(BaseModel):
-    """Unified contract model with explicit kind.
 
-    - kind = 'ingest': exactly one raw source via source alias
-    - kind = 'joined': framework aligns canonical streams by time/partition
-    - kind = 'manual': mapper owns all input stream iteration/alignment
-    """
-    kind: Literal['ingest', 'joined', 'manual']
+def _normalize_input_refs(label: str, refs: Dict[str, str]) -> dict[str, str]:
+    if not refs:
+        raise ValueError(f"from.{label} must not be empty")
+    aliases: set[str] = set()
+    normalized: dict[str, str] = {}
+    for alias, ref in refs.items():
+        alias_text = str(alias).strip()
+        ref_text = str(ref).strip()
+        if not alias_text or not ref_text:
+            raise ValueError(
+                f"from.{label} aliases and stream ids must not be empty"
+            )
+        if "@" in ref_text:
+            raise ValueError(f"from.{label} may not include '@stage'")
+        if ":" in ref_text:
+            raise ValueError(
+                f"from.{label} must reference canonical stream ids only"
+            )
+        if alias_text in aliases:
+            raise ValueError(f"from.{label} contains duplicate alias '{alias_text}'")
+        aliases.add(alias_text)
+        normalized[alias_text] = ref_text
+    return normalized
+
+
+class StreamConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
     id: str
-
-    # Ingest-only
-    source: Optional[str] = Field(default=None)
-
-    # Joined/manual-only: list of "[alias=]stream_id" (streams only)
-    inputs: Optional[List[str]] = Field(default=None)
-    join: Optional[JoinConfig] = Field(default=None)
-
-    mapper: Optional[EPArgs] = None
+    from_: StreamFromConfig = Field(alias="from")
+    map: Optional[EPArgs] = None
+    cadence: Optional[Any] = None
     partition_by: Optional[Union[str, List[str]]] = Field(default=None)
     sort_batch_size: int = Field(default=100_000)
     record: Optional[List[Mapping[str, Any]]] = Field(default=None)
@@ -45,86 +102,43 @@ class ContractConfig(BaseModel):
     # Optional debug-only transforms (applied after stream transforms)
     debug: Optional[List[Mapping[str, Any]]] = Field(default=None)
 
-    @staticmethod
-    def parse_input_spec(spec: str) -> tuple[str, str]:
-        alias: Optional[str] = None
-        text = spec.strip()
-        if "=" in text:
-            alias, text = text.split("=", 1)
-            alias = alias.strip()
-        ref = text.strip()
-        return (alias or ref), ref
+    @property
+    def reads_source(self) -> bool:
+        return self.from_.source is not None
 
-    @model_validator(mode='after')
-    def _validate_mode(self):
-        if self.kind == 'ingest':
-            if not self.source:
-                raise ValueError("ingest contract requires 'source'")
-            if self.inputs:
-                raise ValueError("ingest contract cannot define 'inputs'")
-            if self.join is not None:
-                raise ValueError("ingest contract cannot define 'join'")
-        elif self.kind in {'joined', 'manual'}:
-            if not self.inputs or not isinstance(self.inputs, list):
-                raise ValueError(
-                    f"{self.kind} contract requires 'inputs' (list of stream ids)"
-                )
-            if self.source:
-                raise ValueError(f"{self.kind} contract cannot define 'source'")
-            if not self.mapper or not self.mapper.entrypoint:
-                raise ValueError(f"{self.kind} contract requires mapper.entrypoint")
-            if self.kind == "joined" and self.partition_by is not None:
-                raise ValueError("joined contract inherits partition_by from join.primary")
-            if self.kind == "joined" and self.join is None:
-                raise ValueError("joined contract requires 'join'")
-            if self.kind == "manual" and self.join is not None:
-                raise ValueError("manual contract cannot define 'join'")
-            # Enforce simple grammar: alias=stream_id or stream_id, no stages/prefixes
-            aliases: set[str] = set()
-            for item in self.inputs:
-                if '@' in item:
-                    raise ValueError(
-                        f"{self.kind} inputs may not include '@stage'"
-                    )
-                alias, ref = self.parse_input_spec(item)
-                if not alias or not ref:
-                    raise ValueError(f"{self.kind} inputs must not be empty")
-                if ':' in ref:
-                    raise ValueError(
-                        f"{self.kind} inputs must reference canonical stream ids only"
-                    )
-                if alias in aliases:
-                    raise ValueError(
-                        f"{self.kind} inputs contain duplicate alias '{alias}'"
-                    )
-                aliases.add(alias)
-            driver = None
-            if self.mapper and isinstance(self.mapper.args, dict):
-                driver = self.mapper.args.get("driver")
-            if (
-                self.kind == "manual"
-                and driver is not None
-                and str(driver).strip() not in aliases
-            ):
-                raise ValueError(
-                    "manual mapper.args.driver must reference one of the declared input aliases"
-                )
-            if self.kind == "joined" and self.join is not None:
-                if self.join.primary not in aliases:
-                    raise ValueError(
-                        "joined join.primary must reference one of the declared input aliases"
-                    )
-                unknown_broadcast = [
-                    alias for alias in self.join.broadcast if alias not in aliases
-                ]
-                if unknown_broadcast:
-                    raise ValueError(
-                        "joined join.broadcast contains unknown aliases: "
-                        + ", ".join(unknown_broadcast)
-                    )
+    @property
+    def joins_streams(self) -> bool:
+        return self.from_.join is not None
+
+    @property
+    def maps_streams(self) -> bool:
+        return self.from_.streams is not None
+
+    def input_refs(self) -> dict[str, str]:
+        if self.from_.join is not None:
+            return dict(self.from_.join)
+        if self.from_.streams is not None:
+            return dict(self.from_.streams)
+        raise ValueError("from.source streams do not define input refs")
+
+    @model_validator(mode="after")
+    def _validate_stream(self):
+        if self.joins_streams and self.partition_by is not None:
+            raise ValueError("joined streams inherit partition_by from from.primary")
+        if not self.reads_source and (not self.map or not self.map.entrypoint):
+            raise ValueError("stream map.entrypoint is required")
+        driver = self.map.args.get("driver") if self.map else None
+        if (
+            self.maps_streams
+            and driver is not None
+            and str(driver).strip() not in self.input_refs()
+        ):
+            raise ValueError(
+                "map.args.driver must reference one of the declared input aliases"
+            )
         return self
 
 
 class StreamsConfig(BaseModel):
     raw: Dict[str, SourceConfig] = Field(default_factory=dict)
-    contracts: Dict[str, ContractConfig] = Field(default_factory=dict)
+    streams: Dict[str, StreamConfig] = Field(default_factory=dict)

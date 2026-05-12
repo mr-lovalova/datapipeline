@@ -1,0 +1,10 @@
+id: {{ stream_id }}  # format: domain.dataset.(variant)
+# cadence: ${group_by}          # optional per-stream cadence
+# partition_by: <field or [fields]>
+from:
+  streams:
+    {{ inputs_list }}
+
+map:
+  entrypoint: {{ mapper_entrypoint }}
+  args: { driver: {{ driver_key }} }

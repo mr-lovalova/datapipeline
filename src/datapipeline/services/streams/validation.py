@@ -1,62 +1,51 @@
-from datapipeline.config.catalog import ContractConfig
+from datapipeline.config.catalog import StreamConfig
 from datapipeline.services.streams.join_plan import build_join_input_plans
 
 
-def validate_stream_contracts(contracts: dict[str, ContractConfig]) -> None:
-    for stream_id, spec in contracts.items():
-        if spec.kind not in {"joined", "manual"}:
+def validate_stream_configs(stream_configs: dict[str, StreamConfig]) -> None:
+    for stream_id, spec in stream_configs.items():
+        if spec.reads_source:
             continue
 
-        refs = _input_refs(spec)
-        missing = [ref for ref in refs.values() if ref not in contracts]
+        refs = spec.input_refs()
+        missing = [ref for ref in refs.values() if ref not in stream_configs]
         if missing:
             raise ValueError(
-                f"{spec.kind.capitalize()} stream '{stream_id}' references "
-                f"unknown stream(s): {missing}"
+                f"Stream '{stream_id}' references unknown stream(s): {missing}"
             )
-        if spec.kind == "manual":
+        if spec.maps_streams:
             continue
 
-        _validate_joined_stream(stream_id, spec, refs, contracts)
+        _validate_joined_stream(stream_id, spec, refs, stream_configs)
 
 
-def contract_partition_by(
-    contracts: dict[str, ContractConfig],
-    spec: ContractConfig,
+def stream_partition_by(
+    stream_configs: dict[str, StreamConfig],
+    spec: StreamConfig,
 ):
-    if spec.kind != "joined":
+    if not spec.joins_streams:
         return spec.partition_by
-    if spec.join is None:
-        return None
-    primary_ref = _input_refs(spec).get(spec.join.primary)
-    if not primary_ref:
-        return None
-    return contracts[primary_ref].partition_by
+    primary = spec.from_.primary
+    if primary is None:
+        raise ValueError(f"Joined stream '{spec.id}' requires from.primary")
+    primary_ref = spec.input_refs()[primary]
+    return stream_configs[primary_ref].partition_by
 
 
 def _validate_joined_stream(
     stream_id: str,
-    spec: ContractConfig,
+    spec: StreamConfig,
     refs: dict[str, str],
-    contracts: dict[str, ContractConfig],
+    stream_configs: dict[str, StreamConfig],
 ) -> None:
-    join = spec.join
-    if join is None:
-        raise ValueError(f"Joined stream '{stream_id}' requires join config")
-
+    join = spec.from_
+    primary = join.primary
+    if primary is None:
+        raise ValueError(f"Joined stream '{stream_id}' requires from.primary")
     build_join_input_plans(
         stream_id=stream_id,
         input_refs=refs,
-        primary=join.primary,
+        primary=primary,
         broadcast=set(join.broadcast),
-        partition_by={ref: contracts[ref].partition_by for ref in refs.values()},
+        partition_by={ref: stream_configs[ref].partition_by for ref in refs.values()},
     )
-
-
-def _input_refs(spec: ContractConfig) -> dict[str, str]:
-    return {
-        alias: ref
-        for alias, ref in (
-            ContractConfig.parse_input_spec(item) for item in (spec.inputs or [])
-        )
-    }

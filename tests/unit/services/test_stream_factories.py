@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
-from datapipeline.config.catalog import ContractConfig, EPArgs
+from datapipeline.config.catalog import StreamConfig, EPArgs
 from datapipeline.cli.visuals.execution_context import (
     reset_current_execution_event_sink,
     set_current_execution_event_sink,
@@ -90,14 +90,19 @@ def _install_streams(monkeypatch, runtime) -> None:
     )
 
 
-def _joined_spec(*, join: dict) -> ContractConfig:
-    return ContractConfig.model_validate(
+def _joined_spec(*, join: dict) -> StreamConfig:
+    from_cfg = {
+        "join": {"a": "stream.a", "b": "stream.b"},
+        "primary": join.get("primary"),
+        "on": join.get("on", "time"),
+        "mode": join.get("mode", "inner"),
+        "broadcast": join.get("broadcast", []),
+    }
+    return StreamConfig.model_validate(
         {
-            "kind": "joined",
             "id": "joined.out",
-            "inputs": ["a=stream.a", "b=stream.b"],
-            "join": join,
-            "mapper": {"entrypoint": "join.mapper", "args": {}},
+            "from": from_cfg,
+            "map": {"entrypoint": "join.mapper", "args": {}},
         }
     )
 
@@ -127,11 +132,10 @@ def test_manual_stream_closes_upstream_iterators_when_closed(monkeypatch) -> Non
             stream_sources=_Registry({"equity.aapl": object()}),
         )
     )
-    spec = ContractConfig(
-        kind="manual",
+    spec = StreamConfig(
         id="equity.pair.aapl",
-        inputs=["aapl=equity.aapl"],
-        mapper=EPArgs(entrypoint="test.mapper", args={}),
+        from_={"streams": {"aapl": "equity.aapl"}},
+        map=EPArgs(entrypoint="test.mapper", args={}),
     )
     stream = ManualStream(runtime=runtime, stream_id=spec.id, spec=spec)
 

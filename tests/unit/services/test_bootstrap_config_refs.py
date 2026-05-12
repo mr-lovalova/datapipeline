@@ -3,9 +3,11 @@ from pathlib import Path
 import pytest
 
 from datapipeline.build.config_hash import compute_config_hash
+from datapipeline.config.catalog import SourceConfig
 from datapipeline.services.bootstrap.config import _globals, _load_by_key, artifacts_root
 from datapipeline.services.bootstrap.core import _load_sources_from_dir
 from datapipeline.services.project_paths import sources_dir
+from datapipeline.services.streams.ingest import build_source_from_spec
 
 
 def _write_project_yaml(
@@ -19,7 +21,7 @@ def _write_project_yaml(
         "version: 1",
         "name: sample",
         "paths:",
-        "  streams: contracts",
+        "  streams: streams",
         "  sources: sources",
         "  dataset: dataset.yaml",
         "  postprocess: postprocess.yaml",
@@ -37,7 +39,7 @@ def _write_project_yaml(
 
 
 def _write_project_files(project_root: Path) -> None:
-    (project_root / "contracts").mkdir(parents=True, exist_ok=True)
+    (project_root / "streams").mkdir(parents=True, exist_ok=True)
     (project_root / "sources").mkdir(parents=True, exist_ok=True)
     (project_root / "tasks").mkdir(parents=True, exist_ok=True)
     (project_root / "dataset.yaml").write_text("value: default\n", encoding="utf-8")
@@ -123,8 +125,12 @@ def test_load_sources_resolve_env_backed_globals_before_fs_path_normalization(
     )
 
     loaded = _load_sources_from_dir(project_yaml, vars_=_globals(project_yaml))
+    source = build_source_from_spec(
+        SourceConfig.model_validate(loaded["sample.fs"]),
+        project_yaml=project_yaml,
+    )
 
-    assert loaded["sample.fs"]["loader"]["args"]["path"] == str(
+    assert source.loader.transport.pattern == str(
         (project_root / "data" / "*.jsonl").resolve()
     )
 

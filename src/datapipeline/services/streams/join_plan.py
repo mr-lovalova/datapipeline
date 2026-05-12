@@ -18,7 +18,7 @@ def build_join_input_plans(
 ) -> dict[str, JoinInputPlan]:
     if primary not in input_refs:
         raise ValueError(
-            f"Joined stream '{stream_id}' join.primary '{primary}' "
+            f"Joined stream '{stream_id}' from.primary '{primary}' "
             f"is not an input alias"
         )
 

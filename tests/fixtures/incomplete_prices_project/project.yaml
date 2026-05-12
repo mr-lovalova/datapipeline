@@ -1,7 +1,7 @@
 version: 1
 name: incomplete_prices_project
 paths:
-  streams: contracts
+  streams: streams
   sources: sources
   dataset: dataset.yaml
   postprocess: postprocess.yaml

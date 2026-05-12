@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Any, Iterator
 
-from datapipeline.cache.contracts import (
+from datapipeline.cache.models import (
     MaterializationRef,
     MaterializationStore,
     SourceObserver,

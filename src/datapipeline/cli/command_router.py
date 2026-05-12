@@ -2,18 +2,18 @@ import argparse
 from pathlib import Path
 
 from datapipeline.cli.commands.profile_runner import handle_profile_command
-from datapipeline.cli.commands.contract import handle as handle_contract
 from datapipeline.cli.commands.demo import handle as handle_demo
 from datapipeline.cli.commands.domain import handle as handle_domain
 from datapipeline.cli.commands.dto import handle as handle_dto
 from datapipeline.cli.commands.filter import handle as handle_filter
+from datapipeline.cli.commands.inflow import handle as handle_inflow
 from datapipeline.cli.commands.list_ import handle as handle_list
 from datapipeline.cli.commands.loader import handle as handle_loader
 from datapipeline.cli.commands.mapper import handle as handle_mapper
 from datapipeline.cli.commands.parser import handle as handle_parser
 from datapipeline.cli.commands.plugin import bar as handle_bar
 from datapipeline.cli.commands.source import handle as handle_source
-from datapipeline.cli.commands.stream import handle as handle_stream
+from datapipeline.cli.commands.stream import handle as handle_stream_create
 from datapipeline.config.resolution import LogOutputTarget
 from datapipeline.config.workspace import WorkspaceContext
 
@@ -77,10 +77,10 @@ def execute_command(
         handler(name=getattr(args, "name", None), plugin_root=plugin_root)
         return True
     if args.cmd == "inflow":
-        handle_stream(plugin_root=plugin_root, workspace=workspace_context)
+        handle_inflow(plugin_root=plugin_root, workspace=workspace_context)
         return True
-    if args.cmd == "contract":
-        handle_contract(
+    if args.cmd == "stream":
+        handle_stream_create(
             plugin_root=plugin_root,
             use_identity=getattr(args, "identity", False),
             workspace=workspace_context,

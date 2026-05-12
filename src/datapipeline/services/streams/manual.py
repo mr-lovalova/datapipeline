@@ -1,6 +1,6 @@
 from typing import Any
 
-from datapipeline.config.catalog import ContractConfig
+from datapipeline.config.catalog import StreamConfig
 from datapipeline.dag.context import PipelineContext
 from datapipeline.domain.stream import RecordStream
 from datapipeline.pipelines.record.inputs import (
@@ -13,7 +13,7 @@ from datapipeline.utils.placeholders import normalize_args
 
 
 class ManualStream(RecordStream[Any]):
-    def __init__(self, runtime, stream_id: str, spec: ContractConfig):
+    def __init__(self, runtime, stream_id: str, spec: StreamConfig):
         self._runtime = runtime
         self._stream_id = stream_id
         self._spec = spec
@@ -21,13 +21,13 @@ class ManualStream(RecordStream[Any]):
     def stream(self):
         context = PipelineContext(self._runtime)
         _refs, input_iters, upstream_iters = open_input_records(
-            context, self._spec.inputs, owner=self._stream_id
+            context, self._spec.input_refs(), owner=self._stream_id
         )
 
-        mapper = self._spec.mapper
+        mapper = self._spec.map
         if not mapper or not mapper.entrypoint:
             raise ValueError(
-                f"Manual stream '{self._stream_id}' requires mapper.entrypoint"
+                f"Manual stream '{self._stream_id}' requires map.entrypoint"
             )
         entrypoint = load_ep(MAPPERS_EP, mapper.entrypoint)
         kwargs = normalize_args(mapper.args)
@@ -65,6 +65,6 @@ class ManualStream(RecordStream[Any]):
 
 
 def build_manual_stream(
-    stream_id: str, spec: ContractConfig, runtime
+    stream_id: str, spec: StreamConfig, runtime
 ) -> RecordStream[Any]:
     return ManualStream(runtime=runtime, stream_id=stream_id, spec=spec)

@@ -1,13 +1,13 @@
-# Transform & Filter Library
+# Transform Library
 
-### Record Filters (`<project_root>/contracts/*.yaml:record`)
+### Record `where` (`<project_root>/streams/*.yaml:record`)
 
 - Binary comparisons: `eq`, `ne`, `lt`, `le`, `gt`, `ge` (timezone-aware for ISO
   or datetime literals).
 - Membership: `in`, `nin`.
   ```yaml
-  - filter: { field: time, operator: ge, comparand: "${start_time}" }
-  - filter: { field: station, operator: in, comparand: [a, b, c] }
+  - where: { field: time, operator: ge, comparand: "${start_time}" }
+  - where: { field: station, operator: in, comparand: [a, b, c] }
   ```
 
 ### Record Transforms

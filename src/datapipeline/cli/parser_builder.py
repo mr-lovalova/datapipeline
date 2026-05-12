@@ -2,7 +2,6 @@ import argparse
 
 from datapipeline.cli.parser.build import add_build_command
 from datapipeline.cli.parser.common import build_common_parent
-from datapipeline.cli.parser.contract import add_contract_command
 from datapipeline.cli.parser.demo import add_demo_command
 from datapipeline.cli.parser.domain import add_domain_command
 from datapipeline.cli.parser.filter import add_filter_command
@@ -13,6 +12,7 @@ from datapipeline.cli.parser.plugin import add_plugin_command
 from datapipeline.cli.parser.scaffold import add_simple_scaffold_command
 from datapipeline.cli.parser.serve import add_serve_command
 from datapipeline.cli.parser.source import add_source_command
+from datapipeline.cli.parser.stream import add_stream_command
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -60,7 +60,7 @@ def build_parser() -> argparse.ArgumentParser:
         arg_help="Loader name",
     )
     add_inflow_command(sub, common=common)
-    add_contract_command(sub, common=common)
+    add_stream_command(sub, common=common)
     add_plugin_command(sub, common=common)
     add_filter_command(sub, common=common)
     return parser

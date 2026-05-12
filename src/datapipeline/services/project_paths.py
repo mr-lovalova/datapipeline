@@ -81,7 +81,7 @@ def ensure_project_scaffold(project_yaml: Path) -> None:
             "version: 1\n"
             "name: default\n"
             "paths:\n"
-            "  streams: ./contracts\n"
+            "  streams: ./streams\n"
             "  sources: ./sources\n"
             "  dataset: dataset.yaml\n"
             "  postprocess: postprocess.yaml\n"

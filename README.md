@@ -70,7 +70,7 @@ jerry plugin init my-datapipeline --out lib/
 # Note: import paths use the package name (hyphens become underscores), e.g.
 # `my_datapipeline` even if the dist folder is `my-datapipeline`.
 
-# One-stop wizard: scaffolds source YAML + DTO/parser + domain + mapper + contract.
+# One-stop wizard: scaffolds source YAML + DTO/parser + domain + mapper + stream.
 # See `docs/cli.md` for wizard tips and identity vs custom guidance.
 jerry inflow create
 
@@ -99,7 +99,7 @@ jerry serve --limit 3
 
 - Index 2 (record transforms)
   - Input: TemporalRecord stream
-  - Ops: contract `record:` transforms (e.g. filter, floor_time); per-record only (no history)
+  - Ops: stream `record:` transforms (e.g. filter, floor_time); per-record only (no history)
   - Output: TemporalRecord stream (possibly filtered/mutated)
 
 - Index 3 (ordered record stream)
@@ -111,12 +111,12 @@ jerry serve --limit 3
 - Index 4 (stream transforms)
   - Input: ordered TemporalRecord stream
   - Ops:
-    - apply contract `stream:` transforms (per-partition history; e.g. ensure_cadence, rolling, fill)
+    - apply stream `stream:` transforms (per-partition history; e.g. ensure_cadence, rolling, fill)
   - Output: TemporalRecord stream (sorted by partition,time)
 
 - Index 5 (debug transforms)
   - Input: TemporalRecord stream
-  - Ops: apply contract `debug:` transforms (validation only; e.g. lint)
+  - Ops: apply stream `debug:` transforms (validation only; e.g. lint)
   - Output: TemporalRecord stream (validated, still sorted by partition,time)
 
 - Index 6 (feature stream)
@@ -178,11 +178,11 @@ Split timing (leakage note)
 - `jerry serve [--dataset <alias>|--project <path>] [--limit N] [--preview-index 0-11] [--skip-build]`: streams output for enabled `serve.*` profiles in order. Typical flow uses artifact-targeted profiles first (`serve.schema`/`serve.metadata`/`serve.scaler`) and runtime profiles (`serve.train`/`serve.val`/`serve.test`) after.
 - `jerry build [--dataset <alias>|--project <path>] [--force]`: materializes artifacts (schema, scaler, etc.).
 - `jerry inspect [--dataset <alias>|--project <path>] [--run <inspect-profile>]`: runs enabled inspect profiles (or one selected profile).
-- `jerry inflow create`: interactive wizard to scaffold an end-to-end ingest stream (source + parser/DTO + mapper + contract).
+- `jerry inflow create`: interactive wizard to scaffold an end-to-end ingest stream (source + parser/DTO + mapper + stream).
 - `jerry source create <provider>.<dataset> ...`: scaffolds a source YAML (no Python code).
 - `jerry domain create <domain>`: scaffolds a domain record stub.
 - `jerry dto create`, `jerry parser create`, `jerry mapper create`, `jerry loader create`: scaffold Python code + register entry points (reinstall after).
-- `jerry contract create [--identity]`: interactive contract scaffolder (YAML); use for canonical streams or composed streams.
+- `jerry stream create [--identity]`: interactive stream scaffolder (YAML); use for source-backed, joined, or manual streams.
 - `jerry list sources|domains|parsers|mappers|loaders|dtos`: introspection helpers.
 - `pip install -e lib/<name>`: rerun after commands that update `lib/<name>/pyproject.toml` (entry points), or after manual edits to it.
 
@@ -216,7 +216,7 @@ These live under `lib/<plugin>/src/<package>/`:
 - `dtos/*.py`: DTO models (raw source shapes).
 - `parsers/*.py`: raw -> DTO parsers (referenced by source YAML via entry point).
 - `domains/<domain>/model.py`: domain record models.
-- `mappers/*.py`: DTO -> domain record mapping functions (referenced by contracts via entry point).
+- `mappers/*.py`: DTO -> domain record mapping functions (referenced by streams via entry point).
 - `loaders/*.py`: optional custom loaders (fs/http usually use the built-in core loader).
 - `pyproject.toml`: entry points for loaders/parsers/mappers/transforms (rerun `pip install -e lib/<plugin>` after changes).
 
@@ -237,11 +237,11 @@ These live under `lib/<plugin>/src/<package>/`:
 
 ### Transforms (Record → Stream → Feature → Vector)
 
-- **Record transforms** run on raw canonical records before sorting or grouping (filters, time flooring, lagging). Each transform operates on one record at a time because order and partitions are not established yet. Configure in `contracts/*.yaml` under `record:`.
-- **Stream transforms** run on ordered, per-stream records after record transforms (dedupe, cadence enforcement, rolling fills). These operate across a sequence of records for a partition because they depend on sorted partition/time order and cadence. Configure in `contracts/*.yaml` under `stream:`.
+- **Record transforms** run on raw canonical records before sorting or grouping (filters, time flooring, lagging). Each transform operates on one record at a time because order and partitions are not established yet. Configure in `streams/*.yaml` under `record:`.
+- **Stream transforms** run on ordered, per-stream records after record transforms (dedupe, cadence enforcement, rolling fills). These operate across a sequence of records for a partition because they depend on sorted partition/time order and cadence. Configure in `streams/*.yaml` under `stream:`.
 - **Feature transforms** run after stream regularization and shape the per-feature payload for vectorization (scalers, sequence/windowing). These occur after feature ids are finalized and payloads are wrapped. Configure in `dataset.yaml` under each feature.
 - **Vector (postprocess) transforms** operate on assembled vectors (coverage/drop/fill/replace). Configure in `postprocess.yaml`.
-- **Debug transforms** run after stream transforms for validation only. Configure in `contracts/*.yaml` under `debug:`.
+- **Debug transforms** run after stream transforms for validation only. Configure in `streams/*.yaml` under `debug:`.
 - Custom transforms are registered in your plugin `pyproject.toml` under the matching entry-point group:
   - `datapipeline.transforms.record`
   - `datapipeline.transforms.stream`
@@ -252,9 +252,9 @@ These live under `lib/<plugin>/src/<package>/`:
 
 ### Glossary
 
-- **Source alias**: `sources/*.yaml:id` (referenced by contracts under `source:`).
-- **Stream id**: `contracts/*.yaml:id` (referenced by `dataset.yaml` under `record_stream:`).
-- **Partition**: dimension keys appended to feature IDs, driven by `contract.partition_by`.
+- **Source alias**: `sources/*.yaml:id` (referenced by streams under `from.source`).
+- **Stream id**: `streams/*.yaml:id` (referenced by `dataset.yaml` under `record_stream:`).
+- **Partition**: dimension keys appended to feature IDs, driven by `stream.partition_by`.
 - **Group**: vector “bucket” cadence set by `dataset.group_by` (controls how records become samples).
 - **Preview index**: logical debug index for `jerry serve --preview-index 0-11` (DTOs -> domain records -> feature records -> samples).
 - **Fan-out**: when multiple features reference the same `record_stream`, the pipeline spools records to disk so each feature can read independently (records must be picklable).
@@ -262,7 +262,7 @@ These live under `lib/<plugin>/src/<package>/`:
 ## Documentation
 
 - `docs/config.md`: config layout, resolution order, and YAML reference.
-- `docs/dataflow.md`: end-to-end YAML reference chain (`jerry.yaml -> project -> source -> contract -> dataset -> outputs`).
+- `docs/dataflow.md`: end-to-end YAML reference chain (`jerry.yaml -> project -> source -> stream -> dataset -> outputs`).
 - `docs/cli.md`: CLI reference (beyond the cheat sheet).
 - `docs/transforms.md`: built-in transforms and filters.
 - `docs/artifacts.md`: artifacts, postprocess, and split timing.

@@ -4,7 +4,12 @@ from typing import Optional
 
 from datapipeline.services.paths import pkg_root, resolve_base_pkg_dir
 from datapipeline.services.entrypoints import read_group_entries
-from datapipeline.services.constants import PARSERS_GROUP, LOADERS_GROUP, MAPPERS_GROUP
+from datapipeline.services.constants import (
+    PARSERS_GROUP,
+    LOADERS_GROUP,
+    MAPPERS_GROUP,
+    STREAM_FROM_KEY,
+)
 from datapipeline.services.project_paths import sources_dir as resolve_sources_dir, streams_dir as resolve_streams_dir
 
 
@@ -23,7 +28,7 @@ def list_dtos(*, root: Optional[Path] = None) -> dict[str, str]:
             continue
         try:
             tree = ast.parse(path.read_text())
-        except Exception:
+        except (OSError, SyntaxError, UnicodeDecodeError):
             continue
         module = f"{package_name}.dtos.{path.stem}"
         for node in tree.body:
@@ -84,11 +89,12 @@ def list_sources(project_yaml: Path) -> list[str]:
         return []
     out: list[str] = []
     for p in sorted(sources_dir.rglob("*.y*ml")):
-        try:
-            data = load_yaml(p)
-        except Exception:
-            continue
-        if isinstance(data, dict) and isinstance(data.get(PARSER_KEY), dict) and isinstance(data.get(LOADER_KEY), dict):
+        data = load_yaml(p)
+        if (
+            isinstance(data, dict)
+            and isinstance(data.get(PARSER_KEY), dict)
+            and isinstance(data.get(LOADER_KEY), dict)
+        ):
             alias = data.get(SOURCE_ID_KEY)
             if isinstance(alias, str):
                 out.append(alias)
@@ -104,11 +110,8 @@ def list_streams(project_yaml: Path) -> list[str]:
         return []
     out: list[str] = []
     for p in sorted(streams_dir.rglob("*.y*ml")):
-        try:
-            data = load_yaml(p)
-        except Exception:
-            continue
-        if isinstance(data, dict) and data.get("kind") in {"ingest", "joined", "manual"}:
+        data = load_yaml(p)
+        if isinstance(data, dict) and isinstance(data.get(STREAM_FROM_KEY), dict):
             sid = data.get(STREAM_ID_KEY)
             if isinstance(sid, str) and sid:
                 out.append(sid)

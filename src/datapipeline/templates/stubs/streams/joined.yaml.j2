@@ -1,0 +1,20 @@
+id: {{ stream_id }}  # format: domain.dataset.(variant)
+# cadence: ${group_by}          # optional per-stream cadence
+from:
+  join:
+    {{ inputs_list }}
+  primary: {{ primary_key }}
+  on: time
+  mode: inner
+{% if broadcast_keys %}
+  broadcast:
+{% for key in broadcast_keys %}
+    - {{ key }}
+{% endfor %}
+{% else %}
+  broadcast: []
+{% endif %}
+
+map:
+  entrypoint: {{ mapper_entrypoint }}
+  args: {}

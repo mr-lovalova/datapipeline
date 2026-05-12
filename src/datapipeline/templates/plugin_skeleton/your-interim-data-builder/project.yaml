@@ -2,7 +2,7 @@
 version: 1
 name: <your-interim-data-builder>
 paths:
-  streams: ./contracts
+  streams: ./streams
   sources: ./sources
   dataset: dataset.yaml
   postprocess: postprocess.yaml

@@ -10,8 +10,8 @@ jerry.yaml: default_dataset
   -> datasets.<alias> = <path/to/project.yaml>
     -> project.yaml: paths.sources / paths.streams / paths.dataset / paths.tasks
       -> sources/*.yaml: id
-        -> contracts/*.yaml: source: <sources.id>, id: <stream_id>
-          -> dataset.yaml: record_stream: <contracts.id>, field: <record_field>
+        -> streams/*.yaml: source: <sources.id>, id: <stream_id>
+          -> dataset.yaml: record_stream: <streams.id>, field: <record_field>
             -> jerry serve
               -> runs/<run_id>/dataset/<split>.jsonl|csv|...
 ```
@@ -41,7 +41,7 @@ Screenshot slot:
 ```yaml
 paths:
   sources: ./sources
-  streams: ./contracts
+  streams: ./streams
   dataset: dataset.yaml
   postprocess: postprocess.yaml
   tasks: ./tasks
@@ -54,7 +54,7 @@ Expected behavior:
 Screenshot slot:
 `docs/assets/dataflow-02-project-paths.png`
 
-## 3) Source id links source YAML to contract
+## 3) Source id links source YAML to stream
 
 A source file declares the raw source id plus loader/parser wiring.
 
@@ -73,35 +73,35 @@ loader:
 ```
 
 Expected behavior:
-- Contract `source: sandbox.ohlcv` resolves to this source spec.
+- Stream `from.source: sandbox.ohlcv` resolves to this source spec.
 - For fs loaders, relative `args.path` is normalized via runtime path policy.
 
 Screenshot slot:
 `docs/assets/dataflow-03-source-yaml.png`
 
-## 4) Contract id links canonical stream to dataset
+## 4) Stream id links canonical stream to dataset
 
-Contracts define canonical stream ids and source mapping.
+Streams define canonical stream ids and source mapping.
 
 ```yaml
-# contracts/equity.ohlcv.yaml
-kind: ingest
+# streams/equity.ohlcv.yaml
 id: equity.ohlcv
-source: sandbox.ohlcv
-mapper:
+from:
+  source: sandbox.ohlcv
+map:
   entrypoint: map_sandbox_ohlcv_dto_to_equity
 ```
 
 Expected behavior:
-- `source` must match a `sources/*.yaml:id`.
+- `from.source` must match a `sources/*.yaml:id`.
 - `id` is what `dataset.yaml` references under `record_stream`.
 
 Screenshot slot:
-`docs/assets/dataflow-04-contract-yaml.png`
+`docs/assets/dataflow-04-stream-yaml.png`
 
 ## 5) Dataset selects fields from stream ids
 
-Dataset config chooses which contract streams become features/targets and which record field is used as value.
+Dataset config chooses which streams become features/targets and which record field is used as value.
 
 ```yaml
 group_by: ${group_by}
@@ -115,7 +115,7 @@ features:
 ```
 
 Expected behavior:
-- `record_stream` must match a contract `id`.
+- `record_stream` must match a stream `id`.
 - `field` must exist on emitted records.
 
 Screenshot slot:
@@ -153,8 +153,8 @@ Screenshot slot:
 - Verify `jerry.yaml` `default_dataset` and `datasets.<alias>`.
 
 2. Unknown stream/source ids:
-- Verify `contracts/*.yaml:source` matches `sources/*.yaml:id`.
-- Verify `dataset.yaml:record_stream` matches `contracts/*.yaml:id`.
+- Verify `streams/*.yaml:source` matches `sources/*.yaml:id`.
+- Verify `dataset.yaml:record_stream` matches `streams/*.yaml:id`.
 
 3. Empty output:
 - Check source loader `path/url`.

@@ -6,7 +6,7 @@ from datapipeline.services.scaffold.dto import create_dto
 from datapipeline.services.scaffold.parser import create_parser
 from datapipeline.services.scaffold.mapper import create_mapper
 from datapipeline.services.scaffold.source_yaml import create_source_yaml
-from datapipeline.services.scaffold.contract_yaml import write_ingest_contract
+from datapipeline.services.scaffold.stream_yaml import write_ingest_stream
 from datapipeline.services.scaffold.discovery import list_dtos
 from datapipeline.services.paths import pkg_root
 from datapipeline.services.scaffold.utils import error_exit, status
@@ -113,7 +113,7 @@ def execute_stream_plan(plan: StreamPlan) -> None:
             project_yaml=plan.project_yaml,
         )
 
-    write_ingest_contract(
+    write_ingest_stream(
         project_yaml=plan.project_yaml,
         stream_id=plan.stream_id,
         source=plan.source_id,

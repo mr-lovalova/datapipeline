@@ -53,7 +53,7 @@ class VectorContextMixin:
 class VectorPostprocessBase(VectorContextMixin):
     """Shared envelope for vector postprocess transforms.
 
-    Provides a consistent contract for payload selection and id filtering:
+    Provides a consistent interface for payload selection and id filtering:
     - payload: features | targets | both
     - only: optional allow-list of ids
     - exclude: optional deny-list of ids

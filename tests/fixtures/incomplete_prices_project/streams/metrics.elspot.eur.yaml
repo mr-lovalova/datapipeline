@@ -1,0 +1,16 @@
+id: metrics.elspot.eur
+from:
+  source: incomplete.elspot
+partition_by: area
+
+map:
+  entrypoint: identity
+  args: {}
+
+record:
+  - where: { operator: ge, field: time, comparand: "${start_time}" }
+  - where: { operator: le, field: time, comparand: "${end_time}" }
+
+stream:
+  - ensure_cadence: { cadence: 1h, field: value }
+  - fill: { statistic: mean, window: 2, min_samples: 1, field: value }

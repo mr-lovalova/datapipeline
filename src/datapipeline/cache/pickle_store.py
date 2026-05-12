@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 from typing import Any, Iterator, Sequence
 
-from datapipeline.cache.contracts import (
+from datapipeline.cache.models import (
     MaterializationManifest,
     MaterializationRef,
 )
@@ -117,7 +117,7 @@ class PickleMaterializationStore:
         loader = _ObservedMaterializationLoader(
             base_loader,
             progress_label="Loading cache",
-            info_lines=["Loaded contract output from cache"],
+            info_lines=["Loaded stream output from cache"],
             debug_lines=[f"cache.file: {logical_data_path}"],
             include_transport_info=False,
             include_transport_debug=False,

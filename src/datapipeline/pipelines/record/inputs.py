@@ -1,8 +1,7 @@
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping
 from typing import Any
 
 from datapipeline.cache import cached_record_stream
-from datapipeline.config.catalog import ContractConfig
 from datapipeline.dag.context import PipelineContext
 
 
@@ -14,11 +13,9 @@ def close_iterator(iterator: Any) -> None:
 
 def open_input_records(
     context: PipelineContext,
-    inputs: Sequence[str] | None,
-    *,
+    refs: Mapping[str, str],
     owner: str,
 ) -> tuple[dict[str, str], dict[str, Iterator[Any]], list[Iterator[Any]]]:
-    refs = _input_refs(inputs)
     known_streams = set(context.runtime.registries.stream_sources.keys())
     upstreams: list[Iterator[Any]] = []
     records: dict[str, Iterator[Any]] = {}
@@ -32,15 +29,6 @@ def open_input_records(
         upstreams.append(upstream)
         records[alias] = _unwrap_records(upstream)
     return refs, records, upstreams
-
-
-def _input_refs(inputs: Sequence[str] | None) -> dict[str, str]:
-    return {
-        alias: ref
-        for alias, ref in (
-            ContractConfig.parse_input_spec(item) for item in (inputs or [])
-        )
-    }
 
 
 def _unwrap_records(iterator: Iterator[Any]) -> Iterator[Any]:

@@ -226,7 +226,7 @@ def test_run_profiles_cli_cache_overrides_profile(monkeypatch, tmp_path):
     assert profiles[0].runtime.cache_enabled is True
 
 
-def test_operation_contract_rejects_preview_index_when_unsupported(monkeypatch, tmp_path):
+def test_operation_options_rejects_preview_index_when_unsupported(monkeypatch, tmp_path):
     run_cfg = InspectProfile.model_validate(
         {
             "cmd": "inspect",
@@ -265,7 +265,7 @@ def test_operation_contract_rejects_preview_index_when_unsupported(monkeypatch, 
         )
 
 
-def test_operation_contract_rejects_keep_when_unsupported(monkeypatch, tmp_path):
+def test_operation_options_rejects_keep_when_unsupported(monkeypatch, tmp_path):
     run_cfg = InspectProfile.model_validate(
         {
             "cmd": "inspect",

@@ -4,7 +4,7 @@
 # version: 1                  # optional
 # name: example               # optional
 # paths:
-#   streams: ./contracts      # required
+#   streams: ./streams      # required
 #   sources: ./sources        # required
 #   dataset: dataset.yaml     # required
 #   postprocess: postprocess.yaml # required
@@ -13,8 +13,8 @@
 #   profiles: ./profiles      # optional (defaults to ./profiles)
 # globals:                    # optional; available via ${var}
 #   group_by: 1h              # optional; dataset cadence
-#   start_time: 2021-01-01T00:00:00Z # optional; used in contracts
-#   end_time: 2021-01-02T00:00:00Z   # optional; used in contracts
+#   start_time: 2021-01-01T00:00:00Z # optional; used in streams
+#   end_time: 2021-01-02T00:00:00Z   # optional; used in streams
 #   split:                    # optional; applied at serve time after postprocess
 #     mode: hash              # hash | time
 #     ratios: { train: 0.8, val: 0.1, test: 0.1 }  # must sum to 1.0

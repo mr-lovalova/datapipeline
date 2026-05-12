@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from datapipeline.cli.commands.stream import (
+from datapipeline.cli.commands.inflow import (
     StreamSelection,
     _build_mapper_plan,
     _build_parser_plan,

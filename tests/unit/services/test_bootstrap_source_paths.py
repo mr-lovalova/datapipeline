@@ -1,6 +1,8 @@
 from pathlib import Path
 
+from datapipeline.config.catalog import SourceConfig
 from datapipeline.services.bootstrap.core import _load_sources_from_dir
+from datapipeline.services.streams.ingest import build_source_from_spec
 
 
 def _write_project_yaml(project_root: Path) -> Path:
@@ -11,7 +13,7 @@ def _write_project_yaml(project_root: Path) -> Path:
                 "version: 1",
                 "name: sample",
                 "paths:",
-                "  streams: contracts",
+                "  streams: streams",
                 "  sources: sources",
                 "  dataset: dataset.yaml",
                 "  postprocess: postprocess.yaml",
@@ -52,7 +54,7 @@ def test_load_sources_resolves_fs_path_from_project_root(tmp_path: Path) -> None
     project_root = tmp_path / "project"
     (project_root / "data").mkdir(parents=True)
     (project_root / "data" / "rows.jsonl").write_text("{}", encoding="utf-8")
-    (project_root / "contracts").mkdir()
+    (project_root / "streams").mkdir()
     (project_root / "tasks").mkdir()
     (project_root / "build").mkdir()
     (project_root / "dataset.yaml").write_text("group_by: 1h\nfeatures: []\n", encoding="utf-8")
@@ -61,7 +63,11 @@ def test_load_sources_resolves_fs_path_from_project_root(tmp_path: Path) -> None
     project_yaml = _write_project_yaml(project_root)
 
     loaded = _load_sources_from_dir(project_yaml, vars_={})
-    path_value = loaded["sample.fs"]["loader"]["args"]["path"]
+    source = build_source_from_spec(
+        SourceConfig.model_validate(loaded["sample.fs"]),
+        project_yaml=project_yaml,
+    )
+    path_value = source.loader.transport.pattern
     assert path_value == str((project_root / "data" / "*.jsonl").resolve())
 
 
@@ -69,7 +75,7 @@ def test_load_sources_resolves_fs_path_relative_to_project_root_only(tmp_path: P
     project_root = tmp_path / "workspace" / "demo" / "demo"
     (project_root / "data").mkdir(parents=True)
     (project_root / "data" / "rows.jsonl").write_text("{}", encoding="utf-8")
-    (project_root / "contracts").mkdir()
+    (project_root / "streams").mkdir()
     (project_root / "tasks").mkdir()
     (project_root / "build").mkdir()
     (project_root / "dataset.yaml").write_text("group_by: 1h\nfeatures: []\n", encoding="utf-8")
@@ -78,5 +84,9 @@ def test_load_sources_resolves_fs_path_relative_to_project_root_only(tmp_path: P
     project_yaml = _write_project_yaml(project_root)
 
     loaded = _load_sources_from_dir(project_yaml, vars_={})
-    path_value = loaded["sample.fs"]["loader"]["args"]["path"]
+    source = build_source_from_spec(
+        SourceConfig.model_validate(loaded["sample.fs"]),
+        project_yaml=project_yaml,
+    )
+    path_value = source.loader.transport.pattern
     assert path_value == str((project_root / "demo" / "demo" / "data" / "*.jsonl").resolve())

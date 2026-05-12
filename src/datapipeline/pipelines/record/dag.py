@@ -100,6 +100,6 @@ def _require_source(context: PipelineContext, record_stream_id: str) -> Any:
         available_text = ", ".join(available) if available else "(none)"
         raise KeyError(
             "Unknown record_stream "
-            f"'{record_stream_id}'. Check dataset.yaml and contracts/ ids. "
+            f"'{record_stream_id}'. Check dataset.yaml and stream ids. "
             f"Available streams: {available_text}"
         ) from exc

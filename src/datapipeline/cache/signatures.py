@@ -3,6 +3,8 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
+from pydantic import ValidationError
+
 
 def resolve_record_stream_signature(
     project_yaml: Path,
@@ -26,9 +28,11 @@ def _record_stream_signature_payload(
 ) -> dict[str, Any] | None:
     from datapipeline.services.bootstrap.core import load_streams
 
+    # Some unit/runtime tests build an in-memory Runtime without a full
+    # project.yaml. In that case record-stream caching is unavailable.
     try:
         streams = load_streams(project_yaml)
-    except Exception:
+    except (FileNotFoundError, ValidationError):
         return None
     return _stream_payload_from_config(streams, stream_id, {})
 
@@ -42,21 +46,21 @@ def _stream_payload_from_config(
     if cached is not None:
         return cached
 
-    spec = streams.contracts.get(stream_id)
+    spec = streams.streams.get(stream_id)
     if spec is None:
         return None
 
     payload: dict[str, Any] = {
-        "contract": spec.model_dump(mode="json"),
+        "stream": spec.model_dump(mode="json", by_alias=True),
         "boundary": "record_stream:stream_transforms",
     }
-    if spec.kind == "ingest":
-        if spec.source is not None and spec.source in streams.raw:
-            payload["source"] = streams.raw[spec.source].model_dump(mode="json")
+    if spec.reads_source:
+        source = spec.from_.source
+        if source is not None and source in streams.raw:
+            payload["source"] = streams.raw[source].model_dump(mode="json")
     else:
-        refs = [spec.parse_input_spec(item)[1] for item in list(spec.inputs or [])]
         inputs: dict[str, Any] = {}
-        for ref in refs:
+        for ref in spec.input_refs().values():
             child = _stream_payload_from_config(streams, ref, memo)
             if child is None:
                 return None

@@ -38,7 +38,7 @@ def manual_equity_pair_aapl_msft(
     """
     Compose ticker-specific streams into a single pair-analytics stream.
 
-    Expected aliases in contract inputs:
+    Expected aliases in stream inputs:
     - aapl=equity.aapl
     - msft=equity.msft
     """

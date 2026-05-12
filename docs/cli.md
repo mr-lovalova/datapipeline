@@ -61,7 +61,7 @@ All commands that take a project accept either `--project <path/to/project.yaml>
 - `jerry demo init`
   - Generates a standalone demo plugin at `./demo/` and wires a `demo` dataset alias.
 - `jerry inflow create`
-  - Wizard to scaffold a complete ingest flow (source YAML + parser/DTO + mapper + contract).
+  - Wizard to scaffold a complete ingest flow (source YAML + parser/DTO + mapper + stream).
 - `jerry source create <provider>.<dataset> --transport fs|http|synthetic --format csv|json|jsonl|pickle`
   - Also supports positional `<provider> <dataset>` and `--alias <provider>.<dataset>`.
   - Creates a source YAML only (no Python code).

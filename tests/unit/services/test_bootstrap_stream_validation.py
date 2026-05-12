@@ -1,16 +1,15 @@
 import pytest
 
-from datapipeline.config.catalog import ContractConfig
+from datapipeline.config.catalog import StreamConfig
 from datapipeline.services.bootstrap.core import _load_canonical_streams
-from datapipeline.services.streams.validation import validate_stream_contracts
+from datapipeline.services.streams.validation import validate_stream_configs
 
 
-def _ingest(stream_id: str, partition_by=None) -> ContractConfig:
-    return ContractConfig.model_validate(
+def _ingest(stream_id: str, partition_by=None) -> StreamConfig:
+    return StreamConfig.model_validate(
         {
-            "kind": "ingest",
             "id": stream_id,
-            "source": "source.alias",
+            "from": {"source": "source.alias"},
             "partition_by": partition_by,
         }
     )
@@ -21,17 +20,16 @@ def _manual(
     inputs: list[str],
     partition_by=None,
     driver: str | None = None,
-) -> ContractConfig:
+) -> StreamConfig:
     args = {}
     if driver is not None:
         args["driver"] = driver
-    return ContractConfig.model_validate(
+    return StreamConfig.model_validate(
         {
-            "kind": "manual",
             "id": stream_id,
-            "inputs": inputs,
+            "from": {"streams": _input_map(inputs)},
             "partition_by": partition_by,
-            "mapper": {"entrypoint": "manual", "args": args},
+            "map": {"entrypoint": "manual", "args": args},
         }
     )
 
@@ -41,25 +39,32 @@ def _joined(
     inputs: list[str],
     primary: str,
     broadcast: list[str] | None = None,
-) -> ContractConfig:
-    return ContractConfig.model_validate(
+) -> StreamConfig:
+    return StreamConfig.model_validate(
         {
-            "kind": "joined",
             "id": stream_id,
-            "inputs": inputs,
-            "join": {
+            "from": {
+                "join": _input_map(inputs),
                 "primary": primary,
                 "on": "time",
                 "mode": "inner",
                 "broadcast": list(broadcast or []),
             },
-            "mapper": {"entrypoint": "join", "args": {}},
+            "map": {"entrypoint": "join", "args": {}},
         }
     )
 
 
-def test_validate_stream_contracts_rejects_missing_refs() -> None:
-    contracts = {
+def _input_map(inputs: list[str]) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for item in inputs:
+        alias, ref = item.split("=", 1)
+        out[alias.strip()] = ref.strip()
+    return out
+
+
+def test_validate_stream_configs_rejects_missing_refs() -> None:
+    stream_configs = {
         "derived": _manual(
             "derived",
             ["x=stream.a", "y=stream.b"],
@@ -67,11 +72,11 @@ def test_validate_stream_contracts_rejects_missing_refs() -> None:
         ),
     }
     with pytest.raises(ValueError, match="references unknown stream"):
-        validate_stream_contracts(contracts)
+        validate_stream_configs(stream_configs)
 
 
-def test_validate_stream_contracts_allows_manual_partition_mismatch() -> None:
-    contracts = {
+def test_validate_stream_configs_allows_manual_partition_mismatch() -> None:
+    stream_configs = {
         "stream.a": _ingest("stream.a", partition_by="station"),
         "stream.b": _ingest("stream.b", partition_by="ticker"),
         "derived": _manual(
@@ -81,11 +86,11 @@ def test_validate_stream_contracts_allows_manual_partition_mismatch() -> None:
         ),
     }
 
-    validate_stream_contracts(contracts)
+    validate_stream_configs(stream_configs)
 
 
-def test_validate_stream_contracts_rejects_joined_unrelated_partitions() -> None:
-    contracts = {
+def test_validate_stream_configs_rejects_joined_unrelated_partitions() -> None:
+    stream_configs = {
         "stream.a": _ingest("stream.a", partition_by="station"),
         "stream.b": _ingest("stream.b", partition_by="ticker"),
         "derived": _joined(
@@ -95,11 +100,11 @@ def test_validate_stream_contracts_rejects_joined_unrelated_partitions() -> None
         ),
     }
     with pytest.raises(ValueError, match="incompatible partition_by"):
-        validate_stream_contracts(contracts)
+        validate_stream_configs(stream_configs)
 
 
-def test_validate_stream_contracts_accepts_joined_matching_partitions() -> None:
-    contracts = {
+def test_validate_stream_configs_accepts_joined_matching_partitions() -> None:
+    stream_configs = {
         "stream.a": _ingest("stream.a", partition_by="station"),
         "stream.b": _ingest("stream.b", partition_by="station"),
         "derived": _joined(
@@ -109,11 +114,11 @@ def test_validate_stream_contracts_accepts_joined_matching_partitions() -> None:
         ),
     }
 
-    validate_stream_contracts(contracts)
+    validate_stream_configs(stream_configs)
 
 
-def test_validate_stream_contracts_accepts_joined_broadcast_subset() -> None:
-    contracts = {
+def test_validate_stream_configs_accepts_joined_broadcast_subset() -> None:
+    stream_configs = {
         "stream.a": _ingest("stream.a", partition_by=["ticker", "horizon"]),
         "stream.b": _ingest("stream.b", partition_by="ticker"),
         "derived": _joined(
@@ -124,12 +129,12 @@ def test_validate_stream_contracts_accepts_joined_broadcast_subset() -> None:
         ),
     }
 
-    validate_stream_contracts(contracts)
+    validate_stream_configs(stream_configs)
 
 
-def test_load_canonical_streams_rejects_composed_kind(tmp_path) -> None:
-    contracts_dir = tmp_path / "contracts"
-    contracts_dir.mkdir()
+def test_load_canonical_streams_loads_from_shape(tmp_path) -> None:
+    streams_dir = tmp_path / "stream_configs"
+    streams_dir.mkdir()
     project_yaml = tmp_path / "project.yaml"
     project_yaml.write_text(
         "\n".join(
@@ -137,7 +142,7 @@ def test_load_canonical_streams_rejects_composed_kind(tmp_path) -> None:
                 "version: 1",
                 "name: test",
                 "paths:",
-                "  streams: ./contracts",
+                "  streams: ./stream_configs",
                 "  sources: ./sources",
                 "  dataset: dataset.yaml",
                 "  postprocess: postprocess.yaml",
@@ -146,19 +151,60 @@ def test_load_canonical_streams_rejects_composed_kind(tmp_path) -> None:
         ),
         encoding="utf-8",
     )
-    (contracts_dir / "old.yaml").write_text(
+    (streams_dir / "old.yaml").write_text(
         "\n".join(
             [
-                "kind: composed",
                 "id: old",
-                "inputs:",
-                "  - stream.a",
-                "mapper:",
+                "from:",
+                "  streams:",
+                "    a: stream.a",
+                "map:",
                 "  entrypoint: old_mapper",
             ]
         ),
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError, match="composed.*no longer supported"):
+    assert _load_canonical_streams(project_yaml, {}) == {
+        "old": {
+            "id": "old",
+            "from": {"streams": {"a": "stream.a"}},
+            "map": {"entrypoint": "old_mapper"},
+        }
+    }
+
+
+def test_load_canonical_streams_rejects_old_kind_shape(tmp_path) -> None:
+    streams_dir = tmp_path / "stream_configs"
+    streams_dir.mkdir()
+    project_yaml = tmp_path / "project.yaml"
+    project_yaml.write_text(
+        "\n".join(
+            [
+                "version: 1",
+                "name: test",
+                "paths:",
+                "  streams: ./stream_configs",
+                "  sources: ./sources",
+                "  dataset: dataset.yaml",
+                "  postprocess: postprocess.yaml",
+                "  artifacts: ./artifacts",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (streams_dir / "old.yaml").write_text(
+        "\n".join(
+            [
+                "kind: ingest",
+                "id: old",
+                "source: demo.source",
+                "mapper:",
+                "  entrypoint: map_old",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="'kind' is no longer supported"):
         _load_canonical_streams(project_yaml, {})

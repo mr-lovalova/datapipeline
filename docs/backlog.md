@@ -7,7 +7,7 @@ Current status:
 - `build_feature_pipeline`/`build_vector_pipeline` now use the direct non-cached flow.
 
 Proposed redesign:
-1. Add explicit stage checkpoints (not hidden source contracts).
+1. Add explicit stage checkpoints (not hidden source streams).
 2. Keep cache/checkpoint concerns outside pipeline orchestration.
 3. Define manifest for each checkpoint:
 - stage boundary

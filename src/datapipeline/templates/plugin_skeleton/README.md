@@ -10,7 +10,7 @@ python -m pip install -U jerry-thomas
 jerry plugin init {{DIST_NAME}} --out .
 python -m pip install -e {{DIST_NAME}}
 
-# One-stop wizard: source YAML + DTO/parser + domain + mapper + contract.
+# One-stop wizard: source YAML + DTO/parser + domain + mapper + stream.
 jerry inflow create
 
 # If a workspace-level `jerry.yaml` was created (fresh workspace), you can use the dataset alias:
@@ -29,7 +29,7 @@ jerry serve --dataset your-dataset --limit 3
 - `your-dataset/.env.example`
   - Copy to `.env` next to `project.yaml` for local dataset-specific secrets and paths
 - `your-dataset/dataset.yaml`
-  - Ensure `record_stream:` points at the contract id you created.
+  - Ensure `record_stream:` points at the stream id you created.
   - Select a `field:` for each feature/target (record attribute to use as value).
   - Ensure `group_by` matches `^\d+(m|min|h|d)$` (e.g. `10m`, `1h`, `1d`).
 
@@ -46,7 +46,7 @@ YAML config (dataset project root):
 - `your-dataset/`
   - `project.yaml` (paths, globals, split)
   - `sources/*.yaml` (raw source definitions)
-  - `contracts/*.yaml` (canonical streams)
+  - `streams/*.yaml` (canonical streams)
   - `dataset.yaml` (features/targets)
   - `postprocess.yaml` (vector-level transforms)
   - `profiles/serve.<name>.yaml`, `profiles/build.<name>.yaml`, `profiles/inspect.<name>.yaml` (profiles; optional overrides)

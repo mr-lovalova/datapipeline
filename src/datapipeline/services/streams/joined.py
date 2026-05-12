@@ -5,7 +5,7 @@ from typing import Any
 
 from datapipeline.cli.visuals.execution import emit_source_info
 from datapipeline.cli.visuals.execution_context import current_dag_depth
-from datapipeline.config.catalog import ContractConfig
+from datapipeline.config.catalog import StreamConfig
 from datapipeline.dag.context import PipelineContext
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.domain.stream import RecordStream
@@ -24,24 +24,25 @@ logger = logging.getLogger(__name__)
 
 
 class JoinedStream(RecordStream[JoinedRow]):
-    def __init__(self, runtime, stream_id: str, spec: ContractConfig):
+    def __init__(self, runtime, stream_id: str, spec: StreamConfig):
         self._runtime = runtime
         self._stream_id = stream_id
         self._spec = spec
 
     def stream(self):
         context = PipelineContext(self._runtime)
-        join = self._spec.join
-        if join is None:
-            raise ValueError(f"Joined stream '{self._stream_id}' requires join config")
+        join = self._spec.from_
+        primary = join.primary
+        if primary is None:
+            raise ValueError(f"Joined stream '{self._stream_id}' requires from.primary")
 
         refs, record_iters, upstream_iters = open_input_records(
-            context, self._spec.inputs, owner=self._stream_id
+            context, self._spec.input_refs(), owner=self._stream_id
         )
         input_plans = build_join_input_plans(
             stream_id=self._stream_id,
             input_refs=refs,
-            primary=join.primary,
+            primary=primary,
             broadcast=set(join.broadcast),
             partition_by=self._runtime.registries.partition_by,
         )
@@ -49,13 +50,13 @@ class JoinedStream(RecordStream[JoinedRow]):
         try:
             stats = _JoinStats(
                 stream_id=self._stream_id,
-                primary=join.primary,
+                primary=primary,
                 mode=join.mode,
                 on=join.on,
             )
             rows = _aligned_rows(
                 record_iters,
-                primary=join.primary,
+                primary=primary,
                 input_plans=input_plans,
                 mode=join.mode,
                 time_field=join.on,
@@ -69,7 +70,7 @@ class JoinedStream(RecordStream[JoinedRow]):
 
 
 def build_joined_stream(
-    stream_id: str, spec: ContractConfig, runtime
+    stream_id: str, spec: StreamConfig, runtime
 ) -> RecordStream[JoinedRow]:
     return JoinedStream(runtime=runtime, stream_id=stream_id, spec=spec)
 
@@ -135,7 +136,7 @@ def _aligned_rows(
     input_plans: dict[str, JoinInputPlan],
     mode: str,
     time_field: str,
-    stats: _JoinStats | None = None,
+    stats: _JoinStats,
 ) -> Iterator[JoinedRow]:
     if mode not in {"inner", "left"}:
         raise ValueError(f"Unsupported join mode '{mode}'. Use 'inner' or 'left'.")
@@ -149,17 +150,15 @@ def _aligned_rows(
             time_field=time_field,
         )
         other_indexes[alias] = index
-        if stats is not None:
-            stats.add_input(
-                alias,
-                stream_id=input_plan.stream_id,
-                rows=row_count,
-                broadcast=input_plan.broadcast,
-            )
+        stats.add_input(
+            alias,
+            stream_id=input_plan.stream_id,
+            rows=row_count,
+            broadcast=input_plan.broadcast,
+        )
 
     for primary_record in primary_iter:
-        if stats is not None:
-            stats.primary_rows += 1
+        stats.primary_rows += 1
         row_values: dict[str, TemporalRecord | None] = {primary: primary_record}
         missing = False
         for alias, index in other_indexes.items():
@@ -171,15 +170,13 @@ def _aligned_rows(
             match = index.get(key)
             if match is None:
                 missing = True
-                if stats is not None:
-                    stats.inputs[alias].missed += 1
-            elif stats is not None:
+                stats.inputs[alias].missed += 1
+            else:
                 stats.inputs[alias].matched += 1
             row_values[alias] = match
         if missing and mode == "inner":
             continue
-        if stats is not None:
-            stats.output_rows += 1
+        stats.output_rows += 1
         yield JoinedRow(
             time=get_field(primary_record, time_field),
             values=row_values,

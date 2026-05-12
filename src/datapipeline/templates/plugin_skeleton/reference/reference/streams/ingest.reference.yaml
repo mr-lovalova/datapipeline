@@ -1,0 +1,32 @@
+# Source-backed stream reference.
+# This file is documentation only; uncomment the keys you want to use.
+#
+# id: domain.dataset.variant
+# from:
+#   source: source.alias        # required
+# map:                          # optional (defaults to identity)
+#   entrypoint: my_mapper
+#   args: {}
+# cadence: ${group_by}          # optional per-stream variable for interpolation
+# partition_by: station_id      # optional; string or list of strings
+# sort_batch_size: 100000       # optional; in-memory chunk size for sorting
+#
+# record transforms (one-key mappings; optional):
+# - where: { field: time, operator: ge, comparand: "${start_time}" }
+# - floor_time: { cadence: "${cadence}" }
+# - shift_time: { by: "-1h" }
+#
+# stream transforms (one-key mappings; optional; operate on record fields):
+# - floor_time: { cadence: "${cadence}" }
+# - lag: { field: close, to: close_lag_1, periods: 1 }
+# - lead: { field: close, to: close_lead_126, periods: 126 }
+# - where: { field: close, operator: ge, comparand: 1000000 }
+# - dedupe: {}
+# - granularity: { field: close, mode: first }
+# - ensure_cadence: { field: close, cadence: "${cadence}" }
+# - rolling: { field: dollar_volume, to: adv60, window: 60, statistic: mean, min_samples: 60 }
+# - fill: { field: close, to: close, statistic: median, window: 6, min_samples: 1 }
+#
+# debug transforms (one-key mappings; optional):
+# - lint: { mode: error, tick: "${cadence}" }
+# - identity: {}

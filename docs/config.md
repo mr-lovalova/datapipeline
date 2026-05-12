@@ -6,7 +6,7 @@ These live under the dataset “project root” directory (the folder containing
 
 - `project.yaml`: paths + globals (single source of truth).
 - `sources/*.yaml`: raw sources (loader + parser wiring).
-- `contracts/*.yaml`: canonical streams (ingest or composed).
+- `streams/*.yaml`: canonical streams (source-backed, joined, or manual).
 - `dataset.yaml`: feature/target declarations.
 - `postprocess.yaml`: vector-level transforms.
 - `profiles/serve.<name>.yaml`: serve profiles.
@@ -37,7 +37,7 @@ All dataset configuration is rooted at a single `project.yaml` file. Other YAML 
 version: 1
 name: default
 paths:
-  streams: ./contracts
+  streams: ./streams
   sources: ./sources
   dataset: dataset.yaml
   postprocess: postprocess.yaml
@@ -174,7 +174,7 @@ Each file defines a loader/parser pair exposed under `<alias>`. Files may live i
 subdirectories under `<project_root>/sources/`; discovery is recursive.
 
 ```yaml
-# Source identifier (commonly `provider.dataset`). Contracts reference this under `source:`.
+# Source identifier (commonly `provider.dataset`). Streams reference this under `from.source`.
 id: stooq.ohlcv
 parser:
   # Parser entry point name (registered in your plugin’s pyproject.toml).
@@ -190,7 +190,7 @@ loader:
       Authorization: "Bearer ${env:STOOQ_API_KEY}"
 ```
 
-- `id`: the source alias; referenced by contracts under `source:`.
+- `id`: the source alias; referenced by streams under `from.source`.
 - `parser.entrypoint`: which parser to use; `parser.args` are optional.
 - `loader.entrypoint`: which loader to use; `core.io` is the default for fs/http and is configured via `loader.args`.
 - Keep secrets and machine-local paths out of source files. Prefer `${env:...}`
@@ -215,17 +215,17 @@ loader:
         url: "https://stooq.com/q/d/l/?s=${symbol}&i=d"
 ```
 
-### `<project_root>/contracts/<stream_id>.yaml`
+### `<project_root>/streams/<stream_id>.yaml`
 
-Canonical stream contracts describe how the runtime should map and prepare a raw
+Stream configs describe how the runtime should map and prepare a raw
 source. Use folders to organize by domain if you like.
 
 ```yaml
-kind: ingest
 id: equity.ohlcv # stream identifier (domain.dataset[.variant])
-source: stooq.ohlcv # references sources/<alias>.yaml:id
+from:
+  source: stooq.ohlcv # references sources/<alias>.yaml:id
 
-mapper:
+map:
   entrypoint: equity.ohlcv
   args: {}
 
@@ -233,8 +233,8 @@ partition_by: station
 sort_batch_size: 50000
 
 record:
-  - filter: { field: time, operator: ge, comparand: "${start_time}" }
-  - filter: { field: time, operator: lt, comparand: "${end_time}" }
+  - where: { field: time, operator: ge, comparand: "${start_time}" }
+  - where: { field: time, operator: lt, comparand: "${end_time}" }
   - floor_time: { cadence: 10m }
 
 stream:
@@ -246,7 +246,7 @@ debug:
   - lint: { mode: warn, tick: 10m }
 ```
 
-- `record`: ordered record-level transforms (filters, floor/lag, custom
+- `record`: ordered record-level transforms (`where`, floor/lag, custom
   transforms registered under the `record` entry-point group).
 - `stream`: transforms applied after record transforms; operate on record fields before feature selection.
 - `debug`: instrumentation-only transforms (linters, assertions).
@@ -254,34 +254,33 @@ debug:
 - `sort_batch_size`: chunk size used by the in-memory sorter when normalizing
   order before stream transforms.
 
-### Composed Streams (Engineered Domains)
+### Manual Streams (Engineered Domains)
 
-Define engineered streams that depend on other canonical streams directly in contracts. The runtime builds each input to stage 4 (ordered + stream transforms applied), exposes them as iterators keyed by alias, and calls your composer to emit fresh records for the derived stream.
+Define engineered streams that depend on other streams. The runtime builds each input to stage 4 (ordered + stream transforms applied), exposes them as iterators keyed by alias, and calls your mapper to emit fresh records for the derived stream.
 
 ```yaml
-# <project_root>/contracts/air_density.processed.yaml
-kind: composed
+# <project_root>/streams/air_density.processed.yaml
 id: air_density.processed
-inputs:
-  - pressure.processed
-  - t=temp_dry.processed
+from:
+  streams:
+    pressure: pressure.processed
+    t: temp_dry.processed
 partition_by: station_id
 sort_batch_size: 20000
 
-mapper:
-  # Composer function via mapper entrypoint (required for composed streams)
-  entrypoint: mypkg.domains.air_density:compose_to_record
+map:
+  # Mapper entrypoint required for joined/manual streams.
+  entrypoint: mypkg.domains.air_density:map_to_air_density
   args:
-    driver: pressure.processed # optional; defaults to first input alias
-    join: inner                # optional: inner | left
+    driver: pressure           # optional; defaults to first input alias
 
-# Optional post‑compose policies (run after composition like any stream)
+# Optional policies run after mapping like any stream.
 # record: [...]
 # stream: [...]
 # debug:  [...]
 ```
 
-Dataset stays minimal — features only reference the composed stream:
+Dataset stays minimal — features only reference the derived stream:
 
 ```yaml
 # dataset.yaml
@@ -295,11 +294,10 @@ features:
 Notes:
 
 - Inputs always reference canonical stream_ids (not raw sources).
-- Composed mapper signature is `mapper(inputs, *, context, driver, join="inner", **params)`.
-- Use `datapipeline.composed.align_many(inputs, driver=..., join=...)` in mappers for standard timestamp alignment.
-- `join: inner` emits only fully matched timestamps; `join: left` keeps driver timestamps and sets missing inputs to `None`.
-- The composed source outputs records; its own `record`/`stream`/`debug` rules still apply afterward.
-- Partitioning for the engineered domain is explicit via `partition_by` on the composed contract.
+- Manual mapper signature is `mapper(inputs, *, context, driver, **params)`.
+- Use a joined stream when the framework should align records by timestamp.
+- The derived stream outputs records; its own `record`/`stream`/`debug` rules still apply afterward.
+- Partitioning for the engineered domain is explicit via `partition_by` on the derived stream.
 
 ### `dataset.yaml`
 

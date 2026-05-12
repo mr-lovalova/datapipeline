@@ -88,7 +88,7 @@ def create_mapper(
 
 def _create_stream_mapper(
     *,
-    kind: str,
+    stream_type: str,
     template: str,
     domain: str,
     stream_id: str,
@@ -113,7 +113,10 @@ def _create_stream_mapper(
         updated = inject_ep(toml_text, MAPPERS_GROUP, ep_key, ep_target)
         if updated != toml_text:
             pyproj_path.write_text(updated)
-            status("ok", f"Registered {kind} mapper entry point '{ep_key}' -> {ep_target}")
+            status(
+                "ok",
+                f"Registered {stream_type} mapper entry point '{ep_key}' -> {ep_target}",
+            )
     except FileNotFoundError:
         info("pyproject.toml not found; skipping entry point registration")
     return ep_key
@@ -127,7 +130,7 @@ def create_joined_mapper(
     mapper_path: str | None = None,
 ) -> str:
     return _create_stream_mapper(
-        kind="joined",
+        stream_type="joined",
         template=TPL_MAPPER_JOINED,
         domain=domain,
         stream_id=stream_id,
@@ -144,7 +147,7 @@ def create_manual_mapper(
     mapper_path: str | None = None,
 ) -> str:
     return _create_stream_mapper(
-        kind="manual",
+        stream_type="manual",
         template=TPL_MAPPER_MANUAL,
         domain=domain,
         stream_id=stream_id,
