@@ -1,4 +1,5 @@
 from datapipeline.config.catalog import ContractConfig
+from datapipeline.services.streams.join_plan import build_join_input_plans
 
 
 def validate_stream_contracts(contracts: dict[str, ContractConfig]) -> None:
@@ -43,23 +44,13 @@ def _validate_joined_stream(
     if join is None:
         raise ValueError(f"Joined stream '{stream_id}' requires join config")
 
-    primary_ref = refs[join.primary]
-    primary_partition = _partition_signature(contracts[primary_ref].partition_by)
-    for alias, ref in refs.items():
-        if alias == join.primary:
-            continue
-        partition = _partition_signature(contracts[ref].partition_by)
-        if alias in join.broadcast:
-            if set(partition).issubset(primary_partition):
-                continue
-        elif partition == primary_partition:
-            continue
-        raise ValueError(
-            "Joined stream "
-            f"'{stream_id}' has incompatible partition_by: "
-            f"input '{alias}' partition_by={list(partition)} "
-            f"does not match primary partition_by={list(primary_partition)}"
-        )
+    build_join_input_plans(
+        stream_id=stream_id,
+        input_refs=refs,
+        primary=join.primary,
+        broadcast=set(join.broadcast),
+        partition_by={ref: contracts[ref].partition_by for ref in refs.values()},
+    )
 
 
 def _input_refs(spec: ContractConfig) -> dict[str, str]:
@@ -69,11 +60,3 @@ def _input_refs(spec: ContractConfig) -> dict[str, str]:
             ContractConfig.parse_input_spec(item) for item in (spec.inputs or [])
         )
     }
-
-
-def _partition_signature(value: str | list[str] | None) -> tuple[str, ...]:
-    if value is None:
-        return ()
-    if isinstance(value, str):
-        return (value,)
-    return tuple(value)

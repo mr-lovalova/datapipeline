@@ -14,6 +14,10 @@ from datapipeline.pipelines.record.inputs import (
     close_iterator,
     open_input_records,
 )
+from datapipeline.services.streams.join_plan import (
+    JoinInputPlan,
+    build_join_input_plans,
+)
 from datapipeline.transforms.utils import get_field, partition_key
 
 logger = logging.getLogger(__name__)
@@ -34,11 +38,13 @@ class JoinedStream(RecordStream[JoinedRow]):
         refs, record_iters, upstream_iters = open_input_records(
             context, self._spec.inputs, owner=self._stream_id
         )
-        if join.primary not in refs:
-            raise ValueError(
-                f"Joined stream '{self._stream_id}' join.primary '{join.primary}' "
-                f"is not an input alias"
-            )
+        input_plans = build_join_input_plans(
+            stream_id=self._stream_id,
+            input_refs=refs,
+            primary=join.primary,
+            broadcast=set(join.broadcast),
+            partition_by=self._runtime.registries.partition_by,
+        )
 
         try:
             stats = _JoinStats(
@@ -49,11 +55,9 @@ class JoinedStream(RecordStream[JoinedRow]):
             )
             rows = _aligned_rows(
                 record_iters,
-                input_refs=refs,
-                partition_by=self._runtime.registries.partition_by,
                 primary=join.primary,
+                input_plans=input_plans,
                 mode=join.mode,
-                broadcast=set(join.broadcast),
                 time_field=join.on,
                 stats=stats,
             )
@@ -127,42 +131,30 @@ class _JoinStats:
 def _aligned_rows(
     inputs: dict[str, Iterator[TemporalRecord]],
     *,
-    input_refs: dict[str, str],
-    partition_by,
     primary: str,
+    input_plans: dict[str, JoinInputPlan],
     mode: str,
-    broadcast: set[str],
     time_field: str,
     stats: _JoinStats | None = None,
 ) -> Iterator[JoinedRow]:
     if mode not in {"inner", "left"}:
         raise ValueError(f"Unsupported join mode '{mode}'. Use 'inner' or 'left'.")
 
-    primary_partition = partition_by.get(input_refs[primary])
     primary_iter = inputs[primary]
     other_indexes = {}
-    other_fields = {}
-    for alias in inputs:
-        if alias == primary:
-            continue
-        fields = _join_fields(
-            primary_partition=primary_partition,
-            other_partition=partition_by.get(input_refs[alias]),
-            broadcast=alias in broadcast,
-        )
+    for alias, input_plan in input_plans.items():
         index, row_count = _index_records(
             inputs[alias],
-            fields=fields,
+            fields=input_plan.fields,
             time_field=time_field,
         )
         other_indexes[alias] = index
-        other_fields[alias] = fields
         if stats is not None:
             stats.add_input(
                 alias,
-                stream_id=input_refs[alias],
+                stream_id=input_plan.stream_id,
                 rows=row_count,
-                broadcast=alias in broadcast,
+                broadcast=input_plan.broadcast,
             )
 
     for primary_record in primary_iter:
@@ -173,7 +165,7 @@ def _aligned_rows(
         for alias, index in other_indexes.items():
             key = _record_key(
                 primary_record,
-                fields=other_fields[alias],
+                fields=input_plans[alias].fields,
                 time_field=time_field,
             )
             match = index.get(key)
@@ -215,29 +207,3 @@ def _record_key(
     time_field: str,
 ) -> tuple[Any, ...]:
     return (get_field(record, time_field), *partition_key(record, list(fields)))
-
-
-def _partition_tuple(value: str | list[str] | None) -> tuple[str, ...]:
-    if value is None:
-        return ()
-    if isinstance(value, str):
-        return (value,)
-    return tuple(value)
-
-
-def _join_fields(
-    *,
-    primary_partition: str | list[str] | None,
-    other_partition: str | list[str] | None,
-    broadcast: bool,
-) -> tuple[str, ...]:
-    primary_fields = _partition_tuple(primary_partition)
-    other_fields = _partition_tuple(other_partition)
-    if broadcast:
-        return other_fields
-    if other_fields != primary_fields:
-        raise ValueError(
-            f"Joined input partition_by={list(other_fields)} is incompatible "
-            f"with primary partition_by={list(primary_fields)}"
-        )
-    return primary_fields
