@@ -1,14 +1,15 @@
-from collections.abc import Iterator
 from typing import Any
 
 from datapipeline.config.catalog import ContractConfig
 from datapipeline.dag.context import PipelineContext
 from datapipeline.domain.stream import RecordStream
+from datapipeline.pipelines.record.inputs import (
+    close_iterator,
+    open_input_records,
+)
 from datapipeline.plugins import MAPPERS_EP
 from datapipeline.utils.load import load_ep
 from datapipeline.utils.placeholders import normalize_args
-
-from .common import close_iterator, resolve_input_streams, unwrap_records
 
 
 class ManualStream(RecordStream[Any]):
@@ -19,13 +20,9 @@ class ManualStream(RecordStream[Any]):
 
     def stream(self):
         context = PipelineContext(self._runtime)
-        resolved_inputs = resolve_input_streams(context, self._spec)
-        upstream_iters: list[Iterator[Any]] = []
-        input_iters: dict[str, Iterator[Any]] = {}
-        for alias, iterator in resolved_inputs.items():
-            upstream_iter = iter(iterator)
-            upstream_iters.append(upstream_iter)
-            input_iters[alias] = unwrap_records(upstream_iter)
+        _refs, input_iters, upstream_iters = open_input_records(
+            context, self._spec.inputs, owner=self._stream_id
+        )
 
         mapper = self._spec.mapper
         if not mapper or not mapper.entrypoint:

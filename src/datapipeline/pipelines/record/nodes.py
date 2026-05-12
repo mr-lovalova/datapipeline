@@ -10,15 +10,16 @@ from datapipeline.plugins import (
     STREAM_TRANFORMS_EP,
 )
 from datapipeline.transforms.utils import partition_key
+from datapipeline.domain.stream import RecordStream
 
 RECORD_NODE_COUNT = 6
 
 
-def open_stream(stream):
+def open_stream(stream: RecordStream):
     return stream.stream()
 
 
-def map_records(mapper: Any, records: Iterable[Any] | None) -> Iterable[Any]:
+def map_records(mapper, records):
     return mapper(records)
 
 

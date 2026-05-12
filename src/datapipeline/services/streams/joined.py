@@ -10,9 +10,11 @@ from datapipeline.dag.context import PipelineContext
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.domain.stream import RecordStream
 from datapipeline.joined.model import JoinedRow
+from datapipeline.pipelines.record.inputs import (
+    close_iterator,
+    open_input_records,
+)
 from datapipeline.transforms.utils import get_field, partition_key
-
-from .common import close_iterator, resolve_input_streams, unwrap_records
 
 logger = logging.getLogger(__name__)
 
@@ -29,20 +31,14 @@ class JoinedStream(RecordStream[JoinedRow]):
         if join is None:
             raise ValueError(f"Joined stream '{self._stream_id}' requires join config")
 
-        input_refs = _input_refs(self._spec)
-        if join.primary not in input_refs:
+        refs, record_iters, upstream_iters = open_input_records(
+            context, self._spec.inputs, owner=self._stream_id
+        )
+        if join.primary not in refs:
             raise ValueError(
                 f"Joined stream '{self._stream_id}' join.primary '{join.primary}' "
                 f"is not an input alias"
             )
-
-        resolved_inputs = resolve_input_streams(context, self._spec)
-        upstream_iters: list[Iterator[Any]] = []
-        record_iters: dict[str, Iterator[Any]] = {}
-        for alias, iterator in resolved_inputs.items():
-            upstream_iter = iter(iterator)
-            upstream_iters.append(upstream_iter)
-            record_iters[alias] = unwrap_records(upstream_iter)
 
         try:
             stats = _JoinStats(
@@ -53,7 +49,7 @@ class JoinedStream(RecordStream[JoinedRow]):
             )
             rows = _aligned_rows(
                 record_iters,
-                input_refs=input_refs,
+                input_refs=refs,
                 partition_by=self._runtime.registries.partition_by,
                 primary=join.primary,
                 mode=join.mode,
@@ -72,15 +68,6 @@ def build_joined_stream(
     stream_id: str, spec: ContractConfig, runtime
 ) -> RecordStream[JoinedRow]:
     return JoinedStream(runtime=runtime, stream_id=stream_id, spec=spec)
-
-
-def _input_refs(spec: ContractConfig) -> dict[str, str]:
-    return {
-        alias: ref
-        for alias, ref in (
-            ContractConfig.parse_input_spec(item) for item in (spec.inputs or [])
-        )
-    }
 
 
 @dataclass

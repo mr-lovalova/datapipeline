@@ -85,7 +85,7 @@ def _install_streams(monkeypatch, runtime) -> None:
         return iter(runtime._streams[ref])
 
     monkeypatch.setattr(
-        "datapipeline.services.streams.common.cached_record_stream",
+        "datapipeline.pipelines.record.inputs.cached_record_stream",
         _cached_record_stream,
     )
 
@@ -114,7 +114,7 @@ def test_manual_stream_closes_upstream_iterators_when_closed(monkeypatch) -> Non
         yield from inputs[driver]
 
     monkeypatch.setattr(
-        "datapipeline.services.streams.common.cached_record_stream",
+        "datapipeline.pipelines.record.inputs.cached_record_stream",
         _cached_record_stream,
     )
     monkeypatch.setattr(

@@ -524,7 +524,7 @@ def test_rich_source_proxy_skips_progress_row_for_virtual_source(monkeypatch) ->
         def format_label(self, name=None, **kwargs):
             if name:
                 return f"Loading {name}"
-            return "ManualLoader"
+            return "ManualStream"
 
         def initial_label(self):
             return None
