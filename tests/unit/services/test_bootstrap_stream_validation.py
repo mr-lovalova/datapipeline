@@ -1,10 +1,8 @@
 import pytest
 
 from datapipeline.config.catalog import ContractConfig
-from datapipeline.services.bootstrap.core import (
-    _load_canonical_streams,
-    _validate_stream_contracts,
-)
+from datapipeline.services.bootstrap.core import _load_canonical_streams
+from datapipeline.services.streams.validation import validate_stream_contracts
 
 
 def _ingest(stream_id: str, partition_by=None) -> ContractConfig:
@@ -69,7 +67,7 @@ def test_validate_stream_contracts_rejects_missing_refs() -> None:
         ),
     }
     with pytest.raises(ValueError, match="references unknown stream"):
-        _validate_stream_contracts(contracts)
+        validate_stream_contracts(contracts)
 
 
 def test_validate_stream_contracts_allows_manual_partition_mismatch() -> None:
@@ -83,7 +81,7 @@ def test_validate_stream_contracts_allows_manual_partition_mismatch() -> None:
         ),
     }
 
-    _validate_stream_contracts(contracts)
+    validate_stream_contracts(contracts)
 
 
 def test_validate_stream_contracts_rejects_joined_unrelated_partitions() -> None:
@@ -97,7 +95,7 @@ def test_validate_stream_contracts_rejects_joined_unrelated_partitions() -> None
         ),
     }
     with pytest.raises(ValueError, match="incompatible partition_by"):
-        _validate_stream_contracts(contracts)
+        validate_stream_contracts(contracts)
 
 
 def test_validate_stream_contracts_accepts_joined_matching_partitions() -> None:
@@ -111,7 +109,7 @@ def test_validate_stream_contracts_accepts_joined_matching_partitions() -> None:
         ),
     }
 
-    _validate_stream_contracts(contracts)
+    validate_stream_contracts(contracts)
 
 
 def test_validate_stream_contracts_accepts_joined_broadcast_subset() -> None:
@@ -126,7 +124,7 @@ def test_validate_stream_contracts_accepts_joined_broadcast_subset() -> None:
         ),
     }
 
-    _validate_stream_contracts(contracts)
+    validate_stream_contracts(contracts)
 
 
 def test_load_canonical_streams_rejects_composed_kind(tmp_path) -> None:

@@ -21,6 +21,10 @@ from datapipeline.services.streams.ingest import (
 )
 from datapipeline.services.streams.joined import build_joined_stream
 from datapipeline.services.streams.manual import build_manual_stream
+from datapipeline.services.streams.validation import (
+    contract_partition_by,
+    validate_stream_contracts,
+)
 
 from datapipeline.runtime import Runtime
 from datapipeline.config.postprocess import PostprocessConfig
@@ -155,91 +159,12 @@ def load_streams(project_yaml: Path) -> StreamsConfig:
     return StreamsConfig(raw=raw, contracts=contracts)
 
 
-def _partition_signature(
-    value: str | list[str] | None,
-) -> tuple[str, ...]:
-    if value is None:
-        return ()
-    if isinstance(value, str):
-        return (value,)
-    return tuple(value)
-
-
-def _validate_stream_contracts(contracts: dict[str, ContractConfig]) -> None:
-    for stream_id, spec in contracts.items():
-        if spec.kind not in {"joined", "manual"}:
-            continue
-        inputs = list(spec.inputs or [])
-        input_refs = {
-            alias: ref
-            for alias, ref in (
-                ContractConfig.parse_input_spec(item) for item in inputs
-            )
-        }
-        refs = list(input_refs.values())
-
-        missing = [ref for ref in refs if ref not in contracts]
-        if missing:
-            raise ValueError(
-                f"{spec.kind.capitalize()} stream '{stream_id}' references "
-                f"unknown stream(s): {missing}"
-            )
-        if spec.kind == "manual":
-            continue
-
-        join = spec.join
-        if join is None:
-            raise ValueError(f"Joined stream '{stream_id}' requires join config")
-        primary_ref = input_refs[join.primary]
-        primary_partition = _partition_signature(contracts[primary_ref].partition_by)
-        for alias, ref in input_refs.items():
-            if alias == join.primary:
-                continue
-            partition = _partition_signature(contracts[ref].partition_by)
-            if alias in join.broadcast:
-                if not set(partition).issubset(primary_partition):
-                    raise ValueError(
-                        "Joined stream "
-                        f"'{stream_id}' has incompatible partition_by: "
-                        f"input '{alias}' partition_by={list(partition)} "
-                        f"does not match primary partition_by={list(primary_partition)}"
-                    )
-                continue
-            if partition != primary_partition:
-                raise ValueError(
-                    "Joined stream "
-                    f"'{stream_id}' has incompatible partition_by: "
-                    f"input '{alias}' partition_by={list(partition)} "
-                    f"does not match primary partition_by={list(primary_partition)}"
-                )
-
-
-def _contract_partition_by(
-    contracts: dict[str, ContractConfig],
-    spec: ContractConfig,
-):
-    if spec.kind != "joined":
-        return spec.partition_by
-    if spec.join is None:
-        return None
-    input_refs = {
-        alias: ref
-        for alias, ref in (
-            ContractConfig.parse_input_spec(item) for item in (spec.inputs or [])
-        )
-    }
-    primary_ref = input_refs.get(spec.join.primary)
-    if not primary_ref:
-        return None
-    return contracts[primary_ref].partition_by
-
-
 def init_streams(cfg: StreamsConfig, runtime: Runtime) -> None:
     """Compile typed streams config into runtime registries."""
     regs = runtime.registries
     regs.clear_all()
     contracts = cfg.contracts or {}
-    _validate_stream_contracts(contracts)
+    validate_stream_contracts(contracts)
 
     # Register per-stream policies and record transforms for runtime lookups
     for alias, spec in contracts.items():
@@ -247,7 +172,7 @@ def init_streams(cfg: StreamsConfig, runtime: Runtime) -> None:
         regs.debug_operations.register(alias, spec.debug)
         regs.partition_by.register(
             alias,
-            _contract_partition_by(contracts, spec),
+            contract_partition_by(contracts, spec),
         )
         regs.sort_batch_size.register(alias, spec.sort_batch_size)
         ops = spec.record
