@@ -133,15 +133,14 @@ def _aligned_rows(
     if mode not in {"inner", "left"}:
         raise ValueError(f"Unsupported join mode '{mode}'. Use 'inner' or 'left'.")
 
-    primary_iter = inputs[primary]
-    other_indexes = {}
+    indexes = {}
     for alias, input_plan in input_plans.items():
         index, row_count = _index_records(
             inputs[alias],
             fields=input_plan.fields,
             time_field=time_field,
         )
-        other_indexes[alias] = index
+        indexes[alias] = index
         stats.add_input(
             alias,
             stream_id=input_plan.stream_id,
@@ -149,11 +148,11 @@ def _aligned_rows(
             broadcast=input_plan.broadcast,
         )
 
-    for primary_record in primary_iter:
+    for primary_record in inputs[primary]:
         stats.primary_rows += 1
         row_values: dict[str, TemporalRecord | None] = {primary: primary_record}
         missing = False
-        for alias, index in other_indexes.items():
+        for alias, index in indexes.items():
             key = _record_key(
                 primary_record,
                 fields=input_plans[alias].fields,
@@ -169,10 +168,7 @@ def _aligned_rows(
         if missing and mode == "inner":
             continue
         stats.output_rows += 1
-        yield JoinedRow(
-            time=get_field(primary_record, time_field),
-            values=row_values,
-        )
+        yield JoinedRow(time=get_field(primary_record, time_field), values=row_values)
 
 
 def _index_records(
