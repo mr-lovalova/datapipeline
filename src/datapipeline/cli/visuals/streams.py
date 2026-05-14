@@ -7,6 +7,7 @@ from datapipeline.runtime import Runtime
 from datapipeline.sources.models.source import Source
 
 from .execution_context import current_source_visual_proxy_factory
+from .source_observability import supports_source_observability
 
 
 def _is_tty() -> bool:
@@ -137,7 +138,7 @@ def get_visuals_backend(provider: Optional[str]) -> VisualsBackend:
 
 
 def observe_source(stream_source: Source, stream_id: str):
-    if getattr(stream_source, "loader", None) is None:
+    if not supports_source_observability(stream_source):
         return stream_source
     factory = current_source_visual_proxy_factory()
     if factory is None:

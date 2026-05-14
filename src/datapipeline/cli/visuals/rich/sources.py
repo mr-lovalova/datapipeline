@@ -27,7 +27,10 @@ from ..execution_context import (
     set_current_visual_log_level,
     visible_dag_indent,
 )
-from ..source_observability import SourceObservabilityAdapter
+from ..source_observability import (
+    SourceObservabilityAdapter,
+    supports_source_observability,
+)
 from .columns import AverageTimeRemainingColumn, SourceLabelColumn
 from .event_sink import _RichConsoleExecutionSink, visual_event_sink
 
@@ -253,15 +256,15 @@ def visual_sources(runtime: Runtime, log_level: int | None):
             try:
                 execution_sink.set_live_console(progress.live.console if progress.live else None)
                 for stream_id, stream_source in originals.items():
-                    if getattr(stream_source, "loader", None) is None:
-                        reg.register(stream_id, stream_source)
-                    else:
+                    if supports_source_observability(stream_source):
                         proxy = _RichSourceProxy(
                             stream_source=stream_source,
                             stream_id=stream_id,
                             progress=progress,
                         )
                         reg.register(stream_id, proxy)
+                    else:
+                        reg.register(stream_id, stream_source)
                 yield
             finally:
                 _clear_progress_tasks(progress)

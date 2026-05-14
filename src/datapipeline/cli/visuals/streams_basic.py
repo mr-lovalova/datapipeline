@@ -6,7 +6,10 @@ from datapipeline.runtime import Runtime
 from datapipeline.sources.models.source import Source
 
 from .execution import emit_source_info
-from .source_observability import SourceObservabilityAdapter
+from .source_observability import (
+    SourceObservabilityAdapter,
+    supports_source_observability,
+)
 from .execution_context import (
     current_dag_depth,
     reset_current_source_visual_proxy_factory,
@@ -77,10 +80,10 @@ def visual_sources(runtime: Runtime, log_level: int | None):
     )
     try:
         for stream_id, stream_source in originals.items():
-            if getattr(stream_source, "loader", None) is None:
-                reg.register(stream_id, stream_source)
-            else:
+            if supports_source_observability(stream_source):
                 reg.register(stream_id, VisualSourceProxy(stream_source, stream_id))
+            else:
+                reg.register(stream_id, stream_source)
         yield
     finally:
         for stream_id, stream_source in originals.items():

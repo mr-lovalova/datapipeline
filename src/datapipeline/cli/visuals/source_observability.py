@@ -1,6 +1,6 @@
 import logging
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Optional, Protocol, runtime_checkable
 
 from datapipeline.sources.data_loader import DataLoader
 from datapipeline.sources.foreach import ForeachLoader
@@ -29,12 +29,21 @@ class ProgressSequenceEntry:
     total: Optional[int]
 
 
+@runtime_checkable
+class LoaderBackedSource(Protocol):
+    loader: Any
+
+
+def supports_source_observability(stream_source: object) -> bool:
+    return isinstance(stream_source, LoaderBackedSource)
+
+
 class SourceObservabilityAdapter:
-    def __init__(self, stream_source: Any, stream_id: str):
+    def __init__(self, stream_source: LoaderBackedSource, stream_id: str):
         self.stream_id = stream_id
-        self.loader = getattr(stream_source, "loader", None)
-        if self.loader is None:
+        if not supports_source_observability(stream_source):
             raise TypeError(f"Stream source '{stream_id}' must expose a loader")
+        self.loader = stream_source.loader
         self.description, _unit = progress_meta_for_loader(self.loader)
 
         prefix, sep, suffix = self.description.partition(": ")
