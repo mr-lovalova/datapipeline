@@ -194,6 +194,7 @@ def test_run_profiles_syncs_runtime_artifacts_after_build(monkeypatch, tmp_path)
             [
                 "version: 1",
                 "paths:",
+                "  ingests: ./ingests",
                 "  streams: ./streams",
                 "  sources: ./sources",
                 "  dataset: ./dataset.yaml",

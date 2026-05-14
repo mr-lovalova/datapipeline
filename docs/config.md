@@ -6,7 +6,8 @@ These live under the dataset “project root” directory (the folder containing
 
 - `project.yaml`: paths + globals (single source of truth).
 - `sources/*.yaml`: raw sources (loader + parser wiring).
-- `streams/*.yaml`: canonical streams (source-backed, joined, or manual).
+- `ingests/*.yaml`: raw source DTOs mapped, record-cleaned, and time-ordered into domain streams.
+- `streams/*.yaml`: derived, joined, or manual streams built from existing stream ids.
 - `dataset.yaml`: feature/target declarations.
 - `postprocess.yaml`: vector-level transforms.
 - `profiles/serve.<name>.yaml`: serve profiles.
@@ -37,6 +38,7 @@ All dataset configuration is rooted at a single `project.yaml` file. Other YAML 
 version: 1
 name: default
 paths:
+  ingests: ./ingests
   streams: ./streams
   sources: ./sources
   dataset: dataset.yaml
@@ -174,7 +176,7 @@ Each file defines a loader/parser pair exposed under `<alias>`. Files may live i
 subdirectories under `<project_root>/sources/`; discovery is recursive.
 
 ```yaml
-# Source identifier (commonly `provider.dataset`). Streams reference this under `from.source`.
+# Source identifier (commonly `provider.dataset`). Ingests reference this under `from.source`.
 id: stooq.ohlcv
 parser:
   # Parser entry point name (registered in your plugin’s pyproject.toml).
@@ -190,7 +192,7 @@ loader:
       Authorization: "Bearer ${env:STOOQ_API_KEY}"
 ```
 
-- `id`: the source alias; referenced by streams under `from.source`.
+- `id`: the source alias; referenced by ingests under `from.source`.
 - `parser.entrypoint`: which parser to use; `parser.args` are optional.
 - `loader.entrypoint`: which loader to use; `core.io` is the default for fs/http and is configured via `loader.args`.
 - Keep secrets and machine-local paths out of source files. Prefer `${env:...}`
@@ -215,10 +217,11 @@ loader:
         url: "https://stooq.com/q/d/l/?s=${symbol}&i=d"
 ```
 
-### `<project_root>/streams/<stream_id>.yaml`
+### `<project_root>/ingests/<stream_id>.yaml`
 
-Stream configs describe how the runtime should map and prepare a raw
-source. Use folders to organize by domain if you like.
+Ingest configs describe how the runtime should load raw DTOs, map them to
+domain records, apply record-level cleanup, and cache ordered records. Use
+folders to organize by domain if you like.
 
 ```yaml
 id: equity.ohlcv # stream identifier (domain.dataset[.variant])
@@ -236,7 +239,19 @@ record:
   - where: { field: time, operator: ge, comparand: "${start_time}" }
   - where: { field: time, operator: lt, comparand: "${end_time}" }
   - floor_time: { cadence: 10m }
+```
 
+### `<project_root>/streams/<stream_id>.yaml`
+
+Stream configs consume existing stream ids and run partition-aware stream
+transforms. They cannot reference raw sources and cannot define `record:`.
+
+```yaml
+id: equity.ohlcv.liquid
+from:
+  stream: equity.ohlcv
+partition_by: station
+sort_batch_size: 50000
 stream:
   - ensure_cadence: { field: close, to: close, cadence: 10m }
   - granularity: { field: close, to: close, mode: mean }
@@ -247,8 +262,8 @@ debug:
 ```
 
 - `record`: ordered record-level transforms (`where`, floor/lag, custom
-  transforms registered under the `record` entry-point group).
-- `stream`: transforms applied after record transforms; operate on record fields before feature selection.
+  transforms registered under the `record` entry-point group). Ingest-only.
+- `stream`: transforms applied after ingest ordering; operate on record fields before feature selection.
 - `debug`: instrumentation-only transforms (linters, assertions).
 - `partition_by`: optional keys used to suffix feature IDs (e.g., `temp__@station_id:XYZ`).
 - `sort_batch_size`: chunk size used by the in-memory sorter when normalizing
@@ -256,7 +271,7 @@ debug:
 
 ### Manual Streams (Engineered Domains)
 
-Define engineered streams that depend on other streams. The runtime builds each input to stage 4 (ordered + stream transforms applied), exposes them as iterators keyed by alias, and calls your mapper to emit fresh records for the derived stream.
+Define engineered streams that depend on other streams. The runtime builds each input as a prepared stream, exposes them as iterators keyed by alias, and calls your mapper to emit fresh records for the derived stream.
 
 ```yaml
 # <project_root>/streams/air_density.processed.yaml
@@ -275,7 +290,6 @@ map:
     driver: pressure           # optional; defaults to first input alias
 
 # Optional policies run after mapping like any stream.
-# record: [...]
 # stream: [...]
 # debug:  [...]
 ```
@@ -296,7 +310,7 @@ Notes:
 - Inputs always reference canonical stream_ids (not raw sources).
 - Manual mapper signature is `mapper(inputs, *, context, driver, **params)`.
 - Use a joined stream when the framework should align records by timestamp.
-- The derived stream outputs records; its own `record`/`stream`/`debug` rules still apply afterward.
+- The derived stream outputs records; its own `stream`/`debug` rules still apply afterward.
 - Partitioning for the engineered domain is explicit via `partition_by` on the derived stream.
 
 ### `dataset.yaml`

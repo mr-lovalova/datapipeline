@@ -113,7 +113,7 @@ def test_serve_with_runtime_reraises_keyboard_interrupt_and_marks_run_failed(mon
         )
 
 
-def test_preview_index_9_previews_vector_assembly(monkeypatch):
+def test_preview_index_12_previews_vector_assembly(monkeypatch):
     runtime = _runtime()
     dataset = _dataset(targets=[object()])
     target = _target()
@@ -126,7 +126,7 @@ def test_preview_index_9_previews_vector_assembly(monkeypatch):
         lambda *args, **kwargs: _sample_preview_dag(),
     )
 
-    result = _serve(runtime, dataset, target, preview_index=9)
+    result = _serve(runtime, dataset, target, preview_index=12)
 
     assert runtime.window_bounds == ("start", "end")
     assert len(result.outputs) == 1
@@ -137,8 +137,8 @@ def test_preview_index_9_previews_vector_assembly(monkeypatch):
 @pytest.mark.parametrize(
     ("preview_index", "expected"),
     [
-        (10, ["post:vector"]),
-        (11, ["split:post:vector"]),
+        (13, ["post:vector"]),
+        (14, ["split:post:vector"]),
     ],
 )
 def test_late_preview_indices_preview_postprocess_and_split(
@@ -164,9 +164,9 @@ def test_late_preview_indices_preview_postprocess_and_split(
     assert list(result.outputs[0].rows) == expected
 
 
-@pytest.mark.parametrize("preview_index", [-1, 12])
+@pytest.mark.parametrize("preview_index", [-1, 15])
 def test_preview_index_rejects_out_of_range_value(preview_index):
-    with pytest.raises(ValueError, match="preview_index must be between 0 and 11"):
+    with pytest.raises(ValueError, match="preview_index must be between 0 and 14"):
         _serve(_runtime(), _dataset(), _target(), preview_index=preview_index)
 
 

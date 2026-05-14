@@ -1,6 +1,7 @@
 version: 1
 name: drop_null_project
 paths:
+  ingests: ./ingests
   streams: streams
   sources: sources
   dataset: dataset.yaml

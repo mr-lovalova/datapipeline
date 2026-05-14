@@ -1,6 +1,7 @@
 version: 1
 name: incomplete_generation_project
 paths:
+  ingests: ./ingests
   streams: streams
   sources: sources
   dataset: dataset.yaml

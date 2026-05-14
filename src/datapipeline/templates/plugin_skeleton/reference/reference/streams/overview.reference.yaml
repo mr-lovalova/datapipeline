@@ -3,7 +3,7 @@
 #
 # id: domain.dataset.variant
 # from:
-#   source: source.alias        # raw source ingest
+#   stream: upstream.stream.id  # single upstream stream
 #   # OR
 #   streams:                    # manual multi-stream mapper
 #     alias: upstream.stream.id
@@ -21,12 +21,6 @@
 # cadence: ${group_by}          # optional per-stream variable for interpolation
 # partition_by: station_id      # optional; string or list of strings
 # sort_batch_size: 100000       # optional; in-memory chunk size for sorting
-#
-# record transforms (one-key mappings; optional):
-# - where: { field: time, operator: ge, comparand: "${start_time}" }
-#   # operator: eq|ne|lt|le|gt|ge|in|nin (aliases: ==, !=, >=, <=, etc.)
-# - floor_time: { cadence: "${cadence}" }
-# - shift_time: { by: "-1h" }
 #
 # stream transforms (one-key mappings; optional):
 # - dedupe: {}

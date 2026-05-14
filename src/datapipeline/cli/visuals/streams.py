@@ -137,6 +137,8 @@ def get_visuals_backend(provider: Optional[str]) -> VisualsBackend:
 
 
 def observe_source(stream_source: Source, stream_id: str):
+    if getattr(stream_source, "loader", None) is None:
+        return stream_source
     factory = current_source_visual_proxy_factory()
     if factory is None:
         return stream_source

@@ -54,6 +54,11 @@ class _SyntheticSource:
         yield from self.loader.load()
 
 
+class _DerivedSource:
+    def stream(self):
+        yield from ()
+
+
 class _InterruptCountGenerator(DataGenerator):
     def generate(self):
         yield {"n": 0}
@@ -958,3 +963,18 @@ def test_rich_visual_sources_observe_dynamic_sources() -> None:
         observed = observe_source(_SyntheticSource(), "time.ticks.linear")
 
     assert isinstance(observed, _RichSourceProxy)
+
+
+def test_rich_visual_sources_leave_derived_sources_unwrapped() -> None:
+    source = _DerivedSource()
+    runtime = SimpleNamespace(
+        registries=SimpleNamespace(stream_sources=_StreamRegistry())
+    )
+    runtime.registries.stream_sources.register("derived", source)
+
+    with visual_sources(runtime, logging.INFO):
+        wrapped = runtime.registries.stream_sources._items["derived"]
+        observed = observe_source(source, "derived")
+
+    assert wrapped is source
+    assert observed is source

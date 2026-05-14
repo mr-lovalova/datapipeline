@@ -1,14 +1,6 @@
 id: time.ticks.linear
 from:
-  source: synthetic.ticks
-
-map:
-  entrypoint: encode_time
-  args: { mode: linear }
-
-record:
-  - where: { operator: ge, field: time, comparand: "${start_time}" }
-  - where: { operator: le, field: time, comparand: "${end_time}" }
+  stream: time.ticks.linear.ingest
 
 stream:
   - ensure_cadence: { cadence: 1h, field: value }

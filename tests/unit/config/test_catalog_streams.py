@@ -1,6 +1,6 @@
 import pytest
 
-from datapipeline.config.catalog import StreamConfig
+from datapipeline.config.catalog import IngestConfig, StreamConfig
 
 
 def test_stream_rejects_old_kind_shape() -> None:
@@ -36,14 +36,50 @@ def test_joined_stream_requires_primary() -> None:
         )
 
 
-def test_source_stream_rejects_join_options() -> None:
-    with pytest.raises(ValueError, match="from.source cannot define join options"):
+def test_stream_rejects_from_source() -> None:
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
         StreamConfig.model_validate(
             {
                 "id": "sample",
                 "from": {"source": "demo.source", "mode": "left"},
             }
         )
+
+
+def test_stream_rejects_record_transforms() -> None:
+    with pytest.raises(ValueError, match="streams cannot define record transforms"):
+        StreamConfig.model_validate(
+            {
+                "id": "sample",
+                "from": {"stream": "demo.ingest"},
+                "record": [],
+            }
+        )
+
+
+def test_ingest_rejects_stream_transforms() -> None:
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        IngestConfig.model_validate(
+            {
+                "id": "sample",
+                "from": {"source": "demo.source"},
+                "map": {"entrypoint": "identity", "args": {}},
+                "stream": [],
+            }
+        )
+
+
+def test_stream_accepts_upstream_stream_shape() -> None:
+    spec = StreamConfig.model_validate(
+        {
+            "id": "sample",
+            "from": {"stream": "sample.ingest"},
+            "partition_by": "ticker",
+            "stream": [{"dedupe": {}}],
+        }
+    )
+
+    assert spec.input_refs() == {"stream": "sample.ingest"}
 
 
 def test_manual_stream_rejects_join_options() -> None:

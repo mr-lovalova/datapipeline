@@ -16,8 +16,10 @@ from datapipeline.pipelines import (
     build_feature_pipeline,
     build_full_dag,
     build_full_pipeline,
+    build_stream_id_dag,
+    build_stream_id_pipeline,
 )
-from datapipeline.runtime import Runtime
+from datapipeline.runtime import Runtime, StreamPipelineKind
 from datapipeline.utils.window import resolve_window_bounds
 
 logger = logging.getLogger(__name__)
@@ -28,19 +30,25 @@ PreviewScope = Literal["record", "feature", "sample"]
 class PreviewNode:
     name: str
     scope: PreviewScope
+    stream_pipeline: StreamPipelineKind | None = None
+    record_node_index: int | None = None
+    feature_node_index: int | None = None
     serve_node_index: int | None = None
 
 
 SERVE_PREVIEW_NODES = (
-    PreviewNode("open_stream", "record"),
-    PreviewNode("map_records", "record"),
-    PreviewNode("record_transforms", "record"),
-    PreviewNode("order_records", "record"),
-    PreviewNode("stream_transforms", "record"),
-    PreviewNode("debug_transforms", "record"),
-    PreviewNode("build_feature_stream", "feature"),
-    PreviewNode("feature_transforms", "feature"),
-    PreviewNode("order_feature_records", "feature"),
+    PreviewNode("ingest:open_source", "record", "ingest", 0),
+    PreviewNode("ingest:map_records", "record", "ingest", 1),
+    PreviewNode("ingest:record_transforms", "record", "ingest", 2),
+    PreviewNode("ingest:order_records", "record", "ingest", 3),
+    PreviewNode("stream:open_records", "record", "stream", 0),
+    PreviewNode("stream:map_records", "record", "stream", 1),
+    PreviewNode("stream:order_records", "record", "stream", 2),
+    PreviewNode("stream:stream_transforms", "record", "stream", 3),
+    PreviewNode("stream:debug_transforms", "record", "stream", 4),
+    PreviewNode("build_feature_stream", "feature", feature_node_index=0),
+    PreviewNode("feature_transforms", "feature", feature_node_index=1),
+    PreviewNode("order_feature_records", "feature", feature_node_index=2),
     PreviewNode("sample_assembly", "sample", serve_node_index=0),
     PreviewNode("post_process", "sample", serve_node_index=1),
     PreviewNode("split", "sample", serve_node_index=2),
@@ -126,6 +134,43 @@ def _preview_plan(
     return plan
 
 
+def _stream_pipeline_kind(runtime: Runtime, stream_id: str) -> StreamPipelineKind:
+    return runtime.registries.stream_specs.get(stream_id).pipeline
+
+
+def _record_preview_stream(
+    context: PipelineContext,
+    runtime: Runtime,
+    stream_id: str,
+    selected_node: PreviewNode,
+) -> Iterator[object]:
+    if selected_node.stream_pipeline is None or selected_node.record_node_index is None:
+        raise ValueError(f"Preview node '{selected_node.name}' is not a record node.")
+    actual_kind = _stream_pipeline_kind(runtime, stream_id)
+    if actual_kind != selected_node.stream_pipeline:
+        raise ValueError(
+            f"Preview node '{selected_node.name}' applies to "
+            f"{selected_node.stream_pipeline} "
+            f"streams, but '{stream_id}' is a {actual_kind} stream."
+        )
+    return build_stream_id_pipeline(
+        context,
+        stream_id,
+        node=selected_node.record_node_index,
+    )
+
+
+def _feature_preview_index(
+    context: PipelineContext,
+    stream_id: str,
+    selected_node: PreviewNode,
+) -> int:
+    if selected_node.feature_node_index is None:
+        raise ValueError(f"Preview node '{selected_node.name}' is not a feature node.")
+    record_dag = build_stream_id_dag(context, stream_id)
+    return record_dag.node_count + selected_node.feature_node_index
+
+
 def _serve_preview(
     *,
     context: PipelineContext,
@@ -162,7 +207,19 @@ def _serve_preview(
 
     outputs: list[RuntimeOutput] = []
     for output_id, cfg in _preview_plan(feature_cfgs + target_cfgs, selected_node):
-        stream = build_feature_pipeline(context, cfg, node=preview_index)
+        if selected_node.scope == "record":
+            stream = _record_preview_stream(
+                context,
+                runtime,
+                str(output_id),
+                selected_node,
+            )
+        else:
+            stream = build_feature_pipeline(
+                context,
+                cfg,
+                node=_feature_preview_index(context, cfg.record_stream, selected_node),
+            )
         outputs.append(_runtime_output(stream, target.for_feature(output_id), limit))
     return RuntimeOutputBatch(outputs=tuple(outputs))
 

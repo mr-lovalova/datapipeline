@@ -73,7 +73,8 @@ flowchart TB
   sourceArgs -. paths/creds .-> sourceNode
   rawData --> sourceNode --> dtoStream
   sourcesCfg -. build_source_from_spec .-> registrySources
-  streamsCfg -. stream_id + source .-> registryStreamSources
+  ingestsCfg -. stream_id + source .-> registryStreamSources
+  streamsCfg -. stream_id + upstream stream .-> registryStreamSources
   registrySources -. alias -> Source .-> registryStreamSources
 
   subgraph Canonical stream
@@ -118,7 +119,7 @@ flowchart TB
   datasetCfg --> groupBySpec
   datasetCfg --> streamRefs
   streamRefs -.->|build_feature_pipeline| registryStreamSources
-  registryStreamSources -.->|open_source_stream| sourceNode
+  registryStreamSources -.->|open_source| sourceNode
   featureRecords --> regularization --> featureTrans --> sequenceStream --> vectorStage --> vectorSamples
   featureSpec -. scale/sequence .-> featureTrans
   groupBySpec -. cadence .-> vectorStage

@@ -2,6 +2,7 @@
 version: 1
 name: demo
 paths:
+  ingests: ./ingests
   streams: ./streams
   sources: ./sources
   dataset: dataset.yaml

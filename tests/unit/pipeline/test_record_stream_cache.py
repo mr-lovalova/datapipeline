@@ -5,7 +5,7 @@ from pathlib import Path
 from datapipeline.cache.record_streams import RecordStreamCache, cached_record_stream
 from datapipeline.dag.context import PipelineContext
 from datapipeline.domain.record import TemporalRecord
-from datapipeline.runtime import Runtime
+from datapipeline.runtime import Runtime, StreamRuntimeSpec
 from datapipeline.services.bootstrap.config import artifacts_root
 
 
@@ -22,6 +22,7 @@ def _ts(day: int) -> datetime:
 def _write_project(tmp_path: Path, *, partition_by: str | None = None) -> Path:
     project_root = tmp_path / "project"
     (project_root / "sources").mkdir(parents=True)
+    (project_root / "ingests").mkdir(parents=True)
     (project_root / "streams").mkdir(parents=True)
     (project_root / "tasks").mkdir(parents=True)
     (project_root / "profiles").mkdir(parents=True)
@@ -34,6 +35,7 @@ def _write_project(tmp_path: Path, *, partition_by: str | None = None) -> Path:
                 "version: 1",
                 "name: demo",
                 "paths:",
+                "  ingests: ./ingests",
                 "  streams: ./streams",
                 "  sources: ./sources",
                 "  dataset: ./dataset.yaml",
@@ -64,24 +66,39 @@ def _write_project(tmp_path: Path, *, partition_by: str | None = None) -> Path:
         ),
         encoding="utf-8",
     )
-    stream_lines = [
+    ingest_lines = [
         "id: prices.aapl",
         "from:",
         "  source: raw.aapl",
         "map:",
         "  entrypoint: identity",
         "record: []",
-        "stream: []",
-        "debug: []",
     ]
     if partition_by is not None:
-        stream_lines.append(f"partition_by: {partition_by}")
-    stream_lines.append("")
-    (project_root / "streams" / "prices.aapl.yaml").write_text(
-        "\n".join(stream_lines),
+        ingest_lines.append(f"partition_by: {partition_by}")
+    ingest_lines.append("")
+    (project_root / "ingests" / "prices.aapl.yaml").write_text(
+        "\n".join(ingest_lines),
         encoding="utf-8",
     )
     return project_root / "project.yaml"
+
+
+def _write_derived_stream(project_yaml: Path) -> Path:
+    stream_path = project_yaml.parent / "streams" / "prices.liquid.yaml"
+    stream_path.write_text(
+        "\n".join(
+            [
+                "id: prices.liquid",
+                "from:",
+                "  stream: prices.aapl",
+                "stream: []",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return stream_path
 
 
 def test_record_stream_cache_materializes_and_replays(tmp_path: Path) -> None:
@@ -110,7 +127,28 @@ def test_record_stream_cache_invalidates_when_stream_changes(tmp_path: Path) -> 
     )
     list(cache.materialize("prices.aapl", iter([_Rec(time=_ts(1), symbol="AAPL", value=1.0)])))
 
-    stream_path = project_yaml.parent / "streams" / "prices.aapl.yaml"
+    ingest_path = project_yaml.parent / "ingests" / "prices.aapl.yaml"
+    ingest_path.write_text(
+        ingest_path.read_text(encoding="utf-8") + "partition_by: symbol\n",
+        encoding="utf-8",
+    )
+
+    invalidated = RecordStreamCache(
+        project_yaml=project_yaml,
+        root=(artifacts_root(project_yaml) / "_system" / "cache").resolve(),
+    )
+    assert invalidated.load("prices.aapl") is None
+
+
+def test_stream_cache_invalidates_when_stream_config_changes(tmp_path: Path) -> None:
+    project_yaml = _write_project(tmp_path)
+    stream_path = _write_derived_stream(project_yaml)
+    cache = RecordStreamCache(
+        project_yaml=project_yaml,
+        root=(artifacts_root(project_yaml) / "_system" / "cache").resolve(),
+    )
+    list(cache.materialize("prices.liquid", iter([_Rec(time=_ts(1), symbol="AAPL", value=1.0)])))
+
     stream_path.write_text(
         stream_path.read_text(encoding="utf-8") + "partition_by: symbol\n",
         encoding="utf-8",
@@ -120,7 +158,29 @@ def test_record_stream_cache_invalidates_when_stream_changes(tmp_path: Path) -> 
         project_yaml=project_yaml,
         root=(artifacts_root(project_yaml) / "_system" / "cache").resolve(),
     )
-    assert invalidated.load("prices.aapl") is None
+    assert invalidated.load("prices.liquid") is None
+
+
+def test_stream_cache_invalidates_when_upstream_ingest_changes(tmp_path: Path) -> None:
+    project_yaml = _write_project(tmp_path)
+    _write_derived_stream(project_yaml)
+    cache = RecordStreamCache(
+        project_yaml=project_yaml,
+        root=(artifacts_root(project_yaml) / "_system" / "cache").resolve(),
+    )
+    list(cache.materialize("prices.liquid", iter([_Rec(time=_ts(1), symbol="AAPL", value=1.0)])))
+
+    ingest_path = project_yaml.parent / "ingests" / "prices.aapl.yaml"
+    ingest_path.write_text(
+        ingest_path.read_text(encoding="utf-8") + "partition_by: symbol\n",
+        encoding="utf-8",
+    )
+
+    invalidated = RecordStreamCache(
+        project_yaml=project_yaml,
+        root=(artifacts_root(project_yaml) / "_system" / "cache").resolve(),
+    )
+    assert invalidated.load("prices.liquid") is None
 
 
 def test_record_stream_cache_treats_malformed_manifest_as_cache_miss(tmp_path: Path) -> None:
@@ -147,6 +207,10 @@ def test_cached_record_stream_reuses_cache_without_rebuilding(tmp_path: Path, mo
     )
     runtime.registries.partition_by.register("prices.aapl", None)
     runtime.registries.debug_operations.register("prices.aapl", [])
+    runtime.registries.stream_specs.register(
+        "prices.aapl",
+        StreamRuntimeSpec(pipeline="ingest"),
+    )
     context = PipelineContext(runtime)
     records = [
         _Rec(time=_ts(1), symbol="AAPL", value=1.0),
@@ -158,7 +222,7 @@ def test_cached_record_stream_reuses_cache_without_rebuilding(tmp_path: Path, mo
         calls["count"] += 1
         return iter(records)
 
-    monkeypatch.setattr("datapipeline.pipelines.record.dag.build_record_pipeline", _build)
+    monkeypatch.setattr("datapipeline.pipelines.ingest.build_ingest_pipeline", _build)
 
     first = list(cached_record_stream(context, "prices.aapl"))
     second = list(cached_record_stream(context, "prices.aapl"))
@@ -211,7 +275,7 @@ def test_record_stream_cache_loader_exposes_cache_progress_label(tmp_path: Path)
     assert source.loader.progress_label() == "Loading cache"
     assert source.loader.info_lines() == ["Loaded stream output from cache"]
     assert source.loader.debug_lines() == [
-        "cache.file: record_stream/prices.aapl/stream_transforms/data.pkl"
+        "cache.file: ingest_stream/prices.aapl/ordered_records/data.pkl"
     ]
     assert source.loader.include_transport_info() is False
     assert source.loader.include_transport_debug() is False
@@ -261,6 +325,10 @@ def test_cached_record_stream_bypasses_cache_when_disabled(tmp_path: Path, monke
     runtime.cache_enabled = False
     runtime.registries.partition_by.register("prices.aapl", None)
     runtime.registries.debug_operations.register("prices.aapl", [])
+    runtime.registries.stream_specs.register(
+        "prices.aapl",
+        StreamRuntimeSpec(pipeline="ingest"),
+    )
     context = PipelineContext(runtime)
     records = [
         _Rec(time=_ts(1), symbol="AAPL", value=1.0),
@@ -273,7 +341,7 @@ def test_cached_record_stream_bypasses_cache_when_disabled(tmp_path: Path, monke
         calls["node"] = kwargs.get("node")
         return iter(records)
 
-    monkeypatch.setattr("datapipeline.pipelines.record.dag.build_record_pipeline", _build)
+    monkeypatch.setattr("datapipeline.pipelines.ingest.build_ingest_pipeline", _build)
 
     first = list(cached_record_stream(context, "prices.aapl"))
     second = list(cached_record_stream(context, "prices.aapl"))

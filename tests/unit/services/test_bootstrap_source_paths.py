@@ -13,6 +13,7 @@ def _write_project_yaml(project_root: Path) -> Path:
                 "version: 1",
                 "name: sample",
                 "paths:",
+                "  ingests: ./ingests",
                 "  streams: streams",
                 "  sources: sources",
                 "  dataset: dataset.yaml",

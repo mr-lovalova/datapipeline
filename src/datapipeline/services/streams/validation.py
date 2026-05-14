@@ -1,25 +1,40 @@
-from datapipeline.config.catalog import StreamConfig
+from datapipeline.config.catalog import IngestConfig, StreamConfig
 from datapipeline.services.streams.join_plan import build_join_input_plans
 
 
-def validate_stream_configs(stream_configs: dict[str, StreamConfig]) -> None:
-    for stream_id, spec in stream_configs.items():
-        if spec.reads_source:
-            continue
+def validate_unique_stream_ids(
+    ingests: dict[str, IngestConfig],
+    stream_configs: dict[str, StreamConfig],
+) -> None:
+    duplicates = sorted(set(ingests) & set(stream_configs))
+    if duplicates:
+        raise ValueError(
+            f"Duplicate stream id(s) across ingests and streams: {duplicates}"
+        )
 
+
+def validate_stream_configs(
+    ingests: dict[str, IngestConfig],
+    stream_configs: dict[str, StreamConfig],
+) -> None:
+    known_streams = set(ingests) | set(stream_configs)
+    for stream_id, spec in stream_configs.items():
         refs = spec.input_refs()
-        missing = [ref for ref in refs.values() if ref not in stream_configs]
+        missing = [ref for ref in refs.values() if ref not in known_streams]
         if missing:
             raise ValueError(
                 f"Stream '{stream_id}' references unknown stream(s): {missing}"
             )
+        if spec.reads_stream:
+            continue
         if spec.maps_streams:
             continue
 
-        _validate_joined_stream(stream_id, spec, refs, stream_configs)
+        _validate_joined_stream(stream_id, spec, refs, ingests, stream_configs)
 
 
 def stream_partition_by(
+    ingests: dict[str, IngestConfig],
     stream_configs: dict[str, StreamConfig],
     spec: StreamConfig,
 ):
@@ -29,13 +44,16 @@ def stream_partition_by(
     if primary is None:
         raise ValueError(f"Joined stream '{spec.id}' requires from.primary")
     primary_ref = spec.input_refs()[primary]
-    return stream_configs[primary_ref].partition_by
+    if primary_ref in stream_configs:
+        return stream_configs[primary_ref].partition_by
+    return ingests[primary_ref].partition_by
 
 
 def _validate_joined_stream(
     stream_id: str,
     spec: StreamConfig,
     refs: dict[str, str],
+    ingests: dict[str, IngestConfig],
     stream_configs: dict[str, StreamConfig],
 ) -> None:
     join = spec.from_
@@ -47,5 +65,12 @@ def _validate_joined_stream(
         input_refs=refs,
         primary=primary,
         broadcast=set(join.broadcast),
-        partition_by={ref: stream_configs[ref].partition_by for ref in refs.values()},
+        partition_by={
+            ref: (
+                stream_configs[ref].partition_by
+                if ref in stream_configs
+                else ingests[ref].partition_by
+            )
+            for ref in refs.values()
+        },
     )

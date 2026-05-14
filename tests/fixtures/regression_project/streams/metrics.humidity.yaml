@@ -1,15 +1,8 @@
 id: metrics.humidity
 from:
-  source: regression.humidity
+  stream: metrics.humidity.ingest
+
 partition_by: location
-
-map:
-  entrypoint: identity
-  args: {}
-
-record:
-  - where: { operator: ge, field: time, comparand: "${start_time}" }
-  - where: { operator: le, field: time, comparand: "${end_time}" }
 
 stream:
   - ensure_cadence: { cadence: 1h, field: value }

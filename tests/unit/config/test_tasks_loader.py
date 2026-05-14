@@ -37,6 +37,7 @@ def _write_project(tmp_path: Path, tasks_ref: str | None = None) -> Path:
     lines = [
         "version: 1",
         "paths:",
+        "  ingests: ./ingests",
         "  streams: streams",
         "  sources: sources",
         "  dataset: dataset.yaml",

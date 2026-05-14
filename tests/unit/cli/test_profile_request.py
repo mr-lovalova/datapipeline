@@ -14,6 +14,7 @@ def _write_project(tmp_path: Path) -> Path:
             [
                 "version: 1",
                 "paths:",
+                "  ingests: ./ingests",
                 "  streams: streams",
                 "  sources: sources",
                 "  dataset: dataset.yaml",

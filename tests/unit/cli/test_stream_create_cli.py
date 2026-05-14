@@ -31,10 +31,12 @@ def _create_plugin(tmp_path: Path) -> Path:
 
 def _write_project_yaml(project_path: Path, sources_dir: Path, streams_dir: Path) -> None:
     project_path.parent.mkdir(parents=True, exist_ok=True)
+    ingests_dir = project_path.parent / "ingests"
     content = textwrap.dedent(
         f"""
         version: 1
         paths:
+          ingests: {ingests_dir}
           streams: {streams_dir}
           sources: {sources_dir}
           dataset: dataset.yaml
@@ -79,6 +81,7 @@ def test_stream_scaffold_uses_project_paths(monkeypatch: pytest.MonkeyPatch, tmp
     # Create a project.yaml under example/ with explicit streams/sources paths
     example_root = plugin_root / "example"
     sources_dir = example_root / "sources"
+    ingests_dir = example_root / "ingests"
     streams_dir = example_root / "streams"
     _write_project_yaml(example_root / "project.yaml", sources_dir, streams_dir)
     _write_source_yaml(sources_dir / "demo.weather.yaml", "demo.weather")
@@ -87,7 +90,7 @@ def test_stream_scaffold_uses_project_paths(monkeypatch: pytest.MonkeyPatch, tmp
 
     handle_stream_create(plugin_root=plugin_root)
 
-    stream_path = streams_dir / "weather.weather.yaml"
+    stream_path = ingests_dir / "weather.weather.yaml"
     assert stream_path.exists(), f"expected stream at {stream_path}"
 
     # Mapper creation is now opt-in; identity selection should not scaffold mappers.
@@ -97,6 +100,7 @@ def test_stream_identity_mapper_skips_scaffold(monkeypatch: pytest.MonkeyPatch, 
     plugin_root = _create_plugin(tmp_path)
     example_root = plugin_root / "example"
     sources_dir = example_root / "sources"
+    ingests_dir = example_root / "ingests"
     streams_dir = example_root / "streams"
     _write_project_yaml(example_root / "project.yaml", sources_dir, streams_dir)
     _write_source_yaml(sources_dir / "demo.weather.yaml", "demo.weather")
@@ -105,7 +109,7 @@ def test_stream_identity_mapper_skips_scaffold(monkeypatch: pytest.MonkeyPatch, 
 
     handle_stream_create(plugin_root=plugin_root, use_identity=True)
 
-    stream_path = streams_dir / "weather.weather.yaml"
+    stream_path = ingests_dir / "weather.weather.yaml"
     assert stream_path.exists()
     text = stream_path.read_text()
     assert "entrypoint: identity" in text
@@ -120,6 +124,7 @@ def test_ingest_stream_preserves_source_variant_in_default_stream_id(
     plugin_root = _create_plugin(tmp_path)
     example_root = plugin_root / "example"
     sources_dir = example_root / "sources"
+    ingests_dir = example_root / "ingests"
     streams_dir = example_root / "streams"
     _write_project_yaml(example_root / "project.yaml", sources_dir, streams_dir)
     _write_source_yaml(
@@ -131,7 +136,7 @@ def test_ingest_stream_preserves_source_variant_in_default_stream_id(
 
     handle_stream_create(plugin_root=plugin_root, use_identity=True)
 
-    assert (streams_dir / "weather.weather.benchmark.yaml").exists()
+    assert (ingests_dir / "weather.weather.benchmark.yaml").exists()
 
 
 def test_stream_identity_flag_rejects_multistream(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -148,11 +153,13 @@ def test_manual_stream_can_create_domain(
     plugin_root = _create_plugin(tmp_path)
     example_root = plugin_root / "example"
     sources_dir = example_root / "sources"
+    ingests_dir = example_root / "ingests"
     streams_dir = example_root / "streams"
     _write_project_yaml(example_root / "project.yaml", sources_dir, streams_dir)
     _write_source_yaml(sources_dir / "demo.weather.yaml", "demo.weather")
+    ingests_dir.mkdir(parents=True, exist_ok=True)
     streams_dir.mkdir(parents=True, exist_ok=True)
-    (streams_dir / "weather.weather.yaml").write_text(
+    (ingests_dir / "weather.weather.yaml").write_text(
         textwrap.dedent(
             """
             id: weather.weather
@@ -198,10 +205,12 @@ def test_joined_stream_scaffold_writes_join_config(
     plugin_root = _create_plugin(tmp_path)
     example_root = plugin_root / "example"
     sources_dir = example_root / "sources"
+    ingests_dir = example_root / "ingests"
     streams_dir = example_root / "streams"
     _write_project_yaml(example_root / "project.yaml", sources_dir, streams_dir)
+    ingests_dir.mkdir(parents=True, exist_ok=True)
     streams_dir.mkdir(parents=True, exist_ok=True)
-    (streams_dir / "weather.weather.yaml").write_text(
+    (ingests_dir / "weather.weather.yaml").write_text(
         textwrap.dedent(
             """
             id: weather.weather

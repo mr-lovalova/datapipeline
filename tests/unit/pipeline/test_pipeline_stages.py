@@ -11,15 +11,16 @@ from datapipeline.pipelines import (
     build_full_pipeline,
     build_feature_dag,
     build_feature_pipeline,
-    build_record_dag,
-    build_record_pipeline,
+    build_stream_id_dag,
     build_vector_dag,
     build_vector_pipeline,
 )
+from datapipeline.pipelines.ingest import build_ingest_pipeline
+from datapipeline.pipelines.stream import build_stream_pipeline
 from datapipeline.pipelines.vector import dag as vector_dag
 from datapipeline.pipelines.full.nodes import post_process
 from datapipeline.pipelines.full.split import apply_split_stage
-from datapipeline.runtime import Runtime
+from datapipeline.runtime import Runtime, StreamRuntimeSpec
 from datapipeline.services.constants import POSTPROCESS_TRANSFORMS, VECTOR_SCHEMA
 
 
@@ -33,6 +34,17 @@ class _StubSource:
 
     def stream(self):
         return iter(self._rows)
+
+
+class _UpstreamSource:
+    def __init__(self, runtime: Runtime, upstream_id: str) -> None:
+        self._runtime = runtime
+        self._upstream_id = upstream_id
+
+    def stream(self):
+        from datapipeline.cache.record_streams import cached_record_stream
+
+        return cached_record_stream(PipelineContext(self._runtime), self._upstream_id)
 
 
 class _DagParentObserver:
@@ -77,6 +89,10 @@ def _mapper(rows):
         yield rec
 
 
+def _identity(rows):
+    yield from rows
+
+
 def _runtime_with_rows(
     tmp_path: Path,
     rows: list[dict],
@@ -93,10 +109,32 @@ def _runtime_with_rows(
     runtime = Runtime(project_yaml=project_yaml, artifacts_root=artifacts_root)
 
     regs = runtime.registries
-    regs.stream_sources.register(stream_id, _StubSource(rows))
-    regs.mappers.register(stream_id, _mapper)
-    regs.record_operations.register(stream_id, record_ops or [])
-    regs.stream_operations.register(stream_id, stream_ops or [])
+    if stream_ops is None:
+        regs.stream_specs.register(stream_id, StreamRuntimeSpec(pipeline="ingest"))
+        regs.stream_sources.register(stream_id, _StubSource(rows))
+        regs.mappers.register(stream_id, _mapper)
+        regs.record_operations.register(stream_id, record_ops or [])
+        regs.stream_operations.register(stream_id, [])
+        regs.debug_operations.register(stream_id, [])
+        regs.partition_by.register(stream_id, partition_by)
+        regs.sort_batch_size.register(stream_id, 128)
+        return runtime
+
+    ingest_id = f"{stream_id}.ingest"
+    regs.stream_specs.register(ingest_id, StreamRuntimeSpec(pipeline="ingest"))
+    regs.stream_sources.register(ingest_id, _StubSource(rows))
+    regs.mappers.register(ingest_id, _mapper)
+    regs.record_operations.register(ingest_id, record_ops or [])
+    regs.stream_operations.register(ingest_id, [])
+    regs.debug_operations.register(ingest_id, [])
+    regs.partition_by.register(ingest_id, partition_by)
+    regs.sort_batch_size.register(ingest_id, 128)
+
+    regs.stream_sources.register(stream_id, _UpstreamSource(runtime, ingest_id))
+    regs.stream_specs.register(stream_id, StreamRuntimeSpec(pipeline="stream"))
+    regs.mappers.register(stream_id, _identity)
+    regs.record_operations.register(stream_id, [])
+    regs.stream_operations.register(stream_id, stream_ops)
     regs.debug_operations.register(stream_id, [])
     regs.partition_by.register(stream_id, partition_by)
     regs.sort_batch_size.register(stream_id, 128)
@@ -115,14 +153,14 @@ def test_node_0_to_2_record_pipeline(tmp_path: Path) -> None:
     )
     ctx = PipelineContext(runtime)
 
-    stage0 = list(build_record_pipeline(ctx, "stream", node=0))
+    stage0 = list(build_ingest_pipeline(ctx, "stream", node=0))
     assert stage0 == rows
 
-    stage1 = list(build_record_pipeline(ctx, "stream", node=1))
+    stage1 = list(build_ingest_pipeline(ctx, "stream", node=1))
     assert all(isinstance(rec, TemporalRecord) for rec in stage1)
     assert [rec.time for rec in stage1] == [rows[0]["time"], rows[1]["time"]]
 
-    stage2 = list(build_record_pipeline(ctx, "stream", node=2))
+    stage2 = list(build_ingest_pipeline(ctx, "stream", node=2))
     assert all(rec.time.minute == 0 for rec in stage2)
 
 
@@ -131,19 +169,22 @@ def test_dag_builders_expose_structural_child_dags(tmp_path: Path) -> None:
     context = PipelineContext(runtime)
     cfg = FeatureRecordConfig(record_stream="stream", id="price", field="value")
 
-    record_dag = build_record_dag(context, "stream")
+    stream_id_dag = build_stream_id_dag(context, "stream")
     feature_dag = build_feature_dag(context, cfg)
     preview_feature_dag = build_feature_dag(context, cfg, include_record_nodes=True)
     vector_dag = build_vector_dag(context, [cfg], "1h", rectangular=False)
     full_dag = build_full_dag(context, [cfg], "1h", rectangular=False)
 
-    assert [node.name for node in record_dag.nodes[:2]] == ["open_stream", "map_records"]
+    assert [node.name for node in stream_id_dag.nodes[:2]] == [
+        "open_source",
+        "map_records",
+    ]
     assert [node.name for node in feature_dag.nodes] == [
         "build_feature_stream",
         "feature_transforms",
         "order_feature_records",
     ]
-    assert preview_feature_dag.nodes[0].name == "open_stream"
+    assert preview_feature_dag.nodes[0].name == "open_source"
 
     feature_fanout = vector_dag.nodes[0]
     assert feature_fanout.kind == "dag_fanout"
@@ -163,7 +204,7 @@ def test_node_3_orders_by_partition_and_time(tmp_path: Path) -> None:
     runtime = _runtime_with_rows(tmp_path, rows, partition_by="symbol")
     ctx = PipelineContext(runtime)
 
-    ordered = list(build_record_pipeline(ctx, "stream", node=3))
+    ordered = list(build_ingest_pipeline(ctx, "stream", node=3))
     assert [(rec.symbol, rec.time.hour) for rec in ordered] == [
         ("A", 0),
         ("A", 2),
@@ -183,7 +224,7 @@ def test_node_4_applies_stream_transforms(tmp_path: Path) -> None:
     )
     ctx = PipelineContext(runtime)
 
-    transformed = list(build_record_pipeline(ctx, "stream", node=4))
+    transformed = list(build_stream_pipeline(ctx, "stream", node=3))
     assert [(rec.time.hour, rec.value) for rec in transformed] == [
         (0, 1.0),
         (1, None),
@@ -206,7 +247,7 @@ def test_ensure_cadence_placeholders_do_not_copy_payload_fields(
     )
     ctx = PipelineContext(runtime)
 
-    placeholder = list(build_record_pipeline(ctx, "stream", node=4))[1]
+    placeholder = list(build_stream_pipeline(ctx, "stream", node=3))[1]
 
     assert placeholder.time == _ts(1)
     assert placeholder.symbol == "A"

@@ -1,13 +1,6 @@
-from datapipeline.pipelines.record.nodes import RECORD_NODE_COUNT
-from datapipeline.pipelines.record.dag import (
-    build_record_dag,
-    build_record_nodes,
-    build_record_pipeline,
-)
+from datapipeline.pipelines.record.inputs import close_iterator, open_input_records
 
 __all__ = [
-    "RECORD_NODE_COUNT",
-    "build_record_dag",
-    "build_record_nodes",
-    "build_record_pipeline",
+    "close_iterator",
+    "open_input_records",
 ]

@@ -6,19 +6,22 @@ All commands that take a project accept either `--project <path/to/project.yaml>
 
 ### Preview Indices
 
-- `jerry serve --project <project.yaml> --preview-index <0-11> --limit N [--log-level LEVEL] [--visuals on|off]`
-  - Index 0: raw DTOs
-  - Index 1: domain `TemporalRecord`s
-  - Index 2: record transforms applied
-  - Index 3: ordered record stream
-  - Index 4: stream transforms (ensure_cadence, fill, granularity)
-  - Index 5: debug transforms
-  - Index 6: feature records (field selected)
-  - Index 7: feature transforms/sequence outputs
-  - Index 8: ordered feature records
-  - Index 9: vectors/samples assembled across configured features and targets
-  - Index 10: postprocess transforms applied
-  - Index 11: configured split applied
+- `jerry serve --project <project.yaml> --preview-index <0-14> --limit N [--log-level LEVEL] [--visuals on|off]`
+  - Index 0: ingest source records
+  - Index 1: ingest mapped domain records
+  - Index 2: ingest record transforms applied
+  - Index 3: ingest ordered records
+  - Index 4: stream input records
+  - Index 5: stream mapped records
+  - Index 6: stream ordered records
+  - Index 7: stream transforms applied
+  - Index 8: debug transforms applied
+  - Index 9: feature records (field selected)
+  - Index 10: feature transforms/sequence outputs
+  - Index 11: ordered feature records
+  - Index 12: vectors/samples assembled across configured features and targets
+  - Index 13: postprocess transforms applied
+  - Index 14: configured split applied
   - Omit `--preview-index` to run the full pipeline and output persistence.
   - Use `--log-level DEBUG` for full debug output; default is `INFO`.
   - Artifact preparation is profile-driven: keep artifact-targeted serve profiles (`serve.schema`, `serve.metadata`, `serve.scaler`) ahead of runtime targets (`serve.train`/`serve.val`/`serve.test`) using `order`.

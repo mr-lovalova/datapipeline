@@ -6,10 +6,10 @@ from typing import Any
 from pydantic import ValidationError
 
 
-def resolve_record_stream_signature(
+def resolve_record_stream_cache_ref(
     project_yaml: Path,
     stream_id: str,
-) -> str | None:
+) -> tuple[str, str, str] | None:
     payload = _record_stream_signature_payload(project_yaml, stream_id)
     if payload is None:
         return None
@@ -19,7 +19,11 @@ def resolve_record_stream_signature(
         separators=(",", ":"),
         default=str,
     ).encode("utf-8")
-    return sha256(encoded).hexdigest()
+    return (
+        str(payload["cache_kind"]),
+        str(payload["cache_stage"]),
+        sha256(encoded).hexdigest(),
+    )
 
 
 def _record_stream_signature_payload(
@@ -46,26 +50,37 @@ def _stream_payload_from_config(
     if cached is not None:
         return cached
 
+    ingest = streams.ingests.get(stream_id)
+    if ingest is not None:
+        payload: dict[str, Any] = {
+            "ingest": ingest.model_dump(mode="json", by_alias=True),
+            "cache_kind": "ingest_stream",
+            "cache_stage": "ordered_records",
+            "boundary": "ingest:ordered_records",
+        }
+        source = ingest.from_.source
+        if source in streams.raw:
+            payload["source"] = streams.raw[source].model_dump(mode="json")
+        memo[stream_id] = payload
+        return payload
+
     spec = streams.streams.get(stream_id)
     if spec is None:
         return None
 
     payload: dict[str, Any] = {
         "stream": spec.model_dump(mode="json", by_alias=True),
-        "boundary": "record_stream:stream_transforms",
+        "cache_kind": "stream",
+        "cache_stage": "stream_transforms",
+        "boundary": "stream:stream_transforms",
     }
-    if spec.reads_source:
-        source = spec.from_.source
-        if source is not None and source in streams.raw:
-            payload["source"] = streams.raw[source].model_dump(mode="json")
-    else:
-        inputs: dict[str, Any] = {}
-        for ref in spec.input_refs().values():
-            child = _stream_payload_from_config(streams, ref, memo)
-            if child is None:
-                return None
-            inputs[ref] = child
-        payload["inputs"] = inputs
+    inputs: dict[str, Any] = {}
+    for ref in spec.input_refs().values():
+        child = _stream_payload_from_config(streams, ref, memo)
+        if child is None:
+            return None
+        inputs[ref] = child
+    payload["inputs"] = inputs
 
     memo[stream_id] = payload
     return payload

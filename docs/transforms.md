@@ -1,6 +1,6 @@
 # Transform Library
 
-### Record `where` (`<project_root>/streams/*.yaml:record`)
+### Record `where` (`<project_root>/ingests/*.yaml:record`)
 
 - Binary comparisons: `eq`, `ne`, `lt`, `le`, `gt`, `ge` (timezone-aware for ISO
   or datetime literals).

@@ -6,6 +6,7 @@ from datapipeline.config.split import SplitConfig
 
 
 class ProjectPaths(BaseModel):
+    ingests: str
     streams: str
     sources: str
     dataset: str

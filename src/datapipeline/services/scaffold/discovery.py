@@ -10,7 +10,11 @@ from datapipeline.services.constants import (
     MAPPERS_GROUP,
     STREAM_FROM_KEY,
 )
-from datapipeline.services.project_paths import sources_dir as resolve_sources_dir, streams_dir as resolve_streams_dir
+from datapipeline.services.project_paths import (
+    ingests_dir as resolve_ingests_dir,
+    sources_dir as resolve_sources_dir,
+    streams_dir as resolve_streams_dir,
+)
 
 
 def list_dtos(*, root: Optional[Path] = None) -> dict[str, str]:
@@ -105,14 +109,14 @@ def list_streams(project_yaml: Path) -> list[str]:
     from datapipeline.utils.load import load_yaml
     from datapipeline.services.constants import STREAM_ID_KEY
 
-    streams_dir = resolve_streams_dir(project_yaml)
-    if not streams_dir.exists():
-        return []
     out: list[str] = []
-    for p in sorted(streams_dir.rglob("*.y*ml")):
-        data = load_yaml(p)
-        if isinstance(data, dict) and isinstance(data.get(STREAM_FROM_KEY), dict):
-            sid = data.get(STREAM_ID_KEY)
-            if isinstance(sid, str) and sid:
-                out.append(sid)
+    for root in (resolve_ingests_dir(project_yaml), resolve_streams_dir(project_yaml)):
+        if not root.exists():
+            continue
+        for p in sorted(root.rglob("*.y*ml")):
+            data = load_yaml(p)
+            if isinstance(data, dict) and isinstance(data.get(STREAM_FROM_KEY), dict):
+                sid = data.get(STREAM_ID_KEY)
+                if isinstance(sid, str) and sid:
+                    out.append(sid)
     return sorted(set(out))

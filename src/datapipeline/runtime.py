@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Any, List, Mapping, Optional, Sequence, Union
+from typing import Any, List, Literal, Mapping, Optional, Sequence, Union
 from datetime import datetime
 
 from datapipeline.cache import RecordStreamCache
@@ -13,6 +13,13 @@ from datapipeline.domain.stream import RecordStream
 from datapipeline.registries.registry import Registry
 from datapipeline.sources.models.source import Source
 from datapipeline.services.artifacts import ArtifactManager
+
+StreamPipelineKind = Literal["ingest", "stream"]
+
+
+@dataclass(frozen=True)
+class StreamRuntimeSpec:
+    pipeline: StreamPipelineKind
 
 
 @dataclass
@@ -26,6 +33,7 @@ class Registries:
     sources: Registry[str, Source] = field(default_factory=Registry)
     mappers: Registry[str, Any] = field(default_factory=Registry)
     stream_sources: Registry[str, RecordStream[Any]] = field(default_factory=Registry)
+    stream_specs: Registry[str, StreamRuntimeSpec] = field(default_factory=Registry)
     record_operations: Registry[str, Sequence[Mapping[str, object]]] = field(
         default_factory=Registry
     )
@@ -58,6 +66,7 @@ class Registries:
             self.sources,
             self.mappers,
             self.stream_sources,
+            self.stream_specs,
         ):
             reg.clear()
 

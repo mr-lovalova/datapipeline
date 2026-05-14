@@ -7,7 +7,7 @@ from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.dag.context import PipelineContext
 from datapipeline.pipelines import build_vector_pipeline
-from datapipeline.runtime import Runtime
+from datapipeline.runtime import Runtime, StreamRuntimeSpec
 from datapipeline.services.constants import SCALER_STATISTICS, VECTOR_SCHEMA
 from datapipeline.transforms.feature.scaler import StandardScaler
 from datapipeline.transforms.vector import (
@@ -66,6 +66,7 @@ def _runtime_with_streams(
     end_time: datetime | None = None
     for alias, rows in streams.items():
         regs.stream_sources.register(alias, _StubSource(rows))
+        regs.stream_specs.register(alias, StreamRuntimeSpec(pipeline="stream"))
         regs.mappers.register(alias, _identity)
         regs.record_operations.register(alias, [])
         regs.stream_operations.register(

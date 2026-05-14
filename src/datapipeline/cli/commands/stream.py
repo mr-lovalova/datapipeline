@@ -77,13 +77,13 @@ def handle(
     root_dir, _name, _pyproject = pkg_root(plugin_root)
     default_project = resolve_default_project_yaml(workspace)
     info("Stream type:")
-    info("  [1] Ingest (source → stream)")
+    info("  [1] Ingest (source → ordered stream)")
     info("  [2] Joined (aligned streams → stream)")
     info("  [3] Manual (raw streams → stream)")
     sel = input("> ").strip()
     if sel in {"2", "3"}:
         if use_identity:
-            error_exit("--identity is only supported for source-backed streams.")
+            error_exit("--identity is only supported for ingests.")
         scaffold_multistream_stream(
             stream_type="joined" if sel == "2" else "manual",
             stream_id=None,
@@ -192,7 +192,7 @@ def _collect_multistream_base(
         streams = list_streams(proj_path)
         if not streams:
             error_exit(
-                "No input streams found. Create a source-backed stream first."
+                "No input streams found. Create an ingest first."
             )
         picked = pick_multiple_from_list(
             "Select one or more input streams (comma-separated numbers):",

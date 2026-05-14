@@ -331,6 +331,7 @@ def test_run_build_if_needed_preserves_previous_artifacts_in_state(monkeypatch, 
             [
                 "version: 1",
                 "paths:",
+                "  ingests: ./ingests",
                 "  streams: ./streams",
                 "  sources: ./sources",
                 "  dataset: ./dataset.yaml",
@@ -398,6 +399,7 @@ def test_run_build_if_needed_rebuilds_stale_profile_artifact(monkeypatch, tmp_pa
             [
                 "version: 1",
                 "paths:",
+                "  ingests: ./ingests",
                 "  streams: ./streams",
                 "  sources: ./sources",
                 "  dataset: ./dataset.yaml",
@@ -481,6 +483,7 @@ def test_run_build_if_needed_emits_missing_reason_when_artifact_not_built(monkey
             [
                 "version: 1",
                 "paths:",
+                "  ingests: ./ingests",
                 "  streams: ./streams",
                 "  sources: ./sources",
                 "  dataset: ./dataset.yaml",
@@ -547,6 +550,7 @@ def test_run_build_if_needed_hydrates_runtime_from_state_before_jobs(monkeypatch
             [
                 "version: 1",
                 "paths:",
+                "  ingests: ./ingests",
                 "  streams: ./streams",
                 "  sources: ./sources",
                 "  dataset: ./dataset.yaml",
@@ -620,6 +624,7 @@ def test_run_build_if_needed_emits_run_decision(monkeypatch, tmp_path):
             [
                 "version: 1",
                 "paths:",
+                "  ingests: ./ingests",
                 "  streams: ./streams",
                 "  sources: ./sources",
                 "  dataset: ./dataset.yaml",

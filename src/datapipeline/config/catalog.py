@@ -14,10 +14,28 @@ class SourceConfig(BaseModel):
     loader: EPArgs
 
 
+class IngestFromConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source: str
+
+
+class IngestConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    id: str
+    from_: IngestFromConfig = Field(alias="from")
+    map: EPArgs
+    cadence: Any | None = None
+    partition_by: str | list[str] | None = Field(default=None)
+    sort_batch_size: int = Field(default=100_000)
+    record: list[dict[str, Any]] | None = Field(default=None)
+
+
 class StreamFromConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    source: str | None = None
+    stream: str | None = None
     join: dict[str, str] | None = None
     streams: dict[str, str] | None = None
     primary: str | None = None
@@ -29,17 +47,17 @@ class StreamFromConfig(BaseModel):
     def _validate_from(self):
         join_option_fields = {"primary", "on", "mode", "broadcast"}
         from_kinds = [
-            self.source is not None,
+            self.stream is not None,
             self.join is not None,
             self.streams is not None,
         ]
         if sum(from_kinds) != 1:
             raise ValueError(
-                "from must define exactly one of 'source', 'join', or 'streams'"
+                "from must define exactly one of 'stream', 'join', or 'streams'"
             )
-        if self.source is not None:
+        if self.stream is not None:
             if join_option_fields & self.model_fields_set:
-                raise ValueError("from.source cannot define join options")
+                raise ValueError("from.stream cannot define join options")
             return self
         if self.join is not None:
             if not self.primary:
@@ -104,8 +122,8 @@ class StreamConfig(BaseModel):
     debug: list[dict[str, Any]] | None = Field(default=None)
 
     @property
-    def reads_source(self) -> bool:
-        return self.from_.source is not None
+    def reads_stream(self) -> bool:
+        return self.from_.stream is not None
 
     @property
     def joins_streams(self) -> bool:
@@ -120,13 +138,19 @@ class StreamConfig(BaseModel):
             return dict(self.from_.join)
         if self.from_.streams is not None:
             return dict(self.from_.streams)
-        raise ValueError("from.source streams do not define input refs")
+        if self.from_.stream is not None:
+            return {"stream": self.from_.stream}
+        raise ValueError("stream does not define input refs")
 
     @model_validator(mode="after")
     def _validate_stream(self):
         if self.joins_streams and self.partition_by is not None:
             raise ValueError("joined streams inherit partition_by from from.primary")
-        if not self.reads_source and (not self.map or not self.map.entrypoint):
+        if self.record is not None:
+            raise ValueError("streams cannot define record transforms")
+        if (self.joins_streams or self.maps_streams) and (
+            not self.map or not self.map.entrypoint
+        ):
             raise ValueError("stream map.entrypoint is required")
         driver = self.map.args.get("driver") if self.map else None
         if (
@@ -142,4 +166,5 @@ class StreamConfig(BaseModel):
 
 class StreamsConfig(BaseModel):
     raw: dict[str, SourceConfig] = Field(default_factory=dict)
+    ingests: dict[str, IngestConfig] = Field(default_factory=dict)
     streams: dict[str, StreamConfig] = Field(default_factory=dict)

@@ -1,0 +1,12 @@
+id: time.ticks.linear.ingest
+from:
+  source: synthetic.ticks
+
+map:
+  entrypoint: encode_time
+  args: { mode: linear }
+
+record:
+  - where: { operator: ge, field: time, comparand: "${start_time}" }
+  - where: { operator: le, field: time, comparand: "${end_time}" }
+

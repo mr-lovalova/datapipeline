@@ -2,8 +2,8 @@ from pathlib import Path
 from typing import Any
 
 from datapipeline.utils.load import load_yaml
-from datapipeline.config.catalog import StreamConfig, StreamsConfig
-from datapipeline.services.project_paths import streams_dir, sources_dir
+from datapipeline.config.catalog import IngestConfig, StreamConfig, StreamsConfig
+from datapipeline.services.project_paths import ingests_dir, streams_dir, sources_dir
 from datapipeline.build.state import load_build_state
 from datapipeline.services.constants import (
     PARSER_KEY,
@@ -24,12 +24,14 @@ from datapipeline.services.streams.ingest import (
 )
 from datapipeline.services.streams.joined import build_joined_stream
 from datapipeline.services.streams.manual import build_manual_stream
+from datapipeline.services.streams.simple import build_prepared_stream_ref
 from datapipeline.services.streams.validation import (
     stream_partition_by,
+    validate_unique_stream_ids,
     validate_stream_configs,
 )
 
-from datapipeline.runtime import Runtime
+from datapipeline.runtime import Runtime, StreamRuntimeSpec
 from datapipeline.config.postprocess import PostprocessConfig
 from datapipeline.services.config_refs import resolve_config_refs
 from .config import (
@@ -102,6 +104,21 @@ def _load_canonical_streams(project_yaml: Path, vars_: dict[str, Any]) -> dict:
     return out
 
 
+def _load_canonical_ingests(project_yaml: Path, vars_: dict[str, Any]) -> dict:
+    out: dict[str, dict] = {}
+    for path in _ingest_yaml_files(project_yaml):
+        data = _load_ingest_yaml(path, project_yaml)
+        if data is None:
+            continue
+        alias = data[STREAM_ID_KEY]
+        out[alias] = _interpolate_stream_yaml(data, vars_)
+    return out
+
+
+def _ingest_yaml_files(project_yaml: Path) -> list[Path]:
+    return _yaml_files(ingests_dir(project_yaml))
+
+
 def _stream_yaml_files(project_yaml: Path) -> list[Path]:
     return _yaml_files(streams_dir(project_yaml))
 
@@ -125,7 +142,24 @@ def _load_stream_yaml(path: Path, project_yaml: Path) -> dict[str, Any] | None:
         )
     if STREAM_ID_KEY not in data or STREAM_FROM_KEY not in data:
         return None
+    if "record" in data:
+        raise ValueError("Stream configs cannot define 'record'; use ingests.")
     _normalize_stream_map(data)
+    return data
+
+
+def _load_ingest_yaml(path: Path, project_yaml: Path) -> dict[str, Any] | None:
+    data = resolve_config_refs(load_yaml(path), project_yaml=project_yaml)
+    if not isinstance(data, dict):
+        return None
+    if STREAM_KIND_KEY in data:
+        raise ValueError(
+            "Ingest config field 'kind' is no longer supported; use 'from'."
+        )
+    if STREAM_ID_KEY not in data or STREAM_FROM_KEY not in data:
+        return None
+    if "stream" in data:
+        raise ValueError("Ingest configs cannot define 'stream'; use streams.")
     return data
 
 
@@ -148,19 +182,24 @@ def _interpolate_stream_yaml(
 def load_streams(project_yaml: Path) -> StreamsConfig:
     vars_ = _globals(project_yaml)
     raw = _load_sources_from_dir(project_yaml, vars_)
+    ingests = _load_canonical_ingests(project_yaml, vars_)
     stream_configs = _load_canonical_streams(project_yaml, vars_)
-    return StreamsConfig(raw=raw, streams=stream_configs)
+    return StreamsConfig(raw=raw, ingests=ingests, streams=stream_configs)
 
 
 def init_streams(cfg: StreamsConfig, runtime: Runtime) -> None:
     """Compile typed streams config into runtime registries."""
     regs = runtime.registries
     regs.clear_all()
+    ingests = cfg.ingests or {}
     stream_configs = cfg.streams or {}
-    validate_stream_configs(stream_configs)
+    validate_unique_stream_ids(ingests, stream_configs)
+    validate_stream_configs(ingests, stream_configs)
 
+    for alias, spec in ingests.items():
+        _register_ingest_policy(runtime, alias, spec)
     for alias, spec in stream_configs.items():
-        _register_stream_policy(runtime, alias, spec, stream_configs)
+        _register_stream_policy(runtime, alias, spec, ingests, stream_configs)
 
     for alias, spec in (cfg.raw or {}).items():
         regs.sources.register(
@@ -168,22 +207,50 @@ def init_streams(cfg: StreamsConfig, runtime: Runtime) -> None:
             build_source_from_spec(spec, project_yaml=runtime.project_yaml),
         )
 
+    for alias, spec in ingests.items():
+        _register_ingest_source(runtime, alias, spec)
     for alias, spec in stream_configs.items():
         _register_stream_source(runtime, alias, spec)
+
+
+def _register_ingest_policy(
+    runtime: Runtime,
+    alias: str,
+    spec: IngestConfig,
+) -> None:
+    regs = runtime.registries
+    regs.record_operations.register(alias, spec.record)
+    regs.stream_specs.register(alias, StreamRuntimeSpec(pipeline="ingest"))
+    regs.stream_operations.register(alias, [])
+    regs.debug_operations.register(alias, [])
+    regs.partition_by.register(alias, spec.partition_by)
+    regs.sort_batch_size.register(alias, spec.sort_batch_size)
 
 
 def _register_stream_policy(
     runtime: Runtime,
     alias: str,
     spec: StreamConfig,
+    ingests: dict[str, IngestConfig],
     stream_configs: dict[str, StreamConfig],
 ) -> None:
     regs = runtime.registries
+    regs.stream_specs.register(alias, StreamRuntimeSpec(pipeline="stream"))
     regs.stream_operations.register(alias, spec.stream)
     regs.debug_operations.register(alias, spec.debug)
-    regs.partition_by.register(alias, stream_partition_by(stream_configs, spec))
+    regs.partition_by.register(alias, stream_partition_by(ingests, stream_configs, spec))
     regs.sort_batch_size.register(alias, spec.sort_batch_size)
-    regs.record_operations.register(alias, spec.record)
+    regs.record_operations.register(alias, [])
+
+
+def _register_ingest_source(
+    runtime: Runtime,
+    alias: str,
+    spec: IngestConfig,
+) -> None:
+    regs = runtime.registries
+    regs.mappers.register(alias, build_mapper_from_spec(spec.map))
+    regs.stream_sources.register(alias, regs.sources.get(spec.from_.source))
 
 
 def _register_stream_source(
@@ -205,7 +272,12 @@ def _register_stream_source(
         return
 
     regs.mappers.register(alias, build_mapper_from_spec(spec.map))
-    regs.stream_sources.register(alias, regs.sources.get(spec.from_.source))
+    if spec.from_.stream is None:
+        raise ValueError(f"Stream '{alias}' requires from.stream")
+    regs.stream_sources.register(
+        alias,
+        build_prepared_stream_ref(spec.from_.stream, runtime),
+    )
 
 
 def bootstrap(project_yaml: Path) -> Runtime:

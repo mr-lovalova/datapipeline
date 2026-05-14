@@ -10,8 +10,6 @@ from datapipeline.plugins import FEATURE_TRANSFORMS_EP
 from datapipeline.services.constants import SCALER_STATISTICS
 from datapipeline.transforms.utils import get_field
 
-FEATURE_NODE_COUNT = 3
-
 
 def build_feature_stream(
     feature_id: str,

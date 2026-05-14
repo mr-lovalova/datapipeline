@@ -1,0 +1,18 @@
+# Ingest reference.
+# This file is documentation only; uncomment the keys you want to use.
+#
+# id: domain.dataset.variant
+# from:
+#   source: source.alias        # required
+# map:                          # optional (defaults to identity)
+#   entrypoint: my_mapper
+#   args: {}
+# cadence: ${group_by}          # optional per-ingest variable for interpolation
+# partition_by: station_id      # optional; string or list of strings
+# sort_batch_size: 100000       # optional; in-memory chunk size for sorting
+#
+# record transforms (one-key mappings; optional):
+# - where: { field: time, operator: ge, comparand: "${start_time}" }
+# - floor_time: { cadence: "${cadence}" }
+# - shift_time: { by: "-1h" }
+#

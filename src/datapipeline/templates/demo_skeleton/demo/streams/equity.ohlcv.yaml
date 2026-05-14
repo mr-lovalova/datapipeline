@@ -1,20 +1,9 @@
-id: equity.ohlcv # format: domain.dataset.(variant)
+id: equity.ohlcv
 from:
-  source: sandbox.ohlcv
-
-map:
-  entrypoint: map_sandbox_ohlcv_dto_to_equity
-  args: {}
+  stream: equity.ohlcv.ingest
 
 cadence: ${group_by} # optional per-stream cadence
 partition_by: ticker
-# sort_batch_size: 100000              # in-memory sort chunk size
-
-record: # record-level transforms
-  - where: { field: time, operator: ge, comparand: "${start_time}" }
-  - where: { field: time, operator: le, comparand: "${end_time}" }
-  - floor_time: { cadence: "${cadence}" }
-#   - shift_time: { by: -10m }
 
 stream: # per-stream transforms (input sorted by partition,time)
   # - lag: { field: close, to: close_lag_1, periods: 1 }

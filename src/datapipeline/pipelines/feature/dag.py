@@ -11,7 +11,7 @@ from datapipeline.pipelines.feature.nodes import (
     feature_transforms,
     order_feature_records,
 )
-from datapipeline.pipelines.record.dag import build_record_nodes
+from datapipeline.pipelines.stream_id import build_stream_id_nodes
 from datapipeline.dag.context import PipelineContext
 
 
@@ -47,8 +47,14 @@ def build_feature_dag(
         scale=cfg.scale,
         sequence=cfg.sequence,
     )
-    record_nodes = build_record_nodes(context, cfg.record_stream) if include_record_nodes else ()
-    record_input = "stream_transforms" if include_record_nodes else "seed"
+    record_nodes = (
+        build_stream_id_nodes(context, cfg.record_stream) if include_record_nodes else ()
+    )
+    record_input = (
+        _record_node_output(context, cfg.record_stream)
+        if include_record_nodes
+        else "seed"
+    )
     return Dag(
         name=f"feature:{cfg.id}",
         metadata=metadata,
@@ -65,6 +71,13 @@ def build_feature_dag(
             ),
         ),
     )
+
+
+def _record_node_output(context: PipelineContext, record_stream_id: str) -> str:
+    pipeline = context.runtime.registries.stream_specs.get(record_stream_id).pipeline
+    if pipeline == "ingest":
+        return "ordered"
+    return "stream_transforms"
 
 
 def _feature_dag_metadata(

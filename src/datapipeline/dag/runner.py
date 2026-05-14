@@ -262,7 +262,7 @@ def _observe_dag_stream(
         error_message: str | None = None
         observer.on_dag_start(
             dag_name=dag.name,
-            node_count=len(dag.nodes),
+            node_count=dag.node_count,
             depth=dag_depth,
             dag_metadata=dag.metadata,
             dag_parent=dag_parent,
@@ -292,7 +292,7 @@ def _observe_dag_stream(
                 observer.on_dag_end(
                     DagRunEvent(
                         dag_name=dag.name,
-                        node_count=len(dag.nodes),
+                        node_count=dag.node_count,
                         output_items=item_count,
                         elapsed_seconds=(time.perf_counter() - start_time),
                         status=status,

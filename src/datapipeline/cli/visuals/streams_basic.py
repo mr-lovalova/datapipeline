@@ -77,7 +77,10 @@ def visual_sources(runtime: Runtime, log_level: int | None):
     )
     try:
         for stream_id, stream_source in originals.items():
-            reg.register(stream_id, VisualSourceProxy(stream_source, stream_id))
+            if getattr(stream_source, "loader", None) is None:
+                reg.register(stream_id, stream_source)
+            else:
+                reg.register(stream_id, VisualSourceProxy(stream_source, stream_id))
         yield
     finally:
         for stream_id, stream_source in originals.items():

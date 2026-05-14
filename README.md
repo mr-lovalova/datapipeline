@@ -175,14 +175,14 @@ Split timing (leakage note)
 - `jerry demo init`: scaffolds a standalone demo plugin at `./demo/` and wires a `demo` dataset.
 - `jerry plugin init <name> --out lib/`: scaffolds `lib/<name>/` (writes workspace `jerry.yaml` when missing).
 - `jerry.yaml`: sets `plugin_root` for scaffolding commands and `datasets/default_dataset` so you can omit `--project`/`--dataset`.
-- `jerry serve [--dataset <alias>|--project <path>] [--limit N] [--preview-index 0-11] [--skip-build]`: streams output for enabled `serve.*` profiles in order. Typical flow uses artifact-targeted profiles first (`serve.schema`/`serve.metadata`/`serve.scaler`) and runtime profiles (`serve.train`/`serve.val`/`serve.test`) after.
+- `jerry serve [--dataset <alias>|--project <path>] [--limit N] [--preview-index 0-14] [--skip-build]`: streams output for enabled `serve.*` profiles in order. Typical flow uses artifact-targeted profiles first (`serve.schema`/`serve.metadata`/`serve.scaler`) and runtime profiles (`serve.train`/`serve.val`/`serve.test`) after.
 - `jerry build [--dataset <alias>|--project <path>] [--force]`: materializes artifacts (schema, scaler, etc.).
 - `jerry inspect [--dataset <alias>|--project <path>] [--run <inspect-profile>]`: runs enabled inspect profiles (or one selected profile).
-- `jerry inflow create`: interactive wizard to scaffold an end-to-end ingest stream (source + parser/DTO + mapper + stream).
+- `jerry inflow create`: interactive wizard to scaffold an end-to-end ingest (source + parser/DTO + mapper + ingest).
 - `jerry source create <provider>.<dataset> ...`: scaffolds a source YAML (no Python code).
 - `jerry domain create <domain>`: scaffolds a domain record stub.
 - `jerry dto create`, `jerry parser create`, `jerry mapper create`, `jerry loader create`: scaffold Python code + register entry points (reinstall after).
-- `jerry stream create [--identity]`: interactive stream scaffolder (YAML); use for source-backed, joined, or manual streams.
+- `jerry stream create [--identity]`: interactive scaffolder for source-backed ingests, joined streams, or manual streams.
 - `jerry list sources|domains|parsers|mappers|loaders|dtos`: introspection helpers.
 - `pip install -e lib/<name>`: rerun after commands that update `lib/<name>/pyproject.toml` (entry points), or after manual edits to it.
 
@@ -216,7 +216,7 @@ These live under `lib/<plugin>/src/<package>/`:
 - `dtos/*.py`: DTO models (raw source shapes).
 - `parsers/*.py`: raw -> DTO parsers (referenced by source YAML via entry point).
 - `domains/<domain>/model.py`: domain record models.
-- `mappers/*.py`: DTO -> domain record mapping functions (referenced by streams via entry point).
+- `mappers/*.py`: DTO/domain -> domain record mapping functions (referenced by ingests and mapped streams via entry point).
 - `loaders/*.py`: optional custom loaders (fs/http usually use the built-in core loader).
 - `pyproject.toml`: entry points for loaders/parsers/mappers/transforms (rerun `pip install -e lib/<plugin>` after changes).
 
@@ -237,8 +237,8 @@ These live under `lib/<plugin>/src/<package>/`:
 
 ### Transforms (Record → Stream → Feature → Vector)
 
-- **Record transforms** run on raw canonical records before sorting or grouping (filters, time flooring, lagging). Each transform operates on one record at a time because order and partitions are not established yet. Configure in `streams/*.yaml` under `record:`.
-- **Stream transforms** run on ordered, per-stream records after record transforms (dedupe, cadence enforcement, rolling fills). These operate across a sequence of records for a partition because they depend on sorted partition/time order and cadence. Configure in `streams/*.yaml` under `stream:`.
+- **Record transforms** run on mapped domain records before the ingest cache boundary (filters, time flooring, lagging). Each transform operates on one record at a time. Configure in `ingests/*.yaml` under `record:`.
+- **Stream transforms** run on ordered, prepared records after ingest caching (dedupe, cadence enforcement, rolling fills). These operate across a sequence of records for a partition because they depend on sorted partition/time order and cadence. Configure in `streams/*.yaml` under `stream:`.
 - **Feature transforms** run after stream regularization and shape the per-feature payload for vectorization (scalers, sequence/windowing). These occur after feature ids are finalized and payloads are wrapped. Configure in `dataset.yaml` under each feature.
 - **Vector (postprocess) transforms** operate on assembled vectors (coverage/drop/fill/replace). Configure in `postprocess.yaml`.
 - **Debug transforms** run after stream transforms for validation only. Configure in `streams/*.yaml` under `debug:`.
@@ -252,11 +252,11 @@ These live under `lib/<plugin>/src/<package>/`:
 
 ### Glossary
 
-- **Source alias**: `sources/*.yaml:id` (referenced by streams under `from.source`).
-- **Stream id**: `streams/*.yaml:id` (referenced by `dataset.yaml` under `record_stream:`).
+- **Source alias**: `sources/*.yaml:id` (referenced by ingests under `from.source`).
+- **Stream id**: `ingests/*.yaml:id` or `streams/*.yaml:id` (referenced by `dataset.yaml` under `record_stream:`).
 - **Partition**: dimension keys appended to feature IDs, driven by `stream.partition_by`.
 - **Group**: vector “bucket” cadence set by `dataset.group_by` (controls how records become samples).
-- **Preview index**: logical debug index for `jerry serve --preview-index 0-11` (DTOs -> domain records -> feature records -> samples).
+- **Preview index**: logical debug index for `jerry serve --preview-index 0-14` (ingest nodes -> stream nodes -> feature records -> samples).
 - **Fan-out**: when multiple features reference the same `record_stream`, the pipeline spools records to disk so each feature can read independently (records must be picklable).
 
 ## Documentation

@@ -34,6 +34,14 @@ def streams_dir(project_yaml: Path) -> Path:
     return p
 
 
+def ingests_dir(project_yaml: Path) -> Path:
+    cfg = read_project(project_yaml)
+    p = resolve_project_path(project_yaml, cfg.paths.ingests)
+    if not p.exists() or not p.is_dir():
+        raise FileNotFoundError(f"ingests dir not found: {p}")
+    return p
+
+
 def sources_dir(project_yaml: Path) -> Path:
     cfg = read_project(project_yaml)
     p = resolve_project_path(project_yaml, cfg.paths.sources)
@@ -81,6 +89,7 @@ def ensure_project_scaffold(project_yaml: Path) -> None:
             "version: 1\n"
             "name: default\n"
             "paths:\n"
+            "  ingests: ./ingests\n"
             "  streams: ./streams\n"
             "  sources: ./sources\n"
             "  dataset: dataset.yaml\n"
@@ -97,6 +106,9 @@ def ensure_project_scaffold(project_yaml: Path) -> None:
     # Ensure paths exist based on the (possibly newly created) project file
     try:
         cfg = read_project(project_yaml)
+        ingests = resolve_project_path(project_yaml, cfg.paths.ingests)
+        ingests.mkdir(parents=True, exist_ok=True)
+
         streams = resolve_project_path(project_yaml, cfg.paths.streams)
         streams.mkdir(parents=True, exist_ok=True)
 

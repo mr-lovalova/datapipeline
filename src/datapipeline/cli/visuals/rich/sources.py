@@ -253,12 +253,15 @@ def visual_sources(runtime: Runtime, log_level: int | None):
             try:
                 execution_sink.set_live_console(progress.live.console if progress.live else None)
                 for stream_id, stream_source in originals.items():
-                    proxy = _RichSourceProxy(
-                        stream_source=stream_source,
-                        stream_id=stream_id,
-                        progress=progress,
-                    )
-                    reg.register(stream_id, proxy)
+                    if getattr(stream_source, "loader", None) is None:
+                        reg.register(stream_id, stream_source)
+                    else:
+                        proxy = _RichSourceProxy(
+                            stream_source=stream_source,
+                            stream_id=stream_id,
+                            progress=progress,
+                        )
+                        reg.register(stream_id, proxy)
                 yield
             finally:
                 _clear_progress_tasks(progress)

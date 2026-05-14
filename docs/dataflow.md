@@ -8,9 +8,10 @@ The goal is to make the reference chain explicit and easy to debug.
 ```text
 jerry.yaml: default_dataset
   -> datasets.<alias> = <path/to/project.yaml>
-    -> project.yaml: paths.sources / paths.streams / paths.dataset / paths.tasks
+    -> project.yaml: paths.sources / paths.ingests / paths.streams / paths.dataset / paths.tasks
       -> sources/*.yaml: id
-        -> streams/*.yaml: source: <sources.id>, id: <stream_id>
+        -> ingests/*.yaml: from.source: <sources.id>, id: <stream_id>
+          -> streams/*.yaml: from.stream|from.join|from.streams, id: <stream_id>
           -> dataset.yaml: record_stream: <streams.id>, field: <record_field>
             -> jerry serve
               -> runs/<run_id>/dataset/<split>.jsonl|csv|...
@@ -40,6 +41,7 @@ Screenshot slot:
 
 ```yaml
 paths:
+  ingests: ./ingests
   sources: ./sources
   streams: ./streams
   dataset: dataset.yaml
@@ -54,7 +56,7 @@ Expected behavior:
 Screenshot slot:
 `docs/assets/dataflow-02-project-paths.png`
 
-## 3) Source id links source YAML to stream
+## 3) Source id links source YAML to ingest
 
 A source file declares the raw source id plus loader/parser wiring.
 
@@ -73,18 +75,18 @@ loader:
 ```
 
 Expected behavior:
-- Stream `from.source: sandbox.ohlcv` resolves to this source spec.
+- Ingest `from.source: sandbox.ohlcv` resolves to this source spec.
 - For fs loaders, relative `args.path` is normalized via runtime path policy.
 
 Screenshot slot:
 `docs/assets/dataflow-03-source-yaml.png`
 
-## 4) Stream id links canonical stream to dataset
+## 4) Ingest or stream id links canonical records to dataset
 
-Streams define canonical stream ids and source mapping.
+Ingests define source-backed stream ids.
 
 ```yaml
-# streams/equity.ohlcv.yaml
+# ingests/equity.ohlcv.yaml
 id: equity.ohlcv
 from:
   source: sandbox.ohlcv
@@ -95,6 +97,18 @@ map:
 Expected behavior:
 - `from.source` must match a `sources/*.yaml:id`.
 - `id` is what `dataset.yaml` references under `record_stream`.
+
+Derived streams consume existing stream ids:
+
+```yaml
+# streams/equity.daily_liquid.yaml
+id: equity.daily_liquid
+from:
+  stream: equity.ohlcv
+partition_by: ticker
+stream:
+  - dedupe: {}
+```
 
 Screenshot slot:
 `docs/assets/dataflow-04-stream-yaml.png`
@@ -153,12 +167,12 @@ Screenshot slot:
 - Verify `jerry.yaml` `default_dataset` and `datasets.<alias>`.
 
 2. Unknown stream/source ids:
-- Verify `streams/*.yaml:source` matches `sources/*.yaml:id`.
-- Verify `dataset.yaml:record_stream` matches `streams/*.yaml:id`.
+- Verify `ingests/*.yaml:from.source` matches `sources/*.yaml:id`.
+- Verify `dataset.yaml:record_stream` matches an id in `ingests/` or `streams/`.
 
 3. Empty output:
 - Check source loader `path/url`.
-- Check parser/mapper output and preview indices (`jerry serve --preview-index 0..11`).
+- Check parser/mapper output and preview indices (`jerry serve --preview-index 0..14`).
 
 4. Wrong output location:
 - Check workspace root and `--output-directory` value.
