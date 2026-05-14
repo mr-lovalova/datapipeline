@@ -125,7 +125,7 @@ def test_joined_stream_accepts_join_shape() -> None:
             "from": {
                 "join": {" a ": " stream.a ", " b ": " stream.b "},
                 "primary": "a",
-                "broadcast": ["b"],
+                "on": [" ticker ", " time "],
             },
             "map": {"entrypoint": "join", "args": {}},
         }
@@ -133,4 +133,4 @@ def test_joined_stream_accepts_join_shape() -> None:
 
     assert spec.input_refs() == {"a": "stream.a", "b": "stream.b"}
     assert spec.from_.primary == "a"
-    assert spec.from_.broadcast == ["b"]
+    assert spec.from_.on == ["ticker", "time"]

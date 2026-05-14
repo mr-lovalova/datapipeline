@@ -1,5 +1,6 @@
 from collections.abc import Iterator
 from dataclasses import dataclass, field
+from itertools import product
 import logging
 from typing import Any
 
@@ -11,11 +12,7 @@ from datapipeline.domain.record import TemporalRecord
 from datapipeline.domain.stream import RecordStream
 from datapipeline.joined.model import JoinedRow
 from datapipeline.pipelines.record.inputs import open_input_records
-from datapipeline.services.streams.join_plan import (
-    JoinInputPlan,
-    build_join_input_plans,
-)
-from datapipeline.transforms.utils import get_field, partition_key
+from datapipeline.transforms.utils import get_field
 
 logger = logging.getLogger(__name__)
 
@@ -34,13 +31,7 @@ class JoinedStream(RecordStream[JoinedRow]):
             raise ValueError(f"Joined stream '{self._stream_id}' requires from.primary")
 
         refs = self._spec.input_refs()
-        input_plans = build_join_input_plans(
-            stream_id=self._stream_id,
-            input_refs=refs,
-            primary=primary,
-            broadcast=set(join.broadcast),
-            partition_by=self._runtime.registries.partition_by,
-        )
+        input_refs = {alias: ref for alias, ref in refs.items() if alias != primary}
 
         with open_input_records(context, refs, owner=self._stream_id) as record_iters:
             stats = _JoinStats(
@@ -52,9 +43,9 @@ class JoinedStream(RecordStream[JoinedRow]):
             rows = _aligned_rows(
                 record_iters,
                 primary=primary,
-                input_plans=input_plans,
+                input_refs=input_refs,
                 mode=join.mode,
-                time_field=join.on,
+                join_fields=_join_fields(join.on),
                 stats=stats,
             )
             yield from rows
@@ -71,7 +62,6 @@ def build_joined_stream(
 class _InputJoinStats:
     stream_id: str
     rows: int
-    broadcast: bool
     matched: int = 0
     missed: int = 0
 
@@ -86,13 +76,10 @@ class _JoinStats:
     output_rows: int = 0
     inputs: dict[str, _InputJoinStats] = field(default_factory=dict)
 
-    def add_input(
-        self, alias: str, *, stream_id: str, rows: int, broadcast: bool
-    ) -> None:
+    def add_input(self, alias: str, *, stream_id: str, rows: int) -> None:
         self.inputs[alias] = _InputJoinStats(
             stream_id=stream_id,
             rows=rows,
-            broadcast=broadcast,
         )
 
     def emit(self) -> None:
@@ -114,7 +101,7 @@ class _JoinStats:
                 (
                     f"join.input: {alias}={stats.stream_id} rows={stats.rows} "
                     f"matched={stats.matched} missed={stats.missed} "
-                    f"match_rate={match_rate:.1%} broadcast={str(stats.broadcast).lower()}"
+                    f"match_rate={match_rate:.1%}"
                 ),
                 logger=logger,
                 depth=depth,
@@ -125,70 +112,72 @@ def _aligned_rows(
     inputs: dict[str, Iterator[TemporalRecord]],
     *,
     primary: str,
-    input_plans: dict[str, JoinInputPlan],
+    input_refs: dict[str, str],
     mode: str,
-    time_field: str,
+    join_fields: tuple[str, ...],
     stats: _JoinStats,
 ) -> Iterator[JoinedRow]:
     if mode not in {"inner", "left"}:
         raise ValueError(f"Unsupported join mode '{mode}'. Use 'inner' or 'left'.")
 
-    indexes = {}
-    for alias, input_plan in input_plans.items():
-        index, row_count = _index_records(
-            inputs[alias],
-            fields=input_plan.fields,
-            time_field=time_field,
-        )
+    indexes: dict[str, dict[tuple[Any, ...], list[TemporalRecord]]] = {}
+    for alias, stream_id in input_refs.items():
+        index, row_count = _index_records(inputs[alias], fields=join_fields)
         indexes[alias] = index
         stats.add_input(
             alias,
-            stream_id=input_plan.stream_id,
+            stream_id=stream_id,
             rows=row_count,
-            broadcast=input_plan.broadcast,
         )
 
     for primary_record in inputs[primary]:
         stats.primary_rows += 1
-        row_values: dict[str, TemporalRecord | None] = {primary: primary_record}
+        key = _record_key(primary_record, fields=join_fields)
+        aliases: list[str] = []
+        matches: list[list[TemporalRecord | None]] = []
         missing = False
-        for alias, index in indexes.items():
-            key = _record_key(
-                primary_record,
-                fields=input_plans[alias].fields,
-                time_field=time_field,
-            )
-            match = index.get(key)
-            if match is None:
+
+        for alias in input_refs:
+            records = indexes[alias].get(key)
+            aliases.append(alias)
+            if records is None:
                 missing = True
                 stats.inputs[alias].missed += 1
+                matches.append([None])
             else:
-                stats.inputs[alias].matched += 1
-            row_values[alias] = match
+                stats.inputs[alias].matched += len(records)
+                matches.append(records)
+
         if missing and mode == "inner":
             continue
-        stats.output_rows += 1
-        yield JoinedRow(time=get_field(primary_record, time_field), values=row_values)
+
+        row_values: dict[str, TemporalRecord | None]
+        for joined_records in product(*matches):
+            row_values = {primary: primary_record}
+            row_values.update(zip(aliases, joined_records, strict=True))
+            stats.output_rows += 1
+            yield JoinedRow(time=primary_record.time, values=row_values)
 
 
 def _index_records(
     records: Iterator[TemporalRecord],
     *,
     fields: tuple[str, ...],
-    time_field: str,
-) -> tuple[dict[tuple[Any, ...], TemporalRecord], int]:
-    out: dict[tuple[Any, ...], TemporalRecord] = {}
+) -> tuple[dict[tuple[Any, ...], list[TemporalRecord]], int]:
+    out: dict[tuple[Any, ...], list[TemporalRecord]] = {}
     count = 0
     for record in records:
         count += 1
-        out[_record_key(record, fields=fields, time_field=time_field)] = record
+        key = _record_key(record, fields=fields)
+        out.setdefault(key, []).append(record)
     return out, count
 
 
-def _record_key(
-    record: TemporalRecord,
-    *,
-    fields: tuple[str, ...],
-    time_field: str,
-) -> tuple[Any, ...]:
-    return (get_field(record, time_field), *partition_key(record, list(fields)))
+def _record_key(record: TemporalRecord, *, fields: tuple[str, ...]) -> tuple[Any, ...]:
+    return tuple(get_field(record, field) for field in fields)
+
+
+def _join_fields(on: str | list[str]) -> tuple[str, ...]:
+    if isinstance(on, str):
+        return (on,)
+    return tuple(on)

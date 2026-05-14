@@ -1,5 +1,4 @@
 from datapipeline.config.catalog import IngestConfig, StreamConfig
-from datapipeline.services.streams.join_plan import build_join_input_plans
 
 
 def validate_unique_stream_ids(
@@ -25,12 +24,6 @@ def validate_stream_configs(
             raise ValueError(
                 f"Stream '{stream_id}' references unknown stream(s): {missing}"
             )
-        if spec.reads_stream:
-            continue
-        if spec.maps_streams:
-            continue
-
-        _validate_joined_stream(stream_id, spec, refs, ingests, stream_configs)
 
 
 def stream_partition_by(
@@ -47,30 +40,3 @@ def stream_partition_by(
     if primary_ref in stream_configs:
         return stream_configs[primary_ref].partition_by
     return ingests[primary_ref].partition_by
-
-
-def _validate_joined_stream(
-    stream_id: str,
-    spec: StreamConfig,
-    refs: dict[str, str],
-    ingests: dict[str, IngestConfig],
-    stream_configs: dict[str, StreamConfig],
-) -> None:
-    join = spec.from_
-    primary = join.primary
-    if primary is None:
-        raise ValueError(f"Joined stream '{stream_id}' requires from.primary")
-    build_join_input_plans(
-        stream_id=stream_id,
-        input_refs=refs,
-        primary=primary,
-        broadcast=set(join.broadcast),
-        partition_by={
-            ref: (
-                stream_configs[ref].partition_by
-                if ref in stream_configs
-                else ingests[ref].partition_by
-            )
-            for ref in refs.values()
-        },
-    )

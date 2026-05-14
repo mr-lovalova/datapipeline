@@ -39,13 +39,12 @@ class StreamFromConfig(BaseModel):
     join: dict[str, str] | None = None
     streams: dict[str, str] | None = None
     primary: str | None = None
-    on: str = Field(default="time")
+    on: str | list[str] = Field(default="time")
     mode: Literal["inner", "left"] = Field(default="inner")
-    broadcast: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _validate_from(self):
-        join_option_fields = {"primary", "on", "mode", "broadcast"}
+        join_option_fields = {"primary", "on", "mode"}
         from_kinds = [
             self.stream is not None,
             self.join is not None,
@@ -63,17 +62,10 @@ class StreamFromConfig(BaseModel):
             if not self.primary:
                 raise ValueError("from.join requires 'primary'")
             self.join = _normalize_input_refs("join", self.join)
+            self.on = _normalize_join_fields(self.on)
             if self.primary not in self.join:
                 raise ValueError(
                     "from.primary must reference one of the joined aliases"
-                )
-            unknown_broadcast = [
-                alias for alias in self.broadcast if alias not in self.join
-            ]
-            if unknown_broadcast:
-                raise ValueError(
-                    "from.broadcast contains unknown aliases: "
-                    + ", ".join(unknown_broadcast)
                 )
             return self
         if join_option_fields & self.model_fields_set:
@@ -107,6 +99,18 @@ def _normalize_input_refs(label: str, refs: dict[str, str]) -> dict[str, str]:
     return normalized
 
 
+def _normalize_join_fields(fields: str | list[str]) -> str | list[str]:
+    if isinstance(fields, str):
+        field = fields.strip()
+        if not field:
+            raise ValueError("from.on must not be empty")
+        return field
+    normalized = [str(field).strip() for field in fields]
+    if not normalized or any(not field for field in normalized):
+        raise ValueError("from.on must not contain empty fields")
+    return normalized
+
+
 class StreamConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
@@ -120,10 +124,6 @@ class StreamConfig(BaseModel):
     stream: list[dict[str, Any]] | None = Field(default=None)
     # Optional debug-only transforms (applied after stream transforms)
     debug: list[dict[str, Any]] | None = Field(default=None)
-
-    @property
-    def reads_stream(self) -> bool:
-        return self.from_.stream is not None
 
     @property
     def joins_streams(self) -> bool:

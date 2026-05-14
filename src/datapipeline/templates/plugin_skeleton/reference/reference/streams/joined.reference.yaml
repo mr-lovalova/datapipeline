@@ -7,9 +7,8 @@
 #     primary: upstream.stream.id
 #     reference: reference.stream.id
 #   primary: primary            # output partition is inherited from this input
-#   on: time                    # default: time
+#   "on": time                  # default: time; use [ticker, time] for compound keys
 #   mode: inner                 # inner | left
-#   broadcast: [reference]      # explicit reference/subset partition broadcasts
 # map:                          # required; mapper receives one JoinedRow at a time
 #   entrypoint: my_joined_mapper
 #   args: {}

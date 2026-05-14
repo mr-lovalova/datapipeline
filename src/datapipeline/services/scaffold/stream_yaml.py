@@ -68,7 +68,6 @@ def write_joined_stream(
     inputs_list: str,
     mapper_entrypoint: str,
     primary_key: str,
-    broadcast_keys: list[str] | None = None,
 ) -> Path:
     ensure_project_scaffold(project_yaml)
     streams_path = resolve_streams_dir(project_yaml)
@@ -82,7 +81,6 @@ def write_joined_stream(
             inputs_list=inputs_list,
             mapper_entrypoint=mapper_entrypoint,
             primary_key=primary_key,
-            broadcast_keys=broadcast_keys or [],
         ).strip() + "\n",
         encoding="utf-8",
     )

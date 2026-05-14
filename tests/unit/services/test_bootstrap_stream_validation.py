@@ -46,7 +46,7 @@ def _joined(
     stream_id: str,
     inputs: list[str],
     primary: str,
-    broadcast: list[str] | None = None,
+    on: str | list[str] = "time",
 ) -> StreamConfig:
     return StreamConfig.model_validate(
         {
@@ -54,9 +54,8 @@ def _joined(
             "from": {
                 "join": _input_map(inputs),
                 "primary": primary,
-                "on": "time",
+                "on": on,
                 "mode": "inner",
-                "broadcast": list(broadcast or []),
             },
             "map": {"entrypoint": "join", "args": {}},
         }
@@ -100,7 +99,7 @@ def test_validate_stream_configs_allows_manual_partition_mismatch() -> None:
     validate_stream_configs(ingests, stream_configs)
 
 
-def test_validate_stream_configs_rejects_joined_unrelated_partitions() -> None:
+def test_validate_stream_configs_allows_joined_unrelated_partitions() -> None:
     ingests = {
         "stream.a": _ingest("stream.a", partition_by="station"),
         "stream.b": _ingest("stream.b", partition_by="ticker"),
@@ -112,8 +111,7 @@ def test_validate_stream_configs_rejects_joined_unrelated_partitions() -> None:
             primary="x",
         ),
     }
-    with pytest.raises(ValueError, match="incompatible partition_by"):
-        validate_stream_configs(ingests, stream_configs)
+    validate_stream_configs(ingests, stream_configs)
 
 
 def test_validate_stream_configs_accepts_joined_matching_partitions() -> None:
@@ -132,7 +130,7 @@ def test_validate_stream_configs_accepts_joined_matching_partitions() -> None:
     validate_stream_configs(ingests, stream_configs)
 
 
-def test_validate_stream_configs_accepts_joined_broadcast_subset() -> None:
+def test_validate_stream_configs_accepts_joined_subset_key() -> None:
     ingests = {
         "stream.a": _ingest("stream.a", partition_by=["ticker", "horizon"]),
         "stream.b": _ingest("stream.b", partition_by="ticker"),
@@ -142,7 +140,7 @@ def test_validate_stream_configs_accepts_joined_broadcast_subset() -> None:
             "derived",
             ["x=stream.a", "y=stream.b"],
             primary="x",
-            broadcast=["y"],
+            on=["ticker", "time"],
         ),
     }
 

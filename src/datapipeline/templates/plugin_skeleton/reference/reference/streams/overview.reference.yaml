@@ -12,9 +12,8 @@
 #     primary: upstream.stream.id
 #     reference: reference.stream.id
 #   primary: primary
-#   on: time
+#   "on": time
 #   mode: inner
-#   broadcast: []
 # map:                          # optional for source ingest; required otherwise
 #   entrypoint: my_mapper
 #   args: {}

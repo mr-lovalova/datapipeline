@@ -96,7 +96,6 @@ def _joined_spec(*, join: dict) -> StreamConfig:
         "primary": join.get("primary"),
         "on": join.get("on", "time"),
         "mode": join.get("mode", "inner"),
-        "broadcast": join.get("broadcast", []),
     }
     return StreamConfig.model_validate(
         {
@@ -186,7 +185,9 @@ def test_joined_stream_matches_same_partition_and_time(monkeypatch) -> None:
 
     rows = list(
         JoinedStream(
-            runtime, "joined.out", _joined_spec(join={"primary": "a"})
+            runtime,
+            "joined.out",
+            _joined_spec(join={"primary": "a", "on": ["ticker", "time"]}),
         ).stream()
     )
 
@@ -195,7 +196,7 @@ def test_joined_stream_matches_same_partition_and_time(monkeypatch) -> None:
     assert rows[0].values["b"].value == 20
 
 
-def test_joined_stream_broadcasts_unpartitioned_input_by_time(monkeypatch) -> None:
+def test_joined_stream_joins_partitioned_to_unpartitioned_by_time(monkeypatch) -> None:
     runtime = _runtime(
         streams={
             "stream.a": [
@@ -212,12 +213,38 @@ def test_joined_stream_broadcasts_unpartitioned_input_by_time(monkeypatch) -> No
         JoinedStream(
             runtime,
             "joined.out",
-            _joined_spec(join={"primary": "a", "broadcast": ["b"]}),
+            _joined_spec(join={"primary": "a"}),
         ).stream()
     )
 
     assert [row.values["a"].value for row in rows] == [1, 2]
     assert [row.values["b"].value for row in rows] == [20, 20]
+
+
+def test_joined_stream_reuses_unpartitioned_matches_across_partitions(monkeypatch) -> None:
+    runtime = _runtime(
+        streams={
+            "stream.a": [
+                _TickerRec(time=_t(1), ticker="AAPL", value=1),
+                _TickerRec(time=_t(2), ticker="AAPL", value=2),
+                _TickerRec(time=_t(1), ticker="MSFT", value=3),
+            ],
+            "stream.b": [_Rec(time=_t(1), value=10), _Rec(time=_t(2), value=20)],
+        },
+        partitions={"stream.a": "ticker", "stream.b": None},
+    )
+    _install_streams(monkeypatch, runtime)
+
+    rows = list(
+        JoinedStream(
+            runtime,
+            "joined.out",
+            _joined_spec(join={"primary": "a"}),
+        ).stream()
+    )
+
+    assert [row.values["a"].value for row in rows] == [1, 2, 3]
+    assert [row.values["b"].value for row in rows] == [10, 20, 10]
 
 
 def test_joined_stream_matches_unpartitioned_inputs_by_time(monkeypatch) -> None:
@@ -270,13 +297,12 @@ def test_joined_stream_emits_join_diagnostics(monkeypatch) -> None:
         "primary_rows=2 output_rows=1"
     ) in messages
     assert (
-        "[joined.out] join.input: b=stream.b rows=1 matched=1 missed=1 "
-        "match_rate=50.0% broadcast=false"
+        "[joined.out] join.input: b=stream.b rows=1 matched=1 missed=1 match_rate=50.0%"
     ) in messages
     assert {event.message_kind for event in capture.events} == {"source_info"}
 
 
-def test_joined_stream_broadcasts_subset_partition(monkeypatch) -> None:
+def test_joined_stream_can_join_on_subset_of_partition_fields(monkeypatch) -> None:
     runtime = _runtime(
         streams={
             "stream.a": [
@@ -293,7 +319,51 @@ def test_joined_stream_broadcasts_subset_partition(monkeypatch) -> None:
         JoinedStream(
             runtime,
             "joined.out",
-            _joined_spec(join={"primary": "a", "broadcast": ["b"]}),
+            _joined_spec(join={"primary": "a", "on": ["ticker", "time"]}),
+        ).stream()
+    )
+
+    assert [row.values["a"].value for row in rows] == [1, 2]
+    assert [row.values["b"].value for row in rows] == [20, 20]
+
+
+def test_joined_stream_emits_many_to_many_matches(monkeypatch) -> None:
+    runtime = _runtime(
+        streams={
+            "stream.a": [_Rec(time=_t(1), value=1), _Rec(time=_t(1), value=2)],
+            "stream.b": [_Rec(time=_t(1), value=10), _Rec(time=_t(1), value=20)],
+        },
+        partitions={"stream.a": None, "stream.b": None},
+    )
+    _install_streams(monkeypatch, runtime)
+
+    rows = list(
+        JoinedStream(
+            runtime, "joined.out", _joined_spec(join={"primary": "a"})
+        ).stream()
+    )
+
+    assert [(row.values["a"].value, row.values["b"].value) for row in rows] == [
+        (1, 10),
+        (1, 20),
+        (2, 10),
+        (2, 20),
+    ]
+
+
+def test_joined_stream_allows_duplicate_primary_join_key(monkeypatch) -> None:
+    runtime = _runtime(
+        streams={
+            "stream.a": [_Rec(time=_t(1), value=1), _Rec(time=_t(1), value=2)],
+            "stream.b": [_Rec(time=_t(1), value=20)],
+        },
+        partitions={"stream.a": None, "stream.b": None},
+    )
+    _install_streams(monkeypatch, runtime)
+
+    rows = list(
+        JoinedStream(
+            runtime, "joined.out", _joined_spec(join={"primary": "a", "mode": "left"})
         ).stream()
     )
 
