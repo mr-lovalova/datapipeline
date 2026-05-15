@@ -1,6 +1,8 @@
 from collections.abc import Iterator
 from typing import Any
 
+import pytest
+
 from datapipeline.transforms.engine import apply_transforms
 
 
@@ -74,3 +76,12 @@ def test_apply_transforms_closes_upstream_for_class_entrypoint(monkeypatch) -> N
     assert next(transformed) == 1
     transformed.close()
     assert closed == ["upstream"]
+
+
+def test_apply_transforms_rejects_invalid_transform_spec() -> None:
+    with pytest.raises(TypeError, match="Transform must be one-key mapping"):
+        apply_transforms(
+            iter([1]),
+            group="test.group",
+            transforms=[{"first": None, "second": None}],
+        )

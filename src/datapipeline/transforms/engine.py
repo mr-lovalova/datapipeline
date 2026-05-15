@@ -43,11 +43,9 @@ def _with_close_cascade(
     return _iter()
 
 
-def _extract_single_pair(clause: Mapping[str, Any], kind: str) -> Tuple[str, Any]:
-    """Validate that *clause* is a one-key mapping and return that pair."""
-
+def _extract_transform_spec(clause: Mapping[str, Any]) -> tuple[str, Any]:
     if not isinstance(clause, Mapping) or len(clause) != 1:
-        raise TypeError(f"{kind} must be one-key mapping, got: {clause!r}")
+        raise TypeError(f"Transform must be one-key mapping, got: {clause!r}")
     return next(iter(clause.items()))
 
 
@@ -149,7 +147,7 @@ def apply_transforms(
     with context_cm:
         for transform in transforms or ():
             upstream = stream
-            name, params = _extract_single_pair(transform, "Transform")
+            name, params = _extract_transform_spec(transform)
             ep = load_ep(group=group, name=name)
             if isclass(ep):
                 inst = _instantiate_entry_point(
