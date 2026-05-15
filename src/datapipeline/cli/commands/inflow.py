@@ -48,12 +48,7 @@ class StreamSelection:
     create_source: bool
     loader_ep: str | None
     loader_args: dict | None
-    pchoice: str
-    parser_create_dto: bool
-    dto_class: str | None
-    dto_module: str | None
-    parser_name: str | None
-    parser_ep: str | None
+    parser: ParserPlan
     domain: str
     create_domain: bool
     mchoice: str
@@ -81,25 +76,6 @@ def _mapper_menu_options(mappers: dict[str, str]) -> list[tuple[str, str]]:
     if mappers:
         return [base[0], ("existing", "Select existing mapper"), base[1]]
     return base
-
-
-def _build_parser_plan(selection: StreamSelection) -> ParserPlan:
-    if selection.pchoice == "create":
-        return ParserPlan(
-            create=True,
-            create_dto=selection.parser_create_dto,
-            dto_class=selection.dto_class,
-            dto_module=selection.dto_module,
-            parser_name=selection.parser_name,
-        )
-    if selection.pchoice == "existing":
-        return ParserPlan(create=False, parser_ep=selection.parser_ep)
-    if selection.pchoice == "temporal_record":
-        return ParserPlan(
-            create=False,
-            parser_ep=DEFAULT_TEMPORAL_RECORD_PARSER_EP,
-        )
-    return ParserPlan(create=False, parser_ep="identity")
 
 
 def _build_mapper_plan(selection: StreamSelection) -> MapperPlan:
@@ -145,6 +121,51 @@ def _select_new_source_loader() -> tuple[str, dict]:
     return prompt_required("Loader entrypoint"), {}
 
 
+def _select_parser_plan(
+    plugin_root: Path | None,
+    pkg_name: str,
+    provider: str,
+    dataset: str,
+) -> ParserPlan:
+    parsers = list_parsers(root=plugin_root)
+    parser_choice = pick_from_menu("Parser:", _parser_menu_options(parsers))
+
+    if parser_choice == "existing":
+        parser_ep = pick_from_menu(
+            "Select parser entrypoint:",
+            [(k, k) for k in sorted(parsers.keys())],
+        )
+        return ParserPlan(create=False, parser_ep=parser_ep)
+
+    if parser_choice == "create":
+        dto_default = None
+        if provider and dataset:
+            dto_default = dto_class_name(f"{provider}_{dataset}")
+        dto_class, create_dto = choose_existing_or_create_name(
+            label=LABEL_DTO_FOR_PARSER,
+            existing=sorted(list_dtos(root=plugin_root).keys()),
+            create_label="Create new DTO",
+            prompt_new="DTO class name",
+            default_new=dto_default,
+        )
+        parser_name = choose_name(
+            "Parser class name",
+            default=default_parser_name(dto_class),
+        )
+        return ParserPlan(
+            create=True,
+            create_dto=create_dto,
+            dto_class=dto_class,
+            dto_module=dto_module_path(pkg_name, dto_class),
+            parser_name=parser_name,
+        )
+
+    if parser_choice == "temporal_record":
+        return ParserPlan(create=False, parser_ep=DEFAULT_TEMPORAL_RECORD_PARSER_EP)
+
+    return ParserPlan(create=False, parser_ep="identity")
+
+
 def _collect_stream_selection(
     plugin_root: Path | None,
     pkg_name: str,
@@ -157,20 +178,15 @@ def _collect_stream_selection(
 
     create_source = False
     create_domain = False
-    parser_create_dto = False
     mapper_create_dto = False
 
-    dto_class = None
-    dto_module = None
     mapper_input_class = None
     mapper_input_module = None
     loader_ep = None
     loader_args = None
-    parser_ep = None
     mapper_ep = None
-    parser_name = None
     mapper_name = None
-    pchoice = "identity"
+    parser_plan = ParserPlan(create=False, parser_ep="identity")
     mchoice = "identity"
 
     source_choice = pick_from_menu(
@@ -196,35 +212,7 @@ def _collect_stream_selection(
 
         loader_ep, loader_args = _select_new_source_loader()
 
-        # Parser selection
-        parsers = list_parsers(root=plugin_root)
-        pchoice = pick_from_menu("Parser:", _parser_menu_options(parsers))
-        if pchoice == "existing":
-            parser_ep = pick_from_menu(
-                "Select parser entrypoint:",
-                [(k, k) for k in sorted(parsers.keys())],
-            )
-        elif pchoice == "create":
-            dto_default = dto_class_name(
-                f"{provider}_{dataset}") if provider and dataset else None
-            dto_class, parser_create_dto = choose_existing_or_create_name(
-                label=LABEL_DTO_FOR_PARSER,
-                existing=sorted(list_dtos(root=plugin_root).keys()),
-                create_label="Create new DTO",
-                prompt_new="DTO class name",
-                default_new=dto_default,
-            )
-            parser_name = choose_name(
-                "Parser class name",
-                default=default_parser_name(dto_class),
-            )
-            dto_module = dto_module_path(pkg_name, dto_class)
-        elif pchoice == "temporal_record":
-            parser_ep = DEFAULT_TEMPORAL_RECORD_PARSER_EP
-        elif pchoice == "identity":
-            parser_ep = "identity"
-        else:
-            parser_ep = "identity"
+        parser_plan = _select_parser_plan(plugin_root, pkg_name, provider, dataset)
 
     domain, create_domain = choose_existing_or_create_name(
         label=LABEL_DOMAIN_TO_MAP,
@@ -251,6 +239,8 @@ def _collect_stream_selection(
         )
         info("Domain output: Domain record")
         if input_choice == "dto":
+            dto_class = parser_plan.dto_class
+            dto_module = parser_plan.dto_module
             if not dto_class:
                 dto_class, mapper_create_dto = choose_existing_or_create_name(
                     label=LABEL_DTO_FOR_MAPPER,
@@ -291,12 +281,7 @@ def _collect_stream_selection(
         create_source=create_source,
         loader_ep=loader_ep,
         loader_args=loader_args,
-        pchoice=pchoice,
-        parser_create_dto=parser_create_dto,
-        dto_class=dto_class,
-        dto_module=dto_module,
-        parser_name=parser_name,
-        parser_ep=parser_ep,
+        parser=parser_plan,
         domain=domain,
         create_domain=create_domain,
         mchoice=mchoice,
@@ -314,7 +299,6 @@ def _build_stream_plan_from_selection(
     project_yaml: Path,
     plugin_root: Path | None,
 ) -> StreamPlan:
-    parser_plan = _build_parser_plan(selection)
     mapper_plan = _build_mapper_plan(selection)
 
     return StreamPlan(
@@ -327,7 +311,7 @@ def _build_stream_plan_from_selection(
         create_source=selection.create_source,
         loader_ep=selection.loader_ep,
         loader_args=selection.loader_args,
-        parser=parser_plan,
+        parser=selection.parser,
         mapper=mapper_plan,
         domain=selection.domain,
         create_domain=selection.create_domain,

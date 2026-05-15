@@ -3,12 +3,13 @@ from pathlib import Path
 from datapipeline.cli.commands.inflow import (
     StreamSelection,
     _build_mapper_plan,
-    _build_parser_plan,
     _build_stream_plan_from_selection,
     _mapper_menu_options,
     _parser_menu_options,
     _select_new_source_loader,
+    _select_parser_plan,
 )
+from datapipeline.services.scaffold.stream_plan import ParserPlan
 from datapipeline.services.scaffold.utils import pick_from_menu
 
 
@@ -20,12 +21,7 @@ def _base_stream_selection() -> StreamSelection:
         create_source=True,
         loader_ep="core.io",
         loader_args={"transport": "http", "format": "json"},
-        pchoice="identity",
-        parser_create_dto=False,
-        dto_class=None,
-        dto_module=None,
-        parser_name=None,
-        parser_ep=None,
+        parser=ParserPlan(create=False, parser_ep="identity"),
         domain="weather",
         create_domain=False,
         mchoice="identity",
@@ -51,22 +47,6 @@ def test_parser_menu_options_include_existing_when_available() -> None:
 def test_mapper_menu_options_skip_existing_when_empty() -> None:
     options = _mapper_menu_options({})
     assert [key for key, _ in options] == ["create", "identity"]
-
-
-def test_build_parser_plan_identity_defaults() -> None:
-    plan = _build_parser_plan(_base_stream_selection())
-    assert plan.create is False
-    assert plan.parser_ep == "identity"
-
-
-def test_build_parser_plan_temporal_record_defaults() -> None:
-    selection = _base_stream_selection()
-    selection.pchoice = "temporal_record"
-
-    plan = _build_parser_plan(selection)
-
-    assert plan.create is False
-    assert plan.parser_ep == "core.temporal_record"
 
 
 def test_pick_from_menu_blank_input_keeps_first_option_as_default(monkeypatch) -> None:
@@ -112,6 +92,86 @@ def test_select_new_source_loader_accepts_custom_entrypoint(monkeypatch) -> None
 
     assert loader_ep == "custom.loader"
     assert loader_args == {}
+
+
+def test_select_parser_plan_identity_defaults(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "datapipeline.cli.commands.inflow.list_parsers",
+        lambda root=None: {},
+    )
+    monkeypatch.setattr(
+        "datapipeline.cli.commands.inflow.pick_from_menu",
+        lambda *args, **kwargs: "identity",
+    )
+
+    plan = _select_parser_plan(Path("/tmp/plugin"), "example_pkg", "nasa", "weather")
+
+    assert plan.create is False
+    assert plan.parser_ep == "identity"
+
+
+def test_select_parser_plan_temporal_record_defaults(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "datapipeline.cli.commands.inflow.list_parsers",
+        lambda root=None: {},
+    )
+    monkeypatch.setattr(
+        "datapipeline.cli.commands.inflow.pick_from_menu",
+        lambda *args, **kwargs: "temporal_record",
+    )
+
+    plan = _select_parser_plan(Path("/tmp/plugin"), "example_pkg", "nasa", "weather")
+
+    assert plan.create is False
+    assert plan.parser_ep == "core.temporal_record"
+
+
+def test_select_parser_plan_uses_existing_entrypoint(monkeypatch) -> None:
+    choices = iter(["existing", "custom.parser"])
+    monkeypatch.setattr(
+        "datapipeline.cli.commands.inflow.list_parsers",
+        lambda root=None: {"custom.parser": "custom.parser"},
+    )
+    monkeypatch.setattr(
+        "datapipeline.cli.commands.inflow.pick_from_menu",
+        lambda *args, **kwargs: next(choices),
+    )
+
+    plan = _select_parser_plan(Path("/tmp/plugin"), "example_pkg", "nasa", "weather")
+
+    assert plan.create is False
+    assert plan.parser_ep == "custom.parser"
+
+
+def test_select_parser_plan_creates_parser_with_dto(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "datapipeline.cli.commands.inflow.list_parsers",
+        lambda root=None: {},
+    )
+    monkeypatch.setattr(
+        "datapipeline.cli.commands.inflow.pick_from_menu",
+        lambda *args, **kwargs: "create",
+    )
+    monkeypatch.setattr(
+        "datapipeline.cli.commands.inflow.list_dtos",
+        lambda root=None: {},
+    )
+    monkeypatch.setattr(
+        "datapipeline.cli.commands.inflow.choose_existing_or_create_name",
+        lambda **kwargs: ("WeatherDTO", True),
+    )
+    monkeypatch.setattr(
+        "datapipeline.cli.commands.inflow.choose_name",
+        lambda *args, **kwargs: "WeatherDTOParser",
+    )
+
+    plan = _select_parser_plan(Path("/tmp/plugin"), "example_pkg", "nasa", "weather")
+
+    assert plan.create is True
+    assert plan.create_dto is True
+    assert plan.dto_class == "WeatherDTO"
+    assert plan.dto_module == "example_pkg.dtos.weather_dto"
+    assert plan.parser_name == "WeatherDTOParser"
 
 
 def test_build_mapper_plan_existing_keeps_domain() -> None:
