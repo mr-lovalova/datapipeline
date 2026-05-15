@@ -24,6 +24,9 @@ ml = [
   "pandas>=2.0",
   "torch>=2.0",
 ]
+test = [
+  "pytest>=8.0",
+]
 
 [project.scripts]
 jerry = "datapipeline.cli.app:main"
