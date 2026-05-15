@@ -1,9 +1,12 @@
 from dataclasses import dataclass
+from pathlib import Path
+
 import pytest
 
 from datapipeline.cli.visuals.execution_context import (
     set_current_dag_depth,
 )
+from datapipeline.cli.visuals.common import compute_glob_root, relative_label
 from datapipeline.cli.visuals.source_observability import SourceObservabilityAdapter
 from datapipeline.sources.data_loader import DataLoader
 from datapipeline.sources.decoders import JsonLinesDecoder
@@ -215,3 +218,14 @@ def test_source_observability_adapter_glob_progress_sequence_tracks_each_file(tm
     assert sequence is not None
     assert [entry.label for entry in sequence] == ['"APPL.jsonl"', '"MSFT.jsonl"']
     assert [entry.total for entry in sequence] == [2, 1]
+
+
+def test_compute_glob_root_returns_none_for_mixed_path_styles() -> None:
+    assert compute_glob_root(["/tmp/APPL.jsonl", "relative/MSFT.jsonl"]) is None
+
+
+def test_relative_label_falls_back_to_name_outside_root(tmp_path) -> None:
+    assert (
+        relative_label(str(tmp_path / "outside.csv"), Path("/other/root"))
+        == "outside.csv"
+    )

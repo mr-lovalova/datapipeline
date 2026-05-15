@@ -1,7 +1,7 @@
 from pathlib import Path
 import logging
 import os
-from typing import Optional, Sequence
+from collections.abc import Sequence
 
 from urllib.parse import urlparse
 from datapipeline.sources.adapters.fs import FsFileTransport, FsGlobTransport
@@ -10,23 +10,23 @@ from datapipeline.sources.adapters.http import HttpTransport
 logger = logging.getLogger(__name__)
 
 
-def compute_glob_root(files: list[str]) -> Optional[Path]:
+def compute_glob_root(files: list[str]) -> Path | None:
     if not files:
         return None
     try:
         return Path(os.path.commonpath(files))
-    except Exception:
+    except (TypeError, ValueError):
         return None
 
 
-def compact_root(path: Path,  segments: int = 3) -> str:
+def compact_root(path: Path, segments: int = 3) -> str:
     parts = [part for part in path.as_posix().split("/") if part]
     if len(parts) > segments:
         parts = ["..."] + parts[-segments:]
     return "/".join(parts) if parts else "/"
 
 
-def relative_label(path: str, root: Optional[Path]) -> str:
+def relative_label(path: str, root: Path | None) -> str:
     if root is not None:
         try:
             rel = Path(path).relative_to(root)
@@ -34,7 +34,7 @@ def relative_label(path: str, root: Optional[Path]) -> str:
             if rel_str:
                 return rel_str
             return rel.name or path
-        except Exception:
+        except (TypeError, ValueError):
             pass
     return Path(path).name or path
 
@@ -121,7 +121,11 @@ def transport_debug_lines(transport) -> list[str]:
     return lines
 
 
-def log_combined_stream(stream_id: str, details: Optional[Sequence[str] | str], indent: str = "") -> None:
+def log_combined_stream(
+    stream_id: str,
+    details: Sequence[str] | str | None,
+    indent: str = "",
+) -> None:
     """Emit descriptive logs for virtual multi-input sources."""
 
     entries: list[str] = []
@@ -147,7 +151,7 @@ def log_combined_stream(stream_id: str, details: Optional[Sequence[str] | str], 
         logger.info("%s[%s] Feature engineering from upstream inputs", indent, stream_id)
 
 
-def current_transport_label(transport,  glob_root: Optional[Path] = None) -> Optional[str]:
+def current_transport_label(transport, glob_root: Path | None = None) -> str | None:
     """Return a human-friendly label for the transport's current unit of work."""
     if isinstance(transport, FsGlobTransport):
         current = getattr(transport, "current_path", None)
