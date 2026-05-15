@@ -121,6 +121,30 @@ def _build_mapper_plan(selection: StreamSelection) -> MapperPlan:
     return MapperPlan(create=False, mapper_ep="identity", domain=selection.domain)
 
 
+def _select_new_source_loader() -> tuple[str, dict]:
+    choice = pick_from_menu(
+        "Loader:",
+        [
+            ("fs", "Built-in fs"),
+            ("http", "Built-in http"),
+            ("synthetic", "Built-in synthetic"),
+            ("custom", "Custom loader"),
+        ],
+        allow_default=False,
+    )
+    if choice in SOURCE_TRANSPORTS:
+        if choice in {"fs", "http"}:
+            fmt = pick_from_menu(
+                "Format:",
+                [(name, name) for name in source_formats_for(choice)],
+                allow_default=False,
+            )
+        else:
+            fmt = None
+        return default_loader_config(choice, fmt)
+    return prompt_required("Loader entrypoint"), {}
+
+
 def _collect_stream_selection(
     plugin_root: Path | None,
     pkg_name: str,
@@ -170,31 +194,7 @@ def _collect_stream_selection(
         source_id = choose_name("Source id", default=source_id_default)
         create_source = True
 
-        # Loader selection
-        loader_ep = None
-        loader_args = {}
-        choice = pick_from_menu(
-            "Loader:",
-            [
-                ("fs", "Built-in fs"),
-                ("http", "Built-in http"),
-                ("synthetic", "Built-in synthetic"),
-                ("custom", "Custom loader"),
-            ],
-            allow_default=False,
-        )
-        if choice in SOURCE_TRANSPORTS:
-            if choice in {"fs", "http"}:
-                fmt = pick_from_menu(
-                    "Format:",
-                    [(name, name) for name in source_formats_for(choice)],
-                    allow_default=False,
-                )
-            else:
-                fmt = None
-            loader_ep, loader_args = default_loader_config(choice, fmt)
-        else:
-            loader_ep = prompt_required("Loader entrypoint")
+        loader_ep, loader_args = _select_new_source_loader()
 
         # Parser selection
         parsers = list_parsers(root=plugin_root)

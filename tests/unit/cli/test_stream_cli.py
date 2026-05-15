@@ -7,6 +7,7 @@ from datapipeline.cli.commands.inflow import (
     _build_stream_plan_from_selection,
     _mapper_menu_options,
     _parser_menu_options,
+    _select_new_source_loader,
 )
 from datapipeline.services.scaffold.utils import pick_from_menu
 
@@ -81,6 +82,36 @@ def test_pick_from_menu_blank_input_keeps_first_option_as_default(monkeypatch) -
     )
 
     assert choice == "identity"
+
+
+def test_select_new_source_loader_uses_builtin_transport(monkeypatch) -> None:
+    choices = iter(["http", "json"])
+    monkeypatch.setattr(
+        "datapipeline.cli.commands.inflow.pick_from_menu",
+        lambda *args, **kwargs: next(choices),
+    )
+
+    loader_ep, loader_args = _select_new_source_loader()
+
+    assert loader_ep == "core.io"
+    assert loader_args["transport"] == "http"
+    assert loader_args["format"] == "json"
+
+
+def test_select_new_source_loader_accepts_custom_entrypoint(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "datapipeline.cli.commands.inflow.pick_from_menu",
+        lambda *args, **kwargs: "custom",
+    )
+    monkeypatch.setattr(
+        "datapipeline.cli.commands.inflow.prompt_required",
+        lambda prompt: "custom.loader",
+    )
+
+    loader_ep, loader_args = _select_new_source_loader()
+
+    assert loader_ep == "custom.loader"
+    assert loader_args == {}
 
 
 def test_build_mapper_plan_existing_keeps_domain() -> None:
