@@ -101,6 +101,10 @@ def collect_schema_entries(
     return list(stats.values()), vector_count, min_time, max_time
 
 
+def configured_vectors_are_empty(configs, vector_count: int) -> bool:
+    return bool(configs) and vector_count == 0
+
+
 def _resolve_cadence_target(stats: dict, strategy: str) -> int | None:
     if strategy == "max":
         max_len = stats.get("max_length")

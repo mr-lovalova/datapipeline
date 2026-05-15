@@ -9,7 +9,11 @@ from datapipeline.operations.persistence import ArtifactOutput
 from datapipeline.runtime import Runtime
 from datapipeline.utils.paths import ensure_parent
 
-from .utils import collect_schema_entries, schema_entries_from_stats
+from .utils import (
+    collect_schema_entries,
+    configured_vectors_are_empty,
+    schema_entries_from_stats,
+)
 
 
 def materialize_vector_schema(
@@ -25,17 +29,29 @@ def materialize_vector_schema(
         cadence_strategy=task_cfg.cadence_strategy,
         collect_metadata=False,
     )
+    if configured_vectors_are_empty(features_cfgs, feature_vectors):
+        raise RuntimeError(
+            "Cannot materialize vector schema: "
+            f"{len(features_cfgs)} configured features produced zero vectors. "
+            "Check upstream source data and credentials."
+        )
     target_entries: list[dict] = []
     target_cfgs = list(dataset.targets or [])
     target_min = target_max = None
     if target_cfgs:
-        target_stats, _, target_min, target_max = collect_schema_entries(
+        target_stats, target_vectors, target_min, target_max = collect_schema_entries(
             runtime,
             target_cfgs,
             dataset.group_by,
             cadence_strategy=task_cfg.cadence_strategy,
             collect_metadata=False,
         )
+        if configured_vectors_are_empty(target_cfgs, target_vectors):
+            raise RuntimeError(
+                "Cannot materialize vector schema: "
+                f"{len(target_cfgs)} configured targets produced zero vectors. "
+                "Check upstream source data and credentials."
+            )
         target_entries = schema_entries_from_stats(target_stats, task_cfg.cadence_strategy)
     feature_entries = schema_entries_from_stats(feature_stats, task_cfg.cadence_strategy)
 

@@ -18,7 +18,11 @@ from datapipeline.utils.paths import ensure_parent
 from datapipeline.config.dataset.normalize import floor_time_to_bucket
 from datapipeline.utils.time import parse_timecode
 
-from .utils import collect_schema_entries, metadata_entries_from_stats
+from .utils import (
+    collect_schema_entries,
+    configured_vectors_are_empty,
+    metadata_entries_from_stats,
+)
 
 
 def _entry_window(entry: dict) -> tuple[datetime | None, datetime | None]:
@@ -113,6 +117,12 @@ def materialize_metadata(
         cadence_strategy=task_cfg.cadence_strategy,
         collect_metadata=True,
     )
+    if configured_vectors_are_empty(features_cfgs, feature_vectors):
+        raise RuntimeError(
+            "Cannot materialize vector metadata: "
+            f"{len(features_cfgs)} configured features produced zero vectors. "
+            "Check upstream source data and credentials."
+        )
     target_meta: list[dict] = []
     target_vectors = 0
     target_cfgs = list(dataset.targets or [])
@@ -126,6 +136,12 @@ def materialize_metadata(
             cadence_strategy=task_cfg.cadence_strategy,
             collect_metadata=True,
         )
+        if configured_vectors_are_empty(target_cfgs, target_vectors):
+            raise RuntimeError(
+                "Cannot materialize vector metadata: "
+                f"{len(target_cfgs)} configured targets produced zero vectors. "
+                "Check upstream source data and credentials."
+            )
         target_meta = metadata_entries_from_stats(
             target_stats, task_cfg.cadence_strategy)
     feature_meta = metadata_entries_from_stats(

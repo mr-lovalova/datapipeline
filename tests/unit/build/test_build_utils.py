@@ -1,7 +1,12 @@
 import math
 from datetime import datetime, timezone
 
+import pytest
+
+from datapipeline.config.tasks import MetadataTask, SchemaTask
 from datapipeline.operations.artifacts.metadata import _window_bounds_from_stats, _window_size
+from datapipeline.operations.artifacts.metadata import materialize_metadata
+from datapipeline.operations.artifacts.schema import materialize_vector_schema
 from datapipeline.operations.artifacts.utils import (
     collect_schema_entries,
     metadata_entries_from_stats,
@@ -11,6 +16,31 @@ from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
 from datapipeline.runtime import Runtime
+
+
+def _runtime_with_dataset(tmp_path, dataset_text: str) -> Runtime:
+    project_yaml = tmp_path / "project.yaml"
+    project_yaml.write_text(
+        "\n".join(
+            [
+                "version: 1",
+                "paths:",
+                "  ingests: ingests",
+                "  streams: streams",
+                "  sources: sources",
+                "  dataset: dataset.yaml",
+                "  postprocess: postprocess.yaml",
+                "  artifacts: build",
+                "  tasks: tasks",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "dataset.yaml").write_text(dataset_text, encoding="utf-8")
+    artifacts_root = tmp_path / "build"
+    artifacts_root.mkdir()
+    return Runtime(project_yaml=project_yaml, artifacts_root=artifacts_root)
 
 
 def test_collect_schema_entries_counts_nan(monkeypatch, tmp_path):
@@ -48,6 +78,72 @@ def test_collect_schema_entries_counts_nan(monkeypatch, tmp_path):
     entry = next(item for item in stats if item["id"] == "wind_speed")
     assert entry["present_count"] == 1
     assert entry["null_count"] == 1
+
+
+def test_schema_materialization_rejects_configured_empty_features(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    runtime = _runtime_with_dataset(
+        tmp_path,
+        "\n".join(
+            [
+                "group_by: 1h",
+                "features:",
+                "  - id: price",
+                "    record_stream: market.prices",
+                "    field: close",
+                "targets: []",
+                "",
+            ]
+        ),
+    )
+
+    def empty_collection(*args, **kwargs):
+        return [], 0, None, None
+
+    monkeypatch.setattr(
+        "datapipeline.operations.artifacts.schema.collect_schema_entries",
+        empty_collection,
+    )
+
+    with pytest.raises(RuntimeError, match="configured features produced zero vectors"):
+        materialize_vector_schema(runtime, SchemaTask(output="schema.json"))
+
+    assert not (runtime.artifacts_root / "schema.json").exists()
+
+
+def test_metadata_materialization_rejects_configured_empty_features(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    runtime = _runtime_with_dataset(
+        tmp_path,
+        "\n".join(
+            [
+                "group_by: 1h",
+                "features:",
+                "  - id: price",
+                "    record_stream: market.prices",
+                "    field: close",
+                "targets: []",
+                "",
+            ]
+        ),
+    )
+
+    def empty_collection(*args, **kwargs):
+        return [], 0, None, None
+
+    monkeypatch.setattr(
+        "datapipeline.operations.artifacts.metadata.collect_schema_entries",
+        empty_collection,
+    )
+
+    with pytest.raises(RuntimeError, match="configured features produced zero vectors"):
+        materialize_metadata(runtime, MetadataTask(output="metadata.json"))
+
+    assert not (runtime.artifacts_root / "metadata.json").exists()
 
 
 def test_metadata_entries_include_observation_bounds():
