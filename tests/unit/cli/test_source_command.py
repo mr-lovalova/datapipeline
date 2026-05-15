@@ -99,10 +99,6 @@ def test_interactive_parser_menu_can_select_temporal_record(monkeypatch) -> None
         lambda prompt, options: "temporal_record",
     )
 
-    parser_ep = source._resolve_parser_entrypoint(
-        identity=False,
-        parser=None,
-        plugin_root=None,
-    )
+    parser_ep = source._resolve_parser_entrypoint(False, None, None)
 
     assert parser_ep == DEFAULT_TEMPORAL_RECORD_PARSER_EP

@@ -74,7 +74,6 @@ def _choose_loader_transport_or_entrypoint(
 
 
 def _resolve_loader_config(
-    *,
     transport: str | None,
     source_format: str | None,
     loader: str | None,
@@ -142,7 +141,6 @@ def _select_parser_from_menu(plugin_root: Path | None) -> str:
 
 
 def _resolve_parser_entrypoint(
-    *,
     identity: bool,
     parser: str | None,
     plugin_root: Path | None,
@@ -173,16 +171,12 @@ def handle(
     if subcmd == "create":
         provider, dataset = _resolve_source_parts(provider, dataset, alias)
         loader_ep, loader_args = _resolve_loader_config(
-            transport=transport,
-            source_format=format,
-            loader=loader,
-            plugin_root=plugin_root,
+            transport,
+            format,
+            loader,
+            plugin_root,
         )
-        parser_ep = _resolve_parser_entrypoint(
-            identity=identity,
-            parser=parser,
-            plugin_root=plugin_root,
-        )
+        parser_ep = _resolve_parser_entrypoint(identity, parser, plugin_root)
 
         project_yaml = resolve_default_project_yaml(workspace)
         create_source_yaml(
