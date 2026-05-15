@@ -83,26 +83,18 @@ def _mapper_menu_options(mappers: dict[str, str]) -> list[tuple[str, str]]:
     return base
 
 
-def _build_parser_plan(
-    *,
-    choice: str,
-    create_dto: bool,
-    dto_class: str | None,
-    dto_module: str | None,
-    parser_name: str | None,
-    parser_ep: str | None,
-) -> ParserPlan:
-    if choice == "create":
+def _build_parser_plan(selection: StreamSelection) -> ParserPlan:
+    if selection.pchoice == "create":
         return ParserPlan(
             create=True,
-            create_dto=create_dto,
-            dto_class=dto_class,
-            dto_module=dto_module,
-            parser_name=parser_name,
+            create_dto=selection.parser_create_dto,
+            dto_class=selection.dto_class,
+            dto_module=selection.dto_module,
+            parser_name=selection.parser_name,
         )
-    if choice == "existing":
-        return ParserPlan(create=False, parser_ep=parser_ep)
-    if choice == "temporal_record":
+    if selection.pchoice == "existing":
+        return ParserPlan(create=False, parser_ep=selection.parser_ep)
+    if selection.pchoice == "temporal_record":
         return ParserPlan(
             create=False,
             parser_ep=DEFAULT_TEMPORAL_RECORD_PARSER_EP,
@@ -110,32 +102,26 @@ def _build_parser_plan(
     return ParserPlan(create=False, parser_ep="identity")
 
 
-def _build_mapper_plan(
-    *,
-    choice: str,
-    create_dto: bool,
-    input_class: str | None,
-    input_module: str | None,
-    mapper_name: str | None,
-    mapper_ep: str | None,
-    domain: str,
-) -> MapperPlan:
-    if choice == "create":
+def _build_mapper_plan(selection: StreamSelection) -> MapperPlan:
+    if selection.mchoice == "create":
         return MapperPlan(
             create=True,
-            create_dto=create_dto,
-            input_class=input_class,
-            input_module=input_module,
-            mapper_name=mapper_name,
-            domain=domain,
+            create_dto=selection.mapper_create_dto,
+            input_class=selection.mapper_input_class,
+            input_module=selection.mapper_input_module,
+            mapper_name=selection.mapper_name,
+            domain=selection.domain,
         )
-    if choice == "existing":
-        return MapperPlan(create=False, mapper_ep=mapper_ep, domain=domain)
-    return MapperPlan(create=False, mapper_ep="identity", domain=domain)
+    if selection.mchoice == "existing":
+        return MapperPlan(
+            create=False,
+            mapper_ep=selection.mapper_ep,
+            domain=selection.domain,
+        )
+    return MapperPlan(create=False, mapper_ep="identity", domain=selection.domain)
 
 
 def _collect_stream_selection(
-    *,
     plugin_root: Path | None,
     pkg_name: str,
     project_yaml: Path,
@@ -324,29 +310,12 @@ def _collect_stream_selection(
 
 
 def _build_stream_plan_from_selection(
-    *,
     selection: StreamSelection,
     project_yaml: Path,
     plugin_root: Path | None,
 ) -> StreamPlan:
-    parser_plan = _build_parser_plan(
-        choice=selection.pchoice,
-        create_dto=selection.parser_create_dto,
-        dto_class=selection.dto_class,
-        dto_module=selection.dto_module,
-        parser_name=selection.parser_name,
-        parser_ep=selection.parser_ep,
-    )
-
-    mapper_plan = _build_mapper_plan(
-        choice=selection.mchoice,
-        create_dto=selection.mapper_create_dto,
-        input_class=selection.mapper_input_class,
-        input_module=selection.mapper_input_module,
-        mapper_name=selection.mapper_name,
-        mapper_ep=selection.mapper_ep,
-        domain=selection.domain,
-    )
+    parser_plan = _build_parser_plan(selection)
+    mapper_plan = _build_mapper_plan(selection)
 
     return StreamPlan(
         provider=selection.provider,
@@ -367,16 +336,9 @@ def _build_stream_plan_from_selection(
 
 def handle(*, plugin_root: Path | None = None, workspace: WorkspaceContext | None = None) -> None:
     root_dir, pkg_name, _ = pkg_root(plugin_root)
-    project_yaml = resolve_default_project_yaml(
-        workspace) or resolve_project_yaml_path(root_dir)
-    selection = _collect_stream_selection(
-        plugin_root=plugin_root,
-        pkg_name=pkg_name,
-        project_yaml=project_yaml,
+    project_yaml = resolve_default_project_yaml(workspace) or resolve_project_yaml_path(
+        root_dir
     )
-    plan = _build_stream_plan_from_selection(
-        selection=selection,
-        project_yaml=project_yaml,
-        plugin_root=plugin_root,
-    )
+    selection = _collect_stream_selection(plugin_root, pkg_name, project_yaml)
+    plan = _build_stream_plan_from_selection(selection, project_yaml, plugin_root)
     execute_stream_plan(plan)
