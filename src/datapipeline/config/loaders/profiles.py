@@ -143,8 +143,6 @@ def profile_specs(
             key_fn=lambda spec: spec.name,
         )
 
-    if cmd is not None:
-        return list(grouped[cmd])
     return grouped["serve"] + grouped["build"] + grouped["inspect"]
 
 
