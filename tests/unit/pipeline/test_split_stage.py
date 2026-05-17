@@ -6,7 +6,11 @@ import pytest
 from datapipeline.config.split import HashSplitConfig, TimeSplitConfig
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
-from datapipeline.pipelines.full.split import apply_split_stage
+from datapipeline.pipelines.full.split import (
+    HashLabeler,
+    VectorSplitApplicator,
+    apply_split_stage,
+)
 
 
 def _vector_stream():
@@ -49,6 +53,54 @@ def test_split_stage_passes_through_when_keep_missing():
     filtered = list(apply_split_stage(runtime, _vector_stream()))
 
     assert len(filtered) == 2
+
+
+def test_split_stage_passes_through_when_keep_is_placeholder():
+    cfg = _time_split_config()
+    runtime = SimpleNamespace(split=cfg, split_keep="${split}")
+
+    filtered = list(apply_split_stage(runtime, _vector_stream()))
+
+    assert len(filtered) == 2
+
+
+def test_hash_split_feature_key_errors_when_feature_is_missing():
+    vector = Vector(values={"x": 1})
+    labeler = HashLabeler(
+        ratios={"train": 0.5, "test": 0.5},
+        key="feature:missing",
+        seed=7,
+    )
+
+    with pytest.raises(KeyError, match="hash split feature key 'missing' not found"):
+        labeler.label("group-a", vector)
+
+
+def test_hash_split_rejects_unknown_key():
+    with pytest.raises(ValueError, match="hash split key must be"):
+        HashLabeler(ratios={"train": 0.5, "test": 0.5}, key="unknown", seed=7)
+
+
+def test_hash_split_rejects_empty_feature_key():
+    with pytest.raises(ValueError, match="include a feature id"):
+        HashLabeler(ratios={"train": 0.5, "test": 0.5}, key="feature:", seed=7)
+
+
+def test_split_applicator_can_tag_samples():
+    labeler = HashLabeler(ratios={"train": 1.0}, seed=7)
+    applicator = VectorSplitApplicator(
+        labeler=labeler,
+        output="tag",
+        field="split",
+    )
+
+    tagged = list(applicator.apply(_vector_stream()))
+
+    assert [sample.features.values["split"] for sample in tagged] == [
+        "train",
+        "train",
+    ]
+    assert all("__split__" not in sample.features.values for sample in tagged)
 
 
 def test_split_stage_raises_for_incomplete_time_split_config():

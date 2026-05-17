@@ -7,6 +7,8 @@ from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
 from datapipeline.config.split import (
     HashSplitConfig,
+    HASH_SPLIT_FEATURE_PREFIX,
+    HASH_SPLIT_GROUP_KEY,
     SplitConfig,
     TimeSplitConfig,
 )
@@ -14,14 +16,7 @@ from datapipeline.config.split import (
 from datapipeline.transforms.vector_utils import clone
 
 
-class BaseLabeler:
-    """Strategy: decide the split label for a vector."""
-
-    def label(self, group_key: Any, vector: Vector) -> str:  # pragma: no cover - interface
-        raise NotImplementedError
-
-
-class HashLabeler(BaseLabeler):
+class HashLabeler:
     """Deterministic hash-based label selection.
 
     ratios: mapping label -> fraction; fractions in (0,1], sum <= 1.0
@@ -29,7 +24,13 @@ class HashLabeler(BaseLabeler):
     seed: integer for deterministic hashing
     """
 
-    def __init__(self, *, ratios: Mapping[str, float], key: str = "group", seed: int = 0) -> None:
+    def __init__(
+        self,
+        *,
+        ratios: Mapping[str, float],
+        key: str = "group",
+        seed: int = 0,
+    ) -> None:
         total = 0.0
         thresholds: list[tuple[float, str]] = []
         for label, frac in ratios.items():
@@ -40,9 +41,20 @@ class HashLabeler(BaseLabeler):
             thresholds.append((total, str(label)))
         if total > 1.0 + 1e-9:
             raise ValueError("Sum of ratios must be <= 1.0")
+        key_text = str(key)
+        if (
+            key_text != HASH_SPLIT_GROUP_KEY
+            and not key_text.startswith(HASH_SPLIT_FEATURE_PREFIX)
+        ):
+            raise ValueError("hash split key must be 'group' or 'feature:<id>'")
+        if (
+            key_text.startswith(HASH_SPLIT_FEATURE_PREFIX)
+            and not key_text.removeprefix(HASH_SPLIT_FEATURE_PREFIX)
+        ):
+            raise ValueError("hash split key must include a feature id")
         self._thresholds = thresholds
         self._seed = int(seed)
-        self._key = str(key)
+        self._key = key_text
 
     @staticmethod
     def _hash_token(token: str, seed: int) -> float:
@@ -52,14 +64,12 @@ class HashLabeler(BaseLabeler):
         return (num % (1 << 53)) / float(1 << 53)
 
     def label(self, group_key: Any, vector: Vector) -> str:
-        if self._key == "group":
-            token = repr(group_key)
-        elif self._key.startswith("feature:"):
-            fid = self._key.split(":", 1)[1]
-            val = vector.values.get(fid)
-            token = repr(val) if val is not None else repr(group_key)
-        else:
-            token = repr(group_key)
+        token = repr(group_key)
+        if self._key.startswith(HASH_SPLIT_FEATURE_PREFIX):
+            fid = self._key.removeprefix(HASH_SPLIT_FEATURE_PREFIX)
+            if fid not in vector.values:
+                raise KeyError(f"hash split feature key {fid!r} not found")
+            token = repr(vector.values[fid])
 
         r = self._hash_token(token, self._seed)
         for thresh, label in self._thresholds:
@@ -68,7 +78,7 @@ class HashLabeler(BaseLabeler):
         return self._thresholds[-1][1]
 
 
-class TimeLabeler(BaseLabeler):
+class TimeLabeler:
     """Time-based label selection using ascending boundaries and labels."""
 
     def __init__(self, *, boundaries: Sequence[str], labels: Sequence[str]) -> None:
@@ -83,12 +93,8 @@ class TimeLabeler(BaseLabeler):
         return datetime.fromisoformat(t)
 
     def label(self, group_key: Any, vector: Vector) -> str:  # noqa: ARG002 - vector not used
-        key = group_key[0] if isinstance(
-            group_key, (list, tuple)) else group_key
-        if isinstance(key, datetime):
-            ts = key
-        else:
-            ts = self._parse_iso(str(key))
+        key = group_key[0] if isinstance(group_key, (list, tuple)) else group_key
+        ts = key if isinstance(key, datetime) else self._parse_iso(str(key))
         for idx, bound in enumerate(self._boundaries):
             if ts < bound:
                 return self._labels[idx]
@@ -101,7 +107,7 @@ class VectorSplitApplicator:
     def __init__(
         self,
         *,
-        labeler: BaseLabeler,
+        labeler: HashLabeler | TimeLabeler,
         output: Literal["filter", "tag"] = "filter",
         keep: str | None = None,
         field: str = "__split__",
@@ -111,39 +117,39 @@ class VectorSplitApplicator:
         self._keep = keep
         self._field = field
 
-        # Enable pass-through when filter mode but keep unset or placeholder
-        self._keep_placeholder = False
-        if isinstance(self._keep, str):
-            s = self._keep.strip()
-            if s.startswith("${") and s.endswith("}"):
-                self._keep_placeholder = True
-        self._filter_enabled = not (
-            self._output == "filter" and (
-                self._keep is None or self._keep_placeholder)
-        )
-
     def __call__(self, stream: Iterator[Sample]) -> Iterator[Sample]:
         return self.apply(stream)
 
     def apply(self, stream: Iterator[Sample]) -> Iterator[Sample]:
+        if self._output == "filter":
+            yield from self._filter(stream)
+            return
+        yield from self._tag(stream)
+
+    def _filter(self, stream: Iterator[Sample]) -> Iterator[Sample]:
+        if self._keep is None or _is_placeholder(self._keep):
+            yield from stream
+            return
+
         for sample in stream:
-            group_key, vector = sample.key, sample.features
-            label = self._labeler.label(group_key, vector)
-            if self._output == "filter":
-                if not self._filter_enabled:
-                    yield sample
-                    continue
-                if label == self._keep:
-                    yield sample
-                else:
-                    continue
-            else:
-                data = clone(vector.values)
-                data[self._field] = label
-                yield sample.with_features(Vector(values=data))
+            label = self._labeler.label(sample.key, sample.features)
+            if label == self._keep:
+                yield sample
+
+    def _tag(self, stream: Iterator[Sample]) -> Iterator[Sample]:
+        for sample in stream:
+            label = self._labeler.label(sample.key, sample.features)
+            data = clone(sample.features.values)
+            data[self._field] = label
+            yield sample.with_features(Vector(values=data))
 
 
-def build_labeler(cfg: SplitConfig) -> BaseLabeler:
+def _is_placeholder(value: str) -> bool:
+    text = value.strip()
+    return text.startswith("${") and text.endswith("}")
+
+
+def build_labeler(cfg: SplitConfig) -> HashLabeler | TimeLabeler:
     if isinstance(cfg, TimeSplitConfig):
         if cfg.boundaries is None or cfg.labels is None:
             raise ValueError("time split requires 'boundaries' and 'labels'")
@@ -153,7 +159,10 @@ def build_labeler(cfg: SplitConfig) -> BaseLabeler:
     return HashLabeler(ratios=cfg.ratios, key=cfg.key, seed=cfg.seed)
 
 
-def build_applicator(cfg: SplitConfig, keep: str | None = None) -> VectorSplitApplicator:
+def build_applicator(
+    cfg: SplitConfig,
+    keep: str | None = None,
+) -> VectorSplitApplicator:
     labeler = build_labeler(cfg)
     selected = keep if keep is not None else getattr(cfg, "keep", None)
     return VectorSplitApplicator(labeler=labeler, output="filter", keep=selected)
