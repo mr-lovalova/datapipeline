@@ -7,6 +7,7 @@ from .horizontal import VectorDropHorizontalTransform
 from .vertical import VectorDropVerticalTransform
 
 Axis = Literal["horizontal", "vertical"]
+DropImplementation = VectorDropHorizontalTransform | VectorDropVerticalTransform
 
 
 class VectorDropTransform:
@@ -30,27 +31,23 @@ class VectorDropTransform:
         if axis == "vertical" and payload == "both":
             raise ValueError("axis='vertical' does not support payload='both'")
         if axis == "horizontal":
-            self._impl: object = VectorDropHorizontalTransform(
+            self._impl: DropImplementation = VectorDropHorizontalTransform(
                 threshold=threshold,
                 payload=payload,
                 only=only,
                 exclude=exclude,
             )
         else:
-            # Vertical drop is partition/feature-oriented and does not support
-            # payload='both'. Payload is validated above.
             self._impl = VectorDropVerticalTransform(
-                payload=payload if payload != "both" else "features",
+                payload=payload,
                 threshold=threshold,
             )
 
     def bind_context(self, context) -> None:
-        binder = getattr(self._impl, "bind_context", None)
-        if binder is not None:
-            binder(context)
+        self._impl.bind_context(context)
 
     def __call__(self, stream: Iterator[Sample]) -> Iterator[Sample]:
         return self.apply(stream)
 
     def apply(self, stream: Iterator[Sample]) -> Iterator[Sample]:
-        return getattr(self._impl, "apply")(stream)
+        return self._impl.apply(stream)
