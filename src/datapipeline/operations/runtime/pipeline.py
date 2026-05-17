@@ -138,6 +138,46 @@ def _stream_pipeline_kind(runtime: Runtime, stream_id: str) -> StreamPipelineKin
     return runtime.registries.stream_specs.get(stream_id).pipeline
 
 
+def _record_preview_index_range(pipeline: StreamPipelineKind) -> str:
+    if pipeline == "ingest":
+        return "0-3"
+    return "4-8"
+
+
+def _validate_record_preview_streams(
+    runtime: Runtime,
+    stream_ids: list[str],
+    selected_node: PreviewNode,
+    preview_index: int,
+) -> None:
+    if selected_node.stream_pipeline is None:
+        raise ValueError(f"Preview node '{selected_node.name}' is not a record node.")
+
+    mismatches: list[tuple[str, StreamPipelineKind]] = []
+    for stream_id in stream_ids:
+        actual_kind = _stream_pipeline_kind(runtime, stream_id)
+        if actual_kind != selected_node.stream_pipeline:
+            mismatches.append((stream_id, actual_kind))
+
+    if not mismatches:
+        return
+
+    expected_range = _record_preview_index_range(selected_node.stream_pipeline)
+    actual_ranges = sorted(
+        {_record_preview_index_range(actual_kind) for _, actual_kind in mismatches}
+    )
+    mismatch_text = ", ".join(
+        f"'{stream_id}' is a {actual_kind} stream"
+        for stream_id, actual_kind in mismatches
+    )
+    raise ValueError(
+        f"Preview index {preview_index} ('{selected_node.name}') applies to "
+        f"{selected_node.stream_pipeline} streams ({expected_range}), but "
+        f"{mismatch_text}. Use preview indices {' or '.join(actual_ranges)} "
+        "for those record streams, or 9-14 for feature/sample previews."
+    )
+
+
 def _record_preview_stream(
     context: PipelineContext,
     runtime: Runtime,
@@ -206,7 +246,15 @@ def _serve_preview(
         )
 
     outputs: list[RuntimeOutput] = []
-    for output_id, cfg in _preview_plan(feature_cfgs + target_cfgs, selected_node):
+    preview_plan = _preview_plan(feature_cfgs + target_cfgs, selected_node)
+    if selected_node.scope == "record":
+        _validate_record_preview_streams(
+            runtime,
+            [str(output_id) for output_id, _ in preview_plan],
+            selected_node,
+            preview_index,
+        )
+    for output_id, cfg in preview_plan:
         if selected_node.scope == "record":
             stream = _record_preview_stream(
                 context,

@@ -14,10 +14,30 @@ def _runtime():
     return SimpleNamespace(window_bounds=None, execution_observer=None)
 
 
+def _runtime_with_stream_kinds(kinds):
+    class _StreamSpecs:
+        def get(self, stream_id):
+            return SimpleNamespace(pipeline=kinds[stream_id])
+
+    return SimpleNamespace(
+        window_bounds=None,
+        execution_observer=None,
+        registries=SimpleNamespace(stream_specs=_StreamSpecs()),
+    )
+
+
 def _dataset(*, targets=None):
     return SimpleNamespace(
         features=[object()],
         targets=list(targets or []),
+        group_by="1d",
+    )
+
+
+def _preview_dataset(record_stream):
+    return SimpleNamespace(
+        features=[SimpleNamespace(id="price", record_stream=record_stream)],
+        targets=[],
         group_by="1d",
     )
 
@@ -132,6 +152,45 @@ def test_preview_index_12_previews_vector_assembly(monkeypatch):
     assert len(result.outputs) == 1
     assert result.outputs[0].target == target
     assert list(result.outputs[0].rows) == ["vector"]
+
+
+def test_preview_index_4_previews_derived_stream_records(monkeypatch):
+    runtime = _runtime_with_stream_kinds({"derived.prices": "stream"})
+    dataset = _preview_dataset("derived.prices")
+    target = _target()
+    captured = {}
+
+    def _stream_id_pipeline(context, stream_id, node):
+        captured["stream_id"] = stream_id
+        captured["node"] = node
+        return iter(["record"])
+
+    monkeypatch.setattr(
+        "datapipeline.operations.runtime.pipeline.build_stream_id_pipeline",
+        _stream_id_pipeline,
+    )
+
+    result = _serve(runtime, dataset, target, preview_index=4)
+
+    assert captured == {"stream_id": "derived.prices", "node": 0}
+    assert len(result.outputs) == 1
+    assert list(result.outputs[0].rows) == ["record"]
+
+
+def test_preview_index_reports_stream_shape_mismatch_before_running(monkeypatch):
+    runtime = _runtime_with_stream_kinds({"derived.prices": "stream"})
+    dataset = _preview_dataset("derived.prices")
+
+    def _stream_id_pipeline(*args, **kwargs):
+        raise AssertionError("preview should fail before building streams")
+
+    monkeypatch.setattr(
+        "datapipeline.operations.runtime.pipeline.build_stream_id_pipeline",
+        _stream_id_pipeline,
+    )
+
+    with pytest.raises(ValueError, match="Use preview indices 4-8"):
+        _serve(runtime, dataset, _target(), preview_index=0)
 
 
 @pytest.mark.parametrize(
