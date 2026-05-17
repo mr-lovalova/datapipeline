@@ -54,14 +54,14 @@ class PickleMaterializationStore:
             if not success:
                 data_path.unlink(missing_ok=True)
                 manifest_path.unlink(missing_ok=True)
-                return
-            manifest = MaterializationManifest.create(
-                ref,
-                data_path=data_path,
-                root=self._root,
-                row_count=row_count,
-            )
-            self._save_manifest(ref, manifest)
+            else:
+                manifest = MaterializationManifest.create(
+                    ref,
+                    data_path=data_path,
+                    root=self._root,
+                    row_count=row_count,
+                )
+                self._save_manifest(ref, manifest)
 
     def _stream_dir(self, ref: MaterializationRef) -> Path:
         return (

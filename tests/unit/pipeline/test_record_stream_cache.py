@@ -2,6 +2,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
+
 from datapipeline.cache.record_streams import RecordStreamCache, cached_record_stream
 from datapipeline.dag.context import PipelineContext
 from datapipeline.domain.record import TemporalRecord
@@ -117,6 +119,31 @@ def test_record_stream_cache_materializes_and_replays(tmp_path: Path) -> None:
 
     assert materialized == records
     assert replayed == records
+
+
+def test_record_stream_cache_reraises_materialization_failure(tmp_path: Path) -> None:
+    project_yaml = _write_project(tmp_path)
+    cache = RecordStreamCache(
+        project_yaml=project_yaml,
+        root=(artifacts_root(project_yaml) / "_system" / "cache").resolve(),
+    )
+    records = [
+        _Rec(time=_ts(1), symbol="AAPL", value=1.0),
+        _Rec(time=_ts(2), symbol="AAPL", value=2.0),
+    ]
+
+    def _broken_records():
+        yield records[0]
+        raise FileNotFoundError("missing source file")
+
+    with pytest.raises(FileNotFoundError, match="missing source file"):
+        list(cache.materialize("prices.aapl", _broken_records()))
+
+    ref = cache._materialization_ref("prices.aapl")
+    assert ref is not None
+    assert not cache._store._data_path(ref).exists()
+    assert not cache._store._manifest_path(ref).exists()
+    assert cache.load("prices.aapl") is None
 
 
 def test_record_stream_cache_invalidates_when_stream_changes(tmp_path: Path) -> None:
