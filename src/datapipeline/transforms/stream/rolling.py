@@ -1,6 +1,6 @@
 from collections import deque
 from itertools import groupby
-from statistics import mean, median
+from statistics import mean, median, pstdev, stdev
 from typing import Iterator
 
 from datapipeline.domain.record import TemporalRecord
@@ -17,7 +17,7 @@ class RollingTransformer(FieldValueStreamTransformBase):
 
     - window: number of recent ticks to consider (including missing ticks).
     - min_samples: minimum number of valid samples required to emit a value.
-    - statistic: 'mean' (default) or 'median'.
+    - statistic: 'mean' (default), 'median', 'stdev', or 'pstdev'.
     - field: record attribute to read.
     - to: record attribute to write (defaults to field).
     """
@@ -39,12 +39,21 @@ class RollingTransformer(FieldValueStreamTransformBase):
             min_samples = window
         if min_samples <= 0:
             raise ValueError("min_samples must be positive")
+        if statistic == "stdev" and min_samples < 2:
+            raise ValueError("min_samples must be at least 2 for statistic='stdev'")
         if statistic == "mean":
             self.statistic = mean
         elif statistic == "median":
             self.statistic = median
+        elif statistic == "stdev":
+            self.statistic = stdev
+        elif statistic == "pstdev":
+            self.statistic = pstdev
         else:
-            raise ValueError(f"Unsupported statistic: {statistic!r}")
+            raise ValueError(
+                f"Unsupported statistic: {statistic!r}; "
+                "expected one of: mean, median, stdev, pstdev"
+            )
 
         self.window = window
         self.min_samples = min_samples
