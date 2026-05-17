@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict
 
+from datapipeline.artifacts.models import VectorSchemaArtifact
 from datapipeline.config.tasks import SchemaTask
 from datapipeline.config.dataset.loader import load_dataset
 from datapipeline.operations.persistence import ArtifactOutput
@@ -55,18 +56,18 @@ def materialize_vector_schema(
         target_entries = schema_entries_from_stats(target_stats, task_cfg.cadence_strategy)
     feature_entries = schema_entries_from_stats(feature_stats, task_cfg.cadence_strategy)
 
-    doc = {
-        "schema_version": 1,
-        "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-    }
-    doc["features"] = feature_entries
-    doc["targets"] = target_entries
+    doc = VectorSchemaArtifact(
+        schema_version=1,
+        generated_at=datetime.now(timezone.utc),
+        features=feature_entries,
+        targets=target_entries,
+    )
 
     relative_path = Path(task_cfg.output)
     destination = (runtime.artifacts_root / relative_path).resolve()
     ensure_parent(destination)
     with destination.open("w", encoding="utf-8") as fh:
-        json.dump(doc, fh, indent=2)
+        json.dump(doc.model_dump(mode="json", exclude_none=True), fh, indent=2)
 
     meta: Dict[str, object] = {
         "features": len(feature_entries),

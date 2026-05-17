@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import Iterator, Mapping, Any, Callable, Optional
 from datetime import datetime
 
+from datapipeline.artifacts.models import VectorSchemaArtifact
 from datapipeline.runtime import Runtime
 from datapipeline.dag.transform_observability import ObserverRegistry
 from datapipeline.services.artifacts import (
@@ -82,11 +83,12 @@ class PipelineContext:
             except ArtifactNotRegisteredError:
                 cached = []
             else:
-                section = doc.get("targets" if payload == "targets" else "features")
-                if isinstance(section, list):
-                    cached = [entry for entry in section if isinstance(entry, dict)]
-                else:
+                try:
+                    schema = VectorSchemaArtifact.model_validate(doc)
+                except ValueError:
                     cached = []
+                else:
+                    cached = schema.entries_for_payload(payload)
             self._cache[key] = cached
         return [dict(entry) for entry in cached] if cached else []
 
