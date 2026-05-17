@@ -8,6 +8,7 @@ from datapipeline.services.bootstrap.config import _globals, _load_by_key, artif
 from datapipeline.services.bootstrap.core import _load_sources_from_dir
 from datapipeline.services.project_paths import sources_dir
 from datapipeline.services.streams.ingest import build_source_from_spec
+from datapipeline.utils.placeholders import is_missing
 
 
 def _write_project_yaml(
@@ -75,6 +76,103 @@ def test_process_env_overrides_project_dotenv(tmp_path: Path, monkeypatch: pytes
     monkeypatch.setenv("RAW_ROOT", "/runtime/raw")
 
     assert _globals(project_yaml)["raw_root"] == "/runtime/raw"
+
+
+def test_globals_can_reference_other_globals(tmp_path: Path) -> None:
+    project_root = tmp_path / "project"
+    project_root.mkdir(parents=True)
+    _write_project_files(project_root)
+    project_yaml = _write_project_yaml(
+        project_root,
+        globals_lines=[
+            "canonical_root: data/canonical",
+            "canonical_equity_interim_dir: ${canonical_root}/equity/interim",
+        ],
+    )
+
+    globals_ = _globals(project_yaml)
+
+    assert globals_["canonical_equity_interim_dir"] == (
+        "data/canonical/equity/interim"
+    )
+
+
+def test_load_sources_resolve_nested_globals_before_fs_path_normalization(
+    tmp_path: Path,
+) -> None:
+    project_root = tmp_path / "project"
+    project_root.mkdir(parents=True)
+    _write_project_files(project_root)
+    data_dir = project_root / "data" / "canonical" / "equity" / "interim"
+    data_dir.mkdir(parents=True)
+    (data_dir / "prices.jsonl").write_text("{}", encoding="utf-8")
+    project_yaml = _write_project_yaml(
+        project_root,
+        globals_lines=[
+            "canonical_root: data/canonical",
+            "canonical_equity_interim_dir: ${canonical_root}/equity/interim",
+        ],
+    )
+    (project_root / "sources" / "prices.yaml").write_text(
+        "\n".join(
+            [
+                "id: equity.prices",
+                "parser:",
+                "  entrypoint: identity",
+                "  args: {}",
+                "loader:",
+                "  entrypoint: core.io",
+                "  args:",
+                "    transport: fs",
+                "    format: jsonl",
+                "    path: ${canonical_equity_interim_dir}/prices.jsonl",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    loaded = _load_sources_from_dir(project_yaml, vars_=_globals(project_yaml))
+    source = build_source_from_spec(
+        SourceConfig.model_validate(loaded["equity.prices"]),
+        project_yaml=project_yaml,
+    )
+
+    assert source.loader.transport.path == str((data_dir / "prices.jsonl").resolve())
+
+
+def test_cyclic_global_reference_raises_clear_error(tmp_path: Path) -> None:
+    project_root = tmp_path / "project"
+    project_root.mkdir(parents=True)
+    _write_project_files(project_root)
+    project_yaml = _write_project_yaml(
+        project_root,
+        globals_lines=[
+            "left: ${right}",
+            "right: ${left}",
+        ],
+    )
+
+    with pytest.raises(ValueError, match="Cyclic project global reference"):
+        _globals(project_yaml)
+
+
+def test_global_reference_to_null_stays_missing(tmp_path: Path) -> None:
+    project_root = tmp_path / "project"
+    project_root.mkdir(parents=True)
+    _write_project_files(project_root)
+    project_yaml = _write_project_yaml(
+        project_root,
+        globals_lines=[
+            "optional_root:",
+            "derived_root: ${optional_root}",
+        ],
+    )
+
+    globals_ = _globals(project_yaml)
+
+    assert globals_["optional_root"] is None
+    assert is_missing(globals_["derived_root"])
 
 
 def test_load_by_key_resolves_direct_env_refs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

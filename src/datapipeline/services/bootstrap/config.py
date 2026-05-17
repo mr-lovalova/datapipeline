@@ -75,11 +75,19 @@ def _globals(project_yaml: Path) -> dict[str, Any]:
     downstream components expecting ISO Z will work predictably.
     Preserve explicit nulls; otherwise coerce to string.
     """
-    proj = _project(project_yaml)
-    g = proj.globals.model_dump()
+    # Validate the project first, then return globals from the same project-var
+    # resolver used for paths/source interpolation. This keeps nested globals
+    # consistent across all config surfaces.
+    _project(project_yaml)
+    data = resolve_config_refs(load_yaml(project_yaml), project_yaml=project_yaml)
+    g = data.get("globals") or {}
+    if not isinstance(g, Mapping):
+        return {}
+    vars_ = _project_vars(data)
     out: dict[str, Any] = {}
-    for k, v in g.items():
-        out[str(k)] = serialize_project_value(v)
+    for k in g:
+        key = str(k)
+        out[key] = vars_.get(key)
     return out
 
 

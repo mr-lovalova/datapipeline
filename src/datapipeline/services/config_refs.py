@@ -11,6 +11,7 @@ from datapipeline.utils.placeholders import MissingInterpolation, is_missing
 
 _CONFIG_REF_RE = re.compile(r"\$\{([A-Za-z_][\w-]*):([^}]+)\}")
 _INTERPOLATION_RE = re.compile(r"\$\{([^}]+)\}")
+_PROJECT_VAR_MISSING = object()
 
 
 class ConfigRefProvider(Protocol):
@@ -67,9 +68,65 @@ def project_vars_from_data(data: Mapping[str, Any]) -> dict[str, Any]:
 
     globals_ = data.get("globals") or {}
     if isinstance(globals_, Mapping):
-        for key, value in globals_.items():
-            vars_[str(key)] = serialize_project_value(value)
+        vars_.update(_resolve_project_globals(globals_, vars_))
     return vars_
+
+
+def _resolve_project_globals(
+    globals_: Mapping[str, Any],
+    base_vars: Mapping[str, Any],
+) -> dict[str, Any]:
+    raw = {
+        str(key): serialize_project_value(value)
+        for key, value in globals_.items()
+    }
+    resolved: dict[str, Any] = {}
+    resolving: list[str] = []
+
+    def value_for(key: str) -> Any:
+        if key in raw:
+            return resolve_key(key)
+        if key in base_vars:
+            return base_vars[key]
+        return _PROJECT_VAR_MISSING
+
+    def interpolate_global(text: str) -> Any:
+        match = _INTERPOLATION_RE.fullmatch(text)
+        if match:
+            key = match.group(1)
+            value = value_for(key)
+            if value is _PROJECT_VAR_MISSING:
+                return text
+            if value is None or is_missing(value):
+                return MissingInterpolation(key)
+            return str(value)
+
+        def repl(match: re.Match[str]) -> str:
+            key = match.group(1)
+            value = value_for(key)
+            if value is _PROJECT_VAR_MISSING or value is None or is_missing(value):
+                return match.group(0)
+            return str(value)
+
+        return _INTERPOLATION_RE.sub(repl, text)
+
+    def resolve_key(key: str) -> Any:
+        if key in resolved:
+            return resolved[key]
+        if key in resolving:
+            cycle = " -> ".join([*resolving, key])
+            raise ConfigRefError(f"Cyclic project global reference: {cycle}")
+        resolving.append(key)
+        value = raw[key]
+        if isinstance(value, str):
+            value = interpolate_global(value)
+        resolved[key] = value
+        resolving.pop()
+        return value
+
+    for key in raw:
+        resolve_key(key)
+    return resolved
 
 
 def interpolate_config_vars(obj: Any, vars_: Mapping[str, Any]) -> Any:
