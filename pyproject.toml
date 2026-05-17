@@ -62,6 +62,7 @@ granularity = "datapipeline.transforms.stream.granularity:FeatureGranularityTran
 dedupe = "datapipeline.transforms.stream.dedupe:FeatureDeduplicateTransform"
 rolling = "datapipeline.transforms.stream.rolling:RollingTransformer"
 where = "datapipeline.transforms.stream.where:WhereTransform"
+derive = "datapipeline.transforms.stream.derive:DeriveTransform"
 
 [project.entry-points."datapipeline.transforms.feature"]
 scale = "datapipeline.transforms.feature.scaler:StandardScalerTransform"

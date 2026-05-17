@@ -29,6 +29,17 @@
 # - ensure_cadence: { field: close, cadence: "${cadence}" }
 # - fill: { field: close, to: close, statistic: median, window: 6, min_samples: 1 }
 #   # statistic: mean | median; window must be > 0
+# - derive:
+#     left: close_lag_21
+#     operator: div
+#     right_field: close_lag_189
+#     to: close_ratio_21_189
+# - derive:
+#     left: close_ratio_21_189
+#     operator: sub
+#     right_value: 1.0
+#     to: momentum_189_21
+#   # operator: add | sub | mul | div
 #
 # debug transforms (one-key mappings; optional):
 # - lint: { mode: error, tick: "${cadence}" }  # mode: warn | error
