@@ -93,6 +93,17 @@ def test_manual_stream_rejects_join_options() -> None:
         )
 
 
+def test_manual_stream_rejects_empty_stream_refs() -> None:
+    with pytest.raises(ValueError, match="from.streams must not be empty"):
+        StreamConfig.model_validate(
+            {
+                "id": "derived.sample",
+                "from": {"streams": {}},
+                "map": {"entrypoint": "manual", "args": {}},
+            }
+        )
+
+
 def test_stream_rejects_duplicate_input_aliases_after_trimming() -> None:
     with pytest.raises(ValueError, match="duplicate alias"):
         StreamConfig.model_validate(
@@ -100,6 +111,20 @@ def test_stream_rejects_duplicate_input_aliases_after_trimming() -> None:
                 "id": "derived.sample",
                 "from": {"streams": {" x ": "stream.a", "x": "stream.b"}},
                 "map": {"entrypoint": "manual", "args": {}},
+            }
+        )
+
+
+def test_joined_stream_rejects_staged_stream_refs() -> None:
+    with pytest.raises(ValueError, match="from.join may not include '@stage'"):
+        StreamConfig.model_validate(
+            {
+                "id": "derived.sample",
+                "from": {
+                    "join": {"a": "stream.a@raw"},
+                    "primary": "a",
+                },
+                "map": {"entrypoint": "join", "args": {}},
             }
         )
 

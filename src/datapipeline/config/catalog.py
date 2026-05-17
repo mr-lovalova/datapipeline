@@ -61,7 +61,7 @@ class StreamFromConfig(BaseModel):
         if self.join is not None:
             if not self.primary:
                 raise ValueError("from.join requires 'primary'")
-            self.join = _normalize_input_refs("join", self.join)
+            self.join = _normalize_join_refs(self.join)
             self.on = _normalize_join_fields(self.on)
             if self.primary not in self.join:
                 raise ValueError(
@@ -70,13 +70,13 @@ class StreamFromConfig(BaseModel):
             return self
         if join_option_fields & self.model_fields_set:
             raise ValueError("from.streams cannot define join options")
-        self.streams = _normalize_input_refs("streams", self.streams or {})
+        self.streams = _normalize_stream_refs(self.streams or {})
         return self
 
 
-def _normalize_input_refs(label: str, refs: dict[str, str]) -> dict[str, str]:
+def _normalize_join_refs(refs: dict[str, str]) -> dict[str, str]:
     if not refs:
-        raise ValueError(f"from.{label} must not be empty")
+        raise ValueError("from.join must not be empty")
     aliases: set[str] = set()
     normalized: dict[str, str] = {}
     for alias, ref in refs.items():
@@ -84,16 +84,41 @@ def _normalize_input_refs(label: str, refs: dict[str, str]) -> dict[str, str]:
         ref_text = str(ref).strip()
         if not alias_text or not ref_text:
             raise ValueError(
-                f"from.{label} aliases and stream ids must not be empty"
+                "from.join aliases and stream ids must not be empty"
             )
         if "@" in ref_text:
-            raise ValueError(f"from.{label} may not include '@stage'")
+            raise ValueError("from.join may not include '@stage'")
         if ":" in ref_text:
             raise ValueError(
-                f"from.{label} must reference canonical stream ids only"
+                "from.join must reference canonical stream ids only"
             )
         if alias_text in aliases:
-            raise ValueError(f"from.{label} contains duplicate alias '{alias_text}'")
+            raise ValueError(f"from.join contains duplicate alias '{alias_text}'")
+        aliases.add(alias_text)
+        normalized[alias_text] = ref_text
+    return normalized
+
+
+def _normalize_stream_refs(refs: dict[str, str]) -> dict[str, str]:
+    if not refs:
+        raise ValueError("from.streams must not be empty")
+    aliases: set[str] = set()
+    normalized: dict[str, str] = {}
+    for alias, ref in refs.items():
+        alias_text = str(alias).strip()
+        ref_text = str(ref).strip()
+        if not alias_text or not ref_text:
+            raise ValueError(
+                "from.streams aliases and stream ids must not be empty"
+            )
+        if "@" in ref_text:
+            raise ValueError("from.streams may not include '@stage'")
+        if ":" in ref_text:
+            raise ValueError(
+                "from.streams must reference canonical stream ids only"
+            )
+        if alias_text in aliases:
+            raise ValueError(f"from.streams contains duplicate alias '{alias_text}'")
         aliases.add(alias_text)
         normalized[alias_text] = ref_text
     return normalized
