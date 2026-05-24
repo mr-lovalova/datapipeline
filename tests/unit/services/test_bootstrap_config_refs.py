@@ -4,7 +4,12 @@ import pytest
 
 from datapipeline.build.config_hash import compute_config_hash
 from datapipeline.config.catalog import SourceConfig
-from datapipeline.services.bootstrap.config import _globals, _load_by_key, artifacts_root
+from datapipeline.services.bootstrap.config import (
+    _globals,
+    _interpolate,
+    _load_by_key,
+    artifacts_root,
+)
 from datapipeline.services.bootstrap.core import _load_sources_from_dir
 from datapipeline.services.project_paths import sources_dir
 from datapipeline.services.streams.ingest import build_source_from_spec
@@ -15,21 +20,28 @@ def _write_project_yaml(
     project_root: Path,
     *,
     artifacts_value: str = "build",
+    variant: str | None = None,
     globals_lines: list[str] | None = None,
 ) -> Path:
     project_yaml = project_root / "project.yaml"
     lines = [
         "version: 1",
         "name: sample",
-        "paths:",
-        "  ingests: ./ingests",
-        "  streams: streams",
-        "  sources: sources",
-        "  dataset: dataset.yaml",
-        "  postprocess: postprocess.yaml",
-        f"  artifacts: {artifacts_value}",
-        "  tasks: tasks",
     ]
+    if variant is not None:
+        lines.append(f"variant: {variant}")
+    lines.extend(
+        [
+            "paths:",
+            "  ingests: ./ingests",
+            "  streams: streams",
+            "  sources: sources",
+            "  dataset: dataset.yaml",
+            "  postprocess: postprocess.yaml",
+            f"  artifacts: {artifacts_value}",
+            "  tasks: tasks",
+        ]
+    )
     if globals_lines:
         lines.append("globals:")
         lines.extend(f"  {line}" for line in globals_lines)
@@ -76,6 +88,19 @@ def test_process_env_overrides_project_dotenv(tmp_path: Path, monkeypatch: pytes
     monkeypatch.setenv("RAW_ROOT", "/runtime/raw")
 
     assert _globals(project_yaml)["raw_root"] == "/runtime/raw"
+
+
+def test_project_variant_can_be_used_in_project_paths(tmp_path: Path) -> None:
+    project_root = tmp_path / "project"
+    project_root.mkdir(parents=True)
+    _write_project_files(project_root)
+    project_yaml = _write_project_yaml(
+        project_root,
+        variant="long",
+        artifacts_value="build/${project_variant}",
+    )
+
+    assert artifacts_root(project_yaml) == (project_root / "build" / "long").resolve()
 
 
 def test_globals_can_reference_other_globals(tmp_path: Path) -> None:
@@ -173,6 +198,52 @@ def test_global_reference_to_null_stays_missing(tmp_path: Path) -> None:
 
     assert globals_["optional_root"] is None
     assert is_missing(globals_["derived_root"])
+
+
+def test_full_placeholder_interpolation_preserves_global_value_type(
+    tmp_path: Path,
+) -> None:
+    project_root = tmp_path / "project"
+    project_root.mkdir(parents=True)
+    _write_project_files(project_root)
+    project_yaml = _write_project_yaml(
+        project_root,
+        globals_lines=[
+            "adv_window_days: 21",
+            "annualization_factor: 15.874507866387544",
+        ],
+    )
+
+    interpolated = _interpolate(
+        {
+            "stream": [
+                {
+                    "rolling": {
+                        "field": "dollar_volume",
+                        "window": "${adv_window_days}",
+                        "to": "adv_${adv_window_days}",
+                    }
+                },
+                {
+                    "derive": {
+                        "left": "return_pstdev_63",
+                        "operator": "mul",
+                        "right_value": "${annualization_factor}",
+                        "to": "volatility_63",
+                    }
+                },
+            ]
+        },
+        _globals(project_yaml),
+    )
+
+    rolling = interpolated["stream"][0]["rolling"]
+    derive = interpolated["stream"][1]["derive"]
+    assert rolling["window"] == 21
+    assert isinstance(rolling["window"], int)
+    assert rolling["to"] == "adv_21"
+    assert derive["right_value"] == 15.874507866387544
+    assert isinstance(derive["right_value"], float)
 
 
 def test_load_by_key_resolves_direct_env_refs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

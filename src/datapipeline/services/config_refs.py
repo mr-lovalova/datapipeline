@@ -51,7 +51,7 @@ def serialize_project_value(value: Any) -> Any:
             return value.isoformat()
     if value is None:
         return None
-    return str(value)
+    return value
 
 
 def project_vars_from_data(data: Mapping[str, Any]) -> dict[str, Any]:
@@ -60,6 +60,11 @@ def project_vars_from_data(data: Mapping[str, Any]) -> dict[str, Any]:
     if name:
         vars_["project"] = str(name)
         vars_["project_name"] = str(name)
+
+    variant = data.get("variant")
+    if variant:
+        vars_["variant"] = str(variant)
+        vars_["project_variant"] = str(variant)
 
     version = data.get("version")
     if version is not None:
@@ -99,7 +104,7 @@ def _resolve_project_globals(
                 return text
             if value is None or is_missing(value):
                 return MissingInterpolation(key)
-            return str(value)
+            return value
 
         def repl(match: re.Match[str]) -> str:
             key = match.group(1)
@@ -143,7 +148,7 @@ def interpolate_config_vars(obj: Any, vars_: Mapping[str, Any]) -> Any:
                 value = vars_[key]
                 if value is None or is_missing(value):
                     return MissingInterpolation(key)
-                return str(value)
+                return value
             return obj
 
         def repl(match: re.Match[str]) -> str:

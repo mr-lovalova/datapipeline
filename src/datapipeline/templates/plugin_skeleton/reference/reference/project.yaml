@@ -3,6 +3,7 @@
 #
 # version: 1                  # optional
 # name: example               # optional
+# variant: baseline           # optional; available as ${variant} and ${project_variant}
 # paths:
   ingests: ./ingests
 #   streams: ./streams      # required

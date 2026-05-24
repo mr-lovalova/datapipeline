@@ -1,6 +1,7 @@
 from datetime import datetime
-from typing import Optional
-from pydantic import BaseModel, Field, ConfigDict
+from typing import Literal, Optional
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from datapipeline.config.split import SplitConfig
 
@@ -17,7 +18,7 @@ class ProjectPaths(BaseModel):
 
 
 class ProjectGlobals(BaseModel):
-    model_config = ConfigDict(extra='allow')
+    model_config = ConfigDict(extra="allow")
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
     # Optional dataset split configuration (typed). Accepts mapping or string.
@@ -29,7 +30,10 @@ class ProjectGlobals(BaseModel):
 
 
 class ProjectConfig(BaseModel):
-    version: int = 1
+    model_config = ConfigDict(extra="forbid")
+
+    version: Literal[1] = 1
     name: str | None = None
+    variant: str | None = None
     paths: ProjectPaths
     globals: ProjectGlobals = Field(default_factory=ProjectGlobals)
