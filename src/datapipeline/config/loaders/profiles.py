@@ -14,10 +14,15 @@ from datapipeline.config.profiles import (
     ServeProfile,
     ServeProfileDefaults,
 )
+from datapipeline.services.config_refs import (
+    interpolate_config_vars,
+    project_vars_from_data,
+    resolve_config_refs,
+)
 from datapipeline.services.project_paths import profiles_dir
 from datapipeline.utils.load import load_yaml
 
-from .common import ensure_unique_specs, load_specs, spec_files
+from .common import ensure_unique_specs, spec_files
 
 ProfileModel = Annotated[
     ServeProfile | BuildProfile | InspectProfile,
@@ -36,6 +41,33 @@ PROFILE_DEFAULTS_ADAPTER = TypeAdapter(ProfileDefaultsModel)
 
 def _load_profile_entry(entry: dict) -> Profile:
     return PROFILE_ADAPTER.validate_python(entry)
+
+
+def _project_vars(project_yaml: Path) -> dict:
+    data = resolve_config_refs(load_yaml(project_yaml), project_yaml=project_yaml)
+    return project_vars_from_data(data)
+
+
+def _load_profile_doc(path: Path, project_yaml: Path, vars_: dict):
+    doc = resolve_config_refs(load_yaml(path), project_yaml=project_yaml)
+    return interpolate_config_vars(doc, vars_)
+
+
+def _load_profile_specs_from_file(
+    path: Path,
+    project_yaml: Path,
+    vars_: dict,
+) -> list[Profile]:
+    doc = _load_profile_doc(path, project_yaml, vars_)
+    entries = doc if isinstance(doc, list) else [doc]
+    specs: list[Profile] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            raise TypeError(f"{path} must define mapping profiles.")
+        spec = _load_profile_entry(entry)
+        setattr(spec, "source_path", path)
+        specs.append(spec)
+    return specs
 
 
 def _profile_kind_from_filename(path: Path) -> str | None:
@@ -85,6 +117,7 @@ def _load_profile_specs(
 ) -> tuple[list[Profile], dict[str, ProfileDefaults]]:
     root = profiles_dir(project_yaml)
     _validate_profile_layout(root)
+    vars_ = _project_vars(project_yaml)
     specs: list[Profile] = []
     defaults_by_kind: dict[str, ProfileDefaults] = {}
     for path in sorted(root.glob("*.y*ml")):
@@ -92,7 +125,7 @@ def _load_profile_specs(
         if expected_kind is None:
             continue
         if _is_defaults_profile(path):
-            doc = load_yaml(path)
+            doc = _load_profile_doc(path, project_yaml, vars_)
             if not isinstance(doc, dict):
                 raise TypeError(f"{path} must define a mapping profile defaults.")
             defaults = PROFILE_DEFAULTS_ADAPTER.validate_python(doc)
@@ -111,7 +144,7 @@ def _load_profile_specs(
             setattr(defaults, "source_path", path)
             defaults_by_kind[expected_kind] = defaults
             continue
-        loaded = load_specs(path, _load_profile_entry)
+        loaded = _load_profile_specs_from_file(path, project_yaml, vars_)
         for spec in loaded:
             if spec.cmd != expected_kind:
                 raise ValueError(

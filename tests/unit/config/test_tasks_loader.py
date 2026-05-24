@@ -132,6 +132,102 @@ def test_serve_tasks_respect_name_and_enabled(tmp_path):
     assert [task.keep for task in tasks if task.enabled] == ["train"]
 
 
+def test_serve_profiles_interpolate_project_globals(tmp_path):
+    project_yaml = _write_project(tmp_path, tasks_ref="tasks")
+    project_yaml.write_text(
+        "\n".join(
+            [
+                "version: 1",
+                "name: momentum",
+                "variant: price",
+                "paths:",
+                "  ingests: ./ingests",
+                "  streams: streams",
+                "  sources: sources",
+                "  dataset: dataset.yaml",
+                "  postprocess: postprocess.yaml",
+                "  artifacts: artifacts",
+                "  tasks: tasks",
+                "  profiles: profiles",
+                "globals:",
+                "  adv_window_days: 20",
+                "  volatility_window_days: 63",
+                "  momentum_skip_days: 21",
+                "  momentum_lag_days: 189",
+                "  forward_return_horizon_days: 126",
+                "  dataset_version: ${project_name}_${project_variant}_adv${adv_window_days}_vol${volatility_window_days}_mom${momentum_lag_days}_${momentum_skip_days}_fwd${forward_return_horizon_days}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    profiles_dir = _profile_kind_dir(project_yaml)
+    (profiles_dir / "serve.processed.yaml").write_text(
+        "\n".join(
+            [
+                "cmd: serve",
+                "name: processed",
+                "target: pipeline",
+                "output:",
+                "  transport: fs",
+                "  format: jsonl",
+                "  view: raw",
+                "  directory: ../../data/processed/${dataset_version}",
+                "  filename: ${dataset_version}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    profile = _serve_profiles(project_yaml)[0]
+
+    expected = "momentum_price_adv20_vol63_mom189_21_fwd126"
+    assert profile.output.directory == Path(f"../../data/processed/{expected}")
+    assert profile.output.filename == expected
+
+
+def test_profile_defaults_interpolate_project_globals(tmp_path):
+    project_yaml = _write_project(tmp_path, tasks_ref="tasks")
+    project_yaml.write_text(
+        "\n".join(
+            [
+                "version: 1",
+                "name: momentum",
+                "variant: price",
+                "paths:",
+                "  ingests: ./ingests",
+                "  streams: streams",
+                "  sources: sources",
+                "  dataset: dataset.yaml",
+                "  postprocess: postprocess.yaml",
+                "  artifacts: artifacts",
+                "  tasks: tasks",
+                "  profiles: profiles",
+                "globals:",
+                "  dataset_version: ${project_name}_${project_variant}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    profiles_dir = _profile_kind_dir(project_yaml)
+    (profiles_dir / "serve.defaults.yaml").write_text(
+        "\n".join(
+            [
+                "cmd: serve",
+                "output:",
+                "  transport: fs",
+                "  format: jsonl",
+                "  view: raw",
+                "  directory: ../../data/processed/${dataset_version}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    defaults = _serve_defaults(project_yaml)
+
+    assert defaults.output.directory == Path("../../data/processed/momentum_price")
+
+
 def test_profile_name_is_required(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     tasks_dir = _profile_kind_dir(project_yaml)
