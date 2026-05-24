@@ -43,6 +43,49 @@ def test_resolve_output_target_honors_custom_filename(tmp_path):
     assert target.encoding == "utf-8"
 
 
+def test_resolve_output_target_allows_dotted_filename_stem(tmp_path):
+    base_dir = tmp_path / "outputs"
+    base_dir.mkdir()
+    cfg = ServeOutputConfig(
+        transport="fs",
+        format="jsonl",
+        directory=base_dir,
+        filename="equity.price_aware_universe",
+    )
+
+    target = resolve_output_target(
+        cli_output=None,
+        config_output=cfg,
+        default=None,
+        base_path=Path("."),
+        run_name="processed",
+    )
+
+    assert target.destination == (
+        base_dir / "processed" / "equity.price_aware_universe.jsonl"
+    ).resolve()
+
+
+def test_resolve_output_target_rejects_filename_with_selected_extension(tmp_path):
+    base_dir = tmp_path / "outputs"
+    base_dir.mkdir()
+    cfg = ServeOutputConfig(
+        transport="fs",
+        format="jsonl",
+        directory=base_dir,
+        filename="equity.price_aware_universe.jsonl",
+    )
+
+    with pytest.raises(ValueError, match="filename must omit the '.jsonl' extension"):
+        resolve_output_target(
+            cli_output=None,
+            config_output=cfg,
+            default=None,
+            base_path=Path("."),
+            run_name="processed",
+        )
+
+
 def test_resolve_output_target_sanitizes_derived_filename_stem(tmp_path):
     base_dir = tmp_path / "outputs"
     base_dir.mkdir()

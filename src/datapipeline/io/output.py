@@ -165,6 +165,10 @@ def resolve_output_target(
         sanitize_path_segment(run_name) if run_name else None
     )
     if filename_stem:
+        if Path(filename_stem).suffix == suffix:
+            raise OutputResolutionError(
+                f"filename must omit the '{suffix}' extension"
+            )
         filename = f"{filename_stem}{suffix}"
     else:
         filename = _default_filename_for_format(config.format)
