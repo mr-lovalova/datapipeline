@@ -1,8 +1,10 @@
+import json
 import math
 from datetime import datetime, timezone
 
 import pytest
 
+from datapipeline.artifacts.models import VectorSchemaArtifact
 from datapipeline.config.tasks import MetadataTask, SchemaTask
 from datapipeline.operations.artifacts.metadata import _window_bounds_from_stats, _window_size
 from datapipeline.operations.artifacts.metadata import materialize_metadata
@@ -111,6 +113,79 @@ def test_schema_materialization_rejects_configured_empty_features(
         materialize_vector_schema(runtime, SchemaTask(output="schema.json"))
 
     assert not (runtime.artifacts_root / "schema.json").exists()
+
+
+def test_schema_materialization_omits_legacy_metadata(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    runtime = _runtime_with_dataset(
+        tmp_path,
+        "\n".join(
+            [
+                "group_by: 1h",
+                "features:",
+                "  - id: price",
+                "    record_stream: market.prices",
+                "    field: close",
+                "targets: []",
+                "",
+            ]
+        ),
+    )
+
+    def collected_entries(*args, **kwargs):
+        return [
+            {
+                "id": "price__@area:DK1",
+                "base_id": "price",
+                "kind": "list",
+                "max_length": 3,
+            }
+        ], 1, None, None
+
+    monkeypatch.setattr(
+        "datapipeline.operations.artifacts.schema.collect_schema_entries",
+        collected_entries,
+    )
+
+    materialize_vector_schema(runtime, SchemaTask(output="schema.json"))
+
+    payload = json.loads(
+        (runtime.artifacts_root / "schema.json").read_text(encoding="utf-8")
+    )
+    assert "generated_at" not in payload
+    assert payload["features"] == [
+        {
+            "id": "price__@area:DK1",
+            "kind": "list",
+            "cadence": {"strategy": "max", "target": 3},
+        }
+    ]
+
+
+def test_schema_artifact_normalizes_legacy_entry_fields() -> None:
+    schema = VectorSchemaArtifact.model_validate(
+        {
+            "schema_version": 1,
+            "generated_at": "2024-01-01T00:00:00Z",
+            "features": [
+                {
+                    "id": "price__@area:DK1",
+                    "base_id": "price",
+                    "kind": "scalar",
+                }
+            ],
+            "targets": [],
+        }
+    )
+
+    assert schema.entries_for_payload("features") == [
+        {
+            "id": "price__@area:DK1",
+            "kind": "scalar",
+        }
+    ]
 
 
 def test_metadata_materialization_rejects_configured_empty_features(

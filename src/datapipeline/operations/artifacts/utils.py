@@ -119,7 +119,6 @@ def schema_entries_from_stats(entries: list[dict], cadence_strategy: str) -> lis
         kind = entry.get("kind") or "scalar"
         item = {
             "id": entry["id"],
-            "base_id": entry["base_id"],
             "kind": kind,
         }
         if kind == "list":

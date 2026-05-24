@@ -19,10 +19,9 @@ class Window(BaseModel):
 class VectorSchemaEntry(BaseModel):
     """One feature or target entry in build/schema.json."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="ignore")
 
     id: str | None = None
-    base_id: str | None = None
     kind: str | None = None
     cadence: dict[str, Any] | None = None
 
@@ -30,10 +29,9 @@ class VectorSchemaEntry(BaseModel):
 class VectorSchemaArtifact(BaseModel):
     """Typed contract for build/schema.json."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="ignore")
 
     schema_version: int = 1
-    generated_at: datetime | None = None
     window: Window | None = None
     meta: dict[str, Any] | None = None
     features: list[VectorSchemaEntry] = Field(default_factory=list)

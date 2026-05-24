@@ -1,5 +1,4 @@
 import json
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict
 
@@ -58,7 +57,6 @@ def materialize_vector_schema(
 
     doc = VectorSchemaArtifact(
         schema_version=1,
-        generated_at=datetime.now(timezone.utc),
         features=feature_entries,
         targets=target_entries,
     )
