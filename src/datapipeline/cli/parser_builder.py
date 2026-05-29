@@ -1,6 +1,7 @@
 import argparse
 
 from datapipeline.cli.parser.build import add_build_command
+from datapipeline.cli.parser.clean import add_clean_command
 from datapipeline.cli.parser.common import build_common_parent
 from datapipeline.cli.parser.demo import add_demo_command
 from datapipeline.cli.parser.domain import add_domain_command
@@ -27,6 +28,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_serve_command(sub, common=common)
     add_inspect_command(sub, common=common)
     add_build_command(sub, common=common)
+    add_clean_command(sub, common=common)
     add_demo_command(sub, common=common)
     add_list_command(sub, common=common)
     add_source_command(sub, common=common)

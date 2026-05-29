@@ -1,6 +1,7 @@
 import argparse
 from pathlib import Path
 
+from datapipeline.cli.commands.clean import handle as handle_clean
 from datapipeline.cli.commands.profile_runner import handle_profile_command
 from datapipeline.cli.commands.demo import handle as handle_demo
 from datapipeline.cli.commands.domain import handle as handle_domain
@@ -41,6 +42,12 @@ def execute_command(
             base_level_name=base_level_name,
             cli_log_outputs=cli_log_outputs,
         )
+    if args.cmd == "clean":
+        handle_clean(
+            yes=getattr(args, "yes", False),
+            older_than=getattr(args, "older_than", None),
+        )
+        return True
     if args.cmd == "source":
         if args.source_cmd == "list":
             handle_list(subcmd="sources", workspace=workspace_context)
