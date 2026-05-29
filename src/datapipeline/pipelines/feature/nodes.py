@@ -56,6 +56,7 @@ def feature_transforms(
 
 
 def order_feature_records(
+    context: PipelineContext,
     batch_size: int,
     features: Iterable[Any] | None,
 ) -> Iterable[Any]:
@@ -63,6 +64,7 @@ def order_feature_records(
         features,
         batch_size=batch_size,
         key=_time_then_id,
+        spill_dir=context.runtime.sort_spill_dir,
     )
 
 

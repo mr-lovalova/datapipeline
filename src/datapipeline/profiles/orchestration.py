@@ -30,7 +30,11 @@ def run_profiles(request: ProfileRunRequest) -> None:
         total = len(profiles)
         for idx, profile in enumerate(profiles, start=1):
             runtime = profile.runtime or bootstrap(request.project_path)
-            if shared_cache_root is not None and isinstance(runtime, Runtime):
+            if (
+                shared_cache_root is not None
+                and profile.cache_enabled
+                and isinstance(runtime, Runtime)
+            ):
                 runtime.set_cache_root(shared_cache_root, owned=False)
             profile_path = persist_profile_report(
                 profile_kind=request.command,

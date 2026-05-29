@@ -102,6 +102,27 @@ class Runtime:
         if not self._owns_cache_root or cache_root is None:
             return
         shutil.rmtree(cache_root, ignore_errors=True)
+        self.cache_root = None
+        self._owns_cache_root = False
+
+    def disable_cache(self) -> None:
+        self.cache_enabled = False
+        self.cleanup_cache()
+
+    def ensure_cache_root(self) -> Path:
+        if self.cache_root is not None:
+            return self.cache_root
+        root = self._new_owned_cache_root()
+        self.cache_root = root
+        self._owns_cache_root = True
+        self.record_stream_cache = RecordStreamCache(
+            project_yaml=self.project_yaml,
+            root=root,
+        )
+        return root
+
+    def sort_spill_dir(self) -> Path:
+        return self.ensure_cache_root() / "_sort"
 
     def set_cache_root(self, root: Path, *, owned: bool = False) -> None:
         current = self.cache_root
@@ -123,9 +144,12 @@ class Runtime:
             self._owns_cache_root = False
             return root
 
-        project_name = self.project_yaml.stem or "project"
-        root = Path(
-            tempfile.mkdtemp(prefix=f"datapipeline-cache-{project_name}-")
-        ).resolve()
+        root = self._new_owned_cache_root()
         self._owns_cache_root = True
         return root
+
+    def _new_owned_cache_root(self) -> Path:
+        project_name = self.project_yaml.stem or "project"
+        return Path(
+            tempfile.mkdtemp(prefix=f"datapipeline-cache-{project_name}-")
+        ).resolve()

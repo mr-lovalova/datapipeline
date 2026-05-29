@@ -151,7 +151,10 @@ def resolve_run_profiles(
                 f"Serve profile '{run_label}' does not support keep filters."
             )
         throttle_ms = _run_config_value(run_cfg, "throttle_ms")
-        runtime.cache_enabled = resolved_cache
+        if isinstance(runtime, Runtime) and not resolved_cache:
+            runtime.disable_cache()
+        else:
+            runtime.cache_enabled = resolved_cache
         log_decision = resolve_log_level(
             cli_log_level,
             logging_value(run_observability, "level"),

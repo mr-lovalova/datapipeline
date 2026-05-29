@@ -326,6 +326,42 @@ def test_runtime_uses_owned_temp_cache_root_and_cleans_it(tmp_path: Path) -> Non
     assert not cache_root.exists()
 
 
+def test_runtime_disable_cache_removes_owned_temp_cache_root(tmp_path: Path) -> None:
+    project_yaml = _write_project(tmp_path)
+    runtime = Runtime(
+        project_yaml=project_yaml,
+        artifacts_root=artifacts_root(project_yaml),
+    )
+    cache_root = runtime.cache_root
+
+    runtime.disable_cache()
+
+    assert runtime.cache_enabled is False
+    assert cache_root is not None
+    assert not cache_root.exists()
+    assert runtime.cache_root is None
+
+
+def test_runtime_sort_spill_dir_recreates_owned_temp_root_after_cache_disabled(
+    tmp_path: Path,
+) -> None:
+    project_yaml = _write_project(tmp_path)
+    runtime = Runtime(
+        project_yaml=project_yaml,
+        artifacts_root=artifacts_root(project_yaml),
+    )
+    first_root = runtime.cache_root
+    runtime.disable_cache()
+
+    sort_dir = runtime.sort_spill_dir()
+
+    assert first_root is not None
+    assert not first_root.exists()
+    assert runtime.cache_root is not None
+    assert runtime.cache_root.exists()
+    assert sort_dir == runtime.cache_root / "_sort"
+
+
 def test_runtime_preserves_explicit_cache_root(tmp_path: Path) -> None:
     project_yaml = _write_project(tmp_path)
     cache_root = tmp_path / "cache"

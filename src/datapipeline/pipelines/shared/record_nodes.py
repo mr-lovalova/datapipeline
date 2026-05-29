@@ -43,6 +43,7 @@ def apply_record_operations(
 
 
 def order_records(
+    context: PipelineContext,
     batch_size: int,
     partition_by: str | list[str] | None,
     records: Iterable[Any] | None,
@@ -51,6 +52,7 @@ def order_records(
         records,
         batch_size=batch_size,
         key=lambda rec: (partition_key(rec, partition_by), rec.time),
+        spill_dir=context.runtime.sort_spill_dir,
     )
 
 

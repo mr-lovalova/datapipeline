@@ -67,7 +67,7 @@ def build_ingest_nodes(
             input="transformed",
             name="order_records",
             op=order_records,
-            args=(batch_size, partition_by),
+            args=(context, batch_size, partition_by),
             output="ordered",
         ),
     )
