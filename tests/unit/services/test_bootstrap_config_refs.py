@@ -381,3 +381,61 @@ def test_compute_config_hash_changes_when_env_value_changes(
     hash_two = compute_config_hash(project_yaml, project_root / "tasks")
 
     assert hash_one != hash_two
+
+
+def test_compute_config_hash_includes_multiple_source_roots(tmp_path: Path) -> None:
+    project_root = tmp_path / "project"
+    common_root = tmp_path / "common"
+    _write_project_files(project_root)
+    (common_root / "sources").mkdir(parents=True)
+    (common_root / "sources" / "common.yaml").write_text(
+        "\n".join(
+            [
+                "id: common.fs",
+                "parser:",
+                "  entrypoint: identity",
+                "loader:",
+                "  entrypoint: core.io",
+                "  args:",
+                "    transport: fs",
+                "    format: jsonl",
+                "    path: rows.jsonl",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    project_yaml = _write_project_yaml(project_root)
+    project_yaml.write_text(
+        project_yaml.read_text(encoding="utf-8").replace(
+            "  sources: sources",
+            "  sources:\n"
+            "    - sources\n"
+            "    - ../common/sources",
+        ),
+        encoding="utf-8",
+    )
+
+    hash_one = compute_config_hash(project_yaml, project_root / "tasks")
+
+    (common_root / "sources" / "common.yaml").write_text(
+        "\n".join(
+            [
+                "id: common.fs",
+                "parser:",
+                "  entrypoint: identity",
+                "loader:",
+                "  entrypoint: core.io",
+                "  args:",
+                "    transport: fs",
+                "    format: jsonl",
+                "    path: changed.jsonl",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    hash_two = compute_config_hash(project_yaml, project_root / "tasks")
+
+    assert hash_one != hash_two

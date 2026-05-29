@@ -28,6 +28,41 @@ def test_project_config_accepts_variant() -> None:
     assert cfg.variant == "long"
 
 
+def test_project_config_accepts_multiple_discovery_roots() -> None:
+    cfg = ProjectConfig.model_validate(
+        _project_data(
+            paths={
+                "ingests": ["ingests", "../common/ingests"],
+                "streams": ["streams", "../common/streams"],
+                "sources": ["sources", "../common/sources"],
+                "dataset": "dataset.yaml",
+                "postprocess": "postprocess.yaml",
+                "artifacts": "artifacts",
+            }
+        )
+    )
+
+    assert cfg.paths.ingests == ["ingests", "../common/ingests"]
+    assert cfg.paths.streams == ["streams", "../common/streams"]
+    assert cfg.paths.sources == ["sources", "../common/sources"]
+
+
+def test_project_config_rejects_empty_discovery_roots() -> None:
+    with pytest.raises(ValidationError, match="project path lists must not be empty"):
+        ProjectConfig.model_validate(
+            _project_data(
+                paths={
+                    "ingests": [],
+                    "streams": "streams",
+                    "sources": "sources",
+                    "dataset": "dataset.yaml",
+                    "postprocess": "postprocess.yaml",
+                    "artifacts": "artifacts",
+                }
+            )
+        )
+
+
 def test_project_variant_is_available_for_interpolation() -> None:
     vars_ = project_vars_from_data(_project_data(variant="long"))
 

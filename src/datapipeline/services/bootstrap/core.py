@@ -3,7 +3,7 @@ from typing import Any
 
 from datapipeline.utils.load import load_yaml
 from datapipeline.config.catalog import IngestConfig, StreamConfig, StreamsConfig
-from datapipeline.services.project_paths import ingests_dir, streams_dir, sources_dir
+from datapipeline.services.project_paths import ingests_dirs, streams_dirs, sources_dirs
 from datapipeline.build.state import load_build_state
 from datapipeline.services.constants import (
     PARSER_KEY,
@@ -53,16 +53,24 @@ def _load_sources_from_dir(project_yaml: Path, vars_: dict[str, Any]) -> dict:
     runtime alias.
     """
     out: dict[str, dict] = {}
+    source_paths: dict[str, Path] = {}
     for path in _source_yaml_files(project_yaml):
         source_doc = _load_source_yaml(path, project_yaml, vars_)
         if source_doc is None:
             continue
-        out[source_doc[SOURCE_ID_KEY]] = source_doc
+        source_id = source_doc[SOURCE_ID_KEY]
+        if source_id in out:
+            raise ValueError(
+                f"Duplicate source id '{source_id}' in source files: "
+                f"{source_paths[source_id]} and {path}"
+            )
+        out[source_id] = source_doc
+        source_paths[source_id] = path
     return out
 
 
 def _source_yaml_files(project_yaml: Path) -> list[Path]:
-    return _yaml_files(sources_dir(project_yaml))
+    return _yaml_files_from_roots(sources_dirs(project_yaml))
 
 
 def _load_source_yaml(
@@ -74,8 +82,7 @@ def _load_source_yaml(
     if not isinstance(data, dict) or not _is_source_yaml(data):
         return None
     if not data.get(SOURCE_ID_KEY):
-        src_dir = sources_dir(project_yaml)
-        raise ValueError(f"Missing 'id' in source file: {path.relative_to(src_dir)}")
+        raise ValueError(f"Missing 'id' in source file: {path}")
     source_doc = _interpolate(data, vars_)
     return source_doc
 
@@ -95,32 +102,53 @@ def _load_canonical_streams(project_yaml: Path, vars_: dict[str, Any]) -> dict:
     and extension removed, e.g. 'metobs/precip.yaml' -> 'metobs.precip'.
     """
     out: dict[str, dict] = {}
+    stream_paths: dict[str, Path] = {}
     for path in _stream_yaml_files(project_yaml):
         data = _load_stream_yaml(path, project_yaml)
         if data is None:
             continue
         alias = data[STREAM_ID_KEY]
+        if alias in out:
+            raise ValueError(
+                f"Duplicate stream id '{alias}' in stream files: "
+                f"{stream_paths[alias]} and {path}"
+            )
         out[alias] = _interpolate_stream_yaml(data, vars_)
+        stream_paths[alias] = path
     return out
 
 
 def _load_canonical_ingests(project_yaml: Path, vars_: dict[str, Any]) -> dict:
     out: dict[str, dict] = {}
+    ingest_paths: dict[str, Path] = {}
     for path in _ingest_yaml_files(project_yaml):
         data = _load_ingest_yaml(path, project_yaml)
         if data is None:
             continue
         alias = data[STREAM_ID_KEY]
+        if alias in out:
+            raise ValueError(
+                f"Duplicate stream id '{alias}' in ingest files: "
+                f"{ingest_paths[alias]} and {path}"
+            )
         out[alias] = _interpolate_stream_yaml(data, vars_)
+        ingest_paths[alias] = path
     return out
 
 
 def _ingest_yaml_files(project_yaml: Path) -> list[Path]:
-    return _yaml_files(ingests_dir(project_yaml))
+    return _yaml_files_from_roots(ingests_dirs(project_yaml))
 
 
 def _stream_yaml_files(project_yaml: Path) -> list[Path]:
-    return _yaml_files(streams_dir(project_yaml))
+    return _yaml_files_from_roots(streams_dirs(project_yaml))
+
+
+def _yaml_files_from_roots(roots: list[Path]) -> list[Path]:
+    out: list[Path] = []
+    for root in roots:
+        out.extend(_yaml_files(root))
+    return out
 
 
 def _yaml_files(root: Path) -> list[Path]:

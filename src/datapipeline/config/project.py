@@ -1,20 +1,27 @@
 from datetime import datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from datapipeline.config.split import SplitConfig
 
 
 class ProjectPaths(BaseModel):
-    ingests: str
-    streams: str
-    sources: str
+    ingests: str | list[str]
+    streams: str | list[str]
+    sources: str | list[str]
     dataset: str
     postprocess: str
     artifacts: str
     tasks: str | None = None
     profiles: str | None = None
+
+    @field_validator("ingests", "streams", "sources")
+    @classmethod
+    def require_config_roots(cls, value: str | list[str]) -> str | list[str]:
+        if isinstance(value, list) and not value:
+            raise ValueError("project path lists must not be empty")
+        return value
 
 
 class ProjectGlobals(BaseModel):

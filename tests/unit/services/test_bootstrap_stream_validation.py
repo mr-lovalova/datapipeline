@@ -243,6 +243,148 @@ def test_load_canonical_streams_loads_from_shape(tmp_path) -> None:
     }
 
 
+def test_load_canonical_streams_reads_multiple_stream_roots(tmp_path) -> None:
+    project_root = tmp_path / "project"
+    common_root = tmp_path / "common"
+    local_streams = project_root / "streams"
+    common_streams = common_root / "streams"
+    local_streams.mkdir(parents=True)
+    common_streams.mkdir(parents=True)
+    project_yaml = project_root / "project.yaml"
+    project_yaml.write_text(
+        "\n".join(
+            [
+                "version: 1",
+                "name: test",
+                "paths:",
+                "  ingests: ./ingests",
+                "  streams:",
+                "    - ./streams",
+                "    - ../common/streams",
+                "  sources: ./sources",
+                "  dataset: dataset.yaml",
+                "  postprocess: postprocess.yaml",
+                "  artifacts: ./artifacts",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (local_streams / "local.yaml").write_text(
+        "\n".join(
+            [
+                "id: local",
+                "from:",
+                "  stream: base.local",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (common_streams / "common.yaml").write_text(
+        "\n".join(
+            [
+                "id: common",
+                "from:",
+                "  stream: base.common",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = _load_canonical_streams(project_yaml, {})
+
+    assert sorted(loaded) == ["common", "local"]
+
+
+def test_load_canonical_streams_rejects_duplicate_ids_across_roots(tmp_path) -> None:
+    project_root = tmp_path / "project"
+    common_root = tmp_path / "common"
+    local_streams = project_root / "streams"
+    common_streams = common_root / "streams"
+    local_streams.mkdir(parents=True)
+    common_streams.mkdir(parents=True)
+    project_yaml = project_root / "project.yaml"
+    project_yaml.write_text(
+        "\n".join(
+            [
+                "version: 1",
+                "name: test",
+                "paths:",
+                "  ingests: ./ingests",
+                "  streams:",
+                "    - ./streams",
+                "    - ../common/streams",
+                "  sources: ./sources",
+                "  dataset: dataset.yaml",
+                "  postprocess: postprocess.yaml",
+                "  artifacts: ./artifacts",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    for streams_dir in (local_streams, common_streams):
+        (streams_dir / "same.yaml").write_text(
+            "\n".join(
+                [
+                    "id: same",
+                    "from:",
+                    "  stream: base",
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+    with pytest.raises(ValueError, match="Duplicate stream id 'same'"):
+        _load_canonical_streams(project_yaml, {})
+
+
+def test_load_canonical_ingests_reads_multiple_ingest_roots(tmp_path) -> None:
+    project_root = tmp_path / "project"
+    common_root = tmp_path / "common"
+    local_ingests = project_root / "ingests"
+    common_ingests = common_root / "ingests"
+    local_ingests.mkdir(parents=True)
+    common_ingests.mkdir(parents=True)
+    project_yaml = project_root / "project.yaml"
+    project_yaml.write_text(
+        "\n".join(
+            [
+                "version: 1",
+                "name: test",
+                "paths:",
+                "  ingests:",
+                "    - ./ingests",
+                "    - ../common/ingests",
+                "  streams: ./streams",
+                "  sources: ./sources",
+                "  dataset: dataset.yaml",
+                "  postprocess: postprocess.yaml",
+                "  artifacts: ./artifacts",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    for ingests_dir, stream_id in (
+        (local_ingests, "local"),
+        (common_ingests, "common"),
+    ):
+        (ingests_dir / f"{stream_id}.yaml").write_text(
+            "\n".join(
+                [
+                    f"id: {stream_id}",
+                    "from:",
+                    "  source: demo.source",
+                    "map:",
+                    "  entrypoint: old_mapper",
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+    loaded = _load_canonical_ingests(project_yaml, {})
+
+    assert sorted(loaded) == ["common", "local"]
+
+
 def test_load_canonical_streams_rejects_old_kind_shape(tmp_path) -> None:
     streams_dir = tmp_path / "stream_configs"
     streams_dir.mkdir()

@@ -11,9 +11,9 @@ from datapipeline.services.constants import (
     STREAM_FROM_KEY,
 )
 from datapipeline.services.project_paths import (
-    ingests_dir as resolve_ingests_dir,
-    sources_dir as resolve_sources_dir,
-    streams_dir as resolve_streams_dir,
+    ingests_dirs as resolve_ingests_dirs,
+    sources_dirs as resolve_sources_dirs,
+    streams_dirs as resolve_streams_dirs,
 )
 
 
@@ -88,20 +88,20 @@ def list_sources(project_yaml: Path) -> list[str]:
     from datapipeline.utils.load import load_yaml
     from datapipeline.services.constants import PARSER_KEY, LOADER_KEY, SOURCE_ID_KEY
 
-    sources_dir = resolve_sources_dir(project_yaml)
-    if not sources_dir.exists():
-        return []
     out: list[str] = []
-    for p in sorted(sources_dir.rglob("*.y*ml")):
-        data = load_yaml(p)
-        if (
-            isinstance(data, dict)
-            and isinstance(data.get(PARSER_KEY), dict)
-            and isinstance(data.get(LOADER_KEY), dict)
-        ):
-            alias = data.get(SOURCE_ID_KEY)
-            if isinstance(alias, str):
-                out.append(alias)
+    for sources_dir in resolve_sources_dirs(project_yaml):
+        if not sources_dir.exists():
+            continue
+        for p in sorted(sources_dir.rglob("*.y*ml")):
+            data = load_yaml(p)
+            if (
+                isinstance(data, dict)
+                and isinstance(data.get(PARSER_KEY), dict)
+                and isinstance(data.get(LOADER_KEY), dict)
+            ):
+                alias = data.get(SOURCE_ID_KEY)
+                if isinstance(alias, str):
+                    out.append(alias)
     return sorted(set(out))
 
 
@@ -110,7 +110,8 @@ def list_streams(project_yaml: Path) -> list[str]:
     from datapipeline.services.constants import STREAM_ID_KEY
 
     out: list[str] = []
-    for root in (resolve_ingests_dir(project_yaml), resolve_streams_dir(project_yaml)):
+    roots = [*resolve_ingests_dirs(project_yaml), *resolve_streams_dirs(project_yaml)]
+    for root in roots:
         if not root.exists():
             continue
         for p in sorted(root.rglob("*.y*ml")):

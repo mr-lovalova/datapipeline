@@ -86,17 +86,19 @@ def compute_config_hash(project_yaml: Path, tasks_path: Path) -> str:
         _hash_file(hasher, p, base_dir)
         hashed_files.append(p)
 
-    for dir_value in (cfg.paths.sources, cfg.paths.streams):
-        directory = resolve_project_path(project_yaml, dir_value)
-        hasher.update(
-            f"[dir]{_normalized_label(directory, base_dir)}".encode("utf-8")
-        )
-        if not directory.exists():
-            hasher.update(b"[missing]")
-            continue
-        for path in _yaml_files(directory):
-            _hash_file(hasher, path, base_dir)
-            hashed_files.append(path)
+    for dir_value in (cfg.paths.ingests, cfg.paths.sources, cfg.paths.streams):
+        dir_values = dir_value if isinstance(dir_value, list) else [dir_value]
+        for raw_path in dir_values:
+            directory = resolve_project_path(project_yaml, raw_path)
+            hasher.update(
+                f"[dir]{_normalized_label(directory, base_dir)}".encode("utf-8")
+            )
+            if not directory.exists():
+                hasher.update(b"[missing]")
+                continue
+            for path in _yaml_files(directory):
+                _hash_file(hasher, path, base_dir)
+                hashed_files.append(path)
 
     _hash_env_refs(hasher, project_yaml, hashed_files)
 

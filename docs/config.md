@@ -60,6 +60,9 @@ globals:
 
 - `name` provides a stable identifier you can reuse inside config files via `${project_name}`.
 - `paths.*` are resolved relative to the project file unless absolute; they also support `${var}` interpolation.
+- `paths.sources`, `paths.ingests`, and `paths.streams` may be either one path
+  or a list of paths. When a list is used, discovery scans every directory in
+  order and rejects duplicate source or stream ids.
 - `globals` provide values for `${var}` interpolation across YAML files. Datetime
   values are normalized to strict UTC `YYYY-MM-DDTHH:MM:SSZ`.
 - External references use `${env:NAME}`. Resolution checks the process
