@@ -7,6 +7,22 @@ import yaml
 from datapipeline.services.scaffold.plugin import scaffold_plugin
 
 
+def test_demo_stream_templates_do_not_define_record_transforms() -> None:
+    streams_root = (
+        Path(__file__).parents[3]
+        / "src"
+        / "datapipeline"
+        / "templates"
+        / "demo_skeleton"
+        / "demo"
+        / "streams"
+    )
+
+    for path in streams_root.glob("*.yaml"):
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        assert "record" not in data, path
+
+
 def test_scaffold_plugin_normalizes_hyphenated_name(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     scaffold_plugin("test-datapipeline", tmp_path)

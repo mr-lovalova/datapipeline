@@ -10,12 +10,10 @@ map:
   entrypoint: manual_equity_pair_aapl_msft
   args: { driver: aapl }
 
-record:
+stream:
   - where: { field: time, operator: ge, comparand: "${start_time}" }
   - where: { field: time, operator: le, comparand: "${end_time}" }
   - floor_time: { cadence: "${cadence}" }
-
-stream:
   - dedupe: {}
   - granularity: { field: close_ratio, mode: first }
   - ensure_cadence: { field: close_ratio, cadence: "${cadence}" }
