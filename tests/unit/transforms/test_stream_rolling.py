@@ -74,8 +74,54 @@ def test_rolling_stdev_respects_missing_values_and_min_samples() -> None:
     assert out[2].sample_stdev_3 == pytest.approx(stdev([1.0, 3.0]))
 
 
+def test_rolling_max_matches_window_max() -> None:
+    stream = iter(
+        [
+            make_time_record(10.0, 0),
+            make_time_record(8.0, 1),
+            make_time_record(12.0, 2),
+            make_time_record(9.0, 3),
+        ]
+    )
+    transform = RollingTransformer(
+        field="value",
+        to="rolling_max_3",
+        window=3,
+        statistic="max",
+        min_samples=3,
+    )
+
+    out = list(transform.apply(stream))
+
+    assert [record.rolling_max_3 for record in out[:2]] == [None, None]
+    assert [record.rolling_max_3 for record in out[2:]] == [12.0, 12.0]
+
+
+def test_rolling_min_matches_window_min() -> None:
+    stream = iter(
+        [
+            make_time_record(10.0, 0),
+            make_time_record(8.0, 1),
+            make_time_record(12.0, 2),
+            make_time_record(9.0, 3),
+        ]
+    )
+    transform = RollingTransformer(
+        field="value",
+        to="rolling_min_3",
+        window=3,
+        statistic="min",
+        min_samples=3,
+    )
+
+    out = list(transform.apply(stream))
+
+    assert [record.rolling_min_3 for record in out[:2]] == [None, None]
+    assert [record.rolling_min_3 for record in out[2:]] == [8.0, 8.0]
+
+
 def test_rolling_rejects_unknown_statistic_with_supported_names() -> None:
-    with pytest.raises(ValueError, match="mean, median, stdev, pstdev"):
+    with pytest.raises(ValueError, match="mean, median, stdev, pstdev, max, min"):
         RollingTransformer(field="value", window=3, statistic="variance")
 
 

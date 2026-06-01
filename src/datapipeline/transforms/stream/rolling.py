@@ -17,7 +17,7 @@ class RollingTransformer(FieldValueStreamTransformBase):
 
     - window: number of recent ticks to consider (including missing ticks).
     - min_samples: minimum number of valid samples required to emit a value.
-    - statistic: 'mean' (default), 'median', 'stdev', or 'pstdev'.
+    - statistic: 'mean' (default), 'median', 'stdev', 'pstdev', 'max', or 'min'.
     - field: record attribute to read.
     - to: record attribute to write (defaults to field).
     """
@@ -49,10 +49,14 @@ class RollingTransformer(FieldValueStreamTransformBase):
             self.statistic = stdev
         elif statistic == "pstdev":
             self.statistic = pstdev
+        elif statistic == "max":
+            self.statistic = max
+        elif statistic == "min":
+            self.statistic = min
         else:
             raise ValueError(
                 f"Unsupported statistic: {statistic!r}; "
-                "expected one of: mean, median, stdev, pstdev"
+                "expected one of: mean, median, stdev, pstdev, max, min"
             )
 
         self.window = window
