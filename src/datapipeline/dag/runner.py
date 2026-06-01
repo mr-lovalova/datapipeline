@@ -1,11 +1,17 @@
 import logging
 import time
+from dataclasses import dataclass
 from collections.abc import Iterable, Iterator
 from contextvars import ContextVar
 from typing import Any
 
 from datapipeline.dag.dag import Dag
-from datapipeline.dag.events import DagParentRef, DagRunEvent, NodeExecutionEvent
+from datapipeline.dag.events import (
+    DagParentRef,
+    DagRunEvent,
+    NodeExecutionEvent,
+    NodeProgressEvent,
+)
 from datapipeline.dag.observer import (
     ExecutionObserver,
     LoggingExecutionObserver,
@@ -33,6 +39,25 @@ _CURRENT_RUN_ACTIVE_NODE: ContextVar[DagParentRef | None] = ContextVar(
     "datapipeline_runner_active_node",
     default=None,
 )
+_CURRENT_RUN_PROGRESS_NODE: ContextVar["NodeProgressContext | None"] = ContextVar(
+    "datapipeline_runner_progress_node",
+    default=None,
+)
+_CURRENT_RUN_OBSERVER: ContextVar[ExecutionObserver | None] = ContextVar(
+    "datapipeline_runner_observer",
+    default=None,
+)
+
+
+@dataclass(frozen=True)
+class NodeProgressContext:
+    dag_name: str
+    node_name: str
+    node_index: int
+    execution_index: int
+    node_kind: NodeKind
+    node_calls_dag: str | None
+    depth: int
 
 
 def _current_run_dag_depth() -> int:
@@ -45,6 +70,28 @@ def _run_interrupted() -> bool:
 
 def _current_run_active_node() -> DagParentRef | None:
     return _CURRENT_RUN_ACTIVE_NODE.get()
+
+
+def emit_node_progress(message: str) -> None:
+    node = _CURRENT_RUN_PROGRESS_NODE.get()
+    observer = _CURRENT_RUN_OBSERVER.get()
+    if node is None or observer is None:
+        return
+    emit = getattr(observer, "on_node_progress", None)
+    if not callable(emit):
+        return
+    emit(
+        NodeProgressEvent(
+            dag_name=node.dag_name,
+            node_name=node.node_name,
+            node_index=node.node_index,
+            execution_index=node.execution_index,
+            node_kind=node.node_kind,
+            node_calls_dag=node.node_calls_dag,
+            message=message,
+            depth=node.depth,
+        )
+    )
 
 
 def _next_execution_index() -> int:
@@ -187,6 +234,18 @@ def _observe_node_stream(
             DagParentRef(dag_name=dag_name, node_name=node_name, node_index=node_index)
         )
         execution_index = _next_execution_index()
+        progress_node_token = _CURRENT_RUN_PROGRESS_NODE.set(
+            NodeProgressContext(
+                dag_name=dag_name,
+                node_name=node_name,
+                node_index=node_index,
+                execution_index=execution_index,
+                node_kind=node_kind,
+                node_calls_dag=node_calls_dag,
+                depth=node_depth,
+            )
+        )
+        observer_token = _CURRENT_RUN_OBSERVER.set(observer)
         try:
             observer.on_node_start(
                 dag_name=dag_name,
@@ -236,6 +295,8 @@ def _observe_node_stream(
                     )
                 )
             finally:
+                _CURRENT_RUN_OBSERVER.reset(observer_token)
+                _CURRENT_RUN_PROGRESS_NODE.reset(progress_node_token)
                 _CURRENT_RUN_ACTIVE_NODE.reset(active_node_token)
 
     return _iter()

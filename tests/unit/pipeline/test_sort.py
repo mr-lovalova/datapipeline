@@ -92,3 +92,18 @@ def test_batch_sort_requires_pickleable_records_when_spilling() -> None:
 def test_batch_sort_rejects_invalid_batch_size() -> None:
     with pytest.raises(ValueError, match="batch_size must be at least 1"):
         list(batch_sort([SortItem(1)], batch_size=0, key=lambda item: item.value))
+
+
+def test_batch_sort_emits_spill_progress(monkeypatch) -> None:
+    monkeypatch.setattr(sort_module, "_PROGRESS_ITEM_INTERVAL", 1)
+    timestamps = iter([0.0, 61.0, 122.0, 183.0, 244.0, 305.0, 366.0])
+    monkeypatch.setattr(sort_module.time, "perf_counter", lambda: next(timestamps))
+    messages: list[str] = []
+    monkeypatch.setattr(sort_module, "emit_node_progress", messages.append)
+    records = [SortItem(3), SortItem(1), SortItem(2)]
+
+    ordered = list(batch_sort(records, batch_size=1, key=lambda item: item.value))
+
+    assert [item.value for item in ordered] == [1, 2, 3]
+    assert any("Sorting records: read batches=1 records=1" in msg for msg in messages)
+    assert any("Sorting records: emitted sorted_records=1" in msg for msg in messages)

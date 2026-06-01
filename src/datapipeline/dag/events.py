@@ -30,6 +30,18 @@ class NodeExecutionEvent:
 
 
 @dataclass(frozen=True)
+class NodeProgressEvent:
+    dag_name: str
+    node_name: str
+    node_index: int
+    execution_index: int
+    message: str
+    node_kind: NodeKind = "function"
+    node_calls_dag: str | None = None
+    depth: int = 0
+
+
+@dataclass(frozen=True)
 class DagRunEvent:
     dag_name: str
     node_count: int

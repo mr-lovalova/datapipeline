@@ -81,7 +81,7 @@ def build_vector_dag(
         PipelineNode(
             name="feature_fanout",
             op=_assemble_vectors,
-            args=(context, feature_cfgs, group_by_cadence),
+            args=(context, feature_cfgs, group_by_cadence, "Assembling feature vectors"),
             output="feature_vectors",
             kind="dag_fanout",
             calls_dag="feature:*",
@@ -102,7 +102,12 @@ def build_vector_dag(
                 PipelineNode(
                     name="target_fanout",
                     op=_assemble_vectors,
-                    args=(context, target_cfgs, group_by_cadence),
+                    args=(
+                        context,
+                        target_cfgs,
+                        group_by_cadence,
+                        "Assembling target vectors",
+                    ),
                     output="target_vectors",
                     kind="dag_fanout",
                     calls_dag="feature:*",
@@ -138,6 +143,7 @@ def _assemble_vectors(
     context: PipelineContext,
     configs: Sequence[FeatureRecordConfig],
     group_by_cadence: str,
+    progress_stage: str = "Assembling vectors",
 ) -> Iterator[tuple[tuple, Vector]]:
     if not configs:
         return iter(())
@@ -157,4 +163,8 @@ def _assemble_vectors(
             for stream in streams:
                 _close_iterator(stream)
 
-    return vector_assemble_stage(_merged_feature_streams(), group_by_cadence)
+    return vector_assemble_stage(
+        _merged_feature_streams(),
+        group_by_cadence,
+        progress_stage=progress_stage,
+    )

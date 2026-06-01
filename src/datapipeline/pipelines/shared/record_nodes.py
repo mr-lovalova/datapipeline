@@ -46,6 +46,7 @@ def order_records(
     context: PipelineContext,
     batch_size: int,
     partition_by: str | list[str] | None,
+    progress_stage: str,
     records: Iterable[Any] | None,
 ) -> Iterable[Any]:
     return batch_sort(
@@ -53,6 +54,7 @@ def order_records(
         batch_size=batch_size,
         key=lambda rec: (partition_key(rec, partition_by), rec.time),
         spill_dir=context.runtime.sort_spill_dir,
+        progress_stage=progress_stage,
     )
 
 

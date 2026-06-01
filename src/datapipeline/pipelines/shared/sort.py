@@ -1,17 +1,63 @@
 import heapq
 import pickle
 import tempfile
+import time
 from collections.abc import Callable, Generator, Iterable, Iterator, Sequence
 from contextlib import AbstractContextManager
 from itertools import count
 from pathlib import Path
 from typing import TypeVar
 
+from datapipeline.dag.runner import emit_node_progress
 
 T = TypeVar("T")
 _EMPTY = object()
 _MAX_OPEN_RUNS = 64
+_PROGRESS_INTERVAL_SECONDS = 60.0
+_PROGRESS_ITEM_INTERVAL = 10_000
 SpillDir = Path | Callable[[], Path] | None
+
+
+class _SortProgress:
+    def __init__(self, stage: str) -> None:
+        self.stage = stage
+        self.records_read = 0
+        self.batches_read = 0
+        self.runs_written = 0
+        self.records_emitted = 0
+        self._next_log_at = time.perf_counter() + _PROGRESS_INTERVAL_SECONDS
+
+    def batch_written(self, batch_size: int) -> None:
+        self.batches_read += 1
+        self.records_read += batch_size
+        self.runs_written += 1
+        self._emit_if_due(
+            (
+                f"{self.stage}: read batches={self.batches_read} "
+                f"records={self.records_read} spill_runs={self.runs_written}"
+            )
+        )
+
+    def merge_pass_started(self, pass_id: int, run_count: int) -> None:
+        emit_node_progress(f"{self.stage}: merge pass {pass_id} started runs={run_count}")
+
+    def merge_pass_finished(self, pass_id: int, run_count: int) -> None:
+        emit_node_progress(f"{self.stage}: merge pass {pass_id} finished runs={run_count}")
+
+    def record_emitted(self) -> None:
+        self.records_emitted += 1
+        if self.records_emitted % _PROGRESS_ITEM_INTERVAL:
+            return
+        self._emit_if_due(
+            f"{self.stage}: emitted sorted_records={self.records_emitted}"
+        )
+
+    def _emit_if_due(self, message: str) -> None:
+        now = time.perf_counter()
+        if now < self._next_log_at:
+            return
+        emit_node_progress(message)
+        self._next_log_at = now + _PROGRESS_INTERVAL_SECONDS
 
 
 def read_batches(
@@ -37,6 +83,7 @@ def batch_sort(
     batch_size: int,
     key: Callable[[T], object],
     spill_dir: SpillDir = None,
+    progress_stage: str = "Sorting records",
 ) -> Iterator[T]:
     """Sort an iterable by chunking, spilling runs to disk, then merging."""
     batches = read_batches(iterable, batch_size, key)
@@ -52,19 +99,27 @@ def batch_sort(
 
     with _temporary_directory(spill_dir) as tmp:
         temp_dir = Path(tmp)
+        progress = _SortProgress(progress_stage)
         run_paths: list[Path] = []
         run_paths.append(_write_run(temp_dir, 0, first_batch))
+        progress.batch_written(len(first_batch))
         run_paths.append(_write_run(temp_dir, 1, second_batch))
+        progress.batch_written(len(second_batch))
 
         for batch in batches:
             run_paths.append(_write_run(temp_dir, len(run_paths), batch))
+            progress.batch_written(len(batch))
 
         pass_id = 0
         while len(run_paths) > _MAX_OPEN_RUNS:
             pass_id += 1
+            progress.merge_pass_started(pass_id, len(run_paths))
             run_paths = _merge_pass(temp_dir, pass_id, run_paths, key)
+            progress.merge_pass_finished(pass_id, len(run_paths))
 
-        yield from _merge_runs(run_paths, key)
+        for item in _merge_runs(run_paths, key):
+            progress.record_emitted()
+            yield item
 
 
 def _temporary_directory(spill_dir: SpillDir) -> AbstractContextManager[str]:

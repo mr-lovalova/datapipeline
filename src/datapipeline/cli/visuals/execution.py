@@ -4,7 +4,12 @@ from dataclasses import dataclass
 from collections.abc import Sequence
 from typing import Any, Literal
 
-from datapipeline.dag.events import DagParentRef, DagRunEvent, NodeExecutionEvent
+from datapipeline.dag.events import (
+    DagParentRef,
+    DagRunEvent,
+    NodeExecutionEvent,
+    NodeProgressEvent,
+)
 from datapipeline.dag.node import NodeKind
 from datapipeline.dag.observer import ExecutionObserver
 from datapipeline.cli.visuals.execution_context import (
@@ -22,6 +27,7 @@ ExecutionEventKind = Literal[
     "dag_info",
     "dag_end",
     "node_start",
+    "node_progress",
     "node_end",
 ]
 
@@ -93,6 +99,8 @@ class ExecutionEventFormatter:
             return logging.DEBUG
         if event.kind in {"node_start", "node_end"}:
             return logging.DEBUG
+        if event.kind == "node_progress":
+            return logging.INFO
         return logging.INFO
 
     @classmethod
@@ -135,6 +143,12 @@ class ExecutionEventFormatter:
                 f"node={event.node_name} index={event.node_index} "
                 f"execution_index={event.execution_index} "
                 f"kind={event.node_kind}{calls_suffix}"
+            )
+        if event.kind == "node_progress":
+            return (
+                f"{indent}Node progress dag={event.dag_name} "
+                f"node={event.node_name} index={event.node_index} "
+                f"execution_index={event.execution_index} {event.message or ''}"
             )
         error_suffix = cls.error_suffix(event)
         return (
@@ -413,6 +427,24 @@ class HierarchicalExecutionObserver(ExecutionObserver):
                 error_message=event.error_message,
                 output_items=event.output_items,
                 elapsed_seconds=event.elapsed_seconds,
+                **_scope_fields(),
+            )
+        )
+        set_current_dag_depth(node_depth)
+
+    def on_node_progress(self, event: NodeProgressEvent) -> None:
+        node_depth = max(0, int(event.depth))
+        self._emit(
+            ExecutionLogEvent(
+                kind="node_progress",
+                dag_name=event.dag_name,
+                depth=node_depth,
+                node_name=event.node_name,
+                node_index=event.node_index,
+                execution_index=event.execution_index,
+                node_kind=event.node_kind,
+                node_calls_dag=event.node_calls_dag,
+                message=event.message,
                 **_scope_fields(),
             )
         )

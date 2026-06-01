@@ -1,7 +1,12 @@
 import logging
 from typing import Any, Protocol
 
-from datapipeline.dag.events import DagParentRef, DagRunEvent, NodeExecutionEvent
+from datapipeline.dag.events import (
+    DagParentRef,
+    DagRunEvent,
+    NodeExecutionEvent,
+    NodeProgressEvent,
+)
 from datapipeline.dag.node import NodeKind
 
 
@@ -43,6 +48,9 @@ class ExecutionObserver(Protocol):
     def on_node_end(self, event: NodeExecutionEvent) -> None:
         ...
 
+    def on_node_progress(self, event: NodeProgressEvent) -> None:
+        ...
+
     def on_dag_end(self, event: DagRunEvent) -> None:
         ...
 
@@ -73,6 +81,9 @@ class NoopExecutionObserver:
         pass
 
     def on_node_end(self, event: NodeExecutionEvent) -> None:
+        pass
+
+    def on_node_progress(self, event: NodeProgressEvent) -> None:
         pass
 
     def on_dag_end(self, event: DagRunEvent) -> None:
@@ -155,6 +166,17 @@ class LoggingExecutionObserver:
                 error_suffix,
                 event.output_items,
                 event.elapsed_seconds,
+            )
+
+    def on_node_progress(self, event: NodeProgressEvent) -> None:
+        if self._logger.isEnabledFor(logging.INFO):
+            self._logger.info(
+                "Node progress dag=%s node=%s index=%d execution_index=%d message=%s",
+                event.dag_name,
+                event.node_name,
+                event.node_index,
+                event.execution_index,
+                event.message,
             )
 
     def on_dag_end(self, event: DagRunEvent) -> None:

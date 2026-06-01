@@ -15,7 +15,12 @@ from datapipeline.cli.visuals.execution_context import (
     reset_current_execution_event_sink,
     set_current_execution_event_sink,
 )
-from datapipeline.dag.events import DagParentRef, DagRunEvent, NodeExecutionEvent
+from datapipeline.dag.events import (
+    DagParentRef,
+    DagRunEvent,
+    NodeExecutionEvent,
+    NodeProgressEvent,
+)
 
 
 class _CaptureSink(ExecutionEventSink):
@@ -144,6 +149,35 @@ def test_hierarchical_observer_logs_node_events_at_debug(caplog):
     assert any(msg.startswith("  Node execution started dag=demo") for msg in messages)
     assert any(msg.startswith("  Node execution finished dag=demo") for msg in messages)
     assert any("index=0" in msg for msg in messages)
+
+
+def test_hierarchical_observer_logs_node_progress_at_info(caplog):
+    logger = logging.getLogger("datapipeline.cli.visuals.execution.test.node_progress")
+    observer = HierarchicalExecutionObserver(LoggerExecutionEventSink(logger))
+
+    with caplog.at_level(logging.INFO, logger=logger.name):
+        observer.on_node_progress(
+            NodeProgressEvent(
+                dag_name="feature:close",
+                node_name="order_feature_records",
+                node_index=2,
+                execution_index=5,
+                message="Ordering feature close: emitted sorted_records=10000",
+                depth=2,
+            )
+        )
+
+    record = caplog.records[0]
+    assert record.getMessage().startswith(
+        "    Node progress dag=feature:close node=order_feature_records "
+        "index=2 execution_index=5 "
+        "Ordering feature close: emitted sorted_records=10000"
+    )
+    assert getattr(record, "dp_event_kind", None) == "node_progress"
+    assert getattr(record, "dp_node_name", None) == "order_feature_records"
+    assert getattr(record, "dp_message", None) == (
+        "Ordering feature close: emitted sorted_records=10000"
+    )
 
 
 def test_hierarchical_observer_logs_dag_call_node_metadata(caplog):

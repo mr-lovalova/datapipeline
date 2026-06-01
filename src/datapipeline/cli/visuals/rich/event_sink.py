@@ -115,6 +115,17 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
             if event.node_calls_dag is not None:
                 text.append(f" calls={event.node_calls_dag}", style="dim")
             return text
+        if event.kind == "node_progress":
+            text.append("Node progress", style="cyan")
+            text.append(
+                (
+                    f" dag={event.dag_name} node={event.node_name} "
+                    f"index={event.node_index} execution_index={event.execution_index} "
+                ),
+                style="dim",
+            )
+            text.append(event.message or "")
+            return text
         status_style = "green" if event.status == "success" else "red"
         text.append("Node execution finished", style="dim cyan")
         text.append(

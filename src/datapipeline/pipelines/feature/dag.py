@@ -131,7 +131,7 @@ def build_feature_nodes(
         PipelineNode(
             name="order_feature_records",
             op=order_feature_records,
-            args=(context, batch_size),
+            args=(context, batch_size, f"Ordering feature {feature_id}"),
             input="feature_transforms",
         ),
     )

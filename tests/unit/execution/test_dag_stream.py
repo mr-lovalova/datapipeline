@@ -20,6 +20,7 @@ class _CollectingObserver:
         self.dag_start_parents: list[DagParentRef | None] = []
         self.node_started: list[tuple[str, str, int]] = []
         self.node_events = []
+        self.node_progress_events = []
         self.dag_events = []
 
     def on_dag_start(
@@ -49,6 +50,9 @@ class _CollectingObserver:
 
     def on_node_end(self, event) -> None:
         self.node_events.append(event)
+
+    def on_node_progress(self, event) -> None:
+        self.node_progress_events.append(event)
 
     def on_dag_end(self, event) -> None:
         self.dag_events.append(event)
@@ -129,6 +133,61 @@ def test_run_dag_emits_node_and_dag_events(tmp_path: Path) -> None:
     assert observer.dag_events[0].status == "success"
     assert observer.dag_events[0].output_items == 3
     assert observer.dag_events[0].depth == 0
+
+
+def test_run_dag_emits_node_progress_with_active_node_context(tmp_path: Path) -> None:
+    observer = _CollectingObserver()
+    ctx = _context(tmp_path)
+
+    def _with_progress():
+        dag_runner.emit_node_progress("items=0")
+        yield 1
+
+    dag = Dag(
+        name="progress-demo",
+        nodes=(PipelineNode(name="produce", op=_with_progress),),
+    )
+
+    assert list(run_dag(ctx, dag, observer=observer)) == [1]
+
+    assert len(observer.node_progress_events) == 1
+    event = observer.node_progress_events[0]
+    assert event.dag_name == "progress-demo"
+    assert event.node_name == "produce"
+    assert event.node_index == 0
+    assert event.execution_index == 0
+    assert event.message == "items=0"
+    assert event.depth == 1
+
+
+def test_run_dag_ignores_node_progress_when_observer_does_not_support_it(
+    tmp_path: Path,
+) -> None:
+    class MinimalObserver:
+        def on_dag_start(self, **kwargs) -> None:
+            pass
+
+        def on_node_start(self, **kwargs) -> None:
+            pass
+
+        def on_node_end(self, event) -> None:
+            pass
+
+        def on_dag_end(self, event) -> None:
+            pass
+
+    ctx = _context(tmp_path)
+
+    def _with_progress():
+        dag_runner.emit_node_progress("items=0")
+        yield 1
+
+    dag = Dag(
+        name="progress-demo",
+        nodes=(PipelineNode(name="produce", op=_with_progress),),
+    )
+
+    assert list(run_dag(ctx, dag, observer=MinimalObserver())) == [1]
 
 
 def test_run_dag_propagates_error_and_marks_failure(tmp_path: Path) -> None:
