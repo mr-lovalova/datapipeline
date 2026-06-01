@@ -74,7 +74,7 @@ def _time_then_id(item: Any) -> tuple[Any, Any]:
         time_value = getattr(rec, "time", None)
     else:
         records = getattr(item, "records", None)
-        time_value = getattr(records[0], "time", None) if records else None
+        time_value = getattr(records[-1], "time", None) if records else None
     return time_value, getattr(item, "id", None)
 
 

@@ -51,16 +51,14 @@ def test_incomplete_prices_project_vectors(copy_fixture):
     values = first.features.values
     assert values["spot_eur_scaled__@area:DK1"] == pytest.approx(-1.0020365384, rel=1e-6)
     assert values["spot_eur_scaled__@area:SYSTEM"] == pytest.approx(-1.3841396412, rel=1e-6)
-    assert values["spot_eur_sequence__@area:DK1"] == pytest.approx(
-        [37.669998, 39.700001, 40.59], rel=1e-6
-    )
+    assert all(v is None for v in values["spot_eur_sequence__@area:DK1"])
 
     # Window stride keeps only a subset of buckets populated; others stay empty after postprocess.
     empty_window = samples[1].features.values["spot_eur_sequence__@area:DK1"]
     assert all(v is None for v in empty_window)
 
     populated = samples[2].features.values["spot_eur_sequence__@area:DK1"]
-    assert populated == pytest.approx([40.59, 43.259998, 49.66], rel=1e-6)
+    assert populated == pytest.approx([37.669998, 39.700001, 40.59], rel=1e-6)
 
 
 def test_incomplete_generation_project_alignment(copy_fixture):
@@ -88,5 +86,5 @@ def test_incomplete_generation_project_alignment(copy_fixture):
     )
     assert first.features.values["onshore_mwh_window__@municipality:849"] == [None, None]
 
-    window = samples[3].features.values["onshore_mwh_window__@municipality:849"]
+    window = samples[4].features.values["onshore_mwh_window__@municipality:849"]
     assert window == pytest.approx([2.351027, 1.049725], rel=1e-6)
