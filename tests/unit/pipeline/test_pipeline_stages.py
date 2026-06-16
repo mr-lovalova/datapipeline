@@ -18,6 +18,8 @@ from datapipeline.pipelines import (
 from datapipeline.pipelines.ingest import build_ingest_pipeline
 from datapipeline.pipelines.stream import build_stream_pipeline
 from datapipeline.pipelines.vector import dag as vector_dag
+from datapipeline.pipelines.shared.record_nodes import state_partition_by
+from datapipeline.pipelines.vector.nodes import sample_domain_window_keys
 from datapipeline.pipelines.full.nodes import post_process
 from datapipeline.pipelines.full.split import apply_split_stage
 from datapipeline.runtime import Runtime, StreamRuntimeSpec
@@ -26,6 +28,38 @@ from datapipeline.services.constants import POSTPROCESS_TRANSFORMS, VECTOR_SCHEM
 
 def _ts(hour: int, minute: int = 0) -> datetime:
     return datetime(2024, 1, 1, hour=hour, minute=minute, tzinfo=timezone.utc)
+
+
+def test_sample_domain_window_keys_emit_sorted_composite_keys() -> None:
+    domain = [
+        {"key": ["MSFT"], "start": _ts(0), "end": _ts(1)},
+        {"key": ["AAPL"], "start": _ts(1), "end": _ts(1)},
+    ]
+
+    keys = list(
+        sample_domain_window_keys(
+            _ts(0),
+            _ts(2),
+            "1h",
+            ["security_id"],
+            domain,
+        )
+    )
+
+    assert keys == [
+        (_ts(0), "MSFT"),
+        (_ts(1), "AAPL"),
+        (_ts(1), "MSFT"),
+    ]
+
+
+def test_state_partition_prefers_explicit_stream_partition(tmp_path: Path) -> None:
+    runtime = _runtime_with_rows(tmp_path, [{"time": _ts(0), "value": 1.0}])
+    runtime.sample_keys = ["security_id"]
+    context = PipelineContext(runtime)
+
+    assert state_partition_by(context, "venue") == "venue"
+    assert state_partition_by(context, None) == ["security_id"]
 
 
 class _StubSource:
@@ -404,7 +438,7 @@ def test_vector_assembly_closes_feature_streams_when_stopped_early(
 
     monkeypatch.setattr(
         "datapipeline.pipelines.vector.dag.build_feature_pipeline",
-        lambda _context, cfg: _stream_for(cfg),
+        lambda _context, cfg, sample_keys=(): _stream_for(cfg),
     )
 
     vectors = vector_dag._assemble_vectors(context, configs, "1h")

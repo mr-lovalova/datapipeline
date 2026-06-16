@@ -218,6 +218,7 @@ def _serve_preview(
     feature_cfgs: list,
     target_cfgs: list,
     group_by: str,
+    sample_keys: list[str],
     limit: Optional[int],
     target: OutputTarget,
     throttle_ms: Optional[float],
@@ -232,6 +233,7 @@ def _serve_preview(
             group_by,
             target_configs=target_cfgs,
             rectangular=True,
+            sample_keys=sample_keys,
         )
         if selected_node.serve_node_index is None:
             raise ValueError(
@@ -267,6 +269,7 @@ def _serve_preview(
                 context,
                 cfg,
                 node=_feature_preview_index(context, cfg.record_stream, selected_node),
+                sample_keys=sample_keys,
             )
         outputs.append(_runtime_output(stream, target.for_feature(output_id), limit))
     return RuntimeOutputBatch(outputs=tuple(outputs))
@@ -279,6 +282,7 @@ def _serve_full(
     feature_cfgs: list,
     target_cfgs: list,
     group_by: str,
+    sample_keys: list[str],
     limit: Optional[int],
     target: OutputTarget,
     throttle_ms: Optional[float],
@@ -290,6 +294,7 @@ def _serve_full(
         group_by,
         target_configs=target_cfgs,
         rectangular=True,
+        sample_keys=sample_keys,
     )
     return RuntimeOutputBatch(
         outputs=(_sample_output(vectors, target, limit, throttle_ms),),
@@ -314,6 +319,7 @@ def serve_with_runtime(
     )
     feature_cfgs = list(dataset.features or [])
     target_cfgs = list(dataset.targets or [])
+    runtime.sample_keys = dataset.sample_keys
     if not feature_cfgs and not target_cfgs:
         logger.warning("(no features configured; nothing to serve)")
         return
@@ -325,6 +331,7 @@ def serve_with_runtime(
             feature_cfgs=feature_cfgs,
             target_cfgs=target_cfgs,
             group_by=dataset.group_by,
+            sample_keys=dataset.sample_keys,
             limit=limit,
             target=target,
             throttle_ms=throttle_ms,
@@ -336,6 +343,7 @@ def serve_with_runtime(
         feature_cfgs=feature_cfgs,
         target_cfgs=target_cfgs,
         group_by=dataset.group_by,
+        sample_keys=dataset.sample_keys,
         limit=limit,
         target=target,
         throttle_ms=throttle_ms,

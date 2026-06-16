@@ -170,7 +170,12 @@ class StandardScaler:
                     normalized -= mean
                 if self.with_std:
                     normalized /= std
-                yield FeatureRecord(record=fr.record, id=fr.id, value=normalized)
+                yield FeatureRecord(
+                    record=fr.record,
+                    id=fr.id,
+                    value=normalized,
+                    entity_key=fr.entity_key,
+                )
 
     def inverse_transform(
         self,
@@ -198,7 +203,12 @@ class StandardScaler:
                     restored *= std
                 if self.with_mean:
                     restored += mean
-                yield FeatureRecord(record=fr.record, id=fr.id, value=restored)
+                yield FeatureRecord(
+                    record=fr.record,
+                    id=fr.id,
+                    value=restored,
+                    entity_key=fr.entity_key,
+                )
 
     class _RunningStats:
         __slots__ = ("count", "mean", "m2")

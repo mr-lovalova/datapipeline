@@ -21,6 +21,7 @@ def build_full_pipeline(
     group_by_cadence: str,
     target_configs: Sequence[FeatureRecordConfig] | None = None,
     rectangular: bool = True,
+    sample_keys: Sequence[str] = (),
 ) -> Iterator[Any]:
     return run_dag(
         context,
@@ -30,6 +31,7 @@ def build_full_pipeline(
             group_by_cadence,
             target_configs=target_configs,
             rectangular=rectangular,
+            sample_keys=sample_keys,
         ),
     )
 
@@ -40,6 +42,7 @@ def build_full_dag(
     group_by_cadence: str,
     target_configs: Sequence[FeatureRecordConfig] | None = None,
     rectangular: bool = True,
+    sample_keys: Sequence[str] = (),
 ) -> Dag:
     return Dag(
         name="pipeline:serve",
@@ -53,6 +56,7 @@ def build_full_dag(
                     group_by_cadence,
                     target_configs,
                     rectangular,
+                    sample_keys,
                 ),
                 output="vectors",
                 kind="dag_call",
@@ -64,6 +68,7 @@ def build_full_dag(
                         group_by_cadence,
                         target_configs,
                         rectangular,
+                        sample_keys,
                     ),
                 ),
             ),

@@ -59,8 +59,16 @@ def test_collect_schema_entries_counts_nan(monkeypatch, tmp_path):
     )
     sample = Sample(key=(0,), features=Vector(values={"wind_speed": math.nan}))
 
-    def fake_pipeline(context, configs, group_by_cadence, target_configs=None, rectangular=True):
+    def fake_pipeline(
+        context,
+        configs,
+        group_by_cadence,
+        target_configs=None,
+        rectangular=True,
+        sample_keys=(),
+    ):
         assert not rectangular
+        assert sample_keys == ()
         return iter([sample])
 
     monkeypatch.setattr(
@@ -208,10 +216,10 @@ def test_metadata_materialization_rejects_configured_empty_features(
     )
 
     def empty_collection(*args, **kwargs):
-        return [], 0, None, None
+        return [], 0, None, None, {}
 
     monkeypatch.setattr(
-        "datapipeline.operations.artifacts.metadata.collect_schema_entries",
+        "datapipeline.operations.artifacts.metadata.collect_schema_entries_and_sample_domain",
         empty_collection,
     )
 
@@ -219,6 +227,65 @@ def test_metadata_materialization_rejects_configured_empty_features(
         materialize_metadata(runtime, MetadataTask(output="metadata.json"))
 
     assert not (runtime.artifacts_root / "metadata.json").exists()
+
+
+def test_metadata_materialization_writes_keyed_sample_domain(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    runtime = _runtime_with_dataset(
+        tmp_path,
+        "\n".join(
+            [
+                "sample:",
+                "  cadence: 1h",
+                "  keys: [security_id]",
+                "features:",
+                "  - id: price",
+                "    record_stream: market.prices",
+                "    field: close",
+                "targets: []",
+                "",
+            ]
+        ),
+    )
+    start = datetime(2024, 1, 1, 0, tzinfo=timezone.utc)
+    end = datetime(2024, 1, 1, 1, tzinfo=timezone.utc)
+
+    def collected_entries(*args, **kwargs):
+        return [
+            {
+                "id": "price",
+                "base_id": "price",
+                "kind": "scalar",
+                "present_count": 2,
+                "null_count": 0,
+                "first_ts": start,
+                "last_ts": end,
+            }
+        ], 2, start, end, {("AAPL",): (start, end)}
+
+    monkeypatch.setattr(
+        "datapipeline.operations.artifacts.metadata.collect_schema_entries_and_sample_domain",
+        collected_entries,
+    )
+
+    materialize_metadata(runtime, MetadataTask(output="metadata.json"))
+
+    payload = json.loads(
+        (runtime.artifacts_root / "metadata.json").read_text(encoding="utf-8")
+    )
+    assert payload["sample"] == {
+        "cadence": "1h",
+        "keys": ["security_id"],
+        "domain": [
+            {
+                "key": ["AAPL"],
+                "start": "2024-01-01T00:00:00Z",
+                "end": "2024-01-01T01:00:00Z",
+            }
+        ],
+    }
 
 
 def test_metadata_entries_include_observation_bounds():

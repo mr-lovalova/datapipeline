@@ -30,6 +30,7 @@ def _record_stream_signature_payload(
     project_yaml: Path,
     stream_id: str,
 ) -> dict[str, Any] | None:
+    from datapipeline.config.dataset.loader import load_dataset
     from datapipeline.services.bootstrap.core import load_streams
 
     # Some unit/runtime tests build an in-memory Runtime without a full
@@ -38,7 +39,16 @@ def _record_stream_signature_payload(
         streams = load_streams(project_yaml)
     except (FileNotFoundError, ValidationError):
         return None
-    return _stream_payload_from_config(streams, stream_id, {})
+    payload = _stream_payload_from_config(streams, stream_id, {})
+    if payload is None:
+        return None
+    try:
+        dataset = load_dataset(project_yaml, "vectors")
+    except (FileNotFoundError, ValidationError, ValueError):
+        return payload
+    if dataset.sample_keys:
+        payload["sample_keys"] = dataset.sample_keys
+    return payload
 
 
 def _stream_payload_from_config(

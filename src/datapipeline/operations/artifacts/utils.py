@@ -1,4 +1,5 @@
 from collections import Counter, OrderedDict
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
@@ -20,12 +21,67 @@ def collect_schema_entries(
     configs,
     group_by: str,
     *,
+    sample_keys: Sequence[str] = (),
     cadence_strategy: str,
     collect_metadata: bool,
 ) -> tuple[list[dict], int, datetime | None, datetime | None]:
+    entries, vector_count, min_time, max_time, _ = _collect_schema_entries(
+        runtime,
+        configs,
+        group_by,
+        sample_keys=sample_keys,
+        cadence_strategy=cadence_strategy,
+        collect_metadata=collect_metadata,
+        collect_sample_domain=False,
+    )
+    return entries, vector_count, min_time, max_time
+
+
+def collect_schema_entries_and_sample_domain(
+    runtime: Runtime,
+    configs,
+    group_by: str,
+    *,
+    sample_keys: Sequence[str],
+    cadence_strategy: str,
+    collect_metadata: bool,
+) -> tuple[
+    list[dict],
+    int,
+    datetime | None,
+    datetime | None,
+    dict[tuple, tuple[datetime, datetime]],
+]:
+    return _collect_schema_entries(
+        runtime,
+        configs,
+        group_by,
+        sample_keys=sample_keys,
+        cadence_strategy=cadence_strategy,
+        collect_metadata=collect_metadata,
+        collect_sample_domain=True,
+    )
+
+
+def _collect_schema_entries(
+    runtime: Runtime,
+    configs,
+    group_by: str,
+    *,
+    sample_keys: Sequence[str],
+    cadence_strategy: str,
+    collect_metadata: bool,
+    collect_sample_domain: bool,
+) -> tuple[
+    list[dict],
+    int,
+    datetime | None,
+    datetime | None,
+    dict[tuple, tuple[datetime, datetime]],
+]:
     configs = list(configs or [])
     if not configs:
-        return [], 0, None, None
+        return [], 0, None, None, {}
     sanitized = [cfg.model_copy(update={"scale": False}) for cfg in configs]
     context = PipelineContext(runtime)
     vectors = build_vector_pipeline(
@@ -33,9 +89,11 @@ def collect_schema_entries(
         sanitized,
         group_by,
         rectangular=False,
+        sample_keys=sample_keys,
     )
 
     stats: OrderedDict[str, dict] = OrderedDict()
+    sample_domain: dict[tuple, tuple[datetime, datetime]] = {}
     vector_count = 0
     min_time: datetime | None = None
     max_time: datetime | None = None
@@ -45,6 +103,8 @@ def collect_schema_entries(
         if isinstance(ts, datetime):
             min_time = ts if min_time is None else min(min_time, ts)
             max_time = ts if max_time is None else max(max_time, ts)
+            if collect_sample_domain and sample_keys:
+                _update_sample_domain(sample_domain, sample.key, ts)
         payload = sample.features
         for fid, value in payload.values.items():
             entry = stats.get(fid)
@@ -98,7 +158,23 @@ def collect_schema_entries(
                 if collect_metadata:
                     entry["scalar_types"].add(_type_name(value))
 
-    return list(stats.values()), vector_count, min_time, max_time
+    return list(stats.values()), vector_count, min_time, max_time, sample_domain
+
+
+def _update_sample_domain(
+    sample_domain: dict[tuple, tuple[datetime, datetime]],
+    group_key: Any,
+    ts: datetime,
+) -> None:
+    if not isinstance(group_key, tuple) or len(group_key) < 2:
+        return
+    key_values = tuple(group_key[1:])
+    current = sample_domain.get(key_values)
+    if current is None:
+        sample_domain[key_values] = (ts, ts)
+        return
+    start, end = current
+    sample_domain[key_values] = min(start, ts), max(end, ts)
 
 
 def configured_vectors_are_empty(configs, vector_count: int) -> bool:

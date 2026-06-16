@@ -171,6 +171,217 @@ def test_vector_targets_respect_partitioned_ids(tmp_path) -> None:
     )
 
 
+def test_vector_samples_can_group_by_record_key_fields(tmp_path) -> None:
+    def _equity_record(hour: int, security_id: str, value: float) -> TemporalRecord:
+        rec = _record(_ts(hour), value)
+        setattr(rec, "security_id", security_id)
+        return rec
+
+    streams = {
+        "momentum_stream": [
+            _equity_record(0, "MSFT", 2.0),
+            _equity_record(0, "AAPL", 1.0),
+            _equity_record(1, "AAPL", 3.0),
+        ],
+        "return_stream": [
+            _equity_record(0, "AAPL", 0.1),
+            _equity_record(0, "MSFT", 0.2),
+            _equity_record(1, "AAPL", 0.3),
+        ],
+    }
+    runtime = _runtime_with_streams(tmp_path, streams)
+    context = PipelineContext(runtime)
+    feature_cfgs = [
+        FeatureRecordConfig(
+            record_stream="momentum_stream",
+            id="momentum",
+            field="value",
+        ),
+    ]
+    target_cfgs = [
+        FeatureRecordConfig(
+            record_stream="return_stream",
+            id="forward_return",
+            field="value",
+        ),
+    ]
+
+    samples = list(
+        build_vector_pipeline(
+            context,
+            feature_cfgs,
+            "1h",
+            target_configs=target_cfgs,
+            rectangular=False,
+            sample_keys=["security_id"],
+        )
+    )
+
+    assert [sample.key for sample in samples] == [
+        (_ts(0), "AAPL"),
+        (_ts(0), "MSFT"),
+        (_ts(1), "AAPL"),
+    ]
+    assert [sample.features.values["momentum"] for sample in samples] == [
+        1.0,
+        2.0,
+        3.0,
+    ]
+    assert [sample.targets.values["forward_return"] for sample in samples] == [
+        0.1,
+        0.2,
+        0.3,
+    ]
+
+
+def test_sequence_features_are_windowed_by_sample_keys(tmp_path) -> None:
+    def _equity_record(hour: int, security_id: str, value: float) -> TemporalRecord:
+        rec = _record(_ts(hour), value)
+        setattr(rec, "security_id", security_id)
+        return rec
+
+    streams = {
+        "monthly_returns": [
+            _equity_record(0, "AAPL", 1.0),
+            _equity_record(0, "MSFT", 10.0),
+            _equity_record(1, "AAPL", 2.0),
+            _equity_record(1, "MSFT", 20.0),
+        ],
+    }
+    runtime = _runtime_with_streams(tmp_path, streams)
+    context = PipelineContext(runtime)
+    feature_cfgs = [
+        FeatureRecordConfig(
+            record_stream="monthly_returns",
+            id="monthly_return",
+            field="value",
+            sequence={"size": 2, "stride": 1},
+        ),
+    ]
+
+    samples = list(
+        build_vector_pipeline(
+            context,
+            feature_cfgs,
+            "1h",
+            rectangular=False,
+            sample_keys=["security_id"],
+        )
+    )
+
+    assert [sample.key for sample in samples] == [
+        (_ts(1), "AAPL"),
+        (_ts(1), "MSFT"),
+    ]
+    assert [sample.features.values for sample in samples] == [
+        {"monthly_return": [1.0, 2.0]},
+        {"monthly_return": [10.0, 20.0]},
+    ]
+
+
+def test_partition_by_remains_feature_identity_with_sample_keys(tmp_path) -> None:
+    def _equity_record(hour: int, security_id: str, value: float) -> TemporalRecord:
+        rec = _record(_ts(hour), value)
+        setattr(rec, "security_id", security_id)
+        return rec
+
+    streams = {
+        "monthly_returns": [
+            _equity_record(0, "AAPL", 1.0),
+            _equity_record(1, "AAPL", 2.0),
+        ],
+    }
+    runtime = _runtime_with_streams(tmp_path, streams)
+    runtime.registries.partition_by.register("monthly_returns", "security_id")
+    context = PipelineContext(runtime)
+    feature_cfgs = [
+        FeatureRecordConfig(
+            record_stream="monthly_returns",
+            id="monthly_return",
+            field="value",
+            sequence={"size": 2, "stride": 1},
+        ),
+    ]
+
+    samples = list(
+        build_vector_pipeline(
+            context,
+            feature_cfgs,
+            "1h",
+            rectangular=False,
+            sample_keys=["security_id"],
+        )
+    )
+
+    assert samples[0].key == (_ts(1), "AAPL")
+    assert samples[0].features.values == {
+        "monthly_return__@security_id:AAPL": [1.0, 2.0],
+    }
+
+
+def test_stream_transforms_use_sample_keys_for_state_partition(tmp_path) -> None:
+    def _equity_record(hour: int, security_id: str, value: float) -> TemporalRecord:
+        rec = _record(_ts(hour), value)
+        setattr(rec, "security_id", security_id)
+        return rec
+
+    streams = {
+        "daily_prices": [
+            _equity_record(0, "AAPL", 10.0),
+            _equity_record(0, "MSFT", 100.0),
+            _equity_record(1, "AAPL", 20.0),
+            _equity_record(1, "MSFT", 200.0),
+        ],
+    }
+    runtime = _runtime_with_streams(
+        tmp_path,
+        streams,
+        stream_transforms={
+            "daily_prices": [
+                {
+                    "rolling": {
+                        "field": "value",
+                        "to": "value_mean_2",
+                        "window": 2,
+                        "min_samples": 2,
+                    }
+                }
+            ]
+        },
+    )
+    context = PipelineContext(runtime)
+    feature_cfgs = [
+        FeatureRecordConfig(
+            record_stream="daily_prices",
+            id="value_mean_2",
+            field="value_mean_2",
+        ),
+    ]
+
+    samples = list(
+        build_vector_pipeline(
+            context,
+            feature_cfgs,
+            "1h",
+            rectangular=False,
+            sample_keys=["security_id"],
+        )
+    )
+
+    assert [sample.key for sample in samples] == [
+        (_ts(0), "AAPL"),
+        (_ts(0), "MSFT"),
+        (_ts(1), "AAPL"),
+        (_ts(1), "MSFT"),
+    ]
+    assert [sample.features.values for sample in samples] == [
+        {"value_mean_2": None},
+        {"value_mean_2": None},
+        {"value_mean_2": 15.0},
+        {"value_mean_2": 150.0},
+    ]
+
+
 def test_regression_scaled_shapes_airpressure_high_freq_and_windspeed_hourly(tmp_path) -> None:
     # Fake raw streams
     # high-frequency mock series (multiple samples per hour)

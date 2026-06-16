@@ -58,10 +58,20 @@ def order_records(
     )
 
 
+def state_partition_by(
+    context: PipelineContext,
+    partition_by: str | list[str] | None,
+) -> str | list[str] | None:
+    if partition_by:
+        return partition_by
+    sample_keys = getattr(context.runtime, "sample_keys", [])
+    return list(sample_keys) if sample_keys else partition_by
+
+
 def apply_stream_operations(
     context: PipelineContext,
     operations: Any,
-    partition_by: str | list[str] | None,
+    state_partition_by: str | list[str] | None,
     records: Iterable[Any] | None,
 ) -> Iterable[Any]:
     return apply_transforms(
@@ -69,14 +79,14 @@ def apply_stream_operations(
         STREAM_TRANFORMS_EP,
         operations,
         context,
-        extra_kwargs={"partition_by": partition_by},
+        extra_kwargs={"partition_by": state_partition_by},
     )
 
 
 def apply_debug_operations(
     context: PipelineContext,
     operations: Any,
-    partition_by: str | list[str] | None,
+    state_partition_by: str | list[str] | None,
     records: Iterable[Any] | None,
 ) -> Iterable[Any]:
     return apply_transforms(
@@ -84,5 +94,5 @@ def apply_debug_operations(
         DEBUG_TRANSFORMS_EP,
         operations,
         context,
-        extra_kwargs={"partition_by": partition_by},
+        extra_kwargs={"partition_by": state_partition_by},
     )

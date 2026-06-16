@@ -321,7 +321,9 @@ Notes:
 Defines which canonical streams become features/targets and the vector bucketing.
 
 ```yaml
-group_by: 1h
+sample:
+  cadence: 1h
+  keys: [security_id]
 
 features:
   - id: close
@@ -336,8 +338,17 @@ targets:
     field: returns_1d
 ```
 
-- `group_by` controls the cadence for vector partitioning (must match `^\\d+(m|min|h|d)$`,
-  e.g. `10m`, `60min`, `1h`, `1d`).
+- `sample.cadence` controls the time bucket for vector samples (must match
+  `^\\d+(m|min|h|d)$`, e.g. `10m`, `60min`, `1h`, `1d`).
+- `sample.keys` optionally adds record fields to the sample key. For example,
+  `keys: [security_id]` emits one sample per `(time, security_id)`.
+- Stateful stream transforms such as `lag`, `lead`, `rolling`, `fill`, and
+  `ensure_cadence` use `sample.keys` as their default entity partition, so
+  per-security samples do not mix state.
+- `group_by: 1h` is still accepted as the legacy time-only form and is
+  equivalent to `sample: { cadence: 1h, keys: [] }`.
+- Stream `partition_by` remains separate: it creates partitioned feature ids
+  such as `close__@security_id:AAPL` when that column shape is desired.
 - `field` selects the record attribute used as the feature/target value.
 - `scale: true` inserts the standard scaler feature transform (requires scaler
   stats artifact or inline statistics).

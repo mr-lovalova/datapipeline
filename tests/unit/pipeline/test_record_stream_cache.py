@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from datapipeline.cache.record_streams import RecordStreamCache, cached_record_stream
+from datapipeline.cache.signatures import resolve_record_stream_cache_ref
 from datapipeline.dag.context import PipelineContext
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.runtime import Runtime, StreamRuntimeSpec
@@ -119,6 +120,29 @@ def test_record_stream_cache_materializes_and_replays(tmp_path: Path) -> None:
 
     assert materialized == records
     assert replayed == records
+
+
+def test_record_stream_cache_signature_includes_sample_keys(tmp_path: Path) -> None:
+    project_yaml = _write_project(tmp_path)
+    before = resolve_record_stream_cache_ref(project_yaml, "prices.aapl")
+
+    (project_yaml.parent / "dataset.yaml").write_text(
+        "\n".join(
+            [
+                "sample:",
+                "  cadence: 1d",
+                "  keys: [symbol]",
+                "features: []",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    after = resolve_record_stream_cache_ref(project_yaml, "prices.aapl")
+
+    assert before is not None
+    assert after is not None
+    assert before[2] != after[2]
 
 
 def test_record_stream_cache_reraises_materialization_failure(tmp_path: Path) -> None:

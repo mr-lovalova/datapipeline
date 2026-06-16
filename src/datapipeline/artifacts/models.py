@@ -16,6 +16,18 @@ class Window(BaseModel):
     )
 
 
+class SampleDomainEntry(BaseModel):
+    key: list[Any] = Field(default_factory=list)
+    start: datetime | None = None
+    end: datetime | None = None
+
+
+class SampleMetadata(BaseModel):
+    cadence: str
+    keys: list[str] = Field(default_factory=list)
+    domain: list[SampleDomainEntry] = Field(default_factory=list)
+
+
 class VectorSchemaEntry(BaseModel):
     """One feature or target entry in build/schema.json."""
 
@@ -54,3 +66,4 @@ class VectorMetadata(BaseModel):
     features: list[dict[str, Any]] = Field(default_factory=list)
     targets: list[dict[str, Any]] = Field(default_factory=list)
     counts: dict[str, int] = Field(default_factory=dict)
+    sample: SampleMetadata | None = None

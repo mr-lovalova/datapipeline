@@ -41,6 +41,7 @@ def _iter_merged_vectors(
         dataset.group_by,
         target_configs=target_cfgs,
         rectangular=True,
+        sample_keys=dataset.sample_keys,
     )
     if apply_postprocess:
         vectors = post_process(context, vectors)

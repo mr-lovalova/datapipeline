@@ -14,4 +14,5 @@ def _anchor_time(item: Any) -> datetime | None:
 
 def group_key_for(item: Any, cadence: str) -> tuple:
     t = _anchor_time(item)
-    return (floor_time_to_bucket(t, cadence),)
+    entity_key = getattr(item, "entity_key", ())
+    return (floor_time_to_bucket(t, cadence), *entity_key)

@@ -84,6 +84,7 @@ class Runtime:
     split_keep: Optional[str] = None
     run: Optional[ServeProfile] = None
     schema_required: bool = True
+    sample_keys: list[str] = field(default_factory=list)
     window_bounds: tuple[datetime | None, datetime | None] | None = None
     artifacts: ArtifactManager = field(init=False)
     record_stream_cache: RecordStreamCache = field(init=False)

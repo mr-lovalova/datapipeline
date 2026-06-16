@@ -26,6 +26,7 @@ def materialize_vector_schema(
         runtime,
         features_cfgs,
         dataset.group_by,
+        sample_keys=dataset.sample_keys,
         cadence_strategy=task_cfg.cadence_strategy,
         collect_metadata=False,
     )
@@ -43,6 +44,7 @@ def materialize_vector_schema(
             runtime,
             target_cfgs,
             dataset.group_by,
+            sample_keys=dataset.sample_keys,
             cadence_strategy=task_cfg.cadence_strategy,
             collect_metadata=False,
         )

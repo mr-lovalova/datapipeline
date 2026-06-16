@@ -31,6 +31,7 @@ def _dataset(*, targets=None):
         features=[object()],
         targets=list(targets or []),
         group_by="1d",
+        sample_keys=[],
     )
 
 
@@ -39,6 +40,7 @@ def _preview_dataset(record_stream):
         features=[SimpleNamespace(id="price", record_stream=record_stream)],
         targets=[],
         group_by="1d",
+        sample_keys=[],
     )
 
 

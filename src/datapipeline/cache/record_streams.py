@@ -70,7 +70,10 @@ class RecordStreamCache:
 
 def cached_record_stream(context, record_stream_id: str) -> Iterator[Any]:
     from datapipeline.pipelines.ingest import build_ingest_pipeline
-    from datapipeline.pipelines.shared.record_nodes import apply_debug_operations
+    from datapipeline.pipelines.shared.record_nodes import (
+        apply_debug_operations,
+        state_partition_by,
+    )
     from datapipeline.pipelines.stream import build_stream_dag, build_stream_pipeline
 
     runtime = context.runtime
@@ -82,6 +85,7 @@ def cached_record_stream(context, record_stream_id: str) -> Iterator[Any]:
         return build_stream_pipeline(context, record_stream_id)
 
     partition_by = runtime.registries.partition_by.get(record_stream_id)
+    state_by = state_partition_by(context, partition_by)
     debug_operations = runtime.registries.debug_operations.get(record_stream_id)
 
     stream = runtime.record_stream_cache.load(record_stream_id)
@@ -103,7 +107,7 @@ def cached_record_stream(context, record_stream_id: str) -> Iterator[Any]:
     return apply_debug_operations(
         context,
         debug_operations,
-        partition_by,
+        state_by,
         stream,
     )
 

@@ -1,8 +1,9 @@
 import time
 from collections import defaultdict
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping, Sequence
 from datetime import datetime
 from itertools import groupby
+from typing import Any
 
 from datapipeline.config.dataset.normalize import floor_time_to_bucket
 from datapipeline.domain.feature import FeatureRecord, FeatureRecordSequence
@@ -10,7 +11,7 @@ from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector, vectorize_record_group
 from datapipeline.dag.runner import emit_node_progress
 from datapipeline.pipelines.vector.keygen import group_key_for
-from datapipeline.utils.time import parse_timecode
+from datapipeline.utils.time import parse_datetime, parse_timecode
 
 
 _PROGRESS_INTERVAL_SECONDS = 60.0
@@ -118,6 +119,63 @@ def window_keys(
             t = t + step
 
     return _iter()
+
+
+def sample_domain_window_keys(
+    start: datetime | None,
+    end: datetime | None,
+    cadence: str,
+    sample_keys: Sequence[str],
+    domain: Sequence[Mapping[str, Any]],
+) -> Iterator[tuple] | None:
+    if start is None or end is None:
+        return None
+    if not sample_keys:
+        return window_keys(start, end, cadence)
+    try:
+        global_start = floor_time_to_bucket(start, cadence)
+        global_end = floor_time_to_bucket(end, cadence)
+        step = parse_timecode(cadence)
+    except Exception:
+        return None
+
+    prepared = []
+    for entry in domain:
+        key_values = entry.get("key")
+        if not isinstance(key_values, list):
+            continue
+        if len(key_values) != len(sample_keys):
+            continue
+        entry_start = _domain_time(entry.get("start"))
+        entry_end = _domain_time(entry.get("end"))
+        if entry_start is None or entry_end is None:
+            continue
+        domain_start = max(global_start, floor_time_to_bucket(entry_start, cadence))
+        domain_end = min(global_end, floor_time_to_bucket(entry_end, cadence))
+        if domain_start <= domain_end:
+            prepared.append((tuple(key_values), domain_start, domain_end))
+    prepared.sort(key=lambda item: item[0])
+
+    def _iter():
+        current = global_start
+        while current <= global_end:
+            for key_values, domain_start, domain_end in prepared:
+                if domain_start <= current <= domain_end:
+                    yield (current, *key_values)
+            current = current + step
+
+    return _iter()
+
+
+def _domain_time(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        return value
+    if value is None:
+        return None
+    try:
+        return parse_datetime(str(value))
+    except ValueError:
+        return None
 
 
 def align_stream(

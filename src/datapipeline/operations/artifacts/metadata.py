@@ -4,6 +4,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict
 
+from datapipeline.artifacts.models import SampleMetadata
+from datapipeline.config.dataset.normalize import floor_time_to_bucket
 from datapipeline.config.dataset.loader import load_dataset
 from datapipeline.config.metadata import (
     VectorMetadata,
@@ -15,11 +17,10 @@ from datapipeline.config.tasks import MetadataTask
 from datapipeline.operations.persistence import ArtifactOutput
 from datapipeline.runtime import Runtime
 from datapipeline.utils.paths import ensure_parent
-from datapipeline.config.dataset.normalize import floor_time_to_bucket
 from datapipeline.utils.time import parse_timecode
 
 from .utils import (
-    collect_schema_entries,
+    collect_schema_entries_and_sample_domain,
     configured_vectors_are_empty,
     metadata_entries_from_stats,
 )
@@ -28,7 +29,10 @@ from .utils import (
 def _entry_window(entry: dict) -> tuple[datetime | None, datetime | None]:
     start = entry.get("first_ts")
     end = entry.get("last_ts")
-    return (start if isinstance(start, datetime) else None, end if isinstance(end, datetime) else None)
+    return (
+        start if isinstance(start, datetime) else None,
+        end if isinstance(end, datetime) else None,
+    )
 
 
 def _group_ranges(entries: list[dict], key_name: str) -> list[tuple[datetime, datetime]]:
@@ -72,7 +76,6 @@ def _range_intersection(ranges):
 def _window_bounds_from_stats(
     feature_stats: list[dict],
     target_stats: list[dict],
-    
     mode: str,
 ) -> tuple[datetime | None, datetime | None]:
     base_ranges = _group_ranges(
@@ -90,7 +93,11 @@ def _window_bounds_from_stats(
     return _range_union(base_ranges if base_ranges else partition_ranges)
 
 
-def _window_size(start: datetime | None, end: datetime | None, cadence: str | None) -> int | None:
+def _window_size(
+    start: datetime | None,
+    end: datetime | None,
+    cadence: str | None,
+) -> int | None:
     if start is None or end is None or cadence is None:
         return None
     try:
@@ -104,16 +111,70 @@ def _window_size(start: datetime | None, end: datetime | None, cadence: str | No
         return None
 
 
+def _merge_sample_domains(
+    feature_domain: dict[tuple, tuple[datetime, datetime]],
+    target_domain: dict[tuple, tuple[datetime, datetime]],
+    mode: str,
+) -> dict[tuple, tuple[datetime, datetime]]:
+    if not target_domain:
+        return dict(feature_domain)
+    if mode in {"intersection", "strict"}:
+        merged: dict[tuple, tuple[datetime, datetime]] = {}
+        for key, feature_range in feature_domain.items():
+            target_range = target_domain.get(key)
+            if target_range is None:
+                continue
+            start = max(feature_range[0], target_range[0])
+            end = min(feature_range[1], target_range[1])
+            if start <= end:
+                merged[key] = (start, end)
+        return merged
+
+    merged = dict(feature_domain)
+    for key, target_range in target_domain.items():
+        feature_range = merged.get(key)
+        if feature_range is None:
+            merged[key] = target_range
+            continue
+        merged[key] = (
+            min(feature_range[0], target_range[0]),
+            max(feature_range[1], target_range[1]),
+        )
+    return merged
+
+
+def _sample_metadata(
+    cadence: str,
+    sample_keys: list[str],
+    domain: dict[tuple, tuple[datetime, datetime]],
+) -> SampleMetadata:
+    return SampleMetadata(
+        cadence=cadence,
+        keys=sample_keys,
+        domain=[
+            {"key": list(key), "start": start, "end": end}
+            for key, (start, end) in sorted(domain.items())
+        ],
+    )
+
+
 def materialize_metadata(
     runtime: Runtime,
     task_cfg: MetadataTask,
 ) -> ArtifactOutput:
     dataset = load_dataset(runtime.project_yaml, "vectors")
     features_cfgs = list(dataset.features or [])
-    feature_stats, feature_vectors, feature_min, feature_max = collect_schema_entries(
+    (
+        feature_stats,
+        feature_vectors,
+        feature_min,
+        feature_max,
+        feature_domain,
+    ) = collect_schema_entries_and_sample_domain(
         runtime,
         features_cfgs,
         dataset.group_by,
+        sample_keys=dataset.sample_keys,
         cadence_strategy=task_cfg.cadence_strategy,
         collect_metadata=True,
     )
@@ -128,11 +189,19 @@ def materialize_metadata(
     target_cfgs = list(dataset.targets or [])
     target_stats: list[dict] = []
     target_min = target_max = None
+    target_domain: dict[tuple, tuple[datetime, datetime]] = {}
     if target_cfgs:
-        target_stats, target_vectors, target_min, target_max = collect_schema_entries(
+        (
+            target_stats,
+            target_vectors,
+            target_min,
+            target_max,
+            target_domain,
+        ) = collect_schema_entries_and_sample_domain(
             runtime,
             target_cfgs,
             dataset.group_by,
+            sample_keys=dataset.sample_keys,
             cadence_strategy=task_cfg.cadence_strategy,
             collect_metadata=True,
         )
@@ -160,6 +229,18 @@ def materialize_metadata(
         size = _window_size(start, end, dataset.group_by)
         window_obj = Window(start=start, end=end,
                             mode=task_cfg.window_mode, size=size)
+    sample_domain = _merge_sample_domains(
+        feature_domain,
+        target_domain,
+        task_cfg.window_mode,
+    )
+    sample_meta = None
+    if dataset.sample_keys:
+        sample_meta = _sample_metadata(
+            dataset.group_by,
+            dataset.sample_keys,
+            sample_domain,
+        )
 
     doc = VectorMetadata(
         schema_version=1,
@@ -171,6 +252,7 @@ def materialize_metadata(
             TARGET_VECTORS_COUNT_KEY: target_vectors,
         },
         window=window_obj,
+        sample=sample_meta,
     )
 
     relative_path = Path(task_cfg.output)

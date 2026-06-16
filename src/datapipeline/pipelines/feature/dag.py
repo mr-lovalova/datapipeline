@@ -1,4 +1,4 @@
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from typing import Any, Mapping
 
 from datapipeline.cache import cached_record_stream
@@ -19,18 +19,29 @@ def build_feature_pipeline(
     context: PipelineContext,
     cfg: FeatureRecordConfig,
     node: int | None = None,
+    sample_keys: Sequence[str] = (),
 ) -> Iterator[Any]:
     if node is None:
         record_stream = cached_record_stream(context, cfg.record_stream)
         return run_dag(
             context,
-            build_feature_dag(context, cfg, include_record_nodes=False),
+            build_feature_dag(
+                context,
+                cfg,
+                include_record_nodes=False,
+                sample_keys=sample_keys,
+            ),
             seed=record_stream,
         )
 
     return run_dag(
         context,
-        build_feature_dag(context, cfg, include_record_nodes=True).upto_node(node),
+        build_feature_dag(
+            context,
+            cfg,
+            include_record_nodes=True,
+            sample_keys=sample_keys,
+        ).upto_node(node),
     )
 
 
@@ -39,6 +50,7 @@ def build_feature_dag(
     cfg: FeatureRecordConfig,
     *,
     include_record_nodes: bool = False,
+    sample_keys: Sequence[str] = (),
 ) -> Dag:
     metadata = _feature_dag_metadata(
         record_stream_id=cfg.record_stream,
@@ -67,6 +79,7 @@ def build_feature_dag(
                 field=cfg.field,
                 scale=cfg.scale,
                 sequence=cfg.sequence,
+                sample_keys=sample_keys,
                 record_input=record_input,
             ),
         ),
@@ -111,6 +124,7 @@ def build_feature_nodes(
     field: str,
     scale: Mapping[str, Any] | bool | None,
     sequence: Mapping[str, Any] | None,
+    sample_keys: Sequence[str] = (),
     record_input: str = "stream_transforms",
 ) -> tuple[PipelineNode, ...]:
     partition_by = context.runtime.registries.partition_by.get(record_stream_id)
@@ -119,7 +133,7 @@ def build_feature_nodes(
         PipelineNode(
             name="build_feature_stream",
             op=build_feature_stream,
-            args=(feature_id, field, partition_by),
+            args=(feature_id, field, partition_by, sample_keys),
             input=record_input,
         ),
         PipelineNode(

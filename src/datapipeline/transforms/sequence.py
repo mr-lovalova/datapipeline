@@ -1,5 +1,4 @@
 from collections import deque
-from itertools import groupby
 from typing import Iterator
 
 from datapipeline.domain.feature import FeatureRecord, FeatureRecordSequence
@@ -28,23 +27,24 @@ class WindowTransformer:
         return self.apply(stream)
 
     def apply(self, stream: Iterator[FeatureRecord]) -> Iterator[FeatureRecord]:
-        """Assumes input is pre-sorted by (feature_id, record.time).
+        """Build sliding windows per feature id and sequence key.
 
         Produces sliding windows per feature_id. Each output carries a
         list[Record] in ``records`` and the selected values in ``values``.
         """
+        windows: dict[tuple, deque[FeatureRecord]] = {}
+        steps: dict[tuple, int] = {}
 
-        grouped = groupby(stream, key=lambda fr: fr.id)
-
-        for fid, records in grouped:
-            window = deque(maxlen=self.size)
-            step = 0
-            for fr in records:
-                window.append(fr)
-                if len(window) == self.size and step % self.stride == 0:
-                    yield FeatureRecordSequence(
-                        records=[r.record for r in window],
-                        values=[r.value for r in window],
-                        id=fid,
-                    )
-                step += 1
+        for fr in stream:
+            key = (fr.id, fr.entity_key)
+            window = windows.setdefault(key, deque(maxlen=self.size))
+            step = steps.get(key, 0)
+            window.append(fr)
+            if len(window) == self.size and step % self.stride == 0:
+                yield FeatureRecordSequence(
+                    records=[item.record for item in window],
+                    values=[item.value for item in window],
+                    id=fr.id,
+                    entity_key=fr.entity_key,
+                )
+            steps[key] = step + 1

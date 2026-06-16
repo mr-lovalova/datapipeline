@@ -1,4 +1,4 @@
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from typing import Any, Mapping
 
 from datapipeline.domain.feature import FeatureRecord, FeatureRecordSequence
@@ -8,13 +8,14 @@ from datapipeline.pipelines.shared.sort import batch_sort
 from datapipeline.transforms.engine import apply_transforms
 from datapipeline.plugins import FEATURE_TRANSFORMS_EP
 from datapipeline.services.constants import SCALER_STATISTICS
-from datapipeline.transforms.utils import get_field
+from datapipeline.transforms.utils import get_field, partition_key
 
 
 def build_feature_stream(
     feature_id: str,
     field: str,
     partition_by: str | list[str] | None,
+    sample_keys: Sequence[str],
     records: Iterable[Any],
 ) -> Iterable[Any]:
     keygen = FeatureIdGenerator(partition_by)
@@ -27,6 +28,7 @@ def build_feature_stream(
             record=rec,
             id=keygen.generate(feature_id, rec),
             value=get_field(rec, field),
+            entity_key=partition_key(rec, list(sample_keys)),
         )
 
 

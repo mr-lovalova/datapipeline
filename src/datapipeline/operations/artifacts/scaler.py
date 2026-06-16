@@ -34,6 +34,7 @@ def materialize_scaler_statistics(
         dataset.group_by,
         target_configs=sanitized_targets,
         rectangular=False,
+        sample_keys=dataset.sample_keys,
     )
 
     cfg = getattr(runtime, "split", None)

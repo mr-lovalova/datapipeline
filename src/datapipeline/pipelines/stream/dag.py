@@ -12,6 +12,7 @@ from datapipeline.pipelines.shared.record_nodes import (
     open_records,
     order_records,
     require_stream_source,
+    state_partition_by,
 )
 
 def build_stream_pipeline(
@@ -43,6 +44,7 @@ def build_stream_nodes(
     stream_operations = registries.stream_operations.get(stream_id)
     debug_operations = registries.debug_operations.get(stream_id)
     partition_by = registries.partition_by.get(stream_id)
+    state_by = state_partition_by(context, partition_by)
     batch_size = registries.sort_batch_size.get(stream_id)
     return (
         PipelineNode(
@@ -62,21 +64,21 @@ def build_stream_nodes(
             input="mapped",
             name="order_records",
             op=order_records,
-            args=(context, batch_size, partition_by, f"Ordering stream {stream_id}"),
+            args=(context, batch_size, state_by, f"Ordering stream {stream_id}"),
             output="ordered",
         ),
         PipelineNode(
             input="ordered",
             name="stream_transforms",
             op=apply_stream_operations,
-            args=(context, stream_operations, partition_by),
+            args=(context, stream_operations, state_by),
             output="stream_transforms",
         ),
         PipelineNode(
             input="stream_transforms",
             name="debug_transforms",
             op=apply_debug_operations,
-            args=(context, debug_operations, partition_by),
+            args=(context, debug_operations, state_by),
             output="stream_transforms",
         ),
     )
