@@ -89,6 +89,70 @@ def test_artifact_tasks_load_configs(tmp_path):
     assert scaler.output == "stats.pkl"
 
 
+def test_scaler_task_loads_folds(tmp_path):
+    project_yaml = _write_project(tmp_path, tasks_ref="tasks")
+    tasks_dir = _operations_dir(project_yaml)
+    (tasks_dir / "scaler.yaml").write_text(
+        (
+            "id: scaler\n"
+            "kind: artifact\n"
+            "output: build/scaler.json\n"
+            "folds:\n"
+            "  - fit: train_0\n"
+            "    apply: [train_0, val_0]\n"
+            "  - fit: [train_1]\n"
+            "    apply: [train_1, val_1]\n"
+        ),
+        encoding="utf-8",
+    )
+
+    tasks = _artifact_tasks(project_yaml)
+    scaler = next(task for task in tasks if task.id == "scaler")
+
+    assert scaler.folds is not None
+    assert scaler.folds[0].fit == ["train_0"]
+    assert scaler.folds[0].apply == ["train_0", "val_0"]
+
+
+def test_scaler_task_rejects_split_label_with_folds(tmp_path):
+    project_yaml = _write_project(tmp_path, tasks_ref="tasks")
+    tasks_dir = _operations_dir(project_yaml)
+    (tasks_dir / "scaler.yaml").write_text(
+        (
+            "id: scaler\n"
+            "kind: artifact\n"
+            "split_label: train\n"
+            "folds:\n"
+            "  - fit: [train_0]\n"
+            "    apply: [train_0, val_0]\n"
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="split_label and folds"):
+        _artifact_tasks(project_yaml)
+
+
+def test_scaler_task_rejects_overlapping_fold_apply_labels(tmp_path):
+    project_yaml = _write_project(tmp_path, tasks_ref="tasks")
+    tasks_dir = _operations_dir(project_yaml)
+    (tasks_dir / "scaler.yaml").write_text(
+        (
+            "id: scaler\n"
+            "kind: artifact\n"
+            "folds:\n"
+            "  - fit: [train_0]\n"
+            "    apply: [train_0, val_0]\n"
+            "  - fit: [train_1]\n"
+            "    apply: [val_0, val_1]\n"
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="applied by scaler folds"):
+        _artifact_tasks(project_yaml)
+
+
 def test_stats_task_loads_configs(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     tasks_dir = _operations_dir(project_yaml)

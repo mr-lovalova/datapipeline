@@ -184,7 +184,7 @@ Split timing (leakage note)
 
 - Split is applied after postprocess in a full `jerry serve` run. Use preview index 12/13/14 to preview vector assembly, postprocess, and split boundaries separately.
 - Feature engineering runs before split; keep it causal (no look-ahead, no future leakage).
-- Scaler statistics are fit by the build task `scaler.yaml` and are typically restricted to the `train` split (configurable via `split_label`).
+- Scaler statistics are fit by the build task `scaler.yaml` and are typically restricted to the `train` split (configurable via `split_label`). Temporal folds can fit multiple internal scalers in the same scaler artifact.
 
 ---
 

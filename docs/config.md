@@ -400,12 +400,31 @@ Add a YAML file only when you need to override paths or other parameters.
 
 ```yaml
 id: scaler
-entrypoint: core.build.scaler
+kind: artifact
+entrypoint: core.artifact.scaler
 output: build/scaler.json
 split_label: train
 ```
 
-- `build/scaler.json` stores standard scaler statistics fitted on the requested split.
+Folded temporal scaler:
+
+```yaml
+id: scaler
+kind: artifact
+entrypoint: core.artifact.scaler
+output: build/scaler.json
+folds:
+  - fit: [train_0]
+    apply: [train_0, val_0]
+  - fit: [train_1]
+    apply: [train_1, val_1]
+```
+
+- `build/scaler.json` stores either one standard scaler fitted on `split_label`
+  or a folded temporal scaler container fitted from `folds`.
+- Folded temporal scaling requires `project.split.mode: time`. `fit` and
+  `apply` labels must exist in `project.split`; `apply` labels cannot overlap
+  across folds.
 - `build/schema.json` (from the `schema` task) enumerates the discovered feature/target identifiers (including partitions), their kinds (scalar/list), and cadence hints used to enforce ordering downstream.
   - Configure the `schema` task to choose a cadence strategy (currently `max`). Per-feature overrides will be added later; for now every list-valued feature records the max observed length as its enforcement target.
 - `build/metadata.json` (from the `metadata` task) captures heavier statistics—present/null counts, inferred value types, list-length histograms, per-partition timestamps, and the dataset window. Configure `metadata.window_mode` with `union|intersection|strict|relaxed` (default `intersection`) to control how start/end bounds are derived. `union` considers base features, `intersection` uses their overlap, `strict` intersects every partition, and `relaxed` unions partitions independently.
