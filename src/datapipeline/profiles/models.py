@@ -36,7 +36,6 @@ class ExecutionProfile:
     limit: int | None = None
     output: OutputTarget | None = None
     throttle_ms: float | None = None
-    cache_enabled: bool = True
     preview_index: int | None = None
     build_mode: str | None = None
     build_settings: BuildSettings | None = None

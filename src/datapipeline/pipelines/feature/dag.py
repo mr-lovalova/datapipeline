@@ -1,7 +1,6 @@
 from collections.abc import Iterator, Sequence
 from typing import Any, Mapping
 
-from datapipeline.cache import cached_record_stream
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.dag.dag import Dag
 from datapipeline.dag.runner import run_dag
@@ -12,6 +11,7 @@ from datapipeline.pipelines.feature.nodes import (
     order_feature_records,
 )
 from datapipeline.pipelines.stream_id import build_stream_id_nodes
+from datapipeline.pipelines.record.streams import open_record_stream
 from datapipeline.dag.context import PipelineContext
 
 
@@ -22,7 +22,7 @@ def build_feature_pipeline(
     sample_keys: Sequence[str] = (),
 ) -> Iterator[Any]:
     if node is None:
-        record_stream = cached_record_stream(context, cfg.record_stream)
+        record_stream = open_record_stream(context, cfg.record_stream)
         return run_dag(
             context,
             build_feature_dag(

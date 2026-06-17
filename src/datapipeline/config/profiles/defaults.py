@@ -19,7 +19,6 @@ class ProfileDefaults(BaseModel):
 
 class ServeProfileDefaults(ProfileDefaults):
     cmd: Literal["serve"]
-    cache: bool | None = None
     output: ServeOutputConfig | None = None
     observability: ObservabilityConfig | None = Field(default=None)
     build: RuntimeBuildConfig | None = Field(default=None)
@@ -42,7 +41,6 @@ class BuildProfileDefaults(ProfileDefaults):
 
 class InspectProfileDefaults(ProfileDefaults):
     cmd: Literal["inspect"]
-    cache: bool | None = None
     output: ServeOutputConfig | None = None
     observability: ObservabilityConfig | None = Field(default=None)
     build: RuntimeBuildConfig | None = Field(default=None)

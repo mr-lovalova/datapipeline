@@ -41,7 +41,6 @@ class RunProfile:
     preview_index: Optional[int]
     limit: Optional[int]
     throttle_ms: Optional[float]
-    cache_enabled: bool
     log_decision: LogLevelDecision
     log_output: LogOutputSettings
     visuals: VisualSettings
@@ -65,7 +64,6 @@ def resolve_run_profiles(
     cli_log_outputs: Sequence[LogOutputTarget] | None = None,
     base_log_level: str = "INFO",
     cli_visuals: Optional[str] = None,
-    cli_cache: Optional[bool] = None,
     managed_run_targets: set[str] | None = None,
 ) -> list[RunProfile]:
     fallback_log_level = str(base_log_level).upper()
@@ -127,7 +125,6 @@ def resolve_run_profiles(
             _run_config_value(run_cfg, "preview_index"),
         )
         resolved_limit = cascade(limit, _run_config_value(run_cfg, "limit"))
-        resolved_cache = bool(cascade(cli_cache, _run_config_value(run_cfg, "cache"), True))
         run_cmd = getattr(run_cfg, "cmd", None)
         create_run = run_cmd == "serve" and (
             managed_target_ids is None or entry.target_id in managed_target_ids
@@ -151,10 +148,6 @@ def resolve_run_profiles(
                 f"Serve profile '{run_label}' does not support keep filters."
             )
         throttle_ms = _run_config_value(run_cfg, "throttle_ms")
-        if isinstance(runtime, Runtime) and not resolved_cache:
-            runtime.disable_cache()
-        else:
-            runtime.cache_enabled = resolved_cache
         log_decision = resolve_log_level(
             cli_log_level,
             logging_value(run_observability, "level"),
@@ -212,7 +205,6 @@ def resolve_run_profiles(
                 preview_index=resolved_preview_index,
                 limit=resolved_limit,
                 throttle_ms=throttle_ms,
-                cache_enabled=resolved_cache,
                 log_decision=log_decision,
                 log_output=log_output,
                 visuals=visuals,

@@ -3,7 +3,7 @@ import argparse
 from datapipeline.config.options import OUTPUT_FORMATS, OUTPUT_TRANSPORTS, OUTPUT_VIEWS
 from datapipeline.config.profiles import VALID_BUILD_MODES
 
-from .common import add_cache_flags, add_dataset_flag, add_project_flag, add_visual_flags
+from .common import add_dataset_flag, add_project_flag, add_visual_flags
 
 
 def add_serve_command(sub,  common: argparse.ArgumentParser) -> None:
@@ -59,7 +59,6 @@ def add_serve_command(sub,  common: argparse.ArgumentParser) -> None:
         help="preview a 0-based serve preview index",
     )
     add_visual_flags(parser)
-    add_cache_flags(parser)
     parser.add_argument(
         "--skip-build",
         action="store_true",

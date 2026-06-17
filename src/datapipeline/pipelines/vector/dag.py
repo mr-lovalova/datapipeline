@@ -198,7 +198,6 @@ def _assemble_vectors(
                 chain.from_iterable(feature_streams()),
                 batch_size=_vector_sort_batch_size(context, configs),
                 key=group_key,
-                spill_dir=context.runtime.sort_spill_dir,
                 progress_stage=f"Ordering {progress_stage.lower()} by sample key",
             )
         else:

@@ -1,11 +1,6 @@
-import shutil
-import tempfile
-from pathlib import Path
-
 from datapipeline.profiles.executor import ProfileExecutionSpec, run_profile
 from datapipeline.cli.visuals.execution import execution_scope
 from datapipeline.services.bootstrap import bootstrap
-from datapipeline.runtime import Runtime
 from datapipeline.services.runs import (
     RunPaths,
     finish_run_failed,
@@ -23,19 +18,12 @@ def run_profiles(request: ProfileRunRequest) -> None:
     if not profiles:
         return
 
-    shared_cache_root = _shared_cache_root(request, profiles)
     managed_serve_runs = _managed_serve_runs(request, profiles)
     succeeded = False
     try:
         total = len(profiles)
         for idx, profile in enumerate(profiles, start=1):
             runtime = profile.runtime or bootstrap(request.project_path)
-            if (
-                shared_cache_root is not None
-                and profile.cache_enabled
-                and isinstance(runtime, Runtime)
-            ):
-                runtime.set_cache_root(shared_cache_root, owned=False)
             profile_path = persist_profile_report(
                 profile_kind=request.command,
                 profile=profile,
@@ -75,24 +63,6 @@ def run_profiles(request: ProfileRunRequest) -> None:
         succeeded = True
     finally:
         _finalize_managed_serve_runs(managed_serve_runs, succeeded)
-        if shared_cache_root is not None:
-            shutil.rmtree(shared_cache_root, ignore_errors=True)
-
-
-def _shared_cache_root(
-    request: ProfileRunRequest,
-    profiles,
-) -> Path | None:
-    if request.command not in {"serve", "inspect"}:
-        return None
-    if len(profiles) <= 1:
-        return None
-    if not any(getattr(profile, "cache_enabled", True) for profile in profiles):
-        return None
-    project_name = request.project_path.stem or "project"
-    return Path(
-        tempfile.mkdtemp(prefix=f"datapipeline-cache-{project_name}-")
-    ).resolve()
 
 
 def _managed_serve_runs(

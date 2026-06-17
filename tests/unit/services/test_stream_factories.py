@@ -81,12 +81,12 @@ def _runtime(*, streams: dict[str, list[TemporalRecord]], partitions: dict[str, 
 
 
 def _install_streams(monkeypatch, runtime) -> None:
-    def _cached_record_stream(_context, ref):
+    def _open_record_stream(_context, ref):
         return iter(runtime._streams[ref])
 
     monkeypatch.setattr(
-        "datapipeline.pipelines.record.inputs.cached_record_stream",
-        _cached_record_stream,
+        "datapipeline.pipelines.record.inputs.open_record_stream",
+        _open_record_stream,
     )
 
 
@@ -109,7 +109,7 @@ def _joined_spec(*, join: dict) -> StreamConfig:
 def test_manual_stream_closes_upstream_iterators_when_closed(monkeypatch) -> None:
     upstream = _ClosableIterator([1, 2, 3])
 
-    def _cached_record_stream(_context, _ref):
+    def _open_record_stream(_context, _ref):
         return upstream
 
     def _mapper(inputs, *, context, driver, **params):
@@ -118,8 +118,8 @@ def test_manual_stream_closes_upstream_iterators_when_closed(monkeypatch) -> Non
         yield from inputs[driver]
 
     monkeypatch.setattr(
-        "datapipeline.pipelines.record.inputs.cached_record_stream",
-        _cached_record_stream,
+        "datapipeline.pipelines.record.inputs.open_record_stream",
+        _open_record_stream,
     )
     monkeypatch.setattr(
         "datapipeline.services.streams.manual.load_ep",

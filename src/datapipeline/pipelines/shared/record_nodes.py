@@ -13,6 +13,9 @@ from datapipeline.transforms.engine import apply_transforms
 from datapipeline.transforms.utils import partition_key
 
 
+TIME_ORDER_FIELD = "time"
+
+
 def open_records(stream: RecordStream):
     return stream.stream()
 
@@ -46,16 +49,28 @@ def order_records(
     context: PipelineContext,
     batch_size: int,
     partition_by: str | list[str] | None,
+    ordered_by: list[str] | None,
     progress_stage: str,
     records: Iterable[Any] | None,
 ) -> Iterable[Any]:
+    if ordered_by == required_record_order(partition_by):
+        return records or ()
     return batch_sort(
         records,
         batch_size=batch_size,
         key=lambda rec: (partition_key(rec, partition_by), rec.time),
-        spill_dir=context.runtime.sort_spill_dir,
         progress_stage=progress_stage,
     )
+
+
+def required_record_order(partition_by: str | list[str] | None) -> list[str]:
+    if partition_by is None:
+        return [TIME_ORDER_FIELD]
+    if isinstance(partition_by, str):
+        fields = [partition_by]
+    else:
+        fields = list(partition_by)
+    return [*fields, TIME_ORDER_FIELD]
 
 
 def state_partition_by(

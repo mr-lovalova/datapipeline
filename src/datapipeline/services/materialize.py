@@ -1,0 +1,188 @@
+from collections.abc import Iterable, Iterator
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+import os
+
+import yaml
+
+from datapipeline.dag.context import PipelineContext
+from datapipeline.dag.runner import run_dag
+from datapipeline.io.factory import writer_factory
+from datapipeline.io.output import OutputTarget
+from datapipeline.pipelines.ingest import build_ingest_pipeline
+from datapipeline.pipelines.shared.record_nodes import (
+    required_record_order,
+    state_partition_by,
+)
+from datapipeline.pipelines.stream import build_stream_dag
+from datapipeline.runtime import Runtime
+from datapipeline.services.project_paths import ingests_dir, sources_dir
+
+
+@dataclass(frozen=True)
+class MaterializeResult:
+    count: int
+    output: Path
+    source_config: Path | None = None
+    ingest_config: Path | None = None
+
+
+def materialize_stream_to_path(
+    *,
+    runtime: Runtime,
+    stream_id: str,
+    output: Path,
+    as_stream_id: str | None = None,
+    force: bool = False,
+    visuals: str | None = None,
+    dataset: Any | None = None,
+) -> MaterializeResult:
+    if dataset is not None:
+        runtime.sample_keys = dataset.sample_keys
+    validate_materialize_output_path(output)
+    _check_overwrite(output, force=force)
+    if as_stream_id is not None:
+        source_path, ingest_path = materialized_stream_config_paths(
+            runtime=runtime,
+            stream_id=as_stream_id,
+            source_id=f"{as_stream_id}.source",
+        )
+        _check_overwrite(source_path, force=force)
+        _check_overwrite(ingest_path, force=force)
+
+    rows = materialized_stream_rows(runtime, stream_id)
+    target = OutputTarget(
+        transport="fs",
+        format="jsonl",
+        view="raw",
+        encoding="utf-8",
+        destination=output.resolve(),
+    )
+    count = write_rows(rows, target, visuals=visuals)
+
+    source_config = None
+    ingest_config = None
+    if as_stream_id is not None:
+        ordered_by = materialized_order(runtime, stream_id)
+        source_config, ingest_config = write_materialized_stream_config(
+            runtime=runtime,
+            stream_id=as_stream_id,
+            source_id=f"{as_stream_id}.source",
+            output=output,
+            ordered_by=ordered_by,
+            force=force,
+        )
+
+    return MaterializeResult(
+        count=count,
+        output=output.resolve(),
+        source_config=source_config,
+        ingest_config=ingest_config,
+    )
+
+
+def materialized_stream_rows(runtime: Runtime, stream_id: str) -> Iterator[Any]:
+    context = PipelineContext(runtime)
+    pipeline = runtime.registries.stream_specs.get(stream_id).pipeline
+    if pipeline == "ingest":
+        return build_ingest_pipeline(context, stream_id)
+    return run_dag(
+        context,
+        build_stream_dag(context, stream_id).upto_node_named("stream_transforms"),
+    )
+
+
+def materialized_order(runtime: Runtime, stream_id: str) -> list[str]:
+    context = PipelineContext(runtime)
+    partition_by = runtime.registries.partition_by.get(stream_id)
+    state_by = state_partition_by(context, partition_by)
+    return required_record_order(state_by)
+
+
+def write_rows(
+    rows: Iterable[Any],
+    target: OutputTarget,
+    *,
+    visuals: str | None = None,
+) -> int:
+    writer = writer_factory(target, visuals=visuals)
+    count = 0
+    success = False
+    try:
+        for row in rows:
+            writer.write(row)
+            count += 1
+        writer.close()
+        success = True
+        return count
+    finally:
+        if not success:
+            writer.abort()
+
+
+def write_materialized_stream_config(
+    *,
+    runtime: Runtime,
+    stream_id: str,
+    source_id: str,
+    output: Path,
+    ordered_by: list[str],
+    force: bool,
+) -> tuple[Path, Path]:
+    source_path, ingest_path = materialized_stream_config_paths(
+        runtime=runtime,
+        stream_id=stream_id,
+        source_id=source_id,
+    )
+    _check_overwrite(source_path, force=force)
+    _check_overwrite(ingest_path, force=force)
+
+    source_doc = {
+        "id": source_id,
+        "parser": {"entrypoint": "core.temporal_record", "args": {}},
+        "loader": {
+            "entrypoint": "core.io",
+            "args": {
+                "transport": "fs",
+                "format": "jsonl",
+                "path": _project_relative_path(output, runtime.project_yaml),
+                "encoding": "utf-8",
+            },
+        },
+    }
+    ingest_doc = {
+        "id": stream_id,
+        "from": {"source": source_id},
+        "map": {"entrypoint": "identity", "args": {}},
+        "ordered_by": ordered_by,
+    }
+    source_path.write_text(yaml.safe_dump(source_doc, sort_keys=False), encoding="utf-8")
+    ingest_path.write_text(yaml.safe_dump(ingest_doc, sort_keys=False), encoding="utf-8")
+    return source_path.resolve(), ingest_path.resolve()
+
+
+def materialized_stream_config_paths(
+    *,
+    runtime: Runtime,
+    stream_id: str,
+    source_id: str,
+) -> tuple[Path, Path]:
+    return (
+        sources_dir(runtime.project_yaml) / f"{source_id}.yaml",
+        ingests_dir(runtime.project_yaml) / f"{stream_id}.yaml",
+    )
+
+
+def _project_relative_path(path: Path, project_yaml: Path) -> str:
+    return os.path.relpath(path.resolve(), start=project_yaml.parent.resolve())
+
+
+def validate_materialize_output_path(path: Path) -> None:
+    if path.suffix != ".jsonl":
+        raise ValueError("materialize stream output must use a .jsonl path")
+
+
+def _check_overwrite(path: Path, *, force: bool) -> None:
+    if path.exists() and not force:
+        raise FileExistsError(f"{path} already exists; pass --force to overwrite")

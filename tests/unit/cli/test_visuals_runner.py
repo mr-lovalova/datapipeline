@@ -41,7 +41,6 @@ def test_run_job_executes_work():
         )
     assert called["ok"] is True
 
-
 def test_run_with_backend_executes_work():
     backend = _StubBackend()
     called = {"ok": False}
@@ -53,56 +52,3 @@ def test_run_with_backend_executes_work():
             work=lambda: called.__setitem__("ok", True),
         )
     assert called["ok"] is True
-
-
-def test_run_job_cleans_runtime_cache_on_success():
-    backend = _StubBackend()
-    runtime = _runtime()
-    calls = {"cleanup": 0}
-
-    def _cleanup():
-        calls["cleanup"] += 1
-
-    runtime.cleanup_cache = _cleanup  # type: ignore[method-assign]
-
-    with patch("datapipeline.cli.visuals.runner.get_visuals_backend", return_value=backend):
-        runner.run_job(
-            sections=("Runs",),
-            label="demo",
-            visuals="on",
-            level=logging.INFO,
-            runtime=runtime,
-            work=lambda: None,
-            idx=1,
-            total=1,
-        )
-
-    assert calls["cleanup"] == 1
-
-
-def test_run_job_cleans_runtime_cache_on_failure():
-    backend = _StubBackend()
-    runtime = _runtime()
-    calls = {"cleanup": 0}
-
-    def _cleanup():
-        calls["cleanup"] += 1
-
-    runtime.cleanup_cache = _cleanup  # type: ignore[method-assign]
-
-    with patch("datapipeline.cli.visuals.runner.get_visuals_backend", return_value=backend):
-        try:
-            runner.run_job(
-                sections=("Runs",),
-                label="demo",
-                visuals="on",
-                level=logging.INFO,
-                runtime=runtime,
-                work=lambda: (_ for _ in ()).throw(RuntimeError("boom")),
-                idx=1,
-                total=1,
-            )
-        except RuntimeError:
-            pass
-
-    assert calls["cleanup"] == 1

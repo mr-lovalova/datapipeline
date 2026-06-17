@@ -76,9 +76,9 @@ class _UpstreamSource:
         self._upstream_id = upstream_id
 
     def stream(self):
-        from datapipeline.cache.record_streams import cached_record_stream
+        from datapipeline.pipelines.record.streams import open_record_stream
 
-        return cached_record_stream(PipelineContext(self._runtime), self._upstream_id)
+        return open_record_stream(PipelineContext(self._runtime), self._upstream_id)
 
 
 class _DagParentObserver:
@@ -151,6 +151,7 @@ def _runtime_with_rows(
         regs.stream_operations.register(stream_id, [])
         regs.debug_operations.register(stream_id, [])
         regs.partition_by.register(stream_id, partition_by)
+        regs.ordered_by.register(stream_id, None)
         regs.sort_batch_size.register(stream_id, 128)
         return runtime
 
@@ -162,6 +163,7 @@ def _runtime_with_rows(
     regs.stream_operations.register(ingest_id, [])
     regs.debug_operations.register(ingest_id, [])
     regs.partition_by.register(ingest_id, partition_by)
+    regs.ordered_by.register(ingest_id, None)
     regs.sort_batch_size.register(ingest_id, 128)
 
     regs.stream_sources.register(stream_id, _UpstreamSource(runtime, ingest_id))
@@ -171,6 +173,7 @@ def _runtime_with_rows(
     regs.stream_operations.register(stream_id, stream_ops)
     regs.debug_operations.register(stream_id, [])
     regs.partition_by.register(stream_id, partition_by)
+    regs.ordered_by.register(stream_id, None)
     regs.sort_batch_size.register(stream_id, 128)
     return runtime
 

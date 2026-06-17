@@ -7,7 +7,7 @@ from datapipeline.config.options import (
 )
 from datapipeline.config.profiles import VALID_BUILD_MODES
 
-from .common import add_cache_flags, add_dataset_flag, add_project_flag, add_visual_flags
+from .common import add_dataset_flag, add_project_flag, add_visual_flags
 
 
 def add_inspect_command(sub, common: argparse.ArgumentParser) -> None:
@@ -65,4 +65,3 @@ def add_inspect_command(sub, common: argparse.ArgumentParser) -> None:
         help="artifact build policy when the selected profile target is an artifact task: AUTO | FORCE | OFF",
     )
     add_visual_flags(parser)
-    add_cache_flags(parser)

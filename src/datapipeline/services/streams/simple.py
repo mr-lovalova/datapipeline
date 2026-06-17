@@ -1,8 +1,8 @@
 from typing import Any
 
-from datapipeline.cache import cached_record_stream
 from datapipeline.dag.context import PipelineContext
 from datapipeline.domain.stream import RecordStream
+from datapipeline.pipelines.record.streams import open_record_stream
 
 
 class PreparedStreamRef(RecordStream[Any]):
@@ -11,7 +11,7 @@ class PreparedStreamRef(RecordStream[Any]):
         self._upstream_id = upstream_id
 
     def stream(self):
-        return cached_record_stream(PipelineContext(self._runtime), self._upstream_id)
+        return open_record_stream(PipelineContext(self._runtime), self._upstream_id)
 
 
 def build_prepared_stream_ref(upstream_id: str, runtime) -> RecordStream[Any]:

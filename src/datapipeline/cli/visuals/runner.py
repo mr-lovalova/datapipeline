@@ -20,7 +20,6 @@ def _run_work(backend, runtime: Runtime, level: int, work: Callable[[], Any]):
         with backend.wrap_sources(runtime, level):
             return work()
     finally:
-        runtime.cleanup_cache()
         if installed:
             runtime.execution_observer = previous_observer
 

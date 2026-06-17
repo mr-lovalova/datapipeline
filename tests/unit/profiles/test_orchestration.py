@@ -8,7 +8,6 @@ from datapipeline.config.tasks import MetadataTask, OperationTask, SchemaTask
 from datapipeline.io.output import OutputTarget
 from datapipeline.profiles.models import ExecutionProfile, ProfileRunRequest
 from datapipeline.profiles.orchestration import run_profiles
-from datapipeline.runtime import Runtime
 from datapipeline.services.artifacts import ArtifactManager
 from datapipeline.services.bootstrap import build_state_path
 from datapipeline.services.constants import VECTOR_SCHEMA
@@ -362,66 +361,6 @@ def test_runtime_dependency_build_scope_isolated_from_parent_profile(monkeypatch
     run_profiles(request)
 
     assert captured["count"] == 0
-
-
-def test_run_profiles_share_ephemeral_cache_root_across_runtime_profiles(
-    monkeypatch,
-    tmp_path,
-):
-    serve = OperationTask.model_validate(
-        {
-            "id": "pipeline",
-            "kind": "runtime",
-            "entrypoint": "core.runtime.pipeline",
-        }
-    )
-    project_yaml = tmp_path / "project.yaml"
-    runtime_one = Runtime(project_yaml=project_yaml, artifacts_root=tmp_path / "artifacts")
-    runtime_two = Runtime(project_yaml=project_yaml, artifacts_root=tmp_path / "artifacts")
-    log_decision, log_output = _log_config()
-    request = ProfileRunRequest(
-        command="serve",
-        project_path=project_yaml,
-        tasks=[serve],
-        artifact_task_configs=[],
-        profiles=[
-            ExecutionProfile(
-                name="train",
-                target_id="pipeline",
-                visuals="on",
-                log_decision=log_decision,
-                log_output=log_output,
-                runtime=runtime_one,
-                dataset=object(),
-            ),
-            ExecutionProfile(
-                name="val",
-                target_id="pipeline",
-                visuals="on",
-                log_decision=log_decision,
-                log_output=log_output,
-                runtime=runtime_two,
-                dataset=object(),
-            ),
-        ],
-    )
-
-    seen_roots = []
-
-    monkeypatch.setattr(
-        "datapipeline.profiles.orchestration.run_profile",
-        lambda spec, work: work(),
-    )
-    monkeypatch.setattr(
-        "datapipeline.profiles.execution.execute_operation",
-        lambda **kwargs: seen_roots.append(kwargs["runtime"].cache_root),
-    )
-
-    run_profiles(request)
-
-    assert len(seen_roots) == 2
-    assert seen_roots[0] == seen_roots[1]
-    assert not seen_roots[0].exists()
 
 
 def test_run_profiles_finalize_shared_serve_run_once(monkeypatch, tmp_path):

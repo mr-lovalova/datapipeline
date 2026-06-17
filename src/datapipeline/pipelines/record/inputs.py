@@ -2,8 +2,8 @@ from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from typing import Any
 
-from datapipeline.cache import cached_record_stream
 from datapipeline.dag.context import PipelineContext
+from datapipeline.pipelines.record.streams import open_record_stream
 
 
 def close_iterator(iterator: Any) -> None:
@@ -28,7 +28,7 @@ def open_input_records(
                     f"Stream '{owner}' references unknown stream '{ref}'. "
                     f"Known streams: {sorted(known_streams)}"
                 )
-            upstream = iter(cached_record_stream(context, ref))
+            upstream = iter(open_record_stream(context, ref))
             upstreams.append(upstream)
             records[alias] = _unwrap_records(upstream)
         yield records

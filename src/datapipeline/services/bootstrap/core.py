@@ -252,6 +252,7 @@ def _register_ingest_policy(
     regs.stream_operations.register(alias, [])
     regs.debug_operations.register(alias, [])
     regs.partition_by.register(alias, spec.partition_by)
+    regs.ordered_by.register(alias, spec.ordered_by)
     regs.sort_batch_size.register(alias, spec.sort_batch_size)
 
 
@@ -267,6 +268,7 @@ def _register_stream_policy(
     regs.stream_operations.register(alias, spec.stream)
     regs.debug_operations.register(alias, spec.debug)
     regs.partition_by.register(alias, stream_partition_by(ingests, stream_configs, spec))
+    regs.ordered_by.register(alias, spec.ordered_by)
     regs.sort_batch_size.register(alias, spec.sort_batch_size)
     regs.record_operations.register(alias, [])
 

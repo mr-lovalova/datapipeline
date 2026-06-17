@@ -22,7 +22,6 @@ def runtime_profile_report_payload(profile) -> dict[str, object]:
         "preview_index": profile.preview_index,
         "limit": profile.limit,
         "throttle_ms": profile.throttle_ms,
-        "cache_enabled": profile.cache_enabled,
         "log_level": {
             "name": profile.log_decision.name,
             "value": profile.log_decision.value,

@@ -11,6 +11,7 @@ from datapipeline.pipelines.shared.record_nodes import (
     open_records,
     order_records,
     require_stream_source,
+    state_partition_by,
 )
 
 def build_ingest_pipeline(
@@ -41,6 +42,11 @@ def build_ingest_nodes(
     mapper = registries.mappers.get(stream_id)
     record_operations = registries.record_operations.get(stream_id)
     partition_by = registries.partition_by.get(stream_id)
+    state_by = state_partition_by(context, partition_by)
+    try:
+        ordered_by = registries.ordered_by.get(stream_id)
+    except KeyError:
+        ordered_by = None
     batch_size = registries.sort_batch_size.get(stream_id)
     return (
         PipelineNode(
@@ -67,7 +73,13 @@ def build_ingest_nodes(
             input="transformed",
             name="order_records",
             op=order_records,
-            args=(context, batch_size, partition_by, f"Ordering ingest {stream_id}"),
+            args=(
+                context,
+                batch_size,
+                state_by,
+                ordered_by,
+                f"Ordering ingest {stream_id}",
+            ),
             output="ordered",
         ),
     )

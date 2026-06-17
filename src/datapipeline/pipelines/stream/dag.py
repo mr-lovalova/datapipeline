@@ -45,6 +45,10 @@ def build_stream_nodes(
     debug_operations = registries.debug_operations.get(stream_id)
     partition_by = registries.partition_by.get(stream_id)
     state_by = state_partition_by(context, partition_by)
+    try:
+        ordered_by = registries.ordered_by.get(stream_id)
+    except KeyError:
+        ordered_by = None
     batch_size = registries.sort_batch_size.get(stream_id)
     return (
         PipelineNode(
@@ -64,7 +68,7 @@ def build_stream_nodes(
             input="mapped",
             name="order_records",
             op=order_records,
-            args=(context, batch_size, state_by, f"Ordering stream {stream_id}"),
+            args=(context, batch_size, state_by, ordered_by, f"Ordering stream {stream_id}"),
             output="ordered",
         ),
         PipelineNode(

@@ -6,7 +6,7 @@ from pathlib import Path
 from time import time
 
 
-TEMP_DIR_PREFIXES = ("datapipeline-cache-", "datapipeline-sort-")
+TEMP_DIR_PREFIXES = ("datapipeline-sort-",)
 
 
 @dataclass(frozen=True)

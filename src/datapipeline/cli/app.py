@@ -87,7 +87,7 @@ def _resolve_project_arguments(
     args: argparse.Namespace,
     workspace_context: WorkspaceContext | None,
 ) -> None:
-    if args.cmd not in {"serve", "build", "inspect"}:
+    if args.cmd not in {"serve", "build", "inspect", "materialize"}:
         return
     if not (hasattr(args, "project") or hasattr(args, "dataset")):
         return

@@ -11,6 +11,7 @@ from datapipeline.cli.commands.inflow import handle as handle_inflow
 from datapipeline.cli.commands.list_ import handle as handle_list
 from datapipeline.cli.commands.loader import handle as handle_loader
 from datapipeline.cli.commands.mapper import handle as handle_mapper
+from datapipeline.cli.commands.materialize import handle as handle_materialize
 from datapipeline.cli.commands.parser import handle as handle_parser
 from datapipeline.cli.commands.plugin import bar as handle_bar
 from datapipeline.cli.commands.source import handle as handle_source
@@ -46,6 +47,17 @@ def execute_command(
         handle_clean(
             yes=getattr(args, "yes", False),
             older_than=getattr(args, "older_than", None),
+        )
+        return True
+    if args.cmd == "materialize":
+        handle_materialize(
+            project=args.project,
+            stream_id=args.stream_id,
+            output=args.output,
+            as_stream_id=getattr(args, "as_stream_id", None),
+            force=getattr(args, "force", False),
+            visuals=getattr(args, "visuals", None),
+            workspace=workspace_context,
         )
         return True
     if args.cmd == "source":

@@ -9,6 +9,7 @@ from datapipeline.cli.parser.filter import add_filter_command
 from datapipeline.cli.parser.inflow import add_inflow_command
 from datapipeline.cli.parser.inspect import add_inspect_command
 from datapipeline.cli.parser.list_ import add_list_command
+from datapipeline.cli.parser.materialize import add_materialize_command
 from datapipeline.cli.parser.plugin import add_plugin_command
 from datapipeline.cli.parser.scaffold import add_simple_scaffold_command
 from datapipeline.cli.parser.serve import add_serve_command
@@ -28,6 +29,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_serve_command(sub, common=common)
     add_inspect_command(sub, common=common)
     add_build_command(sub, common=common)
+    add_materialize_command(sub, common=common)
     add_clean_command(sub, common=common)
     add_demo_command(sub, common=common)
     add_list_command(sub, common=common)

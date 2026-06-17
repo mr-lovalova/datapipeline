@@ -73,7 +73,6 @@ class ProfileResolveParams:
     output_directory: Optional[str]
     output_encoding: Optional[str]
     output_view: Optional[str]
-    cli_cache: Optional[bool]
     skip_build: bool
     cli_log_level: Optional[str]
     cli_log_outputs: Sequence[LogOutputTarget] | None
@@ -236,7 +235,6 @@ def _resolve_runtime_execution_profiles(
             limit=params.limit,
             cli_build_mode=params.build_mode,
             cli_output=cli_output_cfg,
-            cli_cache=params.cli_cache,
             cli_log_level=params.cli_log_level,
             cli_log_outputs=params.cli_log_outputs,
             base_log_level=params.base_log_level,
@@ -279,7 +277,6 @@ def _resolve_runtime_execution_profiles(
                 limit=profile.limit,
                 output=profile.output,
                 throttle_ms=profile.throttle_ms,
-                cache_enabled=profile.cache_enabled,
                 preview_index=profile.preview_index,
                 build_mode=profile.build_mode,
             )
@@ -302,7 +299,6 @@ def build_profile_run_request(
     output_directory: Optional[str] = None,
     output_encoding: Optional[str] = None,
     output_view: Optional[str] = None,
-    cli_cache: Optional[bool] = None,
     skip_build: bool = False,
     cli_log_level: Optional[str] = None,
     cli_log_outputs: Sequence[LogOutputTarget] | None = None,
@@ -332,7 +328,6 @@ def build_profile_run_request(
         output_directory=output_directory,
         output_encoding=output_encoding,
         output_view=output_view,
-        cli_cache=cli_cache,
         skip_build=skip_build,
         cli_log_level=cli_log_level,
         cli_log_outputs=cli_log_outputs,
