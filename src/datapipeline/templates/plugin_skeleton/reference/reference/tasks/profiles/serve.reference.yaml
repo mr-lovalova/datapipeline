@@ -2,12 +2,13 @@
 # This file is documentation only; uncomment the keys you want to use.
 #
 # cmd: serve
-# name: train                 # required; must be unique among serve profiles
+# name: splits                # required; must be unique among serve profiles
 # order: 10                   # optional; lower runs first, unset uses filename order
 # target: pipeline            # required; task id from tasks/operations
 # enabled: true               # optional
 #
-# keep: train                  # optional; split label from globals.split (null disables filtering)
+# keep: train                  # legacy single-output split label from project.split
+# splits: [train, val, test]   # optional; write one fs output per split label
 #
 # build:                      # optional; only used when target is an artifact task (e.g. schema/metadata/scaler)
 #   mode: AUTO                # AUTO | FORCE | OFF
@@ -38,5 +39,5 @@
 #       #   scope: EXECUTION  # GLOBAL | EXECUTION
 #       #   path: logs/serve.log  # required for FS+GLOBAL; optional for EXECUTION (default logs/serve.<task>.log)
 # note: explicit sequencing belongs in profile order (multiple serve.*.yaml files), not task dependency graphs.
-#       common pattern: serve.schema (order: 10), serve.metadata (20), serve.scaler (30), serve.train/val/test (40+).
+#       common pattern: serve.schema (order: 10), serve.metadata (20), serve.scaler (30), serve.splits (40).
 # precedence: CLI > serve.<name>.yaml > serve.defaults.yaml > built-ins

@@ -132,6 +132,19 @@ def test_serve_tasks_respect_name_and_enabled(tmp_path):
     assert [task.keep for task in tasks if task.enabled] == ["train"]
 
 
+def test_serve_profiles_load_splits(tmp_path):
+    project_yaml = _write_project(tmp_path, tasks_ref="tasks")
+    tasks_dir = _profile_kind_dir(project_yaml)
+    (tasks_dir / "serve.splits.yaml").write_text(
+        "cmd: serve\nname: splits\ntarget: pipeline\nsplits: [train, val]\n",
+        encoding="utf-8",
+    )
+
+    tasks = _serve_profiles(project_yaml)
+
+    assert tasks[0].splits == ["train", "val"]
+
+
 def test_serve_profiles_interpolate_project_globals(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     project_yaml.write_text(

@@ -14,6 +14,7 @@ from datapipeline.config.profiles import (
 )
 from datapipeline.config.serve_resolution import _run_config_value, resolve_run_profiles
 from datapipeline.config.resolution import LogOutputTarget
+from datapipeline.config.split import HashSplitConfig
 from datapipeline.config.tasks import ArtifactTask, OperationTask
 from datapipeline.config.workspace import WorkspaceConfig, WorkspaceContext
 
@@ -91,6 +92,44 @@ def test_run_config_value_preserves_explicit_null():
     assert _run_config_value(cfg, "observability") is None
 
 
+def test_serve_profile_accepts_splits_list():
+    cfg = ServeProfile.model_validate(
+        {
+            "cmd": "serve",
+            "name": "splits",
+            "target": "serve",
+            "splits": ["train", "val"],
+        }
+    )
+
+    assert cfg.splits == ["train", "val"]
+
+
+def test_serve_profile_rejects_splits_string():
+    with pytest.raises(ValidationError, match="splits must be a list"):
+        ServeProfile.model_validate(
+            {
+                "cmd": "serve",
+                "name": "splits",
+                "target": "serve",
+                "splits": "train",
+            }
+        )
+
+
+def test_serve_profile_rejects_keep_and_splits():
+    with pytest.raises(ValidationError, match="both keep and splits"):
+        ServeProfile.model_validate(
+            {
+                "cmd": "serve",
+                "name": "splits",
+                "target": "serve",
+                "keep": "train",
+                "splits": ["train"],
+            }
+        )
+
+
 def test_run_profiles_default_build_mode_is_auto(monkeypatch, tmp_path):
     entries = [_entry(name="demo", config=None, operation=_SERVE_OPERATION)]
 
@@ -117,6 +156,255 @@ def test_run_profiles_default_build_mode_is_auto(monkeypatch, tmp_path):
         cli_visuals=None,
     )
     assert profiles[0].build_mode == "AUTO"
+
+
+def test_run_profiles_resolve_splits_for_fs_output(monkeypatch, tmp_path):
+    run_cfg = ServeProfile.model_validate(
+        {
+            "cmd": "serve",
+            "name": "splits",
+            "target": "serve",
+            "splits": ["train", "val"],
+            "output": {
+                "transport": "fs",
+                "format": "jsonl",
+                "directory": "runs",
+            },
+        }
+    )
+    entries = [_entry(name="splits", config=run_cfg, operation=_SERVE_OPERATION)]
+
+    def fake_iter_runtime_runs(project_path, run_entries, keep):
+        total = len(run_entries)
+        split = HashSplitConfig(ratios={"train": 0.8, "val": 0.2})
+        for idx, entry in enumerate(run_entries, start=1):
+            runtime = SimpleNamespace(run=entry.config, split=split)
+            yield idx, total, entry, runtime
+
+    monkeypatch.setattr(
+        "datapipeline.config.serve_resolution.iter_runtime_runs", fake_iter_runtime_runs
+    )
+
+    profiles = resolve_run_profiles(
+        project_path=tmp_path / "project.yaml",
+        run_entries=entries,
+        keep=None,
+        preview_index=None,
+        limit=None,
+        cli_build_mode=None,
+        cli_output=None,
+        cli_log_level=None,
+        base_log_level="INFO",
+        cli_visuals=None,
+    )
+
+    assert profiles[0].output.transport == "fs"
+    assert profiles[0].runtime.run.splits == ["train", "val"]
+
+
+def test_run_profiles_reject_splits_without_project_split(monkeypatch, tmp_path):
+    run_cfg = ServeProfile.model_validate(
+        {
+            "cmd": "serve",
+            "name": "splits",
+            "target": "serve",
+            "splits": ["train"],
+            "output": {
+                "transport": "fs",
+                "format": "jsonl",
+                "directory": "runs",
+            },
+        }
+    )
+    entries = [_entry(name="splits", config=run_cfg, operation=_SERVE_OPERATION)]
+
+    def fake_iter_runtime_runs(project_path, run_entries, keep):
+        total = len(run_entries)
+        for idx, entry in enumerate(run_entries, start=1):
+            runtime = SimpleNamespace(run=entry.config, split=None)
+            yield idx, total, entry, runtime
+
+    monkeypatch.setattr(
+        "datapipeline.config.serve_resolution.iter_runtime_runs", fake_iter_runtime_runs
+    )
+
+    with pytest.raises(ValueError, match="project split is not configured"):
+        resolve_run_profiles(
+            project_path=tmp_path / "project.yaml",
+            run_entries=entries,
+            keep=None,
+            preview_index=None,
+            limit=None,
+            cli_build_mode=None,
+            cli_output=None,
+            cli_log_level=None,
+            base_log_level="INFO",
+            cli_visuals=None,
+        )
+
+
+def test_run_profiles_reject_unknown_splits(monkeypatch, tmp_path):
+    run_cfg = ServeProfile.model_validate(
+        {
+            "cmd": "serve",
+            "name": "splits",
+            "target": "serve",
+            "splits": ["train", "test"],
+            "output": {
+                "transport": "fs",
+                "format": "jsonl",
+                "directory": "runs",
+            },
+        }
+    )
+    entries = [_entry(name="splits", config=run_cfg, operation=_SERVE_OPERATION)]
+
+    def fake_iter_runtime_runs(project_path, run_entries, keep):
+        total = len(run_entries)
+        split = HashSplitConfig(ratios={"train": 0.8, "val": 0.2})
+        for idx, entry in enumerate(run_entries, start=1):
+            runtime = SimpleNamespace(run=entry.config, split=split)
+            yield idx, total, entry, runtime
+
+    monkeypatch.setattr(
+        "datapipeline.config.serve_resolution.iter_runtime_runs", fake_iter_runtime_runs
+    )
+
+    with pytest.raises(ValueError, match="unknown split labels: 'test'"):
+        resolve_run_profiles(
+            project_path=tmp_path / "project.yaml",
+            run_entries=entries,
+            keep=None,
+            preview_index=None,
+            limit=None,
+            cli_build_mode=None,
+            cli_output=None,
+            cli_log_level=None,
+            base_log_level="INFO",
+            cli_visuals=None,
+        )
+
+
+def test_run_profiles_reject_splits_for_stdout(monkeypatch, tmp_path):
+    run_cfg = ServeProfile.model_validate(
+        {
+            "cmd": "serve",
+            "name": "splits",
+            "target": "serve",
+            "splits": ["train"],
+        }
+    )
+    entries = [_entry(name="splits", config=run_cfg, operation=_SERVE_OPERATION)]
+
+    def fake_iter_runtime_runs(project_path, run_entries, keep):
+        total = len(run_entries)
+        split = HashSplitConfig(ratios={"train": 1.0})
+        for idx, entry in enumerate(run_entries, start=1):
+            runtime = SimpleNamespace(run=entry.config, split=split)
+            yield idx, total, entry, runtime
+
+    monkeypatch.setattr(
+        "datapipeline.config.serve_resolution.iter_runtime_runs", fake_iter_runtime_runs
+    )
+
+    with pytest.raises(ValueError, match="output transport is not fs"):
+        resolve_run_profiles(
+            project_path=tmp_path / "project.yaml",
+            run_entries=entries,
+            keep=None,
+            preview_index=None,
+            limit=None,
+            cli_build_mode=None,
+            cli_output=None,
+            cli_log_level=None,
+            base_log_level="INFO",
+            cli_visuals=None,
+        )
+
+
+def test_run_profiles_reject_splits_with_explicit_filename(monkeypatch, tmp_path):
+    run_cfg = ServeProfile.model_validate(
+        {
+            "cmd": "serve",
+            "name": "splits",
+            "target": "serve",
+            "splits": ["train"],
+            "output": {
+                "transport": "fs",
+                "format": "jsonl",
+                "directory": "runs",
+                "filename": "vectors",
+            },
+        }
+    )
+    entries = [_entry(name="splits", config=run_cfg, operation=_SERVE_OPERATION)]
+
+    def fake_iter_runtime_runs(project_path, run_entries, keep):
+        total = len(run_entries)
+        split = HashSplitConfig(ratios={"train": 1.0})
+        for idx, entry in enumerate(run_entries, start=1):
+            runtime = SimpleNamespace(run=entry.config, split=split)
+            yield idx, total, entry, runtime
+
+    monkeypatch.setattr(
+        "datapipeline.config.serve_resolution.iter_runtime_runs", fake_iter_runtime_runs
+    )
+
+    with pytest.raises(ValueError, match="cannot set output.filename with splits"):
+        resolve_run_profiles(
+            project_path=tmp_path / "project.yaml",
+            run_entries=entries,
+            keep=None,
+            preview_index=None,
+            limit=None,
+            cli_build_mode=None,
+            cli_output=None,
+            cli_log_level=None,
+            base_log_level="INFO",
+            cli_visuals=None,
+        )
+
+
+def test_run_profiles_reject_splits_with_colliding_output_filenames(monkeypatch, tmp_path):
+    run_cfg = ServeProfile.model_validate(
+        {
+            "cmd": "serve",
+            "name": "splits",
+            "target": "serve",
+            "splits": ["north/west", "north_west"],
+            "output": {
+                "transport": "fs",
+                "format": "jsonl",
+                "directory": "runs",
+            },
+        }
+    )
+    entries = [_entry(name="splits", config=run_cfg, operation=_SERVE_OPERATION)]
+
+    def fake_iter_runtime_runs(project_path, run_entries, keep):
+        total = len(run_entries)
+        split = HashSplitConfig(ratios={"north/west": 0.5, "north_west": 0.5})
+        for idx, entry in enumerate(run_entries, start=1):
+            runtime = SimpleNamespace(run=entry.config, split=split)
+            yield idx, total, entry, runtime
+
+    monkeypatch.setattr(
+        "datapipeline.config.serve_resolution.iter_runtime_runs", fake_iter_runtime_runs
+    )
+
+    with pytest.raises(ValueError, match="same output filename"):
+        resolve_run_profiles(
+            project_path=tmp_path / "project.yaml",
+            run_entries=entries,
+            keep=None,
+            preview_index=None,
+            limit=None,
+            cli_build_mode=None,
+            cli_output=None,
+            cli_log_level=None,
+            base_log_level="INFO",
+            cli_visuals=None,
+        )
 
 
 def test_operation_options_rejects_preview_index_when_unsupported(monkeypatch, tmp_path):

@@ -193,7 +193,7 @@ Split timing (leakage note)
 - `jerry demo init`: scaffolds a standalone demo plugin at `./demo/` and wires a `demo` dataset.
 - `jerry plugin init <name> --out lib/`: scaffolds `lib/<name>/` (writes workspace `jerry.yaml` when missing).
 - `jerry.yaml`: sets `plugin_root` for scaffolding commands and `datasets/default_dataset` so you can omit `--project`/`--dataset`.
-- `jerry serve [--dataset <alias>|--project <path>] [--limit N] [--preview-index 0-14] [--skip-build]`: streams output for enabled `serve.*` profiles in order. Typical flow uses artifact-targeted profiles first (`serve.schema`/`serve.metadata`/`serve.scaler`) and runtime profiles (`serve.train`/`serve.val`/`serve.test`) after.
+- `jerry serve [--dataset <alias>|--project <path>] [--limit N] [--preview-index 0-14] [--skip-build]`: streams output for enabled `serve.*` profiles in order. Typical flow uses artifact-targeted profiles first (`serve.schema`/`serve.metadata`/`serve.scaler`) and runtime profiles (`serve.splits`) after.
 - `jerry build [--dataset <alias>|--project <path>] [--force]`: materializes artifacts (schema, scaler, etc.).
 - `jerry inspect [--dataset <alias>|--project <path>] [--run <inspect-profile>]`: runs enabled inspect profiles (or one selected profile).
 - `jerry materialize stream <stream_id> --output <path.jsonl> [--as <new_stream_id>] [--force]`: writes a durable JSONL stream. With `--as`, Jerry also writes reusable source/ingest YAML with `ordered_by`.

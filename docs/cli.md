@@ -24,7 +24,7 @@ All commands that take a project accept either `--project <path/to/project.yaml>
   - Index 14: configured split applied
   - Omit `--preview-index` to run the full pipeline and output persistence.
   - Use `--log-level DEBUG` for full debug output; default is `INFO`.
-  - Artifact preparation is profile-driven: keep artifact-targeted serve profiles (`serve.schema`, `serve.metadata`, `serve.scaler`) ahead of runtime targets (`serve.train`/`serve.val`/`serve.test`) using `order`.
+  - Artifact preparation is profile-driven: keep artifact-targeted serve profiles (`serve.schema`, `serve.metadata`, `serve.scaler`) ahead of runtime targets (`serve.splits`) using `order`.
 - `jerry serve --project <project.yaml> --output-transport stdout --output-format jsonl --output-view flat|raw --output-encoding <codec> --limit N [--log-level LEVEL] [--visuals on|off] [--run name]`
   - Applies postprocess transforms and optional dataset split before emitting.
   - Use `--output-transport fs --output-format jsonl --output-directory build/serve` (or `csv`, `pickle`) to write artifacts to disk instead of stdout; files land under `<output-directory>/<run_name>/`.

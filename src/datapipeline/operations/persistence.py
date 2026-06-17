@@ -30,8 +30,16 @@ class RuntimeOutput:
 
 
 @dataclass(frozen=True)
+class SplitRuntimeOutput:
+    rows: Iterable[Any]
+    targets: Mapping[str, OutputTarget]
+    label_for_row: Callable[[Any], str]
+    limit_per_target: int | None = None
+
+
+@dataclass(frozen=True)
 class RuntimeOutputBatch:
-    outputs: Sequence[RuntimeOutput]
+    outputs: Sequence[RuntimeOutput | SplitRuntimeOutput]
     on_complete: Callable[[bool], None] | None = None
 
 
@@ -138,6 +146,82 @@ def _persist_runtime_output(
     )
 
 
+def _persist_split_runtime_output(
+    result: SplitRuntimeOutput,
+    *,
+    visuals: str | None,
+    logger: logging.Logger,
+    emit_message: Callable[..., None],
+) -> None:
+    if not result.targets:
+        raise ValueError("Split runtime output requires at least one target.")
+
+    writers = {}
+    counts: dict[str, int] = {}
+    rows = iter(result.rows)
+    success = False
+    try:
+        for label, target in result.targets.items():
+            if target.transport != "fs":
+                raise ValueError("Split runtime output requires fs targets.")
+            writers[label] = writer_factory(target, visuals=visuals)
+            counts[label] = 0
+
+        for row in rows:
+            label = result.label_for_row(row)
+            writer = writers.get(label)
+            if writer is None:
+                continue
+            if (
+                result.limit_per_target is not None
+                and counts[label] >= result.limit_per_target
+            ):
+                if all(
+                    count >= result.limit_per_target
+                    for count in counts.values()
+                ):
+                    break
+                continue
+            writer.write(row)
+            counts[label] += 1
+            if (
+                result.limit_per_target is not None
+                and all(
+                    count >= result.limit_per_target
+                    for count in counts.values()
+                )
+            ):
+                break
+
+        for writer in writers.values():
+            writer.close()
+        success = True
+    finally:
+        close_rows = getattr(rows, "close", None)
+        if callable(close_rows):
+            try:
+                close_rows()
+            except Exception:
+                logger.debug("Failed to close split runtime rows", exc_info=True)
+        if not success:
+            for writer in writers.values():
+                try:
+                    writer.abort()
+                except Exception:
+                    logger.debug(
+                        "Failed to abort split runtime output writer",
+                        exc_info=True,
+                    )
+
+    for label, target in result.targets.items():
+        emit_message(
+            served_output_message(target, counts[label]),
+            level=logging.INFO,
+            logger=logger,
+            message_kind="saved",
+        )
+
+
 def persist_runtime_result(
     result: object,
     *,
@@ -148,25 +232,43 @@ def persist_runtime_result(
 ) -> None:
     if result is None:
         return
-    if not isinstance(result, RuntimeOutput | RuntimeOutputBatch):
+    if not isinstance(result, RuntimeOutput | SplitRuntimeOutput | RuntimeOutputBatch):
         raise TypeError(
-            "Runtime operation must return RuntimeOutput, RuntimeOutputBatch, or None."
+            "Runtime operation must return RuntimeOutput, SplitRuntimeOutput, "
+            "RuntimeOutputBatch, or None."
         )
     if isinstance(result, RuntimeOutputBatch):
         success = False
         try:
             for output in result.outputs:
-                _persist_runtime_output(
-                    output,
-                    target=target,
-                    visuals=visuals,
-                    logger=logger,
-                    emit_message=emit_message,
-                )
+                if isinstance(output, SplitRuntimeOutput):
+                    _persist_split_runtime_output(
+                        output,
+                        visuals=visuals,
+                        logger=logger,
+                        emit_message=emit_message,
+                    )
+                else:
+                    _persist_runtime_output(
+                        output,
+                        target=target,
+                        visuals=visuals,
+                        logger=logger,
+                        emit_message=emit_message,
+                    )
             success = True
         finally:
             if result.on_complete is not None:
                 result.on_complete(success)
+        return
+
+    if isinstance(result, SplitRuntimeOutput):
+        _persist_split_runtime_output(
+            result,
+            visuals=visuals,
+            logger=logger,
+            emit_message=emit_message,
+        )
         return
 
     _persist_runtime_output(
@@ -182,6 +284,7 @@ __all__ = [
     "ArtifactOutput",
     "RuntimeOutput",
     "RuntimeOutputBatch",
+    "SplitRuntimeOutput",
     "persist_artifact_output",
     "persist_runtime_result",
 ]

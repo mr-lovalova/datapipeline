@@ -329,7 +329,7 @@ def bootstrap(project_yaml: Path) -> Runtime:
 
 def _attach_project_config(runtime: Runtime, project_yaml: Path) -> None:
     proj = _project(project_yaml)
-    runtime.split = proj.globals.split
+    runtime.split = proj.resolved_split
     runtime.run = None
     runtime.split_keep = getattr(runtime.split, "keep", None)
 

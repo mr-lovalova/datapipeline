@@ -2,11 +2,14 @@ import logging
 from types import SimpleNamespace
 
 import pytest
+from datapipeline.config.split import TimeSplitConfig
 from datapipeline.dag.dag import Dag
 from datapipeline.dag.node import PipelineNode
+from datapipeline.domain.sample import Sample
+from datapipeline.domain.vector import Vector
 from datapipeline.io.output import OutputTarget
 from datapipeline.io.output import served_output_message
-from datapipeline.operations.persistence import persist_runtime_result
+from datapipeline.operations.persistence import SplitRuntimeOutput, persist_runtime_result
 from datapipeline.operations.runtime.pipeline import serve_with_runtime
 
 
@@ -52,6 +55,17 @@ def _target():
         encoding=None,
         destination=None,
         run="run-paths",
+    )
+
+
+def _fs_target(destination):
+    return OutputTarget(
+        transport="fs",
+        format="jsonl",
+        view="raw",
+        encoding="utf-8",
+        destination=destination,
+        run=None,
     )
 
 
@@ -133,6 +147,44 @@ def test_serve_with_runtime_reraises_keyboard_interrupt_and_marks_run_failed(mon
             visuals="on",
             logger=logging.getLogger(__name__),
         )
+
+
+def test_serve_with_runtime_returns_split_fanout_output(monkeypatch, tmp_path):
+    runtime = SimpleNamespace(
+        window_bounds=None,
+        execution_observer=None,
+        run=SimpleNamespace(splits=["train", "val"]),
+        split=TimeSplitConfig(
+            boundaries=["2021-01-01T00:00:00Z"],
+            labels=["train", "val"],
+        ),
+    )
+    dataset = _dataset()
+    target = _fs_target(tmp_path / "vectors.jsonl")
+    samples = [
+        Sample(key="2020-01-01T00:00:00Z", features=Vector(values={"x": 1})),
+        Sample(key="2022-01-01T00:00:00Z", features=Vector(values={"x": 2})),
+    ]
+
+    monkeypatch.setattr(
+        "datapipeline.operations.runtime.pipeline.resolve_window_bounds",
+        lambda runtime_obj, rectangular_required: ("start", "end"),
+    )
+    monkeypatch.setattr(
+        "datapipeline.operations.runtime.pipeline.build_full_pipeline",
+        lambda *args, **kwargs: iter(samples),
+    )
+
+    result = _serve(runtime, dataset, target, preview_index=None)
+
+    assert runtime.window_bounds == ("start", "end")
+    assert len(result.outputs) == 1
+    output = result.outputs[0]
+    assert isinstance(output, SplitRuntimeOutput)
+    assert output.targets["train"].destination == tmp_path / "train.jsonl"
+    assert output.targets["val"].destination == tmp_path / "val.jsonl"
+    routed = list(output.rows)
+    assert [output.label_for_row(sample) for sample in routed] == ["train", "val"]
 
 
 def test_preview_index_12_previews_vector_assembly(monkeypatch):

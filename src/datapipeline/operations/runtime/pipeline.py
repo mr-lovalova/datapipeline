@@ -11,7 +11,11 @@ from datapipeline.dag.runner import run_dag
 from datapipeline.dag.transform_observability import default_observer_registry
 from datapipeline.domain.sample import Sample
 from datapipeline.io.output import OutputTarget
-from datapipeline.operations.persistence import RuntimeOutput, RuntimeOutputBatch
+from datapipeline.operations.persistence import (
+    RuntimeOutput,
+    RuntimeOutputBatch,
+    SplitRuntimeOutput,
+)
 from datapipeline.pipelines import (
     build_feature_pipeline,
     build_full_dag,
@@ -19,6 +23,7 @@ from datapipeline.pipelines import (
     build_stream_id_dag,
     build_stream_id_pipeline,
 )
+from datapipeline.pipelines.full.split import build_labeler
 from datapipeline.runtime import Runtime, StreamPipelineKind
 from datapipeline.utils.window import resolve_window_bounds
 
@@ -302,6 +307,50 @@ def _serve_full(
     )
 
 
+def _serve_split_outputs(
+    *,
+    context: PipelineContext,
+    runtime: Runtime,
+    feature_cfgs: list,
+    target_cfgs: list,
+    group_by: str,
+    sample_keys: list[str],
+    split_labels: list[str],
+    limit: Optional[int],
+    target: OutputTarget,
+    throttle_ms: Optional[float],
+) -> RuntimeOutputBatch:
+    if target.transport != "fs":
+        raise ValueError("serve splits require fs output")
+    split_cfg = getattr(runtime, "split", None)
+    if split_cfg is None:
+        raise ValueError("serve splits require project split configuration")
+
+    runtime.window_bounds = resolve_window_bounds(runtime, True)
+    vectors = build_full_pipeline(
+        context,
+        feature_cfgs,
+        group_by,
+        target_configs=target_cfgs,
+        rectangular=True,
+        sample_keys=sample_keys,
+    )
+    labeler = build_labeler(split_cfg)
+    rows = throttle_vectors(_managed_items(vectors), throttle_ms)
+    targets = {label: target.for_split(label) for label in split_labels}
+
+    return RuntimeOutputBatch(
+        outputs=(
+            SplitRuntimeOutput(
+                rows=rows,
+                targets=targets,
+                label_for_row=lambda sample: labeler.label(sample.key, sample.features),
+                limit_per_target=limit,
+            ),
+        ),
+    )
+
+
 def serve_with_runtime(
     runtime: Runtime,
     dataset: FeatureDatasetConfig,
@@ -324,6 +373,23 @@ def serve_with_runtime(
     if not feature_cfgs and not target_cfgs:
         logger.warning("(no features configured; nothing to serve)")
         return
+
+    split_labels = list(getattr(getattr(runtime, "run", None), "splits", None) or [])
+    if split_labels:
+        if preview_index is not None:
+            raise ValueError("serve splits do not support preview indices")
+        return _serve_split_outputs(
+            context=context,
+            runtime=runtime,
+            feature_cfgs=feature_cfgs,
+            target_cfgs=target_cfgs,
+            group_by=dataset.group_by,
+            sample_keys=dataset.sample_keys,
+            split_labels=split_labels,
+            limit=limit,
+            target=target,
+            throttle_ms=throttle_ms,
+        )
 
     if preview_index is not None:
         return _serve_preview(

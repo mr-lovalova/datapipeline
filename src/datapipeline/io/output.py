@@ -69,6 +69,23 @@ class OutputTarget:
             run=self.run,
         )
 
+    def for_split(self, label: str) -> "OutputTarget":
+        if self.transport != "fs" or self.destination is None:
+            return self
+        safe_label = sanitize_path_segment(str(label))
+        dest = self.destination
+        suffix = "".join(dest.suffixes)
+        new_name = f"{safe_label}{suffix}"
+        new_path = dest.with_name(new_name)
+        return OutputTarget(
+            transport=self.transport,
+            format=self.format,
+            view=self.view,
+            encoding=self.encoding,
+            destination=new_path,
+            run=self.run,
+        )
+
 
 class OutputResolutionError(ValueError):
     """Raised when CLI/config output options cannot be resolved."""

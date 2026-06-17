@@ -44,7 +44,7 @@ python -m pip install -e .
 YAML config (dataset project root):
 
 - `your-dataset/`
-  - `project.yaml` (paths, globals, split)
+  - `project.yaml` (paths, split, globals)
   - `sources/*.yaml` (raw source definitions)
   - `streams/*.yaml` (canonical streams)
   - `dataset.yaml` (features/targets)
@@ -55,7 +55,7 @@ YAML config (dataset project root):
 
 Profile sequencing:
 - Profiles execute by `order` (ascending); unset falls back to filename order.
-- A common serve flow is `serve.schema` -> `serve.metadata` -> `serve.scaler` -> `serve.train/val/test`.
+- A common serve flow is `serve.schema` -> `serve.metadata` -> `serve.scaler` -> `serve.splits`.
 - A common inspect flow is `inspect.schema` -> `inspect.metadata` -> `inspect.scaler` -> `inspect.stats` -> `inspect.coverage/matrix/thresholds`.
 - One profile targets one task (`target:`); sequencing is explicit in profile files, not inferred from runtime task dependency graphs.
 

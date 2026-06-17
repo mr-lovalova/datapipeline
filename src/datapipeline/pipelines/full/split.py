@@ -171,7 +171,7 @@ def build_applicator(
 def apply_split_stage(runtime, stream: Iterator[Sample]) -> Iterator[Sample]:
     """Apply project-configured split at the end of the vector pipeline.
 
-    Reads `runtime.split` (set during bootstrap from project.globals.split) and,
+    Reads `runtime.split` (set during bootstrap from project.split) and,
     when configured, applies a VectorSplitApplicator. When not configured,
     passes stream through.
     """

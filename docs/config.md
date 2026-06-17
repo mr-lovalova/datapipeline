@@ -46,16 +46,16 @@ paths:
   artifacts: ../artifacts/${project_name}/v${version}
   tasks: ./tasks
   profiles: ./profiles
+split:
+  mode: hash # hash | time
+  key: group # group | feature:<id>
+  seed: 42
+  ratios: { train: 0.8, val: 0.1, test: 0.1 }
 globals:
   start_time: 2021-01-01T00:00:00Z
   end_time: 2023-01-03T23:00:00Z
   vendor_api_key: ${env:VENDOR_API_KEY}
   raw_root: ${env:RAW_ROOT}
-  split:
-    mode: hash # hash | time
-    key: group # group | feature:<id>
-    seed: 42
-    ratios: { train: 0.8, val: 0.1, test: 0.1 }
 ```
 
 - `name` provides a stable identifier you can reuse inside config files via `${project_name}`.
@@ -69,6 +69,7 @@ globals:
   environment first and then an optional project-root `.env` file.
 - New scaffolded dataset projects include a `.env.example` next to `project.yaml`.
 - `split` config defines how labels are assigned; serve profiles or CLI flags pick the active label via `keep`.
+  Legacy `globals.split` is still accepted with a deprecation warning.
 - `paths.tasks` points to operation task specs under `tasks/operations/*.yaml`.
   Build artifact operations (`schema`/`scaler`/`metadata`) define what can be materialized.
   Runtime operations (`serve`, `report`, `matrix`, ...) define executable runtime steps.
@@ -84,12 +85,13 @@ globals:
 
 ```yaml
 cmd: serve
-name: train # required; unique among serve profiles
-target: serve # serve operation name from tasks/operations
-keep: train # select active split label (null disables filtering)
+name: splits # required; unique among serve profiles
+target: pipeline # serve operation name from tasks/operations
+splits: [train, val, test] # optional; write one fs output per project split label
 output:
-  transport: stdout # stdout | fs
-  format: jsonl # stdout: jsonl
+  transport: fs # stdout | fs; splits require fs
+  format: jsonl
+  directory: runs
   # view: raw # optional; flat | raw | values (default: jsonl->raw, csv/pickle->flat)
   # encoding: utf-8 # fs jsonl/csv only
 limit: 100 # cap vectors per serve run (null = unlimited)
@@ -109,9 +111,15 @@ throttle_ms: null # milliseconds to sleep between emitted vectors
 - Each serve profile is a flat file under `profiles/` with the `serve.` prefix.
 - `output`, `limit`, `throttle_ms`, and `observability` provide defaults for `jerry serve`; CLI flags still win per invocation (see _Configuration & Resolution Order_). For filesystem outputs, set `transport: fs`, `directory: /path/to/root`, and omit file names—each run automatically writes to `<directory>/<run_name>/<run_name>.<ext>` unless you override the entire `output` block with a custom `filename`.
 - `output.encoding` is supported for fs `jsonl`/`csv` outputs (default `utf-8`); it is invalid for `stdout` and `pickle`.
-- Override `keep` (and other fields) per invocation via `jerry serve ... --keep val` etc.
+- `splits` consumes the pipeline once and writes one output file per label, using
+  filenames derived from the labels (for example `train.jsonl`, `val.jsonl`).
+  Split fanout requires filesystem output and does not allow `output.filename`.
+- `keep` remains supported for legacy single-output split filtering and can be
+  overridden per invocation via `jerry serve ... --keep val`.
 - Visuals backend: set `observability.visuals: ON|OFF` in the task or use `--visuals on|off`.
-- Add additional `cmd: serve` files under `profiles/` using the `serve.` prefix for other splits (val/test/etc.); `jerry serve` runs each enabled profile unless you pass `--run <name>`.
+- Add additional `cmd: serve` files under `profiles/` using the `serve.` prefix
+  for distinct serve policies; `jerry serve` runs each enabled profile unless
+  you pass `--run <name>`.
 - Use `profiles/serve.defaults.yaml` for common serve defaults shared across all serve profiles in a project. CLI flags and concrete profiles still take precedence.
 
 ### Build Profiles (`profiles/build.<name>.yaml`)

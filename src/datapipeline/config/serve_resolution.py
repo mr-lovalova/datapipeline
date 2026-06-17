@@ -15,9 +15,11 @@ from datapipeline.config.resolution import (
     resolve_project_log_outputs,
     resolve_visuals,
 )
+from datapipeline.config.split import HashSplitConfig, TimeSplitConfig
 from datapipeline.io.output import OutputTarget, resolve_output_target
 from datapipeline.io.output import resolve_output_directory
 from datapipeline.runtime import Runtime
+from datapipeline.services.path_policy import sanitize_path_segment
 from datapipeline.services.runs import RunPaths, start_run_for_directory
 from datapipeline.services.run_entries import RunEntry, iter_runtime_runs
 
@@ -30,6 +32,34 @@ def _run_config_value(run_cfg, field: str):
     if fields_set is not None and field not in fields_set:
         return None
     return getattr(run_cfg, field, None)
+
+
+def _project_split_labels(runtime: Runtime) -> set[str] | None:
+    split = getattr(runtime, "split", None)
+    if split is None:
+        return None
+    if isinstance(split, TimeSplitConfig):
+        if split.labels is None:
+            return set()
+        return set(split.labels)
+    if isinstance(split, HashSplitConfig):
+        if split.ratios is None:
+            return set()
+        return set(split.ratios.keys())
+    return set()
+
+
+def _validate_split_output_filenames(run_label: str, split_labels: list[str]) -> None:
+    filenames: dict[str, str] = {}
+    for label in split_labels:
+        filename = sanitize_path_segment(label)
+        existing = filenames.get(filename)
+        if existing is not None:
+            raise ValueError(
+                f"Serve profile '{run_label}' split labels {existing!r} and "
+                f"{label!r} resolve to the same output filename."
+            )
+        filenames[filename] = label
 
 
 @dataclass(frozen=True)
@@ -126,6 +156,7 @@ def resolve_run_profiles(
         )
         resolved_limit = cascade(limit, _run_config_value(run_cfg, "limit"))
         run_cmd = getattr(run_cfg, "cmd", None)
+        run_splits = list(getattr(run_cfg, "splits", None) or [])
         create_run = run_cmd == "serve" and (
             managed_target_ids is None or entry.target_id in managed_target_ids
         )
@@ -147,6 +178,33 @@ def resolve_run_profiles(
             raise ValueError(
                 f"Serve profile '{run_label}' does not support keep filters."
             )
+        if keep is not None and run_splits:
+            raise ValueError(
+                f"Serve profile '{run_label}' cannot combine --keep with splits."
+            )
+        if run_splits and not create_run:
+            raise ValueError(
+                f"Serve profile '{run_label}' does not support splits."
+            )
+        if run_splits and resolved_preview_index is not None:
+            raise ValueError(
+                f"Serve profile '{run_label}' cannot combine preview_index with splits."
+            )
+        if run_splits:
+            _validate_split_output_filenames(run_label, run_splits)
+            project_labels = _project_split_labels(runtime)
+            if project_labels is None:
+                raise ValueError(
+                    f"Serve profile '{run_label}' defines splits but project split is not configured."
+                )
+            unknown_labels = [
+                label for label in run_splits if label not in project_labels
+            ]
+            if unknown_labels:
+                unknown = ", ".join(repr(label) for label in unknown_labels)
+                raise ValueError(
+                    f"Serve profile '{run_label}' references unknown split labels: {unknown}"
+                )
         throttle_ms = _run_config_value(run_cfg, "throttle_ms")
         log_decision = resolve_log_level(
             cli_log_level,
@@ -177,6 +235,14 @@ def resolve_run_profiles(
             shared_run = shared_runs.get(serve_root)
         effective_output = cli_output or getattr(run_cfg, "output", None)
         if (
+            run_splits
+            and effective_output is not None
+            and getattr(effective_output, "filename", None)
+        ):
+            raise ValueError(
+                f"Serve profile '{run_label}' cannot set output.filename with splits."
+            )
+        if (
             create_run
             and serve_root is not None
             and shared_runtime_profile_counts.get(serve_root, 0) > 1
@@ -195,6 +261,10 @@ def resolve_run_profiles(
             run_name=run_label,
             run_paths=shared_run if create_run else None,
         )
+        if run_splits and target.transport != "fs":
+            raise ValueError(
+                f"Serve profile '{run_label}' defines splits but output transport is not fs."
+            )
 
         profiles.append(
             RunProfile(

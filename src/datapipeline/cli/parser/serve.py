@@ -46,7 +46,7 @@ def add_serve_command(sub,  common: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--keep",
-        help="split label to serve; overrides serve profiles and project globals",
+        help="split label to serve; overrides serve profiles and project split defaults",
     )
     parser.add_argument(
         "--run",

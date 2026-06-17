@@ -28,6 +28,58 @@ def test_project_config_accepts_variant() -> None:
     assert cfg.variant == "long"
 
 
+def test_project_config_accepts_top_level_split() -> None:
+    cfg = ProjectConfig.model_validate(
+        _project_data(
+            split={
+                "mode": "hash",
+                "key": "group",
+                "seed": 42,
+                "ratios": {"train": 0.8, "val": 0.1, "test": 0.1},
+            }
+        )
+    )
+
+    assert cfg.resolved_split is cfg.split
+    assert cfg.globals.split is None
+
+
+def test_project_config_warns_for_legacy_globals_split() -> None:
+    with pytest.warns(FutureWarning, match="globals.split is deprecated"):
+        cfg = ProjectConfig.model_validate(
+            _project_data(
+                globals={
+                    "split": {
+                        "mode": "hash",
+                        "key": "group",
+                        "seed": 42,
+                        "ratios": {"train": 0.8, "val": 0.1, "test": 0.1},
+                    }
+                }
+            )
+        )
+
+    assert cfg.split is None
+    assert cfg.resolved_split is cfg.globals.split
+
+
+def test_project_config_rejects_split_in_both_locations() -> None:
+    split = {
+        "mode": "hash",
+        "key": "group",
+        "seed": 42,
+        "ratios": {"train": 0.8, "val": 0.1, "test": 0.1},
+    }
+
+    with pytest.raises(ValidationError, match="top-level 'split'"):
+        ProjectConfig.model_validate(
+            _project_data(
+                split=split,
+                globals={"split": split},
+            )
+        )
+
+
 def test_project_config_accepts_multiple_discovery_roots() -> None:
     cfg = ProjectConfig.model_validate(
         _project_data(
