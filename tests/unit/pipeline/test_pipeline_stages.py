@@ -439,9 +439,12 @@ def test_vector_assembly_closes_feature_streams_when_stopped_early(
 
         return _iter()
 
+    def _build_stream(_context, cfg, sample_keys=(), group_by_cadence=None):
+        return _stream_for(cfg)
+
     monkeypatch.setattr(
         "datapipeline.pipelines.vector.dag.build_feature_pipeline",
-        lambda _context, cfg, sample_keys=(): _stream_for(cfg),
+        _build_stream,
     )
 
     vectors = vector_dag._assemble_vectors(context, configs, "1h")

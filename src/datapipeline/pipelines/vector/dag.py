@@ -1,7 +1,7 @@
 import heapq
 import logging
 from collections.abc import Iterator, Sequence
-from itertools import chain, tee
+from itertools import tee
 from typing import Any
 
 from datapipeline.artifacts.models import VectorMetadata
@@ -12,7 +12,6 @@ from datapipeline.dag.node import PipelineNode
 from datapipeline.dag.runner import run_dag
 from datapipeline.domain.vector import Vector
 from datapipeline.pipelines.feature.dag import build_feature_dag, build_feature_pipeline
-from datapipeline.pipelines.shared.sort import batch_sort
 from datapipeline.pipelines.vector.keygen import group_key_for
 from datapipeline.pipelines.vector.nodes import (
     align_stream,
@@ -109,7 +108,12 @@ def build_vector_dag(
             kind="dag_fanout",
             calls_dag="feature:*",
             child_dags=tuple(
-                build_feature_dag(context, cfg, sample_keys=sample_keys)
+                build_feature_dag(
+                    context,
+                    cfg,
+                    sample_keys=sample_keys,
+                    group_by_cadence=group_by_cadence,
+                )
                 for cfg in feature_cfgs
             ),
         ),
@@ -139,7 +143,12 @@ def build_vector_dag(
                     kind="dag_fanout",
                     calls_dag="feature:*",
                     child_dags=tuple(
-                        build_feature_dag(context, cfg, sample_keys=sample_keys)
+                        build_feature_dag(
+                            context,
+                            cfg,
+                            sample_keys=sample_keys,
+                            group_by_cadence=group_by_cadence,
+                        )
                         for cfg in target_cfgs
                     ),
                 ),
@@ -178,34 +187,20 @@ def _assemble_vectors(
         return iter(())
 
     def _merged_feature_streams() -> Iterator[Any]:
-        opened_streams = []
+        opened_streams = [
+            build_feature_pipeline(
+                context,
+                cfg,
+                sample_keys=sample_keys,
+                group_by_cadence=group_by_cadence,
+            )
+            for cfg in configs
+        ]
 
         def group_key(feature_record):
             return group_key_for(feature_record, group_by_cadence)
 
-        if sample_keys:
-            def feature_streams() -> Iterator[Any]:
-                for cfg in configs:
-                    stream = build_feature_pipeline(
-                        context,
-                        cfg,
-                        sample_keys=sample_keys,
-                    )
-                    opened_streams.append(stream)
-                    yield stream
-
-            merged_stream = batch_sort(
-                chain.from_iterable(feature_streams()),
-                batch_size=_vector_sort_batch_size(context, configs),
-                key=group_key,
-                progress_stage=f"Ordering {progress_stage.lower()} by sample key",
-            )
-        else:
-            opened_streams = [
-                build_feature_pipeline(context, cfg, sample_keys=sample_keys)
-                for cfg in configs
-            ]
-            merged_stream = heapq.merge(*opened_streams, key=group_key)
+        merged_stream = heapq.merge(*opened_streams, key=group_key)
         try:
             yield from merged_stream
         finally:
@@ -217,16 +212,6 @@ def _assemble_vectors(
         _merged_feature_streams(),
         group_by_cadence,
         progress_stage=progress_stage,
-    )
-
-
-def _vector_sort_batch_size(
-    context: PipelineContext,
-    configs: Sequence[FeatureRecordConfig],
-) -> int:
-    return max(
-        context.runtime.registries.sort_batch_size.get(cfg.record_stream)
-        for cfg in configs
     )
 
 

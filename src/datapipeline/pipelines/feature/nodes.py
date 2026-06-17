@@ -2,6 +2,7 @@ from collections.abc import Iterable, Sequence
 from typing import Any, Mapping
 
 from datapipeline.domain.feature import FeatureRecord, FeatureRecordSequence
+from datapipeline.config.dataset.normalize import floor_time_to_bucket
 from datapipeline.dag.context import PipelineContext
 from datapipeline.pipelines.feature.keygen import FeatureIdGenerator
 from datapipeline.pipelines.shared.sort import batch_sort
@@ -61,24 +62,45 @@ def order_feature_records(
     context: PipelineContext,
     batch_size: int,
     progress_stage: str,
+    group_by_cadence: str | None,
     features: Iterable[Any] | None,
 ) -> Iterable[Any]:
+    key = _time_then_id
+    if context.runtime.sample_keys and group_by_cadence is not None:
+        key = _sample_group_then_time_and_id(group_by_cadence)
     return batch_sort(
         features,
         batch_size=batch_size,
-        key=_time_then_id,
+        key=key,
         progress_stage=progress_stage,
     )
 
 
 def _time_then_id(item: Any) -> tuple[Any, Any]:
+    return _record_time(item), getattr(item, "id", None)
+
+
+def _sample_group_then_time_and_id(group_by_cadence: str):
+    def key(item: Any) -> tuple[Any, ...]:
+        time_value = _record_time(item)
+        entity_key = getattr(item, "entity_key", ())
+        return (
+            floor_time_to_bucket(time_value, group_by_cadence),
+            *entity_key,
+            time_value,
+            getattr(item, "id", None),
+        )
+
+    return key
+
+
+def _record_time(item: Any) -> Any:
     rec = getattr(item, "record", None)
     if rec is not None:
-        time_value = getattr(rec, "time", None)
+        return getattr(rec, "time", None)
     else:
         records = getattr(item, "records", None)
-        time_value = getattr(records[-1], "time", None) if records else None
-    return time_value, getattr(item, "id", None)
+        return getattr(records[-1], "time", None) if records else None
 
 
 def _record_has_field(record: Any, field: str) -> bool:

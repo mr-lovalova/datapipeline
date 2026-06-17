@@ -20,6 +20,7 @@ def build_feature_pipeline(
     cfg: FeatureRecordConfig,
     node: int | None = None,
     sample_keys: Sequence[str] = (),
+    group_by_cadence: str | None = None,
 ) -> Iterator[Any]:
     if node is None:
         record_stream = open_record_stream(context, cfg.record_stream)
@@ -30,6 +31,7 @@ def build_feature_pipeline(
                 cfg,
                 include_record_nodes=False,
                 sample_keys=sample_keys,
+                group_by_cadence=group_by_cadence,
             ),
             seed=record_stream,
         )
@@ -41,6 +43,7 @@ def build_feature_pipeline(
             cfg,
             include_record_nodes=True,
             sample_keys=sample_keys,
+            group_by_cadence=group_by_cadence,
         ).upto_node(node),
     )
 
@@ -51,6 +54,7 @@ def build_feature_dag(
     *,
     include_record_nodes: bool = False,
     sample_keys: Sequence[str] = (),
+    group_by_cadence: str | None = None,
 ) -> Dag:
     metadata = _feature_dag_metadata(
         record_stream_id=cfg.record_stream,
@@ -80,6 +84,7 @@ def build_feature_dag(
                 scale=cfg.scale,
                 sequence=cfg.sequence,
                 sample_keys=sample_keys,
+                group_by_cadence=group_by_cadence,
                 record_input=record_input,
             ),
         ),
@@ -125,6 +130,7 @@ def build_feature_nodes(
     scale: Mapping[str, Any] | bool | None,
     sequence: Mapping[str, Any] | None,
     sample_keys: Sequence[str] = (),
+    group_by_cadence: str | None = None,
     record_input: str = "stream_transforms",
 ) -> tuple[PipelineNode, ...]:
     partition_by = context.runtime.registries.partition_by.get(record_stream_id)
@@ -145,7 +151,12 @@ def build_feature_nodes(
         PipelineNode(
             name="order_feature_records",
             op=order_feature_records,
-            args=(context, batch_size, f"Ordering feature {feature_id}"),
+            args=(
+                context,
+                batch_size,
+                f"Ordering feature {feature_id}",
+                group_by_cadence,
+            ),
             input="feature_transforms",
         ),
     )

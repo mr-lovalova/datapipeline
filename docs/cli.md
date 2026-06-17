@@ -16,7 +16,7 @@ All commands that take a project accept either `--project <path/to/project.yaml>
   - Index 6: stream ordered records
   - Index 7: stream transforms applied
   - Index 8: debug transforms applied
-  - Index 9: feature records (field selected)
+  - Index 9: feature records
   - Index 10: feature transforms/sequence outputs
   - Index 11: ordered feature records
   - Index 12: vectors/samples assembled across configured features and targets
@@ -25,15 +25,14 @@ All commands that take a project accept either `--project <path/to/project.yaml>
   - Omit `--preview-index` to run the full pipeline and output persistence.
   - Use `--log-level DEBUG` for full debug output; default is `INFO`.
   - Artifact preparation is profile-driven: keep artifact-targeted serve profiles (`serve.schema`, `serve.metadata`, `serve.scaler`) ahead of runtime targets (`serve.train`/`serve.val`/`serve.test`) using `order`.
-- `jerry serve --project <project.yaml> --output-transport stdout --output-format jsonl --output-view flat|raw|values --output-encoding <codec> --limit N [--log-level LEVEL] [--visuals on|off] [--run name]`
+- `jerry serve --project <project.yaml> --output-transport stdout --output-format jsonl --output-view flat|raw --output-encoding <codec> --limit N [--log-level LEVEL] [--visuals on|off] [--run name]`
   - Applies postprocess transforms and optional dataset split before emitting.
   - Use `--output-transport fs --output-format jsonl --output-directory build/serve` (or `csv`, `pickle`) to write artifacts to disk instead of stdout; files land under `<output-directory>/<run_name>/`.
   - `--output-view` controls payload shape:
     - `flat`: key + kind + flattened fields
     - `raw`: key + kind + raw object
-    - `values`: key + kind + ordered values (mixed primitive types allowed)
   - If `--output-view` is omitted: `jsonl -> raw`, `csv/pickle -> flat`.
-  - `csv` supports `flat` and `values` views.
+  - `csv` supports `flat` view.
   - `--output-encoding` applies to fs `jsonl`/`csv` outputs (default `utf-8`).
   - Set `--log-level DEBUG` (or set `observability.logging.level: DEBUG` in the serve profile) to increase log detail for preview indices.
   - When multiple serve profiles exist, add `--run <profile-name>` to target a single profile; otherwise every enabled profile is executed sequentially.
@@ -56,6 +55,12 @@ All commands that take a project accept either `--project <path/to/project.yaml>
   - Regenerates artifact tasks declared under `project.paths.tasks` when the configuration hash changes.
   - If `kind: build` profiles are defined, enabled profiles run by default; use `--run` to target one profile.
   - Each build profile executes one configured `target` operation task.
+- `jerry materialize stream <stream_id> --output <path.jsonl> [--as <new_stream_id>] [--force]`
+  - Writes a durable JSONL record stream.
+  - With `--as`, also writes reusable source and ingest YAML using explicit `ordered_by`.
+- `jerry clean [--yes] [--older-than <age>]`
+  - Lists stale sort spill directories by default.
+  - Add `--yes` to remove them.
 
 ### Scaffolding & Reference
 

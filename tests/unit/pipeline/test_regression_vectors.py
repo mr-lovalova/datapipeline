@@ -234,6 +234,61 @@ def test_vector_samples_can_group_by_record_key_fields(tmp_path) -> None:
     ]
 
 
+def test_vector_samples_keep_entity_buckets_contiguous(tmp_path) -> None:
+    def _equity_record(hour: int, security_id: str, value: float) -> TemporalRecord:
+        rec = _record(_ts(hour), value)
+        setattr(rec, "security_id", security_id)
+        return rec
+
+    streams = {
+        "momentum_stream": [
+            _equity_record(0, "AAPL", 1.0),
+            _equity_record(0, "MSFT", 10.0),
+            _equity_record(1, "AAPL", 2.0),
+            _equity_record(1, "MSFT", 20.0),
+        ],
+        "volume_stream": [
+            _equity_record(0, "AAPL", 100.0),
+            _equity_record(0, "MSFT", 1000.0),
+            _equity_record(1, "AAPL", 200.0),
+            _equity_record(1, "MSFT", 2000.0),
+        ],
+    }
+    runtime = _runtime_with_streams(tmp_path, streams)
+    context = PipelineContext(runtime)
+    feature_cfgs = [
+        FeatureRecordConfig(
+            record_stream="momentum_stream",
+            id="momentum",
+            field="value",
+        ),
+        FeatureRecordConfig(
+            record_stream="volume_stream",
+            id="volume",
+            field="value",
+        ),
+    ]
+
+    samples = list(
+        build_vector_pipeline(
+            context,
+            feature_cfgs,
+            "1d",
+            rectangular=False,
+            sample_keys=["security_id"],
+        )
+    )
+
+    assert [sample.key for sample in samples] == [
+        (_ts(0), "AAPL"),
+        (_ts(0), "MSFT"),
+    ]
+    assert [sample.features.values for sample in samples] == [
+        {"momentum": [1.0, 2.0], "volume": [100.0, 200.0]},
+        {"momentum": [10.0, 20.0], "volume": [1000.0, 2000.0]},
+    ]
+
+
 def test_sequence_features_are_windowed_by_sample_keys(tmp_path) -> None:
     def _equity_record(hour: int, security_id: str, value: float) -> TemporalRecord:
         rec = _record(_ts(hour), value)

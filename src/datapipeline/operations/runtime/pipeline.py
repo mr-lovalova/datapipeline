@@ -270,6 +270,7 @@ def _serve_preview(
                 cfg,
                 node=_feature_preview_index(context, cfg.record_stream, selected_node),
                 sample_keys=sample_keys,
+                group_by_cadence=group_by,
             )
         outputs.append(_runtime_output(stream, target.for_feature(output_id), limit))
     return RuntimeOutputBatch(outputs=tuple(outputs))

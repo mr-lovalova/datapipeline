@@ -1,4 +1,4 @@
-# Artifacts & Postprocess
+# Artifacts
 
 - `build/schema.json`: output of the `schema` task. Jerry automatically
   enforces this schema during postprocess to impose deterministic ordering and
@@ -8,8 +8,8 @@
 - Build state is tracked in `artifacts/_system/build/state.json`; config hashes avoid
   redundant runs.
 
-If a postprocess transform needs an artifact and it is missing, the runtime will
-raise a descriptive error suggesting `jerry build`.
+If runtime processing needs an artifact and it is missing, Jerry raises a
+descriptive error suggesting `jerry build`.
 
 ---
 
