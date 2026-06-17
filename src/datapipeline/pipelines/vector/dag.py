@@ -6,11 +6,14 @@ from typing import Any
 
 from datapipeline.artifacts.models import VectorMetadata
 from datapipeline.config.dataset.feature import FeatureRecordConfig
-from datapipeline.domain.vector import Vector
+from datapipeline.dag.context import PipelineContext
 from datapipeline.dag.dag import Dag
-from datapipeline.dag.runner import run_dag
 from datapipeline.dag.node import PipelineNode
+from datapipeline.dag.runner import run_dag
+from datapipeline.domain.vector import Vector
 from datapipeline.pipelines.feature.dag import build_feature_dag, build_feature_pipeline
+from datapipeline.pipelines.shared.sort import batch_sort
+from datapipeline.pipelines.vector.keygen import group_key_for
 from datapipeline.pipelines.vector.nodes import (
     align_stream,
     sample_assemble_stage,
@@ -18,9 +21,6 @@ from datapipeline.pipelines.vector.nodes import (
     vector_assemble_stage,
     window_keys,
 )
-from datapipeline.dag.context import PipelineContext
-from datapipeline.pipelines.vector.keygen import group_key_for
-from datapipeline.pipelines.shared.sort import batch_sort
 from datapipeline.services.artifacts import (
     ArtifactNotRegisteredError,
     VECTOR_METADATA_SPEC,
@@ -178,28 +178,40 @@ def _assemble_vectors(
         return iter(())
 
     def _merged_feature_streams() -> Iterator[Any]:
-        streams = [
-            build_feature_pipeline(context, cfg, sample_keys=sample_keys)
-            for cfg in configs
-        ]
-        if not streams:
-            return
-        key = lambda fr: group_key_for(fr, group_by_cadence)
+        opened_streams = []
+
+        def group_key(feature_record):
+            return group_key_for(feature_record, group_by_cadence)
+
         if sample_keys:
+            def feature_streams() -> Iterator[Any]:
+                for cfg in configs:
+                    stream = build_feature_pipeline(
+                        context,
+                        cfg,
+                        sample_keys=sample_keys,
+                    )
+                    opened_streams.append(stream)
+                    yield stream
+
             merged_stream = batch_sort(
-                chain.from_iterable(streams),
+                chain.from_iterable(feature_streams()),
                 batch_size=_vector_sort_batch_size(context, configs),
-                key=key,
+                key=group_key,
                 spill_dir=context.runtime.sort_spill_dir,
                 progress_stage=f"Ordering {progress_stage.lower()} by sample key",
             )
         else:
-            merged_stream = heapq.merge(*streams, key=key)
+            opened_streams = [
+                build_feature_pipeline(context, cfg, sample_keys=sample_keys)
+                for cfg in configs
+            ]
+            merged_stream = heapq.merge(*opened_streams, key=group_key)
         try:
             yield from merged_stream
         finally:
             _close_iterator(merged_stream)
-            for stream in streams:
+            for stream in opened_streams:
                 _close_iterator(stream)
 
     return vector_assemble_stage(
