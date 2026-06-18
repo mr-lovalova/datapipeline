@@ -68,7 +68,7 @@ def build_stream_nodes(
             input="mapped",
             name="order_records",
             op=order_records,
-            args=(context, batch_size, state_by, ordered_by, f"Ordering stream {stream_id}"),
+            args=(context, batch_size, state_by, ordered_by, "sort"),
             output="ordered",
         ),
         PipelineNode(

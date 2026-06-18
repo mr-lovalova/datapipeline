@@ -162,23 +162,21 @@ def test_hierarchical_observer_logs_node_progress_at_info(caplog):
                 node_name="order_feature_records",
                 node_index=2,
                 execution_index=5,
-                message="Ordering feature close: emitted sorted_records=10000",
+                message="sort: emitted sorted_records=10000",
                 depth=2,
             )
         )
 
     record = caplog.records[0]
     assert record.getMessage().startswith(
-        "    [feature:close] Ordering feature close: emitted sorted_records=10000"
+        "    [feature:close] sort: emitted sorted_records=10000"
     )
     assert getattr(record, "dp_event_kind", None) == "node_progress"
     assert getattr(record, "dp_dag_name", None) == "feature:close"
     assert getattr(record, "dp_node_name", None) == "order_feature_records"
     assert getattr(record, "dp_index", None) == 2
     assert getattr(record, "dp_execution_index", None) == 5
-    assert getattr(record, "dp_message", None) == (
-        "Ordering feature close: emitted sorted_records=10000"
-    )
+    assert getattr(record, "dp_message", None) == "sort: emitted sorted_records=10000"
 
 
 def test_hierarchical_observer_logs_dag_call_node_metadata(caplog):

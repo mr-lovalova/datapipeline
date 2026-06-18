@@ -78,7 +78,7 @@ def build_ingest_nodes(
                 batch_size,
                 state_by,
                 ordered_by,
-                f"Ordering ingest {stream_id}",
+                "sort",
             ),
             output="ordered",
         ),
