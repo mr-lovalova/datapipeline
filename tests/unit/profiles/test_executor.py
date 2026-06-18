@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+import logging
 
 import pytest
 
@@ -8,14 +9,16 @@ from datapipeline.profiles.executor import ProfileExecutionSpec, run_profile
 
 def test_run_profile_without_visual_runner(monkeypatch):
     configured: list[tuple[int, LogOutputSettings]] = []
-    messages: list[str] = []
+    emitted: list[tuple[str, int, str | None]] = []
     monkeypatch.setattr(
         "datapipeline.profiles.executor.configure_root_logging",
         lambda level, output: configured.append((level, output)),
     )
     monkeypatch.setattr(
         "datapipeline.profiles.executor.emit_execution_message",
-        lambda message, level, logger, message_kind=None: messages.append(message),
+        lambda message, level, logger, message_kind=None: emitted.append(
+            (message, level, message_kind)
+        ),
     )
 
     called = {"work": 0}
@@ -43,9 +46,12 @@ def test_run_profile_without_visual_runner(monkeypatch):
     assert result == "ok"
     assert called["work"] == 1
     assert configured
+    messages = [message for message, _, _ in emitted]
     assert messages and messages[0].startswith("Profile start ")
     assert "command=build" in messages[0]
     assert "name=schema" in messages[0]
+    assert emitted[0][1] == logging.DEBUG
+    assert emitted[0][2] == "profile_start"
 
 
 def test_run_profile_visual_runner_requires_runtime():
@@ -72,10 +78,12 @@ def test_run_profile_can_skip_header_without_visual_runner(monkeypatch):
         "datapipeline.profiles.executor.configure_root_logging",
         lambda level, output: None,
     )
-    messages: list[str] = []
+    emitted: list[tuple[str, int, str | None]] = []
     monkeypatch.setattr(
         "datapipeline.profiles.executor.emit_execution_message",
-        lambda message, level, logger, message_kind=None: messages.append(message),
+        lambda message, level, logger, message_kind=None: emitted.append(
+            (message, level, message_kind)
+        ),
     )
 
     rendered = {"count": 0}
@@ -102,4 +110,7 @@ def test_run_profile_can_skip_header_without_visual_runner(monkeypatch):
     )
 
     assert rendered["count"] == 0
+    messages = [message for message, _, _ in emitted]
     assert messages and messages[0].startswith("Profile start ")
+    assert emitted[0][1] == logging.DEBUG
+    assert emitted[0][2] == "profile_start"

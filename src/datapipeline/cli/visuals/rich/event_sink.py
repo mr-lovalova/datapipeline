@@ -65,10 +65,7 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
             if event.message_kind == "source_info":
                 text.append_text(styled_source_label(message))
                 return text
-            if event.message_kind in {
-                "build_decision",
-                "profile_start",
-            }:
+            if event.message_kind == "build_decision":
                 prefix, _, rest = message.partition("\n")
                 text.append(prefix, style="bold cyan")
                 if rest:
