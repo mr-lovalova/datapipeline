@@ -169,12 +169,13 @@ def test_hierarchical_observer_logs_node_progress_at_info(caplog):
 
     record = caplog.records[0]
     assert record.getMessage().startswith(
-        "    Node progress dag=feature:close node=order_feature_records "
-        "index=2 execution_index=5 "
-        "Ordering feature close: emitted sorted_records=10000"
+        "    [feature:close] Ordering feature close: emitted sorted_records=10000"
     )
     assert getattr(record, "dp_event_kind", None) == "node_progress"
+    assert getattr(record, "dp_dag_name", None) == "feature:close"
     assert getattr(record, "dp_node_name", None) == "order_feature_records"
+    assert getattr(record, "dp_index", None) == 2
+    assert getattr(record, "dp_execution_index", None) == 5
     assert getattr(record, "dp_message", None) == (
         "Ordering feature close: emitted sorted_records=10000"
     )

@@ -145,11 +145,7 @@ class ExecutionEventFormatter:
                 f"kind={event.node_kind}{calls_suffix}"
             )
         if event.kind == "node_progress":
-            return (
-                f"{indent}Node progress dag={event.dag_name} "
-                f"node={event.node_name} index={event.node_index} "
-                f"execution_index={event.execution_index} {event.message or ''}"
-            )
+            return f"{indent}[{event.dag_name}] {event.message or ''}"
         error_suffix = cls.error_suffix(event)
         return (
             f"{indent}Node execution finished dag={event.dag_name} "

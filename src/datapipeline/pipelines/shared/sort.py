@@ -19,13 +19,13 @@ SpillDir = Path | Callable[[], Path] | None
 
 
 class _SortProgress:
-    def __init__(self, stage: str) -> None:
+    def __init__(self, stage: str, start_time: float) -> None:
         self.stage = stage
         self.records_read = 0
         self.batches_read = 0
         self.runs_written = 0
         self.records_emitted = 0
-        self._next_log_at = time.perf_counter() + _PROGRESS_INTERVAL_SECONDS
+        self._next_log_at = start_time + _PROGRESS_INTERVAL_SECONDS
 
     def batch_written(self, batch_size: int) -> None:
         self.batches_read += 1
@@ -86,20 +86,39 @@ def batch_sort(
     progress_stage: str = "Sorting records",
 ) -> Iterator[T]:
     """Sort an iterable by chunking, spilling runs to disk, then merging."""
+    start_time = time.perf_counter()
     batches = read_batches(iterable, batch_size, key)
 
     first_batch = next(batches, _EMPTY)
     if first_batch is _EMPTY:
+        _emit_sort_summary(
+            progress_stage,
+            records=0,
+            batch_size=batch_size,
+            spilled=False,
+            spill_runs=0,
+            merge_passes=0,
+            start_time=start_time,
+        )
         return
 
     second_batch = next(batches, _EMPTY)
     if second_batch is _EMPTY:
         yield from first_batch
+        _emit_sort_summary(
+            progress_stage,
+            records=len(first_batch),
+            batch_size=batch_size,
+            spilled=False,
+            spill_runs=0,
+            merge_passes=0,
+            start_time=start_time,
+        )
         return
 
     with _temporary_directory(spill_dir) as tmp:
         temp_dir = Path(tmp)
-        progress = _SortProgress(progress_stage)
+        progress = _SortProgress(progress_stage, start_time)
         run_paths: list[Path] = []
         run_paths.append(_write_run(temp_dir, 0, first_batch))
         progress.batch_written(len(first_batch))
@@ -120,6 +139,44 @@ def batch_sort(
         for item in _merge_runs(run_paths, key):
             progress.record_emitted()
             yield item
+
+        _emit_sort_summary(
+            progress_stage,
+            records=progress.records_read,
+            batch_size=batch_size,
+            spilled=True,
+            spill_runs=progress.runs_written,
+            merge_passes=pass_id,
+            start_time=start_time,
+        )
+
+
+def _emit_sort_summary(
+    stage: str,
+    *,
+    records: int,
+    batch_size: int,
+    spilled: bool,
+    spill_runs: int,
+    merge_passes: int,
+    start_time: float,
+) -> None:
+    elapsed = time.perf_counter() - start_time
+    if spilled:
+        emit_node_progress(
+            (
+                f"{stage}: records={records} batch_size={batch_size} "
+                f"spilled=true spill_runs={spill_runs} "
+                f"merge_passes={merge_passes} elapsed={elapsed:.3f}s"
+            )
+        )
+        return
+    emit_node_progress(
+        (
+            f"{stage}: records={records} batch_size={batch_size} "
+            f"spilled=false elapsed={elapsed:.3f}s"
+        )
+    )
 
 
 def _temporary_directory(spill_dir: SpillDir) -> AbstractContextManager[str]:
