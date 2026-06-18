@@ -1,0 +1,9 @@
+# Matrix inspect task reference.
+# This file is documentation only; uncomment the keys you want to use.
+#
+# version: 1
+# id: matrix
+# kind: runtime
+# entrypoint: core.runtime.matrix
+#
+# Matrix output supports profile output format html when using fs transport.

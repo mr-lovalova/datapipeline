@@ -1,0 +1,12 @@
+# Thresholds inspect task reference.
+# This file is documentation only; uncomment the keys you want to use.
+#
+# version: 1
+# id: thresholds
+# kind: runtime
+# entrypoint: core.runtime.thresholds
+# options:
+#   sort: missing             # missing | nulls
+#   threshold: 0.95
+#
+# Output transport/format/path is resolved from the selected inspect profile.

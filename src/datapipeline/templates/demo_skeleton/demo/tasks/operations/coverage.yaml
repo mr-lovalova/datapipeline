@@ -1,4 +1,4 @@
-# See ../../../../plugin_skeleton/reference/reference/tasks/operations/inspect.reference.yaml for full options.
+# See ../../../../plugin_skeleton/reference/reference/tasks/operations/coverage.reference.yaml for full options.
 id: coverage
 kind: runtime
 entrypoint: core.runtime.coverage

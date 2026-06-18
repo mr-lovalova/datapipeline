@@ -1,4 +1,4 @@
-# See ../../reference/reference/streams/manual.reference.yaml for full options.
+# See ../../../plugin_skeleton/reference/reference/streams/manual.reference.yaml for full options.
 id: equity.pair.aapl_msft
 cadence: ${group_by}
 from:

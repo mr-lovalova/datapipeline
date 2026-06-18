@@ -1,5 +1,7 @@
-# See ../reference/reference/dataset.yaml for full options.
-group_by: ${group_by}
+# See ../../plugin_skeleton/reference/reference/dataset.yaml for full options.
+sample:
+  cadence: ${group_by}
+  keys: []
 
 features:
   - id: linear_time

@@ -1,4 +1,4 @@
-# See ../../../reference/reference/tasks/operations/inspect.reference.yaml for full options.
+# See ../../../reference/reference/tasks/operations/coverage.reference.yaml for full options.
 id: coverage
 kind: runtime
 entrypoint: core.runtime.coverage

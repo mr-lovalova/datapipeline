@@ -1,4 +1,4 @@
-# See ../reference/reference/project.yaml for full options.
+# See ../../plugin_skeleton/reference/reference/project.yaml for full options.
 version: 1
 name: demo
 paths:

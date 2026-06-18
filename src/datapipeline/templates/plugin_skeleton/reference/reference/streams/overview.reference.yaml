@@ -19,31 +19,32 @@
 #   args: {}
 # cadence: ${group_by}          # optional per-stream variable for interpolation
 # partition_by: station_id      # optional; string or list of strings
+# ordered_by: [station_id, time] # optional; skip sort when upstream already matches
 # sort_batch_size: 100000       # optional; in-memory chunk size for sorting
 #
-# stream transforms (one-key mappings; optional):
-# - dedupe: {}
-# - lag: { field: close, to: close_lag_1, periods: 1 }
-# - lead: { field: close, to: close_lead_126, periods: 126 }
-# - granularity: { field: close, mode: first }   # first | last | mean | median
-# - ensure_cadence: { field: close, cadence: "${cadence}" }
-# - fill: { field: close, to: close, statistic: median, window: 6, min_samples: 1 }
-#   # statistic: mean | median | stdev | pstdev; window must be > 0
-# - derive:
-#     left: close_lag_21
-#     operator: div
-#     right_field: close_lag_189
-#     to: close_ratio_21_189
-# - derive:
-#     left: close_ratio_21_189
-#     operator: sub
-#     right_value: 1.0
-#     to: momentum_189_21
-#   # operator: add | sub | mul | div
+# stream:                       # optional stream transforms, one-key mappings
+#   - dedupe: {}
+#   - lag: { field: close, to: close_lag_1, periods: 1 }
+#   - lead: { field: close, to: close_lead_126, periods: 126 }
+#   - granularity: { field: close, mode: first }   # first | last | mean | median
+#   - ensure_cadence: { field: close, cadence: "${cadence}" }
+#   - fill: { field: close, to: close, statistic: median, window: 6, min_samples: 1 }
+#     # statistic: mean | median | stdev | pstdev; window must be > 0
+#   - derive:
+#       left: close_lag_21
+#       operator: div
+#       right_field: close_lag_189
+#       to: close_ratio_21_189
+#   - derive:
+#       left: close_ratio_21_189
+#       operator: sub
+#       right_value: 1.0
+#       to: momentum_189_21
+#     # operator: add | sub | mul | div
 #
-# debug transforms (one-key mappings; optional):
-# - lint: { mode: error, tick: "${cadence}" }  # mode: warn | error
-# - identity: {}
+# debug:                        # optional validation-only transforms
+#   - lint: { mode: error, tick: "${cadence}" }  # mode: warn | error
+#   - identity: {}
 #
 # See also:
 # - ingest.reference.yaml

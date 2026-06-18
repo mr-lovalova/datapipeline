@@ -1,4 +1,4 @@
-# See ../../reference/reference/sources/overview.reference.yaml for full options.
+# See ../../../plugin_skeleton/reference/reference/sources/overview.reference.yaml for full options.
 id: synthetic.ticks
 
 parser:

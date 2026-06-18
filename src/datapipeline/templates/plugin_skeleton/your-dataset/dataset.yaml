@@ -1,6 +1,8 @@
 # See ../reference/reference/dataset.yaml for full options.
 
-group_by: ${group_by}
+sample:
+  cadence: ${group_by}
+  keys: []
 
 features:
   - id: first_feature
