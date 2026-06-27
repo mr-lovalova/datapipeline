@@ -18,7 +18,6 @@ from datapipeline.pipelines import (
 from datapipeline.pipelines.ingest import build_ingest_pipeline
 from datapipeline.pipelines.stream import build_stream_pipeline
 from datapipeline.pipelines.vector import dag as vector_dag
-from datapipeline.pipelines.shared.record_nodes import state_partition_by
 from datapipeline.pipelines.vector.nodes import sample_domain_window_keys
 from datapipeline.pipelines.full.nodes import post_process
 from datapipeline.pipelines.full.split import apply_split_stage
@@ -51,15 +50,6 @@ def test_sample_domain_window_keys_emit_sorted_composite_keys() -> None:
         (_ts(1), "AAPL"),
         (_ts(1), "MSFT"),
     ]
-
-
-def test_state_partition_prefers_explicit_stream_partition(tmp_path: Path) -> None:
-    runtime = _runtime_with_rows(tmp_path, [{"time": _ts(0), "value": 1.0}])
-    runtime.sample_keys = ["security_id"]
-    context = PipelineContext(runtime)
-
-    assert state_partition_by(context, "venue") == "venue"
-    assert state_partition_by(context, None) == ["security_id"]
 
 
 class _StubSource:

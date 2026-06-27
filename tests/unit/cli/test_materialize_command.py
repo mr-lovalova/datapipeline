@@ -80,6 +80,7 @@ def test_materialize_command_loads_vector_dataset(monkeypatch, tmp_path) -> None
         class Result:
             count = 0
             output = tmp_path / "prices.jsonl"
+            metadata = tmp_path / "prices.metadata.json"
             source_config = None
             ingest_config = None
 

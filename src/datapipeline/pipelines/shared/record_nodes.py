@@ -73,16 +73,6 @@ def required_record_order(partition_by: str | list[str] | None) -> list[str]:
     return [*fields, TIME_ORDER_FIELD]
 
 
-def state_partition_by(
-    context: PipelineContext,
-    partition_by: str | list[str] | None,
-) -> str | list[str] | None:
-    if partition_by:
-        return partition_by
-    sample_keys = getattr(context.runtime, "sample_keys", [])
-    return list(sample_keys) if sample_keys else partition_by
-
-
 def apply_stream_operations(
     context: PipelineContext,
     operations: Any,

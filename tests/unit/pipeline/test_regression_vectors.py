@@ -374,7 +374,7 @@ def test_partition_by_remains_feature_identity_with_sample_keys(tmp_path) -> Non
     }
 
 
-def test_stream_transforms_use_sample_keys_for_state_partition(tmp_path) -> None:
+def test_stream_transforms_use_explicit_stream_partition(tmp_path) -> None:
     def _equity_record(hour: int, security_id: str, value: float) -> TemporalRecord:
         rec = _record(_ts(hour), value)
         setattr(rec, "security_id", security_id)
@@ -404,6 +404,7 @@ def test_stream_transforms_use_sample_keys_for_state_partition(tmp_path) -> None
             ]
         },
     )
+    runtime.registries.partition_by.register("daily_prices", "security_id")
     context = PipelineContext(runtime)
     feature_cfgs = [
         FeatureRecordConfig(
@@ -430,10 +431,10 @@ def test_stream_transforms_use_sample_keys_for_state_partition(tmp_path) -> None
         (_ts(1), "MSFT"),
     ]
     assert [sample.features.values for sample in samples] == [
-        {"value_mean_2": None},
-        {"value_mean_2": None},
-        {"value_mean_2": 15.0},
-        {"value_mean_2": 150.0},
+        {"value_mean_2__@security_id:AAPL": None},
+        {"value_mean_2__@security_id:MSFT": None},
+        {"value_mean_2__@security_id:AAPL": 15.0},
+        {"value_mean_2__@security_id:MSFT": 150.0},
     ]
 
 

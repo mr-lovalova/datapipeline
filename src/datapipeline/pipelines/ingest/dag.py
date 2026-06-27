@@ -11,7 +11,6 @@ from datapipeline.pipelines.shared.record_nodes import (
     open_records,
     order_records,
     require_stream_source,
-    state_partition_by,
 )
 
 def build_ingest_pipeline(
@@ -41,8 +40,7 @@ def build_ingest_nodes(
     source = require_stream_source(context, stream_id)
     mapper = registries.mappers.get(stream_id)
     record_operations = registries.record_operations.get(stream_id)
-    partition_by = registries.partition_by.get(stream_id)
-    state_by = state_partition_by(context, partition_by)
+    state_by = registries.partition_by.get(stream_id)
     try:
         ordered_by = registries.ordered_by.get(stream_id)
     except KeyError:

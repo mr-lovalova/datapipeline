@@ -38,6 +38,7 @@ def handle(
         dataset=dataset,
     )
     print(f"Materialized {stream_id}: {result.output} ({result.count} records)")
+    print(f"Wrote metadata: {result.metadata}")
     if result.source_config is not None:
         print(f"Wrote source config: {result.source_config}")
     if result.ingest_config is not None:

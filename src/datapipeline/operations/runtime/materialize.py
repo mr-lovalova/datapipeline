@@ -5,9 +5,23 @@ from datapipeline.operations.persistence import RuntimeOutput, RuntimeOutputBatc
 from datapipeline.services.materialize import (
     materialized_stream_rows,
     materialized_order,
+    materialized_partition_by,
+    materialized_metadata_path,
     materialized_stream_config_paths,
+    write_materialized_stream_metadata,
     write_materialized_stream_config,
 )
+
+
+class _CountingRows:
+    def __init__(self, rows):
+        self._rows = rows
+        self.count = 0
+
+    def __iter__(self):
+        for row in self._rows:
+            self.count += 1
+            yield row
 
 
 def materialize_stream_with_runtime(
@@ -28,8 +42,15 @@ def materialize_stream_with_runtime(
     if not stream_id:
         raise ValueError("materialize stream requires options.stream")
     as_stream_id = str(options.get("as") or "").strip() or None
+    force = bool(options.get("force", False))
     runtime.sample_keys = dataset.sample_keys
-    if as_stream_id is not None and not bool(options.get("force", False)):
+    output_path = Path(target.destination)
+    metadata_path = materialized_metadata_path(output_path)
+    if metadata_path.exists() and not force:
+        raise FileExistsError(
+            f"{metadata_path} already exists; set options.force to overwrite"
+        )
+    if as_stream_id is not None and not force:
         source_path, ingest_path = materialized_stream_config_paths(
             runtime=runtime,
             stream_id=as_stream_id,
@@ -37,24 +58,38 @@ def materialize_stream_with_runtime(
         )
         for path in (source_path, ingest_path):
             if path.exists():
-                raise FileExistsError(f"{path} already exists; set options.force to overwrite")
+                raise FileExistsError(
+                    f"{path} already exists; set options.force to overwrite"
+                )
+    ordered_by = materialized_order(runtime, stream_id)
+    rows = _CountingRows(materialized_stream_rows(runtime, stream_id))
 
     def on_complete(success: bool) -> None:
-        if not success or as_stream_id is None:
+        if not success:
+            return
+        write_materialized_stream_metadata(
+            output=output_path,
+            rows=rows.count,
+            partition_by=materialized_partition_by(runtime, stream_id),
+            ordered_by=ordered_by,
+            force=force,
+        )
+        if as_stream_id is None:
             return
         write_materialized_stream_config(
             runtime=runtime,
             stream_id=as_stream_id,
             source_id=f"{as_stream_id}.source",
-            output=Path(target.destination),
-            ordered_by=materialized_order(runtime, stream_id),
-            force=bool(options.get("force", False)),
+            output=output_path,
+            partition_by=materialized_partition_by(runtime, stream_id),
+            ordered_by=ordered_by,
+            force=force,
         )
 
     return RuntimeOutputBatch(
         outputs=(
             RuntimeOutput(
-                rows=materialized_stream_rows(runtime, stream_id),
+                rows=rows,
                 target=target,
                 materialized_key=stream_id,
             ),

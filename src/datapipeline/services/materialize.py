@@ -2,6 +2,7 @@ from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+import json
 import os
 
 import yaml
@@ -11,10 +12,7 @@ from datapipeline.dag.runner import run_dag
 from datapipeline.io.factory import writer_factory
 from datapipeline.io.output import OutputTarget
 from datapipeline.pipelines.ingest import build_ingest_pipeline
-from datapipeline.pipelines.shared.record_nodes import (
-    required_record_order,
-    state_partition_by,
-)
+from datapipeline.pipelines.shared.record_nodes import required_record_order
 from datapipeline.pipelines.stream import build_stream_dag
 from datapipeline.runtime import Runtime
 from datapipeline.services.project_paths import ingests_dir, sources_dir
@@ -24,6 +22,7 @@ from datapipeline.services.project_paths import ingests_dir, sources_dir
 class MaterializeResult:
     count: int
     output: Path
+    metadata: Path
     source_config: Path | None = None
     ingest_config: Path | None = None
 
@@ -41,7 +40,10 @@ def materialize_stream_to_path(
     if dataset is not None:
         runtime.sample_keys = dataset.sample_keys
     validate_materialize_output_path(output)
+    ordered_by = materialized_order(runtime, stream_id)
+    metadata_path = materialized_metadata_path(output)
     _check_overwrite(output, force=force)
+    _check_overwrite(metadata_path, force=force)
     if as_stream_id is not None:
         source_path, ingest_path = materialized_stream_config_paths(
             runtime=runtime,
@@ -60,16 +62,23 @@ def materialize_stream_to_path(
         destination=output.resolve(),
     )
     count = write_rows(rows, target, visuals=visuals)
+    metadata_path = write_materialized_stream_metadata(
+        output=output,
+        rows=count,
+        partition_by=materialized_partition_by(runtime, stream_id),
+        ordered_by=ordered_by,
+        force=force,
+    )
 
     source_config = None
     ingest_config = None
     if as_stream_id is not None:
-        ordered_by = materialized_order(runtime, stream_id)
         source_config, ingest_config = write_materialized_stream_config(
             runtime=runtime,
             stream_id=as_stream_id,
             source_id=f"{as_stream_id}.source",
             output=output,
+            partition_by=materialized_partition_by(runtime, stream_id),
             ordered_by=ordered_by,
             force=force,
         )
@@ -77,6 +86,7 @@ def materialize_stream_to_path(
     return MaterializeResult(
         count=count,
         output=output.resolve(),
+        metadata=metadata_path,
         source_config=source_config,
         ingest_config=ingest_config,
     )
@@ -94,10 +104,46 @@ def materialized_stream_rows(runtime: Runtime, stream_id: str) -> Iterator[Any]:
 
 
 def materialized_order(runtime: Runtime, stream_id: str) -> list[str]:
-    context = PipelineContext(runtime)
     partition_by = runtime.registries.partition_by.get(stream_id)
-    state_by = state_partition_by(context, partition_by)
-    return required_record_order(state_by)
+    return required_record_order(partition_by)
+
+
+def materialized_partition_by(runtime: Runtime, stream_id: str) -> list[str] | None:
+    partition_by = runtime.registries.partition_by.get(stream_id)
+    if partition_by is None:
+        return None
+    if isinstance(partition_by, str):
+        return [partition_by]
+    return list(partition_by)
+
+
+def materialized_metadata_path(output: Path) -> Path:
+    return output.with_suffix(".metadata.json")
+
+
+def write_materialized_stream_metadata(
+    *,
+    output: Path,
+    rows: int,
+    partition_by: list[str] | None,
+    ordered_by: list[str],
+    force: bool,
+) -> Path:
+    path = materialized_metadata_path(output)
+    _check_overwrite(path, force=force)
+    doc = {
+        "rows": rows,
+        "format": "jsonl",
+        "encoding": "utf-8",
+        "partition_by": partition_by,
+        "ordered_by": ordered_by,
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(doc, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    return path.resolve()
 
 
 def write_rows(
@@ -127,6 +173,7 @@ def write_materialized_stream_config(
     stream_id: str,
     source_id: str,
     output: Path,
+    partition_by: list[str] | None,
     ordered_by: list[str],
     force: bool,
 ) -> tuple[Path, Path]:
@@ -157,6 +204,8 @@ def write_materialized_stream_config(
         "map": {"entrypoint": "identity", "args": {}},
         "ordered_by": ordered_by,
     }
+    if partition_by is not None:
+        ingest_doc["partition_by"] = partition_by
     source_path.write_text(yaml.safe_dump(source_doc, sort_keys=False), encoding="utf-8")
     ingest_path.write_text(yaml.safe_dump(ingest_doc, sort_keys=False), encoding="utf-8")
     return source_path.resolve(), ingest_path.resolve()

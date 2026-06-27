@@ -1,4 +1,5 @@
 import logging
+import time
 from pathlib import Path
 from typing import Any
 
@@ -158,6 +159,64 @@ def test_run_dag_emits_node_progress_with_active_node_context(tmp_path: Path) ->
     assert event.execution_index == 0
     assert event.message == "items=0"
     assert event.depth == 1
+
+
+def test_run_dag_emits_heartbeat_for_quiet_node(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(dag_runner, "_HEARTBEAT_INTERVAL_SECONDS", 0.01)
+    observer = _CollectingObserver()
+    ctx = _context(tmp_path)
+
+    def _quiet_work():
+        time.sleep(0.05)
+        yield 1
+
+    dag = Dag(
+        name="heartbeat-demo",
+        nodes=(PipelineNode(name="produce", op=_quiet_work),),
+    )
+
+    assert list(run_dag(ctx, dag, observer=observer)) == [1]
+
+    heartbeats = [
+        event
+        for event in observer.node_progress_events
+        if event.message.startswith("running elapsed=")
+    ]
+    assert heartbeats
+    assert heartbeats[0].dag_name == "heartbeat-demo"
+    assert heartbeats[0].node_name == "produce"
+    assert heartbeats[0].message.endswith("items=0")
+
+
+def test_run_dag_emits_heartbeat_while_node_is_yielding_items(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(dag_runner, "_HEARTBEAT_INTERVAL_SECONDS", 0.01)
+    observer = _CollectingObserver()
+    ctx = _context(tmp_path)
+
+    def _busy_stream():
+        for item in range(20):
+            time.sleep(0.003)
+            yield item
+
+    dag = Dag(
+        name="heartbeat-demo",
+        nodes=(PipelineNode(name="produce", op=_busy_stream),),
+    )
+
+    assert list(run_dag(ctx, dag, observer=observer)) == list(range(20))
+
+    heartbeats = [
+        event
+        for event in observer.node_progress_events
+        if event.message.startswith("running elapsed=")
+    ]
+    assert heartbeats
+    assert heartbeats[-1].dag_name == "heartbeat-demo"
+    assert heartbeats[-1].node_name == "produce"
+    assert not heartbeats[-1].message.endswith("items=0")
 
 
 def test_run_dag_ignores_node_progress_when_observer_does_not_support_it(
