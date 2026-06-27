@@ -16,6 +16,7 @@ def test_transform_entry_points_import() -> None:
     for group in (
         "datapipeline.transforms.record",
         "datapipeline.transforms.stream",
+        "datapipeline.transforms.vector",
     ):
         entries = transform_entries[group]
         assert "lint" not in entries

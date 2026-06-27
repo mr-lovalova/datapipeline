@@ -20,6 +20,26 @@ def replace_vector(sample: Sample, payload: Literal["features", "targets"], vect
     return sample.with_features(vector)
 
 
+def sample_time(sample: Sample):
+    if isinstance(sample.key, tuple) and sample.key:
+        return sample.key[0]
+    return sample.key
+
+
+def sample_entity_key(sample: Sample) -> tuple:
+    if not isinstance(sample.key, tuple):
+        return ()
+    return tuple(sample.key[1:])
+
+
+def vector_history_key(
+    sample: Sample,
+    payload: Literal["features", "targets"],
+    feature_id: str,
+) -> tuple:
+    return (payload, sample_entity_key(sample), str(feature_id))
+
+
 class VectorContextMixin:
     def __init__(self, payload: Literal["features", "targets"] = "features") -> None:
         if payload not in {"features", "targets"}:

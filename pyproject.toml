@@ -72,6 +72,7 @@ sequence = "datapipeline.transforms.sequence:WindowTransformer"
 [project.entry-points."datapipeline.transforms.vector"]
 drop = "datapipeline.transforms.vector:VectorDropTransform"
 fill = "datapipeline.transforms.vector:VectorFillTransform"
+forward_fill = "datapipeline.transforms.vector:VectorForwardFillTransform"
 replace = "datapipeline.transforms.vector:VectorReplaceTransform"
 
 [project.entry-points."datapipeline.mappers"]

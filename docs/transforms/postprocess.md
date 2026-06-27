@@ -14,7 +14,10 @@ IDs unless allowed, and enforces recorded list cadence metadata.
   `threshold`. Vertical mode uses `build/metadata.json` when partition coverage
   needs metadata.
 - `fill`: impute missing vector values from prior vectors using rolling
-  history.
+  `mean` or `median` history. History is isolated by the sample entity key when
+  samples are keyed, e.g. `(time, security_id)`.
+- `forward_fill`: fill missing vector values with the latest prior non-missing
+  value for the same sample entity and feature id. Use `max_age` to cap staleness.
 - `replace`: seed missing IDs with a constant or literal value.
 
 ## Artifacts

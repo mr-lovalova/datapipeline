@@ -351,12 +351,13 @@ targets:
 - `sample.keys` optionally adds record fields to the sample key. For example,
   `keys: [security_id]` emits one sample per `(time, security_id)`.
 - Stateful stream transforms such as `lag`, `lead`, `rolling`, `fill`, and
-  `ensure_cadence` use `sample.keys` as their default entity partition, so
-  per-security samples do not mix state.
+  `ensure_cadence` use stream `partition_by` as their entity partition. Add
+  `partition_by: security_id` when transform state must stay per security.
 - `group_by: 1h` is still accepted as the legacy time-only form and is
   equivalent to `sample: { cadence: 1h, keys: [] }`.
-- Stream `partition_by` remains separate: it creates partitioned feature ids
-  such as `close__@security_id:AAPL` when that column shape is desired.
+- `sample.keys` and stream `partition_by` are separate: `sample.keys` controls
+  output row identity, while `partition_by` controls stream transform state and
+  creates partitioned feature ids such as `close__@security_id:AAPL`.
 - `field` selects the record attribute used as the feature/target value.
 - `scale: true` inserts the standard scaler feature transform (requires scaler
   stats artifact or inline statistics).
