@@ -89,6 +89,70 @@ def test_artifact_tasks_load_configs(tmp_path):
     assert scaler.output == "stats.pkl"
 
 
+def test_ticks_artifact_task_loads_arbitrary_id(tmp_path):
+    project_yaml = _write_project(tmp_path, tasks_ref="tasks")
+    tasks_dir = _operations_dir(project_yaml)
+    (tasks_dir / "dataset_ticks.yaml").write_text(
+        (
+            "id: dataset_ticks\n"
+            "kind: artifact\n"
+            "entrypoint: core.artifact.ticks\n"
+            "stream: reference.stream\n"
+            "output: build/dataset_ticks.jsonl\n"
+        ),
+        encoding="utf-8",
+    )
+
+    tasks = _artifact_tasks(project_yaml)
+
+    assert len(tasks) == 1
+    task = tasks[0]
+    assert task.id == "dataset_ticks"
+    assert task.entrypoint == "core.artifact.ticks"
+    assert task.stream == "reference.stream"
+    assert task.grid_by == []
+    assert task.output == "build/dataset_ticks.jsonl"
+
+
+def test_ticks_artifact_task_loads_grid_by(tmp_path):
+    project_yaml = _write_project(tmp_path, tasks_ref="tasks")
+    tasks_dir = _operations_dir(project_yaml)
+    (tasks_dir / "model_grid.yaml").write_text(
+        (
+            "id: model_grid\n"
+            "kind: artifact\n"
+            "entrypoint: core.artifact.ticks\n"
+            "stream: reference.stream\n"
+            "grid_by: [security_id]\n"
+            "output: build/model_grid.jsonl\n"
+        ),
+        encoding="utf-8",
+    )
+
+    tasks = _artifact_tasks(project_yaml)
+
+    assert len(tasks) == 1
+    assert tasks[0].grid_by == ["security_id"]
+
+
+def test_ticks_artifact_task_rejects_reserved_builtin_id(tmp_path):
+    project_yaml = _write_project(tmp_path, tasks_ref="tasks")
+    tasks_dir = _operations_dir(project_yaml)
+    (tasks_dir / "schema_ticks.yaml").write_text(
+        (
+            "id: schema\n"
+            "kind: artifact\n"
+            "entrypoint: core.artifact.ticks\n"
+            "stream: reference.stream\n"
+            "output: build/schema_ticks.jsonl\n"
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="reserved for a built-in artifact task"):
+        _artifact_tasks(project_yaml)
+
+
 def test_scaler_task_loads_folds(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     tasks_dir = _operations_dir(project_yaml)

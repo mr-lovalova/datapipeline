@@ -95,6 +95,7 @@ identity = "datapipeline.parsers.identity:IdentityParser"
 "core.artifact.metadata" = "datapipeline.operations.artifacts.metadata:materialize_metadata"
 "core.artifact.scaler" = "datapipeline.operations.artifacts.scaler:materialize_scaler_statistics"
 "core.artifact.stats" = "datapipeline.operations.artifacts.stats:materialize_vector_stats"
+"core.artifact.ticks" = "datapipeline.operations.artifacts.ticks:materialize_ticks"
 
 [project.entry-points."datapipeline.operations.runtime"]
 "core.runtime.pipeline" = "datapipeline.operations.runtime.pipeline:serve_with_runtime"

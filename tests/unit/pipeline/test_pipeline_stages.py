@@ -282,6 +282,46 @@ def test_ensure_cadence_placeholders_do_not_copy_payload_fields(
     assert placeholder.volume is None
 
 
+def test_ensure_cadence_uses_stream_partition_for_tick_artifact(
+    tmp_path: Path,
+) -> None:
+    rows = [
+        {"time": _ts(1), "symbol": "A", "value": 1.0},
+    ]
+    runtime = _runtime_with_rows(
+        tmp_path,
+        rows,
+        partition_by="symbol",
+        stream_ops=[{"ensure_cadence": {"cadence": "model_grid", "field": "value"}}],
+    )
+    artifact_path = runtime.artifacts_root / "model_grid.jsonl"
+    artifact_path.write_text(
+        "\n".join(
+            [
+                json.dumps({"time": _ts(0).isoformat(), "symbol": "A"}),
+                json.dumps({"time": _ts(1).isoformat(), "symbol": "A"}),
+                json.dumps({"time": _ts(2).isoformat(), "symbol": "A"}),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    runtime.artifacts.register(
+        "model_grid",
+        artifact_path.name,
+        meta={"grid_by": ["symbol"]},
+    )
+    ctx = PipelineContext(runtime)
+
+    transformed = list(build_stream_pipeline(ctx, "stream", node=3))
+
+    assert [(rec.symbol, rec.time.hour, rec.value) for rec in transformed] == [
+        ("A", 0, None),
+        ("A", 1, 1.0),
+        ("A", 2, None),
+    ]
+
+
 def test_node_6_wraps_feature_values(tmp_path: Path) -> None:
     rows = [{"time": _ts(0), "value": 3.0, "symbol": "X"}]
     runtime = _runtime_with_rows(tmp_path, rows, partition_by="symbol")

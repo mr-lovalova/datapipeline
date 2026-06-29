@@ -9,6 +9,7 @@ from datapipeline.config.tasks import (
     SchemaTask,
     StatsTask,
     Task,
+    TicksTask,
 )
 from datapipeline.services.project_paths import tasks_dir
 
@@ -20,6 +21,7 @@ ARTIFACT_OPERATION_MODELS: dict[str, type[ArtifactTask]] = {
     "metadata": MetadataTask,
     "stats": StatsTask,
 }
+TICKS_ENTRYPOINT = "core.artifact.ticks"
 
 
 def _load_operation_entry(entry: dict) -> Task:
@@ -42,6 +44,20 @@ def _load_operation_entry(entry: dict) -> Task:
         lower=True,
     )
     normalized_entry["id"] = operation_id
+    raw_entrypoint = normalized_entry.get("entrypoint")
+    if raw_entrypoint is not None:
+        entrypoint = normalize_required_text(
+            raw_entrypoint,
+            field_name="entrypoint",
+        )
+        normalized_entry["entrypoint"] = entrypoint
+        if entrypoint == TICKS_ENTRYPOINT:
+            if operation_id in ARTIFACT_OPERATION_MODELS:
+                raise ValueError(
+                    f"Ticks artifact task id '{operation_id}' is reserved for "
+                    "a built-in artifact task."
+                )
+            return TicksTask.model_validate(normalized_entry)
     model_cls = ARTIFACT_OPERATION_MODELS.get(operation_id, ArtifactTask)
     return model_cls.model_validate(normalized_entry)
 

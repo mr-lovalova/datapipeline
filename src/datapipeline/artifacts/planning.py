@@ -10,7 +10,7 @@ from datapipeline.artifacts.specs import (
 )
 from datapipeline.build.state import BuildState
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
-from datapipeline.config.tasks import ArtifactTask
+from datapipeline.config.tasks import ArtifactTask, TicksTask
 
 
 @dataclass(frozen=True)
@@ -24,9 +24,17 @@ def build_planning_context(
     task_configs: Iterable[ArtifactTask],
 ) -> ArtifactPlanningContext:
     configs = tuple(task_configs)
+    definitions = (
+        *ARTIFACT_DEFINITIONS,
+        *(
+            ArtifactDefinition(key=task.id, task_id=task.id, min_stage=None)
+            for task in configs
+            if isinstance(task, TicksTask)
+        ),
+    )
     return ArtifactPlanningContext(
         task_configs=configs,
-        definitions=ARTIFACT_DEFINITIONS,
+        definitions=definitions,
         tasks_by_id={task.id: task for task in configs},
     )
 

@@ -1,6 +1,7 @@
 import tomllib
 from pathlib import Path
 
+from datapipeline.artifacts.planning import build_planning_context
 from datapipeline.artifacts.specs import (
     ARTIFACT_DEFINITIONS,
     artifact_build_order,
@@ -11,6 +12,7 @@ from datapipeline.config.tasks import (
     ScalerTask,
     SchemaTask,
     StatsTask,
+    TicksTask,
 )
 from datapipeline.plugins import BUILD_OPERATIONS_EP
 from datapipeline.services.constants import (
@@ -48,6 +50,23 @@ def test_artifact_keys_for_task_ids():
     assert keys == {VECTOR_SCHEMA, SCALER_STATISTICS, VECTOR_STATS}
 
 
+def test_ticks_task_uses_task_id_as_artifact_key():
+    context = build_planning_context(
+        [
+            TicksTask(
+                id="dataset_ticks",
+                entrypoint="core.artifact.ticks",
+                stream="reference.stream",
+                output="build/dataset_ticks.jsonl",
+            )
+        ]
+    )
+
+    keys = artifact_keys_for_task_ids({"dataset_ticks"}, context.definitions)
+
+    assert keys == {"dataset_ticks"}
+
+
 def test_artifact_definitions_have_runner_bound_entrypoints():
     declared = _declared_entrypoints(BUILD_OPERATIONS_EP)
     task_by_id = {
@@ -59,3 +78,8 @@ def test_artifact_definitions_have_runner_bound_entrypoints():
     for definition in ARTIFACT_DEFINITIONS:
         task = task_by_id[definition.task_id]
         assert task.entrypoint in declared
+
+
+def test_ticks_entrypoint_is_declared():
+    declared = _declared_entrypoints(BUILD_OPERATIONS_EP)
+    assert "core.artifact.ticks" in declared
