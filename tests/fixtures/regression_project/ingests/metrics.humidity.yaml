@@ -2,6 +2,7 @@ id: metrics.humidity.ingest
 from:
   source: regression.humidity
 partition_by: location
+feature_id_by: location
 
 map:
   entrypoint: identity
@@ -10,4 +11,3 @@ map:
 record:
   - where: { operator: ge, field: time, comparand: "${start_time}" }
   - where: { operator: le, field: time, comparand: "${end_time}" }
-

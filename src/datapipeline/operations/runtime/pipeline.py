@@ -5,6 +5,7 @@ from itertools import islice
 from typing import Iterator, Literal, Optional
 
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
+from datapipeline.config.dataset.validation import validate_dataset_feature_identity
 from datapipeline.config.tasks import OperationTask
 from datapipeline.dag.context import PipelineContext
 from datapipeline.dag.runner import run_dag
@@ -362,6 +363,7 @@ def serve_with_runtime(
     operation_task: OperationTask | None = None,
 ) -> RuntimeOutputBatch | None:
     _ = operation_task, visuals
+    validate_dataset_feature_identity(runtime, dataset)
 
     context = PipelineContext(
         runtime,

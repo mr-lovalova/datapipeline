@@ -54,6 +54,7 @@ def _runtime(tmp_path) -> Runtime:
     regs.stream_operations.register("source.stream", [])
     regs.debug_operations.register("source.stream", [])
     regs.partition_by.register("source.stream", None)
+    regs.feature_id_by.register("source.stream", None)
     regs.ordered_by.register("source.stream", None)
     regs.sort_batch_size.register("source.stream", 1)
     return runtime
@@ -75,6 +76,7 @@ def _stream_runtime(tmp_path) -> Runtime:
     )
     regs.debug_operations.register("derived.stream", [{"missing_debug": {}}])
     regs.partition_by.register("derived.stream", None)
+    regs.feature_id_by.register("derived.stream", None)
     regs.ordered_by.register("derived.stream", None)
     regs.sort_batch_size.register("derived.stream", 1)
     return runtime

@@ -8,6 +8,7 @@ map:
 
 cadence: ${group_by} # optional per-stream cadence
 partition_by: ticker
+feature_id_by: ticker
 # sort_batch_size: 100000              # in-memory sort chunk size
 
 record: # record-level transforms

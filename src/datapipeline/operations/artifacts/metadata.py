@@ -7,6 +7,7 @@ from typing import Dict
 from datapipeline.artifacts.models import SampleMetadata
 from datapipeline.config.dataset.normalize import floor_time_to_bucket
 from datapipeline.config.dataset.loader import load_dataset
+from datapipeline.config.dataset.validation import validate_dataset_feature_identity
 from datapipeline.config.metadata import (
     VectorMetadata,
     Window,
@@ -163,6 +164,7 @@ def materialize_metadata(
     task_cfg: MetadataTask,
 ) -> ArtifactOutput:
     dataset = load_dataset(runtime.project_yaml, "vectors")
+    validate_dataset_feature_identity(runtime, dataset)
     features_cfgs = list(dataset.features or [])
     (
         feature_stats,

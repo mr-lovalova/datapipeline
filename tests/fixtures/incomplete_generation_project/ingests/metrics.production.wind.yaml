@@ -2,6 +2,7 @@ id: metrics.production.wind.ingest
 from:
   source: incomplete.production
 partition_by: municipality
+feature_id_by: municipality
 
 map:
   entrypoint: identity
@@ -11,4 +12,3 @@ record:
   - where: { operator: ge, field: time, comparand: "${start_time}" }
   - where: { operator: le, field: time, comparand: "${end_time}" }
   - where: { operator: in, field: municipality, comparand: ["849", "550", "400"] }
-

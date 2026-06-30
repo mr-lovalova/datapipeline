@@ -17,8 +17,8 @@ Contributing: PRs welcome on [GitHub](https://github.com/mr-lovalova/datapipelin
 > - Samples are grouped by `sample.cadence`/`group_by`, plus optional
 >   `sample.keys` such as `security_id`.
 > - Stream state is partitioned with `partition_by` when transforms need
->   per-entity history. If omitted, dataset `sample.keys` are used as the
->   default state partition for vector runs.
+>   per-entity history. Feature-id suffixing is configured separately with
+>   `feature_id_by`.
 
 ---
 
@@ -141,7 +141,7 @@ jerry serve --limit 3
   - Input: TemporalRecord stream
   - Ops: wrap each record as `FeatureRecord(id, record, value)`; `id` is derived from:
     - dataset `id:` (base feature id), and
-    - optional `partition_by:` fields (entity-specific feature ids)
+    - optional stream `feature_id_by:` fields (wide feature ids)
     - `value` is selected from `dataset.yaml` via `field: <record_attr>`
   - Output: FeatureRecord stream (keeps sample identity separately from public feature id)
 
@@ -275,7 +275,8 @@ These live under `lib/<plugin>/src/<package>/`:
 - **Source alias**: `sources/*.yaml:id` (referenced by ingests under `from.source`).
 - **Stream id**: `ingests/*.yaml:id` or `streams/*.yaml:id` (referenced by `dataset.yaml` under `record_stream:`).
 - **Sample key**: vector identity: floored time plus optional `dataset.sample.keys`.
-- **Partition**: stream state boundary for history-based transforms, driven by `stream.partition_by` or defaulted from `sample.keys` during vector runs.
+- **Partition**: stream state boundary for history-based transforms, driven by `stream.partition_by`.
+- **Feature id fields**: optional stream `feature_id_by` fields appended to feature ids for wide feature schemas.
 - **Group**: sample cadence set by `dataset.sample.cadence` or legacy `dataset.group_by`.
 - **Preview index**: logical debug index for `jerry serve --preview-index 0-14` (ingest nodes -> stream nodes -> feature records -> samples).
 - **Fan-out**: when multiple features reference the same `record_stream`, the pipeline spools records so each feature can read independently (records must be picklable).

@@ -106,6 +106,7 @@ id: equity.daily_liquid
 from:
   stream: equity.ohlcv
 partition_by: ticker
+feature_id_by: []
 stream:
   - dedupe: {}
 ```

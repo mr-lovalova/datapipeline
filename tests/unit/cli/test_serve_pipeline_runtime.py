@@ -13,6 +13,14 @@ from datapipeline.operations.persistence import SplitRuntimeOutput, persist_runt
 from datapipeline.operations.runtime.pipeline import serve_with_runtime
 
 
+@pytest.fixture(autouse=True)
+def _skip_dataset_identity_validation(monkeypatch):
+    monkeypatch.setattr(
+        "datapipeline.operations.runtime.pipeline.validate_dataset_feature_identity",
+        lambda runtime, dataset: None,
+    )
+
+
 def _runtime():
     return SimpleNamespace(window_bounds=None, execution_observer=None)
 

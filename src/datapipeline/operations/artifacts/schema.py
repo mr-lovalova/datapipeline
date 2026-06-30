@@ -5,6 +5,7 @@ from typing import Dict
 from datapipeline.artifacts.models import VectorSchemaArtifact
 from datapipeline.config.tasks import SchemaTask
 from datapipeline.config.dataset.loader import load_dataset
+from datapipeline.config.dataset.validation import validate_dataset_feature_identity
 from datapipeline.operations.persistence import ArtifactOutput
 from datapipeline.runtime import Runtime
 from datapipeline.utils.paths import ensure_parent
@@ -21,6 +22,7 @@ def materialize_vector_schema(
     task_cfg: SchemaTask,
 ) -> ArtifactOutput:
     dataset = load_dataset(runtime.project_yaml, "vectors")
+    validate_dataset_feature_identity(runtime, dataset)
     features_cfgs = list(dataset.features or [])
     feature_stats, feature_vectors, feature_min, feature_max = collect_schema_entries(
         runtime,

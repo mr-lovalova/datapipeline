@@ -69,17 +69,33 @@ def test_ingest_rejects_stream_transforms() -> None:
         )
 
 
+def test_ingest_accepts_feature_id_by() -> None:
+    spec = IngestConfig.model_validate(
+        {
+            "id": "sample",
+            "from": {"source": "demo.source"},
+            "map": {"entrypoint": "identity", "args": {}},
+            "partition_by": "ticker",
+            "feature_id_by": "ticker",
+        }
+    )
+
+    assert spec.feature_id_by == "ticker"
+
+
 def test_stream_accepts_upstream_stream_shape() -> None:
     spec = StreamConfig.model_validate(
         {
             "id": "sample",
             "from": {"stream": "sample.ingest"},
             "partition_by": "ticker",
+            "feature_id_by": [],
             "stream": [{"dedupe": {}}],
         }
     )
 
     assert spec.input_refs() == {"stream": "sample.ingest"}
+    assert spec.feature_id_by == []
 
 
 def test_manual_stream_rejects_join_options() -> None:

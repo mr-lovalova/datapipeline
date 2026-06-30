@@ -31,7 +31,7 @@
 #     sequence: null          # optional
 #
 # sample.keys creates one vector sample per cadence bucket and key tuple.
-# stream partition_by remains separate: it isolates stream state and can suffix
-# feature ids, e.g. close__@security_id:AAPL.
+# stream partition_by isolates stream state for history-based transforms.
+# stream feature_id_by controls feature-id suffixes, e.g. close__@security_id:AAPL.
 #
 # Record-only stages use only record_stream entries; id/field/scale/sequence are ignored.

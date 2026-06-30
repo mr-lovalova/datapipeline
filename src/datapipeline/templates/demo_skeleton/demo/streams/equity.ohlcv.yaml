@@ -4,6 +4,7 @@ from:
 
 cadence: ${group_by} # optional per-stream cadence
 partition_by: ticker
+feature_id_by: ticker
 
 stream: # per-stream transforms (input sorted by partition,time)
   # - lag: { field: close, to: close_lag_1, periods: 1 }

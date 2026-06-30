@@ -2,6 +2,7 @@ id: metrics.elspot.eur.ingest
 from:
   source: incomplete.elspot
 partition_by: area
+feature_id_by: area
 
 map:
   entrypoint: identity
@@ -10,4 +11,3 @@ map:
 record:
   - where: { operator: ge, field: time, comparand: "${start_time}" }
   - where: { operator: le, field: time, comparand: "${end_time}" }
-

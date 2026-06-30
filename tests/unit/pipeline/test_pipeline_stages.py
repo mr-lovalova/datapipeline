@@ -125,6 +125,7 @@ def _runtime_with_rows(
     record_ops: list[dict] | None = None,
     stream_ops: list[dict] | None = None,
     partition_by: str | None = None,
+    feature_id_by: str | list[str] | None = None,
 ) -> Runtime:
     artifacts_root = tmp_path / "artifacts"
     artifacts_root.mkdir(parents=True, exist_ok=True)
@@ -141,6 +142,7 @@ def _runtime_with_rows(
         regs.stream_operations.register(stream_id, [])
         regs.debug_operations.register(stream_id, [])
         regs.partition_by.register(stream_id, partition_by)
+        regs.feature_id_by.register(stream_id, feature_id_by)
         regs.ordered_by.register(stream_id, None)
         regs.sort_batch_size.register(stream_id, 128)
         return runtime
@@ -153,6 +155,7 @@ def _runtime_with_rows(
     regs.stream_operations.register(ingest_id, [])
     regs.debug_operations.register(ingest_id, [])
     regs.partition_by.register(ingest_id, partition_by)
+    regs.feature_id_by.register(ingest_id, feature_id_by)
     regs.ordered_by.register(ingest_id, None)
     regs.sort_batch_size.register(ingest_id, 128)
 
@@ -163,6 +166,7 @@ def _runtime_with_rows(
     regs.stream_operations.register(stream_id, stream_ops)
     regs.debug_operations.register(stream_id, [])
     regs.partition_by.register(stream_id, partition_by)
+    regs.feature_id_by.register(stream_id, feature_id_by)
     regs.ordered_by.register(stream_id, None)
     regs.sort_batch_size.register(stream_id, 128)
     return runtime
@@ -324,7 +328,12 @@ def test_ensure_cadence_uses_stream_partition_for_tick_artifact(
 
 def test_node_6_wraps_feature_values(tmp_path: Path) -> None:
     rows = [{"time": _ts(0), "value": 3.0, "symbol": "X"}]
-    runtime = _runtime_with_rows(tmp_path, rows, partition_by="symbol")
+    runtime = _runtime_with_rows(
+        tmp_path,
+        rows,
+        partition_by="symbol",
+        feature_id_by="symbol",
+    )
     ctx = PipelineContext(runtime)
     cfg = FeatureRecordConfig(
         record_stream="stream",

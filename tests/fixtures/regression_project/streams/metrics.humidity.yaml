@@ -3,6 +3,7 @@ from:
   stream: metrics.humidity.ingest
 
 partition_by: location
+feature_id_by: location
 
 stream:
   - ensure_cadence: { cadence: 1h, field: value }

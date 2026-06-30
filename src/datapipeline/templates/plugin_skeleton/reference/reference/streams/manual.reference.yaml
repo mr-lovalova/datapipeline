@@ -11,6 +11,7 @@
 #   args: { driver: alias }
 # cadence: ${group_by}          # optional per-stream variable for interpolation
 # partition_by: station_id      # optional output partition; string or list of strings
+# feature_id_by: []             # optional; [] for scalar keyed features, fields for wide IDs
 # ordered_by: [station_id, time] # optional; skip sort when mapper already emits this order
 # sort_batch_size: 100000       # optional; in-memory chunk size for sorting
 #

@@ -133,13 +133,13 @@ def build_feature_nodes(
     group_by_cadence: str | None = None,
     record_input: str = "stream_transforms",
 ) -> tuple[PipelineNode, ...]:
-    partition_by = context.runtime.registries.partition_by.get(record_stream_id)
+    feature_id_by = context.runtime.registries.feature_id_by.get(record_stream_id)
     batch_size = context.runtime.registries.sort_batch_size.get(record_stream_id)
     return (
         PipelineNode(
             name="build_feature_stream",
             op=build_feature_stream,
-            args=(feature_id, field, partition_by, sample_keys),
+            args=(feature_id, field, feature_id_by, sample_keys),
             input=record_input,
         ),
         PipelineNode(

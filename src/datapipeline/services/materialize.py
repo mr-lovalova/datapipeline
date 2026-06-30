@@ -66,6 +66,7 @@ def materialize_stream_to_path(
         output=output,
         rows=count,
         partition_by=materialized_partition_by(runtime, stream_id),
+        feature_id_by=materialized_feature_id_by(runtime, stream_id),
         ordered_by=ordered_by,
         force=force,
     )
@@ -79,6 +80,7 @@ def materialize_stream_to_path(
             source_id=f"{as_stream_id}.source",
             output=output,
             partition_by=materialized_partition_by(runtime, stream_id),
+            feature_id_by=materialized_feature_id_by(runtime, stream_id),
             ordered_by=ordered_by,
             force=force,
         )
@@ -110,11 +112,27 @@ def materialized_order(runtime: Runtime, stream_id: str) -> list[str]:
 
 def materialized_partition_by(runtime: Runtime, stream_id: str) -> list[str] | None:
     partition_by = runtime.registries.partition_by.get(stream_id)
-    if partition_by is None:
+    return _field_list(partition_by)
+
+
+def materialized_feature_id_by(runtime: Runtime, stream_id: str) -> list[str] | None:
+    feature_id_by = runtime.registries.feature_id_by.get(stream_id)
+    return _field_list(feature_id_by)
+
+
+def _field_list(value: str | list[str] | None) -> list[str] | None:
+    if value == []:
+        return []
+    if value is None:
         return None
-    if isinstance(partition_by, str):
-        return [partition_by]
-    return list(partition_by)
+    if isinstance(value, str):
+        return [value]
+    return list(value)
+
+
+def _write_field_list(doc: dict[str, Any], key: str, value: list[str] | None) -> None:
+    if value is not None:
+        doc[key] = value
 
 
 def materialized_metadata_path(output: Path) -> Path:
@@ -126,6 +144,7 @@ def write_materialized_stream_metadata(
     output: Path,
     rows: int,
     partition_by: list[str] | None,
+    feature_id_by: list[str] | None,
     ordered_by: list[str],
     force: bool,
 ) -> Path:
@@ -136,6 +155,7 @@ def write_materialized_stream_metadata(
         "format": "jsonl",
         "encoding": "utf-8",
         "partition_by": partition_by,
+        "feature_id_by": feature_id_by,
         "ordered_by": ordered_by,
     }
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -174,6 +194,7 @@ def write_materialized_stream_config(
     source_id: str,
     output: Path,
     partition_by: list[str] | None,
+    feature_id_by: list[str] | None,
     ordered_by: list[str],
     force: bool,
 ) -> tuple[Path, Path]:
@@ -204,8 +225,8 @@ def write_materialized_stream_config(
         "map": {"entrypoint": "identity", "args": {}},
         "ordered_by": ordered_by,
     }
-    if partition_by is not None:
-        ingest_doc["partition_by"] = partition_by
+    _write_field_list(ingest_doc, "partition_by", partition_by)
+    _write_field_list(ingest_doc, "feature_id_by", feature_id_by)
     source_path.write_text(yaml.safe_dump(source_doc, sort_keys=False), encoding="utf-8")
     ingest_path.write_text(yaml.safe_dump(ingest_doc, sort_keys=False), encoding="utf-8")
     return source_path.resolve(), ingest_path.resolve()

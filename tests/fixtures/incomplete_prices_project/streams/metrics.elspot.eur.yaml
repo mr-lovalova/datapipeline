@@ -3,6 +3,7 @@ from:
   stream: metrics.elspot.eur.ingest
 
 partition_by: area
+feature_id_by: area
 
 stream:
   - ensure_cadence: { cadence: 1h, field: value }

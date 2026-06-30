@@ -49,6 +49,9 @@ class Registries:
     partition_by: Registry[str, Optional[Union[str, List[str]]]] = field(
         default_factory=Registry
     )
+    feature_id_by: Registry[str, Optional[Union[str, List[str]]]] = field(
+        default_factory=Registry
+    )
     ordered_by: Registry[str, Optional[List[str]]] = field(default_factory=Registry)
     sort_batch_size: Registry[str, int] = field(default_factory=Registry)
 
@@ -57,6 +60,7 @@ class Registries:
             self.stream_operations,
             self.debug_operations,
             self.partition_by,
+            self.feature_id_by,
             self.ordered_by,
             self.sort_batch_size,
             self.record_operations,

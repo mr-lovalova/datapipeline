@@ -6,6 +6,7 @@ from datapipeline.analysis.vector.collector import VectorStatsCollector
 from datapipeline.analysis.vector.snapshot import snapshot_from_collector
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.dataset.loader import load_dataset
+from datapipeline.config.dataset.validation import validate_dataset_feature_identity
 from datapipeline.config.metadata import build_vector_metadata_lookup
 from datapipeline.config.tasks import StatsTask
 from datapipeline.dag.context import PipelineContext
@@ -55,6 +56,7 @@ def materialize_vector_stats(
     task_cfg: StatsTask,
 ) -> ArtifactOutput:
     dataset = load_dataset(runtime.project_yaml, "vectors")
+    validate_dataset_feature_identity(runtime, dataset)
     context = PipelineContext(runtime)
     expected_feature_ids, schema_meta = build_vector_metadata_lookup(
         context.require_artifact(VECTOR_METADATA_SPEC)

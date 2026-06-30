@@ -5,6 +5,7 @@ from datapipeline.operations.persistence import RuntimeOutput, RuntimeOutputBatc
 from datapipeline.services.materialize import (
     materialized_stream_rows,
     materialized_order,
+    materialized_feature_id_by,
     materialized_partition_by,
     materialized_metadata_path,
     materialized_stream_config_paths,
@@ -71,6 +72,7 @@ def materialize_stream_with_runtime(
             output=output_path,
             rows=rows.count,
             partition_by=materialized_partition_by(runtime, stream_id),
+            feature_id_by=materialized_feature_id_by(runtime, stream_id),
             ordered_by=ordered_by,
             force=force,
         )
@@ -82,6 +84,7 @@ def materialize_stream_with_runtime(
             source_id=f"{as_stream_id}.source",
             output=output_path,
             partition_by=materialized_partition_by(runtime, stream_id),
+            feature_id_by=materialized_feature_id_by(runtime, stream_id),
             ordered_by=ordered_by,
             force=force,
         )

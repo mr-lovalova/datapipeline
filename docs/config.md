@@ -231,7 +231,7 @@ loader:
 ### `<project_root>/ingests/<stream_id>.yaml`
 
 Ingest configs describe how the runtime should load raw DTOs, map them to
-domain records, apply record-level cleanup, and cache ordered records. Use
+domain records, apply record-level cleanup, and normalize record order. Use
 folders to organize by domain if you like.
 
 ```yaml
@@ -244,6 +244,7 @@ map:
   args: {}
 
 partition_by: station
+feature_id_by: []
 sort_batch_size: 50000
 
 record:
@@ -262,6 +263,7 @@ id: equity.ohlcv.liquid
 from:
   stream: equity.ohlcv
 partition_by: station
+feature_id_by: []
 sort_batch_size: 50000
 stream:
   - ensure_cadence: { field: close, to: close, cadence: 10m }
@@ -276,7 +278,12 @@ debug:
   transforms registered under the `record` entry-point group). Ingest-only.
 - `stream`: transforms applied after ingest ordering; operate on record fields before feature selection.
 - `debug`: instrumentation-only transforms (linters, assertions).
-- `partition_by`: optional keys used to suffix feature IDs (e.g., `temp__@station_id:XYZ`).
+- `partition_by`: optional stream state keys used by ordering and history-based
+  transforms.
+- `feature_id_by`: optional fields used to suffix feature IDs (e.g.,
+  `temp__@station_id:XYZ`). If a partitioned stream is used as a dataset
+  feature, set this explicitly: `[]` for scalar keyed-row features or a field
+  list for wide feature IDs.
 - `sort_batch_size`: chunk size used by the in-memory sorter when normalizing
   order before stream transforms.
 
@@ -292,6 +299,7 @@ from:
     pressure: pressure.processed
     t: temp_dry.processed
 partition_by: station_id
+feature_id_by: []
 sort_batch_size: 20000
 
 map:
@@ -355,9 +363,10 @@ targets:
   `partition_by: security_id` when transform state must stay per security.
 - `group_by: 1h` is still accepted as the legacy time-only form and is
   equivalent to `sample: { cadence: 1h, keys: [] }`.
-- `sample.keys` and stream `partition_by` are separate: `sample.keys` controls
-  output row identity, while `partition_by` controls stream transform state and
-  creates partitioned feature ids such as `close__@security_id:AAPL`.
+- `sample.keys`, stream `partition_by`, and stream `feature_id_by` are separate:
+  `sample.keys` controls output row identity, `partition_by` controls stream
+  transform state, and `feature_id_by` controls feature-id suffixes such as
+  `close__@security_id:AAPL`.
 - `field` selects the record attribute used as the feature/target value.
 - `scale: true` inserts the standard scaler feature transform (requires scaler
   stats artifact or inline statistics).

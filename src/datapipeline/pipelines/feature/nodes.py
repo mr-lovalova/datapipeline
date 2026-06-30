@@ -15,11 +15,11 @@ from datapipeline.transforms.utils import get_field, partition_key
 def build_feature_stream(
     feature_id: str,
     field: str,
-    partition_by: str | list[str] | None,
+    feature_id_by: str | list[str] | None,
     sample_keys: Sequence[str],
     records: Iterable[Any],
 ) -> Iterable[Any]:
-    keygen = FeatureIdGenerator(partition_by)
+    keygen = FeatureIdGenerator(feature_id_by)
     for rec in records:
         if not _record_has_field(rec, field):
             raise KeyError(

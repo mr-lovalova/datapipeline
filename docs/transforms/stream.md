@@ -5,8 +5,8 @@ under `stream:`.
 
 Transforms that depend on history operate within a partition. Set
 `partition_by` on the stream when state must be isolated by an entity such as
-`security_id`; vector runs default missing stream partitions from
-`dataset.sample.keys`.
+`security_id`. `partition_by` does not control feature names; use
+`feature_id_by` when a stream should suffix feature ids.
 
 ## Field-Writing Transforms
 

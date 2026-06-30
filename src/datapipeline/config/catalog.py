@@ -28,6 +28,7 @@ class IngestConfig(BaseModel):
     map: EPArgs
     cadence: Any | None = None
     partition_by: str | list[str] | None = Field(default=None)
+    feature_id_by: str | list[str] | None = Field(default=None)
     ordered_by: list[str] | None = Field(default=None)
     sort_batch_size: int = Field(default=100_000)
     record: list[dict[str, Any]] | None = Field(default=None)
@@ -145,6 +146,7 @@ class StreamConfig(BaseModel):
     map: EPArgs | None = None
     cadence: Any | None = None
     partition_by: str | list[str] | None = Field(default=None)
+    feature_id_by: str | list[str] | None = Field(default=None)
     ordered_by: list[str] | None = Field(default=None)
     sort_batch_size: int = Field(default=100_000)
     record: list[dict[str, Any]] | None = Field(default=None)

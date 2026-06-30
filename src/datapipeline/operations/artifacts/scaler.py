@@ -5,6 +5,7 @@ from typing import Any, Dict, Iterator
 from datapipeline.artifacts.specs import dataset_requires_scaler
 from datapipeline.config.tasks import ScalerTask
 from datapipeline.config.dataset.loader import load_dataset
+from datapipeline.config.dataset.validation import validate_dataset_feature_identity
 from datapipeline.config.split import TimeSplitConfig
 from datapipeline.domain.sample import Sample
 from datapipeline.dag.context import PipelineContext
@@ -25,6 +26,7 @@ def materialize_scaler_statistics(
     task_cfg: ScalerTask,
 ) -> ArtifactOutput | None:
     dataset = load_dataset(runtime.project_yaml, "vectors")
+    validate_dataset_feature_identity(runtime, dataset)
     feature_cfgs = list(dataset.features or [])
     target_cfgs = list(dataset.targets or [])
     if not dataset_requires_scaler(dataset):

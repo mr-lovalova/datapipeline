@@ -73,6 +73,7 @@ def _runtime_with_streams(
             alias, stream_transforms.get(alias, []))
         regs.debug_operations.register(alias, [])
         regs.partition_by.register(alias, None)
+        regs.feature_id_by.register(alias, None)
         regs.sort_batch_size.register(alias, 1024)
         for rec in rows:
             ts = getattr(rec, "time", None)
@@ -134,6 +135,10 @@ def test_vector_targets_respect_partitioned_ids(tmp_path) -> None:
     runtime.registries.partition_by.register(
         "wind_speed_stream", "municipality")
     runtime.registries.partition_by.register(
+        "wind_production_stream", "municipality")
+    runtime.registries.feature_id_by.register(
+        "wind_speed_stream", "municipality")
+    runtime.registries.feature_id_by.register(
         "wind_production_stream", "municipality")
 
     context = PipelineContext(runtime)
@@ -334,7 +339,7 @@ def test_sequence_features_are_windowed_by_sample_keys(tmp_path) -> None:
     ]
 
 
-def test_partition_by_remains_feature_identity_with_sample_keys(tmp_path) -> None:
+def test_feature_id_by_controls_partitioned_feature_identity(tmp_path) -> None:
     def _equity_record(hour: int, security_id: str, value: float) -> TemporalRecord:
         rec = _record(_ts(hour), value)
         setattr(rec, "security_id", security_id)
@@ -348,6 +353,7 @@ def test_partition_by_remains_feature_identity_with_sample_keys(tmp_path) -> Non
     }
     runtime = _runtime_with_streams(tmp_path, streams)
     runtime.registries.partition_by.register("monthly_returns", "security_id")
+    runtime.registries.feature_id_by.register("monthly_returns", "security_id")
     context = PipelineContext(runtime)
     feature_cfgs = [
         FeatureRecordConfig(
@@ -405,6 +411,7 @@ def test_stream_transforms_use_explicit_stream_partition(tmp_path) -> None:
         },
     )
     runtime.registries.partition_by.register("daily_prices", "security_id")
+    runtime.registries.feature_id_by.register("daily_prices", [])
     context = PipelineContext(runtime)
     feature_cfgs = [
         FeatureRecordConfig(
@@ -431,10 +438,10 @@ def test_stream_transforms_use_explicit_stream_partition(tmp_path) -> None:
         (_ts(1), "MSFT"),
     ]
     assert [sample.features.values for sample in samples] == [
-        {"value_mean_2__@security_id:AAPL": None},
-        {"value_mean_2__@security_id:MSFT": None},
-        {"value_mean_2__@security_id:AAPL": 15.0},
-        {"value_mean_2__@security_id:MSFT": 150.0},
+        {"value_mean_2": None},
+        {"value_mean_2": None},
+        {"value_mean_2": 15.0},
+        {"value_mean_2": 150.0},
     ]
 
 

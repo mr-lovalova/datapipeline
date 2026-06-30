@@ -66,6 +66,7 @@ def _runtime(
     tmp_path: Path,
     rows: list[dict],
     partition_by: str | list[str] | None = None,
+    feature_id_by: str | list[str] | None = None,
 ) -> Runtime:
     project_yaml = _write_project(tmp_path)
     runtime = Runtime(project_yaml=project_yaml, artifacts_root=tmp_path / "artifacts")
@@ -77,6 +78,7 @@ def _runtime(
     regs.stream_operations.register("prices.raw", [])
     regs.debug_operations.register("prices.raw", [])
     regs.partition_by.register("prices.raw", partition_by)
+    regs.feature_id_by.register("prices.raw", feature_id_by)
     regs.ordered_by.register("prices.raw", None)
     regs.sort_batch_size.register("prices.raw", 2)
     return runtime
@@ -115,6 +117,7 @@ def test_materialize_stream_writes_jsonl_and_reusable_config(tmp_path: Path) -> 
         "format": "jsonl",
         "encoding": "utf-8",
         "partition_by": None,
+        "feature_id_by": None,
         "ordered_by": ["time"],
     }
     assert result.source_config == (
@@ -138,12 +141,19 @@ def test_materialize_stream_writes_jsonl_and_reusable_config(tmp_path: Path) -> 
     ]
 
 
-def test_materialize_stream_preserves_explicit_partition(tmp_path: Path) -> None:
+def test_materialize_stream_preserves_explicit_partition_and_feature_id_by(
+    tmp_path: Path,
+) -> None:
     rows = [
         {"time": _ts(2), "security_id": "MSFT", "close": 20.0},
         {"time": _ts(1), "security_id": "AAPL", "close": 10.0},
     ]
-    runtime = _runtime(tmp_path, rows, partition_by="security_id")
+    runtime = _runtime(
+        tmp_path,
+        rows,
+        partition_by="security_id",
+        feature_id_by=[],
+    )
     output = tmp_path / "interim" / "prices.materialized.jsonl"
 
     result = materialize_stream_to_path(
@@ -158,12 +168,14 @@ def test_materialize_stream_preserves_explicit_partition(tmp_path: Path) -> None
         "format": "jsonl",
         "encoding": "utf-8",
         "partition_by": ["security_id"],
+        "feature_id_by": [],
         "ordered_by": ["security_id", "time"],
     }
     ingest_text = result.ingest_config.read_text(
         encoding="utf-8"
     )
     assert "partition_by:\n- security_id\n" in ingest_text
+    assert "feature_id_by: []\n" in ingest_text
     assert "ordered_by:\n- security_id\n- time\n" in ingest_text
 
     reloaded = bootstrap(runtime.project_yaml)
@@ -288,5 +300,6 @@ def test_runtime_materialize_stream_writes_metadata_sidecar(tmp_path: Path) -> N
         "format": "jsonl",
         "encoding": "utf-8",
         "partition_by": None,
+        "feature_id_by": None,
         "ordered_by": ["time"],
     }

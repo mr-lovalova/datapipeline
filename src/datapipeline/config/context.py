@@ -3,6 +3,7 @@ from pathlib import Path
 
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.dataset.loader import load_dataset
+from datapipeline.config.dataset.validation import validate_dataset_feature_identity
 from datapipeline.dag.context import PipelineContext
 from datapipeline.runtime import Runtime
 from datapipeline.services.bootstrap import bootstrap
@@ -28,6 +29,7 @@ def load_dataset_context(project: Path | str) -> DatasetContext:
     project_path = Path(project)
     dataset = load_dataset(project_path, "vectors")
     runtime = bootstrap(project_path)
+    validate_dataset_feature_identity(runtime, dataset)
     context = PipelineContext(runtime)
     return DatasetContext(
         project=project_path,
