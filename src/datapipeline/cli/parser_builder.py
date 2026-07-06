@@ -1,5 +1,6 @@
 import argparse
 
+from datapipeline.cli.version import short_version
 from datapipeline.cli.parser.build import add_build_command
 from datapipeline.cli.parser.clean import add_clean_command
 from datapipeline.cli.parser.common import build_common_parent
@@ -24,8 +25,15 @@ def build_parser() -> argparse.ArgumentParser:
         description="Mixology-themed CLI for building and serving data pipelines.",
         parents=[common],
     )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=short_version(),
+    )
     sub = parser.add_subparsers(dest="cmd", required=True)
 
+    sub.add_parser("version", help="show installed Jerry version")
+    sub.add_parser("env", help="show installed Jerry environment details")
     add_serve_command(sub, common=common)
     add_inspect_command(sub, common=common)
     add_build_command(sub, common=common)

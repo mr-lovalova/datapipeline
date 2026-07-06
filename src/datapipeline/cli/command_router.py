@@ -16,6 +16,8 @@ from datapipeline.cli.commands.parser import handle as handle_parser
 from datapipeline.cli.commands.plugin import bar as handle_bar
 from datapipeline.cli.commands.source import handle as handle_source
 from datapipeline.cli.commands.stream import handle as handle_stream_create
+from datapipeline.cli.commands.version import handle as handle_version
+from datapipeline.cli.commands.version import handle_env
 from datapipeline.config.resolution import LogOutputTarget
 from datapipeline.config.workspace import WorkspaceContext
 
@@ -34,6 +36,12 @@ def execute_command(
     base_level_name: str,
     cli_log_outputs: list[LogOutputTarget],
 ) -> bool:
+    if args.cmd == "version":
+        handle_version()
+        return True
+    if args.cmd == "env":
+        handle_env()
+        return True
     if args.cmd in {"serve", "build", "inspect"}:
         return handle_profile_command(
             kind=args.cmd,
