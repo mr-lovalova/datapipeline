@@ -324,9 +324,6 @@ def _observe_node_stream(
         error_type: str | None = None
         error_message: str | None = None
         iterator: Iterator[Any] = iter(())
-        active_node_token = _CURRENT_RUN_ACTIVE_NODE.set(
-            DagParentRef(dag_name=dag_name, node_name=node_name, node_index=node_index)
-        )
         execution_index = _next_execution_index()
         progress_node = NodeProgressContext(
             dag_name=dag_name,
@@ -337,10 +334,26 @@ def _observe_node_stream(
             node_calls_dag=node_calls_dag,
             depth=node_depth,
         )
-        progress_node_token = _CURRENT_RUN_PROGRESS_NODE.set(
-            progress_node
+        active_node = DagParentRef(
+            dag_name=dag_name,
+            node_name=node_name,
+            node_index=node_index,
         )
-        observer_token = _CURRENT_RUN_OBSERVER.set(observer)
+
+        def _activate_node_context() -> tuple[Any, Any, Any]:
+            return (
+                _CURRENT_RUN_ACTIVE_NODE.set(active_node),
+                _CURRENT_RUN_PROGRESS_NODE.set(progress_node),
+                _CURRENT_RUN_OBSERVER.set(observer),
+            )
+
+        def _deactivate_node_context(tokens: tuple[Any, Any, Any]) -> None:
+            active_node_token, progress_node_token, observer_token = tokens
+            _CURRENT_RUN_OBSERVER.reset(observer_token)
+            _CURRENT_RUN_PROGRESS_NODE.reset(progress_node_token)
+            _CURRENT_RUN_ACTIVE_NODE.reset(active_node_token)
+
+        context_tokens = _activate_node_context()
         heartbeat = _CURRENT_RUN_HEARTBEAT.get()
         try:
             observer.on_node_start(
@@ -363,7 +376,12 @@ def _observe_node_stream(
                 item_count += 1
                 if heartbeat is not None:
                     heartbeat.item_emitted(progress_node, item_count)
-                yield item
+                _deactivate_node_context(context_tokens)
+                context_tokens = None
+                try:
+                    yield item
+                finally:
+                    context_tokens = _activate_node_context()
         except KeyboardInterrupt as exc:
             status = "error"
             error_type = type(exc).__name__
@@ -401,9 +419,8 @@ def _observe_node_stream(
                     )
                 )
             finally:
-                _CURRENT_RUN_OBSERVER.reset(observer_token)
-                _CURRENT_RUN_PROGRESS_NODE.reset(progress_node_token)
-                _CURRENT_RUN_ACTIVE_NODE.reset(active_node_token)
+                if context_tokens is not None:
+                    _deactivate_node_context(context_tokens)
 
     return _iter()
 

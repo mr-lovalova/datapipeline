@@ -161,6 +161,39 @@ def test_run_dag_emits_node_progress_with_active_node_context(tmp_path: Path) ->
     assert event.depth == 1
 
 
+def test_downstream_progress_after_input_read_uses_downstream_node_context(
+    tmp_path: Path,
+) -> None:
+    observer = _CollectingObserver()
+    ctx = _context(tmp_path)
+
+    def _consume_with_progress(up):
+        for item in up or ():
+            dag_runner.emit_node_progress("after input read")
+            yield item
+
+    dag = Dag(
+        name="progress-attribution-demo",
+        nodes=(
+            PipelineNode(name="produce", op=lambda: [1]),
+            PipelineNode(
+                name="consume",
+                op=_consume_with_progress,
+                input="produce",
+            ),
+        ),
+    )
+
+    assert list(run_dag(ctx, dag, observer=observer)) == [1]
+
+    assert len(observer.node_progress_events) == 1
+    event = observer.node_progress_events[0]
+    assert event.dag_name == "progress-attribution-demo"
+    assert event.node_name == "consume"
+    assert event.node_index == 1
+    assert event.message == "after input read"
+
+
 def test_run_dag_emits_heartbeat_for_quiet_node(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(dag_runner, "_HEARTBEAT_INTERVAL_SECONDS", 0.01)
     observer = _CollectingObserver()
