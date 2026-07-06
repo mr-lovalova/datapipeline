@@ -6,6 +6,10 @@ _CURRENT_DAG_DEPTH: ContextVar[int] = ContextVar(
     "datapipeline_visual_current_dag_depth",
     default=0,
 )
+_CURRENT_DAG_LABEL: ContextVar[str | None] = ContextVar(
+    "datapipeline_visual_current_dag_label",
+    default=None,
+)
 _CURRENT_VISUAL_LOG_LEVEL: ContextVar[int] = ContextVar(
     "datapipeline_visual_current_log_level",
     default=logging.INFO,
@@ -29,7 +33,10 @@ _CURRENT_SOURCE_VISUAL_PROXY_FACTORY: ContextVar[Any | None] = ContextVar(
 
 
 def set_current_dag_depth(depth: int) -> None:
-    _CURRENT_DAG_DEPTH.set(max(0, int(depth)))
+    next_depth = max(0, int(depth))
+    _CURRENT_DAG_DEPTH.set(next_depth)
+    if next_depth == 0:
+        _CURRENT_DAG_LABEL.set(None)
 
 
 def current_dag_depth() -> int:
@@ -38,6 +45,14 @@ def current_dag_depth() -> int:
 
 def current_dag_indent() -> str:
     return "  " * current_dag_depth()
+
+
+def set_current_dag_label(label: str | None):
+    return _CURRENT_DAG_LABEL.set(label)
+
+
+def current_dag_label() -> str | None:
+    return _CURRENT_DAG_LABEL.get()
 
 
 def set_current_visual_log_level(level: int):

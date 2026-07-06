@@ -35,19 +35,19 @@ def build_source_label(loader: BaseDataLoader) -> str:
             gen_name = loader.generator.__class__.__name__
         except Exception:
             gen_name = loader.__class__.__name__
-        return "Generating data with " + gen_name
+        return "generating data with " + gen_name
     if isinstance(loader, ForeachLoader):
         key = str(getattr(loader, "_key", "item"))
         values = getattr(loader, "_values", None)
         n = len(values) if isinstance(values, list) else "?"
-        return f"Fan-out {key}×{n}:"
+        return f"fan-out {key}×{n}:"
     if _decoder_for_loader(loader) is None:
         return loader.__class__.__name__
     transport = _transport_for_loader(loader)
     if isinstance(transport, (FsFileTransport, FsGlobTransport)):
-        return "Streaming from"
+        return "streaming from"
     if isinstance(transport, HttpTransport):
-        return "Downloading"
+        return "downloading"
     return loader.__class__.__name__
 
 

@@ -37,7 +37,7 @@ class VisualSourceProxy(Source):
             debug_indent = adapter.current_indent(logging.DEBUG)
             info_lines = adapter.info_lines()
             debug_lines = adapter.debug_lines()
-            for line in info_lines or ["Stream starting"]:
+            for line in info_lines or ["stream starting"]:
                 emit_source_info(
                     self._stream_id,
                     line,
@@ -61,7 +61,7 @@ class VisualSourceProxy(Source):
         finally:
             emit_source_info(
                 self._stream_id,
-                f"Stream complete items={emitted}",
+                f"stream complete items={emitted}",
                 logger=logger,
                 depth=current_dag_depth(),
             )

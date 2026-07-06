@@ -507,7 +507,7 @@ def test_rich_source_proxy_emits_glob_summary_as_source_info_event(monkeypatch) 
         "source_info",
     )
     assert any(
-        msg == "[equity.ohlcv] Stream complete items=1"
+        msg == "[equity.ohlcv] stream complete items=1"
         and kind == "source_info"
         for msg, _level, _depth, kind in captured
     )
@@ -638,8 +638,8 @@ def test_rich_source_proxy_replaces_completed_sequence_rows(monkeypatch) -> None
 
         def format_label(self, name=None, **kwargs):
             if name:
-                return f"Streaming from {name}"
-            return "Streaming from"
+                return f"streaming from {name}"
+            return "streaming from"
 
         def initial_label(self):
             return labels[0]
@@ -675,8 +675,8 @@ def test_rich_source_proxy_replaces_completed_sequence_rows(monkeypatch) -> None
             next(stream)
         assert progress.removed == [1, 2, 3, 4]
         assert sorted(progress.task_text) == [5]
-        assert any('1/5 Streaming from "AAPL.jsonl"' in text for text in progress.added_texts)
-        assert any('5/5 Streaming from "META.jsonl"' in text for text in progress.added_texts)
+        assert any('1/5 streaming from "AAPL.jsonl"' in text for text in progress.added_texts)
+        assert any('5/5 streaming from "META.jsonl"' in text for text in progress.added_texts)
         with pytest.raises(StopIteration):
             next(stream)
     finally:
@@ -788,8 +788,8 @@ def test_rich_source_proxy_handles_foreach_fs_sequence_with_empty_first_value(mo
         and kind == "source_info"
         for msg, _level, _depth, kind in captured
     )
-    assert any('1/2 Streaming from "APPL.jsonl"' in text for text in progress.added_texts)
-    assert any('2/2 Streaming from "MSFT.jsonl"' in text for text in progress.added_texts)
+    assert any('1/2 streaming from "APPL.jsonl"' in text for text in progress.added_texts)
+    assert any('2/2 streaming from "MSFT.jsonl"' in text for text in progress.added_texts)
 
 
 def test_rich_source_proxy_removes_finished_stream_task() -> None:

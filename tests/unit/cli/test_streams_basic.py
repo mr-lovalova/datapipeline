@@ -56,7 +56,7 @@ def test_visual_source_proxy_logs_ascii_stream_completion(caplog):
 
     messages = [record.getMessage() for record in caplog.records]
     assert any(
-        "Stream complete items=2" in msg
+        "stream complete items=2" in msg
         for msg in messages
     )
     assert all("✔" not in msg for msg in messages)

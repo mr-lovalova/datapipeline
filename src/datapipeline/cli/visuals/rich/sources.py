@@ -13,7 +13,7 @@ from rich.progress import (
 from datapipeline.runtime import Runtime
 from datapipeline.sources.models.source import Source
 
-from ..execution import current_execution_label, emit_source_info
+from ..execution import current_source_label, emit_source_info
 from ..execution_context import (
     current_dag_depth,
     reset_current_execution_event_sink,
@@ -67,7 +67,7 @@ class _RichSourceProxy(Source):
         # Compute indent at stream update time (inside DAG context), then keep
         # it embedded in task text so Live rendering remains context-accurate.
         indent = visible_dag_indent(logging.INFO)
-        label = current_execution_label(stream_label)
+        label = current_source_label(stream_label)
         return f"{indent}[{label}] {message}" if message else f"{indent}[{label}]"
 
     @staticmethod
@@ -200,7 +200,7 @@ class _RichSourceProxy(Source):
                 )
             emit_source_info(
                 stream_label,
-                f"Stream complete items={emitted}",
+                f"stream complete items={emitted}",
                 logger=logger,
                 depth=current_dag_depth(),
             )

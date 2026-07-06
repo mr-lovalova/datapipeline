@@ -214,8 +214,7 @@ def test_source_info_inside_node_uses_execution_context_label(caplog, tmp_path):
 
     assert any(
         record.getMessage().startswith(
-            "  [ingest:equity.ohlcv/open_source] "
-            "fs.glob: count=1 file=2026.jsonl"
+            "  [ingest:equity.ohlcv] fs.glob: count=1 file=2026.jsonl"
         )
         for record in caplog.records
     )

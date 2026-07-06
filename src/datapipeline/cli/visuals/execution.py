@@ -14,10 +14,12 @@ from datapipeline.dag.node import NodeKind
 from datapipeline.dag.observer import ExecutionObserver
 from datapipeline.dag.runner import current_node_progress_context
 from datapipeline.cli.visuals.execution_context import (
+    current_dag_label,
     current_execution_scope,
     reset_current_execution_scope,
     set_current_execution_scope,
     current_execution_event_sink,
+    set_current_dag_label,
     set_current_dag_depth,
 )
 
@@ -221,6 +223,13 @@ def current_execution_label(fallback: str) -> str:
     return ExecutionEventFormatter.execution_label(node.dag_name, node.node_name)
 
 
+def current_source_label(fallback: str) -> str:
+    node = current_node_progress_context()
+    if node is not None:
+        return node.dag_name
+    return current_dag_label() or fallback
+
+
 def _scope_message(scope: dict[str, str]) -> str:
     task = scope.get("task_id") or scope.get("target_id") or scope.get("profile_name")
     if task is None:
@@ -333,7 +342,7 @@ def emit_source_info(
     depth: int = 0,
 ) -> None:
     emit_execution_message(
-        f"[{current_execution_label(stream_id)}] {message}",
+        f"[{current_source_label(stream_id)}] {message}",
         level=logging.INFO,
         logger=logger,
         depth=depth,
@@ -345,6 +354,7 @@ class HierarchicalExecutionObserver(ExecutionObserver):
     def __init__(self, sink: ExecutionEventSink) -> None:
         self._sink = sink
         set_current_dag_depth(0)
+        set_current_dag_label(None)
 
     def _emit(self, event: ExecutionLogEvent) -> None:
         self._sink.emit(event)
@@ -393,6 +403,7 @@ class HierarchicalExecutionObserver(ExecutionObserver):
                 )
             )
         set_current_dag_depth(dag_depth + 1)
+        set_current_dag_label(dag_name)
 
     def on_node_start(
         self,
@@ -479,6 +490,10 @@ class HierarchicalExecutionObserver(ExecutionObserver):
             )
         )
         set_current_dag_depth(dag_depth)
+        if event.parent is not None:
+            set_current_dag_label(event.parent.dag_name)
+        else:
+            set_current_dag_label(None)
 
 
 def make_execution_observer(

@@ -166,7 +166,7 @@ def test_source_observability_adapter_foreach_fs_emits_glob_summary_line():
 
 def test_source_observability_adapter_foreach_initial_label_uses_first_file():
     adapter = SourceObservabilityAdapter(_SourceWithForeachFsLoader(), "equity.ohlcv")
-    assert adapter.initial_label() == 'Streaming from "APPL.jsonl"'
+    assert adapter.initial_label() == 'streaming from "APPL.jsonl"'
 
 
 def test_source_observability_adapter_foreach_progress_sequence_tracks_each_file():
@@ -174,8 +174,8 @@ def test_source_observability_adapter_foreach_progress_sequence_tracks_each_file
     sequence = adapter.progress_sequence()
     assert sequence is not None
     assert [entry.label for entry in sequence] == [
-        'Streaming from "APPL.jsonl"',
-        'Streaming from "MSFT.jsonl"',
+        'streaming from "APPL.jsonl"',
+        'streaming from "MSFT.jsonl"',
     ]
 
 

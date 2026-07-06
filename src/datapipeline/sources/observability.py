@@ -121,9 +121,9 @@ def foreach_action(entrypoint: str, args: Any, spec_args: Any) -> str | None:
     if entrypoint == "core.io":
         transport_name = foreach_transport_name(args, spec_args)
         if transport_name == "http":
-            return "Downloading"
+            return "downloading"
         if transport_name == "fs":
-            return "Streaming from"
+            return "streaming from"
         return None
     if entrypoint:
         return f"via {entrypoint}"
