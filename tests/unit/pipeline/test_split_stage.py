@@ -76,16 +76,6 @@ def test_hash_split_feature_key_errors_when_feature_is_missing():
         labeler.label("group-a", vector)
 
 
-def test_hash_split_rejects_unknown_key():
-    with pytest.raises(ValueError, match="hash split key must be"):
-        HashLabeler(ratios={"train": 0.5, "test": 0.5}, key="unknown", seed=7)
-
-
-def test_hash_split_rejects_empty_feature_key():
-    with pytest.raises(ValueError, match="include a feature id"):
-        HashLabeler(ratios={"train": 0.5, "test": 0.5}, key="feature:", seed=7)
-
-
 def test_split_applicator_can_tag_samples():
     labeler = HashLabeler(ratios={"train": 1.0}, seed=7)
     applicator = VectorSplitApplicator(
@@ -101,20 +91,3 @@ def test_split_applicator_can_tag_samples():
         "train",
     ]
     assert all("__split__" not in sample.features.values for sample in tagged)
-
-
-def test_split_stage_raises_for_incomplete_time_split_config():
-    runtime = SimpleNamespace(
-        split=TimeSplitConfig(boundaries=None, labels=None),
-        split_keep="beta",
-    )
-
-    with pytest.raises(ValueError, match="time split requires"):
-        list(apply_split_stage(runtime, _vector_stream()))
-
-
-def test_split_stage_raises_for_incomplete_hash_split_config():
-    runtime = SimpleNamespace(split=HashSplitConfig(ratios=None), split_keep="train")
-
-    with pytest.raises(ValueError, match="hash split requires"):
-        list(apply_split_stage(runtime, _vector_stream()))

@@ -19,7 +19,7 @@ from datapipeline.transforms.vector_utils import clone
 class HashLabeler:
     """Deterministic hash-based label selection.
 
-    ratios: mapping label -> fraction; fractions in (0,1], sum <= 1.0
+    ratios: mapping label -> fraction from validated split config.
     key: "group" or "feature:<id>"
     seed: integer for deterministic hashing
     """
@@ -34,27 +34,11 @@ class HashLabeler:
         total = 0.0
         thresholds: list[tuple[float, str]] = []
         for label, frac in ratios.items():
-            f = float(frac)
-            if not (0.0 < f <= 1.0):
-                raise ValueError(f"Invalid ratio for {label!r}: {frac!r}")
-            total += f
+            total += float(frac)
             thresholds.append((total, str(label)))
-        if total > 1.0 + 1e-9:
-            raise ValueError("Sum of ratios must be <= 1.0")
-        key_text = str(key)
-        if (
-            key_text != HASH_SPLIT_GROUP_KEY
-            and not key_text.startswith(HASH_SPLIT_FEATURE_PREFIX)
-        ):
-            raise ValueError("hash split key must be 'group' or 'feature:<id>'")
-        if (
-            key_text.startswith(HASH_SPLIT_FEATURE_PREFIX)
-            and not key_text.removeprefix(HASH_SPLIT_FEATURE_PREFIX)
-        ):
-            raise ValueError("hash split key must include a feature id")
         self._thresholds = thresholds
         self._seed = int(seed)
-        self._key = key_text
+        self._key = str(key)
 
     @staticmethod
     def _hash_token(token: str, seed: int) -> float:
@@ -82,8 +66,6 @@ class TimeLabeler:
     """Time-based label selection using ascending boundaries and labels."""
 
     def __init__(self, *, boundaries: Sequence[str], labels: Sequence[str]) -> None:
-        if len(labels) != len(boundaries) + 1:
-            raise ValueError("labels length must equal len(boundaries)+1")
         self._boundaries = [self._parse_iso(ts) for ts in boundaries]
         self._labels = [str(x) for x in labels]
 
@@ -151,11 +133,7 @@ def _is_placeholder(value: str) -> bool:
 
 def build_labeler(cfg: SplitConfig) -> HashLabeler | TimeLabeler:
     if isinstance(cfg, TimeSplitConfig):
-        if cfg.boundaries is None or cfg.labels is None:
-            raise ValueError("time split requires 'boundaries' and 'labels'")
         return TimeLabeler(boundaries=cfg.boundaries, labels=cfg.labels)
-    if isinstance(cfg, HashSplitConfig) and cfg.ratios is None:
-        raise ValueError("hash split requires 'ratios'")
     return HashLabeler(ratios=cfg.ratios, key=cfg.key, seed=cfg.seed)
 
 
