@@ -35,6 +35,7 @@ from .columns import AverageTimeRemainingColumn, SourceLabelColumn
 from .event_sink import _RichConsoleExecutionSink, visual_event_sink
 
 logger = logging.getLogger(__name__)
+_MAX_RETIRED_SEQUENCE_TASKS = 3
 
 
 class _RichSourceProxy(Source):
@@ -152,6 +153,13 @@ class _RichSourceProxy(Source):
                                 remove=False,
                             )
                             retired_task_ids.append(task_id)
+                            while len(retired_task_ids) > _MAX_RETIRED_SEQUENCE_TASKS:
+                                retired_task_id = retired_task_ids.pop(0)
+                                self._safe_progress_call(
+                                    "remove retired progress task",
+                                    self._progress.remove_task,
+                                    retired_task_id,
+                                )
                             task_emitted = 0
                             sequence_index += 1
                             next_total: Optional[int] = None

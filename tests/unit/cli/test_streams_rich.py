@@ -620,6 +620,70 @@ def test_rich_source_proxy_tracks_glob_file_transitions_as_progress_rows(monkeyp
     assert any('Loading "MSFT.jsonl"' in text for text in progress.updated_texts)
 
 
+def test_rich_source_proxy_caps_completed_sequence_rows(monkeypatch) -> None:
+    labels = [
+        '"AAPL.jsonl"',
+        '"MSFT.jsonl"',
+        '"NVDA.jsonl"',
+        '"TSLA.jsonl"',
+        '"META.jsonl"',
+    ]
+
+    class _Adapter:
+        def __init__(self):
+            self._calls = 0
+
+        def info_lines(self):
+            return []
+
+        def format_label(self, name=None, **kwargs):
+            if name:
+                return f"Streaming from {name}"
+            return "Streaming from"
+
+        def initial_label(self):
+            return labels[0]
+
+        def count(self):
+            return None
+
+        def progress_sequence(self):
+            return [SimpleNamespace(label=label, total=1) for label in labels]
+
+        def current_label(self):
+            label = labels[self._calls]
+            self._calls += 1
+            return label
+
+    monkeypatch.setattr(
+        "datapipeline.cli.visuals.rich.sources.SourceObservabilityAdapter",
+        lambda stream_source, stream_id: _Adapter(),
+    )
+
+    progress = _RecordingProgress()
+    source = SimpleNamespace(stream=lambda: iter(labels))
+    proxy = _RichSourceProxy(
+        stream_source=source,
+        stream_id="equity.ohlcv",
+        progress=progress,
+    )
+
+    set_current_dag_depth(2)
+    stream = proxy.stream()
+    try:
+        for _label in labels:
+            next(stream)
+        assert progress.removed == [1]
+        assert sorted(progress.task_text) == [2, 3, 4, 5]
+        with pytest.raises(StopIteration):
+            next(stream)
+    finally:
+        stream.close()
+        set_current_dag_depth(0)
+
+    assert progress.task_text == {}
+
+
 def test_rich_source_proxy_clears_glob_rows_between_invocations(monkeypatch) -> None:
     class _Adapter:
         def __init__(self):
