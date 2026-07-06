@@ -110,7 +110,7 @@ def test_source_observability_adapter_exposes_count_labels_and_details():
     assert adapter.count() == 7
     assert adapter.format_label() == "[demo] _DummyLoader"
     assert adapter.current_label() == '"demo.csv"'
-    assert adapter.info_lines() == ["fs.file: demo.csv"]
+    assert adapter.info_lines() == ["fs.file: file=demo.csv"]
 
 
 
@@ -160,7 +160,7 @@ def test_source_observability_adapter_initial_label_uses_first_glob_file():
 def test_source_observability_adapter_foreach_fs_emits_glob_summary_line():
     adapter = SourceObservabilityAdapter(_SourceWithForeachFsLoader(), "equity.ohlcv")
     assert adapter.info_lines() == [
-        "fs.glob: 2 files (first=APPL.jsonl, last=MSFT.jsonl)"
+        "fs.glob: count=2 first=APPL.jsonl last=MSFT.jsonl"
     ]
 
 

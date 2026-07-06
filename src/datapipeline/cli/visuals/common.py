@@ -48,21 +48,21 @@ def _fs_glob_info_lines(transport: FsGlobTransport) -> list[str]:
     root = compute_glob_root(files)
     root_label = compact_root(root) if root else pattern or "fs"
     if total == 0:
-        lines.append(f"fs.glob: 0 files (under {root_label})")
+        lines.append(f"fs.glob: count=0 root={root_label}")
     elif total == 1:
         rel = relative_label(files[0], root)
-        lines.append(f"fs.glob: 1 file (file={rel})")
+        lines.append(f"fs.glob: count=1 file={rel}")
     else:
         rel_first = relative_label(files[0], root)
         rel_last = relative_label(files[-1], root)
-        lines.append(f"fs.glob: {total} files (first={rel_first}, last={rel_last})")
+        lines.append(f"fs.glob: count={total} first={rel_first} last={rel_last}")
     return lines
 
 
 def _fs_file_info_lines(transport: FsFileTransport) -> list[str]:
     path = getattr(transport, "path", "")
     name = Path(path).name or str(path)
-    return [f"fs.file: {name}"]
+    return [f"fs.file: file={name}"]
 
 
 def _http_info_lines(transport: HttpTransport) -> list[str]:
@@ -74,10 +74,10 @@ def _http_info_lines(transport: HttpTransport) -> list[str]:
     except Exception:
         host = "http"
         resource = ""
-    lines = [f"http.fetch: host={host}"]
+    line = f"http.fetch: host={host}"
     if resource:
-        lines.append(f"http.fetch: resource={resource}")
-    return lines
+        line = f"{line} resource={resource}"
+    return [line]
 
 
 def transport_info_lines(transport) -> list[str]:

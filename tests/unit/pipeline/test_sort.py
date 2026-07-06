@@ -82,7 +82,7 @@ def test_batch_sort_emits_single_batch_summary(monkeypatch) -> None:
 
     assert [item.value for item in ordered] == [1, 2]
     assert messages == [
-        "Ordering test: records=2 batch_size=10 spilled=false elapsed=0.250s"
+        "Ordering test complete records=2 batch_size=10 spilled=false elapsed=0.250s"
     ]
 
 
@@ -103,7 +103,7 @@ def test_batch_sort_emits_empty_summary(monkeypatch) -> None:
 
     assert ordered == []
     assert messages == [
-        "Ordering empty: records=0 batch_size=10 spilled=false elapsed=0.125s"
+        "Ordering empty complete records=0 batch_size=10 spilled=false elapsed=0.125s"
     ]
 
 
@@ -148,9 +148,9 @@ def test_batch_sort_emits_spill_progress(monkeypatch) -> None:
     ordered = list(batch_sort(records, batch_size=1, key=lambda item: item.value))
 
     assert [item.value for item in ordered] == [1, 2, 3]
-    assert any("Sorting records: read batches=1 records=1" in msg for msg in messages)
-    assert any("Sorting records: emitted sorted_records=1" in msg for msg in messages)
+    assert any("sort read batches=1 records=1" in msg for msg in messages)
+    assert any("sort emit records=1" in msg for msg in messages)
     assert messages[-1] == (
-        "Sorting records: records=3 batch_size=1 spilled=true "
+        "sort complete records=3 batch_size=1 spilled=true "
         "spill_runs=3 merge_passes=0 elapsed=427.000s"
     )

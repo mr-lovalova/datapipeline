@@ -33,23 +33,27 @@ class _SortProgress:
         self.runs_written += 1
         self._emit_if_due(
             (
-                f"{self.stage}: read batches={self.batches_read} "
+                f"{self.stage} read batches={self.batches_read} "
                 f"records={self.records_read} spill_runs={self.runs_written}"
             )
         )
 
     def merge_pass_started(self, pass_id: int, run_count: int) -> None:
-        emit_node_progress(f"{self.stage}: merge pass {pass_id} started runs={run_count}")
+        emit_node_progress(
+            f"{self.stage} merge pass={pass_id} status=started runs={run_count}"
+        )
 
     def merge_pass_finished(self, pass_id: int, run_count: int) -> None:
-        emit_node_progress(f"{self.stage}: merge pass {pass_id} finished runs={run_count}")
+        emit_node_progress(
+            f"{self.stage} merge pass={pass_id} status=finished runs={run_count}"
+        )
 
     def record_emitted(self) -> None:
         self.records_emitted += 1
         if self.records_emitted % _PROGRESS_ITEM_INTERVAL:
             return
         self._emit_if_due(
-            f"{self.stage}: emitted sorted_records={self.records_emitted}"
+            f"{self.stage} emit records={self.records_emitted}"
         )
 
     def _emit_if_due(self, message: str) -> None:
@@ -83,7 +87,7 @@ def batch_sort(
     batch_size: int,
     key: Callable[[T], object],
     spill_dir: SpillDir = None,
-    progress_stage: str = "Sorting records",
+    progress_stage: str = "sort",
 ) -> Iterator[T]:
     """Sort an iterable by chunking, spilling runs to disk, then merging."""
     start_time = time.perf_counter()
@@ -165,7 +169,7 @@ def _emit_sort_summary(
     if spilled:
         emit_node_progress(
             (
-                f"{stage}: records={records} batch_size={batch_size} "
+                f"{stage} complete records={records} batch_size={batch_size} "
                 f"spilled=true spill_runs={spill_runs} "
                 f"merge_passes={merge_passes} elapsed={elapsed:.3f}s"
             )
@@ -173,7 +177,7 @@ def _emit_sort_summary(
         return
     emit_node_progress(
         (
-            f"{stage}: records={records} batch_size={batch_size} "
+            f"{stage} complete records={records} batch_size={batch_size} "
             f"spilled=false elapsed={elapsed:.3f}s"
         )
     )

@@ -155,6 +155,10 @@ def _current_run_active_node() -> DagParentRef | None:
     return _CURRENT_RUN_ACTIVE_NODE.get()
 
 
+def current_node_progress_context() -> NodeProgressContext | None:
+    return _CURRENT_RUN_PROGRESS_NODE.get()
+
+
 def emit_node_progress(message: str) -> None:
     node = _CURRENT_RUN_PROGRESS_NODE.get()
     observer = _CURRENT_RUN_OBSERVER.get()

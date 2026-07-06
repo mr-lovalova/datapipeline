@@ -71,7 +71,6 @@ def materialize_ticks(
         tick_rows,
         batch_size=batch_size,
         key=_tick_sort_key,
-        progress_stage="sort ticks",
     )
     rows = 0
     try:

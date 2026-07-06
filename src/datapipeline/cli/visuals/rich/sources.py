@@ -13,7 +13,7 @@ from rich.progress import (
 from datapipeline.runtime import Runtime
 from datapipeline.sources.models.source import Source
 
-from ..execution import emit_source_info
+from ..execution import current_execution_label, emit_source_info
 from ..execution_context import (
     current_dag_depth,
     reset_current_execution_event_sink,
@@ -35,7 +35,6 @@ from .columns import AverageTimeRemainingColumn, SourceLabelColumn
 from .event_sink import _RichConsoleExecutionSink, visual_event_sink
 
 logger = logging.getLogger(__name__)
-_MAX_RETIRED_SEQUENCE_TASKS = 3
 
 
 class _RichSourceProxy(Source):
@@ -68,7 +67,12 @@ class _RichSourceProxy(Source):
         # Compute indent at stream update time (inside DAG context), then keep
         # it embedded in task text so Live rendering remains context-accurate.
         indent = visible_dag_indent(logging.INFO)
-        return f"{indent}[{stream_label}] {message}" if message else f"{indent}[{stream_label}]"
+        label = current_execution_label(stream_label)
+        return f"{indent}[{label}] {message}" if message else f"{indent}[{label}]"
+
+    @staticmethod
+    def _sequence_message(message: str, index: int, total: int) -> str:
+        return f"{index + 1}/{total} {message}"
 
     def _start_task(self, *, text: str, total: Optional[int]) -> int:
         task_id = self._progress.add_task(
@@ -101,7 +105,6 @@ class _RichSourceProxy(Source):
         sequence_entries = getattr(adapter, "progress_sequence", lambda: None)()
         sequence_index = 0
         task_emitted = 0
-        retired_task_ids: list[int] = []
         info_lines = [
             str(line).rstrip() for line in adapter.info_lines() if str(line).strip()
         ]
@@ -115,6 +118,12 @@ class _RichSourceProxy(Source):
                 initial_path_label,
                 include_stream_id=False,
                 include_dag_indent=False,
+            )
+        if sequence_entries:
+            initial_message = self._sequence_message(
+                initial_message,
+                sequence_index,
+                len(sequence_entries),
             )
         for line in info_lines:
             emit_source_info(
@@ -150,21 +159,18 @@ class _RichSourceProxy(Source):
                             self._finalize_task(
                                 task_id=task_id,
                                 completed=task_emitted,
-                                remove=False,
+                                remove=True,
                             )
-                            retired_task_ids.append(task_id)
-                            while len(retired_task_ids) > _MAX_RETIRED_SEQUENCE_TASKS:
-                                retired_task_id = retired_task_ids.pop(0)
-                                self._safe_progress_call(
-                                    "remove retired progress task",
-                                    self._progress.remove_task,
-                                    retired_task_id,
-                                )
                             task_emitted = 0
                             sequence_index += 1
                             next_total: Optional[int] = None
                             if 0 <= sequence_index < len(sequence_entries):
                                 next_total = sequence_entries[sequence_index].total
+                            row_message = self._sequence_message(
+                                row_message,
+                                sequence_index,
+                                len(sequence_entries),
+                            )
                             task_id = self._start_task(
                                 text=self._format_text(stream_label, row_message),
                                 total=next_total,
@@ -190,15 +196,7 @@ class _RichSourceProxy(Source):
                 self._finalize_task(
                     task_id=int(task_id),
                     completed=task_emitted if sequence_entries else emitted,
-                    remove=False if sequence_entries else True,
-                )
-                if sequence_entries:
-                    retired_task_ids.append(int(task_id))
-            for retired_task_id in retired_task_ids:
-                self._safe_progress_call(
-                    "remove progress task",
-                    self._progress.remove_task,
-                    retired_task_id,
+                    remove=True,
                 )
             emit_source_info(
                 stream_label,

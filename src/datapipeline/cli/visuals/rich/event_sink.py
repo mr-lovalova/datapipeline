@@ -113,8 +113,12 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
                 text.append(f" calls={event.node_calls_dag}", style="dim")
             return text
         if event.kind == "node_progress":
+            label = ExecutionEventFormatter.execution_label(
+                event.dag_name,
+                event.node_name,
+            )
             text.append("[", style="cyan")
-            text.append(event.dag_name, style="bold cyan")
+            text.append(label, style="bold cyan")
             text.append("] ", style="cyan")
             text.append(event.message or "")
             return text

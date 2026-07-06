@@ -8,6 +8,7 @@ from datapipeline.cli.visuals.execution import (
     LoggerExecutionEventSink,
     execution_scope,
     emit_execution_message,
+    emit_source_info,
     make_execution_observer,
 )
 from datapipeline.cli.visuals.execution_context import (
@@ -21,6 +22,11 @@ from datapipeline.dag.events import (
     NodeExecutionEvent,
     NodeProgressEvent,
 )
+from datapipeline.dag.context import PipelineContext
+from datapipeline.dag.dag import Dag
+from datapipeline.dag.node import PipelineNode
+from datapipeline.dag.runner import run_dag
+from datapipeline.runtime import Runtime
 
 
 class _CaptureSink(ExecutionEventSink):
@@ -162,21 +168,57 @@ def test_hierarchical_observer_logs_node_progress_at_info(caplog):
                 node_name="order_feature_records",
                 node_index=2,
                 execution_index=5,
-                message="sort: emitted sorted_records=10000",
+                message="sort emit records=10000",
                 depth=2,
             )
         )
 
     record = caplog.records[0]
     assert record.getMessage().startswith(
-        "    [feature:close] sort: emitted sorted_records=10000"
+        "    [feature:close/order_feature_records] sort emit records=10000"
     )
     assert getattr(record, "dp_event_kind", None) == "node_progress"
     assert getattr(record, "dp_dag_name", None) == "feature:close"
     assert getattr(record, "dp_node_name", None) == "order_feature_records"
     assert getattr(record, "dp_index", None) == 2
     assert getattr(record, "dp_execution_index", None) == 5
-    assert getattr(record, "dp_message", None) == "sort: emitted sorted_records=10000"
+    assert getattr(record, "dp_message", None) == "sort emit records=10000"
+
+
+def test_source_info_inside_node_uses_execution_context_label(caplog, tmp_path):
+    logger = logging.getLogger("datapipeline.cli.visuals.execution.test.source_info")
+    project_yaml = tmp_path / "project.yaml"
+    project_yaml.write_text("version: 1\n", encoding="utf-8")
+    artifacts_root = tmp_path / "artifacts"
+    artifacts_root.mkdir()
+    context = PipelineContext(
+        Runtime(project_yaml=project_yaml, artifacts_root=artifacts_root)
+    )
+
+    def _open_source():
+        emit_source_info(
+            "equity.ohlcv",
+            "fs.glob: count=1 file=2026.jsonl",
+            logger=logger,
+            depth=1,
+        )
+        yield 1
+
+    dag = Dag(
+        name="ingest:equity.ohlcv",
+        nodes=(PipelineNode(name="open_source", op=_open_source),),
+    )
+
+    with caplog.at_level(logging.INFO, logger=logger.name):
+        assert list(run_dag(context, dag)) == [1]
+
+    assert any(
+        record.getMessage().startswith(
+            "  [ingest:equity.ohlcv/open_source] "
+            "fs.glob: count=1 file=2026.jsonl"
+        )
+        for record in caplog.records
+    )
 
 
 def test_hierarchical_observer_logs_dag_call_node_metadata(caplog):

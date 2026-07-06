@@ -319,7 +319,7 @@ def test_rich_execution_sink_renders_source_info_message() -> None:
             kind="message",
             dag_name="",
             depth=1,
-            message='[equity.ohlcv] fs.glob: 2 files (first=APPL.jsonl, last=MSFT.jsonl)',
+            message="[equity.ohlcv] fs.glob: count=2 first=APPL.jsonl last=MSFT.jsonl",
             message_kind="source_info",
             log_level=logging.INFO,
         )
@@ -327,7 +327,7 @@ def test_rich_execution_sink_renders_source_info_message() -> None:
 
     lines = _lines(buffer)
     assert any(
-        line.startswith('  [equity.ohlcv] fs.glob: 2 files (first=APPL.jsonl, last=MSFT.jsonl)')
+        line.startswith("  [equity.ohlcv] fs.glob: count=2 first=APPL.jsonl last=MSFT.jsonl")
         for line in lines
     )
 
@@ -367,13 +367,13 @@ def test_rich_execution_sink_keeps_fs_glob_source_info_when_live_at_info() -> No
             kind="message",
             dag_name="",
             depth=1,
-            message='[equity.ohlcv] fs.glob: 2 files (first=APPL.jsonl, last=MSFT.jsonl)',
+            message="[equity.ohlcv] fs.glob: count=2 first=APPL.jsonl last=MSFT.jsonl",
             message_kind="source_info",
             log_level=logging.INFO,
         )
     )
     assert any(
-        line.startswith('  [equity.ohlcv] fs.glob: 2 files (first=APPL.jsonl, last=MSFT.jsonl)')
+        line.startswith("  [equity.ohlcv] fs.glob: count=2 first=APPL.jsonl last=MSFT.jsonl")
         for line in _lines(buffer)
     )
 
@@ -464,7 +464,7 @@ def test_rich_source_proxy_emits_glob_summary_as_source_info_event(monkeypatch) 
             self.loader = SimpleNamespace(transport=transport)
 
         def info_lines(self):
-            return ["fs.glob: 2 files (first=APPL.jsonl, last=MSFT.jsonl)"]
+            return ["fs.glob: count=2 first=APPL.jsonl last=MSFT.jsonl"]
 
         def format_label(self, name=None, **kwargs):
             if name:
@@ -501,7 +501,7 @@ def test_rich_source_proxy_emits_glob_summary_as_source_info_event(monkeypatch) 
 
     assert captured
     assert captured[0] == (
-        "[equity.ohlcv] fs.glob: 2 files (first=APPL.jsonl, last=MSFT.jsonl)",
+        "[equity.ohlcv] fs.glob: count=2 first=APPL.jsonl last=MSFT.jsonl",
         logging.INFO,
         2,
         "source_info",
@@ -581,7 +581,7 @@ def test_rich_source_proxy_tracks_glob_file_transitions_as_progress_rows(monkeyp
             self.loader = SimpleNamespace(transport=transport)
 
         def info_lines(self):
-            return ["fs.glob: 2 files (first=APPL.jsonl, last=MSFT.jsonl)"]
+            return ["fs.glob: count=2 first=APPL.jsonl last=MSFT.jsonl"]
 
         def format_label(self, name=None, **kwargs):
             if name:
@@ -620,7 +620,7 @@ def test_rich_source_proxy_tracks_glob_file_transitions_as_progress_rows(monkeyp
     assert any('Loading "MSFT.jsonl"' in text for text in progress.updated_texts)
 
 
-def test_rich_source_proxy_caps_completed_sequence_rows(monkeypatch) -> None:
+def test_rich_source_proxy_replaces_completed_sequence_rows(monkeypatch) -> None:
     labels = [
         '"AAPL.jsonl"',
         '"MSFT.jsonl"',
@@ -673,8 +673,10 @@ def test_rich_source_proxy_caps_completed_sequence_rows(monkeypatch) -> None:
     try:
         for _label in labels:
             next(stream)
-        assert progress.removed == [1]
-        assert sorted(progress.task_text) == [2, 3, 4, 5]
+        assert progress.removed == [1, 2, 3, 4]
+        assert sorted(progress.task_text) == [5]
+        assert any('1/5 Streaming from "AAPL.jsonl"' in text for text in progress.added_texts)
+        assert any('5/5 Streaming from "META.jsonl"' in text for text in progress.added_texts)
         with pytest.raises(StopIteration):
             next(stream)
     finally:
@@ -692,7 +694,7 @@ def test_rich_source_proxy_clears_glob_rows_between_invocations(monkeypatch) -> 
             self.loader = SimpleNamespace(transport=transport)
 
         def info_lines(self):
-            return ["fs.glob: 2 files (first=APPL.jsonl, last=MSFT.jsonl)"]
+            return ["fs.glob: count=2 first=APPL.jsonl last=MSFT.jsonl"]
 
         def format_label(self, name=None, **kwargs):
             if name:
@@ -782,12 +784,12 @@ def test_rich_source_proxy_handles_foreach_fs_sequence_with_empty_first_value(mo
 
     assert captured
     assert any(
-        msg == "[equity.ohlcv] fs.glob: 2 files (first=APPL.jsonl, last=MSFT.jsonl)"
+        msg == "[equity.ohlcv] fs.glob: count=2 first=APPL.jsonl last=MSFT.jsonl"
         and kind == "source_info"
         for msg, _level, _depth, kind in captured
     )
-    assert any('Streaming from "APPL.jsonl"' in text for text in progress.added_texts)
-    assert any('Streaming from "MSFT.jsonl"' in text for text in progress.added_texts)
+    assert any('1/2 Streaming from "APPL.jsonl"' in text for text in progress.added_texts)
+    assert any('2/2 Streaming from "MSFT.jsonl"' in text for text in progress.added_texts)
 
 
 def test_rich_source_proxy_removes_finished_stream_task() -> None:

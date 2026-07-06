@@ -12,6 +12,7 @@ from datapipeline.dag.events import (
 )
 from datapipeline.dag.node import NodeKind
 from datapipeline.dag.observer import ExecutionObserver
+from datapipeline.dag.runner import current_node_progress_context
 from datapipeline.cli.visuals.execution_context import (
     current_execution_scope,
     reset_current_execution_scope,
@@ -82,6 +83,12 @@ class ExecutionEventFormatter:
         return "  " * max(0, depth)
 
     @staticmethod
+    def execution_label(dag_name: str, node_name: str | None) -> str:
+        if node_name:
+            return f"{dag_name}/{node_name}"
+        return dag_name
+
+    @staticmethod
     def level(event: ExecutionLogEvent) -> int:
         if event.kind == "message":
             return int(event.log_level) if event.log_level is not None else logging.INFO
@@ -145,7 +152,8 @@ class ExecutionEventFormatter:
                 f"kind={event.node_kind}{calls_suffix}"
             )
         if event.kind == "node_progress":
-            return f"{indent}[{event.dag_name}] {event.message or ''}"
+            label = cls.execution_label(event.dag_name, event.node_name)
+            return f"{indent}[{label}] {event.message or ''}"
         error_suffix = cls.error_suffix(event)
         return (
             f"{indent}Node execution finished dag={event.dag_name} "
@@ -204,6 +212,13 @@ def _scope_fields() -> dict[str, str | None]:
         "scope_item_index": scope.get("item_index"),
         "scope_item_total": scope.get("item_total"),
     }
+
+
+def current_execution_label(fallback: str) -> str:
+    node = current_node_progress_context()
+    if node is None:
+        return fallback
+    return ExecutionEventFormatter.execution_label(node.dag_name, node.node_name)
 
 
 def _scope_message(scope: dict[str, str]) -> str:
@@ -318,7 +333,7 @@ def emit_source_info(
     depth: int = 0,
 ) -> None:
     emit_execution_message(
-        f"[{stream_id}] {message}",
+        f"[{current_execution_label(stream_id)}] {message}",
         level=logging.INFO,
         logger=logger,
         depth=depth,

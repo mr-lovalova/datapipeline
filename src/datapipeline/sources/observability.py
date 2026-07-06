@@ -155,10 +155,10 @@ def foreach_info_lines(
     if not isinstance(values, list):
         return None
     if not values:
-        return ["fs.glob: 0 files"]
+        return ["fs.glob: count=0"]
 
     labels = [foreach_value_label(value) for value in values]
     total = len(labels)
     if total == 1:
-        return [f"fs.glob: 1 file (file={labels[0]})"]
-    return [f"fs.glob: {total} files (first={labels[0]}, last={labels[-1]})"]
+        return [f"fs.glob: count=1 file={labels[0]}"]
+    return [f"fs.glob: count={total} first={labels[0]} last={labels[-1]}"]
