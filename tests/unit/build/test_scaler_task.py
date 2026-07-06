@@ -17,12 +17,18 @@ def _ts(day: int) -> datetime:
     return datetime(2024, 1, day, tzinfo=timezone.utc)
 
 
+def _register_stream_identity(runtime: Runtime, stream_id: str = "stream") -> None:
+    runtime.registries.partition_by.register(stream_id, None)
+    runtime.registries.feature_id_by.register(stream_id, None)
+
+
 def test_materialize_scaler_statistics_split_all_ignores_label_filter(monkeypatch, tmp_path):
     artifacts_root = tmp_path / "artifacts"
     artifacts_root.mkdir()
     project_yaml = tmp_path / "project.yaml"
     project_yaml.write_text("version: 1\n", encoding="utf-8")
     runtime = Runtime(project_yaml=project_yaml, artifacts_root=artifacts_root)
+    _register_stream_identity(runtime)
     runtime.split = TimeSplitConfig(
         boundaries=["2024-01-02T00:00:00Z"],
         labels=["train", "test"],
@@ -83,6 +89,7 @@ def test_materialize_scaler_statistics_skips_when_no_scaled_features(
     project_yaml = tmp_path / "project.yaml"
     project_yaml.write_text("version: 1\n", encoding="utf-8")
     runtime = Runtime(project_yaml=project_yaml, artifacts_root=artifacts_root)
+    _register_stream_identity(runtime)
     dataset = FeatureDatasetConfig(
         group_by="1h",
         features=[FeatureRecordConfig(id="x", record_stream="stream", field="value")],
@@ -115,6 +122,7 @@ def test_materialize_temporal_scaler_statistics_builds_fold_payload(
     project_yaml = tmp_path / "project.yaml"
     project_yaml.write_text("version: 1\n", encoding="utf-8")
     runtime = Runtime(project_yaml=project_yaml, artifacts_root=artifacts_root)
+    _register_stream_identity(runtime)
     runtime.split = TimeSplitConfig(
         boundaries=[
             "2024-01-02T00:00:00Z",
@@ -186,6 +194,7 @@ def test_materialize_temporal_scaler_requires_time_split(monkeypatch, tmp_path) 
     project_yaml = tmp_path / "project.yaml"
     project_yaml.write_text("version: 1\n", encoding="utf-8")
     runtime = Runtime(project_yaml=project_yaml, artifacts_root=artifacts_root)
+    _register_stream_identity(runtime)
     runtime.split = HashSplitConfig(ratios={"train_0": 1.0})
     dataset = FeatureDatasetConfig(
         group_by="1h",
