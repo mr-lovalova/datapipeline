@@ -252,6 +252,79 @@ def test_run_dag_emits_heartbeat_while_node_is_yielding_items(
     assert not heartbeats[-1].message.endswith("items=0")
 
 
+def test_heartbeat_reports_upstream_leaf_while_downstream_waits_for_input(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(dag_runner, "_HEARTBEAT_INTERVAL_SECONDS", 0.01)
+    observer = _CollectingObserver()
+    ctx = _context(tmp_path)
+
+    def _source():
+        time.sleep(0.05)
+        yield 1
+
+    def _consume(up):
+        for item in up or ():
+            yield item
+
+    dag = Dag(
+        name="heartbeat-leaf-demo",
+        nodes=(
+            PipelineNode(name="source", op=_source),
+            PipelineNode(name="consume", op=_consume, input="source"),
+        ),
+    )
+
+    assert list(run_dag(ctx, dag, observer=observer)) == [1]
+
+    heartbeats = [
+        event
+        for event in observer.node_progress_events
+        if event.message.startswith("running elapsed=")
+    ]
+    assert heartbeats
+    assert heartbeats[0].dag_name == "heartbeat-leaf-demo"
+    assert heartbeats[0].node_name == "source"
+
+
+def test_heartbeat_returns_to_downstream_node_after_upstream_is_exhausted(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(dag_runner, "_HEARTBEAT_INTERVAL_SECONDS", 0.01)
+    observer = _CollectingObserver()
+    ctx = _context(tmp_path)
+
+    def _source():
+        yield 1
+
+    def _sort_like(up):
+        values = list(up or ())
+        time.sleep(0.05)
+        yield values[0]
+
+    dag = Dag(
+        name="heartbeat-downstream-demo",
+        nodes=(
+            PipelineNode(name="source", op=_source),
+            PipelineNode(name="order_records", op=_sort_like, input="source"),
+        ),
+    )
+
+    assert list(run_dag(ctx, dag, observer=observer)) == [1]
+
+    heartbeats = [
+        event
+        for event in observer.node_progress_events
+        if event.message.startswith("running elapsed=")
+    ]
+    assert heartbeats
+    assert heartbeats[-1].dag_name == "heartbeat-downstream-demo"
+    assert heartbeats[-1].node_name == "order_records"
+    assert heartbeats[-1].message.endswith("items=0")
+
+
 def test_run_dag_ignores_node_progress_when_observer_does_not_support_it(
     tmp_path: Path,
 ) -> None:

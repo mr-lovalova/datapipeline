@@ -66,6 +66,13 @@ class NodeProgressContext:
     depth: int
 
 
+@dataclass
+class _HeartbeatNodeState:
+    active_since: float
+    last_emit_at: float
+    items: int
+
+
 class _RunHeartbeat:
     def __init__(self, observer: ExecutionObserver, interval_seconds: float) -> None:
         self._observer = observer
@@ -73,10 +80,8 @@ class _RunHeartbeat:
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
-        self._node: NodeProgressContext | None = None
-        self._items = 0
-        self._active_since = 0.0
-        self._last_emit_at = 0.0
+        self._stack: list[NodeProgressContext] = []
+        self._states: dict[NodeProgressContext, _HeartbeatNodeState] = {}
 
     def start(self) -> None:
         if self._interval_seconds <= 0:
@@ -93,30 +98,44 @@ class _RunHeartbeat:
         if self._thread is not None:
             self._thread.join(timeout=1.0)
 
-    def activate(self, node: NodeProgressContext, items: int) -> None:
+    def enter(self, node: NodeProgressContext, items: int) -> None:
         now = time.perf_counter()
         with self._lock:
-            if self._node != node:
-                self._node = node
-                self._active_since = now
-                self._last_emit_at = now
-            self._items = items
+            state = self._states.get(node)
+            if state is None:
+                state = _HeartbeatNodeState(
+                    active_since=now,
+                    last_emit_at=now,
+                    items=items,
+                )
+                self._states[node] = state
+            else:
+                state.items = items
+            self._stack.append(node)
+
+    def leave(self, node: NodeProgressContext) -> None:
+        with self._lock:
+            if not self._stack or self._stack[-1] != node:
+                raise RuntimeError("Heartbeat node stack is out of order")
+            self._stack.pop()
 
     def item_emitted(self, node: NodeProgressContext, items: int) -> None:
         with self._lock:
-            if self._node == node:
-                self._items = items
+            state = self._states.get(node)
+            if state is not None:
+                state.items = items
 
     def progress_emitted(self, node: NodeProgressContext) -> None:
         now = time.perf_counter()
         with self._lock:
-            if self._node == node:
-                self._last_emit_at = now
+            state = self._states.get(node)
+            if state is not None:
+                state.last_emit_at = now
 
     def clear(self, node: NodeProgressContext) -> None:
         with self._lock:
-            if self._node == node:
-                self._node = None
+            self._stack = [item for item in self._stack if item != node]
+            self._states.pop(node, None)
 
     def _run(self) -> None:
         while not self._stop.wait(self._interval_seconds):
@@ -132,14 +151,18 @@ class _RunHeartbeat:
     def _snapshot_event(self) -> tuple[NodeProgressContext, str] | None:
         now = time.perf_counter()
         with self._lock:
-            if self._node is None:
+            if not self._stack:
                 return None
-            if now - self._last_emit_at < self._interval_seconds:
+            node = self._stack[-1]
+            state = self._states.get(node)
+            if state is None:
+                self._stack.pop()
                 return None
-            node = self._node
-            items = self._items
-            elapsed = now - self._active_since
-            self._last_emit_at = now
+            if now - state.last_emit_at < self._interval_seconds:
+                return None
+            items = state.items
+            elapsed = now - state.active_since
+            state.last_emit_at = now
         return node, f"running elapsed={elapsed:.0f}s items={items}"
 
 
@@ -372,11 +395,14 @@ def _observe_node_stream(
             iterator = iter(()) if stream is None else iter(stream)
             while True:
                 if heartbeat is not None:
-                    heartbeat.activate(progress_node, item_count)
+                    heartbeat.enter(progress_node, item_count)
                 try:
                     item = next(iterator)
                 except StopIteration:
                     break
+                finally:
+                    if heartbeat is not None:
+                        heartbeat.leave(progress_node)
                 item_count += 1
                 if heartbeat is not None:
                     heartbeat.item_emitted(progress_node, item_count)

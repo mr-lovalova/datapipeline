@@ -61,7 +61,6 @@ def feature_transforms(
 def order_feature_records(
     context: PipelineContext,
     batch_size: int,
-    progress_stage: str,
     group_by_cadence: str | None,
     features: Iterable[Any] | None,
 ) -> Iterable[Any]:
@@ -72,7 +71,6 @@ def order_feature_records(
         features,
         batch_size=batch_size,
         key=key,
-        progress_stage=progress_stage,
     )
 
 

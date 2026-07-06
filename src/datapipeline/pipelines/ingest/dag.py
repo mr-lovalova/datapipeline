@@ -76,7 +76,6 @@ def build_ingest_nodes(
                 batch_size,
                 state_by,
                 ordered_by,
-                "sort",
             ),
             output="ordered",
         ),

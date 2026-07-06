@@ -50,7 +50,6 @@ def order_records(
     batch_size: int,
     partition_by: str | list[str] | None,
     ordered_by: list[str] | None,
-    progress_stage: str,
     records: Iterable[Any] | None,
 ) -> Iterable[Any]:
     if ordered_by == required_record_order(partition_by):
@@ -59,7 +58,6 @@ def order_records(
         records,
         batch_size=batch_size,
         key=lambda rec: (partition_key(rec, partition_by), rec.time),
-        progress_stage=progress_stage,
     )
 
 

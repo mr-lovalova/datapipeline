@@ -45,7 +45,6 @@ def test_order_records_skips_sort_when_ordered_by_matches_required_order(
             100,
             ["security_id"],
             ["security_id", "time"],
-            "Ordering test",
             records,
         )
     )
@@ -66,7 +65,6 @@ def test_order_records_sorts_when_ordered_by_does_not_match(tmp_path) -> None:
             1,
             ["security_id"],
             ["time"],
-            "Ordering test",
             records,
         )
     )

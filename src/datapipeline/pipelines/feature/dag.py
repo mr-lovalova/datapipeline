@@ -154,7 +154,6 @@ def build_feature_nodes(
             args=(
                 context,
                 batch_size,
-                "sort",
                 group_by_cadence,
             ),
             input="feature_transforms",
