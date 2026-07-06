@@ -14,7 +14,8 @@ stream:
 #   - lead: { field: close, to: close_lead_126, periods: 126 }
 #   - ensure_cadence: { field: some_field, cadence: "${cadence}" }
 #   - granularity: { field: some_field, mode: first }
-#   - fill: { field: some_field, to: some_field, statistic: median, window: 6, min_samples: 1 }
+#   - fill: { field: some_field, to: some_field, method: median, window: 6, min_samples: 1 }
+#   - fill: { field: some_field, to: some_field_asof, method: forward }
 
 debug:
   - lint: { mode: warn, tick: "${cadence}" }

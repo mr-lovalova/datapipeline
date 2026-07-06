@@ -19,7 +19,8 @@ stream: # per-stream transforms (input sorted by partition,time)
         min_samples: 3,
       } # compute 5-day average dollar volume (ADV5)
   - where: { field: adv5, operator: ge, comparand: 1_000_000 } # keep liquid stocks
-#   - fill: { statistic: median, window: 6, min_samples: 1 }
+#   - fill: { method: median, window: 6, min_samples: 1 }
+#   - fill: { field: close, to: close_asof, method: forward }
 
 debug: # optional validation-only checks
   #- lint: { mode: warn, tick: "${cadence}" }

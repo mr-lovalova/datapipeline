@@ -29,8 +29,9 @@
 #   - lead: { field: close, to: close_lead_126, periods: 126 }
 #   - granularity: { field: close, mode: first }   # first | last | mean | median
 #   - ensure_cadence: { field: close, cadence: "${cadence}" }
-#   - fill: { field: close, to: close, statistic: median, window: 6, min_samples: 1 }
-#     # statistic: mean | median | stdev | pstdev; window must be > 0
+#   - fill: { field: close, to: close, method: median, window: 6, min_samples: 1 }
+#     # method: mean | median | forward; rolling methods require window > 0
+#   - fill: { field: close, to: close_asof, method: forward }
 #   - derive:
 #       left: close_lag_21
 #       operator: div

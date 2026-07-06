@@ -31,7 +31,8 @@ stream:
 - `granularity`: merge duplicate timestamps using `first`, `last`, `mean`, or
   `median`.
 - `dedupe`: drop exact duplicate records from an already sorted stream.
-- `fill`: impute missing values from rolling history using `mean` or `median`.
+- `fill`: impute missing values from rolling history using `mean` or `median`,
+  or carry the last known value with `method: forward`.
 - `rolling`: compute `mean`, `median`, `stdev`, `pstdev`, `max`, or `min` over
   a rolling window.
 
@@ -41,4 +42,10 @@ stream:
   - lag: { field: close, to: close_lag_189, periods: 189 }
   - derive: { left: close_lag_21, operator: div, right_field: close_lag_189, to: close_ratio }
   - derive: { left: close_ratio, operator: sub, right_value: 1, to: momentum_189_21 }
+```
+
+```yaml
+stream:
+  - ensure_cadence: { field: gross_margin, cadence: model_grid }
+  - fill: { field: gross_margin, method: forward }
 ```

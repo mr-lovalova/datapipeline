@@ -7,4 +7,4 @@ feature_id_by: area
 
 stream:
   - ensure_cadence: { cadence: 1h, field: value }
-  - fill: { statistic: mean, window: 2, min_samples: 1, field: value }
+  - fill: { method: mean, window: 2, min_samples: 1, field: value }

@@ -268,7 +268,8 @@ sort_batch_size: 50000
 stream:
   - ensure_cadence: { field: close, to: close, cadence: 10m }
   - granularity: { field: close, to: close, mode: mean }
-  - fill: { field: close, to: close, statistic: median, window: 6, min_samples: 2 }
+  - fill: { field: close, to: close, method: median, window: 6, min_samples: 2 }
+  - fill: { field: close, to: close_asof, method: forward }
 
 debug:
   - lint: { mode: warn, tick: 10m }

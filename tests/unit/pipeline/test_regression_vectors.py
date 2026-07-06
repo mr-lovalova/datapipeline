@@ -535,7 +535,7 @@ def test_regression_fill_then_scale_with_missing_values(tmp_path) -> None:
             {
                 "fill": {
                     "field": "value",
-                    "statistic": "median",
+                    "method": "median",
                     "window": 10,
                     "min_samples": 1,
                 }
@@ -545,7 +545,7 @@ def test_regression_fill_then_scale_with_missing_values(tmp_path) -> None:
             {
                 "fill": {
                     "field": "value",
-                    "statistic": "mean",
+                    "method": "mean",
                     "window": 10,
                     "min_samples": 1,
                 }
