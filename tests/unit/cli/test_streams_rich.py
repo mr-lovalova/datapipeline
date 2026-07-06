@@ -722,8 +722,8 @@ def test_rich_source_proxy_handles_foreach_fs_sequence_with_empty_first_value(mo
         and kind == "source_info"
         for msg, _level, _depth, kind in captured
     )
-    assert any('Loading "APPL.jsonl"' in text for text in progress.added_texts)
-    assert any('Loading "MSFT.jsonl"' in text for text in progress.added_texts)
+    assert any('Streaming from "APPL.jsonl"' in text for text in progress.added_texts)
+    assert any('Streaming from "MSFT.jsonl"' in text for text in progress.added_texts)
 
 
 def test_rich_source_proxy_removes_finished_stream_task() -> None:

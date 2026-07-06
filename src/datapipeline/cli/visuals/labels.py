@@ -45,7 +45,7 @@ def build_source_label(loader: BaseDataLoader) -> str:
         return loader.__class__.__name__
     transport = _transport_for_loader(loader)
     if isinstance(transport, (FsFileTransport, FsGlobTransport)):
-        return "Loading"
+        return "Streaming from"
     if isinstance(transport, HttpTransport):
         return "Downloading"
     return loader.__class__.__name__

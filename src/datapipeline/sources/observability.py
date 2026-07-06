@@ -123,7 +123,7 @@ def foreach_action(entrypoint: str, args: Any, spec_args: Any) -> str | None:
         if transport_name == "http":
             return "Downloading"
         if transport_name == "fs":
-            return "Loading"
+            return "Streaming from"
         return None
     if entrypoint:
         return f"via {entrypoint}"
