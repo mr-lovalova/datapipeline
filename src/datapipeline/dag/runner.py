@@ -345,7 +345,7 @@ def _observe_node_stream(
     observer: ExecutionObserver,
 ) -> Iterator[Any]:
     def _iter() -> Iterator[Any]:
-        node_depth = max(0, int(depth))
+        node_depth = max(0, int(depth), _current_run_dag_depth())
         item_count = 0
         start_time = time.perf_counter()
         status = "success"
@@ -467,6 +467,9 @@ def _observe_dag_stream(
     def _iter() -> Iterator[Any]:
         dag_depth = max(0, int(depth))
         dag_parent = _current_run_active_node()
+        parent_node = current_node_progress_context()
+        if dag_parent is not None and parent_node is not None:
+            dag_depth = max(dag_depth, parent_node.depth)
         if reset_interrupt:
             _CURRENT_RUN_INTERRUPTED.set(False)
         depth_token = _CURRENT_RUN_DAG_DEPTH.set(dag_depth + 1)

@@ -19,6 +19,7 @@ from datapipeline.runtime import Runtime
 class _CollectingObserver:
     def __init__(self) -> None:
         self.dag_started: list[tuple[str, int]] = []
+        self.dag_start_depths: list[int] = []
         self.dag_start_parents: list[DagParentRef | None] = []
         self.node_started: list[tuple[str, str, int]] = []
         self.node_events = []
@@ -35,6 +36,7 @@ class _CollectingObserver:
         dag_parent: DagParentRef | None = None,
     ) -> None:
         self.dag_started.append((dag_name, node_count))
+        self.dag_start_depths.append(depth)
         self.dag_start_parents.append(dag_parent)
 
     def on_node_start(
@@ -533,6 +535,69 @@ def test_run_dag_emits_explicit_depth_for_nested_dags(tmp_path: Path) -> None:
     node_depths = {event.node_name: event.depth for event in observer.node_events}
     assert node_depths["open_inner"] == 1
     assert node_depths["seed_inner"] == 2
+
+
+def test_run_dag_uses_consuming_node_depth_for_seeded_child_dag(tmp_path: Path) -> None:
+    observer = _CollectingObserver()
+    ctx = _context(tmp_path)
+
+    def _ingest_stream():
+        ingest = Dag(
+            name="ingest",
+            nodes=(PipelineNode(name="open_source", op=lambda: [1, 2]),),
+        )
+        return run_dag(ctx, ingest, observer=observer)
+
+    def _feature_stream():
+        feature = Dag(
+            name="feature",
+            nodes=(
+                PipelineNode(
+                    name="build_feature_stream",
+                    op=lambda records: records or (),
+                    input="seed",
+                ),
+            ),
+        )
+        return run_dag(ctx, feature, seed=_ingest_stream(), observer=observer)
+
+    outer = Dag(
+        name="vector",
+        nodes=(PipelineNode(name="feature_fanout", op=_feature_stream),),
+    )
+
+    assert list(run_dag(ctx, outer, observer=observer)) == [1, 2]
+
+    start_depth_by_name = {
+        dag_name: depth
+        for (dag_name, _), depth in zip(
+            observer.dag_started,
+            observer.dag_start_depths,
+        )
+    }
+    assert start_depth_by_name == {
+        "vector": 0,
+        "feature": 1,
+        "ingest": 2,
+    }
+
+    parent_by_name = {
+        dag_name: parent
+        for (dag_name, _), parent in zip(
+            observer.dag_started,
+            observer.dag_start_parents,
+        )
+    }
+    assert parent_by_name["ingest"] == DagParentRef(
+        dag_name="feature",
+        node_name="build_feature_stream",
+        node_index=0,
+    )
+
+    node_depth_by_name = {event.node_name: event.depth for event in observer.node_events}
+    assert node_depth_by_name["feature_fanout"] == 1
+    assert node_depth_by_name["build_feature_stream"] == 2
+    assert node_depth_by_name["open_source"] == 3
 
 
 def test_run_dag_tracks_empty_nodes(tmp_path: Path) -> None:
