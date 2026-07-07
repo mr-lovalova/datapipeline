@@ -158,6 +158,7 @@ class _RecordingProgress:
         self.added_texts: list[str] = []
         self.updated_texts: list[str] = []
         self.updated_by_task: dict[int, list[str]] = {}
+        self.advance_calls: list[tuple[int, int]] = []
         self.removed: list[int] = []
 
     def add_task(self, *args, **kwargs):
@@ -179,7 +180,8 @@ class _RecordingProgress:
     def start_task(self, *args, **kwargs):
         return None
 
-    def advance(self, *args, **kwargs):
+    def advance(self, task_id, advance=1):
+        self.advance_calls.append((int(task_id), int(advance)))
         return None
 
     def stop_task(self, *args, **kwargs):
@@ -586,6 +588,45 @@ def test_rich_source_proxy_emits_glob_summary_as_source_info_event(monkeypatch) 
         and kind == "source_info"
         for msg, _level, _depth, kind in captured
     )
+
+
+def test_rich_source_proxy_batches_progress_advances(monkeypatch) -> None:
+    class _Adapter:
+        def info_lines(self):
+            return []
+
+        def format_label(self, name=None, **kwargs):
+            return "streaming"
+
+        def initial_label(self):
+            return None
+
+        def count(self):
+            return 25_000
+
+        def current_label(self):
+            return None
+
+    monkeypatch.setattr(
+        "datapipeline.cli.visuals.rich.sources.SourceObservabilityAdapter",
+        lambda stream_source, stream_id: _Adapter(),
+    )
+    monkeypatch.setattr(
+        "datapipeline.cli.visuals.rich.sources._PROGRESS_ADVANCE_BATCH",
+        10_000,
+    )
+
+    progress = _RecordingProgress()
+    source = SimpleNamespace(stream=lambda: iter(range(25_000)))
+    proxy = _RichSourceProxy(
+        stream_source=source,
+        stream_id="equity.ohlcv",
+        progress=progress,
+    )
+
+    list(proxy.stream())
+
+    assert progress.advance_calls == [(1, 10_000), (1, 10_000), (1, 5_000)]
 
 
 def test_rich_source_proxy_skips_progress_row_for_virtual_source(monkeypatch) -> None:

@@ -44,6 +44,13 @@ class SourceObservabilityAdapter:
         if not supports_source_observability(stream_source):
             raise TypeError(f"Stream source '{stream_id}' must expose a loader")
         self.loader = stream_source.loader
+        self._observability = describe_loader(self.loader)
+        self._transport = self._observability.transport
+        self._glob_root = (
+            compute_glob_root(getattr(self._transport, "files", []))
+            if isinstance(self._transport, FsGlobTransport)
+            else None
+        )
         self.description, _unit = progress_meta_for_loader(self.loader)
 
         prefix, sep, suffix = self.description.partition(": ")
@@ -60,7 +67,7 @@ class SourceObservabilityAdapter:
             return None
 
     def input_streams(self) -> Optional[list[str]]:
-        return describe_loader(self.loader).input_streams
+        return self._observability.input_streams
 
     def input_detail_lines(self) -> list[str]:
         details = self.input_streams()
@@ -80,14 +87,9 @@ class SourceObservabilityAdapter:
         return [f"Inputs: {', '.join(parts)}"]
 
     def current_label(self) -> Optional[str]:
-        observability = describe_loader(self.loader)
-        if observability.current_label:
-            return observability.current_label
-        transport = observability.transport
-        glob_root = None
-        if isinstance(transport, FsGlobTransport):
-            glob_root = compute_glob_root(getattr(transport, "files", []))
-        return current_transport_label(transport, glob_root=glob_root)
+        if self._is_foreach:
+            return self._current_foreach_label()
+        return current_transport_label(self._transport, glob_root=self._glob_root)
 
     def progress_sequence(self) -> Optional[list[ProgressSequenceEntry]]:
         if self._progress_sequence_ready:
@@ -107,9 +109,6 @@ class SourceObservabilityAdapter:
         sequence = self.progress_sequence()
         if sequence:
             return sequence[0].label
-        observability = describe_loader(self.loader)
-        if observability.current_label:
-            return observability.current_label
         if self._is_foreach:
             values = getattr(self.loader, "_values", None)
             if isinstance(values, list) and values:
@@ -119,31 +118,27 @@ class SourceObservabilityAdapter:
                 first = str(values[0])
                 first_label = foreach_value_label(first)
                 return join_action_value(action, first_label)
-        transport = observability.transport
-        if isinstance(transport, FsGlobTransport):
-            files = getattr(transport, "files", [])
+        if isinstance(self._transport, FsGlobTransport):
+            files = getattr(self._transport, "files", [])
             if files:
-                glob_root = compute_glob_root(files)
-                return f"\"{relative_label(files[0], glob_root)}\""
-        return current_transport_label(transport)
+                return f"\"{relative_label(files[0], self._glob_root)}\""
+        return current_transport_label(self._transport)
 
     def info_lines(self) -> list[str]:
-        observability = describe_loader(self.loader)
         lines: list[str] = []
         lines.extend(self.input_detail_lines())
-        if observability.info_lines:
-            lines.extend(observability.info_lines)
+        if self._observability.info_lines:
+            lines.extend(self._observability.info_lines)
         if self._include_transport_info():
-            lines.extend(transport_info_lines(observability.transport))
+            lines.extend(transport_info_lines(self._transport))
         return lines
 
     def debug_lines(self) -> list[str]:
-        observability = describe_loader(self.loader)
         lines: list[str] = []
-        if observability.debug_lines:
-            lines.extend(observability.debug_lines)
+        if self._observability.debug_lines:
+            lines.extend(self._observability.debug_lines)
         if self._include_transport_debug():
-            lines.extend(transport_debug_lines(observability.transport))
+            lines.extend(transport_debug_lines(self._transport))
         return lines
 
     def current_indent(self, level: int = logging.INFO) -> str:
@@ -205,6 +200,15 @@ class SourceObservabilityAdapter:
         maybe_args = spec.get("args")
         spec_args = maybe_args if isinstance(maybe_args, dict) else None
         return entrypoint, spec_args
+
+    def _current_foreach_label(self) -> Optional[str]:
+        value = getattr(self.loader, "_current_value", None)
+        if value is None:
+            return None
+        entrypoint, spec_args = self._foreach_spec()
+        current_args = getattr(self.loader, "_current_args", None)
+        action = foreach_action(entrypoint, current_args, spec_args)
+        return join_action_value(action, foreach_value_label(value))
 
     def _foreach_progress_sequence(self) -> Optional[list[ProgressSequenceEntry]]:
         loader = self.loader

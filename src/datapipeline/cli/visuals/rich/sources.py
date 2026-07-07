@@ -1,4 +1,5 @@
 import logging
+import time
 from contextlib import contextmanager
 from typing import Any, Iterator, Optional
 
@@ -35,6 +36,8 @@ from .columns import AverageTimeRemainingColumn, SourceLabelColumn
 from .event_sink import _RichConsoleExecutionSink, visual_event_sink
 
 logger = logging.getLogger(__name__)
+_PROGRESS_ADVANCE_BATCH = 10_000
+_PROGRESS_ADVANCE_INTERVAL_SECONDS = 0.5
 
 
 class _RichSourceProxy(Source):
@@ -83,6 +86,17 @@ class _RichSourceProxy(Source):
         )
         self._progress.start_task(task_id)
         return int(task_id)
+
+    def _flush_task_advance(self, *, task_id: int, pending: int) -> int:
+        if pending <= 0:
+            return 0
+        self._safe_progress_call(
+            "advance progress task",
+            self._progress.advance,
+            task_id,
+            pending,
+        )
+        return 0
 
     def _finalize_task(self, *, task_id: int, completed: int, remove: bool = True) -> None:
         self._safe_progress_call(
@@ -133,6 +147,8 @@ class _RichSourceProxy(Source):
         emitted = 0
         refreshed_after_start = False
         last_path_label: Optional[str] = initial_path_label
+        pending_advance = 0
+        last_advance_at = time.monotonic()
 
         try:
             if progress_visible:
@@ -155,6 +171,10 @@ class _RichSourceProxy(Source):
                         include_dag_indent=False,
                     )
                     if task_id is not None:
+                        pending_advance = self._flush_task_advance(
+                            task_id=task_id,
+                            pending=pending_advance,
+                        )
                         if sequence_entries:
                             self._finalize_task(
                                 task_id=task_id,
@@ -184,8 +204,18 @@ class _RichSourceProxy(Source):
                         # short-lived labels (e.g. first file in a sequence) render.
                         self._safe_progress_call("refresh progress", self._progress.refresh)
                 if task_id is not None:
-                    self._progress.advance(task_id, 1)
+                    pending_advance += 1
                     task_emitted += 1
+                    now = time.monotonic()
+                    if (
+                        pending_advance >= _PROGRESS_ADVANCE_BATCH
+                        or now - last_advance_at >= _PROGRESS_ADVANCE_INTERVAL_SECONDS
+                    ):
+                        pending_advance = self._flush_task_advance(
+                            task_id=task_id,
+                            pending=pending_advance,
+                        )
+                        last_advance_at = now
                     if not refreshed_after_start:
                         refreshed_after_start = True
                         self._safe_progress_call("refresh progress", self._progress.refresh)
@@ -193,6 +223,10 @@ class _RichSourceProxy(Source):
                 yield item
         finally:
             if task_id is not None:
+                pending_advance = self._flush_task_advance(
+                    task_id=int(task_id),
+                    pending=pending_advance,
+                )
                 self._finalize_task(
                     task_id=int(task_id),
                     completed=task_emitted if sequence_entries else emitted,

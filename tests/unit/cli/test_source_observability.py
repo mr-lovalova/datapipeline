@@ -157,6 +157,28 @@ def test_source_observability_adapter_initial_label_uses_first_glob_file():
     assert adapter.initial_label() == '"APPL.jsonl"'
 
 
+def test_source_observability_adapter_glob_current_label_reuses_root(monkeypatch):
+    calls = 0
+
+    def _root(files):
+        nonlocal calls
+        calls += 1
+        return compute_glob_root(files)
+
+    monkeypatch.setattr(
+        "datapipeline.cli.visuals.source_observability.compute_glob_root",
+        _root,
+    )
+
+    source = _SourceWithGlobLoader()
+    source.loader.transport._current_path = "/tmp/MSFT.jsonl"  # type: ignore[attr-defined]
+    adapter = SourceObservabilityAdapter(source, "equity.ohlcv")
+
+    assert adapter.current_label() == '"MSFT.jsonl"'
+    assert adapter.current_label() == '"MSFT.jsonl"'
+    assert calls == 1
+
+
 def test_source_observability_adapter_foreach_fs_emits_glob_summary_line():
     adapter = SourceObservabilityAdapter(_SourceWithForeachFsLoader(), "equity.ohlcv")
     assert adapter.info_lines() == [
@@ -167,6 +189,15 @@ def test_source_observability_adapter_foreach_fs_emits_glob_summary_line():
 def test_source_observability_adapter_foreach_initial_label_uses_first_file():
     adapter = SourceObservabilityAdapter(_SourceWithForeachFsLoader(), "equity.ohlcv")
     assert adapter.initial_label() == 'streaming from "APPL.jsonl"'
+
+
+def test_source_observability_adapter_foreach_current_label_is_current_only():
+    source = _SourceWithForeachFsLoader()
+    adapter = SourceObservabilityAdapter(source, "equity.ohlcv")
+    source.loader._current_value = "/tmp/APPL.jsonl"  # type: ignore[attr-defined]
+    source.loader._current_args = {"transport": "fs"}  # type: ignore[attr-defined]
+
+    assert adapter.current_label() == 'streaming from "APPL.jsonl"'
 
 
 def test_source_observability_adapter_foreach_progress_sequence_tracks_each_file():
