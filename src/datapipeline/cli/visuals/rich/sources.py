@@ -16,7 +16,7 @@ from datapipeline.sources.models.source import Source
 
 from ..execution import current_source_label, emit_source_info
 from ..execution_context import (
-    current_dag_depth,
+    current_source_depth,
     reset_current_execution_event_sink,
     reset_current_source_visual_proxy_factory,
     reset_current_terminal_log_proxy_sink,
@@ -26,7 +26,7 @@ from ..execution_context import (
     set_current_source_visual_proxy_factory,
     set_current_terminal_log_proxy_sink,
     set_current_visual_log_level,
-    visible_dag_indent,
+    visible_source_indent,
 )
 from ..source_observability import (
     SourceObservabilityAdapter,
@@ -73,7 +73,7 @@ class _RichSourceProxy(Source):
     def _format_text(self, stream_label: str, message: str) -> str:
         # Compute indent at stream update time (inside DAG context), then keep
         # it embedded in task text so Live rendering remains context-accurate.
-        indent = visible_dag_indent(logging.INFO)
+        indent = visible_source_indent(logging.INFO)
         label = current_source_label(stream_label)
         return f"{indent}[{label}] {message}" if message else f"{indent}[{label}]"
 
@@ -145,7 +145,7 @@ class _RichSourceProxy(Source):
             )
         for line in info_lines:
             emit_source_info(
-                stream_label, line, logger=logger, depth=current_dag_depth()
+                stream_label, line, logger=logger, depth=current_source_depth()
             )
 
         emitted = 0

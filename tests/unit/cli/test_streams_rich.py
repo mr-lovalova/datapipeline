@@ -427,10 +427,10 @@ def test_rich_execution_sink_keeps_node_progress_single_line() -> None:
 
     lines = _lines(buffer)
     assert len(lines) == 1
-    assert lines[0].startswith("  [ingest:equity.return.trailing.daily.21")
+    assert lines[0].startswith("[ingest:equity.return.trailing.daily.21")
 
 
-def test_rich_execution_sink_styles_node_progress_label() -> None:
+def test_rich_execution_sink_styles_node_progress_as_node_detail() -> None:
     buffer = StringIO()
     console = Console(file=buffer, markup=False, highlight=False, force_terminal=False)
     sink = _RichConsoleExecutionSink(level=logging.INFO, console=console)
@@ -445,8 +445,9 @@ def test_rich_execution_sink_styles_node_progress_label() -> None:
         )
     )
 
-    assert str(text).startswith("  [ingest:equity.return.trailing.daily.21/open_source]")
-    assert any(span.style == "bold cyan" for span in text.spans)
+    assert str(text).startswith("[ingest:equity.return.trailing.daily.21/open_source]")
+    assert any(span.style == "dim bold cyan" for span in text.spans)
+    assert any(span.style == "dim" for span in text.spans)
 
 
 def test_rich_execution_sink_keeps_live_node_progress_single_line() -> None:

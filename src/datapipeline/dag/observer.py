@@ -136,7 +136,7 @@ class LoggingExecutionObserver:
             calls_suffix = f" calls={node_calls_dag}" if node_calls_dag else ""
             self._logger.debug(
                 "%s[%s] started index=%d execution=%d kind=%s%s",
-                _indent(depth),
+                _indent(depth - 1),
                 _execution_label(dag_name, node_name),
                 node_index,
                 execution_index,
@@ -154,7 +154,7 @@ class LoggingExecutionObserver:
             self._logger.debug(
                 "%s[%s] finished index=%d execution=%d kind=%s "
                 "status=%s%s items=%d elapsed=%.6fs",
-                _indent(event.depth),
+                _indent(event.depth - 1),
                 _execution_label(event.dag_name, event.node_name),
                 event.node_index,
                 event.execution_index,
@@ -169,7 +169,7 @@ class LoggingExecutionObserver:
         if self._logger.isEnabledFor(logging.INFO):
             self._logger.info(
                 "%s[%s] %s",
-                _indent(event.depth),
+                _indent(event.depth - 1),
                 _execution_label(event.dag_name, event.node_name),
                 event.message,
             )

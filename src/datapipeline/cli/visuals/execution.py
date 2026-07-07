@@ -86,6 +86,12 @@ class ExecutionEventFormatter:
         return "  " * max(0, depth)
 
     @staticmethod
+    def display_depth(event: ExecutionLogEvent) -> int:
+        if event.kind in {"node_start", "node_progress", "node_end"}:
+            return max(0, int(event.depth) - 1)
+        return max(0, int(event.depth))
+
+    @staticmethod
     def execution_label(dag_name: str, node_name: str | None) -> str:
         if node_name:
             return f"{dag_name}/{node_name}"
@@ -99,7 +105,7 @@ class ExecutionEventFormatter:
             # Keep DAG lifecycle visible at INFO, regardless of nesting depth.
             return logging.INFO
         if event.kind == "dag_info":
-            if event.info_name == "source" or event.depth <= 1:
+            if event.info_name == "source" or event.depth <= 0:
                 return logging.INFO
             return logging.DEBUG
         if event.kind in {"node_start", "node_end"}:
@@ -110,7 +116,7 @@ class ExecutionEventFormatter:
 
     @classmethod
     def message(cls, event: ExecutionLogEvent) -> str:
-        indent = cls.indent(event.depth)
+        indent = cls.indent(cls.display_depth(event))
         if event.kind == "message":
             message = event.message or ""
             if not indent or "\n" not in message:
@@ -384,13 +390,13 @@ class HierarchicalExecutionObserver(ExecutionObserver):
                 ExecutionLogEvent(
                     kind="dag_info",
                     dag_name=dag_name,
-                    depth=dag_depth + 1,
+                    depth=dag_depth,
                     info_name=info_name,
                     info_line=line,
                     **_scope_fields(),
                 )
             )
-        set_current_dag_depth(dag_depth + 1)
+        set_current_dag_depth(dag_depth)
         set_current_dag_label(dag_name)
 
     def on_node_start(

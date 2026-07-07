@@ -11,7 +11,7 @@ from .source_observability import (
     supports_source_observability,
 )
 from .execution_context import (
-    current_dag_depth,
+    current_source_depth,
     reset_current_source_visual_proxy_factory,
     reset_current_visual_log_level,
     set_current_source_visual_proxy_factory,
@@ -45,7 +45,7 @@ class VisualSourceProxy(Source):
                     self._stream_id,
                     line,
                     logger=logger,
-                    depth=current_dag_depth(),
+                    depth=current_source_depth(),
                 )
             if logger.isEnabledFor(logging.DEBUG):
                 for line in debug_lines:

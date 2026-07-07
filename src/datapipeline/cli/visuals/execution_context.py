@@ -43,6 +43,15 @@ def current_dag_depth() -> int:
     return max(0, int(_CURRENT_DAG_DEPTH.get()))
 
 
+def current_source_depth() -> int:
+    from datapipeline.dag.runner import current_node_progress_context
+
+    node = current_node_progress_context()
+    if node is not None:
+        return max(0, int(node.depth) - 1)
+    return current_dag_depth()
+
+
 def current_dag_indent() -> str:
     return "  " * current_dag_depth()
 
@@ -122,3 +131,8 @@ def visible_dag_depth(level: int) -> int:
 
 def visible_dag_indent(level: int) -> str:
     return "  " * visible_dag_depth(level)
+
+
+def visible_source_indent(level: int) -> str:
+    _ = level
+    return "  " * current_source_depth()

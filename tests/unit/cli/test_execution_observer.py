@@ -146,11 +146,11 @@ def test_hierarchical_observer_logs_node_events_at_debug(caplog):
                 status="success",
                 depth=1,
             )
-        )
+    )
 
     messages = [record.getMessage() for record in caplog.records]
-    assert any(msg.startswith("  [demo/n] started") for msg in messages)
-    assert any(msg.startswith("  [demo/n] finished") for msg in messages)
+    assert any(msg.startswith("[demo/n] started") for msg in messages)
+    assert any(msg.startswith("[demo/n] finished") for msg in messages)
     assert any("index=0" in msg for msg in messages)
 
 
@@ -168,11 +168,11 @@ def test_hierarchical_observer_logs_node_progress_at_info(caplog):
                 message="running elapsed=60s items=0",
                 depth=2,
             )
-        )
+    )
 
     record = caplog.records[0]
     assert record.getMessage().startswith(
-        "    [feature:close/order_feature_records] running elapsed=60s items=0"
+        "  [feature:close/order_feature_records] running elapsed=60s items=0"
     )
     assert getattr(record, "dp_event_kind", None) == "node_progress"
     assert getattr(record, "dp_dag_name", None) == "feature:close"
@@ -234,7 +234,7 @@ def test_hierarchical_observer_logs_dag_call_node_metadata(caplog):
 
     record = caplog.records[0]
     assert record.getMessage().startswith(
-        "  [pipeline:serve/vector_assemble] started "
+        "[pipeline:serve/vector_assemble] started "
         "index=0 execution=0 kind=dag_call calls=vector:assemble"
     )
     assert getattr(record, "dp_node_kind", None) == "dag_call"
@@ -247,9 +247,9 @@ def test_hierarchical_observer_updates_context_depth():
 
     assert current_dag_depth() == 0
     observer.on_dag_start(dag_name="outer", node_count=1, depth=0)
-    assert current_dag_depth() == 1
+    assert current_dag_depth() == 0
     observer.on_dag_start(dag_name="inner", node_count=1, depth=1)
-    assert current_dag_depth() == 2
+    assert current_dag_depth() == 1
     observer.on_dag_end(
         DagRunEvent(
             dag_name="inner",
@@ -504,7 +504,7 @@ def test_hierarchical_observer_shows_nested_source_metadata_at_info(caplog):
     messages = [record.getMessage() for record in caplog.records]
     assert any(
         msg.startswith(
-            "      [ingest:equity.ohlcv] source: "
+            "    [ingest:equity.ohlcv] source: "
             "transport=fs.glob count=17 first=2010.jsonl last=2026.jsonl"
         )
         for msg in messages
@@ -533,7 +533,7 @@ def test_hierarchical_observer_shows_nested_dag_metadata_at_debug(caplog):
     messages = [record.getMessage() for record in caplog.records]
     assert any(
         msg.startswith(
-            "    [ingest:equity.ohlcv] source.summary: "
+            "  [ingest:equity.ohlcv] source.summary: "
             "transport=fs files=17 decoder=jsonl"
         )
         for msg in messages

@@ -10,7 +10,7 @@ from datapipeline.sources.observability import (
     progress_meta_for_loader,
     transport_debug_lines,
 )
-from .execution_context import visible_dag_indent
+from .execution_context import visible_source_indent
 
 
 @runtime_checkable
@@ -99,7 +99,7 @@ class SourceObservabilityAdapter:
         return lines
 
     def current_indent(self, level: int = logging.INFO) -> str:
-        return visible_dag_indent(level)
+        return visible_source_indent(level)
 
     def progress_visible(self) -> bool:
         producer = getattr(self.loader, "progress_visible", None)

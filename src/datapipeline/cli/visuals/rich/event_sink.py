@@ -40,7 +40,7 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
         return
 
     def _render_event(self, event: ExecutionLogEvent) -> Text:
-        indent = "  " * max(0, event.depth)
+        indent = "  " * ExecutionEventFormatter.display_depth(event)
         text = Text(indent)
         if event.kind == "message":
             style = self._message_style(ExecutionEventFormatter.level(event))
@@ -113,8 +113,8 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
                 event.dag_name,
                 event.node_name,
             )
-            self._append_label(text, label)
-            text.append(event.message or "")
+            self._append_debug_label(text, label)
+            text.append(event.message or "", style="dim")
             return text
         status_style = "green" if event.status == "success" else "red"
         label = ExecutionEventFormatter.execution_label(
