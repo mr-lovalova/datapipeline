@@ -157,6 +157,13 @@ def test_source_observability_adapter_initial_label_uses_first_glob_file():
     assert adapter.initial_label() == '"APPL.jsonl"'
 
 
+def test_source_observability_adapter_glob_info_line_includes_file_count():
+    adapter = SourceObservabilityAdapter(_SourceWithGlobLoader(), "equity.ohlcv")
+    assert adapter.info_lines() == [
+        "fs.glob: count=2 first=APPL.jsonl last=MSFT.jsonl"
+    ]
+
+
 def test_source_observability_adapter_glob_current_label_reuses_root(monkeypatch):
     calls = 0
 
@@ -171,7 +178,7 @@ def test_source_observability_adapter_glob_current_label_reuses_root(monkeypatch
     )
 
     source = _SourceWithGlobLoader()
-    source.loader.transport._current_path = "/tmp/MSFT.jsonl"  # type: ignore[attr-defined]
+    source.loader.current_resource_uri = "/tmp/MSFT.jsonl"  # type: ignore[attr-defined]
     adapter = SourceObservabilityAdapter(source, "equity.ohlcv")
 
     assert adapter.current_label() == '"MSFT.jsonl"'
@@ -210,7 +217,7 @@ def test_source_observability_adapter_foreach_progress_sequence_tracks_each_file
     ]
 
 
-def test_source_observability_adapter_foreach_progress_sequence_counts_each_file(tmp_path):
+def test_source_observability_adapter_foreach_progress_sequence_skips_file_counts(tmp_path):
     appl = tmp_path / "APPL.jsonl"
     msft = tmp_path / "MSFT.jsonl"
     appl.write_text('{"n":1}\n{"n":2}\n', encoding="utf-8")
@@ -230,7 +237,7 @@ def test_source_observability_adapter_foreach_progress_sequence_counts_each_file
     adapter = SourceObservabilityAdapter(source, "equity.ohlcv")
     sequence = adapter.progress_sequence()
     assert sequence is not None
-    assert [entry.total for entry in sequence] == [2, 1]
+    assert [entry.total for entry in sequence] == [None, None]
 
 
 def test_source_observability_adapter_glob_progress_sequence_tracks_each_file(tmp_path):
@@ -248,7 +255,7 @@ def test_source_observability_adapter_glob_progress_sequence_tracks_each_file(tm
     sequence = adapter.progress_sequence()
     assert sequence is not None
     assert [entry.label for entry in sequence] == ['"APPL.jsonl"', '"MSFT.jsonl"']
-    assert [entry.total for entry in sequence] == [2, 1]
+    assert [entry.total for entry in sequence] == [None, None]
 
 
 def test_compute_glob_root_returns_none_for_mixed_path_styles() -> None:

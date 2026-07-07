@@ -151,28 +151,25 @@ def log_combined_stream(
         logger.info("%s[%s] Feature engineering from upstream inputs", indent, stream_id)
 
 
-def current_transport_label(transport, glob_root: Path | None = None) -> str | None:
-    """Return a human-friendly label for the transport's current unit of work."""
+def resource_uri_label(
+    transport,
+    uri: str | None,
+    glob_root: Path | None = None,
+) -> str | None:
+    """Return a human-friendly label for a transport resource URI."""
+    if not uri:
+        return None
     if isinstance(transport, FsGlobTransport):
-        current = getattr(transport, "current_path", None)
-        if not current:
-            return None
-        return f"\"{relative_label(current, glob_root)}\""
+        return f"\"{relative_label(uri, glob_root)}\""
     if isinstance(transport, FsFileTransport):
-        path = getattr(transport, "path", None)
-        if not path:
-            return None
         try:
-            name = Path(path).name or str(path)
+            name = Path(uri).name or str(uri)
             return f"\"{name}\""
         except Exception:
-            return f"\"{path}\""
+            return f"\"{uri}\""
     if isinstance(transport, HttpTransport):
-        url = getattr(transport, "url", None)
-        if not url:
-            return None
         try:
-            parts = urlparse(url)
+            parts = urlparse(uri)
             host = parts.netloc or "http"
             return f"@{host}"
         except Exception:

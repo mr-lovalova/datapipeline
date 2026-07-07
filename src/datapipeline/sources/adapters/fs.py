@@ -1,6 +1,6 @@
-from typing import Iterable, Iterator, List, Optional
+from typing import Iterable, Iterator, List
 
-from datapipeline.sources.ports import SourceTransport
+from datapipeline.sources.ports import SourceResource, SourceTransport
 
 
 class FsFileTransport(SourceTransport):
@@ -8,7 +8,7 @@ class FsFileTransport(SourceTransport):
         self.path = path
         self.chunk_size = chunk_size
 
-    def streams(self) -> Iterator[Iterable[bytes]]:
+    def resources(self) -> Iterator[SourceResource]:
         def _iter() -> Iterator[bytes]:
             with open(self.path, "rb") as f:
                 while True:
@@ -17,7 +17,7 @@ class FsFileTransport(SourceTransport):
                         break
                     yield chunk
 
-        yield _iter()
+        yield SourceResource(uri=self.path, stream=_iter())
 
 
 class FsGlobTransport(SourceTransport):
@@ -27,17 +27,12 @@ class FsGlobTransport(SourceTransport):
         self.pattern = pattern
         self.chunk_size = chunk_size
         self._files: List[str] = sorted(_glob.glob(pattern))
-        self._current_path: Optional[str] = None
 
     @property
     def files(self) -> List[str]:
         return list(self._files)
 
-    @property
-    def current_path(self) -> Optional[str]:
-        return self._current_path
-
-    def streams(self) -> Iterator[Iterable[bytes]]:
+    def resources(self) -> Iterator[SourceResource]:
         def _iter(path: str) -> Iterator[bytes]:
             with open(path, "rb") as f:
                 while True:
@@ -46,9 +41,5 @@ class FsGlobTransport(SourceTransport):
                         break
                     yield chunk
 
-        try:
-            for p in self._files:
-                self._current_path = p
-                yield _iter(p)
-        finally:
-            self._current_path = None
+        for p in self._files:
+            yield SourceResource(uri=p, stream=_iter(p))

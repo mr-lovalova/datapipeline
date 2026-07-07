@@ -4,7 +4,8 @@ from typing import Any, Optional, Protocol, runtime_checkable
 
 from datapipeline.sources.data_loader import DataLoader
 from datapipeline.sources.foreach import ForeachLoader
-from datapipeline.sources.adapters.fs import FsGlobTransport
+from datapipeline.sources.adapters.fs import FsFileTransport, FsGlobTransport
+from datapipeline.sources.adapters.http import HttpTransport
 from datapipeline.sources.observability import (
     describe_loader,
     foreach_action,
@@ -14,8 +15,8 @@ from datapipeline.sources.observability import (
 
 from .common import (
     compute_glob_root,
-    current_transport_label,
     relative_label,
+    resource_uri_label,
     transport_debug_lines,
     transport_info_lines,
 )
@@ -89,7 +90,12 @@ class SourceObservabilityAdapter:
     def current_label(self) -> Optional[str]:
         if self._is_foreach:
             return self._current_foreach_label()
-        return current_transport_label(self._transport, glob_root=self._glob_root)
+        uri = getattr(self.loader, "current_resource_uri", None)
+        if uri is None and isinstance(self._transport, FsFileTransport):
+            uri = self._transport.path
+        elif uri is None and isinstance(self._transport, HttpTransport):
+            uri = self._transport.url
+        return resource_uri_label(self._transport, uri, glob_root=self._glob_root)
 
     def progress_sequence(self) -> Optional[list[ProgressSequenceEntry]]:
         if self._progress_sequence_ready:
@@ -100,7 +106,7 @@ class SourceObservabilityAdapter:
         elif isinstance(self.loader, DataLoader):
             transport = getattr(self.loader, "transport", None)
             if isinstance(transport, FsGlobTransport):
-                entries = self._glob_progress_sequence(self.loader, transport)
+                entries = self._glob_progress_sequence(transport)
         self._progress_sequence_cache = entries
         self._progress_sequence_ready = True
         return self._progress_sequence_cache
@@ -122,7 +128,7 @@ class SourceObservabilityAdapter:
             files = getattr(self._transport, "files", [])
             if files:
                 return f"\"{relative_label(files[0], self._glob_root)}\""
-        return current_transport_label(self._transport)
+        return self.current_label()
 
     def info_lines(self) -> list[str]:
         lines: list[str] = []
@@ -217,7 +223,6 @@ class SourceObservabilityAdapter:
         values = getattr(loader, "_values", None)
         if not isinstance(values, list) or not values:
             return None
-        key = str(getattr(loader, "_key", "value"))
         entrypoint, spec_args = self._foreach_spec()
         action = foreach_action(entrypoint, None, spec_args)
         entries: list[ProgressSequenceEntry] = []
@@ -225,55 +230,19 @@ class SourceObservabilityAdapter:
             value_text = str(value)
             value_label = foreach_value_label(value_text)
             label = join_action_value(action, value_label)
-            total: Optional[int] = None
-            try:
-                vars_ = {key: value}
-                loader_args = loader._make_loader_args(vars_)  # type: ignore[attr-defined]
-                child_loader = loader._build_loader(loader_args)  # type: ignore[attr-defined]
-                count_value = child_loader.count()
-                if count_value is not None:
-                    total = int(count_value)
-            except Exception:
-                total = None
-            entries.append(ProgressSequenceEntry(label=label, total=total))
+            entries.append(ProgressSequenceEntry(label=label, total=None))
         return entries
-
-    @staticmethod
-    def _count_fs_file(
-        path: str,
-        
-        chunk_size: int,
-        loader: DataLoader,
-    ) -> Optional[int]:
-        def _chunks():
-            with open(path, "rb") as handle:
-                while True:
-                    chunk = handle.read(chunk_size)
-                    if not chunk:
-                        break
-                    yield chunk
-
-        try:
-            count_value = loader.decoder.count(_chunks())
-            if count_value is None:
-                return None
-            return int(count_value)
-        except Exception:
-            return None
 
     def _glob_progress_sequence(
         self,
-        loader: DataLoader,
         transport: FsGlobTransport,
     ) -> Optional[list[ProgressSequenceEntry]]:
         files = list(getattr(transport, "files", []))
         if not files:
             return None
         glob_root = compute_glob_root(files)
-        chunk_size = int(getattr(transport, "chunk_size", 65536) or 65536)
         entries: list[ProgressSequenceEntry] = []
         for path in files:
             label = f"\"{relative_label(path, glob_root)}\""
-            total = self._count_fs_file(path, chunk_size=chunk_size, loader=loader)
-            entries.append(ProgressSequenceEntry(label=label, total=total))
+            entries.append(ProgressSequenceEntry(label=label, total=None))
         return entries

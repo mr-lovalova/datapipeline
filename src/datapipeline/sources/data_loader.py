@@ -12,11 +12,20 @@ class DataLoader(BaseDataLoader):
         self.transport = transport
         self.decoder = decoder
         self._allow_net_count = bool(allow_network_count)
+        self._current_resource_uri: str | None = None
+
+    @property
+    def current_resource_uri(self) -> str | None:
+        return self._current_resource_uri
 
     def load(self) -> Iterator[Any]:
-        for stream in self.transport.streams():
-            for row in self.decoder.decode(stream):
-                yield row
+        try:
+            for resource in self.transport.resources():
+                self._current_resource_uri = resource.uri
+                for row in self.decoder.decode(resource.stream):
+                    yield row
+        finally:
+            self._current_resource_uri = None
 
     def count(self) -> Optional[int]:
         # Delegate counting to the decoder using the transport streams.
@@ -26,9 +35,9 @@ class DataLoader(BaseDataLoader):
                 return None
             total = 0
             any_stream = False
-            for stream in self.transport.streams():
+            for resource in self.transport.resources():
                 any_stream = True
-                c = self.decoder.count(stream)
+                c = self.decoder.count(resource.stream)
                 if c is None:
                     return None
                 total += int(c)

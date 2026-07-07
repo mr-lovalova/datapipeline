@@ -677,6 +677,44 @@ def test_rich_source_proxy_batches_label_checks(monkeypatch) -> None:
     assert adapter.current_label_calls == 3
 
 
+def test_rich_source_proxy_skips_aggregate_count_for_sequence_progress(monkeypatch) -> None:
+    class _Adapter:
+        def info_lines(self):
+            return []
+
+        def format_label(self, name=None, **kwargs):
+            return "streaming"
+
+        def initial_label(self):
+            return '"AAPL.jsonl"'
+
+        def count(self):
+            raise AssertionError("sequence progress should not call aggregate count")
+
+        def progress_sequence(self):
+            return [SimpleNamespace(label='"AAPL.jsonl"', total=None)]
+
+        def current_label(self):
+            return '"AAPL.jsonl"'
+
+    monkeypatch.setattr(
+        "datapipeline.cli.visuals.rich.sources.SourceObservabilityAdapter",
+        lambda stream_source, stream_id: _Adapter(),
+    )
+
+    progress = _RecordingProgress()
+    source = SimpleNamespace(stream=lambda: iter([1]))
+    proxy = _RichSourceProxy(
+        stream_source=source,
+        stream_id="equity.ohlcv",
+        progress=progress,
+    )
+
+    list(proxy.stream())
+
+    assert progress.advance_calls == [(1, 1)]
+
+
 def test_rich_source_proxy_skips_progress_row_for_virtual_source(monkeypatch) -> None:
     captured: list[tuple[str, int, int, str | None]] = []
     monkeypatch.setattr(

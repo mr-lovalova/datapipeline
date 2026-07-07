@@ -36,8 +36,8 @@ from .columns import AverageTimeRemainingColumn, SourceLabelColumn
 from .event_sink import _RichConsoleExecutionSink, visual_event_sink
 
 logger = logging.getLogger(__name__)
-_PROGRESS_ADVANCE_BATCH = 10_000
-_PROGRESS_ADVANCE_INTERVAL_SECONDS = 0.5
+_PROGRESS_ADVANCE_BATCH = 1_000
+_PROGRESS_ADVANCE_INTERVAL_SECONDS = 0.1
 
 
 class _RichSourceProxy(Source):
@@ -153,9 +153,10 @@ class _RichSourceProxy(Source):
 
         try:
             if progress_visible:
-                total = adapter.count()
                 if sequence_entries:
                     total = sequence_entries[0].total
+                else:
+                    total = adapter.count()
                 task_id = self._start_task(
                     text=self._format_text(stream_label, initial_message),
                     total=total,
