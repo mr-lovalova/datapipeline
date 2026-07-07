@@ -1,13 +1,11 @@
 from dataclasses import dataclass
-from pathlib import Path
-
 import pytest
 
 from datapipeline.cli.visuals.execution_context import (
     set_current_dag_depth,
 )
-from datapipeline.cli.visuals.common import compute_glob_root, relative_label
 from datapipeline.cli.visuals.source_observability import SourceObservabilityAdapter
+from datapipeline.sources.observability import source_metadata
 from datapipeline.sources.data_loader import DataLoader
 from datapipeline.sources.decoders import JsonLinesDecoder
 from datapipeline.sources.foreach import ForeachLoader
@@ -15,6 +13,7 @@ from datapipeline.sources.models.generator import DataGenerator
 from datapipeline.sources.models.loader import SyntheticLoader
 from datapipeline.sources.adapters.fs import FsFileTransport
 from datapipeline.sources.adapters.fs import FsGlobTransport
+from datapipeline.sources.adapters.http import HttpTransport
 
 
 @dataclass
@@ -102,7 +101,6 @@ class _SourceWithForeachFsLoader:
         )
 
 
-
 def test_source_observability_adapter_exposes_count_labels_and_details():
     set_current_dag_depth(0)
     adapter = SourceObservabilityAdapter(_SourceWithLoader(), "demo")
@@ -110,14 +108,33 @@ def test_source_observability_adapter_exposes_count_labels_and_details():
     assert adapter.count() == 7
     assert adapter.format_label() == "[demo] _DummyLoader"
     assert adapter.current_label() == '"demo.csv"'
-    assert adapter.info_lines() == ["fs.file: file=demo.csv"]
+    assert adapter.info_lines() == []
 
+
+def test_source_metadata_describes_http_transport():
+    source = _SourceWithLoader()
+    source.loader.transport = HttpTransport("https://example.test/data/demo.jsonl")
+
+    assert source_metadata(source) == {
+        "transport": "http.fetch",
+        "host": "example.test",
+        "resource": "demo.jsonl",
+    }
+    assert SourceObservabilityAdapter(source, "demo").current_label() == "@example.test"
+
+
+def test_source_metadata_describes_foreach_fs_loader():
+    assert source_metadata(_SourceWithForeachFsLoader()) == {
+        "transport": "fs.glob",
+        "count": 2,
+        "first": "APPL.jsonl",
+        "last": "MSFT.jsonl",
+    }
 
 
 def test_source_observability_adapter_tolerates_count_failures():
     adapter = SourceObservabilityAdapter(_SourceWithFailingLoaderCount(), "demo")
     assert adapter.count() is None
-
 
 
 def test_source_observability_adapter_requires_loader():
@@ -128,7 +145,6 @@ def test_source_observability_adapter_requires_loader():
 def test_source_observability_adapter_includes_synthetic_info_line():
     adapter = SourceObservabilityAdapter(_SyntheticSourceWithLoader(), "ticks")
     assert adapter.info_lines() == ["synthetic.generate: _DummyGenerator"]
-
 
 
 def test_source_observability_adapter_includes_input_details_in_info_lines():
@@ -157,40 +173,22 @@ def test_source_observability_adapter_initial_label_uses_first_glob_file():
     assert adapter.initial_label() == '"APPL.jsonl"'
 
 
-def test_source_observability_adapter_glob_info_line_includes_file_count():
+def test_source_observability_adapter_does_not_emit_glob_transport_info_line():
     adapter = SourceObservabilityAdapter(_SourceWithGlobLoader(), "equity.ohlcv")
-    assert adapter.info_lines() == [
-        "fs.glob: count=2 first=APPL.jsonl last=MSFT.jsonl"
-    ]
+    assert adapter.info_lines() == []
 
 
-def test_source_observability_adapter_glob_current_label_reuses_root(monkeypatch):
-    calls = 0
-
-    def _root(files):
-        nonlocal calls
-        calls += 1
-        return compute_glob_root(files)
-
-    monkeypatch.setattr(
-        "datapipeline.cli.visuals.source_observability.compute_glob_root",
-        _root,
-    )
-
+def test_source_observability_adapter_glob_current_label_uses_current_file():
     source = _SourceWithGlobLoader()
     source.loader.current_resource_uri = "/tmp/MSFT.jsonl"  # type: ignore[attr-defined]
     adapter = SourceObservabilityAdapter(source, "equity.ohlcv")
 
     assert adapter.current_label() == '"MSFT.jsonl"'
-    assert adapter.current_label() == '"MSFT.jsonl"'
-    assert calls == 1
 
 
-def test_source_observability_adapter_foreach_fs_emits_glob_summary_line():
+def test_source_observability_adapter_foreach_fs_does_not_emit_transport_info_line():
     adapter = SourceObservabilityAdapter(_SourceWithForeachFsLoader(), "equity.ohlcv")
-    assert adapter.info_lines() == [
-        "fs.glob: count=2 first=APPL.jsonl last=MSFT.jsonl"
-    ]
+    assert adapter.info_lines() == []
 
 
 def test_source_observability_adapter_foreach_initial_label_uses_first_file():
@@ -256,14 +254,3 @@ def test_source_observability_adapter_glob_progress_sequence_tracks_each_file(tm
     assert sequence is not None
     assert [entry.label for entry in sequence] == ['"APPL.jsonl"', '"MSFT.jsonl"']
     assert [entry.total for entry in sequence] == [None, None]
-
-
-def test_compute_glob_root_returns_none_for_mixed_path_styles() -> None:
-    assert compute_glob_root(["/tmp/APPL.jsonl", "relative/MSFT.jsonl"]) is None
-
-
-def test_relative_label_falls_back_to_name_outside_root(tmp_path) -> None:
-    assert (
-        relative_label(str(tmp_path / "outside.csv"), Path("/other/root"))
-        == "outside.csv"
-    )

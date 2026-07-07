@@ -54,6 +54,7 @@ class ExecutionLogEvent:
     error_message: str | None = None
     output_items: int | None = None
     elapsed_seconds: float | None = None
+    info_name: str | None = None
     info_line: str | None = None
     dag_parent: DagParentRef | None = None
     scope_profile_kind: str | None = None
@@ -98,7 +99,7 @@ class ExecutionEventFormatter:
             # Keep DAG lifecycle visible at INFO, regardless of nesting depth.
             return logging.INFO
         if event.kind == "dag_info":
-            if event.depth <= 1:
+            if event.info_name == "source" or event.depth <= 1:
                 return logging.INFO
             return logging.DEBUG
         if event.kind in {"node_start", "node_end"}:
@@ -180,6 +181,7 @@ class ExecutionEventFormatter:
             "dp_error_message": event.error_message,
             "dp_output_items": event.output_items,
             "dp_elapsed_seconds": event.elapsed_seconds,
+            "dp_info_name": event.info_name,
             "dp_info_line": event.info_line,
             "dp_parent_dag": (
                 event.dag_parent.dag_name if event.dag_parent is not None else None
@@ -355,16 +357,16 @@ class HierarchicalExecutionObserver(ExecutionObserver):
         self._sink.emit(event)
 
     @staticmethod
-    def _metadata_lines(dag_metadata: dict[str, Any] | None) -> list[str]:
+    def _metadata_lines(dag_metadata: dict[str, Any] | None) -> list[tuple[str, str]]:
         if not dag_metadata:
             return []
-        lines: list[str] = []
+        lines: list[tuple[str, str]] = []
         for key, value in dag_metadata.items():
             if isinstance(value, dict):
                 parts = [f"{k}={value[k]}" for k in value]
-                lines.append(f"{key}: {' '.join(parts)}")
+                lines.append((key, f"{key}: {' '.join(parts)}"))
             else:
-                lines.append(f"{key}: {value}")
+                lines.append((key, f"{key}: {value}"))
         return lines
 
     def on_dag_start(
@@ -387,12 +389,13 @@ class HierarchicalExecutionObserver(ExecutionObserver):
                 **_scope_fields(),
             )
         )
-        for line in self._metadata_lines(dag_metadata):
+        for info_name, line in self._metadata_lines(dag_metadata):
             self._emit(
                 ExecutionLogEvent(
                     kind="dag_info",
                     dag_name=dag_name,
                     depth=dag_depth + 1,
+                    info_name=info_name,
                     info_line=line,
                     **_scope_fields(),
                 )

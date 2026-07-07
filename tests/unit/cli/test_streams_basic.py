@@ -4,6 +4,9 @@ from types import SimpleNamespace
 from datapipeline.cli.visuals.streams import observe_source
 from datapipeline.cli.visuals.streams_basic import visual_sources
 from datapipeline.cli.visuals.streams_basic import VisualSourceProxy
+from datapipeline.sources.adapters.fs import FsFileTransport
+from datapipeline.sources.data_loader import DataLoader
+from datapipeline.sources.decoders import JsonLinesDecoder
 from datapipeline.sources.models.generator import DataGenerator
 from datapipeline.sources.models.loader import SyntheticLoader
 
@@ -25,6 +28,14 @@ class _DummyGenerator(DataGenerator):
 class _SyntheticSource:
     def __init__(self) -> None:
         self.loader = SyntheticLoader(_DummyGenerator())
+
+    def stream(self):
+        yield from self.loader.load()
+
+
+class _LoaderSource:
+    def __init__(self, loader) -> None:
+        self.loader = loader
 
     def stream(self):
         yield from self.loader.load()
@@ -64,15 +75,40 @@ def test_visual_source_proxy_logs_source_details_without_completion(caplog):
     assert all("✔" not in msg for msg in messages)
 
 
+def test_visual_source_proxy_does_not_invent_file_source_details(
+    tmp_path, caplog
+) -> None:
+    path = tmp_path / "prices.jsonl"
+    path.write_text('{"id":1}\n{"id":2}\n', encoding="utf-8")
+    source = _LoaderSource(
+        DataLoader(
+            FsFileTransport(str(path)),
+            JsonLinesDecoder(),
+        )
+    )
+    proxy = VisualSourceProxy(source, "equity.price")
+
+    with caplog.at_level(
+        logging.INFO, logger="datapipeline.cli.visuals.streams_basic"
+    ):
+        rows = list(proxy.stream())
+
+    assert rows == [{"id": 1}, {"id": 2}]
+    messages = [record.getMessage() for record in caplog.records]
+    assert messages == []
+
+
 def test_basic_visual_sources_observe_dynamic_sources() -> None:
     runtime = SimpleNamespace(
         registries=SimpleNamespace(stream_sources=_StreamRegistry())
     )
 
+    source = _SyntheticSource()
     with visual_sources(runtime, logging.INFO):
-        observed = observe_source(_SyntheticSource(), "time.ticks.linear")
+        observed = observe_source(source, "time.ticks.linear")
 
     assert isinstance(observed, VisualSourceProxy)
+    assert observed.loader is source.loader
 
 
 def test_basic_visual_sources_leave_derived_sources_unwrapped() -> None:

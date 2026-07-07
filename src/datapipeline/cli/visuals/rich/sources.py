@@ -51,6 +51,10 @@ class _RichSourceProxy(Source):
         self._stream_id = stream_id
         self._progress = progress
 
+    @property
+    def loader(self):
+        return self._inner.loader
+
     def _safe_progress_call(self, operation: str, fn, *args, **kwargs) -> None:
         try:
             fn(*args, **kwargs)

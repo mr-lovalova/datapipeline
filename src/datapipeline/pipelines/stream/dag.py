@@ -13,6 +13,8 @@ from datapipeline.pipelines.shared.record_nodes import (
     order_records,
     require_stream_source,
 )
+from datapipeline.sources.observability import source_metadata
+
 
 def build_stream_pipeline(
     context: PipelineContext,
@@ -27,9 +29,12 @@ def build_stream_dag(
     context: PipelineContext,
     stream_id: str,
 ) -> Dag:
+    source = require_stream_source(context, stream_id)
+    metadata = source_metadata(source)
     return Dag(
         name=f"stream:{stream_id}",
         nodes=build_stream_nodes(context, stream_id),
+        metadata={"source": metadata} if metadata else None,
     )
 
 

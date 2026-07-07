@@ -321,7 +321,7 @@ def test_rich_execution_sink_renders_source_info_message() -> None:
             kind="message",
             dag_name="",
             depth=1,
-            message="[equity.ohlcv] fs.glob: count=2 first=APPL.jsonl last=MSFT.jsonl",
+            message="[equity.ohlcv] Inputs: left=equity.left, right=equity.right",
             message_kind="source_info",
             log_level=logging.INFO,
         )
@@ -329,7 +329,7 @@ def test_rich_execution_sink_renders_source_info_message() -> None:
 
     lines = _lines(buffer)
     assert any(
-        line.startswith("  [equity.ohlcv] fs.glob: count=2 first=APPL.jsonl last=MSFT.jsonl")
+        line.startswith("  [equity.ohlcv] Inputs: left=equity.left, right=equity.right")
         for line in lines
     )
 
@@ -359,7 +359,7 @@ def test_rich_execution_sink_renders_scope_start_as_header() -> None:
     assert any("Task: schema (1/3)" in line for line in lines)
 
 
-def test_rich_execution_sink_keeps_fs_glob_source_info_when_live_at_info() -> None:
+def test_rich_execution_sink_keeps_source_info_when_live_at_info() -> None:
     buffer = StringIO()
     console = Console(file=buffer, markup=False, highlight=False, force_terminal=False)
     sink = _RichConsoleExecutionSink(level=logging.INFO, console=console)
@@ -369,13 +369,13 @@ def test_rich_execution_sink_keeps_fs_glob_source_info_when_live_at_info() -> No
             kind="message",
             dag_name="",
             depth=1,
-            message="[equity.ohlcv] fs.glob: count=2 first=APPL.jsonl last=MSFT.jsonl",
+            message="[equity.ohlcv] Inputs: left=equity.left, right=equity.right",
             message_kind="source_info",
             log_level=logging.INFO,
         )
     )
     assert any(
-        line.startswith("  [equity.ohlcv] fs.glob: count=2 first=APPL.jsonl last=MSFT.jsonl")
+        line.startswith("  [equity.ohlcv] Inputs: left=equity.left, right=equity.right")
         for line in _lines(buffer)
     )
 
@@ -525,7 +525,7 @@ def test_rich_source_proxy_formats_text_with_context_indent() -> None:
         set_current_dag_depth(0)
 
 
-def test_rich_source_proxy_emits_glob_summary_as_source_info_event(monkeypatch) -> None:
+def test_rich_source_proxy_emits_source_info_event(monkeypatch) -> None:
     captured: list[tuple[str, int, int, str | None]] = []
     monkeypatch.setattr(
         "datapipeline.cli.visuals.rich.sources.emit_source_info",
@@ -541,7 +541,7 @@ def test_rich_source_proxy_emits_glob_summary_as_source_info_event(monkeypatch) 
             self.loader = SimpleNamespace(transport=transport)
 
         def info_lines(self):
-            return ["fs.glob: count=2 first=APPL.jsonl last=MSFT.jsonl"]
+            return ["Inputs: left=equity.left, right=equity.right"]
 
         def format_label(self, name=None, **kwargs):
             if name:
@@ -578,7 +578,7 @@ def test_rich_source_proxy_emits_glob_summary_as_source_info_event(monkeypatch) 
 
     assert captured
     assert captured[0] == (
-        "[equity.ohlcv] fs.glob: count=2 first=APPL.jsonl last=MSFT.jsonl",
+        "[equity.ohlcv] Inputs: left=equity.left, right=equity.right",
         logging.INFO,
         2,
         "source_info",
@@ -779,7 +779,7 @@ def test_rich_source_proxy_tracks_glob_file_transitions_as_progress_rows(monkeyp
             self.loader = SimpleNamespace(transport=transport)
 
         def info_lines(self):
-            return ["fs.glob: count=2 first=APPL.jsonl last=MSFT.jsonl"]
+            return []
 
         def format_label(self, name=None, **kwargs):
             if name:
@@ -896,7 +896,7 @@ def test_rich_source_proxy_clears_glob_rows_between_invocations(monkeypatch) -> 
             self.loader = SimpleNamespace(transport=transport)
 
         def info_lines(self):
-            return ["fs.glob: count=2 first=APPL.jsonl last=MSFT.jsonl"]
+            return []
 
         def format_label(self, name=None, **kwargs):
             if name:
@@ -938,14 +938,6 @@ def test_rich_source_proxy_clears_glob_rows_between_invocations(monkeypatch) -> 
 
 
 def test_rich_source_proxy_handles_foreach_fs_sequence_with_empty_first_value(monkeypatch) -> None:
-    captured: list[tuple[str, int, int, str | None]] = []
-    monkeypatch.setattr(
-        "datapipeline.cli.visuals.rich.sources.emit_source_info",
-        lambda stream_id, message, logger, depth=0: captured.append(
-            (f"[{stream_id}] {message}", logging.INFO, depth, "source_info")
-        ),
-    )
-
     class _ForeachValueLoader(BaseDataLoader):
         def __init__(self, path: str | None = None, value: str | None = None, **kwargs):
             self._path = str(path or value or "")
@@ -984,12 +976,6 @@ def test_rich_source_proxy_handles_foreach_fs_sequence_with_empty_first_value(mo
     finally:
         set_current_dag_depth(0)
 
-    assert captured
-    assert any(
-        msg == "[equity.ohlcv] fs.glob: count=2 first=APPL.jsonl last=MSFT.jsonl"
-        and kind == "source_info"
-        for msg, _level, _depth, kind in captured
-    )
     assert any('1/2 streaming from "APPL.jsonl"' in text for text in progress.added_texts)
     assert any('2/2 streaming from "MSFT.jsonl"' in text for text in progress.added_texts)
 
@@ -1231,10 +1217,12 @@ def test_rich_visual_sources_observe_dynamic_sources() -> None:
         registries=SimpleNamespace(stream_sources=_StreamRegistry())
     )
 
+    source = _SyntheticSource()
     with visual_sources(runtime, logging.INFO):
-        observed = observe_source(_SyntheticSource(), "time.ticks.linear")
+        observed = observe_source(source, "time.ticks.linear")
 
     assert isinstance(observed, _RichSourceProxy)
+    assert observed.loader is source.loader
 
 
 def test_rich_visual_sources_leave_derived_sources_unwrapped() -> None:

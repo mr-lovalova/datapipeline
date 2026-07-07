@@ -198,7 +198,7 @@ def test_source_info_inside_node_uses_execution_context_label(caplog, tmp_path):
     def _open_source():
         emit_source_info(
             "equity.ohlcv",
-            "fs.glob: count=1 file=2026.jsonl",
+            "Inputs: left=equity.left, right=equity.right",
             logger=logger,
             depth=1,
         )
@@ -214,7 +214,7 @@ def test_source_info_inside_node_uses_execution_context_label(caplog, tmp_path):
 
     assert any(
         record.getMessage().startswith(
-            "  [ingest:equity.ohlcv] fs.glob: count=1 file=2026.jsonl"
+            "  [ingest:equity.ohlcv] Inputs: left=equity.left, right=equity.right"
         )
         for record in caplog.records
     )
@@ -482,6 +482,36 @@ def test_hierarchical_observer_hides_nested_dag_metadata_at_info(caplog):
     messages = [record.getMessage() for record in caplog.records]
     assert "DAG started name=pipeline:serve nodes=3" in messages
     assert not any("source.summary:" in msg for msg in messages)
+
+
+def test_hierarchical_observer_shows_nested_source_metadata_at_info(caplog):
+    logger = logging.getLogger("datapipeline.cli.visuals.execution.test.source_metadata")
+    observer = HierarchicalExecutionObserver(LoggerExecutionEventSink(logger))
+
+    with caplog.at_level(logging.INFO, logger=logger.name):
+        observer.on_dag_start(dag_name="pipeline:serve", node_count=3, depth=0)
+        observer.on_dag_start(
+            dag_name="ingest:equity.ohlcv",
+            node_count=4,
+            depth=2,
+            dag_metadata={
+                "source": {
+                    "transport": "fs.glob",
+                    "count": 17,
+                    "first": "2010.jsonl",
+                    "last": "2026.jsonl",
+                }
+            },
+        )
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert any(
+        msg.startswith(
+            "      [ingest:equity.ohlcv] source: "
+            "transport=fs.glob count=17 first=2010.jsonl last=2026.jsonl"
+        )
+        for msg in messages
+    )
 
 
 def test_hierarchical_observer_shows_nested_dag_metadata_at_debug(caplog):

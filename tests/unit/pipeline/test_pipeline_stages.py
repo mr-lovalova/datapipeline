@@ -15,14 +15,17 @@ from datapipeline.pipelines import (
     build_vector_dag,
     build_vector_pipeline,
 )
-from datapipeline.pipelines.ingest import build_ingest_pipeline
-from datapipeline.pipelines.stream import build_stream_pipeline
+from datapipeline.pipelines.ingest import build_ingest_dag, build_ingest_pipeline
+from datapipeline.pipelines.stream import build_stream_dag, build_stream_pipeline
 from datapipeline.pipelines.vector import dag as vector_dag
 from datapipeline.pipelines.vector.nodes import sample_domain_window_keys
 from datapipeline.pipelines.full.nodes import post_process
 from datapipeline.pipelines.full.split import apply_split_stage
 from datapipeline.runtime import Runtime, StreamRuntimeSpec
 from datapipeline.services.constants import POSTPROCESS_TRANSFORMS, VECTOR_SCHEMA
+from datapipeline.sources.adapters.fs import FsFileTransport, FsGlobTransport
+from datapipeline.sources.data_loader import DataLoader
+from datapipeline.sources.decoders import JsonLinesDecoder
 
 
 def _ts(hour: int, minute: int = 0) -> datetime:
@@ -69,6 +72,14 @@ class _UpstreamSource:
         from datapipeline.pipelines.record.streams import open_record_stream
 
         return open_record_stream(PipelineContext(self._runtime), self._upstream_id)
+
+
+class _LoaderSource:
+    def __init__(self, loader) -> None:
+        self.loader = loader
+
+    def stream(self):
+        return iter(())
 
 
 class _DagParentObserver:
@@ -170,6 +181,54 @@ def _runtime_with_rows(
     regs.ordered_by.register(stream_id, None)
     regs.sort_batch_size.register(stream_id, 128)
     return runtime
+
+
+def test_ingest_dag_carries_source_metadata(tmp_path: Path) -> None:
+    runtime = _runtime_with_rows(tmp_path, [], stream_id="prices")
+    runtime.registries.stream_sources.register(
+        "prices",
+        _LoaderSource(
+            DataLoader(
+                FsFileTransport("/tmp/prices.jsonl"),
+                JsonLinesDecoder(),
+            )
+        ),
+    )
+
+    dag = build_ingest_dag(PipelineContext(runtime), "prices")
+
+    assert dag.metadata == {
+        "source": {
+            "transport": "fs.file",
+            "file": "prices.jsonl",
+        }
+    }
+
+
+def test_stream_dag_carries_source_metadata(tmp_path: Path) -> None:
+    runtime = _runtime_with_rows(tmp_path, [], stream_id="derived", stream_ops=[])
+    source = _LoaderSource(
+        DataLoader(
+            FsGlobTransport("/definitely/not/real/*.jsonl"),
+            JsonLinesDecoder(),
+        )
+    )
+    source.loader.transport._files = [  # type: ignore[attr-defined]
+        "/tmp/AAPL.jsonl",
+        "/tmp/MSFT.jsonl",
+    ]
+    runtime.registries.stream_sources.register("derived", source)
+
+    dag = build_stream_dag(PipelineContext(runtime), "derived")
+
+    assert dag.metadata == {
+        "source": {
+            "transport": "fs.glob",
+            "count": 2,
+            "first": "AAPL.jsonl",
+            "last": "MSFT.jsonl",
+        }
+    }
 
 
 def test_node_0_to_2_record_pipeline(tmp_path: Path) -> None:

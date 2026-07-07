@@ -28,6 +28,10 @@ class VisualSourceProxy(Source):
         self._inner = stream_source
         self._stream_id = stream_id
 
+    @property
+    def loader(self):
+        return self._inner.loader
+
     def stream(self) -> Iterator[Any]:
         adapter = SourceObservabilityAdapter(self._inner, self._stream_id)
         started = False
@@ -36,7 +40,7 @@ class VisualSourceProxy(Source):
             debug_indent = adapter.current_indent(logging.DEBUG)
             info_lines = adapter.info_lines()
             debug_lines = adapter.debug_lines()
-            for line in info_lines or ["stream starting"]:
+            for line in info_lines:
                 emit_source_info(
                     self._stream_id,
                     line,
