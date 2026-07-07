@@ -215,6 +215,7 @@ def test_dag_builders_expose_structural_child_dags(tmp_path: Path) -> None:
         "feature_transforms",
         "order_feature_records",
     ]
+    assert feature_dag.metadata is None
     assert preview_feature_dag.nodes[0].name == "open_source"
 
     feature_fanout = vector_dag.nodes[0]

@@ -98,11 +98,6 @@ class ExecutionEventFormatter:
             # Keep DAG lifecycle visible at INFO, regardless of nesting depth.
             return logging.INFO
         if event.kind == "dag_info":
-            info_line = str(event.info_line or "")
-            if info_line.startswith("feature.config:") or info_line.startswith(
-                "feature.transforms:"
-            ):
-                return logging.INFO
             if event.depth <= 1:
                 return logging.INFO
             return logging.DEBUG

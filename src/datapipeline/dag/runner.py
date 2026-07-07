@@ -3,7 +3,7 @@ import threading
 import time
 from dataclasses import dataclass
 from collections.abc import Iterable, Iterator
-from contextvars import ContextVar
+from contextvars import ContextVar, copy_context
 from typing import Any
 
 from datapipeline.dag.dag import Dag
@@ -86,8 +86,9 @@ class _RunHeartbeat:
     def start(self) -> None:
         if self._interval_seconds <= 0:
             return
+        context = copy_context()
         self._thread = threading.Thread(
-            target=self._run,
+            target=lambda: context.run(self._run),
             name="datapipeline-dag-heartbeat",
             daemon=True,
         )

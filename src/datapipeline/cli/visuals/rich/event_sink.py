@@ -30,10 +30,11 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
         if event_level < self._level:
             return
         text = self._render_event(event)
-        if self._live_console is not None:
-            self._live_console.print(text)
+        console = self._live_console or self._console
+        if event.kind == "node_progress":
+            console.print(text, overflow="ellipsis", no_wrap=True)
             return
-        self._console.print(text)
+        console.print(text)
 
     def flush(self) -> None:
         return

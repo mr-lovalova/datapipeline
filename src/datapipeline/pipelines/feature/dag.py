@@ -56,13 +56,6 @@ def build_feature_dag(
     sample_keys: Sequence[str] = (),
     group_by_cadence: str | None = None,
 ) -> Dag:
-    metadata = _feature_dag_metadata(
-        record_stream_id=cfg.record_stream,
-        feature_id=cfg.id,
-        field=cfg.field,
-        scale=cfg.scale,
-        sequence=cfg.sequence,
-    )
     record_nodes = (
         build_stream_id_nodes(context, cfg.record_stream) if include_record_nodes else ()
     )
@@ -73,7 +66,6 @@ def build_feature_dag(
     )
     return Dag(
         name=f"feature:{cfg.id}",
-        metadata=metadata,
         nodes=(
             *record_nodes,
             *build_feature_nodes(
@@ -96,30 +88,6 @@ def _record_node_output(context: PipelineContext, record_stream_id: str) -> str:
     if pipeline == "ingest":
         return "ordered"
     return "stream_transforms"
-
-
-def _feature_dag_metadata(
-    record_stream_id: str,
-    feature_id: str,
-    field: str,
-    scale: Mapping[str, Any] | bool | None,
-    sequence: Mapping[str, Any] | None,
-) -> dict[str, Any]:
-    metadata: dict[str, Any] = {
-        "feature.config": {
-            "id": feature_id,
-            "stream": record_stream_id,
-            "field": field,
-        }
-    }
-    transforms: list[str] = []
-    if scale:
-        transforms.append("scale")
-    if sequence:
-        transforms.append("sequence")
-    if transforms:
-        metadata["feature.transforms"] = ",".join(transforms)
-    return metadata
 
 
 def build_feature_nodes(

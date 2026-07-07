@@ -431,21 +431,21 @@ def test_make_execution_observer_accepts_single_custom_sink():
     assert [event.kind for event in sink.events] == ["dag_start", "dag_end"]
 
 
-def test_hierarchical_observer_emits_dag_metadata_as_info_events():
+def test_hierarchical_observer_emits_dag_metadata_events():
     sink = _CaptureSink()
     observer = make_execution_observer(sink=sink)
 
     observer.on_dag_start(
-        dag_name="feature:closing_price",
+        dag_name="ingest:equity.ohlcv",
         node_count=9,
         depth=1,
         dag_metadata={
-            "feature.config": {
-                "id": "closing_price",
-                "stream": "equity.ohlcv",
-                "field": "close",
+            "source.summary": {
+                "transport": "fs",
+                "files": 17,
+                "decoder": "jsonl",
             },
-            "feature.transforms": "scale,sequence",
+            "record.order": "id_,time",
         },
     )
 
@@ -455,38 +455,33 @@ def test_hierarchical_observer_emits_dag_metadata_as_info_events():
         "dag_info",
     ]
     assert sink.events[1].info_line == (
-        "feature.config: id=closing_price stream=equity.ohlcv field=close"
+        "source.summary: transport=fs files=17 decoder=jsonl"
     )
-    assert sink.events[2].info_line == "feature.transforms: scale,sequence"
+    assert sink.events[2].info_line == "record.order: id_,time"
 
 
-def test_hierarchical_observer_formats_dag_metadata_with_context(caplog):
+def test_hierarchical_observer_hides_nested_dag_metadata_at_info(caplog):
     logger = logging.getLogger("datapipeline.cli.visuals.execution.test.metadata")
     observer = HierarchicalExecutionObserver(LoggerExecutionEventSink(logger))
 
     with caplog.at_level(logging.INFO, logger=logger.name):
         observer.on_dag_start(dag_name="pipeline:serve", node_count=3, depth=0)
         observer.on_dag_start(
-            dag_name="feature:closing_price",
+            dag_name="ingest:equity.ohlcv",
             node_count=9,
             depth=1,
             dag_metadata={
-                "feature.config": {
-                    "id": "closing_price",
-                    "stream": "equity.ohlcv",
-                    "field": "close",
+                "source.summary": {
+                    "transport": "fs",
+                    "files": 17,
+                    "decoder": "jsonl",
                 }
             },
         )
 
     messages = [record.getMessage() for record in caplog.records]
-    assert any(
-        msg.startswith(
-            "    [feature:closing_price] feature.config: "
-            "id=closing_price stream=equity.ohlcv field=close"
-        )
-        for msg in messages
-    )
+    assert "DAG started name=pipeline:serve nodes=3" in messages
+    assert not any("source.summary:" in msg for msg in messages)
 
 
 def test_hierarchical_observer_shows_nested_dag_metadata_at_debug(caplog):
@@ -496,14 +491,14 @@ def test_hierarchical_observer_shows_nested_dag_metadata_at_debug(caplog):
     with caplog.at_level(logging.DEBUG, logger=logger.name):
         observer.on_dag_start(dag_name="pipeline:serve", node_count=3, depth=0)
         observer.on_dag_start(
-            dag_name="feature:closing_price",
+            dag_name="ingest:equity.ohlcv",
             node_count=9,
             depth=1,
             dag_metadata={
-                "feature.config": {
-                    "id": "closing_price",
-                    "stream": "equity.ohlcv",
-                    "field": "close",
+                "source.summary": {
+                    "transport": "fs",
+                    "files": 17,
+                    "decoder": "jsonl",
                 }
             },
         )
@@ -511,8 +506,8 @@ def test_hierarchical_observer_shows_nested_dag_metadata_at_debug(caplog):
     messages = [record.getMessage() for record in caplog.records]
     assert any(
         msg.startswith(
-            "    [feature:closing_price] feature.config: "
-            "id=closing_price stream=equity.ohlcv field=close"
+            "    [ingest:equity.ohlcv] source.summary: "
+            "transport=fs files=17 decoder=jsonl"
         )
         for msg in messages
     )

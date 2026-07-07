@@ -401,6 +401,81 @@ def test_rich_execution_sink_keeps_non_glob_source_info_when_live_at_info() -> N
     )
 
 
+def test_rich_execution_sink_keeps_node_progress_single_line() -> None:
+    buffer = StringIO()
+    console = Console(
+        file=buffer,
+        markup=False,
+        highlight=False,
+        force_terminal=False,
+        width=56,
+    )
+    sink = _RichConsoleExecutionSink(level=logging.INFO, console=console)
+    sink.set_live_console(console)
+
+    sink.emit(
+        ExecutionLogEvent(
+            kind="node_progress",
+            dag_name="ingest:equity.return.trailing.daily.21",
+            node_name="open_source",
+            depth=1,
+            message="running elapsed=119s items=2841179",
+        )
+    )
+
+    lines = _lines(buffer)
+    assert len(lines) == 1
+    assert lines[0].startswith("  [ingest:equity.return.trailing.daily.21")
+
+
+def test_rich_execution_sink_styles_node_progress_label() -> None:
+    buffer = StringIO()
+    console = Console(file=buffer, markup=False, highlight=False, force_terminal=False)
+    sink = _RichConsoleExecutionSink(level=logging.INFO, console=console)
+
+    text = sink._render_event(
+        ExecutionLogEvent(
+            kind="node_progress",
+            dag_name="ingest:equity.return.trailing.daily.21",
+            node_name="open_source",
+            depth=1,
+            message="running elapsed=119s items=2841179",
+        )
+    )
+
+    assert str(text).startswith("  [ingest:equity.return.trailing.daily.21/open_source]")
+    assert any(span.style == "bold cyan" for span in text.spans)
+
+
+def test_rich_execution_sink_keeps_live_node_progress_single_line() -> None:
+    buffer = StringIO()
+    console = Console(
+        file=buffer,
+        markup=False,
+        highlight=False,
+        force_terminal=False,
+        width=60,
+    )
+    progress = Progress(console=console, transient=False)
+    sink = _RichConsoleExecutionSink(level=logging.INFO, console=console)
+
+    with progress:
+        sink.set_live_console(progress.live.console if progress.live else None)
+        sink.emit(
+            ExecutionLogEvent(
+                kind="node_progress",
+                dag_name="ingest:equity.return.trailing.daily.21",
+                node_name="open_source",
+                depth=2,
+                message="running elapsed=119s items=2841179",
+            )
+        )
+
+    lines = _lines(buffer)
+    assert len(lines) == 1
+    assert lines[0].endswith("…")
+
+
 def test_rich_execution_sink_indents_multiline_message_event_by_depth() -> None:
     buffer = StringIO()
     console = Console(file=buffer, markup=False, highlight=False, force_terminal=False)

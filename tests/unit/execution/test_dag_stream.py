@@ -1,5 +1,6 @@
 import logging
 import time
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
@@ -219,6 +220,43 @@ def test_run_dag_emits_heartbeat_for_quiet_node(tmp_path: Path, monkeypatch) -> 
     assert heartbeats[0].dag_name == "heartbeat-demo"
     assert heartbeats[0].node_name == "produce"
     assert heartbeats[0].message.endswith("items=0")
+
+
+def test_run_dag_heartbeat_preserves_contextvars(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(dag_runner, "_HEARTBEAT_INTERVAL_SECONDS", 0.01)
+    marker: ContextVar[str | None] = ContextVar("test_heartbeat_marker", default=None)
+    observed_markers: list[str | None] = []
+
+    class ContextObserver(_CollectingObserver):
+        def on_node_progress(self, event) -> None:
+            super().on_node_progress(event)
+            observed_markers.append(marker.get())
+
+    observer = ContextObserver()
+    ctx = _context(tmp_path)
+
+    def _quiet_work():
+        time.sleep(0.05)
+        yield 1
+
+    dag = Dag(
+        name="heartbeat-context-demo",
+        nodes=(PipelineNode(name="produce", op=_quiet_work),),
+    )
+
+    token = marker.set("visual-context")
+    try:
+        assert list(run_dag(ctx, dag, observer=observer)) == [1]
+    finally:
+        marker.reset(token)
+
+    heartbeats = [
+        event
+        for event in observer.node_progress_events
+        if event.message.startswith("running elapsed=")
+    ]
+    assert heartbeats
+    assert "visual-context" in observed_markers
 
 
 def test_run_dag_emits_heartbeat_while_node_is_yielding_items(
