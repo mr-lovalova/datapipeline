@@ -63,13 +63,13 @@ def test_hierarchical_observer_logs_all_dags_at_info(caplog):
                 status="success",
                 depth=0,
             )
-        )
+    )
 
     messages = [record.getMessage() for record in caplog.records]
-    assert any(msg.startswith("DAG started name=outer") for msg in messages)
-    assert any(msg.startswith("  DAG started name=inner") for msg in messages)
-    assert any(msg.startswith("  DAG finished name=inner") for msg in messages)
-    assert any(msg.startswith("DAG finished name=outer") for msg in messages)
+    assert any(msg.startswith("[outer] started") for msg in messages)
+    assert any(msg.startswith("  [inner] started") for msg in messages)
+    assert any(msg.startswith("  [inner] finished") for msg in messages)
+    assert any(msg.startswith("[outer] finished") for msg in messages)
 
 
 def test_hierarchical_observer_logs_nested_dags_at_debug(caplog):
@@ -98,11 +98,11 @@ def test_hierarchical_observer_logs_nested_dags_at_debug(caplog):
                 status="success",
                 depth=0,
             )
-        )
+    )
 
     messages = [record.getMessage() for record in caplog.records]
-    assert any(msg.startswith("  DAG started name=inner") for msg in messages)
-    assert any(msg.startswith("  DAG finished name=inner") for msg in messages)
+    assert any(msg.startswith("  [inner] started") for msg in messages)
+    assert any(msg.startswith("  [inner] finished") for msg in messages)
 
 
 def test_hierarchical_observer_logs_parent_context_for_nested_dag_start(caplog):
@@ -122,10 +122,7 @@ def test_hierarchical_observer_logs_parent_context_for_nested_dag_start(caplog):
         )
 
     record = caplog.records[0]
-    assert record.getMessage().startswith(
-        "  DAG started name=vector:assemble nodes=2 "
-        "parent_dag=pipeline:serve parent_node=vector_assemble parent_node_index=0"
-    )
+    assert record.getMessage().startswith("  [vector:assemble] started nodes=2")
     assert getattr(record, "dp_parent_dag", None) == "pipeline:serve"
     assert getattr(record, "dp_parent_node", None) == "vector_assemble"
     assert getattr(record, "dp_parent_node_index", None) == 0
@@ -152,8 +149,8 @@ def test_hierarchical_observer_logs_node_events_at_debug(caplog):
         )
 
     messages = [record.getMessage() for record in caplog.records]
-    assert any(msg.startswith("  Node execution started dag=demo") for msg in messages)
-    assert any(msg.startswith("  Node execution finished dag=demo") for msg in messages)
+    assert any(msg.startswith("  [demo/n] started") for msg in messages)
+    assert any(msg.startswith("  [demo/n] finished") for msg in messages)
     assert any("index=0" in msg for msg in messages)
 
 
@@ -237,8 +234,8 @@ def test_hierarchical_observer_logs_dag_call_node_metadata(caplog):
 
     record = caplog.records[0]
     assert record.getMessage().startswith(
-        "  Node execution started dag=pipeline:serve node=vector_assemble "
-        "index=0 execution_index=0 kind=dag_call calls=vector:assemble"
+        "  [pipeline:serve/vector_assemble] started "
+        "index=0 execution=0 kind=dag_call calls=vector:assemble"
     )
     assert getattr(record, "dp_node_kind", None) == "dag_call"
     assert getattr(record, "dp_node_calls_dag", None) == "vector:assemble"
@@ -318,12 +315,12 @@ def test_hierarchical_observer_respects_explicit_depth_when_events_finish_out_of
         )
 
     messages = [record.getMessage() for record in caplog.records]
-    assert messages[0].startswith("DAG started name=vector:assemble")
-    assert any(msg.startswith("  DAG started name=feature:linear_time") for msg in messages)
-    assert any(msg.startswith("  DAG started name=feature:closing_price") for msg in messages)
-    assert any(msg.startswith("DAG finished name=vector:assemble") for msg in messages)
-    assert any(msg.startswith("  DAG finished name=feature:closing_price") for msg in messages)
-    assert any(msg.startswith("  DAG finished name=feature:linear_time") for msg in messages)
+    assert messages[0].startswith("[vector:assemble] started")
+    assert any(msg.startswith("  [feature:linear_time] started") for msg in messages)
+    assert any(msg.startswith("  [feature:closing_price] started") for msg in messages)
+    assert any(msg.startswith("[vector:assemble] finished") for msg in messages)
+    assert any(msg.startswith("  [feature:closing_price] finished") for msg in messages)
+    assert any(msg.startswith("  [feature:linear_time] finished") for msg in messages)
     assert current_dag_depth() == 1
 
 
@@ -394,7 +391,7 @@ def test_hierarchical_observer_includes_error_details_on_failure(caplog):
     messages = [record.getMessage() for record in caplog.records]
     assert any(
         msg.startswith(
-            "DAG finished name=pipeline:serve status=error "
+            "[pipeline:serve] finished status=error "
             "error=ValueError: No entry point 'target_mapper'"
         )
         for msg in messages
@@ -480,7 +477,7 @@ def test_hierarchical_observer_hides_nested_dag_metadata_at_info(caplog):
         )
 
     messages = [record.getMessage() for record in caplog.records]
-    assert "DAG started name=pipeline:serve nodes=3" in messages
+    assert "[pipeline:serve] started nodes=3" in messages
     assert not any("source.summary:" in msg for msg in messages)
 
 
@@ -592,8 +589,8 @@ def test_make_execution_observer_uses_context_sink_when_present(caplog):
             )
         assert [event.kind for event in capture.events] == ["dag_start", "dag_end"]
         messages = [record.getMessage() for record in caplog.records]
-        assert any(msg.startswith("DAG started name=pipeline:serve") for msg in messages)
-        assert any(msg.startswith("DAG finished name=pipeline:serve") for msg in messages)
+        assert any(msg.startswith("[pipeline:serve] started") for msg in messages)
+        assert any(msg.startswith("[pipeline:serve] finished") for msg in messages)
     finally:
         reset_current_execution_event_sink(token)
 
@@ -612,10 +609,10 @@ def test_make_execution_observer_logs_without_context_sink(caplog):
                 status="success",
                 depth=0,
             )
-        )
+    )
     messages = [record.getMessage() for record in caplog.records]
-    assert any(msg.startswith("DAG started name=pipeline:serve") for msg in messages)
-    assert any(msg.startswith("DAG finished name=pipeline:serve") for msg in messages)
+    assert any(msg.startswith("[pipeline:serve] started") for msg in messages)
+    assert any(msg.startswith("[pipeline:serve] finished") for msg in messages)
 
 
 def test_make_execution_observer_stops_context_sink_after_context_reset(caplog):
@@ -642,7 +639,7 @@ def test_make_execution_observer_stops_context_sink_after_context_reset(caplog):
 
     assert [event.kind for event in capture.events] == ["dag_start"]
     messages = [record.getMessage() for record in caplog.records]
-    assert any(msg.startswith("DAG finished name=pipeline:serve") for msg in messages)
+    assert any(msg.startswith("[pipeline:serve] finished") for msg in messages)
 
 
 def test_emit_execution_message_uses_context_sink_when_available(caplog):

@@ -75,39 +75,33 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
             text.append(message, style=style)
             return text
         if event.kind == "dag_info":
-            text.append("[", style="cyan")
-            text.append(event.dag_name, style="bold cyan")
-            text.append("] ", style="cyan")
+            self._append_label(text, event.dag_name)
             style = "" if event.info_name == "source" else "dim"
             text.append(event.info_line or "", style=style)
             return text
         if event.kind == "dag_start":
-            text.append("DAG started", style="bold cyan")
-            text.append(f" name={event.dag_name} nodes={event.node_count}")
-            if event.dag_parent is not None:
-                text.append(
-                    " "
-                    f"parent_dag={event.dag_parent.dag_name} "
-                    f"parent_node={event.dag_parent.node_name} "
-                    f"parent_node_index={event.dag_parent.node_index}"
-                )
+            self._append_label(text, event.dag_name)
+            text.append(f"started nodes={event.node_count}")
             return text
         if event.kind == "dag_end":
             status_style = "green" if event.status == "success" else "red"
-            text.append("DAG finished", style="bold cyan")
-            text.append(f" name={event.dag_name} ")
+            self._append_label(text, event.dag_name)
+            text.append("finished ")
             text.append(f"status={event.status}", style=status_style)
             if error_suffix := ExecutionEventFormatter.error_suffix(event):
                 text.append(error_suffix, style="red")
             text.append(f" items={event.output_items} elapsed={event.elapsed_seconds:.6f}s")
             return text
         if event.kind == "node_start":
-            text.append("Node execution started", style="dim cyan")
+            label = ExecutionEventFormatter.execution_label(
+                event.dag_name,
+                event.node_name,
+            )
+            self._append_debug_label(text, label)
             text.append(
                 (
-                    f" dag={event.dag_name} node={event.node_name} "
-                    f"index={event.node_index} execution_index={event.execution_index} "
-                    f"kind={event.node_kind}"
+                    f"started index={event.node_index} "
+                    f"execution={event.execution_index} kind={event.node_kind}"
                 ),
                 style="dim",
             )
@@ -119,18 +113,19 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
                 event.dag_name,
                 event.node_name,
             )
-            text.append("[", style="cyan")
-            text.append(label, style="bold cyan")
-            text.append("] ", style="cyan")
+            self._append_label(text, label)
             text.append(event.message or "")
             return text
         status_style = "green" if event.status == "success" else "red"
-        text.append("Node execution finished", style="dim cyan")
+        label = ExecutionEventFormatter.execution_label(
+            event.dag_name,
+            event.node_name,
+        )
+        self._append_debug_label(text, label)
         text.append(
             (
-                f" dag={event.dag_name} node={event.node_name} "
-                f"index={event.node_index} execution_index={event.execution_index} "
-                f"kind={event.node_kind}"
+                f"finished index={event.node_index} "
+                f"execution={event.execution_index} kind={event.node_kind}"
             ),
             style="dim",
         )
@@ -143,6 +138,18 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
             style="dim",
         )
         return text
+
+    @staticmethod
+    def _append_label(text: Text, label: str) -> None:
+        text.append("[", style="cyan")
+        text.append(label, style="bold cyan")
+        text.append("] ", style="cyan")
+
+    @staticmethod
+    def _append_debug_label(text: Text, label: str) -> None:
+        text.append("[", style="dim cyan")
+        text.append(label, style="dim bold cyan")
+        text.append("] ", style="dim cyan")
 
     @staticmethod
     def _message_style(level: int) -> str:

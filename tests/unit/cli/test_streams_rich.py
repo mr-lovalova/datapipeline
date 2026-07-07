@@ -226,8 +226,8 @@ def test_rich_execution_sink_emits_dag_end_immediately() -> None:
     )
 
     current = _lines(buffer)
-    assert any(line.startswith("DAG started name=pipeline:serve") for line in current)
-    assert any(line.startswith("DAG finished name=pipeline:serve") for line in current)
+    assert any(line.startswith("[pipeline:serve] started") for line in current)
+    assert any(line.startswith("[pipeline:serve] finished") for line in current)
 
 
 def test_rich_execution_sink_renders_error_details_for_failed_dag_end() -> None:
@@ -250,7 +250,7 @@ def test_rich_execution_sink_renders_error_details_for_failed_dag_end() -> None:
 
     output = buffer.getvalue().replace("\n", "")
     assert (
-        "DAG finished name=pipeline:serve status=error "
+        "[pipeline:serve] finished status=error "
         "error=ValueError: No entry point 'target_mapper'"
     ) in output
 

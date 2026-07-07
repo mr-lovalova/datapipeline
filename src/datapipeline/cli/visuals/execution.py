@@ -119,21 +119,11 @@ class ExecutionEventFormatter:
         if event.kind == "dag_info":
             return f"{indent}[{event.dag_name}] {event.info_line or ''}"
         if event.kind == "dag_start":
-            parent_suffix = ""
-            if event.dag_parent is not None:
-                parent_suffix = (
-                    f" parent_dag={event.dag_parent.dag_name}"
-                    f" parent_node={event.dag_parent.node_name}"
-                    f" parent_node_index={event.dag_parent.node_index}"
-                )
-            return (
-                f"{indent}DAG started name={event.dag_name} "
-                f"nodes={event.node_count}{parent_suffix}"
-            )
+            return f"{indent}[{event.dag_name}] started nodes={event.node_count}"
         if event.kind == "dag_end":
             error_suffix = cls.error_suffix(event)
             return (
-                f"{indent}DAG finished name={event.dag_name} "
+                f"{indent}[{event.dag_name}] finished "
                 f"status={event.status}{error_suffix} items={event.output_items} "
                 f"elapsed={event.elapsed_seconds:.6f}s"
             )
@@ -143,20 +133,20 @@ class ExecutionEventFormatter:
                 if event.node_calls_dag is not None
                 else ""
             )
+            label = cls.execution_label(event.dag_name, event.node_name)
             return (
-                f"{indent}Node execution started dag={event.dag_name} "
-                f"node={event.node_name} index={event.node_index} "
-                f"execution_index={event.execution_index} "
+                f"{indent}[{label}] started index={event.node_index} "
+                f"execution={event.execution_index} "
                 f"kind={event.node_kind}{calls_suffix}"
             )
         if event.kind == "node_progress":
             label = cls.execution_label(event.dag_name, event.node_name)
             return f"{indent}[{label}] {event.message or ''}"
         error_suffix = cls.error_suffix(event)
+        label = cls.execution_label(event.dag_name, event.node_name)
         return (
-            f"{indent}Node execution finished dag={event.dag_name} "
-            f"node={event.node_name} index={event.node_index} kind={event.node_kind} "
-            f"execution_index={event.execution_index} "
+            f"{indent}[{label}] finished index={event.node_index} "
+            f"execution={event.execution_index} kind={event.node_kind} "
             f"status={event.status}{error_suffix} items={event.output_items} "
             f"elapsed={event.elapsed_seconds:.6f}s"
         )

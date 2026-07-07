@@ -683,10 +683,10 @@ def test_logging_observer_logs_dag_at_info_and_nodes_at_debug(caplog) -> None:
         )
 
     messages = [record.getMessage() for record in caplog.records]
-    assert any(message.startswith("DAG started name=demo") for message in messages)
-    assert any(message.startswith("DAG finished name=demo") for message in messages)
-    assert not any(message.startswith("Node execution started ") for message in messages)
-    assert not any(message.startswith("Node execution finished ") for message in messages)
+    assert any(message.startswith("[demo] started") for message in messages)
+    assert any(message.startswith("[demo] finished") for message in messages)
+    assert not any(message.startswith("[demo/node_a] started") for message in messages)
+    assert not any(message.startswith("[demo/node_a] finished") for message in messages)
 
 
 def test_logging_observer_logs_parent_context_for_nested_dag_start(caplog) -> None:
@@ -705,10 +705,4 @@ def test_logging_observer_logs_parent_context_for_nested_dag_start(caplog) -> No
         )
 
     messages = [record.getMessage() for record in caplog.records]
-    assert any(
-        message.startswith(
-            "DAG started name=vector:assemble nodes=2 "
-            "parent_dag=pipeline:serve parent_node=vector_assemble parent_node_index=0"
-        )
-        for message in messages
-    )
+    assert any(message.startswith("[vector:assemble] started nodes=2") for message in messages)

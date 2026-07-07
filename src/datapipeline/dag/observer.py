@@ -20,6 +20,16 @@ def _error_suffix(error_type: str | None, error_message: str | None) -> str:
     return suffix
 
 
+def _indent(depth: int) -> str:
+    return "  " * max(0, int(depth))
+
+
+def _execution_label(dag_name: str, node_name: str | None = None) -> str:
+    if node_name:
+        return f"{dag_name}/{node_name}"
+    return dag_name
+
+
 class ExecutionObserver(Protocol):
     def on_dag_start(
         self,
@@ -104,23 +114,11 @@ class LoggingExecutionObserver:
         dag_parent: DagParentRef | None = None,
     ) -> None:
         if self._logger.isEnabledFor(logging.INFO):
-            if dag_parent is None:
-                self._logger.info(
-                    "DAG started name=%s nodes=%d",
-                    dag_name,
-                    node_count,
-                )
-                return
             self._logger.info(
-                (
-                    "DAG started name=%s nodes=%d "
-                    "parent_dag=%s parent_node=%s parent_node_index=%d"
-                ),
+                "%s[%s] started nodes=%d",
+                _indent(depth),
                 dag_name,
                 node_count,
-                dag_parent.dag_name,
-                dag_parent.node_name,
-                dag_parent.node_index,
             )
 
     def on_node_start(
@@ -137,12 +135,13 @@ class LoggingExecutionObserver:
         if self._logger.isEnabledFor(logging.DEBUG):
             calls_suffix = f" calls={node_calls_dag}" if node_calls_dag else ""
             self._logger.debug(
-                f"Node execution started execution_index=%d dag=%s node=%s index=%d kind=%s{calls_suffix}",
-                execution_index,
-                dag_name,
-                node_name,
+                "%s[%s] started index=%d execution=%d kind=%s%s",
+                _indent(depth),
+                _execution_label(dag_name, node_name),
                 node_index,
+                execution_index,
                 node_kind,
+                calls_suffix,
             )
 
     def on_node_end(self, event: NodeExecutionEvent) -> None:
@@ -153,15 +152,13 @@ class LoggingExecutionObserver:
                 else ""
             )
             self._logger.debug(
-                (
-                    "Node execution finished dag=%s node=%s index=%d kind=%s "
-                    "execution_index=%d status=%s%s items=%d elapsed=%.6fs"
-                ),
-                event.dag_name,
-                event.node_name,
+                "%s[%s] finished index=%d execution=%d kind=%s "
+                "status=%s%s items=%d elapsed=%.6fs",
+                _indent(event.depth),
+                _execution_label(event.dag_name, event.node_name),
                 event.node_index,
-                event.node_kind,
                 event.execution_index,
+                event.node_kind,
                 event.status,
                 error_suffix,
                 event.output_items,
@@ -171,11 +168,9 @@ class LoggingExecutionObserver:
     def on_node_progress(self, event: NodeProgressEvent) -> None:
         if self._logger.isEnabledFor(logging.INFO):
             self._logger.info(
-                "Node progress dag=%s node=%s index=%d execution_index=%d message=%s",
-                event.dag_name,
-                event.node_name,
-                event.node_index,
-                event.execution_index,
+                "%s[%s] %s",
+                _indent(event.depth),
+                _execution_label(event.dag_name, event.node_name),
                 event.message,
             )
 
@@ -187,7 +182,8 @@ class LoggingExecutionObserver:
                 else ""
             )
             self._logger.info(
-                "DAG finished name=%s status=%s%s items=%d elapsed=%.6fs",
+                "%s[%s] finished status=%s%s items=%d elapsed=%.6fs",
+                _indent(event.depth),
                 event.dag_name,
                 event.status,
                 error_suffix,
