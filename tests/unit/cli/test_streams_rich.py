@@ -629,6 +629,54 @@ def test_rich_source_proxy_batches_progress_advances(monkeypatch) -> None:
     assert progress.advance_calls == [(1, 10_000), (1, 10_000), (1, 5_000)]
 
 
+def test_rich_source_proxy_batches_label_checks(monkeypatch) -> None:
+    class _Adapter:
+        def __init__(self):
+            self.current_label_calls = 0
+
+        def info_lines(self):
+            return []
+
+        def format_label(self, name=None, **kwargs):
+            return "streaming"
+
+        def initial_label(self):
+            return None
+
+        def count(self):
+            return 25_000
+
+        def current_label(self):
+            self.current_label_calls += 1
+            return None
+
+    adapter = _Adapter()
+    monkeypatch.setattr(
+        "datapipeline.cli.visuals.rich.sources.SourceObservabilityAdapter",
+        lambda stream_source, stream_id: adapter,
+    )
+    monkeypatch.setattr(
+        "datapipeline.cli.visuals.rich.sources._PROGRESS_ADVANCE_BATCH",
+        10_000,
+    )
+    monkeypatch.setattr(
+        "datapipeline.cli.visuals.rich.sources._PROGRESS_ADVANCE_INTERVAL_SECONDS",
+        999,
+    )
+
+    progress = _RecordingProgress()
+    source = SimpleNamespace(stream=lambda: iter(range(25_000)))
+    proxy = _RichSourceProxy(
+        stream_source=source,
+        stream_id="equity.ohlcv",
+        progress=progress,
+    )
+
+    list(proxy.stream())
+
+    assert adapter.current_label_calls == 3
+
+
 def test_rich_source_proxy_skips_progress_row_for_virtual_source(monkeypatch) -> None:
     captured: list[tuple[str, int, int, str | None]] = []
     monkeypatch.setattr(
@@ -774,6 +822,10 @@ def test_rich_source_proxy_replaces_completed_sequence_rows(monkeypatch) -> None
     monkeypatch.setattr(
         "datapipeline.cli.visuals.rich.sources.SourceObservabilityAdapter",
         lambda stream_source, stream_id: _Adapter(),
+    )
+    monkeypatch.setattr(
+        "datapipeline.cli.visuals.rich.sources._PROGRESS_ADVANCE_BATCH",
+        1,
     )
 
     progress = _RecordingProgress()
@@ -1054,6 +1106,10 @@ def test_rich_source_proxy_keeps_task_updates_isolated_across_concurrent_streams
     monkeypatch.setattr(
         "datapipeline.cli.visuals.rich.sources.SourceObservabilityAdapter",
         lambda stream_source, stream_id: _Adapter(),
+    )
+    monkeypatch.setattr(
+        "datapipeline.cli.visuals.rich.sources._PROGRESS_ADVANCE_BATCH",
+        1,
     )
 
     source = SimpleNamespace(stream=lambda: iter([1, 2]))

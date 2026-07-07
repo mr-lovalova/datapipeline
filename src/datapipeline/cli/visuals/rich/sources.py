@@ -149,6 +149,7 @@ class _RichSourceProxy(Source):
         last_path_label: Optional[str] = initial_path_label
         pending_advance = 0
         last_advance_at = time.monotonic()
+        last_label_check_at = last_advance_at
 
         try:
             if progress_visible:
@@ -162,15 +163,21 @@ class _RichSourceProxy(Source):
                 self._safe_progress_call("refresh progress", self._progress.refresh)
 
             for item in self._inner.stream():
-                current_label = adapter.current_label()
-                if current_label and current_label != last_path_label:
-                    last_path_label = current_label
-                    row_message = adapter.format_label(
-                        current_label,
-                        include_stream_id=False,
-                        include_dag_indent=False,
-                    )
-                    if task_id is not None:
+                now = time.monotonic()
+                if task_id is not None and (
+                    emitted == 0
+                    or emitted % _PROGRESS_ADVANCE_BATCH == 0
+                    or now - last_label_check_at >= _PROGRESS_ADVANCE_INTERVAL_SECONDS
+                ):
+                    current_label = adapter.current_label()
+                    last_label_check_at = now
+                    if current_label and current_label != last_path_label:
+                        last_path_label = current_label
+                        row_message = adapter.format_label(
+                            current_label,
+                            include_stream_id=False,
+                            include_dag_indent=False,
+                        )
                         pending_advance = self._flush_task_advance(
                             task_id=task_id,
                             pending=pending_advance,
@@ -200,13 +207,12 @@ class _RichSourceProxy(Source):
                                 task_id,
                                 text=self._format_text(stream_label, row_message),
                             )
-                        # File transitions can be brief; refresh immediately so
-                        # short-lived labels (e.g. first file in a sequence) render.
+                        # Once a source label change is detected, refresh the
+                        # Live table immediately instead of waiting for its tick.
                         self._safe_progress_call("refresh progress", self._progress.refresh)
                 if task_id is not None:
                     pending_advance += 1
                     task_emitted += 1
-                    now = time.monotonic()
                     if (
                         pending_advance >= _PROGRESS_ADVANCE_BATCH
                         or now - last_advance_at >= _PROGRESS_ADVANCE_INTERVAL_SECONDS
