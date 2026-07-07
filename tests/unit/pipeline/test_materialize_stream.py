@@ -291,7 +291,6 @@ def test_runtime_materialize_stream_writes_metadata_sidecar(tmp_path: Path) -> N
         target=target,
         visuals="off",
         logger=logging.getLogger(__name__),
-        emit_message=lambda *args, **kwargs: None,
     )
 
     metadata = output.with_suffix(".metadata.json")

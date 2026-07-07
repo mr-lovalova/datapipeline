@@ -22,7 +22,7 @@ from datapipeline.dag.context import PipelineContext
 from datapipeline.dag.node import NodeKind
 
 logger = logging.getLogger(__name__)
-_HEARTBEAT_INTERVAL_SECONDS = 60.0
+DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 60.0
 _LOG_OBSERVER = LoggingExecutionObserver(logger)
 _NOOP_OBSERVER = NoopExecutionObserver()
 _CURRENT_RUN_DAG_DEPTH: ContextVar[int] = ContextVar(
@@ -237,14 +237,19 @@ def _error_message(exc: BaseException) -> str | None:
     return message or None
 
 
-def _heartbeat_interval_seconds(context: PipelineContext) -> float:
-    interval = getattr(context, "heartbeat_interval_seconds", None)
+def resolve_heartbeat_interval_seconds(interval: float | None) -> float:
     if interval is None:
-        return _HEARTBEAT_INTERVAL_SECONDS
+        return DEFAULT_HEARTBEAT_INTERVAL_SECONDS
     interval = float(interval)
     if interval < 0:
         raise ValueError("heartbeat_interval_seconds must be non-negative")
     return interval
+
+
+def _heartbeat_interval_seconds(context: PipelineContext) -> float:
+    return resolve_heartbeat_interval_seconds(
+        getattr(context, "heartbeat_interval_seconds", None)
+    )
 
 
 def run_dag(

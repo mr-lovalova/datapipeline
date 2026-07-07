@@ -198,7 +198,7 @@ def test_downstream_progress_after_input_read_uses_downstream_node_context(
 
 
 def test_run_dag_emits_heartbeat_for_quiet_node(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr(dag_runner, "_HEARTBEAT_INTERVAL_SECONDS", 0.01)
+    monkeypatch.setattr(dag_runner, "DEFAULT_HEARTBEAT_INTERVAL_SECONDS", 0.01)
     observer = _CollectingObserver()
     ctx = _context(tmp_path)
 
@@ -273,7 +273,7 @@ def test_run_dag_disables_heartbeat_when_interval_is_zero(tmp_path: Path) -> Non
 
 
 def test_run_dag_heartbeat_preserves_contextvars(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr(dag_runner, "_HEARTBEAT_INTERVAL_SECONDS", 0.01)
+    monkeypatch.setattr(dag_runner, "DEFAULT_HEARTBEAT_INTERVAL_SECONDS", 0.01)
     marker: ContextVar[str | None] = ContextVar("test_heartbeat_marker", default=None)
     observed_markers: list[str | None] = []
 
@@ -313,7 +313,7 @@ def test_run_dag_emits_heartbeat_while_node_is_yielding_items(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    monkeypatch.setattr(dag_runner, "_HEARTBEAT_INTERVAL_SECONDS", 0.01)
+    monkeypatch.setattr(dag_runner, "DEFAULT_HEARTBEAT_INTERVAL_SECONDS", 0.01)
     observer = _CollectingObserver()
     ctx = _context(tmp_path)
 
@@ -344,7 +344,7 @@ def test_heartbeat_reports_upstream_leaf_while_downstream_waits_for_input(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    monkeypatch.setattr(dag_runner, "_HEARTBEAT_INTERVAL_SECONDS", 0.01)
+    monkeypatch.setattr(dag_runner, "DEFAULT_HEARTBEAT_INTERVAL_SECONDS", 0.01)
     observer = _CollectingObserver()
     ctx = _context(tmp_path)
 
@@ -380,7 +380,7 @@ def test_heartbeat_returns_to_downstream_node_after_upstream_is_exhausted(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    monkeypatch.setattr(dag_runner, "_HEARTBEAT_INTERVAL_SECONDS", 0.01)
+    monkeypatch.setattr(dag_runner, "DEFAULT_HEARTBEAT_INTERVAL_SECONDS", 0.01)
     observer = _CollectingObserver()
     ctx = _context(tmp_path)
 

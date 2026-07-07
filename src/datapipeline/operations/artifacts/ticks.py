@@ -3,7 +3,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterator
 
+from datapipeline.execution.observability import OperationProgress
 from datapipeline.config.tasks import TicksTask
+from datapipeline.dag.runner import resolve_heartbeat_interval_seconds
 from datapipeline.dag.context import PipelineContext
 from datapipeline.operations.persistence import ArtifactOutput
 from datapipeline.pipelines import build_stream_id_pipeline
@@ -60,13 +62,20 @@ def materialize_ticks(
     runtime: Runtime,
     task_cfg: TicksTask,
 ) -> ArtifactOutput:
+    heartbeat_interval = resolve_heartbeat_interval_seconds(
+        runtime.heartbeat_interval_seconds
+    )
     stream = build_stream_id_pipeline(
         PipelineContext(runtime),
         task_cfg.stream,
         node=3,
     )
     batch_size = runtime.registries.sort_batch_size.get(task_cfg.stream)
-    tick_rows = (_tick_row(record, task_cfg.grid_by) for record in stream)
+    project_progress = OperationProgress(
+        "project_ticks",
+        heartbeat_interval,
+    )
+    tick_rows = _project_tick_rows(stream, task_cfg.grid_by, project_progress)
     sorted_ticks = batch_sort(
         tick_rows,
         batch_size=batch_size,
@@ -77,11 +86,16 @@ def materialize_ticks(
         relative_path = Path(task_cfg.output)
         destination = (runtime.artifacts_root / relative_path).resolve()
         ensure_parent(destination)
+        write_progress = OperationProgress(
+            "write_artifact",
+            heartbeat_interval,
+        )
         with destination.open("w", encoding="utf-8") as handle:
             for tick in _unique_ticks(sorted_ticks):
                 rows += 1
                 handle.write(json.dumps(_json_tick_row(tick, task_cfg.grid_by)))
                 handle.write("\n")
+                write_progress.advance()
     finally:
         _close_iterator(sorted_ticks)
         _close_iterator(stream)
@@ -94,3 +108,13 @@ def materialize_ticks(
             "grid_by": list(task_cfg.grid_by),
         },
     )
+
+
+def _project_tick_rows(
+    stream,
+    grid_by: list[str],
+    progress: OperationProgress,
+) -> Iterator[tuple]:
+    for record in stream:
+        yield _tick_row(record, grid_by)
+        progress.advance()

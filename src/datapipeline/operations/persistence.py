@@ -4,13 +4,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
-from datapipeline.cli.visuals.execution import emit_execution_message
-from datapipeline.io.factory import writer_factory
-from datapipeline.io.output import (
-    OutputTarget,
-    materialized_output_message,
-    served_output_message,
+from datapipeline.execution.observability import (
+    OperationProgress,
+    emit_operation_info,
 )
+from datapipeline.dag.runner import resolve_heartbeat_interval_seconds
+from datapipeline.io.factory import writer_factory
+from datapipeline.io.output import OutputTarget
 
 
 @dataclass(frozen=True)
@@ -49,28 +49,26 @@ def persist_artifact_output(
     artifact_key: str,
     runtime,
     logger: logging.Logger,
-    emit_message: Callable[..., None] = emit_execution_message,
 ) -> dict[str, object] | None:
     if result is None:
         return None
     if not isinstance(result, ArtifactOutput):
         raise TypeError("Build operation must return ArtifactOutput or None.")
     full_path = (runtime.artifacts_root / result.relative_path).resolve()
-    emit_message(
-        materialized_output_message(artifact_key, full_path, meta=dict(result.meta)),
-        level=logging.INFO,
-        logger=logger,
-        message_kind="materialized",
-    )
+    meta = dict(result.meta)
+    line = f"materialized path={full_path}"
+    if meta:
+        line = f"{line} " + " ".join(f"{key}={value}" for key, value in meta.items())
+    emit_operation_info(line)
     artifacts = getattr(runtime, "artifacts", None)
     if artifacts is not None and hasattr(artifacts, "register"):
         artifacts.register(
             artifact_key,
             relative_path=result.relative_path,
-            meta=dict(result.meta),
+            meta=meta,
         )
     output: dict[str, object] = {"relative_path": result.relative_path}
-    output.update(dict(result.meta))
+    output.update(meta)
     return output
 
 
@@ -79,8 +77,8 @@ def _persist_runtime_output(
     *,
     target: OutputTarget | None,
     visuals: str | None,
+    heartbeat_interval_seconds: float | None,
     logger: logging.Logger,
-    emit_message: Callable[..., None],
 ) -> None:
     effective_target = result.target or target
     if effective_target is None:
@@ -94,16 +92,13 @@ def _persist_runtime_output(
             raise ValueError("html output requires fs destination.")
         written = result.html_renderer(destination)
         if written is not None and result.materialized_key:
-            emit_message(
-                materialized_output_message(
-                    result.materialized_key,
-                    written,
-                    meta=result.materialized_meta,
-                ),
-                level=logging.INFO,
-                logger=logger,
-                message_kind="materialized",
-            )
+            line = f"materialized path={written}"
+            if result.materialized_meta:
+                line = f"{line} " + " ".join(
+                    f"{key}={value}"
+                    for key, value in result.materialized_meta.items()
+                )
+            emit_operation_info(line)
         return
 
     rows = result.rows
@@ -123,12 +118,17 @@ def _persist_runtime_output(
             rows = (dict(result.payload),)
 
     writer = writer_factory(effective_target, visuals=visuals)
+    progress = OperationProgress(
+        "write_output",
+        resolve_heartbeat_interval_seconds(heartbeat_interval_seconds),
+    )
     count = 0
     success = False
     try:
         for row in rows:
             writer.write(row)
             count += 1
+            progress.advance()
         writer.close()
         success = True
     finally:
@@ -138,20 +138,22 @@ def _persist_runtime_output(
             except Exception:
                 logger.debug("Failed to abort runtime output writer", exc_info=True)
 
-    emit_message(
-        served_output_message(effective_target, count),
-        level=logging.INFO,
-        logger=logger,
-        message_kind="saved",
-    )
+    if effective_target.destination:
+        emit_operation_info(
+            f"saved path={effective_target.destination} items={count}",
+        )
+    elif effective_target.transport == "stdout":
+        emit_operation_info(f"streamed target=stdout items={count}")
+    else:
+        emit_operation_info(f"emitted items={count}")
 
 
 def _persist_split_runtime_output(
     result: SplitRuntimeOutput,
     *,
     visuals: str | None,
+    heartbeat_interval_seconds: float | None,
     logger: logging.Logger,
-    emit_message: Callable[..., None],
 ) -> None:
     if not result.targets:
         raise ValueError("Split runtime output requires at least one target.")
@@ -159,6 +161,10 @@ def _persist_split_runtime_output(
     writers = {}
     counts: dict[str, int] = {}
     rows = iter(result.rows)
+    progress = OperationProgress(
+        "write_output",
+        resolve_heartbeat_interval_seconds(heartbeat_interval_seconds),
+    )
     success = False
     try:
         for label, target in result.targets.items():
@@ -184,6 +190,7 @@ def _persist_split_runtime_output(
                 continue
             writer.write(row)
             counts[label] += 1
+            progress.advance()
             if (
                 result.limit_per_target is not None
                 and all(
@@ -214,12 +221,13 @@ def _persist_split_runtime_output(
                     )
 
     for label, target in result.targets.items():
-        emit_message(
-            served_output_message(target, counts[label]),
-            level=logging.INFO,
-            logger=logger,
-            message_kind="saved",
-        )
+        if target.destination:
+            line = f"saved label={label} path={target.destination} items={counts[label]}"
+        elif target.transport == "stdout":
+            line = f"streamed target=stdout items={counts[label]}"
+        else:
+            line = f"emitted items={counts[label]}"
+        emit_operation_info(line)
 
 
 def persist_runtime_result(
@@ -227,8 +235,8 @@ def persist_runtime_result(
     *,
     target: OutputTarget | None,
     visuals: str | None,
+    heartbeat_interval_seconds: float | None = None,
     logger: logging.Logger,
-    emit_message: Callable[..., None] = emit_execution_message,
 ) -> None:
     if result is None:
         return
@@ -245,16 +253,16 @@ def persist_runtime_result(
                     _persist_split_runtime_output(
                         output,
                         visuals=visuals,
+                        heartbeat_interval_seconds=heartbeat_interval_seconds,
                         logger=logger,
-                        emit_message=emit_message,
                     )
                 else:
                     _persist_runtime_output(
                         output,
                         target=target,
                         visuals=visuals,
+                        heartbeat_interval_seconds=heartbeat_interval_seconds,
                         logger=logger,
-                        emit_message=emit_message,
                     )
             success = True
         finally:
@@ -266,8 +274,8 @@ def persist_runtime_result(
         _persist_split_runtime_output(
             result,
             visuals=visuals,
+            heartbeat_interval_seconds=heartbeat_interval_seconds,
             logger=logger,
-            emit_message=emit_message,
         )
         return
 
@@ -275,8 +283,8 @@ def persist_runtime_result(
         result,
         target=target,
         visuals=visuals,
+        heartbeat_interval_seconds=heartbeat_interval_seconds,
         logger=logger,
-        emit_message=emit_message,
     )
 
 

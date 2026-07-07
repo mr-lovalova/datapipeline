@@ -3,12 +3,26 @@ import json
 
 import pytest
 
+from datapipeline.cli.visuals.execution import ExecutionEventSink, make_operation_observer
+from datapipeline.cli.visuals.execution_context import (
+    reset_current_execution_event_sink,
+    set_current_execution_event_sink,
+)
+from datapipeline.execution.observability import operation_observer, operation_scope
 from datapipeline.io.output import OutputTarget
 from datapipeline.operations.persistence import (
     RuntimeOutput,
     SplitRuntimeOutput,
     persist_runtime_result,
 )
+
+
+class _CaptureSink(ExecutionEventSink):
+    def __init__(self) -> None:
+        self.events = []
+
+    def emit(self, event) -> None:
+        self.events.append(event)
 
 
 def test_failed_runtime_write_preserves_existing_file(tmp_path) -> None:
@@ -33,10 +47,41 @@ def test_failed_runtime_write_preserves_existing_file(tmp_path) -> None:
             target=target,
             visuals="off",
             logger=logging.getLogger(__name__),
-            emit_message=lambda *args, **kwargs: None,
         )
 
     assert destination.read_text(encoding="utf-8") == "previous\n"
+
+
+def test_runtime_persistence_emits_operation_saved_info(tmp_path) -> None:
+    destination = tmp_path / "out.jsonl"
+    target = OutputTarget(
+        transport="fs",
+        format="jsonl",
+        view="raw",
+        encoding="utf-8",
+        destination=destination,
+    )
+    capture = _CaptureSink()
+    token = set_current_execution_event_sink(capture)
+    try:
+        logger = logging.getLogger(__name__)
+        observer = make_operation_observer(logger)
+        with operation_observer(observer):
+            with operation_scope("serve:train", "core.runtime.materialize"):
+                persist_runtime_result(
+                    RuntimeOutput(rows=iter([{"value": 1}])),
+                    target=target,
+                    visuals="off",
+                    heartbeat_interval_seconds=0,
+                    logger=logger,
+                )
+    finally:
+        reset_current_execution_event_sink(token)
+
+    infos = [event for event in capture.events if event.kind == "operation_info"]
+    assert len(infos) == 1
+    assert infos[0].dag_name == "serve:train"
+    assert infos[0].info_line == f"saved path={destination} items=1"
 
 
 def test_split_runtime_output_routes_rows_to_label_targets(tmp_path) -> None:
@@ -71,7 +116,6 @@ def test_split_runtime_output_routes_rows_to_label_targets(tmp_path) -> None:
         target=None,
         visuals="off",
         logger=logging.getLogger(__name__),
-        emit_message=lambda *args, **kwargs: None,
     )
 
     train_rows = [
@@ -121,7 +165,6 @@ def test_split_runtime_output_limit_applies_per_target(tmp_path) -> None:
         target=None,
         visuals="off",
         logger=logging.getLogger(__name__),
-        emit_message=lambda *args, **kwargs: None,
     )
 
     train_rows = [

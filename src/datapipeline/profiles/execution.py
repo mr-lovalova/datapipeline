@@ -8,6 +8,7 @@ from datapipeline.artifacts.executor import run_build_if_needed
 from datapipeline.build.state import load_build_state
 from datapipeline.config.build_resolution import BuildSettings
 from datapipeline.config.tasks import ArtifactTask, OperationTask, Task
+from datapipeline.execution.observability import operation_scope
 from datapipeline.operations.dispatch import execute_operation
 from datapipeline.operations.persistence import (
     persist_runtime_result,
@@ -105,30 +106,36 @@ def run_runtime_task(
     task: OperationTask,
     profile: ExecutionProfile,
     runtime: Runtime,
+    command: str = "runtime",
 ) -> None:
     if profile.dataset is None:
         raise ValueError(
             f"Runtime profile '{profile.name}' is missing runtime context."
         )
     try:
-        execute_operation(
-            operation=task,
-            operation_group=RUNTIME_OPERATIONS_EP,
-            persist=lambda result: persist_runtime_result(
-                result,
+        with operation_scope(
+            f"{command}:{profile.name}",
+            task.entrypoint,
+        ):
+            execute_operation(
+                operation=task,
+                operation_group=RUNTIME_OPERATIONS_EP,
+                persist=lambda result: persist_runtime_result(
+                    result,
+                    target=profile.output,
+                    visuals=profile.visuals,
+                    heartbeat_interval_seconds=runtime.heartbeat_interval_seconds,
+                    logger=logger,
+                ),
+                operation_task=task,
+                runtime=runtime,
+                dataset=profile.dataset,
+                limit=profile.limit,
                 target=profile.output,
+                throttle_ms=profile.throttle_ms,
+                preview_index=profile.preview_index,
                 visuals=profile.visuals,
-                logger=logger,
-            ),
-            operation_task=task,
-            runtime=runtime,
-            dataset=profile.dataset,
-            limit=profile.limit,
-            target=profile.output,
-            throttle_ms=profile.throttle_ms,
-            preview_index=profile.preview_index,
-            visuals=profile.visuals,
-        )
+            )
     except ValueError as exc:
         logger.error("%s", exc)
         raise SystemExit(2) from exc
@@ -196,7 +203,7 @@ def execute_profile(
     sync_runtime_artifacts_from_state(runtime, request.project_path)
     for task_id in runtime_task_ids:
         task = cast(OperationTask, tasks_by_id[task_id])
-        run_runtime_task(task, profile, runtime)
+        run_runtime_task(task, profile, runtime, command=request.command)
 
 
 __all__ = [

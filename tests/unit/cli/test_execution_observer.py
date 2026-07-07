@@ -10,6 +10,7 @@ from datapipeline.cli.visuals.execution import (
     emit_execution_message,
     emit_source_info,
     make_execution_observer,
+    make_operation_observer,
 )
 from datapipeline.cli.visuals.execution_context import (
     current_dag_depth,
@@ -26,6 +27,11 @@ from datapipeline.dag.context import PipelineContext
 from datapipeline.dag.dag import Dag
 from datapipeline.dag.node import PipelineNode
 from datapipeline.dag.runner import run_dag
+from datapipeline.execution.observability import (
+    emit_operation_info,
+    operation_observer,
+    operation_scope,
+)
 from datapipeline.runtime import Runtime
 
 
@@ -666,8 +672,8 @@ def test_emit_execution_message_supports_message_kind():
     token = set_current_execution_event_sink(capture)
     try:
         emit_execution_message(
-            "Materialized schema: /tmp/schema.json",
-            message_kind="materialized",
+            "custom event",
+            message_kind="custom",
         )
     finally:
         reset_current_execution_event_sink(token)
@@ -675,7 +681,7 @@ def test_emit_execution_message_supports_message_kind():
     assert len(capture.events) == 1
     event = capture.events[0]
     assert event.kind == "message"
-    assert event.message_kind == "materialized"
+    assert event.message_kind == "custom"
 
 
 def test_emit_execution_message_logs_without_context_sink(caplog):
@@ -687,6 +693,34 @@ def test_emit_execution_message_logs_without_context_sink(caplog):
     messages = [record.getMessage() for record in caplog.records]
     assert "Saved 3 items" in messages
     assert getattr(caplog.records[-1], "dp_event_kind", None) == "message"
+
+
+def test_operation_scope_emits_lifecycle_and_info_events(caplog):
+    capture = _CaptureSink()
+    logger = logging.getLogger("datapipeline.cli.visuals.execution.test.operation")
+    token = set_current_execution_event_sink(capture)
+    try:
+        with caplog.at_level(logging.INFO, logger=logger.name):
+            observer = make_operation_observer(logger)
+            with operation_observer(observer):
+                with operation_scope("build:model_grid", "core.artifact.ticks"):
+                    assert emit_operation_info(
+                        "materialized path=/tmp/model_grid.jsonl"
+                    )
+    finally:
+        reset_current_execution_event_sink(token)
+
+    assert [event.kind for event in capture.events] == [
+        "operation_start",
+        "operation_info",
+        "operation_end",
+    ]
+    assert capture.events[0].dag_name == "build:model_grid"
+    assert capture.events[0].operation_entrypoint == "core.artifact.ticks"
+    assert capture.events[1].info_line == "materialized path=/tmp/model_grid.jsonl"
+    messages = [record.getMessage() for record in caplog.records]
+    assert "[build:model_grid] started operation=core.artifact.ticks" in messages
+    assert "[build:model_grid] materialized path=/tmp/model_grid.jsonl" in messages
 
 
 def test_execution_scope_applies_to_messages_and_dag_events():

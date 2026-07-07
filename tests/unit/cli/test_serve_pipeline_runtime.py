@@ -8,7 +8,6 @@ from datapipeline.dag.node import PipelineNode
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
 from datapipeline.io.output import OutputTarget
-from datapipeline.io.output import served_output_message
 from datapipeline.operations.persistence import SplitRuntimeOutput, persist_runtime_result
 from datapipeline.operations.runtime.pipeline import serve_with_runtime
 
@@ -289,33 +288,3 @@ def test_late_preview_indices_preview_postprocess_and_split(
 def test_preview_index_rejects_out_of_range_value(preview_index):
     with pytest.raises(ValueError, match="preview_index must be between 0 and 14"):
         _serve(_runtime(), _dataset(), _target(), preview_index=preview_index)
-
-
-def test_served_output_message_for_saved_destination():
-    assert (
-        served_output_message(
-            target=SimpleNamespace(destination="/tmp/train.jsonl", transport="fs"),
-            count=14,
-        )
-        == "Saved 14 items: /tmp/train.jsonl"
-    )
-
-
-def test_served_output_message_for_stdout():
-    assert (
-        served_output_message(
-            target=SimpleNamespace(destination=None, transport="stdout"),
-            count=14,
-        )
-        == "Streamed 14 items: stdout"
-    )
-
-
-def test_served_output_message_for_non_stdout_without_destination():
-    assert (
-        served_output_message(
-            target=SimpleNamespace(destination=None, transport="memory"),
-            count=14,
-        )
-        == "Emitted 14 items"
-    )

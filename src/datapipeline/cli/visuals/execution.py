@@ -13,6 +13,7 @@ from datapipeline.dag.events import (
 from datapipeline.dag.node import NodeKind
 from datapipeline.dag.observer import ExecutionObserver
 from datapipeline.dag.runner import current_node_progress_context
+from datapipeline.execution.observability import OperationEvent
 from datapipeline.cli.visuals.execution_context import (
     current_dag_label,
     current_execution_scope,
@@ -32,6 +33,10 @@ ExecutionEventKind = Literal[
     "node_start",
     "node_progress",
     "node_end",
+    "operation_start",
+    "operation_info",
+    "operation_progress",
+    "operation_end",
 ]
 
 
@@ -54,6 +59,7 @@ class ExecutionLogEvent:
     error_message: str | None = None
     output_items: int | None = None
     elapsed_seconds: float | None = None
+    operation_entrypoint: str | None = None
     info_name: str | None = None
     info_line: str | None = None
     dag_parent: DagParentRef | None = None
@@ -101,8 +107,10 @@ class ExecutionEventFormatter:
     def level(event: ExecutionLogEvent) -> int:
         if event.kind == "message":
             return int(event.log_level) if event.log_level is not None else logging.INFO
-        if event.kind in {"dag_start", "dag_end"}:
+        if event.kind in {"dag_start", "dag_end", "operation_start", "operation_end"}:
             # Keep DAG lifecycle visible at INFO, regardless of nesting depth.
+            return logging.INFO
+        if event.kind in {"operation_info", "operation_progress"}:
             return logging.INFO
         if event.kind == "dag_info":
             if event.info_name == "source" or event.depth <= 0:
@@ -122,15 +130,24 @@ class ExecutionEventFormatter:
             if not indent or "\n" not in message:
                 return f"{indent}{message}"
             return f"{indent}" + message.replace("\n", f"\n{indent}")
-        if event.kind == "dag_info":
+        if event.kind in {"dag_info", "operation_info"}:
             return f"{indent}[{event.dag_name}] {event.info_line or ''}"
-        if event.kind == "dag_start":
-            return f"{indent}[{event.dag_name}] started nodes={event.node_count}"
-        if event.kind == "dag_end":
+        if event.kind in {"dag_start", "operation_start"}:
+            if event.kind == "operation_start":
+                suffix = (
+                    f" operation={event.operation_entrypoint}"
+                    if event.operation_entrypoint is not None
+                    else ""
+                )
+            else:
+                suffix = f" nodes={event.node_count}"
+            return f"{indent}[{event.dag_name}] started{suffix}"
+        if event.kind in {"dag_end", "operation_end"}:
             error_suffix = cls.error_suffix(event)
+            items = f" items={event.output_items}" if event.kind == "dag_end" else ""
             return (
                 f"{indent}[{event.dag_name}] finished "
-                f"status={event.status}{error_suffix} items={event.output_items} "
+                f"status={event.status}{error_suffix}{items} "
                 f"elapsed={event.elapsed_seconds:.6f}s"
             )
         if event.kind == "node_start":
@@ -145,7 +162,7 @@ class ExecutionEventFormatter:
                 f"execution={event.execution_index} "
                 f"kind={event.node_kind}{calls_suffix}"
             )
-        if event.kind == "node_progress":
+        if event.kind in {"node_progress", "operation_progress"}:
             label = cls.execution_label(event.dag_name, event.node_name)
             return f"{indent}[{label}] {event.message or ''}"
         error_suffix = cls.error_suffix(event)
@@ -177,6 +194,7 @@ class ExecutionEventFormatter:
             "dp_error_message": event.error_message,
             "dp_output_items": event.output_items,
             "dp_elapsed_seconds": event.elapsed_seconds,
+            "dp_operation_entrypoint": event.operation_entrypoint,
             "dp_info_name": event.info_name,
             "dp_info_line": event.info_line,
             "dp_parent_dag": (
@@ -305,6 +323,15 @@ class ContextExecutionEventSink(ExecutionEventSink):
         sink.emit(event)
 
 
+def _emit_event(
+    event: ExecutionLogEvent,
+    logger: logging.Logger | None = None,
+) -> None:
+    logger_sink = LoggerExecutionEventSink(logger or logging.getLogger(__name__))
+    logger_sink.emit(event)
+    ContextExecutionEventSink().emit(event)
+
+
 def emit_execution_message(
     message: str,
     
@@ -322,9 +349,7 @@ def emit_execution_message(
         log_level=int(level),
         **_scope_fields(),
     )
-    logger_sink = LoggerExecutionEventSink(logger or logging.getLogger(__name__))
-    logger_sink.emit(event)
-    ContextExecutionEventSink().emit(event)
+    _emit_event(event, logger)
 
 
 def emit_source_info(
@@ -341,6 +366,58 @@ def emit_source_info(
         depth=depth,
         message_kind="source_info",
     )
+
+
+class ExecutionOperationObserver:
+    def __init__(self, logger: logging.Logger) -> None:
+        self._logger = logger
+
+    def emit_operation_event(self, event: OperationEvent) -> None:
+        if event.kind == "start":
+            log_event = ExecutionLogEvent(
+                kind="operation_start",
+                dag_name=event.name,
+                depth=event.depth,
+                operation_entrypoint=event.entrypoint,
+                **_scope_fields(),
+            )
+        elif event.kind == "info":
+            log_event = ExecutionLogEvent(
+                kind="operation_info",
+                dag_name=event.name,
+                depth=event.depth,
+                info_line=event.info_line,
+                **_scope_fields(),
+            )
+        elif event.kind == "progress":
+            log_event = ExecutionLogEvent(
+                kind="operation_progress",
+                dag_name=event.name,
+                depth=event.depth,
+                node_name=event.step,
+                message=event.message,
+                **_scope_fields(),
+            )
+        elif event.kind == "end":
+            log_event = ExecutionLogEvent(
+                kind="operation_end",
+                dag_name=event.name,
+                depth=event.depth,
+                status=event.status,
+                error_type=event.error_type,
+                error_message=event.error_message,
+                elapsed_seconds=event.elapsed_seconds,
+                **_scope_fields(),
+            )
+        else:
+            raise ValueError(f"Unknown operation event kind: {event.kind}")
+        _emit_event(log_event, self._logger)
+
+
+def make_operation_observer(
+    logger: logging.Logger | None = None,
+) -> ExecutionOperationObserver:
+    return ExecutionOperationObserver(logger or logging.getLogger(__name__))
 
 
 class HierarchicalExecutionObserver(ExecutionObserver):

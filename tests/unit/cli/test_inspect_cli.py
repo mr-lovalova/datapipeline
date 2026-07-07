@@ -4,7 +4,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-
 from datapipeline.io.output import OutputTarget
 from datapipeline.operations.runtime import coverage as coverage_ops
 from datapipeline.operations.runtime import matrix as matrix_ops
@@ -69,7 +68,6 @@ def _persist_result(result, target: OutputTarget | None) -> None:
         target=target,
         visuals=None,
         logger=logging.getLogger(__name__),
-        emit_message=lambda *args, **kwargs: None,
     )
 
 
@@ -224,18 +222,25 @@ def test_inspect_matrix_requires_output_target(monkeypatch) -> None:
             target=None,
             visuals=None,
             logger=logging.getLogger(__name__),
-            emit_message=lambda *args, **kwargs: None,
         )
 
 
 def test_inspect_matrix_writes_html_when_output_format_is_html(monkeypatch, tmp_path: Path) -> None:
     _patch_context(monkeypatch)
     destination = (tmp_path / "inspect" / "matrix.html").resolve()
-    emitted: list[tuple[str, str | None]] = []
+    written_paths: list[Path] = []
+
+    def _export_matrix_data(collector):
+        if collector.matrix_output:
+            path = Path(collector.matrix_output)
+            written_paths.append(path)
+            return path
+        return None
+
     monkeypatch.setattr(
         matrix_ops,
         "export_matrix_data",
-        lambda collector: Path(collector.matrix_output) if collector.matrix_output else None,
+        _export_matrix_data,
     )
 
     result = matrix_ops.inspect_matrix_with_runtime(
@@ -254,11 +259,6 @@ def test_inspect_matrix_writes_html_when_output_format_is_html(monkeypatch, tmp_
         ),
         visuals=None,
         logger=logging.getLogger(__name__),
-        emit_message=lambda message, level, logger, message_kind=None: emitted.append(
-            (message, message_kind)
-        ),
     )
 
-    assert emitted
-    assert emitted[0][1] == "materialized"
-    assert str(destination) in emitted[0][0]
+    assert written_paths == [destination]

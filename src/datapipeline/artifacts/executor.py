@@ -22,14 +22,18 @@ from datapipeline.build.state import (
 )
 from datapipeline.build.config_hash import compute_config_hash
 from datapipeline.cli.logging_setup import configure_root_logging
-from datapipeline.cli.visuals.execution import make_execution_observer
-from datapipeline.cli.visuals.execution import emit_execution_message
+from datapipeline.cli.visuals.execution import (
+    emit_execution_message,
+    make_execution_observer,
+    make_operation_observer,
+)
 from datapipeline.config.build_resolution import BuildSettings, resolve_build_settings
 from datapipeline.config.dataset.loader import load_dataset
 from datapipeline.config.profiles import BuildProfile
 from datapipeline.config.resolution import LogOutputTarget
 from datapipeline.config.loaders.operations import operation_specs
 from datapipeline.config.tasks import ArtifactTask
+from datapipeline.execution.observability import operation_observer, operation_scope
 from datapipeline.operations.dispatch import execute_operation
 from datapipeline.operations.persistence import persist_artifact_output
 from datapipeline.plugins import BUILD_OPERATIONS_EP
@@ -69,18 +73,19 @@ def _run_artifact_builder(
     definition: ArtifactDefinition,
     task: ArtifactTask,
 ):
-    return execute_operation(
-        operation=task,
-        operation_group=BUILD_OPERATIONS_EP,
-        persist=lambda result: persist_artifact_output(
-            result,
-            artifact_key=definition.key,
+    with operation_scope(f"build:{definition.key}", task.entrypoint):
+        return execute_operation(
+            operation=task,
+            operation_group=BUILD_OPERATIONS_EP,
+            persist=lambda result: persist_artifact_output(
+                result,
+                artifact_key=definition.key,
+                runtime=runtime,
+                logger=logger,
+            ),
             runtime=runtime,
-            logger=logger,
-        ),
-        runtime=runtime,
-        task_cfg=task,
-    )
+            task_cfg=task,
+        )
 
 
 def _resolve_effective_settings(
@@ -227,16 +232,20 @@ def _execute_build_jobs(
             logging.getLogger("datapipeline.dag.observer")
         )
     try:
-        artifacts: dict[str, dict[str, object]] = {}
-        for definition, task in job_specs:
-            result = _run_artifact_builder(
-                runtime=runtime,
-                definition=definition,
-                task=task,
-            )
-            if result:
-                artifacts[definition.key] = result
-        return artifacts
+        observer = make_operation_observer(
+            logging.getLogger("datapipeline.operation.observer")
+        )
+        with operation_observer(observer):
+            artifacts: dict[str, dict[str, object]] = {}
+            for definition, task in job_specs:
+                result = _run_artifact_builder(
+                    runtime=runtime,
+                    definition=definition,
+                    task=task,
+                )
+                if result:
+                    artifacts[definition.key] = result
+            return artifacts
     finally:
         if install_observer:
             runtime.execution_observer = previous_observer

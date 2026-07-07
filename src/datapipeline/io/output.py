@@ -114,26 +114,6 @@ def resolve_destination(
     return (base_dir / default_filename).resolve()
 
 
-def served_output_message(target: OutputTarget, count: int) -> str:
-    if target.destination:
-        return f"Saved {count} items: {target.destination}"
-    if target.transport == "stdout":
-        return f"Streamed {count} items: stdout"
-    return f"Emitted {count} items"
-
-
-def materialized_output_message(
-    artifact_key: str,
-    path: Path,
-    *,
-    meta: dict[str, object] | None = None,
-) -> str:
-    if not meta:
-        return f"Materialized {artifact_key}: {path}"
-    details = ", ".join(f"{k}={v}" for k, v in meta.items())
-    return f"Materialized {artifact_key}: {path} ({details})"
-
-
 def resolve_output_target(
     
     cli_output: ServeOutputConfig | None,

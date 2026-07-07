@@ -31,7 +31,7 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
             return
         text = self._render_event(event)
         console = self._live_console or self._console
-        if event.kind == "node_progress":
+        if event.kind in {"node_progress", "operation_progress"}:
             console.print(text, overflow="ellipsis", no_wrap=True)
             return
         console.print(text)
@@ -57,12 +57,6 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
                 if event.depth == 0:
                     text.append("\n")
                 return text
-            if event.message_kind in {"saved", "materialized"}:
-                prefix, _, rest = message.partition(" ")
-                text.append(prefix, style="bold cyan")
-                if rest:
-                    text.append(f" {rest}", style=style)
-                return text
             if event.message_kind == "source_info":
                 text.append_text(styled_source_label(message))
                 return text
@@ -74,23 +68,36 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
                 return text
             text.append(message, style=style)
             return text
-        if event.kind == "dag_info":
+        if event.kind in {"dag_info", "operation_info"}:
             self._append_label(text, event.dag_name)
-            style = "" if event.info_name == "source" else "dim"
+            style = (
+                ""
+                if event.info_name == "source" or event.kind == "operation_info"
+                else "dim"
+            )
             text.append(event.info_line or "", style=style)
             return text
-        if event.kind == "dag_start":
+        if event.kind in {"dag_start", "operation_start"}:
             self._append_label(text, event.dag_name)
-            text.append(f"started nodes={event.node_count}")
+            text.append("started")
+            if (
+                event.kind == "operation_start"
+                and event.operation_entrypoint is not None
+            ):
+                text.append(f" operation={event.operation_entrypoint}")
+            if event.kind == "dag_start":
+                text.append(f" nodes={event.node_count}")
             return text
-        if event.kind == "dag_end":
+        if event.kind in {"dag_end", "operation_end"}:
             status_style = "green" if event.status == "success" else "red"
             self._append_label(text, event.dag_name)
             text.append("finished ")
             text.append(f"status={event.status}", style=status_style)
             if error_suffix := ExecutionEventFormatter.error_suffix(event):
                 text.append(error_suffix, style="red")
-            text.append(f" items={event.output_items} elapsed={event.elapsed_seconds:.6f}s")
+            if event.kind == "dag_end":
+                text.append(f" items={event.output_items}")
+            text.append(f" elapsed={event.elapsed_seconds:.6f}s")
             return text
         if event.kind == "node_start":
             label = ExecutionEventFormatter.execution_label(
@@ -108,7 +115,7 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
             if event.node_calls_dag is not None:
                 text.append(f" calls={event.node_calls_dag}", style="dim")
             return text
-        if event.kind == "node_progress":
+        if event.kind in {"node_progress", "operation_progress"}:
             label = ExecutionEventFormatter.execution_label(
                 event.dag_name,
                 event.node_name,

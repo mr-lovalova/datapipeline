@@ -265,7 +265,6 @@ def test_rich_execution_sink_renders_message_event() -> None:
             dag_name="",
             depth=0,
             message="Saved 14 items: /tmp/train.jsonl",
-            message_kind="saved",
             log_level=logging.INFO,
         )
     )
@@ -446,6 +445,26 @@ def test_rich_execution_sink_styles_node_progress_as_node_detail() -> None:
     )
 
     assert str(text).startswith("[ingest:equity.return.trailing.daily.21/open_source]")
+    assert any(span.style == "dim bold cyan" for span in text.spans)
+    assert any(span.style == "dim" for span in text.spans)
+
+
+def test_rich_execution_sink_styles_operation_progress_as_detail() -> None:
+    buffer = StringIO()
+    console = Console(file=buffer, markup=False, highlight=False, force_terminal=False)
+    sink = _RichConsoleExecutionSink(level=logging.INFO, console=console)
+
+    text = sink._render_event(
+        ExecutionLogEvent(
+            kind="operation_progress",
+            dag_name="build:model_grid",
+            node_name="write_artifact",
+            depth=0,
+            message="running elapsed=120s items=9800000",
+        )
+    )
+
+    assert str(text).startswith("[build:model_grid/write_artifact]")
     assert any(span.style == "dim bold cyan" for span in text.spans)
     assert any(span.style == "dim" for span in text.spans)
 
