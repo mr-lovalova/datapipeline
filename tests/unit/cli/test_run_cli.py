@@ -158,6 +158,46 @@ def test_run_profiles_default_build_mode_is_auto(monkeypatch, tmp_path):
     assert profiles[0].build_mode == "AUTO"
 
 
+def test_run_profiles_resolve_heartbeat_interval(monkeypatch, tmp_path):
+    run_cfg = ServeProfile.model_validate(
+        {
+            "cmd": "serve",
+            "name": "demo",
+            "target": "serve",
+            "observability": {"heartbeat_interval_seconds": 30},
+        }
+    )
+    entries = [_entry(name="demo", config=run_cfg, operation=_SERVE_OPERATION)]
+
+    def fake_iter_runtime_runs(project_path, run_entries, keep):
+        total = len(run_entries)
+        for idx, entry in enumerate(run_entries, start=1):
+            runtime = SimpleNamespace(run=entry.config)
+            yield idx, total, entry, runtime
+
+    monkeypatch.setattr(
+        "datapipeline.config.serve_resolution.iter_runtime_runs", fake_iter_runtime_runs
+    )
+
+    def resolve(cli_heartbeat_interval_seconds=None):
+        return resolve_run_profiles(
+            project_path=tmp_path,
+            run_entries=entries,
+            keep=None,
+            preview_index=None,
+            limit=None,
+            cli_build_mode=None,
+            cli_output=None,
+            cli_log_level=None,
+            base_log_level="INFO",
+            cli_visuals=None,
+            cli_heartbeat_interval_seconds=cli_heartbeat_interval_seconds,
+        )[0]
+
+    assert resolve().runtime.heartbeat_interval_seconds == 30
+    assert resolve(0).runtime.heartbeat_interval_seconds == 0
+
+
 def test_run_profiles_resolve_splits_for_fs_output(monkeypatch, tmp_path):
     run_cfg = ServeProfile.model_validate(
         {

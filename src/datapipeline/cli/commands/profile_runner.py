@@ -39,6 +39,11 @@ def handle_profile_command(
         cli_log_outputs=cli_log_outputs,
         base_log_level=base_level_name,
         cli_visuals=getattr(args, "visuals", None),
+        cli_heartbeat_interval_seconds=getattr(
+            args,
+            "heartbeat_interval_seconds",
+            None,
+        ),
         workspace=workspace_context,
     )
     if request is None:

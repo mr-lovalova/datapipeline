@@ -3,6 +3,20 @@ import argparse
 from datapipeline.config.options import VISUAL_CHOICES
 
 
+def _heartbeat_interval_seconds(value: str) -> float:
+    try:
+        interval = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            "--heartbeat-interval must be a non-negative number of seconds"
+        ) from exc
+    if interval < 0:
+        raise argparse.ArgumentTypeError(
+            "--heartbeat-interval must be a non-negative number of seconds"
+        )
+    return interval
+
+
 def add_dataset_flag(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--dataset",
@@ -43,5 +57,13 @@ def build_common_parent() -> argparse.ArgumentParser:
         metavar="TARGET",
         default=None,
         help="repeatable log output target: stderr | stdout | fs:<path> | execution[:<relative-path>]",
+    )
+    common.add_argument(
+        "--heartbeat-interval",
+        dest="heartbeat_interval_seconds",
+        type=_heartbeat_interval_seconds,
+        default=None,
+        metavar="SECONDS",
+        help="node heartbeat interval in seconds; set to 0 to disable",
     )
     return common

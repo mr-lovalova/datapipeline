@@ -237,6 +237,16 @@ def _error_message(exc: BaseException) -> str | None:
     return message or None
 
 
+def _heartbeat_interval_seconds(context: PipelineContext) -> float:
+    interval = getattr(context, "heartbeat_interval_seconds", None)
+    if interval is None:
+        return _HEARTBEAT_INTERVAL_SECONDS
+    interval = float(interval)
+    if interval < 0:
+        raise ValueError("heartbeat_interval_seconds must be non-negative")
+    return interval
+
+
 def run_dag(
     context: PipelineContext,
     dag: Dag,
@@ -286,6 +296,7 @@ def run_dag(
             )
             state[node.output or node.name] = stream
         return _observe_dag_stream(
+            context=context,
             dag=dag,
             depth=dag_depth,
             reset_interrupt=is_root_run,
@@ -458,6 +469,7 @@ def _observe_node_stream(
 
 def _observe_dag_stream(
     *,
+    context: PipelineContext,
     dag: Dag,
     depth: int,
     reset_interrupt: bool,
@@ -489,9 +501,11 @@ def _observe_dag_stream(
         heartbeat: _RunHeartbeat | None = None
         heartbeat_token = None
         if reset_interrupt:
-            heartbeat = _RunHeartbeat(observer, _HEARTBEAT_INTERVAL_SECONDS)
-            heartbeat.start()
-            heartbeat_token = _CURRENT_RUN_HEARTBEAT.set(heartbeat)
+            interval_seconds = _heartbeat_interval_seconds(context)
+            if interval_seconds > 0:
+                heartbeat = _RunHeartbeat(observer, interval_seconds)
+                heartbeat.start()
+                heartbeat_token = _CURRENT_RUN_HEARTBEAT.set(heartbeat)
         try:
             for item in iterator:
                 item_count += 1

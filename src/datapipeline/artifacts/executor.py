@@ -91,6 +91,7 @@ def _resolve_effective_settings(
     cli_log_level: str | None,
     cli_visuals: str | None,
     cli_log_outputs: list[LogOutputTarget] | None,
+    cli_heartbeat_interval_seconds: float | None,
     build_profile: BuildProfile | None,
     settings: BuildSettings | None,
 ) -> BuildSettings:
@@ -104,13 +105,14 @@ def _resolve_effective_settings(
                 cli_log_level=cli_log_level,
                 cli_visuals=cli_visuals,
                 cli_log_outputs=cli_log_outputs,
+                cli_heartbeat_interval_seconds=cli_heartbeat_interval_seconds,
                 force_flag=force,
                 runtime_build_mode=runtime_build_mode,
                 base_log_level=base_level_name,
                 build_profile=build_profile,
             )
         except ValueError as exc:
-            logger.error("Invalid log output configuration: %s", exc)
+            logger.error("Invalid build configuration: %s", exc)
             raise SystemExit(2) from exc
     return settings
 
@@ -299,6 +301,7 @@ def run_build_if_needed(
     cli_log_level: str | None = None,
     cli_visuals: str | None = None,
     cli_log_outputs: list[LogOutputTarget] | None = None,
+    cli_heartbeat_interval_seconds: float | None = None,
     required_artifacts: set[str] | None = None,
     build_profile: BuildProfile | None = None,
     artifact_task_configs: list[ArtifactTask] | None = None,
@@ -315,6 +318,7 @@ def run_build_if_needed(
         cli_log_level=cli_log_level,
         cli_visuals=cli_visuals,
         cli_log_outputs=cli_log_outputs,
+        cli_heartbeat_interval_seconds=cli_heartbeat_interval_seconds,
         build_profile=build_profile,
         settings=settings,
     )
@@ -356,6 +360,8 @@ def run_build_if_needed(
 
     previous_state_obj = previous_state if isinstance(previous_state, BuildState) else None
     runtime = runtime_override if runtime_override is not None else bootstrap(project_path)
+    if settings.heartbeat_interval_seconds is not None:
+        runtime.heartbeat_interval_seconds = settings.heartbeat_interval_seconds
     _hydrate_runtime_artifacts_from_state(
         runtime=runtime,
         state=previous_state_obj,

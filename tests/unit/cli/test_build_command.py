@@ -126,6 +126,7 @@ def test_run_build_if_needed_forwards_cli_log_outputs(monkeypatch, tmp_path):
         runtime_build_mode=None,
         base_log_level=None,
         build_profile=None,
+        cli_heartbeat_interval_seconds=None,
     ):
         captured["cli_log_level"] = cli_log_level
         captured["cli_visuals"] = cli_visuals
@@ -141,6 +142,7 @@ def test_run_build_if_needed_forwards_cli_log_outputs(monkeypatch, tmp_path):
             mode="OFF",
             force=False,
             profile_name=None,
+            heartbeat_interval_seconds=None,
         )
 
     monkeypatch.setattr(
@@ -181,6 +183,7 @@ def test_resolve_build_settings_uses_builtin_observability_defaults(tmp_path):
     assert settings.log_output.outputs[0].transport == "stderr"
     assert settings.log_output.outputs[0].destination is None
     assert settings.profile_name is None
+    assert settings.heartbeat_interval_seconds is None
 
 
 def test_resolve_build_settings_cli_overrides_defaults(tmp_path):
@@ -222,6 +225,7 @@ def test_resolve_build_settings_prefers_profile_over_defaults(tmp_path):
             "mode": "FORCE",
             "observability": {
                 "visuals": "ON",
+                "heartbeat_interval_seconds": 15,
                 "logging": {
                     "level": "DEBUG",
                     "outputs": [{"transport": "fs", "path": "./logs/nightly.log"}],
@@ -243,6 +247,7 @@ def test_resolve_build_settings_prefers_profile_over_defaults(tmp_path):
     assert settings.profile_name == "nightly"
     assert settings.mode == "FORCE"
     assert settings.visuals == "on"
+    assert settings.heartbeat_interval_seconds == 15
     assert settings.log_decision.name == "DEBUG"
     assert settings.log_output.outputs[0].transport == "fs"
     assert settings.log_output.outputs[0].destination == (tmp_path / "logs" / "nightly.log").resolve()
@@ -355,6 +360,7 @@ def test_run_build_if_needed_preserves_previous_artifacts_in_state(monkeypatch, 
             mode="AUTO",
             force=False,
             profile_name="schema",
+            heartbeat_interval_seconds=None,
         ),
     )
     monkeypatch.setattr("datapipeline.artifacts.executor.tasks_dir", lambda _: tasks_root)
@@ -435,6 +441,7 @@ def test_run_build_if_needed_rebuilds_stale_profile_artifact(monkeypatch, tmp_pa
             mode="AUTO",
             force=False,
             profile_name="scaler",
+            heartbeat_interval_seconds=None,
         ),
     )
     monkeypatch.setattr("datapipeline.artifacts.executor.tasks_dir", lambda _: tasks_root)
@@ -507,6 +514,7 @@ def test_run_build_if_needed_emits_missing_reason_when_artifact_not_built(monkey
             mode="AUTO",
             force=False,
             profile_name="schema",
+            heartbeat_interval_seconds=None,
         ),
     )
     monkeypatch.setattr("datapipeline.artifacts.executor.tasks_dir", lambda _: tasks_root)
@@ -586,6 +594,7 @@ def test_run_build_if_needed_hydrates_runtime_from_state_before_jobs(monkeypatch
             mode="AUTO",
             force=False,
             profile_name="stats",
+            heartbeat_interval_seconds=None,
         ),
     )
     monkeypatch.setattr("datapipeline.artifacts.executor.tasks_dir", lambda _: tasks_root)
@@ -648,6 +657,7 @@ def test_run_build_if_needed_emits_run_decision(monkeypatch, tmp_path):
             mode="FORCE",
             force=True,
             profile_name="schema",
+            heartbeat_interval_seconds=None,
         ),
     )
     monkeypatch.setattr("datapipeline.artifacts.executor.tasks_dir", lambda _: tasks_root)

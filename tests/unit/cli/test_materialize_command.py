@@ -10,6 +10,8 @@ def test_materialize_stream_parser() -> None:
             "materialize",
             "--project",
             "project.yaml",
+            "--heartbeat-interval",
+            "10",
             "stream",
             "equity.ohlcv.canonical",
             "--output",
@@ -26,6 +28,7 @@ def test_materialize_stream_parser() -> None:
     assert args.output == "equity.ohlcv.canonical.jsonl"
     assert args.as_stream_id == "equity.ohlcv.materialized"
     assert args.force is True
+    assert args.heartbeat_interval_seconds == 10
 
 
 @pytest.mark.parametrize("cmd", ["serve", "inspect"])

@@ -71,6 +71,22 @@ def resolve_visuals(
     return VisualSettings(visuals=visuals)
 
 
+def resolve_heartbeat_interval_seconds(
+    cli_heartbeat_interval_seconds: float | None,
+    config_heartbeat_interval_seconds: float | None,
+) -> float | None:
+    value = cascade(
+        cli_heartbeat_interval_seconds,
+        config_heartbeat_interval_seconds,
+    )
+    if value is None:
+        return None
+    interval = float(value)
+    if interval < 0:
+        raise ValueError("heartbeat_interval_seconds must be non-negative")
+    return interval
+
+
 @dataclass(frozen=True)
 class LogLevelDecision:
     name: str

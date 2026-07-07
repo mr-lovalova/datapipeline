@@ -87,6 +87,7 @@ class Runtime:
     schema_required: bool = True
     sample_keys: list[str] = field(default_factory=list)
     window_bounds: tuple[datetime | None, datetime | None] | None = None
+    heartbeat_interval_seconds: float | None = None
     artifacts: ArtifactManager = field(init=False)
 
     def __post_init__(self) -> None:

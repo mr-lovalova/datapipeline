@@ -14,6 +14,7 @@ from datapipeline.config.resolution import (
     resolve_log_output,
     resolve_project_log_outputs,
     resolve_visuals,
+    resolve_heartbeat_interval_seconds,
 )
 from datapipeline.config.split import HashSplitConfig, TimeSplitConfig
 from datapipeline.io.output import OutputTarget, resolve_output_target
@@ -94,6 +95,7 @@ def resolve_run_profiles(
     cli_log_outputs: Sequence[LogOutputTarget] | None = None,
     base_log_level: str = "INFO",
     cli_visuals: Optional[str] = None,
+    cli_heartbeat_interval_seconds: float | None = None,
     managed_run_targets: set[str] | None = None,
 ) -> list[RunProfile]:
     fallback_log_level = str(base_log_level).upper()
@@ -144,6 +146,10 @@ def resolve_run_profiles(
         run_label = entry_name or f"run{idx}"
         run_cfg = getattr(runtime, "run", None)
         run_observability = _run_config_value(run_cfg, "observability")
+        runtime.heartbeat_interval_seconds = resolve_heartbeat_interval_seconds(
+            cli_heartbeat_interval_seconds,
+            observability_value(run_observability, "heartbeat_interval_seconds"),
+        )
         build_cfg = _run_config_value(run_cfg, "build")
         profile_build_mode = getattr(build_cfg, "mode", None) if build_cfg is not None else None
         resolved_build_mode = str(

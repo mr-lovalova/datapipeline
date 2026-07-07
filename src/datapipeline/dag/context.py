@@ -32,6 +32,7 @@ class PipelineContext:
     transform_observer: Callable[..., None] | None = None
     observer_registry: Optional[ObserverRegistry] = None
     execution_observer: object | None = None
+    heartbeat_interval_seconds: float | None = None
     _cache: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -39,6 +40,12 @@ class PipelineContext:
             self.execution_observer = getattr(
                 self.runtime,
                 "execution_observer",
+                None,
+            )
+        if self.heartbeat_interval_seconds is None:
+            self.heartbeat_interval_seconds = getattr(
+                self.runtime,
+                "heartbeat_interval_seconds",
                 None,
             )
 

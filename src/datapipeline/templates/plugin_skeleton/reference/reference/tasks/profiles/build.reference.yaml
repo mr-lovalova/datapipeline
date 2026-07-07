@@ -11,6 +11,7 @@
 #
 # observability:              # optional
 #   visuals: OFF              # optional; ON | OFF
+#   heartbeat_interval_seconds: 60 # optional; 0 disables node heartbeat
 #   logging:                  # optional
 #     level: INFO             # optional; CRITICAL | ERROR | WARNING | INFO | DEBUG
 #     outputs:                # optional; ordered list (GLOBAL scope only)

@@ -18,6 +18,7 @@ def handle(
     as_stream_id: str | None,
     force: bool,
     visuals: str | None,
+    heartbeat_interval_seconds: float | None,
     workspace: WorkspaceContext | None,
 ) -> None:
     project_path = Path(project).resolve()
@@ -27,6 +28,8 @@ def handle(
     )
     validate_materialize_output_path(output_path)
     runtime = bootstrap(project_path)
+    if heartbeat_interval_seconds is not None:
+        runtime.heartbeat_interval_seconds = heartbeat_interval_seconds
     dataset = load_dataset(project_path, "vectors")
     result = materialize_stream_to_path(
         runtime=runtime,

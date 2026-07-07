@@ -5,6 +5,7 @@ cmd: build
 # mode: AUTO
 observability:
   visuals: ON
+  heartbeat_interval_seconds: 60
   logging:
     level: INFO
     outputs:

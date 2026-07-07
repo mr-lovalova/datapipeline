@@ -99,6 +99,7 @@ throttle_ms: null # milliseconds to sleep between emitted vectors
 # Optional overrides:
 # observability:
 #   visuals: ON      # ON | OFF
+#   heartbeat_interval_seconds: 60 # 0 disables node heartbeat
 #   logging:
 #     level: INFO    # CRITICAL | ERROR | WARNING | INFO | DEBUG
 #     outputs:
@@ -117,6 +118,7 @@ throttle_ms: null # milliseconds to sleep between emitted vectors
 - `keep` remains supported for legacy single-output split filtering and can be
   overridden per invocation via `jerry serve ... --keep val`.
 - Visuals backend: set `observability.visuals: ON|OFF` in the task or use `--visuals on|off`.
+- Node heartbeat: set `observability.heartbeat_interval_seconds` or use `--heartbeat-interval`; `0` disables heartbeat.
 - Add additional `cmd: serve` files under `profiles/` using the `serve.` prefix
   for distinct serve policies; `jerry serve` runs each enabled profile unless
   you pass `--run <name>`.
@@ -133,6 +135,7 @@ mode: AUTO # AUTO | FORCE | OFF
 # Optional overrides:
 # observability:
 #   visuals: OFF
+#   heartbeat_interval_seconds: 60 # 0 disables node heartbeat
 #   logging:
 #     level: INFO
 #     outputs:

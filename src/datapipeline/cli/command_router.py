@@ -65,6 +65,11 @@ def execute_command(
             as_stream_id=getattr(args, "as_stream_id", None),
             force=getattr(args, "force", False),
             visuals=getattr(args, "visuals", None),
+            heartbeat_interval_seconds=getattr(
+                args,
+                "heartbeat_interval_seconds",
+                None,
+            ),
             workspace=workspace_context,
         )
         return True

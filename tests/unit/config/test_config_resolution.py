@@ -7,6 +7,7 @@ from datapipeline.config.resolution import (
     parse_log_output_specs,
     materialize_log_output_for_execution,
     minimum_level,
+    resolve_heartbeat_interval_seconds,
     resolve_log_level,
     resolve_log_output,
     resolve_visuals,
@@ -33,6 +34,13 @@ def test_resolve_visuals_applies_priority():
         default_visuals="on",
     )
     assert visuals.visuals == "on"
+
+
+def test_resolve_heartbeat_interval_seconds_applies_priority():
+    assert resolve_heartbeat_interval_seconds(10, 60) == 10
+    assert resolve_heartbeat_interval_seconds(None, 30) == 30
+    assert resolve_heartbeat_interval_seconds(0, 30) == 0
+    assert resolve_heartbeat_interval_seconds(None, None) is None
 
 
 def test_resolve_log_level_handles_fallbacks():

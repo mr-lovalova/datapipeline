@@ -10,6 +10,7 @@ from datapipeline.config.resolution import (
     cascade,
     logging_value,
     observability_value,
+    resolve_heartbeat_interval_seconds,
     resolve_log_level,
     resolve_log_output,
     resolve_project_log_outputs,
@@ -25,6 +26,7 @@ class BuildSettings:
     mode: str
     force: bool
     profile_name: str | None
+    heartbeat_interval_seconds: float | None = None
 
 
 def resolve_build_settings(
@@ -32,6 +34,7 @@ def resolve_build_settings(
     cli_log_level: Optional[str] = None,
     cli_visuals: Optional[str] = None,
     cli_log_outputs: Sequence[LogOutputTarget] | None = None,
+    cli_heartbeat_interval_seconds: float | None = None,
     force_flag: bool = False,
     runtime_build_mode: str | None = None,
     base_log_level: str | None = None,
@@ -60,6 +63,10 @@ def resolve_build_settings(
         else None
     )
     profile_visuals = observability_value(profile_observability, "visuals")
+    profile_heartbeat_interval = observability_value(
+        profile_observability,
+        "heartbeat_interval_seconds",
+    )
     profile_log_level_default = logging_value(profile_observability, "level")
     if build_profile is not None and project_path is not None:
         profile_log_outputs = resolve_project_log_outputs(
@@ -97,4 +104,8 @@ def resolve_build_settings(
         mode=effective_mode,
         force=force_build,
         profile_name=profile_name,
+        heartbeat_interval_seconds=resolve_heartbeat_interval_seconds(
+            cli_heartbeat_interval_seconds,
+            profile_heartbeat_interval,
+        ),
     )

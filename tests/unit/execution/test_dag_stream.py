@@ -224,6 +224,54 @@ def test_run_dag_emits_heartbeat_for_quiet_node(tmp_path: Path, monkeypatch) -> 
     assert heartbeats[0].message.endswith("items=0")
 
 
+def test_run_dag_uses_context_heartbeat_interval(tmp_path: Path) -> None:
+    observer = _CollectingObserver()
+    ctx = _context(tmp_path)
+    ctx.heartbeat_interval_seconds = 0.01
+
+    def _quiet_work():
+        time.sleep(0.05)
+        yield 1
+
+    dag = Dag(
+        name="heartbeat-config-demo",
+        nodes=(PipelineNode(name="produce", op=_quiet_work),),
+    )
+
+    assert list(run_dag(ctx, dag, observer=observer)) == [1]
+
+    heartbeats = [
+        event
+        for event in observer.node_progress_events
+        if event.message.startswith("running elapsed=")
+    ]
+    assert heartbeats
+    assert heartbeats[0].dag_name == "heartbeat-config-demo"
+    assert heartbeats[0].node_name == "produce"
+
+
+def test_run_dag_disables_heartbeat_when_interval_is_zero(tmp_path: Path) -> None:
+    observer = _CollectingObserver()
+    ctx = _context(tmp_path)
+    ctx.heartbeat_interval_seconds = 0
+
+    def _quiet_work():
+        time.sleep(0.05)
+        yield 1
+
+    dag = Dag(
+        name="heartbeat-disabled-demo",
+        nodes=(PipelineNode(name="produce", op=_quiet_work),),
+    )
+
+    assert list(run_dag(ctx, dag, observer=observer)) == [1]
+    assert [
+        event
+        for event in observer.node_progress_events
+        if event.message.startswith("running elapsed=")
+    ] == []
+
+
 def test_run_dag_heartbeat_preserves_contextvars(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(dag_runner, "_HEARTBEAT_INTERVAL_SECONDS", 0.01)
     marker: ContextVar[str | None] = ContextVar("test_heartbeat_marker", default=None)

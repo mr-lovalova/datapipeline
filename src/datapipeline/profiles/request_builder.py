@@ -78,6 +78,7 @@ class ProfileResolveParams:
     cli_log_outputs: Sequence[LogOutputTarget] | None
     base_log_level: str
     cli_visuals: Optional[str]
+    cli_heartbeat_interval_seconds: float | None
     workspace: WorkspaceContext | None
 
 def build_cli_output_config(
@@ -167,12 +168,13 @@ def _resolve_build_execution_profiles(
                 cli_log_level=params.cli_log_level,
                 cli_visuals=params.cli_visuals,
                 cli_log_outputs=params.cli_log_outputs,
+                cli_heartbeat_interval_seconds=params.cli_heartbeat_interval_seconds,
                 force_flag=params.force,
                 base_log_level=params.base_log_level,
                 build_profile=profile,
             )
         except ValueError as exc:
-            logger.error("Invalid log output configuration: %s", exc)
+            logger.error("Invalid build configuration: %s", exc)
             raise SystemExit(2) from exc
         log_output = materialize_log_output_for_execution(
             settings=settings.log_output,
@@ -197,6 +199,7 @@ def _resolve_build_execution_profiles(
                     mode=settings.mode,
                     force=settings.force,
                     profile_name=settings.profile_name,
+                    heartbeat_interval_seconds=settings.heartbeat_interval_seconds,
                 ),
             )
         )
@@ -239,6 +242,7 @@ def _resolve_runtime_execution_profiles(
             cli_log_outputs=params.cli_log_outputs,
             base_log_level=params.base_log_level,
             cli_visuals=params.cli_visuals,
+            cli_heartbeat_interval_seconds=params.cli_heartbeat_interval_seconds,
             managed_run_targets=managed_run_targets,
         )
     except ValueError as exc:
@@ -304,6 +308,7 @@ def build_profile_run_request(
     cli_log_outputs: Sequence[LogOutputTarget] | None = None,
     base_log_level: str = "INFO",
     cli_visuals: Optional[str] = None,
+    cli_heartbeat_interval_seconds: float | None = None,
     workspace: WorkspaceContext | None = None,
 ) -> ProfileRunRequest | None:
     project_path = Path(project).resolve()
@@ -333,6 +338,7 @@ def build_profile_run_request(
         cli_log_outputs=cli_log_outputs,
         base_log_level=base_log_level,
         cli_visuals=cli_visuals,
+        cli_heartbeat_interval_seconds=cli_heartbeat_interval_seconds,
         workspace=workspace,
     )
     selected_profiles = _select_profiles(params)
