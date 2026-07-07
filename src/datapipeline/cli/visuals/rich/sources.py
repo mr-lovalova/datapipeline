@@ -239,12 +239,6 @@ class _RichSourceProxy(Source):
                     completed=task_emitted if sequence_entries else emitted,
                     remove=True,
                 )
-            emit_source_info(
-                stream_label,
-                f"stream complete items={emitted}",
-                logger=logger,
-                depth=current_dag_depth(),
-            )
 
 
 def _clear_progress_tasks(progress: Progress) -> None:

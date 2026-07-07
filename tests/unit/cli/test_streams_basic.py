@@ -46,19 +46,21 @@ class _StreamRegistry:
         self._items[stream_id] = stream_source
 
 
-def test_visual_source_proxy_logs_ascii_stream_completion(caplog):
+def test_visual_source_proxy_logs_source_details_without_completion(caplog):
     proxy = VisualSourceProxy(_SyntheticSource(), "time.ticks.linear")
 
     with caplog.at_level(
         logging.INFO, logger="datapipeline.cli.visuals.streams_basic"
     ):
-        list(proxy.stream())
+        rows = list(proxy.stream())
 
+    assert rows == [{"id": 0}, {"id": 1}]
     messages = [record.getMessage() for record in caplog.records]
     assert any(
-        "stream complete items=2" in msg
+        "synthetic.generate: start=2024-01-01T00:00:00Z" in msg
         for msg in messages
     )
+    assert all("stream complete items=" not in msg for msg in messages)
     assert all("✔" not in msg for msg in messages)
 
 

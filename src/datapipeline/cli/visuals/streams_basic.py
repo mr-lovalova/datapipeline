@@ -30,7 +30,6 @@ class VisualSourceProxy(Source):
 
     def stream(self) -> Iterator[Any]:
         adapter = SourceObservabilityAdapter(self._inner, self._stream_id)
-        emitted = 0
         started = False
 
         def _emit_source_details() -> None:
@@ -48,23 +47,14 @@ class VisualSourceProxy(Source):
                 for line in debug_lines:
                     logger.debug("%s[%s] %s", debug_indent, self._stream_id, line)
 
-        try:
-            if not getattr(adapter, "progress_visible", lambda: True)():
+        if not getattr(adapter, "progress_visible", lambda: True)():
+            _emit_source_details()
+            started = True
+        for item in self._inner.stream():
+            if not started:
                 _emit_source_details()
                 started = True
-            for item in self._inner.stream():
-                if not started:
-                    _emit_source_details()
-                    started = True
-                emitted += 1
-                yield item
-        finally:
-            emit_source_info(
-                self._stream_id,
-                f"stream complete items={emitted}",
-                logger=logger,
-                depth=current_dag_depth(),
-            )
+            yield item
 
 
 @contextmanager

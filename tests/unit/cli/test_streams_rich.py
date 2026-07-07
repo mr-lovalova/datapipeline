@@ -583,11 +583,7 @@ def test_rich_source_proxy_emits_glob_summary_as_source_info_event(monkeypatch) 
         2,
         "source_info",
     )
-    assert any(
-        msg == "[equity.ohlcv] stream complete items=1"
-        and kind == "source_info"
-        for msg, _level, _depth, kind in captured
-    )
+    assert all("stream complete items=" not in msg for msg, *_ in captured)
 
 
 def test_rich_source_proxy_batches_progress_advances(monkeypatch) -> None:
