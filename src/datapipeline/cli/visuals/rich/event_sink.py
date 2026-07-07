@@ -78,7 +78,8 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
             text.append("[", style="cyan")
             text.append(event.dag_name, style="bold cyan")
             text.append("] ", style="cyan")
-            text.append(event.info_line or "", style="dim")
+            style = "" if event.info_name == "source" else "dim"
+            text.append(event.info_line or "", style=style)
             return text
         if event.kind == "dag_start":
             text.append("DAG started", style="bold cyan")
