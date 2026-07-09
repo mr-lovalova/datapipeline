@@ -1,4 +1,3 @@
-import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -6,6 +5,10 @@ from typing import Literal
 
 import pytest
 
+from datapipeline.cli.visuals.execution_context import (
+    reset_current_execution_event_sink,
+    set_current_execution_event_sink,
+)
 from datapipeline.config.catalog import EPArgs, StreamConfig
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.joined import JoinedRow
@@ -64,6 +67,14 @@ class _ClosableIterator:
         self.closed += 1
 
 
+class _CaptureSink:
+    def __init__(self) -> None:
+        self.events = []
+
+    def emit(self, event) -> None:
+        self.events.append(event)
+
+
 def _t(day: int) -> datetime:
     return datetime(2021, 1, day, tzinfo=timezone.utc)
 
@@ -107,9 +118,9 @@ def _joined_stream(
         }
     )
     return build_joined_stream(
-        "joined.out",
-        config,
-        runtime,
+        stream_id="joined.out",
+        spec=config,
+        runtime=runtime,
     )
 
 
@@ -253,7 +264,7 @@ def test_joined_stream_matches_unpartitioned_inputs_by_time(monkeypatch) -> None
     assert rows[0].values["b"].value == 20
 
 
-def test_joined_stream_logs_join_diagnostics(monkeypatch, caplog) -> None:
+def test_joined_stream_emits_join_diagnostics(monkeypatch) -> None:
     runtime = _runtime(
         streams={
             "stream.a": [_Rec(time=_t(1), value=1), _Rec(time=_t(2), value=2)],
@@ -262,21 +273,26 @@ def test_joined_stream_logs_join_diagnostics(monkeypatch, caplog) -> None:
         partitions={"stream.a": None, "stream.b": None},
     )
     _install_streams(monkeypatch, runtime)
-    caplog.set_level(logging.INFO, logger="datapipeline.services.streams.joined")
-
-    rows = list(_joined_stream(runtime).stream())
+    capture = _CaptureSink()
+    token = set_current_execution_event_sink(capture)
+    try:
+        rows = list(_joined_stream(runtime).stream())
+    finally:
+        reset_current_execution_event_sink(token)
 
     assert len(rows) == 1
     assert rows[0].values["a"].value == 2
     assert rows[0].values["b"].value == 20
+    messages = [event.message for event in capture.events]
     assert (
         "[joined.out] join: primary=a on=time mode=inner "
         "primary_rows=2 output_rows=1"
-    ) in caplog.messages
+    ) in messages
     assert (
         "[joined.out] join.input: b=stream.b rows=1 "
         "matched_primary_rows=1 missed_primary_rows=1 match_rate=50.0%"
-    ) in caplog.messages
+    ) in messages
+    assert {event.message_kind for event in capture.events} == {"source_info"}
 
 
 def test_joined_stream_can_join_on_subset_of_partition_fields(monkeypatch) -> None:
@@ -393,7 +409,7 @@ def test_joined_stream_left_join_keeps_unmatched_primary(monkeypatch) -> None:
     ]
 
 
-def test_joined_stream_diagnostics_count_primary_matches(monkeypatch, caplog) -> None:
+def test_joined_stream_diagnostics_count_primary_matches(monkeypatch) -> None:
     runtime = _runtime(
         streams={
             "stream.a": [_Rec(time=_t(1), value=1), _Rec(time=_t(2), value=2)],
@@ -405,12 +421,16 @@ def test_joined_stream_diagnostics_count_primary_matches(monkeypatch, caplog) ->
         partitions={"stream.a": None, "stream.b": None},
     )
     _install_streams(monkeypatch, runtime)
-    caplog.set_level(logging.INFO, logger="datapipeline.services.streams.joined")
-
-    rows = list(_joined_stream(runtime).stream())
+    capture = _CaptureSink()
+    token = set_current_execution_event_sink(capture)
+    try:
+        rows = list(_joined_stream(runtime).stream())
+    finally:
+        reset_current_execution_event_sink(token)
 
     assert len(rows) == 2
+    messages = [event.message for event in capture.events]
     assert (
         "[joined.out] join.input: b=stream.b rows=2 "
         "matched_primary_rows=1 missed_primary_rows=1 match_rate=50.0%"
-    ) in caplog.messages
+    ) in messages
