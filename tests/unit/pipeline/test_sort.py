@@ -11,6 +11,12 @@ class SortItem:
     value: int
 
 
+@dataclass
+class StableSortItem:
+    value: int
+    position: int
+
+
 class UnpickleableSortItem:
     def __init__(self, value: int) -> None:
         self.value = value
@@ -25,6 +31,18 @@ def test_batch_sort_orders_records_across_batches() -> None:
     assert [item.value for item in ordered] == [1, 2, 3, 4]
 
 
+def test_batch_sort_preserves_input_order_for_equal_keys_across_batches() -> None:
+    records = [
+        StableSortItem(value=0, position=0),
+        StableSortItem(value=1, position=1),
+        StableSortItem(value=1, position=2),
+    ]
+
+    ordered = list(batch_sort(records, batch_size=2, key=lambda item: item.value))
+
+    assert [item.position for item in ordered] == [0, 1, 2]
+
+
 def test_batch_sort_orders_records_across_merge_passes(monkeypatch) -> None:
     monkeypatch.setattr(sort_module, "_MAX_OPEN_RUNS", 2)
     records = [SortItem(5), SortItem(1), SortItem(4), SortItem(2), SortItem(3)]
@@ -32,6 +50,17 @@ def test_batch_sort_orders_records_across_merge_passes(monkeypatch) -> None:
     ordered = list(batch_sort(records, batch_size=1, key=lambda item: item.value))
 
     assert [item.value for item in ordered] == [1, 2, 3, 4, 5]
+
+
+def test_batch_sort_preserves_input_order_for_equal_keys_across_merge_passes(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(sort_module, "_MAX_OPEN_RUNS", 2)
+    records = [StableSortItem(value=1, position=index) for index in range(5)]
+
+    ordered = list(batch_sort(records, batch_size=1, key=lambda item: item.value))
+
+    assert [item.position for item in ordered] == list(range(5))
 
 
 def test_batch_sort_keeps_single_batch_in_memory() -> None:
@@ -44,11 +73,7 @@ def test_batch_sort_keeps_single_batch_in_memory() -> None:
 
 def test_batch_sort_does_not_create_spill_dir_for_single_batch(tmp_path) -> None:
     records = [SortItem(2), SortItem(1)]
-    calls = {"count": 0}
-
-    def spill_dir():
-        calls["count"] += 1
-        return tmp_path / "sort"
+    spill_dir = tmp_path / "sort"
 
     ordered = list(
         batch_sort(
@@ -60,8 +85,7 @@ def test_batch_sort_does_not_create_spill_dir_for_single_batch(tmp_path) -> None
     )
 
     assert [item.value for item in ordered] == [1, 2]
-    assert calls["count"] == 0
-    assert not (tmp_path / "sort").exists()
+    assert not spill_dir.exists()
 
 
 def test_batch_sort_uses_configured_spill_parent(tmp_path) -> None:

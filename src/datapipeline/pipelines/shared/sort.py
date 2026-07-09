@@ -2,18 +2,15 @@ import heapq
 import pickle
 import tempfile
 from collections.abc import Callable, Generator, Iterable, Iterator, Sequence
-from contextlib import AbstractContextManager
-from itertools import count
 from pathlib import Path
 from typing import TypeVar
 
 T = TypeVar("T")
 _EMPTY = object()
 _MAX_OPEN_RUNS = 64
-SpillDir = Path | Callable[[], Path] | None
 
 
-def read_batches(
+def _sorted_batches(
     iterable: Iterable[T],
     batch_size: int,
     key: Callable[[T], object],
@@ -21,7 +18,7 @@ def read_batches(
     if batch_size < 1:
         raise ValueError("batch_size must be at least 1")
 
-    batch = []
+    batch: list[T] = []
     for item in iterable:
         batch.append(item)
         if len(batch) == batch_size:
@@ -35,10 +32,10 @@ def batch_sort(
     iterable: Iterable[T],
     batch_size: int,
     key: Callable[[T], object],
-    spill_dir: SpillDir = None,
+    spill_dir: Path | None = None,
 ) -> Iterator[T]:
-    """Sort an iterable by chunking, spilling runs to disk, then merging."""
-    batches = read_batches(iterable, batch_size, key)
+    """Stably sort records, spilling pickle runs when one batch is insufficient."""
+    batches = _sorted_batches(iterable, batch_size, key)
 
     first_batch = next(batches, _EMPTY)
     if first_batch is _EMPTY:
@@ -49,11 +46,18 @@ def batch_sort(
         yield from first_batch
         return
 
-    with _temporary_directory(spill_dir) as tmp:
+    if spill_dir is not None:
+        spill_dir.mkdir(parents=True, exist_ok=True)
+
+    with tempfile.TemporaryDirectory(
+        prefix="datapipeline-sort-",
+        dir=spill_dir,
+    ) as tmp:
         temp_dir = Path(tmp)
-        run_paths: list[Path] = []
-        run_paths.append(_write_run(temp_dir, 0, first_batch))
-        run_paths.append(_write_run(temp_dir, 1, second_batch))
+        run_paths = [
+            _write_run(temp_dir, 0, first_batch),
+            _write_run(temp_dir, 1, second_batch),
+        ]
 
         for batch in batches:
             run_paths.append(_write_run(temp_dir, len(run_paths), batch))
@@ -63,16 +67,7 @@ def batch_sort(
             pass_id += 1
             run_paths = _merge_pass(temp_dir, pass_id, run_paths, key)
 
-        for item in _merge_runs(run_paths, key):
-            yield item
-
-
-def _temporary_directory(spill_dir: SpillDir) -> AbstractContextManager[str]:
-    if spill_dir is None:
-        return tempfile.TemporaryDirectory(prefix="datapipeline-sort-")
-    root = spill_dir() if callable(spill_dir) else Path(spill_dir)
-    root.mkdir(parents=True, exist_ok=True)
-    return tempfile.TemporaryDirectory(prefix="datapipeline-sort-", dir=root)
+        yield from _merge_runs(run_paths, key)
 
 
 def _write_run(temp_dir: Path, run_id: int, items: Iterable[T]) -> Path:
@@ -114,23 +109,23 @@ def _copy_run(items: Iterable[T], path: Path) -> None:
 def _merge_runs(run_paths: Sequence[Path], key: Callable[[T], object]) -> Iterator[T]:
     heap: list[tuple[object, int, T, Iterator[T]]] = []
     readers: list[Generator[T, None, None]] = []
-    seq = count()
 
     try:
-        for path in run_paths:
+        # Each run is a contiguous input slice, so its index is the stable tie-breaker.
+        for run_index, path in enumerate(run_paths):
             reader = _read_run(path)
             readers.append(reader)
             first = next(reader, _EMPTY)
             if first is _EMPTY:
                 continue
-            heapq.heappush(heap, (key(first), next(seq), first, reader))
+            heapq.heappush(heap, (key(first), run_index, first, reader))
 
         while heap:
-            _, _, item, reader = heapq.heappop(heap)
+            _, run_index, item, reader = heapq.heappop(heap)
             yield item
             next_item = next(reader, _EMPTY)
             if next_item is not _EMPTY:
-                heapq.heappush(heap, (key(next_item), next(seq), next_item, reader))
+                heapq.heappush(heap, (key(next_item), run_index, next_item, reader))
     finally:
         for reader in readers:
             reader.close()
