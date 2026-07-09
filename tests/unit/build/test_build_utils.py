@@ -9,6 +9,7 @@ from datapipeline.config.tasks import MetadataTask, SchemaTask
 from datapipeline.operations.artifacts.metadata import _window_bounds_from_stats, _window_size
 from datapipeline.operations.artifacts.metadata import materialize_metadata
 from datapipeline.operations.artifacts.schema import materialize_vector_schema
+from datapipeline.operations.artifacts import utils as artifact_utils
 from datapipeline.operations.artifacts.utils import (
     collect_schema_entries,
     metadata_entries_from_stats,
@@ -42,7 +43,10 @@ def _runtime_with_dataset(tmp_path, dataset_text: str) -> Runtime:
     (tmp_path / "dataset.yaml").write_text(dataset_text, encoding="utf-8")
     artifacts_root = tmp_path / "build"
     artifacts_root.mkdir()
-    return Runtime(project_yaml=project_yaml, artifacts_root=artifacts_root)
+    runtime = Runtime(project_yaml=project_yaml, artifacts_root=artifacts_root)
+    runtime.registries.partition_by.register("market.prices", None)
+    runtime.registries.feature_id_by.register("market.prices", None)
+    return runtime
 
 
 def test_collect_schema_entries_counts_nan(monkeypatch, tmp_path):
@@ -88,6 +92,50 @@ def test_collect_schema_entries_counts_nan(monkeypatch, tmp_path):
     entry = next(item for item in stats if item["id"] == "wind_speed")
     assert entry["present_count"] == 1
     assert entry["null_count"] == 1
+
+
+def test_collect_schema_entries_emits_progress(monkeypatch, tmp_path):
+    artifacts_root = tmp_path / "artifacts"
+    artifacts_root.mkdir()
+    project_yaml = tmp_path / "project.yaml"
+    project_yaml.write_text("version: 1\n", encoding="utf-8")
+    runtime = Runtime(project_yaml=project_yaml, artifacts_root=artifacts_root)
+    cfg = FeatureRecordConfig(
+        id="price",
+        record_stream="market.prices",
+        field="close",
+    )
+    samples = [
+        Sample(key=(0,), features=Vector(values={"price": 1.0})),
+        Sample(key=(1,), features=Vector(values={"price": 2.0})),
+    ]
+    emitted: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(artifact_utils, "_COLLECTION_PROGRESS_ITEM_INTERVAL", 1)
+    monkeypatch.setattr(artifact_utils, "_COLLECTION_PROGRESS_INTERVAL_SECONDS", 0.0)
+    monkeypatch.setattr(
+        artifact_utils,
+        "build_vector_pipeline",
+        lambda *_args, **_kwargs: iter(samples),
+    )
+    monkeypatch.setattr(
+        artifact_utils,
+        "emit_operation_progress",
+        lambda step, message: emitted.append((step, message)) or True,
+    )
+
+    collect_schema_entries(
+        runtime,
+        [cfg],
+        group_by="1h",
+        cadence_strategy="max",
+        collect_metadata=False,
+        progress_label="schema features",
+    )
+
+    assert emitted
+    assert emitted[0][0] == "collect_schema_entries"
+    assert "schema features: scanned vectors=1" in emitted[0][1]
 
 
 def test_schema_materialization_rejects_configured_empty_features(

@@ -1,10 +1,16 @@
 import shutil
 
 from datapipeline.operations.artifacts.metadata import materialize_metadata
+from datapipeline.operations.artifacts.vector_inputs import materialize_vector_inputs
 from datapipeline.operations.artifacts.schema import materialize_vector_schema
 from datapipeline.operations.artifacts.scaler import materialize_scaler_statistics
 from datapipeline.config.context import load_dataset
-from datapipeline.config.tasks import MetadataTask, SchemaTask, ScalerTask
+from datapipeline.config.tasks import (
+    MetadataTask,
+    SchemaTask,
+    ScalerTask,
+    VectorInputsTask,
+)
 from datapipeline.dag.context import PipelineContext
 from datapipeline.pipelines import build_vector_pipeline
 from datapipeline.services.bootstrap import bootstrap
@@ -12,6 +18,7 @@ from datapipeline.services.constants import (
     VECTOR_SCHEMA_METADATA,
     VECTOR_SCHEMA,
     SCALER_STATISTICS,
+    VECTOR_INPUTS,
 )
 from datapipeline.transforms.vector import VectorDropTransform
 
@@ -27,12 +34,6 @@ def test_vertical_drop_respects_element_coverage_after_metadata_build(copy_fixtu
 
     # Build metadata artifact for the fixture project.
     runtime = bootstrap(project)
-    schema_rel = materialize_vector_schema(
-        runtime,
-        SchemaTask(id="schema", output="schema.json"),
-    )
-    if schema_rel:
-        runtime.artifacts.register(VECTOR_SCHEMA, relative_path=schema_rel.relative_path)
     scaler_rel = materialize_scaler_statistics(
         runtime,
         ScalerTask(id="scaler", split_label="all", output="scaler.json"),
@@ -41,6 +42,20 @@ def test_vertical_drop_respects_element_coverage_after_metadata_build(copy_fixtu
         runtime.artifacts.register(
             SCALER_STATISTICS, relative_path=scaler_rel.relative_path
         )
+    vector_inputs_rel = materialize_vector_inputs(
+        runtime,
+        VectorInputsTask(id="vector_inputs", output="vector_inputs/manifest.json"),
+    )
+    runtime.artifacts.register(
+        VECTOR_INPUTS,
+        relative_path=vector_inputs_rel.relative_path,
+    )
+    schema_rel = materialize_vector_schema(
+        runtime,
+        SchemaTask(id="schema", output="schema.json"),
+    )
+    if schema_rel:
+        runtime.artifacts.register(VECTOR_SCHEMA, relative_path=schema_rel.relative_path)
     meta_rel = materialize_metadata(
         runtime,
         MetadataTask(id="metadata", output="metadata.json"),
@@ -66,7 +81,7 @@ def test_vertical_drop_respects_element_coverage_after_metadata_build(copy_fixtu
     drop.bind_context(ctx)
     samples = list(drop.apply(vectors))
 
-    # Sequences are fully populated (present buckets * cadence == observed_elements), so they should be kept.
+    # Sequences are fully populated, so they should be kept.
     assert any(
         "spot_eur_sequence__@area:DK1" in sample.features.values for sample in samples
     )

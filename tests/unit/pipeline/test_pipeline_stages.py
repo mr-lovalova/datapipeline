@@ -2,10 +2,14 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
+
 from datapipeline.config.dataset.feature import FeatureRecordConfig
+from datapipeline.config.tasks import VectorInputsTask
 from datapipeline.domain.feature import FeatureRecord, FeatureRecordSequence
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.dag.context import PipelineContext
+from datapipeline.operations.artifacts.vector_inputs import materialize_vector_inputs
 from datapipeline.pipelines import (
     build_full_dag,
     build_full_pipeline,
@@ -22,10 +26,12 @@ from datapipeline.pipelines.vector.nodes import sample_domain_window_keys
 from datapipeline.pipelines.full.nodes import post_process
 from datapipeline.pipelines.full.split import apply_split_stage
 from datapipeline.runtime import Runtime, StreamRuntimeSpec
-from datapipeline.services.constants import POSTPROCESS_TRANSFORMS, VECTOR_SCHEMA
+from datapipeline.services.constants import POSTPROCESS_TRANSFORMS, VECTOR_INPUTS, VECTOR_SCHEMA
 from datapipeline.sources.adapters.fs import FsFileTransport, FsGlobTransport
 from datapipeline.sources.data_loader import DataLoader
 from datapipeline.sources.decoders import JsonLinesDecoder
+from datapipeline.vector_inputs import CachedVectorInputShard, write_vector_input_rows
+from tests.vector_input_helpers import register_vector_inputs
 
 
 def _ts(hour: int, minute: int = 0) -> datetime:
@@ -126,6 +132,17 @@ def _mapper(rows):
 
 def _identity(rows):
     yield from rows
+
+
+def _sample_payload(samples):
+    return [
+        (
+            item.key,
+            dict(item.features.values),
+            None if item.targets is None else dict(item.targets.values),
+        )
+        for item in samples
+    ]
 
 
 def _runtime_with_rows(
@@ -277,9 +294,10 @@ def test_dag_builders_expose_structural_child_dags(tmp_path: Path) -> None:
     assert feature_dag.metadata is None
     assert preview_feature_dag.nodes[0].name == "open_source"
 
-    feature_fanout = vector_dag.nodes[0]
-    assert feature_fanout.kind == "dag_fanout"
-    assert [dag.name for dag in feature_fanout.child_dags] == ["feature:price"]
+    vector_node = vector_dag.nodes[0]
+    assert vector_node.name == "cached_vector_assembly"
+    assert vector_node.kind == "function"
+    assert vector_node.child_dags == ()
 
     vector_assemble = full_dag.nodes[0]
     assert vector_assemble.kind == "dag_call"
@@ -449,6 +467,7 @@ def test_node_7_vs_8_postprocess(tmp_path: Path) -> None:
     )
     ctx = PipelineContext(runtime)
     cfg = FeatureRecordConfig(record_stream="stream", id="price", field="value")
+    register_vector_inputs(runtime, [cfg], "1h")
 
     raw = list(build_vector_pipeline(ctx, [cfg], "1h", rectangular=False))
     assert raw[0].features.values["price"] is None
@@ -476,6 +495,7 @@ def test_full_pipeline_matches_manual_chain(tmp_path: Path) -> None:
     )
     ctx = PipelineContext(runtime)
     cfg = FeatureRecordConfig(record_stream="stream", id="price", field="value")
+    register_vector_inputs(runtime, [cfg], "1h")
 
     full_out = list(build_full_pipeline(ctx, [cfg], "1h", rectangular=False))
 
@@ -487,69 +507,260 @@ def test_full_pipeline_matches_manual_chain(tmp_path: Path) -> None:
     assert full_out == manual_out
 
 
-def test_vector_pipeline_parents_feature_dags_to_fanout_node(tmp_path: Path) -> None:
+def test_vector_inputs_artifact_feeds_serve_pipeline(tmp_path: Path) -> None:
+    rows = [
+        {"time": _ts(1), "id_": "B", "value": 2.0, "other": 20.0},
+        {"time": _ts(0), "id_": "A", "value": 1.0, "other": 10.0},
+        {"time": _ts(0), "id_": "B", "value": 3.0, "other": 30.0},
+    ]
     runtime = _runtime_with_rows(
         tmp_path,
-        rows=[{"time": _ts(0), "value": 1.0}],
+        rows,
+        stream_id="prices",
+        partition_by="id_",
+        feature_id_by=[],
     )
-    observer = _DagParentObserver()
-    context = PipelineContext(runtime, execution_observer=observer)
-    cfg = FeatureRecordConfig(record_stream="stream", id="price", field="value")
+    for name in ("ingests", "streams", "sources", "tasks", "profiles"):
+        (tmp_path / name).mkdir(parents=True, exist_ok=True)
+    (tmp_path / "dataset.yaml").write_text(
+        "\n".join(
+            [
+                "sample:",
+                "  cadence: 1h",
+                "  keys: [id_]",
+                "features:",
+                "  - id: value_feature",
+                "    record_stream: prices",
+                "    field: value",
+                "  - id: other_feature",
+                "    record_stream: prices",
+                "    field: other",
+                "targets: []",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "postprocess.yaml").write_text("transforms: []\n", encoding="utf-8")
+    runtime.project_yaml.write_text(
+        "\n".join(
+            [
+                "version: 1",
+                "paths:",
+                "  ingests: ingests",
+                "  streams: streams",
+                "  sources: sources",
+                "  dataset: dataset.yaml",
+                "  postprocess: postprocess.yaml",
+                "  artifacts: artifacts",
+                "  tasks: tasks",
+                "  profiles: profiles",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    configs = [
+        FeatureRecordConfig(
+            record_stream="prices",
+            id="value_feature",
+            field="value",
+        ),
+        FeatureRecordConfig(
+            record_stream="prices",
+            id="other_feature",
+            field="other",
+        ),
+    ]
 
-    assert list(build_vector_pipeline(context, [cfg], "1h", rectangular=False))
+    result = materialize_vector_inputs(runtime, VectorInputsTask())
+    runtime.artifacts.register(
+        VECTOR_INPUTS,
+        relative_path=result.relative_path,
+        meta=result.meta,
+    )
+    cached = _sample_payload(
+        build_vector_pipeline(
+            PipelineContext(runtime),
+            configs,
+            "1h",
+            rectangular=False,
+            sample_keys=["id_"],
+        )
+    )
 
-    assert (
-        "feature:price",
-        "vector:assemble",
-        "feature_fanout",
-    ) in observer.dag_parents
+    assert result.meta == {
+        "features": 2,
+        "targets": 0,
+        "feature_rows": 6,
+        "target_rows": 0,
+        "format": "jsonl.gz",
+    }
+    assert cached == [
+        (
+            (_ts(0), "A"),
+            {"value_feature": 1.0, "other_feature": 10.0},
+            None,
+        ),
+        (
+            (_ts(0), "B"),
+            {"value_feature": 3.0, "other_feature": 30.0},
+            None,
+        ),
+        (
+            (_ts(1), "B"),
+            {"value_feature": 2.0, "other_feature": 20.0},
+            None,
+        ),
+    ]
 
 
-def test_vector_assembly_closes_feature_streams_when_stopped_early(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
+def test_vector_pipeline_requires_vector_inputs_artifact(tmp_path: Path) -> None:
     runtime = _runtime_with_rows(
         tmp_path,
         rows=[{"time": _ts(0), "value": 1.0}],
     )
     context = PipelineContext(runtime)
+    cfg = FeatureRecordConfig(record_stream="stream", id="price", field="value")
+
+    with pytest.raises(RuntimeError, match="Vector inputs artifact is required"):
+        list(build_vector_pipeline(context, [cfg], "1h", rectangular=False))
+
+
+def test_cached_vector_pipeline_rejects_manifest_cadence_mismatch(
+    tmp_path: Path,
+) -> None:
+    runtime = _runtime_with_rows(
+        tmp_path,
+        rows=[{"time": _ts(0), "value": 1.0}],
+    )
+    cfg = FeatureRecordConfig(record_stream="stream", id="price", field="value")
+    register_vector_inputs(runtime, [cfg], "1h")
+    manifest = runtime.artifacts_root / "build/vector_inputs/manifest.json"
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    payload["group_by"] = "1d"
+    manifest.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="group_by does not match"):
+        list(
+            build_vector_pipeline(
+                PipelineContext(runtime),
+                [cfg],
+                "1h",
+                rectangular=False,
+            )
+        )
+
+
+def test_cached_vector_pipeline_reads_requested_feature_subset(
+    tmp_path: Path,
+) -> None:
+    rows = [
+        {"time": _ts(0), "value": 1.0, "other": 10.0},
+        {"time": _ts(1), "value": 2.0, "other": 20.0},
+    ]
+    runtime = _runtime_with_rows(tmp_path, rows)
+    value_cfg = FeatureRecordConfig(record_stream="stream", id="price", field="value")
+    other_cfg = FeatureRecordConfig(record_stream="stream", id="other", field="other")
+    register_vector_inputs(runtime, [value_cfg, other_cfg], "1h")
+
+    samples = list(
+        build_vector_pipeline(
+            PipelineContext(runtime),
+            [value_cfg],
+            "1h",
+            rectangular=False,
+        )
+    )
+
+    assert _sample_payload(samples) == [
+        ((_ts(0),), {"price": 1.0}, None),
+        ((_ts(1),), {"price": 2.0}, None),
+    ]
+
+
+def test_vector_input_writer_removes_temp_file_on_interrupt(tmp_path: Path) -> None:
+    class _InterruptedRows:
+        def __init__(self) -> None:
+            self.count = 0
+
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            if self.count == 0:
+                self.count += 1
+                return {"id": "price", "time": _ts(0).isoformat(), "kind": "record"}
+            raise KeyboardInterrupt
+
+    destination = tmp_path / "price.jsonl.gz"
+
+    with pytest.raises(KeyboardInterrupt):
+        write_vector_input_rows(destination, _InterruptedRows())
+
+    assert not destination.exists()
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_cached_vector_records_close_streams_when_stopped_early(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
     configs = [
         FeatureRecordConfig(record_stream="stream", id="a", field="value"),
         FeatureRecordConfig(record_stream="stream", id="b", field="value"),
     ]
     closed_streams: list[str] = []
 
-    def _stream_for(cfg: FeatureRecordConfig):
-        def _iter():
-            try:
-                yield FeatureRecord(
-                    record=TemporalRecord(time=_ts(0)),
-                    id=cfg.id,
-                    value=1.0,
-                )
-                yield FeatureRecord(
-                    record=TemporalRecord(time=_ts(1)),
-                    id=cfg.id,
-                    value=2.0,
-                )
-            finally:
-                closed_streams.append(cfg.id)
+    class _ClosingStream:
+        def __init__(self, feature_id: str) -> None:
+            self.feature_id = feature_id
+            self.items = iter(
+                [
+                    FeatureRecord(
+                        record=TemporalRecord(time=_ts(0)),
+                        id=feature_id,
+                        value=1.0,
+                    ),
+                    FeatureRecord(
+                        record=TemporalRecord(time=_ts(1)),
+                        id=feature_id,
+                        value=2.0,
+                    ),
+                ]
+            )
 
-        return _iter()
+        def __iter__(self):
+            return self
 
-    def _build_stream(_context, cfg, sample_keys=(), group_by_cadence=None):
-        return _stream_for(cfg)
+        def __next__(self):
+            return next(self.items)
+
+        def close(self) -> None:
+            closed_streams.append(self.feature_id)
+
+    def _open_records(path):
+        if path.name == "a.jsonl.gz":
+            return _ClosingStream("a")
+        if path.name == "b.jsonl.gz":
+            return _ClosingStream("b")
+        raise AssertionError(path)
 
     monkeypatch.setattr(
-        "datapipeline.pipelines.vector.dag.build_feature_pipeline",
-        _build_stream,
+        "datapipeline.pipelines.vector.dag.open_vector_input_records",
+        _open_records,
     )
 
-    vectors = vector_dag._assemble_vectors(context, configs, "1h")
-    first = next(vectors)
-    assert first[0] == (_ts(0),)
+    records = vector_dag._merged_cached_records(
+        manifest_path=tmp_path / "manifest.json",
+        shards=(
+            CachedVectorInputShard(id="a", path="a.jsonl.gz", rows=2),
+            CachedVectorInputShard(id="b", path="b.jsonl.gz", rows=2),
+        ),
+        configs=configs,
+        group_by_cadence="1h",
+    )
+    first = next(records)
+    assert first.id == "a"
     assert closed_streams == []
 
-    vectors.close()
+    records.close()
     assert set(closed_streams) == {"a", "b"}

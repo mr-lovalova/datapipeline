@@ -89,6 +89,23 @@ def test_artifact_tasks_load_configs(tmp_path):
     assert scaler.output == "stats.pkl"
 
 
+def test_vector_inputs_artifact_task_loads_defaults(tmp_path):
+    project_yaml = _write_project(tmp_path, tasks_ref="tasks")
+    tasks_dir = _operations_dir(project_yaml)
+    (tasks_dir / "vector_inputs.yaml").write_text(
+        "id: vector_inputs\nkind: artifact\n", encoding="utf-8"
+    )
+
+    tasks = _artifact_tasks(project_yaml)
+
+    assert len(tasks) == 1
+    task = tasks[0]
+    assert task.id == "vector_inputs"
+    assert task.entrypoint == "core.artifact.vector_inputs"
+    assert task.output == "build/vector_inputs/manifest.json"
+    assert task.format == "jsonl.gz"
+
+
 def test_ticks_artifact_task_loads_arbitrary_id(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     tasks_dir = _operations_dir(project_yaml)

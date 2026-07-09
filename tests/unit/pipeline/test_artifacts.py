@@ -1,7 +1,10 @@
 import tomllib
 from pathlib import Path
 
-from datapipeline.artifacts.planning import build_planning_context
+from datapipeline.artifacts.planning import (
+    build_planning_context,
+    selected_artifact_keys_for_build,
+)
 from datapipeline.artifacts.specs import (
     ARTIFACT_DEFINITIONS,
     artifact_build_order,
@@ -13,10 +16,12 @@ from datapipeline.config.tasks import (
     SchemaTask,
     StatsTask,
     TicksTask,
+    VectorInputsTask,
 )
 from datapipeline.plugins import BUILD_OPERATIONS_EP
 from datapipeline.services.constants import (
     SCALER_STATISTICS,
+    VECTOR_INPUTS,
     VECTOR_SCHEMA,
     VECTOR_SCHEMA_METADATA,
     VECTOR_STATS,
@@ -40,14 +45,32 @@ def _declared_entrypoints(group: str) -> dict[str, str]:
 
 def test_artifact_build_order_follows_definition_precedence():
     ordered = artifact_build_order(
-        {VECTOR_SCHEMA_METADATA, SCALER_STATISTICS},
+        {VECTOR_SCHEMA_METADATA, VECTOR_INPUTS, SCALER_STATISTICS},
     )
-    assert ordered == [VECTOR_SCHEMA_METADATA, SCALER_STATISTICS]
+    assert ordered == [SCALER_STATISTICS, VECTOR_INPUTS, VECTOR_SCHEMA_METADATA]
 
 
 def test_artifact_keys_for_task_ids():
-    keys = artifact_keys_for_task_ids({"schema", "scaler", "stats"})
-    assert keys == {VECTOR_SCHEMA, SCALER_STATISTICS, VECTOR_STATS}
+    keys = artifact_keys_for_task_ids({"schema", "scaler", "stats", "vector_inputs"})
+    assert keys == {VECTOR_SCHEMA, SCALER_STATISTICS, VECTOR_STATS, VECTOR_INPUTS}
+
+
+def test_stats_build_selects_vector_inputs_dependency_chain():
+    context = build_planning_context(
+        [
+            StatsTask(id="stats", mode="final"),
+            VectorInputsTask(id="vector_inputs"),
+            ScalerTask(id="scaler"),
+        ]
+    )
+
+    keys = selected_artifact_keys_for_build(
+        context=context,
+        profile_target="stats",
+        profile_name="stats",
+    )
+
+    assert keys == {VECTOR_STATS, VECTOR_INPUTS, SCALER_STATISTICS}
 
 
 def test_ticks_task_uses_task_id_as_artifact_key():
@@ -74,6 +97,7 @@ def test_artifact_definitions_have_runner_bound_entrypoints():
         "metadata": MetadataTask(id="metadata"),
         "scaler": ScalerTask(id="scaler"),
         "stats": StatsTask(id="stats", mode="final"),
+        "vector_inputs": VectorInputsTask(id="vector_inputs"),
     }
     for definition in ARTIFACT_DEFINITIONS:
         task = task_by_id[definition.task_id]

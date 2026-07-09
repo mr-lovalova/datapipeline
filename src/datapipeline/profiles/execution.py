@@ -16,6 +16,7 @@ from datapipeline.operations.persistence import (
 from datapipeline.plugins import RUNTIME_OPERATIONS_EP
 from datapipeline.runtime import Runtime
 from datapipeline.services.bootstrap import build_state_path
+from datapipeline.services.constants import VECTOR_INPUTS
 
 from .models import (
     ExecutionProfile,
@@ -74,12 +75,14 @@ def run_selected_artifacts(
     request: ProfileRunRequest,
     profile: ExecutionProfile,
     artifact_task_ids: list[str],
+    required_artifacts: set[str] | None = None,
     runtime_override: Runtime | None = None,
 ) -> None:
-    if not artifact_task_ids:
-        return
-    required_artifacts = required_artifacts_for_task_ids(request, artifact_task_ids)
-    if not required_artifacts:
+    selected_artifacts = set(required_artifacts or ())
+    selected_artifacts.update(
+        required_artifacts_for_task_ids(request, artifact_task_ids)
+    )
+    if not selected_artifacts:
         return
     settings = profile.build_settings
     if settings is None:
@@ -94,7 +97,7 @@ def run_selected_artifacts(
         )
     run_build_if_needed(
         request.project_path,
-        required_artifacts=required_artifacts,
+        required_artifacts=selected_artifacts,
         artifact_task_configs=list(request.artifact_task_configs),
         settings=settings,
         skip_logging_setup=True,
@@ -177,16 +180,26 @@ def execute_profile(
 
     artifact_task_ids = artifact_task_ids_for_order(ordered_ids, tasks_by_id)
     runtime_task_ids = runtime_task_ids_for_order(ordered_ids, tasks_by_id)
+    runtime_required_artifacts: set[str] = set()
+    for task_id in runtime_task_ids:
+        task = tasks_by_id[task_id]
+        if (
+            isinstance(task, OperationTask)
+            and task.entrypoint == "core.runtime.pipeline"
+        ):
+            runtime_required_artifacts.add(VECTOR_INPUTS)
     runtime = runtime_override or profile.runtime
 
     should_build_artifacts = bool(
-        artifact_task_ids and (profile.build_settings is not None or not request.skip_build)
+        (artifact_task_ids or runtime_required_artifacts)
+        and (profile.build_settings is not None or not request.skip_build)
     )
     if should_build_artifacts:
         run_selected_artifacts(
             request=request,
             profile=profile,
             artifact_task_ids=artifact_task_ids,
+            required_artifacts=runtime_required_artifacts,
             runtime_override=runtime,
         )
 

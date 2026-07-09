@@ -10,12 +10,14 @@ from datapipeline.config.tasks import (
     StatsTask,
     Task,
     TicksTask,
+    VectorInputsTask,
 )
 from datapipeline.services.project_paths import tasks_dir
 
 from .common import ensure_unique_specs, load_specs, spec_files
 
 ARTIFACT_OPERATION_MODELS: dict[str, type[ArtifactTask]] = {
+    "vector_inputs": VectorInputsTask,
     "schema": SchemaTask,
     "scaler": ScalerTask,
     "metadata": MetadataTask,

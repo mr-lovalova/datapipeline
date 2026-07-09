@@ -1,10 +1,15 @@
 import pytest
 
 from datapipeline.config.context import load_dataset_context
+from datapipeline.operations.artifacts.vector_inputs import materialize_vector_inputs
 from datapipeline.operations.artifacts.schema import materialize_vector_schema
 from datapipeline.operations.artifacts.scaler import materialize_scaler_statistics
-from datapipeline.config.tasks import SchemaTask, ScalerTask
-from datapipeline.services.constants import VECTOR_SCHEMA, SCALER_STATISTICS
+from datapipeline.config.tasks import SchemaTask, ScalerTask, VectorInputsTask
+from datapipeline.services.constants import (
+    VECTOR_INPUTS,
+    VECTOR_SCHEMA,
+    SCALER_STATISTICS,
+)
 from datapipeline.pipelines.full.nodes import post_process
 from datapipeline.pipelines import build_vector_pipeline
 
@@ -15,11 +20,6 @@ def _vector_samples(project_yaml):
     runtime = ctx.runtime
 
     # Ensure artifacts are materialized for the test run.
-    schema_rel = materialize_vector_schema(
-        runtime, SchemaTask(id="schema", output="schema.json")
-    )
-    if schema_rel:
-        runtime.artifacts.register(VECTOR_SCHEMA, relative_path=schema_rel.relative_path)
     scaler_rel = materialize_scaler_statistics(
         runtime, ScalerTask(id="scaler", split_label="all", output="scaler.json")
     )
@@ -27,6 +27,19 @@ def _vector_samples(project_yaml):
         runtime.artifacts.register(
             SCALER_STATISTICS, relative_path=scaler_rel.relative_path
         )
+    vector_inputs_rel = materialize_vector_inputs(
+        runtime,
+        VectorInputsTask(id="vector_inputs", output="vector_inputs/manifest.json"),
+    )
+    runtime.artifacts.register(
+        VECTOR_INPUTS,
+        relative_path=vector_inputs_rel.relative_path,
+    )
+    schema_rel = materialize_vector_schema(
+        runtime, SchemaTask(id="schema", output="schema.json")
+    )
+    if schema_rel:
+        runtime.artifacts.register(VECTOR_SCHEMA, relative_path=schema_rel.relative_path)
 
     vectors = build_vector_pipeline(
         context,

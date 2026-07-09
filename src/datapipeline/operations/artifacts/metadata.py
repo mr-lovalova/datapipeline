@@ -179,6 +179,7 @@ def materialize_metadata(
         sample_keys=dataset.sample_keys,
         cadence_strategy=task_cfg.cadence_strategy,
         collect_metadata=True,
+        progress_label="metadata features",
     )
     if configured_vectors_are_empty(features_cfgs, feature_vectors):
         raise RuntimeError(
@@ -206,6 +207,7 @@ def materialize_metadata(
             sample_keys=dataset.sample_keys,
             cadence_strategy=task_cfg.cadence_strategy,
             collect_metadata=True,
+            progress_label="metadata targets",
         )
         if configured_vectors_are_empty(target_cfgs, target_vectors):
             raise RuntimeError(

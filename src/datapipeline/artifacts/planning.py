@@ -72,6 +72,19 @@ def selected_artifact_keys_for_build(
         selected = set(required_artifacts)
         if profile_keys is not None:
             selected &= profile_keys
+
+    by_key = {definition.key: definition for definition in context.definitions}
+    pending = list(selected)
+    while pending:
+        key = pending.pop()
+        definition = by_key.get(key)
+        if definition is None:
+            continue
+        for dependency in definition.dependencies:
+            if dependency in selected:
+                continue
+            selected.add(dependency)
+            pending.append(dependency)
     return selected
 
 

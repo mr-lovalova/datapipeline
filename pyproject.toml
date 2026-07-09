@@ -91,6 +91,7 @@ identity = "datapipeline.parsers.identity:IdentityParser"
 "core.synthetic.ticks" = "datapipeline.sources.synthetic.time.parser:TimeRowParser"
 
 [project.entry-points."datapipeline.operations.build"]
+"core.artifact.vector_inputs" = "datapipeline.operations.artifacts.vector_inputs:materialize_vector_inputs"
 "core.artifact.schema" = "datapipeline.operations.artifacts.schema:materialize_vector_schema"
 "core.artifact.metadata" = "datapipeline.operations.artifacts.metadata:materialize_metadata"
 "core.artifact.scaler" = "datapipeline.operations.artifacts.scaler:materialize_scaler_statistics"

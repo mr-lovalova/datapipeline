@@ -4,13 +4,18 @@ from types import SimpleNamespace
 import pytest
 
 from datapipeline.build.state import BuildState, save_build_state
-from datapipeline.config.tasks import MetadataTask, OperationTask, SchemaTask
+from datapipeline.config.tasks import (
+    MetadataTask,
+    OperationTask,
+    SchemaTask,
+    VectorInputsTask,
+)
 from datapipeline.io.output import OutputTarget
 from datapipeline.profiles.models import ExecutionProfile, ProfileRunRequest
 from datapipeline.profiles.orchestration import run_profiles
 from datapipeline.services.artifacts import ArtifactManager
 from datapipeline.services.bootstrap import build_state_path
-from datapipeline.services.constants import VECTOR_SCHEMA
+from datapipeline.services.constants import VECTOR_INPUTS, VECTOR_SCHEMA
 from datapipeline.services.runs import RunPaths
 
 
@@ -80,7 +85,7 @@ def test_run_profiles_executes_profile_target(monkeypatch, tmp_path):
 
     run_profiles(request)
 
-    assert calls["build"] == 0
+    assert calls["build"] == 1
     assert calls["dispatch"] == 1
 
 
@@ -99,6 +104,7 @@ def test_run_profiles_parent_scope_does_not_announce(monkeypatch, tmp_path):
         project_path=tmp_path / "project.yaml",
         tasks=[serve],
         artifact_task_configs=[],
+        skip_build=True,
         profiles=[
             ExecutionProfile(
                 name="serve",
@@ -187,6 +193,63 @@ def test_run_profiles_can_skip_artifact_build(monkeypatch, tmp_path):
     assert calls["dispatch"] == 1
 
 
+def test_run_profiles_requires_vector_inputs_for_pipeline_serve(monkeypatch, tmp_path):
+    vector_inputs = VectorInputsTask(id="vector_inputs")
+    serve = OperationTask.model_validate(
+        {
+            "id": "pipeline",
+            "kind": "runtime",
+            "entrypoint": "core.runtime.pipeline",
+        }
+    )
+
+    log_decision, log_output = _log_config()
+    runtime = SimpleNamespace(artifacts=ArtifactManager(tmp_path / "artifacts"))
+    request = ProfileRunRequest(
+        command="serve",
+        project_path=tmp_path / "project.yaml",
+        tasks=[vector_inputs, serve],
+        artifact_task_configs=[vector_inputs],
+        profiles=[
+            ExecutionProfile(
+                name="serve",
+                target_id="pipeline",
+                visuals="on",
+                log_decision=log_decision,
+                log_output=log_output,
+                runtime=runtime,
+                dataset=object(),
+            )
+        ],
+    )
+
+    seen: dict[str, object] = {}
+
+    def _capture_selected_artifacts(**kwargs):
+        seen["required_artifacts"] = kwargs["required_artifacts"]
+
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.run_profile",
+        lambda spec, work: work(),
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.execution.run_selected_artifacts",
+        _capture_selected_artifacts,
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.execution.sync_runtime_artifacts_from_state",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.execution.execute_operation",
+        lambda **kwargs: None,
+    )
+
+    run_profiles(request)
+
+    assert seen["required_artifacts"] == {VECTOR_INPUTS}
+
+
 def test_run_profiles_syncs_runtime_artifacts_after_build(monkeypatch, tmp_path):
     (tmp_path / "project.yaml").write_text(
         "\n".join(
@@ -255,6 +318,10 @@ def test_run_profiles_syncs_runtime_artifacts_after_build(monkeypatch, tmp_path)
     monkeypatch.setattr(
         "datapipeline.profiles.execution.execute_operation",
         _capture_dispatch,
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.execution.run_selected_artifacts",
+        lambda **_kwargs: None,
     )
 
     run_profiles(request)
@@ -360,7 +427,7 @@ def test_runtime_dependency_build_scope_isolated_from_parent_profile(monkeypatch
 
     run_profiles(request)
 
-    assert captured["count"] == 0
+    assert captured["count"] == 1
 
 
 def test_run_profiles_finalize_shared_serve_run_once(monkeypatch, tmp_path):

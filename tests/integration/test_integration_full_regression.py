@@ -3,6 +3,7 @@ import pytest
 from datapipeline.config.context import load_dataset_context
 from datapipeline.pipelines.full.nodes import post_process
 from datapipeline.pipelines import build_vector_pipeline
+from tests.vector_input_helpers import register_vector_inputs
 
 
 def test_full_regression_project_vectors(copy_fixture) -> None:
@@ -10,6 +11,12 @@ def test_full_regression_project_vectors(copy_fixture) -> None:
     project_path = project_root / "project.yaml"
     ctx = load_dataset_context(project_path)
     context = ctx.pipeline_context
+    register_vector_inputs(
+        ctx.runtime,
+        ctx.features,
+        ctx.dataset.group_by,
+        targets=ctx.targets,
+    )
 
     base_vectors = build_vector_pipeline(
         context,

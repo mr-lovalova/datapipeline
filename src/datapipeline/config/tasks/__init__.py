@@ -4,6 +4,7 @@ from .scaler import ScalerTask
 from .schema import SchemaTask
 from .stats import StatsTask
 from .ticks import TicksTask
+from .vector_inputs import VectorInputsTask
 
 __all__ = [
     "Task",
@@ -14,4 +15,5 @@ __all__ = [
     "MetadataTask",
     "StatsTask",
     "TicksTask",
+    "VectorInputsTask",
 ]

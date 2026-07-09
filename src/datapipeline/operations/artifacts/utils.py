@@ -1,13 +1,20 @@
+import logging
+import time
 from collections import Counter, OrderedDict
 from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
 from datapipeline.dag.context import PipelineContext
+from datapipeline.execution.observability import emit_operation_progress
 from datapipeline.pipelines import build_vector_pipeline
 from datapipeline.runtime import Runtime
 from datapipeline.transforms.vector_utils import base_id as _base_feature_id
 from datapipeline.transforms.utils import is_missing
+
+logger = logging.getLogger(__name__)
+_COLLECTION_PROGRESS_INTERVAL_SECONDS = 60.0
+_COLLECTION_PROGRESS_ITEM_INTERVAL = 10_000
 
 
 def _type_name(value: object) -> str:
@@ -24,6 +31,7 @@ def collect_schema_entries(
     sample_keys: Sequence[str] = (),
     cadence_strategy: str,
     collect_metadata: bool,
+    progress_label: str = "schema entries",
 ) -> tuple[list[dict], int, datetime | None, datetime | None]:
     entries, vector_count, min_time, max_time, _ = _collect_schema_entries(
         runtime,
@@ -33,6 +41,7 @@ def collect_schema_entries(
         cadence_strategy=cadence_strategy,
         collect_metadata=collect_metadata,
         collect_sample_domain=False,
+        progress_label=progress_label,
     )
     return entries, vector_count, min_time, max_time
 
@@ -45,6 +54,7 @@ def collect_schema_entries_and_sample_domain(
     sample_keys: Sequence[str],
     cadence_strategy: str,
     collect_metadata: bool,
+    progress_label: str = "metadata entries",
 ) -> tuple[
     list[dict],
     int,
@@ -60,6 +70,7 @@ def collect_schema_entries_and_sample_domain(
         cadence_strategy=cadence_strategy,
         collect_metadata=collect_metadata,
         collect_sample_domain=True,
+        progress_label=progress_label,
     )
 
 
@@ -72,6 +83,7 @@ def _collect_schema_entries(
     cadence_strategy: str,
     collect_metadata: bool,
     collect_sample_domain: bool,
+    progress_label: str,
 ) -> tuple[
     list[dict],
     int,
@@ -97,6 +109,8 @@ def _collect_schema_entries(
     vector_count = 0
     min_time: datetime | None = None
     max_time: datetime | None = None
+    started_at = time.perf_counter()
+    next_progress_at = started_at + _COLLECTION_PROGRESS_INTERVAL_SECONDS
     for sample in vectors:
         vector_count += 1
         ts = sample.key[0] if isinstance(sample.key, tuple) and sample.key else None
@@ -157,8 +171,34 @@ def _collect_schema_entries(
                     entry["kind"] = "scalar"
                 if collect_metadata:
                     entry["scalar_types"].add(_type_name(value))
+        if vector_count % _COLLECTION_PROGRESS_ITEM_INTERVAL == 0:
+            now = time.perf_counter()
+            if now >= next_progress_at:
+                _emit_collection_progress(
+                    progress_label=progress_label,
+                    vector_count=vector_count,
+                    discovered_ids=len(stats),
+                    elapsed_seconds=now - started_at,
+                )
+                next_progress_at = now + _COLLECTION_PROGRESS_INTERVAL_SECONDS
 
     return list(stats.values()), vector_count, min_time, max_time, sample_domain
+
+
+def _emit_collection_progress(
+    *,
+    progress_label: str,
+    vector_count: int,
+    discovered_ids: int,
+    elapsed_seconds: float,
+) -> None:
+    message = (
+        f"{progress_label}: scanned vectors={vector_count} "
+        f"discovered_ids={discovered_ids} elapsed={elapsed_seconds:.0f}s"
+    )
+    emitted = emit_operation_progress("collect_schema_entries", message)
+    if not emitted:
+        logger.info("%s", message)
 
 
 def _update_sample_domain(

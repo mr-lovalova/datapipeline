@@ -8,8 +8,6 @@ from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.config.split import HashSplitConfig, TimeSplitConfig
 from datapipeline.config.tasks import ScalerTask
-from datapipeline.domain.sample import Sample
-from datapipeline.domain.vector import Vector
 from datapipeline.runtime import Runtime
 
 
@@ -47,9 +45,9 @@ def test_materialize_scaler_statistics_split_all_ignores_label_filter(monkeypatc
         targets=[],
     )
 
-    samples = [
-        Sample(key=(_ts(1),), features=Vector(values={"x": 1.0})),
-        Sample(key=(_ts(3),), features=Vector(values={"x": 3.0})),
+    values = [
+        ((_ts(1),), "x", 1.0),
+        ((_ts(3),), "x", 3.0),
     ]
 
     monkeypatch.setattr(
@@ -57,8 +55,8 @@ def test_materialize_scaler_statistics_split_all_ignores_label_filter(monkeypatc
         lambda *_args, **_kwargs: dataset,
     )
     monkeypatch.setattr(
-        "datapipeline.operations.artifacts.scaler.build_vector_pipeline",
-        lambda *_args, **_kwargs: iter(samples),
+        "datapipeline.operations.artifacts.scaler._iter_unscaled_feature_values",
+        lambda **_kwargs: iter(values),
     )
 
     result = materialize_scaler_statistics(
@@ -80,6 +78,77 @@ def test_materialize_scaler_statistics_split_all_ignores_label_filter(monkeypatc
     assert "x" in payload["statistics"]
 
 
+def test_materialize_scaler_statistics_hash_feature_split_is_sequential(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    artifacts_root = tmp_path / "artifacts"
+    artifacts_root.mkdir()
+    project_yaml = tmp_path / "project.yaml"
+    project_yaml.write_text("version: 1\n", encoding="utf-8")
+    runtime = Runtime(project_yaml=project_yaml, artifacts_root=artifacts_root)
+    _register_stream_identity(runtime)
+    runtime.split = HashSplitConfig(
+        ratios={"train": 1.0},
+        key="feature:bucket",
+    )
+    dataset = FeatureDatasetConfig(
+        group_by="1h",
+        features=[
+            FeatureRecordConfig(
+                id="bucket",
+                record_stream="stream",
+                field="bucket",
+                scale=False,
+            ),
+            FeatureRecordConfig(
+                id="x",
+                record_stream="stream",
+                field="value",
+                scale=True,
+            ),
+        ],
+        targets=[],
+    )
+
+    def _values_for_configs(**kwargs):
+        ids = {cfg.id for cfg in kwargs["configs"]}
+        if ids == {"x"}:
+            return iter(
+                [
+                    ((_ts(1),), "x", 1.0),
+                    ((_ts(2),), "x", 3.0),
+                ]
+            )
+        return iter(
+            [
+                ((_ts(1),), "bucket", "a"),
+                ((_ts(2),), "bucket", "b"),
+            ]
+        )
+
+    monkeypatch.setattr(
+        "datapipeline.operations.artifacts.scaler.load_dataset",
+        lambda *_args, **_kwargs: dataset,
+    )
+    monkeypatch.setattr(
+        "datapipeline.operations.artifacts.scaler._iter_unscaled_feature_values",
+        _values_for_configs,
+    )
+
+    result = materialize_scaler_statistics(
+        runtime,
+        ScalerTask(id="scaler", split_label="train", output="scaler.json"),
+    )
+
+    assert result is not None
+    assert result.meta["observations"] == 2
+    payload = json.loads(
+        (artifacts_root / result.relative_path).read_text(encoding="utf-8")
+    )
+    assert set(payload["statistics"]) == {"x"}
+
+
 def test_materialize_scaler_statistics_skips_when_no_scaled_features(
     monkeypatch,
     tmp_path,
@@ -99,10 +168,6 @@ def test_materialize_scaler_statistics_skips_when_no_scaled_features(
     monkeypatch.setattr(
         "datapipeline.operations.artifacts.scaler.load_dataset",
         lambda *_args, **_kwargs: dataset,
-    )
-    monkeypatch.setattr(
-        "datapipeline.operations.artifacts.scaler.build_vector_pipeline",
-        lambda *_args, **_kwargs: pytest.fail("vector pipeline should not run"),
     )
 
     result = materialize_scaler_statistics(
@@ -143,11 +208,11 @@ def test_materialize_temporal_scaler_statistics_builds_fold_payload(
         ],
         targets=[],
     )
-    samples = [
-        Sample(key=(_ts(1),), features=Vector(values={"x": 1.0})),
-        Sample(key=(_ts(2),), features=Vector(values={"x": 10.0})),
-        Sample(key=(_ts(3),), features=Vector(values={"x": 3.0})),
-        Sample(key=(_ts(4),), features=Vector(values={"x": 30.0})),
+    values = [
+        ((_ts(1),), "x", 1.0),
+        ((_ts(2),), "x", 10.0),
+        ((_ts(3),), "x", 3.0),
+        ((_ts(4),), "x", 30.0),
     ]
 
     monkeypatch.setattr(
@@ -155,8 +220,8 @@ def test_materialize_temporal_scaler_statistics_builds_fold_payload(
         lambda *_args, **_kwargs: dataset,
     )
     monkeypatch.setattr(
-        "datapipeline.operations.artifacts.scaler.build_vector_pipeline",
-        lambda *_args, **_kwargs: iter(samples),
+        "datapipeline.operations.artifacts.scaler._iter_unscaled_feature_values",
+        lambda **_kwargs: iter(values),
     )
 
     result = materialize_scaler_statistics(
@@ -213,11 +278,6 @@ def test_materialize_temporal_scaler_requires_time_split(monkeypatch, tmp_path) 
         "datapipeline.operations.artifacts.scaler.load_dataset",
         lambda *_args, **_kwargs: dataset,
     )
-    monkeypatch.setattr(
-        "datapipeline.operations.artifacts.scaler.build_vector_pipeline",
-        lambda *_args, **_kwargs: iter(()),
-    )
-
     with pytest.raises(RuntimeError, match="project split mode 'time'"):
         materialize_scaler_statistics(
             runtime,

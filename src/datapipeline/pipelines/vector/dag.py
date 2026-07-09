@@ -2,6 +2,7 @@ import heapq
 import logging
 from collections.abc import Iterator, Sequence
 from itertools import tee
+from pathlib import Path
 from typing import Any
 
 from datapipeline.artifacts.models import VectorMetadata
@@ -9,9 +10,6 @@ from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.dag.context import PipelineContext
 from datapipeline.dag.dag import Dag
 from datapipeline.dag.node import PipelineNode
-from datapipeline.dag.runner import run_dag
-from datapipeline.domain.vector import Vector
-from datapipeline.pipelines.feature.dag import build_feature_dag, build_feature_pipeline
 from datapipeline.pipelines.vector.keygen import group_key_for
 from datapipeline.pipelines.vector.nodes import (
     align_stream,
@@ -23,6 +21,12 @@ from datapipeline.pipelines.vector.nodes import (
 from datapipeline.services.artifacts import (
     ArtifactNotRegisteredError,
     VECTOR_METADATA_SPEC,
+)
+from datapipeline.services.constants import VECTOR_INPUTS
+from datapipeline.vector_inputs import (
+    CachedVectorInputShard,
+    load_vector_inputs_manifest,
+    open_vector_input_records,
 )
 
 logger = logging.getLogger(__name__)
@@ -53,28 +57,50 @@ def build_vector_pipeline(
         return iter(())
     context.runtime.sample_keys = list(sample_keys)
 
-    return run_dag(
+    cached = _build_cached_vector_pipeline(
         context,
-        build_vector_dag(
-            context,
-            feature_cfgs,
-            group_by_cadence,
-            target_configs=target_cfgs,
-            rectangular=rectangular,
-            sample_keys=sample_keys,
-        ),
+        feature_cfgs,
+        group_by_cadence,
+        target_configs=target_cfgs,
+        rectangular=rectangular,
+        sample_keys=sample_keys,
+    )
+    if cached is not None:
+        return cached
+    raise RuntimeError(
+        "Vector inputs artifact is required before vector assembly. "
+        "Run `jerry build --run vector_inputs` or use build mode AUTO/FORCE."
     )
 
 
-def build_vector_dag(
+def _build_cached_vector_pipeline(
     context: PipelineContext,
     configs: Sequence[FeatureRecordConfig],
     group_by_cadence: str,
     target_configs: Sequence[FeatureRecordConfig] | None = None,
     rectangular: bool = True,
     sample_keys: Sequence[str] = (),
-) -> Dag:
-    feature_cfgs = list(configs)
+) -> Iterator[Any] | None:
+    artifact = context.runtime.artifacts.optional(VECTOR_INPUTS)
+    if artifact is None:
+        return None
+
+    manifest_path = artifact.resolve(context.runtime.artifacts.root)
+    manifest = load_vector_inputs_manifest(manifest_path)
+    if manifest.format != "jsonl.gz":
+        raise RuntimeError(
+            f"Unsupported vector inputs format '{manifest.format}'."
+        )
+    if manifest.group_by != group_by_cadence:
+        raise RuntimeError(
+            "Vector inputs artifact group_by does not match requested pipeline cadence: "
+            f"{manifest.group_by!r} != {group_by_cadence!r}."
+        )
+    if manifest.sample_keys != tuple(sample_keys):
+        raise RuntimeError(
+            "Vector inputs artifact sample keys do not match requested pipeline sample keys."
+        )
+
     target_cfgs = list(target_configs or [])
     keys_feature = None
     keys_target = None
@@ -93,125 +119,115 @@ def build_vector_dag(
             else:
                 keys_feature = keys
 
-    nodes = [
-        PipelineNode(
-            name="feature_fanout",
-            op=_assemble_vectors,
-            args=(
-                context,
-                feature_cfgs,
-                group_by_cadence,
-                sample_keys,
-                "Assembling feature vectors",
-            ),
-            output="feature_vectors",
-            kind="dag_fanout",
-            calls_dag="feature:*",
-            child_dags=tuple(
-                build_feature_dag(
-                    context,
-                    cfg,
-                    sample_keys=sample_keys,
-                    group_by_cadence=group_by_cadence,
-                )
-                for cfg in feature_cfgs
-            ),
+    feature_records = _merged_cached_records(
+        manifest_path=manifest_path,
+        shards=_shards_for_configs(
+            manifest.feature_shards,
+            manifest.target_shards,
+            configs,
         ),
-        PipelineNode(
-            name="align_feature_vectors",
-            op=align_stream,
-            input="feature_vectors",
-            output="aligned_feature_vectors",
-            kwargs={"keys": keys_feature},
-        ),
-    ]
-    sample_kwinputs: dict[str, str] = {}
+        configs=configs,
+        group_by_cadence=group_by_cadence,
+    )
+    feature_vectors = vector_assemble_stage(
+        feature_records,
+        group_by_cadence,
+        progress_stage="Assembling cached feature vectors",
+    )
+    aligned_feature_vectors = align_stream(feature_vectors, keys_feature)
+
+    target_vectors = None
     if target_cfgs:
-        nodes.extend(
-            [
-                PipelineNode(
-                    name="target_fanout",
-                    op=_assemble_vectors,
-                    args=(
-                        context,
-                        target_cfgs,
-                        group_by_cadence,
-                        sample_keys,
-                        "Assembling target vectors",
-                    ),
-                    output="target_vectors",
-                    kind="dag_fanout",
-                    calls_dag="feature:*",
-                    child_dags=tuple(
-                        build_feature_dag(
-                            context,
-                            cfg,
-                            sample_keys=sample_keys,
-                            group_by_cadence=group_by_cadence,
-                        )
-                        for cfg in target_cfgs
-                    ),
-                ),
-                PipelineNode(
-                    name="align_target_vectors",
-                    op=align_stream,
-                    input="target_vectors",
-                    output="aligned_target_vectors",
-                    kwargs={"keys": keys_target},
-                ),
-            ]
+        target_records = _merged_cached_records(
+            manifest_path=manifest_path,
+            shards=manifest.target_shards,
+            configs=target_cfgs,
+            group_by_cadence=group_by_cadence,
         )
-        sample_kwinputs["target_vectors"] = "aligned_target_vectors"
-    return Dag(
-        name=VECTOR_ASSEMBLE_DAG_NAME,
-        nodes=(
-            *nodes,
-            PipelineNode(
-                name="sample_assembly",
-                op=sample_assemble_stage,
-                input="aligned_feature_vectors",
-                kwinputs=sample_kwinputs,
+        target_vectors = align_stream(
+            vector_assemble_stage(
+                target_records,
+                group_by_cadence,
+                progress_stage="Assembling cached target vectors",
             ),
-        ),
+            keys_target,
+        )
+    return sample_assemble_stage(aligned_feature_vectors, target_vectors)
+
+
+def _shards_for_configs(
+    feature_shards: Sequence[CachedVectorInputShard],
+    target_shards: Sequence[CachedVectorInputShard],
+    configs: Sequence[FeatureRecordConfig],
+) -> Sequence[CachedVectorInputShard]:
+    requested = {cfg.id for cfg in configs}
+    feature_ids = {shard.id for shard in feature_shards}
+    if requested <= feature_ids:
+        return feature_shards
+    target_ids = {shard.id for shard in target_shards}
+    if requested <= target_ids:
+        return target_shards
+    missing = sorted(requested - feature_ids - target_ids)
+    raise RuntimeError(
+        "Vector inputs artifact does not contain configured input ids: "
+        + ", ".join(missing)
     )
 
 
-def _assemble_vectors(
+def _merged_cached_records(
+    *,
+    manifest_path: Path,
+    shards: Sequence[CachedVectorInputShard],
+    configs: Sequence[FeatureRecordConfig],
+    group_by_cadence: str,
+) -> Iterator[Any]:
+    root = manifest_path.parent
+    shards_by_id = {shard.id: shard for shard in shards}
+    opened_streams: list[Iterator[Any]] = []
+    for cfg in configs:
+        shard = shards_by_id.get(cfg.id)
+        if shard is None:
+            raise RuntimeError(
+                f"Vector inputs artifact does not contain configured input '{cfg.id}'."
+            )
+        opened_streams.append(open_vector_input_records(root / shard.path))
+
+    def group_key(feature_record):
+        return group_key_for(feature_record, group_by_cadence)
+
+    merged_stream = heapq.merge(*opened_streams, key=group_key)
+    try:
+        yield from merged_stream
+    finally:
+        _close_iterator(merged_stream)
+        for stream in opened_streams:
+            _close_iterator(stream)
+
+
+def build_vector_dag(
     context: PipelineContext,
     configs: Sequence[FeatureRecordConfig],
     group_by_cadence: str,
+    target_configs: Sequence[FeatureRecordConfig] | None = None,
+    rectangular: bool = True,
     sample_keys: Sequence[str] = (),
-    progress_stage: str = "Assembling vectors",
-) -> Iterator[tuple[tuple, Vector]]:
-    if not configs:
-        return iter(())
-
-    def _merged_feature_streams() -> Iterator[Any]:
-        opened_streams = [
-            build_feature_pipeline(
-                context,
-                cfg,
-                sample_keys=sample_keys,
-                group_by_cadence=group_by_cadence,
-            )
-            for cfg in configs
-        ]
-
-        def group_key(feature_record):
-            return group_key_for(feature_record, group_by_cadence)
-
-        merged_stream = heapq.merge(*opened_streams, key=group_key)
-        try:
-            yield from merged_stream
-        finally:
-            _close_iterator(merged_stream)
-            for stream in opened_streams:
-                _close_iterator(stream)
-
-    return vector_assemble_stage(
-        _merged_feature_streams(),
-        group_by_cadence,
-        progress_stage=progress_stage,
+) -> Dag:
+    return Dag(
+        name=VECTOR_ASSEMBLE_DAG_NAME,
+        nodes=(
+            PipelineNode(
+                name="cached_vector_assembly",
+                op=build_vector_pipeline,
+                args=(
+                    context,
+                    configs,
+                    group_by_cadence,
+                    target_configs,
+                    rectangular,
+                    sample_keys,
+                ),
+            ),
+        ),
     )
 
 

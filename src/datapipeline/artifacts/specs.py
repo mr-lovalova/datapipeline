@@ -5,6 +5,7 @@ from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.services.constants import (
     SCALER_STATISTICS,
+    VECTOR_INPUTS,
     VECTOR_SCHEMA,
     VECTOR_SCHEMA_METADATA,
     VECTOR_STATS,
@@ -16,6 +17,7 @@ class ArtifactDefinition:
     key: str
     task_id: str
     min_stage: int | None
+    dependencies: tuple[str, ...] = ()
     required_if: Callable[[FeatureDatasetConfig], bool] | None = None
 
     def requires_dataset(self) -> bool:
@@ -50,25 +52,34 @@ ARTIFACT_DEFINITIONS: tuple[
     ...
 ] = (
     ArtifactDefinition(
-        key=VECTOR_SCHEMA,
-        task_id="schema",
-        min_stage=7,
-    ),
-    ArtifactDefinition(
-        key=VECTOR_SCHEMA_METADATA,
-        task_id="metadata",
-        min_stage=7,
-    ),
-    ArtifactDefinition(
         key=SCALER_STATISTICS,
         task_id="scaler",
         min_stage=6,
         required_if=dataset_requires_scaler,
     ),
     ArtifactDefinition(
+        key=VECTOR_INPUTS,
+        task_id="vector_inputs",
+        min_stage=7,
+        dependencies=(SCALER_STATISTICS,),
+    ),
+    ArtifactDefinition(
+        key=VECTOR_SCHEMA,
+        task_id="schema",
+        min_stage=7,
+        dependencies=(VECTOR_INPUTS,),
+    ),
+    ArtifactDefinition(
+        key=VECTOR_SCHEMA_METADATA,
+        task_id="metadata",
+        min_stage=7,
+        dependencies=(VECTOR_INPUTS,),
+    ),
+    ArtifactDefinition(
         key=VECTOR_STATS,
         task_id="stats",
         min_stage=None,
+        dependencies=(VECTOR_INPUTS,),
     ),
 )
 

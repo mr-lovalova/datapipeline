@@ -4,16 +4,19 @@ import json
 from pathlib import Path
 
 from datapipeline.config.dataset.feature import FeatureRecordConfig
+from datapipeline.domain.feature import FeatureRecordSequence
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.dag.context import PipelineContext
+from datapipeline.pipelines.feature.dag import build_feature_pipeline
 from datapipeline.pipelines import build_vector_pipeline
 from datapipeline.runtime import Runtime, StreamRuntimeSpec
 from datapipeline.services.constants import SCALER_STATISTICS, VECTOR_SCHEMA
-from datapipeline.transforms.feature.scaler import StandardScaler
+from datapipeline.transforms.feature.scaler import StandardScalerAccumulator
 from datapipeline.transforms.vector import (
     VectorDropTransform,
     VectorFillTransform,
 )
+from tests.vector_input_helpers import register_vector_inputs
 
 
 def _ts(hour: int, minute: int = 0) -> datetime:
@@ -88,13 +91,26 @@ def _runtime_with_streams(
 def _register_scaler(runtime: Runtime, configs: list[FeatureRecordConfig], group_by: str) -> None:
     sanitized = [cfg.model_copy(update={"scale": False}) for cfg in configs]
     context = PipelineContext(runtime)
-    vectors = build_vector_pipeline(context, sanitized, group_by)
-
-    scaler = StandardScaler()
-    total = scaler.fit(vectors)
+    accumulator = StandardScalerAccumulator()
+    total = 0
+    for cfg in sanitized:
+        stream = build_feature_pipeline(
+            context,
+            cfg,
+            group_by_cadence=group_by,
+        )
+        try:
+            for item in stream:
+                value = list(item.values) if isinstance(item, FeatureRecordSequence) else item.value
+                total += accumulator.observe({item.id: value})
+        finally:
+            closer = getattr(stream, "close", None)
+            if callable(closer):
+                closer()
     if not total:
         raise RuntimeError(
             "Unable to compute scaler statistics for test runtime.")
+    scaler = accumulator.to_scaler()
 
     destination = runtime.artifacts_root / "scaler.json"
     scaler.save(destination)
@@ -156,6 +172,7 @@ def test_vector_targets_respect_partitioned_ids(tmp_path) -> None:
             field="value",
         ),
     ]
+    register_vector_inputs(runtime, feature_cfgs, "1h", targets=target_cfgs)
 
     samples = list(
         build_vector_pipeline(
@@ -210,6 +227,13 @@ def test_vector_samples_can_group_by_record_key_fields(tmp_path) -> None:
             field="value",
         ),
     ]
+    register_vector_inputs(
+        runtime,
+        feature_cfgs,
+        "1h",
+        targets=target_cfgs,
+        sample_keys=["security_id"],
+    )
 
     samples = list(
         build_vector_pipeline(
@@ -273,6 +297,12 @@ def test_vector_samples_keep_entity_buckets_contiguous(tmp_path) -> None:
             field="value",
         ),
     ]
+    register_vector_inputs(
+        runtime,
+        feature_cfgs,
+        "1d",
+        sample_keys=["security_id"],
+    )
 
     samples = list(
         build_vector_pipeline(
@@ -318,6 +348,12 @@ def test_sequence_features_are_windowed_by_sample_keys(tmp_path) -> None:
             sequence={"size": 2, "stride": 1},
         ),
     ]
+    register_vector_inputs(
+        runtime,
+        feature_cfgs,
+        "1h",
+        sample_keys=["security_id"],
+    )
 
     samples = list(
         build_vector_pipeline(
@@ -363,6 +399,12 @@ def test_feature_id_by_controls_partitioned_feature_identity(tmp_path) -> None:
             sequence={"size": 2, "stride": 1},
         ),
     ]
+    register_vector_inputs(
+        runtime,
+        feature_cfgs,
+        "1h",
+        sample_keys=["security_id"],
+    )
 
     samples = list(
         build_vector_pipeline(
@@ -420,6 +462,12 @@ def test_stream_transforms_use_explicit_stream_partition(tmp_path) -> None:
             field="value_mean_2",
         ),
     ]
+    register_vector_inputs(
+        runtime,
+        feature_cfgs,
+        "1h",
+        sample_keys=["security_id"],
+    )
 
     samples = list(
         build_vector_pipeline(
@@ -484,6 +532,7 @@ def test_regression_scaled_shapes_airpressure_high_freq_and_windspeed_hourly(tmp
     ]
 
     _register_scaler(runtime, configs, group_by)
+    register_vector_inputs(runtime, configs, group_by)
     context = PipelineContext(runtime)
 
     out = list(build_vector_pipeline(context, configs, group_by))
@@ -572,6 +621,7 @@ def test_regression_fill_then_scale_with_missing_values(tmp_path) -> None:
     ]
 
     _register_scaler(runtime, configs, group_by)
+    register_vector_inputs(runtime, configs, group_by)
     context = PipelineContext(runtime)
     out = list(build_vector_pipeline(context, configs, group_by))
 

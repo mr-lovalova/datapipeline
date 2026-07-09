@@ -200,14 +200,20 @@ def _plan_build(
         }
     )
 
+    build_keys = set(selected_keys) if settings.force else stale_or_missing_required
     job_specs: list[tuple[ArtifactDefinition, ArtifactTask]] = []
-    for key in artifact_build_order(selected_keys, definitions=definitions):
+    for key in artifact_build_order(build_keys, definitions=definitions):
         definition = artifact_definition_for_key(key, definitions)
         if definition is None:
             continue
         task = tasks_by_id.get(definition.task_id)
         if task is None:
-            continue
+            logger.error(
+                "Artifact '%s' requires task '%s', but no matching artifact task is declared.",
+                definition.key,
+                definition.task_id,
+            )
+            raise SystemExit(2)
         job_specs.append((definition, task))
     return {
         "action": "run",
