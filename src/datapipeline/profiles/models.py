@@ -15,9 +15,16 @@ from datapipeline.config.tasks import ArtifactTask, Task
 from datapipeline.io.output import OutputTarget
 from datapipeline.runtime import Runtime
 from datapipeline.services.executions import ExecutionPaths
+from datapipeline.services.runs import RunPaths
 
 ProfileKind = Literal["serve", "build", "inspect"]
 ProfileDataset = FeatureDatasetConfig | RecordDatasetConfig
+
+
+@dataclass(frozen=True)
+class ServeRunPlan:
+    paths: RunPaths
+    preview_index: int | None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -32,26 +39,30 @@ class ExecutionProfile:
     profile_report: Mapping[str, Any] | None = None
     runtime: Runtime | None = None
     dataset: ProfileDataset | None = None
-    execution: ExecutionPaths | None = None
     limit: int | None = None
     output: OutputTarget | None = None
     throttle_ms: float | None = None
     preview_index: int | None = None
     build_mode: str | None = None
     build_settings: BuildSettings | None = None
+    heartbeat_interval_seconds: float | None = None
+
 
 @dataclass(frozen=True, kw_only=True)
 class ProfileRunRequest:
     command: ProfileKind
     project_path: Path
+    execution: ExecutionPaths
     tasks: Sequence[Task]
     artifact_task_configs: Sequence[ArtifactTask]
     profiles: Sequence[ExecutionProfile]
+    serve_run_plans: tuple[ServeRunPlan, ...] = ()
     skip_build: bool = False
 
 
 __all__ = [
     "ExecutionProfile",
+    "ServeRunPlan",
     "ProfileKind",
     "ProfileDataset",
     "ProfileRunRequest",

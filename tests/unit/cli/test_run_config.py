@@ -1,7 +1,10 @@
 from pathlib import Path
 from types import SimpleNamespace
 
-from datapipeline.profiles.execution import resolve_task_order, runtime_task_ids_for_order
+from datapipeline.profiles.execution import (
+    resolve_task_order,
+    runtime_task_ids_for_order,
+)
 from datapipeline.profiles.request_builder import build_profile_run_request
 
 
@@ -35,7 +38,9 @@ def _patch_runtime_resolution(monkeypatch) -> None:
     def _fake_iter_runtime_runs(project_path, run_entries, keep_override):
         total = len(run_entries)
         for idx, entry in enumerate(run_entries, start=1):
-            runtime = SimpleNamespace(run=entry.config, split=SimpleNamespace(keep=None))
+            runtime = SimpleNamespace(
+                run=entry.config, split=SimpleNamespace(keep=None)
+            )
             yield idx, total, entry, runtime
 
     monkeypatch.setattr(
@@ -188,7 +193,10 @@ def test_serve_request_orders_enabled_profiles_and_run_targets_only_named_profil
     )
     assert request_all is not None
     assert [profile.name for profile in request_all.profiles] == ["schema", "train"]
-    assert [profile.target_id for profile in request_all.profiles] == ["schema", "pipeline"]
+    assert [profile.target_id for profile in request_all.profiles] == [
+        "schema",
+        "pipeline",
+    ]
 
     request_train = build_profile_run_request(
         kind="serve",
@@ -242,6 +250,11 @@ def test_serve_defaults_apply_when_profile_omits_fields(monkeypatch, tmp_path: P
     assert profile.output.transport == "fs"
     assert profile.output.run is not None
     assert profile.log_output.outputs[0].transport == "stdout"
+    assert len(request.serve_run_plans) == 1
+    assert request.serve_run_plans[0].paths == profile.output.run
+    assert not request.execution.root.exists()
+    assert not profile.output.run.dataset_dir.exists()
+    assert not profile.output.run.metadata_path.exists()
 
 
 def test_serve_profile_fields_override_serve_defaults(monkeypatch, tmp_path: Path):

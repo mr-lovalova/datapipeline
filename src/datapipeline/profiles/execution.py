@@ -170,14 +170,9 @@ def execute_profile(
     profile: ExecutionProfile,
     request: ProfileRunRequest,
     tasks_by_id: dict[str, Task],
+    ordered_ids: list[str],
     runtime_override: Runtime | None = None,
 ) -> None:
-    try:
-        ordered_ids = resolve_task_order(profile, tasks_by_id)
-    except ValueError as exc:
-        logger.error("%s", exc)
-        raise SystemExit(2) from exc
-
     artifact_task_ids = artifact_task_ids_for_order(ordered_ids, tasks_by_id)
     runtime_task_ids = runtime_task_ids_for_order(ordered_ids, tasks_by_id)
     runtime_required_artifacts: set[str] = set()

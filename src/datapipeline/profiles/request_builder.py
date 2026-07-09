@@ -1,7 +1,7 @@
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Sequence, cast
+from typing import Sequence, cast
 
 from pydantic import ValidationError
 
@@ -30,6 +30,7 @@ from datapipeline.profiles.models import (
     ProfileKind,
     ProfileDataset,
     ProfileRunRequest,
+    ServeRunPlan,
 )
 from datapipeline.profiles.reporting import runtime_profile_report_payload
 from datapipeline.profiles.selection import select_profiles
@@ -37,9 +38,9 @@ from datapipeline.services.path_policy import resolve_workspace_path
 from datapipeline.services.executions import (
     ExecutionPaths,
     get_execution_paths,
-    start_execution,
 )
 from datapipeline.services.run_entries import RunEntry
+from datapipeline.services.runs import RunPaths
 
 logger = logging.getLogger(__name__)
 
@@ -62,32 +63,33 @@ _OUTPUT_MATRIX_HELP = (
 class ProfileResolveParams:
     command: ProfileKind
     project_path: Path
-    run_name: Optional[str]
+    run_name: str | None
     force: bool
-    build_mode: Optional[str]
-    limit: Optional[int]
-    keep: Optional[str]
-    preview_index: Optional[int]
-    output_transport: Optional[str]
-    output_format: Optional[str]
-    output_directory: Optional[str]
-    output_encoding: Optional[str]
-    output_view: Optional[str]
+    build_mode: str | None
+    limit: int | None
+    keep: str | None
+    preview_index: int | None
+    output_transport: str | None
+    output_format: str | None
+    output_directory: str | None
+    output_encoding: str | None
+    output_view: str | None
     skip_build: bool
-    cli_log_level: Optional[str]
+    cli_log_level: str | None
     cli_log_outputs: Sequence[LogOutputTarget] | None
     base_log_level: str
-    cli_visuals: Optional[str]
+    cli_visuals: str | None
     cli_heartbeat_interval_seconds: float | None
     workspace: WorkspaceContext | None
 
+
 def build_cli_output_config(
-    transport: Optional[str],
-    fmt: Optional[str],
-    directory: Optional[str],
-    output_encoding: Optional[str] = None,
-    workspace=None,
-    view: Optional[str] = None,
+    transport: str | None,
+    fmt: str | None,
+    directory: str | None,
+    output_encoding: str | None = None,
+    workspace: WorkspaceContext | None = None,
+    view: str | None = None,
 ) -> ServeOutputConfig | None:
     if (
         transport is None
@@ -191,7 +193,6 @@ def _resolve_build_execution_profiles(
                 log_output=log_output,
                 sections=("Build Profiles",),
                 label=profile.name,
-                execution=execution,
                 build_settings=BuildSettings(
                     visuals=settings.visuals,
                     log_decision=settings.log_decision,
@@ -252,7 +253,9 @@ def _resolve_runtime_execution_profiles(
         logger.error("Invalid output configuration: %s", exc)
         raise SystemExit(2) from exc
 
-    datasets: dict[str, ProfileDataset] = {"vectors": load_dataset(params.project_path, "vectors")}
+    datasets: dict[str, ProfileDataset] = {
+        "vectors": load_dataset(params.project_path, "vectors")
+    }
     resolved: list[ExecutionProfile] = []
     for profile in runtime_profiles:
         dataset_name = "vectors" if profile.preview_index is None else "features"
@@ -277,43 +280,60 @@ def _resolve_runtime_execution_profiles(
                 label=profile.label,
                 profile_report=runtime_profile_report_payload(profile),
                 dataset=dataset,
-                execution=execution,
                 limit=profile.limit,
                 output=profile.output,
                 throttle_ms=profile.throttle_ms,
                 preview_index=profile.preview_index,
                 build_mode=profile.build_mode,
+                heartbeat_interval_seconds=profile.heartbeat_interval_seconds,
             )
         )
     return resolved
+
+
+def _serve_run_plans(
+    profiles: Sequence[ExecutionProfile],
+) -> tuple[ServeRunPlan, ...]:
+    plans_by_run: dict[RunPaths, ServeRunPlan] = {}
+    for profile in profiles:
+        if profile.output is None or profile.output.run is None:
+            continue
+        if profile.output.run not in plans_by_run:
+            plans_by_run[profile.output.run] = ServeRunPlan(
+                paths=profile.output.run,
+                preview_index=profile.preview_index,
+            )
+    return tuple(plans_by_run.values())
 
 
 def build_profile_run_request(
     *,
     kind: ProfileKind,
     project: str,
-    run_name: Optional[str] = None,
+    run_name: str | None = None,
     force: bool = False,
-    build_mode: Optional[str] = None,
-    limit: Optional[int] = None,
-    keep: Optional[str] = None,
-    preview_index: Optional[int] = None,
-    output_transport: Optional[str] = None,
-    output_format: Optional[str] = None,
-    output_directory: Optional[str] = None,
-    output_encoding: Optional[str] = None,
-    output_view: Optional[str] = None,
+    build_mode: str | None = None,
+    limit: int | None = None,
+    keep: str | None = None,
+    preview_index: int | None = None,
+    output_transport: str | None = None,
+    output_format: str | None = None,
+    output_directory: str | None = None,
+    output_encoding: str | None = None,
+    output_view: str | None = None,
     skip_build: bool = False,
-    cli_log_level: Optional[str] = None,
+    cli_log_level: str | None = None,
     cli_log_outputs: Sequence[LogOutputTarget] | None = None,
     base_log_level: str = "INFO",
-    cli_visuals: Optional[str] = None,
+    cli_visuals: str | None = None,
     cli_heartbeat_interval_seconds: float | None = None,
     workspace: WorkspaceContext | None = None,
 ) -> ProfileRunRequest | None:
     project_path = Path(project).resolve()
     try:
-        declared_artifact_tasks, declared_operation_tasks = operation_specs(project_path)
+        declared_artifact_tasks, declared_operation_tasks = operation_specs(
+            project_path
+        )
     except Exception as exc:
         logger.error("Failed to load task definitions: %s", exc)
         raise SystemExit(2) from exc
@@ -366,13 +386,13 @@ def build_profile_run_request(
     if not profiles:
         return None
 
-    start_execution(execution, project_yaml=project_path, command=kind)
-
     return ProfileRunRequest(
         command=kind,
         project_path=project_path,
+        execution=execution,
         tasks=declared_tasks,
         artifact_task_configs=declared_artifact_tasks,
         profiles=profiles,
+        serve_run_plans=_serve_run_plans(profiles) if kind == "serve" else (),
         skip_build=params.skip_build,
     )

@@ -1,7 +1,8 @@
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Sequence
+from typing import Sequence
 
+from datapipeline.config.profiles import ServeOutputConfig
 from datapipeline.config.resolution import (
     LogLevelDecision,
     LogOutputSettings,
@@ -21,7 +22,7 @@ from datapipeline.io.output import OutputTarget, resolve_output_target
 from datapipeline.io.output import resolve_output_directory
 from datapipeline.runtime import Runtime
 from datapipeline.services.path_policy import sanitize_path_segment
-from datapipeline.services.runs import RunPaths, start_run_for_directory
+from datapipeline.services.runs import RunPaths, get_run_paths
 from datapipeline.services.run_entries import RunEntry, iter_runtime_runs
 
 
@@ -69,14 +70,15 @@ class RunProfile:
     total: int
     entry: RunEntry
     runtime: Runtime
-    preview_index: Optional[int]
-    limit: Optional[int]
-    throttle_ms: Optional[float]
+    preview_index: int | None
+    limit: int | None
+    throttle_ms: float | None
     log_decision: LogLevelDecision
     log_output: LogOutputSettings
     visuals: VisualSettings
     output: OutputTarget
     build_mode: str
+    heartbeat_interval_seconds: float | None = None
 
     @property
     def label(self) -> str:
@@ -86,25 +88,25 @@ class RunProfile:
 def resolve_run_profiles(
     project_path: Path,
     run_entries: Sequence[RunEntry],
-    keep: Optional[str],
-    preview_index: Optional[int],
-    limit: Optional[int],
-    cli_build_mode: Optional[str],
-    cli_output,
-    cli_log_level: Optional[str] = None,
+    keep: str | None,
+    preview_index: int | None,
+    limit: int | None,
+    cli_build_mode: str | None,
+    cli_output: ServeOutputConfig | None,
+    cli_log_level: str | None = None,
     cli_log_outputs: Sequence[LogOutputTarget] | None = None,
     base_log_level: str = "INFO",
-    cli_visuals: Optional[str] = None,
+    cli_visuals: str | None = None,
     cli_heartbeat_interval_seconds: float | None = None,
     managed_run_targets: set[str] | None = None,
 ) -> list[RunProfile]:
     fallback_log_level = str(base_log_level).upper()
     cli_log_output_candidates = list(cli_log_outputs or [])
-    managed_target_ids = None if managed_run_targets is None else set(managed_run_targets)
+    managed_target_ids = (
+        None if managed_run_targets is None else set(managed_run_targets)
+    )
 
-    resolved_entries = list(iter_runtime_runs(
-        project_path, run_entries, keep
-    ))
+    resolved_entries = list(iter_runtime_runs(project_path, run_entries, keep))
     has_runtime_serve_profiles = any(
         getattr(getattr(runtime, "run", None), "cmd", None) == "serve"
         and (managed_target_ids is None or entry.target_id in managed_target_ids)
@@ -115,8 +117,6 @@ def resolve_run_profiles(
     serve_roots: dict[int, Path | None] = {}
 
     for idx, _, entry, runtime in resolved_entries:
-        entry_name = entry.name
-        run_label = entry_name or f"run{idx}"
         run_cfg = getattr(runtime, "run", None)
         serve_root = resolve_output_directory(
             cli_output or getattr(run_cfg, "output", None),
@@ -137,8 +137,7 @@ def resolve_run_profiles(
             and serve_root is not None
             and serve_root not in shared_runs
         ):
-            run_paths, _ = start_run_for_directory(serve_root, preview_index=preview_index)
-            shared_runs[serve_root] = run_paths
+            shared_runs[serve_root] = get_run_paths(serve_root)
 
     profiles: list[RunProfile] = []
     for idx, total_runs, entry, runtime in resolved_entries:
@@ -146,12 +145,14 @@ def resolve_run_profiles(
         run_label = entry_name or f"run{idx}"
         run_cfg = getattr(runtime, "run", None)
         run_observability = _run_config_value(run_cfg, "observability")
-        runtime.heartbeat_interval_seconds = resolve_heartbeat_interval_seconds(
+        heartbeat_interval_seconds = resolve_heartbeat_interval_seconds(
             cli_heartbeat_interval_seconds,
             observability_value(run_observability, "heartbeat_interval_seconds"),
         )
         build_cfg = _run_config_value(run_cfg, "build")
-        profile_build_mode = getattr(build_cfg, "mode", None) if build_cfg is not None else None
+        profile_build_mode = (
+            getattr(build_cfg, "mode", None) if build_cfg is not None else None
+        )
         resolved_build_mode = str(
             cascade(cli_build_mode, profile_build_mode, "AUTO")
         ).upper()
@@ -189,9 +190,7 @@ def resolve_run_profiles(
                 f"Serve profile '{run_label}' cannot combine --keep with splits."
             )
         if run_splits and not create_run:
-            raise ValueError(
-                f"Serve profile '{run_label}' does not support splits."
-            )
+            raise ValueError(f"Serve profile '{run_label}' does not support splits.")
         if run_splits and resolved_preview_index is not None:
             raise ValueError(
                 f"Serve profile '{run_label}' cannot combine preview_index with splits."
@@ -286,8 +285,20 @@ def resolve_run_profiles(
                 visuals=visuals,
                 output=target,
                 build_mode=resolved_build_mode,
+                heartbeat_interval_seconds=heartbeat_interval_seconds,
             )
         )
+    preview_indices_by_run: dict[RunPaths, set[int | None]] = {}
+    for profile in profiles:
+        run = profile.output.run
+        if run is not None:
+            preview_indices_by_run.setdefault(run, set()).add(profile.preview_index)
+    for run, preview_indices in preview_indices_by_run.items():
+        if len(preview_indices) > 1:
+            raise ValueError(
+                "Serve profiles sharing output directory "
+                f"'{run.serve_root}' must use the same preview_index."
+            )
     return profiles
 
 

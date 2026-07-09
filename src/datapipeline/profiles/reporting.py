@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from datapipeline.services.execution_artifacts import write_profile_artifact
+from datapipeline.services.executions import ExecutionPaths
 
 from .models import ExecutionProfile
 
@@ -22,6 +23,7 @@ def runtime_profile_report_payload(profile) -> dict[str, object]:
         "preview_index": profile.preview_index,
         "limit": profile.limit,
         "throttle_ms": profile.throttle_ms,
+        "heartbeat_interval_seconds": profile.heartbeat_interval_seconds,
         "log_level": {
             "name": profile.log_decision.name,
             "value": profile.log_decision.value,
@@ -55,9 +57,7 @@ def runtime_profile_report_payload(profile) -> dict[str, object]:
     }
     cfg = entry.config
     if cfg is not None:
-        payload["run_config"] = cfg.model_dump(
-            exclude_unset=True, exclude_none=True
-        )
+        payload["run_config"] = cfg.model_dump(exclude_unset=True, exclude_none=True)
     payload["target"] = entry.target_id
     return payload
 
@@ -66,11 +66,9 @@ def persist_profile_report(
     profile_kind: str,
     profile: ExecutionProfile,
     payload: Mapping[str, Any] | None,
+    execution: ExecutionPaths,
 ) -> Path | None:
     if payload is None:
-        return None
-    execution = profile.execution
-    if execution is None:
         return None
     try:
         return write_profile_artifact(

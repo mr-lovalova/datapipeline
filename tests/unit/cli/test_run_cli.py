@@ -54,7 +54,9 @@ def _entry(name, config, operation):
 
 
 def test_run_config_value_ignores_model_defaults():
-    cfg = ServeProfile.model_validate({"cmd": "serve", "name": "serve", "target": "serve"})
+    cfg = ServeProfile.model_validate(
+        {"cmd": "serve", "name": "serve", "target": "serve"}
+    )
 
     assert _run_config_value(cfg, "observability") is None
 
@@ -158,7 +160,7 @@ def test_run_profiles_default_build_mode_is_auto(monkeypatch, tmp_path):
     assert profiles[0].build_mode == "AUTO"
 
 
-def test_run_profiles_resolve_heartbeat_interval(monkeypatch, tmp_path):
+def test_run_profiles_carry_heartbeat_without_mutating_runtime(monkeypatch, tmp_path):
     run_cfg = ServeProfile.model_validate(
         {
             "cmd": "serve",
@@ -194,8 +196,13 @@ def test_run_profiles_resolve_heartbeat_interval(monkeypatch, tmp_path):
             cli_heartbeat_interval_seconds=cli_heartbeat_interval_seconds,
         )[0]
 
-    assert resolve().runtime.heartbeat_interval_seconds == 30
-    assert resolve(0).runtime.heartbeat_interval_seconds == 0
+    resolved = resolve()
+    assert not hasattr(resolved.runtime, "heartbeat_interval_seconds")
+    assert resolved.heartbeat_interval_seconds == 30
+
+    cli_override = resolve(0)
+    assert not hasattr(cli_override.runtime, "heartbeat_interval_seconds")
+    assert cli_override.heartbeat_interval_seconds == 0
 
 
 def test_run_profiles_resolve_splits_for_fs_output(monkeypatch, tmp_path):
@@ -405,7 +412,9 @@ def test_run_profiles_reject_splits_with_explicit_filename(monkeypatch, tmp_path
         )
 
 
-def test_run_profiles_reject_splits_with_colliding_output_filenames(monkeypatch, tmp_path):
+def test_run_profiles_reject_splits_with_colliding_output_filenames(
+    monkeypatch, tmp_path
+):
     run_cfg = ServeProfile.model_validate(
         {
             "cmd": "serve",
@@ -447,7 +456,9 @@ def test_run_profiles_reject_splits_with_colliding_output_filenames(monkeypatch,
         )
 
 
-def test_operation_options_rejects_preview_index_when_unsupported(monkeypatch, tmp_path):
+def test_operation_options_rejects_preview_index_when_unsupported(
+    monkeypatch, tmp_path
+):
     run_cfg = InspectProfile.model_validate(
         {
             "cmd": "inspect",
@@ -456,7 +467,9 @@ def test_operation_options_rejects_preview_index_when_unsupported(monkeypatch, t
             "build": {"mode": "AUTO"},
         }
     )
-    entries = [_entry(name="coverage", config=run_cfg, operation=_INSPECT_COVERAGE_OPERATION)]
+    entries = [
+        _entry(name="coverage", config=run_cfg, operation=_INSPECT_COVERAGE_OPERATION)
+    ]
 
     def fake_iter_runtime_runs(project_path, run_entries, keep):
         total = len(run_entries)
@@ -495,7 +508,9 @@ def test_operation_options_rejects_keep_when_unsupported(monkeypatch, tmp_path):
             "build": {"mode": "AUTO"},
         }
     )
-    entries = [_entry(name="coverage", config=run_cfg, operation=_INSPECT_COVERAGE_OPERATION)]
+    entries = [
+        _entry(name="coverage", config=run_cfg, operation=_INSPECT_COVERAGE_OPERATION)
+    ]
 
     def fake_iter_runtime_runs(project_path, run_entries, keep):
         total = len(run_entries)
@@ -700,9 +715,7 @@ def test_run_profiles_resolve_log_output_precedence(monkeypatch, tmp_path):
             "cmd": "serve",
             "name": "demo",
             "target": "serve",
-            "observability": {
-                "logging": {"outputs": [{"transport": "stdout"}]}
-            },
+            "observability": {"logging": {"outputs": [{"transport": "stdout"}]}},
         }
     )
     entries = [_entry(name="demo", config=run_cfg, operation=_SERVE_OPERATION)]
@@ -741,18 +754,24 @@ def test_run_profiles_resolve_log_output_precedence(monkeypatch, tmp_path):
         cli_build_mode="AUTO",
         cli_output=None,
         cli_log_level=None,
-        cli_log_outputs=[LogOutputTarget(
-            transport="fs",
-            destination=tmp_path / "logs" / "cli.log",
-        )],
+        cli_log_outputs=[
+            LogOutputTarget(
+                transport="fs",
+                destination=tmp_path / "logs" / "cli.log",
+            )
+        ],
         base_log_level="INFO",
         cli_visuals=None,
     )
     assert profiles_cli[0].log_output.outputs[0].transport == "fs"
-    assert profiles_cli[0].log_output.outputs[0].destination == (tmp_path / "logs" / "cli.log")
+    assert profiles_cli[0].log_output.outputs[0].destination == (
+        tmp_path / "logs" / "cli.log"
+    )
 
 
-def test_execution_scoped_logs_can_be_resolved_for_inspect_profiles(monkeypatch, tmp_path):
+def test_execution_scoped_logs_can_be_resolved_for_inspect_profiles(
+    monkeypatch, tmp_path
+):
     run_cfg = InspectProfile.model_validate(
         {
             "cmd": "inspect",
@@ -761,13 +780,19 @@ def test_execution_scoped_logs_can_be_resolved_for_inspect_profiles(monkeypatch,
             "observability": {
                 "logging": {
                     "outputs": [
-                        {"transport": "fs", "scope": "execution", "path": "logs/run.log"}
+                        {
+                            "transport": "fs",
+                            "scope": "execution",
+                            "path": "logs/run.log",
+                        }
                     ]
                 }
             },
         }
     )
-    entries = [_entry(name="demo", config=run_cfg, operation=_INSPECT_COVERAGE_OPERATION)]
+    entries = [
+        _entry(name="demo", config=run_cfg, operation=_INSPECT_COVERAGE_OPERATION)
+    ]
 
     def fake_iter_runtime_runs(project_path, run_entries, keep):
         total = len(run_entries)
@@ -808,7 +833,11 @@ def test_execution_scoped_logs_can_be_resolved_for_inspect_profiles(monkeypatch,
             "observability": {
                 "logging": {
                     "outputs": [
-                        {"transport": "fs", "scope": "execution", "path": "logs/run.log"}
+                        {
+                            "transport": "fs",
+                            "scope": "execution",
+                            "path": "logs/run.log",
+                        }
                     ]
                 }
             },
@@ -840,11 +869,7 @@ def test_execution_scoped_logs_default_to_task_specific_filename(monkeypatch, tm
             "target": "serve",
             "name": "val",
             "observability": {
-                "logging": {
-                    "outputs": [
-                        {"transport": "fs", "scope": "execution"}
-                    ]
-                }
+                "logging": {"outputs": [{"transport": "fs", "scope": "execution"}]}
             },
         }
     )
@@ -888,7 +913,9 @@ def test_serve_runtime_profiles_share_one_managed_run(monkeypatch, tmp_path):
     entries = [
         _entry(
             name=name,
-            config=ServeProfile.model_validate({"cmd": "serve", "name": name, "target": "serve"}),
+            config=ServeProfile.model_validate(
+                {"cmd": "serve", "name": name, "target": "serve"}
+            ),
             operation=_SERVE_OPERATION,
         )
         for name in ("train", "val", "test")
@@ -924,9 +951,15 @@ def test_serve_runtime_profiles_share_one_managed_run(monkeypatch, tmp_path):
         managed_run_targets={"serve"},
     )
 
-    run_ids = {profile.output.run.run_id for profile in profiles if profile.output.run is not None}
+    run_ids = {
+        profile.output.run.run_id
+        for profile in profiles
+        if profile.output.run is not None
+    }
     dataset_dirs = {
-        profile.output.run.dataset_dir for profile in profiles if profile.output.run is not None
+        profile.output.run.dataset_dir
+        for profile in profiles
+        if profile.output.run is not None
     }
 
     assert len(run_ids) == 1
@@ -936,6 +969,65 @@ def test_serve_runtime_profiles_share_one_managed_run(monkeypatch, tmp_path):
         "val.jsonl",
         "test.jsonl",
     }
+    planned_run = profiles[0].output.run
+    assert planned_run is not None
+    assert not planned_run.serve_root.exists()
+    assert not planned_run.dataset_dir.exists()
+    assert not planned_run.metadata_path.exists()
+
+
+def test_shared_serve_run_rejects_mixed_preview_indices_without_writes(
+    monkeypatch,
+    tmp_path,
+):
+    entries = [
+        _entry(
+            name=name,
+            config=ServeProfile.model_validate(
+                {
+                    "cmd": "serve",
+                    "name": name,
+                    "target": "serve",
+                    "preview_index": preview_index,
+                }
+            ),
+            operation=_SERVE_OPERATION,
+        )
+        for name, preview_index in (("first", 1), ("second", 2))
+    ]
+
+    def fake_iter_runtime_runs(project_path, run_entries, keep):
+        total = len(run_entries)
+        for idx, entry in enumerate(run_entries, start=1):
+            runtime = SimpleNamespace(run=entry.config)
+            yield idx, total, entry, runtime
+
+    monkeypatch.setattr(
+        "datapipeline.config.serve_resolution.iter_runtime_runs",
+        fake_iter_runtime_runs,
+    )
+    output_root = tmp_path / "out"
+
+    with pytest.raises(ValueError, match="must use the same preview_index"):
+        resolve_run_profiles(
+            project_path=tmp_path / "project.yaml",
+            run_entries=entries,
+            keep=None,
+            preview_index=None,
+            limit=None,
+            cli_build_mode="AUTO",
+            cli_output=ServeOutputConfig(
+                transport="fs",
+                format="jsonl",
+                directory=output_root,
+            ),
+            cli_log_level=None,
+            base_log_level="INFO",
+            cli_visuals=None,
+            managed_run_targets={"serve"},
+        )
+
+    assert not output_root.exists()
 
 
 def test_shared_serve_runs_reject_explicit_output_filename(monkeypatch, tmp_path):
@@ -987,6 +1079,7 @@ def test_shared_serve_runs_reject_explicit_output_filename(monkeypatch, tmp_path
             cli_visuals=None,
             managed_run_targets={"serve"},
         )
+    assert not (tmp_path / "out").exists()
 
 
 def test_artifact_only_serve_profile_reuses_shared_run_logs(monkeypatch, tmp_path):
@@ -995,7 +1088,9 @@ def test_artifact_only_serve_profile_reuses_shared_run_logs(monkeypatch, tmp_pat
             "cmd": "serve",
             "name": "train",
             "target": "serve",
-                "observability": {"logging": {"outputs": [{"transport": "fs", "scope": "execution"}]}},
+            "observability": {
+                "logging": {"outputs": [{"transport": "fs", "scope": "execution"}]}
+            },
         }
     )
     artifact_cfg = ServeProfile.model_validate(
@@ -1003,7 +1098,9 @@ def test_artifact_only_serve_profile_reuses_shared_run_logs(monkeypatch, tmp_pat
             "cmd": "serve",
             "name": "schema",
             "target": "schema",
-                "observability": {"logging": {"outputs": [{"transport": "fs", "scope": "execution"}]}},
+            "observability": {
+                "logging": {"outputs": [{"transport": "fs", "scope": "execution"}]}
+            },
         }
     )
     entries = [
@@ -1048,7 +1145,9 @@ def test_artifact_only_serve_profile_reuses_shared_run_logs(monkeypatch, tmp_pat
     assert artifact_profile.log_output.outputs[0].destination is None
 
 
-def test_artifact_only_serve_profile_ignores_node_in_mixed_serve_invocation(monkeypatch, tmp_path):
+def test_artifact_only_serve_profile_ignores_node_in_mixed_serve_invocation(
+    monkeypatch, tmp_path
+):
     runtime_cfg = ServeProfile.model_validate(
         {
             "cmd": "serve",
@@ -1103,7 +1202,9 @@ def test_artifact_only_serve_profile_ignores_node_in_mixed_serve_invocation(monk
 
 def test_cli_output_directory_resolves_relative_to_workspace(tmp_path):
     workspace_cfg = WorkspaceConfig.model_validate({})
-    workspace = WorkspaceContext(file_path=tmp_path / "jerry.yaml", config=workspace_cfg)
+    workspace = WorkspaceContext(
+        file_path=tmp_path / "jerry.yaml", config=workspace_cfg
+    )
 
     cfg = build_cli_output_config(
         "fs",
@@ -1130,7 +1231,9 @@ def test_inspect_profiles_accept_html_output_for_matrix(monkeypatch, tmp_path):
             },
         }
     )
-    entries = [_entry(name="matrix", config=run_cfg, operation=_INSPECT_MATRIX_OPERATION)]
+    entries = [
+        _entry(name="matrix", config=run_cfg, operation=_INSPECT_MATRIX_OPERATION)
+    ]
 
     def fake_iter_runtime_runs(project_path, run_entries, keep):
         total = len(run_entries)
@@ -1177,7 +1280,9 @@ def test_inspect_profile_model_allows_html_output_for_any_target(tmp_path):
     assert cfg.output.format == "html"
 
 
-def test_inspect_profiles_accept_cli_html_override_for_non_matrix(monkeypatch, tmp_path):
+def test_inspect_profiles_accept_cli_html_override_for_non_matrix(
+    monkeypatch, tmp_path
+):
     run_cfg = InspectProfile.model_validate(
         {
             "cmd": "inspect",
@@ -1186,7 +1291,9 @@ def test_inspect_profiles_accept_cli_html_override_for_non_matrix(monkeypatch, t
             "build": {"mode": "AUTO"},
         }
     )
-    entries = [_entry(name="coverage", config=run_cfg, operation=_INSPECT_COVERAGE_OPERATION)]
+    entries = [
+        _entry(name="coverage", config=run_cfg, operation=_INSPECT_COVERAGE_OPERATION)
+    ]
 
     def fake_iter_runtime_runs(project_path, run_entries, keep):
         total = len(run_entries)
