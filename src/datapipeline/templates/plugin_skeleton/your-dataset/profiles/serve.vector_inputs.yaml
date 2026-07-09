@@ -1,0 +1,6 @@
+# See ../../reference/reference/tasks/profiles/serve.reference.yaml for full options.
+cmd: serve
+name: vector_inputs
+order: 8
+target: vector_inputs
+enabled: true

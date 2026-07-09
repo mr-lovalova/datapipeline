@@ -64,6 +64,9 @@ def test_log_build_decision_emits_execution_message(monkeypatch):
         reason="up_to_date",
         settings=settings,
         selected_artifacts=1,
+        expanded_artifacts=("vector_inputs", "vector_schema"),
+        jobs=(),
+        skipped_current=("vector_inputs", "vector_schema"),
     )
 
     assert captured
@@ -74,6 +77,10 @@ def test_log_build_decision_emits_execution_message(monkeypatch):
     assert '"mode": "AUTO"' in message
     assert '"profile": "metadata"' in message
     assert '"selected_artifacts": 1' in message
+    assert '"expanded_artifacts": [' in message
+    assert '"vector_inputs"' in message
+    assert '"jobs": []' in message
+    assert '"skipped_current": [' in message
     assert level == 20
     assert message_kind == "build_decision"
 
@@ -404,6 +411,59 @@ def test_run_build_if_needed_preserves_previous_artifacts_in_state(monkeypatch, 
         "vector_inputs",
         "vector_schema",
     }
+
+
+def test_execute_build_jobs_persists_completed_artifact_before_later_failure(
+    monkeypatch,
+    tmp_path,
+):
+    from datapipeline.build.state import load_build_state
+
+    state_path = tmp_path / "artifacts" / "build_state.json"
+    runtime = SimpleNamespace(artifacts_root=tmp_path / "artifacts")
+    vector_inputs_definition = SimpleNamespace(
+        key=VECTOR_INPUTS,
+        task_id="vector_inputs",
+    )
+    schema_definition = SimpleNamespace(
+        key=VECTOR_SCHEMA,
+        task_id="schema",
+    )
+    vector_inputs_task = _TaskStub(
+        id="vector_inputs",
+        output="build/vector_inputs/manifest.json",
+        entrypoint="core.artifact.vector_inputs",
+    )
+    schema_task = _TaskStub(id="schema", output="build/schema.json")
+
+    def _fake_builder(*, definition, **_kwargs):
+        if definition.key == VECTOR_SCHEMA:
+            raise RuntimeError("schema failed")
+        return {"relative_path": "build/vector_inputs/manifest.json"}
+
+    monkeypatch.setattr(
+        "datapipeline.artifacts.executor._run_artifact_builder",
+        _fake_builder,
+    )
+
+    with pytest.raises(RuntimeError, match="schema failed"):
+        build_exec._execute_build_jobs(
+            runtime=runtime,
+            job_specs=(
+                (vector_inputs_definition, vector_inputs_task),
+                (schema_definition, schema_task),
+            ),
+            previous_state=None,
+            config_hash="hash-1",
+            state_path=state_path,
+        )
+
+    state = load_build_state(state_path)
+    assert state is not None
+    assert list(state.artifacts) == [VECTOR_INPUTS]
+    assert state.artifacts[VECTOR_INPUTS].relative_path == (
+        "build/vector_inputs/manifest.json"
+    )
 
 
 def test_run_build_if_needed_rebuilds_stale_profile_artifact(monkeypatch, tmp_path):
@@ -814,6 +874,9 @@ def test_plan_build_schema_runs_vector_inputs_dependency(monkeypatch, tmp_path) 
     )
 
     assert plan["action"] == "run"
+    assert plan["expanded_artifacts"] == (VECTOR_INPUTS, VECTOR_SCHEMA)
+    assert plan["jobs"] == (VECTOR_INPUTS, VECTOR_SCHEMA)
+    assert plan["skipped_current"] == ()
     assert [
         (definition.key, task.id) for definition, task in plan["job_specs"]
     ] == [
@@ -879,6 +942,9 @@ def test_plan_build_does_not_rebuild_current_dependency(monkeypatch, tmp_path) -
     )
 
     assert plan["action"] == "run"
+    assert plan["expanded_artifacts"] == (VECTOR_INPUTS, VECTOR_SCHEMA)
+    assert plan["jobs"] == (VECTOR_SCHEMA,)
+    assert plan["skipped_current"] == (VECTOR_INPUTS,)
     assert [
         (definition.key, task.id) for definition, task in plan["job_specs"]
     ] == [

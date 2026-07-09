@@ -51,6 +51,9 @@ def _log_build_decision(
     reason: str,
     settings: BuildSettings,
     selected_artifacts: int | None = None,
+    expanded_artifacts: tuple[str, ...] | None = None,
+    jobs: tuple[str, ...] | None = None,
+    skipped_current: tuple[str, ...] | None = None,
 ) -> None:
     payload: dict[str, object] = {
         "action": action,
@@ -60,6 +63,12 @@ def _log_build_decision(
     }
     if selected_artifacts is not None:
         payload["selected_artifacts"] = selected_artifacts
+    if expanded_artifacts is not None:
+        payload["expanded_artifacts"] = list(expanded_artifacts)
+    if jobs is not None:
+        payload["jobs"] = list(jobs)
+    if skipped_current is not None:
+        payload["skipped_current"] = list(skipped_current)
     emit_execution_message(
         f"Build decision:\n{json.dumps(payload, indent=2, default=str)}",
         level=logging.INFO,
@@ -168,6 +177,9 @@ def _plan_build(
             dataset=dataset,
         )
     selected_count = len(selected_keys)
+    expanded_artifacts = tuple(
+        artifact_build_order(selected_keys, definitions=definitions)
+    )
     if not selected_keys:
         return {
             "action": "skip",
@@ -189,6 +201,9 @@ def _plan_build(
             "action": "skip",
             "reason": "up_to_date",
             "selected_artifacts": selected_count,
+            "expanded_artifacts": expanded_artifacts,
+            "jobs": (),
+            "skipped_current": expanded_artifacts,
         }
     missing_selected = (
         set(selected_keys)
@@ -215,10 +230,15 @@ def _plan_build(
             )
             raise SystemExit(2)
         job_specs.append((definition, task))
+    jobs = tuple(definition.key for definition, _task in job_specs)
+    skipped_current = tuple(key for key in expanded_artifacts if key not in build_keys)
     return {
         "action": "run",
         "reason": "force" if settings.force else ("missing" if missing_selected else "stale"),
         "selected_artifacts": selected_count,
+        "expanded_artifacts": expanded_artifacts,
+        "jobs": jobs,
+        "skipped_current": skipped_current,
         "config_hash": config_hash,
         "state_path": state_path,
         "previous_state": previous_state,
@@ -230,7 +250,10 @@ def _execute_build_jobs(
     *,
     runtime: Runtime,
     job_specs: tuple[tuple[ArtifactDefinition, ArtifactTask], ...],
-) -> dict[str, dict[str, object]]:
+    previous_state: BuildState | None,
+    config_hash: str,
+    state_path: Path,
+) -> BuildState:
     previous_observer = getattr(runtime, "execution_observer", None)
     install_observer = previous_observer is None
     if install_observer:
@@ -242,7 +265,11 @@ def _execute_build_jobs(
             logging.getLogger("datapipeline.operation.observer")
         )
         with operation_observer(observer):
-            artifacts: dict[str, dict[str, object]] = {}
+            current_state = _merge_build_state(
+                previous_state=previous_state,
+                built_artifacts={},
+                config_hash=config_hash,
+            )
             for definition, task in job_specs:
                 result = _run_artifact_builder(
                     runtime=runtime,
@@ -250,8 +277,13 @@ def _execute_build_jobs(
                     task=task,
                 )
                 if result:
-                    artifacts[definition.key] = result
-            return artifacts
+                    current_state = _merge_build_state(
+                        previous_state=current_state,
+                        built_artifacts={definition.key: result},
+                        config_hash=config_hash,
+                    )
+                    save_build_state(current_state, state_path)
+            return current_state
     finally:
         if install_observer:
             runtime.execution_observer = previous_observer
@@ -360,6 +392,17 @@ def run_build_if_needed(
         selected_artifacts=(
             selected_artifacts if isinstance(selected_artifacts, int) else None
         ),
+        expanded_artifacts=(
+            plan["expanded_artifacts"]
+            if isinstance(plan.get("expanded_artifacts"), tuple)
+            else None
+        ),
+        jobs=plan["jobs"] if isinstance(plan.get("jobs"), tuple) else None,
+        skipped_current=(
+            plan["skipped_current"]
+            if isinstance(plan.get("skipped_current"), tuple)
+            else None
+        ),
     )
     if action != "run":
         return False
@@ -382,15 +425,11 @@ def run_build_if_needed(
         state=previous_state_obj,
         config_hash=config_hash,
     )
-    artifacts = _execute_build_jobs(
+    _execute_build_jobs(
         runtime=runtime,
         job_specs=job_specs,
-    )
-
-    new_state = _merge_build_state(
         previous_state=previous_state_obj,
-        built_artifacts=artifacts,
         config_hash=config_hash,
+        state_path=state_path,
     )
-    save_build_state(new_state, state_path)
     return True
