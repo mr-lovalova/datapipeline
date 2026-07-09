@@ -1,16 +1,16 @@
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from types import SimpleNamespace
+from typing import Literal
 
-from datapipeline.config.catalog import StreamConfig, EPArgs
-from datapipeline.cli.visuals.execution_context import (
-    reset_current_execution_event_sink,
-    set_current_execution_event_sink,
-)
+import pytest
+
+from datapipeline.config.catalog import EPArgs, StreamConfig
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.joined import JoinedRow
 from datapipeline.services.streams.ingest import build_mapper_from_spec
-from datapipeline.services.streams.joined import JoinedStream
+from datapipeline.services.streams.joined import build_joined_stream
 from datapipeline.services.streams.manual import ManualStream
 
 
@@ -29,6 +29,12 @@ class _TickerRec(TemporalRecord):
 class _TickerHorizonRec(TemporalRecord):
     ticker: str
     horizon: int
+    value: float
+
+
+@dataclass
+class _NullableTickerRec(TemporalRecord):
+    ticker: str | None
     value: float
 
 
@@ -58,14 +64,6 @@ class _ClosableIterator:
         self.closed += 1
 
 
-class _CaptureSink:
-    def __init__(self) -> None:
-        self.events = []
-
-    def emit(self, event) -> None:
-        self.events.append(event)
-
-
 def _t(day: int) -> datetime:
     return datetime(2021, 1, day, tzinfo=timezone.utc)
 
@@ -90,19 +88,28 @@ def _install_streams(monkeypatch, runtime) -> None:
     )
 
 
-def _joined_spec(*, join: dict) -> StreamConfig:
-    from_cfg = {
-        "join": {"a": "stream.a", "b": "stream.b"},
-        "primary": join.get("primary"),
-        "on": join.get("on", "time"),
-        "mode": join.get("mode", "inner"),
-    }
-    return StreamConfig.model_validate(
+def _joined_stream(
+    runtime,
+    *,
+    on: str | list[str] = "time",
+    mode: Literal["inner", "left"] = "inner",
+):
+    config = StreamConfig.model_validate(
         {
             "id": "joined.out",
-            "from": from_cfg,
+            "from": {
+                "join": {"a": "stream.a", "b": "stream.b"},
+                "primary": "a",
+                "on": on,
+                "mode": mode,
+            },
             "map": {"entrypoint": "join.mapper", "args": {}},
         }
+    )
+    return build_joined_stream(
+        "joined.out",
+        config,
+        runtime,
     )
 
 
@@ -183,13 +190,7 @@ def test_joined_stream_matches_same_partition_and_time(monkeypatch) -> None:
     )
     _install_streams(monkeypatch, runtime)
 
-    rows = list(
-        JoinedStream(
-            runtime,
-            "joined.out",
-            _joined_spec(join={"primary": "a", "on": ["ticker", "time"]}),
-        ).stream()
-    )
+    rows = list(_joined_stream(runtime, on=["ticker", "time"]).stream())
 
     assert len(rows) == 1
     assert rows[0].values["a"].ticker == "MSFT"
@@ -209,13 +210,7 @@ def test_joined_stream_joins_partitioned_to_unpartitioned_by_time(monkeypatch) -
     )
     _install_streams(monkeypatch, runtime)
 
-    rows = list(
-        JoinedStream(
-            runtime,
-            "joined.out",
-            _joined_spec(join={"primary": "a"}),
-        ).stream()
-    )
+    rows = list(_joined_stream(runtime).stream())
 
     assert [row.values["a"].value for row in rows] == [1, 2]
     assert [row.values["b"].value for row in rows] == [20, 20]
@@ -235,13 +230,7 @@ def test_joined_stream_reuses_unpartitioned_matches_across_partitions(monkeypatc
     )
     _install_streams(monkeypatch, runtime)
 
-    rows = list(
-        JoinedStream(
-            runtime,
-            "joined.out",
-            _joined_spec(join={"primary": "a"}),
-        ).stream()
-    )
+    rows = list(_joined_stream(runtime).stream())
 
     assert [row.values["a"].value for row in rows] == [1, 2, 3]
     assert [row.values["b"].value for row in rows] == [10, 20, 10]
@@ -257,18 +246,14 @@ def test_joined_stream_matches_unpartitioned_inputs_by_time(monkeypatch) -> None
     )
     _install_streams(monkeypatch, runtime)
 
-    rows = list(
-        JoinedStream(
-            runtime, "joined.out", _joined_spec(join={"primary": "a"})
-        ).stream()
-    )
+    rows = list(_joined_stream(runtime).stream())
 
     assert len(rows) == 1
     assert rows[0].values["a"].value == 2
     assert rows[0].values["b"].value == 20
 
 
-def test_joined_stream_emits_join_diagnostics(monkeypatch) -> None:
+def test_joined_stream_logs_join_diagnostics(monkeypatch, caplog) -> None:
     runtime = _runtime(
         streams={
             "stream.a": [_Rec(time=_t(1), value=1), _Rec(time=_t(2), value=2)],
@@ -277,29 +262,21 @@ def test_joined_stream_emits_join_diagnostics(monkeypatch) -> None:
         partitions={"stream.a": None, "stream.b": None},
     )
     _install_streams(monkeypatch, runtime)
-    capture = _CaptureSink()
-    token = set_current_execution_event_sink(capture)
-    try:
-        rows = list(
-            JoinedStream(
-                runtime, "joined.out", _joined_spec(join={"primary": "a"})
-            ).stream()
-        )
-    finally:
-        reset_current_execution_event_sink(token)
+    caplog.set_level(logging.INFO, logger="datapipeline.services.streams.joined")
+
+    rows = list(_joined_stream(runtime).stream())
 
     assert len(rows) == 1
     assert rows[0].values["a"].value == 2
     assert rows[0].values["b"].value == 20
-    messages = [event.message for event in capture.events]
     assert (
         "[joined.out] join: primary=a on=time mode=inner "
         "primary_rows=2 output_rows=1"
-    ) in messages
+    ) in caplog.messages
     assert (
-        "[joined.out] join.input: b=stream.b rows=1 matched=1 missed=1 match_rate=50.0%"
-    ) in messages
-    assert {event.message_kind for event in capture.events} == {"source_info"}
+        "[joined.out] join.input: b=stream.b rows=1 "
+        "matched_primary_rows=1 missed_primary_rows=1 match_rate=50.0%"
+    ) in caplog.messages
 
 
 def test_joined_stream_can_join_on_subset_of_partition_fields(monkeypatch) -> None:
@@ -315,13 +292,7 @@ def test_joined_stream_can_join_on_subset_of_partition_fields(monkeypatch) -> No
     )
     _install_streams(monkeypatch, runtime)
 
-    rows = list(
-        JoinedStream(
-            runtime,
-            "joined.out",
-            _joined_spec(join={"primary": "a", "on": ["ticker", "time"]}),
-        ).stream()
-    )
+    rows = list(_joined_stream(runtime, on=["ticker", "time"]).stream())
 
     assert [row.values["a"].value for row in rows] == [1, 2]
     assert [row.values["b"].value for row in rows] == [20, 20]
@@ -337,11 +308,7 @@ def test_joined_stream_emits_many_to_many_matches(monkeypatch) -> None:
     )
     _install_streams(monkeypatch, runtime)
 
-    rows = list(
-        JoinedStream(
-            runtime, "joined.out", _joined_spec(join={"primary": "a"})
-        ).stream()
-    )
+    rows = list(_joined_stream(runtime).stream())
 
     assert [(row.values["a"].value, row.values["b"].value) for row in rows] == [
         (1, 10),
@@ -361,11 +328,89 @@ def test_joined_stream_allows_duplicate_primary_join_key(monkeypatch) -> None:
     )
     _install_streams(monkeypatch, runtime)
 
-    rows = list(
-        JoinedStream(
-            runtime, "joined.out", _joined_spec(join={"primary": "a", "mode": "left"})
-        ).stream()
-    )
+    rows = list(_joined_stream(runtime, mode="left").stream())
 
     assert [row.values["a"].value for row in rows] == [1, 2]
     assert [row.values["b"].value for row in rows] == [20, 20]
+
+
+def test_joined_stream_rejects_missing_join_field(monkeypatch) -> None:
+    runtime = _runtime(
+        streams={
+            "stream.a": [_Rec(time=_t(1), value=1)],
+            "stream.b": [_Rec(time=_t(1), value=20)],
+        },
+        partitions={"stream.a": None, "stream.b": None},
+    )
+    _install_streams(monkeypatch, runtime)
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            "Joined stream 'joined.out' input 'b' from 'stream.b' row 1 "
+            "is missing join field 'ticker'"
+        ),
+    ):
+        list(_joined_stream(runtime, on="ticker").stream())
+
+
+def test_joined_stream_preserves_explicit_null_join_key(monkeypatch) -> None:
+    runtime = _runtime(
+        streams={
+            "stream.a": [
+                _NullableTickerRec(time=_t(1), ticker=None, value=1),
+            ],
+            "stream.b": [
+                _NullableTickerRec(time=_t(1), ticker=None, value=20),
+            ],
+        },
+        partitions={"stream.a": None, "stream.b": None},
+    )
+    _install_streams(monkeypatch, runtime)
+
+    rows = list(_joined_stream(runtime, on=["ticker", "time"]).stream())
+
+    assert len(rows) == 1
+    assert rows[0].values["b"].value == 20
+
+
+def test_joined_stream_left_join_keeps_unmatched_primary(monkeypatch) -> None:
+    runtime = _runtime(
+        streams={
+            "stream.a": [_Rec(time=_t(1), value=1), _Rec(time=_t(2), value=2)],
+            "stream.b": [_Rec(time=_t(2), value=20)],
+        },
+        partitions={"stream.a": None, "stream.b": None},
+    )
+    _install_streams(monkeypatch, runtime)
+
+    rows = list(_joined_stream(runtime, mode="left").stream())
+
+    assert [row.values["a"].value for row in rows] == [1, 2]
+    assert [row.values["b"] for row in rows] == [
+        None,
+        runtime._streams["stream.b"][0],
+    ]
+
+
+def test_joined_stream_diagnostics_count_primary_matches(monkeypatch, caplog) -> None:
+    runtime = _runtime(
+        streams={
+            "stream.a": [_Rec(time=_t(1), value=1), _Rec(time=_t(2), value=2)],
+            "stream.b": [
+                _Rec(time=_t(1), value=10),
+                _Rec(time=_t(1), value=20),
+            ],
+        },
+        partitions={"stream.a": None, "stream.b": None},
+    )
+    _install_streams(monkeypatch, runtime)
+    caplog.set_level(logging.INFO, logger="datapipeline.services.streams.joined")
+
+    rows = list(_joined_stream(runtime).stream())
+
+    assert len(rows) == 2
+    assert (
+        "[joined.out] join.input: b=stream.b rows=2 "
+        "matched_primary_rows=1 missed_primary_rows=1 match_rate=50.0%"
+    ) in caplog.messages

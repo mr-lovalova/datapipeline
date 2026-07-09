@@ -1,183 +1,97 @@
-from collections.abc import Iterator
-from dataclasses import dataclass, field
-from itertools import product
 import logging
-from typing import Any
+from collections.abc import Iterator
 
-from datapipeline.cli.visuals.execution import emit_source_info
-from datapipeline.cli.visuals.execution_context import current_dag_depth
 from datapipeline.config.catalog import StreamConfig
 from datapipeline.dag.context import PipelineContext
-from datapipeline.domain.record import TemporalRecord
 from datapipeline.domain.stream import RecordStream
-from datapipeline.joined.model import JoinedRow
+from datapipeline.joined import JoinedRow
+from datapipeline.joined.engine import JoinInput, JoinMetrics, JoinSpec, join_rows
 from datapipeline.pipelines.record.inputs import open_input_records
-from datapipeline.transforms.utils import get_field
+from datapipeline.runtime import Runtime
+
 
 logger = logging.getLogger(__name__)
 
 
 class JoinedStream(RecordStream[JoinedRow]):
-    def __init__(self, runtime, stream_id: str, spec: StreamConfig):
+    def __init__(self, runtime: Runtime, spec: JoinSpec) -> None:
         self._runtime = runtime
-        self._stream_id = stream_id
         self._spec = spec
 
-    def stream(self):
+    def stream(self) -> Iterator[JoinedRow]:
         context = PipelineContext(self._runtime)
-        join = self._spec.from_
-        primary = join.primary
-        if primary is None:
-            raise ValueError(f"Joined stream '{self._stream_id}' requires from.primary")
-
-        refs = self._spec.input_refs()
-        input_refs = {alias: ref for alias, ref in refs.items() if alias != primary}
-
-        with open_input_records(context, refs, owner=self._stream_id) as record_iters:
-            stats = _JoinStats(
-                stream_id=self._stream_id,
-                primary=primary,
-                mode=join.mode,
-                on=join.on,
-            )
-            rows = _aligned_rows(
-                record_iters,
-                primary=primary,
-                input_refs=input_refs,
-                mode=join.mode,
-                join_fields=_join_fields(join.on),
-                stats=stats,
-            )
-            yield from rows
-            stats.emit()
+        input_refs = {
+            self._spec.primary.alias: self._spec.primary.stream_id,
+        }
+        for join_input in self._spec.secondary_inputs:
+            input_refs[join_input.alias] = join_input.stream_id
+        with open_input_records(
+            context,
+            input_refs,
+            owner=self._spec.output_stream_id,
+        ) as record_iters:
+            metrics = JoinMetrics()
+            yield from join_rows(record_iters, self._spec, metrics)
+            _log_join_metrics(self._spec, metrics)
 
 
 def build_joined_stream(
-    stream_id: str, spec: StreamConfig, runtime
+    stream_id: str,
+    config: StreamConfig,
+    runtime: Runtime,
 ) -> RecordStream[JoinedRow]:
-    return JoinedStream(runtime=runtime, stream_id=stream_id, spec=spec)
+    return JoinedStream(runtime=runtime, spec=_join_spec(stream_id, config))
 
 
-@dataclass
-class _InputJoinStats:
-    stream_id: str
-    rows: int
-    matched: int = 0
-    missed: int = 0
+def _join_spec(stream_id: str, config: StreamConfig) -> JoinSpec:
+    input_refs = config.from_.join
+    if input_refs is None:
+        raise ValueError(f"Joined stream '{stream_id}' requires from.join")
+    primary_alias = config.from_.primary
+    if primary_alias is None:
+        raise ValueError(f"Joined stream '{stream_id}' requires from.primary")
+    fields = config.from_.on
+    normalized_fields = (fields,) if isinstance(fields, str) else tuple(fields)
+    primary = JoinInput(
+        alias=primary_alias,
+        stream_id=input_refs[primary_alias],
+    )
+    secondary_inputs = tuple(
+        JoinInput(alias=alias, stream_id=input_stream_id)
+        for alias, input_stream_id in input_refs.items()
+        if alias != primary_alias
+    )
+    return JoinSpec(
+        output_stream_id=stream_id,
+        primary=primary,
+        secondary_inputs=secondary_inputs,
+        fields=normalized_fields,
+        mode=config.from_.mode,
+    )
 
 
-@dataclass
-class _JoinStats:
-    stream_id: str
-    primary: str
-    mode: str
-    on: str
-    primary_rows: int = 0
-    output_rows: int = 0
-    inputs: dict[str, _InputJoinStats] = field(default_factory=dict)
-
-    def add_input(self, alias: str, *, stream_id: str, rows: int) -> None:
-        self.inputs[alias] = _InputJoinStats(
-            stream_id=stream_id,
-            rows=rows,
+def _log_join_metrics(spec: JoinSpec, metrics: JoinMetrics) -> None:
+    logger.info(
+        "[%s] join: primary=%s on=%s mode=%s primary_rows=%d output_rows=%d",
+        spec.output_stream_id,
+        spec.primary.alias,
+        ",".join(spec.fields),
+        spec.mode,
+        metrics.primary_rows,
+        metrics.output_rows,
+    )
+    for join_input in spec.secondary_inputs:
+        input_metrics = metrics.inputs[join_input.alias]
+        match_rate = input_metrics.match_rate
+        match_rate_text = "n/a" if match_rate is None else f"{match_rate:.1%}"
+        logger.info(
+            "[%s] join.input: %s=%s rows=%d matched_primary_rows=%d "
+            "missed_primary_rows=%d match_rate=%s",
+            spec.output_stream_id,
+            join_input.alias,
+            join_input.stream_id,
+            input_metrics.rows,
+            input_metrics.matched_primary_rows,
+            input_metrics.missed_primary_rows,
+            match_rate_text,
         )
-
-    def emit(self) -> None:
-        depth = current_dag_depth()
-        emit_source_info(
-            self.stream_id,
-            (
-                f"join: primary={self.primary} on={self.on} mode={self.mode} "
-                f"primary_rows={self.primary_rows} output_rows={self.output_rows}"
-            ),
-            logger=logger,
-            depth=depth,
-        )
-        for alias, stats in self.inputs.items():
-            total = stats.matched + stats.missed
-            match_rate = stats.matched / total if total else 1.0
-            emit_source_info(
-                self.stream_id,
-                (
-                    f"join.input: {alias}={stats.stream_id} rows={stats.rows} "
-                    f"matched={stats.matched} missed={stats.missed} "
-                    f"match_rate={match_rate:.1%}"
-                ),
-                logger=logger,
-                depth=depth,
-            )
-
-
-def _aligned_rows(
-    inputs: dict[str, Iterator[TemporalRecord]],
-    *,
-    primary: str,
-    input_refs: dict[str, str],
-    mode: str,
-    join_fields: tuple[str, ...],
-    stats: _JoinStats,
-) -> Iterator[JoinedRow]:
-    if mode not in {"inner", "left"}:
-        raise ValueError(f"Unsupported join mode '{mode}'. Use 'inner' or 'left'.")
-
-    indexes: dict[str, dict[tuple[Any, ...], list[TemporalRecord]]] = {}
-    for alias, stream_id in input_refs.items():
-        index, row_count = _index_records(inputs[alias], fields=join_fields)
-        indexes[alias] = index
-        stats.add_input(
-            alias,
-            stream_id=stream_id,
-            rows=row_count,
-        )
-
-    for primary_record in inputs[primary]:
-        stats.primary_rows += 1
-        key = _record_key(primary_record, fields=join_fields)
-        aliases: list[str] = []
-        matches: list[list[TemporalRecord | None]] = []
-        missing = False
-
-        for alias in input_refs:
-            records = indexes[alias].get(key)
-            aliases.append(alias)
-            if records is None:
-                missing = True
-                stats.inputs[alias].missed += 1
-                matches.append([None])
-            else:
-                stats.inputs[alias].matched += len(records)
-                matches.append(records)
-
-        if missing and mode == "inner":
-            continue
-
-        row_values: dict[str, TemporalRecord | None]
-        for joined_records in product(*matches):
-            row_values = {primary: primary_record}
-            row_values.update(zip(aliases, joined_records, strict=True))
-            stats.output_rows += 1
-            yield JoinedRow(time=primary_record.time, values=row_values)
-
-
-def _index_records(
-    records: Iterator[TemporalRecord],
-    *,
-    fields: tuple[str, ...],
-) -> tuple[dict[tuple[Any, ...], list[TemporalRecord]], int]:
-    out: dict[tuple[Any, ...], list[TemporalRecord]] = {}
-    count = 0
-    for record in records:
-        count += 1
-        key = _record_key(record, fields=fields)
-        out.setdefault(key, []).append(record)
-    return out, count
-
-
-def _record_key(record: TemporalRecord, *, fields: tuple[str, ...]) -> tuple[Any, ...]:
-    return tuple(get_field(record, field) for field in fields)
-
-
-def _join_fields(on: str | list[str]) -> tuple[str, ...]:
-    if isinstance(on, str):
-        return (on,)
-    return tuple(on)
