@@ -1,6 +1,7 @@
 from importlib.resources import as_file, files
 from pathlib import Path
 import logging
+import shutil
 import sys
 
 import yaml
@@ -42,12 +43,20 @@ def scaffold_plugin(name: str, outdir: Path) -> None:
     if target.exists():
         logger.error("`%s` already exists", target)
         raise SystemExit(1)
-    import shutil
 
     package_name = _normalized_package_name(name)
     skeleton_ref = files("datapipeline") / "templates" / "plugin_skeleton"
     with as_file(skeleton_ref) as skeleton_dir:
-        shutil.copytree(skeleton_dir, target)
+        shutil.copytree(
+            skeleton_dir,
+            target,
+            ignore=shutil.ignore_patterns(
+                "__pycache__",
+                "*.pyc",
+                "*.pyo",
+                ".DS_Store",
+            ),
+        )
     pkg_dir = target / "src" / "{{PACKAGE_NAME}}"
     pkg_dir.rename(target / "src" / package_name)
     replacements = {

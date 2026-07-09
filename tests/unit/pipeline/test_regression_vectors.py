@@ -12,10 +12,6 @@ from datapipeline.pipelines import build_vector_pipeline
 from datapipeline.runtime import Runtime, StreamRuntimeSpec
 from datapipeline.services.constants import SCALER_STATISTICS, VECTOR_SCHEMA
 from datapipeline.transforms.feature.scaler import StandardScalerAccumulator
-from datapipeline.transforms.vector import (
-    VectorDropTransform,
-    VectorFillTransform,
-)
 from tests.vector_input_helpers import register_vector_inputs
 
 

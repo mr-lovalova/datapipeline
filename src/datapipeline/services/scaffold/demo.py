@@ -77,8 +77,23 @@ def _update_workspace_jerry(
 
 
 def _copy_tree(src: Path, dest: Path) -> None:
+    if (
+        src.name in {"__pycache__", ".DS_Store"}
+        or src.suffix in {".pyc", ".pyo"}
+    ):
+        return
     if src.is_dir():
-        shutil.copytree(src, dest, dirs_exist_ok=True)
+        shutil.copytree(
+            src,
+            dest,
+            dirs_exist_ok=True,
+            ignore=shutil.ignore_patterns(
+                "__pycache__",
+                "*.pyc",
+                "*.pyo",
+                ".DS_Store",
+            ),
+        )
     else:
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, dest)

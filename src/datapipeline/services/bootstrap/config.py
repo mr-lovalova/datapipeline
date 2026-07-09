@@ -6,7 +6,6 @@ from datapipeline.services.config_refs import (
     interpolate_config_vars,
     project_vars_from_data,
     resolve_config_refs,
-    serialize_project_value,
 )
 from datapipeline.services.path_policy import resolve_project_path
 from datapipeline.utils.load import load_yaml

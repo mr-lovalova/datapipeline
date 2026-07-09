@@ -1,4 +1,4 @@
-from typing import Iterable, Iterator, List
+from typing import Iterator, List
 
 from datapipeline.sources.ports import SourceResource, SourceTransport
 

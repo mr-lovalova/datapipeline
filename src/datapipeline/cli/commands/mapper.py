@@ -9,9 +9,7 @@ from datapipeline.services.scaffold.utils import (
     choose_name,
     error_exit,
     info,
-    status,
     pick_from_menu,
-    pick_from_list,
 )
 from datapipeline.services.scaffold.layout import (
     default_mapper_name,

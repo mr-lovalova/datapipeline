@@ -7,6 +7,24 @@ import yaml
 from datapipeline.services.scaffold.plugin import scaffold_plugin
 
 
+def test_template_sources_do_not_contain_generated_files() -> None:
+    templates_root = (
+        Path(__file__).parents[3]
+        / "src"
+        / "datapipeline"
+        / "templates"
+    )
+
+    generated = sorted(
+        path.relative_to(templates_root)
+        for path in templates_root.rglob("*")
+        if path.name in {"__pycache__", ".DS_Store"}
+        or path.suffix in {".pyc", ".pyo"}
+    )
+
+    assert generated == []
+
+
 def test_demo_stream_templates_do_not_define_record_transforms() -> None:
     streams_root = (
         Path(__file__).parents[3]

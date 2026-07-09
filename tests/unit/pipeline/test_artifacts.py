@@ -1,5 +1,9 @@
-import tomllib
 from pathlib import Path
+
+try:
+    import tomllib
+except ModuleNotFoundError:
+    import tomli as tomllib
 
 from datapipeline.artifacts.planning import (
     build_planning_context,

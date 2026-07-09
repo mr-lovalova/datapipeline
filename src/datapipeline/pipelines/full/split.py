@@ -6,9 +6,7 @@ from typing import Any, Literal
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
 from datapipeline.config.split import (
-    HashSplitConfig,
     HASH_SPLIT_FEATURE_PREFIX,
-    HASH_SPLIT_GROUP_KEY,
     SplitConfig,
     TimeSplitConfig,
 )

@@ -1,4 +1,4 @@
-from typing import Any, Dict, Iterable, Iterator, Optional
+from typing import Any, Dict, Iterator, Optional
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 from urllib.request import Request, urlopen

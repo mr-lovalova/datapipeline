@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 import pytest
 
 from datapipeline.artifacts.models import VectorSchemaArtifact
+from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.config.tasks import MetadataTask, SchemaTask
 from datapipeline.operations.artifacts.metadata import _window_bounds_from_stats, _window_size
 from datapipeline.operations.artifacts.metadata import materialize_metadata
@@ -13,12 +14,14 @@ from datapipeline.operations.artifacts import utils as artifact_utils
 from datapipeline.operations.artifacts.utils import (
     collect_schema_entries,
     metadata_entries_from_stats,
-    schema_entries_from_stats,
 )
-from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
 from datapipeline.runtime import Runtime
+
+
+def _hour(hour: int) -> datetime:
+    return datetime(2024, 1, 1, hour=hour, tzinfo=timezone.utc)
 
 
 def _runtime_with_dataset(tmp_path, dataset_text: str) -> Runtime:
@@ -356,35 +359,33 @@ def test_metadata_entries_include_observation_bounds():
 
 
 def test_window_bounds_modes():
-    ts = lambda hour: datetime(2024, 1, 1, hour=hour, tzinfo=timezone.utc)
     feature_stats = [
-        {"id": "wind__@A", "base_id": "wind", "first_ts": ts(0), "last_ts": ts(6)},
-        {"id": "wind__@B", "base_id": "wind", "first_ts": ts(2), "last_ts": ts(5)},
-        {"id": "temp", "base_id": "temp", "first_ts": ts(1), "last_ts": ts(7)},
+        {"id": "wind__@A", "base_id": "wind", "first_ts": _hour(0), "last_ts": _hour(6)},
+        {"id": "wind__@B", "base_id": "wind", "first_ts": _hour(2), "last_ts": _hour(5)},
+        {"id": "temp", "base_id": "temp", "first_ts": _hour(1), "last_ts": _hour(7)},
     ]
     target_stats: list[dict] = []
 
     start, end = _window_bounds_from_stats(feature_stats, target_stats, mode="union")
-    assert start == ts(0)
-    assert end == ts(7)
+    assert start == _hour(0)
+    assert end == _hour(7)
 
     start, end = _window_bounds_from_stats(feature_stats, target_stats, mode="intersection")
-    assert start == ts(1)
-    assert end == ts(6)
+    assert start == _hour(1)
+    assert end == _hour(6)
 
     start, end = _window_bounds_from_stats(feature_stats, target_stats, mode="strict")
-    assert start == ts(2)
-    assert end == ts(5)
+    assert start == _hour(2)
+    assert end == _hour(5)
 
     start, end = _window_bounds_from_stats(feature_stats, target_stats, mode="relaxed")
-    assert start == ts(0)
-    assert end == ts(7)
+    assert start == _hour(0)
+    assert end == _hour(7)
 
 
 def test_window_size_counts_cadence_buckets():
-    ts = lambda hour: datetime(2024, 1, 1, hour=hour, tzinfo=timezone.utc)
-    start = ts(4)
-    end = ts(10)
+    start = _hour(4)
+    end = _hour(10)
 
     assert _window_size(start, end, "1h") == 7  # hours 4..10 inclusive
     assert _window_size(start, end, "2h") == 4  # 4,6,8,10

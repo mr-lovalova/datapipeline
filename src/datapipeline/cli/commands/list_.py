@@ -2,7 +2,7 @@ from pathlib import Path
 
 from datapipeline.config.workspace import WorkspaceContext
 from datapipeline.cli.workspace_utils import resolve_default_project_yaml
-from datapipeline.services.paths import pkg_root, resolve_base_pkg_dir
+from datapipeline.services.paths import pkg_root
 from datapipeline.services.bootstrap.core import load_streams
 from datapipeline.services.scaffold.discovery import (
     list_domains,

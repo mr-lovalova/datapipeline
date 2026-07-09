@@ -4,13 +4,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict
 
-from datapipeline.artifacts.models import SampleMetadata
+from datapipeline.artifacts.models import SampleMetadata, VectorMetadata, Window
 from datapipeline.config.dataset.normalize import floor_time_to_bucket
 from datapipeline.config.dataset.loader import load_dataset
 from datapipeline.config.dataset.validation import validate_dataset_feature_identity
 from datapipeline.config.metadata import (
-    VectorMetadata,
-    Window,
     FEATURE_VECTORS_COUNT_KEY,
     TARGET_VECTORS_COUNT_KEY,
 )

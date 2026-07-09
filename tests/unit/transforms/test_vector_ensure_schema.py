@@ -1,7 +1,5 @@
 import pytest
 
-from datapipeline.domain.sample import Sample
-from datapipeline.domain.vector import Vector
 from datapipeline.transforms.vector import VectorEnsureSchemaTransform
 from tests.unit.transforms.helpers import StubVectorContext, make_vector
 

@@ -26,6 +26,15 @@ ml = [
 ]
 test = [
   "pytest>=8.0",
+  "tomli>=2.0; python_version < '3.11'",
+]
+dev = [
+  "build>=1.2",
+  "mypy>=1.10",
+  "pytest>=8.0",
+  "ruff>=0.9",
+  "tomli>=2.0; python_version < '3.11'",
+  "types-PyYAML>=6.0",
 ]
 
 [project.scripts]
@@ -36,14 +45,28 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+exclude = ["datapipeline.templates*"]
 
 [tool.setuptools.package-data]
 datapipeline = [
-  "templates/dataset_config.yaml",
   "templates/plugin_skeleton/**",
+  "templates/plugin_skeleton/your-dataset/.env.example",
+  "templates/plugin_skeleton/your-interim-data-builder/.env.example",
   "templates/demo_skeleton/**",
+  "templates/demo_skeleton/demo/.env.example",
   "templates/stubs/**"
 ]
+
+[tool.setuptools.exclude-package-data]
+datapipeline = [
+  "templates/**/.DS_Store",
+  "templates/**/*.pyc",
+  "templates/**/__pycache__/*",
+]
+
+[tool.ruff]
+target-version = "py310"
+extend-exclude = ["src/datapipeline/templates"]
 
 [project.entry-points."datapipeline.filters"]
 

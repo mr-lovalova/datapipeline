@@ -1,6 +1,6 @@
 from typing import Any
 
-from datapipeline.artifacts.models import VectorMetadata, Window
+from datapipeline.artifacts.models import VectorMetadata
 
 # Shared keys for vector metadata counts
 FEATURE_VECTORS_COUNT_KEY = "feature_vectors"

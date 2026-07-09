@@ -1,5 +1,4 @@
 from pathlib import Path
-import sys
 import logging
 
 from datapipeline.services.scaffold.layout import to_snake, slugify, ep_key_from_name

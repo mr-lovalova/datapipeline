@@ -69,7 +69,6 @@ def persist_profile_report(
 ) -> Path | None:
     if payload is None:
         return None
-    output = profile.output
     execution = profile.execution
     if execution is None:
         return None

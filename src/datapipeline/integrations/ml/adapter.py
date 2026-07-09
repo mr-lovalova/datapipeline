@@ -7,7 +7,6 @@ from typing import Any, Literal
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.dataset.loader import load_dataset
 from datapipeline.config.dataset.validation import validate_dataset_feature_identity
-from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
 from datapipeline.pipelines.full.nodes import post_process
 from datapipeline.dag.context import PipelineContext

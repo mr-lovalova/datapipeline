@@ -80,6 +80,8 @@ def _stream_runtime(tmp_path) -> Runtime:
     regs.ordered_by.register("derived.stream", None)
     regs.sort_batch_size.register("derived.stream", 1)
     return runtime
+
+
 def test_materialize_ticks_writes_sorted_unique_tick_rows(tmp_path) -> None:
     runtime = _runtime(tmp_path)
 

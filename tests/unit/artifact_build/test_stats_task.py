@@ -21,6 +21,8 @@ def test_materialize_vector_stats_reads_metadata_and_omits_schema_meta(monkeypat
     project_yaml = tmp_path / "project.yaml"
     project_yaml.write_text("version: 1\n", encoding="utf-8")
     runtime = Runtime(project_yaml=project_yaml, artifacts_root=artifacts_root)
+    runtime.registries.partition_by.register("stream", None)
+    runtime.registries.feature_id_by.register("stream", None)
 
     dataset = FeatureDatasetConfig(
         group_by="1h",

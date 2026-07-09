@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from datapipeline.config.split import HashSplitConfig, TimeSplitConfig
+from datapipeline.config.split import TimeSplitConfig
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
 from datapipeline.pipelines.full.split import (

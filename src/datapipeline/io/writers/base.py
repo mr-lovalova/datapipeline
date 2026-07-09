@@ -1,5 +1,4 @@
 import json
-from typing import Optional
 
 from datapipeline.io.protocols import HeaderCapable, Writer
 from datapipeline.io.sinks import StdoutTextSink, AtomicTextFileSink

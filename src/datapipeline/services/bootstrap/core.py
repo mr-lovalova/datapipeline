@@ -9,7 +9,6 @@ from datapipeline.services.constants import (
     PARSER_KEY,
     LOADER_KEY,
     SOURCE_ID_KEY,
-    ENTRYPOINT_KEY,
     STREAM_ID_KEY,
     STREAM_FROM_KEY,
     STREAM_MAP_KEY,
