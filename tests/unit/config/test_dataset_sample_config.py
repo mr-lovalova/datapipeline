@@ -42,3 +42,17 @@ def test_group_by_must_match_sample_cadence() -> None:
 def test_feature_dataset_requires_cadence() -> None:
     with pytest.raises(ValueError, match="sample.cadence or group_by"):
         FeatureDatasetConfig.model_validate({"features": [], "targets": []})
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        {"group_by": "0m"},
+        {"sample": {"cadence": "0min"}},
+    ],
+)
+def test_feature_dataset_rejects_zero_cadence(config: dict) -> None:
+    with pytest.raises(ValueError):
+        FeatureDatasetConfig.model_validate(
+            {**config, "features": [], "targets": []}
+        )

@@ -102,6 +102,14 @@ def test_ensure_cadence_uses_duration_cadence_unchanged() -> None:
     ]
 
 
+@pytest.mark.parametrize("cadence", ["0m", "-1h"])
+def test_ensure_cadence_rejects_nonpositive_duration(cadence: str) -> None:
+    stream = iter([make_time_record(1.0, 0)])
+
+    with pytest.raises(ValueError, match="cadence duration must be positive"):
+        list(EnsureCadenceTransform(cadence=cadence, field="value").apply(stream))
+
+
 def test_ensure_cadence_uses_tick_artifact_and_extends_after_last_record(tmp_path) -> None:
     context = _context(tmp_path)
     _write_ticks(context, "dataset_ticks", [0, 1, 2, 3])

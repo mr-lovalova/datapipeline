@@ -1,6 +1,6 @@
 from bisect import bisect_right
+from collections.abc import Iterator
 from datetime import datetime
-from typing import Iterator
 
 from datapipeline.artifacts.ticks import (
     TickGrid,
@@ -47,6 +47,8 @@ class EnsureCadenceTransform(PartitionedFieldStreamTransformBase):
         except ValueError:
             yield from self._apply_artifact_ticks(stream)
             return
+        if step.total_seconds() <= 0:
+            raise ValueError("ensure_cadence duration must be positive")
 
         last: TemporalRecord | None = None
         last_key: tuple | None = None

@@ -11,7 +11,7 @@ from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector, vectorize_record_group
 from datapipeline.dag.runner import emit_node_progress
 from datapipeline.pipelines.vector.keygen import group_key_for
-from datapipeline.utils.time import parse_datetime, parse_timecode
+from datapipeline.utils.time import parse_cadence, parse_datetime
 
 
 _PROGRESS_INTERVAL_SECONDS = 60.0
@@ -103,12 +103,9 @@ def window_keys(
 ) -> Iterator[tuple] | None:
     if start is None or end is None or cadence is None:
         return None
-    try:
-        current = floor_time_to_bucket(start, cadence)
-        stop = floor_time_to_bucket(end, cadence)
-        step = parse_timecode(cadence)
-    except Exception:
-        return None
+    current = floor_time_to_bucket(start, cadence)
+    stop = floor_time_to_bucket(end, cadence)
+    step = parse_cadence(cadence)
     if stop < current:
         return None
 
@@ -132,12 +129,9 @@ def sample_domain_window_keys(
         return None
     if not sample_keys:
         return window_keys(start, end, cadence)
-    try:
-        global_start = floor_time_to_bucket(start, cadence)
-        global_end = floor_time_to_bucket(end, cadence)
-        step = parse_timecode(cadence)
-    except Exception:
-        return None
+    global_start = floor_time_to_bucket(start, cadence)
+    global_end = floor_time_to_bucket(end, cadence)
+    step = parse_cadence(cadence)
 
     prepared = []
     for entry in domain:

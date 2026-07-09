@@ -390,3 +390,10 @@ def test_window_size_counts_cadence_buckets():
     assert _window_size(start, end, "2h") == 4  # 4,6,8,10
     assert _window_size(start, end, "15m") == 25  # 6 hours -> 360 minutes / 15 + 1
     assert _window_size(start, end, None) is None
+
+
+def test_window_size_rejects_invalid_cadence():
+    timestamp = datetime(2024, 1, 1, tzinfo=timezone.utc)
+
+    with pytest.raises(ValueError, match="Unsupported cadence"):
+        _window_size(timestamp, timestamp, "0m")

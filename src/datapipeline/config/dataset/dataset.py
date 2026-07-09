@@ -1,24 +1,24 @@
-from typing import List
-
 from pydantic import BaseModel, Field, model_validator
+
 from datapipeline.config.dataset.feature import BaseRecordConfig, FeatureRecordConfig
+from datapipeline.utils.time import CADENCE_PATTERN
 
 
 class RecordDatasetConfig(BaseModel):
-    features: List[BaseRecordConfig] = Field(default_factory=list)
-    targets:  List[BaseRecordConfig] = Field(default_factory=list)
+    features: list[BaseRecordConfig] = Field(default_factory=list)
+    targets: list[BaseRecordConfig] = Field(default_factory=list)
 
 
 class SampleConfig(BaseModel):
-    cadence: str = Field(..., pattern=r"^\d+(m|min|h|d)$")
+    cadence: str = Field(..., pattern=CADENCE_PATTERN)
     keys: list[str] = Field(default_factory=list)
 
 
 class FeatureDatasetConfig(BaseModel):
-    group_by: str | None = Field(default=None, pattern=r"^\d+(m|min|h|d)$")
+    group_by: str | None = Field(default=None, pattern=CADENCE_PATTERN)
     sample: SampleConfig | None = None
-    features: List[FeatureRecordConfig] = Field(default_factory=list)
-    targets:  List[FeatureRecordConfig] = Field(default_factory=list)
+    features: list[FeatureRecordConfig] = Field(default_factory=list)
+    targets: list[FeatureRecordConfig] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _normalize_sample_config(self) -> "FeatureDatasetConfig":

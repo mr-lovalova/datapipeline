@@ -22,7 +22,7 @@ from datapipeline.pipelines import (
 from datapipeline.pipelines.ingest import build_ingest_dag, build_ingest_pipeline
 from datapipeline.pipelines.stream import build_stream_dag, build_stream_pipeline
 from datapipeline.pipelines.vector import dag as vector_dag
-from datapipeline.pipelines.vector.nodes import sample_domain_window_keys
+from datapipeline.pipelines.vector.nodes import sample_domain_window_keys, window_keys
 from datapipeline.pipelines.full.nodes import post_process
 from datapipeline.pipelines.full.split import apply_split_stage
 from datapipeline.runtime import Runtime, StreamRuntimeSpec
@@ -59,6 +59,22 @@ def test_sample_domain_window_keys_emit_sorted_composite_keys() -> None:
         (_ts(1), "AAPL"),
         (_ts(1), "MSFT"),
     ]
+
+
+def test_window_keys_rejects_invalid_cadence() -> None:
+    with pytest.raises(ValueError, match="Unsupported cadence"):
+        window_keys(_ts(0), _ts(1), "0m")
+
+
+def test_sample_domain_window_keys_rejects_invalid_cadence() -> None:
+    with pytest.raises(ValueError, match="Unsupported cadence"):
+        sample_domain_window_keys(
+            _ts(0),
+            _ts(1),
+            "0m",
+            ["security_id"],
+            [{"key": ["AAPL"], "start": _ts(0), "end": _ts(1)}],
+        )
 
 
 class _StubSource:

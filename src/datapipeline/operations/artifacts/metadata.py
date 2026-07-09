@@ -18,7 +18,7 @@ from datapipeline.config.tasks import MetadataTask
 from datapipeline.operations.persistence import ArtifactOutput
 from datapipeline.runtime import Runtime
 from datapipeline.utils.paths import ensure_parent
-from datapipeline.utils.time import parse_timecode
+from datapipeline.utils.time import parse_cadence
 
 from .utils import (
     collect_schema_entries_and_sample_domain,
@@ -101,15 +101,12 @@ def _window_size(
 ) -> int | None:
     if start is None or end is None or cadence is None:
         return None
-    try:
-        anchored_start = floor_time_to_bucket(start, cadence)
-        anchored_end = floor_time_to_bucket(end, cadence)
-        step = parse_timecode(cadence)
-        if anchored_end < anchored_start:
-            return None
-        return int(((anchored_end - anchored_start) / step)) + 1
-    except Exception:
+    anchored_start = floor_time_to_bucket(start, cadence)
+    anchored_end = floor_time_to_bucket(end, cadence)
+    step = parse_cadence(cadence)
+    if anchored_end < anchored_start:
         return None
+    return int(((anchored_end - anchored_start) / step)) + 1
 
 
 def _merge_sample_domains(
