@@ -52,12 +52,28 @@ def order_records(
     ordered_by: list[str] | None,
     records: Iterable[Any] | None,
 ) -> Iterable[Any]:
+    if records is None:
+        records = ()
+
+    def record_order_key(record: Any) -> tuple[Any, Any]:
+        return partition_key(record, partition_by), record.time
+
     if ordered_by == required_record_order(partition_by):
-        return records or ()
-    return batch_sort(
+        previous_key = None
+        for position, record in enumerate(records, start=1):
+            current_key = record_order_key(record)
+            if previous_key is not None and not previous_key <= current_key:
+                raise ValueError(
+                    f"Record {position} violates declared ordered_by {ordered_by!r}: "
+                    f"key {current_key!r} follows {previous_key!r}."
+                )
+            previous_key = current_key
+            yield record
+        return
+    yield from batch_sort(
         records,
         batch_size=batch_size,
-        key=lambda rec: (partition_key(rec, partition_by), rec.time),
+        key=record_order_key,
     )
 
 

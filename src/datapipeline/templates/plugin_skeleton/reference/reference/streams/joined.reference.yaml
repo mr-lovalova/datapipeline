@@ -13,7 +13,7 @@
 #   entrypoint: my_joined_mapper
 #   args: {}
 # cadence: ${group_by}          # optional per-stream variable for interpolation
-# ordered_by: [station_id, time] # optional; skip sort when mapper already emits this order
+# ordered_by: [station_id, time] # optional; assert mapper order and validate without sorting
 # sort_batch_size: 100000       # optional; in-memory chunk size for sorting
 #
 # stream:                       # optional stream transforms, one-key mappings

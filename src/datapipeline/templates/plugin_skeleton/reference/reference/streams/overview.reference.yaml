@@ -20,7 +20,7 @@
 # cadence: ${group_by}          # optional per-stream variable for interpolation
 # partition_by: station_id      # optional; string or list of strings
 # feature_id_by: []             # optional; [] for scalar keyed features, fields for wide IDs
-# ordered_by: [station_id, time] # optional; skip sort when upstream already matches
+# ordered_by: [station_id, time] # optional; assert upstream order and validate without sorting
 # sort_batch_size: 100000       # optional; in-memory chunk size for sorting
 #
 # stream:                       # optional stream transforms, one-key mappings

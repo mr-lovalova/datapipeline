@@ -108,7 +108,7 @@ jerry serve --limit 3
 - Index 3 (ordered record stream)
   - Input: TemporalRecord stream
   - Ops:
-    - sort by `(partition_key, record.time)` unless the stream declares a matching `ordered_by`
+    - validate a matching `ordered_by` declaration; otherwise sort by `(partition_key, record.time)`
   - Output: TemporalRecord stream (sorted by partition, time)
 
 - Index 4 (derived stream input)
@@ -123,7 +123,7 @@ jerry serve --limit 3
 
 - Index 6 (derived stream ordered records)
   - Input: derived TemporalRecord stream
-  - Ops: sort by `(partition_key, record.time)` unless the stream declares a matching `ordered_by`
+  - Ops: validate a matching `ordered_by` declaration; otherwise sort by `(partition_key, record.time)`
   - Output: TemporalRecord stream (sorted by partition, time)
 
 - Index 7 (derived stream transforms)
