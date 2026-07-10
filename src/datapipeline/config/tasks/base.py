@@ -27,6 +27,7 @@ class Task(BaseModel):
     def _normalize_entrypoint(cls, value):
         return normalize_required_text(value, field_name="entrypoint")
 
+
 class ArtifactTask(Task):
     kind: Literal["artifact"] = Field(default="artifact")
     output: str

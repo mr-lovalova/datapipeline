@@ -13,8 +13,9 @@ class PickleFileWriter(Writer, HasFilePath):
         dest: Path,
         serializer=None,
         protocol: int = pickle.HIGHEST_PROTOCOL,
+        overwrite: bool = True,
     ):
-        self.sink = AtomicBinaryFileSink(dest)
+        self.sink = AtomicBinaryFileSink(dest, overwrite=overwrite)
         self.pickler = pickle.Pickler(self.sink.fh, protocol=protocol)
         self._serializer = serializer or pickle_serializer()
 

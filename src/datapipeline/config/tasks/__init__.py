@@ -1,4 +1,5 @@
 from .base import ArtifactTask, OperationTask, Task
+from .materialize import MaterializeStreamOptions, MaterializeStreamTask
 from .metadata import MetadataTask
 from .scaler import ScalerTask
 from .schema import SchemaTask
@@ -10,6 +11,8 @@ __all__ = [
     "Task",
     "ArtifactTask",
     "OperationTask",
+    "MaterializeStreamOptions",
+    "MaterializeStreamTask",
     "SchemaTask",
     "ScalerTask",
     "MetadataTask",

@@ -52,17 +52,40 @@ def writer_factory(
     if _is_json_line_format(format_):
         serializer = json_line_serializer(target.view)
         if suffix.endswith(".jsonl.gz") or suffix.endswith(".gz"):
-            return GzipJsonLinesWriter(destination, serializer=serializer, encoding=text_encoding)
-        return JsonLinesFileWriter(destination, serializer=serializer, encoding=text_encoding)
+            return GzipJsonLinesWriter(
+                destination,
+                serializer=serializer,
+                encoding=text_encoding,
+                overwrite=target.overwrite,
+            )
+        return JsonLinesFileWriter(
+            destination,
+            serializer=serializer,
+            encoding=text_encoding,
+            overwrite=target.overwrite,
+        )
     if format_ == "csv":
         serializer = csv_row_serializer(target.view)
-        return CsvFileWriter(destination, serializer=serializer, encoding=text_encoding)
+        return CsvFileWriter(
+            destination,
+            serializer=serializer,
+            encoding=text_encoding,
+            overwrite=target.overwrite,
+        )
     if format_ == "pickle":
         serializer = pickle_serializer(target.view)
-        return PickleFileWriter(destination, serializer=serializer)
+        return PickleFileWriter(
+            destination,
+            serializer=serializer,
+            overwrite=target.overwrite,
+        )
     if format_ == "txt":
         serializer = text_line_serializer()
-        sink = AtomicTextFileSink(destination, encoding=text_encoding)
+        sink = AtomicTextFileSink(
+            destination,
+            encoding=text_encoding,
+            overwrite=target.overwrite,
+        )
         return LineWriter(sink, serializer)
 
     raise ValueError(f"Unsupported fs format '{target.format}'")

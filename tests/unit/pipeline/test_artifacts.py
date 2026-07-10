@@ -26,6 +26,7 @@ from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.config.tasks import (
     ArtifactTask,
+    MaterializeStreamTask,
     MetadataTask,
     OperationTask,
     ScalerTask,
@@ -488,9 +489,8 @@ def test_runtime_stream_materialization_requires_declared_ticks() -> None:
         output="build/dataset_ticks.jsonl",
     )
     graph = build_artifact_graph([tick_task])
-    task = OperationTask(
+    task = MaterializeStreamTask(
         id="materialize",
-        entrypoint="core.runtime.materialize_stream",
         options={"stream": "derived.stream"},
     )
 

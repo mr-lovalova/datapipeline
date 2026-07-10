@@ -11,6 +11,7 @@ from datapipeline.dag.context import PipelineContext
 from datapipeline.dag.runner import run_dag
 from datapipeline.io.factory import writer_factory
 from datapipeline.io.output import OutputTarget
+from datapipeline.io.sinks import AtomicTextFileSink
 from datapipeline.pipelines.ingest import build_ingest_pipeline
 from datapipeline.pipelines.shared.record_nodes import required_record_order
 from datapipeline.pipelines.stream import build_stream_dag
@@ -60,6 +61,7 @@ def materialize_stream_to_path(
         view="raw",
         encoding="utf-8",
         destination=output.resolve(),
+        overwrite=force,
     )
     count = write_rows(rows, target, visuals=visuals)
     metadata_path = write_materialized_stream_metadata(
@@ -158,10 +160,10 @@ def write_materialized_stream_metadata(
         "feature_id_by": feature_id_by,
         "ordered_by": ordered_by,
     }
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
+    _write_text_atomically(
+        path,
         json.dumps(doc, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
+        overwrite=force,
     )
     return path.resolve()
 
@@ -227,8 +229,16 @@ def write_materialized_stream_config(
     }
     _write_field_list(ingest_doc, "partition_by", partition_by)
     _write_field_list(ingest_doc, "feature_id_by", feature_id_by)
-    source_path.write_text(yaml.safe_dump(source_doc, sort_keys=False), encoding="utf-8")
-    ingest_path.write_text(yaml.safe_dump(ingest_doc, sort_keys=False), encoding="utf-8")
+    _write_text_atomically(
+        source_path,
+        yaml.safe_dump(source_doc, sort_keys=False),
+        overwrite=force,
+    )
+    _write_text_atomically(
+        ingest_path,
+        yaml.safe_dump(ingest_doc, sort_keys=False),
+        overwrite=force,
+    )
     return source_path.resolve(), ingest_path.resolve()
 
 
@@ -256,3 +266,15 @@ def validate_materialize_output_path(path: Path) -> None:
 def _check_overwrite(path: Path, *, force: bool) -> None:
     if path.exists() and not force:
         raise FileExistsError(f"{path} already exists; pass --force to overwrite")
+
+
+def _write_text_atomically(path: Path, text: str, *, overwrite: bool) -> None:
+    sink = AtomicTextFileSink(path, overwrite=overwrite)
+    committed = False
+    try:
+        sink.write_text(text)
+        sink.close()
+        committed = True
+    finally:
+        if not committed:
+            sink.abort()

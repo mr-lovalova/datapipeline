@@ -4,6 +4,7 @@ import pytest
 
 from datapipeline.config.loaders.operations import operation_specs
 from datapipeline.config.loaders.profiles import profile_defaults, profile_specs
+from datapipeline.config.tasks import MaterializeStreamTask, OperationTask
 
 
 def _artifact_tasks(project_yaml: Path):
@@ -75,7 +76,8 @@ def test_artifact_tasks_load_configs(tmp_path):
         "id: schema\nkind: artifact\noutput: schema.json\n", encoding="utf-8"
     )
     (tasks_dir / "scaler.yaml").write_text(
-        "id: scaler\nkind: artifact\nsplit_label: all\noutput: stats.pkl\n", encoding="utf-8"
+        "id: scaler\nkind: artifact\nsplit_label: all\noutput: stats.pkl\n",
+        encoding="utf-8",
     )
 
     tasks = _artifact_tasks(project_yaml)
@@ -268,7 +270,8 @@ def test_serve_tasks_respect_name_and_enabled(tmp_path):
         "cmd: serve\nname: train\ntarget: pipeline\nkeep: train\n", encoding="utf-8"
     )
     (tasks_dir / "serve.val.yaml").write_text(
-        "cmd: serve\nname: val\ntarget: pipeline\nkeep: val\nenabled: false\n", encoding="utf-8"
+        "cmd: serve\nname: val\ntarget: pipeline\nkeep: val\nenabled: false\n",
+        encoding="utf-8",
     )
 
     tasks = _serve_profiles(project_yaml)
@@ -576,6 +579,83 @@ def test_runtime_operation_options_load_and_normalize(tmp_path):
     tasks = _all_tasks(project_yaml)
     operation = tasks[0]
     assert operation.options == {"sort": "missing"}
+
+
+def test_materialize_stream_options_are_typed(tmp_path: Path) -> None:
+    project_yaml = _write_project(tmp_path, tasks_ref="tasks")
+    tasks_dir = _operations_dir(project_yaml)
+    (tasks_dir / "materialize.yaml").write_text(
+        (
+            "id: materialize\n"
+            "kind: runtime\n"
+            "entrypoint: core.runtime.materialize_stream\n"
+            "options:\n"
+            "  stream: ' prices.raw '\n"
+            "  as: ' prices.cached '\n"
+            "  force: false\n"
+        ),
+        encoding="utf-8",
+    )
+
+    [task] = _all_tasks(project_yaml)
+
+    assert isinstance(task, MaterializeStreamTask)
+    assert task.options.stream == "prices.raw"
+    assert task.options.as_stream_id == "prices.cached"
+    assert task.options.force is False
+    assert task.model_dump(by_alias=True)["options"]["as"] == "prices.cached"
+
+
+@pytest.mark.parametrize(
+    ("options_yaml", "error"),
+    [
+        ("  force: false\n", "options.stream"),
+        ("  stream: '   '\n", "options.stream"),
+        ("  stream: prices.raw\n  force: 'false'\n", "valid boolean"),
+        ("  stream: prices.raw\n  typo: true\n", "Extra inputs are not permitted"),
+    ],
+)
+def test_materialize_stream_rejects_invalid_options(
+    tmp_path: Path,
+    options_yaml: str,
+    error: str,
+) -> None:
+    project_yaml = _write_project(tmp_path, tasks_ref="tasks")
+    tasks_dir = _operations_dir(project_yaml)
+    (tasks_dir / "materialize.yaml").write_text(
+        (
+            "id: materialize\n"
+            "kind: runtime\n"
+            "entrypoint: core.runtime.materialize_stream\n"
+            "options:\n"
+            f"{options_yaml}"
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match=error):
+        _all_tasks(project_yaml)
+
+
+def test_plugin_runtime_options_remain_plugin_owned(tmp_path: Path) -> None:
+    project_yaml = _write_project(tmp_path, tasks_ref="tasks")
+    tasks_dir = _operations_dir(project_yaml)
+    (tasks_dir / "custom.yaml").write_text(
+        (
+            "id: custom\n"
+            "kind: runtime\n"
+            "entrypoint: plugin.runtime.custom\n"
+            "options:\n"
+            "  nested:\n"
+            "    value: 3\n"
+        ),
+        encoding="utf-8",
+    )
+
+    [task] = _all_tasks(project_yaml)
+
+    assert type(task) is OperationTask
+    assert task.options == {"nested": {"value": 3}}
 
 
 def test_runtime_operation_rejects_dependencies_field(tmp_path):

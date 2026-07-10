@@ -1,6 +1,7 @@
+from dataclasses import replace
 from pathlib import Path
 
-from datapipeline.config.tasks import OperationTask
+from datapipeline.config.tasks import MaterializeStreamTask
 from datapipeline.operations.persistence import RuntimeOutput, RuntimeOutputBatch
 from datapipeline.services.materialize import (
     materialized_stream_rows,
@@ -30,7 +31,7 @@ def materialize_stream_with_runtime(
     runtime,
     dataset,
     target,
-    operation_task: OperationTask | None = None,
+    operation_task: MaterializeStreamTask,
     visuals: str | None = None,
     **_,
 ) -> RuntimeOutputBatch:
@@ -38,20 +39,22 @@ def materialize_stream_with_runtime(
         raise ValueError("materialize stream requires fs output")
     if target.format != "jsonl":
         raise ValueError("materialize stream supports only jsonl output")
-    options = dict(operation_task.options if operation_task is not None else {})
-    stream_id = str(options.get("stream") or "").strip()
-    if not stream_id:
-        raise ValueError("materialize stream requires options.stream")
-    as_stream_id = str(options.get("as") or "").strip() or None
-    force = bool(options.get("force", False))
+    options = operation_task.options
+    stream_id = options.stream
+    as_stream_id = options.as_stream_id
+    force = options.force
     runtime.sample_keys = dataset.sample_keys
     output_path = Path(target.destination)
     metadata_path = materialized_metadata_path(output_path)
-    if metadata_path.exists() and not force:
+    if not force and output_path.exists():
+        raise FileExistsError(
+            f"{output_path} already exists; set options.force to overwrite"
+        )
+    if not force and metadata_path.exists():
         raise FileExistsError(
             f"{metadata_path} already exists; set options.force to overwrite"
         )
-    if as_stream_id is not None and not force:
+    if not force and as_stream_id is not None:
         source_path, ingest_path = materialized_stream_config_paths(
             runtime=runtime,
             stream_id=as_stream_id,
@@ -64,6 +67,7 @@ def materialize_stream_with_runtime(
                 )
     ordered_by = materialized_order(runtime, stream_id)
     rows = _CountingRows(materialized_stream_rows(runtime, stream_id))
+    materialize_target = replace(target, overwrite=force)
 
     def on_complete(success: bool) -> None:
         if not success:
@@ -93,7 +97,7 @@ def materialize_stream_with_runtime(
         outputs=(
             RuntimeOutput(
                 rows=rows,
-                target=target,
+                target=materialize_target,
                 materialized_key=stream_id,
             ),
         ),

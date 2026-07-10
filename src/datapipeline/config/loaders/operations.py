@@ -3,6 +3,7 @@ from pathlib import Path
 from datapipeline.config.model_utils import normalize_required_text
 from datapipeline.config.tasks import (
     ArtifactTask,
+    MaterializeStreamTask,
     MetadataTask,
     OperationTask,
     ScalerTask,
@@ -35,6 +36,13 @@ def _load_operation_entry(entry: dict) -> Task:
     )
     normalized_entry["kind"] = operation_kind
     if operation_kind == "runtime":
+        entrypoint = normalize_required_text(
+            normalized_entry.get("entrypoint"),
+            field_name="entrypoint",
+        )
+        normalized_entry["entrypoint"] = entrypoint
+        if entrypoint == "core.runtime.materialize_stream":
+            return MaterializeStreamTask.model_validate(normalized_entry)
         return OperationTask.model_validate(normalized_entry)
     if operation_kind != "artifact":
         raise ValueError(
@@ -108,7 +116,10 @@ def operation_specs(
         error_template="Duplicate operation task ids are not allowed: {details}",
         key_fn=lambda spec: spec.id,
     )
-    overlap = sorted({spec.id for spec in artifact_specs} & {spec.id for spec in operation_task_specs})
+    overlap = sorted(
+        {spec.id for spec in artifact_specs}
+        & {spec.id for spec in operation_task_specs}
+    )
     if overlap:
         raise ValueError(
             "Task ids must be globally unique across artifact/runtime tasks: "

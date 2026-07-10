@@ -42,11 +42,12 @@ class OutputTarget:
     """Resolved writer target describing how and where to emit records."""
 
     transport: str  # stdout | fs
-    format: str     # jsonl | csv | pickle | html
-    view: str       # flat | raw
+    format: str  # jsonl | csv | pickle | html
+    view: str  # flat | raw
     encoding: str | None
     destination: Optional[Path]
     run: RunPaths | None = None
+    overwrite: bool = True
 
     def for_feature(self, feature_id: str) -> "OutputTarget":
         if self.transport != "fs" or self.destination is None:
@@ -67,6 +68,7 @@ class OutputTarget:
             encoding=self.encoding,
             destination=new_path,
             run=self.run,
+            overwrite=self.overwrite,
         )
 
     def for_split(self, label: str) -> "OutputTarget":
@@ -84,6 +86,7 @@ class OutputTarget:
             encoding=self.encoding,
             destination=new_path,
             run=self.run,
+            overwrite=self.overwrite,
         )
 
 
@@ -115,7 +118,6 @@ def resolve_destination(
 
 
 def resolve_output_target(
-    
     cli_output: ServeOutputConfig | None,
     config_output: ServeOutputConfig | None,
     default: ServeOutputConfig | None = None,
@@ -163,9 +165,7 @@ def resolve_output_target(
     )
     if filename_stem:
         if Path(filename_stem).suffix == suffix:
-            raise OutputResolutionError(
-                f"filename must omit the '{suffix}' extension"
-            )
+            raise OutputResolutionError(f"filename must omit the '{suffix}' extension")
         filename = f"{filename_stem}{suffix}"
     else:
         filename = _default_filename_for_format(config.format)
