@@ -1,4 +1,5 @@
 import logging
+import math
 import threading
 import time
 from dataclasses import dataclass
@@ -89,6 +90,7 @@ class _RunHeartbeat:
     def __init__(self, observer: ExecutionObserver, interval_seconds: float) -> None:
         self._observer = observer
         self._interval_seconds = float(interval_seconds)
+        self._delivery_lock = threading.RLock()
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -146,20 +148,22 @@ class _RunHeartbeat:
                 state.last_emit_at = now
 
     def clear(self, node: NodeProgressContext) -> None:
-        with self._lock:
-            self._stack = [item for item in self._stack if item != node]
-            self._states.pop(node, None)
+        with self._delivery_lock:
+            with self._lock:
+                self._stack = [item for item in self._stack if item != node]
+                self._states.pop(node, None)
 
     def _run(self) -> None:
         while not self._stop.wait(self._interval_seconds):
-            event = self._snapshot_event()
-            if event is None:
-                continue
-            node, message = event
-            try:
-                _emit_node_progress(self._observer, node, message)
-            except Exception:
-                logger.debug("Failed to emit DAG heartbeat", exc_info=True)
+            with self._delivery_lock:
+                event = self._snapshot_event()
+                if event is None:
+                    continue
+                node, message = event
+                try:
+                    _emit_node_progress(self._observer, node, message)
+                except Exception:
+                    logger.debug("Failed to emit DAG heartbeat", exc_info=True)
 
     def _snapshot_event(self) -> tuple[NodeProgressContext, str] | None:
         now = time.perf_counter()
@@ -246,8 +250,14 @@ def resolve_heartbeat_interval_seconds(interval: float | None) -> float:
     if interval is None:
         return DEFAULT_HEARTBEAT_INTERVAL_SECONDS
     interval = float(interval)
+    if not math.isfinite(interval):
+        raise ValueError("heartbeat_interval_seconds must be finite")
     if interval < 0:
         raise ValueError("heartbeat_interval_seconds must be non-negative")
+    if interval > threading.TIMEOUT_MAX:
+        raise ValueError(
+            f"heartbeat_interval_seconds must not exceed {threading.TIMEOUT_MAX:g}"
+        )
     return interval
 
 
@@ -550,7 +560,11 @@ def _observe_dag_stream(
             raise
         finally:
             try:
-                _close_iterator(iterator)
+                try:
+                    _close_iterator(iterator)
+                finally:
+                    if heartbeat is not None:
+                        heartbeat.stop()
                 if status == "success" and run_state.interrupted:
                     status = "error"
                     error_type = "KeyboardInterrupt"
@@ -569,10 +583,6 @@ def _observe_dag_stream(
                         )
                     )
             finally:
-                try:
-                    deactivate_dag_context(context_tokens)
-                finally:
-                    if heartbeat is not None:
-                        heartbeat.stop()
+                deactivate_dag_context(context_tokens)
 
     return _iter()

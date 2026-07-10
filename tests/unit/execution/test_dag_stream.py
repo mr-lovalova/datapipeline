@@ -223,49 +223,38 @@ def test_downstream_progress_after_input_read_uses_downstream_node_context(
     assert event.message == "after input read"
 
 
-def test_run_dag_emits_heartbeat_for_quiet_node(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr(dag_runner, "DEFAULT_HEARTBEAT_INTERVAL_SECONDS", 0.01)
-    observer = _CollectingObserver()
-    ctx = _context(tmp_path)
-
-    def _quiet_work():
-        assert observer.wait_for_next_heartbeat()
-        yield 1
-
-    dag = Dag(
-        name="heartbeat-demo",
-        nodes=(PipelineNode(name="produce", op=_quiet_work),),
+def test_resolve_heartbeat_interval_accepts_supported_values() -> None:
+    assert (
+        dag_runner.resolve_heartbeat_interval_seconds(None)
+        == dag_runner.DEFAULT_HEARTBEAT_INTERVAL_SECONDS
+    )
+    assert dag_runner.resolve_heartbeat_interval_seconds(0) == 0
+    assert (
+        dag_runner.resolve_heartbeat_interval_seconds(threading.TIMEOUT_MAX)
+        == threading.TIMEOUT_MAX
     )
 
-    assert list(run_dag(ctx, dag, observer=observer)) == [1]
 
-    heartbeats = _heartbeat_events(observer)
-    assert heartbeats
-    assert heartbeats[0].dag_name == "heartbeat-demo"
-    assert heartbeats[0].node_name == "produce"
-    assert heartbeats[0].message.endswith("items=0")
-
-
-def test_run_dag_uses_context_heartbeat_interval(tmp_path: Path) -> None:
-    observer = _CollectingObserver()
-    ctx = _context(tmp_path)
-    ctx.heartbeat_interval_seconds = 0.01
-
-    def _quiet_work():
-        assert observer.wait_for_next_heartbeat()
-        yield 1
-
-    dag = Dag(
-        name="heartbeat-config-demo",
-        nodes=(PipelineNode(name="produce", op=_quiet_work),),
-    )
-
-    assert list(run_dag(ctx, dag, observer=observer)) == [1]
-
-    heartbeats = _heartbeat_events(observer)
-    assert heartbeats
-    assert heartbeats[0].dag_name == "heartbeat-config-demo"
-    assert heartbeats[0].node_name == "produce"
+@pytest.mark.parametrize(
+    ("interval", "message"),
+    (
+        pytest.param(-1, "non-negative", id="negative"),
+        pytest.param(float("nan"), "finite", id="nan"),
+        pytest.param(float("inf"), "finite", id="positive-infinity"),
+        pytest.param(float("-inf"), "finite", id="negative-infinity"),
+        pytest.param(
+            threading.TIMEOUT_MAX + 1,
+            "must not exceed",
+            id="unsupported-timeout",
+        ),
+    ),
+)
+def test_resolve_heartbeat_interval_rejects_unsupported_values(
+    interval: float,
+    message: str,
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        dag_runner.resolve_heartbeat_interval_seconds(interval)
 
 
 def test_run_dag_disables_heartbeat_when_interval_is_zero(
@@ -292,8 +281,7 @@ def test_run_dag_disables_heartbeat_when_interval_is_zero(
     assert _heartbeat_events(observer) == []
 
 
-def test_run_dag_heartbeat_preserves_contextvars(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr(dag_runner, "DEFAULT_HEARTBEAT_INTERVAL_SECONDS", 0.01)
+def test_run_dag_heartbeat_tracks_context_and_items(tmp_path: Path) -> None:
     marker: ContextVar[str | None] = ContextVar("test_heartbeat_marker", default=None)
     observed_markers: list[str | None] = []
 
@@ -304,55 +292,34 @@ def test_run_dag_heartbeat_preserves_contextvars(tmp_path: Path, monkeypatch) ->
 
     observer = ContextObserver()
     ctx = _context(tmp_path)
+    ctx.heartbeat_interval_seconds = 0.01
 
-    def _quiet_work():
+    def _work():
         assert observer.wait_for_next_heartbeat()
-        yield 1
-
-    dag = Dag(
-        name="heartbeat-context-demo",
-        nodes=(PipelineNode(name="produce", op=_quiet_work),),
-    )
-
-    token = marker.set("visual-context")
-    try:
-        assert list(run_dag(ctx, dag, observer=observer)) == [1]
-    finally:
-        marker.reset(token)
-
-    heartbeats = _heartbeat_events(observer)
-    assert heartbeats
-    assert "visual-context" in observed_markers
-
-
-def test_run_dag_emits_heartbeat_while_node_is_yielding_items(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    monkeypatch.setattr(dag_runner, "DEFAULT_HEARTBEAT_INTERVAL_SECONDS", 0.01)
-    observer = _CollectingObserver()
-    ctx = _context(tmp_path)
-
-    def _busy_stream():
         yield 0
         assert observer.wait_for_next_heartbeat()
         yield 1
 
     dag = Dag(
-        name="heartbeat-demo",
-        nodes=(PipelineNode(name="produce", op=_busy_stream),),
+        name="heartbeat-context-demo",
+        nodes=(PipelineNode(name="produce", op=_work),),
     )
 
-    assert list(run_dag(ctx, dag, observer=observer)) == [0, 1]
+    token = marker.set("visual-context")
+    try:
+        assert list(run_dag(ctx, dag, observer=observer)) == [0, 1]
+    finally:
+        marker.reset(token)
 
     heartbeats = _heartbeat_events(observer)
-    assert heartbeats
-    assert heartbeats[-1].dag_name == "heartbeat-demo"
-    assert heartbeats[-1].node_name == "produce"
+    assert heartbeats[0].dag_name == "heartbeat-context-demo"
+    assert heartbeats[0].node_name == "produce"
+    assert heartbeats[0].message.endswith("items=0")
     assert not heartbeats[-1].message.endswith("items=0")
+    assert set(observed_markers) == {"visual-context"}
 
 
-def test_heartbeat_reports_upstream_leaf_while_downstream_waits_for_input(
+def test_heartbeat_tracks_active_node_through_nested_streams(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -362,37 +329,6 @@ def test_heartbeat_reports_upstream_leaf_while_downstream_waits_for_input(
 
     def _source():
         assert observer.wait_for_next_heartbeat()
-        yield 1
-
-    def _consume(up):
-        for item in up:
-            yield item
-
-    dag = Dag(
-        name="heartbeat-leaf-demo",
-        nodes=(
-            PipelineNode(name="source", op=_source),
-            PipelineNode(name="consume", op=_consume, input="source"),
-        ),
-    )
-
-    assert list(run_dag(ctx, dag, observer=observer)) == [1]
-
-    heartbeats = _heartbeat_events(observer)
-    assert heartbeats
-    assert heartbeats[0].dag_name == "heartbeat-leaf-demo"
-    assert heartbeats[0].node_name == "source"
-
-
-def test_heartbeat_returns_to_downstream_node_after_upstream_is_exhausted(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    monkeypatch.setattr(dag_runner, "DEFAULT_HEARTBEAT_INTERVAL_SECONDS", 0.01)
-    observer = _CollectingObserver()
-    ctx = _context(tmp_path)
-
-    def _source():
         yield 1
 
     def _sort_like(up):
@@ -411,10 +347,89 @@ def test_heartbeat_returns_to_downstream_node_after_upstream_is_exhausted(
     assert list(run_dag(ctx, dag, observer=observer)) == [1]
 
     heartbeats = _heartbeat_events(observer)
-    assert heartbeats
+    assert heartbeats[0].node_name == "source"
     assert heartbeats[-1].dag_name == "heartbeat-downstream-demo"
     assert heartbeats[-1].node_name == "order_records"
     assert heartbeats[-1].message.endswith("items=0")
+
+
+def test_heartbeat_delivery_finishes_before_terminal_events(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    order: list[str] = []
+    progress_started = threading.Event()
+    clear_started = threading.Event()
+
+    class OrderedObserver(_CollectingObserver):
+        def on_node_progress(self, event: NodeProgressEvent) -> None:
+            progress_started.set()
+            assert clear_started.wait(1)
+            super().on_node_progress(event)
+            order.append("progress")
+
+        def on_node_end(self, event: NodeExecutionEvent) -> None:
+            super().on_node_end(event)
+            order.append("node_end")
+
+        def on_dag_end(self, event: DagRunEvent) -> None:
+            super().on_dag_end(event)
+            order.append("dag_end")
+
+    original_clear = dag_runner._RunHeartbeat.clear
+    original_stop = dag_runner._RunHeartbeat.stop
+
+    def _record_clear(heartbeat, node) -> None:
+        clear_started.set()
+        original_clear(heartbeat, node)
+
+    def _record_stop(heartbeat) -> None:
+        original_stop(heartbeat)
+        order.append("heartbeat_stop")
+
+    monkeypatch.setattr(dag_runner._RunHeartbeat, "clear", _record_clear)
+    monkeypatch.setattr(dag_runner._RunHeartbeat, "stop", _record_stop)
+    observer = OrderedObserver()
+    ctx = _context(tmp_path)
+    ctx.heartbeat_interval_seconds = 0.01
+
+    def _work():
+        assert progress_started.wait(1)
+        yield from ()
+
+    dag = Dag(
+        name="heartbeat-order-demo",
+        nodes=(PipelineNode(name="produce", op=_work),),
+    )
+
+    assert list(run_dag(ctx, dag, observer=observer)) == []
+    assert order == ["progress", "node_end", "heartbeat_stop", "dag_end"]
+
+
+def test_heartbeat_callback_can_clear_its_node() -> None:
+    callback_finished = threading.Event()
+    node = dag_runner.NodeProgressContext(
+        dag_name="demo",
+        node_name="work",
+        node_index=0,
+        execution_index=0,
+        node_kind="function",
+        node_calls_dag=None,
+        depth=1,
+    )
+
+    class ReentrantObserver:
+        def on_node_progress(self, event: NodeProgressEvent) -> None:
+            heartbeat.clear(node)
+            callback_finished.set()
+
+    heartbeat = dag_runner._RunHeartbeat(ReentrantObserver(), 0.001)
+    heartbeat.enter(node, 0)
+    heartbeat.start()
+    try:
+        assert callback_finished.wait(1)
+    finally:
+        heartbeat.stop()
 
 
 def test_run_dag_ignores_node_progress_when_observer_does_not_support_it(
