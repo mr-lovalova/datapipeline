@@ -268,7 +268,7 @@ def run_dag(
         _CURRENT_RUN_EXECUTION_INDEX.set(0)
     stream: Iterable[Any] | None = seed
     try:
-        state: dict[str, Iterable[Any] | None] = {}
+        state: dict[str, Iterable[Any]] = {}
         if seed is not None:
             state["seed"] = seed
         for index, node in enumerate(dag.nodes):
@@ -289,6 +289,12 @@ def run_dag(
                 state,
                 include_input=(node.input is not None),
             )
+            if produced is None:
+                raise TypeError(
+                    f"Node '{node.name}' in DAG '{dag.name}' returned None; "
+                    "node operations must return an iterable. "
+                    "Return () for an empty stream."
+                )
             stream = _observe_node_stream(
                 dag_name=dag.name,
                 node_name=node.name,
@@ -300,12 +306,13 @@ def run_dag(
                 observer=active_observer,
             )
             state[node.output or node.name] = stream
+        final_stream = stream if stream is not None else ()
         return _observe_dag_stream(
             context=context,
             dag=dag,
             depth=dag_depth,
             reset_interrupt=is_root_run,
-            stream=stream,
+            stream=final_stream,
             observer=active_observer,
         )
     finally:
@@ -331,7 +338,7 @@ def _resolve_observer(
 def _run_node(
     node,
     node_input: Iterable[Any] | None,
-    state: dict[str, Iterable[Any] | None],
+    state: dict[str, Iterable[Any]],
     *,
     include_input: bool,
 ) -> Iterable[Any] | None:
@@ -357,7 +364,7 @@ def _observe_node_stream(
     node_kind: NodeKind,
     node_calls_dag: str | None,
     depth: int,
-    stream: Iterable[Any] | None,
+    stream: Iterable[Any],
     observer: ExecutionObserver,
 ) -> Iterator[Any]:
     def _iter() -> Iterator[Any]:
@@ -409,7 +416,7 @@ def _observe_node_stream(
                 node_calls_dag=node_calls_dag,
                 depth=node_depth,
             )
-            iterator = iter(()) if stream is None else iter(stream)
+            iterator = iter(stream)
             while True:
                 if heartbeat is not None:
                     heartbeat.enter(progress_node, item_count)
@@ -478,7 +485,7 @@ def _observe_dag_stream(
     dag: Dag,
     depth: int,
     reset_interrupt: bool,
-    stream: Iterable[Any] | None,
+    stream: Iterable[Any],
     observer: ExecutionObserver,
 ) -> Iterator[Any]:
     def _iter() -> Iterator[Any]:
@@ -502,7 +509,7 @@ def _observe_dag_stream(
             dag_metadata=dag.metadata,
             dag_parent=dag_parent,
         )
-        iterator = iter(()) if stream is None else iter(stream)
+        iterator = iter(stream)
         heartbeat: _RunHeartbeat | None = None
         heartbeat_token = None
         if reset_interrupt:

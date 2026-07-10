@@ -572,7 +572,9 @@ def test_run_dag_emits_explicit_depth_for_nested_dags(tmp_path: Path) -> None:
     )
     start_parent_by_name = {
         dag_name: parent
-        for (dag_name, _), parent in zip(observer.dag_started, observer.dag_start_parents)
+        for (dag_name, _), parent in zip(
+            observer.dag_started, observer.dag_start_parents
+        )
     }
     assert start_parent_by_name["outer"] is None
     assert start_parent_by_name["inner"] == DagParentRef(
@@ -642,7 +644,9 @@ def test_run_dag_uses_consuming_node_depth_for_seeded_child_dag(tmp_path: Path) 
         node_index=0,
     )
 
-    node_depth_by_name = {event.node_name: event.depth for event in observer.node_events}
+    node_depth_by_name = {
+        event.node_name: event.depth for event in observer.node_events
+    }
     assert node_depth_by_name["feature_fanout"] == 1
     assert node_depth_by_name["build_feature_stream"] == 2
     assert node_depth_by_name["open_source"] == 3
@@ -662,9 +666,74 @@ def test_run_dag_tracks_empty_nodes(tmp_path: Path) -> None:
 
     output = list(run_dag(ctx, dag, observer=observer))
     assert output == []
-    assert [event.node_name for event in observer.node_events] == ["seed", "passthrough"]
+    assert [event.node_name for event in observer.node_events] == [
+        "seed",
+        "passthrough",
+    ]
     assert [event.output_items for event in observer.node_events] == [0, 0]
     assert observer.dag_events[-1].output_items == 0
+
+
+def test_run_dag_rejects_none_node_output_eagerly(tmp_path: Path) -> None:
+    observer = _CollectingObserver()
+    ctx = _context(tmp_path)
+    dag = Dag(
+        name="none-output",
+        nodes=(PipelineNode(name="broken", op=lambda: None),),
+    )
+
+    with pytest.raises(TypeError) as exc_info:
+        run_dag(ctx, dag, observer=observer)
+
+    assert str(exc_info.value) == (
+        "Node 'broken' in DAG 'none-output' returned None; "
+        "node operations must return an iterable. "
+        "Return () for an empty stream."
+    )
+    assert observer.dag_started == []
+    assert observer.node_started == []
+    assert observer.node_events == []
+    assert observer.dag_events == []
+
+
+def test_run_dag_rejects_unused_none_node_output(tmp_path: Path) -> None:
+    ctx = _context(tmp_path)
+    later_node_called = False
+
+    def valid_later_node():
+        nonlocal later_node_called
+        later_node_called = True
+        return [1]
+
+    dag = Dag(
+        name="masked-none-output",
+        nodes=(
+            PipelineNode(name="broken", op=lambda: None),
+            PipelineNode(name="later", op=valid_later_node),
+        ),
+    )
+
+    with pytest.raises(TypeError, match="Node 'broken'.*returned None"):
+        run_dag(ctx, dag)
+
+    assert not later_node_called
+
+
+def test_run_dag_empty_dag_preserves_boundary_behavior(tmp_path: Path) -> None:
+    ctx = _context(tmp_path)
+    dag = Dag(name="empty", nodes=())
+
+    empty_observer = _CollectingObserver()
+    assert list(run_dag(ctx, dag, observer=empty_observer)) == []
+    assert empty_observer.node_events == []
+    assert empty_observer.dag_events[-1].status == "success"
+    assert empty_observer.dag_events[-1].output_items == 0
+
+    seeded_observer = _CollectingObserver()
+    assert list(run_dag(ctx, dag, seed=[1, 2], observer=seeded_observer)) == [1, 2]
+    assert seeded_observer.node_events == []
+    assert seeded_observer.dag_events[-1].status == "success"
+    assert seeded_observer.dag_events[-1].output_items == 2
 
 
 def test_run_dag_uses_node_index(tmp_path: Path) -> None:
@@ -708,7 +777,9 @@ def test_logging_observer_logs_dag_at_info_and_nodes_at_debug(caplog) -> None:
 
     with caplog.at_level(logging.INFO, logger=logger.name):
         observer.on_dag_start(dag_name="demo", node_count=2)
-        observer.on_node_start(dag_name="demo", node_name="node_a", node_index=0, execution_index=0)
+        observer.on_node_start(
+            dag_name="demo", node_name="node_a", node_index=0, execution_index=0
+        )
         observer.on_node_end(
             NodeExecutionEvent(
                 dag_name="demo",
@@ -753,4 +824,6 @@ def test_logging_observer_logs_parent_context_for_nested_dag_start(caplog) -> No
         )
 
     messages = [record.getMessage() for record in caplog.records]
-    assert any(message.startswith("[vector:assemble] started nodes=2") for message in messages)
+    assert any(
+        message.startswith("[vector:assemble] started nodes=2") for message in messages
+    )
