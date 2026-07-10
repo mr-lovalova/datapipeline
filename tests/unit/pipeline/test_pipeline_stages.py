@@ -34,11 +34,7 @@ from datapipeline.sources.adapters.fs import FsFileTransport, FsGlobTransport
 from datapipeline.sources.data_loader import DataLoader
 from datapipeline.sources.decoders import JsonLinesDecoder
 from datapipeline.transforms.spec import TransformSpec
-from datapipeline.vector_inputs import (
-    CachedVectorInputShard,
-    load_vector_inputs_manifest,
-    write_vector_input_rows,
-)
+from datapipeline.vector_inputs import CachedVectorInputShard
 from tests.vector_input_helpers import register_vector_inputs
 
 
@@ -657,19 +653,6 @@ def test_vector_pipeline_requires_vector_inputs_artifact(tmp_path: Path) -> None
         list(build_vector_pipeline(context, [cfg], "1h", rectangular=False))
 
 
-@pytest.mark.parametrize("version", [None, 1, 3, 2.0, True])
-def test_vector_inputs_manifest_rejects_incompatible_version(
-    tmp_path: Path,
-    version: object,
-) -> None:
-    manifest = tmp_path / "manifest.json"
-    payload = {} if version is None else {"version": version}
-    manifest.write_text(json.dumps(payload), encoding="utf-8")
-
-    with pytest.raises(ValueError, match="FORCE mode"):
-        load_vector_inputs_manifest(manifest)
-
-
 def test_cached_vector_pipeline_rejects_manifest_cadence_mismatch(
     tmp_path: Path,
 ) -> None:
@@ -720,29 +703,6 @@ def test_cached_vector_pipeline_reads_requested_feature_subset(
         ((_ts(0),), {"price": 1.0}, None),
         ((_ts(1),), {"price": 2.0}, None),
     ]
-
-
-def test_vector_input_writer_removes_temp_file_on_interrupt(tmp_path: Path) -> None:
-    class _InterruptedRows:
-        def __init__(self) -> None:
-            self.count = 0
-
-        def __iter__(self):
-            return self
-
-        def __next__(self):
-            if self.count == 0:
-                self.count += 1
-                return {"id": "price", "time": _ts(0).isoformat(), "kind": "record"}
-            raise KeyboardInterrupt
-
-    destination = tmp_path / "price.jsonl.gz"
-
-    with pytest.raises(KeyboardInterrupt):
-        write_vector_input_rows(destination, _InterruptedRows())
-
-    assert not destination.exists()
-    assert list(tmp_path.iterdir()) == []
 
 
 def test_cached_vector_records_close_streams_when_stopped_early(

@@ -4,7 +4,10 @@ Artifact tasks are declared under `tasks/operations/`; built-in task models use
 these default outputs:
 
 - `build/vector_inputs/manifest.json` plus compressed feature/target shards:
-  durable inputs consumed by vector assembly.
+  durable inputs consumed by vector assembly. Values may contain only `None`,
+  `bool`, `int`, `float`, `str`, lists, and string-keyed dictionaries;
+  sample-key components may use only those scalar types. Other Python objects
+  fail the build instead of being converted to strings.
 - `build/scaler.json`: managed scaler statistics fitted on the configured split,
   either as one standard scaler or a folded temporal scaler container. Features
   with an explicit `scale.model_path` do not use this artifact.
