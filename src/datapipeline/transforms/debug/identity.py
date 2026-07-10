@@ -3,12 +3,12 @@ from dataclasses import asdict, is_dataclass
 from typing import Iterator, Any
 
 from datapipeline.domain.record import TemporalRecord
-from datapipeline.transforms.utils import partition_key
+from datapipeline.transforms.interfaces import PartitionedStreamTransformBase
 
 logger = logging.getLogger(__name__)
 
 
-class IdentityGuardTransform:
+class IdentityGuardTransform(PartitionedStreamTransformBase):
     """Validate that per-stream identity fields remain constant.
 
     Parameters
@@ -25,12 +25,9 @@ class IdentityGuardTransform:
         fields: list[str] | None = None,
         partition_by: str | list[str] | None = None,
     ) -> None:
+        super().__init__(partition_by=partition_by)
         self.mode = mode
         self.fields = fields
-        self.partition_by = partition_by
-
-    def __call__(self, stream: Iterator[TemporalRecord]) -> Iterator[TemporalRecord]:
-        return self.apply(stream)
 
     def _violation(self, msg: str) -> None:
         if self.mode == "error":
@@ -62,7 +59,9 @@ class IdentityGuardTransform:
                     out[f] = None
             return out
         # Try domain-provided hook first
-        if hasattr(rec, "identity_fields") and callable(getattr(rec, "identity_fields")):
+        if hasattr(rec, "identity_fields") and callable(
+            getattr(rec, "identity_fields")
+        ):
             try:
                 return rec.identity_fields()  # type: ignore[attr-defined]
             except Exception:
@@ -78,7 +77,7 @@ class IdentityGuardTransform:
         current_key: tuple | None = None
         baseline: dict | None = None
         for rec in stream:
-            key = partition_key(rec, self.partition_by)
+            key = self.partition_key(rec)
             ident = self._identity_map(rec)
             if key != current_key:
                 current_key = key

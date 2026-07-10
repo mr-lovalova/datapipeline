@@ -26,10 +26,15 @@ from datapipeline.pipelines.vector.nodes import sample_domain_window_keys, windo
 from datapipeline.pipelines.full.nodes import post_process
 from datapipeline.pipelines.full.split import apply_split_stage
 from datapipeline.runtime import Runtime, StreamRuntimeSpec
-from datapipeline.services.constants import POSTPROCESS_TRANSFORMS, VECTOR_INPUTS, VECTOR_SCHEMA
+from datapipeline.services.constants import (
+    POSTPROCESS_TRANSFORMS,
+    VECTOR_INPUTS,
+    VECTOR_SCHEMA,
+)
 from datapipeline.sources.adapters.fs import FsFileTransport, FsGlobTransport
 from datapipeline.sources.data_loader import DataLoader
 from datapipeline.sources.decoders import JsonLinesDecoder
+from datapipeline.transforms.spec import TransformSpec
 from datapipeline.vector_inputs import CachedVectorInputShard, write_vector_input_rows
 from tests.vector_input_helpers import register_vector_inputs
 
@@ -166,8 +171,8 @@ def _runtime_with_rows(
     rows: list[dict],
     *,
     stream_id: str = "stream",
-    record_ops: list[dict] | None = None,
-    stream_ops: list[dict] | None = None,
+    record_ops: list[TransformSpec] | None = None,
+    stream_ops: list[TransformSpec] | None = None,
     partition_by: str | None = None,
     feature_id_by: str | list[str] | None = None,
 ) -> Runtime:
@@ -272,7 +277,7 @@ def test_node_0_to_2_record_pipeline(tmp_path: Path) -> None:
     runtime = _runtime_with_rows(
         tmp_path,
         rows,
-        record_ops=[{"floor_time": {"cadence": "1h"}}],
+        record_ops=[TransformSpec(name="floor_time", params={"cadence": "1h"})],
     )
     ctx = PipelineContext(runtime)
 
@@ -345,7 +350,12 @@ def test_node_4_applies_stream_transforms(tmp_path: Path) -> None:
     runtime = _runtime_with_rows(
         tmp_path,
         rows,
-        stream_ops=[{"ensure_cadence": {"cadence": "1h", "field": "value"}}],
+        stream_ops=[
+            TransformSpec(
+                name="ensure_cadence",
+                params={"cadence": "1h", "field": "value"},
+            )
+        ],
     )
     ctx = PipelineContext(runtime)
 
@@ -368,7 +378,12 @@ def test_ensure_cadence_placeholders_do_not_copy_payload_fields(
         tmp_path,
         rows,
         partition_by="symbol",
-        stream_ops=[{"ensure_cadence": {"cadence": "1h", "field": "value"}}],
+        stream_ops=[
+            TransformSpec(
+                name="ensure_cadence",
+                params={"cadence": "1h", "field": "value"},
+            )
+        ],
     )
     ctx = PipelineContext(runtime)
 
@@ -390,7 +405,12 @@ def test_ensure_cadence_uses_stream_partition_for_tick_artifact(
         tmp_path,
         rows,
         partition_by="symbol",
-        stream_ops=[{"ensure_cadence": {"cadence": "model_grid", "field": "value"}}],
+        stream_ops=[
+            TransformSpec(
+                name="ensure_cadence",
+                params={"cadence": "model_grid", "field": "value"},
+            )
+        ],
     )
     artifact_path = runtime.artifacts_root / "model_grid.jsonl"
     artifact_path.write_text(
@@ -479,7 +499,7 @@ def test_node_7_vs_8_postprocess(tmp_path: Path) -> None:
     )
     runtime.registries.postprocesses.register(
         POSTPROCESS_TRANSFORMS,
-        [{"replace": {"value": 0}}],
+        [TransformSpec(name="replace", params={"value": 0})],
     )
     ctx = PipelineContext(runtime)
     cfg = FeatureRecordConfig(record_stream="stream", id="price", field="value")
@@ -507,7 +527,7 @@ def test_full_pipeline_matches_manual_chain(tmp_path: Path) -> None:
     )
     runtime.registries.postprocesses.register(
         POSTPROCESS_TRANSFORMS,
-        [{"replace": {"value": 0}}],
+        [TransformSpec(name="replace", params={"value": 0})],
     )
     ctx = PipelineContext(runtime)
     cfg = FeatureRecordConfig(record_stream="stream", id="price", field="value")

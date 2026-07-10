@@ -1,19 +1,14 @@
 from datetime import timedelta
-from contextlib import nullcontext
 
 import pytest
 
 from datapipeline.transforms.record.shift_time import ShiftTimeRecordTransform
 from datapipeline.transforms.engine import apply_transforms
+from datapipeline.transforms.spec import TransformSpec
 from datapipeline.transforms.stream.lag import LagTransformer
 from datapipeline.transforms.stream.lead import LeadTransformer
 from datapipeline.plugins import STREAM_TRANFORMS_EP
 from tests.unit.transforms.helpers import make_time_record
-
-
-class _StubContext:
-    def activate(self):
-        return nullcontext()
 
 
 def _record(value: float | None, hour: int, ticker: str):
@@ -90,7 +85,7 @@ def test_stream_lead_copies_future_partition_value() -> None:
     ]
 
 
-def test_stream_lead_ignores_injected_context() -> None:
+def test_stream_lead_binds_stream_partition() -> None:
     stream = iter(
         [
             _record(10.0, 0, "AAPL"),
@@ -102,13 +97,36 @@ def test_stream_lead_ignores_injected_context() -> None:
         apply_transforms(
             stream,
             STREAM_TRANFORMS_EP,
-            [{"lead": {"field": "value", "to": "value_lead_1", "periods": 1}}],
-            context=_StubContext(),
-            extra_kwargs={"partition_by": "ticker"},
+            [
+                TransformSpec(
+                    name="lead",
+                    params={"field": "value", "to": "value_lead_1", "periods": 1},
+                )
+            ],
+            partition_by="ticker",
         )
     )
 
     assert [getattr(record, "value_lead_1") for record in out] == [11.0, None]
+
+
+def test_stream_transform_partition_must_match_stream_partition() -> None:
+    with pytest.raises(ValueError, match="must match the stream partition_by"):
+        apply_transforms(
+            iter([_record(10.0, 0, "AAPL")]),
+            STREAM_TRANFORMS_EP,
+            [
+                TransformSpec(
+                    name="lead",
+                    params={
+                        "field": "value",
+                        "periods": 1,
+                        "partition_by": "venue",
+                    },
+                )
+            ],
+            partition_by="ticker",
+        )
 
 
 @pytest.mark.parametrize("transform_cls", [LagTransformer, LeadTransformer])

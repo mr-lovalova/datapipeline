@@ -82,10 +82,7 @@ def apply_stream_operations(
         STREAM_TRANFORMS_EP,
         operations,
         context,
-        extra_kwargs={
-            "partition_by": state_partition_by,
-            "stream_partition_by": state_partition_by,
-        },
+        partition_by=state_partition_by,
     )
 
 
@@ -100,5 +97,5 @@ def apply_debug_operations(
         DEBUG_TRANSFORMS_EP,
         operations,
         context,
-        extra_kwargs={"partition_by": state_partition_by},
+        partition_by=state_partition_by,
     )

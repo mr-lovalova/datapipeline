@@ -1,12 +1,20 @@
 import logging
-from collections.abc import Callable, Iterator, Mapping, Sequence
-from typing import Any, Optional, Tuple
-from inspect import isclass, signature, Parameter
-from contextlib import nullcontext
+from collections.abc import Callable, Iterator, Sequence
+from inspect import Parameter, isclass, signature
+from typing import Any
 
 from datapipeline.dag.context import PipelineContext
-from datapipeline.dag.transform_observability import ObserverRegistry, SupportsObserver, TransformEvent
-
+from datapipeline.dag.transform_observability import (
+    ObserverRegistry,
+    SupportsObserver,
+    TransformEvent,
+)
+from datapipeline.plugins import STREAM_TRANFORMS_EP
+from datapipeline.transforms.interfaces import (
+    SupportsContextBinding,
+    SupportsPartitionBinding,
+)
+from datapipeline.transforms.spec import TransformSpec
 from datapipeline.utils.load import load_ep
 
 logger = logging.getLogger(__name__)
@@ -32,141 +40,156 @@ def _with_close_cascade(
     if stream is upstream:
         return stream
 
-    def _iter() -> Iterator[Any]:
-        iterator = iter(stream)
+    return _CloseCascadeIterator(stream, upstream)
+
+
+class _CloseCascadeIterator:
+    def __init__(self, stream: Iterator[Any], upstream: Iterator[Any]) -> None:
+        self._stream = stream
+        self._upstream = upstream
+        self._iterator: Iterator[Any] | None = None
+        self._closed = False
+
+    def __iter__(self) -> "_CloseCascadeIterator":
+        return self
+
+    def __next__(self) -> Any:
+        if self._closed:
+            raise StopIteration
         try:
-            yield from iterator
-        finally:
-            _close_iterator(iterator)
-            _close_iterator(upstream)
+            if self._iterator is None:
+                self._iterator = iter(self._stream)
+            return next(self._iterator)
+        except BaseException:
+            self.close()
+            raise
 
-    return _iter()
-
-
-def _extract_transform_spec(clause: Mapping[str, Any]) -> tuple[str, Any]:
-    if not isinstance(clause, Mapping) or len(clause) != 1:
-        raise TypeError(f"Transform must be one-key mapping, got: {clause!r}")
-    return next(iter(clause.items()))
-
-
-def _supports_parameter(callable_obj: Callable[..., Any], name: str) -> bool:
-    try:
-        sig = signature(callable_obj)
-    except (ValueError, TypeError):
-        return False
-    for param in sig.parameters.values():
-        if param.kind == Parameter.VAR_KEYWORD:
-            return True
-        if param.kind in (Parameter.POSITIONAL_OR_KEYWORD, Parameter.KEYWORD_ONLY) and param.name == name:
-            return True
-    return False
-
-
-def _split_params(params: Any) -> Tuple[Tuple[Any, ...], dict[str, Any]]:
-    if params is None:
-        return (), {}
-    if isinstance(params, (list, tuple)):
-        return tuple(params), {}
-    if isinstance(params, Mapping):
-        return (), dict(params)
-    return (params,), {}
-
-
-def _merge_extra_kwargs(
-    fn: Callable[..., Any],
-    kwargs: dict[str, Any],
-    extra_kwargs: Mapping[str, Any] | None,
-) -> dict[str, Any]:
-    if not extra_kwargs:
-        return kwargs
-    merged = dict(kwargs)
-    for key, value in extra_kwargs.items():
-        if key in merged:
-            continue
-        if _supports_parameter(fn, key):
-            merged[key] = value
-    return merged
-
-
-def _call_with_params(
-    fn: Callable,
-    stream: Iterator[Any],
-    params: Any,
-    context: Optional[PipelineContext],
-    extra_kwargs: Mapping[str, Any] | None = None,
-) -> Iterator[Any]:
-    """Invoke an entry-point callable with optional params semantics."""
-
-    args, kwargs = _split_params(params)
-    if context and _supports_parameter(fn, "context") and "context" not in kwargs:
-        kwargs["context"] = context
-    kwargs = _merge_extra_kwargs(fn, kwargs, extra_kwargs)
-    return fn(stream, *args, **kwargs)
-
-
-def _instantiate_entry_point(
-    cls: Callable[..., Any],
-    params: Any,
-    context: Optional[PipelineContext],
-    extra_kwargs: Mapping[str, Any] | None = None,
-) -> Any:
-    """Instantiate a transform class with parameters from the config."""
-
-    args, kwargs = _split_params(params)
-    if context and _supports_parameter(cls.__init__, "context") and "context" not in kwargs:
-        kwargs["context"] = context
-    kwargs = _merge_extra_kwargs(cls.__init__, kwargs, extra_kwargs)
-    return cls(*args, **kwargs)
-
-
-def _bind_context(transform: Any, context: Optional[PipelineContext]) -> None:
-    if not context:
-        return
-    binder = getattr(transform, "bind_context", None)
-    if callable(binder):
-        binder(context)
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        if self._iterator is not None:
+            _close_iterator(self._iterator)
+        if self._stream is not self._iterator:
+            _close_iterator(self._stream)
+        _close_iterator(self._upstream)
 
 
 def apply_transforms(
     stream: Iterator[Any],
     group: str,
-    transforms: Optional[Sequence[Mapping[str, Any]]],
-    context: Optional[PipelineContext] = None,
+    transforms: Sequence[TransformSpec] | None,
+    context: PipelineContext | None = None,
     observer: Callable[[TransformEvent], None] | None = None,
     observer_registry: ObserverRegistry | None = None,
-    extra_kwargs: Mapping[str, Any] | None = None,
+    partition_by: str | list[str] | None = None,
 ) -> Iterator[Any]:
-    """Instantiate and apply configured transforms in order."""
+    """Instantiate and apply parsed transform specs in order."""
 
-    observer = observer or (getattr(context, "transform_observer", None)
-                            if context is not None else None)
-    registry = observer_registry or (getattr(context, "observer_registry", None)
-                                     if context is not None else None)
+    observer = observer or (
+        getattr(context, "transform_observer", None) if context is not None else None
+    )
+    registry = observer_registry or (
+        getattr(context, "observer_registry", None) if context is not None else None
+    )
 
-    context_cm = context.activate() if context else nullcontext()
-    with context_cm:
-        for transform in transforms or ():
-            upstream = stream
-            name, params = _extract_transform_spec(transform)
-            ep = load_ep(group=group, name=name)
-            if isclass(ep):
-                inst = _instantiate_entry_point(
-                    ep, params, context, extra_kwargs=extra_kwargs
-                )
-                _bind_context(inst, context)
-                eff_observer = observer
-                if eff_observer is None and registry:
-                    eff_observer = registry.get(
-                        name, logging.getLogger(f"{group}.{name}")
+    for spec in transforms or ():
+        upstream = stream
+        try:
+            entrypoint = load_ep(group=group, name=spec.name)
+            _validate_entrypoint_contract(
+                entrypoint,
+                group,
+                spec,
+                context=context,
+                partition_by=partition_by,
+            )
+            params = dict(spec.params)
+            if isclass(entrypoint):
+                transform = entrypoint(**params)
+                if context is not None and isinstance(
+                    transform, SupportsContextBinding
+                ):
+                    transform.bind_context(context)
+                if isinstance(transform, SupportsPartitionBinding):
+                    transform.bind_partition_by(partition_by)
+                effective_observer = observer
+                if effective_observer is None and registry:
+                    effective_observer = registry.get(
+                        spec.name,
+                        logging.getLogger(f"{group}.{spec.name}"),
                     )
-                _attach_observer(inst, eff_observer)
-                stream = inst(stream)
+                _attach_observer(transform, effective_observer)
+                stream = transform(stream)
             else:
-                stream = _call_with_params(
-                    ep, stream, params, context, extra_kwargs=extra_kwargs
-                )
-            stream = _with_close_cascade(stream, upstream)
+                stream = entrypoint(stream, **params)
+        except Exception:
+            _close_iterator(upstream)
+            raise
+        stream = _with_close_cascade(stream, upstream)
     return stream
+
+
+def _validate_entrypoint_contract(
+    entrypoint: Callable[..., Any],
+    group: str,
+    spec: TransformSpec,
+    *,
+    context: PipelineContext | None,
+    partition_by: str | list[str] | None,
+) -> None:
+    """Reject ambiguous callables and old implicit runtime bindings."""
+    try:
+        parameters = signature(entrypoint).parameters.values()
+    except (TypeError, ValueError):
+        return
+
+    keyword_parameter_names = {
+        parameter.name
+        for parameter in parameters
+        if parameter.kind in (Parameter.POSITIONAL_OR_KEYWORD, Parameter.KEYWORD_ONLY)
+    }
+    accepts_arbitrary_keywords = any(
+        parameter.kind is Parameter.VAR_KEYWORD for parameter in parameters
+    )
+    if accepts_arbitrary_keywords:
+        raise TypeError(
+            f"Transform '{spec.name}' accepts arbitrary keyword arguments. "
+            "Declare each supported configuration parameter explicitly."
+        )
+
+    class_entrypoint = isclass(entrypoint)
+
+    has_context_hook = class_entrypoint and callable(
+        getattr(entrypoint, "bind_context", None)
+    )
+    if (
+        context is not None
+        and not has_context_hook
+        and "context" not in spec.params
+        and "context" in keyword_parameter_names
+    ):
+        raise TypeError(
+            f"Transform '{spec.name}' relies on implicit context injection. "
+            "Use a class transform with bind_context(context) instead."
+        )
+
+    has_partition_hook = class_entrypoint and callable(
+        getattr(entrypoint, "bind_partition_by", None)
+    )
+    implicit_partition_parameters = {"partition_by"}
+    if group == STREAM_TRANFORMS_EP:
+        implicit_partition_parameters.add("stream_partition_by")
+    implicit_partition_parameters.difference_update(spec.params)
+    if (
+        partition_by is not None
+        and not has_partition_hook
+        and implicit_partition_parameters & keyword_parameter_names
+    ):
+        raise TypeError(
+            f"Transform '{spec.name}' relies on implicit partition binding. "
+            "Use a class transform with bind_partition_by(partition_by) instead."
+        )
 
 
 def _attach_observer(transform: Any, observer: Callable[..., None] | None) -> None:

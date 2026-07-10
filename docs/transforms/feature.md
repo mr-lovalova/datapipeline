@@ -1,7 +1,8 @@
 # Feature Transforms
 
 Feature transforms run after records are wrapped as feature records and before
-vector assembly. Configure them on each feature or target in `dataset.yaml`.
+vector assembly. `dataset.yaml` exposes two explicit feature-stage options:
+`scale` and `sequence`. It does not accept an arbitrary transform clause list.
 
 ## Built-In Transforms
 
@@ -24,5 +25,6 @@ features:
       stride: 1
 ```
 
-`sequence` accepts `size`, `stride`, and optional `cadence` when windows must be
-contiguous.
+`sequence` accepts `size` and optional `stride` (default `1`). It creates
+windows from the ordered feature stream; cadence regularization belongs in the
+source stream's `stream:` transforms when it is required.

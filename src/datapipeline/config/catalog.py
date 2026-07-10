@@ -1,6 +1,29 @@
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field, ConfigDict, model_validator
+from pydantic import (
+    BeforeValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    PlainSerializer,
+    model_validator,
+)
+
+from datapipeline.transforms.spec import (
+    TransformSpec,
+    parse_transform_spec,
+    serialize_transform_spec,
+)
+
+
+_ConfiguredTransform = Annotated[
+    TransformSpec,
+    BeforeValidator(parse_transform_spec),
+    PlainSerializer(
+        serialize_transform_spec,
+        return_type=dict[str, dict[str, Any]],
+    ),
+]
 
 
 class EPArgs(BaseModel):
@@ -31,7 +54,7 @@ class IngestConfig(BaseModel):
     feature_id_by: str | list[str] | None = Field(default=None)
     ordered_by: list[str] | None = Field(default=None)
     sort_batch_size: int = Field(default=100_000)
-    record: list[dict[str, Any]] | None = Field(default=None)
+    record: list[_ConfiguredTransform] | None = Field(default=None)
 
 
 class StreamFromConfig(BaseModel):
@@ -85,15 +108,11 @@ def _normalize_join_refs(refs: dict[str, str]) -> dict[str, str]:
         alias_text = str(alias).strip()
         ref_text = str(ref).strip()
         if not alias_text or not ref_text:
-            raise ValueError(
-                "from.join aliases and stream ids must not be empty"
-            )
+            raise ValueError("from.join aliases and stream ids must not be empty")
         if "@" in ref_text:
             raise ValueError("from.join may not include '@stage'")
         if ":" in ref_text:
-            raise ValueError(
-                "from.join must reference canonical stream ids only"
-            )
+            raise ValueError("from.join must reference canonical stream ids only")
         if alias_text in aliases:
             raise ValueError(f"from.join contains duplicate alias '{alias_text}'")
         aliases.add(alias_text)
@@ -110,15 +129,11 @@ def _normalize_stream_refs(refs: dict[str, str]) -> dict[str, str]:
         alias_text = str(alias).strip()
         ref_text = str(ref).strip()
         if not alias_text or not ref_text:
-            raise ValueError(
-                "from.streams aliases and stream ids must not be empty"
-            )
+            raise ValueError("from.streams aliases and stream ids must not be empty")
         if "@" in ref_text:
             raise ValueError("from.streams may not include '@stage'")
         if ":" in ref_text:
-            raise ValueError(
-                "from.streams must reference canonical stream ids only"
-            )
+            raise ValueError("from.streams must reference canonical stream ids only")
         if alias_text in aliases:
             raise ValueError(f"from.streams contains duplicate alias '{alias_text}'")
         aliases.add(alias_text)
@@ -149,10 +164,10 @@ class StreamConfig(BaseModel):
     feature_id_by: str | list[str] | None = Field(default=None)
     ordered_by: list[str] | None = Field(default=None)
     sort_batch_size: int = Field(default=100_000)
-    record: list[dict[str, Any]] | None = Field(default=None)
-    stream: list[dict[str, Any]] | None = Field(default=None)
+    record: list[_ConfiguredTransform] | None = Field(default=None)
+    stream: list[_ConfiguredTransform] | None = Field(default=None)
     # Optional debug-only transforms (applied after stream transforms)
-    debug: list[dict[str, Any]] | None = Field(default=None)
+    debug: list[_ConfiguredTransform] | None = Field(default=None)
 
     @property
     def joins_streams(self) -> bool:

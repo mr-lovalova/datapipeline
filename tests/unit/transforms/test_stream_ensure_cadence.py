@@ -18,7 +18,9 @@ def _context(tmp_path) -> PipelineContext:
     project_yaml.write_text("version: 1\n", encoding="utf-8")
     artifacts_root = tmp_path / "artifacts"
     artifacts_root.mkdir()
-    return PipelineContext(Runtime(project_yaml=project_yaml, artifacts_root=artifacts_root))
+    return PipelineContext(
+        Runtime(project_yaml=project_yaml, artifacts_root=artifacts_root)
+    )
 
 
 def _write_ticks(context: PipelineContext, artifact_id: str, hours: list[int]) -> None:
@@ -90,6 +92,18 @@ def _security_venue_record(
     return record
 
 
+def _bound_artifact_transform(
+    cadence: str,
+    context: PipelineContext,
+    partition_by: str | list[str] | None = None,
+) -> EnsureCadenceTransform:
+    transform = EnsureCadenceTransform(cadence=cadence, field="value")
+    transform.bind_context(context)
+    if partition_by is not None:
+        transform.bind_partition_by(partition_by)
+    return transform
+
+
 def test_ensure_cadence_uses_duration_cadence_unchanged() -> None:
     stream = iter([make_time_record(1.0, 0), make_time_record(2.0, 2)])
 
@@ -110,16 +124,14 @@ def test_ensure_cadence_rejects_nonpositive_duration(cadence: str) -> None:
         list(EnsureCadenceTransform(cadence=cadence, field="value").apply(stream))
 
 
-def test_ensure_cadence_uses_tick_artifact_and_extends_after_last_record(tmp_path) -> None:
+def test_ensure_cadence_uses_tick_artifact_and_extends_after_last_record(
+    tmp_path,
+) -> None:
     context = _context(tmp_path)
     _write_ticks(context, "dataset_ticks", [0, 1, 2, 3])
     stream = iter([make_time_record(1.0, 0), make_time_record(2.0, 2)])
 
-    transform = EnsureCadenceTransform(
-        cadence="dataset_ticks",
-        field="value",
-        context=context,
-    )
+    transform = _bound_artifact_transform("dataset_ticks", context)
     records = list(transform.apply(stream))
 
     assert [(record.time.hour, record.value) for record in records] == [
@@ -139,15 +151,16 @@ def test_ensure_cadence_uses_keyed_tick_artifact_per_partition(tmp_path) -> None
     )
     stream = iter([_security_record(2.0, 2, "AAPL")])
 
-    transform = EnsureCadenceTransform(
-        cadence="model_grid",
-        field="value",
-        stream_partition_by="security_id",
-        context=context,
+    transform = _bound_artifact_transform(
+        "model_grid",
+        context,
+        partition_by="security_id",
     )
     records = list(transform.apply(stream))
 
-    assert [(record.security_id, record.time.hour, record.value) for record in records] == [
+    assert [
+        (record.security_id, record.time.hour, record.value) for record in records
+    ] == [
         ("AAPL", 0, None),
         ("AAPL", 1, None),
         ("AAPL", 2, 2.0),
@@ -176,15 +189,16 @@ def test_ensure_cadence_handles_multiple_partitions_from_one_grid(tmp_path) -> N
         ]
     )
 
-    transform = EnsureCadenceTransform(
-        cadence="model_grid",
-        field="value",
-        stream_partition_by="security_id",
-        context=context,
+    transform = _bound_artifact_transform(
+        "model_grid",
+        context,
+        partition_by="security_id",
     )
     records = list(transform.apply(stream))
 
-    assert [(record.security_id, record.time.hour, record.value) for record in records] == [
+    assert [
+        (record.security_id, record.time.hour, record.value) for record in records
+    ] == [
         ("AAPL", 0, None),
         ("AAPL", 1, 10.0),
         ("AAPL", 2, None),
@@ -208,13 +222,7 @@ def test_ensure_cadence_sorts_and_deduplicates_tick_rows(tmp_path) -> None:
     )
     stream = iter([make_time_record(1.0, 0), make_time_record(2.0, 2)])
 
-    records = list(
-        EnsureCadenceTransform(
-            cadence="dataset_ticks",
-            field="value",
-            context=context,
-        ).apply(stream)
-    )
+    records = list(_bound_artifact_transform("dataset_ticks", context).apply(stream))
 
     assert [(record.time.hour, record.value) for record in records] == [
         (0, 1.0),
@@ -239,11 +247,10 @@ def test_ensure_cadence_accepts_tick_json_key_order_when_metadata_defines_grid_b
     stream = iter([_security_venue_record(2.0, 1, "AAPL", "XNYS")])
 
     records = list(
-        EnsureCadenceTransform(
-            cadence="model_grid",
-            field="value",
-            stream_partition_by=["security_id", "venue"],
-            context=context,
+        _bound_artifact_transform(
+            "model_grid",
+            context,
+            partition_by=["security_id", "venue"],
         ).apply(stream)
     )
 
@@ -266,11 +273,10 @@ def test_ensure_cadence_rejects_tick_artifact_extra_grid_fields(tmp_path) -> Non
     )
     stream = iter([_security_record(1.0, 0, "AAPL")])
 
-    transform = EnsureCadenceTransform(
-        cadence="model_grid",
-        field="value",
-        stream_partition_by="security_id",
-        context=context,
+    transform = _bound_artifact_transform(
+        "model_grid",
+        context,
+        partition_by="security_id",
     )
     with pytest.raises(ValueError, match="row grid fields"):
         list(transform.apply(stream))
@@ -286,11 +292,10 @@ def test_ensure_cadence_rejects_tick_artifact_row_without_time(tmp_path) -> None
     )
     stream = iter([_security_record(1.0, 0, "AAPL")])
 
-    transform = EnsureCadenceTransform(
-        cadence="model_grid",
-        field="value",
-        stream_partition_by="security_id",
-        context=context,
+    transform = _bound_artifact_transform(
+        "model_grid",
+        context,
+        partition_by="security_id",
     )
     with pytest.raises(ValueError, match="without time"):
         list(transform.apply(stream))
@@ -306,11 +311,10 @@ def test_ensure_cadence_rejects_bad_tick_grid_by_metadata(tmp_path) -> None:
     )
     stream = iter([_security_record(1.0, 0, "AAPL")])
 
-    transform = EnsureCadenceTransform(
-        cadence="model_grid",
-        field="value",
-        stream_partition_by="security_id",
-        context=context,
+    transform = _bound_artifact_transform(
+        "model_grid",
+        context,
+        partition_by="security_id",
     )
     with pytest.raises(RuntimeError, match="metadata field 'grid_by'"):
         list(transform.apply(stream))
@@ -326,26 +330,26 @@ def test_ensure_cadence_requires_tick_grid_by_metadata(tmp_path) -> None:
     context.runtime.artifacts.register("model_grid", path.name)
     stream = iter([_security_record(1.0, 0, "AAPL")])
 
-    transform = EnsureCadenceTransform(
-        cadence="model_grid",
-        field="value",
-        stream_partition_by="security_id",
-        context=context,
+    transform = _bound_artifact_transform(
+        "model_grid",
+        context,
+        partition_by="security_id",
     )
     with pytest.raises(RuntimeError, match="metadata field 'grid_by' is required"):
         list(transform.apply(stream))
 
 
-def test_ensure_cadence_rejects_global_artifact_for_partitioned_stream(tmp_path) -> None:
+def test_ensure_cadence_rejects_global_artifact_for_partitioned_stream(
+    tmp_path,
+) -> None:
     context = _context(tmp_path)
     _write_ticks(context, "dataset_ticks", [0])
     stream = iter([_security_record(1.0, 0, "AAPL")])
 
-    transform = EnsureCadenceTransform(
-        cadence="dataset_ticks",
-        field="value",
-        stream_partition_by="security_id",
-        context=context,
+    transform = _bound_artifact_transform(
+        "dataset_ticks",
+        context,
+        partition_by="security_id",
     )
     with pytest.raises(RuntimeError, match="must match ensure_cadence partition_by"):
         list(transform.apply(stream))
@@ -356,13 +360,7 @@ def test_ensure_cadence_keeps_records_outside_tick_grid(tmp_path) -> None:
     _write_ticks(context, "dataset_ticks", [0, 1])
     stream = iter([make_time_record(3.0, 3)])
 
-    records = list(
-        EnsureCadenceTransform(
-            cadence="dataset_ticks",
-            field="value",
-            context=context,
-        ).apply(stream)
-    )
+    records = list(_bound_artifact_transform("dataset_ticks", context).apply(stream))
 
     assert [(record.time.hour, record.value) for record in records] == [
         (0, None),
@@ -376,39 +374,37 @@ def test_ensure_cadence_does_not_create_rows_without_seed_record(tmp_path) -> No
     _write_keyed_ticks(context, "model_grid", [(0, "AAPL"), (1, "AAPL")])
 
     records = list(
-        EnsureCadenceTransform(
-            cadence="model_grid",
-            field="value",
-            stream_partition_by="security_id",
-            context=context,
+        _bound_artifact_transform(
+            "model_grid",
+            context,
+            partition_by="security_id",
         ).apply(iter([]))
     )
 
     assert records == []
 
 
-def test_ensure_cadence_rejects_keyed_artifact_without_matching_partition(tmp_path) -> None:
+def test_ensure_cadence_rejects_keyed_artifact_without_matching_partition(
+    tmp_path,
+) -> None:
     context = _context(tmp_path)
     _write_keyed_ticks(context, "model_grid", [(0, "AAPL")])
     stream = iter([_security_record(1.0, 0, "AAPL")])
-    transform = EnsureCadenceTransform(
-        cadence="model_grid",
-        field="value",
-        context=context,
-    )
+    transform = _bound_artifact_transform("model_grid", context)
 
     with pytest.raises(RuntimeError, match="must match ensure_cadence partition_by"):
         list(transform.apply(stream))
 
 
 def test_ensure_cadence_rejects_transform_partition_that_differs_from_stream() -> None:
+    transform = EnsureCadenceTransform(
+        cadence="1h",
+        field="value",
+        partition_by="venue",
+    )
+
     with pytest.raises(ValueError, match="must match the stream partition_by"):
-        EnsureCadenceTransform(
-            cadence="1h",
-            field="value",
-            partition_by="venue",
-            stream_partition_by="security_id",
-        )
+        transform.bind_partition_by("security_id")
 
 
 def test_ensure_cadence_allows_matching_transform_and_stream_partition() -> None:
@@ -416,8 +412,8 @@ def test_ensure_cadence_allows_matching_transform_and_stream_partition() -> None
         cadence="1h",
         field="value",
         partition_by="security_id",
-        stream_partition_by="security_id",
     )
+    transform.bind_partition_by("security_id")
 
     assert transform.partition_fields() == ("security_id",)
 
@@ -425,11 +421,7 @@ def test_ensure_cadence_allows_matching_transform_and_stream_partition() -> None
 def test_ensure_cadence_errors_when_tick_artifact_is_missing(tmp_path) -> None:
     context = _context(tmp_path)
     stream = iter([make_time_record(1.0, 0)])
-    transform = EnsureCadenceTransform(
-        cadence="missing_ticks",
-        field="value",
-        context=context,
-    )
+    transform = _bound_artifact_transform("missing_ticks", context)
 
     with pytest.raises(RuntimeError, match="no tick artifact"):
         list(transform.apply(stream))

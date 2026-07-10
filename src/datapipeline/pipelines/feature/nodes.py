@@ -9,6 +9,7 @@ from datapipeline.pipelines.shared.sort import batch_sort
 from datapipeline.transforms.engine import apply_transforms
 from datapipeline.plugins import FEATURE_TRANSFORMS_EP
 from datapipeline.services.constants import SCALER_STATISTICS
+from datapipeline.transforms.spec import TransformSpec
 from datapipeline.transforms.utils import get_field, partition_key
 
 
@@ -22,9 +23,7 @@ def build_feature_stream(
     keygen = FeatureIdGenerator(feature_id_by)
     for rec in records:
         if not _record_has_field(rec, field):
-            raise KeyError(
-                f"Record field '{field}' not found on {type(rec).__name__}"
-            )
+            raise KeyError(f"Record field '{field}' not found on {type(rec).__name__}")
         yield FeatureRecord(
             record=rec,
             id=keygen.generate(feature_id, rec),
@@ -39,7 +38,7 @@ def feature_transforms(
     sequence: Mapping[str, Any] | None,
     features: Iterable[Any] | None,
 ) -> Iterable[FeatureRecord | FeatureRecordSequence]:
-    clauses: list[Mapping[str, Any]] = []
+    clauses: list[TransformSpec] = []
     if scale:
         scale_args = {} if scale is True else dict(scale)
         if "model_path" not in scale_args:
@@ -50,10 +49,10 @@ def feature_transforms(
                 )
             model_path = context.artifacts.resolve_path(SCALER_STATISTICS)
             scale_args["model_path"] = str(model_path)
-        clauses.append({"scale": scale_args})
+        clauses.append(TransformSpec(name="scale", params=scale_args))
 
     if sequence:
-        clauses.append({"sequence": dict(sequence)})
+        clauses.append(TransformSpec(name="sequence", params=dict(sequence)))
 
     return apply_transforms(features, FEATURE_TRANSFORMS_EP, clauses, context)
 

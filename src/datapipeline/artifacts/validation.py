@@ -1,4 +1,3 @@
-from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -6,6 +5,7 @@ from datapipeline.artifacts.planning import ArtifactGraph
 from datapipeline.config.catalog import StreamsConfig
 from datapipeline.config.tasks import TicksTask
 from datapipeline.services.bootstrap.core import load_streams
+from datapipeline.transforms.spec import TransformSpec
 from datapipeline.utils.time import parse_timecode
 
 
@@ -89,11 +89,10 @@ def _stream_cadence_artifacts(
     return artifacts
 
 
-def _artifact_cadence(operation: Mapping[str, object]) -> str | None:
-    raw_args = operation.get("ensure_cadence")
-    if not isinstance(raw_args, Mapping):
+def _artifact_cadence(operation: TransformSpec) -> str | None:
+    if operation.name != "ensure_cadence":
         return None
-    cadence = raw_args.get("cadence")
+    cadence = operation.params.get("cadence")
     if not isinstance(cadence, str) or not cadence.strip():
         return None
     try:

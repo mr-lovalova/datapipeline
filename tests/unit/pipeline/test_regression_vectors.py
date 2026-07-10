@@ -12,6 +12,7 @@ from datapipeline.pipelines import build_vector_pipeline
 from datapipeline.runtime import Runtime, StreamRuntimeSpec
 from datapipeline.services.constants import SCALER_STATISTICS, VECTOR_SCHEMA
 from datapipeline.transforms.feature.scaler import StandardScalerAccumulator
+from datapipeline.transforms.spec import TransformSpec
 from tests.vector_input_helpers import register_vector_inputs
 
 
@@ -52,7 +53,7 @@ class _StubSource:
 def _runtime_with_streams(
     tmp_path: Path,
     streams: dict[str, list[TemporalRecord]],
-    stream_transforms: dict[str, list[dict[str, object]]] | None = None,
+    stream_transforms: dict[str, list[TransformSpec]] | None = None,
 ) -> Runtime:
     project_yaml = tmp_path / "project.yaml"
     artifacts_root = tmp_path / "artifacts"
@@ -68,8 +69,7 @@ def _runtime_with_streams(
         regs.stream_specs.register(alias, StreamRuntimeSpec(pipeline="stream"))
         regs.mappers.register(alias, _identity)
         regs.record_operations.register(alias, [])
-        regs.stream_operations.register(
-            alias, stream_transforms.get(alias, []))
+        regs.stream_operations.register(alias, stream_transforms.get(alias, []))
         regs.debug_operations.register(alias, [])
         regs.partition_by.register(alias, None)
         regs.feature_id_by.register(alias, None)
@@ -84,7 +84,9 @@ def _runtime_with_streams(
     return runtime
 
 
-def _register_scaler(runtime: Runtime, configs: list[FeatureRecordConfig], group_by: str) -> None:
+def _register_scaler(
+    runtime: Runtime, configs: list[FeatureRecordConfig], group_by: str
+) -> None:
     sanitized = [cfg.model_copy(update={"scale": False}) for cfg in configs]
     context = PipelineContext(runtime)
     accumulator = StandardScalerAccumulator()
@@ -97,23 +99,25 @@ def _register_scaler(runtime: Runtime, configs: list[FeatureRecordConfig], group
         )
         try:
             for item in stream:
-                value = list(item.values) if isinstance(item, FeatureRecordSequence) else item.value
+                value = (
+                    list(item.values)
+                    if isinstance(item, FeatureRecordSequence)
+                    else item.value
+                )
                 total += accumulator.observe({item.id: value})
         finally:
             closer = getattr(stream, "close", None)
             if callable(closer):
                 closer()
     if not total:
-        raise RuntimeError(
-            "Unable to compute scaler statistics for test runtime.")
+        raise RuntimeError("Unable to compute scaler statistics for test runtime.")
     scaler = accumulator.to_scaler()
 
     destination = runtime.artifacts_root / "scaler.json"
     scaler.save(destination)
     runtime.artifacts.register(
         SCALER_STATISTICS,
-        relative_path=destination.relative_to(
-            runtime.artifacts_root).as_posix(),
+        relative_path=destination.relative_to(runtime.artifacts_root).as_posix(),
     )
 
 
@@ -144,14 +148,10 @@ def test_vector_targets_respect_partitioned_ids(tmp_path) -> None:
         ],
     }
     runtime = _runtime_with_streams(tmp_path, streams)
-    runtime.registries.partition_by.register(
-        "wind_speed_stream", "municipality")
-    runtime.registries.partition_by.register(
-        "wind_production_stream", "municipality")
-    runtime.registries.feature_id_by.register(
-        "wind_speed_stream", "municipality")
-    runtime.registries.feature_id_by.register(
-        "wind_production_stream", "municipality")
+    runtime.registries.partition_by.register("wind_speed_stream", "municipality")
+    runtime.registries.partition_by.register("wind_production_stream", "municipality")
+    runtime.registries.feature_id_by.register("wind_speed_stream", "municipality")
+    runtime.registries.feature_id_by.register("wind_production_stream", "municipality")
 
     context = PipelineContext(runtime)
     feature_cfgs = [
@@ -171,9 +171,7 @@ def test_vector_targets_respect_partitioned_ids(tmp_path) -> None:
     register_vector_inputs(runtime, feature_cfgs, "1h", targets=target_cfgs)
 
     samples = list(
-        build_vector_pipeline(
-            context, feature_cfgs, "1h", target_configs=target_cfgs
-        )
+        build_vector_pipeline(context, feature_cfgs, "1h", target_configs=target_cfgs)
     )
 
     assert len(samples) == 1
@@ -183,10 +181,7 @@ def test_vector_targets_respect_partitioned_ids(tmp_path) -> None:
         "wind_production__@municipality:06019",
         "wind_production__@municipality:06030",
     }
-    assert all(
-        not key.startswith("wind_production")
-        for key in sample.features.keys()
-    )
+    assert all(not key.startswith("wind_production") for key in sample.features.keys())
 
 
 def test_vector_samples_can_group_by_record_key_fields(tmp_path) -> None:
@@ -437,14 +432,15 @@ def test_stream_transforms_use_explicit_stream_partition(tmp_path) -> None:
         streams,
         stream_transforms={
             "daily_prices": [
-                {
-                    "rolling": {
+                TransformSpec(
+                    name="rolling",
+                    params={
                         "field": "value",
                         "to": "value_mean_2",
                         "window": 2,
                         "min_samples": 2,
-                    }
-                }
+                    },
+                )
             ]
         },
     )
@@ -489,7 +485,9 @@ def test_stream_transforms_use_explicit_stream_partition(tmp_path) -> None:
     ]
 
 
-def test_regression_scaled_shapes_airpressure_high_freq_and_windspeed_hourly(tmp_path) -> None:
+def test_regression_scaled_shapes_airpressure_high_freq_and_windspeed_hourly(
+    tmp_path,
+) -> None:
     # Fake raw streams
     # high-frequency mock series (multiple samples per hour)
     high_freq_raw = [
@@ -540,10 +538,8 @@ def test_regression_scaled_shapes_airpressure_high_freq_and_windspeed_hourly(tmp
     v0 = out[0].features.values
     v1 = out[1].features.values
 
-    assert isinstance(v0["air_pressure"], list) and len(
-        v0["air_pressure"]) == 3
-    assert isinstance(v1["air_pressure"], list) and len(
-        v1["air_pressure"]) == 2
+    assert isinstance(v0["air_pressure"], list) and len(v0["air_pressure"]) == 3
+    assert isinstance(v1["air_pressure"], list) and len(v1["air_pressure"]) == 2
     assert not isinstance(v0["wind_speed"], list)
     assert not isinstance(v1["wind_speed"], list)
 
@@ -577,29 +573,32 @@ def test_regression_fill_then_scale_with_missing_values(tmp_path) -> None:
     # Fill then scale for both features
     stream_transforms = {
         "ap": [
-            {
-                "fill": {
+            TransformSpec(
+                name="fill",
+                params={
                     "field": "value",
                     "method": "median",
                     "window": 10,
                     "min_samples": 1,
-                }
-            },
+                },
+            ),
         ],
         "ws": [
-            {
-                "fill": {
+            TransformSpec(
+                name="fill",
+                params={
                     "field": "value",
                     "method": "mean",
                     "window": 10,
                     "min_samples": 1,
-                }
-            },
+                },
+            ),
         ],
     }
 
-    runtime = _runtime_with_streams(tmp_path, streams,
-                                    stream_transforms=stream_transforms)
+    runtime = _runtime_with_streams(
+        tmp_path, streams, stream_transforms=stream_transforms
+    )
 
     configs = [
         FeatureRecordConfig(
@@ -626,10 +625,8 @@ def test_regression_fill_then_scale_with_missing_values(tmp_path) -> None:
 
     v0 = out[0].features.values
     # air_pressure list length = 3 with middle filled (not None)
-    assert isinstance(v0["air_pressure"], list) and len(
-        v0["air_pressure"]) == 3
-    assert all(isinstance(x, float)
-               for x in v0["air_pressure"])  # filled and scaled
+    assert isinstance(v0["air_pressure"], list) and len(v0["air_pressure"]) == 3
+    assert all(isinstance(x, float) for x in v0["air_pressure"])  # filled and scaled
 
     # wind_speed hour 0 present and scaled; hour 1 present due to fill then scale
     v1 = out[1].features.values

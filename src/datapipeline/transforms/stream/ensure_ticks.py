@@ -29,17 +29,14 @@ class EnsureCadenceTransform(PartitionedFieldStreamTransformBase):
         cadence: str,
         field: str,
         partition_by: str | list[str] | None = None,
-        context: PipelineContext | None = None,
-        stream_partition_by: str | list[str] | None = None,
     ) -> None:
-        effective_partition_by = _effective_partition_by(
-            transform_partition_by=partition_by,
-            stream_partition_by=stream_partition_by,
-        )
-        super().__init__(field=field, partition_by=effective_partition_by)
+        super().__init__(field=field, partition_by=partition_by)
         self.cadence = cadence
-        self.context = context
+        self.context: PipelineContext | None = None
         self._artifact_ticks: TickGrid | None = None
+
+    def bind_context(self, context: PipelineContext) -> None:
+        self.context = context
 
     def apply(self, stream: Iterator[TemporalRecord]) -> Iterator[TemporalRecord]:
         try:
@@ -101,7 +98,9 @@ class EnsureCadenceTransform(PartitionedFieldStreamTransformBase):
             yield record
             last = record
         if last is not None:
-            yield from self._placeholder_ticks_after(last, ticks.ticks_for(last_key or ()))
+            yield from self._placeholder_ticks_after(
+                last, ticks.ticks_for(last_key or ())
+            )
 
     def _ticks_from_artifact(self) -> TickGrid:
         if self._artifact_ticks is not None:
@@ -171,29 +170,3 @@ class EnsureCadenceTransform(PartitionedFieldStreamTransformBase):
             if not key.startswith("_") and key not in keep
         }
         return clone_record(record, time=time, **updates, **{self.field: None})
-
-
-def _effective_partition_by(
-    transform_partition_by: str | list[str] | None,
-    stream_partition_by: str | list[str] | None,
-) -> str | list[str] | None:
-    if transform_partition_by is None:
-        return stream_partition_by
-    if stream_partition_by is None:
-        return transform_partition_by
-    if _partition_fields(transform_partition_by) != _partition_fields(
-        stream_partition_by
-    ):
-        raise ValueError(
-            "ensure_cadence partition_by must match the stream partition_by; "
-            "set partition_by on the stream instead of overriding it inside the transform."
-        )
-    return stream_partition_by
-
-
-def _partition_fields(partition_by: str | list[str] | None) -> tuple[str, ...]:
-    if not partition_by:
-        return ()
-    if isinstance(partition_by, str):
-        return (partition_by,)
-    return tuple(partition_by)

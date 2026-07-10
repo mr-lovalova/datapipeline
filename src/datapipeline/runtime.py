@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, List, Literal, Mapping, Optional, Sequence, Union
+from typing import Any, List, Literal, Optional, Sequence, Union
 from datetime import datetime
 
 from datapipeline.config.profiles import ServeProfile
@@ -10,6 +10,7 @@ from datapipeline.domain.stream import RecordStream
 from datapipeline.registries.registry import Registry
 from datapipeline.sources.models.source import Source
 from datapipeline.services.artifacts import ArtifactManager
+from datapipeline.transforms.spec import TransformSpec
 
 StreamPipelineKind = Literal["ingest", "stream"]
 
@@ -31,16 +32,18 @@ class Registries:
     mappers: Registry[str, Any] = field(default_factory=Registry)
     stream_sources: Registry[str, RecordStream[Any]] = field(default_factory=Registry)
     stream_specs: Registry[str, StreamRuntimeSpec] = field(default_factory=Registry)
-    record_operations: Registry[str, Sequence[Mapping[str, object]]] = field(
+    record_operations: Registry[str, Sequence[TransformSpec] | None] = field(
         default_factory=Registry
     )
-    postprocesses: Registry[str, Any] = field(default_factory=Registry)
+    postprocesses: Registry[str, Sequence[TransformSpec] | None] = field(
+        default_factory=Registry
+    )
 
     # Per-stream policies
-    stream_operations: Registry[str, Sequence[Mapping[str, object]]] = field(
+    stream_operations: Registry[str, Sequence[TransformSpec] | None] = field(
         default_factory=Registry
     )
-    debug_operations: Registry[str, Sequence[Mapping[str, object]]] = field(
+    debug_operations: Registry[str, Sequence[TransformSpec] | None] = field(
         default_factory=Registry
     )
     partition_by: Registry[str, Optional[Union[str, List[str]]]] = field(

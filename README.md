@@ -147,7 +147,7 @@ jerry serve --limit 3
 
 - Index 10 (feature transforms)
   - Input: FeatureRecord stream (sorted by id,time)
-  - Ops: dataset-level feature transforms configured per feature (e.g. `scale`, `sequence`)
+  - Ops: explicit per-feature `scale` and `sequence` processing
   - Output: FeatureRecord or FeatureRecordSequence
 
 - Index 11 (ordered feature records)
@@ -259,16 +259,18 @@ These live under `lib/<plugin>/src/<package>/`:
 
 - **Record transforms** run on mapped domain records before ordering. Each transform operates on one record at a time. Configure in `ingests/*.yaml` under `record:`.
 - **Stream transforms** run on ordered records (dedupe, cadence enforcement, lag/lead, rolling, derive, fills). These operate across a sequence of records for a partition because they depend on sorted partition/time order and cadence. Configure in `streams/*.yaml` under `stream:`.
-- **Feature transforms** run after stream regularization and shape the per-feature payload for vectorization (scalers, sequence/windowing). These occur after feature ids are finalized and payloads are wrapped. Configure in `dataset.yaml` under each feature.
+- **Feature transforms** run after stream regularization and shape the per-feature payload for vectorization. The explicit `scale` and `sequence` fields in `dataset.yaml` configure this stage; it is not an arbitrary transform list.
 - **Vector (postprocess) transforms** operate on assembled vectors (coverage/drop/fill/replace). Configure in `postprocess.yaml`.
 - **Debug transforms** run after stream transforms for validation only. Configure in `streams/*.yaml` under `debug:`.
 - Custom transforms are registered in your plugin `pyproject.toml` under the matching entry-point group:
   - `datapipeline.transforms.record`
   - `datapipeline.transforms.stream`
-  - `datapipeline.transforms.feature`
   - `datapipeline.transforms.vector`
   - `datapipeline.transforms.debug`
-    Then reference them by name in the YAML.
+
+  Reference them by name in the corresponding transform list. Each YAML clause
+  must have exactly one transform name with mapping or `null` parameters; see
+  the [transform guide](docs/transforms/index.md) for the callable contract.
 
 ### Glossary
 

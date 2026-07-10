@@ -287,6 +287,10 @@ debug:
   Ingest-only.
 - `stream`: transforms applied after ingest ordering; operate on record fields before feature selection.
 - `debug`: instrumentation-only transforms (linters, assertions).
+- Each item in these lists must contain exactly one transform name whose value
+  is a parameter mapping or `null`. Scalar/list parameters and multi-transform
+  items are invalid. See [Transforms](transforms/index.md) for the entry-point
+  callable contract.
 - `partition_by`: optional stream state keys used by ordering and history-based
   transforms.
 - `feature_id_by`: optional fields used to suffix feature IDs (e.g.,
@@ -382,8 +386,11 @@ targets:
   - Downstream consumers can load the `build/scaler.json` artifact and call
     `StandardScaler.inverse_transform` (or `StandardScalerTransform.inverse`)
     to undo scaling.
-- `sequence` emits `FeatureRecordSequence` windows (size, stride, optional
-  cadence enforcement via `tick`).
+- `sequence` emits `FeatureRecordSequence` windows and accepts `size` plus
+  optional `stride` (default `1`). Regularize cadence with stream transforms
+  before feature extraction when contiguous ticks are required.
+- Feature configuration exposes only `scale` and `sequence`; it does not accept
+  arbitrary feature transform entry-point clauses.
 
 ### `postprocess.yaml`
 
@@ -403,8 +410,11 @@ Project-scoped vector transforms that run after assembly and before serving.
     value: 0.0
 ```
 
-- Each transform receives a `Sample`; set `payload: targets` when you want to
-  mutate label vectors, otherwise the feature vector is used.
+- Each top-level item must contain exactly one transform name whose value is a
+  parameter mapping or `null`.
+- Each transform receives the sample stream; set `payload: targets` when you
+  want the built-in transform to mutate label vectors, otherwise the feature
+  vector is used.
 - Vector transforms rely on the schema artifact (for expected IDs/cadence)
   and scaler stats when scaling is enabled. When no transforms are configured
   the stream passes through unchanged.

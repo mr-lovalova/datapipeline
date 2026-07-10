@@ -2,6 +2,7 @@ import pytest
 
 from datapipeline.plugins import STREAM_TRANFORMS_EP
 from datapipeline.transforms.engine import apply_transforms
+from datapipeline.transforms.spec import TransformSpec
 from datapipeline.transforms.stream.derive import DeriveTransform
 from tests.unit.transforms.helpers import make_time_record
 
@@ -106,22 +107,24 @@ def test_derive_entry_point_runs_from_config() -> None:
             iter([record]),
             STREAM_TRANFORMS_EP,
             [
-                {
-                    "derive": {
+                TransformSpec(
+                    name="derive",
+                    params={
                         "left": "close_lag_21",
                         "operator": "div",
                         "right_field": "close_lag_189",
                         "to": "close_ratio_21_189",
-                    }
-                },
-                {
-                    "derive": {
+                    },
+                ),
+                TransformSpec(
+                    name="derive",
+                    params={
                         "left": "close_ratio_21_189",
                         "operator": "sub",
                         "right_value": 1.0,
                         "to": "momentum_189_21",
-                    }
-                },
+                    },
+                ),
             ],
         )
     )

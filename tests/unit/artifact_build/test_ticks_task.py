@@ -7,6 +7,7 @@ from datapipeline.config.tasks import TicksTask
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.operations.artifacts.ticks import materialize_ticks
 from datapipeline.runtime import Runtime, StreamRuntimeSpec
+from datapipeline.transforms.spec import TransformSpec
 
 
 class _Source:
@@ -72,9 +73,12 @@ def _stream_runtime(tmp_path) -> Runtime:
     regs.record_operations.register("derived.stream", [])
     regs.stream_operations.register(
         "derived.stream",
-        [{"floor_time": {"cadence": "1h"}}],
+        [TransformSpec(name="floor_time", params={"cadence": "1h"})],
     )
-    regs.debug_operations.register("derived.stream", [{"missing_debug": {}}])
+    regs.debug_operations.register(
+        "derived.stream",
+        [TransformSpec(name="missing_debug", params={})],
+    )
     regs.partition_by.register("derived.stream", None)
     regs.feature_id_by.register("derived.stream", None)
     regs.ordered_by.register("derived.stream", None)

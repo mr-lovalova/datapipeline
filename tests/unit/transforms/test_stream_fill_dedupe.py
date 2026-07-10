@@ -142,3 +142,8 @@ def test_stream_dedupe_keeps_distinct_values():
     transform = FeatureDeduplicateTransform()
     out = list(transform.apply(stream))
     assert [rec.value for rec in out] == [10.0, 11.0]
+
+
+def test_stream_dedupe_rejects_unknown_options() -> None:
+    with pytest.raises(TypeError, match="takes no arguments"):
+        FeatureDeduplicateTransform(typo=True)

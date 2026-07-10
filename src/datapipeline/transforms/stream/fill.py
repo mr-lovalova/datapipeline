@@ -49,6 +49,12 @@ class FillTransformer(StreamTransformBase):
 
         raise ValueError("fill method must be one of: 'median', 'mean', 'forward'")
 
+    def bind_partition_by(
+        self,
+        partition_by: str | list[str] | None,
+    ) -> None:
+        self._impl.bind_partition_by(partition_by)
+
     def apply(self, stream: Iterator[TemporalRecord]) -> Iterator[TemporalRecord]:
         yield from self._impl.apply(stream)
 
