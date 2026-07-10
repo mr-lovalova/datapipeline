@@ -111,18 +111,20 @@ def test_vector_ensure_schema_prefers_schema_artifact_over_expected_ids():
     assert list(out[0].features.values.keys()) == ["a", "b"]
 
 
-def test_vector_ensure_schema_enforces_list_length_via_schema():
-    stream = iter([make_vector(0, {"seq": [1, 2, 3]})])
+def test_vector_ensure_schema_wraps_scalar_for_length_one_list():
+    stream = iter([make_vector(0, {"seq": 1.0})])
     transform = VectorEnsureSchemaTransform(on_missing="fill", fill_value=0)
     transform.bind_context(
         StubVectorContext(
             [],
-            schema={"features": [{"id": "seq", "kind": "list", "cadence": {"target": 5}}]},
+            schema={
+                "features": [{"id": "seq", "kind": "list", "cadence": {"target": 1}}]
+            },
         )
     )
 
     out = list(transform.apply(stream))
-    assert out[0].features.values["seq"] == [1, 2, 3, 0, 0]
+    assert out[0].features.values["seq"] == [1.0]
 
 
 def test_vector_ensure_schema_enforces_length_error_on_violation():
@@ -150,7 +152,7 @@ def test_vector_ensure_schema_respects_cadence_target_from_schema():
     )
 
     out = list(transform.apply(stream))
-    assert len(out[0].features.values["seq"]) == 6
+    assert out[0].features.values["seq"] == [1, 2, 3, 4, 5, 0]
 
 
 def test_vector_ensure_schema_raises_without_schema_artifact():

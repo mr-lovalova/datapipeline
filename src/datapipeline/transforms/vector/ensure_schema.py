@@ -137,12 +137,18 @@ class VectorEnsureSchemaTransform(VectorContextMixin):
             expected = self._expected_lengths(meta)
             if not expected:
                 continue
-            current_len = len(value) if isinstance(value, list) else (0 if value is None else 1)
+            current_len = len(value) if isinstance(value, list) else None
             if current_len in expected:
                 continue
             if self._on_missing == "error":
+                actual = (
+                    f"list with length {current_len}"
+                    if current_len is not None
+                    else type(value).__name__
+                )
                 raise ValueError(
-                    f"List value '{fid}' length {current_len} violates schema cadence {sorted(expected)}"
+                    f"Value '{fid}' must be a list with length in {sorted(expected)}; "
+                    f"got {actual}."
                 )
             if self._on_missing == "drop":
                 return None
