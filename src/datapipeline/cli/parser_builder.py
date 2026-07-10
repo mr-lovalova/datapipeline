@@ -3,7 +3,10 @@ import argparse
 from datapipeline.cli.version import short_version
 from datapipeline.cli.parser.build import add_build_command
 from datapipeline.cli.parser.clean import add_clean_command
-from datapipeline.cli.parser.common import build_common_parent
+from datapipeline.cli.parser.common import (
+    build_command_common_parent,
+    build_common_parent,
+)
 from datapipeline.cli.parser.demo import add_demo_command
 from datapipeline.cli.parser.domain import add_domain_command
 from datapipeline.cli.parser.filter import add_filter_command
@@ -19,11 +22,12 @@ from datapipeline.cli.parser.stream import add_stream_command
 
 
 def build_parser() -> argparse.ArgumentParser:
-    common = build_common_parent()
+    root_common = build_common_parent()
+    command_common = build_command_common_parent()
     parser = argparse.ArgumentParser(
         prog="jerry",
         description="Mixology-themed CLI for building and serving data pipelines.",
-        parents=[common],
+        parents=[root_common],
     )
     parser.add_argument(
         "--version",
@@ -34,45 +38,45 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("version", help="show installed Jerry version")
     sub.add_parser("env", help="show installed Jerry environment details")
-    add_serve_command(sub, common=common)
-    add_inspect_command(sub, common=common)
-    add_build_command(sub, common=common)
-    add_materialize_command(sub, common=common)
-    add_clean_command(sub, common=common)
-    add_demo_command(sub, common=common)
-    add_list_command(sub, common=common)
-    add_source_command(sub, common=common)
-    add_domain_command(sub, common=common)
+    add_serve_command(sub, common=command_common)
+    add_inspect_command(sub, common=command_common)
+    add_build_command(sub, common=command_common)
+    add_materialize_command(sub, common=command_common)
+    add_clean_command(sub, common=command_common)
+    add_demo_command(sub, common=command_common)
+    add_list_command(sub, common=command_common)
+    add_source_command(sub, common=command_common)
+    add_domain_command(sub, common=command_common)
     add_simple_scaffold_command(
         sub,
-        common=common,
+        common=command_common,
         cmd="dto",
         help_text="create DTOs",
         arg_help="DTO class name",
     )
     add_simple_scaffold_command(
         sub,
-        common=common,
+        common=command_common,
         cmd="parser",
         help_text="create parsers",
         arg_help="Parser class name",
     )
     add_simple_scaffold_command(
         sub,
-        common=common,
+        common=command_common,
         cmd="mapper",
         help_text="create mappers",
         arg_help="Mapper function name",
     )
     add_simple_scaffold_command(
         sub,
-        common=common,
+        common=command_common,
         cmd="loader",
         help_text="create loaders",
         arg_help="Loader name",
     )
-    add_inflow_command(sub, common=common)
-    add_stream_command(sub, common=common)
-    add_plugin_command(sub, common=common)
-    add_filter_command(sub, common=common)
+    add_inflow_command(sub, common=command_common)
+    add_stream_command(sub, common=command_common)
+    add_plugin_command(sub, common=command_common)
+    add_filter_command(sub, common=command_common)
     return parser

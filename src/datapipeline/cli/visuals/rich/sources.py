@@ -102,18 +102,24 @@ class _RichSourceProxy(Source):
         )
         return 0
 
-    def _finalize_task(self, *, task_id: int, completed: int, remove: bool = True) -> None:
+    def _finalize_task(
+        self, *, task_id: int, completed: int, remove: bool = True
+    ) -> None:
         self._safe_progress_call(
             "finalize progress task",
             self._progress.update,
             task_id,
             completed=completed,
         )
-        self._safe_progress_call("stop progress task", self._progress.stop_task, task_id)
+        self._safe_progress_call(
+            "stop progress task", self._progress.stop_task, task_id
+        )
         if remove:
             # Remove completed stream rows so finished bars don't linger
             # while other sources are still running in the same Live table.
-            self._safe_progress_call("remove progress task", self._progress.remove_task, task_id)
+            self._safe_progress_call(
+                "remove progress task", self._progress.remove_task, task_id
+            )
 
     def stream(self) -> Iterator[Any]:
         adapter = SourceObservabilityAdapter(self._inner, self._stream_id)
@@ -214,7 +220,9 @@ class _RichSourceProxy(Source):
                             )
                         # Once a source label change is detected, refresh the
                         # Live table immediately instead of waiting for its tick.
-                        self._safe_progress_call("refresh progress", self._progress.refresh)
+                        self._safe_progress_call(
+                            "refresh progress", self._progress.refresh
+                        )
                 if task_id is not None:
                     pending_advance += 1
                     task_emitted += 1
@@ -229,7 +237,9 @@ class _RichSourceProxy(Source):
                         last_advance_at = now
                     if not refreshed_after_start:
                         refreshed_after_start = True
-                        self._safe_progress_call("refresh progress", self._progress.refresh)
+                        self._safe_progress_call(
+                            "refresh progress", self._progress.refresh
+                        )
                 emitted += 1
                 yield item
         finally:
@@ -299,7 +309,9 @@ def visual_sources(runtime: Runtime, log_level: int | None):
     try:
         with progress:
             try:
-                execution_sink.set_live_console(progress.live.console if progress.live else None)
+                execution_sink.set_live_console(
+                    progress.live.console if progress.live else None
+                )
                 for stream_id, stream_source in originals.items():
                     if supports_source_observability(stream_source):
                         proxy = _RichSourceProxy(

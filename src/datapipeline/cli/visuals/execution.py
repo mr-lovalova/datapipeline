@@ -334,7 +334,6 @@ def _emit_event(
 
 def emit_execution_message(
     message: str,
-    
     level: int = logging.INFO,
     logger: logging.Logger | None = None,
     depth: int = 0,
@@ -444,7 +443,6 @@ class HierarchicalExecutionObserver(ExecutionObserver):
 
     def on_dag_start(
         self,
-        
         dag_name: str,
         node_count: int,
         depth: int = 0,
@@ -478,7 +476,6 @@ class HierarchicalExecutionObserver(ExecutionObserver):
 
     def on_node_start(
         self,
-        
         dag_name: str,
         node_name: str,
         node_index: int,
@@ -569,7 +566,6 @@ class HierarchicalExecutionObserver(ExecutionObserver):
 
 def make_execution_observer(
     logger: logging.Logger | None = None,
-    
     sink: ExecutionEventSink | None = None,
     sinks: Sequence[ExecutionEventSink] | None = None,
 ) -> ExecutionObserver:

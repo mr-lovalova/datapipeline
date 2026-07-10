@@ -24,7 +24,9 @@ class VisualsBackend:
     - wrap_sources returns a contextmanager that enables streaming visuals.
     """
 
-    def on_job_start(self, sections: Tuple[str, ...], label: str, idx: int, total: int) -> bool:
+    def on_job_start(
+        self, sections: Tuple[str, ...], label: str, idx: int, total: int
+    ) -> bool:
         return False
 
     def on_streams_complete(self) -> bool:
@@ -49,6 +51,7 @@ class VisualsBackend:
 class _BasicBackend(VisualsBackend):
     def wrap_sources(self, runtime: Runtime, log_level: int):
         from .streams_basic import visual_sources as basic
+
         return basic(runtime, log_level)
 
 
@@ -57,6 +60,7 @@ class _RichBackend(VisualsBackend):
         if not sections:
             return
         from rich.rule import Rule as _Rule
+
         console.print(_Rule(sections[0].title(), style="bold white"))
         if len(sections) > 1:
             for level, name in enumerate(sections[1:], start=1):
@@ -64,10 +68,13 @@ class _RichBackend(VisualsBackend):
                 console.print(f"{indent}[cyan]{name}[/cyan]")
             console.print()
 
-    def on_job_start(self, sections: tuple[str, ...], label: str, idx: int, total: int) -> bool:
+    def on_job_start(
+        self, sections: tuple[str, ...], label: str, idx: int, total: int
+    ) -> bool:
         try:
             from rich.console import Console as _Console
             import sys as _sys
+
             console = _Console(file=_sys.stderr, markup=True)
             self._render_sections(console, sections)
             indent = "  " * max(len(sections), 1)
@@ -79,16 +86,19 @@ class _RichBackend(VisualsBackend):
 
     def wrap_sources(self, runtime: Runtime, log_level: int):
         if int(log_level) > logging.INFO:
+
             @contextmanager
             def _noop():
                 yield
 
             return _noop()
         from .rich.sources import visual_sources as rich_vs
+
         return rich_vs(runtime, log_level)
 
     def wrap_events(self, log_level: int):
         from .rich.event_sink import visual_event_sink
+
         return visual_event_sink(log_level)
 
     def on_streams_complete(self) -> bool:
@@ -101,12 +111,14 @@ class _OffBackend(VisualsBackend):
         # OFF disables rich/live visuals, but keeps source-level observability
         # in plain logs so verbosity remains governed by log level.
         from .streams_basic import visual_sources as basic
+
         return basic(runtime, log_level)
 
 
 def _rich_available() -> bool:
     try:
         import rich  # noqa: F401
+
         return True
     except Exception:
         return False
@@ -116,6 +128,7 @@ def _rich_live_supported() -> bool:
     try:
         from rich.console import Console as _Console
         import sys as _sys
+
         console = _Console(file=_sys.stderr, markup=False, highlight=False)
         return bool(
             console.is_terminal

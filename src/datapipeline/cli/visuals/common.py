@@ -31,4 +31,6 @@ def log_combined_stream(
                 mapping = entry
             logger.info("%s[%s]   - %s", indent, stream_id, mapping)
     else:
-        logger.info("%s[%s] Feature engineering from upstream inputs", indent, stream_id)
+        logger.info(
+            "%s[%s] Feature engineering from upstream inputs", indent, stream_id
+        )

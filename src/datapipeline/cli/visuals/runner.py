@@ -32,7 +32,9 @@ def _run_work(backend, runtime: Runtime, level: int, work: Callable[[], Any]):
             runtime.execution_observer = previous_observer
 
 
-def run_with_backend(visuals: str, runtime: Runtime, level: int, work: Callable[[], Any]):
+def run_with_backend(
+    visuals: str, runtime: Runtime, level: int, work: Callable[[], Any]
+):
     """Execute a unit of work inside a visuals backend context."""
     backend = get_visuals_backend(visuals)
     return _run_work(backend, runtime, level, work)
@@ -53,7 +55,9 @@ def run_job(
 
     job_idx = idx or 1
     job_total = total or 1
-    section_tuple: Tuple[str, ...] = tuple(section for section in (sections or []) if section)
+    section_tuple: Tuple[str, ...] = tuple(
+        section for section in (sections or []) if section
+    )
     presented = False
     try:
         presented = backend.on_job_start(section_tuple, label, job_idx, job_total)

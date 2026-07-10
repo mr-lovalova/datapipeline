@@ -89,7 +89,7 @@ def styled_source_label(line: str) -> Text:
     if working.startswith("[") and "]" in working:
         end = working.find("]")
         stream_id = working[1:end]
-        rest = working[end + 1:]
+        rest = working[end + 1 :]
         text.append("[", style="cyan")
         text.append(stream_id, style="bold cyan")
         text.append("]", style="cyan")

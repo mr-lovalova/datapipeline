@@ -1,4 +1,3 @@
-
 import logging
 import sys
 from pathlib import Path
@@ -43,7 +42,7 @@ class _TerminalVisualProxyHandler(logging.StreamHandler):
         super().emit(record)
 
 
-def configure_root_logging( level: int, output: LogOutputSettings) -> None:
+def configure_root_logging(level: int, output: LogOutputSettings) -> None:
     """Configure root logging handlers for the resolved outputs."""
     handlers: list[logging.Handler] = []
     seen: set[tuple[str, str | None, str]] = set()

@@ -1,7 +1,7 @@
 import argparse
 
 
-def add_demo_command(sub,  common: argparse.ArgumentParser) -> None:
+def add_demo_command(sub, common: argparse.ArgumentParser) -> None:
     parser = sub.add_parser(
         "demo",
         help="create an optional demo dataset inside a plugin",

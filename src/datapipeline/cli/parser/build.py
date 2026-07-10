@@ -3,7 +3,7 @@ import argparse
 from .common import add_dataset_flag, add_project_flag, add_visual_flags
 
 
-def add_build_command(sub,  common: argparse.ArgumentParser) -> None:
+def add_build_command(sub, common: argparse.ArgumentParser) -> None:
     parser = sub.add_parser(
         "build",
         help="materialize project artifacts (schema, hashes, etc.)",

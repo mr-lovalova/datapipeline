@@ -38,7 +38,9 @@ from datapipeline.services.scaffold.mapper import (
 )
 
 
-def _select_mapper(*, allow_identity: bool, allow_create: bool, root: Path | None) -> str:
+def _select_mapper(
+    *, allow_identity: bool, allow_create: bool, root: Path | None
+) -> str:
     mappers = list_mappers(root=root)
     options: list[tuple[str, str]] = []
     if allow_create:
@@ -191,9 +193,7 @@ def _collect_multistream_base(
     if not inputs:
         streams = list_streams(proj_path)
         if not streams:
-            error_exit(
-                "No input streams found. Create an ingest first."
-            )
+            error_exit("No input streams found. Create an ingest first.")
         picked = pick_multiple_from_list(
             "Select one or more input streams (comma-separated numbers):",
             streams,

@@ -28,7 +28,12 @@ from datapipeline.services.scaffold.layout import (
     default_mapper_name_for_identity,
     source_id_parts,
 )
-from datapipeline.services.scaffold.stream_plan import StreamPlan, ParserPlan, MapperPlan, execute_stream_plan
+from datapipeline.services.scaffold.stream_plan import (
+    StreamPlan,
+    ParserPlan,
+    MapperPlan,
+    execute_stream_plan,
+)
 from datapipeline.services.scaffold.utils import (
     choose_name,
     error_exit,
@@ -265,7 +270,8 @@ def _collect_stream_selection(
             )
         else:
             mapper_name = choose_name(
-                "Mapper name", default=default_mapper_name(mapper_input_module, domain))
+                "Mapper name", default=default_mapper_name(mapper_input_module, domain)
+            )
     elif mchoice == "identity":
         mapper_ep = "identity"
     else:
@@ -318,7 +324,9 @@ def _build_stream_plan_from_selection(
     )
 
 
-def handle(*, plugin_root: Path | None = None, workspace: WorkspaceContext | None = None) -> None:
+def handle(
+    *, plugin_root: Path | None = None, workspace: WorkspaceContext | None = None
+) -> None:
     root_dir, pkg_name, _ = pkg_root(plugin_root)
     project_yaml = resolve_default_project_yaml(workspace) or resolve_project_yaml_path(
         root_dir
