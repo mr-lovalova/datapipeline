@@ -8,11 +8,7 @@ from datapipeline.runtime import Runtime
 from datapipeline.services.artifacts import VECTOR_METADATA_SPEC, VECTOR_STATS_SPEC
 
 
-def load_collector(
-    runtime: Runtime,
-    *,
-    threshold: float = 0.95,
-) -> VectorStatsCollector:
+def load_collector(runtime: Runtime) -> VectorStatsCollector:
     context = PipelineContext(runtime)
     snapshot = context.require_artifact(VECTOR_STATS_SPEC)
     if not isinstance(snapshot, dict):
@@ -24,7 +20,6 @@ def load_collector(
         snapshot,
         expected_feature_ids=expected_feature_ids,
         schema_meta=schema_meta,
-        threshold=threshold,
     )
 
 

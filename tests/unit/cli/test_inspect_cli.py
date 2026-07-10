@@ -122,11 +122,11 @@ def test_inspect_thresholds_reads_stats_artifact(monkeypatch, tmp_path: Path) ->
 
 def test_inspect_coverage_applies_typed_options(monkeypatch) -> None:
     collector = object()
-    loaded: list[tuple[object, float]] = []
+    loaded: list[object] = []
     built: list[tuple[object, str, float]] = []
 
-    def load_collector(runtime, *, threshold):
-        loaded.append((runtime, threshold))
+    def load_collector(runtime):
+        loaded.append(runtime)
         return collector
 
     def build_metrics(value, *, sort_key, threshold):
@@ -146,7 +146,7 @@ def test_inspect_coverage_applies_typed_options(monkeypatch) -> None:
         ),
     )
 
-    assert loaded == [(runtime, 0.8)]
+    assert loaded == [runtime]
     assert built == [(collector, "nulls", 0.8)]
     assert result.payload == {
         "report": "coverage",
@@ -157,11 +157,11 @@ def test_inspect_coverage_applies_typed_options(monkeypatch) -> None:
 
 def test_inspect_thresholds_applies_typed_options(monkeypatch) -> None:
     collector = object()
-    loaded: list[tuple[object, float]] = []
+    loaded: list[object] = []
     built: list[tuple[object, str, float]] = []
 
-    def load_collector(runtime, *, threshold):
-        loaded.append((runtime, threshold))
+    def load_collector(runtime):
+        loaded.append(runtime)
         return collector
 
     def build_metrics(value, *, sort_key, threshold):
@@ -181,7 +181,7 @@ def test_inspect_thresholds_applies_typed_options(monkeypatch) -> None:
         ),
     )
 
-    assert loaded == [(runtime, 0.8)]
+    assert loaded == [runtime]
     assert built == [(collector, "nulls", 0.8)]
     assert result.payload == {
         "report": "thresholds",

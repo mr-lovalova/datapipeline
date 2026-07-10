@@ -28,18 +28,10 @@ class VectorStatsCollector:
         match_partition: Literal["base", "full"] = "base",
         schema_meta: dict[str, dict[str, Any]] | None = None,
         sample_limit: int = 5,
-        threshold: float | None = 0.95,
-        show_matrix: bool = False,
-        matrix_rows: int = 20,
-        matrix_cols: int = 10,
         matrix_output: str | None = None,
         matrix_format: str = "html",
     ) -> None:
         self.match_partition = match_partition
-        self.threshold = threshold
-        self.show_matrix = show_matrix
-        self.matrix_rows = matrix_rows if matrix_rows and matrix_rows > 0 else None
-        self.matrix_cols = matrix_cols if matrix_cols and matrix_cols > 0 else None
         self.matrix_output = Path(matrix_output) if matrix_output else None
         self.matrix_format = matrix_format
 
@@ -238,17 +230,6 @@ class VectorStatsCollector:
         }.get(status, ".")
 
     @staticmethod
-    def _format_samples(samples: list[tuple[Hashable, str]], limit: int = 3) -> str:
-        if not samples:
-            return ""
-        trimmed = samples[:limit]
-        rendered = ", ".join(
-            f"{reason}@{sample}" for sample, reason in trimmed)
-        if len(samples) > limit:
-            rendered += ", ..."
-        return rendered
-
-    @staticmethod
     def _partition_suffix(partition_id: str) -> str:
         return partition_id.split("__", 1)[1] if "__" in partition_id else partition_id
 
@@ -416,11 +397,6 @@ class VectorStatsCollector:
                         present = 1 if status == "present" else 0
                     cadence_opportunities[identifier] += expected
                     cadence_null_counts[identifier] += max(expected - present, 0)
-
-    def print_report(self, *, sort_key: str = "missing") -> dict[str, Any]:
-        from .report import print_report as _print_report
-
-        return _print_report(self, sort_key=sort_key)
 
     def _collect_feature_ids(self) -> list[str]:
         feature_ids: set[str] = set()

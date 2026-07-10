@@ -21,7 +21,7 @@ def inspect_coverage_with_runtime(
 ) -> RuntimeOutput:
     _ = dataset, limit, target, throttle_ms, preview_index, visuals
     options = operation_task.options if operation_task else CoverageOptions()
-    collector = load_collector(runtime, threshold=options.threshold)
+    collector = load_collector(runtime)
     metrics = build_metrics(
         collector,
         sort_key=options.sort,

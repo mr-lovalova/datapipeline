@@ -66,8 +66,6 @@ def materialize_vector_stats(
         expected_feature_ids or None,
         match_partition="base",
         schema_meta=schema_meta,
-        threshold=None,
-        show_matrix=False,
     )
     apply_postprocess = task_cfg.mode == "final"
     for key, merged in _iter_merged_vectors(

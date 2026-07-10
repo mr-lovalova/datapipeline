@@ -4,7 +4,6 @@ import html
 import json
 import logging
 from pathlib import Path
-from typing import Hashable
 
 from typing import TYPE_CHECKING
 
@@ -13,59 +12,6 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
-
-
-def render_matrix(
-    collector: "VectorStatsCollector",
-    *,
-    features: list[str],
-    partitions: bool = False,
-    column_width: int = 6,
-) -> None:
-    status_map = (
-        collector.group_partition_status
-        if partitions
-        else collector.group_feature_status
-    )
-    if not status_map or not features:
-        return
-
-    column_width = max(column_width, min(10, max(len(fid)
-                       for fid in features)))
-
-    def status_for(group: Hashable, fid: str) -> str:
-        statuses = status_map.get(group, {})
-        return statuses.get(fid, "absent")
-
-    sorted_groups = sorted(status_map.keys(), key=collector._group_sort_key)
-    focus_groups = [
-        g
-        for g in sorted_groups
-        if any(status_for(g, fid) != "present" for fid in features)
-    ]
-    if not focus_groups:
-        focus_groups = sorted_groups
-    if collector.matrix_rows is not None:
-        focus_groups = focus_groups[: collector.matrix_rows]
-
-    matrix_label = "Partition" if partitions else "Feature"
-    logger.info("\n-> %s availability heatmap:", matrix_label)
-
-    header = " " * 20 + " ".join(
-        f"{fid[-column_width:]:>{column_width}}" for fid in features
-    )
-    logger.info(header)
-
-    for group in focus_groups:
-        label = collector._format_group_key(group)
-        label = label[:18].ljust(18)
-        cells = " ".join(
-            f"{collector._symbol_for(status_for(group, fid)):^{column_width}}"
-            for fid in features
-        )
-        logger.info("  %s %s", label, cells)
-
-    logger.info("    Legend: # present | ! null | . missing")
 
 
 def export_matrix_data(collector: "VectorStatsCollector") -> Path | None:

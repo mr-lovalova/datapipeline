@@ -116,10 +116,6 @@ def collector_from_snapshot(
     *,
     expected_feature_ids: list[str] | None,
     schema_meta: dict[str, dict[str, Any]] | None,
-    threshold: float | None,
-    show_matrix: bool = False,
-    matrix_rows: int = 20,
-    matrix_cols: int = 10,
     matrix_output: str | None = None,
     matrix_format: str = "html",
 ) -> VectorStatsCollector:
@@ -129,10 +125,6 @@ def collector_from_snapshot(
         match_partition=snapshot.get("match_partition", "base"),
         schema_meta=schema_meta,
         sample_limit=snapshot.get("sample_limit", 5),
-        threshold=threshold,
-        show_matrix=show_matrix,
-        matrix_rows=matrix_rows,
-        matrix_cols=matrix_cols,
         matrix_output=matrix_output,
         matrix_format=matrix_format,
     )
