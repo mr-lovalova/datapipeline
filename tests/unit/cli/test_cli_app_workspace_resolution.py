@@ -11,15 +11,16 @@ def test_source_add_skips_dataset_resolution(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 
     def fail_resolution(*_args, **_kwargs):
-        raise AssertionError("project/dataset resolution should be skipped for source create")
+        raise AssertionError(
+            "project/dataset resolution should be skipped for source create"
+        )
 
     monkeypatch.setattr(app, "_resolve_project_from_args", fail_resolution)
 
     captured = {}
 
     def fake_create_source_yaml(
-        provider,
-        dataset,
+        source_id,
         loader_ep,
         loader_args,
         parser_ep,
@@ -29,8 +30,7 @@ def test_source_add_skips_dataset_resolution(monkeypatch, tmp_path):
     ):
         captured.update(
             {
-                "provider": provider,
-                "dataset": dataset,
+                "source_id": source_id,
                 "loader_ep": loader_ep,
                 "loader_args": loader_args,
                 "parser_ep": parser_ep,
@@ -42,13 +42,24 @@ def test_source_add_skips_dataset_resolution(monkeypatch, tmp_path):
         "datapipeline.cli.commands.source.create_source_yaml", fake_create_source_yaml
     )
     monkeypatch.setattr(
-        sys, "argv", ["jerry", "source", "create", "stooq", "ohlcv_daily", "-t", "http", "-f", "json"]
+        sys,
+        "argv",
+        [
+            "jerry",
+            "source",
+            "create",
+            "stooq",
+            "ohlcv_daily",
+            "-t",
+            "http",
+            "-f",
+            "json",
+        ],
     )
 
     app.main()
 
-    assert captured["provider"] == "stooq"
-    assert captured["dataset"] == "ohlcv_daily"
+    assert captured["source_id"] == "stooq.ohlcv_daily"
     assert captured["loader_ep"] == "core.io"
     assert captured["loader_args"]["transport"] == "http"
     assert captured["loader_args"]["format"] == "json"
@@ -80,7 +91,9 @@ def test_resolve_project_from_args_rejects_project_and_dataset():
     except SystemExit as exc:
         assert "Cannot use both --project and --dataset" in str(exc)
     else:
-        raise AssertionError("Expected SystemExit when both project and dataset are set")
+        raise AssertionError(
+            "Expected SystemExit when both project and dataset are set"
+        )
 
 
 def test_resolve_project_from_args_uses_workspace_default_dataset(tmp_path):
@@ -103,7 +116,9 @@ def test_resolve_project_from_args_uses_workspace_default_dataset(tmp_path):
     assert dataset == "demo"
 
 
-def test_resolve_project_from_args_prefers_explicit_project_over_workspace_default(tmp_path):
+def test_resolve_project_from_args_prefers_explicit_project_over_workspace_default(
+    tmp_path,
+):
     workspace = WorkspaceContext(
         file_path=tmp_path / "jerry.yaml",
         config=WorkspaceConfig.model_validate(
@@ -114,7 +129,9 @@ def test_resolve_project_from_args_prefers_explicit_project_over_workspace_defau
         ),
     )
 
-    project, dataset = app._resolve_project_from_args("custom/project.yaml", None, workspace)
+    project, dataset = app._resolve_project_from_args(
+        "custom/project.yaml", None, workspace
+    )
     assert project == "custom/project.yaml"
     assert dataset is None
 
@@ -129,7 +146,9 @@ def test_resolve_project_from_args_requires_selection_without_workspace_default(
     except SystemExit as exc:
         assert "No dataset/project selected" in str(exc)
     else:
-        raise AssertionError("Expected SystemExit when no project selection is available")
+        raise AssertionError(
+            "Expected SystemExit when no project selection is available"
+        )
 
 
 def test_main_handles_keyboard_interrupt_at_top_level(monkeypatch, capsys):

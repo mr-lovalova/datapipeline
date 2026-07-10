@@ -9,6 +9,7 @@ from datapipeline.services.scaffold.discovery import list_loaders, list_parsers
 from datapipeline.services.scaffold.source_yaml import (
     create_source_yaml,
     default_loader_config,
+    validate_source_id,
 )
 from datapipeline.services.scaffold.utils import (
     error_exit,
@@ -170,6 +171,11 @@ def handle(
 ) -> None:
     if subcmd == "create":
         provider, dataset = _resolve_source_parts(provider, dataset, alias)
+        source_id = f"{provider}.{dataset}"
+        try:
+            validate_source_id(source_id)
+        except ValueError as exc:
+            error_exit(str(exc))
         loader_ep, loader_args = _resolve_loader_config(
             transport,
             format,
@@ -180,8 +186,7 @@ def handle(
 
         project_yaml = resolve_default_project_yaml(workspace)
         create_source_yaml(
-            provider=provider,
-            dataset=dataset,
+            source_id=source_id,
             loader_ep=loader_ep,
             loader_args=loader_args,
             parser_ep=parser_ep,

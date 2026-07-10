@@ -1,5 +1,6 @@
-from pathlib import Path
 import logging
+from pathlib import Path
+from typing import NoReturn
 
 from datapipeline.services.scaffold.layout import to_snake, slugify, ep_key_from_name
 
@@ -83,7 +84,7 @@ def status(tag: str, message: str) -> None:
     _LOGGER.info("[%s] %s", tag, message)
 
 
-def error_exit(message: str, code: int = 2) -> None:
+def error_exit(message: str, code: int = 2) -> NoReturn:
     _LOGGER.error(message)
     raise SystemExit(code)
 
@@ -101,7 +102,9 @@ def pick_from_list(prompt: str, options: list[str]) -> str:
         info("Please enter a number from the list.")
 
 
-def pick_from_menu(prompt: str, options: list[tuple[str, str]], *, allow_default: bool = True) -> str:
+def pick_from_menu(
+    prompt: str, options: list[tuple[str, str]], *, allow_default: bool = True
+) -> str:
     info(prompt)
     for i, (_, label) in enumerate(options, 1):
         info(f"  [{i}] {label}")
