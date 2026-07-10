@@ -2,6 +2,7 @@ import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -82,6 +83,24 @@ def _runtime(
     regs.ordered_by.register("prices.raw", None)
     regs.sort_batch_size.register("prices.raw", 2)
     return runtime
+
+
+def _runtime_output_target(output: Path) -> OutputTarget:
+    return OutputTarget(
+        transport="fs",
+        format="jsonl",
+        view="raw",
+        encoding="utf-8",
+        destination=output,
+    )
+
+
+@pytest.fixture
+def one_row_runtime(tmp_path: Path) -> Runtime:
+    return _runtime(
+        tmp_path,
+        [{"time": _ts(1), "security_id": "AAPL", "close": 10.0}],
+    )
 
 
 def test_materialize_stream_writes_jsonl_and_reusable_config(tmp_path: Path) -> None:
@@ -195,17 +214,16 @@ def reloaded_context(runtime: Runtime):
     return PipelineContext(runtime)
 
 
-def test_materialize_stream_refuses_overwrite_without_force(tmp_path: Path) -> None:
-    runtime = _runtime(
-        tmp_path,
-        [{"time": _ts(1), "security_id": "AAPL", "close": 10.0}],
-    )
+def test_materialize_stream_refuses_overwrite_without_force(
+    tmp_path: Path,
+    one_row_runtime: Runtime,
+) -> None:
     output = tmp_path / "prices.jsonl"
     output.write_text("", encoding="utf-8")
 
     with pytest.raises(FileExistsError, match="--force"):
         materialize_stream_to_path(
-            runtime=runtime,
+            runtime=one_row_runtime,
             stream_id="prices.raw",
             output=output,
         )
@@ -214,11 +232,8 @@ def test_materialize_stream_refuses_overwrite_without_force(tmp_path: Path) -> N
 def test_materialize_stream_does_not_clobber_output_created_during_stream(
     tmp_path: Path,
     monkeypatch,
+    one_row_runtime: Runtime,
 ) -> None:
-    runtime = _runtime(
-        tmp_path,
-        [{"time": _ts(1), "security_id": "AAPL", "close": 10.0}],
-    )
     output = tmp_path / "prices.jsonl"
 
     def racing_rows(_runtime, _stream_id):
@@ -235,7 +250,7 @@ def test_materialize_stream_does_not_clobber_output_created_during_stream(
 
     with pytest.raises(FileExistsError, match="already exists"):
         materialize_stream_to_path(
-            runtime=runtime,
+            runtime=one_row_runtime,
             stream_id="prices.raw",
             output=output,
         )
@@ -246,18 +261,15 @@ def test_materialize_stream_does_not_clobber_output_created_during_stream(
 
 def test_materialize_stream_checks_config_overwrite_before_writing_output(
     tmp_path: Path,
+    one_row_runtime: Runtime,
 ) -> None:
-    runtime = _runtime(
-        tmp_path,
-        [{"time": _ts(1), "security_id": "AAPL", "close": 10.0}],
-    )
     existing_config = tmp_path / "sources" / "prices.materialized.source.yaml"
     existing_config.write_text("existing: true\n", encoding="utf-8")
     output = tmp_path / "prices.jsonl"
 
     with pytest.raises(FileExistsError, match="--force"):
         materialize_stream_to_path(
-            runtime=runtime,
+            runtime=one_row_runtime,
             stream_id="prices.raw",
             output=output,
             as_stream_id="prices.materialized",
@@ -269,18 +281,15 @@ def test_materialize_stream_checks_config_overwrite_before_writing_output(
 
 def test_materialize_stream_checks_metadata_overwrite_before_writing_output(
     tmp_path: Path,
+    one_row_runtime: Runtime,
 ) -> None:
-    runtime = _runtime(
-        tmp_path,
-        [{"time": _ts(1), "security_id": "AAPL", "close": 10.0}],
-    )
     output = tmp_path / "prices.jsonl"
     metadata = tmp_path / "prices.metadata.json"
     metadata.write_text("existing\n", encoding="utf-8")
 
     with pytest.raises(FileExistsError, match="--force"):
         materialize_stream_to_path(
-            runtime=runtime,
+            runtime=one_row_runtime,
             stream_id="prices.raw",
             output=output,
         )
@@ -297,19 +306,11 @@ def test_runtime_materialize_stream_writes_metadata_sidecar(tmp_path: Path) -> N
             {"time": _ts(1), "security_id": "AAPL", "close": 10.0},
         ],
     )
-    dataset = type("Dataset", (), {"sample_keys": ["security_id"]})()
+    dataset = SimpleNamespace(sample_keys=["security_id"])
     output = tmp_path / "runtime" / "prices.jsonl"
-    target = OutputTarget(
-        transport="fs",
-        format="jsonl",
-        view="raw",
-        encoding="utf-8",
-        destination=output,
-    )
+    target = _runtime_output_target(output)
     operation_task = MaterializeStreamTask(
         id="materialize",
-        kind="runtime",
-        entrypoint="core.runtime.materialize_stream",
         options={"stream": "prices.raw"},
     )
 
@@ -339,22 +340,13 @@ def test_runtime_materialize_stream_writes_metadata_sidecar(tmp_path: Path) -> N
 
 def test_runtime_materialize_stream_refuses_existing_output_without_force(
     tmp_path: Path,
+    one_row_runtime: Runtime,
 ) -> None:
-    runtime = _runtime(
-        tmp_path,
-        [{"time": _ts(1), "security_id": "AAPL", "close": 10.0}],
-    )
-    dataset = type("Dataset", (), {"sample_keys": ["security_id"]})()
+    dataset = SimpleNamespace(sample_keys=["security_id"])
     output = tmp_path / "runtime" / "prices.jsonl"
     output.parent.mkdir()
     output.write_text("existing output\n", encoding="utf-8")
-    target = OutputTarget(
-        transport="fs",
-        format="jsonl",
-        view="raw",
-        encoding="utf-8",
-        destination=output,
-    )
+    target = _runtime_output_target(output)
     operation_task = MaterializeStreamTask(
         id="materialize",
         options={"stream": "prices.raw"},
@@ -362,7 +354,7 @@ def test_runtime_materialize_stream_refuses_existing_output_without_force(
 
     with pytest.raises(FileExistsError, match="options.force"):
         materialize_stream_with_runtime(
-            runtime=runtime,
+            runtime=one_row_runtime,
             dataset=dataset,
             target=target,
             operation_task=operation_task,
@@ -374,26 +366,17 @@ def test_runtime_materialize_stream_refuses_existing_output_without_force(
 
 def test_runtime_materialize_stream_does_not_clobber_output_created_during_run(
     tmp_path: Path,
+    one_row_runtime: Runtime,
 ) -> None:
-    runtime = _runtime(
-        tmp_path,
-        [{"time": _ts(1), "security_id": "AAPL", "close": 10.0}],
-    )
-    dataset = type("Dataset", (), {"sample_keys": ["security_id"]})()
+    dataset = SimpleNamespace(sample_keys=["security_id"])
     output = tmp_path / "runtime" / "prices.jsonl"
-    target = OutputTarget(
-        transport="fs",
-        format="jsonl",
-        view="raw",
-        encoding="utf-8",
-        destination=output,
-    )
+    target = _runtime_output_target(output)
     operation_task = MaterializeStreamTask(
         id="materialize",
         options={"stream": "prices.raw"},
     )
     batch = materialize_stream_with_runtime(
-        runtime=runtime,
+        runtime=one_row_runtime,
         dataset=dataset,
         target=target,
         operation_task=operation_task,
@@ -416,34 +399,25 @@ def test_runtime_materialize_stream_does_not_clobber_output_created_during_run(
 
 def test_runtime_materialize_stream_force_replaces_existing_output(
     tmp_path: Path,
+    one_row_runtime: Runtime,
 ) -> None:
-    runtime = _runtime(
-        tmp_path,
-        [{"time": _ts(1), "security_id": "AAPL", "close": 10.0}],
-    )
-    dataset = type("Dataset", (), {"sample_keys": ["security_id"]})()
+    dataset = SimpleNamespace(sample_keys=["security_id"])
     output = tmp_path / "runtime" / "prices.jsonl"
     output.parent.mkdir()
     output.write_text("existing output\n", encoding="utf-8")
     metadata = output.with_suffix(".metadata.json")
     metadata.write_text("existing metadata\n", encoding="utf-8")
-    target = OutputTarget(
-        transport="fs",
-        format="jsonl",
-        view="raw",
-        encoding="utf-8",
-        destination=output,
-    )
-    operation_task = MaterializeStreamTask(
+    target = _runtime_output_target(output)
+    force_task = MaterializeStreamTask(
         id="materialize",
         options={"stream": "prices.raw", "force": True},
     )
 
     batch = materialize_stream_with_runtime(
-        runtime=runtime,
+        runtime=one_row_runtime,
         dataset=dataset,
         target=target,
-        operation_task=operation_task,
+        operation_task=force_task,
     )
     persist_runtime_result(
         batch,
