@@ -193,7 +193,7 @@ Split timing (leakage note)
 - `jerry demo init`: scaffolds a standalone demo plugin at `./demo/` and wires a `demo` dataset.
 - `jerry plugin init <name> --out lib/`: scaffolds `lib/<name>/` (writes workspace `jerry.yaml` when missing).
 - `jerry.yaml`: sets `plugin_root` for scaffolding commands and `datasets/default_dataset` so you can omit `--project`/`--dataset`.
-- `jerry serve [--dataset <alias>|--project <path>] [--limit N] [--preview-index 0-14] [--skip-build]`: streams output for enabled `serve.*` profiles in order. Typical flow uses artifact-targeted profiles first (`serve.schema`/`serve.metadata`/`serve.scaler`) and runtime profiles (`serve.splits`) after.
+- `jerry serve [--dataset <alias>|--project <path>] [--limit N] [--preview-index 0-14] [--skip-build]`: streams output for enabled `serve.*` profiles in order. In `AUTO` mode, runtime profiles build their required artifact dependency closure before execution; use artifact-targeted profiles only when you want those builds as explicit named steps.
 - `jerry build [--dataset <alias>|--project <path>] [--force]`: materializes artifacts (schema, scaler, etc.).
 - `jerry inspect [--dataset <alias>|--project <path>] [--run <inspect-profile>]`: runs enabled inspect profiles (or one selected profile).
 - `jerry materialize stream <stream_id> --output <path.jsonl> [--as <new_stream_id>] [--force]`: writes a durable JSONL stream. With `--as`, Jerry also writes reusable source/ingest YAML with `ordered_by`.
@@ -279,7 +279,9 @@ These live under `lib/<plugin>/src/<package>/`:
 - **Feature id fields**: optional stream `feature_id_by` fields appended to feature ids for wide feature schemas.
 - **Group**: sample cadence set by `dataset.sample.cadence` or legacy `dataset.group_by`.
 - **Preview index**: logical debug index for `jerry serve --preview-index 0-14` (ingest nodes -> stream nodes -> feature records -> samples).
-- **Fan-out**: when multiple features reference the same `record_stream`, the pipeline spools records so each feature can read independently (records must be picklable).
+- **Sort spill**: ordered stages sort in bounded batches and spill to temporary
+  pickle runs only when a batch is exceeded; records crossing that boundary must
+  be pickle-serializable.
 
 ## Documentation
 

@@ -51,13 +51,14 @@ YAML config (dataset project root):
   - `postprocess.yaml` (vector-level transforms)
   - `profiles/serve.<name>.yaml`, `profiles/build.<name>.yaml`, `profiles/inspect.<name>.yaml` (profiles; optional overrides)
   - `profiles/serve.defaults.yaml`, `profiles/build.defaults.yaml`, `profiles/inspect.defaults.yaml` (optional per-kind defaults)
-  - `tasks/operations/*.yaml` (artifact + serve operation configs; optional overrides)
+  - `tasks/operations/*.yaml` (declared artifact and runtime operations)
 
 Profile sequencing:
 - Profiles execute by `order` (ascending); unset falls back to filename order.
-- A common serve flow is `serve.schema` -> `serve.metadata` -> `serve.scaler` -> `serve.splits`; vector inputs are built automatically when those profiles need them.
-- A common inspect flow is `inspect.schema` -> `inspect.metadata` -> `inspect.scaler` -> `inspect.stats` -> `inspect.coverage/matrix/thresholds`.
-- One profile targets one task (`target:`); sequencing is explicit in profile files, not inferred from runtime task dependency graphs.
+- One profile targets one task (`target:`). In `AUTO` mode, artifact dependencies
+  are expanded and built in graph order before the selected target runs.
+- Use multiple ordered profiles only when you want separate named build/runtime
+  steps or different per-profile output and observability settings.
 
 Python plugin code:
 

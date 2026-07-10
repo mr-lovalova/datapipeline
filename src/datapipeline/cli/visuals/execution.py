@@ -227,13 +227,6 @@ def _scope_fields() -> dict[str, str | None]:
     }
 
 
-def current_execution_label(fallback: str) -> str:
-    node = current_node_progress_context()
-    if node is None:
-        return fallback
-    return ExecutionEventFormatter.execution_label(node.dag_name, node.node_name)
-
-
 def current_source_label(fallback: str) -> str:
     node = current_node_progress_context()
     if node is not None:

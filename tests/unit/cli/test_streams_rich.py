@@ -11,14 +11,11 @@ from datapipeline.cli.visuals.execution_context import (
     current_dag_depth,
     current_execution_event_sink,
     current_terminal_log_proxy_sink,
-    current_visual_log_level,
     reset_current_execution_event_sink,
     reset_current_terminal_log_proxy_sink,
-    reset_current_visual_log_level,
     set_current_dag_depth,
     set_current_execution_event_sink,
     set_current_terminal_log_proxy_sink,
-    set_current_visual_log_level,
 )
 from datapipeline.cli.visuals.rich.columns import SourceLabelColumn
 from datapipeline.cli.visuals.rich.event_sink import _RichConsoleExecutionSink
@@ -27,7 +24,6 @@ from datapipeline.cli.visuals.rich.sources import (
     _clear_progress_tasks,
     visual_sources,
 )
-from datapipeline.cli.visuals.streams import observe_source
 from datapipeline.sources.models.generator import DataGenerator
 from datapipeline.sources.foreach import ForeachLoader
 from datapipeline.sources.models.loader import BaseDataLoader, SyntheticLoader
@@ -1185,7 +1181,6 @@ def test_visual_sources_resets_context_when_live_fails(monkeypatch) -> None:
     runtime = SimpleNamespace(
         registries=SimpleNamespace(stream_sources=_StreamRegistry())
     )
-    level_token = set_current_visual_log_level(logging.WARNING)
     sink_token = set_current_execution_event_sink("sentinel")
     proxy_token = set_current_terminal_log_proxy_sink("proxy-sentinel")
     set_current_dag_depth(3)
@@ -1194,14 +1189,12 @@ def test_visual_sources_resets_context_when_live_fails(monkeypatch) -> None:
             with visual_sources(runtime, logging.INFO):
                 pass
 
-        assert current_visual_log_level() == logging.WARNING
         assert current_execution_event_sink() == "sentinel"
         assert current_terminal_log_proxy_sink() == "proxy-sentinel"
         assert current_dag_depth() == 0
     finally:
         reset_current_terminal_log_proxy_sink(proxy_token)
         reset_current_execution_event_sink(sink_token)
-        reset_current_visual_log_level(level_token)
 
 
 def test_visual_sources_runs_central_task_cleanup_on_interrupt(monkeypatch) -> None:
@@ -1232,19 +1225,6 @@ def test_visual_sources_runs_central_task_cleanup_on_interrupt(monkeypatch) -> N
     assert called["count"] == 1
 
 
-def test_rich_visual_sources_observe_dynamic_sources() -> None:
-    runtime = SimpleNamespace(
-        registries=SimpleNamespace(stream_sources=_StreamRegistry())
-    )
-
-    source = _SyntheticSource()
-    with visual_sources(runtime, logging.INFO):
-        observed = observe_source(source, "time.ticks.linear")
-
-    assert isinstance(observed, _RichSourceProxy)
-    assert observed.loader is source.loader
-
-
 def test_rich_visual_sources_leave_derived_sources_unwrapped() -> None:
     source = _DerivedSource()
     runtime = SimpleNamespace(
@@ -1254,7 +1234,5 @@ def test_rich_visual_sources_leave_derived_sources_unwrapped() -> None:
 
     with visual_sources(runtime, logging.INFO):
         wrapped = runtime.registries.stream_sources._items["derived"]
-        observed = observe_source(source, "derived")
 
     assert wrapped is source
-    assert observed is source

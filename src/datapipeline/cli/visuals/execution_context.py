@@ -1,5 +1,4 @@
 from contextvars import ContextVar
-import logging
 from typing import Any
 
 _CURRENT_DAG_DEPTH: ContextVar[int] = ContextVar(
@@ -9,10 +8,6 @@ _CURRENT_DAG_DEPTH: ContextVar[int] = ContextVar(
 _CURRENT_DAG_LABEL: ContextVar[str | None] = ContextVar(
     "datapipeline_visual_current_dag_label",
     default=None,
-)
-_CURRENT_VISUAL_LOG_LEVEL: ContextVar[int] = ContextVar(
-    "datapipeline_visual_current_log_level",
-    default=logging.INFO,
 )
 _CURRENT_EXECUTION_EVENT_SINK: ContextVar[Any | None] = ContextVar(
     "datapipeline_visual_current_execution_event_sink",
@@ -24,10 +19,6 @@ _CURRENT_TERMINAL_LOG_PROXY_SINK: ContextVar[Any | None] = ContextVar(
 )
 _CURRENT_EXECUTION_SCOPE: ContextVar[dict[str, str] | None] = ContextVar(
     "datapipeline_visual_current_execution_scope",
-    default=None,
-)
-_CURRENT_SOURCE_VISUAL_PROXY_FACTORY: ContextVar[Any | None] = ContextVar(
-    "datapipeline_visual_current_source_visual_proxy_factory",
     default=None,
 )
 
@@ -52,28 +43,12 @@ def current_source_depth() -> int:
     return current_dag_depth()
 
 
-def current_dag_indent() -> str:
-    return "  " * current_dag_depth()
-
-
 def set_current_dag_label(label: str | None):
     return _CURRENT_DAG_LABEL.set(label)
 
 
 def current_dag_label() -> str | None:
     return _CURRENT_DAG_LABEL.get()
-
-
-def set_current_visual_log_level(level: int):
-    return _CURRENT_VISUAL_LOG_LEVEL.set(int(level))
-
-
-def reset_current_visual_log_level(token) -> None:
-    _CURRENT_VISUAL_LOG_LEVEL.reset(token)
-
-
-def current_visual_log_level() -> int:
-    return int(_CURRENT_VISUAL_LOG_LEVEL.get())
 
 
 def set_current_execution_event_sink(sink: Any | None):
@@ -110,27 +85,6 @@ def reset_current_execution_scope(token) -> None:
 
 def current_execution_scope() -> dict[str, str] | None:
     return _CURRENT_EXECUTION_SCOPE.get()
-
-
-def set_current_source_visual_proxy_factory(factory: Any | None):
-    return _CURRENT_SOURCE_VISUAL_PROXY_FACTORY.set(factory)
-
-
-def reset_current_source_visual_proxy_factory(token) -> None:
-    _CURRENT_SOURCE_VISUAL_PROXY_FACTORY.reset(token)
-
-
-def current_source_visual_proxy_factory() -> Any | None:
-    return _CURRENT_SOURCE_VISUAL_PROXY_FACTORY.get()
-
-
-def visible_dag_depth(level: int) -> int:
-    _ = level
-    return current_dag_depth()
-
-
-def visible_dag_indent(level: int) -> str:
-    return "  " * visible_dag_depth(level)
 
 
 def visible_source_indent(level: int) -> str:

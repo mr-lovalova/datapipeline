@@ -1,18 +1,8 @@
 import logging
-from contextlib import contextmanager
 
 from rich.text import Text
 
 from ..execution import ExecutionEventFormatter, ExecutionEventSink, ExecutionLogEvent
-from ..execution_context import (
-    reset_current_execution_event_sink,
-    reset_current_terminal_log_proxy_sink,
-    reset_current_visual_log_level,
-    set_current_dag_depth,
-    set_current_execution_event_sink,
-    set_current_terminal_log_proxy_sink,
-    set_current_visual_log_level,
-)
 from .columns import styled_source_label
 
 
@@ -179,26 +169,4 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
         return header
 
 
-@contextmanager
-def visual_event_sink(log_level: int | None):
-    level = log_level if log_level is not None else logging.INFO
-    from rich.console import Console as _Console
-    import sys as _sys
-
-    console = _Console(file=_sys.stderr, markup=False, highlight=False)
-    sink = _RichConsoleExecutionSink(level=level, console=console)
-    level_token = set_current_visual_log_level(level)
-    sink_token = set_current_execution_event_sink(sink)
-    proxy_token = set_current_terminal_log_proxy_sink(sink)
-    try:
-        yield
-    finally:
-        sink.flush()
-        reset_current_terminal_log_proxy_sink(proxy_token)
-        reset_current_execution_event_sink(sink_token)
-        reset_current_visual_log_level(level_token)
-        # Guard against leaked depth from pre-task debug blocks.
-        set_current_dag_depth(0)
-
-
-__all__ = ["_RichConsoleExecutionSink", "visual_event_sink"]
+__all__ = ["_RichConsoleExecutionSink"]

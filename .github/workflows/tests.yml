@@ -106,6 +106,7 @@ jobs:
               for name in names
               if "__pycache__" in name
               or name.endswith(".pyc")
+              or name.endswith(".pyo")
               or name.endswith(".DS_Store")
           )
           if junk:

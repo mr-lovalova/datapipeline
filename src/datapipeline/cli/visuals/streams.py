@@ -4,10 +4,6 @@ import sys
 from typing import Optional, Tuple
 
 from datapipeline.runtime import Runtime
-from datapipeline.sources.models.source import Source
-
-from .execution_context import current_source_visual_proxy_factory
-from .source_observability import supports_source_observability
 
 
 def _is_tty() -> bool:
@@ -34,13 +30,6 @@ class VisualsBackend:
         return False
 
     def wrap_sources(self, runtime: Runtime, log_level: int):  # contextmanager
-        @contextmanager
-        def _noop():
-            yield
-
-        return _noop()
-
-    def wrap_events(self, log_level: int):  # contextmanager
         @contextmanager
         def _noop():
             yield
@@ -96,11 +85,6 @@ class _RichBackend(VisualsBackend):
 
         return rich_vs(runtime, log_level)
 
-    def wrap_events(self, log_level: int):
-        from .rich.event_sink import visual_event_sink
-
-        return visual_event_sink(log_level)
-
     def on_streams_complete(self) -> bool:
         # Rich backend manages its own persistent final line; signal handled
         return True
@@ -148,15 +132,6 @@ def get_visuals_backend(provider: Optional[str]) -> VisualsBackend:
     if _rich_available() and _is_tty() and _rich_live_supported():
         return _RichBackend()
     return _BasicBackend()
-
-
-def observe_source(stream_source: Source, stream_id: str):
-    if not supports_source_observability(stream_source):
-        return stream_source
-    factory = current_source_visual_proxy_factory()
-    if factory is None:
-        return stream_source
-    return factory(stream_source, stream_id)
 
 
 @contextmanager

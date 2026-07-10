@@ -9,8 +9,14 @@ from datapipeline.utils import load as dp_load
 
 # Test-only entrypoint declarations.
 _TEST_EP_TARGETS = {
-    ("datapipeline.parsers", "core.temporal.csv"): "tests.parsers.temporal_csv:TemporalCsvValueParser",
-    ("datapipeline.parsers", "core.temporal.jsonpath"): "tests.parsers.temporal_json:TemporalJsonPathParser",
+    (
+        "datapipeline.parsers",
+        "core.temporal.csv",
+    ): "tests.parsers.temporal_csv:TemporalCsvValueParser",
+    (
+        "datapipeline.parsers",
+        "core.temporal.jsonpath",
+    ): "tests.parsers.temporal_json:TemporalJsonPathParser",
     ("datapipeline.loaders", "tests.foreach.dummy"): "tests.loaders.dummy:DummyLoader",
 }
 _ORIGINAL_LOAD_EP = dp_load.load_ep
@@ -35,7 +41,17 @@ def copy_fixture(tmp_path: Path):
     def _copy(name: str) -> Path:
         src = Path(__file__).parent / "fixtures" / name
         dest = tmp_path / name
-        shutil.copytree(src, dest)
+        shutil.copytree(
+            src,
+            dest,
+            ignore=shutil.ignore_patterns(
+                "build",
+                "__pycache__",
+                "*.pyc",
+                "*.pyo",
+                ".DS_Store",
+            ),
+        )
         return dest
 
     return _copy

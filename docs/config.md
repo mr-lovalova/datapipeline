@@ -13,7 +13,7 @@ These live under the dataset “project root” directory (the folder containing
 - `profiles/serve.<name>.yaml`: serve profiles.
 - `profiles/build.<name>.yaml`: build profiles.
 - `profiles/inspect.<name>.yaml`: inspect profiles.
-- `tasks/operations/*.yaml`: artifact operation configs.
+- `tasks/operations/*.yaml`: declared artifact and runtime operations.
 
 ### Configuration & Resolution Order
 
@@ -71,8 +71,9 @@ globals:
 - `split` config defines how labels are assigned; serve profiles or CLI flags pick the active label via `keep`.
   Legacy `globals.split` is still accepted with a deprecation warning.
 - `paths.tasks` points to operation task specs under `tasks/operations/*.yaml`.
-  Build artifact operations (`schema`/`scaler`/`metadata`) define what can be materialized.
-  Runtime operations (`serve`, `report`, `matrix`, ...) define executable runtime steps.
+  Artifact operations (`vector_inputs`, `schema`, `scaler`, `metadata`, `stats`,
+  and optional tick artifacts) define what can be materialized. Runtime operations
+  (`pipeline`, `coverage`, `matrix`, `thresholds`, ...) define executable steps.
 - `paths.profiles` points to profile specs grouped by type:
   `profiles/serve.<name>.yaml`, `profiles/build.<name>.yaml`, `profiles/inspect.<name>.yaml`.
   Optional defaults files may also be declared once per kind:
@@ -92,7 +93,7 @@ output:
   transport: fs # stdout | fs; splits require fs
   format: jsonl
   directory: runs
-  # view: raw # optional; flat | raw | values (default: jsonl->raw, csv/pickle->flat)
+  # view: raw # optional; flat | raw (default: jsonl->raw, csv/pickle->flat)
   # encoding: utf-8 # fs jsonl/csv only
 limit: 100 # cap vectors per serve run (null = unlimited)
 throttle_ms: null # milliseconds to sleep between emitted vectors
@@ -105,7 +106,7 @@ throttle_ms: null # milliseconds to sleep between emitted vectors
 #     outputs:
 #       - transport: STDERR # STDERR | STDOUT | FS
 #       - transport: FS
-#         scope: RUN        # GLOBAL | RUN
+#         scope: EXECUTION  # GLOBAL | EXECUTION
 #         path: logs/serve.log # optional; default logs/serve.<task>.log
 ```
 
@@ -117,7 +118,7 @@ throttle_ms: null # milliseconds to sleep between emitted vectors
   Split fanout requires filesystem output and does not allow `output.filename`.
 - `keep` remains supported for legacy single-output split filtering and can be
   overridden per invocation via `jerry serve ... --keep val`.
-- Visuals backend: set `observability.visuals: ON|OFF` in the task or use `--visuals on|off`.
+- Visuals backend: set `observability.visuals: ON|OFF` in the profile or use `--visuals on|off`.
 - Node heartbeat: set `observability.heartbeat_interval_seconds` or use `--heartbeat-interval`; `0` disables heartbeat.
 - Add additional `cmd: serve` files under `profiles/` using the `serve.` prefix
   for distinct serve policies; `jerry serve` runs each enabled profile unless
@@ -160,12 +161,14 @@ mode: AUTO # AUTO | FORCE | OFF
 ### Runtime Operations (`tasks/operations/*.yaml`)
 
 ```yaml
-id: serve
-entrypoint: core.serve_pipeline
+id: pipeline
+kind: runtime
+entrypoint: core.runtime.pipeline
 ```
 
 - Runtime operations are executable units; profiles reference them via `target`.
-- `entrypoint` must resolve to a registered operation runner (`core.serve.*`, `core.inspect.*`, ...).
+- `entrypoint` must resolve in the `datapipeline.operations.runtime` entry-point
+  group. Built-ins use `core.runtime.*`; plugins may register their own names.
 
 ### Workspace Routing (`jerry.yaml`)
 
@@ -182,7 +185,8 @@ default_dataset: your-dataset
 
 `jerry.yaml` sits near the root of your workspace and is only used for workspace routing (`plugin_root`, dataset aliases, default dataset).
 - Command/runtime settings belong in profile files under `profiles/`.
-- Run-scoped logs (`scope: RUN`) are configured on serve profiles (or via CLI `--log-output run[...]`).
+- Execution-scoped logs (`scope: EXECUTION`) are configured on profiles or via
+  CLI `--log-output execution[:<relative-path>]`.
 
 ### `<project_root>/sources/<alias>.yaml`
 
@@ -278,8 +282,9 @@ debug:
   - lint: { mode: warn, tick: 10m }
 ```
 
-- `record`: ordered record-level transforms (`where`, floor/lag, custom
-  transforms registered under the `record` entry-point group). Ingest-only.
+- `record`: per-record transforms applied before ordering (`where`, `floor_time`,
+  and custom transforms registered under the `record` entry-point group).
+  Ingest-only.
 - `stream`: transforms applied after ingest ordering; operate on record fields before feature selection.
 - `debug`: instrumentation-only transforms (linters, assertions).
 - `partition_by`: optional stream state keys used by ordering and history-based
@@ -288,8 +293,8 @@ debug:
   `temp__@station_id:XYZ`). If a partitioned stream is used as a dataset
   feature, set this explicitly: `[]` for scalar keyed-row features or a field
   list for wide feature IDs.
-- `sort_batch_size`: chunk size used by the in-memory sorter when normalizing
-  order before stream transforms.
+- `sort_batch_size`: batch size used by the stable sorter before it spills
+  temporary runs while normalizing order.
 
 ### Manual Streams (Engineered Domains)
 
@@ -407,8 +412,9 @@ Project-scoped vector transforms that run after assembly and before serving.
 ### Task Specs (`tasks/operations/*.yaml`)
 
 Declare artifact and command tasks under `project.paths.tasks` (default `tasks/`).
-Artifact specs are optional; if you omit them, Jerry falls back to built-in defaults.
-Add a YAML file only when you need to override paths or other parameters.
+Every artifact used by a selected profile must have a declared producer task.
+The built-in task models provide default entry points and output paths, but they
+do not create undeclared tasks.
 
 `tasks/operations/scaler.yaml`
 
@@ -442,9 +448,12 @@ folds:
 - `build/schema.json` (from the `schema` task) enumerates the discovered feature/target identifiers (including partitions), their kinds (scalar/list), and cadence hints used to enforce ordering downstream.
   - Configure the `schema` task to choose a cadence strategy (currently `max`). Per-feature overrides will be added later; for now every list-valued feature records the max observed length as its enforcement target.
 - `build/metadata.json` (from the `metadata` task) captures heavier statistics—present/null counts, inferred value types, list-length histograms, per-partition timestamps, and the dataset window. Configure `metadata.window_mode` with `union|intersection|strict|relaxed` (default `intersection`) to control how start/end bounds are derived. `union` considers base features, `intersection` uses their overlap, `strict` intersects every partition, and `relaxed` unions partitions independently.
-- Artifact task execution order is driven by the selected profile sequence, not a dependency tree on operation specs.
+- Artifact task execution order comes from the typed dependency graph. Selecting
+  a target expands and builds its required producers in topological order.
 - All operation tasks share the same execution interface: `entrypoint` selects the runner; profiles select operations via `target`.
-- Serve profiles (`cmd: serve`) must target a runtime operation whose entrypoint is `core.serve.*` or `core.serve_*` (usually `id: serve`).
+- Serve profiles may target an artifact task or a runtime task. The built-in
+  pipeline runner is `core.runtime.pipeline`; custom runtime entry points are
+  also supported.
 - Observability defaults (visuals/logging outputs) belong in profile files (`serve.<name>.yaml`, `build.<name>.yaml`, `inspect.<name>.yaml`) or per-kind defaults (`<kind>.defaults.yaml`).
 
 ---

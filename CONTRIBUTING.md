@@ -6,11 +6,12 @@ This repo ships the Jerry Thomas runtime (`jerry-thomas`) and its CLI (`jerry`).
 
 ```bash
 python -m pip install -e .[dev]
-pytest
+python -m pytest
+ruff check .
 ```
 
-When iterating on configs and transforms, `jerry serve --stage <n>` is the fastest
-way to validate pipeline behavior.
+When iterating on configs and transforms, `jerry serve --preview-index <0-14>`
+is the fastest way to validate a specific pipeline boundary.
 
 ## Scaffolding Internals (Internal API)
 
@@ -26,7 +27,6 @@ Key entrypoints:
 
 - YAML config
   - `datapipeline.services.scaffold.source_yaml.create_source_yaml` (used by `jerry source create` and `jerry inflow create`)
-  - `datapipeline.services.scaffold.contract_yaml.write_ingest_contract` / `write_composed_contract` (used by `jerry contract create`)
 
 - Python stubs + entry points
   - `datapipeline.services.scaffold.dto.create_dto` (used by `jerry dto create`)
@@ -42,4 +42,3 @@ Key entrypoints:
 Entry points are injected/updated in plugin `pyproject.toml` via:
 
 - `datapipeline.services.entrypoints.inject_ep`
-

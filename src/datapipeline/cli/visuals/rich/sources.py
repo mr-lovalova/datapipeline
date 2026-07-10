@@ -18,14 +18,10 @@ from ..execution import current_source_label, emit_source_info
 from ..execution_context import (
     current_source_depth,
     reset_current_execution_event_sink,
-    reset_current_source_visual_proxy_factory,
     reset_current_terminal_log_proxy_sink,
-    reset_current_visual_log_level,
     set_current_dag_depth,
     set_current_execution_event_sink,
-    set_current_source_visual_proxy_factory,
     set_current_terminal_log_proxy_sink,
-    set_current_visual_log_level,
     visible_source_indent,
 )
 from ..source_observability import (
@@ -33,7 +29,7 @@ from ..source_observability import (
     supports_source_observability,
 )
 from .columns import AverageTimeRemainingColumn, SourceLabelColumn
-from .event_sink import _RichConsoleExecutionSink, visual_event_sink
+from .event_sink import _RichConsoleExecutionSink
 
 logger = logging.getLogger(__name__)
 _PROGRESS_ADVANCE_BATCH = 1_000
@@ -295,16 +291,8 @@ def visual_sources(runtime: Runtime, log_level: int | None):
 
     reg = runtime.registries.stream_sources
     originals = dict(reg.items())
-    level_token = set_current_visual_log_level(level)
     execution_sink_token = set_current_execution_event_sink(execution_sink)
     proxy_token = set_current_terminal_log_proxy_sink(execution_sink)
-    source_proxy_token = set_current_source_visual_proxy_factory(
-        lambda stream_source, stream_id: _RichSourceProxy(
-            stream_source=stream_source,
-            stream_id=stream_id,
-            progress=progress,
-        )
-    )
 
     try:
         with progress:
@@ -336,8 +324,6 @@ def visual_sources(runtime: Runtime, log_level: int | None):
         finally:
             reset_current_terminal_log_proxy_sink(proxy_token)
             reset_current_execution_event_sink(execution_sink_token)
-            reset_current_source_visual_proxy_factory(source_proxy_token)
-            reset_current_visual_log_level(level_token)
 
 
 __all__ = [
@@ -346,6 +332,5 @@ __all__ = [
     "_clear_progress_tasks",
     "AverageTimeRemainingColumn",
     "SourceLabelColumn",
-    "visual_event_sink",
     "visual_sources",
 ]

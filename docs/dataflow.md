@@ -32,9 +32,6 @@ Expected behavior:
 - `jerry serve` resolves to `datasets.demo`.
 - Relative paths here are resolved from the workspace root (directory containing `jerry.yaml`).
 
-Screenshot slot:
-`docs/assets/dataflow-01-workspace.png`
-
 ## 2) Project maps to config folders/files
 
 `project.yaml` is the root map for all dataset config.
@@ -52,9 +49,6 @@ paths:
 
 Expected behavior:
 - All relative `paths.*` values are resolved relative to this `project.yaml`.
-
-Screenshot slot:
-`docs/assets/dataflow-02-project-paths.png`
 
 ## 3) Source id links source YAML to ingest
 
@@ -77,9 +71,6 @@ loader:
 Expected behavior:
 - Ingest `from.source: sandbox.ohlcv` resolves to this source spec.
 - For fs loaders, relative `args.path` is normalized via runtime path policy.
-
-Screenshot slot:
-`docs/assets/dataflow-03-source-yaml.png`
 
 ## 4) Ingest or stream id links canonical records to dataset
 
@@ -111,9 +102,6 @@ stream:
   - dedupe: {}
 ```
 
-Screenshot slot:
-`docs/assets/dataflow-04-stream-yaml.png`
-
 ## 5) Dataset selects fields from stream ids
 
 Dataset config chooses which streams become features/targets and which record field is used as value.
@@ -132,9 +120,6 @@ features:
 Expected behavior:
 - `record_stream` must match a stream `id`.
 - `field` must exist on emitted records.
-
-Screenshot slot:
-`docs/assets/dataflow-05-dataset-yaml.png`
 
 ## 6) Serve writes run-scoped outputs
 
@@ -158,9 +143,6 @@ vectors/
 Expected behavior:
 - Relative output directory resolves from workspace root.
 - Output format extension follows `--output-format` or configured format.
-
-Screenshot slot:
-`docs/assets/dataflow-06-run-output.png`
 
 ## Quick Debug Checklist
 

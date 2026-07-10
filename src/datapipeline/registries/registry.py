@@ -5,7 +5,6 @@ V = TypeVar("V")
 
 
 class Registry(Generic[K, V]):
-
     def __init__(self) -> None:
         self._store: Dict[K, V] = {}
 
@@ -23,6 +22,3 @@ class Registry(Generic[K, V]):
 
     def keys(self) -> Iterator[K]:
         return iter(self._store.keys())
-
-    def values(self) -> Iterator[V]:
-        return iter(self._store.values())

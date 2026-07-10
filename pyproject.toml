@@ -61,6 +61,7 @@ datapipeline = [
 datapipeline = [
   "templates/**/.DS_Store",
   "templates/**/*.pyc",
+  "templates/**/*.pyo",
   "templates/**/__pycache__/*",
 ]
 

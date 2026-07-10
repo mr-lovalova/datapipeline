@@ -34,9 +34,6 @@ class Registries:
     record_operations: Registry[str, Sequence[Mapping[str, object]]] = field(
         default_factory=Registry
     )
-    feature_transforms: Registry[str, Sequence[Mapping[str, object]]] = field(
-        default_factory=Registry
-    )
     postprocesses: Registry[str, Any] = field(default_factory=Registry)
 
     # Per-stream policies
@@ -64,7 +61,6 @@ class Registries:
             self.ordered_by,
             self.sort_batch_size,
             self.record_operations,
-            self.feature_transforms,
             self.postprocesses,
             self.sources,
             self.mappers,

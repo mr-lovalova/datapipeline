@@ -1,7 +1,6 @@
 import logging
 from types import SimpleNamespace
 
-from datapipeline.cli.visuals.streams import observe_source
 from datapipeline.cli.visuals.streams_basic import visual_sources
 from datapipeline.cli.visuals.streams_basic import VisualSourceProxy
 from datapipeline.sources.adapters.fs import FsFileTransport
@@ -98,19 +97,6 @@ def test_visual_source_proxy_does_not_invent_file_source_details(
     assert messages == []
 
 
-def test_basic_visual_sources_observe_dynamic_sources() -> None:
-    runtime = SimpleNamespace(
-        registries=SimpleNamespace(stream_sources=_StreamRegistry())
-    )
-
-    source = _SyntheticSource()
-    with visual_sources(runtime, logging.INFO):
-        observed = observe_source(source, "time.ticks.linear")
-
-    assert isinstance(observed, VisualSourceProxy)
-    assert observed.loader is source.loader
-
-
 def test_basic_visual_sources_leave_derived_sources_unwrapped() -> None:
     source = _DerivedSource()
     runtime = SimpleNamespace(
@@ -120,7 +106,5 @@ def test_basic_visual_sources_leave_derived_sources_unwrapped() -> None:
 
     with visual_sources(runtime, logging.INFO):
         wrapped = runtime.registries.stream_sources._items["derived"]
-        observed = observe_source(source, "derived")
 
     assert wrapped is source
-    assert observed is source
