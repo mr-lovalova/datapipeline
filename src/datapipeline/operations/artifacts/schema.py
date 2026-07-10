@@ -29,7 +29,6 @@ def materialize_vector_schema(
         features_cfgs,
         dataset.group_by,
         sample_keys=dataset.sample_keys,
-        cadence_strategy=task_cfg.cadence_strategy,
         collect_metadata=False,
         progress_label="schema features",
     )
@@ -39,7 +38,7 @@ def materialize_vector_schema(
             f"{len(features_cfgs)} configured features produced zero vectors. "
             "Check upstream source data and credentials."
         )
-    target_entries: list[dict] = []
+    target_stats: list[dict] = []
     target_cfgs = list(dataset.targets or [])
     target_min = target_max = None
     if target_cfgs:
@@ -48,7 +47,6 @@ def materialize_vector_schema(
             target_cfgs,
             dataset.group_by,
             sample_keys=dataset.sample_keys,
-            cadence_strategy=task_cfg.cadence_strategy,
             collect_metadata=False,
             progress_label="schema targets",
         )
@@ -58,11 +56,11 @@ def materialize_vector_schema(
                 f"{len(target_cfgs)} configured targets produced zero vectors. "
                 "Check upstream source data and credentials."
             )
-        target_entries = schema_entries_from_stats(target_stats, task_cfg.cadence_strategy)
-    feature_entries = schema_entries_from_stats(feature_stats, task_cfg.cadence_strategy)
+    target_entries = schema_entries_from_stats(target_stats)
+    feature_entries = schema_entries_from_stats(feature_stats)
 
     doc = VectorSchemaArtifact(
-        schema_version=1,
+        schema_version=2,
         features=feature_entries,
         targets=target_entries,
     )

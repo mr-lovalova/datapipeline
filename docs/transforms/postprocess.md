@@ -3,7 +3,7 @@
 Postprocess runs after vector assembly and before split/output persistence.
 Configure it in `postprocess.yaml`.
 
-Jerry first enforces `build/schema.json` when available. That makes vector
+Jerry first enforces the required `build/schema.json`. That makes vector
 ordering deterministic, fills missing configured feature IDs, drops unexpected
 IDs unless allowed, and enforces recorded list cadence metadata.
 

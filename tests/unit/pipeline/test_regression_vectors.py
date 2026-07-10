@@ -1,6 +1,5 @@
 from datetime import datetime, timezone
 import math
-import json
 from pathlib import Path
 
 from datapipeline.config.dataset.feature import FeatureRecordConfig
@@ -10,7 +9,7 @@ from datapipeline.dag.context import PipelineContext
 from datapipeline.pipelines.feature.dag import build_feature_pipeline
 from datapipeline.pipelines import build_vector_pipeline
 from datapipeline.runtime import Runtime, StreamRuntimeSpec
-from datapipeline.services.constants import SCALER_STATISTICS, VECTOR_SCHEMA
+from datapipeline.services.constants import SCALER_STATISTICS
 from datapipeline.transforms.feature.scaler import StandardScalerAccumulator
 from datapipeline.transforms.spec import TransformSpec
 from tests.vector_input_helpers import register_vector_inputs
@@ -118,16 +117,6 @@ def _register_scaler(
     runtime.artifacts.register(
         SCALER_STATISTICS,
         relative_path=destination.relative_to(runtime.artifacts_root).as_posix(),
-    )
-
-
-def _register_partitioned_ids(runtime: Runtime, ids: list[str]) -> None:
-    schema_path = runtime.artifacts_root / "schema.json"
-    schema_doc = {"features": [{"id": fid} for fid in ids], "targets": []}
-    schema_path.write_text(json.dumps(schema_doc, indent=2), encoding="utf-8")
-    runtime.artifacts.register(
-        VECTOR_SCHEMA,
-        relative_path=schema_path.relative_to(runtime.artifacts_root).as_posix(),
     )
 
 

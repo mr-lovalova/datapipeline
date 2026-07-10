@@ -40,7 +40,7 @@ def test_materialize_vector_stats_reads_metadata_and_omits_schema_meta(monkeypat
         def require_artifact(self, spec):
             assert spec.key == VECTOR_SCHEMA_METADATA
             return {
-                "features": [{"id": "speed", "cadence": {"strategy": "max", "target": 2}}],
+                "features": [{"id": "speed", "cadence": {"target": 2}}],
                 "targets": [],
             }
 

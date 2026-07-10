@@ -1,48 +1,49 @@
 import json
 from pathlib import Path
-from typing import Dict, Optional, Any
+from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+
+BUILD_STATE_VERSION = 2
 
 
 class ArtifactInfo(BaseModel):
     """Metadata describing a materialized artifact."""
 
+    model_config = ConfigDict(extra="forbid")
+
     relative_path: str
-    meta: Dict[str, Any] = Field(default_factory=dict)
+    meta: dict[str, Any] = Field(default_factory=dict)
 
 
 class BuildState(BaseModel):
     """Minimal persisted state for caching build outputs."""
 
-    version: int = 1
+    model_config = ConfigDict(extra="forbid")
+
+    version: int = BUILD_STATE_VERSION
     config_hash: str
-    artifacts: Dict[str, ArtifactInfo] = Field(default_factory=dict)
+    artifacts: dict[str, ArtifactInfo] = Field(default_factory=dict)
 
-    def register(self, key: str, relative_path: str, *, meta: Optional[Dict[str, Any]] = None) -> None:
+    def register(
+        self,
+        key: str,
+        relative_path: str,
+        meta: dict[str, Any] | None = None,
+    ) -> None:
         self.artifacts[key] = ArtifactInfo(
-            relative_path=relative_path, meta=dict(meta or {}))
+            relative_path=relative_path,
+            meta=dict(meta or {}),
+        )
 
 
-def load_build_state(path: Path) -> Optional[BuildState]:
+def load_build_state(path: Path) -> BuildState | None:
     if not path.exists():
         return None
     with path.open("r", encoding="utf-8") as fh:
         data = json.load(fh)
-    artifacts = data.get("artifacts")
-    if isinstance(artifacts, dict):
-        normalized: Dict[str, ArtifactInfo] = {}
-        for key, value in artifacts.items():
-            if isinstance(value, dict):
-                rel = value.get("relative_path")
-                if isinstance(rel, str):
-                    meta = value.get("meta") if isinstance(
-                        value.get("meta"), dict) else {}
-                    normalized[key] = ArtifactInfo(
-                        relative_path=rel, meta=meta)
-            elif isinstance(value, str):
-                normalized[key] = ArtifactInfo(relative_path=value)
-        data["artifacts"] = normalized
+    if data.get("version") != BUILD_STATE_VERSION:
+        return None
     return BuildState.model_validate(data)
 
 

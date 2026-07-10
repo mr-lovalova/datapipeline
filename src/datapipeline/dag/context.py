@@ -1,23 +1,22 @@
-import logging
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import Iterator, Mapping, Any, Callable, Optional
 from datetime import datetime
+from typing import Any, Callable, Iterator, Mapping, Optional
 
-from datapipeline.artifacts.models import VectorSchemaArtifact
+from datapipeline.artifacts.models import (
+    SchemaPayload,
+    VectorSchemaArtifact,
+)
 from datapipeline.runtime import Runtime
 from datapipeline.dag.transform_observability import ObserverRegistry
 from datapipeline.services.artifacts import (
-    ArtifactNotRegisteredError,
     ArtifactManager,
     ArtifactSpec,
     ArtifactValue,
     VECTOR_SCHEMA_SPEC,
 )
 from datapipeline.utils.window import resolve_window_bounds
-
-logger = logging.getLogger(__name__)
 
 _current_context: ContextVar["PipelineContext | None"] = ContextVar(
     "datapipeline_pipeline_context", default=None
@@ -33,7 +32,15 @@ class PipelineContext:
     observer_registry: Optional[ObserverRegistry] = None
     execution_observer: object | None = None
     heartbeat_interval_seconds: float | None = None
-    _cache: dict[str, Any] = field(default_factory=dict)
+    _schema: VectorSchemaArtifact | None = field(
+        default=None,
+        init=False,
+        repr=False,
+    )
+    _window_bounds_cache: dict[
+        bool,
+        tuple[datetime | None, datetime | None],
+    ] = field(default_factory=dict, init=False, repr=False)
 
     def __post_init__(self) -> None:
         if self.execution_observer is None:
@@ -65,53 +72,38 @@ class PipelineContext:
     def require_artifact(self, spec: ArtifactSpec[ArtifactValue]) -> ArtifactValue:
         return self.artifacts.load(spec)
 
-    def load_expected_ids(self, *, payload: str = "features") -> list[str]:
-        key = f"expected_ids:{payload}"
-        cached = self._cache.get(key)
-        if cached is not None:
-            return list(cached)
-        entries = self.load_schema(payload=payload)
-        if not entries:
-            if payload == "targets":
-                logger.debug("Target schema entries missing; proceeding without target baseline.")
-                self._cache[key] = []
-                return []
-            raise RuntimeError("Vector schema artifact missing; run `jerry build` to materialize build/schema.json.")
-        ids = [entry["id"] for entry in entries if isinstance(entry.get("id"), str)]
-        self._cache[key] = ids
-        return list(ids)
+    def load_schema(self) -> VectorSchemaArtifact:
+        if self._schema is None:
+            self._schema = self.artifacts.load(VECTOR_SCHEMA_SPEC)
+        return self._schema
 
-    def load_schema(self, *, payload: str = "features") -> list[dict[str, Any]]:
-        key = f"schema:{payload}"
-        cached = self._cache.get(key)
-        if cached is None:
-            try:
-                doc = self.artifacts.load(VECTOR_SCHEMA_SPEC)
-            except ArtifactNotRegisteredError:
-                cached = []
-            else:
-                try:
-                    schema = VectorSchemaArtifact.model_validate(doc)
-                except ValueError:
-                    cached = []
-                else:
-                    cached = schema.entries_for_payload(payload)
-            self._cache[key] = cached
-        return [dict(entry) for entry in cached] if cached else []
-
-    @property
-    def schema_required(self) -> bool:
-        return bool(getattr(self.runtime, "schema_required", True))
+    def remove_schema_ids(
+        self,
+        payload: SchemaPayload,
+        identifiers: set[str],
+    ) -> None:
+        schema = self.load_schema()
+        if payload == "features":
+            entries = schema.features
+        elif payload == "targets":
+            entries = schema.targets
+        else:
+            raise ValueError("schema payload must be 'features' or 'targets'")
+        self._schema = schema.model_copy(
+            update={
+                payload: tuple(
+                    entry for entry in entries if entry.id not in identifiers
+                )
+            }
+        )
 
     def window_bounds(self, *, rectangular_required: bool = False) -> tuple[datetime | None, datetime | None]:
-        key = "window_bounds:required" if rectangular_required else "window_bounds:optional"
-        cached = self._cache.get(key)
-        if cached is not None:
-            return cached
+        if rectangular_required in self._window_bounds_cache:
+            return self._window_bounds_cache[rectangular_required]
         bounds = resolve_window_bounds(self.runtime, rectangular_required)
         if rectangular_required:
             self.runtime.window_bounds = bounds
-        self._cache[key] = bounds
+        self._window_bounds_cache[rectangular_required] = bounds
         return bounds
 
     @property

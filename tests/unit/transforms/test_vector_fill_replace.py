@@ -1,5 +1,7 @@
 from datetime import datetime, timezone
 
+import pytest
+
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
 from datapipeline.transforms.vector import (
@@ -128,6 +130,13 @@ def test_vector_fill_constant_injects_value():
     transform.bind_context(StubVectorContext(["time", "wind"]))
     out = list(transform.apply(stream))
     assert out[0].features.values["wind"] == 0.0
+
+
+def test_vector_postprocess_requires_context():
+    transform = VectorReplaceTransform(value=0.0)
+
+    with pytest.raises(RuntimeError, match="pipeline context"):
+        list(transform.apply(iter([make_vector(0, {})])))
 
 
 def test_vector_fill_constant_targets_payload():

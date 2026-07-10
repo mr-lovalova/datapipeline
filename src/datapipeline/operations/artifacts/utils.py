@@ -3,8 +3,9 @@ import time
 from collections import Counter, OrderedDict
 from collections.abc import Sequence
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
+from datapipeline.artifacts.models import VectorSchemaCadence, VectorSchemaEntry
 from datapipeline.dag.context import PipelineContext
 from datapipeline.execution.observability import emit_operation_progress
 from datapipeline.pipelines import build_vector_pipeline
@@ -29,7 +30,6 @@ def collect_schema_entries(
     group_by: str,
     *,
     sample_keys: Sequence[str] = (),
-    cadence_strategy: str,
     collect_metadata: bool,
     progress_label: str = "schema entries",
 ) -> tuple[list[dict], int, datetime | None, datetime | None]:
@@ -38,7 +38,6 @@ def collect_schema_entries(
         configs,
         group_by,
         sample_keys=sample_keys,
-        cadence_strategy=cadence_strategy,
         collect_metadata=collect_metadata,
         collect_sample_domain=False,
         progress_label=progress_label,
@@ -52,7 +51,6 @@ def collect_schema_entries_and_sample_domain(
     group_by: str,
     *,
     sample_keys: Sequence[str],
-    cadence_strategy: str,
     collect_metadata: bool,
     progress_label: str = "metadata entries",
 ) -> tuple[
@@ -67,7 +65,6 @@ def collect_schema_entries_and_sample_domain(
         configs,
         group_by,
         sample_keys=sample_keys,
-        cadence_strategy=cadence_strategy,
         collect_metadata=collect_metadata,
         collect_sample_domain=True,
         progress_label=progress_label,
@@ -80,7 +77,6 @@ def _collect_schema_entries(
     group_by: str,
     *,
     sample_keys: Sequence[str],
-    cadence_strategy: str,
     collect_metadata: bool,
     collect_sample_domain: bool,
     progress_label: str,
@@ -221,28 +217,33 @@ def configured_vectors_are_empty(configs, vector_count: int) -> bool:
     return bool(configs) and vector_count == 0
 
 
-def _resolve_cadence_target(stats: dict, strategy: str) -> int | None:
-    if strategy == "max":
-        max_len = stats.get("max_length")
-        if isinstance(max_len, (int, float)) and max_len > 0:
-            return int(max_len)
+def _resolve_cadence_target(stats: dict) -> int | None:
+    max_len = stats.get("max_length")
+    if isinstance(max_len, (int, float)) and max_len > 0:
+        return int(max_len)
     return None
 
 
-def schema_entries_from_stats(entries: list[dict], cadence_strategy: str) -> list[dict]:
-    doc: list[dict] = []
+def schema_entries_from_stats(
+    entries: list[dict],
+) -> tuple[VectorSchemaEntry, ...]:
+    schema_entries: list[VectorSchemaEntry] = []
     for entry in entries:
-        kind = entry.get("kind") or "scalar"
-        item = {
-            "id": entry["id"],
-            "kind": kind,
-        }
+        raw_kind = entry["kind"]
+        if raw_kind not in {None, "scalar", "list"}:
+            raise ValueError(f"Unknown vector schema kind: {raw_kind!r}")
+        kind: Literal["scalar", "list"] = (
+            "list" if raw_kind == "list" else "scalar"
+        )
+        cadence: VectorSchemaCadence | None = None
         if kind == "list":
-            target = _resolve_cadence_target(entry, cadence_strategy)
+            target = _resolve_cadence_target(entry)
             if target is not None:
-                item["cadence"] = {"strategy": cadence_strategy, "target": target}
-        doc.append(item)
-    return doc
+                cadence = VectorSchemaCadence(target=target)
+        schema_entries.append(
+            VectorSchemaEntry(id=entry["id"], kind=kind, cadence=cadence)
+        )
+    return tuple(schema_entries)
 
 
 def _to_iso(ts: datetime | None) -> str | None:
@@ -254,7 +255,7 @@ def _to_iso(ts: datetime | None) -> str | None:
     return None
 
 
-def metadata_entries_from_stats(entries: list[dict], cadence_strategy: str) -> list[dict]:
+def metadata_entries_from_stats(entries: list[dict]) -> list[dict]:
     meta_entries: list[dict] = []
     for entry in entries:
         kind = entry.get("kind") or "scalar"
@@ -275,9 +276,9 @@ def metadata_entries_from_stats(entries: list[dict], cadence_strategy: str) -> l
             item["element_types"] = sorted(entry.get("element_types", []))
             lengths = entry.get("lengths") or {}
             item["lengths"] = {str(length): count for length, count in sorted(lengths.items())}
-            target = _resolve_cadence_target(entry, cadence_strategy)
+            target = _resolve_cadence_target(entry)
             if target is not None:
-                item["cadence"] = {"strategy": cadence_strategy, "target": target}
+                item["cadence"] = {"target": target}
             if "observed_elements" in entry:
                 item["observed_elements"] = int(entry.get("observed_elements", 0))
         else:

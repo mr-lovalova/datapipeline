@@ -24,15 +24,12 @@ def _resolve_columns(
     return list(feature_columns), list(target_columns)
 
 
-def _schema_ids(entries: list[dict[str, Any]]) -> list[str]:
-    return [entry["id"] for entry in entries if isinstance(entry.get("id"), str)]
-
-
 def _schema_columns(adapter: VectorAdapter) -> tuple[list[str], list[str]]:
     context = PipelineContext(adapter.runtime)
+    schema = context.load_schema()
     return (
-        _schema_ids(context.load_schema(payload="features")),
-        _schema_ids(context.load_schema(payload="targets")),
+        [entry.id for entry in schema.features],
+        [entry.id for entry in schema.targets],
     )
 
 

@@ -16,13 +16,20 @@ def test_schema_columns_include_partitioned_target_ids(tmp_path) -> None:
     schema_path.write_text(
         json.dumps(
             {
+                "schema_version": 2,
                 "features": [
-                    {"id": "closing_price__@ticker:AACB"},
-                    {"id": "closing_price__@ticker:ZWS"},
+                    {"id": "closing_price__@ticker:AACB", "kind": "scalar"},
+                    {"id": "closing_price__@ticker:ZWS", "kind": "scalar"},
                 ],
                 "targets": [
-                    {"id": "fwd_excess_return_126d_vs_spy__@ticker:AACB"},
-                    {"id": "fwd_excess_return_126d_vs_spy__@ticker:ZWS"},
+                    {
+                        "id": "fwd_excess_return_126d_vs_spy__@ticker:AACB",
+                        "kind": "scalar",
+                    },
+                    {
+                        "id": "fwd_excess_return_126d_vs_spy__@ticker:ZWS",
+                        "kind": "scalar",
+                    },
                 ],
             }
         ),

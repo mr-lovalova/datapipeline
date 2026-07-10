@@ -1,7 +1,10 @@
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+
+SchemaPayload = Literal["features", "targets"]
 
 
 class Window(BaseModel):
@@ -28,30 +31,47 @@ class SampleMetadata(BaseModel):
     domain: list[SampleDomainEntry] = Field(default_factory=list)
 
 
+class VectorSchemaCadence(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    target: int = Field(strict=True, gt=0)
+
+
 class VectorSchemaEntry(BaseModel):
     """One feature or target entry in build/schema.json."""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
-    id: str | None = None
-    kind: str | None = None
-    cadence: dict[str, Any] | None = None
+    id: str = Field(min_length=1)
+    kind: Literal["scalar", "list"]
+    cadence: VectorSchemaCadence | None = None
+
+    @model_validator(mode="after")
+    def _validate_cadence(self) -> "VectorSchemaEntry":
+        if self.kind == "scalar" and self.cadence is not None:
+            raise ValueError("scalar schema entries cannot define cadence")
+        return self
 
 
 class VectorSchemaArtifact(BaseModel):
     """Typed contract for build/schema.json."""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
-    schema_version: int = 1
-    window: Window | None = None
-    meta: dict[str, Any] | None = None
-    features: list[VectorSchemaEntry] = Field(default_factory=list)
-    targets: list[VectorSchemaEntry] = Field(default_factory=list)
+    schema_version: int = Field(strict=True, ge=2, le=2)
+    features: tuple[VectorSchemaEntry, ...]
+    targets: tuple[VectorSchemaEntry, ...]
 
-    def entries_for_payload(self, payload: str) -> list[dict[str, Any]]:
-        entries = self.targets if payload == "targets" else self.features
-        return [entry.model_dump(mode="json", exclude_none=True) for entry in entries]
+    @field_validator("features", "targets")
+    @classmethod
+    def _validate_unique_ids(
+        cls,
+        entries: tuple[VectorSchemaEntry, ...],
+    ) -> tuple[VectorSchemaEntry, ...]:
+        identifiers = [entry.id for entry in entries]
+        if len(identifiers) != len(set(identifiers)):
+            raise ValueError("schema entry ids must be unique")
+        return entries
 
 
 class VectorMetadata(BaseModel):

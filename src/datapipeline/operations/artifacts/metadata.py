@@ -172,7 +172,6 @@ def materialize_metadata(
         features_cfgs,
         dataset.group_by,
         sample_keys=dataset.sample_keys,
-        cadence_strategy=task_cfg.cadence_strategy,
         collect_metadata=True,
         progress_label="metadata features",
     )
@@ -200,7 +199,6 @@ def materialize_metadata(
             target_cfgs,
             dataset.group_by,
             sample_keys=dataset.sample_keys,
-            cadence_strategy=task_cfg.cadence_strategy,
             collect_metadata=True,
             progress_label="metadata targets",
         )
@@ -210,10 +208,8 @@ def materialize_metadata(
                 f"{len(target_cfgs)} configured targets produced zero vectors. "
                 "Check upstream source data and credentials."
             )
-        target_meta = metadata_entries_from_stats(
-            target_stats, task_cfg.cadence_strategy)
-    feature_meta = metadata_entries_from_stats(
-        feature_stats, task_cfg.cadence_strategy)
+        target_meta = metadata_entries_from_stats(target_stats)
+    feature_meta = metadata_entries_from_stats(feature_stats)
 
     generated_at = datetime.now(timezone.utc)
     window_obj: Window | None = None

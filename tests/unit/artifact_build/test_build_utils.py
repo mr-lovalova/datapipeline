@@ -7,6 +7,7 @@ import pytest
 from datapipeline.artifacts.models import VectorSchemaArtifact
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.config.tasks import MetadataTask, SchemaTask
+from datapipeline.dag.context import PipelineContext
 from datapipeline.operations.artifacts.metadata import _window_bounds_from_stats, _window_size
 from datapipeline.operations.artifacts.metadata import materialize_metadata
 from datapipeline.operations.artifacts.schema import materialize_vector_schema
@@ -18,6 +19,7 @@ from datapipeline.operations.artifacts.utils import (
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
 from datapipeline.runtime import Runtime
+from datapipeline.services.constants import VECTOR_SCHEMA
 
 
 def _hour(hour: int) -> datetime:
@@ -87,7 +89,6 @@ def test_collect_schema_entries_counts_nan(monkeypatch, tmp_path):
         runtime,
         [cfg],
         group_by="1h",
-        cadence_strategy="max",
         collect_metadata=True,
     )
 
@@ -131,7 +132,6 @@ def test_collect_schema_entries_emits_progress(monkeypatch, tmp_path):
         runtime,
         [cfg],
         group_by="1h",
-        cadence_strategy="max",
         collect_metadata=False,
         progress_label="schema features",
     )
@@ -218,35 +218,85 @@ def test_schema_materialization_omits_legacy_metadata(
         {
             "id": "price__@area:DK1",
             "kind": "list",
-            "cadence": {"strategy": "max", "target": 3},
+            "cadence": {"target": 3},
         }
     ]
 
 
-def test_schema_artifact_normalizes_legacy_entry_fields() -> None:
+_EMPTY_SCHEMA = {"schema_version": 2, "features": [], "targets": []}
+
+
+def _schema_with_feature(entry: dict) -> dict:
+    return {**_EMPTY_SCHEMA, "features": [entry]}
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        {"features": [], "targets": []},
+        {**_EMPTY_SCHEMA, "schema_version": 2.0},
+        {**_EMPTY_SCHEMA, "schema_version": 1},
+        {"schema_version": 2, "features": []},
+        {**_EMPTY_SCHEMA, "generated_at": "2024-01-01T00:00:00Z"},
+        _schema_with_feature({"id": "x"}),
+        _schema_with_feature({"id": "x", "kind": "scalar", "base_id": "x"}),
+        _schema_with_feature({"id": "x", "kind": "scalar", "cadence": {"target": 2}}),
+        _schema_with_feature({"id": "x", "kind": "list", "cadence": {"target": 0}}),
+        _schema_with_feature({"id": "x", "kind": "list", "cadence": {"target": True}}),
+        _schema_with_feature(
+            {
+                "id": "x",
+                "kind": "list",
+                "cadence": {"target": 2, "strategy": "max"},
+            }
+        ),
+        {
+            **_EMPTY_SCHEMA,
+            "features": [
+                {"id": "price", "kind": "scalar"},
+                {"id": "price", "kind": "scalar"},
+            ],
+        },
+    ],
+)
+def test_schema_artifact_rejects_invalid_documents(document: dict) -> None:
+    with pytest.raises(ValueError):
+        VectorSchemaArtifact.model_validate(document)
+
+
+def test_schema_artifact_accepts_list_without_cadence() -> None:
     schema = VectorSchemaArtifact.model_validate(
         {
-            "schema_version": 1,
-            "generated_at": "2024-01-01T00:00:00Z",
-            "features": [
-                {
-                    "id": "price__@area:DK1",
-                    "base_id": "price",
-                    "kind": "list",
-                    "expected_length": 2,
-                    "list_length": {"max": 3, "modes": [2, 3]},
-                }
-            ],
+            "schema_version": 2,
+            "features": [{"id": "sequence", "kind": "list"}],
             "targets": [],
         }
     )
 
-    assert schema.entries_for_payload("features") == [
-        {
-            "id": "price__@area:DK1",
-            "kind": "list",
-        }
-    ]
+    assert schema.features[0].id == "sequence"
+
+
+def test_pipeline_context_rejects_invalid_registered_schema(tmp_path) -> None:
+    runtime = Runtime(
+        project_yaml=tmp_path / "project.yaml",
+        artifacts_root=tmp_path / "artifacts",
+    )
+    runtime.artifacts_root.mkdir()
+    schema_path = runtime.artifacts_root / "schema.json"
+    schema_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "features": [{"id": "price"}],
+                "targets": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    runtime.artifacts.register(VECTOR_SCHEMA, "schema.json")
+
+    with pytest.raises(ValueError, match="kind"):
+        PipelineContext(runtime).load_schema()
 
 
 def test_metadata_materialization_rejects_configured_empty_features(
@@ -354,7 +404,7 @@ def test_metadata_entries_include_observation_bounds():
         }
     ]
 
-    entries = metadata_entries_from_stats(stats, "max")
+    entries = metadata_entries_from_stats(stats)
 
     assert entries[0]["first_observed"] == "2024-01-01T00:00:00Z"
     assert entries[0]["last_observed"] == "2024-01-02T00:00:00Z"

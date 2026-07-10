@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Generic, Mapping, Optional, TypeVar
 
+from datapipeline.artifacts.models import VectorSchemaArtifact
 from datapipeline.services.constants import (
     VECTOR_SCHEMA,
     VECTOR_SCHEMA_METADATA,
@@ -96,9 +97,13 @@ def _read_json(path: Path) -> dict:
     return read_json_artifact(path)
 
 
-VECTOR_SCHEMA_SPEC = ArtifactSpec[dict](
+def _read_vector_schema(path: Path) -> VectorSchemaArtifact:
+    return VectorSchemaArtifact.model_validate(read_json_artifact(path))
+
+
+VECTOR_SCHEMA_SPEC = ArtifactSpec[VectorSchemaArtifact](
     key=VECTOR_SCHEMA,
-    loader=_read_json,
+    loader=_read_vector_schema,
 )
 
 VECTOR_METADATA_SPEC = ArtifactSpec[dict](

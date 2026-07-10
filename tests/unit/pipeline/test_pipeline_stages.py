@@ -8,6 +8,8 @@ from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.config.tasks import VectorInputsTask
 from datapipeline.domain.feature import FeatureRecord, FeatureRecordSequence
 from datapipeline.domain.record import TemporalRecord
+from datapipeline.domain.sample import Sample
+from datapipeline.domain.vector import Vector
 from datapipeline.dag.context import PipelineContext
 from datapipeline.operations.artifacts.vector_inputs import materialize_vector_inputs
 from datapipeline.pipelines import (
@@ -218,6 +220,22 @@ def _runtime_with_rows(
     regs.ordered_by.register(stream_id, None)
     regs.sort_batch_size.register(stream_id, 128)
     return runtime
+
+
+def _register_price_schema(runtime: Runtime) -> None:
+    schema_path = runtime.artifacts_root / "schema.json"
+    schema_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "features": [{"id": "price", "kind": "scalar"}],
+                "targets": [],
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    runtime.artifacts.register(VECTOR_SCHEMA, "schema.json")
 
 
 def test_ingest_dag_carries_source_metadata(tmp_path: Path) -> None:
@@ -482,13 +500,7 @@ def test_node_7_vs_8_postprocess(tmp_path: Path) -> None:
         {"time": _ts(1), "value": 2.0},
     ]
     runtime = _runtime_with_rows(tmp_path, rows)
-    schema_path = runtime.artifacts_root / "schema.json"
-    schema_doc = {"features": [{"id": "price"}], "targets": []}
-    schema_path.write_text(json.dumps(schema_doc, indent=2), encoding="utf-8")
-    runtime.artifacts.register(
-        VECTOR_SCHEMA,
-        relative_path=schema_path.relative_to(runtime.artifacts_root).as_posix(),
-    )
+    _register_price_schema(runtime)
     runtime.registries.postprocesses.register(
         POSTPROCESS_TRANSFORMS,
         [TransformSpec(name="replace", params={"value": 0})],
@@ -504,19 +516,30 @@ def test_node_7_vs_8_postprocess(tmp_path: Path) -> None:
     assert processed[0].features.values["price"] == 0
 
 
+def test_post_process_rejects_targets_absent_from_schema(tmp_path: Path) -> None:
+    runtime = _runtime_with_rows(tmp_path, [])
+    _register_price_schema(runtime)
+    runtime.registries.postprocesses.register(POSTPROCESS_TRANSFORMS, [])
+    samples = [
+        Sample(key=(_ts(0),), features=Vector(values={"price": 1.0})),
+        Sample(
+            key=(_ts(1),),
+            features=Vector(values={"price": 2.0}),
+            targets=Vector(values={"return": 0.1}),
+        ),
+    ]
+
+    with pytest.raises(RuntimeError, match="no target entries"):
+        list(post_process(PipelineContext(runtime), iter(samples)))
+
+
 def test_full_pipeline_matches_manual_chain(tmp_path: Path) -> None:
     rows = [
         {"time": _ts(0), "value": None},
         {"time": _ts(1), "value": 2.0},
     ]
     runtime = _runtime_with_rows(tmp_path, rows)
-    schema_path = runtime.artifacts_root / "schema.json"
-    schema_doc = {"features": [{"id": "price"}], "targets": []}
-    schema_path.write_text(json.dumps(schema_doc, indent=2), encoding="utf-8")
-    runtime.artifacts.register(
-        VECTOR_SCHEMA,
-        relative_path=schema_path.relative_to(runtime.artifacts_root).as_posix(),
-    )
+    _register_price_schema(runtime)
     runtime.registries.postprocesses.register(
         POSTPROCESS_TRANSFORMS,
         [TransformSpec(name="replace", params={"value": 0})],

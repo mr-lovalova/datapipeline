@@ -1,5 +1,6 @@
 from typing import Literal
 
+from datapipeline.artifacts.models import SchemaPayload
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
 from datapipeline.dag.context import (
@@ -50,24 +51,18 @@ class VectorContextMixin:
     def bind_context(self, context: PipelineContext) -> None:
         self._context = context
 
-    def _expected_ids(self, payload: str | None = None) -> list[str]:
+    def _expected_ids(self, payload: SchemaPayload | None = None) -> list[str]:
         """Return expected feature/target ids for the given payload.
 
         When `payload` is omitted, the instance default is used.
         """
         ctx = self._context or try_get_current_context()
-        if not ctx:
-            return []
+        if ctx is None:
+            raise RuntimeError("Vector postprocess transforms require a pipeline context.")
         kind = payload or self._payload
-        if kind not in {"features", "targets"}:
-            return []
-        schema = ctx.load_schema(payload=kind) or []
-        ids = [
-            entry.get("id")
-            for entry in schema
-            if isinstance(entry, dict) and isinstance(entry.get("id"), str)
-        ]
-        return ids or []
+        schema = ctx.load_schema()
+        entries = schema.targets if kind == "targets" else schema.features
+        return [entry.id for entry in entries]
 
 
 class VectorPostprocessBase(VectorContextMixin):

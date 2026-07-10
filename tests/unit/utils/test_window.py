@@ -6,7 +6,6 @@ import pytest
 from datapipeline.services.artifacts import (
     ArtifactNotRegisteredError,
     VECTOR_METADATA_SPEC,
-    VECTOR_SCHEMA_SPEC,
 )
 from datapipeline.utils.window import resolve_window_bounds
 
@@ -48,19 +47,13 @@ def test_resolve_window_bounds_prefers_metadata_window() -> None:
                     "end": END.isoformat(),
                 }
             },
-            VECTOR_SCHEMA_SPEC.key: {
-                "window": {
-                    "start": "2020-01-01T00:00:00Z",
-                    "end": "2020-01-02T00:00:00Z",
-                }
-            },
         }
     )
 
     assert resolve_window_bounds(runtime, rectangular_required=True) == (START, END)
 
 
-def test_resolve_window_bounds_fills_missing_metadata_bound_from_schema() -> None:
+def test_resolve_window_bounds_requires_complete_metadata_window() -> None:
     runtime = _runtime(
         {
             VECTOR_METADATA_SPEC.key: {
@@ -68,29 +61,6 @@ def test_resolve_window_bounds_fills_missing_metadata_bound_from_schema() -> Non
                     "start": START.isoformat(),
                 }
             },
-            VECTOR_SCHEMA_SPEC.key: {
-                "window": {
-                    "start": "2020-01-01T00:00:00Z",
-                    "end": END.isoformat(),
-                }
-            },
-        }
-    )
-
-    assert resolve_window_bounds(runtime, rectangular_required=True) == (START, END)
-
-
-def test_resolve_window_bounds_ignores_legacy_schema_meta_window() -> None:
-    runtime = _runtime(
-        {
-            VECTOR_SCHEMA_SPEC.key: {
-                "meta": {
-                    "window": {
-                        "start": START.isoformat(),
-                        "end": END.isoformat(),
-                    }
-                }
-            }
         }
     )
 
@@ -98,16 +68,17 @@ def test_resolve_window_bounds_ignores_legacy_schema_meta_window() -> None:
         resolve_window_bounds(runtime, rectangular_required=True)
 
 
-def test_resolve_window_bounds_requires_complete_rectangular_window() -> None:
+def test_resolve_window_bounds_rejects_malformed_metadata() -> None:
     runtime = _runtime(
         {
-            VECTOR_SCHEMA_SPEC.key: {
+            VECTOR_METADATA_SPEC.key: {
                 "window": {
-                    "start": START.isoformat(),
+                    "start": "not-a-timestamp",
+                    "end": END.isoformat(),
                 }
             }
         }
     )
 
-    with pytest.raises(RuntimeError, match="Window bounds unavailable"):
+    with pytest.raises(ValueError, match="validation error"):
         resolve_window_bounds(runtime, rectangular_required=True)

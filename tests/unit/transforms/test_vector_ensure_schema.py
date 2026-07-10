@@ -204,7 +204,17 @@ def test_vector_ensure_schema_uses_schema_snapshot_captured_at_bind_time():
     transform = VectorEnsureSchemaTransform()
     transform.bind_context(context)
 
-    context._schema_map["features"] = []
+    context.remove_schema_ids("features", {"wind__A", "wind__B"})
 
     out = list(transform.apply(stream))
     assert out[0].features.values == {"wind__A": 2.0, "wind__B": 5.0}
+
+
+def test_vector_ensure_schema_refreshes_snapshot_when_rebound():
+    transform = VectorEnsureSchemaTransform()
+    transform.bind_context(StubVectorContext(["old"]))
+    transform.bind_context(StubVectorContext(["new"]))
+
+    out = list(transform.apply(iter([make_vector(0, {"new": 1.0})])))
+
+    assert out[0].features.values == {"new": 1.0}

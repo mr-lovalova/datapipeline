@@ -8,4 +8,3 @@
 # entrypoint: core.artifact.schema # optional; build runner id
 #
 # output: build/schema.json  # optional; relative to project.paths.artifacts
-# cadence_strategy: max      # optional; currently only "max"

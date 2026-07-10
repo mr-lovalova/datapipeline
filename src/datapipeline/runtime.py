@@ -83,7 +83,6 @@ class Runtime:
     split: Optional[SplitConfig] = None
     split_keep: Optional[str] = None
     run: Optional[Profile] = None
-    schema_required: bool = True
     sample_keys: list[str] = field(default_factory=list)
     window_bounds: tuple[datetime | None, datetime | None] | None = None
     heartbeat_interval_seconds: float | None = None

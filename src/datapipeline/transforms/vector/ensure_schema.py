@@ -1,6 +1,7 @@
 from collections.abc import Iterator
 from typing import Any, Literal
 
+from datapipeline.dag.context import PipelineContext
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
 
@@ -34,23 +35,23 @@ class VectorEnsureSchemaTransform(VectorContextMixin):
         self._fill_value = fill_value
         self._on_extra = on_extra
         self._baseline: list[str] | None = None
-        self._schema_meta: dict[str, dict[str, Any]] = {}
+        self._list_lengths: dict[str, int] = {}
 
     def __call__(self, stream: Iterator[Sample]) -> Iterator[Sample]:
         return self.apply(stream)
 
-    def bind_context(self, context) -> None:
+    def bind_context(self, context: PipelineContext) -> None:
         super().bind_context(context)
         # Snapshot schema entries when the transform is wired up so lazy stream
         # iteration cannot observe a later artifact/context mismatch.
-        if self._baseline is None:
-            entries = [
-                entry
-                for entry in context.load_schema(payload=self._payload) or []
-                if isinstance(entry.get("id"), str)
-            ]
-            self._baseline = [entry["id"] for entry in entries]
-            self._schema_meta = {entry["id"]: entry for entry in entries}
+        schema = context.load_schema()
+        entries = schema.targets if self._payload == "targets" else schema.features
+        self._baseline = [entry.id for entry in entries]
+        self._list_lengths = {
+            entry.id: entry.cadence.target
+            for entry in entries
+            if entry.kind == "list" and entry.cadence is not None
+        }
 
     def apply(self, stream: Iterator[Sample]) -> Iterator[Sample]:
         baseline = self._baseline
@@ -104,13 +105,8 @@ class VectorEnsureSchemaTransform(VectorContextMixin):
         self,
         values: dict[str, Any],
     ) -> dict[str, Any] | None:
-        for fid, meta in self._schema_meta.items():
-            if meta.get("kind") != "list":
-                continue
+        for fid, target_len in self._list_lengths.items():
             value = values[fid]
-            target_len = self._cadence_target(meta)
-            if target_len is None:
-                continue
             current_len = len(value) if isinstance(value, list) else None
             if current_len == target_len:
                 continue
@@ -136,13 +132,3 @@ class VectorEnsureSchemaTransform(VectorContextMixin):
                 seq = seq + [self._fill_value] * (target_len - len(seq))
             values[fid] = seq
         return values
-
-    @staticmethod
-    def _cadence_target(meta: dict[str, Any]) -> int | None:
-        cadence = meta.get("cadence")
-        if not isinstance(cadence, dict):
-            return None
-        target = cadence.get("target")
-        if isinstance(target, (int, float)) and target > 0:
-            return int(target)
-        return None

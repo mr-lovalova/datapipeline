@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import pytest
 from datapipeline.artifacts import executor as build_exec
 from datapipeline.artifacts.planning import build_artifact_graph
-from datapipeline.build.state import BuildState
+from datapipeline.build.state import BuildState, load_build_state
 from datapipeline.config.build_resolution import resolve_build_settings
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig
@@ -95,6 +95,16 @@ def _write_build_project(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
     return path
+
+
+def test_load_build_state_invalidates_previous_cache_version(tmp_path: Path) -> None:
+    state_path = tmp_path / "state.json"
+    state_path.write_text(
+        '{"version": 1, "config_hash": "old", "artifacts": {}}',
+        encoding="utf-8",
+    )
+
+    assert load_build_state(state_path) is None
 
 
 def test_log_build_decision_emits_build_decision(monkeypatch):
@@ -457,7 +467,6 @@ def test_run_build_if_needed_preserves_previous_artifacts_in_state(
         {"cmd": "build", "name": "scaler", "target": "scaler"}
     )
 
-    from datapipeline.build.state import load_build_state
     from datapipeline.services.bootstrap import build_state_path
 
     build_exec.run_build_if_needed(project_path, build_profile=schema_profile)
@@ -501,8 +510,6 @@ def test_execute_build_jobs_persists_completed_artifact_before_later_failure(
     monkeypatch,
     tmp_path,
 ):
-    from datapipeline.build.state import load_build_state
-
     state_path = tmp_path / "artifacts" / "build_state.json"
     runtime = _runtime_stub(tmp_path / "artifacts")
     vector_inputs_definition = SimpleNamespace(
