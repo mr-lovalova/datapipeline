@@ -232,7 +232,9 @@ def test_schema_artifact_normalizes_legacy_entry_fields() -> None:
                 {
                     "id": "price__@area:DK1",
                     "base_id": "price",
-                    "kind": "scalar",
+                    "kind": "list",
+                    "expected_length": 2,
+                    "list_length": {"max": 3, "modes": [2, 3]},
                 }
             ],
             "targets": [],
@@ -242,7 +244,7 @@ def test_schema_artifact_normalizes_legacy_entry_fields() -> None:
     assert schema.entries_for_payload("features") == [
         {
             "id": "price__@area:DK1",
-            "kind": "scalar",
+            "kind": "list",
         }
     ]
 

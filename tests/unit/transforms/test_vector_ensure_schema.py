@@ -32,18 +32,28 @@ def test_vector_ensure_schema_fill_and_reorder():
     assert out[0].features.values == {"wind__A": 2.0, "wind__B": 5.0}
 
 
-def test_vector_ensure_schema_inserts_none_for_missing_slots():
+def test_vector_ensure_schema_fills_missing_scalar_and_list_slots():
     stream = iter([make_vector(0, {"wind__B": 5.0})])
     transform = VectorEnsureSchemaTransform(on_missing="fill")
     transform.bind_context(
         StubVectorContext(
             [],
-            schema={"features": [{"id": "wind__A"}, {"id": "wind__B"}]},
+            schema={
+                "features": [
+                    {"id": "wind__A"},
+                    {"id": "wind__B"},
+                    {"id": "sequence", "kind": "list", "cadence": {"target": 2}},
+                ]
+            },
         )
     )
 
     out = list(transform.apply(stream))
-    assert out[0].features.values == {"wind__A": None, "wind__B": 5.0}
+    assert out[0].features.values == {
+        "wind__A": None,
+        "wind__B": 5.0,
+        "sequence": [None, None],
+    }
 
 
 def test_vector_ensure_schema_orders_longer_baseline():
@@ -127,13 +137,21 @@ def test_vector_ensure_schema_wraps_scalar_for_length_one_list():
     assert out[0].features.values["seq"] == [1.0]
 
 
-def test_vector_ensure_schema_enforces_length_error_on_violation():
-    stream = iter([make_vector(0, {"seq": [1, 2, 3, 4]})])
+@pytest.mark.parametrize(
+    ("value", "target"),
+    [([1, 2, 3, 4], 2), (1.0, 1)],
+)
+def test_vector_ensure_schema_enforces_length_error_on_violation(value, target):
+    stream = iter([make_vector(0, {"seq": value})])
     transform = VectorEnsureSchemaTransform(on_missing="error")
     transform.bind_context(
         StubVectorContext(
             [],
-            schema={"features": [{"id": "seq", "kind": "list", "cadence": {"target": 2}}]},
+            schema={
+                "features": [
+                    {"id": "seq", "kind": "list", "cadence": {"target": target}}
+                ]
+            },
         )
     )
 
@@ -141,18 +159,26 @@ def test_vector_ensure_schema_enforces_length_error_on_violation():
         list(transform.apply(stream))
 
 
-def test_vector_ensure_schema_respects_cadence_target_from_schema():
+@pytest.mark.parametrize(
+    ("target", "expected"),
+    [(6, [1, 2, 3, 4, 5, 0]), (3, [1, 2, 3])],
+)
+def test_vector_ensure_schema_respects_cadence_target_from_schema(target, expected):
     stream = iter([make_vector(0, {"seq": [1, 2, 3, 4, 5]})])
     transform = VectorEnsureSchemaTransform(on_missing="fill", fill_value=0)
     transform.bind_context(
         StubVectorContext(
             [],
-            schema={"features": [{"id": "seq", "kind": "list", "cadence": {"target": 6}}]},
+            schema={
+                "features": [
+                    {"id": "seq", "kind": "list", "cadence": {"target": target}}
+                ]
+            },
         )
     )
 
     out = list(transform.apply(stream))
-    assert out[0].features.values["seq"] == [1, 2, 3, 4, 5, 0]
+    assert out[0].features.values["seq"] == expected
 
 
 def test_vector_ensure_schema_raises_without_schema_artifact():
