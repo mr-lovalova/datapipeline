@@ -75,13 +75,11 @@ def _runtime_stub(artifacts_root: Path) -> SimpleNamespace:
     )
 
 
-def test_log_build_decision_emits_execution_message(monkeypatch):
-    captured: list[tuple[str, int, str | None]] = []
+def test_log_build_decision_emits_build_decision(monkeypatch):
+    captured: list[str] = []
     monkeypatch.setattr(
-        "datapipeline.artifacts.executor.emit_execution_message",
-        lambda message, level, logger, depth=0, message_kind=None: captured.append(
-            (message, level, message_kind)
-        ),
+        "datapipeline.artifacts.executor.emit_build_decision",
+        lambda message, logger, depth=0: captured.append(message),
     )
 
     settings = SimpleNamespace(mode="AUTO", profile_name="metadata")
@@ -95,7 +93,7 @@ def test_log_build_decision_emits_execution_message(monkeypatch):
     )
 
     assert captured
-    message, level, message_kind = captured[0]
+    message = captured[0]
     assert message.startswith("Build decision:")
     assert '"action": "skip"' in message
     assert '"reason": "up_to_date"' in message
@@ -106,8 +104,6 @@ def test_log_build_decision_emits_execution_message(monkeypatch):
     assert '"vector_inputs"' in message
     assert '"jobs": []' in message
     assert '"skipped_current": [' in message
-    assert level == 20
-    assert message_kind == "build_decision"
 
 
 def test_run_artifact_builder_emits_materialized_message(monkeypatch):
@@ -717,12 +713,10 @@ def test_run_build_if_needed_rebuilds_stale_profile_artifact(monkeypatch, tmp_pa
         "datapipeline.artifacts.executor.load_dataset",
         lambda *_args, **_kwargs: _dataset_with_feature(scale=True),
     )
-    captured: list[tuple[str, str | None]] = []
+    captured: list[str] = []
     monkeypatch.setattr(
-        "datapipeline.artifacts.executor.emit_execution_message",
-        lambda message, level, logger, depth=0, message_kind=None: captured.append(
-            (message, message_kind)
-        ),
+        "datapipeline.artifacts.executor.emit_build_decision",
+        lambda message, logger, depth=0: captured.append(message),
     )
 
     calls = {"build_artifact": 0}
@@ -748,10 +742,9 @@ def test_run_build_if_needed_rebuilds_stale_profile_artifact(monkeypatch, tmp_pa
     )
     assert did_build is True
     assert calls["build_artifact"] == 1
-    decisions = [message for message, kind in captured if kind == "build_decision"]
     assert any(
         '"action": "run"' in message and '"reason": "stale"' in message
-        for message in decisions
+        for message in captured
     )
 
 
@@ -826,12 +819,10 @@ def test_run_build_if_needed_emits_missing_reason_when_artifact_not_built(
         ),
     )
 
-    captured: list[tuple[str, str | None]] = []
+    captured: list[str] = []
     monkeypatch.setattr(
-        "datapipeline.artifacts.executor.emit_execution_message",
-        lambda message, level, logger, depth=0, message_kind=None: captured.append(
-            (message, message_kind)
-        ),
+        "datapipeline.artifacts.executor.emit_build_decision",
+        lambda message, logger, depth=0: captured.append(message),
     )
 
     schema_profile = BuildProfile.model_validate(
@@ -842,10 +833,9 @@ def test_run_build_if_needed_emits_missing_reason_when_artifact_not_built(
     )
 
     assert did_build is True
-    decisions = [message for message, kind in captured if kind == "build_decision"]
     assert any(
         '"action": "run"' in message and '"reason": "missing"' in message
-        for message in decisions
+        for message in captured
     )
 
 
@@ -1021,12 +1011,10 @@ def test_run_build_if_needed_emits_run_decision(monkeypatch, tmp_path):
         ),
     )
 
-    captured: list[tuple[str, str | None]] = []
+    captured: list[str] = []
     monkeypatch.setattr(
-        "datapipeline.artifacts.executor.emit_execution_message",
-        lambda message, level, logger, depth=0, message_kind=None: captured.append(
-            (message, message_kind)
-        ),
+        "datapipeline.artifacts.executor.emit_build_decision",
+        lambda message, logger, depth=0: captured.append(message),
     )
 
     schema_profile = BuildProfile.model_validate(
@@ -1037,10 +1025,9 @@ def test_run_build_if_needed_emits_run_decision(monkeypatch, tmp_path):
     )
 
     assert did_build is True
-    decisions = [message for message, kind in captured if kind == "build_decision"]
     assert any(
         '"action": "run"' in message and '"reason": "force"' in message
-        for message in decisions
+        for message in captured
     )
 
 

@@ -6,7 +6,24 @@ import pytest
 from rich.console import Console
 from rich.progress import Progress
 
-from datapipeline.cli.visuals.execution import ExecutionLogEvent
+from datapipeline.cli.visuals.execution import (
+    BuildDecisionMessage,
+    DagFinished,
+    DagInfo,
+    DagStarted,
+    ExecutionMessage,
+    ExecutionScope,
+    NodeFinished,
+    NodeProgress,
+    NodeStarted,
+    OperationFinished,
+    OperationInfo,
+    OperationProgress,
+    OperationStarted,
+    ProfileStartMessage,
+    ScopeStartMessage,
+    SourceInfoMessage,
+)
 from datapipeline.cli.visuals.execution_context import (
     current_dag_depth,
     current_execution_event_sink,
@@ -39,7 +56,9 @@ class _DummyGenerator(DataGenerator):
         return 3
 
     def info_lines(self):
-        return ["synthetic.generate: start=2024-01-01T00:00:00Z end=2024-01-01T02:00:00Z freq=1h"]
+        return [
+            "synthetic.generate: start=2024-01-01T00:00:00Z end=2024-01-01T02:00:00Z freq=1h"
+        ]
 
 
 class _SyntheticSource:
@@ -202,16 +221,14 @@ def test_rich_execution_sink_emits_dag_end_immediately() -> None:
     sink.set_live_console(console)
 
     sink.emit(
-        ExecutionLogEvent(
-            kind="dag_start",
+        DagStarted(
             dag_name="pipeline:serve",
             depth=0,
             node_count=3,
         )
     )
     sink.emit(
-        ExecutionLogEvent(
-            kind="dag_end",
+        DagFinished(
             dag_name="pipeline:serve",
             depth=0,
             node_count=3,
@@ -231,8 +248,7 @@ def test_rich_execution_sink_renders_error_details_for_failed_dag_end() -> None:
     console = Console(file=buffer, markup=False, highlight=False, force_terminal=False)
     sink = _RichConsoleExecutionSink(level=0, console=console)
     sink.emit(
-        ExecutionLogEvent(
-            kind="dag_end",
+        DagFinished(
             dag_name="pipeline:serve",
             depth=0,
             node_count=3,
@@ -256,9 +272,7 @@ def test_rich_execution_sink_renders_message_event() -> None:
     console = Console(file=buffer, markup=False, highlight=False, force_terminal=False)
     sink = _RichConsoleExecutionSink(level=0, console=console)
     sink.emit(
-        ExecutionLogEvent(
-            kind="message",
-            dag_name="",
+        ExecutionMessage(
             depth=0,
             message="Saved 14 items: /tmp/train.jsonl",
             log_level=logging.INFO,
@@ -275,9 +289,7 @@ def test_rich_execution_sink_styles_warning_messages() -> None:
     sink = _RichConsoleExecutionSink(level=0, console=console)
 
     text = sink._render_event(
-        ExecutionLogEvent(
-            kind="message",
-            dag_name="",
+        ExecutionMessage(
             depth=0,
             message="skipped tick(s) for partition '()'",
             log_level=logging.WARNING,
@@ -294,9 +306,7 @@ def test_rich_execution_sink_styles_error_messages() -> None:
     sink = _RichConsoleExecutionSink(level=0, console=console)
 
     text = sink._render_event(
-        ExecutionLogEvent(
-            kind="message",
-            dag_name="",
+        ExecutionMessage(
             depth=0,
             message="failed to materialize artifact",
             log_level=logging.ERROR,
@@ -307,18 +317,132 @@ def test_rich_execution_sink_styles_error_messages() -> None:
     assert any(span.style == "bold red" for span in text.spans)
 
 
+def test_rich_execution_sink_styles_build_decision_details() -> None:
+    buffer = StringIO()
+    console = Console(file=buffer, markup=False, highlight=False, force_terminal=False)
+    sink = _RichConsoleExecutionSink(level=0, console=console)
+
+    text = sink._render_event(
+        BuildDecisionMessage(
+            message='Build decision:\n{\n  "action": "skip"\n}',
+        )
+    )
+
+    assert str(text) == 'Build decision:\n{\n  "action": "skip"\n}'
+    assert any(span.style == "bold cyan" for span in text.spans)
+    assert any(span.style == "dim" for span in text.spans)
+
+
+def test_rich_execution_sink_styles_profile_start_as_debug_message() -> None:
+    buffer = StringIO()
+    console = Console(file=buffer, markup=False, highlight=False, force_terminal=False)
+    sink = _RichConsoleExecutionSink(level=0, console=console)
+
+    text = sink._render_event(
+        ProfileStartMessage(
+            message="Profile start command=build name=schema",
+        )
+    )
+
+    assert str(text) == "Profile start command=build name=schema"
+    assert any(span.style == "dim" for span in text.spans)
+
+
+def test_rich_execution_sink_rejects_unsupported_event() -> None:
+    buffer = StringIO()
+    console = Console(file=buffer, markup=False, highlight=False, force_terminal=False)
+    sink = _RichConsoleExecutionSink(level=0, console=console)
+
+    with pytest.raises(TypeError, match="Unsupported execution event"):
+        sink._render_event(object())  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    ("event", "expected"),
+    [
+        (
+            DagInfo(
+                dag_name="pipeline",
+                info_name="record.order",
+                info_line="record.order: time",
+                depth=1,
+            ),
+            "  [pipeline] record.order: time",
+        ),
+        (
+            OperationStarted(
+                operation_name="build:schema",
+                entrypoint="core.artifact.schema",
+            ),
+            "[build:schema] started operation=core.artifact.schema",
+        ),
+        (
+            OperationInfo(
+                operation_name="build:schema",
+                info_line="saved path=schema.json",
+            ),
+            "[build:schema] saved path=schema.json",
+        ),
+        (
+            OperationFinished(
+                operation_name="build:schema",
+                status="success",
+                elapsed_seconds=0.25,
+            ),
+            "[build:schema] finished status=success elapsed=0.250000s",
+        ),
+        (
+            NodeStarted(
+                dag_name="pipeline",
+                node_name="vector",
+                node_index=2,
+                execution_index=4,
+                node_kind="dag_call",
+                node_calls_dag="vector:assemble",
+                depth=1,
+            ),
+            "[pipeline/vector] started index=2 execution=4 kind=dag_call "
+            "calls=vector:assemble",
+        ),
+        (
+            NodeFinished(
+                dag_name="pipeline",
+                node_name="vector",
+                node_index=2,
+                execution_index=4,
+                status="error",
+                error_type="ValueError",
+                error_message="bad vector",
+                output_items=0,
+                elapsed_seconds=0.5,
+                depth=1,
+            ),
+            "[pipeline/vector] finished index=2 execution=4 kind=function "
+            "status=error error=ValueError: bad vector items=0 elapsed=0.500000s",
+        ),
+    ],
+)
+def test_rich_execution_sink_renders_typed_lifecycle_events(event, expected) -> None:
+    console = Console(
+        file=StringIO(),
+        markup=False,
+        highlight=False,
+        force_terminal=False,
+    )
+    sink = _RichConsoleExecutionSink(level=0, console=console)
+
+    assert str(sink._render_event(event)) == expected
+
+
 def test_rich_execution_sink_renders_source_info_message() -> None:
     buffer = StringIO()
     console = Console(file=buffer, markup=False, highlight=False, force_terminal=False)
     sink = _RichConsoleExecutionSink(level=0, console=console)
     sink.emit(
-        ExecutionLogEvent(
-            kind="message",
-            dag_name="",
+        SourceInfoMessage(
             depth=1,
-            message="[equity.ohlcv] Inputs: left=equity.left, right=equity.right",
-            message_kind="source_info",
-            log_level=logging.INFO,
+            source_label="equity.ohlcv",
+            message="Inputs: left=equity.left, right=equity.right",
         )
     )
 
@@ -334,19 +458,17 @@ def test_rich_execution_sink_renders_scope_start_as_header() -> None:
     console = Console(file=buffer, markup=False, highlight=False, force_terminal=False)
     sink = _RichConsoleExecutionSink(level=0, console=console)
     sink.emit(
-        ExecutionLogEvent(
-            kind="message",
-            dag_name="",
+        ScopeStartMessage(
             depth=0,
             message="Scope: profile=serve:test target=serve task=schema",
-            message_kind="scope_start",
-            log_level=logging.INFO,
-            scope_profile_kind="serve",
-            scope_profile_name="test",
-            scope_target_id="serve",
-            scope_task_id="schema",
-            scope_item_index="1",
-            scope_item_total="3",
+            scope=ExecutionScope(
+                profile_kind="serve",
+                profile_name="test",
+                target_id="serve",
+                task_id="schema",
+                item_index="1",
+                item_total="3",
+            ),
         )
     )
 
@@ -360,13 +482,10 @@ def test_rich_execution_sink_keeps_source_info_when_live_at_info() -> None:
     sink = _RichConsoleExecutionSink(level=logging.INFO, console=console)
     sink.set_live_console(console)
     sink.emit(
-        ExecutionLogEvent(
-            kind="message",
-            dag_name="",
+        SourceInfoMessage(
             depth=1,
-            message="[equity.ohlcv] Inputs: left=equity.left, right=equity.right",
-            message_kind="source_info",
-            log_level=logging.INFO,
+            source_label="equity.ohlcv",
+            message="Inputs: left=equity.left, right=equity.right",
         )
     )
     assert any(
@@ -381,13 +500,11 @@ def test_rich_execution_sink_keeps_non_glob_source_info_when_live_at_info() -> N
     sink = _RichConsoleExecutionSink(level=logging.INFO, console=console)
     sink.set_live_console(console)
     sink.emit(
-        ExecutionLogEvent(
-            kind="message",
-            dag_name="",
+        SourceInfoMessage(
             depth=1,
-            message='[time.ticks.linear] synthetic.generate: start=2021-01-01T01:00:00Z end=2021-02-01T01:00:00Z freq=1d',
-            message_kind="source_info",
-            log_level=logging.INFO,
+            source_label="time.ticks.linear",
+            message="synthetic.generate: start=2021-01-01T01:00:00Z "
+            "end=2021-02-01T01:00:00Z freq=1d",
         )
     )
     assert any(
@@ -411,10 +528,11 @@ def test_rich_execution_sink_keeps_node_progress_single_line() -> None:
     sink.set_live_console(console)
 
     sink.emit(
-        ExecutionLogEvent(
-            kind="node_progress",
+        NodeProgress(
             dag_name="ingest:equity.return.trailing.daily.21",
             node_name="open_source",
+            node_index=0,
+            execution_index=0,
             depth=1,
             message="running elapsed=119s items=2841179",
         )
@@ -431,10 +549,11 @@ def test_rich_execution_sink_styles_node_progress_as_node_detail() -> None:
     sink = _RichConsoleExecutionSink(level=logging.INFO, console=console)
 
     text = sink._render_event(
-        ExecutionLogEvent(
-            kind="node_progress",
+        NodeProgress(
             dag_name="ingest:equity.return.trailing.daily.21",
             node_name="open_source",
+            node_index=0,
+            execution_index=0,
             depth=1,
             message="running elapsed=119s items=2841179",
         )
@@ -451,10 +570,9 @@ def test_rich_execution_sink_styles_operation_progress_as_detail() -> None:
     sink = _RichConsoleExecutionSink(level=logging.INFO, console=console)
 
     text = sink._render_event(
-        ExecutionLogEvent(
-            kind="operation_progress",
-            dag_name="build:model_grid",
-            node_name="write_artifact",
+        OperationProgress(
+            operation_name="build:model_grid",
+            step="write_artifact",
             depth=0,
             message="running elapsed=120s items=9800000",
         )
@@ -463,6 +581,31 @@ def test_rich_execution_sink_styles_operation_progress_as_detail() -> None:
     assert str(text).startswith("[build:model_grid/write_artifact]")
     assert any(span.style == "dim bold cyan" for span in text.spans)
     assert any(span.style == "dim" for span in text.spans)
+
+
+def test_rich_execution_sink_keeps_operation_progress_single_line() -> None:
+    buffer = StringIO()
+    console = Console(
+        file=buffer,
+        markup=False,
+        highlight=False,
+        force_terminal=False,
+        width=48,
+    )
+    sink = _RichConsoleExecutionSink(level=logging.INFO, console=console)
+    sink.set_live_console(console)
+
+    sink.emit(
+        OperationProgress(
+            operation_name="build:model_grid",
+            step="write_artifact",
+            message="running elapsed=120s items=9800000",
+        )
+    )
+
+    lines = _lines(buffer)
+    assert len(lines) == 1
+    assert lines[0].endswith("…")
 
 
 def test_rich_execution_sink_keeps_live_node_progress_single_line() -> None:
@@ -480,10 +623,11 @@ def test_rich_execution_sink_keeps_live_node_progress_single_line() -> None:
     with progress:
         sink.set_live_console(progress.live.console if progress.live else None)
         sink.emit(
-            ExecutionLogEvent(
-                kind="node_progress",
+            NodeProgress(
                 dag_name="ingest:equity.return.trailing.daily.21",
                 node_name="open_source",
+                node_index=0,
+                execution_index=0,
                 depth=2,
                 message="running elapsed=119s items=2841179",
             )
@@ -499,9 +643,7 @@ def test_rich_execution_sink_indents_multiline_message_event_by_depth() -> None:
     console = Console(file=buffer, markup=False, highlight=False, force_terminal=False)
     sink = _RichConsoleExecutionSink(level=0, console=console)
     sink.emit(
-        ExecutionLogEvent(
-            kind="message",
-            dag_name="",
+        ExecutionMessage(
             depth=2,
             message="line1\nline2",
             log_level=logging.DEBUG,
@@ -521,7 +663,9 @@ def test_source_label_column_is_single_line_truncated() -> None:
 def test_source_label_column_does_not_infer_indent_from_context() -> None:
     set_current_dag_depth(3)
     try:
-        text = SourceLabelColumn().render(SimpleNamespace(fields={"text": "[equity.ohlcv] Loading"}))
+        text = SourceLabelColumn().render(
+            SimpleNamespace(fields={"text": "[equity.ohlcv] Loading"})
+        )
         assert str(text).startswith("[equity.ohlcv] Loading")
     finally:
         set_current_dag_depth(0)
@@ -689,7 +833,9 @@ def test_rich_source_proxy_batches_label_checks(monkeypatch) -> None:
     assert adapter.current_label_calls == 3
 
 
-def test_rich_source_proxy_skips_aggregate_count_for_sequence_progress(monkeypatch) -> None:
+def test_rich_source_proxy_skips_aggregate_count_for_sequence_progress(
+    monkeypatch,
+) -> None:
     class _Adapter:
         def info_lines(self):
             return []
@@ -787,7 +933,9 @@ def test_rich_source_proxy_skips_progress_row_for_virtual_source(monkeypatch) ->
     ]
 
 
-def test_rich_source_proxy_tracks_glob_file_transitions_as_progress_rows(monkeypatch) -> None:
+def test_rich_source_proxy_tracks_glob_file_transitions_as_progress_rows(
+    monkeypatch,
+) -> None:
     class _Adapter:
         def __init__(self):
             transport = FsGlobTransport("/definitely/not/real/*.jsonl")
@@ -893,8 +1041,12 @@ def test_rich_source_proxy_replaces_completed_sequence_rows(monkeypatch) -> None
             next(stream)
         assert progress.removed == [1, 2, 3, 4]
         assert sorted(progress.task_text) == [5]
-        assert any('1/5 streaming from "AAPL.jsonl"' in text for text in progress.added_texts)
-        assert any('5/5 streaming from "META.jsonl"' in text for text in progress.added_texts)
+        assert any(
+            '1/5 streaming from "AAPL.jsonl"' in text for text in progress.added_texts
+        )
+        assert any(
+            '5/5 streaming from "META.jsonl"' in text for text in progress.added_texts
+        )
         with pytest.raises(StopIteration):
             next(stream)
     finally:
@@ -953,7 +1105,9 @@ def test_rich_source_proxy_clears_glob_rows_between_invocations(monkeypatch) -> 
         set_current_dag_depth(0)
 
 
-def test_rich_source_proxy_handles_foreach_fs_sequence_with_empty_first_value(monkeypatch) -> None:
+def test_rich_source_proxy_handles_foreach_fs_sequence_with_empty_first_value(
+    monkeypatch,
+) -> None:
     class _ForeachValueLoader(BaseDataLoader):
         def __init__(self, path: str | None = None, value: str | None = None, **kwargs):
             self._path = str(path or value or "")
@@ -978,7 +1132,9 @@ def test_rich_source_proxy_handles_foreach_fs_sequence_with_empty_first_value(mo
             },
         },
     )
-    source = SimpleNamespace(stream=lambda: foreach_loader.load(), loader=foreach_loader)
+    source = SimpleNamespace(
+        stream=lambda: foreach_loader.load(), loader=foreach_loader
+    )
     progress = _RecordingProgress()
     proxy = _RichSourceProxy(
         stream_source=source,
@@ -992,8 +1148,12 @@ def test_rich_source_proxy_handles_foreach_fs_sequence_with_empty_first_value(mo
     finally:
         set_current_dag_depth(0)
 
-    assert any('1/2 streaming from "APPL.jsonl"' in text for text in progress.added_texts)
-    assert any('2/2 streaming from "MSFT.jsonl"' in text for text in progress.added_texts)
+    assert any(
+        '1/2 streaming from "APPL.jsonl"' in text for text in progress.added_texts
+    )
+    assert any(
+        '2/2 streaming from "MSFT.jsonl"' in text for text in progress.added_texts
+    )
 
 
 def test_rich_source_proxy_removes_finished_stream_task() -> None:
@@ -1055,11 +1215,15 @@ def test_rich_source_proxy_ignores_missing_task_during_teardown(caplog) -> None:
         iterator = proxy.stream()
         next(iterator)
         _clear_progress_tasks(progress)
-        with caplog.at_level(logging.DEBUG, logger="datapipeline.cli.visuals.rich.sources"):
+        with caplog.at_level(
+            logging.DEBUG, logger="datapipeline.cli.visuals.rich.sources"
+        ):
             iterator.close()
 
     messages = [record.getMessage() for record in caplog.records]
-    assert not any("visuals: failed to finalize progress task" in msg for msg in messages)
+    assert not any(
+        "visuals: failed to finalize progress task" in msg for msg in messages
+    )
     assert not any("visuals: failed to stop progress task" in msg for msg in messages)
     assert not any("visuals: failed to remove progress task" in msg for msg in messages)
 
@@ -1177,7 +1341,9 @@ def test_rich_source_proxy_keeps_task_updates_isolated_across_concurrent_streams
 
 
 def test_visual_sources_resets_context_when_live_fails(monkeypatch) -> None:
-    monkeypatch.setattr("datapipeline.cli.visuals.rich.sources.Progress", _BrokenProgress)
+    monkeypatch.setattr(
+        "datapipeline.cli.visuals.rich.sources.Progress", _BrokenProgress
+    )
     runtime = SimpleNamespace(
         registries=SimpleNamespace(stream_sources=_StreamRegistry())
     )

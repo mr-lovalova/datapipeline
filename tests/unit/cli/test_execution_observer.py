@@ -3,11 +3,30 @@ import logging
 import pytest
 
 from datapipeline.cli.visuals.execution import (
+    BuildDecisionMessage,
+    DagFinished,
+    DagInfo,
+    DagStarted,
+    ExecutionEventFormatter,
     ExecutionEventSink,
+    ExecutionMessage,
+    ExecutionScope,
     HierarchicalExecutionObserver,
     LoggerExecutionEventSink,
+    NodeFinished,
+    NodeProgress,
+    NodeStarted,
+    OperationFinished,
+    OperationInfo,
+    OperationProgress,
+    OperationStarted,
+    ProfileStartMessage,
+    ScopeStartMessage,
+    SourceInfoMessage,
+    emit_build_decision,
     execution_scope,
     emit_execution_message,
+    emit_profile_start,
     emit_source_info,
     make_execution_observer,
     make_operation_observer,
@@ -43,6 +62,422 @@ class _CaptureSink(ExecutionEventSink):
         self.events.append(event)
 
 
+_SCOPE = ExecutionScope(
+    profile_kind="serve",
+    profile_name="test",
+    target_id="pipeline",
+    task_id="materialize",
+    item_index="1",
+    item_total="2",
+)
+_PARENT = DagParentRef(
+    dag_name="pipeline:serve",
+    node_name="vector_assemble",
+    node_index=3,
+)
+
+
+@pytest.mark.parametrize(
+    ("event", "level", "message"),
+    [
+        (
+            ExecutionMessage(message="plain", log_level=logging.WARNING, depth=1),
+            logging.WARNING,
+            "  plain",
+        ),
+        (ProfileStartMessage(message="profile"), logging.DEBUG, "profile"),
+        (BuildDecisionMessage(message="build"), logging.INFO, "build"),
+        (
+            SourceInfoMessage(source_label="prices", message="inputs", depth=1),
+            logging.INFO,
+            "  [prices] inputs",
+        ),
+        (ScopeStartMessage(message="scope"), logging.INFO, "scope"),
+        (
+            DagStarted(dag_name="pipeline", node_count=2, depth=1),
+            logging.INFO,
+            "  [pipeline] started nodes=2",
+        ),
+        (
+            DagInfo(
+                dag_name="pipeline",
+                info_name="record.order",
+                info_line="record.order: time",
+                depth=1,
+            ),
+            logging.DEBUG,
+            "  [pipeline] record.order: time",
+        ),
+        (
+            DagFinished(
+                dag_name="pipeline",
+                node_count=2,
+                status="success",
+                output_items=3,
+                elapsed_seconds=0.5,
+                depth=1,
+            ),
+            logging.INFO,
+            "  [pipeline] finished status=success items=3 elapsed=0.500000s",
+        ),
+        (
+            NodeStarted(
+                dag_name="pipeline",
+                node_name="load",
+                node_index=0,
+                execution_index=4,
+                depth=1,
+            ),
+            logging.DEBUG,
+            "[pipeline/load] started index=0 execution=4 kind=function",
+        ),
+        (
+            NodeProgress(
+                dag_name="pipeline",
+                node_name="load",
+                node_index=0,
+                execution_index=4,
+                message="running",
+                depth=1,
+            ),
+            logging.INFO,
+            "[pipeline/load] running",
+        ),
+        (
+            NodeFinished(
+                dag_name="pipeline",
+                node_name="load",
+                node_index=0,
+                execution_index=4,
+                status="success",
+                output_items=3,
+                elapsed_seconds=0.25,
+                depth=1,
+            ),
+            logging.DEBUG,
+            "[pipeline/load] finished index=0 execution=4 kind=function "
+            "status=success items=3 elapsed=0.250000s",
+        ),
+        (
+            OperationStarted(
+                operation_name="build:schema",
+                entrypoint="core.artifact.schema",
+                depth=1,
+            ),
+            logging.INFO,
+            "  [build:schema] started operation=core.artifact.schema",
+        ),
+        (
+            OperationInfo(
+                operation_name="build:schema",
+                info_line="saved path=schema.json",
+                depth=1,
+            ),
+            logging.INFO,
+            "  [build:schema] saved path=schema.json",
+        ),
+        (
+            OperationProgress(
+                operation_name="build:schema",
+                step="write",
+                message="running",
+                depth=1,
+            ),
+            logging.INFO,
+            "  [build:schema/write] running",
+        ),
+        (
+            OperationFinished(
+                operation_name="build:schema",
+                status="success",
+                elapsed_seconds=0.75,
+                depth=1,
+            ),
+            logging.INFO,
+            "  [build:schema] finished status=success elapsed=0.750000s",
+        ),
+    ],
+)
+def test_typed_execution_event_formatting(event, level, message) -> None:
+    assert ExecutionEventFormatter.level(event) == level
+    assert ExecutionEventFormatter.message(event) == message
+
+
+def _expected_legacy_extra(**updates) -> dict[str, object]:
+    expected: dict[str, object] = {
+        "dp_event_kind": "",
+        "dp_dag_name": "",
+        "dp_depth": 0,
+        "dp_message": None,
+        "dp_message_kind": None,
+        "dp_log_level": None,
+        "dp_node_count": None,
+        "dp_node_name": None,
+        "dp_index": None,
+        "dp_execution_index": None,
+        "dp_node_kind": None,
+        "dp_node_calls_dag": None,
+        "dp_status": None,
+        "dp_error_type": None,
+        "dp_error_message": None,
+        "dp_output_items": None,
+        "dp_elapsed_seconds": None,
+        "dp_operation_entrypoint": None,
+        "dp_info_name": None,
+        "dp_info_line": None,
+        "dp_parent_dag": None,
+        "dp_parent_node": None,
+        "dp_parent_node_index": None,
+        "dp_scope_profile_kind": "serve",
+        "dp_scope_profile_name": "test",
+        "dp_scope_target_id": "pipeline",
+        "dp_scope_task_id": "materialize",
+        "dp_scope_item_index": "1",
+        "dp_scope_item_total": "2",
+    }
+    expected.update(updates)
+    return expected
+
+
+@pytest.mark.parametrize(
+    ("event", "expected"),
+    [
+        (
+            ExecutionMessage(
+                message="plain",
+                log_level=logging.WARNING,
+                scope=_SCOPE,
+            ),
+            _expected_legacy_extra(
+                dp_event_kind="message",
+                dp_message="plain",
+                dp_log_level=logging.WARNING,
+            ),
+        ),
+        (
+            ProfileStartMessage(message="profile", scope=_SCOPE),
+            _expected_legacy_extra(
+                dp_event_kind="message",
+                dp_message="profile",
+                dp_message_kind="profile_start",
+                dp_log_level=logging.DEBUG,
+            ),
+        ),
+        (
+            BuildDecisionMessage(message="build", scope=_SCOPE),
+            _expected_legacy_extra(
+                dp_event_kind="message",
+                dp_message="build",
+                dp_message_kind="build_decision",
+                dp_log_level=logging.INFO,
+            ),
+        ),
+        (
+            SourceInfoMessage(
+                source_label="prices",
+                message="inputs",
+                scope=_SCOPE,
+            ),
+            _expected_legacy_extra(
+                dp_event_kind="message",
+                dp_message="[prices] inputs",
+                dp_message_kind="source_info",
+                dp_log_level=logging.INFO,
+            ),
+        ),
+        (
+            ScopeStartMessage(message="scope", scope=_SCOPE),
+            _expected_legacy_extra(
+                dp_event_kind="message",
+                dp_message="scope",
+                dp_message_kind="scope_start",
+                dp_log_level=logging.INFO,
+            ),
+        ),
+        (
+            DagStarted(
+                dag_name="pipeline",
+                node_count=2,
+                dag_parent=_PARENT,
+                scope=_SCOPE,
+            ),
+            _expected_legacy_extra(
+                dp_event_kind="dag_start",
+                dp_dag_name="pipeline",
+                dp_node_count=2,
+                dp_parent_dag="pipeline:serve",
+                dp_parent_node="vector_assemble",
+                dp_parent_node_index=3,
+            ),
+        ),
+        (
+            DagInfo(
+                dag_name="pipeline",
+                info_name="source",
+                info_line="source: files=2",
+                scope=_SCOPE,
+            ),
+            _expected_legacy_extra(
+                dp_event_kind="dag_info",
+                dp_dag_name="pipeline",
+                dp_info_name="source",
+                dp_info_line="source: files=2",
+            ),
+        ),
+        (
+            DagFinished(
+                dag_name="pipeline",
+                node_count=2,
+                status="error",
+                error_type="ValueError",
+                error_message="bad",
+                output_items=1,
+                elapsed_seconds=0.5,
+                dag_parent=_PARENT,
+                scope=_SCOPE,
+            ),
+            _expected_legacy_extra(
+                dp_event_kind="dag_end",
+                dp_dag_name="pipeline",
+                dp_node_count=2,
+                dp_status="error",
+                dp_error_type="ValueError",
+                dp_error_message="bad",
+                dp_output_items=1,
+                dp_elapsed_seconds=0.5,
+                dp_parent_dag="pipeline:serve",
+                dp_parent_node="vector_assemble",
+                dp_parent_node_index=3,
+            ),
+        ),
+        (
+            NodeStarted(
+                dag_name="pipeline",
+                node_name="load",
+                node_index=0,
+                execution_index=4,
+                node_kind="dag_call",
+                node_calls_dag="ingest",
+                scope=_SCOPE,
+            ),
+            _expected_legacy_extra(
+                dp_event_kind="node_start",
+                dp_dag_name="pipeline",
+                dp_node_name="load",
+                dp_index=0,
+                dp_execution_index=4,
+                dp_node_kind="dag_call",
+                dp_node_calls_dag="ingest",
+            ),
+        ),
+        (
+            NodeProgress(
+                dag_name="pipeline",
+                node_name="load",
+                node_index=0,
+                execution_index=4,
+                message="running",
+                scope=_SCOPE,
+            ),
+            _expected_legacy_extra(
+                dp_event_kind="node_progress",
+                dp_dag_name="pipeline",
+                dp_node_name="load",
+                dp_index=0,
+                dp_execution_index=4,
+                dp_node_kind="function",
+                dp_message="running",
+            ),
+        ),
+        (
+            NodeFinished(
+                dag_name="pipeline",
+                node_name="load",
+                node_index=0,
+                execution_index=4,
+                status="error",
+                error_type="ValueError",
+                error_message="bad",
+                output_items=1,
+                elapsed_seconds=0.25,
+                scope=_SCOPE,
+            ),
+            _expected_legacy_extra(
+                dp_event_kind="node_end",
+                dp_dag_name="pipeline",
+                dp_node_name="load",
+                dp_index=0,
+                dp_execution_index=4,
+                dp_node_kind="function",
+                dp_status="error",
+                dp_error_type="ValueError",
+                dp_error_message="bad",
+                dp_output_items=1,
+                dp_elapsed_seconds=0.25,
+            ),
+        ),
+        (
+            OperationStarted(
+                operation_name="build:schema",
+                entrypoint="core.artifact.schema",
+                scope=_SCOPE,
+            ),
+            _expected_legacy_extra(
+                dp_event_kind="operation_start",
+                dp_dag_name="build:schema",
+                dp_operation_entrypoint="core.artifact.schema",
+            ),
+        ),
+        (
+            OperationInfo(
+                operation_name="build:schema",
+                info_line="saved",
+                scope=_SCOPE,
+            ),
+            _expected_legacy_extra(
+                dp_event_kind="operation_info",
+                dp_dag_name="build:schema",
+                dp_info_line="saved",
+            ),
+        ),
+        (
+            OperationProgress(
+                operation_name="build:schema",
+                step="write",
+                message="running",
+                scope=_SCOPE,
+            ),
+            _expected_legacy_extra(
+                dp_event_kind="operation_progress",
+                dp_dag_name="build:schema",
+                dp_node_name="write",
+                dp_message="running",
+            ),
+        ),
+        (
+            OperationFinished(
+                operation_name="build:schema",
+                status="error",
+                error_type="ValueError",
+                error_message="bad",
+                elapsed_seconds=0.75,
+                scope=_SCOPE,
+            ),
+            _expected_legacy_extra(
+                dp_event_kind="operation_end",
+                dp_dag_name="build:schema",
+                dp_status="error",
+                dp_error_type="ValueError",
+                dp_error_message="bad",
+                dp_elapsed_seconds=0.75,
+            ),
+        ),
+    ],
+)
+def test_typed_events_preserve_legacy_log_projection(event, expected) -> None:
+    assert ExecutionEventFormatter.extra(event) == expected
+
+
 def test_hierarchical_observer_logs_all_dags_at_info(caplog):
     logger = logging.getLogger("datapipeline.cli.visuals.execution.test")
     observer = HierarchicalExecutionObserver(LoggerExecutionEventSink(logger))
@@ -69,7 +504,7 @@ def test_hierarchical_observer_logs_all_dags_at_info(caplog):
                 status="success",
                 depth=0,
             )
-    )
+        )
 
     messages = [record.getMessage() for record in caplog.records]
     assert any(msg.startswith("[outer] started") for msg in messages)
@@ -104,7 +539,7 @@ def test_hierarchical_observer_logs_nested_dags_at_debug(caplog):
                 status="success",
                 depth=0,
             )
-    )
+        )
 
     messages = [record.getMessage() for record in caplog.records]
     assert any(msg.startswith("  [inner] started") for msg in messages)
@@ -140,7 +575,9 @@ def test_hierarchical_observer_logs_node_events_at_debug(caplog):
 
     with caplog.at_level(logging.DEBUG, logger=logger.name):
         observer.on_dag_start(dag_name="demo", node_count=1, depth=0)
-        observer.on_node_start(dag_name="demo", node_name="n", node_index=0, execution_index=0, depth=1)
+        observer.on_node_start(
+            dag_name="demo", node_name="n", node_index=0, execution_index=0, depth=1
+        )
         observer.on_node_end(
             NodeExecutionEvent(
                 dag_name="demo",
@@ -152,7 +589,7 @@ def test_hierarchical_observer_logs_node_events_at_debug(caplog):
                 status="success",
                 depth=1,
             )
-    )
+        )
 
     messages = [record.getMessage() for record in caplog.records]
     assert any(msg.startswith("[demo/n] started") for msg in messages)
@@ -174,7 +611,7 @@ def test_hierarchical_observer_logs_node_progress_at_info(caplog):
                 message="running elapsed=60s items=0",
                 depth=2,
             )
-    )
+        )
 
     record = caplog.records[0]
     assert record.getMessage().startswith(
@@ -280,7 +717,9 @@ def test_hierarchical_observer_updates_context_depth():
     assert current_dag_depth() == 0
 
 
-def test_hierarchical_observer_respects_explicit_depth_when_events_finish_out_of_order(caplog):
+def test_hierarchical_observer_respects_explicit_depth_when_events_finish_out_of_order(
+    caplog,
+):
     logger = logging.getLogger("datapipeline.cli.visuals.execution.test.siblings")
     observer = HierarchicalExecutionObserver(LoggerExecutionEventSink(logger))
 
@@ -360,7 +799,9 @@ def test_hierarchical_observer_emits_index_field_for_node_events(caplog):
 
     with caplog.at_level(logging.DEBUG, logger=logger.name):
         observer.on_dag_start(dag_name="demo", node_count=1, depth=0)
-        observer.on_node_start(dag_name="demo", node_name="n", node_index=2, execution_index=0, depth=1)
+        observer.on_node_start(
+            dag_name="demo", node_name="n", node_index=2, execution_index=0, depth=1
+        )
 
     node_start = next(
         record
@@ -431,7 +872,7 @@ def test_make_execution_observer_accepts_single_custom_sink():
         )
     )
 
-    assert [event.kind for event in sink.events] == ["dag_start", "dag_end"]
+    assert [type(event) for event in sink.events] == [DagStarted, DagFinished]
 
 
 def test_hierarchical_observer_emits_dag_metadata_events():
@@ -452,10 +893,10 @@ def test_hierarchical_observer_emits_dag_metadata_events():
         },
     )
 
-    assert [event.kind for event in sink.events] == [
-        "dag_start",
-        "dag_info",
-        "dag_info",
+    assert [type(event) for event in sink.events] == [
+        DagStarted,
+        DagInfo,
+        DagInfo,
     ]
     assert sink.events[1].info_line == (
         "source.summary: transport=fs files=17 decoder=jsonl"
@@ -488,7 +929,9 @@ def test_hierarchical_observer_hides_nested_dag_metadata_at_info(caplog):
 
 
 def test_hierarchical_observer_shows_nested_source_metadata_at_info(caplog):
-    logger = logging.getLogger("datapipeline.cli.visuals.execution.test.source_metadata")
+    logger = logging.getLogger(
+        "datapipeline.cli.visuals.execution.test.source_metadata"
+    )
     observer = HierarchicalExecutionObserver(LoggerExecutionEventSink(logger))
 
     with caplog.at_level(logging.INFO, logger=logger.name):
@@ -563,10 +1006,10 @@ def test_make_execution_observer_fans_out_to_multiple_sinks():
         )
     )
 
-    left_kinds = [event.kind for event in left.events]
-    right_kinds = [event.kind for event in right.events]
-    assert left_kinds == ["dag_start", "dag_end"]
-    assert right_kinds == ["dag_start", "dag_end"]
+    left_types = [type(event) for event in left.events]
+    right_types = [type(event) for event in right.events]
+    assert left_types == [DagStarted, DagFinished]
+    assert right_types == [DagStarted, DagFinished]
 
 
 def test_make_execution_observer_rejects_sink_and_sinks():
@@ -593,7 +1036,10 @@ def test_make_execution_observer_uses_context_sink_when_present(caplog):
                     depth=0,
                 )
             )
-        assert [event.kind for event in capture.events] == ["dag_start", "dag_end"]
+        assert [type(event) for event in capture.events] == [
+            DagStarted,
+            DagFinished,
+        ]
         messages = [record.getMessage() for record in caplog.records]
         assert any(msg.startswith("[pipeline:serve] started") for msg in messages)
         assert any(msg.startswith("[pipeline:serve] finished") for msg in messages)
@@ -615,7 +1061,7 @@ def test_make_execution_observer_logs_without_context_sink(caplog):
                 status="success",
                 depth=0,
             )
-    )
+        )
     messages = [record.getMessage() for record in caplog.records]
     assert any(msg.startswith("[pipeline:serve] started") for msg in messages)
     assert any(msg.startswith("[pipeline:serve] finished") for msg in messages)
@@ -643,14 +1089,16 @@ def test_make_execution_observer_stops_context_sink_after_context_reset(caplog):
             )
         )
 
-    assert [event.kind for event in capture.events] == ["dag_start"]
+    assert [type(event) for event in capture.events] == [DagStarted]
     messages = [record.getMessage() for record in caplog.records]
     assert any(msg.startswith("[pipeline:serve] finished") for msg in messages)
 
 
 def test_emit_execution_message_uses_context_sink_when_available(caplog):
     capture = _CaptureSink()
-    logger = logging.getLogger("datapipeline.cli.visuals.execution.test.message_context")
+    logger = logging.getLogger(
+        "datapipeline.cli.visuals.execution.test.message_context"
+    )
     token = set_current_execution_event_sink(capture)
     try:
         with caplog.at_level(logging.INFO, logger=logger.name):
@@ -660,32 +1108,34 @@ def test_emit_execution_message_uses_context_sink_when_available(caplog):
 
     assert len(capture.events) == 1
     event = capture.events[0]
-    assert event.kind == "message"
+    assert isinstance(event, ExecutionMessage)
     assert event.message == "Saved 2 items: /tmp/out.jsonl"
-    assert event.message_kind is None
     assert event.log_level == logging.INFO
-    assert any(record.getMessage() == "Saved 2 items: /tmp/out.jsonl" for record in caplog.records)
+    assert any(
+        record.getMessage() == "Saved 2 items: /tmp/out.jsonl"
+        for record in caplog.records
+    )
 
 
-def test_emit_execution_message_supports_message_kind():
+def test_explicit_message_emitters_create_typed_events():
     capture = _CaptureSink()
     token = set_current_execution_event_sink(capture)
     try:
-        emit_execution_message(
-            "custom event",
-            message_kind="custom",
-        )
+        emit_profile_start("profile start")
+        emit_build_decision("build decision")
     finally:
         reset_current_execution_event_sink(token)
 
-    assert len(capture.events) == 1
-    event = capture.events[0]
-    assert event.kind == "message"
-    assert event.message_kind == "custom"
+    assert [type(event) for event in capture.events] == [
+        ProfileStartMessage,
+        BuildDecisionMessage,
+    ]
 
 
 def test_emit_execution_message_logs_without_context_sink(caplog):
-    logger = logging.getLogger("datapipeline.cli.visuals.execution.test.message_default")
+    logger = logging.getLogger(
+        "datapipeline.cli.visuals.execution.test.message_default"
+    )
 
     with caplog.at_level(logging.INFO, logger=logger.name):
         emit_execution_message("Saved 3 items", logger=logger)
@@ -710,13 +1160,13 @@ def test_operation_scope_emits_lifecycle_and_info_events(caplog):
     finally:
         reset_current_execution_event_sink(token)
 
-    assert [event.kind for event in capture.events] == [
-        "operation_start",
-        "operation_info",
-        "operation_end",
+    assert [type(event) for event in capture.events] == [
+        OperationStarted,
+        OperationInfo,
+        OperationFinished,
     ]
-    assert capture.events[0].dag_name == "build:model_grid"
-    assert capture.events[0].operation_entrypoint == "core.artifact.ticks"
+    assert capture.events[0].operation_name == "build:model_grid"
+    assert capture.events[0].entrypoint == "core.artifact.ticks"
     assert capture.events[1].info_line == "materialized path=/tmp/model_grid.jsonl"
     messages = [record.getMessage() for record in caplog.records]
     assert "[build:model_grid] started operation=core.artifact.ticks" in messages
@@ -742,7 +1192,7 @@ def test_execution_scope_applies_to_messages_and_dag_events():
 
     assert len(capture.events) == 2
     for event in capture.events:
-        assert event.scope_profile_kind == "serve"
-        assert event.scope_profile_name == "test"
-        assert event.scope_target_id == "serve"
-        assert event.scope_task_id == "schema"
+        assert event.scope.profile_kind == "serve"
+        assert event.scope.profile_name == "test"
+        assert event.scope.target_id == "serve"
+        assert event.scope.task_id == "schema"

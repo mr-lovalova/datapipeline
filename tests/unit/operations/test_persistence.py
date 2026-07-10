@@ -6,6 +6,7 @@ import pytest
 
 from datapipeline.cli.visuals.execution import (
     ExecutionEventSink,
+    OperationInfo,
     make_operation_observer,
 )
 from datapipeline.cli.visuals.execution_context import (
@@ -131,9 +132,9 @@ def test_runtime_persistence_emits_operation_saved_info(tmp_path) -> None:
     finally:
         reset_current_execution_event_sink(token)
 
-    infos = [event for event in capture.events if event.kind == "operation_info"]
+    infos = [event for event in capture.events if isinstance(event, OperationInfo)]
     assert len(infos) == 1
-    assert infos[0].dag_name == "serve:train"
+    assert infos[0].operation_name == "serve:train"
     assert infos[0].info_line == f"saved path={destination} items=1"
 
 

@@ -17,7 +17,7 @@ from datapipeline.build.state import (
 from datapipeline.build.config_hash import compute_config_hash
 from datapipeline.cli.logging_setup import configure_root_logging
 from datapipeline.cli.visuals.execution import (
-    emit_execution_message,
+    emit_build_decision,
     make_execution_observer,
     make_operation_observer,
 )
@@ -98,11 +98,9 @@ def _log_build_decision(
         payload["jobs"] = []
     if plan.skipped_current:
         payload["skipped_current"] = list(plan.skipped_current)
-    emit_execution_message(
+    emit_build_decision(
         f"Build decision:\n{json.dumps(payload, indent=2, default=str)}",
-        level=logging.INFO,
         logger=logger,
-        message_kind="build_decision",
     )
 
 

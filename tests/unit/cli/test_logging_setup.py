@@ -3,6 +3,7 @@ import logging
 import sys
 
 from datapipeline.cli.logging_setup import configure_root_logging
+from datapipeline.cli.visuals.execution import ExecutionMessage
 from datapipeline.cli.visuals.execution_context import (
     reset_current_execution_event_sink,
     reset_current_terminal_log_proxy_sink,
@@ -102,9 +103,11 @@ def test_configure_root_logging_proxies_plain_terminal_logs_into_rich_visual_sin
     rendered = stream.getvalue()
     assert "plain log line" not in rendered
     assert len(sink.events) == 1
-    assert sink.events[0].kind == "message"
-    assert sink.events[0].message == "plain log line"
-    assert sink.events[0].log_level == logging.WARNING
+    event = sink.events[0]
+    assert isinstance(event, ExecutionMessage)
+    assert event.message == "plain log line"
+    assert event.log_level == logging.WARNING
+    assert event.depth == 0
 
 
 def test_configure_root_logging_does_not_proxy_plain_logs_without_proxy_sink(

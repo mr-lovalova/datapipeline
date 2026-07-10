@@ -5,6 +5,7 @@ from typing import Literal
 
 import pytest
 
+from datapipeline.cli.visuals.execution import SourceInfoMessage
 from datapipeline.cli.visuals.execution_context import (
     reset_current_execution_event_sink,
     set_current_execution_event_sink,
@@ -79,7 +80,9 @@ def _t(day: int) -> datetime:
     return datetime(2021, 1, day, tzinfo=timezone.utc)
 
 
-def _runtime(*, streams: dict[str, list[TemporalRecord]], partitions: dict[str, object]):
+def _runtime(
+    *, streams: dict[str, list[TemporalRecord]], partitions: dict[str, object]
+):
     return SimpleNamespace(
         _streams=streams,
         registries=SimpleNamespace(
@@ -227,7 +230,9 @@ def test_joined_stream_joins_partitioned_to_unpartitioned_by_time(monkeypatch) -
     assert [row.values["b"].value for row in rows] == [20, 20]
 
 
-def test_joined_stream_reuses_unpartitioned_matches_across_partitions(monkeypatch) -> None:
+def test_joined_stream_reuses_unpartitioned_matches_across_partitions(
+    monkeypatch,
+) -> None:
     runtime = _runtime(
         streams={
             "stream.a": [
@@ -283,16 +288,19 @@ def test_joined_stream_emits_join_diagnostics(monkeypatch) -> None:
     assert len(rows) == 1
     assert rows[0].values["a"].value == 2
     assert rows[0].values["b"].value == 20
-    messages = [event.message for event in capture.events]
-    assert (
-        "[joined.out] join: primary=a on=time mode=inner "
-        "primary_rows=2 output_rows=1"
-    ) in messages
-    assert (
-        "[joined.out] join.input: b=stream.b rows=1 "
-        "matched_primary_rows=1 missed_primary_rows=1 match_rate=50.0%"
-    ) in messages
-    assert {event.message_kind for event in capture.events} == {"source_info"}
+    events = capture.events
+    assert all(isinstance(event, SourceInfoMessage) for event in events)
+    assert {(event.source_label, event.message) for event in events} == {
+        (
+            "joined.out",
+            "join: primary=a on=time mode=inner primary_rows=2 output_rows=1",
+        ),
+        (
+            "joined.out",
+            "join.input: b=stream.b rows=1 matched_primary_rows=1 "
+            "missed_primary_rows=1 match_rate=50.0%",
+        ),
+    }
 
 
 def test_joined_stream_can_join_on_subset_of_partition_fields(monkeypatch) -> None:
@@ -429,8 +437,14 @@ def test_joined_stream_diagnostics_count_primary_matches(monkeypatch) -> None:
         reset_current_execution_event_sink(token)
 
     assert len(rows) == 2
-    messages = [event.message for event in capture.events]
-    assert (
-        "[joined.out] join.input: b=stream.b rows=2 "
-        "matched_primary_rows=1 missed_primary_rows=1 match_rate=50.0%"
-    ) in messages
+    events = capture.events
+    assert all(isinstance(event, SourceInfoMessage) for event in events)
+    assert any(
+        event.source_label == "joined.out"
+        and event.message
+        == (
+            "join.input: b=stream.b rows=2 matched_primary_rows=1 "
+            "missed_primary_rows=1 match_rate=50.0%"
+        )
+        for event in events
+    )

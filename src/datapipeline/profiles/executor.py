@@ -5,7 +5,7 @@ from typing import Any, Callable
 
 from datapipeline.cli.logging_setup import configure_root_logging
 from datapipeline.cli.visuals import get_visuals_backend
-from datapipeline.cli.visuals.execution import emit_execution_message
+from datapipeline.cli.visuals.execution import emit_profile_start
 from datapipeline.cli.visuals.runner import run_job
 from datapipeline.config.resolution import LogLevelDecision, LogOutputSettings
 from datapipeline.runtime import Runtime
@@ -56,11 +56,9 @@ def _log_profile_start(
     )
     if profile_path is not None:
         message = f"{message} profile={profile_path}"
-    emit_execution_message(
+    emit_profile_start(
         message,
-        level=logging.DEBUG,
         logger=logger,
-        message_kind="profile_start",
     )
 
 

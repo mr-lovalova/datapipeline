@@ -2,7 +2,26 @@ import logging
 
 from rich.text import Text
 
-from ..execution import ExecutionEventFormatter, ExecutionEventSink, ExecutionLogEvent
+from ..execution import (
+    BuildDecisionMessage,
+    DagFinished,
+    DagInfo,
+    DagStarted,
+    ExecutionEventFormatter,
+    ExecutionEventSink,
+    ExecutionLogEvent,
+    ExecutionMessage,
+    NodeFinished,
+    NodeProgress,
+    NodeStarted,
+    OperationFinished,
+    OperationInfo,
+    OperationProgress,
+    OperationStarted,
+    ProfileStartMessage,
+    ScopeStartMessage,
+    SourceInfoMessage,
+)
 from .columns import styled_source_label
 
 
@@ -21,7 +40,7 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
             return
         text = self._render_event(event)
         console = self._live_console or self._console
-        if event.kind in {"node_progress", "operation_progress"}:
+        if isinstance(event, NodeProgress | OperationProgress):
             console.print(text, overflow="ellipsis", no_wrap=True)
             return
         console.print(text)
@@ -30,66 +49,98 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
         return
 
     def _render_event(self, event: ExecutionLogEvent) -> Text:
+        if not isinstance(event, ExecutionLogEvent):
+            raise TypeError(f"Unsupported execution event: {type(event).__name__}")
+
         indent = "  " * ExecutionEventFormatter.display_depth(event)
         text = Text(indent)
-        if event.kind == "message":
-            style = self._message_style(ExecutionEventFormatter.level(event))
-            message = event.message or ""
+
+        if isinstance(event, ExecutionMessage | ProfileStartMessage):
+            message = event.message
             if "\n" in message:
                 message = message.replace("\n", f"\n{indent}")
-            if event.message_kind == "scope_start":
-                scope_text = self._scope_header(event, message)
-                if event.depth == 0:
-                    text.append("\n")
-                text.append("── ", style="cyan")
-                text.append(scope_text, style="cyan")
-                text.append(" ──", style="cyan")
-                if event.depth == 0:
-                    text.append("\n")
-                return text
-            if event.message_kind == "source_info":
-                text.append_text(styled_source_label(message))
-                return text
-            if event.message_kind == "build_decision":
-                prefix, _, rest = message.partition("\n")
-                text.append(prefix, style="bold cyan")
-                if rest:
-                    text.append(f"\n{rest}", style="dim")
-                return text
-            text.append(message, style=style)
-            return text
-        if event.kind in {"dag_info", "operation_info"}:
-            self._append_label(text, event.dag_name)
-            style = (
-                ""
-                if event.info_name == "source" or event.kind == "operation_info"
-                else "dim"
+            text.append(
+                message,
+                style=self._message_style(ExecutionEventFormatter.level(event)),
             )
-            text.append(event.info_line or "", style=style)
             return text
-        if event.kind in {"dag_start", "operation_start"}:
+
+        if isinstance(event, ScopeStartMessage):
+            message = event.message
+            if "\n" in message:
+                message = message.replace("\n", f"\n{indent}")
+            scope_text = self._scope_header(event, message)
+            if event.depth == 0:
+                text.append("\n")
+            text.append("── ", style="cyan")
+            text.append(scope_text, style="cyan")
+            text.append(" ──", style="cyan")
+            if event.depth == 0:
+                text.append("\n")
+            return text
+
+        if isinstance(event, SourceInfoMessage):
+            message = f"[{event.source_label}] {event.message}"
+            if "\n" in message:
+                message = message.replace("\n", f"\n{indent}")
+            text.append_text(styled_source_label(message))
+            return text
+
+        if isinstance(event, BuildDecisionMessage):
+            message = event.message
+            if "\n" in message:
+                message = message.replace("\n", f"\n{indent}")
+            prefix, _, rest = message.partition("\n")
+            text.append(prefix, style="bold cyan")
+            if rest:
+                text.append(f"\n{rest}", style="dim")
+            return text
+
+        if isinstance(event, DagInfo):
+            self._append_label(text, event.dag_name)
+            style = "" if event.info_name == "source" else "dim"
+            text.append(event.info_line, style=style)
+            return text
+
+        if isinstance(event, OperationInfo):
+            self._append_label(text, event.operation_name)
+            text.append(event.info_line)
+            return text
+
+        if isinstance(event, DagStarted):
             self._append_label(text, event.dag_name)
             text.append("started")
-            if (
-                event.kind == "operation_start"
-                and event.operation_entrypoint is not None
-            ):
-                text.append(f" operation={event.operation_entrypoint}")
-            if event.kind == "dag_start":
-                text.append(f" nodes={event.node_count}")
+            text.append(f" nodes={event.node_count}")
             return text
-        if event.kind in {"dag_end", "operation_end"}:
+
+        if isinstance(event, OperationStarted):
+            self._append_label(text, event.operation_name)
+            text.append("started")
+            text.append(f" operation={event.entrypoint}")
+            return text
+
+        if isinstance(event, DagFinished):
             status_style = "green" if event.status == "success" else "red"
             self._append_label(text, event.dag_name)
             text.append("finished ")
             text.append(f"status={event.status}", style=status_style)
             if error_suffix := ExecutionEventFormatter.error_suffix(event):
                 text.append(error_suffix, style="red")
-            if event.kind == "dag_end":
-                text.append(f" items={event.output_items}")
+            text.append(f" items={event.output_items}")
             text.append(f" elapsed={event.elapsed_seconds:.6f}s")
             return text
-        if event.kind == "node_start":
+
+        if isinstance(event, OperationFinished):
+            status_style = "green" if event.status == "success" else "red"
+            self._append_label(text, event.operation_name)
+            text.append("finished ")
+            text.append(f"status={event.status}", style=status_style)
+            if error_suffix := ExecutionEventFormatter.error_suffix(event):
+                text.append(error_suffix, style="red")
+            text.append(f" elapsed={event.elapsed_seconds:.6f}s")
+            return text
+
+        if isinstance(event, NodeStarted):
             label = ExecutionEventFormatter.execution_label(
                 event.dag_name,
                 event.node_name,
@@ -105,36 +156,50 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
             if event.node_calls_dag is not None:
                 text.append(f" calls={event.node_calls_dag}", style="dim")
             return text
-        if event.kind in {"node_progress", "operation_progress"}:
+
+        if isinstance(event, NodeProgress):
             label = ExecutionEventFormatter.execution_label(
                 event.dag_name,
                 event.node_name,
             )
             self._append_debug_label(text, label)
-            text.append(event.message or "", style="dim")
+            text.append(event.message, style="dim")
             return text
-        status_style = "green" if event.status == "success" else "red"
-        label = ExecutionEventFormatter.execution_label(
-            event.dag_name,
-            event.node_name,
-        )
-        self._append_debug_label(text, label)
-        text.append(
-            (
-                f"finished index={event.node_index} "
-                f"execution={event.execution_index} kind={event.node_kind}"
-            ),
-            style="dim",
-        )
-        text.append(" ")
-        text.append(f"status={event.status}", style=f"dim {status_style}")
-        if error_suffix := ExecutionEventFormatter.error_suffix(event):
-            text.append(error_suffix, style="dim red")
-        text.append(
-            f" items={event.output_items} elapsed={event.elapsed_seconds:.6f}s",
-            style="dim",
-        )
-        return text
+
+        if isinstance(event, OperationProgress):
+            label = ExecutionEventFormatter.execution_label(
+                event.operation_name,
+                event.step,
+            )
+            self._append_debug_label(text, label)
+            text.append(event.message, style="dim")
+            return text
+
+        if isinstance(event, NodeFinished):
+            status_style = "green" if event.status == "success" else "red"
+            label = ExecutionEventFormatter.execution_label(
+                event.dag_name,
+                event.node_name,
+            )
+            self._append_debug_label(text, label)
+            text.append(
+                (
+                    f"finished index={event.node_index} "
+                    f"execution={event.execution_index} kind={event.node_kind}"
+                ),
+                style="dim",
+            )
+            text.append(" ")
+            text.append(f"status={event.status}", style=f"dim {status_style}")
+            if error_suffix := ExecutionEventFormatter.error_suffix(event):
+                text.append(error_suffix, style="dim red")
+            text.append(
+                f" items={event.output_items} elapsed={event.elapsed_seconds:.6f}s",
+                style="dim",
+            )
+            return text
+
+        raise TypeError(f"Unsupported execution event: {type(event).__name__}")
 
     @staticmethod
     def _append_label(text: Text, label: str) -> None:
@@ -159,13 +224,13 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
         return ""
 
     @staticmethod
-    def _scope_header(event: ExecutionLogEvent, fallback: str) -> str:
-        task = event.scope_task_id or event.scope_target_id or event.scope_profile_name
+    def _scope_header(event: ScopeStartMessage, fallback: str) -> str:
+        task = event.scope.task_id or event.scope.target_id or event.scope.profile_name
         if task is None:
             return fallback or "Scope"
         header = f"Task: {task}"
-        if event.scope_item_index and event.scope_item_total:
-            header = f"{header} ({event.scope_item_index}/{event.scope_item_total})"
+        if event.scope.item_index and event.scope.item_total:
+            header = f"{header} ({event.scope.item_index}/{event.scope.item_total})"
         return header
 
 
