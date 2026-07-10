@@ -1,4 +1,0 @@
-# See ../../../reference/reference/tasks/operations/matrix.reference.yaml for full options.
-id: matrix
-kind: runtime
-entrypoint: core.runtime.matrix

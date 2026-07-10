@@ -122,8 +122,14 @@ jobs:
           jerry plugin init smoke-plugin --out .
           test -f smoke-plugin/your-dataset/.env.example
           test -f smoke-plugin/your-interim-data-builder/.env.example
+          test -f smoke-plugin/your-dataset/profiles/build.defaults.yaml
+          test -f smoke-plugin/your-interim-data-builder/profiles/build.defaults.yaml
+          test -f smoke-plugin/your-dataset/tasks/operations/pipeline.yaml
+          test -f smoke-plugin/your-interim-data-builder/tasks/operations/pipeline.yaml
+          test ! -e smoke-plugin/_dataset_base
           jerry demo init --out .
           test -f demo/demo/.env.example
+          test ! -e demo/_dataset_base
           if find smoke-plugin demo \( -name __pycache__ -o -name '*.pyc' -o -name '.DS_Store' \) | grep -q .; then
             echo "Scaffolded output contains generated files"
             exit 1
