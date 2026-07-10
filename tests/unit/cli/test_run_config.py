@@ -1,10 +1,8 @@
 from pathlib import Path
 from types import SimpleNamespace
 
-from datapipeline.profiles.execution import (
-    resolve_task_order,
-    runtime_task_ids_for_order,
-)
+from datapipeline.config.tasks import ArtifactTask
+from datapipeline.profiles.execution import resolve_profile_task
 from datapipeline.profiles.request_builder import build_profile_run_request
 
 
@@ -154,9 +152,8 @@ def test_serve_profile_can_target_artifact_only_graph(monkeypatch, tmp_path: Pat
     assert profile.target_id == "schema"
 
     tasks_by_id = {task.id: task for task in request.tasks}
-    ordered_ids = resolve_task_order(profile, tasks_by_id)
-    runtime_ids = runtime_task_ids_for_order(ordered_ids, tasks_by_id)
-    assert runtime_ids == []
+    task = resolve_profile_task(profile, tasks_by_id)
+    assert isinstance(task, ArtifactTask)
 
 
 def test_serve_request_orders_enabled_profiles_and_run_targets_only_named_profile(

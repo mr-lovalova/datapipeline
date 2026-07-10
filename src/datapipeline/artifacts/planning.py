@@ -6,8 +6,14 @@ from types import MappingProxyType
 from datapipeline.artifacts.specs import ARTIFACT_DEFINITIONS, ArtifactDefinition
 from datapipeline.build.state import BuildState
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
-from datapipeline.config.tasks import ArtifactTask, StatsTask
-from datapipeline.services.constants import VECTOR_SCHEMA_METADATA
+from datapipeline.config.tasks import ArtifactTask, OperationTask, StatsTask, TicksTask
+from datapipeline.services.constants import (
+    SCALER_STATISTICS,
+    VECTOR_INPUTS,
+    VECTOR_SCHEMA,
+    VECTOR_SCHEMA_METADATA,
+    VECTOR_STATS,
+)
 
 
 @dataclass(frozen=True)
@@ -99,6 +105,22 @@ class ArtifactGraph:
 
         built_in_task_ids = {definition.task_id for definition in definitions}
         built_in_keys = {definition.key for definition in definitions}
+        tick_artifact_keys = tuple(
+            task.id
+            for task in tasks
+            if isinstance(task, TicksTask) and task.id not in built_in_task_ids
+        )
+        if tick_artifact_keys:
+            definitions = [
+                replace(
+                    definition,
+                    dependencies=(*definition.dependencies, *tick_artifact_keys),
+                )
+                if definition.key in {SCALER_STATISTICS, VECTOR_INPUTS}
+                else definition
+                for definition in definitions
+            ]
+
         for task in tasks:
             if task.id in built_in_task_ids:
                 continue
@@ -146,7 +168,70 @@ class ArtifactGraph:
             if (key := self.key_for_task(task_id)) is not None
         }
 
-    def select_keys(
+    def declared_artifact_keys(self) -> set[str]:
+        return self.keys_for_tasks(self.tasks_by_id)
+
+    def runtime_requirements(
+        self,
+        task: OperationTask,
+        *,
+        preview_index: int | None,
+    ) -> set[str]:
+        tick_artifacts = self.keys_for_tasks(
+            artifact_task.id
+            for artifact_task in self.tasks_by_id.values()
+            if isinstance(artifact_task, TicksTask)
+        )
+        if task.entrypoint == "core.runtime.pipeline":
+            if preview_index is None:
+                return {VECTOR_SCHEMA_METADATA, VECTOR_SCHEMA}
+            if preview_index < 0 or preview_index > 14:
+                raise ValueError("preview_index must be between 0 and 14")
+            if preview_index <= 6:
+                return set()
+            if preview_index <= 9:
+                return tick_artifacts
+            if preview_index <= 11:
+                return {SCALER_STATISTICS, *tick_artifacts}
+            if preview_index == 12:
+                return {VECTOR_SCHEMA_METADATA}
+            return {VECTOR_SCHEMA_METADATA, VECTOR_SCHEMA}
+        if task.entrypoint == "core.runtime.materialize_stream":
+            return tick_artifacts
+        if task.entrypoint in {
+            "core.runtime.coverage",
+            "core.runtime.matrix",
+            "core.runtime.thresholds",
+        }:
+            return {VECTOR_STATS}
+        return set()
+
+    def runtime_dependency_closure(
+        self,
+        task: OperationTask,
+        *,
+        preview_index: int | None,
+        dataset: FeatureDatasetConfig | None,
+    ) -> tuple[str, ...]:
+        roots = self.runtime_requirements(task, preview_index=preview_index)
+        if (
+            task.entrypoint == "core.runtime.pipeline"
+            and dataset is not None
+            and not dataset.features
+            and not dataset.targets
+        ):
+            return ()
+        keys = set(self.dependency_closure(roots))
+        if self.requires_dataset(keys):
+            if dataset is None:
+                raise ValueError(
+                    f"Runtime task '{task.id}' requires a feature dataset to "
+                    "resolve artifact dependencies."
+                )
+            keys = set(self.active_dependency_closure(roots, dataset))
+        return self.topological_order(keys)
+
+    def select_roots(
         self,
         *,
         required_artifacts: set[str] | None = None,
@@ -169,17 +254,30 @@ class ArtifactGraph:
             profile_keys = {key}
 
         if required_artifacts is None:
-            selected = (
+            return (
                 set(profile_keys)
                 if profile_keys is not None
-                else self.keys_for_tasks(self.tasks_by_id)
+                else self.declared_artifact_keys()
             )
-        else:
-            selected = set(required_artifacts)
-            if profile_keys is not None:
-                selected &= profile_keys
 
-        return set(self.dependency_closure(selected))
+        selected = set(required_artifacts)
+        if profile_keys is not None:
+            selected &= profile_keys
+        return selected
+
+    def select_keys(
+        self,
+        *,
+        required_artifacts: set[str] | None = None,
+        profile_target: str | None = None,
+        profile_name: str | None = None,
+    ) -> set[str]:
+        roots = self.select_roots(
+            required_artifacts=required_artifacts,
+            profile_target=profile_target,
+            profile_name=profile_name,
+        )
+        return set(self.dependency_closure(roots))
 
     def dependency_closure(self, roots: Iterable[str]) -> tuple[str, ...]:
         root_keys = set(roots)
@@ -193,6 +291,32 @@ class ArtifactGraph:
                 return
             selected.add(key)
             for dependency in self.definition(key).dependencies:
+                include(dependency)
+
+        for definition in self.definitions:
+            if definition.key in root_keys:
+                include(definition.key)
+        return self.topological_order(selected)
+
+    def active_dependency_closure(
+        self,
+        roots: Iterable[str],
+        dataset: FeatureDatasetConfig,
+    ) -> tuple[str, ...]:
+        root_keys = set(roots)
+        for key in root_keys:
+            self.definition(key)
+
+        selected: set[str] = set()
+
+        def include(key: str) -> None:
+            if key in selected:
+                return
+            definition = self.definition(key)
+            if not definition.is_required_for(dataset):
+                return
+            selected.add(key)
+            for dependency in definition.dependencies:
                 include(dependency)
 
         for definition in self.definitions:
@@ -224,13 +348,6 @@ class ArtifactGraph:
 
     def requires_dataset(self, keys: Iterable[str]) -> bool:
         return any(self.definition(key).requires_dataset() for key in keys)
-
-    def active_keys(
-        self,
-        keys: Iterable[str],
-        dataset: FeatureDatasetConfig,
-    ) -> set[str]:
-        return {key for key in keys if self.definition(key).is_required_for(dataset)}
 
     def validate_producers(self, keys: Iterable[str]) -> None:
         for key in self.topological_order(keys):
@@ -289,6 +406,13 @@ class ArtifactGraph:
             info = state.artifacts.get(key)
             if info is None:
                 missing.add(key)
+                continue
+            definition = self.definition(key)
+            producer = self.tasks_by_id.get(definition.task_id)
+            if producer is not None and Path(info.relative_path) != Path(
+                producer.output
+            ):
+                stale.add(key)
                 continue
             value = (info.meta or {}).get(hash_meta_key)
             artifact_hash = (

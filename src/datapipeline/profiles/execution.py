@@ -1,82 +1,98 @@
 import logging
+from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
 
-from datapipeline.artifacts.planning import build_artifact_graph
+from datapipeline.artifacts.hydration import hydrate_runtime_artifacts_for_project
+from datapipeline.artifacts.planning import ArtifactGraph
+from datapipeline.artifacts.validation import validate_artifact_plan
 from datapipeline.artifacts.executor import run_build_if_needed
-from datapipeline.build.state import load_build_state
 from datapipeline.config.build_resolution import BuildSettings
+from datapipeline.config.dataset.dataset import FeatureDatasetConfig
+from datapipeline.config.dataset.loader import load_dataset
 from datapipeline.config.tasks import ArtifactTask, OperationTask, Task
 from datapipeline.execution.observability import operation_scope
 from datapipeline.operations.dispatch import execute_operation
-from datapipeline.operations.persistence import (
-    persist_runtime_result,
-)
+from datapipeline.operations.persistence import persist_runtime_result
 from datapipeline.plugins import RUNTIME_OPERATIONS_EP
 from datapipeline.runtime import Runtime
-from datapipeline.services.bootstrap import build_state_path
-from datapipeline.services.constants import VECTOR_INPUTS
 
-from .models import (
-    ExecutionProfile,
-    ProfileRunRequest,
-)
+from .models import ExecutionProfile, ProfileRunRequest
 
 logger = logging.getLogger(__name__)
 
 
-def resolve_task_order(
+@dataclass(frozen=True)
+class ArtifactProfileTaskPlan:
+    task: ArtifactTask
+    artifact_key: str
+
+
+@dataclass(frozen=True)
+class RuntimeProfileTaskPlan:
+    task: OperationTask
+    required_artifacts: tuple[str, ...]
+
+
+ProfileTaskPlan = ArtifactProfileTaskPlan | RuntimeProfileTaskPlan
+
+
+def resolve_profile_task(
     profile: ExecutionProfile,
     tasks_by_id: dict[str, Task],
-) -> list[str]:
-    target_id = profile.target_id
-    if target_id not in tasks_by_id:
-        raise ValueError(f"Unknown task target '{target_id}'")
-    return [target_id]
+) -> Task:
+    try:
+        return tasks_by_id[profile.target_id]
+    except KeyError as exc:
+        raise ValueError(f"Unknown task target '{profile.target_id}'") from exc
 
 
-def artifact_task_ids_for_order(
-    ordered_ids: list[str],
-    tasks_by_id: dict[str, Task],
-) -> list[str]:
-    return [
-        task_id
-        for task_id in ordered_ids
-        if isinstance(tasks_by_id[task_id], ArtifactTask)
-    ]
+def plan_profile_task(
+    profile: ExecutionProfile,
+    task: Task,
+    graph: ArtifactGraph,
+    project_path: Path,
+) -> ProfileTaskPlan:
+    if isinstance(task, ArtifactTask):
+        artifact_key = graph.key_for_task(task.id)
+        if artifact_key is None:
+            raise ValueError(f"Artifact task '{task.id}' has no artifact definition.")
+        roots = {artifact_key}
+        artifact_keys = set(graph.dependency_closure(roots))
+        if graph.requires_dataset(artifact_keys):
+            dataset = load_dataset(project_path, "vectors")
+            artifact_keys = set(graph.active_dependency_closure(roots, dataset))
+        validate_artifact_plan(project_path, graph, artifact_keys)
+        return ArtifactProfileTaskPlan(task=task, artifact_key=artifact_key)
+    if not isinstance(task, OperationTask):
+        raise TypeError(f"Unsupported task type: {type(task).__name__}")
+    if profile.dataset is None:
+        raise ValueError(
+            f"Runtime profile '{profile.name}' is missing dataset context."
+        )
 
-
-def runtime_task_ids_for_order(
-    ordered_ids: list[str],
-    tasks_by_id: dict[str, Task],
-) -> list[str]:
-    return [
-        task_id
-        for task_id in ordered_ids
-        if isinstance(tasks_by_id[task_id], OperationTask)
-    ]
-
-
-def required_artifacts_for_task_ids(
-    request: ProfileRunRequest,
-    artifact_task_ids: list[str],
-) -> set[str]:
-    graph = build_artifact_graph(request.artifact_task_configs)
-    return graph.keys_for_tasks(artifact_task_ids)
+    feature_dataset = (
+        profile.dataset if isinstance(profile.dataset, FeatureDatasetConfig) else None
+    )
+    runtime_artifacts = graph.runtime_dependency_closure(
+        task,
+        preview_index=profile.preview_index,
+        dataset=feature_dataset,
+    )
+    validate_artifact_plan(project_path, graph, set(runtime_artifacts))
+    return RuntimeProfileTaskPlan(
+        task=task,
+        required_artifacts=runtime_artifacts,
+    )
 
 
 def run_selected_artifacts(
     request: ProfileRunRequest,
     profile: ExecutionProfile,
-    artifact_task_ids: list[str],
-    required_artifacts: set[str] | None = None,
+    graph: ArtifactGraph,
+    required_artifacts: set[str],
     runtime_override: Runtime | None = None,
 ) -> None:
-    selected_artifacts = set(required_artifacts or ())
-    selected_artifacts.update(
-        required_artifacts_for_task_ids(request, artifact_task_ids)
-    )
-    if not selected_artifacts:
+    if not required_artifacts:
         return
     settings = profile.build_settings
     if settings is None:
@@ -91,8 +107,8 @@ def run_selected_artifacts(
         )
     run_build_if_needed(
         request.project_path,
-        required_artifacts=selected_artifacts,
-        artifact_task_configs=list(request.artifact_task_configs),
+        required_artifacts=required_artifacts,
+        artifact_graph=graph,
         settings=settings,
         skip_logging_setup=True,
         runtime_override=runtime_override,
@@ -107,7 +123,7 @@ def run_runtime_task(
 ) -> None:
     if profile.dataset is None:
         raise ValueError(
-            f"Runtime profile '{profile.name}' is missing runtime context."
+            f"Runtime profile '{profile.name}' is missing dataset context."
         )
     try:
         with operation_scope(
@@ -138,83 +154,78 @@ def run_runtime_task(
         raise SystemExit(2) from exc
 
 
-def sync_runtime_artifacts_from_state(
-    runtime: Runtime,
-    project_path: Path,
-) -> None:
-    artifacts = getattr(runtime, "artifacts", None)
-    if artifacts is None or not hasattr(artifacts, "register"):
-        return
-    try:
-        state_path = build_state_path(project_path)
-    except Exception:
-        return
-    state = load_build_state(state_path)
-    if state is None:
-        return
-    for key, info in state.artifacts.items():
-        artifacts.register(
-            key,
-            relative_path=info.relative_path,
-            meta=info.meta,
-        )
-
-
 def execute_profile(
     profile: ExecutionProfile,
     request: ProfileRunRequest,
-    tasks_by_id: dict[str, Task],
-    ordered_ids: list[str],
+    task_plan: ProfileTaskPlan,
+    graph: ArtifactGraph,
     runtime_override: Runtime | None = None,
 ) -> None:
-    artifact_task_ids = artifact_task_ids_for_order(ordered_ids, tasks_by_id)
-    runtime_task_ids = runtime_task_ids_for_order(ordered_ids, tasks_by_id)
-    runtime_required_artifacts: set[str] = set()
-    for task_id in runtime_task_ids:
-        task = tasks_by_id[task_id]
-        if (
-            isinstance(task, OperationTask)
-            and task.entrypoint == "core.runtime.pipeline"
-        ):
-            runtime_required_artifacts.add(VECTOR_INPUTS)
-    runtime = runtime_override or profile.runtime
+    runtime = runtime_override if runtime_override is not None else profile.runtime
 
-    should_build_artifacts = bool(
-        (artifact_task_ids or runtime_required_artifacts)
-        and (profile.build_settings is not None or not request.skip_build)
+    if isinstance(task_plan, ArtifactProfileTaskPlan):
+        if profile.build_settings is not None or not request.skip_build:
+            run_selected_artifacts(
+                request=request,
+                profile=profile,
+                graph=graph,
+                required_artifacts={task_plan.artifact_key},
+                runtime_override=runtime,
+            )
+        return
+
+    task = task_plan.task
+    if runtime is None:
+        logger.error(
+            "Profile '%s' resolves runtime task '%s' but has no runtime context.",
+            profile.name,
+            task.id,
+        )
+        raise SystemExit(2)
+
+    feature_dataset = (
+        profile.dataset if isinstance(profile.dataset, FeatureDatasetConfig) else None
     )
-    if should_build_artifacts:
+    required_artifacts = task_plan.required_artifacts
+
+    if required_artifacts and (
+        profile.build_settings is not None or not request.skip_build
+    ):
         run_selected_artifacts(
             request=request,
             profile=profile,
-            artifact_task_ids=artifact_task_ids,
-            required_artifacts=runtime_required_artifacts,
+            graph=graph,
+            required_artifacts=set(required_artifacts),
             runtime_override=runtime,
         )
 
-    if not runtime_task_ids:
-        return
-
-    if runtime is None:
+    current_artifacts = set(
+        hydrate_runtime_artifacts_for_project(
+            runtime,
+            request.project_path,
+            graph=graph,
+            dataset=feature_dataset,
+        )
+    )
+    unavailable = [key for key in required_artifacts if key not in current_artifacts]
+    if unavailable:
         logger.error(
-            "Profile '%s' resolves runtime tasks but has no runtime context: %s",
-            profile.name,
-            ", ".join(runtime_task_ids),
+            "Runtime task '%s' requires missing or stale artifacts: %s.",
+            task.id,
+            ", ".join(unavailable),
         )
         raise SystemExit(2)
-    sync_runtime_artifacts_from_state(runtime, request.project_path)
-    for task_id in runtime_task_ids:
-        task = cast(OperationTask, tasks_by_id[task_id])
-        run_runtime_task(task, profile, runtime, command=request.command)
+
+    run_runtime_task(task, profile, runtime, command=request.command)
 
 
 __all__ = [
-    "artifact_task_ids_for_order",
+    "ArtifactProfileTaskPlan",
     "execute_profile",
-    "required_artifacts_for_task_ids",
-    "resolve_task_order",
+    "plan_profile_task",
+    "ProfileTaskPlan",
+    "resolve_profile_task",
+    "RuntimeProfileTaskPlan",
     "run_selected_artifacts",
     "run_runtime_task",
-    "runtime_task_ids_for_order",
-    "sync_runtime_artifacts_from_state",
 ]

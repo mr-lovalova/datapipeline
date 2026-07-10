@@ -3,7 +3,10 @@ from datetime import datetime, timezone
 
 import pytest
 
-from datapipeline.operations.artifacts.scaler import materialize_scaler_statistics
+from datapipeline.operations.artifacts.scaler import (
+    _scaled_configs,
+    materialize_scaler_statistics,
+)
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.config.split import HashSplitConfig, TimeSplitConfig
@@ -20,7 +23,9 @@ def _register_stream_identity(runtime: Runtime, stream_id: str = "stream") -> No
     runtime.registries.feature_id_by.register(stream_id, None)
 
 
-def test_materialize_scaler_statistics_split_all_ignores_label_filter(monkeypatch, tmp_path):
+def test_materialize_scaler_statistics_split_all_ignores_label_filter(
+    monkeypatch, tmp_path
+):
     artifacts_root = tmp_path / "artifacts"
     artifacts_root.mkdir()
     project_yaml = tmp_path / "project.yaml"
@@ -176,6 +181,34 @@ def test_materialize_scaler_statistics_skips_when_no_scaled_features(
     )
 
     assert result is None
+
+
+def test_managed_scaler_excludes_disabled_and_external_model_features() -> None:
+    configs = [
+        FeatureRecordConfig(
+            id="managed",
+            record_stream="stream",
+            field="managed",
+            scale=True,
+        ),
+        FeatureRecordConfig(
+            id="external",
+            record_stream="stream",
+            field="external",
+            scale={"model_path": "models/external.json"},
+        ),
+        FeatureRecordConfig(
+            id="disabled",
+            record_stream="stream",
+            field="disabled",
+            scale={},
+        ),
+    ]
+
+    selected = _scaled_configs(configs)
+
+    assert [config.id for config in selected] == ["managed"]
+    assert selected[0].scale is False
 
 
 def test_materialize_temporal_scaler_statistics_builds_fold_payload(

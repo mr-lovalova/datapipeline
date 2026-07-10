@@ -2,7 +2,10 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, Dict, Iterator
 
-from datapipeline.artifacts.specs import dataset_requires_scaler
+from datapipeline.artifacts.specs import (
+    dataset_requires_scaler,
+    feature_uses_managed_scaler,
+)
 from datapipeline.config.tasks import ScalerTask
 from datapipeline.config.dataset.loader import load_dataset
 from datapipeline.config.dataset.feature import FeatureRecordConfig
@@ -106,12 +109,11 @@ def materialize_scaler_statistics(
 
 
 def _scaled_configs(configs: list[FeatureRecordConfig]) -> list[FeatureRecordConfig]:
-    scaled: list[FeatureRecordConfig] = []
-    for cfg in configs:
-        scale = getattr(cfg, "scale", False)
-        if isinstance(scale, dict) or bool(scale):
-            scaled.append(cfg.model_copy(update={"scale": False}))
-    return scaled
+    return [
+        config.model_copy(update={"scale": False})
+        for config in configs
+        if feature_uses_managed_scaler(config)
+    ]
 
 
 def _split_feature_id(split_cfg) -> str | None:

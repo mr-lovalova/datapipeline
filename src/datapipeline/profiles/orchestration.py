@@ -1,8 +1,9 @@
 import logging
 
+from datapipeline.artifacts.planning import build_artifact_graph
 from datapipeline.profiles.executor import ProfileExecutionSpec, run_profile
 from datapipeline.cli.visuals.execution import execution_scope
-from datapipeline.services.bootstrap import bootstrap
+from datapipeline.services.bootstrap import bootstrap, bootstrap_build_runtime
 from datapipeline.services.executions import start_execution
 from datapipeline.services.runs import (
     finish_run_failed,
@@ -10,7 +11,12 @@ from datapipeline.services.runs import (
     set_latest_run,
     start_run,
 )
-from .execution import execute_profile, resolve_task_order
+from .execution import (
+    ArtifactProfileTaskPlan,
+    execute_profile,
+    plan_profile_task,
+    resolve_profile_task,
+)
 from .models import ProfileRunRequest, ServeRunPlan
 from .reporting import persist_profile_report
 
@@ -23,8 +29,25 @@ def run_profiles(request: ProfileRunRequest) -> None:
     if not profiles:
         return
     try:
-        task_orders = [resolve_task_order(profile, tasks_by_id) for profile in profiles]
-    except ValueError as exc:
+        graph = build_artifact_graph(request.artifact_task_configs)
+        profile_task_plans = [
+            plan_profile_task(
+                profile,
+                resolve_profile_task(profile, tasks_by_id),
+                graph,
+                request.project_path,
+            )
+            for profile in profiles
+        ]
+        profile_runtimes = []
+        for profile, task_plan in zip(profiles, profile_task_plans):
+            if profile.runtime is not None:
+                profile_runtimes.append(profile.runtime)
+            elif isinstance(task_plan, ArtifactProfileTaskPlan):
+                profile_runtimes.append(bootstrap_build_runtime(request.project_path))
+            else:
+                profile_runtimes.append(bootstrap(request.project_path))
+    except (TypeError, ValueError) as exc:
         logger.error("%s", exc)
         raise SystemExit(2) from exc
 
@@ -42,7 +65,7 @@ def run_profiles(request: ProfileRunRequest) -> None:
 
         total = len(profiles)
         for idx, profile in enumerate(profiles, start=1):
-            runtime = profile.runtime or bootstrap(request.project_path)
+            runtime = profile_runtimes[idx - 1]
             runtime.heartbeat_interval_seconds = profile.heartbeat_interval_seconds
             profile_path = persist_profile_report(
                 profile_kind=request.command,
@@ -65,9 +88,9 @@ def run_profiles(request: ProfileRunRequest) -> None:
                 profile_path=profile_path,
             )
 
-            ordered_ids = task_orders[idx - 1]
+            task_plan = profile_task_plans[idx - 1]
 
-            def work(profile=profile, runtime=runtime, ordered_ids=ordered_ids):
+            def work(profile=profile, runtime=runtime, task_plan=task_plan):
                 scope_target = profile.target_id
                 with execution_scope(
                     profile_kind=request.command,
@@ -78,8 +101,8 @@ def run_profiles(request: ProfileRunRequest) -> None:
                     return execute_profile(
                         profile=profile,
                         request=request,
-                        tasks_by_id=tasks_by_id,
-                        ordered_ids=ordered_ids,
+                        task_plan=task_plan,
+                        graph=graph,
                         runtime_override=runtime,
                     )
 

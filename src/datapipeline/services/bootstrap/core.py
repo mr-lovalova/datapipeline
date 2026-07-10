@@ -4,7 +4,6 @@ from typing import Any
 from datapipeline.utils.load import load_yaml
 from datapipeline.config.catalog import IngestConfig, StreamConfig, StreamsConfig
 from datapipeline.services.project_paths import ingests_dirs, streams_dirs, sources_dirs
-from datapipeline.build.state import load_build_state
 from datapipeline.services.constants import (
     PARSER_KEY,
     LOADER_KEY,
@@ -35,7 +34,6 @@ from datapipeline.config.postprocess import PostprocessConfig
 from datapipeline.services.config_refs import resolve_config_refs
 from .config import (
     artifacts_root,
-    build_state_path,
     _globals,
     _interpolate,
     _load_by_key,
@@ -87,9 +85,8 @@ def _load_source_yaml(
 
 
 def _is_source_yaml(data: dict[str, Any]) -> bool:
-    return (
-        isinstance(data.get(PARSER_KEY), dict)
-        and isinstance(data.get(LOADER_KEY), dict)
+    return isinstance(data.get(PARSER_KEY), dict) and isinstance(
+        data.get(LOADER_KEY), dict
     )
 
 
@@ -267,7 +264,9 @@ def _register_stream_policy(
     regs.stream_specs.register(alias, StreamRuntimeSpec(pipeline="stream"))
     regs.stream_operations.register(alias, spec.stream)
     regs.debug_operations.register(alias, spec.debug)
-    regs.partition_by.register(alias, stream_partition_by(ingests, stream_configs, spec))
+    regs.partition_by.register(
+        alias, stream_partition_by(ingests, stream_configs, spec)
+    )
     regs.feature_id_by.register(alias, spec.feature_id_by)
     regs.ordered_by.register(alias, spec.ordered_by)
     regs.sort_batch_size.register(alias, spec.sort_batch_size)
@@ -317,6 +316,15 @@ def bootstrap(project_yaml: Path) -> Runtime:
     Loads streams and postprocess config, fills registries, and wires artifacts
     under a per-project runtime instance.
     """
+    from datapipeline.artifacts.hydration import hydrate_runtime_artifacts_for_project
+
+    runtime = bootstrap_build_runtime(project_yaml)
+    hydrate_runtime_artifacts_for_project(runtime, project_yaml)
+    return runtime
+
+
+def bootstrap_build_runtime(project_yaml: Path) -> Runtime:
+    """Initialize project services without hydrating cached artifacts."""
     runtime = Runtime(
         project_yaml=project_yaml,
         artifacts_root=artifacts_root(project_yaml),
@@ -324,7 +332,6 @@ def bootstrap(project_yaml: Path) -> Runtime:
     _attach_project_config(runtime, project_yaml)
     init_streams(load_streams(project_yaml), runtime)
     _register_postprocesses(runtime, project_yaml)
-    _register_build_artifacts(runtime, project_yaml)
     return runtime
 
 
@@ -350,14 +357,3 @@ def _load_postprocess_transforms(project_yaml: Path):
     if post_doc is None:
         return None
     return PostprocessConfig.model_validate(post_doc).root
-
-
-def _register_build_artifacts(runtime: Runtime, project_yaml: Path) -> None:
-    state = load_build_state(build_state_path(project_yaml))
-    if state:
-        for key, info in state.artifacts.items():
-            runtime.artifacts.register(
-                key,
-                relative_path=info.relative_path,
-                meta=info.meta,
-            )

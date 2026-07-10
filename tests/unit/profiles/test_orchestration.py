@@ -4,8 +4,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from datapipeline.build.state import BuildState, save_build_state
+from datapipeline.config.dataset.dataset import FeatureDatasetConfig
+from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.config.tasks import (
+    ArtifactTask,
     MetadataTask,
     OperationTask,
     SchemaTask,
@@ -19,8 +21,11 @@ from datapipeline.profiles.models import (
 )
 from datapipeline.profiles.orchestration import run_profiles
 from datapipeline.services.artifacts import ArtifactManager
-from datapipeline.services.bootstrap import build_state_path
-from datapipeline.services.constants import VECTOR_INPUTS, VECTOR_SCHEMA
+from datapipeline.services.constants import (
+    VECTOR_INPUTS,
+    VECTOR_SCHEMA,
+    VECTOR_SCHEMA_METADATA,
+)
 from datapipeline.services.executions import ExecutionPaths
 from datapipeline.services.runs import RunPaths
 
@@ -29,6 +34,27 @@ def _log_config():
     return (
         SimpleNamespace(name="INFO", value=20),
         SimpleNamespace(outputs=()),
+    )
+
+
+def _dataset() -> FeatureDatasetConfig:
+    return FeatureDatasetConfig(
+        group_by="1h",
+        features=[
+            FeatureRecordConfig(
+                id="feature",
+                record_stream="stream",
+                field="value",
+            )
+        ],
+        targets=[],
+    )
+
+
+def _runtime(tmp_path):
+    return SimpleNamespace(
+        artifacts=ArtifactManager(tmp_path / "artifacts"),
+        heartbeat_interval_seconds=None,
     )
 
 
@@ -56,6 +82,7 @@ def _execution_paths(tmp_path):
 
 
 def test_run_profiles_executes_profile_target(monkeypatch, tmp_path):
+    vector_inputs = VectorInputsTask(id="vector_inputs")
     schema = SchemaTask(id="schema")
     metadata = MetadataTask(id="metadata")
     serve = OperationTask.model_validate(
@@ -71,8 +98,8 @@ def test_run_profiles_executes_profile_target(monkeypatch, tmp_path):
         command="serve",
         project_path=tmp_path / "project.yaml",
         execution=_execution_paths(tmp_path),
-        tasks=[schema, metadata, serve],
-        artifact_task_configs=[schema, metadata],
+        tasks=[vector_inputs, schema, metadata, serve],
+        artifact_task_configs=[vector_inputs, schema, metadata],
         profiles=[
             ExecutionProfile(
                 name="serve",
@@ -80,8 +107,8 @@ def test_run_profiles_executes_profile_target(monkeypatch, tmp_path):
                 visuals="on",
                 log_decision=log_decision,
                 log_output=log_output,
-                runtime=SimpleNamespace(),
-                dataset=object(),
+                runtime=_runtime(tmp_path),
+                dataset=_dataset(),
             )
         ],
     )
@@ -99,6 +126,14 @@ def test_run_profiles_executes_profile_target(monkeypatch, tmp_path):
     monkeypatch.setattr(
         "datapipeline.profiles.execution.execute_operation",
         lambda **kwargs: calls.__setitem__("dispatch", calls["dispatch"] + 1),
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.execution.hydrate_runtime_artifacts_for_project",
+        lambda *_args, **_kwargs: (
+            VECTOR_INPUTS,
+            VECTOR_SCHEMA,
+            VECTOR_SCHEMA_METADATA,
+        ),
     )
 
     run_profiles(request)
@@ -135,6 +170,180 @@ def test_run_profiles_rejects_unknown_target_before_starting_execution(tmp_path)
     assert not request.execution.root.exists()
 
 
+def test_run_profiles_rejects_unbound_artifact_before_side_effects(tmp_path):
+    artifact = ArtifactTask(
+        id="snapshot",
+        entrypoint="plugin.snapshot",
+        output="build/snapshot.json",
+    )
+    log_decision, log_output = _log_config()
+    request = ProfileRunRequest(
+        command="build",
+        project_path=tmp_path / "project.yaml",
+        execution=_execution_paths(tmp_path),
+        tasks=[artifact],
+        artifact_task_configs=[],
+        profiles=[
+            ExecutionProfile(
+                name="snapshot",
+                target_id="snapshot",
+                visuals="on",
+                log_decision=log_decision,
+                log_output=log_output,
+                runtime=_runtime(tmp_path),
+            )
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        run_profiles(request)
+
+    assert exc.value.code == 2
+    assert not request.execution.root.exists()
+
+
+def test_run_profiles_rejects_missing_artifact_dependency_before_side_effects(
+    monkeypatch,
+    tmp_path,
+):
+    schema = SchemaTask(id="schema")
+    log_decision, log_output = _log_config()
+    request = ProfileRunRequest(
+        command="build",
+        project_path=tmp_path / "project.yaml",
+        execution=_execution_paths(tmp_path),
+        tasks=[schema],
+        artifact_task_configs=[schema],
+        profiles=[
+            ExecutionProfile(
+                name="schema",
+                target_id="schema",
+                visuals="on",
+                log_decision=log_decision,
+                log_output=log_output,
+                runtime=_runtime(tmp_path),
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.execution.load_dataset",
+        lambda *_args, **_kwargs: _dataset(),
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        run_profiles(request)
+
+    assert exc.value.code == 2
+    assert not request.execution.root.exists()
+
+
+def test_run_profiles_rejects_missing_dataset_before_side_effects(tmp_path):
+    runtime_task = OperationTask(
+        id="custom",
+        entrypoint="plugin.runtime.custom",
+    )
+    run = _run_paths(tmp_path)
+    log_decision, log_output = _log_config()
+    request = ProfileRunRequest(
+        command="serve",
+        project_path=tmp_path / "project.yaml",
+        execution=_execution_paths(tmp_path),
+        tasks=[runtime_task],
+        artifact_task_configs=[],
+        profiles=[
+            ExecutionProfile(
+                name="custom",
+                target_id="custom",
+                visuals="on",
+                log_decision=log_decision,
+                log_output=log_output,
+                runtime=_runtime(tmp_path),
+            )
+        ],
+        serve_run_plans=(ServeRunPlan(run, None),),
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        run_profiles(request)
+
+    assert exc.value.code == 2
+    assert not request.execution.root.exists()
+    assert not run.run_root.exists()
+
+
+def test_run_profiles_rejects_missing_runtime_producer_before_side_effects(tmp_path):
+    schema = SchemaTask(id="schema")
+    metadata = MetadataTask(id="metadata")
+    pipeline = OperationTask(
+        id="pipeline",
+        entrypoint="core.runtime.pipeline",
+    )
+    run = _run_paths(tmp_path)
+    log_decision, log_output = _log_config()
+    request = ProfileRunRequest(
+        command="serve",
+        project_path=tmp_path / "project.yaml",
+        execution=_execution_paths(tmp_path),
+        tasks=[schema, metadata, pipeline],
+        artifact_task_configs=[schema, metadata],
+        profiles=[
+            ExecutionProfile(
+                name="serve",
+                target_id="pipeline",
+                visuals="on",
+                log_decision=log_decision,
+                log_output=log_output,
+                runtime=_runtime(tmp_path),
+                dataset=_dataset(),
+            )
+        ],
+        serve_run_plans=(ServeRunPlan(run, None),),
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        run_profiles(request)
+
+    assert exc.value.code == 2
+    assert not request.execution.root.exists()
+    assert not run.run_root.exists()
+
+
+def test_run_profiles_rejects_invalid_preview_before_side_effects(tmp_path):
+    pipeline = OperationTask(
+        id="pipeline",
+        entrypoint="core.runtime.pipeline",
+    )
+    run = _run_paths(tmp_path)
+    log_decision, log_output = _log_config()
+    request = ProfileRunRequest(
+        command="serve",
+        project_path=tmp_path / "project.yaml",
+        execution=_execution_paths(tmp_path),
+        tasks=[pipeline],
+        artifact_task_configs=[],
+        profiles=[
+            ExecutionProfile(
+                name="serve",
+                target_id="pipeline",
+                visuals="on",
+                log_decision=log_decision,
+                log_output=log_output,
+                runtime=_runtime(tmp_path),
+                dataset=_dataset(),
+                preview_index=15,
+            )
+        ],
+        serve_run_plans=(ServeRunPlan(run, 15),),
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        run_profiles(request)
+
+    assert exc.value.code == 2
+    assert not request.execution.root.exists()
+    assert not run.run_root.exists()
+
+
 def test_run_profiles_parent_scope_does_not_announce(monkeypatch, tmp_path):
     serve = OperationTask.model_validate(
         {
@@ -159,8 +368,9 @@ def test_run_profiles_parent_scope_does_not_announce(monkeypatch, tmp_path):
                 visuals="on",
                 log_decision=log_decision,
                 log_output=log_output,
-                runtime=SimpleNamespace(),
-                dataset=object(),
+                runtime=_runtime(tmp_path),
+                dataset=_dataset(),
+                preview_index=0,
             )
         ],
     )
@@ -184,14 +394,23 @@ def test_run_profiles_parent_scope_does_not_announce(monkeypatch, tmp_path):
         "datapipeline.profiles.execution.execute_operation",
         lambda **kwargs: None,
     )
+    monkeypatch.setattr(
+        "datapipeline.profiles.execution.hydrate_runtime_artifacts_for_project",
+        lambda *_args, **_kwargs: (),
+    )
 
     run_profiles(request)
 
     assert captured.get("announce") is False
 
 
-def test_run_profiles_can_skip_artifact_build(monkeypatch, tmp_path):
+def test_run_profiles_can_skip_build_when_runtime_artifacts_are_current(
+    monkeypatch,
+    tmp_path,
+):
+    vector_inputs = VectorInputsTask(id="vector_inputs")
     schema = SchemaTask(id="schema")
+    metadata = MetadataTask(id="metadata")
     serve = OperationTask.model_validate(
         {
             "id": "pipeline",
@@ -205,8 +424,8 @@ def test_run_profiles_can_skip_artifact_build(monkeypatch, tmp_path):
         command="serve",
         project_path=tmp_path / "project.yaml",
         execution=_execution_paths(tmp_path),
-        tasks=[schema, serve],
-        artifact_task_configs=[schema],
+        tasks=[vector_inputs, schema, metadata, serve],
+        artifact_task_configs=[vector_inputs, schema, metadata],
         skip_build=True,
         profiles=[
             ExecutionProfile(
@@ -215,8 +434,8 @@ def test_run_profiles_can_skip_artifact_build(monkeypatch, tmp_path):
                 visuals="on",
                 log_decision=log_decision,
                 log_output=log_output,
-                runtime=SimpleNamespace(),
-                dataset=object(),
+                runtime=_runtime(tmp_path),
+                dataset=_dataset(),
             )
         ],
     )
@@ -234,6 +453,14 @@ def test_run_profiles_can_skip_artifact_build(monkeypatch, tmp_path):
         "datapipeline.profiles.execution.execute_operation",
         lambda **kwargs: calls.__setitem__("dispatch", calls["dispatch"] + 1),
     )
+    monkeypatch.setattr(
+        "datapipeline.profiles.execution.hydrate_runtime_artifacts_for_project",
+        lambda *_args, **_kwargs: (
+            VECTOR_INPUTS,
+            VECTOR_SCHEMA,
+            VECTOR_SCHEMA_METADATA,
+        ),
+    )
 
     run_profiles(request)
 
@@ -241,8 +468,69 @@ def test_run_profiles_can_skip_artifact_build(monkeypatch, tmp_path):
     assert calls["dispatch"] == 1
 
 
-def test_run_profiles_requires_vector_inputs_for_pipeline_serve(monkeypatch, tmp_path):
+def test_run_profiles_skip_build_rejects_missing_runtime_artifacts(
+    monkeypatch,
+    tmp_path,
+):
     vector_inputs = VectorInputsTask(id="vector_inputs")
+    schema = SchemaTask(id="schema")
+    metadata = MetadataTask(id="metadata")
+    serve = OperationTask.model_validate(
+        {
+            "id": "pipeline",
+            "kind": "runtime",
+            "entrypoint": "core.runtime.pipeline",
+        }
+    )
+    log_decision, log_output = _log_config()
+    request = ProfileRunRequest(
+        command="serve",
+        project_path=tmp_path / "project.yaml",
+        execution=_execution_paths(tmp_path),
+        tasks=[vector_inputs, schema, metadata, serve],
+        artifact_task_configs=[vector_inputs, schema, metadata],
+        skip_build=True,
+        profiles=[
+            ExecutionProfile(
+                name="serve",
+                target_id="pipeline",
+                visuals="on",
+                log_decision=log_decision,
+                log_output=log_output,
+                runtime=_runtime(tmp_path),
+                dataset=_dataset(),
+            )
+        ],
+    )
+    calls = {"build": 0, "dispatch": 0}
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.run_profile",
+        lambda spec, work: work(),
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.execution.run_build_if_needed",
+        lambda *args, **kwargs: calls.__setitem__("build", calls["build"] + 1),
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.execution.execute_operation",
+        lambda **kwargs: calls.__setitem__("dispatch", calls["dispatch"] + 1),
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.execution.hydrate_runtime_artifacts_for_project",
+        lambda *_args, **_kwargs: (),
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        run_profiles(request)
+
+    assert exc.value.code == 2
+    assert calls == {"build": 0, "dispatch": 0}
+
+
+def test_run_profiles_requires_pipeline_artifact_closure(monkeypatch, tmp_path):
+    vector_inputs = VectorInputsTask(id="vector_inputs")
+    schema = SchemaTask(id="schema")
+    metadata = MetadataTask(id="metadata")
     serve = OperationTask.model_validate(
         {
             "id": "pipeline",
@@ -252,13 +540,13 @@ def test_run_profiles_requires_vector_inputs_for_pipeline_serve(monkeypatch, tmp
     )
 
     log_decision, log_output = _log_config()
-    runtime = SimpleNamespace(artifacts=ArtifactManager(tmp_path / "artifacts"))
+    runtime = _runtime(tmp_path)
     request = ProfileRunRequest(
         command="serve",
         project_path=tmp_path / "project.yaml",
         execution=_execution_paths(tmp_path),
-        tasks=[vector_inputs, serve],
-        artifact_task_configs=[vector_inputs],
+        tasks=[vector_inputs, schema, metadata, serve],
+        artifact_task_configs=[vector_inputs, schema, metadata],
         profiles=[
             ExecutionProfile(
                 name="serve",
@@ -267,7 +555,7 @@ def test_run_profiles_requires_vector_inputs_for_pipeline_serve(monkeypatch, tmp
                 log_decision=log_decision,
                 log_output=log_output,
                 runtime=runtime,
-                dataset=object(),
+                dataset=_dataset(),
             )
         ],
     )
@@ -286,8 +574,12 @@ def test_run_profiles_requires_vector_inputs_for_pipeline_serve(monkeypatch, tmp
         _capture_selected_artifacts,
     )
     monkeypatch.setattr(
-        "datapipeline.profiles.execution.sync_runtime_artifacts_from_state",
-        lambda *_args, **_kwargs: None,
+        "datapipeline.profiles.execution.hydrate_runtime_artifacts_for_project",
+        lambda *_args, **_kwargs: (
+            VECTOR_INPUTS,
+            VECTOR_SCHEMA,
+            VECTOR_SCHEMA_METADATA,
+        ),
     )
     monkeypatch.setattr(
         "datapipeline.profiles.execution.execute_operation",
@@ -296,10 +588,14 @@ def test_run_profiles_requires_vector_inputs_for_pipeline_serve(monkeypatch, tmp
 
     run_profiles(request)
 
-    assert seen["required_artifacts"] == {VECTOR_INPUTS}
+    assert seen["required_artifacts"] == {
+        VECTOR_INPUTS,
+        VECTOR_SCHEMA,
+        VECTOR_SCHEMA_METADATA,
+    }
 
 
-def test_run_profiles_syncs_runtime_artifacts_after_build(monkeypatch, tmp_path):
+def test_run_profiles_hydrates_runtime_artifacts_after_build(monkeypatch, tmp_path):
     (tmp_path / "project.yaml").write_text(
         "\n".join(
             [
@@ -318,7 +614,9 @@ def test_run_profiles_syncs_runtime_artifacts_after_build(monkeypatch, tmp_path)
         encoding="utf-8",
     )
 
+    vector_inputs = VectorInputsTask(id="vector_inputs")
     schema = SchemaTask(id="schema")
+    metadata = MetadataTask(id="metadata")
     serve = OperationTask.model_validate(
         {
             "id": "pipeline",
@@ -328,13 +626,13 @@ def test_run_profiles_syncs_runtime_artifacts_after_build(monkeypatch, tmp_path)
     )
 
     log_decision, log_output = _log_config()
-    runtime = SimpleNamespace(artifacts=ArtifactManager(tmp_path / "artifacts"))
+    runtime = _runtime(tmp_path)
     request = ProfileRunRequest(
         command="serve",
         project_path=tmp_path / "project.yaml",
         execution=_execution_paths(tmp_path),
-        tasks=[schema, serve],
-        artifact_task_configs=[schema],
+        tasks=[vector_inputs, schema, metadata, serve],
+        artifact_task_configs=[vector_inputs, schema, metadata],
         profiles=[
             ExecutionProfile(
                 name="serve",
@@ -343,18 +641,10 @@ def test_run_profiles_syncs_runtime_artifacts_after_build(monkeypatch, tmp_path)
                 log_decision=log_decision,
                 log_output=log_output,
                 runtime=runtime,
-                dataset=object(),
+                dataset=_dataset(),
             )
         ],
     )
-
-    state = BuildState(config_hash="hash-1")
-    state.register(
-        VECTOR_SCHEMA,
-        "build/metadata.json",
-        meta={"_config_hash": "hash-1"},
-    )
-    save_build_state(state, build_state_path(request.project_path))
 
     seen = {"synced": False}
 
@@ -374,25 +664,40 @@ def test_run_profiles_syncs_runtime_artifacts_after_build(monkeypatch, tmp_path)
         lambda **_kwargs: None,
     )
 
+    def _hydrate(runtime, *_args, **_kwargs):
+        runtime.artifacts.register(VECTOR_INPUTS, "build/vector_inputs.json")
+        runtime.artifacts.register(VECTOR_SCHEMA, "build/schema.json")
+        runtime.artifacts.register(VECTOR_SCHEMA_METADATA, "build/metadata.json")
+        return VECTOR_INPUTS, VECTOR_SCHEMA, VECTOR_SCHEMA_METADATA
+
+    monkeypatch.setattr(
+        "datapipeline.profiles.execution.hydrate_runtime_artifacts_for_project",
+        _hydrate,
+    )
+
     run_profiles(request)
 
     assert seen["synced"] is True
 
 
 def test_run_profiles_forward_runtime_build_settings(monkeypatch, tmp_path):
-    schema = SchemaTask(id="schema")
+    snapshot = ArtifactTask(
+        id="snapshot",
+        entrypoint="plugin.snapshot",
+        output="build/snapshot.json",
+    )
 
     log_decision, log_output = _log_config()
     request = ProfileRunRequest(
         command="serve",
         project_path=tmp_path / "project.yaml",
         execution=_execution_paths(tmp_path),
-        tasks=[schema],
-        artifact_task_configs=[schema],
+        tasks=[snapshot],
+        artifact_task_configs=[snapshot],
         profiles=[
             ExecutionProfile(
                 name="serve",
-                target_id="schema",
+                target_id="snapshot",
                 visuals="on",
                 log_decision=log_decision,
                 log_output=log_output,
@@ -428,7 +733,9 @@ def test_run_profiles_forward_runtime_build_settings(monkeypatch, tmp_path):
 def test_runtime_dependency_build_scope_isolated_from_parent_profile(
     monkeypatch, tmp_path
 ):
+    vector_inputs = VectorInputsTask(id="vector_inputs")
     schema = SchemaTask(id="schema")
+    metadata = MetadataTask(id="metadata")
     serve = OperationTask.model_validate(
         {
             "id": "pipeline",
@@ -442,8 +749,8 @@ def test_runtime_dependency_build_scope_isolated_from_parent_profile(
         command="inspect",
         project_path=tmp_path / "project.yaml",
         execution=_execution_paths(tmp_path),
-        tasks=[schema, serve],
-        artifact_task_configs=[schema],
+        tasks=[vector_inputs, schema, metadata, serve],
+        artifact_task_configs=[vector_inputs, schema, metadata],
         profiles=[
             ExecutionProfile(
                 name="coverage",
@@ -451,10 +758,8 @@ def test_runtime_dependency_build_scope_isolated_from_parent_profile(
                 visuals="on",
                 log_decision=log_decision,
                 log_output=log_output,
-                runtime=SimpleNamespace(
-                    artifacts=ArtifactManager(tmp_path / "artifacts")
-                ),
-                dataset=object(),
+                runtime=_runtime(tmp_path),
+                dataset=_dataset(),
             )
         ],
     )
@@ -477,8 +782,12 @@ def test_runtime_dependency_build_scope_isolated_from_parent_profile(
         lambda **kwargs: None,
     )
     monkeypatch.setattr(
-        "datapipeline.profiles.execution.sync_runtime_artifacts_from_state",
-        lambda *_args, **_kwargs: None,
+        "datapipeline.profiles.execution.hydrate_runtime_artifacts_for_project",
+        lambda *_args, **_kwargs: (
+            VECTOR_INPUTS,
+            VECTOR_SCHEMA,
+            VECTOR_SCHEMA_METADATA,
+        ),
     )
 
     run_profiles(request)
@@ -491,7 +800,7 @@ def test_run_profiles_finalize_shared_serve_run_once(monkeypatch, tmp_path):
         {
             "id": "pipeline",
             "kind": "runtime",
-            "entrypoint": "core.runtime.pipeline",
+            "entrypoint": "plugin.runtime",
         }
     )
     run_paths = _run_paths(tmp_path)
@@ -573,7 +882,7 @@ def test_run_profiles_fail_shared_serve_run_once_when_later_profile_errors(
         {
             "id": "pipeline",
             "kind": "runtime",
-            "entrypoint": "core.runtime.pipeline",
+            "entrypoint": "plugin.runtime",
         }
     )
     run_paths = _run_paths(tmp_path)
@@ -752,7 +1061,7 @@ def test_run_profiles_applies_each_profile_heartbeat_before_work(
         {
             "id": "pipeline",
             "kind": "runtime",
-            "entrypoint": "core.runtime.pipeline",
+            "entrypoint": "plugin.runtime",
         }
     )
     runtime = SimpleNamespace()
@@ -802,7 +1111,7 @@ def test_later_run_start_failure_marks_only_started_runs_failed(
         {
             "id": "pipeline",
             "kind": "runtime",
-            "entrypoint": "core.runtime.pipeline",
+            "entrypoint": "plugin.runtime",
         }
     )
     first_run = _run_paths(tmp_path / "first")

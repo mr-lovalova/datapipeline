@@ -56,8 +56,8 @@ class ArtifactManager:
             meta=dict(meta or {}),
         )
 
-    def unregister(self, key: str) -> None:
-        self._records.pop(key, None)
+    def clear(self) -> None:
+        self._records.clear()
 
     def has(self, key: str) -> bool:
         return key in self._records

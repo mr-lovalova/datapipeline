@@ -4,8 +4,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from datapipeline.artifacts.planning import build_artifact_graph
+from datapipeline.artifacts.hydration import hydrate_runtime_artifacts
+from datapipeline.artifacts.planning import ArtifactGraph, build_artifact_graph
 from datapipeline.artifacts.specs import ArtifactDefinition
+from datapipeline.artifacts.validation import validate_artifact_plan
 from datapipeline.build.state import (
     ArtifactInfo,
     BuildState,
@@ -30,7 +32,11 @@ from datapipeline.operations.dispatch import execute_operation
 from datapipeline.operations.persistence import ArtifactOutput, persist_artifact_output
 from datapipeline.plugins import BUILD_OPERATIONS_EP
 from datapipeline.runtime import Runtime
-from datapipeline.services.bootstrap import artifacts_root, bootstrap, build_state_path
+from datapipeline.services.bootstrap import (
+    artifacts_root,
+    bootstrap_build_runtime,
+    build_state_path,
+)
 from datapipeline.services.project_paths import tasks_dir
 
 logger = logging.getLogger(__name__)
@@ -65,6 +71,8 @@ class BuildPlan:
     config_hash: str
     state_path: Path
     previous_state: BuildState | None
+    graph: ArtifactGraph
+    hydration_artifacts: tuple[str, ...]
 
 
 BuildDecision = BuildPlan | SkippedBuild
@@ -160,29 +168,34 @@ def _plan_build(
     build_profile: BuildProfile | None,
     required_artifacts: set[str] | None,
     artifact_task_configs: list[ArtifactTask] | None,
+    artifact_graph: ArtifactGraph | None = None,
 ) -> BuildDecision:
     if settings.mode == "OFF" and required_artifacts is None and build_profile is None:
         return SkippedBuild(reason="mode_off", artifacts=())
 
-    task_configs = (
-        list(artifact_task_configs)
-        if artifact_task_configs is not None
-        else list(operation_specs(project_path)[0])
-    )
-    try:
-        graph = build_artifact_graph(task_configs)
-    except ValueError as exc:
-        logger.error("%s", exc)
-        raise SystemExit(2) from exc
+    if artifact_graph is None:
+        task_configs = (
+            list(artifact_task_configs)
+            if artifact_task_configs is not None
+            else list(operation_specs(project_path)[0])
+        )
+        try:
+            graph = build_artifact_graph(task_configs)
+        except ValueError as exc:
+            logger.error("%s", exc)
+            raise SystemExit(2) from exc
+    else:
+        graph = artifact_graph
 
     try:
-        selected_keys = graph.select_keys(
+        selected_roots = graph.select_roots(
             required_artifacts=required_artifacts,
             profile_target=(
                 build_profile.target if build_profile is not None else None
             ),
             profile_name=(build_profile.name if build_profile is not None else None),
         )
+        selected_keys = set(graph.dependency_closure(selected_roots))
     except ValueError as exc:
         logger.error("%s", exc)
         raise SystemExit(2) from exc
@@ -193,13 +206,13 @@ def _plan_build(
     dataset = None
     if graph.requires_dataset(selected_keys):
         dataset = load_dataset(project_path, "vectors")
-        selected_keys = graph.active_keys(selected_keys, dataset)
+        selected_keys = set(graph.active_dependency_closure(selected_roots, dataset))
     if not selected_keys:
         return SkippedBuild(reason="not_required", artifacts=())
 
     expanded_artifacts = graph.topological_order(selected_keys)
     try:
-        graph.validate_producers(selected_keys)
+        validate_artifact_plan(project_path, graph, selected_keys)
     except ValueError as exc:
         logger.error("%s", exc)
         raise SystemExit(2) from exc
@@ -238,9 +251,11 @@ def _plan_build(
     build_keys = set(selected_keys) if settings.force else set(freshness.outdated)
     skipped_current = tuple(key for key in expanded_artifacts if key not in build_keys)
     all_active_keys = (
-        graph.active_keys(
-            (definition.key for definition in graph.definitions),
-            dataset,
+        set(
+            graph.active_dependency_closure(
+                (definition.key for definition in graph.definitions),
+                dataset,
+            )
         )
         if dataset is not None
         else {definition.key for definition in graph.definitions}
@@ -269,16 +284,15 @@ def _plan_build(
         config_hash=config_hash,
         state_path=state_path,
         previous_state=previous_state,
+        graph=graph,
+        hydration_artifacts=expanded_artifacts,
     )
 
 
 def _execute_build_jobs(
     *,
     runtime: Runtime,
-    jobs: tuple[ArtifactBuildJob, ...],
-    previous_state: BuildState | None,
-    config_hash: str,
-    state_path: Path,
+    plan: BuildPlan,
 ) -> BuildState:
     previous_observer = runtime.execution_observer
     install_observer = previous_observer is None
@@ -292,18 +306,31 @@ def _execute_build_jobs(
         )
         with operation_observer(observer):
             current_state = _merge_build_state(
-                previous_state=previous_state,
+                previous_state=plan.previous_state,
                 built_artifacts={},
-                config_hash=config_hash,
+                config_hash=plan.config_hash,
             )
-            for job in jobs:
+            hydrate_runtime_artifacts(
+                runtime=runtime,
+                graph=plan.graph,
+                state=current_state,
+                config_hash=plan.config_hash,
+                artifact_keys=plan.hydration_artifacts,
+            )
+            for job in plan.jobs:
                 removed = False
                 for key in job.invalidated_artifacts:
-                    runtime.artifacts.unregister(key)
                     if current_state.artifacts.pop(key, None) is not None:
                         removed = True
                 if removed:
-                    save_build_state(current_state, state_path)
+                    save_build_state(current_state, plan.state_path)
+                hydrate_runtime_artifacts(
+                    runtime=runtime,
+                    graph=plan.graph,
+                    state=current_state,
+                    config_hash=plan.config_hash,
+                    artifact_keys=plan.hydration_artifacts,
+                )
 
                 result = _run_artifact_builder(
                     runtime=runtime,
@@ -317,9 +344,16 @@ def _execute_build_jobs(
                 current_state = _merge_build_state(
                     previous_state=current_state,
                     built_artifacts={job.definition.key: result},
-                    config_hash=config_hash,
+                    config_hash=plan.config_hash,
                 )
-                save_build_state(current_state, state_path)
+                save_build_state(current_state, plan.state_path)
+                hydrate_runtime_artifacts(
+                    runtime=runtime,
+                    graph=plan.graph,
+                    state=current_state,
+                    config_hash=plan.config_hash,
+                    artifact_keys=plan.hydration_artifacts,
+                )
             return current_state
     finally:
         if install_observer:
@@ -350,33 +384,6 @@ def _merge_build_state(
     return new_state
 
 
-def _artifact_config_hash(
-    info: ArtifactInfo,
-    state: BuildState,
-) -> str:
-    value = (info.meta or {}).get(_ARTIFACT_CONFIG_HASH_META_KEY)
-    if isinstance(value, str) and value.strip():
-        return value
-    return state.config_hash
-
-
-def _hydrate_runtime_artifacts_from_state(
-    *,
-    runtime: Runtime,
-    state: BuildState | None,
-    config_hash: str,
-) -> None:
-    if state is None:
-        return
-    artifacts = getattr(runtime, "artifacts", None)
-    if artifacts is None or not hasattr(artifacts, "register"):
-        return
-    for key, info in state.artifacts.items():
-        if _artifact_config_hash(info, state) != config_hash:
-            continue
-        artifacts.register(key, relative_path=info.relative_path, meta=info.meta)
-
-
 def run_build_if_needed(
     project: Path | str,
     force: bool = False,
@@ -388,6 +395,7 @@ def run_build_if_needed(
     required_artifacts: set[str] | None = None,
     build_profile: BuildProfile | None = None,
     artifact_task_configs: list[ArtifactTask] | None = None,
+    artifact_graph: ArtifactGraph | None = None,
     settings: BuildSettings | None = None,
     skip_logging_setup: bool = False,
     runtime_override: Runtime | None = None,
@@ -417,6 +425,7 @@ def run_build_if_needed(
         build_profile=build_profile,
         required_artifacts=required_artifacts,
         artifact_task_configs=artifact_task_configs,
+        artifact_graph=artifact_graph,
     )
     _log_build_decision(
         plan,
@@ -426,20 +435,14 @@ def run_build_if_needed(
         return False
 
     runtime = (
-        runtime_override if runtime_override is not None else bootstrap(project_path)
+        runtime_override
+        if runtime_override is not None
+        else bootstrap_build_runtime(project_path)
     )
     if settings.heartbeat_interval_seconds is not None:
         runtime.heartbeat_interval_seconds = settings.heartbeat_interval_seconds
-    _hydrate_runtime_artifacts_from_state(
-        runtime=runtime,
-        state=plan.previous_state,
-        config_hash=plan.config_hash,
-    )
     _execute_build_jobs(
         runtime=runtime,
-        jobs=plan.jobs,
-        previous_state=plan.previous_state,
-        config_hash=plan.config_hash,
-        state_path=plan.state_path,
+        plan=plan,
     )
     return True

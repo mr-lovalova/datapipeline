@@ -4,7 +4,7 @@ from datapipeline.config.dataset.dataset import (
     RecordDatasetConfig,
     FeatureDatasetConfig,
 )
-from datapipeline.services.bootstrap import _load_by_key, _globals, _interpolate
+from datapipeline.services.bootstrap.config import _globals, _interpolate, _load_by_key
 
 Stage = Literal["records", "features", "vectors"]
 

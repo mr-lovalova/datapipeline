@@ -14,11 +14,20 @@ from datapipeline.artifacts.planning import (
 from datapipeline.artifacts.specs import (
     ARTIFACT_DEFINITIONS,
     ArtifactDefinition,
+    dataset_requires_scaler,
+)
+from datapipeline.artifacts.validation import (
+    nested_tick_dependencies,
+    validate_artifact_plan,
 )
 from datapipeline.build.state import BuildState
+from datapipeline.config.catalog import StreamsConfig
+from datapipeline.config.dataset.dataset import FeatureDatasetConfig
+from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.config.tasks import (
     ArtifactTask,
     MetadataTask,
+    OperationTask,
     ScalerTask,
     SchemaTask,
     StatsTask,
@@ -137,6 +146,139 @@ def test_ticks_task_uses_task_id_as_artifact_key():
     keys = graph.keys_for_tasks({"dataset_ticks"})
 
     assert keys == {"dataset_ticks"}
+
+
+def test_tick_artifacts_feed_scaler_and_vector_inputs() -> None:
+    tick_task = TicksTask(
+        id="dataset_ticks",
+        stream="reference.stream",
+        output="build/dataset_ticks.jsonl",
+    )
+    graph = build_artifact_graph(
+        [
+            tick_task,
+            ScalerTask(id="scaler"),
+            VectorInputsTask(id="vector_inputs"),
+        ]
+    )
+
+    assert graph.definition(SCALER_STATISTICS).dependencies == ("dataset_ticks",)
+    assert graph.definition(VECTOR_INPUTS).dependencies == (
+        SCALER_STATISTICS,
+        "dataset_ticks",
+    )
+    assert graph.dependents_of({"dataset_ticks"}) == {
+        SCALER_STATISTICS,
+        VECTOR_INPUTS,
+        VECTOR_SCHEMA,
+        VECTOR_SCHEMA_METADATA,
+        VECTOR_STATS,
+    }
+
+
+def test_tick_artifact_rejects_artifact_cadence_in_upstream_stream(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    tick_task = TicksTask(
+        id="derived_ticks",
+        stream="derived",
+        output="build/derived-ticks.jsonl",
+    )
+    graph = build_artifact_graph([tick_task])
+    streams = StreamsConfig.model_validate(
+        {
+            "streams": {
+                "base": {
+                    "id": "base",
+                    "from": {"stream": "raw"},
+                    "stream": [
+                        {
+                            "ensure_cadence": {
+                                "field": "value",
+                                "cadence": "base_ticks",
+                            }
+                        }
+                    ],
+                },
+                "derived": {
+                    "id": "derived",
+                    "from": {"stream": "base"},
+                },
+            }
+        }
+    )
+    monkeypatch.setattr(
+        "datapipeline.artifacts.validation.load_streams",
+        lambda _project_path: streams,
+    )
+
+    dependencies = nested_tick_dependencies(
+        tmp_path / "project.yaml",
+        graph,
+        {"derived_ticks"},
+    )
+    assert len(dependencies) == 1
+    assert dependencies[0].task is tick_task
+    assert dependencies[0].cadence_artifacts == {"base_ticks"}
+
+    with pytest.raises(ValueError, match="Nested tick artifact dependencies"):
+        validate_artifact_plan(tmp_path / "project.yaml", graph, {"derived_ticks"})
+
+
+def test_tick_artifact_allows_duration_cadence(monkeypatch, tmp_path) -> None:
+    tick_task = TicksTask(
+        id="hourly_ticks",
+        stream="hourly",
+        output="build/hourly-ticks.jsonl",
+    )
+    graph = build_artifact_graph([tick_task])
+    streams = StreamsConfig.model_validate(
+        {
+            "streams": {
+                "hourly": {
+                    "id": "hourly",
+                    "from": {"stream": "raw"},
+                    "stream": [
+                        {
+                            "ensure_cadence": {
+                                "field": "value",
+                                "cadence": "1h",
+                            }
+                        }
+                    ],
+                }
+            }
+        }
+    )
+    monkeypatch.setattr(
+        "datapipeline.artifacts.validation.load_streams",
+        lambda _project_path: streams,
+    )
+
+    validate_artifact_plan(tmp_path / "project.yaml", graph, {"hourly_ticks"})
+
+
+def test_inactive_scaler_prunes_its_tick_dependency() -> None:
+    tick_task = TicksTask(
+        id="dataset_ticks",
+        stream="reference.stream",
+        output="build/dataset_ticks.jsonl",
+    )
+    graph = build_artifact_graph([tick_task, ScalerTask(id="scaler")])
+    dataset = FeatureDatasetConfig(group_by="1h", features=[], targets=[])
+
+    assert (
+        graph.active_dependency_closure(
+            {SCALER_STATISTICS},
+            dataset,
+        )
+        == ()
+    )
+    assert graph.active_dependency_closure(
+        {SCALER_STATISTICS, "dataset_ticks"},
+        dataset,
+    ) == ("dataset_ticks",)
 
 
 def test_generic_artifact_task_is_a_dependency_free_leaf():
@@ -261,6 +403,224 @@ def test_artifact_with_missing_file_is_not_current(tmp_path):
 
     assert freshness.missing == {"result"}
     assert freshness.outdated == {"result"}
+
+
+def test_artifact_at_path_other_than_declared_output_is_stale(tmp_path):
+    task = ArtifactTask(
+        id="snapshot",
+        entrypoint="plugin.snapshot",
+        output="declared.json",
+    )
+    graph = build_artifact_graph([task])
+    (tmp_path / "legacy.json").write_text("{}", encoding="utf-8")
+    state = BuildState(config_hash="current")
+    state.register(
+        "snapshot",
+        "legacy.json",
+        meta={"_config_hash": "current"},
+    )
+
+    freshness = graph.freshness(
+        keys={"snapshot"},
+        state=state,
+        config_hash="current",
+        artifacts_root=tmp_path,
+    )
+
+    assert freshness.stale == {"snapshot"}
+    assert freshness.outdated == {"snapshot"}
+
+
+@pytest.mark.parametrize(
+    ("preview_index", "expected"),
+    [
+        (None, {VECTOR_SCHEMA_METADATA, VECTOR_SCHEMA}),
+        (0, set()),
+        (9, set()),
+        (10, {SCALER_STATISTICS}),
+        (11, {SCALER_STATISTICS}),
+        (12, {VECTOR_SCHEMA_METADATA}),
+        (13, {VECTOR_SCHEMA_METADATA, VECTOR_SCHEMA}),
+        (14, {VECTOR_SCHEMA_METADATA, VECTOR_SCHEMA}),
+    ],
+)
+def test_pipeline_runtime_requirements_follow_preview_stage(
+    preview_index,
+    expected,
+):
+    graph = build_artifact_graph([])
+    task = OperationTask(
+        id="pipeline",
+        entrypoint="core.runtime.pipeline",
+    )
+
+    assert (
+        graph.runtime_requirements(
+            task,
+            preview_index=preview_index,
+        )
+        == expected
+    )
+
+
+@pytest.mark.parametrize("preview_index", [7, 8, 9, 10, 11])
+def test_pipeline_stream_and_feature_previews_require_declared_ticks(
+    preview_index: int,
+) -> None:
+    tick_task = TicksTask(
+        id="dataset_ticks",
+        stream="reference.stream",
+        output="build/dataset_ticks.jsonl",
+    )
+    graph = build_artifact_graph([tick_task])
+    task = OperationTask(id="pipeline", entrypoint="core.runtime.pipeline")
+
+    assert "dataset_ticks" in graph.runtime_requirements(
+        task,
+        preview_index=preview_index,
+    )
+
+
+def test_runtime_stream_materialization_requires_declared_ticks() -> None:
+    tick_task = TicksTask(
+        id="dataset_ticks",
+        stream="reference.stream",
+        output="build/dataset_ticks.jsonl",
+    )
+    graph = build_artifact_graph([tick_task])
+    task = OperationTask(
+        id="materialize",
+        entrypoint="core.runtime.materialize_stream",
+        options={"stream": "derived.stream"},
+    )
+
+    assert graph.runtime_requirements(task, preview_index=None) == {"dataset_ticks"}
+
+
+def test_invalid_pipeline_preview_is_rejected_for_empty_dataset() -> None:
+    graph = build_artifact_graph([])
+    task = OperationTask(id="pipeline", entrypoint="core.runtime.pipeline")
+    dataset = FeatureDatasetConfig(group_by="1h")
+
+    with pytest.raises(ValueError, match="preview_index must be between 0 and 14"):
+        graph.runtime_dependency_closure(
+            task,
+            preview_index=15,
+            dataset=dataset,
+        )
+
+
+def test_runtime_dependency_closure_uses_stats_task_mode():
+    graph = build_artifact_graph(
+        [
+            VectorInputsTask(id="vector_inputs"),
+            MetadataTask(id="metadata"),
+            StatsTask(id="stats", mode="raw"),
+        ]
+    )
+    task = OperationTask(
+        id="coverage",
+        entrypoint="core.runtime.coverage",
+    )
+    dataset = FeatureDatasetConfig(group_by="1h", features=[], targets=[])
+
+    assert graph.runtime_dependency_closure(
+        task,
+        preview_index=None,
+        dataset=dataset,
+    ) == (VECTOR_INPUTS, VECTOR_SCHEMA_METADATA, VECTOR_STATS)
+
+
+def test_external_scaler_model_does_not_require_managed_scaler_artifact():
+    graph = build_artifact_graph(
+        [
+            VectorInputsTask(id="vector_inputs"),
+            MetadataTask(id="metadata"),
+            SchemaTask(id="schema"),
+        ]
+    )
+    task = OperationTask(id="pipeline", entrypoint="core.runtime.pipeline")
+    dataset = FeatureDatasetConfig(
+        group_by="1h",
+        features=[
+            FeatureRecordConfig(
+                id="price",
+                record_stream="prices",
+                field="close",
+                scale={"model_path": "models/price-scaler.json"},
+            )
+        ],
+    )
+
+    assert (
+        graph.runtime_dependency_closure(
+            task,
+            preview_index=10,
+            dataset=dataset,
+        )
+        == ()
+    )
+    assert graph.runtime_dependency_closure(
+        task,
+        preview_index=None,
+        dataset=dataset,
+    ) == (VECTOR_INPUTS, VECTOR_SCHEMA, VECTOR_SCHEMA_METADATA)
+
+
+@pytest.mark.parametrize(
+    ("scale", "expected"),
+    [
+        (False, False),
+        ({}, False),
+        ({"model_path": "models/price-scaler.json"}, False),
+        (True, True),
+        ({"method": "standard"}, True),
+    ],
+)
+def test_dataset_scaler_requirement_matches_transform_behavior(scale, expected):
+    dataset = FeatureDatasetConfig(
+        group_by="1h",
+        features=[
+            FeatureRecordConfig(
+                id="price",
+                record_stream="prices",
+                field="close",
+                scale=scale,
+            )
+        ],
+    )
+
+    assert dataset_requires_scaler(dataset) is expected
+
+
+def test_empty_pipeline_dataset_has_no_runtime_artifact_requirements():
+    graph = build_artifact_graph([])
+    task = OperationTask(id="pipeline", entrypoint="core.runtime.pipeline")
+    dataset = FeatureDatasetConfig(group_by="1h")
+
+    assert (
+        graph.runtime_dependency_closure(
+            task,
+            preview_index=None,
+            dataset=dataset,
+        )
+        == ()
+    )
+    assert (
+        graph.runtime_dependency_closure(
+            task,
+            preview_index=10,
+            dataset=dataset,
+        )
+        == ()
+    )
+
+
+def test_custom_runtime_task_has_no_inferred_artifact_dependencies():
+    graph = build_artifact_graph([])
+    task = OperationTask(id="pipeline", entrypoint="plugin.runtime.pipeline")
+
+    assert graph.runtime_requirements(task, preview_index=None) == set()
 
 
 def test_artifact_definitions_have_runner_bound_entrypoints():
