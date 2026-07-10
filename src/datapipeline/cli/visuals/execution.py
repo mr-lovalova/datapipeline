@@ -27,7 +27,7 @@ from datapipeline.execution.observability import (
     OperationEvent as ObservedOperationEvent,
     OperationFinished as ObservedOperationFinished,
     OperationInfo as ObservedOperationInfo,
-    OperationProgress as ObservedOperationProgress,
+    OperationProgressEvent as ObservedOperationProgress,
     OperationStarted as ObservedOperationStarted,
     OperationStatus,
 )

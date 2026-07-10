@@ -27,7 +27,7 @@ class OperationInfo(_OperationEvent):
 
 
 @dataclass(frozen=True, kw_only=True)
-class OperationProgress(_OperationEvent):
+class OperationProgressEvent(_OperationEvent):
     step: str
     message: str
 
@@ -41,7 +41,7 @@ class OperationFinished(_OperationEvent):
 
 
 OperationEvent = (
-    OperationStarted | OperationInfo | OperationProgress | OperationFinished
+    OperationStarted | OperationInfo | OperationProgressEvent | OperationFinished
 )
 
 
@@ -152,7 +152,7 @@ def emit_operation_progress(step: str, message: str) -> bool:
     if context is None or context.observer is None:
         return False
     context.observer.emit_operation_event(
-        OperationProgress(
+        OperationProgressEvent(
             name=context.name,
             depth=context.depth,
             step=step,
@@ -162,7 +162,7 @@ def emit_operation_progress(step: str, message: str) -> bool:
     return True
 
 
-class OperationProgressTracker:
+class OperationProgress:
     def __init__(self, step: str, interval_seconds: float) -> None:
         interval = float(interval_seconds)
         if interval < 0:
@@ -188,12 +188,16 @@ class OperationProgressTracker:
         )
 
 
+OperationProgressTracker = OperationProgress
+
+
 __all__ = [
     "OperationEvent",
     "OperationFinished",
     "OperationInfo",
     "OperationObserver",
     "OperationProgress",
+    "OperationProgressEvent",
     "OperationProgressTracker",
     "OperationStarted",
     "OperationStatus",
