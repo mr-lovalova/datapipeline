@@ -1,12 +1,17 @@
 import logging
-import time
+import threading
 from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from datapipeline.dag.events import DagParentRef, DagRunEvent, NodeExecutionEvent
+from datapipeline.dag.events import (
+    DagParentRef,
+    DagRunEvent,
+    NodeExecutionEvent,
+    NodeProgressEvent,
+)
 from datapipeline.dag.observer import LoggingExecutionObserver
 from datapipeline.dag import runner as dag_runner
 from datapipeline.dag.runner import run_dag
@@ -22,9 +27,10 @@ class _CollectingObserver:
         self.dag_start_depths: list[int] = []
         self.dag_start_parents: list[DagParentRef | None] = []
         self.node_started: list[tuple[str, str, int]] = []
-        self.node_events = []
-        self.node_progress_events = []
-        self.dag_events = []
+        self.node_events: list[NodeExecutionEvent] = []
+        self.node_progress_events: list[NodeProgressEvent] = []
+        self.dag_events: list[DagRunEvent] = []
+        self._progress_condition = threading.Condition()
 
     def on_dag_start(
         self,
@@ -52,14 +58,24 @@ class _CollectingObserver:
     ) -> None:
         self.node_started.append((dag_name, node_name, node_index))
 
-    def on_node_end(self, event) -> None:
+    def on_node_end(self, event: NodeExecutionEvent) -> None:
         self.node_events.append(event)
 
-    def on_node_progress(self, event) -> None:
-        self.node_progress_events.append(event)
+    def on_node_progress(self, event: NodeProgressEvent) -> None:
+        with self._progress_condition:
+            self.node_progress_events.append(event)
+            self._progress_condition.notify_all()
 
-    def on_dag_end(self, event) -> None:
+    def on_dag_end(self, event: DagRunEvent) -> None:
         self.dag_events.append(event)
+
+    def wait_for_next_heartbeat(self) -> bool:
+        with self._progress_condition:
+            heartbeat_count = len(_heartbeat_events(self))
+            return self._progress_condition.wait_for(
+                lambda: len(_heartbeat_events(self)) > heartbeat_count,
+                timeout=1.0,
+            )
 
 
 def _context(tmp_path: Path) -> PipelineContext:
@@ -71,13 +87,21 @@ def _context(tmp_path: Path) -> PipelineContext:
     return PipelineContext(runtime)
 
 
+def _heartbeat_events(observer: _CollectingObserver) -> list[NodeProgressEvent]:
+    return [
+        event
+        for event in observer.node_progress_events
+        if event.message.startswith("running elapsed=")
+    ]
+
+
 def test_dag_upto_node_filters_nodes() -> None:
     dag = Dag(
         name="demo",
         nodes=(
             PipelineNode(name="a", op=lambda: [1]),
-            PipelineNode(name="b", op=lambda up: up or (), input="a"),
-            PipelineNode(name="c", op=lambda up: up or (), input="b"),
+            PipelineNode(name="b", op=lambda up: up, input="a"),
+            PipelineNode(name="c", op=lambda up: up, input="b"),
         ),
     )
 
@@ -119,7 +143,7 @@ def test_run_dag_emits_node_and_dag_events(tmp_path: Path) -> None:
             PipelineNode(name="seed", op=lambda: [1, 2, 3]),
             PipelineNode(
                 name="plus_one",
-                op=lambda up: (x + 1 for x in (up or ())),
+                op=lambda up: (x + 1 for x in up),
                 input="seed",
             ),
         ),
@@ -130,7 +154,9 @@ def test_run_dag_emits_node_and_dag_events(tmp_path: Path) -> None:
 
     assert observer.dag_started == [("linear-demo", 2)]
     assert [name for _, name, _ in observer.node_started] == ["plus_one", "seed"]
+    assert [node_index for _, _, node_index in observer.node_started] == [1, 0]
     assert [event.node_name for event in observer.node_events] == ["seed", "plus_one"]
+    assert [event.node_index for event in observer.node_events] == [0, 1]
     assert [event.status for event in observer.node_events] == ["success", "success"]
     assert [event.output_items for event in observer.node_events] == [3, 3]
     assert [event.depth for event in observer.node_events] == [1, 1]
@@ -171,7 +197,7 @@ def test_downstream_progress_after_input_read_uses_downstream_node_context(
     ctx = _context(tmp_path)
 
     def _consume_with_progress(up):
-        for item in up or ():
+        for item in up:
             dag_runner.emit_node_progress("after input read")
             yield item
 
@@ -203,7 +229,7 @@ def test_run_dag_emits_heartbeat_for_quiet_node(tmp_path: Path, monkeypatch) -> 
     ctx = _context(tmp_path)
 
     def _quiet_work():
-        time.sleep(0.05)
+        assert observer.wait_for_next_heartbeat()
         yield 1
 
     dag = Dag(
@@ -213,11 +239,7 @@ def test_run_dag_emits_heartbeat_for_quiet_node(tmp_path: Path, monkeypatch) -> 
 
     assert list(run_dag(ctx, dag, observer=observer)) == [1]
 
-    heartbeats = [
-        event
-        for event in observer.node_progress_events
-        if event.message.startswith("running elapsed=")
-    ]
+    heartbeats = _heartbeat_events(observer)
     assert heartbeats
     assert heartbeats[0].dag_name == "heartbeat-demo"
     assert heartbeats[0].node_name == "produce"
@@ -230,7 +252,7 @@ def test_run_dag_uses_context_heartbeat_interval(tmp_path: Path) -> None:
     ctx.heartbeat_interval_seconds = 0.01
 
     def _quiet_work():
-        time.sleep(0.05)
+        assert observer.wait_for_next_heartbeat()
         yield 1
 
     dag = Dag(
@@ -240,23 +262,25 @@ def test_run_dag_uses_context_heartbeat_interval(tmp_path: Path) -> None:
 
     assert list(run_dag(ctx, dag, observer=observer)) == [1]
 
-    heartbeats = [
-        event
-        for event in observer.node_progress_events
-        if event.message.startswith("running elapsed=")
-    ]
+    heartbeats = _heartbeat_events(observer)
     assert heartbeats
     assert heartbeats[0].dag_name == "heartbeat-config-demo"
     assert heartbeats[0].node_name == "produce"
 
 
-def test_run_dag_disables_heartbeat_when_interval_is_zero(tmp_path: Path) -> None:
+def test_run_dag_disables_heartbeat_when_interval_is_zero(
+    tmp_path: Path, monkeypatch
+) -> None:
     observer = _CollectingObserver()
     ctx = _context(tmp_path)
     ctx.heartbeat_interval_seconds = 0
+    monkeypatch.setattr(
+        dag_runner._RunHeartbeat,
+        "start",
+        lambda self: pytest.fail("heartbeat started for a zero interval"),
+    )
 
     def _quiet_work():
-        time.sleep(0.05)
         yield 1
 
     dag = Dag(
@@ -265,11 +289,7 @@ def test_run_dag_disables_heartbeat_when_interval_is_zero(tmp_path: Path) -> Non
     )
 
     assert list(run_dag(ctx, dag, observer=observer)) == [1]
-    assert [
-        event
-        for event in observer.node_progress_events
-        if event.message.startswith("running elapsed=")
-    ] == []
+    assert _heartbeat_events(observer) == []
 
 
 def test_run_dag_heartbeat_preserves_contextvars(tmp_path: Path, monkeypatch) -> None:
@@ -278,15 +298,15 @@ def test_run_dag_heartbeat_preserves_contextvars(tmp_path: Path, monkeypatch) ->
     observed_markers: list[str | None] = []
 
     class ContextObserver(_CollectingObserver):
-        def on_node_progress(self, event) -> None:
-            super().on_node_progress(event)
+        def on_node_progress(self, event: NodeProgressEvent) -> None:
             observed_markers.append(marker.get())
+            super().on_node_progress(event)
 
     observer = ContextObserver()
     ctx = _context(tmp_path)
 
     def _quiet_work():
-        time.sleep(0.05)
+        assert observer.wait_for_next_heartbeat()
         yield 1
 
     dag = Dag(
@@ -300,11 +320,7 @@ def test_run_dag_heartbeat_preserves_contextvars(tmp_path: Path, monkeypatch) ->
     finally:
         marker.reset(token)
 
-    heartbeats = [
-        event
-        for event in observer.node_progress_events
-        if event.message.startswith("running elapsed=")
-    ]
+    heartbeats = _heartbeat_events(observer)
     assert heartbeats
     assert "visual-context" in observed_markers
 
@@ -318,22 +334,18 @@ def test_run_dag_emits_heartbeat_while_node_is_yielding_items(
     ctx = _context(tmp_path)
 
     def _busy_stream():
-        for item in range(20):
-            time.sleep(0.003)
-            yield item
+        yield 0
+        assert observer.wait_for_next_heartbeat()
+        yield 1
 
     dag = Dag(
         name="heartbeat-demo",
         nodes=(PipelineNode(name="produce", op=_busy_stream),),
     )
 
-    assert list(run_dag(ctx, dag, observer=observer)) == list(range(20))
+    assert list(run_dag(ctx, dag, observer=observer)) == [0, 1]
 
-    heartbeats = [
-        event
-        for event in observer.node_progress_events
-        if event.message.startswith("running elapsed=")
-    ]
+    heartbeats = _heartbeat_events(observer)
     assert heartbeats
     assert heartbeats[-1].dag_name == "heartbeat-demo"
     assert heartbeats[-1].node_name == "produce"
@@ -349,11 +361,11 @@ def test_heartbeat_reports_upstream_leaf_while_downstream_waits_for_input(
     ctx = _context(tmp_path)
 
     def _source():
-        time.sleep(0.05)
+        assert observer.wait_for_next_heartbeat()
         yield 1
 
     def _consume(up):
-        for item in up or ():
+        for item in up:
             yield item
 
     dag = Dag(
@@ -366,11 +378,7 @@ def test_heartbeat_reports_upstream_leaf_while_downstream_waits_for_input(
 
     assert list(run_dag(ctx, dag, observer=observer)) == [1]
 
-    heartbeats = [
-        event
-        for event in observer.node_progress_events
-        if event.message.startswith("running elapsed=")
-    ]
+    heartbeats = _heartbeat_events(observer)
     assert heartbeats
     assert heartbeats[0].dag_name == "heartbeat-leaf-demo"
     assert heartbeats[0].node_name == "source"
@@ -388,8 +396,8 @@ def test_heartbeat_returns_to_downstream_node_after_upstream_is_exhausted(
         yield 1
 
     def _sort_like(up):
-        values = list(up or ())
-        time.sleep(0.05)
+        values = list(up)
+        assert observer.wait_for_next_heartbeat()
         yield values[0]
 
     dag = Dag(
@@ -402,11 +410,7 @@ def test_heartbeat_returns_to_downstream_node_after_upstream_is_exhausted(
 
     assert list(run_dag(ctx, dag, observer=observer)) == [1]
 
-    heartbeats = [
-        event
-        for event in observer.node_progress_events
-        if event.message.startswith("running elapsed=")
-    ]
+    heartbeats = _heartbeat_events(observer)
     assert heartbeats
     assert heartbeats[-1].dag_name == "heartbeat-downstream-demo"
     assert heartbeats[-1].node_name == "order_records"
@@ -443,12 +447,31 @@ def test_run_dag_ignores_node_progress_when_observer_does_not_support_it(
     assert list(run_dag(ctx, dag, observer=MinimalObserver())) == [1]
 
 
+def test_run_dag_restores_context_when_dag_start_fails(tmp_path: Path) -> None:
+    class FailingStartObserver(_CollectingObserver):
+        def on_dag_start(self, **kwargs) -> None:
+            raise RuntimeError("observer start failed")
+
+    observer = FailingStartObserver()
+    dag = Dag(
+        name="start-error",
+        nodes=(PipelineNode(name="produce", op=lambda: [1]),),
+    )
+
+    with pytest.raises(RuntimeError, match="observer start failed"):
+        list(run_dag(_context(tmp_path), dag, observer=observer))
+
+    assert dag_runner._current_run_dag_depth() == 0
+    assert dag_runner._CURRENT_ROOT_RUN.get() is None
+    assert observer.dag_events == []
+
+
 def test_run_dag_propagates_error_and_marks_failure(tmp_path: Path) -> None:
     observer = _CollectingObserver()
     ctx = _context(tmp_path)
 
     def _explode(up):
-        for value in up or ():
+        for value in up:
             if value == 2:
                 raise RuntimeError("boom")
             yield value
@@ -483,7 +506,7 @@ def test_run_dag_keyboard_interrupt_marks_failure(tmp_path: Path) -> None:
     ctx = _context(tmp_path)
 
     def _interrupt(up):
-        for value in up or ():
+        for value in up:
             if value == 2:
                 raise KeyboardInterrupt()
             yield value
@@ -511,8 +534,16 @@ def test_run_dag_keyboard_interrupt_marks_failure(tmp_path: Path) -> None:
     assert observer.dag_events[-1].depth == 0
 
 
-def test_interrupt_state_persists_until_next_root_run(tmp_path: Path) -> None:
+def test_interleaved_root_runs_keep_interrupt_state_isolated(tmp_path: Path) -> None:
+    observer = _CollectingObserver()
     ctx = _context(tmp_path)
+
+    success_dag = Dag(
+        name="success-demo",
+        nodes=(PipelineNode(name="success-seed", op=lambda: [1, 2]),),
+    )
+    success_stream = run_dag(ctx, success_dag, observer=observer)
+    assert next(success_stream) == 1
 
     interrupt_dag = Dag(
         name="interrupt-demo",
@@ -522,7 +553,7 @@ def test_interrupt_state_persists_until_next_root_run(tmp_path: Path) -> None:
                 name="interrupt",
                 op=lambda up: (
                     value if value == 1 else (_ for _ in ()).throw(KeyboardInterrupt())
-                    for value in (up or ())
+                    for value in up
                 ),
                 input="seed",
             ),
@@ -530,46 +561,77 @@ def test_interrupt_state_persists_until_next_root_run(tmp_path: Path) -> None:
     )
 
     with pytest.raises(KeyboardInterrupt):
-        list(run_dag(ctx, interrupt_dag))
+        list(run_dag(ctx, interrupt_dag, observer=observer))
 
-    assert dag_runner._run_interrupted() is True
-
-    success_dag = Dag(
-        name="success-demo",
-        nodes=(PipelineNode(name="seed", op=lambda: [1]),),
-    )
-    assert list(run_dag(ctx, success_dag)) == [1]
-    assert dag_runner._run_interrupted() is False
+    assert list(success_stream) == [2]
+    success_event = observer.dag_events[-1]
+    assert (success_event.dag_name, success_event.status) == ("success-demo", "success")
 
 
-def test_run_dag_emits_explicit_depth_for_nested_dags(tmp_path: Path) -> None:
+def test_run_dag_restores_context_for_nested_siblings_across_yields(
+    tmp_path: Path,
+) -> None:
     observer = _CollectingObserver()
     ctx = _context(tmp_path)
+    ctx.heartbeat_interval_seconds = 999
 
-    def _inner_stream():
-        inner = Dag(
-            name="inner",
-            nodes=(PipelineNode(name="seed_inner", op=lambda: [1, 2]),),
+    def _children():
+        first_child = Dag(
+            name="first-child",
+            nodes=(PipelineNode(name="first-seed", op=lambda: [1, 2]),),
         )
-        return run_dag(ctx, inner, observer=observer)
+        first = run_dag(ctx, first_child, observer=observer)
+        try:
+            yield next(first)
+            assert dag_runner._CURRENT_RUN_HEARTBEAT.get() is not None
+            assert dag_runner._CURRENT_ROOT_RUN.get() is not None
+            second_child = Dag(
+                name="second-child",
+                nodes=(PipelineNode(name="second-seed", op=lambda: [3]),),
+            )
+            yield from run_dag(ctx, second_child, observer=observer)
+            yield from first
+        finally:
+            first.close()
 
     outer = Dag(
         name="outer",
-        nodes=(PipelineNode(name="open_inner", op=_inner_stream),),
+        nodes=(PipelineNode(name="open_children", op=_children),),
     )
 
-    output = list(run_dag(ctx, outer, observer=observer))
-    assert output == [1, 2]
+    output_stream = run_dag(ctx, outer, observer=observer)
+    output = []
+    try:
+        output.append(next(output_stream))
+        assert (
+            dag_runner._current_run_dag_depth(),
+            dag_runner._CURRENT_RUN_HEARTBEAT.get(),
+            dag_runner._CURRENT_ROOT_RUN.get(),
+        ) == (0, None, None)
+        unrelated = Dag(
+            name="unrelated",
+            nodes=(PipelineNode(name="unrelated-seed", op=lambda: [9]),),
+        )
+        assert list(run_dag(ctx, unrelated, observer=observer)) == [9]
+        output.extend(output_stream)
+    finally:
+        output_stream.close()
+    assert output == [1, 3, 2]
+    assert (
+        dag_runner._current_run_dag_depth(),
+        dag_runner._CURRENT_RUN_HEARTBEAT.get(),
+        dag_runner._CURRENT_ROOT_RUN.get(),
+    ) == (0, None, None)
 
-    dag_by_name = {event.dag_name: event for event in observer.dag_events}
-    assert dag_by_name["outer"].depth == 0
-    assert dag_by_name["inner"].depth == 1
-    assert dag_by_name["outer"].parent is None
-    assert dag_by_name["inner"].parent == DagParentRef(
-        dag_name="outer",
-        node_name="open_inner",
-        node_index=0,
-    )
+    expected_parent = DagParentRef("outer", "open_children", 0)
+    assert {
+        event.dag_name: (event.depth, event.parent) for event in observer.dag_events
+    } == {
+        "outer": (0, None),
+        "first-child": (1, expected_parent),
+        "second-child": (1, expected_parent),
+        "unrelated": (0, None),
+    }
     start_parent_by_name = {
         dag_name: parent
         for (dag_name, _), parent in zip(
@@ -577,14 +639,18 @@ def test_run_dag_emits_explicit_depth_for_nested_dags(tmp_path: Path) -> None:
         )
     }
     assert start_parent_by_name["outer"] is None
-    assert start_parent_by_name["inner"] == DagParentRef(
-        dag_name="outer",
-        node_name="open_inner",
-        node_index=0,
-    )
-    node_depths = {event.node_name: event.depth for event in observer.node_events}
-    assert node_depths["open_inner"] == 1
-    assert node_depths["seed_inner"] == 2
+    assert start_parent_by_name["first-child"] == expected_parent
+    assert start_parent_by_name["second-child"] == expected_parent
+    assert start_parent_by_name["unrelated"] is None
+    assert {
+        event.node_name: (event.depth, event.execution_index)
+        for event in observer.node_events
+    } == {
+        "open_children": (1, 0),
+        "first-seed": (2, 1),
+        "second-seed": (2, 2),
+        "unrelated-seed": (1, 0),
+    }
 
 
 def test_run_dag_uses_consuming_node_depth_for_seeded_child_dag(tmp_path: Path) -> None:
@@ -604,7 +670,7 @@ def test_run_dag_uses_consuming_node_depth_for_seeded_child_dag(tmp_path: Path) 
             nodes=(
                 PipelineNode(
                     name="build_feature_stream",
-                    op=lambda records: records or (),
+                    op=lambda records: records,
                     input="seed",
                 ),
             ),
@@ -660,7 +726,7 @@ def test_run_dag_tracks_empty_nodes(tmp_path: Path) -> None:
         name="empty-demo",
         nodes=(
             PipelineNode(name="seed", op=lambda: []),
-            PipelineNode(name="passthrough", op=lambda up: up or (), input="seed"),
+            PipelineNode(name="passthrough", op=lambda up: up, input="seed"),
         ),
     )
 
@@ -677,9 +743,19 @@ def test_run_dag_tracks_empty_nodes(tmp_path: Path) -> None:
 def test_run_dag_rejects_none_node_output_eagerly(tmp_path: Path) -> None:
     observer = _CollectingObserver()
     ctx = _context(tmp_path)
+    later_node_called = False
+
+    def valid_later_node() -> list[int]:
+        nonlocal later_node_called
+        later_node_called = True
+        return [1]
+
     dag = Dag(
         name="none-output",
-        nodes=(PipelineNode(name="broken", op=lambda: None),),
+        nodes=(
+            PipelineNode(name="broken", op=lambda: None),
+            PipelineNode(name="later", op=valid_later_node),
+        ),
     )
 
     with pytest.raises(TypeError) as exc_info:
@@ -694,32 +770,14 @@ def test_run_dag_rejects_none_node_output_eagerly(tmp_path: Path) -> None:
     assert observer.node_started == []
     assert observer.node_events == []
     assert observer.dag_events == []
-
-
-def test_run_dag_rejects_unused_none_node_output(tmp_path: Path) -> None:
-    ctx = _context(tmp_path)
-    later_node_called = False
-
-    def valid_later_node():
-        nonlocal later_node_called
-        later_node_called = True
-        return [1]
-
-    dag = Dag(
-        name="masked-none-output",
-        nodes=(
-            PipelineNode(name="broken", op=lambda: None),
-            PipelineNode(name="later", op=valid_later_node),
-        ),
-    )
-
-    with pytest.raises(TypeError, match="Node 'broken'.*returned None"):
-        run_dag(ctx, dag)
-
     assert not later_node_called
 
 
 def test_run_dag_empty_dag_preserves_boundary_behavior(tmp_path: Path) -> None:
+    class BrokenSeed:
+        def __iter__(self):
+            raise RuntimeError("seed iteration failed")
+
     ctx = _context(tmp_path)
     dag = Dag(name="empty", nodes=())
 
@@ -735,23 +793,12 @@ def test_run_dag_empty_dag_preserves_boundary_behavior(tmp_path: Path) -> None:
     assert seeded_observer.dag_events[-1].status == "success"
     assert seeded_observer.dag_events[-1].output_items == 2
 
-
-def test_run_dag_uses_node_index(tmp_path: Path) -> None:
-    observer = _CollectingObserver()
-    ctx = _context(tmp_path)
-
-    dag = Dag(
-        name="index-demo",
-        nodes=(
-            PipelineNode(name="first", op=lambda: [1]),
-            PipelineNode(name="second", op=lambda up: up or (), input="first"),
-        ),
-    )
-
-    output = list(run_dag(ctx, dag, observer=observer))
-    assert output == [1]
-    assert [node_index for _, _, node_index in observer.node_started] == [1, 0]
-    assert [event.node_index for event in observer.node_events] == [0, 1]
+    broken_observer = _CollectingObserver()
+    with pytest.raises(RuntimeError, match="seed iteration failed"):
+        list(run_dag(ctx, dag, seed=BrokenSeed(), observer=broken_observer))
+    assert broken_observer.dag_events[-1].status == "error"
+    assert broken_observer.dag_events[-1].error_type == "RuntimeError"
+    assert dag_runner._current_run_dag_depth() == 0
 
 
 def test_run_dag_fails_on_missing_input(tmp_path: Path) -> None:
@@ -777,6 +824,7 @@ def test_logging_observer_logs_dag_at_info_and_nodes_at_debug(caplog) -> None:
 
     with caplog.at_level(logging.INFO, logger=logger.name):
         observer.on_dag_start(dag_name="demo", node_count=2)
+        observer.on_dag_start(dag_name="nested", node_count=1, depth=1)
         observer.on_node_start(
             dag_name="demo", node_name="node_a", node_index=0, execution_index=0
         )
@@ -803,27 +851,7 @@ def test_logging_observer_logs_dag_at_info_and_nodes_at_debug(caplog) -> None:
 
     messages = [record.getMessage() for record in caplog.records]
     assert any(message.startswith("[demo] started") for message in messages)
+    assert any(message.startswith("  [nested] started") for message in messages)
     assert any(message.startswith("[demo] finished") for message in messages)
     assert not any(message.startswith("[demo/node_a] started") for message in messages)
     assert not any(message.startswith("[demo/node_a] finished") for message in messages)
-
-
-def test_logging_observer_logs_parent_context_for_nested_dag_start(caplog) -> None:
-    logger = logging.getLogger("datapipeline.dag.observer.test.parent")
-    observer = LoggingExecutionObserver(logger)
-
-    with caplog.at_level(logging.INFO, logger=logger.name):
-        observer.on_dag_start(
-            dag_name="vector:assemble",
-            node_count=2,
-            dag_parent=DagParentRef(
-                dag_name="pipeline:serve",
-                node_name="vector_assemble",
-                node_index=0,
-            ),
-        )
-
-    messages = [record.getMessage() for record in caplog.records]
-    assert any(
-        message.startswith("[vector:assemble] started nodes=2") for message in messages
-    )

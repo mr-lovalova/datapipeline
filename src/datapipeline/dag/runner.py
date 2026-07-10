@@ -3,7 +3,7 @@ import threading
 import time
 from dataclasses import dataclass
 from collections.abc import Iterable, Iterator
-from contextvars import ContextVar, copy_context
+from contextvars import ContextVar, Token, copy_context
 from typing import Any
 
 from datapipeline.dag.dag import Dag
@@ -12,6 +12,7 @@ from datapipeline.dag.events import (
     DagRunEvent,
     NodeExecutionEvent,
     NodeProgressEvent,
+    RunStatus,
 )
 from datapipeline.dag.observer import (
     ExecutionObserver,
@@ -25,17 +26,21 @@ logger = logging.getLogger(__name__)
 DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 60.0
 _LOG_OBSERVER = LoggingExecutionObserver(logger)
 _NOOP_OBSERVER = NoopExecutionObserver()
+
+
+@dataclass
+class _RootRunState:
+    execution_index: int = 0
+    interrupted: bool = False
+
+
 _CURRENT_RUN_DAG_DEPTH: ContextVar[int] = ContextVar(
     "datapipeline_runner_current_dag_depth",
     default=0,
 )
-_CURRENT_RUN_INTERRUPTED: ContextVar[bool] = ContextVar(
-    "datapipeline_runner_interrupted",
-    default=False,
-)
-_CURRENT_RUN_EXECUTION_INDEX: ContextVar[int] = ContextVar(
-    "datapipeline_runner_execution_index",
-    default=0,
+_CURRENT_ROOT_RUN: ContextVar[_RootRunState | None] = ContextVar(
+    "datapipeline_runner_current_root_run",
+    default=None,
 )
 _CURRENT_RUN_ACTIVE_NODE: ContextVar[DagParentRef | None] = ContextVar(
     "datapipeline_runner_active_node",
@@ -64,6 +69,13 @@ class NodeProgressContext:
     node_kind: NodeKind
     node_calls_dag: str | None
     depth: int
+
+
+_NodeContextTokens = tuple[
+    Token[DagParentRef | None],
+    Token[NodeProgressContext | None],
+    Token[ExecutionObserver | None],
+]
 
 
 @dataclass
@@ -167,16 +179,15 @@ class _RunHeartbeat:
         return node, f"running elapsed={elapsed:.0f}s items={items}"
 
 
+_DagContextTokens = tuple[
+    Token[_RootRunState | None],
+    Token[int],
+    Token[_RunHeartbeat | None] | None,
+]
+
+
 def _current_run_dag_depth() -> int:
     return max(0, int(_CURRENT_RUN_DAG_DEPTH.get()))
-
-
-def _run_interrupted() -> bool:
-    return bool(_CURRENT_RUN_INTERRUPTED.get())
-
-
-def _current_run_active_node() -> DagParentRef | None:
-    return _CURRENT_RUN_ACTIVE_NODE.get()
 
 
 def current_node_progress_context() -> NodeProgressContext | None:
@@ -216,12 +227,6 @@ def _emit_node_progress(
     )
 
 
-def _next_execution_index() -> int:
-    current = max(0, int(_CURRENT_RUN_EXECUTION_INDEX.get()))
-    _CURRENT_RUN_EXECUTION_INDEX.set(current + 1)
-    return current
-
-
 def _close_iterator(iterator: Iterable[Any]) -> None:
     closer = getattr(iterator, "close", None)
     if not callable(closer):
@@ -246,12 +251,6 @@ def resolve_heartbeat_interval_seconds(interval: float | None) -> float:
     return interval
 
 
-def _heartbeat_interval_seconds(context: PipelineContext) -> float:
-    return resolve_heartbeat_interval_seconds(
-        getattr(context, "heartbeat_interval_seconds", None)
-    )
-
-
 def run_dag(
     context: PipelineContext,
     dag: Dag,
@@ -262,33 +261,36 @@ def run_dag(
     active_observer = _resolve_observer(context, observer)
     dag_depth = _current_run_dag_depth()
     is_root_run = dag_depth == 0
+    run_state = _RootRunState() if is_root_run else _CURRENT_ROOT_RUN.get()
+    if run_state is None:
+        raise RuntimeError("Cannot construct a nested DAG outside a root run")
+    root_run_token = _CURRENT_ROOT_RUN.set(run_state)
+    active_node_token = _CURRENT_RUN_ACTIVE_NODE.set(None) if is_root_run else None
     construction_token = _CURRENT_RUN_DAG_DEPTH.set(dag_depth + 1)
-    if is_root_run:
-        _CURRENT_RUN_ACTIVE_NODE.set(None)
-        _CURRENT_RUN_EXECUTION_INDEX.set(0)
-    stream: Iterable[Any] | None = seed
+    stream: Iterable[Any] = () if seed is None else seed
     try:
-        state: dict[str, Iterable[Any]] = {}
-        if seed is not None:
-            state["seed"] = seed
+        state: dict[str, Iterable[Any]] = {} if seed is None else {"seed": seed}
         for index, node in enumerate(dag.nodes):
-            if node.input is None:
-                node_input = stream
-            else:
-                if node.input not in state:
-                    available = ", ".join(sorted(state.keys())) or "(none)"
+            if node.input is not None and node.input not in state:
+                available = ", ".join(sorted(state)) or "(none)"
+                raise KeyError(
+                    f"Node '{node.name}' requested missing input "
+                    f"'{node.input}' in DAG '{dag.name}'. "
+                    f"Available outputs: {available}"
+                )
+            kwargs = dict(node.kwargs or {})
+            for kwarg_name, state_key in (node.kwinputs or {}).items():
+                if state_key not in state:
+                    available = ", ".join(sorted(state)) or "(none)"
                     raise KeyError(
-                        f"Node '{node.name}' requested missing input "
-                        f"'{node.input}' in DAG '{dag.name}'. "
-                        f"Available outputs: {available}"
+                        f"Node '{node.name}' requested missing kwinput "
+                        f"'{state_key}'. Available outputs: {available}"
                     )
-                node_input = state[node.input]
-            produced = _run_node(
-                node,
-                node_input,
-                state,
-                include_input=(node.input is not None),
-            )
+                kwargs[kwarg_name] = state[state_key]
+            if node.input is None:
+                produced = node.op(*node.args, **kwargs)
+            else:
+                produced = node.op(*node.args, state[node.input], **kwargs)
             if produced is None:
                 raise TypeError(
                     f"Node '{node.name}' in DAG '{dag.name}' returned None; "
@@ -302,23 +304,25 @@ def run_dag(
                 node_kind=node.kind,
                 node_calls_dag=node.calls_dag,
                 depth=dag_depth + 1,
+                run_state=run_state,
                 stream=produced,
                 observer=active_observer,
             )
             state[node.output or node.name] = stream
-        final_stream = stream if stream is not None else ()
         return _observe_dag_stream(
             context=context,
             dag=dag,
             depth=dag_depth,
-            reset_interrupt=is_root_run,
-            stream=final_stream,
+            is_root_run=is_root_run,
+            run_state=run_state,
+            stream=stream,
             observer=active_observer,
         )
     finally:
         _CURRENT_RUN_DAG_DEPTH.reset(construction_token)
-        if is_root_run:
-            _CURRENT_RUN_ACTIVE_NODE.set(None)
+        if active_node_token is not None:
+            _CURRENT_RUN_ACTIVE_NODE.reset(active_node_token)
+        _CURRENT_ROOT_RUN.reset(root_run_token)
 
 
 def _resolve_observer(
@@ -335,27 +339,6 @@ def _resolve_observer(
     return _NOOP_OBSERVER
 
 
-def _run_node(
-    node,
-    node_input: Iterable[Any] | None,
-    state: dict[str, Iterable[Any]],
-    *,
-    include_input: bool,
-) -> Iterable[Any] | None:
-    kwargs = dict(node.kwargs or {})
-    for kwarg_name, state_key in dict(node.kwinputs or {}).items():
-        if state_key not in state:
-            available = ", ".join(sorted(state.keys())) or "(none)"
-            raise KeyError(
-                f"Node '{node.name}' requested missing kwinput "
-                f"'{state_key}'. Available outputs: {available}"
-            )
-        kwargs[kwarg_name] = state[state_key]
-    if include_input:
-        return node.op(*node.args, node_input, **kwargs)
-    return node.op(*node.args, **kwargs)
-
-
 def _observe_node_stream(
     *,
     dag_name: str,
@@ -364,6 +347,7 @@ def _observe_node_stream(
     node_kind: NodeKind,
     node_calls_dag: str | None,
     depth: int,
+    run_state: _RootRunState,
     stream: Iterable[Any],
     observer: ExecutionObserver,
 ) -> Iterator[Any]:
@@ -371,11 +355,12 @@ def _observe_node_stream(
         node_depth = max(0, int(depth), _current_run_dag_depth())
         item_count = 0
         start_time = time.perf_counter()
-        status = "success"
+        status: RunStatus = "success"
         error_type: str | None = None
         error_message: str | None = None
         iterator: Iterator[Any] = iter(())
-        execution_index = _next_execution_index()
+        execution_index = run_state.execution_index
+        run_state.execution_index += 1
         progress_node = NodeProgressContext(
             dag_name=dag_name,
             node_name=node_name,
@@ -391,14 +376,14 @@ def _observe_node_stream(
             node_index=node_index,
         )
 
-        def _activate_node_context() -> tuple[Any, Any, Any]:
+        def _activate_node_context() -> _NodeContextTokens:
             return (
                 _CURRENT_RUN_ACTIVE_NODE.set(active_node),
                 _CURRENT_RUN_PROGRESS_NODE.set(progress_node),
                 _CURRENT_RUN_OBSERVER.set(observer),
             )
 
-        def _deactivate_node_context(tokens: tuple[Any, Any, Any]) -> None:
+        def _deactivate_node_context(tokens: _NodeContextTokens) -> None:
             active_node_token, progress_node_token, observer_token = tokens
             _CURRENT_RUN_OBSERVER.reset(observer_token)
             _CURRENT_RUN_PROGRESS_NODE.reset(progress_node_token)
@@ -431,7 +416,6 @@ def _observe_node_stream(
                 if heartbeat is not None:
                     heartbeat.item_emitted(progress_node, item_count)
                 _deactivate_node_context(context_tokens)
-                context_tokens = None
                 try:
                     yield item
                 finally:
@@ -440,7 +424,7 @@ def _observe_node_stream(
             status = "error"
             error_type = type(exc).__name__
             error_message = _error_message(exc)
-            _CURRENT_RUN_INTERRUPTED.set(True)
+            run_state.interrupted = True
             raise
         except Exception as exc:
             status = "error"
@@ -452,7 +436,7 @@ def _observe_node_stream(
                 if heartbeat is not None:
                     heartbeat.clear(progress_node)
                 _close_iterator(iterator)
-                if status == "success" and _run_interrupted():
+                if status == "success" and run_state.interrupted:
                     status = "error"
                     error_type = "KeyboardInterrupt"
                 elapsed = time.perf_counter() - start_time
@@ -473,8 +457,7 @@ def _observe_node_stream(
                     )
                 )
             finally:
-                if context_tokens is not None:
-                    _deactivate_node_context(context_tokens)
+                _deactivate_node_context(context_tokens)
 
     return _iter()
 
@@ -484,49 +467,81 @@ def _observe_dag_stream(
     context: PipelineContext,
     dag: Dag,
     depth: int,
-    reset_interrupt: bool,
+    is_root_run: bool,
+    run_state: _RootRunState,
     stream: Iterable[Any],
     observer: ExecutionObserver,
 ) -> Iterator[Any]:
     def _iter() -> Iterator[Any]:
         dag_depth = max(0, int(depth))
-        dag_parent = _current_run_active_node()
+        dag_parent = _CURRENT_RUN_ACTIVE_NODE.get()
         parent_node = current_node_progress_context()
         if dag_parent is not None and parent_node is not None:
             dag_depth = max(dag_depth, parent_node.depth)
-        if reset_interrupt:
-            _CURRENT_RUN_INTERRUPTED.set(False)
-        depth_token = _CURRENT_RUN_DAG_DEPTH.set(dag_depth + 1)
         start_time = time.perf_counter()
         item_count = 0
-        status = "success"
+        status: RunStatus = "success"
         error_type: str | None = None
         error_message: str | None = None
-        observer.on_dag_start(
-            dag_name=dag.name,
-            node_count=dag.node_count,
-            depth=dag_depth,
-            dag_metadata=dag.metadata,
-            dag_parent=dag_parent,
-        )
-        iterator = iter(stream)
+        iterator: Iterator[Any] = iter(())
         heartbeat: _RunHeartbeat | None = None
-        heartbeat_token = None
-        if reset_interrupt:
-            interval_seconds = _heartbeat_interval_seconds(context)
-            if interval_seconds > 0:
-                heartbeat = _RunHeartbeat(observer, interval_seconds)
-                heartbeat.start()
-                heartbeat_token = _CURRENT_RUN_HEARTBEAT.set(heartbeat)
+        dag_started = False
+
+        def activate_dag_context() -> _DagContextTokens:
+            return (
+                _CURRENT_ROOT_RUN.set(run_state),
+                _CURRENT_RUN_DAG_DEPTH.set(dag_depth + 1),
+                (
+                    _CURRENT_RUN_HEARTBEAT.set(heartbeat)
+                    if heartbeat is not None
+                    else None
+                ),
+            )
+
+        def deactivate_dag_context(tokens: _DagContextTokens) -> None:
+            root_run_token, depth_token, heartbeat_token = tokens
+            if heartbeat_token is not None:
+                _CURRENT_RUN_HEARTBEAT.reset(heartbeat_token)
+            _CURRENT_RUN_DAG_DEPTH.reset(depth_token)
+            _CURRENT_ROOT_RUN.reset(root_run_token)
+
+        context_tokens = activate_dag_context()
+
         try:
+            observer.on_dag_start(
+                dag_name=dag.name,
+                node_count=dag.node_count,
+                depth=dag_depth,
+                dag_metadata=dag.metadata,
+                dag_parent=dag_parent,
+            )
+            dag_started = True
+            iterator = iter(stream)
+            if is_root_run:
+                interval_seconds = resolve_heartbeat_interval_seconds(
+                    context.heartbeat_interval_seconds
+                )
+                if interval_seconds > 0:
+                    new_heartbeat = _RunHeartbeat(observer, interval_seconds)
+                    new_heartbeat.start()
+                    heartbeat = new_heartbeat
+                    context_tokens = (
+                        context_tokens[0],
+                        context_tokens[1],
+                        _CURRENT_RUN_HEARTBEAT.set(heartbeat),
+                    )
             for item in iterator:
                 item_count += 1
-                yield item
+                deactivate_dag_context(context_tokens)
+                try:
+                    yield item
+                finally:
+                    context_tokens = activate_dag_context()
         except KeyboardInterrupt as exc:
             status = "error"
             error_type = type(exc).__name__
             error_message = _error_message(exc)
-            _CURRENT_RUN_INTERRUPTED.set(True)
+            run_state.interrupted = True
             raise
         except Exception as exc:
             status = "error"
@@ -536,10 +551,10 @@ def _observe_dag_stream(
         finally:
             try:
                 _close_iterator(iterator)
-                if status == "success" and _run_interrupted():
+                if status == "success" and run_state.interrupted:
                     status = "error"
                     error_type = "KeyboardInterrupt"
-                try:
+                if dag_started:
                     observer.on_dag_end(
                         DagRunEvent(
                             dag_name=dag.name,
@@ -553,12 +568,11 @@ def _observe_dag_stream(
                             parent=dag_parent,
                         )
                     )
+            finally:
+                try:
+                    deactivate_dag_context(context_tokens)
                 finally:
                     if heartbeat is not None:
                         heartbeat.stop()
-                    if heartbeat_token is not None:
-                        _CURRENT_RUN_HEARTBEAT.reset(heartbeat_token)
-            finally:
-                _CURRENT_RUN_DAG_DEPTH.reset(depth_token)
 
     return _iter()
