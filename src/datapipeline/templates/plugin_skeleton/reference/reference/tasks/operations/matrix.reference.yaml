@@ -6,4 +6,7 @@
 # kind: runtime
 # entrypoint: core.runtime.matrix
 #
+# This operation does not accept task options. Output format and destination
+# belong to the selected inspect profile or CLI output overrides.
+#
 # Matrix output supports profile output format html when using fs transport.

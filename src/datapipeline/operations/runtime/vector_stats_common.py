@@ -1,30 +1,18 @@
-from typing import Any, Mapping
+from typing import Any, Literal
 
 from datapipeline.analysis.vector.collector import VectorStatsCollector
 from datapipeline.analysis.vector.snapshot import collector_from_snapshot
 from datapipeline.config.metadata import build_vector_metadata_lookup
-from datapipeline.config.tasks import OperationTask
 from datapipeline.dag.context import PipelineContext
 from datapipeline.operations.persistence import RuntimeOutput
 from datapipeline.runtime import Runtime
 from datapipeline.services.artifacts import VECTOR_METADATA_SPEC, VECTOR_STATS_SPEC
 
 
-def option(options: Mapping[str, Any], key: str, default: Any) -> Any:
-    value = options.get(key, default)
-    return default if value is None else value
-
-
-def options_for_task(operation_task: OperationTask | None) -> Mapping[str, Any]:
-    if operation_task is None:
-        return {}
-    return operation_task.options
-
-
 def load_collector(
     runtime: Runtime,
     *,
-    options: Mapping[str, Any],
+    threshold: float = 0.95,
 ) -> VectorStatsCollector:
     context = PipelineContext(runtime)
     snapshot = context.require_artifact(VECTOR_STATS_SPEC)
@@ -37,19 +25,14 @@ def load_collector(
         snapshot,
         expected_feature_ids=expected_feature_ids,
         schema_meta=schema_meta,
-        threshold=float(option(options, "threshold", 0.95)),
-        show_matrix=False,
-        matrix_rows=int(option(options, "rows", 20)),
-        matrix_cols=int(option(options, "cols", 10)),
-        matrix_output=None,
-        matrix_format="html",
+        threshold=threshold,
     )
 
 
 def build_metrics(
     collector: VectorStatsCollector,
     *,
-    sort_key: str,
+    sort_key: Literal["missing", "nulls"],
     threshold: float,
 ) -> dict[str, Any]:
     tracked_features = (
@@ -169,17 +152,15 @@ def build_metrics(
 
 def metrics_summary_output(
     runtime: Runtime,
-    operation_task: OperationTask | None,
     *,
     report: str,
+    sort_key: Literal["missing", "nulls"],
+    threshold: float,
     include_sort: bool = False,
     include_threshold: bool = False,
 ) -> RuntimeOutput:
-    options = options_for_task(operation_task)
-    sort_key = str(option(options, "sort", "missing"))
-    threshold = float(option(options, "threshold", 0.95))
     metrics = build_metrics(
-        load_collector(runtime, options=options),
+        load_collector(runtime, threshold=threshold),
         sort_key=sort_key,
         threshold=threshold,
     )

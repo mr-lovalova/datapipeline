@@ -1,15 +1,20 @@
 from pathlib import Path
+from typing import Any
 
 from datapipeline.config.model_utils import normalize_required_text
 from datapipeline.config.tasks import (
     ArtifactTask,
+    CoverageTask,
     MaterializeStreamTask,
+    MatrixTask,
     MetadataTask,
     OperationTask,
+    PipelineTask,
     ScalerTask,
     SchemaTask,
     StatsTask,
     Task,
+    ThresholdsTask,
     TicksTask,
     VectorInputsTask,
 )
@@ -23,6 +28,13 @@ ARTIFACT_OPERATION_MODELS: dict[str, type[ArtifactTask]] = {
     "scaler": ScalerTask,
     "metadata": MetadataTask,
     "stats": StatsTask,
+}
+RUNTIME_OPERATION_MODELS: dict[str, type[OperationTask[Any]]] = {
+    "core.runtime.pipeline": PipelineTask,
+    "core.runtime.coverage": CoverageTask,
+    "core.runtime.thresholds": ThresholdsTask,
+    "core.runtime.matrix": MatrixTask,
+    "core.runtime.materialize_stream": MaterializeStreamTask,
 }
 TICKS_ENTRYPOINT = "core.artifact.ticks"
 
@@ -41,9 +53,8 @@ def _load_operation_entry(entry: dict) -> Task:
             field_name="entrypoint",
         )
         normalized_entry["entrypoint"] = entrypoint
-        if entrypoint == "core.runtime.materialize_stream":
-            return MaterializeStreamTask.model_validate(normalized_entry)
-        return OperationTask.model_validate(normalized_entry)
+        runtime_model_cls = RUNTIME_OPERATION_MODELS.get(entrypoint, OperationTask)
+        return runtime_model_cls.model_validate(normalized_entry)
     if operation_kind != "artifact":
         raise ValueError(
             f"Unsupported task kind '{operation_kind}'. Use 'artifact' or 'runtime'."
@@ -68,8 +79,8 @@ def _load_operation_entry(entry: dict) -> Task:
                     "a built-in artifact task."
                 )
             return TicksTask.model_validate(normalized_entry)
-    model_cls = ARTIFACT_OPERATION_MODELS.get(operation_id, ArtifactTask)
-    return model_cls.model_validate(normalized_entry)
+    artifact_model_cls = ARTIFACT_OPERATION_MODELS.get(operation_id, ArtifactTask)
+    return artifact_model_cls.model_validate(normalized_entry)
 
 
 def _validate_operation_layout(root: Path) -> None:

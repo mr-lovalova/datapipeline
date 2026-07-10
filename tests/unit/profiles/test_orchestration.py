@@ -10,6 +10,7 @@ from datapipeline.config.tasks import (
     ArtifactTask,
     MetadataTask,
     OperationTask,
+    PipelineTask,
     SchemaTask,
     VectorInputsTask,
 )
@@ -85,13 +86,7 @@ def test_run_profiles_executes_profile_target(monkeypatch, tmp_path):
     vector_inputs = VectorInputsTask(id="vector_inputs")
     schema = SchemaTask(id="schema")
     metadata = MetadataTask(id="metadata")
-    serve = OperationTask.model_validate(
-        {
-            "id": "pipeline",
-            "kind": "runtime",
-            "entrypoint": "core.runtime.pipeline",
-        }
-    )
+    serve = PipelineTask(id="pipeline")
 
     log_decision, log_output = _log_config()
     request = ProfileRunRequest(
@@ -274,10 +269,7 @@ def test_run_profiles_rejects_missing_dataset_before_side_effects(tmp_path):
 def test_run_profiles_rejects_missing_runtime_producer_before_side_effects(tmp_path):
     schema = SchemaTask(id="schema")
     metadata = MetadataTask(id="metadata")
-    pipeline = OperationTask(
-        id="pipeline",
-        entrypoint="core.runtime.pipeline",
-    )
+    pipeline = PipelineTask(id="pipeline")
     run = _run_paths(tmp_path)
     log_decision, log_output = _log_config()
     request = ProfileRunRequest(
@@ -309,10 +301,7 @@ def test_run_profiles_rejects_missing_runtime_producer_before_side_effects(tmp_p
 
 
 def test_run_profiles_rejects_invalid_preview_before_side_effects(tmp_path):
-    pipeline = OperationTask(
-        id="pipeline",
-        entrypoint="core.runtime.pipeline",
-    )
+    pipeline = PipelineTask(id="pipeline")
     run = _run_paths(tmp_path)
     log_decision, log_output = _log_config()
     request = ProfileRunRequest(
@@ -345,13 +334,7 @@ def test_run_profiles_rejects_invalid_preview_before_side_effects(tmp_path):
 
 
 def test_run_profiles_parent_scope_does_not_announce(monkeypatch, tmp_path):
-    serve = OperationTask.model_validate(
-        {
-            "id": "pipeline",
-            "kind": "runtime",
-            "entrypoint": "core.runtime.pipeline",
-        }
-    )
+    serve = PipelineTask(id="pipeline")
 
     log_decision, log_output = _log_config()
     request = ProfileRunRequest(
@@ -411,13 +394,7 @@ def test_run_profiles_can_skip_build_when_runtime_artifacts_are_current(
     vector_inputs = VectorInputsTask(id="vector_inputs")
     schema = SchemaTask(id="schema")
     metadata = MetadataTask(id="metadata")
-    serve = OperationTask.model_validate(
-        {
-            "id": "pipeline",
-            "kind": "runtime",
-            "entrypoint": "core.runtime.pipeline",
-        }
-    )
+    serve = PipelineTask(id="pipeline")
 
     log_decision, log_output = _log_config()
     request = ProfileRunRequest(
@@ -475,13 +452,7 @@ def test_run_profiles_skip_build_rejects_missing_runtime_artifacts(
     vector_inputs = VectorInputsTask(id="vector_inputs")
     schema = SchemaTask(id="schema")
     metadata = MetadataTask(id="metadata")
-    serve = OperationTask.model_validate(
-        {
-            "id": "pipeline",
-            "kind": "runtime",
-            "entrypoint": "core.runtime.pipeline",
-        }
-    )
+    serve = PipelineTask(id="pipeline")
     log_decision, log_output = _log_config()
     request = ProfileRunRequest(
         command="serve",
@@ -531,13 +502,7 @@ def test_run_profiles_requires_pipeline_artifact_closure(monkeypatch, tmp_path):
     vector_inputs = VectorInputsTask(id="vector_inputs")
     schema = SchemaTask(id="schema")
     metadata = MetadataTask(id="metadata")
-    serve = OperationTask.model_validate(
-        {
-            "id": "pipeline",
-            "kind": "runtime",
-            "entrypoint": "core.runtime.pipeline",
-        }
-    )
+    serve = PipelineTask(id="pipeline")
 
     log_decision, log_output = _log_config()
     runtime = _runtime(tmp_path)
@@ -617,13 +582,7 @@ def test_run_profiles_hydrates_runtime_artifacts_after_build(monkeypatch, tmp_pa
     vector_inputs = VectorInputsTask(id="vector_inputs")
     schema = SchemaTask(id="schema")
     metadata = MetadataTask(id="metadata")
-    serve = OperationTask.model_validate(
-        {
-            "id": "pipeline",
-            "kind": "runtime",
-            "entrypoint": "core.runtime.pipeline",
-        }
-    )
+    serve = PipelineTask(id="pipeline")
 
     log_decision, log_output = _log_config()
     runtime = _runtime(tmp_path)
@@ -736,13 +695,7 @@ def test_runtime_dependency_build_scope_isolated_from_parent_profile(
     vector_inputs = VectorInputsTask(id="vector_inputs")
     schema = SchemaTask(id="schema")
     metadata = MetadataTask(id="metadata")
-    serve = OperationTask.model_validate(
-        {
-            "id": "pipeline",
-            "kind": "runtime",
-            "entrypoint": "core.runtime.pipeline",
-        }
-    )
+    serve = PipelineTask(id="pipeline")
 
     log_decision, log_output = _log_config()
     request = ProfileRunRequest(
@@ -972,13 +925,7 @@ def test_run_profiles_materializes_preview_run_at_execution_boundary(
     monkeypatch,
     tmp_path,
 ):
-    serve = OperationTask.model_validate(
-        {
-            "id": "pipeline",
-            "kind": "runtime",
-            "entrypoint": "core.runtime.pipeline",
-        }
-    )
+    serve = PipelineTask(id="pipeline")
     run_paths = _run_paths(tmp_path / "serve")
     target = OutputTarget(
         transport="fs",

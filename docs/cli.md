@@ -55,7 +55,8 @@ All commands that take a project accept either `--project <path/to/project.yaml>
     (`core.runtime.coverage`, `core.runtime.matrix`, and
     `core.runtime.thresholds`).
 - `jerry inspect --project <project.yaml> --run matrix`
-  - Typical matrix profile run. Matrix output format/path is controlled via the target operation `options` and/or output flags.
+  - Typical matrix profile run. Matrix output format/path is controlled by the
+    inspect profile and output flags; the matrix operation has no task options.
 - `jerry inspect --project <project.yaml> --run thresholds`
   - Runs the threshold report. Behavior is controlled by the target operation
     `options` (for example `sort` and `threshold`).

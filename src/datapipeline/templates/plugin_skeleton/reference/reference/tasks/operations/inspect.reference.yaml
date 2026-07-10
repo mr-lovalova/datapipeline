@@ -8,6 +8,8 @@
 # id: coverage               # any unique operation id
 # kind: runtime              # required for inspect runtime operations
 # entrypoint: core.runtime.coverage # core.runtime.coverage | core.runtime.matrix | core.runtime.thresholds
-# options: {}                # optional, operation-specific
+#
+# See the operation-specific reference file for its accepted options. Matrix
+# does not accept task options.
 #
 # Output transport/format/path is resolved from the selected inspect profile.

@@ -15,25 +15,24 @@ from datapipeline.config.profiles import (
 from datapipeline.config.serve_resolution import _run_config_value, resolve_run_profiles
 from datapipeline.config.resolution import LogOutputTarget
 from datapipeline.config.split import HashSplitConfig
-from datapipeline.config.tasks import ArtifactTask, OperationTask
+from datapipeline.config.tasks import (
+    ArtifactTask,
+    CoverageTask,
+    MatrixTask,
+    PipelineTask,
+)
 from datapipeline.config.workspace import WorkspaceConfig, WorkspaceContext
 
-_SERVE_OPERATION = OperationTask(
+_SERVE_OPERATION = PipelineTask(
     id="serve",
-    kind="runtime",
-    entrypoint="core.runtime.pipeline",
 )
 
-_INSPECT_MATRIX_OPERATION = OperationTask(
+_INSPECT_MATRIX_OPERATION = MatrixTask(
     id="matrix",
-    kind="runtime",
-    entrypoint="core.runtime.matrix",
 )
 
-_INSPECT_COVERAGE_OPERATION = OperationTask(
+_INSPECT_COVERAGE_OPERATION = CoverageTask(
     id="coverage",
-    kind="runtime",
-    entrypoint="core.runtime.coverage",
 )
 
 _ARTIFACT_SCHEMA_TASK = ArtifactTask(

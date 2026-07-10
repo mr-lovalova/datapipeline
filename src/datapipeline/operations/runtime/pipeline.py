@@ -6,7 +6,7 @@ from typing import Iterator, Literal, Optional
 
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.dataset.validation import validate_dataset_feature_identity
-from datapipeline.config.tasks import OperationTask
+from datapipeline.config.tasks import PipelineTask
 from datapipeline.dag.context import PipelineContext
 from datapipeline.dag.runner import run_dag
 from datapipeline.dag.transform_observability import default_observer_registry
@@ -360,7 +360,7 @@ def serve_with_runtime(
     throttle_ms: Optional[float],
     preview_index: Optional[int],
     visuals: Optional[str] = None,
-    operation_task: OperationTask | None = None,
+    operation_task: PipelineTask | None = None,
 ) -> RuntimeOutputBatch | None:
     _ = operation_task, visuals
     validate_dataset_feature_identity(runtime, dataset)

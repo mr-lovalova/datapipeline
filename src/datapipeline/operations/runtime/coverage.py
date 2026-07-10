@@ -1,7 +1,7 @@
 from typing import Optional
 
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
-from datapipeline.config.tasks import OperationTask
+from datapipeline.config.tasks import CoverageOptions, CoverageTask
 from datapipeline.io.output import OutputTarget
 from datapipeline.operations.persistence import RuntimeOutput
 from datapipeline.runtime import Runtime
@@ -19,12 +19,14 @@ def inspect_coverage_with_runtime(
     throttle_ms: Optional[float] = None,
     preview_index: Optional[int] = None,
     visuals: Optional[str] = None,
-    operation_task: OperationTask | None = None,
+    operation_task: CoverageTask | None = None,
 ) -> RuntimeOutput:
     _ = dataset, limit, target, throttle_ms, preview_index, visuals
+    options = operation_task.options if operation_task else CoverageOptions()
     return metrics_summary_output(
         runtime,
-        operation_task,
         report="coverage",
+        sort_key=options.sort,
+        threshold=options.threshold,
         include_sort=True,
     )

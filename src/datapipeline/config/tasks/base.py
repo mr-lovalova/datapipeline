@@ -1,5 +1,6 @@
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Literal
+from typing import Generic, Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -42,9 +43,21 @@ class ArtifactTask(Task):
         return self
 
 
-class OperationTask(Task):
+OperationOptionsT = TypeVar("OperationOptionsT")
+
+
+class OperationTask(Task, Generic[OperationOptionsT]):
     kind: Literal["runtime"] = Field(default="runtime")
-    options: dict[str, Any] = Field(default_factory=dict)
+    # Bare OperationTask is the plugin fallback; concrete tasks replace this
+    # default with their own option type.
+    options: OperationOptionsT = Field(default_factory=dict)  # type: ignore[assignment]
+
+    @field_validator("options", mode="before")
+    @classmethod
+    def _require_options_mapping(cls, value):
+        if isinstance(value, (Mapping, BaseModel)):
+            return value
+        raise ValueError("options must be a mapping")
 
 
 __all__ = ["Task", "ArtifactTask", "OperationTask"]

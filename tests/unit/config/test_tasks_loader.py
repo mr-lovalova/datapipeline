@@ -4,7 +4,14 @@ import pytest
 
 from datapipeline.config.loaders.operations import operation_specs
 from datapipeline.config.loaders.profiles import profile_defaults, profile_specs
-from datapipeline.config.tasks import MaterializeStreamTask, OperationTask
+from datapipeline.config.tasks import (
+    CoverageTask,
+    MaterializeStreamTask,
+    MatrixTask,
+    OperationTask,
+    PipelineTask,
+    ThresholdsTask,
+)
 
 
 def _artifact_tasks(project_yaml: Path):
@@ -559,26 +566,143 @@ def test_serve_operation_tasks_load(tmp_path):
 
     tasks = _all_tasks(project_yaml)
     assert [task.id for task in tasks] == ["pipeline"]
+    assert isinstance(tasks[0], PipelineTask)
     assert tasks[0].entrypoint == "core.runtime.pipeline"
 
 
-def test_runtime_operation_options_load_and_normalize(tmp_path):
+def test_coverage_operation_options_are_typed(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     tasks_dir = _operations_dir(project_yaml)
-    (tasks_dir / "pipeline.yaml").write_text(
+    (tasks_dir / "coverage.yaml").write_text(
         (
-            "id: pipeline\n"
+            "id: coverage\n"
             "kind: runtime\n"
-            "entrypoint: core.runtime.pipeline\n"
+            "entrypoint: core.runtime.coverage\n"
             "options:\n"
-            "  sort: missing\n"
+            "  sort: nulls\n"
+            "  threshold: 0.8\n"
         ),
         encoding="utf-8",
     )
 
-    tasks = _all_tasks(project_yaml)
-    operation = tasks[0]
-    assert operation.options == {"sort": "missing"}
+    [operation] = _all_tasks(project_yaml)
+
+    assert isinstance(operation, CoverageTask)
+    assert operation.options.sort == "nulls"
+    assert operation.options.threshold == 0.8
+
+
+@pytest.mark.parametrize(
+    ("entrypoint", "model_cls"),
+    [
+        ("core.runtime.pipeline", PipelineTask),
+        ("core.runtime.matrix", MatrixTask),
+    ],
+)
+def test_runtime_tasks_without_options_accept_empty_options(
+    tmp_path: Path,
+    entrypoint: str,
+    model_cls: type[OperationTask],
+) -> None:
+    project_yaml = _write_project(tmp_path, tasks_ref="tasks")
+    tasks_dir = _operations_dir(project_yaml)
+    (tasks_dir / "runtime.yaml").write_text(
+        (f"id: runtime\nkind: runtime\nentrypoint: {entrypoint}\noptions: {{}}\n"),
+        encoding="utf-8",
+    )
+
+    [operation] = _all_tasks(project_yaml)
+
+    assert isinstance(operation, model_cls)
+    assert operation.options == {}
+
+
+@pytest.mark.parametrize(
+    ("entrypoint", "option", "error"),
+    [
+        (
+            "core.runtime.pipeline",
+            "  sort: missing\n",
+            "pipeline task does not accept options",
+        ),
+        (
+            "core.runtime.matrix",
+            "  rows: 10\n",
+            "matrix task does not accept options",
+        ),
+        (
+            "core.runtime.coverage",
+            "  sort: typo\n",
+            "Input should be 'missing' or 'nulls'",
+        ),
+        (
+            "core.runtime.coverage",
+            "  threshold: 1.1\n",
+            "less than or equal to 1",
+        ),
+        (
+            "core.runtime.coverage",
+            "  threshold: true\n",
+            "Input should be a valid number",
+        ),
+        (
+            "core.runtime.thresholds",
+            "  typo: true\n",
+            "Extra inputs are not permitted",
+        ),
+        (
+            "core.runtime.thresholds",
+            "  threshold: -0.1\n",
+            "greater than or equal to 0",
+        ),
+        (
+            "core.runtime.thresholds",
+            "  threshold: '0.8'\n",
+            "Input should be a valid number",
+        ),
+    ],
+)
+def test_builtin_runtime_tasks_reject_invalid_options(
+    tmp_path: Path,
+    entrypoint: str,
+    option: str,
+    error: str,
+) -> None:
+    project_yaml = _write_project(tmp_path, tasks_ref="tasks")
+    tasks_dir = _operations_dir(project_yaml)
+    (tasks_dir / "runtime.yaml").write_text(
+        (f"id: runtime\nkind: runtime\nentrypoint: {entrypoint}\noptions:\n{option}"),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match=error):
+        _all_tasks(project_yaml)
+
+
+@pytest.mark.parametrize(
+    ("entrypoint", "model_cls"),
+    [
+        ("core.runtime.coverage", CoverageTask),
+        ("core.runtime.thresholds", ThresholdsTask),
+    ],
+)
+def test_inspection_task_options_default_to_current_behavior(
+    tmp_path: Path,
+    entrypoint: str,
+    model_cls: type[OperationTask],
+) -> None:
+    project_yaml = _write_project(tmp_path, tasks_ref="tasks")
+    tasks_dir = _operations_dir(project_yaml)
+    (tasks_dir / "runtime.yaml").write_text(
+        f"id: runtime\nkind: runtime\nentrypoint: {entrypoint}\n",
+        encoding="utf-8",
+    )
+
+    [operation] = _all_tasks(project_yaml)
+
+    assert isinstance(operation, model_cls)
+    assert operation.options.sort == "missing"
+    assert operation.options.threshold == 0.95
 
 
 def test_materialize_stream_options_are_typed(tmp_path: Path) -> None:
@@ -656,6 +780,18 @@ def test_plugin_runtime_options_remain_plugin_owned(tmp_path: Path) -> None:
 
     assert type(task) is OperationTask
     assert task.options == {"nested": {"value": 3}}
+
+
+def test_plugin_runtime_options_must_be_a_mapping(tmp_path: Path) -> None:
+    project_yaml = _write_project(tmp_path, tasks_ref="tasks")
+    tasks_dir = _operations_dir(project_yaml)
+    (tasks_dir / "custom.yaml").write_text(
+        ("id: custom\nkind: runtime\nentrypoint: plugin.runtime.custom\noptions: []\n"),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="options must be a mapping"):
+        _all_tasks(project_yaml)
 
 
 def test_runtime_operation_rejects_dependencies_field(tmp_path):

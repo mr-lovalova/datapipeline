@@ -169,6 +169,17 @@ entrypoint: core.runtime.pipeline
 - Runtime operations are executable units; profiles reference them via `target`.
 - `entrypoint` must resolve in the `datapipeline.operations.runtime` entry-point
   group. Built-ins use `core.runtime.*`; plugins may register their own names.
+- Built-in runtime task options are entrypoint-specific:
+  - `core.runtime.pipeline`: no task options. Limit, preview, throttle, output,
+    visuals, and split selection belong to the serve profile or CLI.
+  - `core.runtime.coverage`: optional `sort: missing|nulls` and `threshold`
+    between `0` and `1` (defaults: `missing`, `0.95`).
+  - `core.runtime.thresholds`: optional `sort: missing|nulls` and `threshold`
+    between `0` and `1` (defaults: `missing`, `0.95`).
+  - `core.runtime.matrix`: no task options. Its output format and destination
+    come from the inspect profile or CLI.
+- Unknown keys on built-in runtime operations are rejected. Custom plugin
+  runtime operations retain their plugin-defined `options` mapping.
 
 ### Workspace Routing (`jerry.yaml`)
 

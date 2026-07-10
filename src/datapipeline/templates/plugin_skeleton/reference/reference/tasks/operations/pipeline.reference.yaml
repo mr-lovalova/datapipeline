@@ -1,4 +1,4 @@
-# Serve operation task reference (all options).
+# Serve operation task reference.
 # This file is documentation only; uncomment the keys you want to use.
 #
 # version: 1                        # optional
@@ -6,3 +6,6 @@
 # kind: runtime                     # required; runtime | artifact
 
 # entrypoint: core.runtime.pipeline   # required; built-in serve runner id
+#
+# This operation does not accept task options. Limit, preview, throttle, output,
+# visuals, and split selection belong to the serve profile or CLI overrides.

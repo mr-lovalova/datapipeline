@@ -26,9 +26,11 @@ from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.config.tasks import (
     ArtifactTask,
+    CoverageTask,
     MaterializeStreamTask,
     MetadataTask,
     OperationTask,
+    PipelineTask,
     ScalerTask,
     SchemaTask,
     StatsTask,
@@ -450,10 +452,7 @@ def test_pipeline_runtime_requirements_follow_preview_stage(
     expected,
 ):
     graph = build_artifact_graph([])
-    task = OperationTask(
-        id="pipeline",
-        entrypoint="core.runtime.pipeline",
-    )
+    task = PipelineTask(id="pipeline")
 
     assert (
         graph.runtime_requirements(
@@ -474,7 +473,7 @@ def test_pipeline_stream_and_feature_previews_require_declared_ticks(
         output="build/dataset_ticks.jsonl",
     )
     graph = build_artifact_graph([tick_task])
-    task = OperationTask(id="pipeline", entrypoint="core.runtime.pipeline")
+    task = PipelineTask(id="pipeline")
 
     assert "dataset_ticks" in graph.runtime_requirements(
         task,
@@ -499,7 +498,7 @@ def test_runtime_stream_materialization_requires_declared_ticks() -> None:
 
 def test_invalid_pipeline_preview_is_rejected_for_empty_dataset() -> None:
     graph = build_artifact_graph([])
-    task = OperationTask(id="pipeline", entrypoint="core.runtime.pipeline")
+    task = PipelineTask(id="pipeline")
     dataset = FeatureDatasetConfig(group_by="1h")
 
     with pytest.raises(ValueError, match="preview_index must be between 0 and 14"):
@@ -518,10 +517,7 @@ def test_runtime_dependency_closure_uses_stats_task_mode():
             StatsTask(id="stats", mode="raw"),
         ]
     )
-    task = OperationTask(
-        id="coverage",
-        entrypoint="core.runtime.coverage",
-    )
+    task = CoverageTask(id="coverage")
     dataset = FeatureDatasetConfig(group_by="1h", features=[], targets=[])
 
     assert graph.runtime_dependency_closure(
@@ -539,7 +535,7 @@ def test_external_scaler_model_does_not_require_managed_scaler_artifact():
             SchemaTask(id="schema"),
         ]
     )
-    task = OperationTask(id="pipeline", entrypoint="core.runtime.pipeline")
+    task = PipelineTask(id="pipeline")
     dataset = FeatureDatasetConfig(
         group_by="1h",
         features=[
@@ -595,7 +591,7 @@ def test_dataset_scaler_requirement_matches_transform_behavior(scale, expected):
 
 def test_empty_pipeline_dataset_has_no_runtime_artifact_requirements():
     graph = build_artifact_graph([])
-    task = OperationTask(id="pipeline", entrypoint="core.runtime.pipeline")
+    task = PipelineTask(id="pipeline")
     dataset = FeatureDatasetConfig(group_by="1h")
 
     assert (

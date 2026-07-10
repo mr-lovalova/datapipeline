@@ -27,7 +27,7 @@ class MaterializeStreamOptions(BaseModel):
         return str(value).strip() or None
 
 
-class MaterializeStreamTask(OperationTask):
+class MaterializeStreamTask(OperationTask[MaterializeStreamOptions]):
     entrypoint: Literal["core.runtime.materialize_stream"] = Field(
         default="core.runtime.materialize_stream"
     )
