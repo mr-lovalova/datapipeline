@@ -99,5 +99,7 @@ def test_incomplete_generation_project_alignment(copy_fixture):
     )
     assert first.features.values["onshore_mwh_window__@municipality:849"] == [None, None]
 
-    window = samples[4].features.values["onshore_mwh_window__@municipality:849"]
-    assert window == pytest.approx([2.351027, 1.049725], rel=1e-6)
+    window_sample = samples[3]
+    assert window_sample.key[0].hour == 7
+    window = window_sample.features.values["onshore_mwh_window__@municipality:849"]
+    assert window == pytest.approx([2.880863, 2.351027], rel=1e-6)

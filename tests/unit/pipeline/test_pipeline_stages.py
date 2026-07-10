@@ -34,7 +34,11 @@ from datapipeline.sources.adapters.fs import FsFileTransport, FsGlobTransport
 from datapipeline.sources.data_loader import DataLoader
 from datapipeline.sources.decoders import JsonLinesDecoder
 from datapipeline.transforms.spec import TransformSpec
-from datapipeline.vector_inputs import CachedVectorInputShard, write_vector_input_rows
+from datapipeline.vector_inputs import (
+    CachedVectorInputShard,
+    load_vector_inputs_manifest,
+    write_vector_input_rows,
+)
 from tests.vector_input_helpers import register_vector_inputs
 
 
@@ -458,6 +462,7 @@ def test_node_7_applies_feature_transforms(tmp_path: Path) -> None:
         {"time": _ts(0), "value": 1.0},
         {"time": _ts(1), "value": 2.0},
         {"time": _ts(2), "value": 3.0},
+        {"time": _ts(3), "value": 4.0},
     ]
     runtime = _runtime_with_rows(tmp_path, rows)
     ctx = PipelineContext(runtime)
@@ -465,14 +470,14 @@ def test_node_7_applies_feature_transforms(tmp_path: Path) -> None:
         record_stream="stream",
         id="price",
         field="value",
-        sequence={"size": 2, "stride": 1},
+        sequence={"size": 2, "stride": 2},
     )
 
     sequences = list(build_feature_pipeline(ctx, cfg, node=7))
     assert len(sequences) == 2
     assert isinstance(sequences[0], FeatureRecordSequence)
     assert sequences[0].values == [1.0, 2.0]
-    assert sequences[1].values == [2.0, 3.0]
+    assert sequences[1].values == [3.0, 4.0]
 
 
 def test_node_7_vs_8_postprocess(tmp_path: Path) -> None:
@@ -650,6 +655,19 @@ def test_vector_pipeline_requires_vector_inputs_artifact(tmp_path: Path) -> None
 
     with pytest.raises(RuntimeError, match="Vector inputs artifact is required"):
         list(build_vector_pipeline(context, [cfg], "1h", rectangular=False))
+
+
+@pytest.mark.parametrize("version", [None, 1, 3, 2.0, True])
+def test_vector_inputs_manifest_rejects_incompatible_version(
+    tmp_path: Path,
+    version: object,
+) -> None:
+    manifest = tmp_path / "manifest.json"
+    payload = {} if version is None else {"version": version}
+    manifest.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="FORCE mode"):
+        load_vector_inputs_manifest(manifest)
 
 
 def test_cached_vector_pipeline_rejects_manifest_cadence_mismatch(

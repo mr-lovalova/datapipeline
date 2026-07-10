@@ -9,6 +9,7 @@ from datapipeline.services.constants import VECTOR_INPUTS
 from datapipeline.services.path_policy import sanitize_path_segment
 from datapipeline.utils.json_artifact import write_json_artifact
 from datapipeline.vector_inputs import (
+    VECTOR_INPUTS_MANIFEST_VERSION,
     feature_record_to_vector_input_row,
     write_vector_input_rows,
 )
@@ -47,7 +48,7 @@ def register_vector_inputs(
     write_json_artifact(
         manifest_path,
         {
-            "version": 1,
+            "version": VECTOR_INPUTS_MANIFEST_VERSION,
             "format": "jsonl.gz",
             "group_by": group_by,
             "sample_keys": list(sample_keys),

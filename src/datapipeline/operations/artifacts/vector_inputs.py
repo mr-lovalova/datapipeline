@@ -14,6 +14,7 @@ from datapipeline.runtime import Runtime
 from datapipeline.services.path_policy import sanitize_path_segment
 from datapipeline.utils.json_artifact import write_json_artifact
 from datapipeline.vector_inputs import (
+    VECTOR_INPUTS_MANIFEST_VERSION,
     feature_record_to_vector_input_row,
     write_vector_input_rows,
 )
@@ -53,7 +54,7 @@ def materialize_vector_inputs(
     )
 
     payload = {
-        "version": 1,
+        "version": VECTOR_INPUTS_MANIFEST_VERSION,
         "format": task_cfg.format,
         "group_by": dataset.group_by,
         "sample_keys": list(dataset.sample_keys),

@@ -11,6 +11,8 @@ from datapipeline.domain.record import TemporalRecord
 from datapipeline.io.sinks import GzipBinarySink
 from datapipeline.utils.time import parse_datetime
 
+VECTOR_INPUTS_MANIFEST_VERSION = 2
+
 
 @dataclass(frozen=True)
 class CachedVectorInputShard:
@@ -85,6 +87,12 @@ def load_vector_inputs_manifest(path: Path) -> CachedVectorInputsManifest:
         payload = json.load(fh)
     if not isinstance(payload, dict):
         raise ValueError(f"Expected vector inputs manifest object in '{path}'.")
+    version = payload.get("version")
+    if type(version) is not int or version != VECTOR_INPUTS_MANIFEST_VERSION:
+        raise ValueError(
+            f"Unsupported vector inputs manifest version {version!r} in '{path}'. "
+            "Rebuild vector inputs and dependent artifacts in FORCE mode."
+        )
     return CachedVectorInputsManifest(
         format=_required_string(payload, "format", path),
         group_by=_required_string(payload, "group_by", path),

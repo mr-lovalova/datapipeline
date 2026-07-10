@@ -68,7 +68,7 @@ def test_full_regression_project_vectors(copy_fixture) -> None:
             0,
             {
                 "linear_scaled": -1.6666666666666667,
-                "sine_window": [None, None],
+                "sine_window": [0.0, 0.5],
                 "humidity_partitioned__@location:north": 40.0,
                 "humidity_partitioned__@location:south": 38.5,
             },
@@ -78,7 +78,7 @@ def test_full_regression_project_vectors(copy_fixture) -> None:
             1,
             {
                 "linear_scaled": -1.0,
-                "sine_window": [0.5, 1.0],
+                "sine_window": [1.0, 0.5],
                 "humidity_partitioned__@location:north": 40.0,
                 "humidity_partitioned__@location:south": 37.0,
             },
@@ -88,7 +88,7 @@ def test_full_regression_project_vectors(copy_fixture) -> None:
             2,
             {
                 "linear_scaled": -0.3333333333333333,
-                "sine_window": [0.5, 0.0],
+                "sine_window": [0.0, None],
                 "humidity_partitioned__@location:north": 41.0,
                 "humidity_partitioned__@location:south": 37.75,
             },
@@ -98,7 +98,7 @@ def test_full_regression_project_vectors(copy_fixture) -> None:
             3,
             {
                 "linear_scaled": 0.3333333333333333,
-                "sine_window": [None, -0.5],
+                "sine_window": [-0.5, -1.0],
                 "humidity_partitioned__@location:north": 42.0,
                 "humidity_partitioned__@location:south": 37.75,
             },
@@ -108,7 +108,7 @@ def test_full_regression_project_vectors(copy_fixture) -> None:
             4,
             {
                 "linear_scaled": 1.0,
-                "sine_window": [-1.0, -0.5],
+                "sine_window": [-0.5, 0.0],
                 "humidity_partitioned__@location:north": 41.5,
                 "humidity_partitioned__@location:south": 39.0,
             },
@@ -118,7 +118,7 @@ def test_full_regression_project_vectors(copy_fixture) -> None:
             5,
             {
                 "linear_scaled": 1.6666666666666667,
-                "sine_window": [0.0, 0.5],
+                "sine_window": [None, None],
                 "humidity_partitioned__@location:north": 43.0,
                 "humidity_partitioned__@location:south": 40.0,
             },
