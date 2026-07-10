@@ -274,11 +274,9 @@ def run_dag(
     run_state = _RootRunState() if is_root_run else _CURRENT_ROOT_RUN.get()
     if run_state is None:
         raise RuntimeError("Cannot construct a nested DAG outside a root run")
-    root_run_token = _CURRENT_ROOT_RUN.set(run_state)
-    active_node_token = _CURRENT_RUN_ACTIVE_NODE.set(None) if is_root_run else None
-    construction_token = _CURRENT_RUN_DAG_DEPTH.set(dag_depth + 1)
-    stream: Iterable[Any] = () if seed is None else seed
-    try:
+
+    def _build_stream() -> Iterator[Any]:
+        stream: Iterable[Any] = () if seed is None else seed
         state: dict[str, Iterable[Any]] = {} if seed is None else {"seed": seed}
         for index, node in enumerate(dag.nodes):
             if node.input is not None and node.input not in state:
@@ -319,20 +317,17 @@ def run_dag(
                 observer=active_observer,
             )
             state[node.output or node.name] = stream
-        return _observe_dag_stream(
-            context=context,
-            dag=dag,
-            depth=dag_depth,
-            is_root_run=is_root_run,
-            run_state=run_state,
-            stream=stream,
-            observer=active_observer,
-        )
-    finally:
-        _CURRENT_RUN_DAG_DEPTH.reset(construction_token)
-        if active_node_token is not None:
-            _CURRENT_RUN_ACTIVE_NODE.reset(active_node_token)
-        _CURRENT_ROOT_RUN.reset(root_run_token)
+        yield from stream
+
+    return _observe_dag_stream(
+        context=context,
+        dag=dag,
+        depth=dag_depth,
+        is_root_run=is_root_run,
+        run_state=run_state,
+        stream=_build_stream(),
+        observer=active_observer,
+    )
 
 
 def _resolve_observer(

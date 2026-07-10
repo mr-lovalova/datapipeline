@@ -137,26 +137,33 @@ def test_run_dag_emits_node_and_dag_events(tmp_path: Path) -> None:
     observer = _CollectingObserver()
     ctx = _context(tmp_path)
 
+    def _seed() -> list[int]:
+        assert observer.dag_started == [("linear-demo", 2)]
+        return [1, 2, 3]
+
     dag = Dag(
         name="linear-demo",
         nodes=(
-            PipelineNode(name="seed", op=lambda: [1, 2, 3]),
+            PipelineNode(name="seed", op=_seed),
             PipelineNode(
                 name="plus_one",
-                op=lambda up: (x + 1 for x in up),
+                op=lambda up: [x + 1 for x in up],
                 input="seed",
             ),
         ),
     )
 
-    output = list(run_dag(ctx, dag, observer=observer))
+    stream = run_dag(ctx, dag, observer=observer)
+    assert observer.dag_started == []
+    output = list(stream)
     assert output == [2, 3, 4]
 
     assert observer.dag_started == [("linear-demo", 2)]
-    assert [name for _, name, _ in observer.node_started] == ["plus_one", "seed"]
-    assert [node_index for _, _, node_index in observer.node_started] == [1, 0]
+    assert [name for _, name, _ in observer.node_started] == ["seed", "plus_one"]
+    assert [node_index for _, _, node_index in observer.node_started] == [0, 1]
     assert [event.node_name for event in observer.node_events] == ["seed", "plus_one"]
     assert [event.node_index for event in observer.node_events] == [0, 1]
+    assert [event.execution_index for event in observer.node_events] == [0, 1]
     assert [event.status for event in observer.node_events] == ["success", "success"]
     assert [event.output_items for event in observer.node_events] == [3, 3]
     assert [event.depth for event in observer.node_events] == [1, 1]
@@ -463,14 +470,21 @@ def test_run_dag_ignores_node_progress_when_observer_does_not_support_it(
 
 
 def test_run_dag_restores_context_when_dag_start_fails(tmp_path: Path) -> None:
+    operation_called = False
+
     class FailingStartObserver(_CollectingObserver):
         def on_dag_start(self, **kwargs) -> None:
             raise RuntimeError("observer start failed")
 
+    def _operation() -> list[int]:
+        nonlocal operation_called
+        operation_called = True
+        return [1]
+
     observer = FailingStartObserver()
     dag = Dag(
         name="start-error",
-        nodes=(PipelineNode(name="produce", op=lambda: [1]),),
+        nodes=(PipelineNode(name="produce", op=_operation),),
     )
 
     with pytest.raises(RuntimeError, match="observer start failed"):
@@ -478,6 +492,7 @@ def test_run_dag_restores_context_when_dag_start_fails(tmp_path: Path) -> None:
 
     assert dag_runner._current_run_dag_depth() == 0
     assert dag_runner._CURRENT_ROOT_RUN.get() is None
+    assert not operation_called
     assert observer.dag_events == []
 
 
@@ -755,37 +770,45 @@ def test_run_dag_tracks_empty_nodes(tmp_path: Path) -> None:
     assert observer.dag_events[-1].output_items == 0
 
 
-def test_run_dag_rejects_none_node_output_eagerly(tmp_path: Path) -> None:
+def test_run_dag_rejects_none_node_output_during_setup(tmp_path: Path) -> None:
     observer = _CollectingObserver()
     ctx = _context(tmp_path)
-    later_node_called = False
+    called_nodes: list[str] = []
+
+    def broken_node() -> None:
+        called_nodes.append("broken")
+        assert observer.dag_started == [("none-output", 2)]
 
     def valid_later_node() -> list[int]:
-        nonlocal later_node_called
-        later_node_called = True
+        called_nodes.append("later")
         return [1]
 
     dag = Dag(
         name="none-output",
         nodes=(
-            PipelineNode(name="broken", op=lambda: None),
+            PipelineNode(name="broken", op=broken_node),
             PipelineNode(name="later", op=valid_later_node),
         ),
     )
 
+    stream = run_dag(ctx, dag, observer=observer)
+    assert called_nodes == []
+    assert observer.dag_started == []
+
     with pytest.raises(TypeError) as exc_info:
-        run_dag(ctx, dag, observer=observer)
+        list(stream)
 
     assert str(exc_info.value) == (
         "Node 'broken' in DAG 'none-output' returned None; "
         "node operations must return an iterable. "
         "Return () for an empty stream."
     )
-    assert observer.dag_started == []
+    assert called_nodes == ["broken"]
+    assert observer.dag_started == [("none-output", 2)]
     assert observer.node_started == []
     assert observer.node_events == []
-    assert observer.dag_events == []
-    assert not later_node_called
+    assert observer.dag_events[-1].status == "error"
+    assert observer.dag_events[-1].error_type == "TypeError"
 
 
 def test_run_dag_empty_dag_preserves_boundary_behavior(tmp_path: Path) -> None:
