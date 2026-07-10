@@ -4,7 +4,7 @@ from typing import Any, Callable, Iterable, Literal, Mapping
 NodeInput = Iterable[Any] | None
 NodeOutput = Iterable[Any]
 NodeOp = Callable[..., NodeOutput]
-NodeKind = Literal["function", "dag_call", "dag_fanout"]
+NodeKind = Literal["function", "dag_call"]
 
 
 @dataclass(frozen=True)
@@ -18,18 +18,13 @@ class PipelineNode:
     output: str | None = None
     kind: NodeKind = "function"
     calls_dag: str | None = None
-    child_dags: tuple[Any, ...] = ()
 
     def __post_init__(self) -> None:
-        if self.kind in {"dag_call", "dag_fanout"} and not self.calls_dag:
-            raise ValueError(
-                f"Node '{self.name}' kind='{self.kind}' requires calls_dag."
-            )
+        if self.kind not in {"function", "dag_call"}:
+            raise ValueError(f"Node '{self.name}' has unsupported kind '{self.kind}'.")
+        if self.kind == "dag_call" and not self.calls_dag:
+            raise ValueError(f"Node '{self.name}' kind='dag_call' requires calls_dag.")
         if self.kind == "function" and self.calls_dag is not None:
             raise ValueError(
                 f"Node '{self.name}' kind='function' cannot set calls_dag."
-            )
-        if self.kind == "function" and self.child_dags:
-            raise ValueError(
-                f"Node '{self.name}' kind='function' cannot set child_dags."
             )

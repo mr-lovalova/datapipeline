@@ -6,7 +6,7 @@ from datapipeline.pipelines.stream_id import (
     build_stream_id_dag,
     build_stream_id_pipeline,
 )
-from datapipeline.pipelines.vector import build_vector_dag, build_vector_pipeline
+from datapipeline.pipelines.vector import build_vector_pipeline
 
 __all__ = [
     "build_full_pipeline",
@@ -20,5 +20,4 @@ __all__ = [
     "build_feature_pipeline",
     "build_feature_dag",
     "build_vector_pipeline",
-    "build_vector_dag",
 ]

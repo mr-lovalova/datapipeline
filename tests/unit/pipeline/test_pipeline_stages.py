@@ -16,7 +16,6 @@ from datapipeline.pipelines import (
     build_feature_dag,
     build_feature_pipeline,
     build_stream_id_dag,
-    build_vector_dag,
     build_vector_pipeline,
 )
 from datapipeline.pipelines.ingest import build_ingest_dag, build_ingest_pipeline
@@ -292,7 +291,7 @@ def test_node_0_to_2_record_pipeline(tmp_path: Path) -> None:
     assert all(rec.time.minute == 0 for rec in stage2)
 
 
-def test_dag_builders_expose_structural_child_dags(tmp_path: Path) -> None:
+def test_dag_builders_expose_structure(tmp_path: Path) -> None:
     runtime = _runtime_with_rows(tmp_path, [{"time": _ts(0), "value": 1.0}])
     context = PipelineContext(runtime)
     cfg = FeatureRecordConfig(record_stream="stream", id="price", field="value")
@@ -300,8 +299,7 @@ def test_dag_builders_expose_structural_child_dags(tmp_path: Path) -> None:
     stream_id_dag = build_stream_id_dag(context, "stream")
     feature_dag = build_feature_dag(context, cfg)
     preview_feature_dag = build_feature_dag(context, cfg, include_record_nodes=True)
-    vector_dag = build_vector_dag(context, [cfg], "1h", rectangular=False)
-    full_dag = build_full_dag(context, [cfg], "1h", rectangular=False)
+    vector_assemble = build_full_dag(context, [cfg], "1h", rectangular=False).nodes[0]
 
     assert [node.name for node in stream_id_dag.nodes[:2]] == [
         "open_source",
@@ -314,15 +312,8 @@ def test_dag_builders_expose_structural_child_dags(tmp_path: Path) -> None:
     ]
     assert feature_dag.metadata is None
     assert preview_feature_dag.nodes[0].name == "open_source"
-
-    vector_node = vector_dag.nodes[0]
-    assert vector_node.name == "cached_vector_assembly"
-    assert vector_node.kind == "function"
-    assert vector_node.child_dags == ()
-
-    vector_assemble = full_dag.nodes[0]
-    assert vector_assemble.kind == "dag_call"
-    assert [dag.name for dag in vector_assemble.child_dags] == ["vector:assemble"]
+    assert vector_assemble.kind == "function"
+    assert vector_assemble.calls_dag is None
 
 
 def test_node_3_orders_by_partition_and_time(tmp_path: Path) -> None:

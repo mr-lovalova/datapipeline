@@ -8,8 +8,6 @@ from typing import Any
 from datapipeline.artifacts.models import VectorMetadata
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.dag.context import PipelineContext
-from datapipeline.dag.dag import Dag
-from datapipeline.dag.node import PipelineNode
 from datapipeline.pipelines.vector.keygen import group_key_for
 from datapipeline.pipelines.vector.nodes import (
     align_stream,
@@ -30,7 +28,6 @@ from datapipeline.vector_inputs import (
 )
 
 logger = logging.getLogger(__name__)
-VECTOR_ASSEMBLE_DAG_NAME = "vector:assemble"
 
 
 def _close_iterator(iterator: Any) -> None:
@@ -88,9 +85,7 @@ def _build_cached_vector_pipeline(
     manifest_path = artifact.resolve(context.runtime.artifacts.root)
     manifest = load_vector_inputs_manifest(manifest_path)
     if manifest.format != "jsonl.gz":
-        raise RuntimeError(
-            f"Unsupported vector inputs format '{manifest.format}'."
-        )
+        raise RuntimeError(f"Unsupported vector inputs format '{manifest.format}'.")
     if manifest.group_by != group_by_cadence:
         raise RuntimeError(
             "Vector inputs artifact group_by does not match requested pipeline cadence: "
@@ -202,33 +197,6 @@ def _merged_cached_records(
         _close_iterator(merged_stream)
         for stream in opened_streams:
             _close_iterator(stream)
-
-
-def build_vector_dag(
-    context: PipelineContext,
-    configs: Sequence[FeatureRecordConfig],
-    group_by_cadence: str,
-    target_configs: Sequence[FeatureRecordConfig] | None = None,
-    rectangular: bool = True,
-    sample_keys: Sequence[str] = (),
-) -> Dag:
-    return Dag(
-        name=VECTOR_ASSEMBLE_DAG_NAME,
-        nodes=(
-            PipelineNode(
-                name="cached_vector_assembly",
-                op=build_vector_pipeline,
-                args=(
-                    context,
-                    configs,
-                    group_by_cadence,
-                    target_configs,
-                    rectangular,
-                    sample_keys,
-                ),
-            ),
-        ),
-    )
 
 
 def _rectangular_keys(

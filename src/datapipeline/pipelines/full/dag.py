@@ -6,11 +6,7 @@ from datapipeline.dag.dag import Dag
 from datapipeline.dag.runner import run_dag
 from datapipeline.dag.node import PipelineNode
 from datapipeline.pipelines.full.nodes import post_process
-from datapipeline.pipelines.vector.dag import (
-    VECTOR_ASSEMBLE_DAG_NAME,
-    build_vector_dag,
-    build_vector_pipeline,
-)
+from datapipeline.pipelines.vector.dag import build_vector_pipeline
 from datapipeline.dag.context import PipelineContext
 from datapipeline.pipelines.full.split import apply_split_stage
 
@@ -59,18 +55,6 @@ def build_full_dag(
                     sample_keys,
                 ),
                 output="vectors",
-                kind="dag_call",
-                calls_dag=VECTOR_ASSEMBLE_DAG_NAME,
-                child_dags=(
-                    build_vector_dag(
-                        context,
-                        configs,
-                        group_by_cadence,
-                        target_configs,
-                        rectangular,
-                        sample_keys,
-                    ),
-                ),
             ),
             PipelineNode(
                 name="post_process",

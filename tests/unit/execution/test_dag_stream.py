@@ -110,27 +110,14 @@ def test_dag_upto_node_filters_nodes() -> None:
 
 
 def test_pipeline_node_validates_kind_configuration() -> None:
+    with pytest.raises(ValueError, match="unsupported kind"):
+        PipelineNode(name="fanout", op=lambda: (), kind="dag_fanout")
+
     with pytest.raises(ValueError, match="requires calls_dag"):
-        PipelineNode(
-            name="delegate",
-            op=lambda: [],
-            kind="dag_call",
-        )
+        PipelineNode(name="delegate", op=lambda: (), kind="dag_call")
 
     with pytest.raises(ValueError, match="cannot set calls_dag"):
-        PipelineNode(
-            name="plain",
-            op=lambda: [],
-            kind="function",
-            calls_dag="vector:assemble",
-        )
-
-    with pytest.raises(ValueError, match="cannot set child_dags"):
-        PipelineNode(
-            name="plain",
-            op=lambda: [],
-            child_dags=(Dag(name="child", nodes=()),),
-        )
+        PipelineNode(name="plain", op=lambda: (), calls_dag="vector:assemble")
 
 
 def test_run_dag_emits_node_and_dag_events(tmp_path: Path) -> None:
@@ -709,7 +696,7 @@ def test_run_dag_uses_consuming_node_depth_for_seeded_child_dag(tmp_path: Path) 
 
     outer = Dag(
         name="vector",
-        nodes=(PipelineNode(name="feature_fanout", op=_feature_stream),),
+        nodes=(PipelineNode(name="feature_stream", op=_feature_stream),),
     )
 
     assert list(run_dag(ctx, outer, observer=observer)) == [1, 2]
@@ -743,7 +730,7 @@ def test_run_dag_uses_consuming_node_depth_for_seeded_child_dag(tmp_path: Path) 
     node_depth_by_name = {
         event.node_name: event.depth for event in observer.node_events
     }
-    assert node_depth_by_name["feature_fanout"] == 1
+    assert node_depth_by_name["feature_stream"] == 1
     assert node_depth_by_name["build_feature_stream"] == 2
     assert node_depth_by_name["open_source"] == 3
 
