@@ -75,6 +75,28 @@ def _runtime_stub(artifacts_root: Path) -> SimpleNamespace:
     )
 
 
+def _write_build_project(tmp_path: Path) -> Path:
+    path = tmp_path / "project.yaml"
+    path.write_text(
+        "\n".join(
+            [
+                "version: 1",
+                "paths:",
+                "  ingests: ./ingests",
+                "  streams: ./streams",
+                "  sources: ./sources",
+                "  dataset: ./dataset.yaml",
+                "  postprocess: ./postprocess.yaml",
+                "  artifacts: ./artifacts",
+                "  tasks: ./tasks",
+                "  profiles: ./profiles",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
 def test_log_build_decision_emits_build_decision(monkeypatch):
     captured: list[str] = []
     monkeypatch.setattr(
@@ -375,24 +397,7 @@ def test_resolve_build_settings_keeps_execution_scoped_profile_outputs_for_later
 def test_run_build_if_needed_preserves_previous_artifacts_in_state(
     monkeypatch, tmp_path
 ):
-    project_path = tmp_path / "project.yaml"
-    project_path.write_text(
-        "\n".join(
-            [
-                "version: 1",
-                "paths:",
-                "  ingests: ./ingests",
-                "  streams: ./streams",
-                "  sources: ./sources",
-                "  dataset: ./dataset.yaml",
-                "  postprocess: ./postprocess.yaml",
-                "  artifacts: ./artifacts",
-                "  tasks: ./tasks",
-                "  profiles: ./profiles",
-            ]
-        ),
-        encoding="utf-8",
-    )
+    project_path = _write_build_project(tmp_path)
     tasks_root = tmp_path / "tasks"
     tasks_root.mkdir(parents=True, exist_ok=True)
 
@@ -645,24 +650,7 @@ def test_execute_build_job_invalidates_only_its_graph_descendants(
 
 
 def test_run_build_if_needed_rebuilds_stale_profile_artifact(monkeypatch, tmp_path):
-    project_path = tmp_path / "project.yaml"
-    project_path.write_text(
-        "\n".join(
-            [
-                "version: 1",
-                "paths:",
-                "  ingests: ./ingests",
-                "  streams: ./streams",
-                "  sources: ./sources",
-                "  dataset: ./dataset.yaml",
-                "  postprocess: ./postprocess.yaml",
-                "  artifacts: ./artifacts",
-                "  tasks: ./tasks",
-                "  profiles: ./profiles",
-            ]
-        ),
-        encoding="utf-8",
-    )
+    project_path = _write_build_project(tmp_path)
     tasks_root = tmp_path / "tasks"
     tasks_root.mkdir(parents=True, exist_ok=True)
 
@@ -747,24 +735,7 @@ def test_run_build_if_needed_rebuilds_stale_profile_artifact(monkeypatch, tmp_pa
 def test_run_build_if_needed_emits_missing_reason_when_artifact_not_built(
     monkeypatch, tmp_path
 ):
-    project_path = tmp_path / "project.yaml"
-    project_path.write_text(
-        "\n".join(
-            [
-                "version: 1",
-                "paths:",
-                "  ingests: ./ingests",
-                "  streams: ./streams",
-                "  sources: ./sources",
-                "  dataset: ./dataset.yaml",
-                "  postprocess: ./postprocess.yaml",
-                "  artifacts: ./artifacts",
-                "  tasks: ./tasks",
-                "  profiles: ./profiles",
-            ]
-        ),
-        encoding="utf-8",
-    )
+    project_path = _write_build_project(tmp_path)
     tasks_root = tmp_path / "tasks"
     tasks_root.mkdir(parents=True, exist_ok=True)
 
@@ -838,24 +809,7 @@ def test_run_build_if_needed_emits_missing_reason_when_artifact_not_built(
 def test_run_build_if_needed_hydrates_runtime_from_state_before_jobs(
     monkeypatch, tmp_path
 ):
-    project_path = tmp_path / "project.yaml"
-    project_path.write_text(
-        "\n".join(
-            [
-                "version: 1",
-                "paths:",
-                "  ingests: ./ingests",
-                "  streams: ./streams",
-                "  sources: ./sources",
-                "  dataset: ./dataset.yaml",
-                "  postprocess: ./postprocess.yaml",
-                "  artifacts: ./artifacts",
-                "  tasks: ./tasks",
-                "  profiles: ./profiles",
-            ]
-        ),
-        encoding="utf-8",
-    )
+    project_path = _write_build_project(tmp_path)
     tasks_root = tmp_path / "tasks"
     tasks_root.mkdir(parents=True, exist_ok=True)
 
@@ -939,24 +893,7 @@ def test_run_build_if_needed_hydrates_runtime_from_state_before_jobs(
 
 
 def test_run_build_if_needed_emits_run_decision(monkeypatch, tmp_path):
-    project_path = tmp_path / "project.yaml"
-    project_path.write_text(
-        "\n".join(
-            [
-                "version: 1",
-                "paths:",
-                "  ingests: ./ingests",
-                "  streams: ./streams",
-                "  sources: ./sources",
-                "  dataset: ./dataset.yaml",
-                "  postprocess: ./postprocess.yaml",
-                "  artifacts: ./artifacts",
-                "  tasks: ./tasks",
-                "  profiles: ./profiles",
-            ]
-        ),
-        encoding="utf-8",
-    )
+    project_path = _write_build_project(tmp_path)
     tasks_root = tmp_path / "tasks"
     tasks_root.mkdir(parents=True, exist_ok=True)
 
@@ -1031,24 +968,7 @@ def test_plan_build_skips_scaler_when_dataset_has_no_scaled_features(
     monkeypatch,
     tmp_path,
 ) -> None:
-    project_path = tmp_path / "project.yaml"
-    project_path.write_text(
-        "\n".join(
-            [
-                "version: 1",
-                "paths:",
-                "  ingests: ./ingests",
-                "  streams: ./streams",
-                "  sources: ./sources",
-                "  dataset: ./dataset.yaml",
-                "  postprocess: ./postprocess.yaml",
-                "  artifacts: ./artifacts",
-                "  tasks: ./tasks",
-                "  profiles: ./profiles",
-            ]
-        ),
-        encoding="utf-8",
-    )
+    project_path = _write_build_project(tmp_path)
     settings = SimpleNamespace(
         mode="AUTO",
         force=True,
@@ -1085,24 +1005,7 @@ def test_plan_build_skips_scaler_when_dataset_has_no_scaled_features(
 
 
 def test_plan_build_supports_generic_artifact_task(monkeypatch, tmp_path) -> None:
-    project_path = tmp_path / "project.yaml"
-    project_path.write_text(
-        "\n".join(
-            [
-                "version: 1",
-                "paths:",
-                "  ingests: ./ingests",
-                "  streams: ./streams",
-                "  sources: ./sources",
-                "  dataset: ./dataset.yaml",
-                "  postprocess: ./postprocess.yaml",
-                "  artifacts: ./artifacts",
-                "  tasks: ./tasks",
-                "  profiles: ./profiles",
-            ]
-        ),
-        encoding="utf-8",
-    )
+    project_path = _write_build_project(tmp_path)
     monkeypatch.setattr("datapipeline.artifacts.executor.tasks_dir", lambda _: tmp_path)
     monkeypatch.setattr(
         "datapipeline.artifacts.executor.compute_config_hash",
@@ -1137,24 +1040,7 @@ def test_plan_build_supports_generic_artifact_task(monkeypatch, tmp_path) -> Non
 
 
 def test_plan_build_schema_runs_vector_inputs_dependency(monkeypatch, tmp_path) -> None:
-    project_path = tmp_path / "project.yaml"
-    project_path.write_text(
-        "\n".join(
-            [
-                "version: 1",
-                "paths:",
-                "  ingests: ./ingests",
-                "  streams: ./streams",
-                "  sources: ./sources",
-                "  dataset: ./dataset.yaml",
-                "  postprocess: ./postprocess.yaml",
-                "  artifacts: ./artifacts",
-                "  tasks: ./tasks",
-                "  profiles: ./profiles",
-            ]
-        ),
-        encoding="utf-8",
-    )
+    project_path = _write_build_project(tmp_path)
     settings = SimpleNamespace(
         mode="FORCE",
         force=True,
@@ -1197,24 +1083,7 @@ def test_plan_build_schema_runs_vector_inputs_dependency(monkeypatch, tmp_path) 
 
 
 def test_plan_build_does_not_rebuild_current_dependency(monkeypatch, tmp_path) -> None:
-    project_path = tmp_path / "project.yaml"
-    project_path.write_text(
-        "\n".join(
-            [
-                "version: 1",
-                "paths:",
-                "  ingests: ./ingests",
-                "  streams: ./streams",
-                "  sources: ./sources",
-                "  dataset: ./dataset.yaml",
-                "  postprocess: ./postprocess.yaml",
-                "  artifacts: ./artifacts",
-                "  tasks: ./tasks",
-                "  profiles: ./profiles",
-            ]
-        ),
-        encoding="utf-8",
-    )
+    project_path = _write_build_project(tmp_path)
 
     from datapipeline.build.state import BuildState, save_build_state
     from datapipeline.services.bootstrap import build_state_path
@@ -1270,24 +1139,7 @@ def test_plan_build_rejects_missing_producer_even_when_cache_is_current(
     monkeypatch,
     tmp_path,
 ) -> None:
-    project_path = tmp_path / "project.yaml"
-    project_path.write_text(
-        "\n".join(
-            [
-                "version: 1",
-                "paths:",
-                "  ingests: ./ingests",
-                "  streams: ./streams",
-                "  sources: ./sources",
-                "  dataset: ./dataset.yaml",
-                "  postprocess: ./postprocess.yaml",
-                "  artifacts: ./artifacts",
-                "  tasks: ./tasks",
-                "  profiles: ./profiles",
-            ]
-        ),
-        encoding="utf-8",
-    )
+    project_path = _write_build_project(tmp_path)
     artifacts_root = tmp_path / "artifacts"
     input_path = artifacts_root / "build/vector_inputs/manifest.json"
     schema_path = artifacts_root / "build/schema.json"
@@ -1335,24 +1187,7 @@ def test_plan_build_rebuilds_current_dependent_when_dependency_is_stale(
     monkeypatch,
     tmp_path,
 ) -> None:
-    project_path = tmp_path / "project.yaml"
-    project_path.write_text(
-        "\n".join(
-            [
-                "version: 1",
-                "paths:",
-                "  ingests: ./ingests",
-                "  streams: ./streams",
-                "  sources: ./sources",
-                "  dataset: ./dataset.yaml",
-                "  postprocess: ./postprocess.yaml",
-                "  artifacts: ./artifacts",
-                "  tasks: ./tasks",
-                "  profiles: ./profiles",
-            ]
-        ),
-        encoding="utf-8",
-    )
+    project_path = _write_build_project(tmp_path)
     artifacts_root = tmp_path / "artifacts"
     input_path = artifacts_root / "build/vector_inputs/manifest.json"
     schema_path = artifacts_root / "build/schema.json"
