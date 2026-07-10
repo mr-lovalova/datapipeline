@@ -59,7 +59,6 @@ class SkippedBuild:
         "up_to_date",
     ]
     artifacts: tuple[str, ...]
-    skipped_current: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -72,7 +71,6 @@ class BuildPlan:
     state_path: Path
     previous_state: BuildState | None
     graph: ArtifactGraph
-    hydration_artifacts: tuple[str, ...]
 
 
 BuildDecision = BuildPlan | SkippedBuild
@@ -94,10 +92,12 @@ def _log_build_decision(
     payload["expanded_artifacts"] = list(plan.artifacts)
     if isinstance(plan, BuildPlan):
         payload["jobs"] = [job.definition.key for job in plan.jobs]
+        skipped_current = plan.skipped_current
     else:
         payload["jobs"] = []
-    if plan.skipped_current:
-        payload["skipped_current"] = list(plan.skipped_current)
+        skipped_current = plan.artifacts
+    if skipped_current:
+        payload["skipped_current"] = list(skipped_current)
     emit_build_decision(
         f"Build decision:\n{json.dumps(payload, indent=2, default=str)}",
         logger=logger,
@@ -236,14 +236,12 @@ def _plan_build(
         return SkippedBuild(
             reason="mode_off",
             artifacts=expanded_artifacts,
-            skipped_current=expanded_artifacts,
         )
 
     if not settings.force and not freshness.outdated:
         return SkippedBuild(
             reason="up_to_date",
             artifacts=expanded_artifacts,
-            skipped_current=expanded_artifacts,
         )
 
     build_keys = set(selected_keys) if settings.force else set(freshness.outdated)
@@ -283,7 +281,6 @@ def _plan_build(
         state_path=state_path,
         previous_state=previous_state,
         graph=graph,
-        hydration_artifacts=expanded_artifacts,
     )
 
 
@@ -308,13 +305,6 @@ def _execute_build_jobs(
                 built_artifacts={},
                 config_hash=plan.config_hash,
             )
-            hydrate_runtime_artifacts(
-                runtime=runtime,
-                graph=plan.graph,
-                state=current_state,
-                config_hash=plan.config_hash,
-                artifact_keys=plan.hydration_artifacts,
-            )
             for job in plan.jobs:
                 removed = False
                 for key in job.invalidated_artifacts:
@@ -327,7 +317,7 @@ def _execute_build_jobs(
                     graph=plan.graph,
                     state=current_state,
                     config_hash=plan.config_hash,
-                    artifact_keys=plan.hydration_artifacts,
+                    artifact_keys=plan.artifacts,
                 )
 
                 result = _run_artifact_builder(
@@ -350,7 +340,7 @@ def _execute_build_jobs(
                     graph=plan.graph,
                     state=current_state,
                     config_hash=plan.config_hash,
-                    artifact_keys=plan.hydration_artifacts,
+                    artifact_keys=plan.artifacts,
                 )
             return current_state
     finally:

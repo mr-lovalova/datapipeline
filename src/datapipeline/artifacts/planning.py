@@ -265,20 +265,6 @@ class ArtifactGraph:
             selected &= profile_keys
         return selected
 
-    def select_keys(
-        self,
-        *,
-        required_artifacts: set[str] | None = None,
-        profile_target: str | None = None,
-        profile_name: str | None = None,
-    ) -> set[str]:
-        roots = self.select_roots(
-            required_artifacts=required_artifacts,
-            profile_target=profile_target,
-            profile_name=profile_name,
-        )
-        return set(self.dependency_closure(roots))
-
     def dependency_closure(self, roots: Iterable[str]) -> tuple[str, ...]:
         root_keys = set(roots)
         for key in root_keys:

@@ -87,6 +87,7 @@ def test_run_profiles_executes_profile_target(monkeypatch, tmp_path):
     schema = SchemaTask(id="schema")
     metadata = MetadataTask(id="metadata")
     serve = PipelineTask(id="pipeline")
+    runtime = _runtime(tmp_path)
 
     log_decision, log_output = _log_config()
     request = ProfileRunRequest(
@@ -102,14 +103,25 @@ def test_run_profiles_executes_profile_target(monkeypatch, tmp_path):
                 visuals="on",
                 log_decision=log_decision,
                 log_output=log_output,
-                runtime=_runtime(tmp_path),
                 dataset=_dataset(),
             )
         ],
     )
 
-    calls = {"build": 0, "dispatch": 0}
+    calls = {"bootstrap": 0, "build": 0, "hydrate": 0, "dispatch": 0}
 
+    def _bootstrap(_project_path):
+        calls["bootstrap"] += 1
+        return runtime
+
+    def _hydrate(*_args, **_kwargs):
+        calls["hydrate"] += 1
+        return VECTOR_INPUTS, VECTOR_SCHEMA, VECTOR_SCHEMA_METADATA
+
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.bootstrap_build_runtime",
+        _bootstrap,
+    )
     monkeypatch.setattr(
         "datapipeline.profiles.orchestration.run_profile",
         lambda spec, work: work(),
@@ -124,16 +136,14 @@ def test_run_profiles_executes_profile_target(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(
         "datapipeline.profiles.execution.hydrate_runtime_artifacts_for_project",
-        lambda *_args, **_kwargs: (
-            VECTOR_INPUTS,
-            VECTOR_SCHEMA,
-            VECTOR_SCHEMA_METADATA,
-        ),
+        _hydrate,
     )
 
     run_profiles(request)
 
+    assert calls["bootstrap"] == 1
     assert calls["build"] == 1
+    assert calls["hydrate"] == 1
     assert calls["dispatch"] == 1
 
 

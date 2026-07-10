@@ -15,7 +15,7 @@ def test_iter_runtime_runs_clears_split_keep_for_inspect(monkeypatch):
     runtime = SimpleNamespace(split=SimpleNamespace(keep="train"), split_keep=None, run=None)
 
     monkeypatch.setattr(
-        "datapipeline.services.run_entries.bootstrap",
+        "datapipeline.services.run_entries.bootstrap_build_runtime",
         lambda _project_path: runtime,
     )
 

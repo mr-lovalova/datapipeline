@@ -99,10 +99,11 @@ def test_raw_stats_build_selects_metadata_dependency_chain():
         ]
     )
 
-    keys = graph.select_keys(
+    roots = graph.select_roots(
         profile_target="stats",
         profile_name="stats",
     )
+    keys = set(graph.dependency_closure(roots))
 
     assert keys == {
         VECTOR_STATS,
@@ -123,7 +124,8 @@ def test_final_stats_build_also_selects_schema():
         ]
     )
 
-    keys = graph.select_keys(profile_target="stats", profile_name="stats")
+    roots = graph.select_roots(profile_target="stats", profile_name="stats")
+    keys = set(graph.dependency_closure(roots))
 
     assert keys == {
         VECTOR_STATS,
@@ -295,10 +297,11 @@ def test_generic_artifact_task_is_a_dependency_free_leaf():
         ]
     )
 
-    assert graph.select_keys(
+    roots = graph.select_roots(
         profile_target="custom_snapshot",
         profile_name="custom",
-    ) == {"custom_snapshot"}
+    )
+    assert graph.dependency_closure(roots) == ("custom_snapshot",)
     assert graph.definition("custom_snapshot").dependencies == ()
 
 
@@ -357,7 +360,8 @@ def test_artifact_graph_rejects_unknown_requested_artifact():
     graph = build_artifact_graph([])
 
     with pytest.raises(ValueError, match="Unknown artifact 'missing'"):
-        graph.select_keys(required_artifacts={"missing"})
+        roots = graph.select_roots(required_artifacts={"missing"})
+        graph.dependency_closure(roots)
 
 
 def test_stale_dependency_makes_current_dependent_outdated(tmp_path):

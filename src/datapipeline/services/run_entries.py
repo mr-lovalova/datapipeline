@@ -3,7 +3,7 @@ from typing import Iterator, NamedTuple, Optional, Sequence
 
 from datapipeline.config.profiles import Profile
 from datapipeline.runtime import Runtime
-from datapipeline.services.bootstrap import bootstrap
+from datapipeline.services.bootstrap import bootstrap_build_runtime
 
 
 class RunEntry(NamedTuple):
@@ -21,7 +21,7 @@ def iter_runtime_runs(
     total_runs = len(run_entries)
     for idx, entry in enumerate(run_entries, start=1):
         run_cfg = entry.config
-        runtime = bootstrap(project_path)
+        runtime = bootstrap_build_runtime(project_path)
         if run_cfg is not None:
             runtime.run = run_cfg
             if getattr(run_cfg, "cmd", None) == "serve":

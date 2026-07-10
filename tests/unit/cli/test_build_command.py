@@ -87,7 +87,6 @@ def test_log_build_decision_emits_build_decision(monkeypatch):
         build_exec.SkippedBuild(
             reason="up_to_date",
             artifacts=("vector_inputs", "vector_schema"),
-            skipped_current=("vector_inputs", "vector_schema"),
         ),
         settings=settings,
     )
@@ -537,7 +536,6 @@ def test_execute_build_jobs_persists_completed_artifact_before_later_failure(
         state_path=state_path,
         previous_state=previous_state,
         graph=graph,
-        hydration_artifacts=(VECTOR_INPUTS, VECTOR_SCHEMA),
     )
 
     with pytest.raises(RuntimeError, match="schema failed"):
@@ -631,7 +629,6 @@ def test_execute_build_job_invalidates_only_its_graph_descendants(
         state_path=state_path,
         previous_state=previous_state,
         graph=graph,
-        hydration_artifacts=graph.topological_order(artifact_paths),
     )
 
     state = build_exec._execute_build_jobs(
@@ -641,7 +638,6 @@ def test_execute_build_job_invalidates_only_its_graph_descendants(
 
     assert set(state.artifacts) == {SCALER_STATISTICS, "custom_snapshot"}
     assert runtime.artifacts.has(SCALER_STATISTICS)
-    assert runtime.artifacts.has("custom_snapshot")
     assert not runtime.artifacts.has(VECTOR_INPUTS)
     assert not runtime.artifacts.has(VECTOR_SCHEMA)
     assert not runtime.artifacts.has(VECTOR_SCHEMA_METADATA)

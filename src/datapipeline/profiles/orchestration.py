@@ -3,7 +3,7 @@ import logging
 from datapipeline.artifacts.planning import build_artifact_graph
 from datapipeline.profiles.executor import ProfileExecutionSpec, run_profile
 from datapipeline.cli.visuals.execution import execution_scope
-from datapipeline.services.bootstrap import bootstrap, bootstrap_build_runtime
+from datapipeline.services.bootstrap import bootstrap_build_runtime
 from datapipeline.services.executions import start_execution
 from datapipeline.services.runs import (
     finish_run_failed,
@@ -11,12 +11,7 @@ from datapipeline.services.runs import (
     set_latest_run,
     start_run,
 )
-from .execution import (
-    ArtifactProfileTaskPlan,
-    execute_profile,
-    plan_profile_task,
-    resolve_profile_task,
-)
+from .execution import execute_profile, plan_profile_task, resolve_profile_task
 from .models import ProfileRunRequest, ServeRunPlan
 from .reporting import persist_profile_report
 
@@ -40,13 +35,11 @@ def run_profiles(request: ProfileRunRequest) -> None:
             for profile in profiles
         ]
         profile_runtimes = []
-        for profile, task_plan in zip(profiles, profile_task_plans):
+        for profile in profiles:
             if profile.runtime is not None:
                 profile_runtimes.append(profile.runtime)
-            elif isinstance(task_plan, ArtifactProfileTaskPlan):
-                profile_runtimes.append(bootstrap_build_runtime(request.project_path))
             else:
-                profile_runtimes.append(bootstrap(request.project_path))
+                profile_runtimes.append(bootstrap_build_runtime(request.project_path))
     except (TypeError, ValueError) as exc:
         logger.error("%s", exc)
         raise SystemExit(2) from exc

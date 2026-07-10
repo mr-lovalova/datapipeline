@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Any, List, Literal, Optional, Sequence, Union
 from datetime import datetime
 
-from datapipeline.config.profiles import ServeProfile
+from datapipeline.config.profiles import Profile
 from datapipeline.config.split import SplitConfig
 from datapipeline.domain.stream import RecordStream
 
@@ -82,7 +82,7 @@ class Runtime:
     registries: Registries = field(default_factory=Registries)
     split: Optional[SplitConfig] = None
     split_keep: Optional[str] = None
-    run: Optional[ServeProfile] = None
+    run: Optional[Profile] = None
     schema_required: bool = True
     sample_keys: list[str] = field(default_factory=list)
     window_bounds: tuple[datetime | None, datetime | None] | None = None

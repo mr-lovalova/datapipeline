@@ -40,9 +40,7 @@ def hydrate_runtime_artifacts(
         active_keys=keys,
     )
     current_keys = keys - set(freshness.outdated) - unavailable_keys
-    ordered_current = tuple(
-        key for key in graph.topological_order(current_keys) if key in state.artifacts
-    )
+    ordered_current = graph.topological_order(current_keys)
     for key in ordered_current:
         info = state.artifacts[key]
         runtime.artifacts.register(
