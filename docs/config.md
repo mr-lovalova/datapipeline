@@ -224,6 +224,12 @@ loader:
 - `id`: the source alias; referenced by ingests under `from.source`.
 - `parser.entrypoint`: which parser to use; `parser.args` are optional.
 - `loader.entrypoint`: which loader to use; `core.io` is the default for fs/http and is configured via `loader.args`.
+- `inputs.files`: optional project-relative regular files or glob patterns used
+  to track custom-loader inputs for artifact freshness. Local `core.io`
+  filesystem paths are tracked automatically.
+- Local freshness snapshots include glob membership, file paths, sizes, and
+  filesystem modification metadata. Use `--force` after metadata-preserving,
+  opaque, or remote source changes that cannot be declared as files.
 - Keep secrets and machine-local paths out of source files. Prefer `${env:...}`
   directly or route them through `project.yaml.globals` aliases like `${raw_root}`.
 

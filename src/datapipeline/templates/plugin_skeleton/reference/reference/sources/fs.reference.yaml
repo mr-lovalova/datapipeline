@@ -2,6 +2,8 @@
 # This file is documentation only; uncomment the keys you want to use.
 #
 # id: provider.dataset         # required
+# inputs:                      # custom loaders can declare freshness-tracked files
+#   files: [./data/*.csv]      # paths and globs resolve relative to project.yaml
 # parser:
 #   entrypoint: my_pkg.sources.provider.dataset:parse # required
 #   args: {}                   # optional
@@ -10,7 +12,7 @@
 #   args:
 #     transport: fs
 #     format: csv            # required; csv | json | jsonl | pickle
-#     path: ./data/file.csv  # optional (use path or glob)
-#     glob: ./data/*.csv     # optional (use path or glob)
+#     path: ./data/*.csv     # required file or glob pattern
+#     glob: true             # optional; expand path as a glob
 #     encoding: utf-8        # optional
 #     delimiter: ","         # optional; csv only

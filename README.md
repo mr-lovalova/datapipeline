@@ -211,8 +211,8 @@ Split timing (leakage note)
 ## MLOps & Reproducibility
 
 - `jerry build` materializes deterministic artifacts (schema, scaler, metadata).
-  Builds are keyed by config hashes and skip work when nothing changed unless
-  you pass `--force`.
+  Builds are keyed by configuration and local-source snapshots, and skip work
+  when nothing changed unless you pass `--force`.
 - `jerry serve` runs are named (task/run) and can write outputs to
   `<output-directory>/<run_name>/` for auditing, sharing, or downstream training.
 - Versioning: tag the project config + plugin code in Git and pair with a data

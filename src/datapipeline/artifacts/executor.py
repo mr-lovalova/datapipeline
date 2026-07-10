@@ -433,4 +433,8 @@ def run_build_if_needed(
         runtime=runtime,
         plan=plan,
     )
+    if compute_config_hash(project_path, tasks_dir(project_path)) != plan.config_hash:
+        raise RuntimeError(
+            "Build inputs changed while artifacts were being generated; rerun the build."
+        )
     return True

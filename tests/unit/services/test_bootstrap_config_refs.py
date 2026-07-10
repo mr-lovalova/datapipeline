@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import pytest
@@ -439,3 +440,108 @@ def test_compute_config_hash_includes_multiple_source_roots(tmp_path: Path) -> N
     hash_two = compute_config_hash(project_yaml, project_root / "tasks")
 
     assert hash_one != hash_two
+
+
+@pytest.mark.parametrize(
+    ("source_yaml", "tracks_inventory"),
+    [
+        pytest.param(
+            """\
+id: sample.fs
+parser: {entrypoint: identity, args: {}}
+loader:
+  entrypoint: core.io
+  args:
+    transport: fs
+    format: jsonl
+    path: data/*.jsonl
+    glob: true
+""",
+            True,
+            id="core-io",
+        ),
+        pytest.param(
+            """\
+id: sample.file
+parser: {entrypoint: identity, args: {}}
+loader:
+  entrypoint: core.io
+  args: {transport: fs, format: jsonl, path: data/a.jsonl}
+""",
+            False,
+            id="core-io-file",
+        ),
+        pytest.param(
+            """\
+id: sample.custom
+inputs:
+  files: [data/*.jsonl]
+parser: {entrypoint: identity, args: {}}
+loader: {entrypoint: custom.loader, args: {}}
+""",
+            True,
+            id="custom-loader",
+        ),
+    ],
+)
+def test_compute_config_hash_tracks_local_source_snapshot(
+    tmp_path: Path,
+    source_yaml: str,
+    tracks_inventory: bool,
+) -> None:
+    project_root = tmp_path / "project"
+    _write_project_files(project_root)
+    project_yaml = _write_project_yaml(project_root)
+    (project_root / "sources" / "sample.yaml").write_text(
+        source_yaml,
+        encoding="utf-8",
+    )
+    data_dir = project_root / "data"
+    data_dir.mkdir()
+    first = data_dir / "a.jsonl"
+    first.write_text("one\n", encoding="utf-8")
+
+    baseline = compute_config_hash(project_yaml, project_root / "tasks")
+    assert compute_config_hash(project_yaml, project_root / "tasks") == baseline
+
+    (data_dir / "ignored.csv").write_text("ignored\n", encoding="utf-8")
+    assert compute_config_hash(project_yaml, project_root / "tasks") == baseline
+
+    previous = first.stat()
+    first.write_text("two\n", encoding="utf-8")
+    os.utime(
+        first,
+        ns=(previous.st_atime_ns, previous.st_mtime_ns + 1_000_000),
+    )
+    edited = compute_config_hash(project_yaml, project_root / "tasks")
+    assert edited != baseline
+
+    second = data_dir / "b.jsonl"
+    second.write_text("three\n", encoding="utf-8")
+    added = compute_config_hash(project_yaml, project_root / "tasks")
+    assert (added != edited) is tracks_inventory
+
+    second.unlink()
+    assert compute_config_hash(project_yaml, project_root / "tasks") == edited
+
+    first.unlink()
+    assert compute_config_hash(project_yaml, project_root / "tasks") != edited
+
+
+def test_compute_config_hash_rejects_source_input_directory(tmp_path: Path) -> None:
+    project_root = tmp_path / "project"
+    _write_project_files(project_root)
+    project_yaml = _write_project_yaml(project_root)
+    (project_root / "sources" / "sample.yaml").write_text(
+        """\
+id: sample.custom
+inputs: {files: [data]}
+parser: {entrypoint: identity, args: {}}
+loader: {entrypoint: custom.loader, args: {}}
+""",
+        encoding="utf-8",
+    )
+    (project_root / "data").mkdir()
+
+    with pytest.raises(ValueError, match="not a regular file"):
+        compute_config_hash(project_yaml, project_root / "tasks")

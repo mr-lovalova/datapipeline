@@ -22,9 +22,9 @@ mode, schema. Nested tick artifacts are rejected because that dependency is not
 yet representable safely.
 
 Build state lives at `artifacts/_system/build/state.json`. An entry is current
-only when its config hash, declared output path, file, and dependency chain are
-all current. Runtime hydration registers only those current artifacts; orphaned,
-missing, stale, and incomplete chains are left unavailable.
+only when its config and local-source snapshot, declared output path, file, and
+dependency chain are all current. Runtime hydration registers only those current
+artifacts; orphaned, missing, stale, and incomplete chains are left unavailable.
 
 Build modes are:
 

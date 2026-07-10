@@ -472,6 +472,31 @@ def test_run_build_if_needed_preserves_previous_artifacts_in_state(
     }
 
 
+def test_run_build_if_needed_rejects_inputs_changed_during_build(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    project_path = _write_build_project(tmp_path)
+    plan = SimpleNamespace(config_hash="before")
+    settings = SimpleNamespace(heartbeat_interval_seconds=None)
+
+    monkeypatch.setattr(build_exec, "_plan_build", lambda **_kwargs: plan)
+    monkeypatch.setattr(
+        build_exec, "_log_build_decision", lambda *_args, **_kwargs: None
+    )
+    monkeypatch.setattr(build_exec, "bootstrap_build_runtime", lambda _path: object())
+    monkeypatch.setattr(build_exec, "_execute_build_jobs", lambda **_kwargs: None)
+    monkeypatch.setattr(build_exec, "tasks_dir", lambda _path: tmp_path)
+    monkeypatch.setattr(build_exec, "compute_config_hash", lambda *_args: "after")
+
+    with pytest.raises(RuntimeError, match="Build inputs changed"):
+        build_exec.run_build_if_needed(
+            project_path,
+            settings=settings,
+            skip_logging_setup=True,
+        )
+
+
 def test_execute_build_jobs_persists_completed_artifact_before_later_failure(
     monkeypatch,
     tmp_path,

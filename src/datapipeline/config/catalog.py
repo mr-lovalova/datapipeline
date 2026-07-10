@@ -6,6 +6,7 @@ from pydantic import (
     ConfigDict,
     Field,
     PlainSerializer,
+    StringConstraints,
     model_validator,
 )
 
@@ -31,10 +32,23 @@ class EPArgs(BaseModel):
     args: dict[str, Any] = Field(default_factory=dict)
 
 
+_SourceInputPath = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1),
+]
+
+
+class SourceInputsConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    files: list[_SourceInputPath] = Field(min_length=1)
+
+
 class SourceConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
     parser: EPArgs
     loader: EPArgs
+    inputs: SourceInputsConfig | None = None
 
 
 class IngestFromConfig(BaseModel):
