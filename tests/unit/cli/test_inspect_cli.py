@@ -120,59 +120,60 @@ def test_inspect_thresholds_reads_stats_artifact(monkeypatch, tmp_path: Path) ->
     assert '"below_features"' in report
 
 
-def test_inspect_tasks_forward_typed_options(monkeypatch) -> None:
-    coverage_call: dict[str, object] = {}
-    threshold_call: dict[str, object] = {}
+def test_inspect_coverage_applies_typed_options(monkeypatch) -> None:
+    collector = object()
+    loaded: list[tuple[object, float]] = []
+    built: list[tuple[object, str, float]] = []
 
-    def capture_coverage(
-        runtime,
-        *,
-        report,
-        sort_key,
-        threshold,
-        include_sort=False,
-        include_threshold=False,
-    ):
-        coverage_call.update(
-            report=report,
-            sort_key=sort_key,
-            threshold=threshold,
-            include_sort=include_sort,
-            include_threshold=include_threshold,
-        )
-        return SimpleNamespace(payload={})
+    def load_collector(runtime, *, threshold):
+        loaded.append((runtime, threshold))
+        return collector
 
-    def capture_thresholds(
-        runtime,
-        *,
-        report,
-        sort_key,
-        threshold,
-        include_sort=False,
-        include_threshold=False,
-    ):
-        threshold_call.update(
-            report=report,
-            sort_key=sort_key,
-            threshold=threshold,
-            include_sort=include_sort,
-            include_threshold=include_threshold,
-        )
-        return SimpleNamespace(payload={})
+    def build_metrics(value, *, sort_key, threshold):
+        built.append((value, sort_key, threshold))
+        return {"result": "ok"}
 
-    monkeypatch.setattr(coverage_ops, "metrics_summary_output", capture_coverage)
-    monkeypatch.setattr(thresholds_ops, "metrics_summary_output", capture_thresholds)
+    monkeypatch.setattr(coverage_ops, "load_collector", load_collector)
+    monkeypatch.setattr(coverage_ops, "build_metrics", build_metrics)
+    runtime = SimpleNamespace()
 
-    coverage_ops.inspect_coverage_with_runtime(
-        runtime=SimpleNamespace(),
+    result = coverage_ops.inspect_coverage_with_runtime(
+        runtime=runtime,
         dataset=SimpleNamespace(),
         operation_task=CoverageTask(
             id="coverage",
             options={"sort": "nulls", "threshold": 0.8},
         ),
     )
-    thresholds_ops.inspect_thresholds_with_runtime(
-        runtime=SimpleNamespace(),
+
+    assert loaded == [(runtime, 0.8)]
+    assert built == [(collector, "nulls", 0.8)]
+    assert result.payload == {
+        "report": "coverage",
+        "metrics": {"result": "ok"},
+        "sort": "nulls",
+    }
+
+
+def test_inspect_thresholds_applies_typed_options(monkeypatch) -> None:
+    collector = object()
+    loaded: list[tuple[object, float]] = []
+    built: list[tuple[object, str, float]] = []
+
+    def load_collector(runtime, *, threshold):
+        loaded.append((runtime, threshold))
+        return collector
+
+    def build_metrics(value, *, sort_key, threshold):
+        built.append((value, sort_key, threshold))
+        return {"result": "ok"}
+
+    monkeypatch.setattr(thresholds_ops, "load_collector", load_collector)
+    monkeypatch.setattr(thresholds_ops, "build_metrics", build_metrics)
+    runtime = SimpleNamespace()
+
+    result = thresholds_ops.inspect_thresholds_with_runtime(
+        runtime=runtime,
         dataset=SimpleNamespace(),
         operation_task=ThresholdsTask(
             id="thresholds",
@@ -180,19 +181,12 @@ def test_inspect_tasks_forward_typed_options(monkeypatch) -> None:
         ),
     )
 
-    assert coverage_call == {
-        "report": "coverage",
-        "sort_key": "nulls",
-        "threshold": 0.8,
-        "include_sort": True,
-        "include_threshold": False,
-    }
-    assert threshold_call == {
+    assert loaded == [(runtime, 0.8)]
+    assert built == [(collector, "nulls", 0.8)]
+    assert result.payload == {
         "report": "thresholds",
-        "sort_key": "nulls",
+        "metrics": {"result": "ok"},
         "threshold": 0.8,
-        "include_sort": False,
-        "include_threshold": True,
     }
 
 

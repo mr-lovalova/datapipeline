@@ -6,9 +6,7 @@ from datapipeline.io.output import OutputTarget
 from datapipeline.operations.persistence import RuntimeOutput
 from datapipeline.runtime import Runtime
 
-from .vector_stats_common import (
-    metrics_summary_output,
-)
+from .vector_stats_common import build_metrics, load_collector
 
 
 def inspect_coverage_with_runtime(
@@ -23,10 +21,16 @@ def inspect_coverage_with_runtime(
 ) -> RuntimeOutput:
     _ = dataset, limit, target, throttle_ms, preview_index, visuals
     options = operation_task.options if operation_task else CoverageOptions()
-    return metrics_summary_output(
-        runtime,
-        report="coverage",
+    collector = load_collector(runtime, threshold=options.threshold)
+    metrics = build_metrics(
+        collector,
         sort_key=options.sort,
         threshold=options.threshold,
-        include_sort=True,
+    )
+    return RuntimeOutput(
+        payload={
+            "report": "coverage",
+            "metrics": metrics,
+            "sort": options.sort,
+        }
     )

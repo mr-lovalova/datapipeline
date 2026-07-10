@@ -4,7 +4,6 @@ from datapipeline.analysis.vector.collector import VectorStatsCollector
 from datapipeline.analysis.vector.snapshot import collector_from_snapshot
 from datapipeline.config.metadata import build_vector_metadata_lookup
 from datapipeline.dag.context import PipelineContext
-from datapipeline.operations.persistence import RuntimeOutput
 from datapipeline.runtime import Runtime
 from datapipeline.services.artifacts import VECTOR_METADATA_SPEC, VECTOR_STATS_SPEC
 
@@ -148,28 +147,6 @@ def build_metrics(
         "keep_partition_values": keep_partition_values,
         "keep_partitions_cadence": keep_partitions_cadence,
     }
-
-
-def metrics_summary_output(
-    runtime: Runtime,
-    *,
-    report: str,
-    sort_key: Literal["missing", "nulls"],
-    threshold: float,
-    include_sort: bool = False,
-    include_threshold: bool = False,
-) -> RuntimeOutput:
-    metrics = build_metrics(
-        load_collector(runtime, threshold=threshold),
-        sort_key=sort_key,
-        threshold=threshold,
-    )
-    payload: dict[str, Any] = {"report": report, "metrics": metrics}
-    if include_sort:
-        payload["sort"] = sort_key
-    if include_threshold:
-        payload["threshold"] = threshold
-    return RuntimeOutput(payload=payload)
 
 
 def matrix_status_rows(
