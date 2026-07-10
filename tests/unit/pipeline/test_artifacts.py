@@ -1,20 +1,23 @@
 from pathlib import Path
 
+import pytest
+
 try:
     import tomllib
 except ModuleNotFoundError:
     import tomli as tomllib
 
 from datapipeline.artifacts.planning import (
-    build_planning_context,
-    selected_artifact_keys_for_build,
+    ArtifactGraph,
+    build_artifact_graph,
 )
 from datapipeline.artifacts.specs import (
     ARTIFACT_DEFINITIONS,
-    artifact_build_order,
-    artifact_keys_for_task_ids,
+    ArtifactDefinition,
 )
+from datapipeline.build.state import BuildState
 from datapipeline.config.tasks import (
+    ArtifactTask,
     MetadataTask,
     ScalerTask,
     SchemaTask,
@@ -47,38 +50,80 @@ def _declared_entrypoints(group: str) -> dict[str, str]:
     }
 
 
-def test_artifact_build_order_follows_definition_precedence():
-    ordered = artifact_build_order(
-        {VECTOR_SCHEMA_METADATA, VECTOR_INPUTS, SCALER_STATISTICS},
+def test_artifact_graph_uses_dependency_order_not_declaration_order():
+    graph = ArtifactGraph(
+        (
+            ArtifactDefinition(key="result", task_id="result", dependencies=("input",)),
+            ArtifactDefinition(key="input", task_id="input"),
+        ),
+        {},
     )
-    assert ordered == [SCALER_STATISTICS, VECTOR_INPUTS, VECTOR_SCHEMA_METADATA]
+
+    assert graph.topological_order({"result", "input"}) == ("input", "result")
 
 
 def test_artifact_keys_for_task_ids():
-    keys = artifact_keys_for_task_ids({"schema", "scaler", "stats", "vector_inputs"})
+    graph = build_artifact_graph(
+        [
+            SchemaTask(id="schema"),
+            ScalerTask(id="scaler"),
+            StatsTask(id="stats", mode="raw"),
+            VectorInputsTask(id="vector_inputs"),
+        ]
+    )
+
+    keys = graph.keys_for_tasks({"schema", "scaler", "stats", "vector_inputs"})
+
     assert keys == {VECTOR_SCHEMA, SCALER_STATISTICS, VECTOR_STATS, VECTOR_INPUTS}
 
 
-def test_stats_build_selects_vector_inputs_dependency_chain():
-    context = build_planning_context(
+def test_raw_stats_build_selects_metadata_dependency_chain():
+    graph = build_artifact_graph(
         [
-            StatsTask(id="stats", mode="final"),
+            StatsTask(id="stats", mode="raw"),
+            MetadataTask(id="metadata"),
             VectorInputsTask(id="vector_inputs"),
             ScalerTask(id="scaler"),
         ]
     )
 
-    keys = selected_artifact_keys_for_build(
-        context=context,
+    keys = graph.select_keys(
         profile_target="stats",
         profile_name="stats",
     )
 
-    assert keys == {VECTOR_STATS, VECTOR_INPUTS, SCALER_STATISTICS}
+    assert keys == {
+        VECTOR_STATS,
+        VECTOR_SCHEMA_METADATA,
+        VECTOR_INPUTS,
+        SCALER_STATISTICS,
+    }
+
+
+def test_final_stats_build_also_selects_schema():
+    graph = build_artifact_graph(
+        [
+            StatsTask(id="stats", mode="final"),
+            MetadataTask(id="metadata"),
+            SchemaTask(id="schema"),
+            VectorInputsTask(id="vector_inputs"),
+            ScalerTask(id="scaler"),
+        ]
+    )
+
+    keys = graph.select_keys(profile_target="stats", profile_name="stats")
+
+    assert keys == {
+        VECTOR_STATS,
+        VECTOR_SCHEMA_METADATA,
+        VECTOR_SCHEMA,
+        VECTOR_INPUTS,
+        SCALER_STATISTICS,
+    }
 
 
 def test_ticks_task_uses_task_id_as_artifact_key():
-    context = build_planning_context(
+    graph = build_artifact_graph(
         [
             TicksTask(
                 id="dataset_ticks",
@@ -89,9 +134,133 @@ def test_ticks_task_uses_task_id_as_artifact_key():
         ]
     )
 
-    keys = artifact_keys_for_task_ids({"dataset_ticks"}, context.definitions)
+    keys = graph.keys_for_tasks({"dataset_ticks"})
 
     assert keys == {"dataset_ticks"}
+
+
+def test_generic_artifact_task_is_a_dependency_free_leaf():
+    graph = build_artifact_graph(
+        [
+            ArtifactTask(
+                id="custom_snapshot",
+                entrypoint="plugin.snapshot",
+                output="build/custom.json",
+            )
+        ]
+    )
+
+    assert graph.select_keys(
+        profile_target="custom_snapshot",
+        profile_name="custom",
+    ) == {"custom_snapshot"}
+    assert graph.definition("custom_snapshot").dependencies == ()
+
+
+def test_artifact_graph_rejects_duplicate_output_paths():
+    with pytest.raises(ValueError, match="write the same output 'build/shared.json'"):
+        build_artifact_graph(
+            [
+                ArtifactTask(
+                    id="first",
+                    entrypoint="plugin.first",
+                    output="build/shared.json",
+                ),
+                ArtifactTask(
+                    id="second",
+                    entrypoint="plugin.second",
+                    output="build/shared.json",
+                ),
+            ]
+        )
+
+
+def test_artifact_graph_rejects_unknown_dependencies():
+    with pytest.raises(ValueError, match="unknown dependency 'missing'"):
+        ArtifactGraph(
+            (
+                ArtifactDefinition(
+                    key="result",
+                    task_id="result",
+                    dependencies=("missing",),
+                ),
+            ),
+            {},
+        )
+
+
+def test_artifact_graph_rejects_cycles_with_path():
+    with pytest.raises(ValueError, match="first -> second -> first"):
+        ArtifactGraph(
+            (
+                ArtifactDefinition(
+                    key="first",
+                    task_id="first",
+                    dependencies=("second",),
+                ),
+                ArtifactDefinition(
+                    key="second",
+                    task_id="second",
+                    dependencies=("first",),
+                ),
+            ),
+            {},
+        )
+
+
+def test_artifact_graph_rejects_unknown_requested_artifact():
+    graph = build_artifact_graph([])
+
+    with pytest.raises(ValueError, match="Unknown artifact 'missing'"):
+        graph.select_keys(required_artifacts={"missing"})
+
+
+def test_stale_dependency_makes_current_dependent_outdated(tmp_path):
+    graph = ArtifactGraph(
+        (
+            ArtifactDefinition(key="input", task_id="input"),
+            ArtifactDefinition(
+                key="result",
+                task_id="result",
+                dependencies=("input",),
+            ),
+        ),
+        {},
+    )
+    (tmp_path / "input.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "result.json").write_text("{}", encoding="utf-8")
+    state = BuildState(config_hash="current")
+    state.register("input", "input.json", meta={"_config_hash": "old"})
+    state.register("result", "result.json", meta={"_config_hash": "current"})
+
+    freshness = graph.freshness(
+        keys={"input", "result"},
+        state=state,
+        config_hash="current",
+        artifacts_root=tmp_path,
+    )
+
+    assert freshness.stale == {"input"}
+    assert freshness.outdated == {"input", "result"}
+
+
+def test_artifact_with_missing_file_is_not_current(tmp_path):
+    graph = ArtifactGraph(
+        (ArtifactDefinition(key="result", task_id="result"),),
+        {},
+    )
+    state = BuildState(config_hash="current")
+    state.register("result", "missing.json", meta={"_config_hash": "current"})
+
+    freshness = graph.freshness(
+        keys={"result"},
+        state=state,
+        config_hash="current",
+        artifacts_root=tmp_path,
+    )
+
+    assert freshness.missing == {"result"}
+    assert freshness.outdated == {"result"}
 
 
 def test_artifact_definitions_have_runner_bound_entrypoints():

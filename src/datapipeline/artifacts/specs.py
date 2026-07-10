@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Callable, Iterable, Sequence
+from typing import Callable, Iterable
 
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig
@@ -16,7 +16,6 @@ from datapipeline.services.constants import (
 class ArtifactDefinition:
     key: str
     task_id: str
-    min_stage: int | None
     dependencies: tuple[str, ...] = ()
     required_if: Callable[[FeatureDatasetConfig], bool] | None = None
 
@@ -47,87 +46,30 @@ def dataset_requires_scaler(dataset: FeatureDatasetConfig) -> bool:
     return False
 
 
-ARTIFACT_DEFINITIONS: tuple[
-    ArtifactDefinition,
-    ...
-] = (
+ARTIFACT_DEFINITIONS: tuple[ArtifactDefinition, ...] = (
     ArtifactDefinition(
         key=SCALER_STATISTICS,
         task_id="scaler",
-        min_stage=6,
         required_if=dataset_requires_scaler,
     ),
     ArtifactDefinition(
         key=VECTOR_INPUTS,
         task_id="vector_inputs",
-        min_stage=7,
         dependencies=(SCALER_STATISTICS,),
     ),
     ArtifactDefinition(
         key=VECTOR_SCHEMA,
         task_id="schema",
-        min_stage=7,
         dependencies=(VECTOR_INPUTS,),
     ),
     ArtifactDefinition(
         key=VECTOR_SCHEMA_METADATA,
         task_id="metadata",
-        min_stage=7,
         dependencies=(VECTOR_INPUTS,),
     ),
     ArtifactDefinition(
         key=VECTOR_STATS,
         task_id="stats",
-        min_stage=None,
-        dependencies=(VECTOR_INPUTS,),
+        dependencies=(VECTOR_SCHEMA_METADATA, VECTOR_SCHEMA),
     ),
 )
-
-
-def artifact_definition_for_key(
-    key: str,
-    definitions: Sequence[ArtifactDefinition] | None = None,
-) -> ArtifactDefinition | None:
-    items = definitions if definitions is not None else ARTIFACT_DEFINITIONS
-    for item in items:
-        if item.key == key:
-            return item
-    return None
-
-
-def artifact_key_for_task_id(
-    task_id: str,
-    definitions: Sequence[ArtifactDefinition] | None = None,
-) -> str | None:
-    items = definitions if definitions is not None else ARTIFACT_DEFINITIONS
-    for item in items:
-        if item.task_id == task_id:
-            return item.key
-    return None
-
-
-def task_id_for_artifact_key(
-    key: str,
-    definitions: Sequence[ArtifactDefinition] | None = None,
-) -> str | None:
-    item = artifact_definition_for_key(key, definitions)
-    return item.task_id if item is not None else None
-
-
-def artifact_keys_for_task_ids(
-    task_ids: Iterable[str],
-    definitions: Sequence[ArtifactDefinition] | None = None,
-) -> set[str]:
-    selected = set(task_ids)
-    items = definitions if definitions is not None else ARTIFACT_DEFINITIONS
-    return {item.key for item in items if item.task_id in selected}
-
-
-def artifact_build_order(
-    required_keys: Iterable[str],
-    definitions: Sequence[ArtifactDefinition] | None = None,
-) -> list[str]:
-    items = list(definitions if definitions is not None else ARTIFACT_DEFINITIONS)
-    selected = set(required_keys)
-    precedence = {item.key: index for index, item in enumerate(items)}
-    return sorted(selected, key=lambda item: precedence.get(item, len(precedence)))

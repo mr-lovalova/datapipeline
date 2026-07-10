@@ -47,12 +47,17 @@ class ArtifactManager:
     def root(self) -> Path:
         return self._root
 
-    def register(self, key: str, relative_path: str, meta: Optional[Mapping[str, Any]] = None) -> None:
+    def register(
+        self, key: str, relative_path: str, meta: Optional[Mapping[str, Any]] = None
+    ) -> None:
         self._records[key] = ArtifactRecord(
             key=key,
             relative_path=relative_path,
             meta=dict(meta or {}),
         )
+
+    def unregister(self, key: str) -> None:
+        self._records.pop(key, None)
 
     def has(self, key: str) -> bool:
         return key in self._records
@@ -70,7 +75,7 @@ class ArtifactManager:
         return self._records.get(key)
 
     def metadata(self, key: str) -> Dict[str, Any]:
-        return self.require(key).meta
+        return dict(self.require(key).meta)
 
     def resolve_path(self, key: str) -> Path:
         return self.require(key).resolve(self._root)

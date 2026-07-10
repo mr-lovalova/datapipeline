@@ -1,9 +1,13 @@
 import logging
 import json
+from types import SimpleNamespace
 
 import pytest
 
-from datapipeline.cli.visuals.execution import ExecutionEventSink, make_operation_observer
+from datapipeline.cli.visuals.execution import (
+    ExecutionEventSink,
+    make_operation_observer,
+)
 from datapipeline.cli.visuals.execution_context import (
     reset_current_execution_event_sink,
     set_current_execution_event_sink,
@@ -11,10 +15,13 @@ from datapipeline.cli.visuals.execution_context import (
 from datapipeline.execution.observability import operation_observer, operation_scope
 from datapipeline.io.output import OutputTarget
 from datapipeline.operations.persistence import (
+    ArtifactOutput,
     RuntimeOutput,
     SplitRuntimeOutput,
+    persist_artifact_output,
     persist_runtime_result,
 )
+from datapipeline.services.artifacts import ArtifactManager
 
 
 class _CaptureSink(ExecutionEventSink):
@@ -23,6 +30,52 @@ class _CaptureSink(ExecutionEventSink):
 
     def emit(self, event) -> None:
         self.events.append(event)
+
+
+def test_persist_artifact_output_requires_declared_existing_file(tmp_path) -> None:
+    runtime = SimpleNamespace(
+        artifacts_root=tmp_path,
+        artifacts=ArtifactManager(tmp_path),
+    )
+
+    with pytest.raises(ValueError, match="but its task declares"):
+        persist_artifact_output(
+            ArtifactOutput(relative_path="other.json"),
+            artifact_key="snapshot",
+            expected_relative_path="snapshot.json",
+            runtime=runtime,
+            logger=logging.getLogger(__name__),
+        )
+
+    with pytest.raises(RuntimeError, match="did not create its declared output"):
+        persist_artifact_output(
+            ArtifactOutput(relative_path="snapshot.json"),
+            artifact_key="snapshot",
+            expected_relative_path="snapshot.json",
+            runtime=runtime,
+            logger=logging.getLogger(__name__),
+        )
+
+
+def test_persist_artifact_output_registers_declared_file(tmp_path) -> None:
+    output = tmp_path / "snapshot.json"
+    output.write_text("{}", encoding="utf-8")
+    runtime = SimpleNamespace(
+        artifacts_root=tmp_path,
+        artifacts=ArtifactManager(tmp_path),
+    )
+
+    info = persist_artifact_output(
+        ArtifactOutput(relative_path="snapshot.json", meta={"rows": 1}),
+        artifact_key="snapshot",
+        expected_relative_path="snapshot.json",
+        runtime=runtime,
+        logger=logging.getLogger(__name__),
+    )
+
+    assert info is not None
+    assert info.relative_path == "snapshot.json"
+    assert runtime.artifacts.has("snapshot")
 
 
 def test_failed_runtime_write_preserves_existing_file(tmp_path) -> None:
@@ -119,12 +172,10 @@ def test_split_runtime_output_routes_rows_to_label_targets(tmp_path) -> None:
     )
 
     train_rows = [
-        json.loads(line)
-        for line in train_path.read_text(encoding="utf-8").splitlines()
+        json.loads(line) for line in train_path.read_text(encoding="utf-8").splitlines()
     ]
     val_rows = [
-        json.loads(line)
-        for line in val_path.read_text(encoding="utf-8").splitlines()
+        json.loads(line) for line in val_path.read_text(encoding="utf-8").splitlines()
     ]
     assert train_rows == [{"split": "train", "value": 1}]
     assert val_rows == [{"split": "val", "value": 2}]
@@ -168,12 +219,10 @@ def test_split_runtime_output_limit_applies_per_target(tmp_path) -> None:
     )
 
     train_rows = [
-        json.loads(line)
-        for line in train_path.read_text(encoding="utf-8").splitlines()
+        json.loads(line) for line in train_path.read_text(encoding="utf-8").splitlines()
     ]
     val_rows = [
-        json.loads(line)
-        for line in val_path.read_text(encoding="utf-8").splitlines()
+        json.loads(line) for line in val_path.read_text(encoding="utf-8").splitlines()
     ]
     assert train_rows == [{"split": "train", "value": 1}]
     assert val_rows == [{"split": "val", "value": 3}]

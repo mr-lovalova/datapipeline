@@ -47,14 +47,33 @@ def persist_artifact_output(
     result: object,
     *,
     artifact_key: str,
+    expected_relative_path: str | None = None,
     runtime,
     logger: logging.Logger,
-) -> dict[str, object] | None:
+) -> ArtifactOutput | None:
     if result is None:
         return None
     if not isinstance(result, ArtifactOutput):
         raise TypeError("Build operation must return ArtifactOutput or None.")
-    full_path = (runtime.artifacts_root / result.relative_path).resolve()
+    if expected_relative_path is not None and Path(result.relative_path) != Path(
+        expected_relative_path
+    ):
+        raise ValueError(
+            f"Artifact '{artifact_key}' returned path '{result.relative_path}', "
+            f"but its task declares '{expected_relative_path}'."
+        )
+    artifacts_root = Path(runtime.artifacts_root).resolve()
+    full_path = (artifacts_root / result.relative_path).resolve()
+    try:
+        full_path.relative_to(artifacts_root)
+    except ValueError as exc:
+        raise ValueError(
+            f"Artifact '{artifact_key}' output must stay under {artifacts_root}."
+        ) from exc
+    if not full_path.is_file():
+        raise RuntimeError(
+            f"Artifact '{artifact_key}' did not create its declared output: {full_path}."
+        )
     meta = dict(result.meta)
     line = f"materialized path={full_path}"
     if meta:
@@ -67,9 +86,7 @@ def persist_artifact_output(
             relative_path=result.relative_path,
             meta=meta,
         )
-    output: dict[str, object] = {"relative_path": result.relative_path}
-    output.update(meta)
-    return output
+    return result
 
 
 def _persist_runtime_output(
@@ -95,8 +112,7 @@ def _persist_runtime_output(
             line = f"materialized path={written}"
             if result.materialized_meta:
                 line = f"{line} " + " ".join(
-                    f"{key}={value}"
-                    for key, value in result.materialized_meta.items()
+                    f"{key}={value}" for key, value in result.materialized_meta.items()
                 )
             emit_operation_info(line)
         return
@@ -182,21 +198,14 @@ def _persist_split_runtime_output(
                 result.limit_per_target is not None
                 and counts[label] >= result.limit_per_target
             ):
-                if all(
-                    count >= result.limit_per_target
-                    for count in counts.values()
-                ):
+                if all(count >= result.limit_per_target for count in counts.values()):
                     break
                 continue
             writer.write(row)
             counts[label] += 1
             progress.advance()
-            if (
-                result.limit_per_target is not None
-                and all(
-                    count >= result.limit_per_target
-                    for count in counts.values()
-                )
+            if result.limit_per_target is not None and all(
+                count >= result.limit_per_target for count in counts.values()
             ):
                 break
 
@@ -222,7 +231,9 @@ def _persist_split_runtime_output(
 
     for label, target in result.targets.items():
         if target.destination:
-            line = f"saved label={label} path={target.destination} items={counts[label]}"
+            line = (
+                f"saved label={label} path={target.destination} items={counts[label]}"
+            )
         elif target.transport == "stdout":
             line = f"streamed target=stdout items={counts[label]}"
         else:

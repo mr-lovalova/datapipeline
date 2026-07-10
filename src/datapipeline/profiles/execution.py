@@ -2,8 +2,7 @@ import logging
 from pathlib import Path
 from typing import cast
 
-from datapipeline.artifacts.planning import build_planning_context
-from datapipeline.artifacts.specs import artifact_keys_for_task_ids
+from datapipeline.artifacts.planning import build_artifact_graph
 from datapipeline.artifacts.executor import run_build_if_needed
 from datapipeline.build.state import load_build_state
 from datapipeline.config.build_resolution import BuildSettings
@@ -62,13 +61,8 @@ def required_artifacts_for_task_ids(
     request: ProfileRunRequest,
     artifact_task_ids: list[str],
 ) -> set[str]:
-    context = build_planning_context(request.artifact_task_configs)
-    return set(
-        artifact_keys_for_task_ids(
-            set(artifact_task_ids),
-            context.definitions,
-        )
-    )
+    graph = build_artifact_graph(request.artifact_task_configs)
+    return graph.keys_for_tasks(artifact_task_ids)
 
 
 def run_selected_artifacts(

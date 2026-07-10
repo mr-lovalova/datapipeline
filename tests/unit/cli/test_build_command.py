@@ -3,12 +3,20 @@ from types import SimpleNamespace
 
 import pytest
 from datapipeline.artifacts import executor as build_exec
+from datapipeline.build.state import BuildState
 from datapipeline.config.build_resolution import resolve_build_settings
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.config.profiles import BuildProfile
 from datapipeline.config.resolution import LogOutputSettings, LogOutputTarget
-from datapipeline.config.tasks import SchemaTask, ScalerTask, StatsTask, VectorInputsTask
+from datapipeline.config.tasks import (
+    ArtifactTask,
+    MetadataTask,
+    SchemaTask,
+    ScalerTask,
+    StatsTask,
+    VectorInputsTask,
+)
 from datapipeline.operations.persistence import ArtifactOutput
 from datapipeline.services.artifacts import ArtifactManager
 from datapipeline.services.constants import (
@@ -49,6 +57,22 @@ def _dataset_with_feature(*, scale: bool) -> FeatureDatasetConfig:
     )
 
 
+def _fake_built_artifact(runtime, definition) -> ArtifactOutput:
+    relative_path = f"{definition.task_id}.json"
+    destination = runtime.artifacts_root / relative_path
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text("{}", encoding="utf-8")
+    return ArtifactOutput(relative_path=relative_path)
+
+
+def _runtime_stub(artifacts_root: Path) -> SimpleNamespace:
+    return SimpleNamespace(
+        artifacts_root=artifacts_root,
+        artifacts=ArtifactManager(artifacts_root),
+        execution_observer=None,
+    )
+
+
 def test_log_build_decision_emits_execution_message(monkeypatch):
     captured: list[tuple[str, int, str | None]] = []
     monkeypatch.setattr(
@@ -60,13 +84,12 @@ def test_log_build_decision_emits_execution_message(monkeypatch):
 
     settings = SimpleNamespace(mode="AUTO", profile_name="metadata")
     build_exec._log_build_decision(
-        action="skip",
-        reason="up_to_date",
+        build_exec.SkippedBuild(
+            reason="up_to_date",
+            artifacts=("vector_inputs", "vector_schema"),
+            skipped_current=("vector_inputs", "vector_schema"),
+        ),
         settings=settings,
-        selected_artifacts=1,
-        expanded_artifacts=("vector_inputs", "vector_schema"),
-        jobs=(),
-        skipped_current=("vector_inputs", "vector_schema"),
     )
 
     assert captured
@@ -76,7 +99,7 @@ def test_log_build_decision_emits_execution_message(monkeypatch):
     assert '"reason": "up_to_date"' in message
     assert '"mode": "AUTO"' in message
     assert '"profile": "metadata"' in message
-    assert '"selected_artifacts": 1' in message
+    assert '"selected_artifacts": 2' in message
     assert '"expanded_artifacts": [' in message
     assert '"vector_inputs"' in message
     assert '"jobs": []' in message
@@ -88,7 +111,7 @@ def test_log_build_decision_emits_execution_message(monkeypatch):
 def test_run_artifact_builder_emits_materialized_message(monkeypatch):
     captured: list[str] = []
 
-    runtime = SimpleNamespace(artifacts_root=Path("/tmp/artifacts"))
+    runtime = _runtime_stub(Path("/tmp/artifacts"))
     definition = SimpleNamespace(key="vector_schema")
     task = _TaskStub(id="schema", output="schema.json")
     monkeypatch.setattr(
@@ -102,11 +125,12 @@ def test_run_artifact_builder_emits_materialized_message(monkeypatch):
     )
     monkeypatch.setattr(
         "datapipeline.artifacts.executor.persist_artifact_output",
-        lambda result, *, artifact_key, runtime, logger: (
-            captured.append(f"Materialized {artifact_key}: {result.relative_path}") or {
-                "relative_path": result.relative_path,
-                **dict(result.meta),
-            }
+        lambda result, *, artifact_key, expected_relative_path, runtime, logger: (
+            captured.append(f"Materialized {artifact_key}: {result.relative_path}")
+            or ArtifactOutput(
+                relative_path=result.relative_path,
+                meta=dict(result.meta),
+            )
         ),
     )
 
@@ -117,7 +141,7 @@ def test_run_artifact_builder_emits_materialized_message(monkeypatch):
     )
 
     assert result is not None
-    assert result["relative_path"] == "schema.json"
+    assert result.relative_path == "schema.json"
     assert captured
     assert captured[0].startswith("Materialized vector_schema: ")
 
@@ -126,7 +150,6 @@ def test_run_build_if_needed_forwards_cli_log_outputs(monkeypatch, tmp_path):
     captured: dict[str, object] = {}
 
     def _fake_resolve_build_settings(
-        
         project_path=None,
         cli_log_level=None,
         cli_visuals=None,
@@ -147,7 +170,9 @@ def test_run_build_if_needed_forwards_cli_log_outputs(monkeypatch, tmp_path):
         return SimpleNamespace(
             visuals="off",
             log_decision=SimpleNamespace(name="INFO", value=20),
-            log_output=LogOutputSettings(outputs=(LogOutputTarget(transport="stderr"),)),
+            log_output=LogOutputSettings(
+                outputs=(LogOutputTarget(transport="stderr"),)
+            ),
             mode="OFF",
             force=False,
             profile_name=None,
@@ -163,16 +188,20 @@ def test_run_build_if_needed_forwards_cli_log_outputs(monkeypatch, tmp_path):
         tmp_path / "project.yaml",
         force=False,
         cli_visuals="off",
-        cli_log_outputs=[LogOutputTarget(
-            transport="fs",
-            destination=tmp_path / "logs" / "jerry.log",
-        )],
+        cli_log_outputs=[
+            LogOutputTarget(
+                transport="fs",
+                destination=tmp_path / "logs" / "jerry.log",
+            )
+        ],
     )
 
-    assert captured["cli_log_outputs"] == [LogOutputTarget(
-        transport="fs",
-        destination=tmp_path / "logs" / "jerry.log",
-    )]
+    assert captured["cli_log_outputs"] == [
+        LogOutputTarget(
+            transport="fs",
+            destination=tmp_path / "logs" / "jerry.log",
+        )
+    ]
     assert captured["cli_log_level"] is None
     assert captured["build_profile"] is None
     assert captured["runtime_build_mode"] is None
@@ -259,7 +288,10 @@ def test_resolve_build_settings_prefers_profile_over_defaults(tmp_path):
     assert settings.heartbeat_interval_seconds == 15
     assert settings.log_decision.name == "DEBUG"
     assert settings.log_output.outputs[0].transport == "fs"
-    assert settings.log_output.outputs[0].destination == (tmp_path / "logs" / "nightly.log").resolve()
+    assert (
+        settings.log_output.outputs[0].destination
+        == (tmp_path / "logs" / "nightly.log").resolve()
+    )
 
 
 def test_resolve_build_settings_requires_project_path_with_profile(tmp_path):
@@ -309,10 +341,15 @@ def test_resolve_build_settings_profile_log_paths_are_project_relative(tmp_path)
         base_log_level="INFO",
         build_profile=profile,
     )
-    assert settings.log_output.outputs[0].destination == (project_root / "logs" / "nightly.log").resolve()
+    assert (
+        settings.log_output.outputs[0].destination
+        == (project_root / "logs" / "nightly.log").resolve()
+    )
 
 
-def test_resolve_build_settings_keeps_execution_scoped_profile_outputs_for_later_materialization(tmp_path):
+def test_resolve_build_settings_keeps_execution_scoped_profile_outputs_for_later_materialization(
+    tmp_path,
+):
     profile = BuildProfile.model_validate(
         {
             "cmd": "build",
@@ -338,7 +375,9 @@ def test_resolve_build_settings_keeps_execution_scoped_profile_outputs_for_later
     assert settings.log_output.outputs[0].scope == "execution"
 
 
-def test_run_build_if_needed_preserves_previous_artifacts_in_state(monkeypatch, tmp_path):
+def test_run_build_if_needed_preserves_previous_artifacts_in_state(
+    monkeypatch, tmp_path
+):
     project_path = tmp_path / "project.yaml"
     project_path.write_text(
         "\n".join(
@@ -365,17 +404,28 @@ def test_run_build_if_needed_preserves_previous_artifacts_in_state(monkeypatch, 
         lambda **kwargs: SimpleNamespace(
             visuals="off",
             log_decision=SimpleNamespace(name="INFO", value=20),
-            log_output=LogOutputSettings(outputs=(LogOutputTarget(transport="stderr"),)),
+            log_output=LogOutputSettings(
+                outputs=(LogOutputTarget(transport="stderr"),)
+            ),
             mode="AUTO",
             force=False,
             profile_name="schema",
             heartbeat_interval_seconds=None,
         ),
     )
-    monkeypatch.setattr("datapipeline.artifacts.executor.tasks_dir", lambda _: tasks_root)
-    monkeypatch.setattr("datapipeline.artifacts.executor.compute_config_hash", lambda *_: "hash-1")
-    monkeypatch.setattr("datapipeline.artifacts.executor.configure_root_logging", lambda **kwargs: None)
-    monkeypatch.setattr("datapipeline.artifacts.executor.bootstrap", lambda _: SimpleNamespace(artifacts_root=tmp_path / "artifacts"))
+    monkeypatch.setattr(
+        "datapipeline.artifacts.executor.tasks_dir", lambda _: tasks_root
+    )
+    monkeypatch.setattr(
+        "datapipeline.artifacts.executor.compute_config_hash", lambda *_: "hash-1"
+    )
+    monkeypatch.setattr(
+        "datapipeline.artifacts.executor.configure_root_logging", lambda **kwargs: None
+    )
+    monkeypatch.setattr(
+        "datapipeline.artifacts.executor.bootstrap",
+        lambda _: _runtime_stub(tmp_path / "artifacts"),
+    )
     monkeypatch.setattr(
         "datapipeline.artifacts.executor.load_dataset",
         lambda *_args, **_kwargs: _dataset_with_feature(scale=True),
@@ -392,11 +442,18 @@ def test_run_build_if_needed_preserves_previous_artifacts_in_state(monkeypatch, 
     )
     monkeypatch.setattr(
         "datapipeline.artifacts.executor._run_artifact_builder",
-        lambda *, definition, **kwargs: {"relative_path": f"{definition.task_id}.json"},
+        lambda *, runtime, definition, **kwargs: _fake_built_artifact(
+            runtime,
+            definition,
+        ),
     )
 
-    schema_profile = BuildProfile.model_validate({"cmd": "build", "name": "schema", "target": "schema"})
-    scaler_profile = BuildProfile.model_validate({"cmd": "build", "name": "scaler", "target": "scaler"})
+    schema_profile = BuildProfile.model_validate(
+        {"cmd": "build", "name": "schema", "target": "schema"}
+    )
+    scaler_profile = BuildProfile.model_validate(
+        {"cmd": "build", "name": "scaler", "target": "scaler"}
+    )
 
     from datapipeline.build.state import load_build_state
     from datapipeline.services.bootstrap import build_state_path
@@ -420,7 +477,7 @@ def test_execute_build_jobs_persists_completed_artifact_before_later_failure(
     from datapipeline.build.state import load_build_state
 
     state_path = tmp_path / "artifacts" / "build_state.json"
-    runtime = SimpleNamespace(artifacts_root=tmp_path / "artifacts")
+    runtime = _runtime_stub(tmp_path / "artifacts")
     vector_inputs_definition = SimpleNamespace(
         key=VECTOR_INPUTS,
         task_id="vector_inputs",
@@ -435,11 +492,22 @@ def test_execute_build_jobs_persists_completed_artifact_before_later_failure(
         entrypoint="core.artifact.vector_inputs",
     )
     schema_task = _TaskStub(id="schema", output="build/schema.json")
+    previous_state = BuildState(config_hash="hash-1")
+    previous_state.register(
+        VECTOR_INPUTS,
+        "build/old-vector-inputs.json",
+        meta={"_config_hash": "hash-1"},
+    )
+    previous_state.register(
+        VECTOR_SCHEMA,
+        "build/old-schema.json",
+        meta={"_config_hash": "hash-1"},
+    )
 
     def _fake_builder(*, definition, **_kwargs):
         if definition.key == VECTOR_SCHEMA:
             raise RuntimeError("schema failed")
-        return {"relative_path": "build/vector_inputs/manifest.json"}
+        return ArtifactOutput(relative_path="build/vector_inputs/manifest.json")
 
     monkeypatch.setattr(
         "datapipeline.artifacts.executor._run_artifact_builder",
@@ -449,11 +517,19 @@ def test_execute_build_jobs_persists_completed_artifact_before_later_failure(
     with pytest.raises(RuntimeError, match="schema failed"):
         build_exec._execute_build_jobs(
             runtime=runtime,
-            job_specs=(
-                (vector_inputs_definition, vector_inputs_task),
-                (schema_definition, schema_task),
+            jobs=(
+                build_exec.ArtifactBuildJob(
+                    vector_inputs_definition,
+                    vector_inputs_task,
+                    (VECTOR_INPUTS, VECTOR_SCHEMA),
+                ),
+                build_exec.ArtifactBuildJob(
+                    schema_definition,
+                    schema_task,
+                    (VECTOR_SCHEMA,),
+                ),
             ),
-            previous_state=None,
+            previous_state=previous_state,
             config_hash="hash-1",
             state_path=state_path,
         )
@@ -464,6 +540,71 @@ def test_execute_build_jobs_persists_completed_artifact_before_later_failure(
     assert state.artifacts[VECTOR_INPUTS].relative_path == (
         "build/vector_inputs/manifest.json"
     )
+    assert VECTOR_SCHEMA not in state.artifacts
+
+
+def test_execute_build_job_invalidates_only_its_graph_descendants(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    state_path = tmp_path / "artifacts/_system/build/state.json"
+    runtime = _runtime_stub(tmp_path / "artifacts")
+    previous_state = BuildState(config_hash="hash-1")
+    artifact_paths = {
+        SCALER_STATISTICS: "build/scaler.json",
+        VECTOR_INPUTS: "build/vector_inputs.json",
+        VECTOR_SCHEMA: "build/schema.json",
+        VECTOR_SCHEMA_METADATA: "build/metadata.json",
+        VECTOR_STATS: "build/stats.json",
+        "custom_snapshot": "build/custom.json",
+    }
+    for key, relative_path in artifact_paths.items():
+        previous_state.register(
+            key,
+            relative_path,
+            meta={"_config_hash": "hash-1"},
+        )
+        runtime.artifacts.register(key, relative_path)
+
+    definition = SimpleNamespace(key=SCALER_STATISTICS, task_id="scaler")
+    task = ScalerTask(id="scaler")
+
+    def _fake_builder(*, runtime, **_kwargs):
+        runtime.artifacts.register(SCALER_STATISTICS, "build/scaler-new.json")
+        return ArtifactOutput(relative_path="build/scaler-new.json")
+
+    monkeypatch.setattr(
+        "datapipeline.artifacts.executor._run_artifact_builder",
+        _fake_builder,
+    )
+
+    state = build_exec._execute_build_jobs(
+        runtime=runtime,
+        jobs=(
+            build_exec.ArtifactBuildJob(
+                definition,
+                task,
+                (
+                    SCALER_STATISTICS,
+                    VECTOR_INPUTS,
+                    VECTOR_SCHEMA,
+                    VECTOR_SCHEMA_METADATA,
+                    VECTOR_STATS,
+                ),
+            ),
+        ),
+        previous_state=previous_state,
+        config_hash="hash-1",
+        state_path=state_path,
+    )
+
+    assert set(state.artifacts) == {SCALER_STATISTICS, "custom_snapshot"}
+    assert runtime.artifacts.has(SCALER_STATISTICS)
+    assert runtime.artifacts.has("custom_snapshot")
+    assert not runtime.artifacts.has(VECTOR_INPUTS)
+    assert not runtime.artifacts.has(VECTOR_SCHEMA)
+    assert not runtime.artifacts.has(VECTOR_SCHEMA_METADATA)
+    assert not runtime.artifacts.has(VECTOR_STATS)
 
 
 def test_run_build_if_needed_rebuilds_stale_profile_artifact(monkeypatch, tmp_path):
@@ -505,17 +646,28 @@ def test_run_build_if_needed_rebuilds_stale_profile_artifact(monkeypatch, tmp_pa
         lambda **kwargs: SimpleNamespace(
             visuals="off",
             log_decision=SimpleNamespace(name="INFO", value=20),
-            log_output=LogOutputSettings(outputs=(LogOutputTarget(transport="stderr"),)),
+            log_output=LogOutputSettings(
+                outputs=(LogOutputTarget(transport="stderr"),)
+            ),
             mode="AUTO",
             force=False,
             profile_name="scaler",
             heartbeat_interval_seconds=None,
         ),
     )
-    monkeypatch.setattr("datapipeline.artifacts.executor.tasks_dir", lambda _: tasks_root)
-    monkeypatch.setattr("datapipeline.artifacts.executor.compute_config_hash", lambda *_: "hash-2")
-    monkeypatch.setattr("datapipeline.artifacts.executor.configure_root_logging", lambda **kwargs: None)
-    monkeypatch.setattr("datapipeline.artifacts.executor.bootstrap", lambda _: SimpleNamespace(artifacts_root=tmp_path / "artifacts"))
+    monkeypatch.setattr(
+        "datapipeline.artifacts.executor.tasks_dir", lambda _: tasks_root
+    )
+    monkeypatch.setattr(
+        "datapipeline.artifacts.executor.compute_config_hash", lambda *_: "hash-2"
+    )
+    monkeypatch.setattr(
+        "datapipeline.artifacts.executor.configure_root_logging", lambda **kwargs: None
+    )
+    monkeypatch.setattr(
+        "datapipeline.artifacts.executor.bootstrap",
+        lambda _: _runtime_stub(tmp_path / "artifacts"),
+    )
     monkeypatch.setattr(
         "datapipeline.artifacts.executor.load_dataset",
         lambda *_args, **_kwargs: _dataset_with_feature(scale=True),
@@ -531,9 +683,9 @@ def test_run_build_if_needed_rebuilds_stale_profile_artifact(monkeypatch, tmp_pa
     calls = {"build_artifact": 0}
     monkeypatch.setattr(
         "datapipeline.artifacts.executor._run_artifact_builder",
-        lambda *, definition, **kwargs: (
+        lambda *, runtime, definition, **kwargs: (
             calls.__setitem__("build_artifact", calls["build_artifact"] + 1)
-            or {"relative_path": f"{definition.task_id}.json"}
+            or _fake_built_artifact(runtime, definition)
         ),
     )
     scaler_task = ScalerTask(id="scaler")
@@ -542,16 +694,25 @@ def test_run_build_if_needed_rebuilds_stale_profile_artifact(monkeypatch, tmp_pa
         "datapipeline.artifacts.executor.operation_specs",
         lambda _: ([scaler_task], []),
     )
-    scaler_profile = BuildProfile.model_validate({"cmd": "build", "name": "scaler", "target": "scaler"})
+    scaler_profile = BuildProfile.model_validate(
+        {"cmd": "build", "name": "scaler", "target": "scaler"}
+    )
 
-    did_build = build_exec.run_build_if_needed(project_path, build_profile=scaler_profile)
+    did_build = build_exec.run_build_if_needed(
+        project_path, build_profile=scaler_profile
+    )
     assert did_build is True
     assert calls["build_artifact"] == 1
     decisions = [message for message, kind in captured if kind == "build_decision"]
-    assert any('"action": "run"' in message and '"reason": "stale"' in message for message in decisions)
+    assert any(
+        '"action": "run"' in message and '"reason": "stale"' in message
+        for message in decisions
+    )
 
 
-def test_run_build_if_needed_emits_missing_reason_when_artifact_not_built(monkeypatch, tmp_path):
+def test_run_build_if_needed_emits_missing_reason_when_artifact_not_built(
+    monkeypatch, tmp_path
+):
     project_path = tmp_path / "project.yaml"
     project_path.write_text(
         "\n".join(
@@ -578,23 +739,31 @@ def test_run_build_if_needed_emits_missing_reason_when_artifact_not_built(monkey
         lambda **kwargs: SimpleNamespace(
             visuals="off",
             log_decision=SimpleNamespace(name="INFO", value=20),
-            log_output=LogOutputSettings(outputs=(LogOutputTarget(transport="stderr"),)),
+            log_output=LogOutputSettings(
+                outputs=(LogOutputTarget(transport="stderr"),)
+            ),
             mode="AUTO",
             force=False,
             profile_name="schema",
             heartbeat_interval_seconds=None,
         ),
     )
-    monkeypatch.setattr("datapipeline.artifacts.executor.tasks_dir", lambda _: tasks_root)
-    monkeypatch.setattr("datapipeline.artifacts.executor.compute_config_hash", lambda *_: "hash-1")
-    monkeypatch.setattr("datapipeline.artifacts.executor.configure_root_logging", lambda **kwargs: None)
+    monkeypatch.setattr(
+        "datapipeline.artifacts.executor.tasks_dir", lambda _: tasks_root
+    )
+    monkeypatch.setattr(
+        "datapipeline.artifacts.executor.compute_config_hash", lambda *_: "hash-1"
+    )
+    monkeypatch.setattr(
+        "datapipeline.artifacts.executor.configure_root_logging", lambda **kwargs: None
+    )
     monkeypatch.setattr(
         "datapipeline.artifacts.executor.load_dataset",
         lambda *_args, **_kwargs: _dataset_with_feature(scale=False),
     )
     monkeypatch.setattr(
         "datapipeline.artifacts.executor.bootstrap",
-        lambda _: SimpleNamespace(artifacts_root=tmp_path / "artifacts"),
+        lambda _: _runtime_stub(tmp_path / "artifacts"),
     )
     schema_task = SchemaTask(id="schema")
     schema_task.source_path = tasks_root / "schema.yaml"
@@ -606,7 +775,10 @@ def test_run_build_if_needed_emits_missing_reason_when_artifact_not_built(monkey
     )
     monkeypatch.setattr(
         "datapipeline.artifacts.executor._run_artifact_builder",
-        lambda *, definition, **kwargs: {"relative_path": f"{definition.task_id}.json"},
+        lambda *, runtime, definition, **kwargs: _fake_built_artifact(
+            runtime,
+            definition,
+        ),
     )
 
     captured: list[tuple[str, str | None]] = []
@@ -617,15 +789,24 @@ def test_run_build_if_needed_emits_missing_reason_when_artifact_not_built(monkey
         ),
     )
 
-    schema_profile = BuildProfile.model_validate({"cmd": "build", "name": "schema", "target": "schema"})
-    did_build = build_exec.run_build_if_needed(project_path, build_profile=schema_profile)
+    schema_profile = BuildProfile.model_validate(
+        {"cmd": "build", "name": "schema", "target": "schema"}
+    )
+    did_build = build_exec.run_build_if_needed(
+        project_path, build_profile=schema_profile
+    )
 
     assert did_build is True
     decisions = [message for message, kind in captured if kind == "build_decision"]
-    assert any('"action": "run"' in message and '"reason": "missing"' in message for message in decisions)
+    assert any(
+        '"action": "run"' in message and '"reason": "missing"' in message
+        for message in decisions
+    )
 
 
-def test_run_build_if_needed_hydrates_runtime_from_state_before_jobs(monkeypatch, tmp_path):
+def test_run_build_if_needed_hydrates_runtime_from_state_before_jobs(
+    monkeypatch, tmp_path
+):
     project_path = tmp_path / "project.yaml"
     project_path.write_text(
         "\n".join(
@@ -652,6 +833,18 @@ def test_run_build_if_needed_hydrates_runtime_from_state_before_jobs(monkeypatch
 
     state_path = build_state_path(project_path)
     state = BuildState(config_hash="hash-1")
+    artifacts_root = tmp_path / "artifacts"
+    vector_inputs_path = artifacts_root / "build/vector_inputs/manifest.json"
+    vector_inputs_path.parent.mkdir(parents=True, exist_ok=True)
+    vector_inputs_path.write_text("{}", encoding="utf-8")
+    metadata_path = artifacts_root / "build/metadata.json"
+    metadata_path.parent.mkdir(parents=True, exist_ok=True)
+    metadata_path.write_text("{}", encoding="utf-8")
+    state.register(
+        VECTOR_INPUTS,
+        "build/vector_inputs/manifest.json",
+        meta={"_config_hash": "hash-1"},
+    )
     state.register(
         VECTOR_SCHEMA_METADATA,
         "build/metadata.json",
@@ -664,41 +857,50 @@ def test_run_build_if_needed_hydrates_runtime_from_state_before_jobs(monkeypatch
         lambda **kwargs: SimpleNamespace(
             visuals="off",
             log_decision=SimpleNamespace(name="INFO", value=20),
-            log_output=LogOutputSettings(outputs=(LogOutputTarget(transport="stderr"),)),
+            log_output=LogOutputSettings(
+                outputs=(LogOutputTarget(transport="stderr"),)
+            ),
             mode="AUTO",
             force=False,
             profile_name="stats",
             heartbeat_interval_seconds=None,
         ),
     )
-    monkeypatch.setattr("datapipeline.artifacts.executor.tasks_dir", lambda _: tasks_root)
-    monkeypatch.setattr("datapipeline.artifacts.executor.compute_config_hash", lambda *_: "hash-1")
-    monkeypatch.setattr("datapipeline.artifacts.executor.configure_root_logging", lambda **kwargs: None)
+    monkeypatch.setattr(
+        "datapipeline.artifacts.executor.tasks_dir", lambda _: tasks_root
+    )
+    monkeypatch.setattr(
+        "datapipeline.artifacts.executor.compute_config_hash", lambda *_: "hash-1"
+    )
+    monkeypatch.setattr(
+        "datapipeline.artifacts.executor.configure_root_logging", lambda **kwargs: None
+    )
     monkeypatch.setattr(
         "datapipeline.artifacts.executor.load_dataset",
         lambda *_args, **_kwargs: _dataset_with_feature(scale=False),
     )
 
-    runtime = SimpleNamespace(
-        artifacts_root=tmp_path / "artifacts",
-        artifacts=ArtifactManager(tmp_path / "artifacts"),
-    )
+    runtime = _runtime_stub(tmp_path / "artifacts")
 
     def _fake_builder(*, runtime, **kwargs):
         assert runtime.artifacts.has(VECTOR_SCHEMA_METADATA)
-        return {"relative_path": "build/stats.json"}
+        stats_path = runtime.artifacts_root / "build/stats.json"
+        stats_path.parent.mkdir(parents=True, exist_ok=True)
+        stats_path.write_text("{}", encoding="utf-8")
+        return ArtifactOutput(relative_path="build/stats.json")
 
     monkeypatch.setattr(
         "datapipeline.artifacts.executor._run_artifact_builder",
         _fake_builder,
     )
 
-    stats_task = StatsTask(id="stats", mode="final")
+    stats_task = StatsTask(id="stats", mode="raw")
+    metadata_task = MetadataTask(id="metadata")
     vector_inputs_task = VectorInputsTask(id="vector_inputs")
     did_build = build_exec.run_build_if_needed(
         project_path,
         required_artifacts={VECTOR_STATS},
-        artifact_task_configs=[stats_task, vector_inputs_task],
+        artifact_task_configs=[stats_task, metadata_task, vector_inputs_task],
         runtime_override=runtime,
     )
 
@@ -732,23 +934,31 @@ def test_run_build_if_needed_emits_run_decision(monkeypatch, tmp_path):
         lambda **kwargs: SimpleNamespace(
             visuals="off",
             log_decision=SimpleNamespace(name="INFO", value=20),
-            log_output=LogOutputSettings(outputs=(LogOutputTarget(transport="stderr"),)),
+            log_output=LogOutputSettings(
+                outputs=(LogOutputTarget(transport="stderr"),)
+            ),
             mode="FORCE",
             force=True,
             profile_name="schema",
             heartbeat_interval_seconds=None,
         ),
     )
-    monkeypatch.setattr("datapipeline.artifacts.executor.tasks_dir", lambda _: tasks_root)
-    monkeypatch.setattr("datapipeline.artifacts.executor.compute_config_hash", lambda *_: "hash-1")
-    monkeypatch.setattr("datapipeline.artifacts.executor.configure_root_logging", lambda **kwargs: None)
+    monkeypatch.setattr(
+        "datapipeline.artifacts.executor.tasks_dir", lambda _: tasks_root
+    )
+    monkeypatch.setattr(
+        "datapipeline.artifacts.executor.compute_config_hash", lambda *_: "hash-1"
+    )
+    monkeypatch.setattr(
+        "datapipeline.artifacts.executor.configure_root_logging", lambda **kwargs: None
+    )
     monkeypatch.setattr(
         "datapipeline.artifacts.executor.load_dataset",
         lambda *_args, **_kwargs: _dataset_with_feature(scale=False),
     )
     monkeypatch.setattr(
         "datapipeline.artifacts.executor.bootstrap",
-        lambda _: SimpleNamespace(artifacts_root=tmp_path / "artifacts"),
+        lambda _: _runtime_stub(tmp_path / "artifacts"),
     )
     schema_task = SchemaTask(id="schema")
     schema_task.source_path = tasks_root / "schema.yaml"
@@ -760,7 +970,10 @@ def test_run_build_if_needed_emits_run_decision(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(
         "datapipeline.artifacts.executor._run_artifact_builder",
-        lambda *, definition, **kwargs: {"relative_path": f"{definition.task_id}.json"},
+        lambda *, runtime, definition, **kwargs: _fake_built_artifact(
+            runtime,
+            definition,
+        ),
     )
 
     captured: list[tuple[str, str | None]] = []
@@ -771,12 +984,19 @@ def test_run_build_if_needed_emits_run_decision(monkeypatch, tmp_path):
         ),
     )
 
-    schema_profile = BuildProfile.model_validate({"cmd": "build", "name": "schema", "target": "schema"})
-    did_build = build_exec.run_build_if_needed(project_path, build_profile=schema_profile)
+    schema_profile = BuildProfile.model_validate(
+        {"cmd": "build", "name": "schema", "target": "schema"}
+    )
+    did_build = build_exec.run_build_if_needed(
+        project_path, build_profile=schema_profile
+    )
 
     assert did_build is True
     decisions = [message for message, kind in captured if kind == "build_decision"]
-    assert any('"action": "run"' in message and '"reason": "force"' in message for message in decisions)
+    assert any(
+        '"action": "run"' in message and '"reason": "force"' in message
+        for message in decisions
+    )
 
 
 def test_plan_build_skips_scaler_when_dataset_has_no_scaled_features(
@@ -811,7 +1031,9 @@ def test_plan_build_skips_scaler_when_dataset_has_no_scaled_features(
         lambda *_args, **_kwargs: _dataset_with_feature(scale=False),
     )
     monkeypatch.setattr("datapipeline.artifacts.executor.tasks_dir", lambda _: tmp_path)
-    monkeypatch.setattr("datapipeline.artifacts.executor.compute_config_hash", lambda *_: "hash-1")
+    monkeypatch.setattr(
+        "datapipeline.artifacts.executor.compute_config_hash", lambda *_: "hash-1"
+    )
 
     plan = build_exec._plan_build(
         project_path=project_path,
@@ -821,11 +1043,56 @@ def test_plan_build_skips_scaler_when_dataset_has_no_scaled_features(
         artifact_task_configs=[ScalerTask(id="scaler")],
     )
 
-    assert plan == {
-        "action": "skip",
-        "reason": "not_required",
-        "selected_artifacts": 0,
-    }
+    assert plan == build_exec.SkippedBuild(
+        reason="not_required",
+        artifacts=(),
+    )
+
+
+def test_plan_build_supports_generic_artifact_task(monkeypatch, tmp_path) -> None:
+    project_path = tmp_path / "project.yaml"
+    project_path.write_text(
+        "\n".join(
+            [
+                "version: 1",
+                "paths:",
+                "  ingests: ./ingests",
+                "  streams: ./streams",
+                "  sources: ./sources",
+                "  dataset: ./dataset.yaml",
+                "  postprocess: ./postprocess.yaml",
+                "  artifacts: ./artifacts",
+                "  tasks: ./tasks",
+                "  profiles: ./profiles",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("datapipeline.artifacts.executor.tasks_dir", lambda _: tmp_path)
+    monkeypatch.setattr(
+        "datapipeline.artifacts.executor.compute_config_hash",
+        lambda *_: "hash-1",
+    )
+    task = ArtifactTask(
+        id="custom_snapshot",
+        entrypoint="plugin.snapshot",
+        output="build/custom.json",
+    )
+
+    plan = build_exec._plan_build(
+        project_path=project_path,
+        settings=SimpleNamespace(mode="FORCE", force=True, profile_name="custom"),
+        build_profile=BuildProfile.model_validate(
+            {"cmd": "build", "name": "custom", "target": "custom_snapshot"}
+        ),
+        required_artifacts=None,
+        artifact_task_configs=[task],
+    )
+
+    assert isinstance(plan, build_exec.BuildPlan)
+    assert [(job.definition.key, job.task.id) for job in plan.jobs] == [
+        ("custom_snapshot", "custom_snapshot")
+    ]
 
 
 def test_plan_build_schema_runs_vector_inputs_dependency(monkeypatch, tmp_path) -> None:
@@ -857,7 +1124,9 @@ def test_plan_build_schema_runs_vector_inputs_dependency(monkeypatch, tmp_path) 
         lambda *_args, **_kwargs: _dataset_with_feature(scale=False),
     )
     monkeypatch.setattr("datapipeline.artifacts.executor.tasks_dir", lambda _: tmp_path)
-    monkeypatch.setattr("datapipeline.artifacts.executor.compute_config_hash", lambda *_: "hash-1")
+    monkeypatch.setattr(
+        "datapipeline.artifacts.executor.compute_config_hash", lambda *_: "hash-1"
+    )
 
     plan = build_exec._plan_build(
         project_path=project_path,
@@ -873,13 +1142,14 @@ def test_plan_build_schema_runs_vector_inputs_dependency(monkeypatch, tmp_path) 
         ],
     )
 
-    assert plan["action"] == "run"
-    assert plan["expanded_artifacts"] == (VECTOR_INPUTS, VECTOR_SCHEMA)
-    assert plan["jobs"] == (VECTOR_INPUTS, VECTOR_SCHEMA)
-    assert plan["skipped_current"] == ()
-    assert [
-        (definition.key, task.id) for definition, task in plan["job_specs"]
-    ] == [
+    assert isinstance(plan, build_exec.BuildPlan)
+    assert plan.artifacts == (VECTOR_INPUTS, VECTOR_SCHEMA)
+    assert tuple(job.definition.key for job in plan.jobs) == (
+        VECTOR_INPUTS,
+        VECTOR_SCHEMA,
+    )
+    assert plan.skipped_current == ()
+    assert [(job.definition.key, job.task.id) for job in plan.jobs] == [
         (VECTOR_INPUTS, "vector_inputs"),
         (VECTOR_SCHEMA, "schema"),
     ]
@@ -915,6 +1185,9 @@ def test_plan_build_does_not_rebuild_current_dependency(monkeypatch, tmp_path) -
         meta={"_config_hash": "hash-1"},
     )
     save_build_state(state, build_state_path(project_path))
+    manifest_path = tmp_path / "artifacts/build/vector_inputs/manifest.json"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text("{}", encoding="utf-8")
 
     settings = SimpleNamespace(
         mode="AUTO",
@@ -926,7 +1199,9 @@ def test_plan_build_does_not_rebuild_current_dependency(monkeypatch, tmp_path) -
         lambda *_args, **_kwargs: _dataset_with_feature(scale=False),
     )
     monkeypatch.setattr("datapipeline.artifacts.executor.tasks_dir", lambda _: tmp_path)
-    monkeypatch.setattr("datapipeline.artifacts.executor.compute_config_hash", lambda *_: "hash-1")
+    monkeypatch.setattr(
+        "datapipeline.artifacts.executor.compute_config_hash", lambda *_: "hash-1"
+    )
 
     plan = build_exec._plan_build(
         project_path=project_path,
@@ -941,12 +1216,157 @@ def test_plan_build_does_not_rebuild_current_dependency(monkeypatch, tmp_path) -
         ],
     )
 
-    assert plan["action"] == "run"
-    assert plan["expanded_artifacts"] == (VECTOR_INPUTS, VECTOR_SCHEMA)
-    assert plan["jobs"] == (VECTOR_SCHEMA,)
-    assert plan["skipped_current"] == (VECTOR_INPUTS,)
-    assert [
-        (definition.key, task.id) for definition, task in plan["job_specs"]
-    ] == [
+    assert isinstance(plan, build_exec.BuildPlan)
+    assert plan.artifacts == (VECTOR_INPUTS, VECTOR_SCHEMA)
+    assert tuple(job.definition.key for job in plan.jobs) == (VECTOR_SCHEMA,)
+    assert plan.skipped_current == (VECTOR_INPUTS,)
+    assert [(job.definition.key, job.task.id) for job in plan.jobs] == [
         (VECTOR_SCHEMA, "schema"),
     ]
+
+
+def test_plan_build_rejects_missing_producer_even_when_cache_is_current(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    project_path = tmp_path / "project.yaml"
+    project_path.write_text(
+        "\n".join(
+            [
+                "version: 1",
+                "paths:",
+                "  ingests: ./ingests",
+                "  streams: ./streams",
+                "  sources: ./sources",
+                "  dataset: ./dataset.yaml",
+                "  postprocess: ./postprocess.yaml",
+                "  artifacts: ./artifacts",
+                "  tasks: ./tasks",
+                "  profiles: ./profiles",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    artifacts_root = tmp_path / "artifacts"
+    input_path = artifacts_root / "build/vector_inputs/manifest.json"
+    schema_path = artifacts_root / "build/schema.json"
+    input_path.parent.mkdir(parents=True, exist_ok=True)
+    input_path.write_text("{}", encoding="utf-8")
+    schema_path.write_text("{}", encoding="utf-8")
+
+    from datapipeline.build.state import save_build_state
+    from datapipeline.services.bootstrap import build_state_path
+
+    state = BuildState(config_hash="hash-1")
+    state.register(
+        VECTOR_INPUTS,
+        "build/vector_inputs/manifest.json",
+        meta={"_config_hash": "hash-1"},
+    )
+    state.register(
+        VECTOR_SCHEMA,
+        "build/schema.json",
+        meta={"_config_hash": "hash-1"},
+    )
+    save_build_state(state, build_state_path(project_path))
+
+    settings = SimpleNamespace(mode="AUTO", force=False, profile_name="schema")
+    monkeypatch.setattr(
+        "datapipeline.artifacts.executor.load_dataset",
+        lambda *_args, **_kwargs: _dataset_with_feature(scale=False),
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        build_exec._plan_build(
+            project_path=project_path,
+            settings=settings,
+            build_profile=BuildProfile.model_validate(
+                {"cmd": "build", "name": "schema", "target": "schema"}
+            ),
+            required_artifacts=None,
+            artifact_task_configs=[SchemaTask(id="schema")],
+        )
+
+    assert exc.value.code == 2
+
+
+def test_plan_build_rebuilds_current_dependent_when_dependency_is_stale(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    project_path = tmp_path / "project.yaml"
+    project_path.write_text(
+        "\n".join(
+            [
+                "version: 1",
+                "paths:",
+                "  ingests: ./ingests",
+                "  streams: ./streams",
+                "  sources: ./sources",
+                "  dataset: ./dataset.yaml",
+                "  postprocess: ./postprocess.yaml",
+                "  artifacts: ./artifacts",
+                "  tasks: ./tasks",
+                "  profiles: ./profiles",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    artifacts_root = tmp_path / "artifacts"
+    input_path = artifacts_root / "build/vector_inputs/manifest.json"
+    schema_path = artifacts_root / "build/schema.json"
+    input_path.parent.mkdir(parents=True, exist_ok=True)
+    input_path.write_text("{}", encoding="utf-8")
+    schema_path.write_text("{}", encoding="utf-8")
+
+    from datapipeline.build.state import save_build_state
+    from datapipeline.services.bootstrap import build_state_path
+
+    state = BuildState(config_hash="hash-2")
+    state.register(
+        VECTOR_INPUTS,
+        "build/vector_inputs/manifest.json",
+        meta={"_config_hash": "hash-1"},
+    )
+    state.register(
+        VECTOR_SCHEMA,
+        "build/schema.json",
+        meta={"_config_hash": "hash-2"},
+    )
+    save_build_state(state, build_state_path(project_path))
+
+    settings = SimpleNamespace(mode="AUTO", force=False, profile_name="schema")
+    monkeypatch.setattr(
+        "datapipeline.artifacts.executor.load_dataset",
+        lambda *_args, **_kwargs: _dataset_with_feature(scale=False),
+    )
+    monkeypatch.setattr("datapipeline.artifacts.executor.tasks_dir", lambda _: tmp_path)
+    monkeypatch.setattr(
+        "datapipeline.artifacts.executor.compute_config_hash",
+        lambda *_: "hash-2",
+    )
+
+    plan = build_exec._plan_build(
+        project_path=project_path,
+        settings=settings,
+        build_profile=BuildProfile.model_validate(
+            {"cmd": "build", "name": "schema", "target": "schema"}
+        ),
+        required_artifacts=None,
+        artifact_task_configs=[
+            VectorInputsTask(id="vector_inputs"),
+            SchemaTask(id="schema"),
+        ],
+    )
+
+    assert isinstance(plan, build_exec.BuildPlan)
+    assert tuple(job.definition.key for job in plan.jobs) == (
+        VECTOR_INPUTS,
+        VECTOR_SCHEMA,
+    )
+    assert plan.jobs[0].invalidated_artifacts == (
+        VECTOR_INPUTS,
+        VECTOR_SCHEMA,
+        VECTOR_SCHEMA_METADATA,
+        VECTOR_STATS,
+    )
