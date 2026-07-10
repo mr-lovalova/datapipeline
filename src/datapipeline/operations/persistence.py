@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from datapipeline.execution.observability import (
-    OperationProgress,
+    OperationProgressTracker,
     emit_operation_info,
 )
 from datapipeline.dag.runner import resolve_heartbeat_interval_seconds
@@ -134,7 +134,7 @@ def _persist_runtime_output(
             rows = (dict(result.payload),)
 
     writer = writer_factory(effective_target, visuals=visuals)
-    progress = OperationProgress(
+    progress = OperationProgressTracker(
         "write_output",
         resolve_heartbeat_interval_seconds(heartbeat_interval_seconds),
     )
@@ -177,7 +177,7 @@ def _persist_split_runtime_output(
     writers = {}
     counts: dict[str, int] = {}
     rows = iter(result.rows)
-    progress = OperationProgress(
+    progress = OperationProgressTracker(
         "write_output",
         resolve_heartbeat_interval_seconds(heartbeat_interval_seconds),
     )

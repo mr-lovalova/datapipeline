@@ -25,6 +25,10 @@ from datapipeline.dag.observer import ExecutionObserver
 from datapipeline.dag.runner import current_node_progress_context
 from datapipeline.execution.observability import (
     OperationEvent as ObservedOperationEvent,
+    OperationFinished as ObservedOperationFinished,
+    OperationInfo as ObservedOperationInfo,
+    OperationProgress as ObservedOperationProgress,
+    OperationStarted as ObservedOperationStarted,
     OperationStatus,
 )
 
@@ -654,29 +658,22 @@ class ExecutionOperationObserver:
         self._logger = logger
 
     def emit_operation_event(self, event: ObservedOperationEvent) -> None:
-        if event.kind == "start":
-            if event.entrypoint is None:
-                raise ValueError("Operation start event requires an entrypoint")
+        log_event: _OperationEvent
+        if isinstance(event, ObservedOperationStarted):
             log_event = OperationStarted(
                 operation_name=event.name,
                 depth=event.depth,
                 entrypoint=event.entrypoint,
                 scope=_current_scope(),
             )
-        elif event.kind == "info":
-            if event.info_line is None:
-                raise ValueError("Operation info event requires an info line")
+        elif isinstance(event, ObservedOperationInfo):
             log_event = OperationInfo(
                 operation_name=event.name,
                 depth=event.depth,
                 info_line=event.info_line,
                 scope=_current_scope(),
             )
-        elif event.kind == "progress":
-            if event.step is None:
-                raise ValueError("Operation progress event requires a step")
-            if event.message is None:
-                raise ValueError("Operation progress event requires a message")
+        elif isinstance(event, ObservedOperationProgress):
             log_event = OperationProgress(
                 operation_name=event.name,
                 depth=event.depth,
@@ -684,11 +681,7 @@ class ExecutionOperationObserver:
                 message=event.message,
                 scope=_current_scope(),
             )
-        elif event.kind == "end":
-            if event.status is None:
-                raise ValueError("Operation end event requires a status")
-            if event.elapsed_seconds is None:
-                raise ValueError("Operation end event requires elapsed seconds")
+        elif isinstance(event, ObservedOperationFinished):
             log_event = OperationFinished(
                 operation_name=event.name,
                 depth=event.depth,
@@ -699,7 +692,7 @@ class ExecutionOperationObserver:
                 scope=_current_scope(),
             )
         else:
-            raise ValueError(f"Unknown operation event kind: {event.kind}")
+            raise TypeError(f"Unsupported operation event: {type(event).__name__}")
         _emit_event(log_event, self._logger)
 
 

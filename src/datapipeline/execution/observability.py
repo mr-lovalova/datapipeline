@@ -1,3 +1,4 @@
+import logging
 import time
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -5,28 +6,47 @@ from dataclasses import dataclass
 from typing import Literal, Protocol
 
 
-OperationEventKind = Literal["start", "info", "progress", "end"]
 OperationStatus = Literal["success", "error"]
+logger = logging.getLogger(__name__)
 
 
-@dataclass(frozen=True)
-class OperationEvent:
-    kind: OperationEventKind
+@dataclass(frozen=True, kw_only=True)
+class _OperationEvent:
     name: str
     depth: int = 0
-    entrypoint: str | None = None
-    step: str | None = None
-    message: str | None = None
-    info_line: str | None = None
-    status: OperationStatus | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class OperationStarted(_OperationEvent):
+    entrypoint: str
+
+
+@dataclass(frozen=True, kw_only=True)
+class OperationInfo(_OperationEvent):
+    info_line: str
+
+
+@dataclass(frozen=True, kw_only=True)
+class OperationProgress(_OperationEvent):
+    step: str
+    message: str
+
+
+@dataclass(frozen=True, kw_only=True)
+class OperationFinished(_OperationEvent):
+    status: OperationStatus
+    elapsed_seconds: float
     error_type: str | None = None
     error_message: str | None = None
-    elapsed_seconds: float | None = None
+
+
+OperationEvent = (
+    OperationStarted | OperationInfo | OperationProgress | OperationFinished
+)
 
 
 class OperationObserver(Protocol):
-    def emit_operation_event(self, event: OperationEvent) -> None:
-        ...
+    def emit_operation_event(self, event: OperationEvent) -> None: ...
 
 
 @dataclass(frozen=True)
@@ -63,47 +83,54 @@ def operation_observer(observer: OperationObserver):
 def operation_scope(name: str, entrypoint: str, depth: int = 0):
     operation_depth = max(0, int(depth))
     observer = current_operation_observer()
+    start_time = time.perf_counter()
     token = _CURRENT_OPERATION_CONTEXT.set(
         _OperationContext(name=name, depth=operation_depth, observer=observer)
     )
-    start_time = time.perf_counter()
     status: OperationStatus = "success"
     error_type: str | None = None
     error_message: str | None = None
 
-    if observer is not None:
-        observer.emit_operation_event(
-            OperationEvent(
-                kind="start",
-                name=name,
-                depth=operation_depth,
-                entrypoint=entrypoint,
-            )
-        )
     try:
-        yield
-    except BaseException as exc:
-        status = "error"
-        error_type = type(exc).__name__
-        message = str(exc).strip()
-        error_message = message or None
-        raise
-    finally:
-        try:
-            if observer is not None:
-                observer.emit_operation_event(
-                    OperationEvent(
-                        kind="end",
-                        name=name,
-                        depth=operation_depth,
-                        status=status,
-                        error_type=error_type,
-                        error_message=error_message,
-                        elapsed_seconds=time.perf_counter() - start_time,
-                    )
+        if observer is not None:
+            observer.emit_operation_event(
+                OperationStarted(
+                    name=name,
+                    depth=operation_depth,
+                    entrypoint=entrypoint,
                 )
+            )
+        try:
+            yield
+        except BaseException as exc:
+            status = "error"
+            error_type = type(exc).__name__
+            message = str(exc).strip()
+            error_message = message or None
+            raise
         finally:
-            _CURRENT_OPERATION_CONTEXT.reset(token)
+            if observer is not None:
+                try:
+                    observer.emit_operation_event(
+                        OperationFinished(
+                            name=name,
+                            depth=operation_depth,
+                            status=status,
+                            error_type=error_type,
+                            error_message=error_message,
+                            elapsed_seconds=time.perf_counter() - start_time,
+                        )
+                    )
+                except Exception:
+                    if status != "error":
+                        raise
+                    logger.debug(
+                        "Operation finish observer failed while propagating "
+                        "the operation error",
+                        exc_info=True,
+                    )
+    finally:
+        _CURRENT_OPERATION_CONTEXT.reset(token)
 
 
 def emit_operation_info(line: str) -> bool:
@@ -111,8 +138,7 @@ def emit_operation_info(line: str) -> bool:
     if context is None or context.observer is None:
         return False
     context.observer.emit_operation_event(
-        OperationEvent(
-            kind="info",
+        OperationInfo(
             name=context.name,
             depth=context.depth,
             info_line=line,
@@ -126,8 +152,7 @@ def emit_operation_progress(step: str, message: str) -> bool:
     if context is None or context.observer is None:
         return False
     context.observer.emit_operation_event(
-        OperationEvent(
-            kind="progress",
+        OperationProgress(
             name=context.name,
             depth=context.depth,
             step=step,
@@ -137,7 +162,7 @@ def emit_operation_progress(step: str, message: str) -> bool:
     return True
 
 
-class OperationProgress:
+class OperationProgressTracker:
     def __init__(self, step: str, interval_seconds: float) -> None:
         interval = float(interval_seconds)
         if interval < 0:
@@ -165,8 +190,13 @@ class OperationProgress:
 
 __all__ = [
     "OperationEvent",
+    "OperationFinished",
+    "OperationInfo",
     "OperationObserver",
     "OperationProgress",
+    "OperationProgressTracker",
+    "OperationStarted",
+    "OperationStatus",
     "emit_operation_info",
     "emit_operation_progress",
     "operation_observer",

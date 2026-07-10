@@ -48,6 +48,7 @@ from datapipeline.dag.node import PipelineNode
 from datapipeline.dag.runner import run_dag
 from datapipeline.execution.observability import (
     emit_operation_info,
+    emit_operation_progress,
     operation_observer,
     operation_scope,
 )
@@ -1157,20 +1158,28 @@ def test_operation_scope_emits_lifecycle_and_info_events(caplog):
                     assert emit_operation_info(
                         "materialized path=/tmp/model_grid.jsonl"
                     )
+                    assert emit_operation_progress(
+                        "write_artifact",
+                        "running elapsed=1s items=3",
+                    )
     finally:
         reset_current_execution_event_sink(token)
 
     assert [type(event) for event in capture.events] == [
         OperationStarted,
         OperationInfo,
+        OperationProgress,
         OperationFinished,
     ]
     assert capture.events[0].operation_name == "build:model_grid"
     assert capture.events[0].entrypoint == "core.artifact.ticks"
     assert capture.events[1].info_line == "materialized path=/tmp/model_grid.jsonl"
+    assert capture.events[2].step == "write_artifact"
+    assert capture.events[2].message == "running elapsed=1s items=3"
     messages = [record.getMessage() for record in caplog.records]
     assert "[build:model_grid] started operation=core.artifact.ticks" in messages
     assert "[build:model_grid] materialized path=/tmp/model_grid.jsonl" in messages
+    assert "[build:model_grid/write_artifact] running elapsed=1s items=3" in messages
 
 
 def test_execution_scope_applies_to_messages_and_dag_events():

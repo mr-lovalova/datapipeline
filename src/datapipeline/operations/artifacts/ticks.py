@@ -3,7 +3,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterator
 
-from datapipeline.execution.observability import OperationProgress
+from datapipeline.execution.observability import OperationProgressTracker
 from datapipeline.config.tasks import TicksTask
 from datapipeline.dag.runner import resolve_heartbeat_interval_seconds
 from datapipeline.dag.context import PipelineContext
@@ -71,7 +71,7 @@ def materialize_ticks(
         node=3,
     )
     batch_size = runtime.registries.sort_batch_size.get(task_cfg.stream)
-    project_progress = OperationProgress(
+    project_progress = OperationProgressTracker(
         "project_ticks",
         heartbeat_interval,
     )
@@ -86,7 +86,7 @@ def materialize_ticks(
         relative_path = Path(task_cfg.output)
         destination = (runtime.artifacts_root / relative_path).resolve()
         ensure_parent(destination)
-        write_progress = OperationProgress(
+        write_progress = OperationProgressTracker(
             "write_artifact",
             heartbeat_interval,
         )
@@ -113,7 +113,7 @@ def materialize_ticks(
 def _project_tick_rows(
     stream,
     grid_by: list[str],
-    progress: OperationProgress,
+    progress: OperationProgressTracker,
 ) -> Iterator[tuple]:
     for record in stream:
         yield _tick_row(record, grid_by)
