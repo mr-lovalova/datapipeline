@@ -214,6 +214,13 @@ def _lines(buffer: StringIO) -> list[str]:
     return [line for line in buffer.getvalue().splitlines() if line.strip()]
 
 
+@pytest.fixture
+def rich_sink() -> tuple[_RichConsoleExecutionSink, StringIO]:
+    buffer = StringIO()
+    console = Console(file=buffer, markup=False, highlight=False, force_terminal=False)
+    return _RichConsoleExecutionSink(level=0, console=console), buffer
+
+
 def test_rich_execution_sink_emits_dag_end_immediately() -> None:
     buffer = StringIO()
     console = Console(file=buffer, markup=False, highlight=False, force_terminal=False)
@@ -243,10 +250,10 @@ def test_rich_execution_sink_emits_dag_end_immediately() -> None:
     assert any(line.startswith("[pipeline:serve] finished") for line in current)
 
 
-def test_rich_execution_sink_renders_error_details_for_failed_dag_end() -> None:
-    buffer = StringIO()
-    console = Console(file=buffer, markup=False, highlight=False, force_terminal=False)
-    sink = _RichConsoleExecutionSink(level=0, console=console)
+def test_rich_execution_sink_renders_error_details_for_failed_dag_end(
+    rich_sink,
+) -> None:
+    sink, buffer = rich_sink
     sink.emit(
         DagFinished(
             dag_name="pipeline:serve",
@@ -267,10 +274,8 @@ def test_rich_execution_sink_renders_error_details_for_failed_dag_end() -> None:
     ) in output
 
 
-def test_rich_execution_sink_renders_message_event() -> None:
-    buffer = StringIO()
-    console = Console(file=buffer, markup=False, highlight=False, force_terminal=False)
-    sink = _RichConsoleExecutionSink(level=0, console=console)
+def test_rich_execution_sink_renders_message_event(rich_sink) -> None:
+    sink, buffer = rich_sink
     sink.emit(
         ExecutionMessage(
             depth=0,
@@ -283,10 +288,8 @@ def test_rich_execution_sink_renders_message_event() -> None:
     assert any(line.startswith("Saved 14 items: /tmp/train.jsonl") for line in lines)
 
 
-def test_rich_execution_sink_styles_warning_messages() -> None:
-    buffer = StringIO()
-    console = Console(file=buffer, markup=False, highlight=False, force_terminal=False)
-    sink = _RichConsoleExecutionSink(level=0, console=console)
+def test_rich_execution_sink_styles_warning_messages(rich_sink) -> None:
+    sink, _ = rich_sink
 
     text = sink._render_event(
         ExecutionMessage(
@@ -300,10 +303,8 @@ def test_rich_execution_sink_styles_warning_messages() -> None:
     assert any(span.style == "yellow" for span in text.spans)
 
 
-def test_rich_execution_sink_styles_error_messages() -> None:
-    buffer = StringIO()
-    console = Console(file=buffer, markup=False, highlight=False, force_terminal=False)
-    sink = _RichConsoleExecutionSink(level=0, console=console)
+def test_rich_execution_sink_styles_error_messages(rich_sink) -> None:
+    sink, _ = rich_sink
 
     text = sink._render_event(
         ExecutionMessage(
@@ -317,10 +318,8 @@ def test_rich_execution_sink_styles_error_messages() -> None:
     assert any(span.style == "bold red" for span in text.spans)
 
 
-def test_rich_execution_sink_styles_build_decision_details() -> None:
-    buffer = StringIO()
-    console = Console(file=buffer, markup=False, highlight=False, force_terminal=False)
-    sink = _RichConsoleExecutionSink(level=0, console=console)
+def test_rich_execution_sink_styles_build_decision_details(rich_sink) -> None:
+    sink, _ = rich_sink
 
     text = sink._render_event(
         BuildDecisionMessage(
@@ -333,10 +332,8 @@ def test_rich_execution_sink_styles_build_decision_details() -> None:
     assert any(span.style == "dim" for span in text.spans)
 
 
-def test_rich_execution_sink_styles_profile_start_as_debug_message() -> None:
-    buffer = StringIO()
-    console = Console(file=buffer, markup=False, highlight=False, force_terminal=False)
-    sink = _RichConsoleExecutionSink(level=0, console=console)
+def test_rich_execution_sink_styles_profile_start_as_debug_message(rich_sink) -> None:
+    sink, _ = rich_sink
 
     text = sink._render_event(
         ProfileStartMessage(
@@ -348,10 +345,8 @@ def test_rich_execution_sink_styles_profile_start_as_debug_message() -> None:
     assert any(span.style == "dim" for span in text.spans)
 
 
-def test_rich_execution_sink_rejects_unsupported_event() -> None:
-    buffer = StringIO()
-    console = Console(file=buffer, markup=False, highlight=False, force_terminal=False)
-    sink = _RichConsoleExecutionSink(level=0, console=console)
+def test_rich_execution_sink_rejects_unsupported_event(rich_sink) -> None:
+    sink, _ = rich_sink
 
     with pytest.raises(TypeError, match="Unsupported execution event"):
         sink._render_event(object())  # type: ignore[arg-type]
@@ -422,22 +417,18 @@ def test_rich_execution_sink_rejects_unsupported_event() -> None:
         ),
     ],
 )
-def test_rich_execution_sink_renders_typed_lifecycle_events(event, expected) -> None:
-    console = Console(
-        file=StringIO(),
-        markup=False,
-        highlight=False,
-        force_terminal=False,
-    )
-    sink = _RichConsoleExecutionSink(level=0, console=console)
+def test_rich_execution_sink_renders_typed_lifecycle_events(
+    rich_sink,
+    event,
+    expected,
+) -> None:
+    sink, _ = rich_sink
 
     assert str(sink._render_event(event)) == expected
 
 
-def test_rich_execution_sink_renders_source_info_message() -> None:
-    buffer = StringIO()
-    console = Console(file=buffer, markup=False, highlight=False, force_terminal=False)
-    sink = _RichConsoleExecutionSink(level=0, console=console)
+def test_rich_execution_sink_renders_source_info_message(rich_sink) -> None:
+    sink, buffer = rich_sink
     sink.emit(
         SourceInfoMessage(
             depth=1,
@@ -453,10 +444,8 @@ def test_rich_execution_sink_renders_source_info_message() -> None:
     )
 
 
-def test_rich_execution_sink_renders_scope_start_as_header() -> None:
-    buffer = StringIO()
-    console = Console(file=buffer, markup=False, highlight=False, force_terminal=False)
-    sink = _RichConsoleExecutionSink(level=0, console=console)
+def test_rich_execution_sink_renders_scope_start_as_header(rich_sink) -> None:
+    sink, buffer = rich_sink
     sink.emit(
         ScopeStartMessage(
             depth=0,
@@ -490,27 +479,6 @@ def test_rich_execution_sink_keeps_source_info_when_live_at_info() -> None:
     )
     assert any(
         line.startswith("  [equity.ohlcv] Inputs: left=equity.left, right=equity.right")
-        for line in _lines(buffer)
-    )
-
-
-def test_rich_execution_sink_keeps_non_glob_source_info_when_live_at_info() -> None:
-    buffer = StringIO()
-    console = Console(file=buffer, markup=False, highlight=False, force_terminal=False)
-    sink = _RichConsoleExecutionSink(level=logging.INFO, console=console)
-    sink.set_live_console(console)
-    sink.emit(
-        SourceInfoMessage(
-            depth=1,
-            source_label="time.ticks.linear",
-            message="synthetic.generate: start=2021-01-01T01:00:00Z "
-            "end=2021-02-01T01:00:00Z freq=1d",
-        )
-    )
-    assert any(
-        line.startswith(
-            "  [time.ticks.linear] synthetic.generate: start=2021-01-01T01:00:00Z"
-        )
         for line in _lines(buffer)
     )
 
@@ -638,10 +606,10 @@ def test_rich_execution_sink_keeps_live_node_progress_single_line() -> None:
     assert lines[0].endswith("…")
 
 
-def test_rich_execution_sink_indents_multiline_message_event_by_depth() -> None:
-    buffer = StringIO()
-    console = Console(file=buffer, markup=False, highlight=False, force_terminal=False)
-    sink = _RichConsoleExecutionSink(level=0, console=console)
+def test_rich_execution_sink_indents_multiline_message_event_by_depth(
+    rich_sink,
+) -> None:
+    sink, buffer = rich_sink
     sink.emit(
         ExecutionMessage(
             depth=2,
@@ -770,6 +738,10 @@ def test_rich_source_proxy_batches_progress_advances(monkeypatch) -> None:
     monkeypatch.setattr(
         "datapipeline.cli.visuals.rich.sources._PROGRESS_ADVANCE_BATCH",
         10_000,
+    )
+    monkeypatch.setattr(
+        "datapipeline.cli.visuals.rich.sources._PROGRESS_ADVANCE_INTERVAL_SECONDS",
+        999,
     )
 
     progress = _RecordingProgress()

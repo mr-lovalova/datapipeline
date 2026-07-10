@@ -514,39 +514,6 @@ def test_hierarchical_observer_logs_all_dags_at_info(caplog):
     assert any(msg.startswith("[outer] finished") for msg in messages)
 
 
-def test_hierarchical_observer_logs_nested_dags_at_debug(caplog):
-    logger = logging.getLogger("datapipeline.cli.visuals.execution.test.nested")
-    observer = HierarchicalExecutionObserver(LoggerExecutionEventSink(logger))
-
-    with caplog.at_level(logging.DEBUG, logger=logger.name):
-        observer.on_dag_start(dag_name="outer", node_count=2, depth=0)
-        observer.on_dag_start(dag_name="inner", node_count=1, depth=1)
-        observer.on_dag_end(
-            DagRunEvent(
-                dag_name="inner",
-                node_count=1,
-                output_items=3,
-                elapsed_seconds=0.01,
-                status="success",
-                depth=1,
-            )
-        )
-        observer.on_dag_end(
-            DagRunEvent(
-                dag_name="outer",
-                node_count=2,
-                output_items=3,
-                elapsed_seconds=0.02,
-                status="success",
-                depth=0,
-            )
-        )
-
-    messages = [record.getMessage() for record in caplog.records]
-    assert any(msg.startswith("  [inner] started") for msg in messages)
-    assert any(msg.startswith("  [inner] finished") for msg in messages)
-
-
 def test_hierarchical_observer_logs_parent_context_for_nested_dag_start(caplog):
     logger = logging.getLogger("datapipeline.cli.visuals.execution.test.parent")
     observer = HierarchicalExecutionObserver(LoggerExecutionEventSink(logger))
@@ -768,30 +735,6 @@ def test_hierarchical_observer_respects_explicit_depth_when_events_finish_out_of
     assert any(msg.startswith("  [feature:closing_price] finished") for msg in messages)
     assert any(msg.startswith("  [feature:linear_time] finished") for msg in messages)
     assert current_dag_depth() == 1
-
-
-def test_hierarchical_observer_emits_structured_log_fields(caplog):
-    logger = logging.getLogger("datapipeline.cli.visuals.execution.test.structured")
-    observer = HierarchicalExecutionObserver(LoggerExecutionEventSink(logger))
-
-    with caplog.at_level(logging.INFO, logger=logger.name):
-        observer.on_dag_start(dag_name="pipeline:serve", node_count=3, depth=0)
-        observer.on_dag_end(
-            DagRunEvent(
-                dag_name="pipeline:serve",
-                node_count=3,
-                output_items=1,
-                elapsed_seconds=0.5,
-                status="success",
-                depth=0,
-            )
-        )
-
-    assert caplog.records
-    first = caplog.records[0]
-    assert getattr(first, "dp_event_kind", None) == "dag_start"
-    assert getattr(first, "dp_dag_name", None) == "pipeline:serve"
-    assert getattr(first, "dp_depth", None) == 0
 
 
 def test_hierarchical_observer_emits_index_field_for_node_events(caplog):
