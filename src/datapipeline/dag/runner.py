@@ -21,7 +21,7 @@ from datapipeline.dag.observer import (
     NoopExecutionObserver,
 )
 from datapipeline.dag.context import PipelineContext
-from datapipeline.dag.node import NodeKind
+from datapipeline.dag.node import NodeKind, PipelineNode
 
 logger = logging.getLogger(__name__)
 DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 60.0
@@ -261,6 +261,41 @@ def resolve_heartbeat_interval_seconds(interval: float | None) -> float:
     return interval
 
 
+def _validate_stream_bindings(
+    dag: Dag,
+    node_bindings: tuple[tuple[PipelineNode, dict[str, str]], ...],
+    seed_available: bool,
+) -> None:
+    producer_by_output: dict[str, int | None] = {"seed": None} if seed_available else {}
+    consumer_by_producer: dict[int | None, str] = {}
+
+    for node_index, (node, kwinputs) in enumerate(node_bindings):
+        input_keys: list[str] = []
+        if node.input is not None:
+            input_keys.append(node.input)
+        input_keys.extend(kwinputs.values())
+
+        for state_key in input_keys:
+            if state_key not in producer_by_output:
+                available = ", ".join(sorted(producer_by_output)) or "(none)"
+                raise KeyError(
+                    f"Node '{node.name}' requested missing input "
+                    f"'{state_key}' in DAG '{dag.name}'. "
+                    f"Available outputs: {available}"
+                )
+            producer = producer_by_output[state_key]
+            if producer in consumer_by_producer:
+                previous_consumer = consumer_by_producer[producer]
+                raise ValueError(
+                    f"Stream '{state_key}' in DAG '{dag.name}' is already consumed "
+                    f"by node '{previous_consumer}'; node '{node.name}' cannot "
+                    "consume it again."
+                )
+            consumer_by_producer[producer] = node.name
+
+        producer_by_output[node.output or node.name] = node_index
+
+
 def run_dag(
     context: PipelineContext,
     dag: Dag,
@@ -276,24 +311,13 @@ def run_dag(
         raise RuntimeError("Cannot construct a nested DAG outside a root run")
 
     def _build_stream() -> Iterator[Any]:
+        node_bindings = tuple((node, dict(node.kwinputs or {})) for node in dag.nodes)
+        _validate_stream_bindings(dag, node_bindings, seed is not None)
         stream: Iterable[Any] = () if seed is None else seed
         state: dict[str, Iterable[Any]] = {} if seed is None else {"seed": seed}
-        for index, node in enumerate(dag.nodes):
-            if node.input is not None and node.input not in state:
-                available = ", ".join(sorted(state)) or "(none)"
-                raise KeyError(
-                    f"Node '{node.name}' requested missing input "
-                    f"'{node.input}' in DAG '{dag.name}'. "
-                    f"Available outputs: {available}"
-                )
+        for index, (node, kwinputs) in enumerate(node_bindings):
             kwargs = dict(node.kwargs or {})
-            for kwarg_name, state_key in (node.kwinputs or {}).items():
-                if state_key not in state:
-                    available = ", ".join(sorted(state)) or "(none)"
-                    raise KeyError(
-                        f"Node '{node.name}' requested missing kwinput "
-                        f"'{state_key}'. Available outputs: {available}"
-                    )
+            for kwarg_name, state_key in kwinputs.items():
                 kwargs[kwarg_name] = state[state_key]
             if node.input is None:
                 produced = node.op(*node.args, **kwargs)

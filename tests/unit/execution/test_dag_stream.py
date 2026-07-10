@@ -839,6 +839,55 @@ def test_run_dag_empty_dag_preserves_boundary_behavior(tmp_path: Path) -> None:
     assert dag_runner._current_run_dag_depth() == 0
 
 
+def test_run_dag_executes_validated_kwinput_bindings(tmp_path: Path) -> None:
+    ctx = _context(tmp_path)
+    combine_inputs = {"right": "right"}
+
+    def _left():
+        combine_inputs["right"] = "left"
+        return [1, 3]
+
+    dag = Dag(
+        name="fan-in-demo",
+        nodes=(
+            PipelineNode(name="left", op=_left),
+            PipelineNode(name="right", op=lambda: [2, 4]),
+            PipelineNode(
+                name="combine",
+                op=lambda left, *, right: zip(left, right),
+                input="left",
+                kwinputs=combine_inputs,
+            ),
+        ),
+    )
+
+    assert list(run_dag(ctx, dag)) == [(1, 2), (3, 4)]
+
+
+def test_run_dag_rejects_fan_out_before_operations(tmp_path: Path) -> None:
+    ctx = _context(tmp_path)
+    source_called = False
+
+    def _source():
+        nonlocal source_called
+        source_called = True
+        return iter([1, 2, 3, 4])
+
+    dag = Dag(
+        name="fan-out-demo",
+        nodes=(
+            PipelineNode(name="source", op=_source, output="records"),
+            PipelineNode(name="left", op=lambda up: up, input="records"),
+            PipelineNode(name="right", op=lambda up: up, input="records"),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="node 'left'.*node 'right'"):
+        list(run_dag(ctx, dag))
+
+    assert not source_called
+
+
 def test_run_dag_fails_on_missing_input(tmp_path: Path) -> None:
     ctx = _context(tmp_path)
     dag = Dag(
