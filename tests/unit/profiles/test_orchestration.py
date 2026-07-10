@@ -6,6 +6,7 @@ import pytest
 
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig
+from datapipeline.config.resolution import LogLevelDecision, LogOutputSettings
 from datapipeline.config.tasks import (
     ArtifactTask,
     MetadataTask,
@@ -30,12 +31,8 @@ from datapipeline.services.constants import (
 from datapipeline.services.executions import ExecutionPaths
 from datapipeline.services.runs import RunPaths
 
-
-def _log_config():
-    return (
-        SimpleNamespace(name="INFO", value=20),
-        SimpleNamespace(outputs=()),
-    )
+_LOG_DECISION = LogLevelDecision(name="INFO", value=20)
+_LOG_OUTPUT = LogOutputSettings(outputs=())
 
 
 def _dataset() -> FeatureDatasetConfig:
@@ -82,6 +79,14 @@ def _execution_paths(tmp_path):
     )
 
 
+def _assert_preflight_rejected(request: ProfileRunRequest) -> None:
+    with pytest.raises(SystemExit) as exc:
+        run_profiles(request)
+
+    assert exc.value.code == 2
+    assert not request.execution.root.exists()
+
+
 def test_run_profiles_executes_profile_target(monkeypatch, tmp_path):
     vector_inputs = VectorInputsTask(id="vector_inputs")
     schema = SchemaTask(id="schema")
@@ -89,7 +94,6 @@ def test_run_profiles_executes_profile_target(monkeypatch, tmp_path):
     serve = PipelineTask(id="pipeline")
     runtime = _runtime(tmp_path)
 
-    log_decision, log_output = _log_config()
     request = ProfileRunRequest(
         command="serve",
         project_path=tmp_path / "project.yaml",
@@ -101,8 +105,8 @@ def test_run_profiles_executes_profile_target(monkeypatch, tmp_path):
                 name="serve",
                 target_id="pipeline",
                 visuals="on",
-                log_decision=log_decision,
-                log_output=log_output,
+                log_decision=_LOG_DECISION,
+                log_output=_LOG_OUTPUT,
                 dataset=_dataset(),
             )
         ],
@@ -148,7 +152,6 @@ def test_run_profiles_executes_profile_target(monkeypatch, tmp_path):
 
 
 def test_run_profiles_rejects_unknown_target_before_starting_execution(tmp_path):
-    log_decision, log_output = _log_config()
     request = ProfileRunRequest(
         command="serve",
         project_path=tmp_path / "project.yaml",
@@ -160,19 +163,15 @@ def test_run_profiles_rejects_unknown_target_before_starting_execution(tmp_path)
                 name="serve",
                 target_id="missing",
                 visuals="on",
-                log_decision=log_decision,
-                log_output=log_output,
+                log_decision=_LOG_DECISION,
+                log_output=_LOG_OUTPUT,
                 runtime=SimpleNamespace(),
                 dataset=object(),
             )
         ],
     )
 
-    with pytest.raises(SystemExit) as exc:
-        run_profiles(request)
-
-    assert exc.value.code == 2
-    assert not request.execution.root.exists()
+    _assert_preflight_rejected(request)
 
 
 def test_run_profiles_rejects_unbound_artifact_before_side_effects(tmp_path):
@@ -181,7 +180,6 @@ def test_run_profiles_rejects_unbound_artifact_before_side_effects(tmp_path):
         entrypoint="plugin.snapshot",
         output="build/snapshot.json",
     )
-    log_decision, log_output = _log_config()
     request = ProfileRunRequest(
         command="build",
         project_path=tmp_path / "project.yaml",
@@ -193,18 +191,14 @@ def test_run_profiles_rejects_unbound_artifact_before_side_effects(tmp_path):
                 name="snapshot",
                 target_id="snapshot",
                 visuals="on",
-                log_decision=log_decision,
-                log_output=log_output,
+                log_decision=_LOG_DECISION,
+                log_output=_LOG_OUTPUT,
                 runtime=_runtime(tmp_path),
             )
         ],
     )
 
-    with pytest.raises(SystemExit) as exc:
-        run_profiles(request)
-
-    assert exc.value.code == 2
-    assert not request.execution.root.exists()
+    _assert_preflight_rejected(request)
 
 
 def test_run_profiles_rejects_missing_artifact_dependency_before_side_effects(
@@ -212,7 +206,6 @@ def test_run_profiles_rejects_missing_artifact_dependency_before_side_effects(
     tmp_path,
 ):
     schema = SchemaTask(id="schema")
-    log_decision, log_output = _log_config()
     request = ProfileRunRequest(
         command="build",
         project_path=tmp_path / "project.yaml",
@@ -224,8 +217,8 @@ def test_run_profiles_rejects_missing_artifact_dependency_before_side_effects(
                 name="schema",
                 target_id="schema",
                 visuals="on",
-                log_decision=log_decision,
-                log_output=log_output,
+                log_decision=_LOG_DECISION,
+                log_output=_LOG_OUTPUT,
                 runtime=_runtime(tmp_path),
             )
         ],
@@ -235,11 +228,7 @@ def test_run_profiles_rejects_missing_artifact_dependency_before_side_effects(
         lambda *_args, **_kwargs: _dataset(),
     )
 
-    with pytest.raises(SystemExit) as exc:
-        run_profiles(request)
-
-    assert exc.value.code == 2
-    assert not request.execution.root.exists()
+    _assert_preflight_rejected(request)
 
 
 def test_run_profiles_rejects_missing_dataset_before_side_effects(tmp_path):
@@ -248,7 +237,6 @@ def test_run_profiles_rejects_missing_dataset_before_side_effects(tmp_path):
         entrypoint="plugin.runtime.custom",
     )
     run = _run_paths(tmp_path)
-    log_decision, log_output = _log_config()
     request = ProfileRunRequest(
         command="serve",
         project_path=tmp_path / "project.yaml",
@@ -260,19 +248,15 @@ def test_run_profiles_rejects_missing_dataset_before_side_effects(tmp_path):
                 name="custom",
                 target_id="custom",
                 visuals="on",
-                log_decision=log_decision,
-                log_output=log_output,
+                log_decision=_LOG_DECISION,
+                log_output=_LOG_OUTPUT,
                 runtime=_runtime(tmp_path),
             )
         ],
         serve_run_plans=(ServeRunPlan(run, None),),
     )
 
-    with pytest.raises(SystemExit) as exc:
-        run_profiles(request)
-
-    assert exc.value.code == 2
-    assert not request.execution.root.exists()
+    _assert_preflight_rejected(request)
     assert not run.run_root.exists()
 
 
@@ -281,7 +265,6 @@ def test_run_profiles_rejects_missing_runtime_producer_before_side_effects(tmp_p
     metadata = MetadataTask(id="metadata")
     pipeline = PipelineTask(id="pipeline")
     run = _run_paths(tmp_path)
-    log_decision, log_output = _log_config()
     request = ProfileRunRequest(
         command="serve",
         project_path=tmp_path / "project.yaml",
@@ -293,8 +276,8 @@ def test_run_profiles_rejects_missing_runtime_producer_before_side_effects(tmp_p
                 name="serve",
                 target_id="pipeline",
                 visuals="on",
-                log_decision=log_decision,
-                log_output=log_output,
+                log_decision=_LOG_DECISION,
+                log_output=_LOG_OUTPUT,
                 runtime=_runtime(tmp_path),
                 dataset=_dataset(),
             )
@@ -302,18 +285,13 @@ def test_run_profiles_rejects_missing_runtime_producer_before_side_effects(tmp_p
         serve_run_plans=(ServeRunPlan(run, None),),
     )
 
-    with pytest.raises(SystemExit) as exc:
-        run_profiles(request)
-
-    assert exc.value.code == 2
-    assert not request.execution.root.exists()
+    _assert_preflight_rejected(request)
     assert not run.run_root.exists()
 
 
 def test_run_profiles_rejects_invalid_preview_before_side_effects(tmp_path):
     pipeline = PipelineTask(id="pipeline")
     run = _run_paths(tmp_path)
-    log_decision, log_output = _log_config()
     request = ProfileRunRequest(
         command="serve",
         project_path=tmp_path / "project.yaml",
@@ -325,8 +303,8 @@ def test_run_profiles_rejects_invalid_preview_before_side_effects(tmp_path):
                 name="serve",
                 target_id="pipeline",
                 visuals="on",
-                log_decision=log_decision,
-                log_output=log_output,
+                log_decision=_LOG_DECISION,
+                log_output=_LOG_OUTPUT,
                 runtime=_runtime(tmp_path),
                 dataset=_dataset(),
                 preview_index=15,
@@ -335,18 +313,13 @@ def test_run_profiles_rejects_invalid_preview_before_side_effects(tmp_path):
         serve_run_plans=(ServeRunPlan(run, 15),),
     )
 
-    with pytest.raises(SystemExit) as exc:
-        run_profiles(request)
-
-    assert exc.value.code == 2
-    assert not request.execution.root.exists()
+    _assert_preflight_rejected(request)
     assert not run.run_root.exists()
 
 
 def test_run_profiles_parent_scope_does_not_announce(monkeypatch, tmp_path):
     serve = PipelineTask(id="pipeline")
 
-    log_decision, log_output = _log_config()
     request = ProfileRunRequest(
         command="serve",
         project_path=tmp_path / "project.yaml",
@@ -359,8 +332,8 @@ def test_run_profiles_parent_scope_does_not_announce(monkeypatch, tmp_path):
                 name="serve",
                 target_id="pipeline",
                 visuals="on",
-                log_decision=log_decision,
-                log_output=log_output,
+                log_decision=_LOG_DECISION,
+                log_output=_LOG_OUTPUT,
                 runtime=_runtime(tmp_path),
                 dataset=_dataset(),
                 preview_index=0,
@@ -406,7 +379,6 @@ def test_run_profiles_can_skip_build_when_runtime_artifacts_are_current(
     metadata = MetadataTask(id="metadata")
     serve = PipelineTask(id="pipeline")
 
-    log_decision, log_output = _log_config()
     request = ProfileRunRequest(
         command="serve",
         project_path=tmp_path / "project.yaml",
@@ -419,8 +391,8 @@ def test_run_profiles_can_skip_build_when_runtime_artifacts_are_current(
                 name="serve",
                 target_id="pipeline",
                 visuals="on",
-                log_decision=log_decision,
-                log_output=log_output,
+                log_decision=_LOG_DECISION,
+                log_output=_LOG_OUTPUT,
                 runtime=_runtime(tmp_path),
                 dataset=_dataset(),
             )
@@ -463,7 +435,6 @@ def test_run_profiles_skip_build_rejects_missing_runtime_artifacts(
     schema = SchemaTask(id="schema")
     metadata = MetadataTask(id="metadata")
     serve = PipelineTask(id="pipeline")
-    log_decision, log_output = _log_config()
     request = ProfileRunRequest(
         command="serve",
         project_path=tmp_path / "project.yaml",
@@ -476,8 +447,8 @@ def test_run_profiles_skip_build_rejects_missing_runtime_artifacts(
                 name="serve",
                 target_id="pipeline",
                 visuals="on",
-                log_decision=log_decision,
-                log_output=log_output,
+                log_decision=_LOG_DECISION,
+                log_output=_LOG_OUTPUT,
                 runtime=_runtime(tmp_path),
                 dataset=_dataset(),
             )
@@ -514,7 +485,6 @@ def test_run_profiles_requires_pipeline_artifact_closure(monkeypatch, tmp_path):
     metadata = MetadataTask(id="metadata")
     serve = PipelineTask(id="pipeline")
 
-    log_decision, log_output = _log_config()
     runtime = _runtime(tmp_path)
     request = ProfileRunRequest(
         command="serve",
@@ -527,8 +497,8 @@ def test_run_profiles_requires_pipeline_artifact_closure(monkeypatch, tmp_path):
                 name="serve",
                 target_id="pipeline",
                 visuals="on",
-                log_decision=log_decision,
-                log_output=log_output,
+                log_decision=_LOG_DECISION,
+                log_output=_LOG_OUTPUT,
                 runtime=runtime,
                 dataset=_dataset(),
             )
@@ -594,7 +564,6 @@ def test_run_profiles_hydrates_runtime_artifacts_after_build(monkeypatch, tmp_pa
     metadata = MetadataTask(id="metadata")
     serve = PipelineTask(id="pipeline")
 
-    log_decision, log_output = _log_config()
     runtime = _runtime(tmp_path)
     request = ProfileRunRequest(
         command="serve",
@@ -607,8 +576,8 @@ def test_run_profiles_hydrates_runtime_artifacts_after_build(monkeypatch, tmp_pa
                 name="serve",
                 target_id="pipeline",
                 visuals="on",
-                log_decision=log_decision,
-                log_output=log_output,
+                log_decision=_LOG_DECISION,
+                log_output=_LOG_OUTPUT,
                 runtime=runtime,
                 dataset=_dataset(),
             )
@@ -656,7 +625,6 @@ def test_run_profiles_forward_runtime_build_settings(monkeypatch, tmp_path):
         output="build/snapshot.json",
     )
 
-    log_decision, log_output = _log_config()
     request = ProfileRunRequest(
         command="serve",
         project_path=tmp_path / "project.yaml",
@@ -668,8 +636,8 @@ def test_run_profiles_forward_runtime_build_settings(monkeypatch, tmp_path):
                 name="serve",
                 target_id="snapshot",
                 visuals="on",
-                log_decision=log_decision,
-                log_output=log_output,
+                log_decision=_LOG_DECISION,
+                log_output=_LOG_OUTPUT,
                 runtime=SimpleNamespace(),
                 dataset=object(),
                 build_mode="FORCE",
@@ -707,7 +675,6 @@ def test_runtime_dependency_build_scope_isolated_from_parent_profile(
     metadata = MetadataTask(id="metadata")
     serve = PipelineTask(id="pipeline")
 
-    log_decision, log_output = _log_config()
     request = ProfileRunRequest(
         command="inspect",
         project_path=tmp_path / "project.yaml",
@@ -719,8 +686,8 @@ def test_runtime_dependency_build_scope_isolated_from_parent_profile(
                 name="coverage",
                 target_id="pipeline",
                 visuals="on",
-                log_decision=log_decision,
-                log_output=log_output,
+                log_decision=_LOG_DECISION,
+                log_output=_LOG_OUTPUT,
                 runtime=_runtime(tmp_path),
                 dataset=_dataset(),
             )
@@ -775,7 +742,6 @@ def test_run_profiles_finalize_shared_serve_run_once(monkeypatch, tmp_path):
         destination=run_paths.dataset_dir / "train.jsonl",
         run=run_paths,
     )
-    log_decision, log_output = _log_config()
     request = ProfileRunRequest(
         command="serve",
         project_path=tmp_path / "project.yaml",
@@ -787,8 +753,8 @@ def test_run_profiles_finalize_shared_serve_run_once(monkeypatch, tmp_path):
                 name="train",
                 target_id="pipeline",
                 visuals="on",
-                log_decision=log_decision,
-                log_output=log_output,
+                log_decision=_LOG_DECISION,
+                log_output=_LOG_OUTPUT,
                 runtime=SimpleNamespace(),
                 dataset=object(),
                 output=target,
@@ -797,8 +763,8 @@ def test_run_profiles_finalize_shared_serve_run_once(monkeypatch, tmp_path):
                 name="val",
                 target_id="pipeline",
                 visuals="on",
-                log_decision=log_decision,
-                log_output=log_output,
+                log_decision=_LOG_DECISION,
+                log_output=_LOG_OUTPUT,
                 runtime=SimpleNamespace(),
                 dataset=object(),
                 output=target,
@@ -857,7 +823,6 @@ def test_run_profiles_fail_shared_serve_run_once_when_later_profile_errors(
         destination=run_paths.dataset_dir / "train.jsonl",
         run=run_paths,
     )
-    log_decision, log_output = _log_config()
     request = ProfileRunRequest(
         command="serve",
         project_path=tmp_path / "project.yaml",
@@ -869,8 +834,8 @@ def test_run_profiles_fail_shared_serve_run_once_when_later_profile_errors(
                 name="train",
                 target_id="pipeline",
                 visuals="on",
-                log_decision=log_decision,
-                log_output=log_output,
+                log_decision=_LOG_DECISION,
+                log_output=_LOG_OUTPUT,
                 runtime=SimpleNamespace(),
                 dataset=object(),
                 output=target,
@@ -879,8 +844,8 @@ def test_run_profiles_fail_shared_serve_run_once_when_later_profile_errors(
                 name="val",
                 target_id="pipeline",
                 visuals="on",
-                log_decision=log_decision,
-                log_output=log_output,
+                log_decision=_LOG_DECISION,
+                log_output=_LOG_OUTPUT,
                 runtime=SimpleNamespace(),
                 dataset=object(),
                 output=target,
@@ -946,7 +911,6 @@ def test_run_profiles_materializes_preview_run_at_execution_boundary(
         run=run_paths,
     )
     runtime = SimpleNamespace()
-    log_decision, log_output = _log_config()
     request = ProfileRunRequest(
         command="serve",
         project_path=tmp_path / "project.yaml",
@@ -958,8 +922,8 @@ def test_run_profiles_materializes_preview_run_at_execution_boundary(
                 name="preview",
                 target_id="pipeline",
                 visuals="on",
-                log_decision=log_decision,
-                log_output=log_output,
+                log_decision=_LOG_DECISION,
+                log_output=_LOG_OUTPUT,
                 runtime=runtime,
                 dataset=object(),
                 output=target,
@@ -1022,7 +986,6 @@ def test_run_profiles_applies_each_profile_heartbeat_before_work(
         }
     )
     runtime = SimpleNamespace()
-    log_decision, log_output = _log_config()
     request = ProfileRunRequest(
         command="inspect",
         project_path=tmp_path / "project.yaml",
@@ -1034,8 +997,8 @@ def test_run_profiles_applies_each_profile_heartbeat_before_work(
                 name=name,
                 target_id="pipeline",
                 visuals="on",
-                log_decision=log_decision,
-                log_output=log_output,
+                log_decision=_LOG_DECISION,
+                log_output=_LOG_OUTPUT,
                 runtime=runtime,
                 dataset=object(),
                 heartbeat_interval_seconds=heartbeat,
@@ -1073,7 +1036,6 @@ def test_later_run_start_failure_marks_only_started_runs_failed(
     )
     first_run = _run_paths(tmp_path / "first")
     second_run = _run_paths(tmp_path / "second")
-    log_decision, log_output = _log_config()
     request = ProfileRunRequest(
         command="serve",
         project_path=tmp_path / "project.yaml",
@@ -1085,8 +1047,8 @@ def test_later_run_start_failure_marks_only_started_runs_failed(
                 name="serve",
                 target_id="pipeline",
                 visuals="on",
-                log_decision=log_decision,
-                log_output=log_output,
+                log_decision=_LOG_DECISION,
+                log_output=_LOG_OUTPUT,
                 runtime=SimpleNamespace(),
                 dataset=object(),
             )
