@@ -66,13 +66,16 @@ def test_vector_ensure_schema_orders_longer_baseline():
     assert list(out[0].features.values.keys()) == ["wind__A", "wind__B", "wind__C"]
 
 
-def test_vector_ensure_schema_drop_sample_on_missing():
-    stream = iter([make_vector(0, {"wind__A": 2.0})])
+@pytest.mark.parametrize("values", [{}, {"seq": [1, 2, 3]}])
+def test_vector_ensure_schema_drops_missing_ids_and_cadence_violations(values):
+    stream = iter([make_vector(0, values)])
     transform = VectorEnsureSchemaTransform(on_missing="drop")
     transform.bind_context(
         StubVectorContext(
             [],
-            schema={"features": [{"id": "wind__A"}, {"id": "wind__B"}]},
+            schema={
+                "features": [{"id": "seq", "kind": "list", "cadence": {"target": 2}}]
+            },
         )
     )
 

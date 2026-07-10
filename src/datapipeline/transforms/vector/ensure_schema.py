@@ -1,5 +1,4 @@
-from collections import OrderedDict
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from typing import Any, Literal
 
 from datapipeline.domain.sample import Sample
@@ -64,13 +63,12 @@ class VectorEnsureSchemaTransform(VectorContextMixin):
 
             missing = [fid for fid in baseline if fid not in values]
             if missing:
-                decision = self._on_missing
-                if decision == "error":
+                if self._on_missing == "error":
                     raise ValueError(
                         f"Vector missing required identifiers {missing} "
                         f"for payload '{self._payload}'."
                     )
-                if decision == "drop":
+                if self._on_missing == "drop":
                     continue
                 working = clone(values)
                 for fid in missing:
@@ -78,36 +76,30 @@ class VectorEnsureSchemaTransform(VectorContextMixin):
 
             extras = [fid for fid in values if fid not in baseline_set]
             if extras:
-                decision = self._on_extra
-                if decision == "error":
+                if self._on_extra == "error":
                     raise ValueError(
                         f"Vector contains unexpected identifiers {extras} "
                         f"for payload '{self._payload}'."
                     )
-                if decision == "drop":
-                    working = working or clone(values)
+                if self._on_extra == "drop":
+                    working = clone(values) if working is None else working
                     for fid in extras:
                         working.pop(fid, None)
 
-            current_values = working or values
+            current_values = values if working is None else working
 
             # Optionally enforce per-id cadence from schema metadata
-            current_values = self._enforce_cadence(current_values)
+            cadence_values = self._enforce_cadence(current_values)
+            if cadence_values is None:
+                continue
 
-            ordered = OrderedDict()
-            for fid in baseline:
-                ordered[fid] = current_values.get(fid)
+            ordered: dict[str, Any] = {fid: cadence_values.get(fid) for fid in baseline}
             if self._on_extra == "keep":
-                for fid, value in current_values.items():
+                for fid, value in cadence_values.items():
                     if fid not in baseline_set:
                         ordered[fid] = value
-            current_values = ordered
 
-            if current_values is not values:
-                updated_vector = Vector(values=dict(current_values))
-                sample = replace_vector(sample, self._payload, updated_vector)
-
-            yield sample
+            yield replace_vector(sample, self._payload, Vector(values=ordered))
 
     def _schema_ids(self) -> list[str]:
         if self._baseline is None:
@@ -134,7 +126,7 @@ class VectorEnsureSchemaTransform(VectorContextMixin):
             self._schema_entries = entries or []
         return self._schema_entries
 
-    def _enforce_cadence(self, values: dict[str, Any]) -> dict[str, Any]:
+    def _enforce_cadence(self, values: Mapping[str, Any]) -> Mapping[str, Any] | None:
         if not values or not self._schema_meta:
             return values
         adjusted = None
@@ -148,16 +140,15 @@ class VectorEnsureSchemaTransform(VectorContextMixin):
             current_len = len(value) if isinstance(value, list) else (0 if value is None else 1)
             if current_len in expected:
                 continue
-            decision = self._on_missing
-            if decision == "error":
+            if self._on_missing == "error":
                 raise ValueError(
-                    f"List feature '{fid}' length {current_len} violates schema cadence {sorted(expected)}"
+                    f"List value '{fid}' length {current_len} violates schema cadence {sorted(expected)}"
                 )
-            if decision == "drop":
-                return {}
-            # fill: pad or truncate to the closest expected length
+            if self._on_missing == "drop":
+                return None
+            # fill: pad or truncate to the selected expected length
             target_len = expected[0]
-            adjusted = adjusted or clone(values)
+            adjusted = clone(values) if adjusted is None else adjusted
             if isinstance(value, list):
                 seq = value[:target_len]
             elif value is None:
@@ -167,7 +158,7 @@ class VectorEnsureSchemaTransform(VectorContextMixin):
             if len(seq) < target_len:
                 seq = seq + [self._fill_value] * (target_len - len(seq))
             adjusted[fid] = seq
-        return adjusted or values
+        return values if adjusted is None else adjusted
 
     def _expected_lengths(self, meta: dict[str, Any]) -> list[int]:
         cadence = meta.get("cadence")
