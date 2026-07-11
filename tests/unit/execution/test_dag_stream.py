@@ -1,4 +1,3 @@
-import logging
 import threading
 from contextvars import ContextVar
 from pathlib import Path
@@ -13,7 +12,6 @@ from datapipeline.dag.events import (
     NodeProgressEvent,
     ProgressSnapshot,
 )
-from datapipeline.dag.observer import LoggingExecutionObserver
 from datapipeline.dag import runner as dag_runner
 from datapipeline.dag.runner import run_dag
 from datapipeline.dag.node import PipelineNode
@@ -176,8 +174,7 @@ def test_run_dag_emits_node_progress_with_active_node_context(tmp_path: Path) ->
     event = next(
         event
         for event in observer.node_progress_events
-        if event.progress.completed == 0
-        and event.progress.phase == "preparing"
+        if event.progress.completed == 0 and event.progress.phase == "preparing"
     )
     assert event.dag_name == "progress-demo"
     assert event.node_name == "produce"
@@ -995,68 +992,3 @@ def test_run_dag_fails_on_missing_input(tmp_path: Path) -> None:
 
     with pytest.raises(KeyError, match="missing input"):
         list(run_dag(ctx, dag))
-
-
-def test_logging_observer_logs_dag_at_info_and_nodes_at_debug(caplog) -> None:
-    logger = logging.getLogger("datapipeline.dag.observer.test")
-    observer = LoggingExecutionObserver(logger)
-
-    with caplog.at_level(logging.INFO, logger=logger.name):
-        observer.on_dag_start(dag_name="demo", node_count=2)
-        observer.on_dag_start(dag_name="nested", node_count=1, depth=1)
-        observer.on_node_start(
-            dag_name="demo", node_name="node_a", node_index=0, execution_index=0
-        )
-        observer.on_node_end(
-            NodeExecutionEvent(
-                dag_name="demo",
-                node_name="node_a",
-                node_index=0,
-                execution_index=0,
-                output_items=3,
-                elapsed_seconds=0.01,
-                status="success",
-            )
-        )
-        observer.on_node_progress(
-            NodeProgressEvent(
-                dag_name="demo",
-                node_name="node_a",
-                node_index=0,
-                execution_index=0,
-                progress=ProgressSnapshot(completed=1),
-                elapsed_seconds=1,
-            )
-        )
-        observer.on_node_progress(
-            NodeProgressEvent(
-                dag_name="demo",
-                node_name="node_a",
-                node_index=0,
-                execution_index=0,
-                progress=ProgressSnapshot(completed=2),
-                elapsed_seconds=2,
-                persistent=True,
-            )
-        )
-        observer.on_dag_end(
-            DagRunEvent(
-                dag_name="demo",
-                node_count=2,
-                output_items=3,
-                elapsed_seconds=0.02,
-                status="success",
-            )
-        )
-
-    messages = [record.getMessage() for record in caplog.records]
-    assert any(message.startswith("[demo] started") for message in messages)
-    assert any(message.startswith("  [nested] started") for message in messages)
-    assert any(message.startswith("[demo] finished") for message in messages)
-    assert any(
-        message == "[demo/node_a] running elapsed=2s items=2"
-        for message in messages
-    )
-    assert not any("elapsed=1s" in message for message in messages)
-    assert not any(message.startswith("[demo/node_a] started") for message in messages)
-    assert not any(message.startswith("[demo/node_a] finished") for message in messages)

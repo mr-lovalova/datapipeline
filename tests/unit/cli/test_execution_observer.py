@@ -104,7 +104,7 @@ _PARENT = DagParentRef(
         ),
         (
             DagStarted(dag_name="pipeline", node_count=2, depth=1),
-            logging.INFO,
+            logging.DEBUG,
             "  [pipeline] started nodes=2",
         ),
         (
@@ -126,7 +126,7 @@ _PARENT = DagParentRef(
                 elapsed_seconds=0.5,
                 depth=1,
             ),
-            logging.INFO,
+            logging.DEBUG,
             "  [pipeline] finished status=success items=3 elapsed=0.500000s",
         ),
         (
@@ -229,7 +229,7 @@ def test_failed_terminal_events_are_errors() -> None:
     )
 
 
-def test_hierarchical_observer_logs_all_dags_at_info(caplog):
+def test_hierarchical_observer_hides_nested_dag_lifecycle_at_info(caplog):
     logger = logging.getLogger("datapipeline.cli.visuals.execution.test")
     observer = HierarchicalExecutionObserver(LoggerExecutionEventSink(logger))
 
@@ -259,29 +259,36 @@ def test_hierarchical_observer_logs_all_dags_at_info(caplog):
 
     messages = [record.getMessage() for record in caplog.records]
     assert any(msg.startswith("[outer] started") for msg in messages)
-    assert any(msg.startswith("  [inner] started") for msg in messages)
-    assert any(msg.startswith("  [inner] finished") for msg in messages)
+    assert not any(msg.startswith("  [inner]") for msg in messages)
     assert any(msg.startswith("[outer] finished") for msg in messages)
 
 
-def test_hierarchical_observer_logs_parent_context_for_nested_dag_start(caplog):
+def test_hierarchical_observer_logs_nested_dag_lifecycle_at_debug(caplog):
     logger = logging.getLogger("datapipeline.cli.visuals.execution.test.parent")
     observer = HierarchicalExecutionObserver(LoggerExecutionEventSink(logger))
 
-    with caplog.at_level(logging.INFO, logger=logger.name):
+    with caplog.at_level(logging.DEBUG, logger=logger.name):
         observer.on_dag_start(
             dag_name="vector:assemble",
             node_count=2,
             depth=1,
-            dag_parent=DagParentRef(
-                dag_name="pipeline:serve",
-                node_name="vector_assemble",
-                node_index=0,
-            ),
+            dag_parent=_PARENT,
+        )
+        observer.on_dag_end(
+            DagRunEvent(
+                dag_name="vector:assemble",
+                node_count=2,
+                output_items=3,
+                elapsed_seconds=0.5,
+                status="success",
+                depth=1,
+                parent=_PARENT,
+            )
         )
 
-    record = caplog.records[0]
-    assert record.getMessage().startswith("  [vector:assemble] started nodes=2")
+    messages = [record.getMessage() for record in caplog.records]
+    assert messages[0].startswith("  [vector:assemble] started nodes=2")
+    assert messages[1].startswith("  [vector:assemble] finished status=success")
 
 
 def test_hierarchical_observer_logs_node_events_at_debug(caplog):
@@ -453,7 +460,7 @@ def test_hierarchical_observer_respects_explicit_depth_when_events_finish_out_of
     logger = logging.getLogger("datapipeline.cli.visuals.execution.test.siblings")
     observer = HierarchicalExecutionObserver(LoggerExecutionEventSink(logger))
 
-    with caplog.at_level(logging.INFO, logger=logger.name):
+    with caplog.at_level(logging.DEBUG, logger=logger.name):
         observer.on_dag_start(dag_name="vector:assemble", node_count=2, depth=0)
         observer.on_dag_start(dag_name="feature:linear_time", node_count=9, depth=1)
         observer.on_dag_start(dag_name="feature:closing_price", node_count=9, depth=1)

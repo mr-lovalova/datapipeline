@@ -326,27 +326,64 @@ def test_rich_sink_routes_node_progress_to_renderer_without_printing() -> None:
     assert output.getvalue() == ""
 
 
-def test_rich_sink_persists_only_the_root_dag_start() -> None:
+def test_rich_sink_persists_dag_lifecycle_by_level() -> None:
     console, output = _console()
     renderer = _CaptureRenderer()
     sink = _RichConsoleExecutionSink(logging.INFO, console, renderer)
     root = DagStarted(dag_name="stream:adv.20", node_count=4)
+    parent = DagParentRef(
+        dag_name="stream:adv.20",
+        node_name="open_source",
+        node_index=2,
+    )
     nested = DagStarted(
         dag_name="ingest:ohlcv",
         node_count=3,
         depth=1,
-        dag_parent=DagParentRef(
-            dag_name="stream:adv.20",
-            node_name="open_source",
-            node_index=2,
-        ),
+        dag_parent=parent,
     )
+    nested_finished = DagFinished(
+        dag_name="ingest:ohlcv",
+        node_count=3,
+        status="success",
+        output_items=100,
+        elapsed_seconds=1,
+        depth=1,
+        dag_parent=parent,
+    )
+    root_finished = DagFinished(
+        dag_name="stream:adv.20",
+        node_count=4,
+        status="success",
+        output_items=100,
+        elapsed_seconds=1,
+    )
+    events = [root, nested, nested_finished, root_finished]
 
-    sink.emit(root)
-    sink.emit(nested)
+    for event in events:
+        sink.emit(event)
 
-    assert renderer.events == [root, nested]
-    assert output.getvalue().splitlines() == ["[stream:adv.20] started nodes=4"]
+    assert renderer.events == events
+    assert output.getvalue().splitlines() == [
+        "[stream:adv.20] started nodes=4",
+        "[stream:adv.20] finished status=success items=100 elapsed=1.000000s",
+    ]
+
+    debug_console, debug_output = _console()
+    debug_sink = _RichConsoleExecutionSink(
+        logging.DEBUG,
+        debug_console,
+        _CaptureRenderer(),
+    )
+    for event in events:
+        debug_sink.emit(event)
+
+    assert [line.strip() for line in debug_output.getvalue().splitlines()] == [
+        "[stream:adv.20] started nodes=4",
+        "[ingest:ohlcv] started nodes=3",
+        "[ingest:ohlcv] finished status=success items=100 elapsed=1.000000s",
+        "[stream:adv.20] finished status=success items=100 elapsed=1.000000s",
+    ]
 
 
 def test_rich_sink_static_events_use_only_event_depth() -> None:

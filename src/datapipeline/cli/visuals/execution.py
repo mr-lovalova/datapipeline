@@ -224,13 +224,13 @@ class ExecutionEventFormatter:
         if isinstance(event, DagFinished | NodeFinished | OperationFinished):
             if event.status == "error":
                 return logging.ERROR
+        if isinstance(event, DagStarted | DagFinished):
+            return logging.DEBUG if event.depth > 0 else logging.INFO
         if isinstance(
             event,
             ProfileStarted
             | BuildDecisionMessage
             | SourceInfoMessage
-            | DagStarted
-            | DagFinished
             | NodeProgress
             | OperationStarted
             | OperationInfo

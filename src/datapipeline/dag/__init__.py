@@ -9,7 +9,6 @@ from datapipeline.dag.node import (
 )
 from datapipeline.dag.observer import (
     ExecutionObserver,
-    LoggingExecutionObserver,
     NoopExecutionObserver,
 )
 from datapipeline.dag.runner import run_dag
@@ -23,7 +22,6 @@ __all__ = [
     "NodeOp",
     "run_dag",
     "ExecutionObserver",
-    "LoggingExecutionObserver",
     "NoopExecutionObserver",
     "RunStatus",
     "NodeExecutionEvent",

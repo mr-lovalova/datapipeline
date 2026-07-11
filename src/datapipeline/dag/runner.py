@@ -1,4 +1,3 @@
-import logging
 import math
 import threading
 import time
@@ -16,18 +15,12 @@ from datapipeline.dag.events import (
     ProgressSnapshot,
     RunStatus,
 )
-from datapipeline.dag.observer import (
-    ExecutionObserver,
-    LoggingExecutionObserver,
-    NoopExecutionObserver,
-)
+from datapipeline.dag.observer import ExecutionObserver, NoopExecutionObserver
 from datapipeline.dag.context import PipelineContext
 from datapipeline.dag.node import NodeKind, PipelineNode
 
-logger = logging.getLogger(__name__)
 DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 60.0
 _LIVE_PROGRESS_INTERVAL_SECONDS = 0.1
-_LOG_OBSERVER = LoggingExecutionObserver(logger)
 _NOOP_OBSERVER = NoopExecutionObserver()
 
 
@@ -208,10 +201,7 @@ class _RunProgress:
             if state is None:
                 self._stack.pop()
                 return
-            if (
-                now - state.last_persistent_at
-                < self._heartbeat_interval_seconds
-            ):
+            if now - state.last_persistent_at < self._heartbeat_interval_seconds:
                 return
             state.last_persistent_at = now
         self._emit(node, persistent=True)
@@ -410,8 +400,6 @@ def _resolve_observer(
     context_observer = getattr(context, "execution_observer", None)
     if context_observer is not None:
         return context_observer
-    if logger.isEnabledFor(logging.INFO):
-        return _LOG_OBSERVER
     return _NOOP_OBSERVER
 
 
@@ -561,9 +549,7 @@ def _observe_dag_stream(
         if is_root_run:
             progress = _RunProgress(
                 observer,
-                resolve_heartbeat_interval_seconds(
-                    context.heartbeat_interval_seconds
-                ),
+                resolve_heartbeat_interval_seconds(context.heartbeat_interval_seconds),
             )
         else:
             inherited_progress = _CURRENT_RUN_PROGRESS.get()
