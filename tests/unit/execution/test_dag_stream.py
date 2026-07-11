@@ -280,6 +280,7 @@ def test_closing_a_stream_does_not_invent_a_progress_total(
 
     assert observer.node_progress_events
     assert all(event.progress.total is None for event in observer.node_progress_events)
+    assert all(event.progress.unit == "out" for event in observer.node_progress_events)
 
 
 def test_resolve_heartbeat_interval_accepts_supported_values() -> None:

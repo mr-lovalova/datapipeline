@@ -118,7 +118,7 @@ class _RunProgress:
                 last_live_at=now,
                 last_persistent_at=now,
                 completed=0,
-                progress=ProgressSnapshot(completed=0),
+                progress=ProgressSnapshot(completed=0, unit="out"),
             )
 
     def enter(self, node: NodeProgressContext) -> None:

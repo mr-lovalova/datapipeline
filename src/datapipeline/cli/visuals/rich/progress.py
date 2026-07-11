@@ -44,14 +44,14 @@ class _NodeState:
 
 
 class _LiveElapsedColumn(TimeElapsedColumn):
-    """Measure execution lifetime across completed local progress phases."""
+    """Show root DAG time across completed local progress phases."""
 
     def render(self, task: Task) -> Text:
-        elapsed = task.elapsed
-        if elapsed is None:
-            return Text("-:--:--", style="progress.elapsed")
+        if not task.fields["timer_scope"]:
+            return Text()
+        elapsed = max(0, int(task.elapsed or 0))
         return Text(
-            str(timedelta(seconds=max(0, int(elapsed)))),
+            str(timedelta(seconds=elapsed)),
             style="progress.elapsed",
         )
 
@@ -93,14 +93,13 @@ class _ExecutionProgress:
                 raise RuntimeError("Cannot start overlapping root DAG progress")
             return
         self._root_dag = event.dag_name, event.depth
-        if not self._debug:
-            self._root_task = self._progress.add_task(
-                event.dag_name,
-                total=None,
-                status="starting",
-                indent="",
-                timer_scope="DAG",
-            )
+        self._root_task = self._progress.add_task(
+            event.dag_name,
+            total=None,
+            status="",
+            indent="",
+            timer_scope="DAG",
+        )
 
     def _finish_dag(self, event: DagFinished) -> None:
         if self._root_dag is None:
@@ -121,9 +120,9 @@ class _ExecutionProgress:
             state.task_id = self._progress.add_task(
                 label,
                 total=None,
-                status="starting",
+                status="0 out",
                 indent="  " * relative_depth,
-                timer_scope="NODE",
+                timer_scope="",
             )
         self._nodes[event.execution_index] = state
         self._active_nodes.append(event.execution_index)
@@ -147,7 +146,7 @@ class _ExecutionProgress:
             or event.progress.phase is not None
             or event.progress.detail is not None
             or event.progress.resource is not None
-            or event.progress.unit != "items"
+            or event.progress.unit not in ("items", "out")
             or self._active_nodes[-1] == event.execution_index
         ):
             self._render_info_node(event.execution_index)
@@ -182,7 +181,7 @@ class _ExecutionProgress:
                 self._root_task,
                 total=None,
                 completed=0,
-                status=f"{state.label} · starting",
+                status=f"{state.label} · 0 out",
             )
             return
         self._update_task(

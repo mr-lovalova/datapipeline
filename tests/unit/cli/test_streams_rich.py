@@ -272,7 +272,7 @@ def test_info_dag_elapsed_continues_after_completed_local_phase() -> None:
     assert task.fields["indent"] == ""
 
 
-def test_debug_progress_has_one_row_per_active_node() -> None:
+def test_debug_progress_shows_root_and_active_nodes() -> None:
     progress = _progress()
     renderer = _ExecutionProgress(progress, debug=True)
     renderer.handle(DagStarted(dag_name="stream:adv.20", node_count=4))
@@ -294,27 +294,34 @@ def test_debug_progress_has_one_row_per_active_node() -> None:
         )
     )
 
-    assert [task.description for task in progress.tasks] == [
-        "stream:adv.20/order_records",
-        "stream:adv.20/open_source",
-        "ingest:ohlcv/decode_records",
+    tasks = progress.tasks
+    assert [
+        (
+            task.description,
+            task.fields["indent"],
+            task.fields["timer_scope"],
+            task.fields["status"],
+        )
+        for task in tasks
+    ] == [
+        ("stream:adv.20", "", "DAG", ""),
+        ("stream:adv.20/order_records", "", "", "0 out"),
+        ("stream:adv.20/open_source", "", "", "25/100 records"),
+        ("ingest:ohlcv/decode_records", "  ", "", "0 out"),
     ]
-    assert [task.fields["indent"] for task in progress.tasks] == [
-        "",
-        "",
-        "  ",
-    ]
-    source_task = progress.tasks[1]
-    assert source_task.fields["timer_scope"] == "NODE"
+    root_task, _, source_task, _ = tasks
+    elapsed = _LiveElapsedColumn()
+    assert elapsed.render(root_task).plain == "0:00:00"
+    assert elapsed.render(source_task).plain == ""
     assert source_task.completed == 25
     assert source_task.total == 100
-    assert source_task.fields["status"] == "25/100 records"
     bar = BarColumn().render(source_task)
     assert bar.completed == 25
     assert bar.total == 100
 
     _finish_node(renderer, 1, "open_source")
     assert [task.description for task in progress.tasks] == [
+        "stream:adv.20",
         "stream:adv.20/order_records",
         "ingest:ohlcv/decode_records",
     ]
