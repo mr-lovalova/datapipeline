@@ -135,7 +135,12 @@ class _ExecutionProgress:
         state.progress = event.progress
         if self._debug:
             if state.task_id is not None:
-                self._render(state.task_id, event.progress)
+                self._update_task(
+                    state.task_id,
+                    completed=event.progress.completed,
+                    total=event.progress.total,
+                    status=_progress_status(event.progress),
+                )
         elif (
             event.persistent
             or event.progress.total is not None
@@ -156,13 +161,9 @@ class _ExecutionProgress:
             self._render_active_node()
 
     def _render_active_node(self) -> None:
-        if self._root_task is None or self._root_dag is None:
+        if self._root_task is None:
             raise RuntimeError("Cannot render node progress before its root DAG")
         if not self._active_nodes:
-            self._progress.update(
-                self._root_task,
-                description=self._root_dag[0],
-            )
             self._update_task(
                 self._root_task,
                 total=None,
@@ -176,33 +177,19 @@ class _ExecutionProgress:
         if self._root_task is None:
             raise RuntimeError("Cannot render node progress before its root DAG")
         state = self._nodes[execution_index]
-        self._progress.update(self._root_task, description=state.label)
         if state.progress is None:
             self._update_task(
                 self._root_task,
                 total=None,
                 completed=0,
-                status="starting",
+                status=f"{state.label} · starting",
             )
             return
-        self._render(self._root_task, state.progress)
-
-    def _render(self, task_id: TaskID, snapshot: ProgressSnapshot) -> None:
-        resource = snapshot.resource
-        parts = [snapshot.phase] if snapshot.phase else []
-        if resource is not None:
-            parts.append(f"{resource.index}/{resource.total} {resource.label}")
-        if snapshot.detail:
-            parts.append(snapshot.detail)
-        count = f"{snapshot.completed:,}"
-        if snapshot.total is not None:
-            count = f"{count}/{snapshot.total:,}"
-        parts.append(f"{count} {snapshot.unit}")
         self._update_task(
-            task_id,
-            completed=snapshot.completed,
-            total=snapshot.total,
-            status=" · ".join(parts),
+            self._root_task,
+            completed=state.progress.completed,
+            total=state.progress.total,
+            status=f"{state.label} · {_progress_status(state.progress)}",
         )
 
     def _update_task(
@@ -215,6 +202,20 @@ class _ExecutionProgress:
         task = next(task for task in self._progress.tasks if task.id == task_id)
         task.total = total
         self._progress.update(task_id, completed=completed, status=status)
+
+
+def _progress_status(snapshot: ProgressSnapshot) -> str:
+    resource = snapshot.resource
+    parts = [snapshot.phase] if snapshot.phase else []
+    if resource is not None:
+        parts.append(f"{resource.index}/{resource.total} {resource.label}")
+    if snapshot.detail:
+        parts.append(snapshot.detail)
+    count = f"{snapshot.completed:,}"
+    if snapshot.total is not None:
+        count = f"{count}/{snapshot.total:,}"
+    parts.append(f"{count} {snapshot.unit}")
+    return " · ".join(parts)
 
 
 @contextmanager

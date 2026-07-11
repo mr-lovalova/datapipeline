@@ -2,7 +2,7 @@ import logging
 from collections.abc import Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Protocol
 
 from datapipeline.cli.visuals.execution_context import (
     current_dag_label,
@@ -84,10 +84,9 @@ class DagStarted(_ExecutionEvent):
 
 
 @dataclass(frozen=True, kw_only=True)
-class DagInfo(_ExecutionEvent):
+class DagSummary(_ExecutionEvent):
     dag_name: str
-    info_name: str
-    info_line: str
+    summary: str
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -168,7 +167,7 @@ ExecutionLogEvent = (
     | BuildDecisionMessage
     | SourceInfoMessage
     | DagStarted
-    | DagInfo
+    | DagSummary
     | DagFinished
     | NodeStarted
     | NodeProgress
@@ -224,13 +223,14 @@ class ExecutionEventFormatter:
         if isinstance(event, DagFinished | NodeFinished | OperationFinished):
             if event.status == "error":
                 return logging.ERROR
-        if isinstance(event, DagStarted | DagFinished):
-            return logging.DEBUG if event.depth > 0 else logging.INFO
         if isinstance(
             event,
             ProfileStarted
             | BuildDecisionMessage
             | SourceInfoMessage
+            | DagStarted
+            | DagSummary
+            | DagFinished
             | NodeProgress
             | OperationStarted
             | OperationInfo
@@ -238,10 +238,6 @@ class ExecutionEventFormatter:
             | OperationFinished,
         ):
             return logging.INFO
-        if isinstance(event, DagInfo):
-            if event.info_name == "source" or event.depth <= 0:
-                return logging.INFO
-            return logging.DEBUG
         if isinstance(event, NodeStarted | NodeFinished):
             return logging.DEBUG
         raise TypeError(f"Unsupported execution event: {type(event).__name__}")
@@ -267,8 +263,8 @@ class ExecutionEventFormatter:
             if not indent or "\n" not in message:
                 return f"{indent}{message}"
             return f"{indent}" + message.replace("\n", f"\n{indent}")
-        if isinstance(event, DagInfo):
-            return f"{indent}[{event.dag_name}] {event.info_line}"
+        if isinstance(event, DagSummary):
+            return f"{indent}[{event.dag_name}] {event.summary}"
         if isinstance(event, OperationInfo):
             return f"{indent}[{event.operation_name}] {event.info_line}"
         if isinstance(event, DagStarted):
@@ -540,32 +536,16 @@ class HierarchicalExecutionObserver(ExecutionObserver):
         set_current_dag_depth(0)
         set_current_dag_label(None)
 
-    def _emit(self, event: ExecutionLogEvent) -> None:
-        self._sink.emit(event)
-
-    @staticmethod
-    def _metadata_lines(dag_metadata: dict[str, Any] | None) -> list[tuple[str, str]]:
-        if not dag_metadata:
-            return []
-        lines: list[tuple[str, str]] = []
-        for key, value in dag_metadata.items():
-            if isinstance(value, dict):
-                parts = [f"{k}={value[k]}" for k in value]
-                lines.append((key, f"{key}: {' '.join(parts)}"))
-            else:
-                lines.append((key, f"{key}: {value}"))
-        return lines
-
     def on_dag_start(
         self,
         dag_name: str,
         node_count: int,
         depth: int = 0,
-        dag_metadata: dict[str, Any] | None = None,
+        summary: str | None = None,
         dag_parent: DagParentRef | None = None,
     ) -> None:
         dag_depth = max(0, int(depth))
-        self._emit(
+        self._sink.emit(
             DagStarted(
                 dag_name=dag_name,
                 depth=dag_depth,
@@ -574,13 +554,12 @@ class HierarchicalExecutionObserver(ExecutionObserver):
                 scope=_current_scope(),
             )
         )
-        for info_name, line in self._metadata_lines(dag_metadata):
-            self._emit(
-                DagInfo(
+        if summary:
+            self._sink.emit(
+                DagSummary(
                     dag_name=dag_name,
                     depth=dag_depth,
-                    info_name=info_name,
-                    info_line=line,
+                    summary=summary,
                     scope=_current_scope(),
                 )
             )
@@ -598,7 +577,7 @@ class HierarchicalExecutionObserver(ExecutionObserver):
         depth: int = 0,
     ) -> None:
         node_depth = max(0, int(depth))
-        self._emit(
+        self._sink.emit(
             NodeStarted(
                 dag_name=dag_name,
                 depth=node_depth,
@@ -614,7 +593,7 @@ class HierarchicalExecutionObserver(ExecutionObserver):
 
     def on_node_end(self, event: NodeExecutionEvent) -> None:
         node_depth = max(0, int(event.depth))
-        self._emit(
+        self._sink.emit(
             NodeFinished(
                 dag_name=event.dag_name,
                 depth=node_depth,
@@ -635,7 +614,7 @@ class HierarchicalExecutionObserver(ExecutionObserver):
 
     def on_node_progress(self, event: DagNodeProgressEvent) -> None:
         node_depth = max(0, int(event.depth))
-        self._emit(
+        self._sink.emit(
             NodeProgress(
                 dag_name=event.dag_name,
                 depth=node_depth,
@@ -654,7 +633,7 @@ class HierarchicalExecutionObserver(ExecutionObserver):
 
     def on_dag_end(self, event: DagRunEvent) -> None:
         dag_depth = max(0, int(event.depth))
-        self._emit(
+        self._sink.emit(
             DagFinished(
                 dag_name=event.dag_name,
                 depth=dag_depth,

@@ -5,7 +5,7 @@ import pytest
 from datapipeline.cli.visuals.execution import (
     BuildDecisionMessage,
     DagFinished,
-    DagInfo,
+    DagSummary,
     DagStarted,
     ExecutionEventFormatter,
     ExecutionEventSink,
@@ -104,18 +104,17 @@ _PARENT = DagParentRef(
         ),
         (
             DagStarted(dag_name="pipeline", node_count=2, depth=1),
-            logging.DEBUG,
+            logging.INFO,
             "  [pipeline] started nodes=2",
         ),
         (
-            DagInfo(
+            DagSummary(
                 dag_name="pipeline",
-                info_name="record.order",
-                info_line="record.order: time",
+                summary="transport=fs.file file=prices.jsonl",
                 depth=1,
             ),
-            logging.DEBUG,
-            "  [pipeline] record.order: time",
+            logging.INFO,
+            "  [pipeline] transport=fs.file file=prices.jsonl",
         ),
         (
             DagFinished(
@@ -126,7 +125,7 @@ _PARENT = DagParentRef(
                 elapsed_seconds=0.5,
                 depth=1,
             ),
-            logging.DEBUG,
+            logging.INFO,
             "  [pipeline] finished status=success items=3 elapsed=0.500000s",
         ),
         (
@@ -229,7 +228,7 @@ def test_failed_terminal_events_are_errors() -> None:
     )
 
 
-def test_hierarchical_observer_hides_nested_dag_lifecycle_at_info(caplog):
+def test_hierarchical_observer_logs_all_dags_at_info(caplog):
     logger = logging.getLogger("datapipeline.cli.visuals.execution.test")
     observer = HierarchicalExecutionObserver(LoggerExecutionEventSink(logger))
 
@@ -259,36 +258,25 @@ def test_hierarchical_observer_hides_nested_dag_lifecycle_at_info(caplog):
 
     messages = [record.getMessage() for record in caplog.records]
     assert any(msg.startswith("[outer] started") for msg in messages)
-    assert not any(msg.startswith("  [inner]") for msg in messages)
+    assert any(msg.startswith("  [inner] started") for msg in messages)
+    assert any(msg.startswith("  [inner] finished") for msg in messages)
     assert any(msg.startswith("[outer] finished") for msg in messages)
 
 
-def test_hierarchical_observer_logs_nested_dag_lifecycle_at_debug(caplog):
+def test_hierarchical_observer_logs_parent_context_for_nested_dag_start(caplog):
     logger = logging.getLogger("datapipeline.cli.visuals.execution.test.parent")
     observer = HierarchicalExecutionObserver(LoggerExecutionEventSink(logger))
 
-    with caplog.at_level(logging.DEBUG, logger=logger.name):
+    with caplog.at_level(logging.INFO, logger=logger.name):
         observer.on_dag_start(
             dag_name="vector:assemble",
             node_count=2,
             depth=1,
             dag_parent=_PARENT,
         )
-        observer.on_dag_end(
-            DagRunEvent(
-                dag_name="vector:assemble",
-                node_count=2,
-                output_items=3,
-                elapsed_seconds=0.5,
-                status="success",
-                depth=1,
-                parent=_PARENT,
-            )
-        )
 
-    messages = [record.getMessage() for record in caplog.records]
-    assert messages[0].startswith("  [vector:assemble] started nodes=2")
-    assert messages[1].startswith("  [vector:assemble] finished status=success")
+    record = caplog.records[0]
+    assert record.getMessage().startswith("  [vector:assemble] started nodes=2")
 
 
 def test_hierarchical_observer_logs_node_events_at_debug(caplog):
@@ -460,7 +448,7 @@ def test_hierarchical_observer_respects_explicit_depth_when_events_finish_out_of
     logger = logging.getLogger("datapipeline.cli.visuals.execution.test.siblings")
     observer = HierarchicalExecutionObserver(LoggerExecutionEventSink(logger))
 
-    with caplog.at_level(logging.DEBUG, logger=logger.name):
+    with caplog.at_level(logging.INFO, logger=logger.name):
         observer.on_dag_start(dag_name="vector:assemble", node_count=2, depth=0)
         observer.on_dag_start(dag_name="feature:linear_time", node_count=9, depth=1)
         observer.on_dag_start(dag_name="feature:closing_price", node_count=9, depth=1)
@@ -571,63 +559,8 @@ def test_make_execution_observer_accepts_single_custom_sink():
     assert [type(event) for event in sink.events] == [DagStarted, DagFinished]
 
 
-def test_hierarchical_observer_emits_dag_metadata_events():
-    sink = _CaptureSink()
-    observer = make_execution_observer(sink=sink)
-
-    observer.on_dag_start(
-        dag_name="ingest:equity.ohlcv",
-        node_count=9,
-        depth=1,
-        dag_metadata={
-            "source.summary": {
-                "transport": "fs",
-                "files": 17,
-                "decoder": "jsonl",
-            },
-            "record.order": "id_,time",
-        },
-    )
-
-    assert [type(event) for event in sink.events] == [
-        DagStarted,
-        DagInfo,
-        DagInfo,
-    ]
-    assert sink.events[1].info_line == (
-        "source.summary: transport=fs files=17 decoder=jsonl"
-    )
-    assert sink.events[2].info_line == "record.order: id_,time"
-
-
-def test_hierarchical_observer_hides_nested_dag_metadata_at_info(caplog):
-    logger = logging.getLogger("datapipeline.cli.visuals.execution.test.metadata")
-    observer = HierarchicalExecutionObserver(LoggerExecutionEventSink(logger))
-
-    with caplog.at_level(logging.INFO, logger=logger.name):
-        observer.on_dag_start(dag_name="pipeline:serve", node_count=3, depth=0)
-        observer.on_dag_start(
-            dag_name="ingest:equity.ohlcv",
-            node_count=9,
-            depth=1,
-            dag_metadata={
-                "source.summary": {
-                    "transport": "fs",
-                    "files": 17,
-                    "decoder": "jsonl",
-                }
-            },
-        )
-
-    messages = [record.getMessage() for record in caplog.records]
-    assert "[pipeline:serve] started nodes=3" in messages
-    assert not any("source.summary:" in msg for msg in messages)
-
-
-def test_hierarchical_observer_shows_nested_source_metadata_at_info(caplog):
-    logger = logging.getLogger(
-        "datapipeline.cli.visuals.execution.test.source_metadata"
-    )
+def test_hierarchical_observer_logs_nested_dag_summary_at_info(caplog):
+    logger = logging.getLogger("datapipeline.cli.visuals.execution.test.dag_summary")
     observer = HierarchicalExecutionObserver(LoggerExecutionEventSink(logger))
 
     with caplog.at_level(logging.INFO, logger=logger.name):
@@ -636,50 +569,14 @@ def test_hierarchical_observer_shows_nested_source_metadata_at_info(caplog):
             dag_name="ingest:equity.ohlcv",
             node_count=4,
             depth=2,
-            dag_metadata={
-                "source": {
-                    "transport": "fs.glob",
-                    "count": 17,
-                    "first": "2010.jsonl",
-                    "last": "2026.jsonl",
-                }
-            },
+            summary=("transport=fs.glob count=17 first=2010.jsonl last=2026.jsonl"),
         )
 
     messages = [record.getMessage() for record in caplog.records]
     assert any(
         msg.startswith(
-            "    [ingest:equity.ohlcv] source: "
+            "    [ingest:equity.ohlcv] "
             "transport=fs.glob count=17 first=2010.jsonl last=2026.jsonl"
-        )
-        for msg in messages
-    )
-
-
-def test_hierarchical_observer_shows_nested_dag_metadata_at_debug(caplog):
-    logger = logging.getLogger("datapipeline.cli.visuals.execution.test.metadata.debug")
-    observer = HierarchicalExecutionObserver(LoggerExecutionEventSink(logger))
-
-    with caplog.at_level(logging.DEBUG, logger=logger.name):
-        observer.on_dag_start(dag_name="pipeline:serve", node_count=3, depth=0)
-        observer.on_dag_start(
-            dag_name="ingest:equity.ohlcv",
-            node_count=9,
-            depth=1,
-            dag_metadata={
-                "source.summary": {
-                    "transport": "fs",
-                    "files": 17,
-                    "decoder": "jsonl",
-                }
-            },
-        )
-
-    messages = [record.getMessage() for record in caplog.records]
-    assert any(
-        msg.startswith(
-            "  [ingest:equity.ohlcv] source.summary: "
-            "transport=fs files=17 decoder=jsonl"
         )
         for msg in messages
     )

@@ -12,7 +12,7 @@ from datapipeline.sources.observability import (
     loader_current_label,
     loader_current_resource_id,
     loader_progress_sequence,
-    source_metadata,
+    source_summary,
 )
 
 
@@ -36,27 +36,24 @@ def _foreach_loader() -> ForeachLoader:
     )
 
 
-def test_source_metadata_describes_http_transport() -> None:
+def test_source_summary_describes_http_transport() -> None:
     source = _Source(HttpTransport("https://example.test/data/demo.jsonl"))
 
-    assert source_metadata(source) == {
-        "transport": "http.fetch",
-        "host": "example.test",
-        "resource": "demo.jsonl",
-    }
+    assert (
+        source_summary(source)
+        == "transport=http.fetch host=example.test resource=demo.jsonl"
+    )
     description = describe_loader(source.loader)
     assert loader_current_label(source.loader, description) == "@example.test"
 
 
-def test_source_metadata_describes_foreach_files() -> None:
+def test_source_summary_describes_foreach_files() -> None:
     source = type("Source", (), {"loader": _foreach_loader()})()
 
-    assert source_metadata(source) == {
-        "transport": "fs.glob",
-        "count": 2,
-        "first": "APPL.jsonl",
-        "last": "MSFT.jsonl",
-    }
+    assert (
+        source_summary(source)
+        == "transport=fs.glob count=2 first=APPL.jsonl last=MSFT.jsonl"
+    )
 
 
 def test_glob_progress_tracks_current_file_and_resource_sequence(tmp_path) -> None:

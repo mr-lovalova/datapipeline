@@ -1,4 +1,4 @@
-from typing import Any, Protocol
+from typing import Protocol
 
 from datapipeline.dag.events import (
     DagParentRef,
@@ -16,7 +16,7 @@ class ExecutionObserver(Protocol):
         dag_name: str,
         node_count: int,
         depth: int = 0,
-        dag_metadata: dict[str, Any] | None = None,
+        summary: str | None = None,
         dag_parent: DagParentRef | None = None,
     ) -> None: ...
 
@@ -46,7 +46,7 @@ class NoopExecutionObserver:
         dag_name: str,
         node_count: int,
         depth: int = 0,
-        dag_metadata: dict[str, Any] | None = None,
+        summary: str | None = None,
         dag_parent: DagParentRef | None = None,
     ) -> None:
         pass

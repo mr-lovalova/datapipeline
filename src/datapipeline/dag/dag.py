@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from typing import Any
 
 from datapipeline.dag.node import PipelineNode
 
@@ -8,7 +7,7 @@ from datapipeline.dag.node import PipelineNode
 class Dag:
     name: str
     nodes: tuple[PipelineNode, ...]
-    metadata: dict[str, Any] | None = None
+    summary: str | None = None
 
     @property
     def node_count(self) -> int:
@@ -27,9 +26,9 @@ class Dag:
         if node_index is None:
             return self
         if node_index < 0:
-            return Dag(name=self.name, nodes=(), metadata=self.metadata)
+            return Dag(name=self.name, nodes=(), summary=self.summary)
         return Dag(
             name=self.name,
             nodes=self.nodes[: node_index + 1],
-            metadata=self.metadata,
+            summary=self.summary,
         )

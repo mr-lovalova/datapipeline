@@ -123,7 +123,14 @@ def _info_progress(*node_names: str) -> tuple[Progress, _ExecutionProgress]:
 
 
 def test_info_progress_shows_node_and_local_detail() -> None:
-    progress, renderer = _info_progress("order_records", "open_source")
+    progress, renderer = _info_progress("order_records")
+    _start_node(
+        renderer,
+        1,
+        "open_source",
+        dag_name="ingest:ohlcv",
+        depth=2,
+    )
     renderer.handle(
         _node_progress(
             0,
@@ -145,19 +152,24 @@ def test_info_progress_shows_node_and_local_detail() -> None:
 
     assert len(progress.tasks) == 1
     task = progress.tasks[0]
-    assert task.description == "stream:adv.20/open_source"
+    assert task.description == "stream:adv.20"
     assert task.fields["indent"] == ""
     assert task.fields["timer_scope"] == "DAG"
     assert task.total is None
     assert task.completed == 20_000
-    assert task.fields["status"] == '2/17 "2011.jsonl" · 20,000 records'
+    assert task.fields["status"] == (
+        'ingest:ohlcv/open_source · 2/17 "2011.jsonl" · 20,000 records'
+    )
 
     _finish_node(renderer, 1, "open_source")
 
     task = progress.tasks[0]
-    assert task.description == "stream:adv.20/order_records"
+    assert task.description == "stream:adv.20"
+    assert task.fields["indent"] == ""
     assert task.total is None
-    assert task.fields["status"] == "reading · 100 records"
+    assert task.fields["status"] == (
+        "stream:adv.20/order_records · reading · 100 records"
+    )
 
 
 def test_info_progress_selects_meaningful_event_owner() -> None:
@@ -177,13 +189,19 @@ def test_info_progress_selects_meaningful_event_owner() -> None:
         )
     )
     task = progress.tasks[0]
-    assert task.description == "stream:adv.20/open_source"
+    assert task.description == "stream:adv.20"
+    assert task.fields["status"] == (
+        'stream:adv.20/open_source · 2/17 "2011.jsonl" · 20,000 items'
+    )
 
     renderer.handle(
         _node_progress(1, "map_records", ProgressSnapshot(completed=20_000))
     )
     task = progress.tasks[0]
-    assert task.description == "stream:adv.20/open_source"
+    assert task.description == "stream:adv.20"
+    assert task.fields["status"] == (
+        'stream:adv.20/open_source · 2/17 "2011.jsonl" · 20,000 items'
+    )
 
     renderer.handle(
         _node_progress(
@@ -193,10 +211,12 @@ def test_info_progress_selects_meaningful_event_owner() -> None:
         )
     )
     task = progress.tasks[0]
-    assert task.description == "stream:adv.20/order_records"
+    assert task.description == "stream:adv.20"
     assert task.completed == 25
     assert task.total == 100
-    assert task.fields["status"] == "merging · 25/100 items"
+    assert task.fields["status"] == (
+        "stream:adv.20/order_records · merging · 25/100 items"
+    )
 
     renderer.handle(
         _node_progress(
@@ -208,8 +228,8 @@ def test_info_progress_selects_meaningful_event_owner() -> None:
     )
 
     task = progress.tasks[0]
-    assert task.description == "stream:adv.20/map_records"
-    assert task.fields["status"] == "20,000 items"
+    assert task.description == "stream:adv.20"
+    assert task.fields["status"] == "stream:adv.20/map_records · 20,000 items"
 
 
 def test_info_dag_elapsed_continues_after_completed_local_phase() -> None:
@@ -234,6 +254,8 @@ def test_info_dag_elapsed_continues_after_completed_local_phase() -> None:
     )
     task = progress.tasks[0]
     assert _LiveElapsedColumn().render(task).plain == "0:00:10"
+    assert task.description == "stream:adv.20"
+    assert task.fields["indent"] == ""
 
     now = 20.0
     renderer.handle(
@@ -246,6 +268,8 @@ def test_info_dag_elapsed_continues_after_completed_local_phase() -> None:
 
     task = progress.tasks[0]
     assert _LiveElapsedColumn().render(task).plain == "0:00:20"
+    assert task.description == "stream:adv.20"
+    assert task.fields["indent"] == ""
 
 
 def test_debug_progress_has_one_row_per_active_node() -> None:
@@ -326,7 +350,7 @@ def test_rich_sink_routes_node_progress_to_renderer_without_printing() -> None:
     assert output.getvalue() == ""
 
 
-def test_rich_sink_persists_dag_lifecycle_by_level() -> None:
+def test_rich_sink_persists_all_dag_lifecycle() -> None:
     console, output = _console()
     renderer = _CaptureRenderer()
     sink = _RichConsoleExecutionSink(logging.INFO, console, renderer)
@@ -366,22 +390,8 @@ def test_rich_sink_persists_dag_lifecycle_by_level() -> None:
     assert renderer.events == events
     assert output.getvalue().splitlines() == [
         "[stream:adv.20] started nodes=4",
-        "[stream:adv.20] finished status=success items=100 elapsed=1.000000s",
-    ]
-
-    debug_console, debug_output = _console()
-    debug_sink = _RichConsoleExecutionSink(
-        logging.DEBUG,
-        debug_console,
-        _CaptureRenderer(),
-    )
-    for event in events:
-        debug_sink.emit(event)
-
-    assert [line.strip() for line in debug_output.getvalue().splitlines()] == [
-        "[stream:adv.20] started nodes=4",
-        "[ingest:ohlcv] started nodes=3",
-        "[ingest:ohlcv] finished status=success items=100 elapsed=1.000000s",
+        "  [ingest:ohlcv] started nodes=3",
+        "  [ingest:ohlcv] finished status=success items=100 elapsed=1.000000s",
         "[stream:adv.20] finished status=success items=100 elapsed=1.000000s",
     ]
 

@@ -578,7 +578,7 @@ def _observe_dag_stream(
                 dag_name=dag.name,
                 node_count=dag.node_count,
                 depth=dag_depth,
-                dag_metadata=dag.metadata,
+                summary=dag.summary,
                 dag_parent=dag_parent,
             )
             dag_started = True

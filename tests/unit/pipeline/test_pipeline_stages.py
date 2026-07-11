@@ -119,10 +119,10 @@ class _DagParentObserver:
         dag_name: str,
         node_count: int,
         depth: int = 0,
-        dag_metadata=None,
+        summary=None,
         dag_parent=None,
     ) -> None:
-        _ = node_count, depth, dag_metadata
+        _ = node_count, depth, summary
         self.dag_parents.append(
             (
                 dag_name,
@@ -237,7 +237,7 @@ def _register_price_schema(runtime: Runtime) -> None:
     runtime.artifacts.register(VECTOR_SCHEMA, "schema.json")
 
 
-def test_ingest_dag_carries_source_metadata(tmp_path: Path) -> None:
+def test_ingest_dag_carries_source_summary(tmp_path: Path) -> None:
     runtime = _runtime_with_rows(tmp_path, [], stream_id="prices")
     runtime.registries.stream_sources.register(
         "prices",
@@ -251,15 +251,10 @@ def test_ingest_dag_carries_source_metadata(tmp_path: Path) -> None:
 
     dag = build_ingest_dag(PipelineContext(runtime), "prices")
 
-    assert dag.metadata == {
-        "source": {
-            "transport": "fs.file",
-            "file": "prices.jsonl",
-        }
-    }
+    assert dag.summary == "transport=fs.file file=prices.jsonl"
 
 
-def test_stream_dag_carries_source_metadata(tmp_path: Path) -> None:
+def test_stream_dag_carries_source_summary(tmp_path: Path) -> None:
     runtime = _runtime_with_rows(tmp_path, [], stream_id="derived", stream_ops=[])
     source = _LoaderSource(
         DataLoader(
@@ -275,14 +270,7 @@ def test_stream_dag_carries_source_metadata(tmp_path: Path) -> None:
 
     dag = build_stream_dag(PipelineContext(runtime), "derived")
 
-    assert dag.metadata == {
-        "source": {
-            "transport": "fs.glob",
-            "count": 2,
-            "first": "AAPL.jsonl",
-            "last": "MSFT.jsonl",
-        }
-    }
+    assert dag.summary == "transport=fs.glob count=2 first=AAPL.jsonl last=MSFT.jsonl"
 
 
 def test_node_0_to_2_record_pipeline(tmp_path: Path) -> None:
@@ -327,7 +315,7 @@ def test_dag_builders_expose_structure(tmp_path: Path) -> None:
         "feature_transforms",
         "order_feature_records",
     ]
-    assert feature_dag.metadata is None
+    assert feature_dag.summary is None
     assert preview_feature_dag.nodes[0].name == "open_source"
     assert vector_assemble.kind == "function"
     assert vector_assemble.calls_dag is None

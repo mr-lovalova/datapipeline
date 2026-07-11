@@ -1,7 +1,6 @@
 import threading
 from contextvars import ContextVar
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -37,7 +36,7 @@ class _CollectingObserver:
         dag_name: str,
         node_count: int,
         depth: int = 0,
-        dag_metadata: dict[str, Any] | None = None,
+        summary: str | None = None,
         dag_parent: DagParentRef | None = None,
     ) -> None:
         self.dag_started.append((dag_name, node_count))

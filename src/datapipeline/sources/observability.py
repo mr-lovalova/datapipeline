@@ -28,48 +28,46 @@ class SourceProgressEntry:
     label: str
 
 
-def source_metadata(stream_source: Any) -> dict[str, Any] | None:
+def source_summary(stream_source: Any) -> str | None:
     loader = getattr(stream_source, "loader", None)
     if loader is None:
         return None
-    return loader_source_metadata(loader)
+    return _loader_source_summary(loader)
 
 
-def loader_source_metadata(loader: Any) -> dict[str, Any] | None:
+def _loader_source_summary(loader: Any) -> str | None:
     if isinstance(loader, ForeachLoader):
-        return _foreach_source_metadata(loader)
-    return transport_source_metadata(getattr(loader, "transport", None))
+        return _foreach_source_summary(loader)
+    return _transport_source_summary(getattr(loader, "transport", None))
 
 
-def transport_source_metadata(transport: Any) -> dict[str, Any] | None:
+def _transport_source_summary(transport: Any) -> str | None:
     if isinstance(transport, FsFileTransport):
         path = getattr(transport, "path", "")
-        return {"transport": "fs.file", "file": Path(path).name or str(path)}
+        return f"transport=fs.file file={Path(path).name or str(path)}"
 
     if isinstance(transport, FsGlobTransport):
         files = transport.files
         total = len(files)
-        metadata: dict[str, Any] = {"transport": "fs.glob", "count": total}
+        parts = ["transport=fs.glob", f"count={total}"]
         root = _glob_root(files)
         if total == 0:
             pattern = getattr(transport, "pattern", "")
-            metadata["root"] = _compact_root(root) if root else pattern or "fs"
+            parts.append(f"root={_compact_root(root) if root else pattern or 'fs'}")
         elif total == 1:
-            metadata["file"] = _relative_label(files[0], root)
+            parts.append(f"file={_relative_label(files[0], root)}")
         else:
-            metadata["first"] = _relative_label(files[0], root)
-            metadata["last"] = _relative_label(files[-1], root)
-        return metadata
+            parts.append(f"first={_relative_label(files[0], root)}")
+            parts.append(f"last={_relative_label(files[-1], root)}")
+        return " ".join(parts)
 
     if isinstance(transport, HttpTransport):
         url = getattr(transport, "url", "")
-        parts = urlparse(url)
-        host = parts.netloc or "http"
-        resource = Path(parts.path or "").name
-        metadata = {"transport": "http.fetch", "host": host}
-        if resource:
-            metadata["resource"] = resource
-        return metadata
+        parsed_url = urlparse(url)
+        host = parsed_url.netloc or "http"
+        resource = Path(parsed_url.path or "").name
+        summary = f"transport=http.fetch host={host}"
+        return f"{summary} resource={resource}" if resource else summary
 
     return None
 
@@ -148,7 +146,7 @@ def transport_resource_label(
     return None
 
 
-def _foreach_source_metadata(loader: ForeachLoader) -> dict[str, Any] | None:
+def _foreach_source_summary(loader: ForeachLoader) -> str | None:
     spec = getattr(loader, "_loader_spec", None)
     if not isinstance(spec, dict):
         return None
@@ -162,13 +160,12 @@ def _foreach_source_metadata(loader: ForeachLoader) -> dict[str, Any] | None:
 
     labels = [foreach_value_label(value) for value in values]
     total = len(labels)
-    metadata: dict[str, Any] = {"transport": "fs.glob", "count": total}
+    summary = f"transport=fs.glob count={total}"
     if total == 1:
-        metadata["file"] = labels[0]
-    elif total > 1:
-        metadata["first"] = labels[0]
-        metadata["last"] = labels[-1]
-    return metadata
+        return f"{summary} file={labels[0]}"
+    if total > 1:
+        return f"{summary} first={labels[0]} last={labels[-1]}"
+    return summary
 
 
 def _glob_root(files: list[str]) -> Path | None:
