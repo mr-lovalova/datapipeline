@@ -137,7 +137,7 @@ _PARENT = DagParentRef(
                 depth=1,
             ),
             logging.DEBUG,
-            "[pipeline/load] started index=0 execution=4 kind=function",
+            "[pipeline/load] started",
         ),
         (
             NodeProgress(
@@ -164,8 +164,7 @@ _PARENT = DagParentRef(
                 depth=1,
             ),
             logging.DEBUG,
-            "[pipeline/load] finished index=0 execution=4 kind=function "
-            "status=success items=3 elapsed=0.250000s",
+            "[pipeline/load] finished status=success out=3 elapsed=0.250000s",
         ),
         (
             OperationStarted(
@@ -304,7 +303,6 @@ def test_hierarchical_observer_logs_node_events_at_debug(caplog):
     messages = [record.getMessage() for record in caplog.records]
     assert any(msg.startswith("[demo/n] started") for msg in messages)
     assert any(msg.startswith("[demo/n] finished") for msg in messages)
-    assert any("index=0" in msg for msg in messages)
 
 
 def test_hierarchical_observer_logs_persistent_node_progress_at_info(caplog):
@@ -387,7 +385,7 @@ def test_source_info_inside_node_uses_execution_context_label(caplog, tmp_path):
     )
 
 
-def test_hierarchical_observer_logs_dag_call_node_metadata(caplog):
+def test_hierarchical_observer_logs_dag_call_node_start(caplog):
     logger = logging.getLogger("datapipeline.cli.visuals.execution.test.node.dag_call")
     observer = HierarchicalExecutionObserver(LoggerExecutionEventSink(logger))
 
@@ -403,10 +401,7 @@ def test_hierarchical_observer_logs_dag_call_node_metadata(caplog):
         )
 
     record = caplog.records[0]
-    assert record.getMessage().startswith(
-        "[pipeline:serve/vector_assemble] started "
-        "index=0 execution=0 kind=dag_call calls=vector:assemble"
-    )
+    assert record.getMessage() == "[pipeline:serve/vector_assemble] started"
 
 
 def test_hierarchical_observer_updates_context_depth():
@@ -492,23 +487,6 @@ def test_hierarchical_observer_respects_explicit_depth_when_events_finish_out_of
     assert any(msg.startswith("  [feature:closing_price] finished") for msg in messages)
     assert any(msg.startswith("  [feature:linear_time] finished") for msg in messages)
     assert current_dag_depth() == 1
-
-
-def test_hierarchical_observer_emits_index_field_for_node_events(caplog):
-    logger = logging.getLogger("datapipeline.cli.visuals.execution.test.node.index")
-    observer = HierarchicalExecutionObserver(LoggerExecutionEventSink(logger))
-
-    with caplog.at_level(logging.DEBUG, logger=logger.name):
-        observer.on_dag_start(dag_name="demo", node_count=1, depth=0)
-        observer.on_node_start(
-            dag_name="demo", node_name="n", node_index=2, execution_index=0, depth=1
-        )
-
-    node_start = next(
-        record for record in caplog.records if "[demo/n] started" in record.getMessage()
-    )
-    assert "index=2" in node_start.getMessage()
-    assert "kind=function" in node_start.getMessage()
 
 
 def test_hierarchical_observer_includes_error_details_on_failure(caplog):

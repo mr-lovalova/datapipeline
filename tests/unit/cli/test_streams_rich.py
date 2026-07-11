@@ -357,6 +357,74 @@ def test_rich_sink_routes_node_progress_to_renderer_without_printing() -> None:
     assert output.getvalue() == ""
 
 
+def test_rich_sink_persists_node_finish_at_debug() -> None:
+    console, output = _console(width=120)
+    renderer = _CaptureRenderer()
+    sink = _RichConsoleExecutionSink(logging.DEBUG, console, renderer)
+    event = NodeFinished(
+        dag_name="stream:adv.20",
+        node_name="stream_transforms",
+        node_index=3,
+        execution_index=0,
+        status="success",
+        output_items=100,
+        elapsed_seconds=1,
+    )
+
+    sink.emit(event)
+
+    assert renderer.events == [event]
+    assert output.getvalue().strip() == (
+        "[stream:adv.20/stream_transforms] finished "
+        "status=success out=100 elapsed=1.000000s"
+    )
+
+
+def test_rich_sink_hides_successful_node_finish_at_info() -> None:
+    console, output = _console()
+    renderer = _CaptureRenderer()
+    sink = _RichConsoleExecutionSink(logging.INFO, console, renderer)
+    event = NodeFinished(
+        dag_name="stream:adv.20",
+        node_name="stream_transforms",
+        node_index=3,
+        execution_index=0,
+        status="success",
+        output_items=100,
+        elapsed_seconds=1,
+    )
+
+    sink.emit(event)
+
+    assert renderer.events == [event]
+    assert output.getvalue() == ""
+
+
+def test_rich_sink_persists_failed_node_finish_at_info() -> None:
+    console, output = _console(width=140)
+    renderer = _CaptureRenderer()
+    sink = _RichConsoleExecutionSink(logging.INFO, console, renderer)
+    event = NodeFinished(
+        dag_name="stream:adv.20",
+        node_name="stream_transforms",
+        node_index=3,
+        execution_index=0,
+        status="error",
+        error_type="ValueError",
+        error_message="invalid record",
+        output_items=0,
+        elapsed_seconds=1,
+    )
+
+    sink.emit(event)
+
+    assert renderer.events == [event]
+    assert output.getvalue().strip() == (
+        "[stream:adv.20/stream_transforms] finished "
+        "status=error error=ValueError: invalid record out=0 elapsed=1.000000s"
+    )
+
+
 def test_rich_sink_persists_all_dag_lifecycle() -> None:
     console, output = _console()
     renderer = _CaptureRenderer()

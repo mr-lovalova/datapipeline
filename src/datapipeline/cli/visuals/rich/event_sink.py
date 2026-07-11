@@ -48,7 +48,7 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
             DagStarted | NodeStarted | NodeProgress | NodeFinished | DagFinished,
         ):
             self._progress_renderer.handle(event)
-            if isinstance(event, NodeStarted | NodeProgress | NodeFinished):
+            if isinstance(event, NodeStarted | NodeProgress):
                 return
         if isinstance(event, NodeProgress):
             return

@@ -288,17 +288,8 @@ class ExecutionEventFormatter:
                 f"elapsed={event.elapsed_seconds:.6f}s"
             )
         if isinstance(event, NodeStarted):
-            calls_suffix = (
-                f" calls={event.node_calls_dag}"
-                if event.node_calls_dag is not None
-                else ""
-            )
             label = cls.execution_label(event.dag_name, event.node_name)
-            return (
-                f"{indent}[{label}] started index={event.node_index} "
-                f"execution={event.execution_index} "
-                f"kind={event.node_kind}{calls_suffix}"
-            )
+            return f"{indent}[{label}] started"
         if isinstance(event, NodeProgress):
             label = cls.execution_label(event.dag_name, event.node_name)
             return f"{indent}[{label}] {cls.progress_message(event)}"
@@ -309,9 +300,8 @@ class ExecutionEventFormatter:
             error_suffix = cls.error_suffix(event)
             label = cls.execution_label(event.dag_name, event.node_name)
             return (
-                f"{indent}[{label}] finished index={event.node_index} "
-                f"execution={event.execution_index} kind={event.node_kind} "
-                f"status={event.status}{error_suffix} items={event.output_items} "
+                f"{indent}[{label}] finished "
+                f"status={event.status}{error_suffix} out={event.output_items} "
                 f"elapsed={event.elapsed_seconds:.6f}s"
             )
         raise TypeError(f"Unsupported execution event: {type(event).__name__}")
