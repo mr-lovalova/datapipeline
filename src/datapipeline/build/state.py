@@ -1,10 +1,11 @@
 import json
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-BUILD_STATE_VERSION = 2
+BUILD_STATE_VERSION = 3
 
 
 class ArtifactInfo(BaseModel):
@@ -13,6 +14,7 @@ class ArtifactInfo(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     relative_path: str
+    config_hash: str
     meta: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -22,17 +24,18 @@ class BuildState(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     version: int = BUILD_STATE_VERSION
-    config_hash: str
     artifacts: dict[str, ArtifactInfo] = Field(default_factory=dict)
 
     def register(
         self,
         key: str,
         relative_path: str,
-        meta: dict[str, Any] | None = None,
+        config_hash: str,
+        meta: Mapping[str, Any] | None = None,
     ) -> None:
         self.artifacts[key] = ArtifactInfo(
             relative_path=relative_path,
+            config_hash=config_hash,
             meta=dict(meta or {}),
         )
 

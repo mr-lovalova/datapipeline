@@ -77,7 +77,6 @@ class RunProfile:
     log_output: LogOutputSettings
     visuals: VisualSettings
     output: OutputTarget
-    build_mode: str
     heartbeat_interval_seconds: float | None = None
 
     @property
@@ -88,30 +87,19 @@ class RunProfile:
 def resolve_run_profiles(
     project_path: Path,
     run_entries: Sequence[RunEntry],
-    keep: str | None,
     preview_index: int | None,
     limit: int | None,
-    cli_build_mode: str | None,
     cli_output: ServeOutputConfig | None,
     cli_log_level: str | None = None,
     cli_log_outputs: Sequence[LogOutputTarget] | None = None,
     base_log_level: str = "INFO",
     cli_visuals: str | None = None,
     cli_heartbeat_interval_seconds: float | None = None,
-    managed_run_targets: set[str] | None = None,
 ) -> list[RunProfile]:
     fallback_log_level = str(base_log_level).upper()
     cli_log_output_candidates = list(cli_log_outputs or [])
-    managed_target_ids = (
-        None if managed_run_targets is None else set(managed_run_targets)
-    )
 
-    resolved_entries = list(iter_runtime_runs(project_path, run_entries, keep))
-    has_runtime_serve_profiles = any(
-        getattr(getattr(runtime, "run", None), "cmd", None) == "serve"
-        and (managed_target_ids is None or entry.target_id in managed_target_ids)
-        for _, _, entry, runtime in resolved_entries
-    )
+    resolved_entries = list(iter_runtime_runs(project_path, run_entries))
     shared_runtime_profile_counts: dict[Path, int] = {}
     shared_runs: dict[Path, RunPaths] = {}
     serve_roots: dict[int, Path | None] = {}
@@ -123,17 +111,12 @@ def resolve_run_profiles(
             base_path=project_path.parent,
         )
         serve_roots[idx] = serve_root
-        if (
-            getattr(run_cfg, "cmd", None) == "serve"
-            and (managed_target_ids is None or entry.target_id in managed_target_ids)
-            and serve_root is not None
-        ):
+        if getattr(run_cfg, "cmd", None) == "serve" and serve_root is not None:
             shared_runtime_profile_counts[serve_root] = (
                 shared_runtime_profile_counts.get(serve_root, 0) + 1
             )
         if (
             getattr(run_cfg, "cmd", None) == "serve"
-            and (managed_target_ids is None or entry.target_id in managed_target_ids)
             and serve_root is not None
             and serve_root not in shared_runs
         ):
@@ -149,14 +132,6 @@ def resolve_run_profiles(
             cli_heartbeat_interval_seconds,
             observability_value(run_observability, "heartbeat_interval_seconds"),
         )
-        build_cfg = _run_config_value(run_cfg, "build")
-        profile_build_mode = (
-            getattr(build_cfg, "mode", None) if build_cfg is not None else None
-        )
-        resolved_build_mode = str(
-            cascade(cli_build_mode, profile_build_mode, "AUTO")
-        ).upper()
-
         resolved_preview_index = cascade(
             preview_index,
             _run_config_value(run_cfg, "preview_index"),
@@ -164,31 +139,13 @@ def resolve_run_profiles(
         resolved_limit = cascade(limit, _run_config_value(run_cfg, "limit"))
         run_cmd = getattr(run_cfg, "cmd", None)
         run_splits = list(getattr(run_cfg, "splits", None) or [])
-        create_run = run_cmd == "serve" and (
-            managed_target_ids is None or entry.target_id in managed_target_ids
-        )
+        create_run = run_cmd == "serve"
         if resolved_preview_index is not None and run_cmd != "serve":
             raise ValueError(
                 f"Runtime profile '{run_label}' does not support preview indices."
             )
-        if resolved_preview_index is not None and not has_runtime_serve_profiles:
-            raise ValueError(
-                f"Serve profile '{run_label}' does not support preview indices."
-            )
         if not create_run:
             resolved_preview_index = None
-        if keep is not None and run_cmd != "serve":
-            raise ValueError(
-                f"Runtime profile '{run_label}' does not support keep filters."
-            )
-        if keep is not None and run_cmd == "serve" and not has_runtime_serve_profiles:
-            raise ValueError(
-                f"Serve profile '{run_label}' does not support keep filters."
-            )
-        if keep is not None and run_splits:
-            raise ValueError(
-                f"Serve profile '{run_label}' cannot combine --keep with splits."
-            )
         if run_splits and not create_run:
             raise ValueError(f"Serve profile '{run_label}' does not support splits.")
         if run_splits and resolved_preview_index is not None:
@@ -284,10 +241,36 @@ def resolve_run_profiles(
                 log_output=log_output,
                 visuals=visuals,
                 output=target,
-                build_mode=resolved_build_mode,
                 heartbeat_interval_seconds=heartbeat_interval_seconds,
             )
         )
+
+    output_owners: dict[Path, str] = {}
+    for profile in profiles:
+        output = profile.output
+        if output.destination is None:
+            continue
+        run_cfg = getattr(profile.runtime, "run", None)
+        split_labels = list(getattr(run_cfg, "splits", None) or [])
+        destinations = (
+            [(label, output.for_split(label).destination) for label in split_labels]
+            if split_labels
+            else [(None, output.destination)]
+        )
+        for split_label, destination in destinations:
+            if destination is None:
+                continue
+            owner = f"profile '{profile.label}'"
+            if split_label is not None:
+                owner = f"{owner} split {split_label!r}"
+            previous = output_owners.get(destination)
+            if previous is not None:
+                raise ValueError(
+                    f"Runtime outputs for {previous} and {owner} resolve to the "
+                    f"same path '{destination}'."
+                )
+            output_owners[destination] = owner
+
     preview_indices_by_run: dict[RunPaths, set[int | None]] = {}
     for profile in profiles:
         run = profile.output.run

@@ -11,7 +11,7 @@ from datapipeline.operations.runtime import matrix as matrix_ops
 from datapipeline.operations.runtime import thresholds as thresholds_ops
 from datapipeline.operations.persistence import persist_runtime_result
 from datapipeline.operations.runtime import vector_stats_common
-from datapipeline.services.constants import VECTOR_SCHEMA_METADATA, VECTOR_STATS
+from datapipeline.services.constants import VECTOR_METADATA, VECTOR_STATS
 
 
 def _snapshot() -> dict:
@@ -43,7 +43,7 @@ class _ArtifactCtx:
     def require_artifact(self, spec):
         if spec.key == VECTOR_STATS:
             return _snapshot()
-        assert spec.key == VECTOR_SCHEMA_METADATA
+        assert spec.key == VECTOR_METADATA
         return _metadata()
 
 

@@ -44,7 +44,7 @@ def nested_tick_dependencies(
 ) -> tuple[NestedTickDependency, ...]:
     tick_tasks: list[TicksTask] = []
     for key in graph.topological_order(artifact_keys):
-        task = graph.tasks_by_id.get(graph.definition(key).task_id)
+        task = graph.tasks_by_id.get(key)
         if isinstance(task, TicksTask):
             tick_tasks.append(task)
     if not tick_tasks:

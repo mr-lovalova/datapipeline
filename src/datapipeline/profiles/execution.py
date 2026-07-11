@@ -6,7 +6,6 @@ from datapipeline.artifacts.hydration import hydrate_runtime_artifacts_for_proje
 from datapipeline.artifacts.planning import ArtifactGraph
 from datapipeline.artifacts.validation import validate_artifact_plan
 from datapipeline.artifacts.executor import run_build_if_needed
-from datapipeline.config.build_resolution import BuildSettings
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.dataset.loader import load_dataset
 from datapipeline.config.tasks import ArtifactTask, OperationTask, Task
@@ -22,18 +21,12 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
-class ArtifactProfileTaskPlan:
-    task: ArtifactTask
-    artifact_key: str
-
-
-@dataclass(frozen=True)
 class RuntimeProfileTaskPlan:
     task: OperationTask
     required_artifacts: tuple[str, ...]
 
 
-ProfileTaskPlan = ArtifactProfileTaskPlan | RuntimeProfileTaskPlan
+ProfileTaskPlan = ArtifactTask | RuntimeProfileTaskPlan
 
 
 def resolve_profile_task(
@@ -53,16 +46,13 @@ def plan_profile_task(
     project_path: Path,
 ) -> ProfileTaskPlan:
     if isinstance(task, ArtifactTask):
-        artifact_key = graph.key_for_task(task.id)
-        if artifact_key is None:
-            raise ValueError(f"Artifact task '{task.id}' has no artifact definition.")
-        roots = {artifact_key}
+        roots = {task.id}
         artifact_keys = set(graph.dependency_closure(roots))
         if graph.requires_dataset(artifact_keys):
             dataset = load_dataset(project_path, "vectors")
             artifact_keys = set(graph.active_dependency_closure(roots, dataset))
         validate_artifact_plan(project_path, graph, artifact_keys)
-        return ArtifactProfileTaskPlan(task=task, artifact_key=artifact_key)
+        return task
     if not isinstance(task, OperationTask):
         raise TypeError(f"Unsupported task type: {type(task).__name__}")
     if profile.dataset is None:
@@ -85,33 +75,32 @@ def plan_profile_task(
     )
 
 
-def run_selected_artifacts(
+def run_build_profile(
     request: ProfileRunRequest,
     profile: ExecutionProfile,
     graph: ArtifactGraph,
-    required_artifacts: set[str],
+    task: ArtifactTask,
     runtime_override: Runtime | None = None,
+    resolved_artifacts: set[str] | None = None,
+    expected_config_hash: str | None = None,
 ) -> None:
-    if not required_artifacts:
-        return
     settings = profile.build_settings
     if settings is None:
-        mode = str(profile.build_mode or "AUTO").upper()
-        settings = BuildSettings(
-            visuals=profile.visuals,
-            log_decision=profile.log_decision,
-            log_output=profile.log_output,
-            mode=mode,
-            force=(mode == "FORCE"),
-            profile_name=profile.name,
+        raise ValueError(
+            f"Build profile '{profile.name}' has no resolved build settings."
         )
+    if runtime_override is None:
+        raise ValueError(f"Build profile '{profile.name}' has no build runtime.")
     run_build_if_needed(
         request.project_path,
-        required_artifacts=required_artifacts,
-        artifact_graph=graph,
-        settings=settings,
-        skip_logging_setup=True,
-        runtime_override=runtime_override,
+        graph=graph,
+        required_artifacts={task.id},
+        mode=settings.mode,
+        runtime=runtime_override,
+        profile_name=settings.profile_name,
+        heartbeat_interval_seconds=settings.heartbeat_interval_seconds,
+        resolved_artifacts=resolved_artifacts,
+        expected_config_hash=expected_config_hash,
     )
 
 
@@ -160,18 +149,21 @@ def execute_profile(
     task_plan: ProfileTaskPlan,
     graph: ArtifactGraph,
     runtime_override: Runtime | None = None,
+    resolved_artifacts: set[str] | None = None,
+    expected_config_hash: str | None = None,
 ) -> None:
     runtime = runtime_override if runtime_override is not None else profile.runtime
 
-    if isinstance(task_plan, ArtifactProfileTaskPlan):
-        if profile.build_settings is not None or not request.skip_build:
-            run_selected_artifacts(
-                request=request,
-                profile=profile,
-                graph=graph,
-                required_artifacts={task_plan.artifact_key},
-                runtime_override=runtime,
-            )
+    if isinstance(task_plan, ArtifactTask):
+        run_build_profile(
+            request=request,
+            profile=profile,
+            graph=graph,
+            task=task_plan,
+            runtime_override=runtime,
+            resolved_artifacts=resolved_artifacts,
+            expected_config_hash=expected_config_hash,
+        )
         return
 
     task = task_plan.task
@@ -187,17 +179,6 @@ def execute_profile(
         profile.dataset if isinstance(profile.dataset, FeatureDatasetConfig) else None
     )
     required_artifacts = task_plan.required_artifacts
-
-    if required_artifacts and (
-        profile.build_settings is not None or not request.skip_build
-    ):
-        run_selected_artifacts(
-            request=request,
-            profile=profile,
-            graph=graph,
-            required_artifacts=set(required_artifacts),
-            runtime_override=runtime,
-        )
 
     current_artifacts = set(
         hydrate_runtime_artifacts_for_project(
@@ -220,12 +201,11 @@ def execute_profile(
 
 
 __all__ = [
-    "ArtifactProfileTaskPlan",
     "execute_profile",
     "plan_profile_task",
     "ProfileTaskPlan",
     "resolve_profile_task",
     "RuntimeProfileTaskPlan",
-    "run_selected_artifacts",
+    "run_build_profile",
     "run_runtime_task",
 ]

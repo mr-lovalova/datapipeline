@@ -8,14 +8,16 @@ from datapipeline.config.tasks import StatsTask
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
 from datapipeline.runtime import Runtime
-from datapipeline.services.constants import VECTOR_SCHEMA_METADATA
+from datapipeline.services.constants import VECTOR_METADATA
 
 
 def _ts(day: int) -> datetime:
     return datetime(2024, 1, day, tzinfo=timezone.utc)
 
 
-def test_materialize_vector_stats_reads_metadata_and_omits_schema_meta(monkeypatch, tmp_path):
+def test_materialize_vector_stats_reads_metadata_and_omits_schema_meta(
+    monkeypatch, tmp_path
+):
     artifacts_root = tmp_path / "artifacts"
     artifacts_root.mkdir()
     project_yaml = tmp_path / "project.yaml"
@@ -26,7 +28,9 @@ def test_materialize_vector_stats_reads_metadata_and_omits_schema_meta(monkeypat
 
     dataset = FeatureDatasetConfig(
         group_by="1h",
-        features=[FeatureRecordConfig(id="speed", record_stream="stream", field="value")],
+        features=[
+            FeatureRecordConfig(id="speed", record_stream="stream", field="value")
+        ],
         targets=[],
     )
     samples = [
@@ -38,7 +42,7 @@ def test_materialize_vector_stats_reads_metadata_and_omits_schema_meta(monkeypat
             self.runtime = _runtime
 
         def require_artifact(self, spec):
-            assert spec.key == VECTOR_SCHEMA_METADATA
+            assert spec.key == VECTOR_METADATA
             return {
                 "features": [{"id": "speed", "cadence": {"target": 2}}],
                 "targets": [],

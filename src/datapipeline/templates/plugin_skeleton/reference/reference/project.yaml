@@ -13,11 +13,12 @@
 #   artifacts: ../artifacts/${project_name}/v${version} # required
 #   tasks: ./tasks            # optional
 #   profiles: ./profiles      # optional (defaults to ./profiles)
-# split:                      # optional; applied at serve time after postprocess
+# split:                      # optional; used by scaler fitting and serve splits
 #   mode: hash                # hash | time
 #   ratios: { train: 0.8, val: 0.1, test: 0.1 }  # must sum to 1.0
 #   seed: 42                  # deterministic hash seed
 #   key: group                # group | feature:<id>
+#                             # feature keys require scaler split_label: all
 #
 # Time-based split (labels length must be len(boundaries) + 1):
 # split:

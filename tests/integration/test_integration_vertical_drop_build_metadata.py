@@ -15,7 +15,7 @@ from datapipeline.dag.context import PipelineContext
 from datapipeline.pipelines import build_vector_pipeline
 from datapipeline.services.bootstrap import bootstrap
 from datapipeline.services.constants import (
-    VECTOR_SCHEMA_METADATA,
+    VECTOR_METADATA,
     VECTOR_SCHEMA,
     SCALER_STATISTICS,
     VECTOR_INPUTS,
@@ -55,14 +55,16 @@ def test_vertical_drop_respects_element_coverage_after_metadata_build(copy_fixtu
         SchemaTask(id="schema", output="schema.json"),
     )
     if schema_rel:
-        runtime.artifacts.register(VECTOR_SCHEMA, relative_path=schema_rel.relative_path)
+        runtime.artifacts.register(
+            VECTOR_SCHEMA, relative_path=schema_rel.relative_path
+        )
     meta_rel = materialize_metadata(
         runtime,
         MetadataTask(id="metadata", output="metadata.json"),
     )
     assert meta_rel is not None
     runtime.artifacts.register(
-        VECTOR_SCHEMA_METADATA,
+        VECTOR_METADATA,
         relative_path=meta_rel.relative_path,
     )
 

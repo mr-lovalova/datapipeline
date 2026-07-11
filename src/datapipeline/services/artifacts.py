@@ -5,7 +5,7 @@ from typing import Any, Callable, Dict, Generic, Mapping, Optional, TypeVar
 from datapipeline.artifacts.models import VectorSchemaArtifact
 from datapipeline.services.constants import (
     VECTOR_SCHEMA,
-    VECTOR_SCHEMA_METADATA,
+    VECTOR_METADATA,
     VECTOR_STATS,
 )
 from datapipeline.services.path_policy import resolve_relative_to_base
@@ -107,7 +107,7 @@ VECTOR_SCHEMA_SPEC = ArtifactSpec[VectorSchemaArtifact](
 )
 
 VECTOR_METADATA_SPEC = ArtifactSpec[dict](
-    key=VECTOR_SCHEMA_METADATA,
+    key=VECTOR_METADATA,
     loader=_read_json,
 )
 

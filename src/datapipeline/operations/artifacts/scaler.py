@@ -11,7 +11,7 @@ from datapipeline.config.dataset.loader import load_dataset
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.config.dataset.validation import validate_dataset_feature_identity
 from datapipeline.config.split import (
-    HASH_SPLIT_FEATURE_PREFIX,
+    HASH_SPLIT_GROUP_KEY,
     HashSplitConfig,
     TimeSplitConfig,
 )
@@ -62,27 +62,24 @@ def materialize_scaler_statistics(
             "when no split configuration is defined in the project."
         )
 
-    split_feature_id = _split_feature_id(cfg)
-    if split_feature_id is not None and task_cfg.split_label != "all":
-        scaler, total_observations = _fit_standard_scaler_from_feature_split(
-            runtime=runtime,
-            features=feature_cfgs,
-            configs=scaled_cfgs,
-            group_by=dataset.group_by,
-            sample_keys=dataset.sample_keys,
-            split_label=task_cfg.split_label,
-            labeler=labeler,
-            split_feature_id=split_feature_id,
+    if (
+        task_cfg.split_label != "all"
+        and isinstance(cfg, HashSplitConfig)
+        and cfg.key != HASH_SPLIT_GROUP_KEY
+    ):
+        raise ValueError(
+            "Scaler split fitting requires hash split key 'group'; "
+            "feature-based split keys can change during feature processing. "
+            "Use key 'group', a time split, or scaler split_label 'all'."
         )
-    else:
-        scaler, total_observations = _fit_standard_scaler_from_feature_streams(
-            runtime=runtime,
-            configs=scaled_cfgs,
-            group_by=dataset.group_by,
-            sample_keys=dataset.sample_keys,
-            split_label=task_cfg.split_label,
-            labeler=labeler,
-        )
+    scaler, total_observations = _fit_standard_scaler_from_feature_streams(
+        runtime=runtime,
+        configs=scaled_cfgs,
+        group_by=dataset.group_by,
+        sample_keys=dataset.sample_keys,
+        split_label=task_cfg.split_label,
+        labeler=labeler,
+    )
 
     if not scaler.statistics:
         raise RuntimeError(
@@ -114,14 +111,6 @@ def _scaled_configs(configs: list[FeatureRecordConfig]) -> list[FeatureRecordCon
         for config in configs
         if feature_uses_managed_scaler(config)
     ]
-
-
-def _split_feature_id(split_cfg) -> str | None:
-    if not isinstance(split_cfg, HashSplitConfig):
-        return None
-    if not split_cfg.key.startswith(HASH_SPLIT_FEATURE_PREFIX):
-        return None
-    return split_cfg.key.removeprefix(HASH_SPLIT_FEATURE_PREFIX)
 
 
 def _feature_value(item: FeatureRecord | FeatureRecordSequence):
@@ -181,76 +170,6 @@ def _fit_standard_scaler_from_feature_streams(
             and labeler
             and labeler.label(key, Vector(values={})) != split_label
         ):
-            continue
-        observations += accumulator.observe({feature_id: value})
-    return accumulator.to_scaler(), observations
-
-
-def _split_labels_by_key(
-    *,
-    runtime: Runtime,
-    features: list[FeatureRecordConfig],
-    group_by: str,
-    sample_keys: list[str],
-    labeler,
-    split_feature_id: str,
-) -> dict[tuple, str]:
-    values_by_key: dict[tuple, list[object]] = defaultdict(list)
-    for key, feature_id, value in _iter_unscaled_feature_values(
-        runtime=runtime,
-        configs=[cfg.model_copy(update={"scale": False}) for cfg in features],
-        group_by=group_by,
-        sample_keys=sample_keys,
-    ):
-        if feature_id == split_feature_id:
-            values_by_key[key].append(value)
-    if not values_by_key:
-        raise RuntimeError(
-            f"Hash split feature '{split_feature_id}' produced no scaler labels."
-        )
-    labels: dict[tuple, str] = {}
-    for key, values in values_by_key.items():
-        split_value = values[0] if len(values) == 1 else list(values)
-        labels[key] = labeler.label(
-            key,
-            Vector(values={split_feature_id: split_value}),
-        )
-    return labels
-
-
-def _fit_standard_scaler_from_feature_split(
-    *,
-    runtime: Runtime,
-    features: list[FeatureRecordConfig],
-    configs: list[FeatureRecordConfig],
-    group_by: str,
-    sample_keys: list[str],
-    split_label: str,
-    labeler,
-    split_feature_id: str,
-) -> tuple[StandardScaler, int]:
-    labels_by_key = _split_labels_by_key(
-        runtime=runtime,
-        features=features,
-        group_by=group_by,
-        sample_keys=sample_keys,
-        labeler=labeler,
-        split_feature_id=split_feature_id,
-    )
-    accumulator = StandardScalerAccumulator()
-    observations = 0
-    for key, feature_id, value in _iter_unscaled_feature_values(
-        runtime=runtime,
-        configs=configs,
-        group_by=group_by,
-        sample_keys=sample_keys,
-    ):
-        label = labels_by_key.get(key)
-        if label is None:
-            raise RuntimeError(
-                f"Hash split feature '{split_feature_id}' has no value for sample key {key!r}."
-            )
-        if label != split_label:
             continue
         observations += accumulator.observe({feature_id: value})
     return accumulator.to_scaler(), observations

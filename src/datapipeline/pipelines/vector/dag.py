@@ -66,7 +66,7 @@ def build_vector_pipeline(
         return cached
     raise RuntimeError(
         "Vector inputs artifact is required before vector assembly. "
-        "Run `jerry build --run vector_inputs` or use build mode AUTO/FORCE."
+        "Run `jerry build --run vector_inputs` or use `--artifact-mode AUTO|FORCE`."
     )
 
 

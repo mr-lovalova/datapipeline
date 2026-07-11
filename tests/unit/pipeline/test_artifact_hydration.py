@@ -18,8 +18,8 @@ from datapipeline.runtime import Runtime
 from datapipeline.services.bootstrap import bootstrap, build_state_path
 from datapipeline.services.constants import (
     VECTOR_INPUTS,
+    VECTOR_METADATA,
     VECTOR_SCHEMA,
-    VECTOR_SCHEMA_METADATA,
 )
 from datapipeline.services.project_paths import tasks_dir
 
@@ -44,20 +44,20 @@ def test_hydration_replaces_registry_with_dependency_current_artifacts(
         project_yaml=tmp_path / "project.yaml",
         artifacts_root=tmp_path / "artifacts",
     )
-    state = BuildState(config_hash="current")
+    state = BuildState()
     paths = {
         VECTOR_INPUTS: "build/vector-inputs.json",
         VECTOR_SCHEMA: "build/schema.json",
-        VECTOR_SCHEMA_METADATA: "build/missing-metadata.json",
+        VECTOR_METADATA: "build/missing-metadata.json",
         "custom_snapshot": "build/custom.json",
     }
     for key, relative_path in paths.items():
         state.register(
             key,
             relative_path,
-            meta={"_config_hash": "current"},
+            config_hash="current",
         )
-    state.artifacts[VECTOR_INPUTS].meta["_config_hash"] = "old"
+    state.artifacts[VECTOR_INPUTS].config_hash = "old"
 
     for relative_path in (
         paths[VECTOR_INPUTS],
@@ -84,37 +84,8 @@ def test_hydration_replaces_registry_with_dependency_current_artifacts(
     assert runtime.artifacts.has("custom_snapshot")
     assert not runtime.artifacts.has(VECTOR_INPUTS)
     assert not runtime.artifacts.has(VECTOR_SCHEMA)
-    assert not runtime.artifacts.has(VECTOR_SCHEMA_METADATA)
+    assert not runtime.artifacts.has(VECTOR_METADATA)
     assert not runtime.artifacts.has("orphan")
-
-
-def test_hydration_supports_legacy_top_level_config_hash(tmp_path) -> None:
-    task = ArtifactTask(
-        id="custom_snapshot",
-        entrypoint="plugin.snapshot",
-        output="build/custom.json",
-    )
-    graph = build_artifact_graph([task])
-    runtime = Runtime(
-        project_yaml=tmp_path / "project.yaml",
-        artifacts_root=tmp_path / "artifacts",
-    )
-    output = runtime.artifacts_root / task.output
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text("{}", encoding="utf-8")
-    state = BuildState(config_hash="current")
-    state.register("custom_snapshot", task.output)
-
-    hydrated = hydrate_runtime_artifacts(
-        runtime=runtime,
-        graph=graph,
-        state=state,
-        config_hash="current",
-        artifact_keys={"custom_snapshot"},
-    )
-
-    assert hydrated == ("custom_snapshot",)
-    assert runtime.artifacts.has("custom_snapshot")
 
 
 def test_hydration_skips_incomplete_unrelated_artifact_chain(tmp_path) -> None:
@@ -129,7 +100,7 @@ def test_hydration_skips_incomplete_unrelated_artifact_chain(tmp_path) -> None:
         project_yaml=tmp_path / "project.yaml",
         artifacts_root=tmp_path / "artifacts",
     )
-    state = BuildState(config_hash="current")
+    state = BuildState()
     paths = {
         "custom_snapshot": "build/custom.json",
         VECTOR_INPUTS: "build/vector-inputs.json",
@@ -139,7 +110,7 @@ def test_hydration_skips_incomplete_unrelated_artifact_chain(tmp_path) -> None:
         destination = runtime.artifacts_root / relative_path
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_text("{}", encoding="utf-8")
-        state.register(key, relative_path, meta={"_config_hash": "current"})
+        state.register(key, relative_path, config_hash="current")
 
     hydrated = hydrate_runtime_artifacts(
         runtime=runtime,
@@ -170,7 +141,7 @@ def test_project_hydration_excludes_nested_tick_and_dependents(
         project_yaml=tmp_path / "project.yaml",
         artifacts_root=tmp_path / "artifacts",
     )
-    state = BuildState(config_hash="current")
+    state = BuildState()
     for key, relative_path in (
         ("derived_ticks", tick.output),
         (VECTOR_INPUTS, vector_inputs.output),
@@ -178,7 +149,7 @@ def test_project_hydration_excludes_nested_tick_and_dependents(
         destination = runtime.artifacts_root / relative_path
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_text("{}", encoding="utf-8")
-        state.register(key, relative_path, meta={"_config_hash": "current"})
+        state.register(key, relative_path, config_hash="current")
     runtime.artifacts.register("derived_ticks", tick.output)
     runtime.artifacts.register(VECTOR_INPUTS, vector_inputs.output)
     monkeypatch.setattr(
@@ -264,11 +235,11 @@ def test_project_hydration_rejects_artifact_after_config_changes(tmp_path) -> No
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text("{}", encoding="utf-8")
     config_hash = compute_config_hash(project_path, tasks_dir(project_path))
-    state = BuildState(config_hash=config_hash)
+    state = BuildState()
     state.register(
         "custom_snapshot",
         "build/custom.json",
-        meta={"_config_hash": config_hash},
+        config_hash=config_hash,
     )
     save_build_state(state, build_state_path(project_path))
 

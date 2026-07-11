@@ -5,6 +5,7 @@
 # id: matrix
 # kind: runtime
 # entrypoint: core.runtime.matrix
+# requires: [custom_artifact] # optional extra artifact task IDs
 #
 # This operation does not accept task options. Output format and destination
 # belong to the selected inspect profile or CLI output overrides.

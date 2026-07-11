@@ -19,8 +19,8 @@ These live under the dataset “project root” directory (the folder containing
 
 Defaults are layered so you can set global preferences once, keep dataset/run
 files focused on per-project behavior, and still override anything from the CLI.
-For both `jerry serve` and `jerry build`, options are merged in the following
-order (highest precedence first):
+For `jerry serve`, `jerry inspect`, and `jerry build`, options are merged in the
+following order (highest precedence first):
 
 1. **CLI flags** – anything you pass on the command line always wins.
 2. **Project profile files** – profile configs under `project.paths.profiles`
@@ -68,8 +68,8 @@ globals:
 - External references use `${env:NAME}`. Resolution checks the process
   environment first and then an optional project-root `.env` file.
 - New scaffolded dataset projects include a `.env.example` next to `project.yaml`.
-- `split` config defines how labels are assigned; serve profiles or CLI flags pick the active label via `keep`.
-  Legacy `globals.split` is still accepted with a deprecation warning.
+- `split` config defines how labels are assigned; a serve profile's `splits`
+  selects which labels receive filesystem outputs.
 - `paths.tasks` points to operation task specs under `tasks/operations/*.yaml`.
   Artifact operations (`vector_inputs`, `schema`, `scaler`, `metadata`, `stats`,
   and optional tick artifacts) define what can be materialized. Runtime operations
@@ -78,8 +78,8 @@ globals:
   `profiles/serve.<name>.yaml`, `profiles/build.<name>.yaml`, `profiles/inspect.<name>.yaml`.
   Optional defaults files may also be declared once per kind:
   `profiles/serve.defaults.yaml`, `profiles/build.defaults.yaml`, `profiles/inspect.defaults.yaml`.
-  When multiple serve/build profiles exist, `jerry serve --run <name>` and
-  `jerry build --run <name>` select by explicit profile `name`.
+  When multiple profiles exist, `--run <name>` selects one profile for the
+  requested command by its explicit `name`.
 - Label names are free-form: match whatever keys you declare in `split.ratios` (hash) or `split.labels` (time).
 
 ### Serve Profiles (`profiles/serve.<name>.yaml`)
@@ -88,6 +88,7 @@ globals:
 cmd: serve
 name: splits # required; unique among serve profiles
 target: pipeline # serve operation name from tasks/operations
+artifact_mode: AUTO # AUTO | FORCE | "OFF"; prepares runtime prerequisites once
 splits: [train, val, test] # optional; write one fs output per project split label
 output:
   transport: fs # stdout | fs; splits require fs
@@ -95,7 +96,7 @@ output:
   directory: runs
   # view: raw # optional; flat | raw (default: jsonl->raw, csv/pickle->flat)
   # encoding: utf-8 # fs jsonl/csv only
-limit: 100 # cap vectors per serve run (null = unlimited)
+limit: 100 # cap vectors per output; with splits, the cap applies per label
 throttle_ms: null # milliseconds to sleep between emitted vectors
 # Optional overrides:
 # observability:
@@ -111,15 +112,24 @@ throttle_ms: null # milliseconds to sleep between emitted vectors
 ```
 
 - Each serve profile is a flat file under `profiles/` with the `serve.` prefix.
-- `output`, `limit`, `throttle_ms`, and `observability` provide defaults for `jerry serve`; CLI flags still win per invocation (see _Configuration & Resolution Order_). For filesystem outputs, set `transport: fs`, `directory: /path/to/root`, and omit file names—each run automatically writes to `<directory>/<run_name>/<run_name>.<ext>` unless you override the entire `output` block with a custom `filename`.
+- `artifact_mode`, `output`, `limit`, `throttle_ms`, and `observability` provide defaults for `jerry serve`; CLI flags still win per invocation (see _Configuration & Resolution Order_). Filesystem runs write under `<directory>/runs/<run_id>/dataset/`; normal outputs use `<profile>.<ext>` and split outputs use `<profile>.<label>.<ext>`.
 - `output.encoding` is supported for fs `jsonl`/`csv` outputs (default `utf-8`); it is invalid for `stdout` and `pickle`.
 - `splits` consumes the pipeline once and writes one output file per label, using
-  filenames derived from the labels (for example `train.jsonl`, `val.jsonl`).
+  profile-qualified filenames (for example `splits.train.jsonl` and
+  `splits.val.jsonl`).
   Split fanout requires filesystem output and does not allow `output.filename`.
-- `keep` remains supported for legacy single-output split filtering and can be
-  overridden per invocation via `jerry serve ... --keep val`.
+- Before any selected serve profile runs, Jerry unions their artifact
+  requirements and prepares the union once according to `artifact_mode`.
+  `AUTO` builds missing or stale artifacts, `FORCE` rebuilds the required
+  closure, and `OFF` requires every artifact to be current. Without a CLI
+  override, selected profiles must resolve to the same mode. Quote `"OFF"` in
+  YAML so it is read as text rather than a boolean.
 - Visuals backend: set `observability.visuals: ON|OFF` in the profile or use `--visuals on|off`.
 - Node heartbeat: set `observability.heartbeat_interval_seconds` or use `--heartbeat-interval`; `0` disables heartbeat.
+- The shared artifact prerequisite phase uses only the CLI
+  `--heartbeat-interval` override. A profile heartbeat setting starts applying
+  when that profile itself runs; Jerry does not select one profile's setting for
+  shared prerequisite work.
 - Add additional `cmd: serve` files under `profiles/` using the `serve.` prefix
   for distinct serve policies; `jerry serve` runs each enabled profile unless
   you pass `--run <name>`.
@@ -130,8 +140,8 @@ throttle_ms: null # milliseconds to sleep between emitted vectors
 ```yaml
 cmd: build
 name: schema # required; unique among build profiles
-target: schema # required; artifact task kind to execute
-mode: AUTO # AUTO | FORCE | OFF
+target: schema # required; artifact task ID to execute
+mode: AUTO # AUTO | FORCE | "OFF"
 # enabled: true # optional; profile-level switch
 # Optional overrides:
 # observability:
@@ -146,9 +156,13 @@ mode: AUTO # AUTO | FORCE | OFF
 ```
 
 - `cmd: build` profiles are orchestration profiles; they do not replace artifact task definitions.
-- `target` selects the artifact task kind for that profile (`schema`, `scaler`, `metadata`, ...).
+- `target` selects the artifact task ID for that profile (`schema`, `scaler`, `metadata`, ...). Selected build profiles must have distinct targets.
 - Build profile `observability.logging.outputs[].path` values are resolved relative to the dataset project root (`project.yaml` directory).
 - `jerry build` runs enabled build profiles when they exist; `jerry build --run <name>` targets one profile.
+- Build profile `order` controls only the order of selected build profiles. The
+  dependency graph orders the internal artifact jobs required by each target
+  and never reorders profiles. If selected profiles include both a dependency
+  and its dependent, the dependency profile must come first.
 - Precedence for build settings: CLI > `build.<name>.yaml` > `build.defaults.yaml` > built-ins.
 
 ### Profile Defaults (`profiles/<kind>.defaults.yaml`)
@@ -164,14 +178,19 @@ mode: AUTO # AUTO | FORCE | OFF
 id: pipeline
 kind: runtime
 entrypoint: core.runtime.pipeline
+# requires: [custom_artifact] # optional additional artifact task IDs
 ```
 
 - Runtime operations are executable units; profiles reference them via `target`.
 - `entrypoint` must resolve in the `datapipeline.operations.runtime` entry-point
   group. Built-ins use `core.runtime.*`; plugins may register their own names.
+- `requires` declares additional prerequisite artifact task IDs for custom or
+  built-in operations. Each referenced artifact and its dependency chain must
+  have declared, active producer tasks.
 - Built-in runtime task options are entrypoint-specific:
   - `core.runtime.pipeline`: no task options. Limit, preview, throttle, output,
-    visuals, and split selection belong to the serve profile or CLI.
+    and visuals can be set by the serve profile or CLI; split selection belongs
+    to the profile.
   - `core.runtime.coverage`: optional `sort: missing|nulls` and `threshold`
     between `0` and `1` (defaults: `missing`, `0.95`).
   - `core.runtime.thresholds`: optional `sort: missing|nulls` and `threshold`
@@ -472,18 +491,25 @@ folds:
 
 - `build/scaler.json` stores either one standard scaler fitted on `split_label`
   or a folded temporal scaler container fitted from `folds`.
+- A filtered standard scaler supports time splits and hash splits keyed by
+  `group`. When `project.split.key` is `feature:<id>`, set `split_label: all`.
 - Folded temporal scaling requires `project.split.mode: time`. `fit` and
   `apply` labels must exist in `project.split`; `apply` labels cannot overlap
   across folds.
 - `build/schema.json` (from the `schema` task) enumerates the discovered feature/target identifiers (including partitions), their kinds (scalar/list), and cadence hints used to enforce ordering downstream.
   - Every list-valued feature records its maximum observed length as the enforcement target.
 - `build/metadata.json` (from the `metadata` task) captures heavier statistics—present/null counts, inferred value types, list-length histograms, per-partition timestamps, and the dataset window. Configure `metadata.window_mode` with `union|intersection|strict|relaxed` (default `intersection`) to control how start/end bounds are derived. `union` considers base features, `intersection` uses their overlap, `strict` intersects every partition, and `relaxed` unions partitions independently.
-- Artifact task execution order comes from the typed dependency graph. Selecting
-  a target expands and builds its required producers in topological order.
-- All operation tasks share the same execution interface: `entrypoint` selects the runner; profiles select operations via `target`.
-- Serve profiles may target an artifact task or a runtime task. The built-in
-  pipeline runner is `core.runtime.pipeline`; custom runtime entry points are
-  also supported.
+- Artifact task execution order comes from the typed dependency graph. Runtime
+  commands prepare the union of all selected profiles' requirements once;
+  explicit build profiles remain separate artifact roots.
+- Profile `order` is authoritative for profile execution. The dependency graph
+  orders internal artifact jobs but never changes the order of serve, inspect,
+  or build profiles.
+- Profiles select tasks by ID through `target`; the task kind and `entrypoint`
+  select the build or runtime runner.
+- Build profiles target artifact tasks. Serve and inspect profiles target runtime
+  tasks. The built-in pipeline runner is `core.runtime.pipeline`; custom runtime
+  entry points are also supported.
 - Observability defaults (visuals/logging outputs) belong in profile files (`serve.<name>.yaml`, `build.<name>.yaml`, `inspect.<name>.yaml`) or per-kind defaults (`<kind>.defaults.yaml`).
 
 ---

@@ -5,6 +5,7 @@
 # id: thresholds
 # kind: runtime
 # entrypoint: core.runtime.thresholds
+# requires: [custom_artifact] # optional extra artifact task IDs
 # options:
 #   sort: missing             # missing | nulls
 #   threshold: 0.95           # 0.0 - 1.0

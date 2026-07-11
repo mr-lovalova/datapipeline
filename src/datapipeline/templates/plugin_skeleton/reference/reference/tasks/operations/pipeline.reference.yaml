@@ -6,6 +6,8 @@
 # kind: runtime                     # required; runtime | artifact
 
 # entrypoint: core.runtime.pipeline   # required; built-in serve runner id
+# requires: [custom_artifact]         # optional extra artifact task IDs
 #
-# This operation does not accept task options. Limit, preview, throttle, output,
-# visuals, and split selection belong to the serve profile or CLI overrides.
+# This operation does not accept task options. Split selection belongs to the
+# serve profile; limit, preview, throttle, output, and visuals can also be
+# overridden by the CLI.

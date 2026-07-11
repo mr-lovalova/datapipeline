@@ -43,7 +43,6 @@ class ExecutionProfile:
     output: OutputTarget | None = None
     throttle_ms: float | None = None
     preview_index: int | None = None
-    build_mode: str | None = None
     build_settings: BuildSettings | None = None
     heartbeat_interval_seconds: float | None = None
 
@@ -56,8 +55,10 @@ class ProfileRunRequest:
     tasks: Sequence[Task]
     artifact_task_configs: Sequence[ArtifactTask]
     profiles: Sequence[ExecutionProfile]
+    config_hash: str
+    artifact_mode: str | None = None
+    artifact_heartbeat_interval_seconds: float | None = None
     serve_run_plans: tuple[ServeRunPlan, ...] = ()
-    skip_build: bool = False
 
 
 __all__ = [

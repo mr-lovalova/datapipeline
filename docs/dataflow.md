@@ -14,7 +14,8 @@ jerry.yaml: default_dataset
           -> streams/*.yaml: from.stream|from.join|from.streams, id: <stream_id>
           -> dataset.yaml: record_stream: <streams.id>, field: <record_field>
             -> jerry serve
-              -> runs/<run_id>/dataset/<split>.jsonl|csv|...
+              -> runs/<run_id>/dataset/<profile>.jsonl|csv|...
+              -> runs/<run_id>/dataset/<profile>.<split>.jsonl|csv|... when the profile sets splits
 ```
 
 ## 1) Workspace selects dataset project
@@ -135,9 +136,9 @@ Output layout:
 vectors/
   runs/<run_id>/
     dataset/
-      test.jsonl
-      train.jsonl
-      val.jsonl
+      splits.test.jsonl
+      splits.train.jsonl
+      splits.val.jsonl
 ```
 
 Expected behavior:
@@ -155,7 +156,7 @@ Expected behavior:
 
 3. Empty output:
 - Check source loader `path/url`.
-- Check parser/mapper output and preview indices (`jerry serve --preview-index 0..14`).
+- Check parser/mapper output and preview indices (`jerry serve --preview-index 0..13`).
 
 4. Wrong output location:
 - Check workspace root and `--output-directory` value.

@@ -220,21 +220,27 @@ def init_streams(cfg: StreamsConfig, runtime: Runtime) -> None:
     validate_unique_stream_ids(ingests, stream_configs)
     validate_stream_configs(ingests, stream_configs)
 
-    for alias, spec in ingests.items():
-        _register_ingest_policy(runtime, alias, spec)
-    for alias, spec in stream_configs.items():
-        _register_stream_policy(runtime, alias, spec, ingests, stream_configs)
-
-    for alias, spec in (cfg.raw or {}).items():
-        regs.sources.register(
+    for alias, ingest_spec in ingests.items():
+        _register_ingest_policy(runtime, alias, ingest_spec)
+    for alias, stream_spec in stream_configs.items():
+        _register_stream_policy(
+            runtime,
             alias,
-            build_source_from_spec(spec, project_yaml=runtime.project_yaml),
+            stream_spec,
+            ingests,
+            stream_configs,
         )
 
-    for alias, spec in ingests.items():
-        _register_ingest_source(runtime, alias, spec)
-    for alias, spec in stream_configs.items():
-        _register_stream_source(runtime, alias, spec)
+    for alias, source_spec in (cfg.raw or {}).items():
+        regs.sources.register(
+            alias,
+            build_source_from_spec(source_spec, project_yaml=runtime.project_yaml),
+        )
+
+    for alias, ingest_spec in ingests.items():
+        _register_ingest_source(runtime, alias, ingest_spec)
+    for alias, stream_spec in stream_configs.items():
+        _register_stream_source(runtime, alias, stream_spec)
 
 
 def _register_ingest_policy(
@@ -337,9 +343,8 @@ def bootstrap_build_runtime(project_yaml: Path) -> Runtime:
 
 def _attach_project_config(runtime: Runtime, project_yaml: Path) -> None:
     proj = _project(project_yaml)
-    runtime.split = proj.resolved_split
+    runtime.split = proj.split
     runtime.run = None
-    runtime.split_keep = getattr(runtime.split, "keep", None)
 
 
 def _register_postprocesses(runtime: Runtime, project_yaml: Path) -> None:

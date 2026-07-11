@@ -13,7 +13,6 @@ def _serve_args() -> SimpleNamespace:
         cmd="serve",
         project="project.yaml",
         limit=None,
-        keep=None,
         run=None,
         preview_index=None,
         output_transport=None,
@@ -21,7 +20,7 @@ def _serve_args() -> SimpleNamespace:
         output_directory=None,
         output_encoding=None,
         output_view=None,
-        skip_build=False,
+        artifact_mode=None,
         visuals="on",
     )
 
@@ -37,7 +36,7 @@ def _inspect_args() -> SimpleNamespace:
         output_directory=None,
         output_encoding=None,
         output_view=None,
-        skip_build=False,
+        artifact_mode=None,
         visuals="on",
     )
 
@@ -105,7 +104,7 @@ def test_build_cli_output_config_rejects_non_flat_csv_view() -> None:
             fmt="csv",
             directory="out",
             view="raw",
-    )
+        )
     assert exc.value.code == 2
 
 
@@ -186,9 +185,15 @@ def test_execute_serve_propagates_keyboard_interrupt(monkeypatch) -> None:
 
 def test_execute_serve_runs_request_from_builder(monkeypatch) -> None:
     sentinel_request = object()
+    captured: dict[str, object] = {}
+
+    def _build_request(**kwargs):
+        captured.update(kwargs)
+        return sentinel_request
+
     monkeypatch.setattr(
         "datapipeline.cli.commands.profile_runner.build_profile_run_request",
-        lambda **kwargs: sentinel_request,
+        _build_request,
     )
 
     seen = {"request": None}
@@ -196,10 +201,14 @@ def test_execute_serve_runs_request_from_builder(monkeypatch) -> None:
     def _capture(request):
         seen["request"] = request
 
-    monkeypatch.setattr("datapipeline.cli.commands.profile_runner.run_profiles", _capture)
+    monkeypatch.setattr(
+        "datapipeline.cli.commands.profile_runner.run_profiles", _capture
+    )
 
+    args = _serve_args()
+    args.artifact_mode = "FORCE"
     handled = execute_command(
-        args=_serve_args(),
+        args=args,
         plugin_root=None,
         workspace_context=None,
         cli_level_arg=None,
@@ -209,6 +218,7 @@ def test_execute_serve_runs_request_from_builder(monkeypatch) -> None:
 
     assert handled is True
     assert seen["request"] is sentinel_request
+    assert captured["artifact_mode"] == "FORCE"
 
 
 def test_execute_serve_skips_when_no_enabled_profiles(monkeypatch, caplog) -> None:
@@ -217,7 +227,9 @@ def test_execute_serve_skips_when_no_enabled_profiles(monkeypatch, caplog) -> No
         lambda **kwargs: None,
     )
 
-    with caplog.at_level(logging.INFO, logger="datapipeline.cli.commands.profile_runner"):
+    with caplog.at_level(
+        logging.INFO, logger="datapipeline.cli.commands.profile_runner"
+    ):
         handled = execute_command(
             args=_serve_args(),
             plugin_root=None,
@@ -307,7 +319,9 @@ def test_execute_inspect_skips_when_no_enabled_profiles(monkeypatch, caplog) -> 
         lambda **kwargs: None,
     )
 
-    with caplog.at_level(logging.INFO, logger="datapipeline.cli.commands.profile_runner"):
+    with caplog.at_level(
+        logging.INFO, logger="datapipeline.cli.commands.profile_runner"
+    ):
         handled = execute_command(
             args=_inspect_args(),
             plugin_root=None,

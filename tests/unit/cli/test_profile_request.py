@@ -26,6 +26,8 @@ def _write_project(tmp_path: Path) -> Path:
         ),
         encoding="utf-8",
     )
+    (tmp_path / "dataset.yaml").write_text("{}\n", encoding="utf-8")
+    (tmp_path / "postprocess.yaml").write_text("{}\n", encoding="utf-8")
     return project_yaml
 
 
@@ -73,19 +75,16 @@ def test_inspect_request_materializes_execution_scoped_log_output(
             "name: coverage\n"
             "target: coverage\n"
             "enabled: true\n"
-            "build:\n"
-            "  mode: AUTO\n"
+            "artifact_mode: AUTO\n"
         ),
         encoding="utf-8",
     )
     (tmp_path / "sources").mkdir(parents=True, exist_ok=True)
 
-    def _fake_iter_runtime_runs(project_path, run_entries, keep_override):
+    def _fake_iter_runtime_runs(project_path, run_entries):
         total = len(run_entries)
         for idx, entry in enumerate(run_entries, start=1):
-            runtime = SimpleNamespace(
-                run=entry.config, split=SimpleNamespace(keep=None)
-            )
+            runtime = SimpleNamespace(run=entry.config, split=None)
             yield idx, total, entry, runtime
 
     monkeypatch.setattr(

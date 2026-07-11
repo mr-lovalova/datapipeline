@@ -88,7 +88,7 @@ jerry serve --limit 3
 
 ## Preview Indices (serve --preview-index)
 
-`--preview-index` previews the serve pipeline up to a 0-based serve preview index. Indices 0-11 run per feature/target config; indices 12-14 switch to the combined sample stream.
+`--preview-index` previews the serve pipeline up to a 0-based serve preview index. Indices 0-11 run per feature/target config; indices 12-13 switch to the combined sample stream.
 
 - Index 0 (DTO stream)
   - Input: raw source rows (loader transport + decoder)
@@ -171,20 +171,16 @@ jerry serve --limit 3
     - apply project `postprocess.yaml` vector transforms
   - Output: Sample stream (not split)
 
-- Index 14 (split)
-  - Input: postprocessed Sample stream
-  - Ops: apply configured train/val/test split behavior
-  - Output: final Sample stream before persistence
-
 Full run (no --preview-index)
 
-- Equivalent to preview index 14, plus normal output persistence.
+- Equivalent to preview index 13, plus normal output persistence.
 
 Split timing (leakage note)
 
-- Split is applied after postprocess in a full `jerry serve` run. Use preview index 12/13/14 to preview vector assembly, postprocess, and split boundaries separately.
+- A serve profile with `splits:` routes the postprocessed sample stream to one fs output per requested label. Split filenames retain the profile name, such as `splits.train.jsonl`. Profiles without `splits:` emit the combined stream.
+- Split fan-out cannot be combined with `--preview-index`; use indices 12 and 13 to inspect vector assembly and postprocess output before running the fan-out profile.
 - Feature engineering runs before split; keep it causal (no look-ahead, no future leakage).
-- Scaler statistics are fit by the build task `scaler.yaml` and are typically restricted to the `train` split (configurable via `split_label`). Temporal folds can fit multiple internal scalers in the same scaler artifact.
+- Scaler statistics are fit by the build task `scaler.yaml` and are typically restricted to the `train` split (configurable via `split_label`). Scaler filtering supports time splits and hash splits keyed by `group`; a hash `feature:<id>` key requires `split_label: all`. Temporal folds can fit multiple internal scalers in the same scaler artifact.
 
 ---
 
@@ -193,9 +189,9 @@ Split timing (leakage note)
 - `jerry demo init`: scaffolds a standalone demo plugin at `./demo/` and wires a `demo` dataset.
 - `jerry plugin init <name> --out lib/`: scaffolds `lib/<name>/` (writes workspace `jerry.yaml` when missing).
 - `jerry.yaml`: sets `plugin_root` for scaffolding commands and `datasets/default_dataset` so you can omit `--project`/`--dataset`.
-- `jerry serve [--dataset <alias>|--project <path>] [--limit N] [--preview-index 0-14] [--skip-build]`: streams output for enabled `serve.*` profiles in order. In `AUTO` mode, runtime profiles build their required artifact dependency closure before execution; use artifact-targeted profiles only when you want those builds as explicit named steps.
+- `jerry serve [--dataset <alias>|--project <path>] [--limit N] [--preview-index 0-13] [--artifact-mode AUTO|FORCE|OFF]`: prepares the combined artifact requirements once, then streams enabled `serve.*` runtime profiles in their configured order.
 - `jerry build [--dataset <alias>|--project <path>] [--force]`: materializes artifacts (schema, scaler, etc.).
-- `jerry inspect [--dataset <alias>|--project <path>] [--run <inspect-profile>]`: runs enabled inspect profiles (or one selected profile).
+- `jerry inspect [--dataset <alias>|--project <path>] [--run <inspect-profile>] [--artifact-mode AUTO|FORCE|OFF]`: prepares the combined artifact requirements once, then runs enabled inspect profiles (or one selected profile).
 - `jerry materialize stream <stream_id> --output <path.jsonl> [--as <new_stream_id>] [--force]`: writes a durable JSONL stream. With `--as`, Jerry also writes reusable source/ingest YAML with `ordered_by`.
 - `jerry clean [--yes] [--older-than <age>]`: lists or removes stale sort spill directories. It does not delete materialized outputs.
 - `jerry inflow create`: interactive wizard to scaffold an end-to-end ingest (source + parser/DTO + mapper + ingest).
@@ -213,8 +209,9 @@ Split timing (leakage note)
 - `jerry build` materializes deterministic artifacts (schema, scaler, metadata).
   Builds are keyed by configuration and local-source snapshots, and skip work
   when nothing changed unless you pass `--force`.
-- `jerry serve` runs are named (task/run) and can write outputs to
-  `<output-directory>/<run_name>/` for auditing, sharing, or downstream training.
+- Filesystem serve output is run-scoped under
+  `<output-directory>/runs/<run_id>/dataset/`. Normal profiles write
+  `<profile>.<ext>`; split profiles write `<profile>.<label>.<ext>`.
 - Versioning: tag the project config + plugin code in Git and pair with a data
   versioning tool like DVC for raw sources. With those inputs pinned, interim
   datasets and artifacts can be regenerated instead of stored.
@@ -280,7 +277,7 @@ These live under `lib/<plugin>/src/<package>/`:
 - **Partition**: stream state boundary for history-based transforms, driven by `stream.partition_by`.
 - **Feature id fields**: optional stream `feature_id_by` fields appended to feature ids for wide feature schemas.
 - **Group**: sample cadence set by `dataset.sample.cadence` or legacy `dataset.group_by`.
-- **Preview index**: logical debug index for `jerry serve --preview-index 0-14` (ingest nodes -> stream nodes -> feature records -> samples).
+- **Preview index**: logical debug index for `jerry serve --preview-index 0-13` (ingest nodes -> stream nodes -> feature records -> samples).
 - **Sort spill**: ordered stages sort in bounded batches and spill to temporary
   pickle runs only when a batch is exceeded; records crossing that boundary must
   be pickle-serializable.

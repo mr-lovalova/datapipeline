@@ -10,7 +10,7 @@ python -m pytest
 ruff check .
 ```
 
-When iterating on configs and transforms, `jerry serve --preview-index <0-14>`
+When iterating on configs and transforms, `jerry serve --preview-index <0-13>`
 is the fastest way to validate a specific pipeline boundary.
 
 ## Scaffolding Internals (Internal API)

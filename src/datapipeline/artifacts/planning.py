@@ -10,8 +10,8 @@ from datapipeline.config.tasks import ArtifactTask, OperationTask, StatsTask, Ti
 from datapipeline.services.constants import (
     SCALER_STATISTICS,
     VECTOR_INPUTS,
+    VECTOR_METADATA,
     VECTOR_SCHEMA,
-    VECTOR_SCHEMA_METADATA,
     VECTOR_STATS,
 )
 
@@ -31,20 +31,13 @@ class ArtifactGraph:
         init=False,
         repr=False,
     )
-    _keys_by_task_id: Mapping[str, str] = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         definitions_by_key: dict[str, ArtifactDefinition] = {}
-        keys_by_task_id: dict[str, str] = {}
         for definition in self.definitions:
             if definition.key in definitions_by_key:
                 raise ValueError(f"Duplicate artifact key '{definition.key}'.")
-            if definition.task_id in keys_by_task_id:
-                raise ValueError(
-                    f"Artifact task '{definition.task_id}' produces more than one artifact."
-                )
             definitions_by_key[definition.key] = definition
-            keys_by_task_id[definition.task_id] = definition.key
 
         for definition in self.definitions:
             for dependency in definition.dependencies:
@@ -52,6 +45,17 @@ class ArtifactGraph:
                     raise ValueError(
                         f"Artifact '{definition.key}' has unknown dependency '{dependency}'."
                     )
+
+        for task_id, task in self.tasks_by_id.items():
+            if task_id != task.id:
+                raise ValueError(
+                    f"Artifact task mapping key '{task_id}' does not match task id "
+                    f"'{task.id}'."
+                )
+            if task_id not in definitions_by_key:
+                raise ValueError(
+                    f"Artifact task '{task_id}' has no matching artifact definition."
+                )
 
         object.__setattr__(
             self,
@@ -62,11 +66,6 @@ class ArtifactGraph:
             self,
             "_definitions_by_key",
             MappingProxyType(definitions_by_key),
-        )
-        object.__setattr__(
-            self,
-            "_keys_by_task_id",
-            MappingProxyType(keys_by_task_id),
         )
         self._validate_acyclic()
 
@@ -96,19 +95,18 @@ class ArtifactGraph:
             definitions = [
                 replace(
                     definition,
-                    dependencies=(VECTOR_SCHEMA_METADATA,),
+                    dependencies=(VECTOR_METADATA,),
                 )
-                if definition.task_id == "stats"
+                if definition.key == VECTOR_STATS
                 else definition
                 for definition in definitions
             ]
 
-        built_in_task_ids = {definition.task_id for definition in definitions}
         built_in_keys = {definition.key for definition in definitions}
         tick_artifact_keys = tuple(
             task.id
             for task in tasks
-            if isinstance(task, TicksTask) and task.id not in built_in_task_ids
+            if isinstance(task, TicksTask) and task.id not in built_in_keys
         )
         if tick_artifact_keys:
             definitions = [
@@ -122,13 +120,9 @@ class ArtifactGraph:
             ]
 
         for task in tasks:
-            if task.id in built_in_task_ids:
-                continue
             if task.id in built_in_keys:
-                raise ValueError(
-                    f"Artifact task id '{task.id}' collides with a built-in artifact key."
-                )
-            definitions.append(ArtifactDefinition(key=task.id, task_id=task.id))
+                continue
+            definitions.append(ArtifactDefinition(key=task.id))
 
         return cls(tuple(definitions), tasks_by_id)
 
@@ -158,18 +152,8 @@ class ArtifactGraph:
         except KeyError as exc:
             raise ValueError(f"Unknown artifact '{key}'.") from exc
 
-    def key_for_task(self, task_id: str) -> str | None:
-        return self._keys_by_task_id.get(task_id)
-
-    def keys_for_tasks(self, task_ids: Iterable[str]) -> set[str]:
-        return {
-            key
-            for task_id in task_ids
-            if (key := self.key_for_task(task_id)) is not None
-        }
-
     def declared_artifact_keys(self) -> set[str]:
-        return self.keys_for_tasks(self.tasks_by_id)
+        return set(self.tasks_by_id)
 
     def runtime_requirements(
         self,
@@ -177,34 +161,35 @@ class ArtifactGraph:
         *,
         preview_index: int | None,
     ) -> set[str]:
-        tick_artifacts = self.keys_for_tasks(
+        declared = set(task.requires)
+        tick_artifacts = {
             artifact_task.id
             for artifact_task in self.tasks_by_id.values()
             if isinstance(artifact_task, TicksTask)
-        )
+        }
         if task.entrypoint == "core.runtime.pipeline":
             if preview_index is None:
-                return {VECTOR_SCHEMA_METADATA, VECTOR_SCHEMA}
-            if preview_index < 0 or preview_index > 14:
-                raise ValueError("preview_index must be between 0 and 14")
+                return declared | {VECTOR_METADATA, VECTOR_SCHEMA}
+            if preview_index < 0 or preview_index > 13:
+                raise ValueError("preview_index must be between 0 and 13")
             if preview_index <= 6:
-                return set()
+                return declared
             if preview_index <= 9:
-                return tick_artifacts
+                return declared | tick_artifacts
             if preview_index <= 11:
-                return {SCALER_STATISTICS, *tick_artifacts}
+                return declared | {SCALER_STATISTICS, *tick_artifacts}
             if preview_index == 12:
-                return {VECTOR_SCHEMA_METADATA}
-            return {VECTOR_SCHEMA_METADATA, VECTOR_SCHEMA}
+                return declared | {VECTOR_METADATA}
+            return declared | {VECTOR_METADATA, VECTOR_SCHEMA}
         if task.entrypoint == "core.runtime.materialize_stream":
-            return tick_artifacts
+            return declared | tick_artifacts
         if task.entrypoint in {
             "core.runtime.coverage",
             "core.runtime.matrix",
             "core.runtime.thresholds",
         }:
-            return {VECTOR_STATS}
-        return set()
+            return declared | {VECTOR_STATS}
+        return declared
 
     def runtime_dependency_closure(
         self,
@@ -220,7 +205,7 @@ class ArtifactGraph:
             and not dataset.features
             and not dataset.targets
         ):
-            return ()
+            roots = set(task.requires)
         keys = set(self.dependency_closure(roots))
         if self.requires_dataset(keys):
             if dataset is None:
@@ -228,42 +213,19 @@ class ArtifactGraph:
                     f"Runtime task '{task.id}' requires a feature dataset to "
                     "resolve artifact dependencies."
                 )
+            inactive_declared = {
+                key
+                for key in task.requires
+                if not self.definition(key).is_required_for(dataset)
+            }
+            if inactive_declared:
+                artifacts = ", ".join(self.topological_order(inactive_declared))
+                raise ValueError(
+                    f"Runtime task '{task.id}' explicitly requires artifact(s) "
+                    f"that are inactive for this dataset: {artifacts}."
+                )
             keys = set(self.active_dependency_closure(roots, dataset))
         return self.topological_order(keys)
-
-    def select_roots(
-        self,
-        *,
-        required_artifacts: set[str] | None = None,
-        profile_target: str | None = None,
-        profile_name: str | None = None,
-    ) -> set[str]:
-        profile_keys: set[str] | None = None
-        if profile_target:
-            if profile_target not in self.tasks_by_id:
-                raise ValueError(
-                    f"Build profile '{profile_name or '<unnamed>'}' references "
-                    f"unknown target '{profile_target}'."
-                )
-            key = self.key_for_task(profile_target)
-            if key is None:
-                raise ValueError(
-                    f"Build profile '{profile_name or '<unnamed>'}' target "
-                    f"'{profile_target}' is not bound to an artifact definition."
-                )
-            profile_keys = {key}
-
-        if required_artifacts is None:
-            return (
-                set(profile_keys)
-                if profile_keys is not None
-                else self.declared_artifact_keys()
-            )
-
-        selected = set(required_artifacts)
-        if profile_keys is not None:
-            selected &= profile_keys
-        return selected
 
     def dependency_closure(self, roots: Iterable[str]) -> tuple[str, ...]:
         root_keys = set(roots)
@@ -337,12 +299,8 @@ class ArtifactGraph:
 
     def validate_producers(self, keys: Iterable[str]) -> None:
         for key in self.topological_order(keys):
-            definition = self.definition(key)
-            if definition.task_id not in self.tasks_by_id:
-                raise ValueError(
-                    f"Required artifact '{key}' is produced by task "
-                    f"'{definition.task_id}', but that task is not declared."
-                )
+            if key not in self.tasks_by_id:
+                raise ValueError(f"Required artifact task '{key}' is not declared.")
 
     def dependents_of(
         self,
@@ -378,7 +336,6 @@ class ArtifactGraph:
         state: BuildState | None,
         config_hash: str,
         artifacts_root: Path,
-        hash_meta_key: str = "_config_hash",
     ) -> ArtifactFreshness:
         selected = set(keys)
         missing: set[str] = set()
@@ -393,18 +350,13 @@ class ArtifactGraph:
             if info is None:
                 missing.add(key)
                 continue
-            definition = self.definition(key)
-            producer = self.tasks_by_id.get(definition.task_id)
+            producer = self.tasks_by_id.get(key)
             if producer is not None and Path(info.relative_path) != Path(
                 producer.output
             ):
                 stale.add(key)
                 continue
-            value = (info.meta or {}).get(hash_meta_key)
-            artifact_hash = (
-                value if isinstance(value, str) and value.strip() else state.config_hash
-            )
-            if artifact_hash != config_hash:
+            if info.config_hash != config_hash:
                 stale.add(key)
                 continue
             artifact_path = (root / info.relative_path).resolve()

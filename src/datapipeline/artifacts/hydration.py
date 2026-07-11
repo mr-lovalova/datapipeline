@@ -32,9 +32,7 @@ def hydrate_runtime_artifacts(
         config_hash=config_hash,
         artifacts_root=runtime.artifacts.root,
     )
-    keys_without_producers = {
-        key for key in keys if graph.definition(key).task_id not in graph.tasks_by_id
-    }
+    keys_without_producers = {key for key in keys if key not in graph.tasks_by_id}
     unavailable_keys = keys_without_producers | graph.dependents_of(
         keys_without_producers,
         active_keys=keys,

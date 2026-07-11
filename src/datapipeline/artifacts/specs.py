@@ -6,8 +6,8 @@ from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.services.constants import (
     SCALER_STATISTICS,
     VECTOR_INPUTS,
+    VECTOR_METADATA,
     VECTOR_SCHEMA,
-    VECTOR_SCHEMA_METADATA,
     VECTOR_STATS,
 )
 
@@ -15,7 +15,6 @@ from datapipeline.services.constants import (
 @dataclass(frozen=True)
 class ArtifactDefinition:
     key: str
-    task_id: str
     dependencies: tuple[str, ...] = ()
     required_if: Callable[[FeatureDatasetConfig], bool] | None = None
 
@@ -50,27 +49,22 @@ def dataset_requires_scaler(dataset: FeatureDatasetConfig) -> bool:
 ARTIFACT_DEFINITIONS: tuple[ArtifactDefinition, ...] = (
     ArtifactDefinition(
         key=SCALER_STATISTICS,
-        task_id="scaler",
         required_if=dataset_requires_scaler,
     ),
     ArtifactDefinition(
         key=VECTOR_INPUTS,
-        task_id="vector_inputs",
         dependencies=(SCALER_STATISTICS,),
     ),
     ArtifactDefinition(
         key=VECTOR_SCHEMA,
-        task_id="schema",
         dependencies=(VECTOR_INPUTS,),
     ),
     ArtifactDefinition(
-        key=VECTOR_SCHEMA_METADATA,
-        task_id="metadata",
+        key=VECTOR_METADATA,
         dependencies=(VECTOR_INPUTS,),
     ),
     ArtifactDefinition(
         key=VECTOR_STATS,
-        task_id="stats",
-        dependencies=(VECTOR_SCHEMA_METADATA, VECTOR_SCHEMA),
+        dependencies=(VECTOR_METADATA, VECTOR_SCHEMA),
     ),
 )

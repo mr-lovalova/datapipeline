@@ -55,8 +55,14 @@ YAML config (dataset project root):
 
 Profile sequencing:
 - Profiles execute by `order` (ascending); unset falls back to filename order.
-- One profile targets one task (`target:`). In `AUTO` mode, artifact dependencies
-  are expanded and built in graph order before the selected target runs.
+- Build profiles target artifact tasks; serve and inspect profiles target runtime
+  tasks.
+- Before selected serve or inspect profiles run, their artifact requirements are
+  combined and prepared once according to `artifact_mode: AUTO|FORCE|OFF`.
+- The dependency graph orders only internal artifact jobs. It never changes
+  profile order; build profiles remain explicit artifact roots.
+- Selected build profiles must have distinct targets.
+- A selected dependency build profile must precede a selected dependent profile.
 - Use multiple ordered profiles only when you want separate named build/runtime
   steps or different per-profile output and observability settings.
 

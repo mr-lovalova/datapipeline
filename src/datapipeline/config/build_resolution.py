@@ -24,7 +24,6 @@ class BuildSettings:
     log_decision: LogLevelDecision
     log_output: LogOutputSettings
     mode: str
-    force: bool
     profile_name: str | None
     heartbeat_interval_seconds: float | None = None
 
@@ -36,7 +35,6 @@ def resolve_build_settings(
     cli_log_outputs: Sequence[LogOutputTarget] | None = None,
     cli_heartbeat_interval_seconds: float | None = None,
     force_flag: bool = False,
-    runtime_build_mode: str | None = None,
     base_log_level: str | None = None,
     build_profile: BuildProfile | None = None,
 ) -> BuildSettings:
@@ -45,21 +43,14 @@ def resolve_build_settings(
         if build_profile is not None
         else None
     )
-    profile_name = (
-        build_profile.name
-        if build_profile is not None
-        else None
-    )
+    profile_name = build_profile.name if build_profile is not None else None
     if build_profile is not None and project_path is None:
-        raise ValueError("project_path is required when resolving build profile settings")
+        raise ValueError(
+            "project_path is required when resolving build profile settings"
+        )
     profile_mode_default = (
         str(getattr(build_profile, "mode")).upper()
         if build_profile is not None and getattr(build_profile, "mode", None)
-        else None
-    )
-    runtime_mode_default = (
-        str(runtime_build_mode).strip().upper()
-        if runtime_build_mode is not None
         else None
     )
     profile_visuals = observability_value(profile_observability, "visuals")
@@ -85,12 +76,9 @@ def resolve_build_settings(
         fallback=str(base_log_level).upper() if base_log_level else "INFO",
     )
     effective_mode = (
-        "FORCE"
-        if force_flag
-        else (cascade(runtime_mode_default, profile_mode_default, "AUTO") or "AUTO")
+        "FORCE" if force_flag else (cascade(profile_mode_default, "AUTO") or "AUTO")
     )
     effective_mode = effective_mode.upper()
-    force_build = force_flag or effective_mode == "FORCE"
     return BuildSettings(
         visuals=visuals.visuals,
         log_decision=log_decision,
@@ -102,7 +90,6 @@ def resolve_build_settings(
             allow_execution_scope=True,
         ),
         mode=effective_mode,
-        force=force_build,
         profile_name=profile_name,
         heartbeat_interval_seconds=resolve_heartbeat_interval_seconds(
             cli_heartbeat_interval_seconds,

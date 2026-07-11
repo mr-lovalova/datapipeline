@@ -2,5 +2,4 @@ cmd: inspect
 name: thresholds
 target: thresholds
 enabled: true
-build:
-  mode: AUTO
+artifact_mode: AUTO

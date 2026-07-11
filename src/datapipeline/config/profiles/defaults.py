@@ -5,9 +5,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from datapipeline.config.observability import ObservabilityConfig
 
-from .build import normalize_build_mode
+from .build import normalize_artifact_mode
 from .output import ServeOutputConfig
-from .runtime_build import RuntimeBuildConfig
 
 
 class ProfileDefaults(BaseModel):
@@ -21,11 +20,15 @@ class ServeProfileDefaults(ProfileDefaults):
     cmd: Literal["serve"]
     output: ServeOutputConfig | None = None
     observability: ObservabilityConfig | None = Field(default=None)
-    build: RuntimeBuildConfig | None = Field(default=None)
-    keep: str | None = Field(default=None, min_length=1)
+    artifact_mode: str | None = Field(default=None)
     limit: int | None = Field(default=None, ge=1)
     preview_index: int | None = Field(default=None, ge=0)
     throttle_ms: float | None = Field(default=None, ge=0.0)
+
+    @field_validator("artifact_mode", mode="before")
+    @classmethod
+    def _normalize_artifact_mode(cls, value: object) -> str | None:
+        return normalize_artifact_mode(value)
 
 
 class BuildProfileDefaults(ProfileDefaults):
@@ -35,15 +38,20 @@ class BuildProfileDefaults(ProfileDefaults):
 
     @field_validator("mode", mode="before")
     @classmethod
-    def _normalize_mode(cls, value):
-        return normalize_build_mode(value)
+    def _normalize_mode(cls, value: object) -> str | None:
+        return normalize_artifact_mode(value)
 
 
 class InspectProfileDefaults(ProfileDefaults):
     cmd: Literal["inspect"]
     output: ServeOutputConfig | None = None
     observability: ObservabilityConfig | None = Field(default=None)
-    build: RuntimeBuildConfig | None = Field(default=None)
+    artifact_mode: str | None = Field(default=None)
+
+    @field_validator("artifact_mode", mode="before")
+    @classmethod
+    def _normalize_artifact_mode(cls, value: object) -> str | None:
+        return normalize_artifact_mode(value)
 
 
 __all__ = [

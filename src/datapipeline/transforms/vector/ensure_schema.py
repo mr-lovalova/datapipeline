@@ -58,7 +58,7 @@ class VectorEnsureSchemaTransform(VectorContextMixin):
         if not baseline:
             raise RuntimeError(
                 "Vector schema artifact is empty or unavailable; run `jerry build` "
-                "to materialize `build/schema.json` via the `vector_schema` task."
+                "to materialize `build/schema.json` via the `schema` task."
             )
         baseline_set = set(baseline)
 

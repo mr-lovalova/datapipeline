@@ -25,7 +25,6 @@ from datapipeline.pipelines.stream import build_stream_dag, build_stream_pipelin
 from datapipeline.pipelines.vector import dag as vector_dag
 from datapipeline.pipelines.vector.nodes import sample_domain_window_keys, window_keys
 from datapipeline.pipelines.full.nodes import post_process
-from datapipeline.pipelines.full.split import apply_split_stage
 from datapipeline.runtime import Runtime, StreamRuntimeSpec
 from datapipeline.services.constants import (
     POSTPROCESS_TRANSFORMS,
@@ -533,7 +532,7 @@ def test_post_process_rejects_targets_absent_from_schema(tmp_path: Path) -> None
         list(post_process(PipelineContext(runtime), iter(samples)))
 
 
-def test_full_pipeline_matches_manual_chain(tmp_path: Path) -> None:
+def test_full_pipeline_matches_vector_and_postprocess_chain(tmp_path: Path) -> None:
     rows = [
         {"time": _ts(0), "value": None},
         {"time": _ts(1), "value": 2.0},
@@ -551,9 +550,7 @@ def test_full_pipeline_matches_manual_chain(tmp_path: Path) -> None:
     full_out = list(build_full_pipeline(ctx, [cfg], "1h", rectangular=False))
 
     manual = build_vector_pipeline(ctx, [cfg], "1h", rectangular=False)
-    manual = post_process(ctx, manual)
-    manual = apply_split_stage(runtime, manual)
-    manual_out = list(manual)
+    manual_out = list(post_process(ctx, manual))
 
     assert full_out == manual_out
 

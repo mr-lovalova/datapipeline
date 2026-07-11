@@ -8,6 +8,7 @@
 # id: coverage               # any unique operation id
 # kind: runtime              # required for inspect runtime operations
 # entrypoint: core.runtime.coverage # core.runtime.coverage | core.runtime.matrix | core.runtime.thresholds
+# requires: [custom_artifact] # optional extra artifact task IDs
 #
 # See the operation-specific reference file for its accepted options. Matrix
 # does not accept task options.

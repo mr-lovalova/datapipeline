@@ -2,8 +2,7 @@
 # Defaults for all inspect.<name>.yaml profiles in this project.
 # precedence: CLI > inspect.<name>.yaml > inspect.defaults.yaml > built-ins
 cmd: inspect
-# build:
-#   mode: AUTO
+# artifact_mode: AUTO
 # output:
 #   transport: stdout
 #   format: txt

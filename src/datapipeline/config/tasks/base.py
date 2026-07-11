@@ -48,9 +48,25 @@ OperationOptionsT = TypeVar("OperationOptionsT")
 
 class OperationTask(Task, Generic[OperationOptionsT]):
     kind: Literal["runtime"] = Field(default="runtime")
+    requires: tuple[str, ...] = ()
     # Bare OperationTask is the plugin fallback; concrete tasks replace this
     # default with their own option type.
     options: OperationOptionsT = Field(default_factory=dict)  # type: ignore[assignment]
+
+    @field_validator("requires", mode="before")
+    @classmethod
+    def _normalize_requires(cls, value: object) -> tuple[str, ...]:
+        if value is None:
+            return ()
+        if not isinstance(value, (list, tuple)):
+            raise ValueError("requires must be a list of artifact task ids")
+        requires = tuple(
+            normalize_required_text(item, field_name="requires item", lower=True)
+            for item in value
+        )
+        if len(requires) != len(set(requires)):
+            raise ValueError("requires must not contain duplicate artifact task ids")
+        return requires
 
     @field_validator("options", mode="before")
     @classmethod

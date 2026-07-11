@@ -5,27 +5,20 @@ from pathlib import Path
 from typing import Literal
 
 from datapipeline.artifacts.hydration import hydrate_runtime_artifacts
-from datapipeline.artifacts.planning import ArtifactGraph, build_artifact_graph
-from datapipeline.artifacts.specs import ArtifactDefinition
+from datapipeline.artifacts.planning import ArtifactGraph
 from datapipeline.artifacts.validation import validate_artifact_plan
 from datapipeline.build.state import (
-    ArtifactInfo,
     BuildState,
     load_build_state,
     save_build_state,
 )
 from datapipeline.build.config_hash import compute_config_hash
-from datapipeline.cli.logging_setup import configure_root_logging
 from datapipeline.cli.visuals.execution import (
     emit_build_decision,
     make_execution_observer,
     make_operation_observer,
 )
-from datapipeline.config.build_resolution import BuildSettings, resolve_build_settings
 from datapipeline.config.dataset.loader import load_dataset
-from datapipeline.config.profiles import BuildProfile
-from datapipeline.config.resolution import LogOutputTarget
-from datapipeline.config.loaders.operations import operation_specs
 from datapipeline.config.tasks import ArtifactTask
 from datapipeline.execution.observability import operation_observer, operation_scope
 from datapipeline.operations.dispatch import execute_operation
@@ -34,18 +27,15 @@ from datapipeline.plugins import BUILD_OPERATIONS_EP
 from datapipeline.runtime import Runtime
 from datapipeline.services.bootstrap import (
     artifacts_root,
-    bootstrap_build_runtime,
     build_state_path,
 )
 from datapipeline.services.project_paths import tasks_dir
 
 logger = logging.getLogger(__name__)
-_ARTIFACT_CONFIG_HASH_META_KEY = "_config_hash"
 
 
 @dataclass(frozen=True)
 class ArtifactBuildJob:
-    definition: ArtifactDefinition
     task: ArtifactTask
     invalidated_artifacts: tuple[str, ...]
 
@@ -53,6 +43,7 @@ class ArtifactBuildJob:
 @dataclass(frozen=True)
 class SkippedBuild:
     reason: Literal[
+        "already_resolved",
         "mode_off",
         "no_artifacts_selected",
         "not_required",
@@ -79,19 +70,20 @@ BuildDecision = BuildPlan | SkippedBuild
 def _log_build_decision(
     plan: BuildDecision,
     *,
-    settings: BuildSettings,
+    mode: str,
+    profile_name: str | None,
 ) -> None:
     action = "run" if isinstance(plan, BuildPlan) else "skip"
     payload: dict[str, object] = {
         "action": action,
         "reason": plan.reason,
-        "mode": settings.mode,
-        "profile": settings.profile_name,
+        "mode": mode,
+        "profile": profile_name,
     }
     payload["selected_artifacts"] = len(plan.artifacts)
     payload["expanded_artifacts"] = list(plan.artifacts)
     if isinstance(plan, BuildPlan):
-        payload["jobs"] = [job.definition.key for job in plan.jobs]
+        payload["jobs"] = [job.task.id for job in plan.jobs]
         skipped_current = plan.skipped_current
     else:
         payload["jobs"] = []
@@ -106,16 +98,15 @@ def _log_build_decision(
 
 def _run_artifact_builder(
     runtime: Runtime,
-    definition: ArtifactDefinition,
     task: ArtifactTask,
 ) -> ArtifactOutput | None:
-    with operation_scope(f"build:{definition.key}", task.entrypoint):
+    with operation_scope(f"build:{task.id}", task.entrypoint):
         return execute_operation(
             operation=task,
             operation_group=BUILD_OPERATIONS_EP,
             persist=lambda result: persist_artifact_output(
                 result,
-                artifact_key=definition.key,
+                artifact_key=task.id,
                 expected_relative_path=task.output,
                 runtime=runtime,
                 logger=logger,
@@ -125,74 +116,17 @@ def _run_artifact_builder(
         )
 
 
-def _resolve_effective_settings(
-    *,
-    project_path: Path,
-    force: bool,
-    runtime_build_mode: str | None,
-    cli_log_level: str | None,
-    cli_visuals: str | None,
-    cli_log_outputs: list[LogOutputTarget] | None,
-    cli_heartbeat_interval_seconds: float | None,
-    build_profile: BuildProfile | None,
-    settings: BuildSettings | None,
-) -> BuildSettings:
-    if settings is None:
-        base_level_name = str(
-            logging.getLevelName(logging.getLogger().getEffectiveLevel())
-        ).upper()
-        try:
-            settings = resolve_build_settings(
-                project_path=project_path,
-                cli_log_level=cli_log_level,
-                cli_visuals=cli_visuals,
-                cli_log_outputs=cli_log_outputs,
-                cli_heartbeat_interval_seconds=cli_heartbeat_interval_seconds,
-                force_flag=force,
-                runtime_build_mode=runtime_build_mode,
-                base_log_level=base_level_name,
-                build_profile=build_profile,
-            )
-        except ValueError as exc:
-            logger.error("Invalid build configuration: %s", exc)
-            raise SystemExit(2) from exc
-    return settings
-
-
 def _plan_build(
     *,
     project_path: Path,
-    settings: BuildSettings,
-    build_profile: BuildProfile | None,
-    required_artifacts: set[str] | None,
-    artifact_task_configs: list[ArtifactTask] | None,
-    artifact_graph: ArtifactGraph | None = None,
+    graph: ArtifactGraph,
+    required_artifacts: set[str],
+    mode: str,
+    resolved_artifacts: set[str] | None = None,
+    expected_config_hash: str | None = None,
 ) -> BuildDecision:
-    if settings.mode == "OFF" and required_artifacts is None and build_profile is None:
-        return SkippedBuild(reason="mode_off", artifacts=())
-
-    if artifact_graph is None:
-        task_configs = (
-            list(artifact_task_configs)
-            if artifact_task_configs is not None
-            else list(operation_specs(project_path)[0])
-        )
-        try:
-            graph = build_artifact_graph(task_configs)
-        except ValueError as exc:
-            logger.error("%s", exc)
-            raise SystemExit(2) from exc
-    else:
-        graph = artifact_graph
-
     try:
-        selected_roots = graph.select_roots(
-            required_artifacts=required_artifacts,
-            profile_target=(
-                build_profile.target if build_profile is not None else None
-            ),
-            profile_name=(build_profile.name if build_profile is not None else None),
-        )
+        selected_roots = set(required_artifacts)
         selected_keys = set(graph.dependency_closure(selected_roots))
     except ValueError as exc:
         logger.error("%s", exc)
@@ -200,6 +134,12 @@ def _plan_build(
 
     if not selected_keys:
         return SkippedBuild(reason="no_artifacts_selected", artifacts=())
+
+    config_hash = compute_config_hash(project_path, tasks_dir(project_path))
+    if expected_config_hash is not None and config_hash != expected_config_hash:
+        raise RuntimeError(
+            "Build inputs changed after profiles were resolved; rerun the build."
+        )
 
     dataset = None
     if graph.requires_dataset(selected_keys):
@@ -215,21 +155,28 @@ def _plan_build(
         logger.error("%s", exc)
         raise SystemExit(2) from exc
 
-    config_hash = compute_config_hash(project_path, tasks_dir(project_path))
     state_path = build_state_path(project_path)
     previous_state = load_build_state(state_path)
+    resolved = resolved_artifacts if resolved_artifacts is not None else set()
     freshness = graph.freshness(
-        keys=selected_keys,
+        keys=selected_keys | resolved,
         state=previous_state,
         config_hash=config_hash,
         artifacts_root=artifacts_root(project_path),
-        hash_meta_key=_ARTIFACT_CONFIG_HASH_META_KEY,
     )
-    if settings.mode == "OFF":
-        if freshness.outdated:
-            artifacts = ", ".join(graph.topological_order(freshness.outdated))
+    stale_resolved = freshness.outdated & resolved
+    if stale_resolved:
+        artifacts = ", ".join(graph.topological_order(stale_resolved))
+        raise RuntimeError(
+            "Artifacts resolved by an earlier build profile became stale before "
+            f"the command completed: {artifacts}. Rerun the build."
+        )
+    selected_outdated = freshness.outdated & selected_keys
+    if mode == "OFF":
+        if selected_outdated:
+            artifacts = ", ".join(graph.topological_order(selected_outdated))
             logger.error(
-                "Build mode is OFF, but required artifacts are missing or stale: %s.",
+                "Artifact mode is OFF, but required artifacts are missing or stale: %s.",
                 artifacts,
             )
             raise SystemExit(2)
@@ -238,13 +185,19 @@ def _plan_build(
             artifacts=expanded_artifacts,
         )
 
-    if not settings.force and not freshness.outdated:
+    force = mode == "FORCE"
+    if not force and not selected_outdated:
         return SkippedBuild(
             reason="up_to_date",
             artifacts=expanded_artifacts,
         )
 
-    build_keys = set(selected_keys) if settings.force else set(freshness.outdated)
+    build_keys = set(selected_keys) - resolved if force else set(selected_outdated)
+    if not build_keys:
+        return SkippedBuild(
+            reason="already_resolved",
+            artifacts=expanded_artifacts,
+        )
     skipped_current = tuple(key for key in expanded_artifacts if key not in build_keys)
     all_active_keys = (
         set(
@@ -258,8 +211,7 @@ def _plan_build(
     )
     jobs = tuple(
         ArtifactBuildJob(
-            definition=graph.definition(key),
-            task=graph.tasks_by_id[graph.definition(key).task_id],
+            task=graph.tasks_by_id[key],
             invalidated_artifacts=graph.topological_order(
                 {key}
                 | graph.dependents_of(
@@ -272,7 +224,9 @@ def _plan_build(
     )
     return BuildPlan(
         reason=(
-            "force" if settings.force else ("missing" if freshness.missing else "stale")
+            "force"
+            if force
+            else ("missing" if freshness.missing & selected_keys else "stale")
         ),
         artifacts=expanded_artifacts,
         jobs=jobs,
@@ -322,7 +276,6 @@ def _execute_build_jobs(
 
                 result = _run_artifact_builder(
                     runtime=runtime,
-                    definition=job.definition,
                     task=job.task,
                 )
                 if result is None:
@@ -331,7 +284,7 @@ def _execute_build_jobs(
                     )
                 current_state = _merge_build_state(
                     previous_state=current_state,
-                    built_artifacts={job.definition.key: result},
+                    built_artifacts={job.task.id: result},
                     config_hash=plan.config_hash,
                 )
                 save_build_state(current_state, plan.state_path)
@@ -353,82 +306,57 @@ def _merge_build_state(
     built_artifacts: dict[str, ArtifactOutput],
     config_hash: str,
 ) -> BuildState:
-    new_state = BuildState(config_hash=config_hash)
+    new_state = BuildState()
     if previous_state is not None:
-        for key, info in previous_state.artifacts.items():
-            meta = dict(info.meta or {})
-            if _ARTIFACT_CONFIG_HASH_META_KEY not in meta:
-                previous_hash = previous_state.config_hash
-                if previous_hash:
-                    meta[_ARTIFACT_CONFIG_HASH_META_KEY] = previous_hash
-            new_state.artifacts[key] = ArtifactInfo(
-                relative_path=info.relative_path,
-                meta=meta,
-            )
+        new_state.artifacts.update(previous_state.artifacts)
     for key, output in built_artifacts.items():
-        meta = dict(output.meta)
-        meta[_ARTIFACT_CONFIG_HASH_META_KEY] = config_hash
-        new_state.register(key, output.relative_path, meta=meta)
+        new_state.register(
+            key,
+            output.relative_path,
+            config_hash=config_hash,
+            meta=output.meta,
+        )
     return new_state
 
 
 def run_build_if_needed(
     project: Path | str,
-    force: bool = False,
-    runtime_build_mode: str | None = None,
-    cli_log_level: str | None = None,
-    cli_visuals: str | None = None,
-    cli_log_outputs: list[LogOutputTarget] | None = None,
-    cli_heartbeat_interval_seconds: float | None = None,
-    required_artifacts: set[str] | None = None,
-    build_profile: BuildProfile | None = None,
-    artifact_task_configs: list[ArtifactTask] | None = None,
-    artifact_graph: ArtifactGraph | None = None,
-    settings: BuildSettings | None = None,
-    skip_logging_setup: bool = False,
-    runtime_override: Runtime | None = None,
+    *,
+    graph: ArtifactGraph,
+    required_artifacts: set[str],
+    mode: str,
+    runtime: Runtime,
+    profile_name: str | None = None,
+    heartbeat_interval_seconds: float | None = None,
+    resolved_artifacts: set[str] | None = None,
+    expected_config_hash: str | None = None,
 ) -> bool:
     """Execute artifact-producing operations when selected artifacts are missing or stale."""
     project_path = Path(project).resolve()
-    settings = _resolve_effective_settings(
-        project_path=project_path,
-        force=force,
-        runtime_build_mode=runtime_build_mode,
-        cli_log_level=cli_log_level,
-        cli_visuals=cli_visuals,
-        cli_log_outputs=cli_log_outputs,
-        cli_heartbeat_interval_seconds=cli_heartbeat_interval_seconds,
-        build_profile=build_profile,
-        settings=settings,
-    )
-    if not skip_logging_setup:
-        configure_root_logging(
-            level=settings.log_decision.value,
-            output=settings.log_output,
-        )
+    mode = mode.upper()
+    if mode not in {"AUTO", "FORCE", "OFF"}:
+        raise ValueError(f"Unknown artifact mode '{mode}'.")
 
     plan = _plan_build(
         project_path=project_path,
-        settings=settings,
-        build_profile=build_profile,
+        graph=graph,
         required_artifacts=required_artifacts,
-        artifact_task_configs=artifact_task_configs,
-        artifact_graph=artifact_graph,
+        mode=mode,
+        resolved_artifacts=resolved_artifacts,
+        expected_config_hash=expected_config_hash,
     )
     _log_build_decision(
         plan,
-        settings=settings,
+        mode=mode,
+        profile_name=profile_name,
     )
     if isinstance(plan, SkippedBuild):
+        if resolved_artifacts is not None:
+            resolved_artifacts.update(plan.artifacts)
         return False
 
-    runtime = (
-        runtime_override
-        if runtime_override is not None
-        else bootstrap_build_runtime(project_path)
-    )
-    if settings.heartbeat_interval_seconds is not None:
-        runtime.heartbeat_interval_seconds = settings.heartbeat_interval_seconds
+    if heartbeat_interval_seconds is not None:
+        runtime.heartbeat_interval_seconds = heartbeat_interval_seconds
     _execute_build_jobs(
         runtime=runtime,
         plan=plan,
@@ -437,4 +365,6 @@ def run_build_if_needed(
         raise RuntimeError(
             "Build inputs changed while artifacts were being generated; rerun the build."
         )
+    if resolved_artifacts is not None:
+        resolved_artifacts.update(plan.artifacts)
     return True

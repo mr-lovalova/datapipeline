@@ -1,5 +1,4 @@
 from collections.abc import Iterator, Sequence
-from typing import Any
 
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.dag.dag import Dag
@@ -8,7 +7,7 @@ from datapipeline.dag.node import PipelineNode
 from datapipeline.pipelines.full.nodes import post_process
 from datapipeline.pipelines.vector.dag import build_vector_pipeline
 from datapipeline.dag.context import PipelineContext
-from datapipeline.pipelines.full.split import apply_split_stage
+from datapipeline.domain.sample import Sample
 
 
 def build_full_pipeline(
@@ -18,7 +17,7 @@ def build_full_pipeline(
     target_configs: Sequence[FeatureRecordConfig] | None = None,
     rectangular: bool = True,
     sample_keys: Sequence[str] = (),
-) -> Iterator[Any]:
+) -> Iterator[Sample]:
     return run_dag(
         context,
         build_full_dag(
@@ -62,13 +61,6 @@ def build_full_dag(
                 args=(context,),
                 input="vectors",
                 output="post_processed",
-            ),
-            PipelineNode(
-                name="split",
-                op=apply_split_stage,
-                args=(context.runtime,),
-                input="post_processed",
-                output="served",
             ),
         ),
     )

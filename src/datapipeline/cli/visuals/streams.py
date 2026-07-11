@@ -67,7 +67,10 @@ class _RichBackend(VisualsBackend):
             console = _Console(file=_sys.stderr, markup=True)
             self._render_sections(console, sections)
             indent = "  " * max(len(sections), 1)
-            console.print(f"{indent}── {label} ({idx}/{total}) ──")
+            if total == 1:
+                console.print(f"{indent}── {label} ──")
+            else:
+                console.print(f"{indent}── {label} ({idx}/{total}) ──")
             console.print()
             return True
         except Exception:

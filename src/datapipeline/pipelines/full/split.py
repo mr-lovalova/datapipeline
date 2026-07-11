@@ -1,17 +1,14 @@
 import hashlib
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any
 
-from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
 from datapipeline.config.split import (
     HASH_SPLIT_FEATURE_PREFIX,
     SplitConfig,
     TimeSplitConfig,
 )
-
-from datapipeline.transforms.vector_utils import clone
 
 
 class HashLabeler:
@@ -81,79 +78,7 @@ class TimeLabeler:
         return self._labels[-1]
 
 
-class VectorSplitApplicator:
-    """Apply a labeler to either filter or tag vector streams."""
-
-    def __init__(
-        self,
-        *,
-        labeler: HashLabeler | TimeLabeler,
-        output: Literal["filter", "tag"] = "filter",
-        keep: str | None = None,
-        field: str = "__split__",
-    ) -> None:
-        self._labeler = labeler
-        self._output = output
-        self._keep = keep
-        self._field = field
-
-    def __call__(self, stream: Iterator[Sample]) -> Iterator[Sample]:
-        return self.apply(stream)
-
-    def apply(self, stream: Iterator[Sample]) -> Iterator[Sample]:
-        if self._output == "filter":
-            yield from self._filter(stream)
-            return
-        yield from self._tag(stream)
-
-    def _filter(self, stream: Iterator[Sample]) -> Iterator[Sample]:
-        if self._keep is None or _is_placeholder(self._keep):
-            yield from stream
-            return
-
-        for sample in stream:
-            label = self._labeler.label(sample.key, sample.features)
-            if label == self._keep:
-                yield sample
-
-    def _tag(self, stream: Iterator[Sample]) -> Iterator[Sample]:
-        for sample in stream:
-            label = self._labeler.label(sample.key, sample.features)
-            data = clone(sample.features.values)
-            data[self._field] = label
-            yield sample.with_features(Vector(values=data))
-
-
-def _is_placeholder(value: str) -> bool:
-    text = value.strip()
-    return text.startswith("${") and text.endswith("}")
-
-
 def build_labeler(cfg: SplitConfig) -> HashLabeler | TimeLabeler:
     if isinstance(cfg, TimeSplitConfig):
         return TimeLabeler(boundaries=cfg.boundaries, labels=cfg.labels)
     return HashLabeler(ratios=cfg.ratios, key=cfg.key, seed=cfg.seed)
-
-
-def build_applicator(
-    cfg: SplitConfig,
-    keep: str | None = None,
-) -> VectorSplitApplicator:
-    labeler = build_labeler(cfg)
-    selected = keep if keep is not None else getattr(cfg, "keep", None)
-    return VectorSplitApplicator(labeler=labeler, output="filter", keep=selected)
-
-
-def apply_split_stage(runtime, stream: Iterator[Sample]) -> Iterator[Sample]:
-    """Apply project-configured split at the end of the vector pipeline.
-
-    Reads `runtime.split` (set during bootstrap from project.split) and,
-    when configured, applies a VectorSplitApplicator. When not configured,
-    passes stream through.
-    """
-    cfg = getattr(runtime, "split", None)
-    if not cfg:
-        return stream
-    keep = getattr(runtime, "split_keep", None)
-    applicator = build_applicator(cfg, keep=keep)
-    return applicator(stream)

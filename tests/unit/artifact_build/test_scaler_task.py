@@ -83,7 +83,7 @@ def test_materialize_scaler_statistics_split_all_ignores_label_filter(
     assert "x" in payload["statistics"]
 
 
-def test_materialize_scaler_statistics_hash_feature_split_is_sequential(
+def test_materialize_scaler_statistics_rejects_feature_split_key(
     monkeypatch,
     tmp_path,
 ) -> None:
@@ -116,42 +116,18 @@ def test_materialize_scaler_statistics_hash_feature_split_is_sequential(
         targets=[],
     )
 
-    def _values_for_configs(**kwargs):
-        ids = {cfg.id for cfg in kwargs["configs"]}
-        if ids == {"x"}:
-            return iter(
-                [
-                    ((_ts(1),), "x", 1.0),
-                    ((_ts(2),), "x", 3.0),
-                ]
-            )
-        return iter(
-            [
-                ((_ts(1),), "bucket", "a"),
-                ((_ts(2),), "bucket", "b"),
-            ]
-        )
-
     monkeypatch.setattr(
         "datapipeline.operations.artifacts.scaler.load_dataset",
         lambda *_args, **_kwargs: dataset,
     )
-    monkeypatch.setattr(
-        "datapipeline.operations.artifacts.scaler._iter_unscaled_feature_values",
-        _values_for_configs,
-    )
 
-    result = materialize_scaler_statistics(
-        runtime,
-        ScalerTask(id="scaler", split_label="train", output="scaler.json"),
-    )
+    with pytest.raises(ValueError, match="requires hash split key 'group'"):
+        materialize_scaler_statistics(
+            runtime,
+            ScalerTask(id="scaler", split_label="train", output="scaler.json"),
+        )
 
-    assert result is not None
-    assert result.meta["observations"] == 2
-    payload = json.loads(
-        (artifacts_root / result.relative_path).read_text(encoding="utf-8")
-    )
-    assert set(payload["statistics"]) == {"x"}
+    assert not (artifacts_root / "scaler.json").exists()
 
 
 def test_materialize_scaler_statistics_skips_when_no_scaled_features(

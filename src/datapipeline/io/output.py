@@ -77,7 +77,8 @@ class OutputTarget:
         safe_label = sanitize_path_segment(str(label))
         dest = self.destination
         suffix = "".join(dest.suffixes)
-        new_name = f"{safe_label}{suffix}"
+        stem = dest.name[: -len(suffix)] if suffix else dest.name
+        new_name = f"{stem}.{safe_label}{suffix}"
         new_path = dest.with_name(new_name)
         return OutputTarget(
             transport=self.transport,

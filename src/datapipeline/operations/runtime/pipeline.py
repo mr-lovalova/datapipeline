@@ -2,9 +2,10 @@ import logging
 import time
 from dataclasses import dataclass
 from itertools import islice
-from typing import Iterator, Literal, Optional
+from typing import Iterator, Literal, Optional, TypeVar
 
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
+from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.config.dataset.validation import validate_dataset_feature_identity
 from datapipeline.config.tasks import PipelineTask
 from datapipeline.dag.context import PipelineContext
@@ -30,6 +31,7 @@ from datapipeline.utils.window import resolve_window_bounds
 
 logger = logging.getLogger(__name__)
 PreviewScope = Literal["record", "feature", "sample"]
+T = TypeVar("T")
 
 
 @dataclass(frozen=True)
@@ -57,7 +59,6 @@ SERVE_PREVIEW_NODES = (
     PreviewNode("order_feature_records", "feature", feature_node_index=2),
     PreviewNode("sample_assembly", "sample", serve_node_index=0),
     PreviewNode("post_process", "sample", serve_node_index=1),
-    PreviewNode("split", "sample", serve_node_index=2),
 )
 
 
@@ -87,7 +88,7 @@ def _close_iterator(items: Iterator[object]) -> None:
         closer()
 
 
-def _managed_items(stream: Iterator[object]) -> Iterator[object]:
+def _managed_items(stream: Iterator[T]) -> Iterator[T]:
     try:
         yield from stream
     finally:
@@ -123,14 +124,14 @@ def _preview_node(preview_index: int) -> PreviewNode:
 
 
 def _preview_plan(
-    preview_cfgs: list,
+    preview_cfgs: list[FeatureRecordConfig],
     selected_node: PreviewNode,
-) -> list[tuple[str, object]]:
+) -> list[tuple[str, FeatureRecordConfig]]:
     if selected_node.scope != "record":
         return [(cfg.id, cfg) for cfg in preview_cfgs]
 
     seen: set[str] = set()
-    plan: list[tuple[str, object]] = []
+    plan: list[tuple[str, FeatureRecordConfig]] = []
     for cfg in preview_cfgs:
         stream_id = cfg.record_stream
         if stream_id in seen:
@@ -180,7 +181,7 @@ def _validate_record_preview_streams(
         f"Preview index {preview_index} ('{selected_node.name}') applies to "
         f"{selected_node.stream_pipeline} streams ({expected_range}), but "
         f"{mismatch_text}. Use preview indices {' or '.join(actual_ranges)} "
-        "for those record streams, or 9-14 for feature/sample previews."
+        "for those record streams, or 9-13 for feature/sample previews."
     )
 
 
@@ -221,8 +222,8 @@ def _serve_preview(
     *,
     context: PipelineContext,
     runtime: Runtime,
-    feature_cfgs: list,
-    target_cfgs: list,
+    feature_cfgs: list[FeatureRecordConfig],
+    target_cfgs: list[FeatureRecordConfig],
     group_by: str,
     sample_keys: list[str],
     limit: Optional[int],
@@ -286,8 +287,8 @@ def _serve_full(
     *,
     context: PipelineContext,
     runtime: Runtime,
-    feature_cfgs: list,
-    target_cfgs: list,
+    feature_cfgs: list[FeatureRecordConfig],
+    target_cfgs: list[FeatureRecordConfig],
     group_by: str,
     sample_keys: list[str],
     limit: Optional[int],
@@ -312,8 +313,8 @@ def _serve_split_outputs(
     *,
     context: PipelineContext,
     runtime: Runtime,
-    feature_cfgs: list,
-    target_cfgs: list,
+    feature_cfgs: list[FeatureRecordConfig],
+    target_cfgs: list[FeatureRecordConfig],
     group_by: str,
     sample_keys: list[str],
     split_labels: list[str],
@@ -374,7 +375,10 @@ def serve_with_runtime(
     runtime.sample_keys = dataset.sample_keys
     if not feature_cfgs and not target_cfgs:
         logger.warning("(no features configured; nothing to serve)")
-        return
+        return None
+    group_by = dataset.group_by
+    if group_by is None:
+        raise ValueError("Feature dataset requires sample cadence.")
 
     split_labels = list(getattr(getattr(runtime, "run", None), "splits", None) or [])
     if split_labels:
@@ -385,7 +389,7 @@ def serve_with_runtime(
             runtime=runtime,
             feature_cfgs=feature_cfgs,
             target_cfgs=target_cfgs,
-            group_by=dataset.group_by,
+            group_by=group_by,
             sample_keys=dataset.sample_keys,
             split_labels=split_labels,
             limit=limit,
@@ -399,7 +403,7 @@ def serve_with_runtime(
             runtime=runtime,
             feature_cfgs=feature_cfgs,
             target_cfgs=target_cfgs,
-            group_by=dataset.group_by,
+            group_by=group_by,
             sample_keys=dataset.sample_keys,
             limit=limit,
             target=target,
@@ -411,7 +415,7 @@ def serve_with_runtime(
         runtime=runtime,
         feature_cfgs=feature_cfgs,
         target_cfgs=target_cfgs,
-        group_by=dataset.group_by,
+        group_by=group_by,
         sample_keys=dataset.sample_keys,
         limit=limit,
         target=target,

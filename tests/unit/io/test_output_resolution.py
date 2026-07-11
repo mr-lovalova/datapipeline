@@ -4,6 +4,7 @@ import pytest
 
 from datapipeline.config.profiles import ServeOutputConfig
 from datapipeline.io.output import resolve_output_target
+from datapipeline.services.runs import get_run_paths
 
 
 def test_resolve_output_target_uses_directory_and_run_name(tmp_path):
@@ -29,7 +30,9 @@ def test_resolve_output_target_uses_directory_and_run_name(tmp_path):
 def test_resolve_output_target_honors_custom_filename(tmp_path):
     base_dir = tmp_path / "outputs"
     base_dir.mkdir()
-    cfg = ServeOutputConfig(transport="fs", format="jsonl", directory=base_dir, filename="custom")
+    cfg = ServeOutputConfig(
+        transport="fs", format="jsonl", directory=base_dir, filename="custom"
+    )
 
     target = resolve_output_target(
         cli_output=None,
@@ -61,9 +64,10 @@ def test_resolve_output_target_allows_dotted_filename_stem(tmp_path):
         run_name="processed",
     )
 
-    assert target.destination == (
-        base_dir / "processed" / "equity.price_aware_universe.jsonl"
-    ).resolve()
+    assert (
+        target.destination
+        == (base_dir / "processed" / "equity.price_aware_universe.jsonl").resolve()
+    )
 
 
 def test_resolve_output_target_rejects_filename_with_selected_extension(tmp_path):
@@ -100,6 +104,45 @@ def test_resolve_output_target_sanitizes_derived_filename_stem(tmp_path):
     )
 
     assert target.destination == (base_dir / "train_val" / "train_val.jsonl").resolve()
+
+
+def test_split_targets_keep_profile_names_in_shared_run(tmp_path):
+    config = ServeOutputConfig(
+        transport="fs",
+        format="jsonl",
+        directory=tmp_path / "outputs",
+    )
+    run = get_run_paths(tmp_path / "outputs", run_id="shared")
+    first = resolve_output_target(
+        cli_output=None,
+        config_output=config,
+        run_name="first",
+        run_paths=run,
+    )
+    second = resolve_output_target(
+        cli_output=None,
+        config_output=config,
+        run_name="second",
+        run_paths=run,
+    )
+    normal = resolve_output_target(
+        cli_output=None,
+        config_output=config,
+        run_name="train",
+        run_paths=run,
+    )
+
+    destinations = {
+        first.for_split("train").destination,
+        second.for_split("train").destination,
+        normal.destination,
+    }
+
+    assert {path.name for path in destinations if path is not None} == {
+        "first.train.jsonl",
+        "second.train.jsonl",
+        "train.jsonl",
+    }
 
 
 def test_resolve_output_target_honors_view(tmp_path):

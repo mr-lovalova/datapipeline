@@ -28,6 +28,29 @@ def test_demo_stream_templates_do_not_define_record_transforms() -> None:
         assert "record" not in data, path
 
 
+def test_template_profiles_separate_builds_from_runtime_actions() -> None:
+    expected = {
+        "build.defaults.yaml",
+        "build.metadata.yaml",
+        "build.scaler.yaml",
+        "build.schema.yaml",
+        "build.vector_inputs.yaml",
+        "inspect.coverage.yaml",
+        "inspect.defaults.yaml",
+        "inspect.matrix.yaml",
+        "inspect.thresholds.yaml",
+        "serve.defaults.yaml",
+    }
+    dataset_profiles = _PLUGIN_SKELETON_ROOT / "_dataset_base" / "profiles"
+    demo_profiles = _TEMPLATES_ROOT / "demo_skeleton" / "demo" / "profiles"
+
+    assert {path.name for path in dataset_profiles.glob("*.yaml")} == expected
+    assert {path.name for path in demo_profiles.glob("*.yaml")} == {
+        *expected,
+        "serve.splits.yaml",
+    }
+
+
 def test_dataset_template_base_does_not_overlap_concrete_overlays() -> None:
     dataset_base = _PLUGIN_SKELETON_ROOT / "_dataset_base"
     shared_paths = {

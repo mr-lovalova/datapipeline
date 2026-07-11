@@ -41,8 +41,8 @@ from datapipeline.plugins import BUILD_OPERATIONS_EP
 from datapipeline.services.constants import (
     SCALER_STATISTICS,
     VECTOR_INPUTS,
+    VECTOR_METADATA,
     VECTOR_SCHEMA,
-    VECTOR_SCHEMA_METADATA,
     VECTOR_STATS,
 )
 
@@ -65,8 +65,8 @@ def _declared_entrypoints(group: str) -> dict[str, str]:
 def test_artifact_graph_uses_dependency_order_not_declaration_order():
     graph = ArtifactGraph(
         (
-            ArtifactDefinition(key="result", task_id="result", dependencies=("input",)),
-            ArtifactDefinition(key="input", task_id="input"),
+            ArtifactDefinition(key="result", dependencies=("input",)),
+            ArtifactDefinition(key="input"),
         ),
         {},
     )
@@ -74,7 +74,7 @@ def test_artifact_graph_uses_dependency_order_not_declaration_order():
     assert graph.topological_order({"result", "input"}) == ("input", "result")
 
 
-def test_artifact_keys_for_task_ids():
+def test_artifact_keys_match_task_ids():
     graph = build_artifact_graph(
         [
             SchemaTask(id="schema"),
@@ -84,9 +84,12 @@ def test_artifact_keys_for_task_ids():
         ]
     )
 
-    keys = graph.keys_for_tasks({"schema", "scaler", "stats", "vector_inputs"})
-
-    assert keys == {VECTOR_SCHEMA, SCALER_STATISTICS, VECTOR_STATS, VECTOR_INPUTS}
+    assert graph.declared_artifact_keys() == {
+        VECTOR_SCHEMA,
+        SCALER_STATISTICS,
+        VECTOR_STATS,
+        VECTOR_INPUTS,
+    }
 
 
 def test_raw_stats_build_selects_metadata_dependency_chain():
@@ -99,15 +102,11 @@ def test_raw_stats_build_selects_metadata_dependency_chain():
         ]
     )
 
-    roots = graph.select_roots(
-        profile_target="stats",
-        profile_name="stats",
-    )
-    keys = set(graph.dependency_closure(roots))
+    keys = set(graph.dependency_closure({"stats"}))
 
     assert keys == {
         VECTOR_STATS,
-        VECTOR_SCHEMA_METADATA,
+        VECTOR_METADATA,
         VECTOR_INPUTS,
         SCALER_STATISTICS,
     }
@@ -124,12 +123,11 @@ def test_final_stats_build_also_selects_schema():
         ]
     )
 
-    roots = graph.select_roots(profile_target="stats", profile_name="stats")
-    keys = set(graph.dependency_closure(roots))
+    keys = set(graph.dependency_closure({"stats"}))
 
     assert keys == {
         VECTOR_STATS,
-        VECTOR_SCHEMA_METADATA,
+        VECTOR_METADATA,
         VECTOR_SCHEMA,
         VECTOR_INPUTS,
         SCALER_STATISTICS,
@@ -148,9 +146,7 @@ def test_ticks_task_uses_task_id_as_artifact_key():
         ]
     )
 
-    keys = graph.keys_for_tasks({"dataset_ticks"})
-
-    assert keys == {"dataset_ticks"}
+    assert graph.declared_artifact_keys() == {"dataset_ticks"}
 
 
 def test_tick_artifacts_feed_scaler_and_vector_inputs() -> None:
@@ -176,7 +172,7 @@ def test_tick_artifacts_feed_scaler_and_vector_inputs() -> None:
         SCALER_STATISTICS,
         VECTOR_INPUTS,
         VECTOR_SCHEMA,
-        VECTOR_SCHEMA_METADATA,
+        VECTOR_METADATA,
         VECTOR_STATS,
     }
 
@@ -297,11 +293,7 @@ def test_generic_artifact_task_is_a_dependency_free_leaf():
         ]
     )
 
-    roots = graph.select_roots(
-        profile_target="custom_snapshot",
-        profile_name="custom",
-    )
-    assert graph.dependency_closure(roots) == ("custom_snapshot",)
+    assert graph.dependency_closure({"custom_snapshot"}) == ("custom_snapshot",)
     assert graph.definition("custom_snapshot").dependencies == ()
 
 
@@ -329,12 +321,33 @@ def test_artifact_graph_rejects_unknown_dependencies():
             (
                 ArtifactDefinition(
                     key="result",
-                    task_id="result",
                     dependencies=("missing",),
                 ),
             ),
             {},
         )
+
+
+def test_artifact_graph_rejects_task_without_matching_definition():
+    task = ArtifactTask(
+        id="snapshot",
+        entrypoint="plugin.snapshot",
+        output="snapshot.json",
+    )
+
+    with pytest.raises(ValueError, match="has no matching artifact definition"):
+        ArtifactGraph((), {task.id: task})
+
+
+def test_artifact_graph_rejects_task_mapping_key_that_differs_from_id():
+    task = ArtifactTask(
+        id="snapshot",
+        entrypoint="plugin.snapshot",
+        output="snapshot.json",
+    )
+
+    with pytest.raises(ValueError, match="does not match task id 'snapshot'"):
+        ArtifactGraph((ArtifactDefinition(key="wrong"),), {"wrong": task})
 
 
 def test_artifact_graph_rejects_cycles_with_path():
@@ -343,12 +356,10 @@ def test_artifact_graph_rejects_cycles_with_path():
             (
                 ArtifactDefinition(
                     key="first",
-                    task_id="first",
                     dependencies=("second",),
                 ),
                 ArtifactDefinition(
                     key="second",
-                    task_id="second",
                     dependencies=("first",),
                 ),
             ),
@@ -360,17 +371,15 @@ def test_artifact_graph_rejects_unknown_requested_artifact():
     graph = build_artifact_graph([])
 
     with pytest.raises(ValueError, match="Unknown artifact 'missing'"):
-        roots = graph.select_roots(required_artifacts={"missing"})
-        graph.dependency_closure(roots)
+        graph.dependency_closure({"missing"})
 
 
 def test_stale_dependency_makes_current_dependent_outdated(tmp_path):
     graph = ArtifactGraph(
         (
-            ArtifactDefinition(key="input", task_id="input"),
+            ArtifactDefinition(key="input"),
             ArtifactDefinition(
                 key="result",
-                task_id="result",
                 dependencies=("input",),
             ),
         ),
@@ -378,9 +387,9 @@ def test_stale_dependency_makes_current_dependent_outdated(tmp_path):
     )
     (tmp_path / "input.json").write_text("{}", encoding="utf-8")
     (tmp_path / "result.json").write_text("{}", encoding="utf-8")
-    state = BuildState(config_hash="current")
-    state.register("input", "input.json", meta={"_config_hash": "old"})
-    state.register("result", "result.json", meta={"_config_hash": "current"})
+    state = BuildState()
+    state.register("input", "input.json", config_hash="old")
+    state.register("result", "result.json", config_hash="current")
 
     freshness = graph.freshness(
         keys={"input", "result"},
@@ -395,11 +404,11 @@ def test_stale_dependency_makes_current_dependent_outdated(tmp_path):
 
 def test_artifact_with_missing_file_is_not_current(tmp_path):
     graph = ArtifactGraph(
-        (ArtifactDefinition(key="result", task_id="result"),),
+        (ArtifactDefinition(key="result"),),
         {},
     )
-    state = BuildState(config_hash="current")
-    state.register("result", "missing.json", meta={"_config_hash": "current"})
+    state = BuildState()
+    state.register("result", "missing.json", config_hash="current")
 
     freshness = graph.freshness(
         keys={"result"},
@@ -420,11 +429,11 @@ def test_artifact_at_path_other_than_declared_output_is_stale(tmp_path):
     )
     graph = build_artifact_graph([task])
     (tmp_path / "legacy.json").write_text("{}", encoding="utf-8")
-    state = BuildState(config_hash="current")
+    state = BuildState()
     state.register(
         "snapshot",
         "legacy.json",
-        meta={"_config_hash": "current"},
+        config_hash="current",
     )
 
     freshness = graph.freshness(
@@ -441,14 +450,13 @@ def test_artifact_at_path_other_than_declared_output_is_stale(tmp_path):
 @pytest.mark.parametrize(
     ("preview_index", "expected"),
     [
-        (None, {VECTOR_SCHEMA_METADATA, VECTOR_SCHEMA}),
+        (None, {VECTOR_METADATA, VECTOR_SCHEMA}),
         (0, set()),
         (9, set()),
         (10, {SCALER_STATISTICS}),
         (11, {SCALER_STATISTICS}),
-        (12, {VECTOR_SCHEMA_METADATA}),
-        (13, {VECTOR_SCHEMA_METADATA, VECTOR_SCHEMA}),
-        (14, {VECTOR_SCHEMA_METADATA, VECTOR_SCHEMA}),
+        (12, {VECTOR_METADATA}),
+        (13, {VECTOR_METADATA, VECTOR_SCHEMA}),
     ],
 )
 def test_pipeline_runtime_requirements_follow_preview_stage(
@@ -505,10 +513,10 @@ def test_invalid_pipeline_preview_is_rejected_for_empty_dataset() -> None:
     task = PipelineTask(id="pipeline")
     dataset = FeatureDatasetConfig(group_by="1h")
 
-    with pytest.raises(ValueError, match="preview_index must be between 0 and 14"):
+    with pytest.raises(ValueError, match="preview_index must be between 0 and 13"):
         graph.runtime_dependency_closure(
             task,
-            preview_index=15,
+            preview_index=14,
             dataset=dataset,
         )
 
@@ -528,7 +536,7 @@ def test_runtime_dependency_closure_uses_stats_task_mode():
         task,
         preview_index=None,
         dataset=dataset,
-    ) == (VECTOR_INPUTS, VECTOR_SCHEMA_METADATA, VECTOR_STATS)
+    ) == (VECTOR_INPUTS, VECTOR_METADATA, VECTOR_STATS)
 
 
 def test_external_scaler_model_does_not_require_managed_scaler_artifact():
@@ -564,7 +572,7 @@ def test_external_scaler_model_does_not_require_managed_scaler_artifact():
         task,
         preview_index=None,
         dataset=dataset,
-    ) == (VECTOR_INPUTS, VECTOR_SCHEMA, VECTOR_SCHEMA_METADATA)
+    ) == (VECTOR_INPUTS, VECTOR_SCHEMA, VECTOR_METADATA)
 
 
 @pytest.mark.parametrize(
@@ -623,6 +631,74 @@ def test_custom_runtime_task_has_no_inferred_artifact_dependencies():
     assert graph.runtime_requirements(task, preview_index=None) == set()
 
 
+def test_custom_runtime_task_uses_declared_artifact_dependencies():
+    snapshot = ArtifactTask(
+        id="custom_snapshot",
+        entrypoint="plugin.snapshot",
+        output="build/custom.json",
+    )
+    graph = build_artifact_graph([snapshot])
+    task = OperationTask(
+        id="report",
+        entrypoint="plugin.runtime.report",
+        requires=("custom_snapshot",),
+    )
+
+    assert graph.runtime_dependency_closure(
+        task,
+        preview_index=None,
+        dataset=None,
+    ) == ("custom_snapshot",)
+
+
+def test_empty_pipeline_dataset_keeps_explicit_artifact_dependencies():
+    snapshot = ArtifactTask(
+        id="custom_snapshot",
+        entrypoint="plugin.snapshot",
+        output="build/custom.json",
+    )
+    graph = build_artifact_graph([snapshot])
+    task = PipelineTask(id="pipeline", requires=("custom_snapshot",))
+
+    assert graph.runtime_dependency_closure(
+        task,
+        preview_index=None,
+        dataset=FeatureDatasetConfig(group_by="1h"),
+    ) == ("custom_snapshot",)
+
+
+def test_runtime_task_rejects_unknown_declared_artifact_dependency():
+    graph = build_artifact_graph([])
+    task = OperationTask(
+        id="report",
+        entrypoint="plugin.runtime.report",
+        requires=("missing",),
+    )
+
+    with pytest.raises(ValueError, match="Unknown artifact 'missing'"):
+        graph.runtime_dependency_closure(
+            task,
+            preview_index=None,
+            dataset=None,
+        )
+
+
+def test_runtime_task_rejects_inactive_declared_artifact_dependency():
+    graph = build_artifact_graph([ScalerTask(id="scaler")])
+    task = OperationTask(
+        id="report",
+        entrypoint="plugin.runtime.report",
+        requires=("scaler",),
+    )
+
+    with pytest.raises(ValueError, match="inactive for this dataset: scaler"):
+        graph.runtime_dependency_closure(
+            task,
+            preview_index=None,
+            dataset=FeatureDatasetConfig(group_by="1h"),
+        )
+
+
 def test_artifact_definitions_have_runner_bound_entrypoints():
     declared = _declared_entrypoints(BUILD_OPERATIONS_EP)
     task_by_id = {
@@ -633,7 +709,7 @@ def test_artifact_definitions_have_runner_bound_entrypoints():
         "vector_inputs": VectorInputsTask(id="vector_inputs"),
     }
     for definition in ARTIFACT_DEFINITIONS:
-        task = task_by_id[definition.task_id]
+        task = task_by_id[definition.key]
         assert task.entrypoint in declared
 
 

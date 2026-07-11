@@ -8,7 +8,10 @@ from datapipeline.dag.node import PipelineNode
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
 from datapipeline.io.output import OutputTarget
-from datapipeline.operations.persistence import SplitRuntimeOutput, persist_runtime_result
+from datapipeline.operations.persistence import (
+    SplitRuntimeOutput,
+    persist_runtime_result,
+)
 from datapipeline.operations.runtime.pipeline import serve_with_runtime
 
 
@@ -88,11 +91,6 @@ def _serve(runtime, dataset, target, preview_index):
     )
 
 
-def _split(runtime_obj, stream):
-    _ = runtime_obj
-    return (f"split:{item}" for item in stream)
-
-
 def _sample_preview_dag():
     return Dag(
         name="pipeline:serve",
@@ -108,18 +106,13 @@ def _sample_preview_dag():
                 input="vectors",
                 output="post_processed",
             ),
-            PipelineNode(
-                name="split",
-                op=lambda runtime_obj, stream: _split(runtime_obj, stream),
-                args=(object(),),
-                input="post_processed",
-                output="served",
-            ),
         ),
     )
 
 
-def test_serve_with_runtime_reraises_keyboard_interrupt_and_marks_run_failed(monkeypatch):
+def test_serve_with_runtime_reraises_keyboard_interrupt_and_marks_run_failed(
+    monkeypatch,
+):
     runtime = _runtime()
     dataset = _dataset()
     target = _target()
@@ -188,8 +181,8 @@ def test_serve_with_runtime_returns_split_fanout_output(monkeypatch, tmp_path):
     assert len(result.outputs) == 1
     output = result.outputs[0]
     assert isinstance(output, SplitRuntimeOutput)
-    assert output.targets["train"].destination == tmp_path / "train.jsonl"
-    assert output.targets["val"].destination == tmp_path / "val.jsonl"
+    assert output.targets["train"].destination == tmp_path / "vectors.train.jsonl"
+    assert output.targets["val"].destination == tmp_path / "vectors.val.jsonl"
     routed = list(output.rows)
     assert [output.label_for_row(sample) for sample in routed] == ["train", "val"]
 
@@ -254,18 +247,7 @@ def test_preview_index_reports_stream_shape_mismatch_before_running(monkeypatch)
         _serve(runtime, dataset, _target(), preview_index=0)
 
 
-@pytest.mark.parametrize(
-    ("preview_index", "expected"),
-    [
-        (13, ["post:vector"]),
-        (14, ["split:post:vector"]),
-    ],
-)
-def test_late_preview_indices_preview_postprocess_and_split(
-    monkeypatch,
-    preview_index,
-    expected,
-):
+def test_preview_index_13_previews_postprocess(monkeypatch):
     runtime = _runtime()
     dataset = _dataset()
     target = _target()
@@ -279,12 +261,12 @@ def test_late_preview_indices_preview_postprocess_and_split(
         lambda *args, **kwargs: _sample_preview_dag(),
     )
 
-    result = _serve(runtime, dataset, target, preview_index=preview_index)
+    result = _serve(runtime, dataset, target, preview_index=13)
 
-    assert list(result.outputs[0].rows) == expected
+    assert list(result.outputs[0].rows) == ["post:vector"]
 
 
-@pytest.mark.parametrize("preview_index", [-1, 15])
+@pytest.mark.parametrize("preview_index", [-1, 14])
 def test_preview_index_rejects_out_of_range_value(preview_index):
-    with pytest.raises(ValueError, match="preview_index must be between 0 and 14"):
+    with pytest.raises(ValueError, match="preview_index must be between 0 and 13"):
         _serve(_runtime(), _dataset(), _target(), preview_index=preview_index)

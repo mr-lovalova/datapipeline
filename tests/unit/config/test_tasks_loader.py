@@ -274,17 +274,17 @@ def test_serve_tasks_respect_name_and_enabled(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     tasks_dir = _profile_kind_dir(project_yaml)
     (tasks_dir / "serve.train.yaml").write_text(
-        "cmd: serve\nname: train\ntarget: pipeline\nkeep: train\n", encoding="utf-8"
+        "cmd: serve\nname: train\ntarget: pipeline\n", encoding="utf-8"
     )
     (tasks_dir / "serve.val.yaml").write_text(
-        "cmd: serve\nname: val\ntarget: pipeline\nkeep: val\nenabled: false\n",
+        "cmd: serve\nname: val\ntarget: pipeline\nenabled: false\n",
         encoding="utf-8",
     )
 
     tasks = _serve_profiles(project_yaml)
 
     assert [task.name for task in tasks] == ["train", "val"]
-    assert [task.keep for task in tasks if task.enabled] == ["train"]
+    assert [task.name for task in tasks if task.enabled] == ["train"]
 
 
 def test_serve_profiles_load_splits(tmp_path):
@@ -400,7 +400,7 @@ def test_profile_name_is_required(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     tasks_dir = _profile_kind_dir(project_yaml)
     (tasks_dir / "serve.train.yaml").write_text(
-        "cmd: serve\ntarget: pipeline\nkeep: train\n", encoding="utf-8"
+        "cmd: serve\ntarget: pipeline\n", encoding="utf-8"
     )
 
     with pytest.raises(ValueError, match="serve\\.name|Field required"):
@@ -769,6 +769,7 @@ def test_plugin_runtime_options_remain_plugin_owned(tmp_path: Path) -> None:
             "id: custom\n"
             "kind: runtime\n"
             "entrypoint: plugin.runtime.custom\n"
+            "requires: [ Custom_Snapshot ]\n"
             "options:\n"
             "  nested:\n"
             "    value: 3\n"
@@ -779,7 +780,37 @@ def test_plugin_runtime_options_remain_plugin_owned(tmp_path: Path) -> None:
     [task] = _all_tasks(project_yaml)
 
     assert type(task) is OperationTask
+    assert task.requires == ("custom_snapshot",)
     assert task.options == {"nested": {"value": 3}}
+
+
+@pytest.mark.parametrize(
+    ("requires", "error"),
+    [
+        ("snapshot", "requires must be a list"),
+        ("[snapshot, SNAPSHOT]", "must not contain duplicate"),
+        ("['   ']", "requires item must be set"),
+    ],
+)
+def test_runtime_operation_rejects_invalid_requires(
+    tmp_path: Path,
+    requires: str,
+    error: str,
+) -> None:
+    project_yaml = _write_project(tmp_path, tasks_ref="tasks")
+    tasks_dir = _operations_dir(project_yaml)
+    (tasks_dir / "custom.yaml").write_text(
+        (
+            "id: custom\n"
+            "kind: runtime\n"
+            "entrypoint: plugin.runtime.custom\n"
+            f"requires: {requires}\n"
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match=error):
+        _all_tasks(project_yaml)
 
 
 def test_plugin_runtime_options_must_be_a_mapping(tmp_path: Path) -> None:

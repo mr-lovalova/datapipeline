@@ -65,7 +65,7 @@ def run_job(
         presented = False
     if not presented:
         prefix = " / ".join(section_tuple) if section_tuple else "Job"
-        if idx is not None and total is not None:
+        if idx is not None and total is not None and job_total > 1:
             logger.info("%s: '%s' (%d/%d)", prefix, label, job_idx, job_total)
         else:
             logger.info("%s: '%s'", prefix, label)

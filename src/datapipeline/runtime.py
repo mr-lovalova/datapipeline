@@ -81,7 +81,6 @@ class Runtime:
     artifacts_root: Path
     registries: Registries = field(default_factory=Registries)
     split: Optional[SplitConfig] = None
-    split_keep: Optional[str] = None
     run: Optional[Profile] = None
     sample_keys: list[str] = field(default_factory=list)
     window_bounds: tuple[datetime | None, datetime | None] | None = None

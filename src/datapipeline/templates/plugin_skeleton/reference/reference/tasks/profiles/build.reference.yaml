@@ -6,8 +6,8 @@
 # order: 10                   # optional; lower runs first, unset uses filename order
 # enabled: true               # optional; profile-level switch
 #
-# mode: AUTO                  # optional; AUTO | FORCE | OFF
-# target: schema              # required; artifact task id from tasks/operations
+# mode: AUTO                  # optional; AUTO | FORCE | "OFF"
+# target: schema              # required; artifact task ID from tasks/operations
 #
 # observability:              # optional
 #   visuals: OFF              # optional; ON | OFF
@@ -18,6 +18,8 @@
 #       - transport: FS       # STDERR | STDOUT | FS
 #         scope: GLOBAL
 #         path: ./logs/build.log # resolved relative to project.yaml directory
-# note: common pattern: build.vector_inputs (8), build.schema (10), build.metadata (20), build.scaler (30).
+# note: profiles execute in configured order; the graph orders only each target's internal dependencies.
+# note: selected build profiles must have distinct targets.
+# note: common pattern: build.scaler (5), build.vector_inputs (8), build.schema (10), build.metadata (20).
 # note: common defaults can be set once in profiles/build.defaults.yaml.
 # precedence: CLI > build.<name>.yaml > build.defaults.yaml > built-ins

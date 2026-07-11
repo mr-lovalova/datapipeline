@@ -1,7 +1,7 @@
 import argparse
 
 from datapipeline.config.options import OUTPUT_FORMATS, OUTPUT_TRANSPORTS, OUTPUT_VIEWS
-from datapipeline.config.profiles import VALID_BUILD_MODES
+from datapipeline.config.profiles import ARTIFACT_MODES
 
 from .common import add_dataset_flag, add_project_flag, add_visual_flags
 
@@ -45,10 +45,6 @@ def add_serve_command(sub, common: argparse.ArgumentParser) -> None:
         help="output representation view (jsonl: raw|flat, csv: flat, pickle: raw)",
     )
     parser.add_argument(
-        "--keep",
-        help="split label to serve; overrides serve profiles and project split defaults",
-    )
-    parser.add_argument(
         "--run",
         help="select a serve profile by name when project.paths.tasks contains multiple entries",
     )
@@ -60,14 +56,9 @@ def add_serve_command(sub, common: argparse.ArgumentParser) -> None:
     )
     add_visual_flags(parser)
     parser.add_argument(
-        "--skip-build",
-        action="store_true",
-        help="skip artifact execution when the selected profile target is an artifact task",
-    )
-    parser.add_argument(
-        "--build-mode",
-        choices=VALID_BUILD_MODES,
+        "--artifact-mode",
+        choices=ARTIFACT_MODES,
         type=str.upper,
         default=None,
-        help="artifact build policy when the selected profile target is an artifact task: AUTO | FORCE | OFF",
+        help="prerequisite artifact policy: AUTO | FORCE | OFF",
     )

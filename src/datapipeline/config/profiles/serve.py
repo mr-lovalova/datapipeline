@@ -1,12 +1,12 @@
 from typing import Literal
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, field_validator
 
 from datapipeline.config.observability import ObservabilityConfig
 
 from .base import Profile, normalize_profile_target
+from .build import normalize_artifact_mode
 from .output import ServeOutputConfig
-from .runtime_build import RuntimeBuildConfig
 
 
 class ServeProfile(Profile):
@@ -14,8 +14,7 @@ class ServeProfile(Profile):
     target: str
     output: ServeOutputConfig | None = None
     observability: ObservabilityConfig | None = Field(default=None)
-    build: RuntimeBuildConfig | None = Field(default=None)
-    keep: str | None = Field(default=None, min_length=1)
+    artifact_mode: str | None = Field(default=None)
     splits: list[str] | None = Field(default=None, min_length=1)
     limit: int | None = Field(default=None, ge=1)
     preview_index: int | None = Field(default=None, ge=0)
@@ -23,12 +22,17 @@ class ServeProfile(Profile):
 
     @field_validator("target", mode="before")
     @classmethod
-    def _normalize_target(cls, value):
+    def _normalize_target(cls, value: object) -> str:
         return normalize_profile_target(value)
+
+    @field_validator("artifact_mode", mode="before")
+    @classmethod
+    def _normalize_artifact_mode(cls, value: object) -> str | None:
+        return normalize_artifact_mode(value)
 
     @field_validator("splits", mode="before")
     @classmethod
-    def _normalize_splits(cls, value):
+    def _normalize_splits(cls, value: object) -> list[str] | None:
         if value is None:
             return None
         if not isinstance(value, list):
@@ -45,10 +49,5 @@ class ServeProfile(Profile):
             seen.add(label)
         return labels
 
-    @model_validator(mode="after")
-    def _validate_split_selection(self):
-        if self.keep is not None and self.splits is not None:
-            raise ValueError("serve profile cannot define both keep and splits")
-        return self
 
 __all__ = ["ServeProfile"]

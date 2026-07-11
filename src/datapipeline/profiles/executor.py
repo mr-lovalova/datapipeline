@@ -73,7 +73,10 @@ def _render_profile_header(spec: ProfileExecutionSpec) -> None:
         presented = False
     if not presented:
         prefix = " / ".join(sections) if sections else "Job"
-        logger.info("%s: '%s' (%d/%d)", prefix, label, spec.idx, spec.total)
+        if spec.total == 1:
+            logger.info("%s: '%s'", prefix, label)
+        else:
+            logger.info("%s: '%s' (%d/%d)", prefix, label, spec.idx, spec.total)
 
 
 def run_profile(
