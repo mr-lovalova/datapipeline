@@ -1,7 +1,10 @@
+from types import SimpleNamespace
+
 import pytest
 
 from datapipeline.cli.command_router import execute_command
 from datapipeline.cli.parser_builder import build_parser
+from datapipeline.profiles.materialize import MaterializeProfileError
 
 
 def test_materialize_stream_parser() -> None:
@@ -18,7 +21,7 @@ def test_materialize_stream_parser() -> None:
             "equity.ohlcv.canonical.jsonl",
             "--as",
             "equity.ohlcv.materialized",
-            "--force",
+            "--overwrite",
         ]
     )
 
@@ -27,8 +30,125 @@ def test_materialize_stream_parser() -> None:
     assert args.stream_id == "equity.ohlcv.canonical"
     assert args.output == "equity.ohlcv.canonical.jsonl"
     assert args.as_stream_id == "equity.ohlcv.materialized"
-    assert args.force is True
+    assert args.overwrite is True
     assert args.heartbeat_interval_seconds == 10
+
+
+@pytest.mark.parametrize(
+    ("flag", "expected"),
+    [("--overwrite", True), ("--no-overwrite", False)],
+)
+def test_materialize_profile_parser_does_not_require_a_subcommand(
+    flag: str,
+    expected: bool,
+) -> None:
+    args = build_parser().parse_args(
+        [
+            "materialize",
+            "--project",
+            "project.yaml",
+            "--run",
+            "adv-20",
+            flag,
+        ]
+    )
+
+    assert args.cmd == "materialize"
+    assert args.materialize_kind is None
+    assert args.run == "adv-20"
+    assert args.overwrite is expected
+
+
+def test_materialize_stream_can_override_parent_overwrite_flag() -> None:
+    args = build_parser().parse_args(
+        [
+            "materialize",
+            "--project",
+            "project.yaml",
+            "--overwrite",
+            "stream",
+            "prices.raw",
+            "--output",
+            "prices.jsonl",
+            "--no-overwrite",
+        ]
+    )
+
+    assert args.materialize_kind == "stream"
+    assert args.overwrite is False
+
+
+def test_materialize_without_subcommand_dispatches_profiles(
+    monkeypatch, tmp_path
+) -> None:
+    captured = {}
+
+    def _handle_profiles(**kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr(
+        "datapipeline.cli.command_router.handle_materialize_profiles",
+        _handle_profiles,
+    )
+    args = build_parser().parse_args(
+        [
+            "materialize",
+            "--project",
+            str(tmp_path / "project.yaml"),
+            "--run",
+            "adv-20",
+            "--no-overwrite",
+        ]
+    )
+
+    handled = execute_command(
+        args=args,
+        plugin_root=None,
+        workspace_context=None,
+        cli_level_arg="DEBUG",
+        base_level_name="INFO",
+        cli_log_outputs=[],
+    )
+
+    assert handled is True
+    assert captured["project"] == str(tmp_path / "project.yaml")
+    assert captured["run_name"] == "adv-20"
+    assert captured["overwrite"] is False
+    assert captured["cli_log_level"] == "DEBUG"
+
+
+def test_materialize_profile_validation_error_exits_cleanly(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    def _fail(**kwargs):
+        raise MaterializeProfileError("Unknown materialize profile 'missing'")
+
+    monkeypatch.setattr(
+        "datapipeline.cli.commands.materialize.run_materialize_profiles",
+        _fail,
+    )
+    args = build_parser().parse_args(
+        [
+            "materialize",
+            "--project",
+            str(tmp_path / "project.yaml"),
+            "--run",
+            "missing",
+        ]
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        execute_command(
+            args=args,
+            plugin_root=None,
+            workspace_context=None,
+            cli_level_arg=None,
+            base_level_name="INFO",
+            cli_log_outputs=[],
+        )
+
+    assert exc_info.value.code == 2
 
 
 @pytest.mark.parametrize("cmd", ["serve", "inspect"])
@@ -58,7 +178,7 @@ def test_materialize_command_rejects_non_jsonl_output(monkeypatch, tmp_path) -> 
         ]
     )
 
-    with pytest.raises(ValueError, match=".jsonl"):
+    with pytest.raises(SystemExit) as exc_info:
         execute_command(
             args=args,
             plugin_root=None,
@@ -67,6 +187,40 @@ def test_materialize_command_rejects_non_jsonl_output(monkeypatch, tmp_path) -> 
             base_level_name="INFO",
             cli_log_outputs=[],
         )
+
+    assert exc_info.value.code == 2
+
+
+def test_materialize_stream_rejects_profile_selection(monkeypatch) -> None:
+    args = build_parser().parse_args(
+        [
+            "materialize",
+            "--project",
+            "project.yaml",
+            "--run",
+            "adv-20",
+            "stream",
+            "prices.raw",
+            "--output",
+            "prices.jsonl",
+        ]
+    )
+    monkeypatch.setattr(
+        "datapipeline.cli.command_router.handle_materialize_stream",
+        lambda **kwargs: pytest.fail("stream handler should not run"),
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        execute_command(
+            args=args,
+            plugin_root=None,
+            workspace_context=None,
+            cli_level_arg=None,
+            base_level_name="INFO",
+            cli_log_outputs=[],
+        )
+
+    assert exc_info.value.code == 2
 
 
 @pytest.mark.parametrize(
@@ -80,7 +234,9 @@ def test_materialize_command_uses_visual_backend_and_loads_vector_dataset(
     expected_visuals,
 ) -> None:
     selected = {}
-    runtime = object()
+    runtime = SimpleNamespace(
+        registries=SimpleNamespace(stream_specs={"prices.raw": object()})
+    )
 
     def _bootstrap(project):
         return runtime
@@ -92,6 +248,7 @@ def test_materialize_command_uses_visual_backend_and_loads_vector_dataset(
     def _materialize_stream_to_path(**kwargs):
         assert selected["inside_backend"] is True
         assert "visuals" not in kwargs
+        assert kwargs["overwrite"] is False
 
         class Result:
             count = 0

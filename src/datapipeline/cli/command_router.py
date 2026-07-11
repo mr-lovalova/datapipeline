@@ -1,4 +1,5 @@
 import argparse
+import logging
 from pathlib import Path
 
 from datapipeline.cli.commands.clean import handle as handle_clean
@@ -11,7 +12,10 @@ from datapipeline.cli.commands.inflow import handle as handle_inflow
 from datapipeline.cli.commands.list_ import handle as handle_list
 from datapipeline.cli.commands.loader import handle as handle_loader
 from datapipeline.cli.commands.mapper import handle as handle_mapper
-from datapipeline.cli.commands.materialize import handle as handle_materialize
+from datapipeline.cli.commands.materialize import (
+    handle_profiles as handle_materialize_profiles,
+    handle_stream as handle_materialize_stream,
+)
 from datapipeline.cli.commands.parser import handle as handle_parser
 from datapipeline.cli.commands.plugin import handle as handle_plugin
 from datapipeline.cli.commands.source import handle as handle_source
@@ -20,6 +24,8 @@ from datapipeline.cli.commands.version import handle as handle_version
 from datapipeline.cli.commands.version import handle_env
 from datapipeline.config.resolution import LogOutputTarget
 from datapipeline.config.workspace import WorkspaceContext
+
+logger = logging.getLogger(__name__)
 
 
 def execute_command(
@@ -50,16 +56,31 @@ def execute_command(
             handle_clean(yes=args.yes, older_than=args.older_than)
             return True
         case "materialize":
-            handle_materialize(
-                project=args.project,
-                stream_id=args.stream_id,
-                output=args.output,
-                as_stream_id=args.as_stream_id,
-                force=args.force,
-                visuals=args.visuals,
-                heartbeat_interval_seconds=args.heartbeat_interval_seconds,
-                workspace=workspace_context,
-            )
+            if args.materialize_kind == "stream":
+                if args.run is not None:
+                    logger.error("--run cannot be combined with 'materialize stream'")
+                    raise SystemExit(2)
+                handle_materialize_stream(
+                    project=args.project,
+                    stream_id=args.stream_id,
+                    output=args.output,
+                    as_stream_id=args.as_stream_id,
+                    overwrite=args.overwrite,
+                    visuals=args.visuals,
+                    heartbeat_interval_seconds=args.heartbeat_interval_seconds,
+                    workspace=workspace_context,
+                )
+            else:
+                handle_materialize_profiles(
+                    project=args.project,
+                    run_name=args.run,
+                    overwrite=args.overwrite,
+                    visuals=args.visuals,
+                    heartbeat_interval_seconds=args.heartbeat_interval_seconds,
+                    cli_log_level=cli_level_arg,
+                    cli_log_outputs=cli_log_outputs,
+                    base_log_level=base_level_name,
+                )
             return True
         case "source":
             if args.source_cmd == "list":

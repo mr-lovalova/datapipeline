@@ -9,6 +9,8 @@ from datapipeline.config.profiles import (
     BuildProfileDefaults,
     InspectProfile,
     InspectProfileDefaults,
+    MaterializeProfile,
+    MaterializeProfileDefaults,
     Profile,
     ProfileDefaults,
     ServeProfile,
@@ -25,18 +27,29 @@ from datapipeline.utils.load import load_yaml
 from .common import ensure_unique_specs, spec_files
 
 ProfileModel = Annotated[
-    ServeProfile | BuildProfile | InspectProfile,
+    ServeProfile | BuildProfile | InspectProfile | MaterializeProfile,
     Field(discriminator="cmd"),
 ]
 
-PROFILE_ADAPTER = TypeAdapter(ProfileModel)
-PROFILE_KIND_PREFIXES = {"serve", "build", "inspect"}
-ProfileCmd = Literal["serve", "build", "inspect"]
+ProfileCmd = Literal["serve", "build", "inspect", "materialize"]
+PROFILE_KINDS: tuple[ProfileCmd, ...] = (
+    "serve",
+    "build",
+    "inspect",
+    "materialize",
+)
+PROFILE_ADAPTER: TypeAdapter[ProfileModel] = TypeAdapter(ProfileModel)
+PROFILE_KIND_PREFIXES = set(PROFILE_KINDS)
 ProfileDefaultsModel = Annotated[
-    ServeProfileDefaults | BuildProfileDefaults | InspectProfileDefaults,
+    ServeProfileDefaults
+    | BuildProfileDefaults
+    | InspectProfileDefaults
+    | MaterializeProfileDefaults,
     Field(discriminator="cmd"),
 ]
-PROFILE_DEFAULTS_ADAPTER = TypeAdapter(ProfileDefaultsModel)
+PROFILE_DEFAULTS_ADAPTER: TypeAdapter[ProfileDefaultsModel] = TypeAdapter(
+    ProfileDefaultsModel
+)
 
 
 def _load_profile_entry(entry: dict) -> Profile:
@@ -96,7 +109,7 @@ def _validate_profile_layout(root: Path) -> None:
         listed = ", ".join(str(path.relative_to(root)) for path in nested_files)
         raise ValueError(
             "Profile files must be flat under profiles/ using "
-            "{serve,build,inspect}.<name|defaults>.yaml naming; "
+            "{serve,build,inspect,materialize}.<name|defaults>.yaml naming; "
             f"found nested profile files: {listed}"
         )
 
@@ -107,7 +120,8 @@ def _validate_profile_layout(root: Path) -> None:
         return
     listed = ", ".join(str(path.relative_to(root)) for path in invalid)
     raise ValueError(
-        "Profile files must use {serve,build,inspect}.<name|defaults>.yaml naming under profiles/; "
+        "Profile files must use {serve,build,inspect,materialize}.<name|defaults>.yaml "
+        "naming under profiles/; "
         f"found invalid profile locations: {listed}"
     )
 
@@ -164,19 +178,8 @@ def profile_specs(
         return profiles
 
     specs, _ = _load_profile_specs(project_yaml)
-    grouped: dict[str, list[Profile]] = {"serve": [], "build": [], "inspect": []}
-    for spec in specs:
-        grouped[spec.cmd].append(spec)
-
-    for kind, kind_specs in grouped.items():
-        grouped[kind] = _ordered_profiles(kind_specs)
-        ensure_unique_specs(
-            grouped[kind],
-            error_template=f"Duplicate {kind} profile names are not allowed: {{details}}",
-            key_fn=lambda spec: spec.name,
-        )
-
-    return grouped["serve"] + grouped["build"] + grouped["inspect"]
+    grouped = _group_profiles(specs)
+    return [profile for kind in PROFILE_KINDS for profile in grouped[kind]]
 
 
 def profile_specs_with_defaults(
@@ -184,17 +187,7 @@ def profile_specs_with_defaults(
     cmd: ProfileCmd,
 ) -> tuple[list[Profile], ProfileDefaults | None]:
     specs, defaults_by_kind = _load_profile_specs(project_yaml)
-    grouped: dict[str, list[Profile]] = {"serve": [], "build": [], "inspect": []}
-    for spec in specs:
-        grouped[spec.cmd].append(spec)
-
-    for kind, kind_specs in grouped.items():
-        grouped[kind] = _ordered_profiles(kind_specs)
-        ensure_unique_specs(
-            grouped[kind],
-            error_template=f"Duplicate {kind} profile names are not allowed: {{details}}",
-            key_fn=lambda spec: spec.name,
-        )
+    grouped = _group_profiles(specs)
     return list(grouped[cmd]), defaults_by_kind.get(cmd)
 
 
@@ -263,6 +256,20 @@ def _ordered_profiles(specs: list[Profile]) -> list[Profile]:
     unordered = [spec for spec in specs if spec.order is None]
     ordered.sort(key=lambda spec: (spec.order, spec.name))
     return ordered + unordered
+
+
+def _group_profiles(specs: list[Profile]) -> dict[str, list[Profile]]:
+    grouped: dict[str, list[Profile]] = {kind: [] for kind in PROFILE_KINDS}
+    for spec in specs:
+        grouped[spec.cmd].append(spec)
+    for kind, kind_specs in grouped.items():
+        grouped[kind] = _ordered_profiles(kind_specs)
+        ensure_unique_specs(
+            grouped[kind],
+            error_template=f"Duplicate {kind} profile names are not allowed: {{details}}",
+            key_fn=lambda spec: spec.name,
+        )
+    return grouped
 
 
 __all__ = [

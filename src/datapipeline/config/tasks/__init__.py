@@ -1,6 +1,5 @@
 from .base import ArtifactTask, OperationTask, Task
 from .coverage import CoverageOptions, CoverageTask
-from .materialize import MaterializeStreamOptions, MaterializeStreamTask
 from .matrix import MatrixTask
 from .metadata import MetadataTask
 from .pipeline import PipelineTask
@@ -17,8 +16,6 @@ __all__ = [
     "OperationTask",
     "CoverageOptions",
     "CoverageTask",
-    "MaterializeStreamOptions",
-    "MaterializeStreamTask",
     "MatrixTask",
     "PipelineTask",
     "SchemaTask",

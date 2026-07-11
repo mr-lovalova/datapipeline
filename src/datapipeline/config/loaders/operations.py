@@ -5,7 +5,6 @@ from datapipeline.config.model_utils import normalize_required_text
 from datapipeline.config.tasks import (
     ArtifactTask,
     CoverageTask,
-    MaterializeStreamTask,
     MatrixTask,
     MetadataTask,
     OperationTask,
@@ -34,7 +33,6 @@ RUNTIME_OPERATION_MODELS: dict[str, type[OperationTask[Any]]] = {
     "core.runtime.coverage": CoverageTask,
     "core.runtime.thresholds": ThresholdsTask,
     "core.runtime.matrix": MatrixTask,
-    "core.runtime.materialize_stream": MaterializeStreamTask,
 }
 TICKS_ENTRYPOINT = "core.artifact.ticks"
 

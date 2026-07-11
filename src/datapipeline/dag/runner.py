@@ -84,6 +84,7 @@ class _HeartbeatNodeState:
     active_since: float
     last_emit_at: float
     items: int
+    detail: str | None = None
 
 
 class _RunHeartbeat:
@@ -147,6 +148,12 @@ class _RunHeartbeat:
             if state is not None:
                 state.last_emit_at = now
 
+    def set_detail(self, node: NodeProgressContext, detail: str | None) -> None:
+        with self._lock:
+            state = self._states.get(node)
+            if state is not None:
+                state.detail = detail
+
     def clear(self, node: NodeProgressContext) -> None:
         with self._delivery_lock:
             with self._lock:
@@ -178,8 +185,11 @@ class _RunHeartbeat:
             if now - state.last_emit_at < self._interval_seconds:
                 return None
             items = state.items
+            detail = state.detail
             elapsed = now - state.active_since
             state.last_emit_at = now
+        if detail is not None:
+            return node, f"running elapsed={elapsed:.0f}s {detail}"
         return node, f"running elapsed={elapsed:.0f}s items={items}"
 
 
@@ -207,6 +217,14 @@ def emit_node_progress(message: str) -> None:
     heartbeat = _CURRENT_RUN_HEARTBEAT.get()
     if heartbeat is not None:
         heartbeat.progress_emitted(node)
+
+
+def set_node_heartbeat_detail(detail: str | None) -> None:
+    """Describe buffered work that has not produced node output yet."""
+    node = _CURRENT_RUN_PROGRESS_NODE.get()
+    heartbeat = _CURRENT_RUN_HEARTBEAT.get()
+    if node is not None and heartbeat is not None:
+        heartbeat.set_detail(node, detail)
 
 
 def _emit_node_progress(

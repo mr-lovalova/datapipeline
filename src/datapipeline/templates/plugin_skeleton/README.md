@@ -49,12 +49,15 @@ YAML config (dataset project root):
   - `streams/*.yaml` (canonical streams)
   - `dataset.yaml` (features/targets)
   - `postprocess.yaml` (vector-level transforms)
-  - `profiles/serve.<name>.yaml`, `profiles/build.<name>.yaml`, `profiles/inspect.<name>.yaml` (profiles; optional overrides)
-  - `profiles/serve.defaults.yaml`, `profiles/build.defaults.yaml`, `profiles/inspect.defaults.yaml` (optional per-kind defaults)
+  - `profiles/{serve,build,inspect,materialize}.<name>.yaml` (profiles; optional overrides)
+  - `profiles/{serve,build,inspect,materialize}.defaults.yaml` (optional per-kind defaults)
   - `tasks/operations/*.yaml` (declared artifact and runtime operations)
 
 Profile sequencing:
+
 - Profiles execute by `order` (ascending); unset falls back to filename order.
+- Materialize profiles name a stream and an exact durable JSONL output; they do
+  not target runtime tasks.
 - Build profiles target artifact tasks; serve and inspect profiles target runtime
   tasks.
 - Before selected serve or inspect profiles run, their artifact requirements are

@@ -181,8 +181,6 @@ class ArtifactGraph:
             if preview_index == 12:
                 return declared | {VECTOR_METADATA}
             return declared | {VECTOR_METADATA, VECTOR_SCHEMA}
-        if task.entrypoint == "core.runtime.materialize_stream":
-            return declared | tick_artifacts
         if task.entrypoint in {
             "core.runtime.coverage",
             "core.runtime.matrix",

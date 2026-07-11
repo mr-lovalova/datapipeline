@@ -13,18 +13,20 @@ These live under the dataset “project root” directory (the folder containing
 - `profiles/serve.<name>.yaml`: serve profiles.
 - `profiles/build.<name>.yaml`: build profiles.
 - `profiles/inspect.<name>.yaml`: inspect profiles.
+- `profiles/materialize.<name>.yaml`: durable stream-output profiles.
 - `tasks/operations/*.yaml`: declared artifact and runtime operations.
 
 ### Configuration & Resolution Order
 
 Defaults are layered so you can set global preferences once, keep dataset/run
 files focused on per-project behavior, and still override anything from the CLI.
-For `jerry serve`, `jerry inspect`, and `jerry build`, options are merged in the
-following order (highest precedence first):
+For `jerry serve`, `jerry inspect`, `jerry build`, and `jerry materialize`,
+options are merged in the following order (highest precedence first):
 
 1. **CLI flags** – anything you pass on the command line always wins.
 2. **Project profile files** – profile configs under `project.paths.profiles`
-   (`cmd: serve|build|inspect`) supply per-command defaults and selection policy.
+   (`cmd: serve|build|inspect|materialize`) supply per-command settings and
+   selection policy.
 3. **Per-kind profile defaults** – optional `profiles/<kind>.defaults.yaml`.
 4. **Built-in defaults** – runtime hard-coded defaults.
 
@@ -75,9 +77,11 @@ globals:
   and optional tick artifacts) define what can be materialized. Runtime operations
   (`pipeline`, `coverage`, `matrix`, `thresholds`, ...) define executable steps.
 - `paths.profiles` points to profile specs grouped by type:
-  `profiles/serve.<name>.yaml`, `profiles/build.<name>.yaml`, `profiles/inspect.<name>.yaml`.
+  `profiles/serve.<name>.yaml`, `profiles/build.<name>.yaml`,
+  `profiles/inspect.<name>.yaml`, and `profiles/materialize.<name>.yaml`.
   Optional defaults files may also be declared once per kind:
-  `profiles/serve.defaults.yaml`, `profiles/build.defaults.yaml`, `profiles/inspect.defaults.yaml`.
+  `profiles/serve.defaults.yaml`, `profiles/build.defaults.yaml`,
+  `profiles/inspect.defaults.yaml`, and `profiles/materialize.defaults.yaml`.
   When multiple profiles exist, `--run <name>` selects one profile for the
   requested command by its explicit `name`.
 - Label names are free-form: match whatever keys you declare in `split.ratios` (hash) or `split.labels` (time).
@@ -134,6 +138,35 @@ throttle_ms: null # milliseconds to sleep between emitted vectors
   for distinct serve policies; `jerry serve` runs each enabled profile unless
   you pass `--run <name>`.
 - Use `profiles/serve.defaults.yaml` for common serve defaults shared across all serve profiles in a project. CLI flags and concrete profiles still take precedence.
+
+### Materialize Profiles (`profiles/materialize.<name>.yaml`)
+
+```yaml
+cmd: materialize
+name: adv.20
+order: 10
+stream: adv.20
+output: ${data_root}/features/liquidity/adv/20.jsonl
+overwrite: true
+# as: adv.20.cached # optionally also generate reusable source/ingest YAML
+# observability:
+#   visuals: ON
+#   heartbeat_interval_seconds: 60
+```
+
+- `jerry materialize` runs all enabled materialize profiles in `order`; `--run`
+  selects one. Unlike serve and inspect profiles, these profiles identify a
+  stream directly and do not target a runtime task.
+- Relative `output` paths are resolved from the directory containing
+  `project.yaml`. Output must end in `.jsonl`.
+- Before execution, Jerry validates every selected stream and checks the full
+  destination set for duplicates and existing files. No profile writes until
+  the whole selected batch passes this preflight.
+- `overwrite: false` is the built-in default. `--overwrite` and
+  `--no-overwrite` override every selected profile; shared defaults belong in
+  `profiles/materialize.defaults.yaml`.
+- `as` additionally writes source and ingest config files that read the
+  materialized JSONL with explicit ordering metadata.
 
 ### Build Profiles (`profiles/build.<name>.yaml`)
 

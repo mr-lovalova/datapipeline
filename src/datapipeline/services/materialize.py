@@ -7,6 +7,7 @@ import os
 
 import yaml
 
+from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.dag.context import PipelineContext
 from datapipeline.dag.runner import run_dag
 from datapipeline.io.factory import writer_factory
@@ -28,30 +29,38 @@ class MaterializeResult:
     ingest_config: Path | None = None
 
 
+@dataclass(frozen=True)
+class MaterializeDestinationPaths:
+    output: Path
+    metadata: Path
+    source_config: Path | None = None
+    ingest_config: Path | None = None
+
+    @property
+    def paths(self) -> tuple[Path, ...]:
+        optional = (self.source_config, self.ingest_config)
+        return (self.output, self.metadata) + tuple(
+            path for path in optional if path is not None
+        )
+
+
 def materialize_stream_to_path(
     *,
     runtime: Runtime,
     stream_id: str,
     output: Path,
     as_stream_id: str | None = None,
-    force: bool = False,
-    dataset: Any | None = None,
+    overwrite: bool = False,
+    dataset: FeatureDatasetConfig | None = None,
 ) -> MaterializeResult:
     if dataset is not None:
         runtime.sample_keys = dataset.sample_keys
-    validate_materialize_output_path(output)
-    ordered_by = materialized_order(runtime, stream_id)
-    metadata_path = materialized_metadata_path(output)
-    _check_overwrite(output, force=force)
-    _check_overwrite(metadata_path, force=force)
-    if as_stream_id is not None:
-        source_path, ingest_path = materialized_stream_config_paths(
-            runtime=runtime,
-            stream_id=as_stream_id,
-            source_id=f"{as_stream_id}.source",
-        )
-        _check_overwrite(source_path, force=force)
-        _check_overwrite(ingest_path, force=force)
+    destinations = materialize_destination_paths(runtime, output, as_stream_id)
+    check_materialize_destinations(destinations, overwrite)
+    raw_partition_by = runtime.registries.partition_by.get(stream_id)
+    ordered_by = required_record_order(raw_partition_by)
+    partition_by = _field_list(raw_partition_by)
+    feature_id_by = _field_list(runtime.registries.feature_id_by.get(stream_id))
 
     rows = materialized_stream_rows(runtime, stream_id)
     target = OutputTarget(
@@ -59,17 +68,17 @@ def materialize_stream_to_path(
         format="jsonl",
         view="raw",
         encoding="utf-8",
-        destination=output.resolve(),
-        overwrite=force,
+        destination=destinations.output,
+        overwrite=overwrite,
     )
     count = write_rows(rows, target)
     metadata_path = write_materialized_stream_metadata(
-        output=output,
+        output=destinations.output,
         rows=count,
-        partition_by=materialized_partition_by(runtime, stream_id),
-        feature_id_by=materialized_feature_id_by(runtime, stream_id),
+        partition_by=partition_by,
+        feature_id_by=feature_id_by,
         ordered_by=ordered_by,
-        force=force,
+        overwrite=overwrite,
     )
 
     source_config = None
@@ -79,16 +88,16 @@ def materialize_stream_to_path(
             runtime=runtime,
             stream_id=as_stream_id,
             source_id=f"{as_stream_id}.source",
-            output=output,
-            partition_by=materialized_partition_by(runtime, stream_id),
-            feature_id_by=materialized_feature_id_by(runtime, stream_id),
+            output=destinations.output,
+            partition_by=partition_by,
+            feature_id_by=feature_id_by,
             ordered_by=ordered_by,
-            force=force,
+            overwrite=overwrite,
         )
 
     return MaterializeResult(
         count=count,
-        output=output.resolve(),
+        output=destinations.output,
         metadata=metadata_path,
         source_config=source_config,
         ingest_config=ingest_config,
@@ -106,24 +115,7 @@ def materialized_stream_rows(runtime: Runtime, stream_id: str) -> Iterator[Any]:
     )
 
 
-def materialized_order(runtime: Runtime, stream_id: str) -> list[str]:
-    partition_by = runtime.registries.partition_by.get(stream_id)
-    return required_record_order(partition_by)
-
-
-def materialized_partition_by(runtime: Runtime, stream_id: str) -> list[str] | None:
-    partition_by = runtime.registries.partition_by.get(stream_id)
-    return _field_list(partition_by)
-
-
-def materialized_feature_id_by(runtime: Runtime, stream_id: str) -> list[str] | None:
-    feature_id_by = runtime.registries.feature_id_by.get(stream_id)
-    return _field_list(feature_id_by)
-
-
 def _field_list(value: str | list[str] | None) -> list[str] | None:
-    if value == []:
-        return []
     if value is None:
         return None
     if isinstance(value, str):
@@ -131,13 +123,46 @@ def _field_list(value: str | list[str] | None) -> list[str] | None:
     return list(value)
 
 
-def _write_field_list(doc: dict[str, Any], key: str, value: list[str] | None) -> None:
-    if value is not None:
-        doc[key] = value
-
-
 def materialized_metadata_path(output: Path) -> Path:
     return output.with_suffix(".metadata.json")
+
+
+def materialize_destination_paths(
+    runtime: Runtime,
+    output: Path,
+    as_stream_id: str | None = None,
+) -> MaterializeDestinationPaths:
+    validate_materialize_output_path(output)
+    resolved_output = output.resolve()
+    if as_stream_id is None:
+        return MaterializeDestinationPaths(
+            output=resolved_output,
+            metadata=materialized_metadata_path(resolved_output),
+        )
+    source_config, ingest_config = materialized_stream_config_paths(
+        runtime=runtime,
+        stream_id=as_stream_id,
+        source_id=f"{as_stream_id}.source",
+    )
+    return MaterializeDestinationPaths(
+        output=resolved_output,
+        metadata=materialized_metadata_path(resolved_output),
+        source_config=source_config.resolve(),
+        ingest_config=ingest_config.resolve(),
+    )
+
+
+def check_materialize_destinations(
+    destinations: MaterializeDestinationPaths,
+    overwrite: bool,
+) -> None:
+    if overwrite:
+        return
+    for path in destinations.paths:
+        if path.exists():
+            raise FileExistsError(
+                f"{path} already exists; pass --overwrite to replace it"
+            )
 
 
 def write_materialized_stream_metadata(
@@ -147,10 +172,9 @@ def write_materialized_stream_metadata(
     partition_by: list[str] | None,
     feature_id_by: list[str] | None,
     ordered_by: list[str],
-    force: bool,
+    overwrite: bool,
 ) -> Path:
     path = materialized_metadata_path(output)
-    _check_overwrite(path, force=force)
     doc = {
         "rows": rows,
         "format": "jsonl",
@@ -162,7 +186,7 @@ def write_materialized_stream_metadata(
     _write_text_atomically(
         path,
         json.dumps(doc, indent=2, ensure_ascii=False) + "\n",
-        overwrite=force,
+        overwrite=overwrite,
     )
     return path.resolve()
 
@@ -195,16 +219,13 @@ def write_materialized_stream_config(
     partition_by: list[str] | None,
     feature_id_by: list[str] | None,
     ordered_by: list[str],
-    force: bool,
+    overwrite: bool,
 ) -> tuple[Path, Path]:
     source_path, ingest_path = materialized_stream_config_paths(
         runtime=runtime,
         stream_id=stream_id,
         source_id=source_id,
     )
-    _check_overwrite(source_path, force=force)
-    _check_overwrite(ingest_path, force=force)
-
     source_doc = {
         "id": source_id,
         "parser": {"entrypoint": "core.temporal_record", "args": {}},
@@ -224,23 +245,24 @@ def write_materialized_stream_config(
         "map": {"entrypoint": "identity", "args": {}},
         "ordered_by": ordered_by,
     }
-    _write_field_list(ingest_doc, "partition_by", partition_by)
-    _write_field_list(ingest_doc, "feature_id_by", feature_id_by)
+    if partition_by is not None:
+        ingest_doc["partition_by"] = partition_by
+    if feature_id_by is not None:
+        ingest_doc["feature_id_by"] = feature_id_by
     _write_text_atomically(
         source_path,
         yaml.safe_dump(source_doc, sort_keys=False),
-        overwrite=force,
+        overwrite=overwrite,
     )
     _write_text_atomically(
         ingest_path,
         yaml.safe_dump(ingest_doc, sort_keys=False),
-        overwrite=force,
+        overwrite=overwrite,
     )
     return source_path.resolve(), ingest_path.resolve()
 
 
 def materialized_stream_config_paths(
-    *,
     runtime: Runtime,
     stream_id: str,
     source_id: str,
@@ -258,11 +280,6 @@ def _project_relative_path(path: Path, project_yaml: Path) -> str:
 def validate_materialize_output_path(path: Path) -> None:
     if path.suffix != ".jsonl":
         raise ValueError("materialize stream output must use a .jsonl path")
-
-
-def _check_overwrite(path: Path, *, force: bool) -> None:
-    if path.exists() and not force:
-        raise FileExistsError(f"{path} already exists; pass --force to overwrite")
 
 
 def _write_text_atomically(path: Path, text: str, *, overwrite: bool) -> None:

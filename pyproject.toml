@@ -127,7 +127,6 @@ identity = "datapipeline.parsers.identity:IdentityParser"
 "core.runtime.coverage" = "datapipeline.operations.runtime.coverage:inspect_coverage_with_runtime"
 "core.runtime.thresholds" = "datapipeline.operations.runtime.thresholds:inspect_thresholds_with_runtime"
 "core.runtime.matrix" = "datapipeline.operations.runtime.matrix:inspect_matrix_with_runtime"
-"core.runtime.materialize_stream" = "datapipeline.operations.runtime.materialize:materialize_stream_with_runtime"
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

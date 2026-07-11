@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
 
 from datapipeline.config.observability import ObservabilityConfig
 
@@ -54,9 +54,16 @@ class InspectProfileDefaults(ProfileDefaults):
         return normalize_artifact_mode(value)
 
 
+class MaterializeProfileDefaults(ProfileDefaults):
+    cmd: Literal["materialize"]
+    overwrite: StrictBool | None = None
+    observability: ObservabilityConfig | None = None
+
+
 __all__ = [
     "ProfileDefaults",
     "ServeProfileDefaults",
     "BuildProfileDefaults",
     "InspectProfileDefaults",
+    "MaterializeProfileDefaults",
 ]

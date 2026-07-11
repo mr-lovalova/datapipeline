@@ -27,7 +27,6 @@ from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.config.tasks import (
     ArtifactTask,
     CoverageTask,
-    MaterializeStreamTask,
     MetadataTask,
     OperationTask,
     PipelineTask,
@@ -491,21 +490,6 @@ def test_pipeline_stream_and_feature_previews_require_declared_ticks(
         task,
         preview_index=preview_index,
     )
-
-
-def test_runtime_stream_materialization_requires_declared_ticks() -> None:
-    tick_task = TicksTask(
-        id="dataset_ticks",
-        stream="reference.stream",
-        output="build/dataset_ticks.jsonl",
-    )
-    graph = build_artifact_graph([tick_task])
-    task = MaterializeStreamTask(
-        id="materialize",
-        options={"stream": "derived.stream"},
-    )
-
-    assert graph.runtime_requirements(task, preview_index=None) == {"dataset_ticks"}
 
 
 def test_invalid_pipeline_preview_is_rejected_for_empty_dataset() -> None:

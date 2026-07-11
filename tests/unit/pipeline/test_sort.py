@@ -52,6 +52,26 @@ def test_batch_sort_orders_records_across_merge_passes(monkeypatch) -> None:
     assert [item.value for item in ordered] == [1, 2, 3, 4, 5]
 
 
+def test_batch_sort_reports_buffered_and_merged_work(monkeypatch) -> None:
+    monkeypatch.setattr(sort_module, "_MAX_OPEN_RUNS", 2)
+    monkeypatch.setattr(sort_module, "_MERGE_PROGRESS_INTERVAL", 1)
+    details: list[str | None] = []
+    monkeypatch.setattr(sort_module, "set_node_heartbeat_detail", details.append)
+
+    ordered = list(
+        batch_sort(
+            [SortItem(3), SortItem(1), SortItem(2)],
+            batch_size=1,
+            key=lambda item: item.value,
+        )
+    )
+
+    assert [item.value for item in ordered] == [1, 2, 3]
+    assert "sorting input items=3 spilled_runs=3" in details
+    assert "merging spill runs pass=1 items=3/3" in details
+    assert details[-1] is None
+
+
 def test_batch_sort_preserves_input_order_for_equal_keys_across_merge_passes(
     monkeypatch,
 ) -> None:

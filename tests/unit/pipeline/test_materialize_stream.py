@@ -1,16 +1,10 @@
 import json
-import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
-from datapipeline.config.tasks import MaterializeStreamTask
 from datapipeline.domain.record import TemporalRecord
-from datapipeline.io.output import OutputTarget
-from datapipeline.operations.persistence import persist_runtime_result
-from datapipeline.operations.runtime.materialize import materialize_stream_with_runtime
 from datapipeline.pipelines.record.streams import open_record_stream
 from datapipeline.runtime import Runtime, StreamRuntimeSpec
 from datapipeline.services.bootstrap import bootstrap
@@ -83,16 +77,6 @@ def _runtime(
     regs.ordered_by.register("prices.raw", None)
     regs.sort_batch_size.register("prices.raw", 2)
     return runtime
-
-
-def _runtime_output_target(output: Path) -> OutputTarget:
-    return OutputTarget(
-        transport="fs",
-        format="jsonl",
-        view="raw",
-        encoding="utf-8",
-        destination=output,
-    )
 
 
 @pytest.fixture
@@ -214,14 +198,14 @@ def reloaded_context(runtime: Runtime):
     return PipelineContext(runtime)
 
 
-def test_materialize_stream_refuses_overwrite_without_force(
+def test_materialize_stream_refuses_existing_output_without_overwrite(
     tmp_path: Path,
     one_row_runtime: Runtime,
 ) -> None:
     output = tmp_path / "prices.jsonl"
     output.write_text("", encoding="utf-8")
 
-    with pytest.raises(FileExistsError, match="--force"):
+    with pytest.raises(FileExistsError, match="--overwrite"):
         materialize_stream_to_path(
             runtime=one_row_runtime,
             stream_id="prices.raw",
@@ -267,7 +251,7 @@ def test_materialize_stream_checks_config_overwrite_before_writing_output(
     existing_config.write_text("existing: true\n", encoding="utf-8")
     output = tmp_path / "prices.jsonl"
 
-    with pytest.raises(FileExistsError, match="--force"):
+    with pytest.raises(FileExistsError, match="--overwrite"):
         materialize_stream_to_path(
             runtime=one_row_runtime,
             stream_id="prices.raw",
@@ -287,7 +271,7 @@ def test_materialize_stream_checks_metadata_overwrite_before_writing_output(
     metadata = tmp_path / "prices.metadata.json"
     metadata.write_text("existing\n", encoding="utf-8")
 
-    with pytest.raises(FileExistsError, match="--force"):
+    with pytest.raises(FileExistsError, match="--overwrite"):
         materialize_stream_to_path(
             runtime=one_row_runtime,
             stream_id="prices.raw",
@@ -296,132 +280,3 @@ def test_materialize_stream_checks_metadata_overwrite_before_writing_output(
 
     assert not output.exists()
     assert metadata.read_text(encoding="utf-8") == "existing\n"
-
-
-def test_runtime_materialize_stream_writes_metadata_sidecar(tmp_path: Path) -> None:
-    runtime = _runtime(
-        tmp_path,
-        [
-            {"time": _ts(2), "security_id": "MSFT", "close": 20.0},
-            {"time": _ts(1), "security_id": "AAPL", "close": 10.0},
-        ],
-    )
-    dataset = SimpleNamespace(sample_keys=["security_id"])
-    output = tmp_path / "runtime" / "prices.jsonl"
-    target = _runtime_output_target(output)
-    operation_task = MaterializeStreamTask(
-        id="materialize",
-        options={"stream": "prices.raw"},
-    )
-
-    batch = materialize_stream_with_runtime(
-        runtime=runtime,
-        dataset=dataset,
-        target=target,
-        operation_task=operation_task,
-    )
-    persist_runtime_result(
-        batch,
-        target=target,
-        logger=logging.getLogger(__name__),
-    )
-
-    metadata = output.with_suffix(".metadata.json")
-    assert json.loads(metadata.read_text(encoding="utf-8")) == {
-        "rows": 2,
-        "format": "jsonl",
-        "encoding": "utf-8",
-        "partition_by": None,
-        "feature_id_by": None,
-        "ordered_by": ["time"],
-    }
-
-
-def test_runtime_materialize_stream_refuses_existing_output_without_force(
-    tmp_path: Path,
-    one_row_runtime: Runtime,
-) -> None:
-    dataset = SimpleNamespace(sample_keys=["security_id"])
-    output = tmp_path / "runtime" / "prices.jsonl"
-    output.parent.mkdir()
-    output.write_text("existing output\n", encoding="utf-8")
-    target = _runtime_output_target(output)
-    operation_task = MaterializeStreamTask(
-        id="materialize",
-        options={"stream": "prices.raw"},
-    )
-
-    with pytest.raises(FileExistsError, match="options.force"):
-        materialize_stream_with_runtime(
-            runtime=one_row_runtime,
-            dataset=dataset,
-            target=target,
-            operation_task=operation_task,
-        )
-
-    assert output.read_text(encoding="utf-8") == "existing output\n"
-    assert not output.with_suffix(".metadata.json").exists()
-
-
-def test_runtime_materialize_stream_does_not_clobber_output_created_during_run(
-    tmp_path: Path,
-    one_row_runtime: Runtime,
-) -> None:
-    dataset = SimpleNamespace(sample_keys=["security_id"])
-    output = tmp_path / "runtime" / "prices.jsonl"
-    target = _runtime_output_target(output)
-    operation_task = MaterializeStreamTask(
-        id="materialize",
-        options={"stream": "prices.raw"},
-    )
-    batch = materialize_stream_with_runtime(
-        runtime=one_row_runtime,
-        dataset=dataset,
-        target=target,
-        operation_task=operation_task,
-    )
-
-    output.parent.mkdir()
-    output.write_text("concurrent output\n", encoding="utf-8")
-
-    with pytest.raises(FileExistsError, match="already exists"):
-        persist_runtime_result(
-            batch,
-            target=target,
-            logger=logging.getLogger(__name__),
-        )
-
-    assert output.read_text(encoding="utf-8") == "concurrent output\n"
-    assert not output.with_suffix(".metadata.json").exists()
-
-
-def test_runtime_materialize_stream_force_replaces_existing_output(
-    tmp_path: Path,
-    one_row_runtime: Runtime,
-) -> None:
-    dataset = SimpleNamespace(sample_keys=["security_id"])
-    output = tmp_path / "runtime" / "prices.jsonl"
-    output.parent.mkdir()
-    output.write_text("existing output\n", encoding="utf-8")
-    metadata = output.with_suffix(".metadata.json")
-    metadata.write_text("existing metadata\n", encoding="utf-8")
-    target = _runtime_output_target(output)
-    force_task = MaterializeStreamTask(
-        id="materialize",
-        options={"stream": "prices.raw", "force": True},
-    )
-
-    batch = materialize_stream_with_runtime(
-        runtime=one_row_runtime,
-        dataset=dataset,
-        target=target,
-        operation_task=force_task,
-    )
-    persist_runtime_result(
-        batch,
-        target=target,
-        logger=logging.getLogger(__name__),
-    )
-
-    assert "existing output" not in output.read_text(encoding="utf-8")
-    assert json.loads(metadata.read_text(encoding="utf-8"))["rows"] == 1

@@ -120,7 +120,7 @@ def test_runtime_persistence_emits_operation_saved_info(tmp_path) -> None:
         logger = logging.getLogger(__name__)
         observer = make_operation_observer(logger)
         with operation_observer(observer):
-            with operation_scope("serve:train", "core.runtime.materialize"):
+            with operation_scope("serve:train", "core.runtime.pipeline"):
                 persist_runtime_result(
                     RuntimeOutput(rows=iter([{"value": 1}])),
                     target=target,

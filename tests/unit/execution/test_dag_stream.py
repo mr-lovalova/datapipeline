@@ -313,6 +313,31 @@ def test_run_dag_heartbeat_tracks_context_and_items(tmp_path: Path) -> None:
     assert set(observed_markers) == {"visual-context"}
 
 
+def test_run_dag_heartbeat_reports_buffered_node_work(tmp_path: Path) -> None:
+    observer = _CollectingObserver()
+    ctx = _context(tmp_path)
+    ctx.heartbeat_interval_seconds = 0.01
+
+    def _work():
+        dag_runner.set_node_heartbeat_detail(
+            "sorting input items=200000 spilled_runs=2"
+        )
+        assert observer.wait_for_next_heartbeat()
+        dag_runner.set_node_heartbeat_detail(None)
+        yield 1
+
+    dag = Dag(
+        name="heartbeat-buffering-demo",
+        nodes=(PipelineNode(name="order_records", op=_work),),
+    )
+
+    assert list(run_dag(ctx, dag, observer=observer)) == [1]
+
+    heartbeat = _heartbeat_events(observer)[0]
+    assert heartbeat.node_name == "order_records"
+    assert heartbeat.message.endswith("sorting input items=200000 spilled_runs=2")
+
+
 def test_heartbeat_tracks_active_node_through_nested_streams(
     tmp_path: Path,
     monkeypatch,

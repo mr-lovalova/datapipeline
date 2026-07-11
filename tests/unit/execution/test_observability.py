@@ -77,7 +77,7 @@ def test_operation_scope_reports_failure_and_restores_detail_context(
 
     with operation_observer(observer):
         with pytest.raises(ValueError, match="bad input"):
-            with operation_scope("serve:test", "core.runtime.materialize", depth=2):
+            with operation_scope("serve:test", "core.runtime.pipeline", depth=2):
                 raise ValueError("  bad input  ")
 
         assert emit_operation_info("after failure") is False
@@ -86,7 +86,7 @@ def test_operation_scope_reports_failure_and_restores_detail_context(
         OperationStarted(
             name="serve:test",
             depth=2,
-            entrypoint="core.runtime.materialize",
+            entrypoint="core.runtime.pipeline",
         ),
         OperationFinished(
             name="serve:test",

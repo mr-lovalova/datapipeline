@@ -3,10 +3,14 @@ from pathlib import Path
 import pytest
 
 from datapipeline.config.loaders.operations import operation_specs
-from datapipeline.config.loaders.profiles import profile_defaults, profile_specs
+from datapipeline.config.loaders.profiles import (
+    apply_profile_defaults,
+    profile_defaults,
+    profile_specs,
+)
+from datapipeline.config.profiles import MaterializeProfile
 from datapipeline.config.tasks import (
     CoverageTask,
-    MaterializeStreamTask,
     MatrixTask,
     OperationTask,
     PipelineTask,
@@ -36,8 +40,16 @@ def _inspect_profiles(project_yaml: Path):
     return list(profile_specs(project_yaml, cmd="inspect"))
 
 
+def _materialize_profiles(project_yaml: Path):
+    return list(profile_specs(project_yaml, cmd="materialize"))
+
+
 def _serve_defaults(project_yaml: Path):
     return profile_defaults(project_yaml, cmd="serve")
+
+
+def _materialize_defaults(project_yaml: Path):
+    return profile_defaults(project_yaml, cmd="materialize")
 
 
 def _write_project(tmp_path: Path, tasks_ref: str | None = None) -> Path:
@@ -469,6 +481,128 @@ def test_inspect_profiles_load_and_respect_enabled(tmp_path):
     assert tasks[1].enabled is False
 
 
+def test_materialize_profiles_load_and_normalize_fields(tmp_path):
+    project_yaml = _write_project(tmp_path, tasks_ref="tasks")
+    profiles_dir = _profile_kind_dir(project_yaml)
+    (profiles_dir / "materialize.adv-20.yaml").write_text(
+        (
+            "cmd: materialize\n"
+            "name: adv-20\n"
+            "order: 20\n"
+            "stream: ' adv.20 '\n"
+            "output: ' data/features/adv/20.jsonl '\n"
+            "as: ' liquidity.adv-20 '\n"
+            "overwrite: true\n"
+            "observability:\n"
+            "  visuals: on\n"
+        ),
+        encoding="utf-8",
+    )
+
+    profiles = _materialize_profiles(project_yaml)
+
+    assert len(profiles) == 1
+    profile = profiles[0]
+    assert isinstance(profile, MaterializeProfile)
+    assert profile.stream == "adv.20"
+    assert profile.output == Path("data/features/adv/20.jsonl")
+    assert profile.as_stream_id == "liquidity.adv-20"
+    assert profile.model_dump(by_alias=True)["as"] == "liquidity.adv-20"
+    assert profile.overwrite is True
+    assert profile.observability is not None
+    assert profile.observability.visuals == "ON"
+
+
+@pytest.mark.parametrize("field", ["stream", "output"])
+def test_materialize_profile_requires_nonempty_paths(tmp_path, field):
+    project_yaml = _write_project(tmp_path, tasks_ref="tasks")
+    profiles_dir = _profile_kind_dir(project_yaml)
+    values = {"stream": "adv.20", "output": "adv-20.jsonl"}
+    values[field] = "   "
+    (profiles_dir / "materialize.adv-20.yaml").write_text(
+        (
+            "cmd: materialize\n"
+            "name: adv-20\n"
+            f"stream: '{values['stream']}'\n"
+            f"output: '{values['output']}'\n"
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match=f"{field} must be set"):
+        _materialize_profiles(project_yaml)
+
+
+def test_materialize_profile_requires_jsonl_output(tmp_path):
+    project_yaml = _write_project(tmp_path, tasks_ref="tasks")
+    profiles_dir = _profile_kind_dir(project_yaml)
+    (profiles_dir / "materialize.adv-20.yaml").write_text(
+        (
+            "cmd: materialize\n"
+            "name: adv-20\n"
+            "stream: adv.20\n"
+            "output: data/features/adv/20.csv\n"
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="output must use a .jsonl path"):
+        _materialize_profiles(project_yaml)
+
+
+def test_materialize_profile_requires_boolean_overwrite(tmp_path):
+    project_yaml = _write_project(tmp_path, tasks_ref="tasks")
+    profiles_dir = _profile_kind_dir(project_yaml)
+    (profiles_dir / "materialize.adv-20.yaml").write_text(
+        (
+            "cmd: materialize\n"
+            "name: adv-20\n"
+            "stream: adv.20\n"
+            "output: data/features/adv/20.jsonl\n"
+            "overwrite: 'false'\n"
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="valid boolean"):
+        _materialize_profiles(project_yaml)
+
+
+def test_materialize_defaults_apply_overwrite_and_observability(tmp_path):
+    project_yaml = _write_project(tmp_path, tasks_ref="tasks")
+    profiles_dir = _profile_kind_dir(project_yaml)
+    (profiles_dir / "materialize.defaults.yaml").write_text(
+        (
+            "cmd: materialize\n"
+            "overwrite: true\n"
+            "observability:\n"
+            "  heartbeat_interval_seconds: 30\n"
+        ),
+        encoding="utf-8",
+    )
+    (profiles_dir / "materialize.adv-20.yaml").write_text(
+        (
+            "cmd: materialize\n"
+            "name: adv-20\n"
+            "stream: adv.20\n"
+            "output: data/features/adv/20.jsonl\n"
+            "observability:\n"
+            "  visuals: off\n"
+        ),
+        encoding="utf-8",
+    )
+
+    profile = _materialize_profiles(project_yaml)[0]
+    defaults = _materialize_defaults(project_yaml)
+    merged = apply_profile_defaults(profile, defaults)
+
+    assert isinstance(merged, MaterializeProfile)
+    assert merged.overwrite is True
+    assert merged.observability is not None
+    assert merged.observability.visuals == "OFF"
+    assert merged.observability.heartbeat_interval_seconds == 30
+
+
 def test_profile_order_overrides_file_order(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     profiles_dir = _profile_kind_dir(project_yaml)
@@ -705,62 +839,6 @@ def test_inspection_task_options_default_to_current_behavior(
     assert operation.options.threshold == 0.95
 
 
-def test_materialize_stream_options_are_typed(tmp_path: Path) -> None:
-    project_yaml = _write_project(tmp_path, tasks_ref="tasks")
-    tasks_dir = _operations_dir(project_yaml)
-    (tasks_dir / "materialize.yaml").write_text(
-        (
-            "id: materialize\n"
-            "kind: runtime\n"
-            "entrypoint: core.runtime.materialize_stream\n"
-            "options:\n"
-            "  stream: ' prices.raw '\n"
-            "  as: ' prices.cached '\n"
-            "  force: false\n"
-        ),
-        encoding="utf-8",
-    )
-
-    [task] = _all_tasks(project_yaml)
-
-    assert isinstance(task, MaterializeStreamTask)
-    assert task.options.stream == "prices.raw"
-    assert task.options.as_stream_id == "prices.cached"
-    assert task.options.force is False
-    assert task.model_dump(by_alias=True)["options"]["as"] == "prices.cached"
-
-
-@pytest.mark.parametrize(
-    ("options_yaml", "error"),
-    [
-        ("  force: false\n", "options.stream"),
-        ("  stream: '   '\n", "options.stream"),
-        ("  stream: prices.raw\n  force: 'false'\n", "valid boolean"),
-        ("  stream: prices.raw\n  typo: true\n", "Extra inputs are not permitted"),
-    ],
-)
-def test_materialize_stream_rejects_invalid_options(
-    tmp_path: Path,
-    options_yaml: str,
-    error: str,
-) -> None:
-    project_yaml = _write_project(tmp_path, tasks_ref="tasks")
-    tasks_dir = _operations_dir(project_yaml)
-    (tasks_dir / "materialize.yaml").write_text(
-        (
-            "id: materialize\n"
-            "kind: runtime\n"
-            "entrypoint: core.runtime.materialize_stream\n"
-            "options:\n"
-            f"{options_yaml}"
-        ),
-        encoding="utf-8",
-    )
-
-    with pytest.raises(ValueError, match=error):
-        _all_tasks(project_yaml)
-
-
 def test_plugin_runtime_options_remain_plugin_owned(tmp_path: Path) -> None:
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     tasks_dir = _operations_dir(project_yaml)
@@ -987,7 +1065,10 @@ def test_profile_filename_prefix_is_required(tmp_path):
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError, match="must use \\{serve,build,inspect\\}"):
+    with pytest.raises(
+        ValueError,
+        match="must use \\{serve,build,inspect,materialize\\}",
+    ):
         _serve_profiles(project_yaml)
 
 
