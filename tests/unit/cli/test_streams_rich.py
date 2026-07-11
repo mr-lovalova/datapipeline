@@ -11,6 +11,7 @@ from datapipeline.cli.visuals.execution import (
     NodeFinished,
     NodeProgress,
     NodeStarted,
+    ProfileStarted,
     SourceInfoMessage,
 )
 from datapipeline.cli.visuals.execution_context import (
@@ -26,13 +27,19 @@ from datapipeline.cli.visuals.rich.progress import (
     _ExecutionProgress,
     visual_execution,
 )
-from datapipeline.dag.events import ProgressResource, ProgressSnapshot
+from datapipeline.dag.events import DagParentRef, ProgressResource, ProgressSnapshot
 
 
-def _console() -> tuple[Console, StringIO]:
+def _console(width: int | None = None) -> tuple[Console, StringIO]:
     output = StringIO()
     return (
-        Console(file=output, markup=False, highlight=False, force_terminal=False),
+        Console(
+            file=output,
+            markup=False,
+            highlight=False,
+            force_terminal=False,
+            width=width,
+        ),
         output,
     )
 
@@ -42,18 +49,28 @@ def _progress() -> Progress:
     return Progress(console=console, auto_refresh=False)
 
 
+class _CaptureRenderer:
+    def __init__(self) -> None:
+        self.events = []
+
+    def handle(self, event) -> None:
+        self.events.append(event)
+
+
 def _start_node(
     renderer: _ExecutionProgress,
     execution_index: int,
     node_name: str,
+    dag_name: str = "stream:adv.20",
+    depth: int = 1,
 ) -> None:
     renderer.handle(
         NodeStarted(
-            dag_name="stream:adv.20",
+            dag_name=dag_name,
             node_name=node_name,
             node_index=execution_index,
             execution_index=execution_index,
-            depth=1,
+            depth=depth,
         )
     )
 
@@ -93,7 +110,7 @@ def _node_progress(
     )
 
 
-def test_info_progress_uses_one_root_dag_row_and_deepest_active_node() -> None:
+def test_info_progress_keeps_internal_node_names_out_of_root_dag_row() -> None:
     progress = _progress()
     renderer = _ExecutionProgress(progress, debug=False)
 
@@ -123,20 +140,20 @@ def test_info_progress_uses_one_root_dag_row_and_deepest_active_node() -> None:
     assert len(progress.tasks) == 1
     task = progress.tasks[0]
     assert task.description == "stream:adv.20"
-    assert task.total == 17
-    assert task.completed == 1
+    assert task.fields["indent"] == ""
+    assert task.total is None
+    assert task.completed == 20_000
     assert task.fields["status"] == (
-        'open_source · streaming from · 2/17 "2011.jsonl" '
-        '· 20,000 records'
+        'streaming from · 2/17 "2011.jsonl" · 20,000 records'
     )
+    assert "open_source" not in task.fields["status"]
 
     _finish_node(renderer, 1, "open_source")
 
     task = progress.tasks[0]
     assert task.total is None
-    assert task.fields["status"] == (
-        "order_records · reading · 100 records"
-    )
+    assert task.fields["status"] == "reading · 100 records"
+    assert "order_records" not in task.fields["status"]
 
 
 def test_info_progress_ignores_updates_from_nodes_behind_active_node() -> None:
@@ -171,6 +188,13 @@ def test_debug_progress_has_one_row_per_active_node() -> None:
     renderer.handle(DagStarted(dag_name="stream:adv.20", node_count=4))
     _start_node(renderer, 0, "order_records")
     _start_node(renderer, 1, "open_source")
+    _start_node(
+        renderer,
+        2,
+        "decode_records",
+        dag_name="ingest:ohlcv",
+        depth=2,
+    )
 
     renderer.handle(
         _node_progress(
@@ -183,6 +207,12 @@ def test_debug_progress_has_one_row_per_active_node() -> None:
     assert [task.description for task in progress.tasks] == [
         "stream:adv.20/order_records",
         "stream:adv.20/open_source",
+        "ingest:ohlcv/decode_records",
+    ]
+    assert [task.fields["indent"] for task in progress.tasks] == [
+        "",
+        "",
+        "  ",
     ]
     source_task = progress.tasks[1]
     assert source_task.completed == 25
@@ -191,7 +221,8 @@ def test_debug_progress_has_one_row_per_active_node() -> None:
 
     _finish_node(renderer, 1, "open_source")
     assert [task.description for task in progress.tasks] == [
-        "stream:adv.20/order_records"
+        "stream:adv.20/order_records",
+        "ingest:ohlcv/decode_records",
     ]
 
 
@@ -215,15 +246,7 @@ def test_root_dag_finish_clears_progress_and_remains_a_static_event() -> None:
 
 def test_rich_sink_routes_node_progress_to_renderer_without_printing() -> None:
     console, output = _console()
-
-    class _Renderer:
-        def __init__(self) -> None:
-            self.events = []
-
-        def handle(self, event) -> None:
-            self.events.append(event)
-
-    renderer = _Renderer()
+    renderer = _CaptureRenderer()
     sink = _RichConsoleExecutionSink(logging.INFO, console, renderer)
     event = _node_progress(0, "open_source", ProgressSnapshot(completed=10))
 
@@ -233,7 +256,30 @@ def test_rich_sink_routes_node_progress_to_renderer_without_printing() -> None:
     assert output.getvalue() == ""
 
 
-def test_rich_sink_keeps_static_messages_and_source_information() -> None:
+def test_rich_sink_persists_only_the_root_dag_start() -> None:
+    console, output = _console()
+    renderer = _CaptureRenderer()
+    sink = _RichConsoleExecutionSink(logging.INFO, console, renderer)
+    root = DagStarted(dag_name="stream:adv.20", node_count=4)
+    nested = DagStarted(
+        dag_name="ingest:ohlcv",
+        node_count=3,
+        depth=1,
+        dag_parent=DagParentRef(
+            dag_name="stream:adv.20",
+            node_name="open_source",
+            node_index=2,
+        ),
+    )
+
+    sink.emit(root)
+    sink.emit(nested)
+
+    assert renderer.events == [root, nested]
+    assert output.getvalue().splitlines() == ["[stream:adv.20] started nodes=4"]
+
+
+def test_rich_sink_static_events_use_only_event_depth() -> None:
     console, output = _console()
     sink = _RichConsoleExecutionSink(logging.INFO, console)
 
@@ -250,6 +296,61 @@ def test_rich_sink_keeps_static_messages_and_source_information() -> None:
         "Saved 10 records",
         "  [ingest:ohlcv] fs.glob count=17",
     ]
+
+
+def test_rich_sink_renders_profile_header_once_at_warning() -> None:
+    console, output = _console()
+    sink = _RichConsoleExecutionSink(logging.WARNING, console)
+
+    sink.emit(
+        ProfileStarted(
+            command="materialize",
+            name="adv.20",
+            index=1,
+            total=14,
+        )
+    )
+
+    lines = output.getvalue().splitlines()
+    assert sum("Materialize Profiles" in line for line in lines) == 1
+    assert sum("── adv.20 (1/14) ──" in line for line in lines) == 1
+    assert [line for line in lines if line.strip()][1] == "  ── adv.20 (1/14) ──"
+
+
+def test_rich_sink_styles_labels_and_final_status() -> None:
+    console, _ = _console()
+    sink = _RichConsoleExecutionSink(logging.INFO, console)
+    success = sink._render_event(
+        DagFinished(
+            dag_name="stream:adv.20",
+            node_count=4,
+            status="success",
+            output_items=100,
+            elapsed_seconds=1,
+        )
+    )
+    error = sink._render_event(
+        DagFinished(
+            dag_name="stream:adv.20",
+            node_count=4,
+            status="error",
+            output_items=0,
+            elapsed_seconds=1,
+        )
+    )
+
+    assert any(str(span.style) == "bold cyan" for span in success.spans)
+    assert any(str(span.style) == "green" for span in success.spans)
+    assert any(str(span.style) == "bold red" for span in error.spans)
+
+
+def test_rich_sink_filters_info_results_below_its_log_level() -> None:
+    console, output = _console()
+    sink = _RichConsoleExecutionSink(logging.WARNING, console)
+    sink.emit(ExecutionMessage(message="Result: 20 records"))
+    sink.emit(ExecutionMessage(message="Output: data/adv.20.jsonl"))
+
+    assert output.getvalue() == ""
 
 
 def test_visual_execution_restores_existing_context(monkeypatch) -> None:

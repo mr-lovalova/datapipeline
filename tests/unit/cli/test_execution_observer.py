@@ -20,12 +20,12 @@ from datapipeline.cli.visuals.execution import (
     OperationInfo,
     OperationProgress,
     OperationStarted,
-    ProfileStartMessage,
+    ProfileStarted,
     SourceInfoMessage,
     emit_build_decision,
     execution_scope,
     emit_execution_message,
-    emit_profile_start,
+    emit_profile_started,
     emit_source_info,
     make_execution_observer,
     make_operation_observer,
@@ -86,7 +86,16 @@ _PARENT = DagParentRef(
             logging.WARNING,
             "  plain",
         ),
-        (ProfileStartMessage(message="profile"), logging.DEBUG, "profile"),
+        (
+            ProfileStarted(command="serve", name="default", index=1, total=1),
+            logging.INFO,
+            "Profile: serve default (1/1)",
+        ),
+        (
+            ProfileStarted(command="materialize", name="adv.20", index=2, total=3),
+            logging.INFO,
+            "Profile: materialize adv.20 (2/3)",
+        ),
         (BuildDecisionMessage(message="build"), logging.INFO, "build"),
         (
             SourceInfoMessage(source_label="prices", message="inputs", depth=1),
@@ -801,15 +810,20 @@ def test_explicit_message_emitters_create_typed_events():
     capture = _CaptureSink()
     token = set_current_execution_event_sink(capture)
     try:
-        emit_profile_start("profile start")
+        emit_profile_started("materialize", "adv.20", 2, 3)
         emit_build_decision("build decision")
     finally:
         reset_current_execution_event_sink(token)
 
     assert [type(event) for event in capture.events] == [
-        ProfileStartMessage,
+        ProfileStarted,
         BuildDecisionMessage,
     ]
+    profile_started = capture.events[0]
+    assert profile_started.command == "materialize"
+    assert profile_started.name == "adv.20"
+    assert profile_started.index == 2
+    assert profile_started.total == 3
 
 
 def test_emit_execution_message_logs_without_context_sink(caplog):

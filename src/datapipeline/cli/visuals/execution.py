@@ -58,8 +58,11 @@ class ExecutionMessage(_ExecutionEvent):
 
 
 @dataclass(frozen=True, kw_only=True)
-class ProfileStartMessage(_ExecutionEvent):
-    message: str
+class ProfileStarted(_ExecutionEvent):
+    command: str
+    name: str
+    index: int
+    total: int
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -161,7 +164,7 @@ class OperationFinished(_OperationEvent):
 
 ExecutionLogEvent = (
     ExecutionMessage
-    | ProfileStartMessage
+    | ProfileStarted
     | BuildDecisionMessage
     | SourceInfoMessage
     | DagStarted
@@ -218,14 +221,13 @@ class ExecutionEventFormatter:
     def level(event: ExecutionLogEvent) -> int:
         if isinstance(event, ExecutionMessage):
             return int(event.log_level)
-        if isinstance(event, ProfileStartMessage):
-            return logging.DEBUG
         if isinstance(event, DagFinished | NodeFinished | OperationFinished):
             if event.status == "error":
                 return logging.ERROR
         if isinstance(
             event,
-            BuildDecisionMessage
+            ProfileStarted
+            | BuildDecisionMessage
             | SourceInfoMessage
             | DagStarted
             | DagFinished
@@ -247,11 +249,14 @@ class ExecutionEventFormatter:
     @classmethod
     def message(cls, event: ExecutionLogEvent) -> str:
         indent = cls.indent(cls.display_depth(event))
+        if isinstance(event, ProfileStarted):
+            return (
+                f"{indent}Profile: {event.command} {event.name} "
+                f"({event.index}/{event.total})"
+            )
         if isinstance(
             event,
-            ExecutionMessage
-            | ProfileStartMessage
-            | BuildDecisionMessage,
+            ExecutionMessage | BuildDecisionMessage,
         ):
             message = event.message
             if not indent or "\n" not in message:
@@ -425,15 +430,20 @@ def emit_execution_message(
     _emit_event(event, logger)
 
 
-def emit_profile_start(
-    message: str,
-    *,
+def emit_profile_started(
+    command: str,
+    name: str,
+    index: int,
+    total: int,
     logger: logging.Logger | None = None,
     depth: int = 0,
 ) -> None:
     _emit_event(
-        ProfileStartMessage(
-            message=message,
+        ProfileStarted(
+            command=command,
+            name=name,
+            index=index,
+            total=total,
             depth=max(0, int(depth)),
             scope=_current_scope(),
         ),

@@ -194,8 +194,6 @@ def _resolve_build_execution_profiles(
                 visuals=settings.visuals or "on",
                 log_decision=settings.log_decision,
                 log_output=log_output,
-                sections=("Build Profiles",),
-                label=profile.name,
                 build_settings=settings,
             )
         )
@@ -269,8 +267,6 @@ def _resolve_runtime_execution_profiles(
                     label=profile.label,
                 ),
                 runtime=profile.runtime,
-                sections=(f"{params.command.capitalize()} Profiles",),
-                label=profile.label,
                 profile_report=runtime_profile_report_payload(profile),
                 dataset=dataset,
                 limit=profile.limit,

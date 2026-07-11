@@ -1,6 +1,6 @@
 from contextlib import contextmanager
-from pathlib import Path
 import logging
+from pathlib import Path
 from unittest.mock import patch
 
 from datapipeline.cli.visuals import runner
@@ -8,43 +8,35 @@ from datapipeline.runtime import Runtime
 
 
 class _StubBackend:
-    def wrap_execution(self, level):
-        @contextmanager
-        def _cm():
-            yield
-        return _cm()
+    def __init__(self) -> None:
+        self.levels: list[int] = []
 
-    def on_job_start(self, *args, **kwargs):
-        return False
+    def wrap_execution(self, level):
+        self.levels.append(level)
+
+        @contextmanager
+        def context():
+            yield
+
+        return context()
+
 
 def _runtime() -> Runtime:
     return Runtime(project_yaml=Path("."), artifacts_root=Path("."))
 
 
-def test_run_job_executes_work():
+def test_run_with_backend_executes_work_inside_backend_context():
     backend = _StubBackend()
     called = {"ok": False}
-    with patch("datapipeline.cli.visuals.runner.get_visuals_backend", return_value=backend):
-        runner.run_job(
-            sections=("Runs",),
-            label="demo",
-            visuals="on",
-            level=logging.INFO,
-            runtime=_runtime(),
-            work=lambda: called.__setitem__("ok", True),
-            idx=1,
-            total=1,
-        )
-    assert called["ok"] is True
-
-def test_run_with_backend_executes_work():
-    backend = _StubBackend()
-    called = {"ok": False}
-    with patch("datapipeline.cli.visuals.runner.get_visuals_backend", return_value=backend):
+    with patch(
+        "datapipeline.cli.visuals.runner.get_visuals_backend", return_value=backend
+    ):
         runner.run_with_backend(
             visuals="on",
             runtime=_runtime(),
             level=logging.INFO,
             work=lambda: called.__setitem__("ok", True),
         )
+
     assert called["ok"] is True
+    assert backend.levels == [logging.INFO]

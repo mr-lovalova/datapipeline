@@ -5,9 +5,7 @@ from pathlib import Path
 import pytest
 
 from datapipeline.domain.record import TemporalRecord
-from datapipeline.pipelines.record.streams import open_record_stream
 from datapipeline.runtime import Runtime, StreamRuntimeSpec
-from datapipeline.services.bootstrap import bootstrap
 from datapipeline.services.materialize import materialize_stream_to_path
 
 
@@ -31,40 +29,16 @@ def _mapper(rows):
         yield rec
 
 
-def _write_project(tmp_path: Path) -> Path:
-    for dirname in ("sources", "ingests", "streams", "tasks", "profiles"):
-        (tmp_path / dirname).mkdir()
-    (tmp_path / "postprocess.yaml").write_text("[]\n", encoding="utf-8")
-    project_yaml = tmp_path / "project.yaml"
-    project_yaml.write_text(
-        "\n".join(
-            [
-                "version: 1",
-                "name: test",
-                "paths:",
-                "  ingests: ingests",
-                "  streams: streams",
-                "  sources: sources",
-                "  dataset: dataset.yaml",
-                "  postprocess: postprocess.yaml",
-                "  artifacts: artifacts",
-                "  tasks: tasks",
-                "  profiles: profiles",
-            ]
-        ),
-        encoding="utf-8",
-    )
-    return project_yaml
-
-
 def _runtime(
     tmp_path: Path,
     rows: list[dict],
     partition_by: str | list[str] | None = None,
     feature_id_by: str | list[str] | None = None,
 ) -> Runtime:
-    project_yaml = _write_project(tmp_path)
-    runtime = Runtime(project_yaml=project_yaml, artifacts_root=tmp_path / "artifacts")
+    runtime = Runtime(
+        project_yaml=tmp_path / "project.yaml",
+        artifacts_root=tmp_path / "artifacts",
+    )
     regs = runtime.registries
     regs.stream_specs.register("prices.raw", StreamRuntimeSpec(pipeline="ingest"))
     regs.stream_sources.register("prices.raw", _Source(rows))
@@ -87,7 +61,7 @@ def one_row_runtime(tmp_path: Path) -> Runtime:
     )
 
 
-def test_materialize_stream_writes_jsonl_and_reusable_config(tmp_path: Path) -> None:
+def test_materialize_stream_writes_jsonl_and_metadata(tmp_path: Path) -> None:
     rows = [
         {"time": _ts(2), "security_id": "MSFT", "close": 20.0},
         {"time": _ts(1), "security_id": "AAPL", "close": 10.0},
@@ -100,7 +74,6 @@ def test_materialize_stream_writes_jsonl_and_reusable_config(tmp_path: Path) -> 
         runtime=runtime,
         stream_id="prices.raw",
         output=output,
-        as_stream_id="prices.materialized",
     )
 
     assert result.count == 2
@@ -123,27 +96,6 @@ def test_materialize_stream_writes_jsonl_and_reusable_config(tmp_path: Path) -> 
         "feature_id_by": None,
         "ordered_by": ["time"],
     }
-    assert (
-        result.source_config
-        == (tmp_path / "sources" / "prices.materialized.source.yaml").resolve()
-    )
-    assert (
-        result.ingest_config
-        == (tmp_path / "ingests" / "prices.materialized.yaml").resolve()
-    )
-    ingest_text = result.ingest_config.read_text(encoding="utf-8")
-    assert "partition_by:" not in ingest_text
-    assert "ordered_by:\n- time\n" in ingest_text
-
-    reloaded = bootstrap(runtime.project_yaml)
-    materialized = list(
-        open_record_stream(reloaded_context(reloaded), "prices.materialized")
-    )
-
-    assert [(rec.security_id, rec.close) for rec in materialized] == [
-        ("AAPL", 10.0),
-        ("MSFT", 20.0),
-    ]
 
 
 def test_materialize_stream_preserves_explicit_partition_and_feature_id_by(
@@ -165,7 +117,6 @@ def test_materialize_stream_preserves_explicit_partition_and_feature_id_by(
         runtime=runtime,
         stream_id="prices.raw",
         output=output,
-        as_stream_id="prices.materialized",
     )
 
     assert json.loads(result.metadata.read_text(encoding="utf-8")) == {
@@ -176,26 +127,6 @@ def test_materialize_stream_preserves_explicit_partition_and_feature_id_by(
         "feature_id_by": [],
         "ordered_by": ["security_id", "time"],
     }
-    ingest_text = result.ingest_config.read_text(encoding="utf-8")
-    assert "partition_by:\n- security_id\n" in ingest_text
-    assert "feature_id_by: []\n" in ingest_text
-    assert "ordered_by:\n- security_id\n- time\n" in ingest_text
-
-    reloaded = bootstrap(runtime.project_yaml)
-    materialized = list(
-        open_record_stream(reloaded_context(reloaded), "prices.materialized")
-    )
-
-    assert [(rec.security_id, rec.close) for rec in materialized] == [
-        ("AAPL", 10.0),
-        ("MSFT", 20.0),
-    ]
-
-
-def reloaded_context(runtime: Runtime):
-    from datapipeline.dag.context import PipelineContext
-
-    return PipelineContext(runtime)
 
 
 def test_materialize_stream_refuses_existing_output_without_overwrite(
@@ -241,26 +172,6 @@ def test_materialize_stream_does_not_clobber_output_created_during_stream(
 
     assert output.read_text(encoding="utf-8") == "concurrent output\n"
     assert not output.with_suffix(".metadata.json").exists()
-
-
-def test_materialize_stream_checks_config_overwrite_before_writing_output(
-    tmp_path: Path,
-    one_row_runtime: Runtime,
-) -> None:
-    existing_config = tmp_path / "sources" / "prices.materialized.source.yaml"
-    existing_config.write_text("existing: true\n", encoding="utf-8")
-    output = tmp_path / "prices.jsonl"
-
-    with pytest.raises(FileExistsError, match="--overwrite"):
-        materialize_stream_to_path(
-            runtime=one_row_runtime,
-            stream_id="prices.raw",
-            output=output,
-            as_stream_id="prices.materialized",
-        )
-
-    assert not output.exists()
-    assert existing_config.read_text(encoding="utf-8") == "existing: true\n"
 
 
 def test_materialize_stream_checks_metadata_overwrite_before_writing_output(

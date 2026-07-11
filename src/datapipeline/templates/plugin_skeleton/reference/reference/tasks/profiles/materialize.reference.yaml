@@ -7,8 +7,7 @@
 # enabled: true              # optional
 # stream: adv.20             # required; source or derived stream id
 # output: data/adv/20.jsonl  # required; relative to project.yaml, or absolute
-# as: adv.20.cached          # optional; also write reusable source/ingest YAML
-# overwrite: false           # optional; refuse existing output/config files by default
+# overwrite: false           # optional; refuse existing output files by default
 #
 # observability:             # optional
 #   visuals: ON              # optional; ON | OFF (false -> OFF)
@@ -27,5 +26,6 @@
 #
 # `jerry materialize` runs all enabled profiles in order.
 # `jerry materialize --run adv.20` runs one profile.
+# CLI `--output` overrides one profile and requires `--run`.
 # CLI `--overwrite` / `--no-overwrite` overrides every selected profile.
 # precedence: CLI > materialize.<name>.yaml > materialize.defaults.yaml > built-ins

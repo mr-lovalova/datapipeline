@@ -10,7 +10,9 @@ from datapipeline.cli.visuals.backend import (
 
 def test_get_visuals_backend_selects_rich_only_when_live_supported(monkeypatch):
     monkeypatch.setattr("datapipeline.cli.visuals.backend._is_tty", lambda: True)
-    monkeypatch.setattr("datapipeline.cli.visuals.backend._rich_live_supported", lambda: True)
+    monkeypatch.setattr(
+        "datapipeline.cli.visuals.backend._rich_live_supported", lambda: True
+    )
 
     backend = get_visuals_backend("on")
     assert isinstance(backend, _RichBackend)
@@ -18,7 +20,9 @@ def test_get_visuals_backend_selects_rich_only_when_live_supported(monkeypatch):
 
 def test_get_visuals_backend_falls_back_to_basic_when_live_not_supported(monkeypatch):
     monkeypatch.setattr("datapipeline.cli.visuals.backend._is_tty", lambda: True)
-    monkeypatch.setattr("datapipeline.cli.visuals.backend._rich_live_supported", lambda: False)
+    monkeypatch.setattr(
+        "datapipeline.cli.visuals.backend._rich_live_supported", lambda: False
+    )
 
     backend = get_visuals_backend("on")
     assert type(backend) is VisualsBackend
@@ -26,7 +30,9 @@ def test_get_visuals_backend_falls_back_to_basic_when_live_not_supported(monkeyp
 
 def test_get_visuals_backend_off_mode(monkeypatch):
     monkeypatch.setattr("datapipeline.cli.visuals.backend._is_tty", lambda: True)
-    monkeypatch.setattr("datapipeline.cli.visuals.backend._rich_live_supported", lambda: True)
+    monkeypatch.setattr(
+        "datapipeline.cli.visuals.backend._rich_live_supported", lambda: True
+    )
 
     backend = get_visuals_backend("off")
     assert type(backend) is VisualsBackend
@@ -52,7 +58,9 @@ def test_rich_backend_wraps_execution_at_info_or_debug(monkeypatch):
         calls.append(log_level)
         return _Context()
 
-    monkeypatch.setattr("datapipeline.cli.visuals.rich.progress.visual_execution", _fake_rich)
+    monkeypatch.setattr(
+        "datapipeline.cli.visuals.rich.progress.visual_execution", _fake_rich
+    )
 
     backend = _RichBackend()
     with backend.wrap_execution(logging.INFO):

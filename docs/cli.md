@@ -80,16 +80,14 @@ reading the data. Visuals are independent of log filtering.
     profile order. The graph orders only the internal dependency jobs needed by
     each root; it never reorders the profiles. A selected dependency profile
     must be ordered before a selected dependent profile.
-- `jerry materialize [--run <profile>] [--overwrite|--no-overwrite] [--visuals on|off] [--heartbeat-interval SECONDS]`
+- `jerry materialize [--run <profile>] [--output <path.jsonl>] [--overwrite|--no-overwrite] [--visuals on|off] [--heartbeat-interval SECONDS]`
   - Runs every enabled `profiles/materialize.<name>.yaml` entry in configured
     order, or one profile selected by `--run`.
-  - Checks every selected output, metadata file, and optional generated config
-    path before the first profile starts writing.
+  - Checks every selected output and metadata file before the first profile
+    starts writing.
   - A CLI overwrite choice applies to every selected profile. Without it, each
     profile uses its own `overwrite` setting or `materialize.defaults.yaml`.
-- `jerry materialize [--heartbeat-interval SECONDS] stream <stream_id> --output <path.jsonl> [--as <new_stream_id>] [--overwrite]`
-  - Writes a durable JSONL record stream.
-  - With `--as`, also writes reusable source and ingest YAML using explicit `ordered_by`.
+  - `--output` overrides one selected profile and therefore requires `--run`.
 - `jerry clean [--yes] [--older-than <age>]`
   - Lists stale sort spill directories by default.
   - Add `--yes` to remove them.

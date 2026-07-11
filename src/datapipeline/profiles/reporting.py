@@ -1,15 +1,3 @@
-import logging
-from pathlib import Path
-from typing import Any, Mapping
-
-from datapipeline.services.execution_artifacts import write_profile_artifact
-from datapipeline.services.executions import ExecutionPaths
-
-from .models import ExecutionProfile
-
-logger = logging.getLogger(__name__)
-
-
 def runtime_profile_report_payload(profile) -> dict[str, object]:
     entry = profile.entry
     payload: dict[str, object] = {
@@ -60,31 +48,3 @@ def runtime_profile_report_payload(profile) -> dict[str, object]:
         payload["run_config"] = cfg.model_dump(exclude_unset=True, exclude_none=True)
     payload["target"] = entry.target_id
     return payload
-
-
-def persist_profile_report(
-    profile_kind: str,
-    profile: ExecutionProfile,
-    payload: Mapping[str, Any] | None,
-    execution: ExecutionPaths,
-) -> Path | None:
-    if payload is None:
-        return None
-    try:
-        return write_profile_artifact(
-            execution=execution,
-            profile_kind=profile_kind,
-            profile_name=profile.label or profile.name,
-            payload=payload,
-        )
-    except Exception:
-        logger.warning(
-            "Failed to persist %s profile artifact for %s",
-            profile_kind,
-            profile.name,
-            exc_info=True,
-        )
-        return None
-
-
-__all__ = ["persist_profile_report", "runtime_profile_report_payload"]

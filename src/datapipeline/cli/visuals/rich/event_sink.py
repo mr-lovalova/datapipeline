@@ -1,6 +1,7 @@
 import logging
 from typing import Protocol
 
+from rich.rule import Rule
 from rich.text import Text
 
 from ..execution import (
@@ -12,7 +13,9 @@ from ..execution import (
     NodeFinished,
     NodeProgress,
     NodeStarted,
+    OperationFinished,
     OperationProgress,
+    ProfileStarted,
 )
 
 
@@ -32,12 +35,21 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
         self._progress_renderer = progress_renderer
 
     def emit(self, event: ExecutionLogEvent) -> None:
+        if isinstance(event, ProfileStarted):
+            heading = f"{event.command.capitalize()} Profiles"
+            self._console.print(Rule(heading, style="bold white"))
+            self._console.print(
+                Text(f"  ── {event.name} ({event.index}/{event.total}) ──")
+            )
+            self._console.print()
+            return
         if self._progress_renderer is not None and isinstance(
             event,
             DagStarted | NodeStarted | NodeProgress | NodeFinished | DagFinished,
         ):
             self._progress_renderer.handle(event)
-            if not isinstance(event, DagFinished):
+            is_root_start = isinstance(event, DagStarted) and event.dag_parent is None
+            if not isinstance(event, DagFinished) and not is_root_start:
                 return
         if isinstance(event, NodeProgress):
             return
@@ -54,10 +66,16 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
         if not isinstance(event, ExecutionLogEvent):
             raise TypeError(f"Unsupported execution event: {type(event).__name__}")
         level = ExecutionEventFormatter.level(event)
-        return Text(
-            ExecutionEventFormatter.message(event),
+        message = ExecutionEventFormatter.message(event)
+        text = Text(
+            message,
             style=self._message_style(level),
         )
+        text.highlight_regex(r"^\s*\[[^]]+\]", style="bold cyan")
+        if isinstance(event, DagFinished | NodeFinished | OperationFinished):
+            status_style = "green" if event.status == "success" else "bold red"
+            text.highlight_words([f"status={event.status}"], style=status_style)
+        return text
 
     @staticmethod
     def _message_style(level: int) -> str:

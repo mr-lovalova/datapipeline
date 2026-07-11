@@ -7,6 +7,7 @@ from datapipeline.config.tasks import ArtifactTask, OperationTask, Task
 from datapipeline.profiles.executor import ProfileExecutionSpec, run_profile
 from datapipeline.cli.visuals.execution import execution_scope
 from datapipeline.services.bootstrap import bootstrap_build_runtime
+from datapipeline.services.execution_artifacts import write_profile_artifact
 from datapipeline.services.executions import start_execution
 from datapipeline.services.project_paths import tasks_dir
 from datapipeline.services.runs import (
@@ -23,7 +24,6 @@ from .execution import (
     resolve_profile_task,
 )
 from .models import ProfileRunRequest, ServeRunPlan
-from .reporting import persist_profile_report
 
 logger = logging.getLogger(__name__)
 
@@ -93,25 +93,22 @@ def run_profiles(request: ProfileRunRequest) -> None:
         for idx, profile in enumerate(profiles, start=1):
             runtime = profile_runtimes[idx - 1]
             runtime.heartbeat_interval_seconds = profile.heartbeat_interval_seconds
-            profile_path = persist_profile_report(
-                profile_kind=request.command,
-                profile=profile,
-                payload=profile.profile_report,
-                execution=request.execution,
-            )
+            if profile.profile_report is not None:
+                write_profile_artifact(
+                    execution=request.execution,
+                    profile_kind=request.command,
+                    profile_name=profile.name,
+                    payload=profile.profile_report,
+                )
             spec = ProfileExecutionSpec(
                 command=request.command,
                 name=profile.name,
-                idx=idx,
+                index=idx,
                 total=total,
                 visuals=profile.visuals or "on",
                 log_decision=profile.log_decision,
                 log_output=profile.log_output,
-                sections=profile.sections,
-                label=profile.label or profile.name,
                 runtime=runtime,
-                use_visual_runner=True,
-                profile_path=profile_path,
             )
 
             task_plan = profile_task_plans[idx - 1]

@@ -35,8 +35,6 @@ from .event_sink import _RichConsoleExecutionSink
 
 @dataclass
 class _NodeState:
-    dag_name: str
-    node_name: str
     task_id: TaskID | None = None
     progress: ProgressSnapshot | None = None
 
@@ -83,6 +81,7 @@ class _ExecutionProgress:
                 event.dag_name,
                 total=None,
                 status="starting",
+                indent="",
             )
 
     def _finish_dag(self, event: DagFinished) -> None:
@@ -95,12 +94,16 @@ class _ExecutionProgress:
         self.clear()
 
     def _start_node(self, event: NodeStarted) -> None:
-        state = _NodeState(event.dag_name, event.node_name)
+        if self._root_dag is None:
+            raise RuntimeError("Cannot start node progress before its root DAG")
+        state = _NodeState()
         if self._debug:
+            relative_depth = max(0, event.depth - self._root_dag[1] - 1)
             state.task_id = self._progress.add_task(
                 f"{event.dag_name}/{event.node_name}",
                 total=None,
                 status="starting",
+                indent="  " * relative_depth,
             )
         self._nodes[event.execution_index] = state
         self._active_nodes.append(event.execution_index)
@@ -136,40 +139,26 @@ class _ExecutionProgress:
             )
             return
         state = self._nodes[self._active_nodes[-1]]
-        root_dag_name = self._root_dag[0]
-        label = (
-            state.node_name
-            if state.dag_name == root_dag_name
-            else f"{state.dag_name}/{state.node_name}"
-        )
         if state.progress is None:
             self._update_task(
                 self._root_task,
                 total=None,
                 completed=0,
-                status=f"{label} · starting",
+                status="starting",
             )
             return
-        self._render(self._root_task, state.progress, prefix=label)
+        self._render(self._root_task, state.progress)
 
-    def _render(
-        self,
-        task_id: TaskID,
-        snapshot: ProgressSnapshot,
-        prefix: str | None = None,
-    ) -> None:
+    def _render(self, task_id: TaskID, snapshot: ProgressSnapshot) -> None:
         resource = snapshot.resource
         if snapshot.total is not None:
             total = snapshot.total
             completed = snapshot.completed
-        elif resource is not None:
-            total = resource.total
-            completed = max(0, resource.index - 1)
         else:
             total = None
             completed = snapshot.completed
 
-        parts = [part for part in (prefix, snapshot.phase) if part]
+        parts = [snapshot.phase] if snapshot.phase else []
         if resource is not None:
             parts.append(f"{resource.index}/{resource.total} {resource.label}")
         if snapshot.detail:
@@ -202,11 +191,19 @@ def visual_execution(log_level: int):
     console = Console(file=sys.stderr, markup=False, highlight=False)
     progress = Progress(
         TextColumn(
-            "[{task.description}]",
+            "{task.fields[indent]}[{task.description}]",
+            style="bold cyan",
             markup=False,
             table_column=Column(no_wrap=True, overflow="ellipsis"),
         ),
-        BarColumn(bar_width=20, table_column=Column(no_wrap=True)),
+        BarColumn(
+            bar_width=20,
+            style="grey30",
+            complete_style="cyan",
+            finished_style="green",
+            pulse_style="cyan",
+            table_column=Column(no_wrap=True),
+        ),
         TimeElapsedColumn(table_column=Column(no_wrap=True)),
         TextColumn(
             "{task.fields[status]}",

@@ -491,7 +491,6 @@ def test_materialize_profiles_load_and_normalize_fields(tmp_path):
             "order: 20\n"
             "stream: ' adv.20 '\n"
             "output: ' data/features/adv/20.jsonl '\n"
-            "as: ' liquidity.adv-20 '\n"
             "overwrite: true\n"
             "observability:\n"
             "  visuals: on\n"
@@ -506,8 +505,6 @@ def test_materialize_profiles_load_and_normalize_fields(tmp_path):
     assert isinstance(profile, MaterializeProfile)
     assert profile.stream == "adv.20"
     assert profile.output == Path("data/features/adv/20.jsonl")
-    assert profile.as_stream_id == "liquidity.adv-20"
-    assert profile.model_dump(by_alias=True)["as"] == "liquidity.adv-20"
     assert profile.overwrite is True
     assert profile.observability is not None
     assert profile.observability.visuals == "ON"

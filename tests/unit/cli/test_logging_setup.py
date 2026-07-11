@@ -3,7 +3,11 @@ import logging
 import sys
 
 from datapipeline.cli.logging_setup import configure_root_logging
-from datapipeline.cli.visuals.execution import ExecutionMessage
+from datapipeline.cli.visuals.execution import (
+    ExecutionMessage,
+    emit_execution_message,
+    emit_profile_started,
+)
 from datapipeline.cli.visuals.execution_context import (
     reset_current_execution_event_sink,
     reset_current_terminal_log_proxy_sink,
@@ -16,10 +20,100 @@ from datapipeline.config.resolution import LogOutputSettings, LogOutputTarget
 def _flush_root_handlers() -> None:
     root = logging.getLogger()
     for handler in root.handlers:
-        try:
-            handler.flush()
-        except Exception:
-            pass
+        handler.flush()
+
+
+def _emit_materialize_result(logger: logging.Logger) -> None:
+    emit_profile_started("materialize", "adv.20", 2, 3, logger=logger)
+    emit_execution_message("Result: 1,255 records", logger=logger)
+    emit_execution_message("Output: /tmp/adv.20.jsonl", logger=logger)
+    emit_execution_message("Metadata: /tmp/adv.20.metadata.json", logger=logger)
+
+
+def test_profile_and_result_events_render_as_flat_plain_logs_without_visuals(
+    monkeypatch,
+):
+    stream = io.StringIO()
+    monkeypatch.setattr(sys, "stderr", stream)
+    configure_root_logging(
+        level=logging.INFO,
+        output=LogOutputSettings(outputs=(LogOutputTarget(transport="stderr"),)),
+    )
+
+    logger = logging.getLogger("datapipeline.tests.logging_setup.plain_result")
+    _emit_materialize_result(logger)
+    _flush_root_handlers()
+
+    assert stream.getvalue().splitlines() == [
+        "Profile: materialize adv.20 (2/3)",
+        "Result: 1,255 records",
+        "Output: /tmp/adv.20.jsonl",
+        "Metadata: /tmp/adv.20.metadata.json",
+    ]
+
+
+def test_file_profile_and_result_logs_do_not_depend_on_visual_sink(tmp_path):
+    without_visuals = tmp_path / "without-visuals.log"
+    configure_root_logging(
+        level=logging.INFO,
+        output=LogOutputSettings(
+            outputs=(LogOutputTarget(transport="fs", destination=without_visuals),)
+        ),
+    )
+    logger = logging.getLogger("datapipeline.tests.logging_setup.file_result")
+    _emit_materialize_result(logger)
+    _flush_root_handlers()
+
+    with_visuals = tmp_path / "with-visuals.log"
+    configure_root_logging(
+        level=logging.INFO,
+        output=LogOutputSettings(
+            outputs=(LogOutputTarget(transport="fs", destination=with_visuals),)
+        ),
+    )
+
+    class _CaptureSink:
+        def __init__(self) -> None:
+            self.events = []
+
+        def emit(self, event) -> None:
+            self.events.append(event)
+
+    sink = _CaptureSink()
+    token = set_current_execution_event_sink(sink)
+    try:
+        _emit_materialize_result(logger)
+    finally:
+        reset_current_execution_event_sink(token)
+        _flush_root_handlers()
+
+    plain_content = without_visuals.read_text(encoding="utf-8")
+    visual_content = with_visuals.read_text(encoding="utf-8")
+    assert visual_content == plain_content
+    for expected in (
+        "Profile: materialize adv.20 (2/3)",
+        "Result: 1,255 records",
+        "Output: /tmp/adv.20.jsonl",
+        "Metadata: /tmp/adv.20.metadata.json",
+    ):
+        assert visual_content.count(expected) == 1
+    assert len(sink.events) == 4
+
+
+def test_file_profile_and_result_logs_obey_warning_threshold(tmp_path):
+    log_path = tmp_path / "warning.log"
+    configure_root_logging(
+        level=logging.WARNING,
+        output=LogOutputSettings(
+            outputs=(LogOutputTarget(transport="fs", destination=log_path),)
+        ),
+    )
+
+    logger = logging.getLogger("datapipeline.tests.logging_setup.warning_result")
+    _emit_materialize_result(logger)
+    _flush_root_handlers()
+
+    assert log_path.read_text(encoding="utf-8") == ""
 
 
 def test_configure_root_logging_suppresses_execution_events_on_stderr_when_visual_sink_active(

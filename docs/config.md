@@ -150,7 +150,6 @@ order: 10
 stream: adv.20
 output: ${data_root}/features/liquidity/adv/20.jsonl
 overwrite: true
-# as: adv.20.cached # optionally also generate reusable source/ingest YAML
 # observability:
 #   visuals: ON
 #   heartbeat_interval_seconds: 60
@@ -159,16 +158,17 @@ overwrite: true
 - `jerry materialize` runs all enabled materialize profiles in `order`; `--run`
   selects one. Unlike serve and inspect profiles, these profiles identify a
   stream directly and do not target a runtime task.
-- Relative `output` paths are resolved from the directory containing
-  `project.yaml`. Output must end in `.jsonl`.
+- CLI `--output` overrides the selected profile and requires `--run`; the
+  profile remains the source of the stream identity.
+- Relative profile outputs resolve from `project.yaml`; relative CLI `--output`
+  values resolve from the workspace root, or the current directory without a
+  workspace. All output paths must end in `.jsonl`.
 - Before execution, Jerry validates every selected stream and checks the full
   destination set for duplicates and existing files. No profile writes until
   the whole selected batch passes this preflight.
 - `overwrite: false` is the built-in default. `--overwrite` and
   `--no-overwrite` override every selected profile; shared defaults belong in
   `profiles/materialize.defaults.yaml`.
-- `as` additionally writes source and ingest config files that read the
-  materialized JSONL with explicit ordering metadata.
 
 ### Build Profiles (`profiles/build.<name>.yaml`)
 

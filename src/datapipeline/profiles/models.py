@@ -34,8 +34,6 @@ class ExecutionProfile:
     visuals: str
     log_decision: LogLevelDecision
     log_output: LogOutputSettings
-    sections: tuple[str, ...] = ()
-    label: str | None = None
     profile_report: Mapping[str, Any] | None = None
     runtime: Runtime | None = None
     dataset: ProfileDataset | None = None
