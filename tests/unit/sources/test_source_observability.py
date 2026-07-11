@@ -102,10 +102,7 @@ def test_foreach_progress_tracks_each_file_without_counting_records() -> None:
     sequence = loader_progress_sequence(loader, description)
 
     assert sequence is not None
-    assert [entry.label for entry in sequence] == [
-        'streaming from "APPL.jsonl"',
-        'streaming from "MSFT.jsonl"',
-    ]
+    assert [entry.label for entry in sequence] == ['"APPL.jsonl"', '"MSFT.jsonl"']
     assert [entry.source_resource_id for entry in sequence] == [1, 2]
 
 

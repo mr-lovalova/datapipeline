@@ -57,7 +57,7 @@ def test_open_records_reports_each_source_resource_without_counting(
         (3, 3, '"part-2.jsonl"'),
     ]
     assert [snapshot.completed for snapshot in snapshots] == [0, 1, 2]
-    assert all(snapshot.phase == "streaming from" for snapshot in snapshots)
+    assert all(snapshot.phase is None for snapshot in snapshots)
     assert all(snapshot.unit == "items" for snapshot in snapshots)
 
 

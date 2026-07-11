@@ -87,33 +87,6 @@ def unit_for_loader(loader: Any) -> str:
     return "records"
 
 
-def build_source_label(loader: Any) -> str:
-    producer = getattr(loader, "progress_label", None)
-    if callable(producer):
-        value = producer()
-        text = str(value).strip() if value is not None else ""
-        if text:
-            return text
-
-    if isinstance(loader, SyntheticLoader):
-        generator_name = loader.generator.__class__.__name__
-        return "generating data with " + generator_name
-    if isinstance(loader, ForeachLoader):
-        key = str(getattr(loader, "_key", "item"))
-        values = getattr(loader, "_values", None)
-        total = len(values) if isinstance(values, list) else "?"
-        return f"fan-out {key}×{total}"
-
-    if getattr(loader, "decoder", None) is None:
-        return loader.__class__.__name__
-    transport = getattr(loader, "transport", None)
-    if isinstance(transport, (FsFileTransport, FsGlobTransport)):
-        return "streaming from"
-    if isinstance(transport, HttpTransport):
-        return "downloading"
-    return loader.__class__.__name__
-
-
 def describe_loader(loader: Any) -> LoaderObservability:
     transport = getattr(loader, "transport", None)
     return LoaderObservability(
@@ -180,7 +153,8 @@ def _foreach_source_metadata(loader: ForeachLoader) -> dict[str, Any] | None:
     if not isinstance(spec, dict):
         return None
     args = spec.get("args")
-    if foreach_transport_name(None, args) != "fs":
+    transport = args.get("transport") if isinstance(args, dict) else None
+    if str(transport).strip().lower() != "fs":
         return None
     values = getattr(loader, "_values", None)
     if not isinstance(values, list):
@@ -231,36 +205,11 @@ def _relative_label(path: str, root: Path | None) -> str:
     return Path(path).name or path
 
 
-def foreach_transport_name(args: Any, spec_args: Any) -> str | None:
-    if isinstance(args, dict):
-        raw = args.get("transport")
-        if raw is not None:
-            return str(raw).strip().lower() or None
-    if isinstance(spec_args, dict):
-        raw = spec_args.get("transport")
-        if raw is not None:
-            return str(raw).strip().lower() or None
-    return None
-
-
-def _foreach_spec(loader: ForeachLoader) -> tuple[str, dict[str, Any] | None]:
-    spec = getattr(loader, "_loader_spec", None)
-    if not isinstance(spec, dict):
-        return "", None
-    entrypoint = str(spec.get("entrypoint", ""))
-    maybe_args = spec.get("args")
-    spec_args = maybe_args if isinstance(maybe_args, dict) else None
-    return entrypoint, spec_args
-
-
 def _foreach_current_label(loader: ForeachLoader) -> str | None:
     value = getattr(loader, "_current_value", None)
     if value is None:
         return None
-    entrypoint, spec_args = _foreach_spec(loader)
-    current_args = getattr(loader, "_current_args", None)
-    action = foreach_action(entrypoint, current_args, spec_args)
-    return join_action_value(action, foreach_value_label(value))
+    return f'"{foreach_value_label(value)}"'
 
 
 def _foreach_progress_sequence(
@@ -269,14 +218,13 @@ def _foreach_progress_sequence(
     values = getattr(loader, "_values", None)
     if not isinstance(values, list) or not values:
         return None
-    entrypoint, spec_args = _foreach_spec(loader)
-    action = foreach_action(entrypoint, None, spec_args)
-    entries: list[SourceProgressEntry] = []
-    for index, value in enumerate(values, start=1):
-        value_label = foreach_value_label(value)
-        label = join_action_value(action, value_label)
-        entries.append(SourceProgressEntry(source_resource_id=index, label=label))
-    return entries
+    return [
+        SourceProgressEntry(
+            source_resource_id=index,
+            label=f'"{foreach_value_label(value)}"',
+        )
+        for index, value in enumerate(values, start=1)
+    ]
 
 
 def _glob_progress_sequence(
@@ -295,26 +243,7 @@ def _glob_progress_sequence(
     ]
 
 
-def foreach_action(entrypoint: str, args: Any, spec_args: Any) -> str | None:
-    if entrypoint == "core.io":
-        transport_name = foreach_transport_name(args, spec_args)
-        if transport_name == "http":
-            return "downloading"
-        if transport_name == "fs":
-            return "streaming from"
-        return None
-    if entrypoint:
-        return f"via {entrypoint}"
-    return None
-
-
 def foreach_value_label(value: Any) -> str:
     text = str(value)
     name = Path(text).name
     return name or text
-
-
-def join_action_value(action: str | None, value_label: str) -> str:
-    if action:
-        return f'{action} "{value_label}"'
-    return f'"{value_label}"'

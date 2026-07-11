@@ -2,16 +2,19 @@ import logging
 import sys
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import timedelta
 
 from rich.console import Console
 from rich.progress import (
     BarColumn,
     Progress,
+    Task,
     TaskID,
     TextColumn,
     TimeElapsedColumn,
 )
 from rich.table import Column
+from rich.text import Text
 
 from datapipeline.cli.visuals.execution import (
     DagFinished,
@@ -35,8 +38,22 @@ from .event_sink import _RichConsoleExecutionSink
 
 @dataclass
 class _NodeState:
+    label: str
     task_id: TaskID | None = None
     progress: ProgressSnapshot | None = None
+
+
+class _LiveElapsedColumn(TimeElapsedColumn):
+    """Measure execution lifetime across completed local progress phases."""
+
+    def render(self, task: Task) -> Text:
+        elapsed = task.elapsed
+        if elapsed is None:
+            return Text("-:--:--", style="progress.elapsed")
+        return Text(
+            str(timedelta(seconds=max(0, int(elapsed)))),
+            style="progress.elapsed",
+        )
 
 
 class _ExecutionProgress:
@@ -82,6 +99,7 @@ class _ExecutionProgress:
                 total=None,
                 status="starting",
                 indent="",
+                timer_scope="DAG",
             )
 
     def _finish_dag(self, event: DagFinished) -> None:
@@ -96,14 +114,16 @@ class _ExecutionProgress:
     def _start_node(self, event: NodeStarted) -> None:
         if self._root_dag is None:
             raise RuntimeError("Cannot start node progress before its root DAG")
-        state = _NodeState()
+        label = f"{event.dag_name}/{event.node_name}"
+        state = _NodeState(label=label)
         if self._debug:
             relative_depth = max(0, event.depth - self._root_dag[1] - 1)
             state.task_id = self._progress.add_task(
-                f"{event.dag_name}/{event.node_name}",
+                label,
                 total=None,
                 status="starting",
                 indent="  " * relative_depth,
+                timer_scope="NODE",
             )
         self._nodes[event.execution_index] = state
         self._active_nodes.append(event.execution_index)
@@ -116,8 +136,16 @@ class _ExecutionProgress:
         if self._debug:
             if state.task_id is not None:
                 self._render(state.task_id, event.progress)
-        elif self._active_nodes and self._active_nodes[-1] == event.execution_index:
-            self._render_active_node()
+        elif (
+            event.persistent
+            or event.progress.total is not None
+            or event.progress.phase is not None
+            or event.progress.detail is not None
+            or event.progress.resource is not None
+            or event.progress.unit != "items"
+            or self._active_nodes[-1] == event.execution_index
+        ):
+            self._render_info_node(event.execution_index)
 
     def _finish_node(self, event: NodeFinished) -> None:
         state = self._nodes.pop(event.execution_index)
@@ -131,6 +159,10 @@ class _ExecutionProgress:
         if self._root_task is None or self._root_dag is None:
             raise RuntimeError("Cannot render node progress before its root DAG")
         if not self._active_nodes:
+            self._progress.update(
+                self._root_task,
+                description=self._root_dag[0],
+            )
             self._update_task(
                 self._root_task,
                 total=None,
@@ -138,7 +170,13 @@ class _ExecutionProgress:
                 status="finishing",
             )
             return
-        state = self._nodes[self._active_nodes[-1]]
+        self._render_info_node(self._active_nodes[-1])
+
+    def _render_info_node(self, execution_index: int) -> None:
+        if self._root_task is None:
+            raise RuntimeError("Cannot render node progress before its root DAG")
+        state = self._nodes[execution_index]
+        self._progress.update(self._root_task, description=state.label)
         if state.progress is None:
             self._update_task(
                 self._root_task,
@@ -151,13 +189,6 @@ class _ExecutionProgress:
 
     def _render(self, task_id: TaskID, snapshot: ProgressSnapshot) -> None:
         resource = snapshot.resource
-        if snapshot.total is not None:
-            total = snapshot.total
-            completed = snapshot.completed
-        else:
-            total = None
-            completed = snapshot.completed
-
         parts = [snapshot.phase] if snapshot.phase else []
         if resource is not None:
             parts.append(f"{resource.index}/{resource.total} {resource.label}")
@@ -169,8 +200,8 @@ class _ExecutionProgress:
         parts.append(f"{count} {snapshot.unit}")
         self._update_task(
             task_id,
-            completed=completed,
-            total=total,
+            completed=snapshot.completed,
+            total=snapshot.total,
             status=" · ".join(parts),
         )
 
@@ -189,6 +220,7 @@ class _ExecutionProgress:
 @contextmanager
 def visual_execution(log_level: int):
     console = Console(file=sys.stderr, markup=False, highlight=False)
+    debug = log_level <= logging.DEBUG
     progress = Progress(
         TextColumn(
             "{task.fields[indent]}[{task.description}]",
@@ -204,7 +236,12 @@ def visual_execution(log_level: int):
             pulse_style="cyan",
             table_column=Column(no_wrap=True),
         ),
-        TimeElapsedColumn(table_column=Column(no_wrap=True)),
+        TextColumn(
+            "{task.fields[timer_scope]}",
+            style="dim",
+            table_column=Column(no_wrap=True),
+        ),
+        _LiveElapsedColumn(table_column=Column(no_wrap=True)),
         TextColumn(
             "{task.fields[status]}",
             markup=False,
@@ -214,7 +251,7 @@ def visual_execution(log_level: int):
         console=console,
         refresh_per_second=10,
     )
-    renderer = _ExecutionProgress(progress, debug=log_level <= logging.DEBUG)
+    renderer = _ExecutionProgress(progress, debug=debug)
     sink = _RichConsoleExecutionSink(log_level, console, renderer)
     event_token = set_current_execution_event_sink(sink)
     proxy_token = set_current_terminal_log_proxy_sink(sink)

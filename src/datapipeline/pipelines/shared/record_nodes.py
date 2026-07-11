@@ -12,7 +12,6 @@ from datapipeline.plugins import (
     STREAM_TRANFORMS_EP,
 )
 from datapipeline.sources.observability import (
-    build_source_label,
     describe_loader,
     loader_current_label,
     loader_current_resource_id,
@@ -54,7 +53,6 @@ def open_records(stream: RecordStream[Any]) -> Iterator[Any]:
             if label is not None
             else None
         )
-    phase = build_source_label(loader)
     unit = unit_for_loader(loader)
     emitted = 0
 
@@ -63,7 +61,6 @@ def open_records(stream: RecordStream[Any]) -> Iterator[Any]:
             ProgressSnapshot(
                 completed=emitted,
                 unit=unit,
-                phase=phase,
                 resource=resource,
             )
         )

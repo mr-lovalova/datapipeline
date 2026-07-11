@@ -2,7 +2,7 @@ from io import StringIO
 import logging
 
 from rich.console import Console
-from rich.progress import Progress
+from rich.progress import BarColumn, Progress
 
 from datapipeline.cli.visuals.execution import (
     DagFinished,
@@ -25,6 +25,7 @@ from datapipeline.cli.visuals.execution_context import (
 from datapipeline.cli.visuals.rich.event_sink import _RichConsoleExecutionSink
 from datapipeline.cli.visuals.rich.progress import (
     _ExecutionProgress,
+    _LiveElapsedColumn,
     visual_execution,
 )
 from datapipeline.dag.events import DagParentRef, ProgressResource, ProgressSnapshot
@@ -98,6 +99,7 @@ def _node_progress(
     execution_index: int,
     node_name: str,
     snapshot: ProgressSnapshot,
+    persistent: bool = False,
 ) -> NodeProgress:
     return NodeProgress(
         dag_name="stream:adv.20",
@@ -106,16 +108,22 @@ def _node_progress(
         execution_index=execution_index,
         progress=snapshot,
         elapsed_seconds=1,
+        persistent=persistent,
         depth=1,
     )
 
 
-def test_info_progress_keeps_internal_node_names_out_of_root_dag_row() -> None:
+def _info_progress(*node_names: str) -> tuple[Progress, _ExecutionProgress]:
     progress = _progress()
     renderer = _ExecutionProgress(progress, debug=False)
-
     renderer.handle(DagStarted(dag_name="stream:adv.20", node_count=4))
-    _start_node(renderer, 0, "order_records")
+    for execution_index, node_name in enumerate(node_names):
+        _start_node(renderer, execution_index, node_name)
+    return progress, renderer
+
+
+def test_info_progress_shows_node_and_local_detail() -> None:
+    progress, renderer = _info_progress("order_records", "open_source")
     renderer.handle(
         _node_progress(
             0,
@@ -123,7 +131,6 @@ def test_info_progress_keeps_internal_node_names_out_of_root_dag_row() -> None:
             ProgressSnapshot(completed=100, phase="reading", unit="records"),
         )
     )
-    _start_node(renderer, 1, "open_source")
     renderer.handle(
         _node_progress(
             1,
@@ -131,7 +138,6 @@ def test_info_progress_keeps_internal_node_names_out_of_root_dag_row() -> None:
             ProgressSnapshot(
                 completed=20_000,
                 unit="records",
-                phase="streaming from",
                 resource=ProgressResource(2, 17, '"2011.jsonl"'),
             ),
         )
@@ -139,47 +145,107 @@ def test_info_progress_keeps_internal_node_names_out_of_root_dag_row() -> None:
 
     assert len(progress.tasks) == 1
     task = progress.tasks[0]
-    assert task.description == "stream:adv.20"
+    assert task.description == "stream:adv.20/open_source"
     assert task.fields["indent"] == ""
+    assert task.fields["timer_scope"] == "DAG"
     assert task.total is None
     assert task.completed == 20_000
-    assert task.fields["status"] == (
-        'streaming from · 2/17 "2011.jsonl" · 20,000 records'
-    )
-    assert "open_source" not in task.fields["status"]
+    assert task.fields["status"] == '2/17 "2011.jsonl" · 20,000 records'
 
     _finish_node(renderer, 1, "open_source")
 
     task = progress.tasks[0]
+    assert task.description == "stream:adv.20/order_records"
     assert task.total is None
     assert task.fields["status"] == "reading · 100 records"
-    assert "order_records" not in task.fields["status"]
 
 
-def test_info_progress_ignores_updates_from_nodes_behind_active_node() -> None:
-    progress = _progress()
-    renderer = _ExecutionProgress(progress, debug=False)
-    renderer.handle(DagStarted(dag_name="stream:adv.20", node_count=4))
-    _start_node(renderer, 0, "order_records")
-    _start_node(renderer, 1, "open_source")
-
+def test_info_progress_selects_meaningful_event_owner() -> None:
+    progress, renderer = _info_progress(
+        "order_records",
+        "map_records",
+        "open_source",
+    )
     renderer.handle(
         _node_progress(
-            1,
+            2,
             "open_source",
-            ProgressSnapshot(completed=10, phase="reading"),
+            ProgressSnapshot(
+                completed=20_000,
+                resource=ProgressResource(2, 17, '"2011.jsonl"'),
+            ),
         )
     )
-    visible_status = progress.tasks[0].fields["status"]
+    task = progress.tasks[0]
+    assert task.description == "stream:adv.20/open_source"
+
+    renderer.handle(
+        _node_progress(1, "map_records", ProgressSnapshot(completed=20_000))
+    )
+    task = progress.tasks[0]
+    assert task.description == "stream:adv.20/open_source"
+
     renderer.handle(
         _node_progress(
             0,
             "order_records",
-            ProgressSnapshot(completed=10, phase="sorting"),
+            ProgressSnapshot(completed=25, total=100, phase="merging"),
+        )
+    )
+    task = progress.tasks[0]
+    assert task.description == "stream:adv.20/order_records"
+    assert task.completed == 25
+    assert task.total == 100
+    assert task.fields["status"] == "merging · 25/100 items"
+
+    renderer.handle(
+        _node_progress(
+            1,
+            "map_records",
+            ProgressSnapshot(completed=20_000),
+            persistent=True,
         )
     )
 
-    assert progress.tasks[0].fields["status"] == visible_status
+    task = progress.tasks[0]
+    assert task.description == "stream:adv.20/map_records"
+    assert task.fields["status"] == "20,000 items"
+
+
+def test_info_dag_elapsed_continues_after_completed_local_phase() -> None:
+    now = 0.0
+    console, _ = _console()
+    progress = Progress(
+        console=console,
+        auto_refresh=False,
+        get_time=lambda: now,
+    )
+    renderer = _ExecutionProgress(progress, debug=False)
+    renderer.handle(DagStarted(dag_name="stream:adv.20", node_count=4))
+    _start_node(renderer, 0, "order_records")
+
+    now = 10.0
+    renderer.handle(
+        _node_progress(
+            0,
+            "order_records",
+            ProgressSnapshot(completed=100, total=100, phase="merging"),
+        )
+    )
+    task = progress.tasks[0]
+    assert _LiveElapsedColumn().render(task).plain == "0:00:10"
+
+    now = 20.0
+    renderer.handle(
+        _node_progress(
+            0,
+            "order_records",
+            ProgressSnapshot(completed=20, total=100, phase="emitting"),
+        )
+    )
+
+    task = progress.tasks[0]
+    assert _LiveElapsedColumn().render(task).plain == "0:00:20"
 
 
 def test_debug_progress_has_one_row_per_active_node() -> None:
@@ -215,9 +281,13 @@ def test_debug_progress_has_one_row_per_active_node() -> None:
         "  ",
     ]
     source_task = progress.tasks[1]
+    assert source_task.fields["timer_scope"] == "NODE"
     assert source_task.completed == 25
     assert source_task.total == 100
     assert source_task.fields["status"] == "25/100 records"
+    bar = BarColumn().render(source_task)
+    assert bar.completed == 25
+    assert bar.total == 100
 
     _finish_node(renderer, 1, "open_source")
     assert [task.description for task in progress.tasks] == [
