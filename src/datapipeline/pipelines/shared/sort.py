@@ -5,7 +5,8 @@ from collections.abc import Callable, Generator, Iterable, Iterator, Sequence
 from pathlib import Path
 from typing import Any, TypeVar
 
-from datapipeline.dag.runner import set_node_heartbeat_detail
+from datapipeline.dag.events import ProgressSnapshot
+from datapipeline.dag.runner import report_node_progress
 
 T = TypeVar("T")
 _MAX_OPEN_RUNS = 64
@@ -37,16 +38,25 @@ def batch_sort(
     spill_dir: Path | None = None,
 ) -> Iterator[T]:
     """Stably sort records, spilling pickle runs when one batch is insufficient."""
+    report_node_progress(ProgressSnapshot(completed=0, phase="reading"))
     batches = _sorted_batches(iterable, batch_size, key)
 
     try:
         first_batch = next(batches)
     except StopIteration:
         return
+    report_node_progress(ProgressSnapshot(completed=len(first_batch), phase="reading"))
 
     try:
         second_batch = next(batches)
     except StopIteration:
+        report_node_progress(
+            ProgressSnapshot(
+                completed=0,
+                total=len(first_batch),
+                phase="emitting",
+            )
+        )
         yield from first_batch
         return
 
@@ -57,39 +67,50 @@ def batch_sort(
         prefix="datapipeline-sort-",
         dir=spill_dir,
     ) as tmp:
-        try:
-            temp_dir = Path(tmp)
-            run_paths = [
-                _write_run(temp_dir, 0, first_batch),
-                _write_run(temp_dir, 1, second_batch),
-            ]
-            input_items = len(first_batch) + len(second_batch)
-            set_node_heartbeat_detail(
-                f"sorting input items={input_items} spilled_runs={len(run_paths)}"
+        temp_dir = Path(tmp)
+        run_paths = [
+            _write_run(temp_dir, 0, first_batch),
+            _write_run(temp_dir, 1, second_batch),
+        ]
+        input_items = len(first_batch) + len(second_batch)
+        report_node_progress(
+            ProgressSnapshot(
+                completed=input_items,
+                phase="spilling",
+                detail=f"{len(run_paths)} spill runs",
+            )
+        )
+
+        for batch in batches:
+            run_paths.append(_write_run(temp_dir, len(run_paths), batch))
+            input_items += len(batch)
+            report_node_progress(
+                ProgressSnapshot(
+                    completed=input_items,
+                    phase="spilling",
+                    detail=f"{len(run_paths)} spill runs",
+                )
             )
 
-            for batch in batches:
-                run_paths.append(_write_run(temp_dir, len(run_paths), batch))
-                input_items += len(batch)
-                set_node_heartbeat_detail(
-                    f"sorting input items={input_items} spilled_runs={len(run_paths)}"
-                )
+        pass_id = 0
+        while len(run_paths) > _MAX_OPEN_RUNS:
+            pass_id += 1
+            run_paths = _merge_pass(
+                temp_dir,
+                pass_id,
+                run_paths,
+                key,
+                input_items,
+            )
 
-            pass_id = 0
-            while len(run_paths) > _MAX_OPEN_RUNS:
-                pass_id += 1
-                run_paths = _merge_pass(
-                    temp_dir,
-                    pass_id,
-                    run_paths,
-                    key,
-                    input_items,
-                )
-
-            set_node_heartbeat_detail(None)
-            yield from _merge_runs(run_paths, key)
-        finally:
-            set_node_heartbeat_detail(None)
+        report_node_progress(
+            ProgressSnapshot(
+                completed=0,
+                total=input_items,
+                phase="emitting",
+            )
+        )
+        yield from _merge_runs(run_paths, key)
 
 
 def _write_run(temp_dir: Path, run_id: int, items: Iterable[T]) -> Path:
@@ -115,8 +136,13 @@ def _merge_pass(
     merged_paths: list[Path] = []
     merged_items = 0
     pending_progress = 0
-    set_node_heartbeat_detail(
-        f"merging spill runs pass={pass_id} items=0/{input_items}"
+    report_node_progress(
+        ProgressSnapshot(
+            completed=0,
+            total=input_items,
+            phase="merging",
+            detail=f"pass {pass_id}",
+        )
     )
     for start in range(0, len(run_paths), _MAX_OPEN_RUNS):
         group = run_paths[start : start + _MAX_OPEN_RUNS]
@@ -127,17 +153,26 @@ def _merge_pass(
                 merged_items += 1
                 pending_progress += 1
                 if pending_progress == _MERGE_PROGRESS_INTERVAL:
-                    set_node_heartbeat_detail(
-                        f"merging spill runs pass={pass_id} "
-                        f"items={merged_items}/{input_items}"
+                    report_node_progress(
+                        ProgressSnapshot(
+                            completed=merged_items,
+                            total=input_items,
+                            phase="merging",
+                            detail=f"pass {pass_id}",
+                        )
                     )
                     pending_progress = 0
         merged_paths.append(merged_path)
         for path in group:
             path.unlink()
     if pending_progress:
-        set_node_heartbeat_detail(
-            f"merging spill runs pass={pass_id} items={merged_items}/{input_items}"
+        report_node_progress(
+            ProgressSnapshot(
+                completed=merged_items,
+                total=input_items,
+                phase="merging",
+                detail=f"pass {pass_id}",
+            )
         )
     return merged_paths
 

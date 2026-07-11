@@ -4,6 +4,7 @@ from typing import Any, Protocol
 from datapipeline.dag.events import (
     DagParentRef,
     DagRunEvent,
+    format_node_progress,
     NodeExecutionEvent,
     NodeProgressEvent,
 )
@@ -145,13 +146,15 @@ class LoggingExecutionObserver:
             )
 
     def on_node_end(self, event: NodeExecutionEvent) -> None:
-        if self._logger.isEnabledFor(logging.DEBUG):
+        level = logging.ERROR if event.status == "error" else logging.DEBUG
+        if self._logger.isEnabledFor(level):
             error_suffix = (
                 _error_suffix(event.error_type, event.error_message)
                 if event.status == "error"
                 else ""
             )
-            self._logger.debug(
+            self._logger.log(
+                level,
                 "%s[%s] finished index=%d execution=%d kind=%s "
                 "status=%s%s items=%d elapsed=%.6fs",
                 _indent(event.depth - 1),
@@ -166,22 +169,24 @@ class LoggingExecutionObserver:
             )
 
     def on_node_progress(self, event: NodeProgressEvent) -> None:
-        if self._logger.isEnabledFor(logging.INFO):
+        if event.persistent and self._logger.isEnabledFor(logging.INFO):
             self._logger.info(
                 "%s[%s] %s",
                 _indent(event.depth - 1),
                 _execution_label(event.dag_name, event.node_name),
-                event.message,
+                format_node_progress(event.progress, event.elapsed_seconds),
             )
 
     def on_dag_end(self, event: DagRunEvent) -> None:
-        if self._logger.isEnabledFor(logging.INFO):
+        level = logging.ERROR if event.status == "error" else logging.INFO
+        if self._logger.isEnabledFor(level):
             error_suffix = (
                 _error_suffix(event.error_type, event.error_message)
                 if event.status == "error"
                 else ""
             )
-            self._logger.info(
+            self._logger.log(
+                level,
                 "%s[%s] finished status=%s%s items=%d elapsed=%.6fs",
                 _indent(event.depth),
                 event.dag_name,

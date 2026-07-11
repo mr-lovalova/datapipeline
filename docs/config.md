@@ -105,7 +105,7 @@ throttle_ms: null # milliseconds to sleep between emitted vectors
 # Optional overrides:
 # observability:
 #   visuals: ON      # ON | OFF
-#   heartbeat_interval_seconds: 60 # 0 disables node heartbeat
+#   heartbeat_interval_seconds: 60 # 0 disables heartbeat log records
 #   logging:
 #     level: INFO    # CRITICAL | ERROR | WARNING | INFO | DEBUG
 #     outputs:
@@ -129,7 +129,9 @@ throttle_ms: null # milliseconds to sleep between emitted vectors
   override, selected profiles must resolve to the same mode. Quote `"OFF"` in
   YAML so it is read as text rather than a boolean.
 - Visuals backend: set `observability.visuals: ON|OFF` in the profile or use `--visuals on|off`.
-- Node heartbeat: set `observability.heartbeat_interval_seconds` or use `--heartbeat-interval`; `0` disables heartbeat.
+- Node heartbeat: set `observability.heartbeat_interval_seconds` or use
+  `--heartbeat-interval`; `0` disables persistent heartbeat records, not live
+  progress when visuals are enabled.
 - The shared artifact prerequisite phase uses only the CLI
   `--heartbeat-interval` override. A profile heartbeat setting starts applying
   when that profile itself runs; Jerry does not select one profile's setting for
@@ -179,7 +181,7 @@ mode: AUTO # AUTO | FORCE | "OFF"
 # Optional overrides:
 # observability:
 #   visuals: OFF
-#   heartbeat_interval_seconds: 60 # 0 disables node heartbeat
+#   heartbeat_interval_seconds: 60 # 0 disables heartbeat log records
 #   logging:
 #     level: INFO
 #     outputs:

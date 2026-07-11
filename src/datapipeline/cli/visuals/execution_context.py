@@ -34,15 +34,6 @@ def current_dag_depth() -> int:
     return max(0, int(_CURRENT_DAG_DEPTH.get()))
 
 
-def current_source_depth() -> int:
-    from datapipeline.dag.runner import current_node_progress_context
-
-    node = current_node_progress_context()
-    if node is not None:
-        return max(0, int(node.depth) - 1)
-    return current_dag_depth()
-
-
 def set_current_dag_label(label: str | None):
     return _CURRENT_DAG_LABEL.set(label)
 
@@ -85,8 +76,3 @@ def reset_current_execution_scope(token) -> None:
 
 def current_execution_scope() -> dict[str, str] | None:
     return _CURRENT_EXECUTION_SCOPE.get()
-
-
-def visible_source_indent(level: int) -> str:
-    _ = level
-    return "  " * current_source_depth()

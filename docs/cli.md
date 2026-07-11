@@ -4,6 +4,12 @@ All commands live under the `jerry` entry point (`src/datapipeline/cli/app.py`).
 Pass `--help` on any command for flags.
 All commands that take a project accept either `--project <path/to/project.yaml>` or `--dataset <alias>` (from `jerry.yaml datasets:`).
 
+With `--visuals on` in an interactive terminal, runtime commands show one live
+DAG row with the active node. `--log-level DEBUG` expands that view to one row
+per active node. File-backed sources include the current file and position
+(`2/17`); bars remain indeterminate when the record total is not known without
+reading the data. Visuals are independent of log filtering.
+
 ### Preview Indices
 
 - `jerry serve --project <project.yaml> --preview-index <0-13> --limit N [--log-level LEVEL] [--visuals on|off] [--heartbeat-interval SECONDS]`
@@ -36,7 +42,7 @@ All commands that take a project accept either `--project <path/to/project.yaml>
   - `csv` supports `flat` view.
   - `--output-encoding` applies to fs `jsonl`/`csv` outputs (default `utf-8`).
   - Set `--log-level DEBUG` (or set `observability.logging.level: DEBUG` in the serve profile) to increase log detail for preview indices.
-  - Set `--heartbeat-interval 0` to disable node heartbeat. The CLI value also controls the shared artifact prerequisite phase; profile `observability.heartbeat_interval_seconds` begins applying only when that profile runs.
+  - Set `--heartbeat-interval 0` to disable persistent node heartbeat records. Live progress remains enabled when visuals are on. The CLI value also controls the shared artifact prerequisite phase; profile `observability.heartbeat_interval_seconds` begins applying only when that profile runs.
   - When multiple serve profiles exist, add `--run <profile-name>` to target a
     single profile; otherwise every enabled profile is executed in its exact
     configured order.

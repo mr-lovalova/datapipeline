@@ -122,7 +122,6 @@ def run_profiles(request: ProfileRunRequest) -> None:
                     profile_kind=request.command,
                     profile_name=profile.name,
                     target_id=scope_target,
-                    announce=False,
                 ):
                     return execute_profile(
                         profile=profile,

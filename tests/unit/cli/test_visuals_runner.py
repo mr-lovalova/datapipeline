@@ -8,7 +8,7 @@ from datapipeline.runtime import Runtime
 
 
 class _StubBackend:
-    def wrap_sources(self, runtime, level):
+    def wrap_execution(self, level):
         @contextmanager
         def _cm():
             yield
@@ -16,10 +16,6 @@ class _StubBackend:
 
     def on_job_start(self, *args, **kwargs):
         return False
-
-    def on_streams_complete(self) -> bool:
-        return True
-
 
 def _runtime() -> Runtime:
     return Runtime(project_yaml=Path("."), artifacts_root=Path("."))

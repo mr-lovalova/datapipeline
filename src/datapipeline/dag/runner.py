@@ -2,7 +2,7 @@ import logging
 import math
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from collections.abc import Iterable, Iterator
 from contextvars import ContextVar, Token, copy_context
 from typing import Any
@@ -13,6 +13,7 @@ from datapipeline.dag.events import (
     DagRunEvent,
     NodeExecutionEvent,
     NodeProgressEvent,
+    ProgressSnapshot,
     RunStatus,
 )
 from datapipeline.dag.observer import (
@@ -25,6 +26,7 @@ from datapipeline.dag.node import NodeKind, PipelineNode
 
 logger = logging.getLogger(__name__)
 DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 60.0
+_LIVE_PROGRESS_INTERVAL_SECONDS = 0.1
 _LOG_OBSERVER = LoggingExecutionObserver(logger)
 _NOOP_OBSERVER = NoopExecutionObserver()
 
@@ -51,12 +53,8 @@ _CURRENT_RUN_PROGRESS_NODE: ContextVar["NodeProgressContext | None"] = ContextVa
     "datapipeline_runner_progress_node",
     default=None,
 )
-_CURRENT_RUN_OBSERVER: ContextVar[ExecutionObserver | None] = ContextVar(
-    "datapipeline_runner_observer",
-    default=None,
-)
-_CURRENT_RUN_HEARTBEAT: ContextVar["_RunHeartbeat | None"] = ContextVar(
-    "datapipeline_runner_heartbeat",
+_CURRENT_RUN_PROGRESS: ContextVar["_RunProgress | None"] = ContextVar(
+    "datapipeline_runner_progress",
     default=None,
 )
 
@@ -75,31 +73,32 @@ class NodeProgressContext:
 _NodeContextTokens = tuple[
     Token[DagParentRef | None],
     Token[NodeProgressContext | None],
-    Token[ExecutionObserver | None],
 ]
 
 
 @dataclass
-class _HeartbeatNodeState:
+class _NodeProgressState:
     active_since: float
-    last_emit_at: float
-    items: int
-    detail: str | None = None
+    last_live_at: float
+    last_persistent_at: float
+    completed: int
+    progress: ProgressSnapshot
 
 
-class _RunHeartbeat:
+class _RunProgress:
     def __init__(self, observer: ExecutionObserver, interval_seconds: float) -> None:
         self._observer = observer
-        self._interval_seconds = float(interval_seconds)
+        self._heartbeat_interval_seconds = float(interval_seconds)
         self._delivery_lock = threading.RLock()
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+        self._thread_error: Exception | None = None
         self._stack: list[NodeProgressContext] = []
-        self._states: dict[NodeProgressContext, _HeartbeatNodeState] = {}
+        self._states: dict[NodeProgressContext, _NodeProgressState] = {}
 
     def start(self) -> None:
-        if self._interval_seconds <= 0:
+        if self._heartbeat_interval_seconds <= 0:
             return
         context = copy_context()
         self._thread = threading.Thread(
@@ -113,46 +112,77 @@ class _RunHeartbeat:
         self._stop.set()
         if self._thread is not None:
             self._thread.join(timeout=1.0)
+            if self._thread.is_alive():
+                raise RuntimeError("DAG heartbeat thread did not stop")
+        if self._thread_error is not None:
+            raise RuntimeError("DAG heartbeat observer failed") from self._thread_error
 
-    def enter(self, node: NodeProgressContext, items: int) -> None:
+    def start_node(self, node: NodeProgressContext) -> None:
+        now = time.perf_counter()
+        with self._lock:
+            self._states[node] = _NodeProgressState(
+                active_since=now,
+                last_live_at=now,
+                last_persistent_at=now,
+                completed=0,
+                progress=ProgressSnapshot(completed=0),
+            )
+
+    def enter(self, node: NodeProgressContext) -> None:
+        if self._heartbeat_interval_seconds <= 0:
+            return
+        with self._lock:
+            self._stack.append(node)
+
+    def leave(self, node: NodeProgressContext) -> None:
+        if self._heartbeat_interval_seconds <= 0:
+            return
+        with self._lock:
+            if not self._stack or self._stack[-1] != node:
+                raise RuntimeError("Progress node stack is out of order")
+            self._stack.pop()
+
+    def item_emitted(self, node: NodeProgressContext, items: int) -> None:
+        should_emit = False
         now = time.perf_counter()
         with self._lock:
             state = self._states.get(node)
             if state is None:
-                state = _HeartbeatNodeState(
-                    active_since=now,
-                    last_emit_at=now,
-                    items=items,
-                )
-                self._states[node] = state
-            else:
-                state.items = items
-            self._stack.append(node)
+                return
+            state.completed = items
+            if (
+                items == 1
+                or now - state.last_live_at >= _LIVE_PROGRESS_INTERVAL_SECONDS
+            ):
+                state.last_live_at = now
+                should_emit = True
+        if should_emit:
+            self._emit(node, persistent=False)
 
-    def leave(self, node: NodeProgressContext) -> None:
-        with self._lock:
-            if not self._stack or self._stack[-1] != node:
-                raise RuntimeError("Heartbeat node stack is out of order")
-            self._stack.pop()
-
-    def item_emitted(self, node: NodeProgressContext, items: int) -> None:
-        with self._lock:
-            state = self._states.get(node)
-            if state is not None:
-                state.items = items
-
-    def progress_emitted(self, node: NodeProgressContext) -> None:
+    def report(self, node: NodeProgressContext, progress: ProgressSnapshot) -> None:
+        should_emit = False
         now = time.perf_counter()
         with self._lock:
             state = self._states.get(node)
-            if state is not None:
-                state.last_emit_at = now
-
-    def set_detail(self, node: NodeProgressContext, detail: str | None) -> None:
-        with self._lock:
-            state = self._states.get(node)
-            if state is not None:
-                state.detail = detail
+            if state is None:
+                return
+            previous = state.progress
+            state.completed = progress.completed
+            state.progress = progress
+            presentation_changed = (
+                progress.phase != previous.phase
+                or progress.total != previous.total
+                or progress.unit != previous.unit
+                or progress.resource != previous.resource
+            )
+            if (
+                presentation_changed
+                or now - state.last_live_at >= _LIVE_PROGRESS_INTERVAL_SECONDS
+            ):
+                state.last_live_at = now
+                should_emit = True
+        if should_emit:
+            self._emit(node, persistent=False)
 
     def clear(self, node: NodeProgressContext) -> None:
         with self._delivery_lock:
@@ -161,42 +191,55 @@ class _RunHeartbeat:
                 self._states.pop(node, None)
 
     def _run(self) -> None:
-        while not self._stop.wait(self._interval_seconds):
-            with self._delivery_lock:
-                event = self._snapshot_event()
-                if event is None:
-                    continue
-                node, message = event
-                try:
-                    _emit_node_progress(self._observer, node, message)
-                except Exception:
-                    logger.debug("Failed to emit DAG heartbeat", exc_info=True)
+        try:
+            while not self._stop.wait(self._heartbeat_interval_seconds):
+                self._emit_heartbeat()
+        except Exception as exc:
+            self._thread_error = exc
+            self._stop.set()
 
-    def _snapshot_event(self) -> tuple[NodeProgressContext, str] | None:
+    def _emit_heartbeat(self) -> None:
         now = time.perf_counter()
         with self._lock:
             if not self._stack:
-                return None
+                return
             node = self._stack[-1]
             state = self._states.get(node)
             if state is None:
                 self._stack.pop()
-                return None
-            if now - state.last_emit_at < self._interval_seconds:
-                return None
-            items = state.items
-            detail = state.detail
-            elapsed = now - state.active_since
-            state.last_emit_at = now
-        if detail is not None:
-            return node, f"running elapsed={elapsed:.0f}s {detail}"
-        return node, f"running elapsed={elapsed:.0f}s items={items}"
+                return
+            if (
+                now - state.last_persistent_at
+                < self._heartbeat_interval_seconds
+            ):
+                return
+            state.last_persistent_at = now
+        self._emit(node, persistent=True)
+
+    def _emit(self, node: NodeProgressContext, persistent: bool) -> None:
+        with self._delivery_lock:
+            now = time.perf_counter()
+            with self._lock:
+                state = self._states.get(node)
+                if state is None:
+                    return
+                progress = state.progress
+                if state.completed != progress.completed:
+                    progress = replace(progress, completed=state.completed)
+                elapsed = now - state.active_since
+            _emit_node_progress(
+                self._observer,
+                node,
+                progress,
+                elapsed_seconds=elapsed,
+                persistent=persistent,
+            )
 
 
 _DagContextTokens = tuple[
     Token[_RootRunState | None],
     Token[int],
-    Token[_RunHeartbeat | None] | None,
+    Token[_RunProgress | None],
 ]
 
 
@@ -208,34 +251,22 @@ def current_node_progress_context() -> NodeProgressContext | None:
     return _CURRENT_RUN_PROGRESS_NODE.get()
 
 
-def emit_node_progress(message: str) -> None:
+def report_node_progress(progress: ProgressSnapshot) -> None:
     node = _CURRENT_RUN_PROGRESS_NODE.get()
-    observer = _CURRENT_RUN_OBSERVER.get()
-    if node is None or observer is None:
+    publisher = _CURRENT_RUN_PROGRESS.get()
+    if node is None or publisher is None:
         return
-    _emit_node_progress(observer, node, message)
-    heartbeat = _CURRENT_RUN_HEARTBEAT.get()
-    if heartbeat is not None:
-        heartbeat.progress_emitted(node)
-
-
-def set_node_heartbeat_detail(detail: str | None) -> None:
-    """Describe buffered work that has not produced node output yet."""
-    node = _CURRENT_RUN_PROGRESS_NODE.get()
-    heartbeat = _CURRENT_RUN_HEARTBEAT.get()
-    if node is not None and heartbeat is not None:
-        heartbeat.set_detail(node, detail)
+    publisher.report(node, progress)
 
 
 def _emit_node_progress(
     observer: ExecutionObserver,
     node: NodeProgressContext,
-    message: str,
+    progress: ProgressSnapshot,
+    elapsed_seconds: float,
+    persistent: bool,
 ) -> None:
-    emit = getattr(observer, "on_node_progress", None)
-    if not callable(emit):
-        return
-    emit(
+    observer.on_node_progress(
         NodeProgressEvent(
             dag_name=node.dag_name,
             node_name=node.node_name,
@@ -243,7 +274,9 @@ def _emit_node_progress(
             execution_index=node.execution_index,
             node_kind=node.node_kind,
             node_calls_dag=node.node_calls_dag,
-            message=message,
+            progress=progress,
+            elapsed_seconds=elapsed_seconds,
+            persistent=persistent,
             depth=node.depth,
         )
     )
@@ -251,12 +284,8 @@ def _emit_node_progress(
 
 def _close_iterator(iterator: Iterable[Any]) -> None:
     closer = getattr(iterator, "close", None)
-    if not callable(closer):
-        return
-    try:
+    if callable(closer):
         closer()
-    except Exception:
-        logger.debug("Failed to close iterator during DAG teardown", exc_info=True)
 
 
 def _error_message(exc: BaseException) -> str | None:
@@ -427,17 +456,17 @@ def _observe_node_stream(
             return (
                 _CURRENT_RUN_ACTIVE_NODE.set(active_node),
                 _CURRENT_RUN_PROGRESS_NODE.set(progress_node),
-                _CURRENT_RUN_OBSERVER.set(observer),
             )
 
         def _deactivate_node_context(tokens: _NodeContextTokens) -> None:
-            active_node_token, progress_node_token, observer_token = tokens
-            _CURRENT_RUN_OBSERVER.reset(observer_token)
+            active_node_token, progress_node_token = tokens
             _CURRENT_RUN_PROGRESS_NODE.reset(progress_node_token)
             _CURRENT_RUN_ACTIVE_NODE.reset(active_node_token)
 
+        progress = _CURRENT_RUN_PROGRESS.get()
+        if progress is None:
+            raise RuntimeError("Cannot execute a DAG node outside a root run")
         context_tokens = _activate_node_context()
-        heartbeat = _CURRENT_RUN_HEARTBEAT.get()
         try:
             observer.on_node_start(
                 dag_name=dag_name,
@@ -448,20 +477,18 @@ def _observe_node_stream(
                 node_calls_dag=node_calls_dag,
                 depth=node_depth,
             )
+            progress.start_node(progress_node)
             iterator = iter(stream)
             while True:
-                if heartbeat is not None:
-                    heartbeat.enter(progress_node, item_count)
+                progress.enter(progress_node)
                 try:
                     item = next(iterator)
                 except StopIteration:
                     break
                 finally:
-                    if heartbeat is not None:
-                        heartbeat.leave(progress_node)
+                    progress.leave(progress_node)
                 item_count += 1
-                if heartbeat is not None:
-                    heartbeat.item_emitted(progress_node, item_count)
+                progress.item_emitted(progress_node, item_count)
                 _deactivate_node_context(context_tokens)
                 try:
                     yield item
@@ -480,8 +507,7 @@ def _observe_node_stream(
             raise
         finally:
             try:
-                if heartbeat is not None:
-                    heartbeat.clear(progress_node)
+                progress.clear(progress_node)
                 _close_iterator(iterator)
                 if status == "success" and run_state.interrupted:
                     status = "error"
@@ -531,24 +557,31 @@ def _observe_dag_stream(
         error_type: str | None = None
         error_message: str | None = None
         iterator: Iterator[Any] = iter(())
-        heartbeat: _RunHeartbeat | None = None
+        progress: _RunProgress
+        if is_root_run:
+            progress = _RunProgress(
+                observer,
+                resolve_heartbeat_interval_seconds(
+                    context.heartbeat_interval_seconds
+                ),
+            )
+        else:
+            inherited_progress = _CURRENT_RUN_PROGRESS.get()
+            if inherited_progress is None:
+                raise RuntimeError("Cannot execute a nested DAG outside a root run")
+            progress = inherited_progress
         dag_started = False
 
         def activate_dag_context() -> _DagContextTokens:
             return (
                 _CURRENT_ROOT_RUN.set(run_state),
                 _CURRENT_RUN_DAG_DEPTH.set(dag_depth + 1),
-                (
-                    _CURRENT_RUN_HEARTBEAT.set(heartbeat)
-                    if heartbeat is not None
-                    else None
-                ),
+                _CURRENT_RUN_PROGRESS.set(progress),
             )
 
         def deactivate_dag_context(tokens: _DagContextTokens) -> None:
-            root_run_token, depth_token, heartbeat_token = tokens
-            if heartbeat_token is not None:
-                _CURRENT_RUN_HEARTBEAT.reset(heartbeat_token)
+            root_run_token, depth_token, progress_token = tokens
+            _CURRENT_RUN_PROGRESS.reset(progress_token)
             _CURRENT_RUN_DAG_DEPTH.reset(depth_token)
             _CURRENT_ROOT_RUN.reset(root_run_token)
 
@@ -563,20 +596,9 @@ def _observe_dag_stream(
                 dag_parent=dag_parent,
             )
             dag_started = True
-            iterator = iter(stream)
             if is_root_run:
-                interval_seconds = resolve_heartbeat_interval_seconds(
-                    context.heartbeat_interval_seconds
-                )
-                if interval_seconds > 0:
-                    new_heartbeat = _RunHeartbeat(observer, interval_seconds)
-                    new_heartbeat.start()
-                    heartbeat = new_heartbeat
-                    context_tokens = (
-                        context_tokens[0],
-                        context_tokens[1],
-                        _CURRENT_RUN_HEARTBEAT.set(heartbeat),
-                    )
+                progress.start()
+            iterator = iter(stream)
             for item in iterator:
                 item_count += 1
                 deactivate_dag_context(context_tokens)
@@ -600,8 +622,8 @@ def _observe_dag_stream(
                 try:
                     _close_iterator(iterator)
                 finally:
-                    if heartbeat is not None:
-                        heartbeat.stop()
+                    if is_root_run:
+                        progress.stop()
                 if status == "success" and run_state.interrupted:
                     status = "error"
                     error_type = "KeyboardInterrupt"

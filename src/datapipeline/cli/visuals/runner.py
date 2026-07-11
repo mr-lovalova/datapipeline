@@ -1,11 +1,11 @@
 import logging
-from typing import Callable, Any, Sequence, Tuple
+from typing import Any, Callable, Sequence
 
 from datapipeline.cli.visuals.execution import (
     make_execution_observer,
     make_operation_observer,
 )
-from datapipeline.cli.visuals import get_visuals_backend
+from datapipeline.cli.visuals.backend import get_visuals_backend
 from datapipeline.execution.observability import operation_observer
 from datapipeline.runtime import Runtime
 
@@ -25,7 +25,7 @@ def _run_work(backend, runtime: Runtime, level: int, work: Callable[[], Any]):
             logging.getLogger("datapipeline.operation.observer")
         )
         with operation_observer(observer):
-            with backend.wrap_sources(runtime, level):
+            with backend.wrap_execution(level):
                 return work()
     finally:
         if installed:
@@ -55,14 +55,10 @@ def run_job(
 
     job_idx = idx or 1
     job_total = total or 1
-    section_tuple: Tuple[str, ...] = tuple(
+    section_tuple = tuple(
         section for section in (sections or []) if section
     )
-    presented = False
-    try:
-        presented = backend.on_job_start(section_tuple, label, job_idx, job_total)
-    except Exception:
-        presented = False
+    presented = backend.on_job_start(section_tuple, label, job_idx, job_total)
     if not presented:
         prefix = " / ".join(section_tuple) if section_tuple else "Job"
         if idx is not None and total is not None and job_total > 1:
@@ -71,12 +67,4 @@ def run_job(
             logger.info("%s: '%s'", prefix, label)
 
     result = _run_work(backend, runtime, level, work)
-
-    try:
-        handled = backend.on_streams_complete()
-    except Exception:
-        handled = False
-    if not handled:
-        logger.info("All streams complete")
-
     return result

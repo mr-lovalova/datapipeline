@@ -55,8 +55,8 @@ def test_batch_sort_orders_records_across_merge_passes(monkeypatch) -> None:
 def test_batch_sort_reports_buffered_and_merged_work(monkeypatch) -> None:
     monkeypatch.setattr(sort_module, "_MAX_OPEN_RUNS", 2)
     monkeypatch.setattr(sort_module, "_MERGE_PROGRESS_INTERVAL", 1)
-    details: list[str | None] = []
-    monkeypatch.setattr(sort_module, "set_node_heartbeat_detail", details.append)
+    snapshots = []
+    monkeypatch.setattr(sort_module, "report_node_progress", snapshots.append)
 
     ordered = list(
         batch_sort(
@@ -67,9 +67,22 @@ def test_batch_sort_reports_buffered_and_merged_work(monkeypatch) -> None:
     )
 
     assert [item.value for item in ordered] == [1, 2, 3]
-    assert "sorting input items=3 spilled_runs=3" in details
-    assert "merging spill runs pass=1 items=3/3" in details
-    assert details[-1] is None
+    assert any(
+        snapshot.phase == "spilling"
+        and snapshot.completed == 3
+        and snapshot.detail == "3 spill runs"
+        for snapshot in snapshots
+    )
+    assert any(
+        snapshot.phase == "merging"
+        and snapshot.completed == 3
+        and snapshot.total == 3
+        and snapshot.detail == "pass 1"
+        for snapshot in snapshots
+    )
+    assert snapshots[-1].phase == "emitting"
+    assert snapshots[-1].completed == 0
+    assert snapshots[-1].total == 3
 
 
 def test_batch_sort_preserves_input_order_for_equal_keys_across_merge_passes(

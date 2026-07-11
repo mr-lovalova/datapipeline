@@ -1,1376 +1,271 @@
 from io import StringIO
 import logging
-from types import SimpleNamespace
 
-import pytest
 from rich.console import Console
 from rich.progress import Progress
 
 from datapipeline.cli.visuals.execution import (
-    BuildDecisionMessage,
     DagFinished,
-    DagInfo,
     DagStarted,
     ExecutionMessage,
-    ExecutionScope,
     NodeFinished,
     NodeProgress,
     NodeStarted,
-    OperationFinished,
-    OperationInfo,
-    OperationProgress,
-    OperationStarted,
-    ProfileStartMessage,
-    ScopeStartMessage,
     SourceInfoMessage,
 )
 from datapipeline.cli.visuals.execution_context import (
-    current_dag_depth,
     current_execution_event_sink,
     current_terminal_log_proxy_sink,
     reset_current_execution_event_sink,
     reset_current_terminal_log_proxy_sink,
-    set_current_dag_depth,
     set_current_execution_event_sink,
     set_current_terminal_log_proxy_sink,
 )
-from datapipeline.cli.visuals.rich.columns import SourceLabelColumn
 from datapipeline.cli.visuals.rich.event_sink import _RichConsoleExecutionSink
-from datapipeline.cli.visuals.rich.sources import (
-    _RichSourceProxy,
-    _clear_progress_tasks,
-    visual_sources,
+from datapipeline.cli.visuals.rich.progress import (
+    _ExecutionProgress,
+    visual_execution,
 )
-from datapipeline.sources.models.generator import DataGenerator
-from datapipeline.sources.foreach import ForeachLoader
-from datapipeline.sources.models.loader import BaseDataLoader, SyntheticLoader
-from datapipeline.sources.adapters.fs import FsGlobTransport
+from datapipeline.dag.events import ProgressResource, ProgressSnapshot
 
 
-class _DummyGenerator(DataGenerator):
-    def generate(self):
-        for i in range(3):
-            yield {"n": i}
-
-    def count(self):
-        return 3
-
-    def info_lines(self):
-        return [
-            "synthetic.generate: start=2024-01-01T00:00:00Z end=2024-01-01T02:00:00Z freq=1h"
-        ]
+def _console() -> tuple[Console, StringIO]:
+    output = StringIO()
+    return (
+        Console(file=output, markup=False, highlight=False, force_terminal=False),
+        output,
+    )
 
 
-class _SyntheticSource:
-    def __init__(self) -> None:
-        self.loader = SyntheticLoader(_DummyGenerator())
-
-    def stream(self):
-        yield from self.loader.load()
+def _progress() -> Progress:
+    console, _ = _console()
+    return Progress(console=console, auto_refresh=False)
 
 
-class _DerivedSource:
-    def stream(self):
-        yield from ()
-
-
-class _InterruptCountGenerator(DataGenerator):
-    def generate(self):
-        yield {"n": 0}
-
-    def count(self):
-        raise KeyboardInterrupt()
-
-    def info_lines(self):
-        return ["synthetic.generate: interrupt-on-count"]
-
-
-class _InterruptCountSource:
-    def __init__(self) -> None:
-        self.loader = SyntheticLoader(_InterruptCountGenerator())
-
-    def stream(self):
-        yield from self.loader.load()
-
-
-class _StreamRegistry:
-    def __init__(self) -> None:
-        self._items: dict[str, object] = {}
-
-    def items(self):
-        return self._items.items()
-
-    def register(self, stream_id: str, stream_source: object) -> None:
-        self._items[stream_id] = stream_source
-
-
-class _BrokenProgress:
-    def __init__(self, *args, **kwargs) -> None:
-        self.live = None
-
-    def __enter__(self):
-        raise RuntimeError("live boom")
-
-    def __exit__(self, exc_type, exc, tb):
-        return False
-
-    def add_task(self, *args, **kwargs):
-        return 0
-
-    def update(self, *args, **kwargs):
-        return None
-
-    def start_task(self, *args, **kwargs):
-        return None
-
-    def advance(self, *args, **kwargs):
-        return None
-
-    def stop_task(self, *args, **kwargs):
-        return None
-
-    def remove_task(self, *args, **kwargs):
-        return None
-
-    def refresh(self):
-        return None
-
-
-class _InterruptingAddProgress:
-    def __init__(self) -> None:
-        self._calls = 0
-        self.removed: list[int] = []
-
-    def add_task(self, *args, **kwargs):
-        self._calls += 1
-        if self._calls == 1:
-            raise KeyboardInterrupt()
-        return 101
-
-    def update(self, *args, **kwargs):
-        return None
-
-    def start_task(self, *args, **kwargs):
-        return None
-
-    def advance(self, *args, **kwargs):
-        return None
-
-    def stop_task(self, *args, **kwargs):
-        return None
-
-    def remove_task(self, task_id):
-        self.removed.append(int(task_id))
-
-    def refresh(self):
-        return None
-
-
-class _RecordingProgress:
-    def __init__(self) -> None:
-        self._next_task_id = 1
-        self.task_text: dict[int, str] = {}
-        self.added_texts: list[str] = []
-        self.updated_texts: list[str] = []
-        self.updated_by_task: dict[int, list[str]] = {}
-        self.advance_calls: list[tuple[int, int]] = []
-        self.removed: list[int] = []
-
-    def add_task(self, *args, **kwargs):
-        task_id = self._next_task_id
-        self._next_task_id += 1
-        text = str(kwargs.get("text", ""))
-        self.task_text[int(task_id)] = text
-        self.added_texts.append(text)
-        return task_id
-
-    def update(self, task_id, *args, **kwargs):
-        if "text" in kwargs:
-            text = str(kwargs["text"])
-            self.task_text[int(task_id)] = text
-            self.updated_texts.append(text)
-            self.updated_by_task.setdefault(int(task_id), []).append(text)
-        return None
-
-    def start_task(self, *args, **kwargs):
-        return None
-
-    def advance(self, task_id, advance=1):
-        self.advance_calls.append((int(task_id), int(advance)))
-        return None
-
-    def stop_task(self, *args, **kwargs):
-        return None
-
-    def remove_task(self, task_id):
-        self.removed.append(int(task_id))
-        self.task_text.pop(int(task_id), None)
-
-    def refresh(self):
-        return None
-
-
-def _lines(buffer: StringIO) -> list[str]:
-    return [line for line in buffer.getvalue().splitlines() if line.strip()]
-
-
-@pytest.fixture
-def rich_sink() -> tuple[_RichConsoleExecutionSink, StringIO]:
-    buffer = StringIO()
-    console = Console(file=buffer, markup=False, highlight=False, force_terminal=False)
-    return _RichConsoleExecutionSink(level=0, console=console), buffer
-
-
-def test_rich_execution_sink_emits_dag_end_immediately() -> None:
-    buffer = StringIO()
-    console = Console(file=buffer, markup=False, highlight=False, force_terminal=False)
-    sink = _RichConsoleExecutionSink(level=0, console=console)
-    sink.set_live_console(console)
-
-    sink.emit(
-        DagStarted(
-            dag_name="pipeline:serve",
-            depth=0,
-            node_count=3,
+def _start_node(
+    renderer: _ExecutionProgress,
+    execution_index: int,
+    node_name: str,
+) -> None:
+    renderer.handle(
+        NodeStarted(
+            dag_name="stream:adv.20",
+            node_name=node_name,
+            node_index=execution_index,
+            execution_index=execution_index,
+            depth=1,
         )
     )
-    sink.emit(
-        DagFinished(
-            dag_name="pipeline:serve",
-            depth=0,
-            node_count=3,
+
+
+def _finish_node(
+    renderer: _ExecutionProgress,
+    execution_index: int,
+    node_name: str,
+) -> None:
+    renderer.handle(
+        NodeFinished(
+            dag_name="stream:adv.20",
+            node_name=node_name,
+            node_index=execution_index,
+            execution_index=execution_index,
             status="success",
-            output_items=1,
-            elapsed_seconds=0.5,
+            output_items=100,
+            elapsed_seconds=1,
+            depth=1,
         )
     )
 
-    current = _lines(buffer)
-    assert any(line.startswith("[pipeline:serve] started") for line in current)
-    assert any(line.startswith("[pipeline:serve] finished") for line in current)
+
+def _node_progress(
+    execution_index: int,
+    node_name: str,
+    snapshot: ProgressSnapshot,
+) -> NodeProgress:
+    return NodeProgress(
+        dag_name="stream:adv.20",
+        node_name=node_name,
+        node_index=execution_index,
+        execution_index=execution_index,
+        progress=snapshot,
+        elapsed_seconds=1,
+        depth=1,
+    )
 
 
-def test_rich_execution_sink_renders_error_details_for_failed_dag_end(
-    rich_sink,
-) -> None:
-    sink, buffer = rich_sink
-    sink.emit(
+def test_info_progress_uses_one_root_dag_row_and_deepest_active_node() -> None:
+    progress = _progress()
+    renderer = _ExecutionProgress(progress, debug=False)
+
+    renderer.handle(DagStarted(dag_name="stream:adv.20", node_count=4))
+    _start_node(renderer, 0, "order_records")
+    renderer.handle(
+        _node_progress(
+            0,
+            "order_records",
+            ProgressSnapshot(completed=100, phase="reading", unit="records"),
+        )
+    )
+    _start_node(renderer, 1, "open_source")
+    renderer.handle(
+        _node_progress(
+            1,
+            "open_source",
+            ProgressSnapshot(
+                completed=20_000,
+                unit="records",
+                phase="streaming from",
+                resource=ProgressResource(2, 17, '"2011.jsonl"'),
+            ),
+        )
+    )
+
+    assert len(progress.tasks) == 1
+    task = progress.tasks[0]
+    assert task.description == "stream:adv.20"
+    assert task.total == 17
+    assert task.completed == 1
+    assert task.fields["status"] == (
+        'open_source · streaming from · 2/17 "2011.jsonl" '
+        '· 20,000 records'
+    )
+
+    _finish_node(renderer, 1, "open_source")
+
+    task = progress.tasks[0]
+    assert task.total is None
+    assert task.fields["status"] == (
+        "order_records · reading · 100 records"
+    )
+
+
+def test_info_progress_ignores_updates_from_nodes_behind_active_node() -> None:
+    progress = _progress()
+    renderer = _ExecutionProgress(progress, debug=False)
+    renderer.handle(DagStarted(dag_name="stream:adv.20", node_count=4))
+    _start_node(renderer, 0, "order_records")
+    _start_node(renderer, 1, "open_source")
+
+    renderer.handle(
+        _node_progress(
+            1,
+            "open_source",
+            ProgressSnapshot(completed=10, phase="reading"),
+        )
+    )
+    visible_status = progress.tasks[0].fields["status"]
+    renderer.handle(
+        _node_progress(
+            0,
+            "order_records",
+            ProgressSnapshot(completed=10, phase="sorting"),
+        )
+    )
+
+    assert progress.tasks[0].fields["status"] == visible_status
+
+
+def test_debug_progress_has_one_row_per_active_node() -> None:
+    progress = _progress()
+    renderer = _ExecutionProgress(progress, debug=True)
+    renderer.handle(DagStarted(dag_name="stream:adv.20", node_count=4))
+    _start_node(renderer, 0, "order_records")
+    _start_node(renderer, 1, "open_source")
+
+    renderer.handle(
+        _node_progress(
+            1,
+            "open_source",
+            ProgressSnapshot(completed=25, total=100, unit="records"),
+        )
+    )
+
+    assert [task.description for task in progress.tasks] == [
+        "stream:adv.20/order_records",
+        "stream:adv.20/open_source",
+    ]
+    source_task = progress.tasks[1]
+    assert source_task.completed == 25
+    assert source_task.total == 100
+    assert source_task.fields["status"] == "25/100 records"
+
+    _finish_node(renderer, 1, "open_source")
+    assert [task.description for task in progress.tasks] == [
+        "stream:adv.20/order_records"
+    ]
+
+
+def test_root_dag_finish_clears_progress_and_remains_a_static_event() -> None:
+    progress = _progress()
+    renderer = _ExecutionProgress(progress, debug=False)
+    renderer.handle(DagStarted(dag_name="stream:adv.20", node_count=4))
+
+    renderer.handle(
         DagFinished(
-            dag_name="pipeline:serve",
-            depth=0,
-            node_count=3,
-            status="error",
-            error_type="ValueError",
-            error_message="No entry point 'target_mapper'",
-            output_items=0,
-            elapsed_seconds=0.5,
+            dag_name="stream:adv.20",
+            node_count=4,
+            status="success",
+            output_items=100,
+            elapsed_seconds=1,
         )
     )
-
-    output = buffer.getvalue().replace("\n", "")
-    assert (
-        "[pipeline:serve] finished status=error "
-        "error=ValueError: No entry point 'target_mapper'"
-    ) in output
-
-
-def test_rich_execution_sink_renders_message_event(rich_sink) -> None:
-    sink, buffer = rich_sink
-    sink.emit(
-        ExecutionMessage(
-            depth=0,
-            message="Saved 14 items: /tmp/train.jsonl",
-            log_level=logging.INFO,
-        )
-    )
-
-    lines = _lines(buffer)
-    assert any(line.startswith("Saved 14 items: /tmp/train.jsonl") for line in lines)
-
-
-def test_rich_execution_sink_styles_warning_messages(rich_sink) -> None:
-    sink, _ = rich_sink
-
-    text = sink._render_event(
-        ExecutionMessage(
-            depth=0,
-            message="skipped tick(s) for partition '()'",
-            log_level=logging.WARNING,
-        )
-    )
-
-    assert str(text) == "skipped tick(s) for partition '()'"
-    assert any(span.style == "yellow" for span in text.spans)
-
-
-def test_rich_execution_sink_styles_error_messages(rich_sink) -> None:
-    sink, _ = rich_sink
-
-    text = sink._render_event(
-        ExecutionMessage(
-            depth=0,
-            message="failed to materialize artifact",
-            log_level=logging.ERROR,
-        )
-    )
-
-    assert str(text) == "failed to materialize artifact"
-    assert any(span.style == "bold red" for span in text.spans)
-
-
-def test_rich_execution_sink_styles_build_decision_details(rich_sink) -> None:
-    sink, _ = rich_sink
-
-    text = sink._render_event(
-        BuildDecisionMessage(
-            message='Build decision:\n{\n  "action": "skip"\n}',
-        )
-    )
-
-    assert str(text) == 'Build decision:\n{\n  "action": "skip"\n}'
-    assert any(span.style == "bold cyan" for span in text.spans)
-    assert any(span.style == "dim" for span in text.spans)
-
-
-def test_rich_execution_sink_styles_profile_start_as_debug_message(rich_sink) -> None:
-    sink, _ = rich_sink
-
-    text = sink._render_event(
-        ProfileStartMessage(
-            message="Profile start command=build name=schema",
-        )
-    )
-
-    assert str(text) == "Profile start command=build name=schema"
-    assert any(span.style == "dim" for span in text.spans)
-
-
-def test_rich_execution_sink_rejects_unsupported_event(rich_sink) -> None:
-    sink, _ = rich_sink
-
-    with pytest.raises(TypeError, match="Unsupported execution event"):
-        sink._render_event(object())  # type: ignore[arg-type]
-
-
-@pytest.mark.parametrize(
-    ("event", "expected"),
-    [
-        (
-            DagInfo(
-                dag_name="pipeline",
-                info_name="record.order",
-                info_line="record.order: time",
-                depth=1,
-            ),
-            "  [pipeline] record.order: time",
-        ),
-        (
-            OperationStarted(
-                operation_name="build:schema",
-                entrypoint="core.artifact.schema",
-            ),
-            "[build:schema] started operation=core.artifact.schema",
-        ),
-        (
-            OperationInfo(
-                operation_name="build:schema",
-                info_line="saved path=schema.json",
-            ),
-            "[build:schema] saved path=schema.json",
-        ),
-        (
-            OperationFinished(
-                operation_name="build:schema",
-                status="success",
-                elapsed_seconds=0.25,
-            ),
-            "[build:schema] finished status=success elapsed=0.250000s",
-        ),
-        (
-            NodeStarted(
-                dag_name="pipeline",
-                node_name="vector",
-                node_index=2,
-                execution_index=4,
-                node_kind="dag_call",
-                node_calls_dag="vector:assemble",
-                depth=1,
-            ),
-            "[pipeline/vector] started index=2 execution=4 kind=dag_call "
-            "calls=vector:assemble",
-        ),
-        (
-            NodeFinished(
-                dag_name="pipeline",
-                node_name="vector",
-                node_index=2,
-                execution_index=4,
-                status="error",
-                error_type="ValueError",
-                error_message="bad vector",
-                output_items=0,
-                elapsed_seconds=0.5,
-                depth=1,
-            ),
-            "[pipeline/vector] finished index=2 execution=4 kind=function "
-            "status=error error=ValueError: bad vector items=0 elapsed=0.500000s",
-        ),
-    ],
-)
-def test_rich_execution_sink_renders_typed_lifecycle_events(
-    rich_sink,
-    event,
-    expected,
-) -> None:
-    sink, _ = rich_sink
-
-    assert str(sink._render_event(event)) == expected
-
-
-def test_rich_execution_sink_renders_source_info_message(rich_sink) -> None:
-    sink, buffer = rich_sink
-    sink.emit(
-        SourceInfoMessage(
-            depth=1,
-            source_label="equity.ohlcv",
-            message="Inputs: left=equity.left, right=equity.right",
-        )
-    )
-
-    lines = _lines(buffer)
-    assert any(
-        line.startswith("  [equity.ohlcv] Inputs: left=equity.left, right=equity.right")
-        for line in lines
-    )
-
-
-def test_rich_execution_sink_renders_scope_start_as_header(rich_sink) -> None:
-    sink, buffer = rich_sink
-    sink.emit(
-        ScopeStartMessage(
-            depth=0,
-            message="Scope: profile=serve:test target=serve task=schema",
-            scope=ExecutionScope(
-                profile_kind="serve",
-                profile_name="test",
-                target_id="serve",
-                task_id="schema",
-                item_index="1",
-                item_total="3",
-            ),
-        )
-    )
-
-    lines = _lines(buffer)
-    assert any("Task: schema (1/3)" in line for line in lines)
-
-
-def test_rich_execution_sink_keeps_source_info_when_live_at_info() -> None:
-    buffer = StringIO()
-    console = Console(file=buffer, markup=False, highlight=False, force_terminal=False)
-    sink = _RichConsoleExecutionSink(level=logging.INFO, console=console)
-    sink.set_live_console(console)
-    sink.emit(
-        SourceInfoMessage(
-            depth=1,
-            source_label="equity.ohlcv",
-            message="Inputs: left=equity.left, right=equity.right",
-        )
-    )
-    assert any(
-        line.startswith("  [equity.ohlcv] Inputs: left=equity.left, right=equity.right")
-        for line in _lines(buffer)
-    )
-
-
-def test_rich_execution_sink_keeps_node_progress_single_line() -> None:
-    buffer = StringIO()
-    console = Console(
-        file=buffer,
-        markup=False,
-        highlight=False,
-        force_terminal=False,
-        width=56,
-    )
-    sink = _RichConsoleExecutionSink(level=logging.INFO, console=console)
-    sink.set_live_console(console)
-
-    sink.emit(
-        NodeProgress(
-            dag_name="ingest:equity.return.trailing.daily.21",
-            node_name="open_source",
-            node_index=0,
-            execution_index=0,
-            depth=1,
-            message="running elapsed=119s items=2841179",
-        )
-    )
-
-    lines = _lines(buffer)
-    assert len(lines) == 1
-    assert lines[0].startswith("[ingest:equity.return.trailing.daily.21")
-
-
-def test_rich_execution_sink_styles_node_progress_as_node_detail() -> None:
-    buffer = StringIO()
-    console = Console(file=buffer, markup=False, highlight=False, force_terminal=False)
-    sink = _RichConsoleExecutionSink(level=logging.INFO, console=console)
-
-    text = sink._render_event(
-        NodeProgress(
-            dag_name="ingest:equity.return.trailing.daily.21",
-            node_name="open_source",
-            node_index=0,
-            execution_index=0,
-            depth=1,
-            message="running elapsed=119s items=2841179",
-        )
-    )
-
-    assert str(text).startswith("[ingest:equity.return.trailing.daily.21/open_source]")
-    assert any(span.style == "dim bold cyan" for span in text.spans)
-    assert any(span.style == "dim" for span in text.spans)
-
-
-def test_rich_execution_sink_styles_operation_progress_as_detail() -> None:
-    buffer = StringIO()
-    console = Console(file=buffer, markup=False, highlight=False, force_terminal=False)
-    sink = _RichConsoleExecutionSink(level=logging.INFO, console=console)
-
-    text = sink._render_event(
-        OperationProgress(
-            operation_name="build:model_grid",
-            step="write_artifact",
-            depth=0,
-            message="running elapsed=120s items=9800000",
-        )
-    )
-
-    assert str(text).startswith("[build:model_grid/write_artifact]")
-    assert any(span.style == "dim bold cyan" for span in text.spans)
-    assert any(span.style == "dim" for span in text.spans)
-
-
-def test_rich_execution_sink_keeps_operation_progress_single_line() -> None:
-    buffer = StringIO()
-    console = Console(
-        file=buffer,
-        markup=False,
-        highlight=False,
-        force_terminal=False,
-        width=48,
-    )
-    sink = _RichConsoleExecutionSink(level=logging.INFO, console=console)
-    sink.set_live_console(console)
-
-    sink.emit(
-        OperationProgress(
-            operation_name="build:model_grid",
-            step="write_artifact",
-            message="running elapsed=120s items=9800000",
-        )
-    )
-
-    lines = _lines(buffer)
-    assert len(lines) == 1
-    assert lines[0].endswith("…")
-
-
-def test_rich_execution_sink_keeps_live_node_progress_single_line() -> None:
-    buffer = StringIO()
-    console = Console(
-        file=buffer,
-        markup=False,
-        highlight=False,
-        force_terminal=False,
-        width=60,
-    )
-    progress = Progress(console=console, transient=False)
-    sink = _RichConsoleExecutionSink(level=logging.INFO, console=console)
-
-    with progress:
-        sink.set_live_console(progress.live.console if progress.live else None)
-        sink.emit(
-            NodeProgress(
-                dag_name="ingest:equity.return.trailing.daily.21",
-                node_name="open_source",
-                node_index=0,
-                execution_index=0,
-                depth=2,
-                message="running elapsed=119s items=2841179",
-            )
-        )
-
-    lines = _lines(buffer)
-    assert len(lines) == 1
-    assert lines[0].endswith("…")
-
-
-def test_rich_execution_sink_indents_multiline_message_event_by_depth(
-    rich_sink,
-) -> None:
-    sink, buffer = rich_sink
-    sink.emit(
-        ExecutionMessage(
-            depth=2,
-            message="line1\nline2",
-            log_level=logging.DEBUG,
-        )
-    )
-
-    lines = _lines(buffer)
-    assert lines[0].startswith("    line1")
-    assert lines[1].startswith("    line2")
-
-
-def test_source_label_column_is_single_line_truncated() -> None:
-    column = SourceLabelColumn().get_table_column()
-    assert column.no_wrap is True
-
-
-def test_source_label_column_does_not_infer_indent_from_context() -> None:
-    set_current_dag_depth(3)
-    try:
-        text = SourceLabelColumn().render(
-            SimpleNamespace(fields={"text": "[equity.ohlcv] Loading"})
-        )
-        assert str(text).startswith("[equity.ohlcv] Loading")
-    finally:
-        set_current_dag_depth(0)
-
-
-def test_rich_source_proxy_formats_text_with_context_indent() -> None:
-    proxy = _RichSourceProxy(
-        stream_source=_SyntheticSource(),
-        stream_id="equity.ohlcv",
-        progress=SimpleNamespace(),
-    )
-    set_current_dag_depth(3)
-    try:
-        text = proxy._format_text("equity.ohlcv", 'Loading "MSFT.jsonl"')
-        assert text.startswith('      [equity.ohlcv] Loading "MSFT.jsonl"')
-    finally:
-        set_current_dag_depth(0)
-
-
-def test_rich_source_proxy_emits_source_info_event(monkeypatch) -> None:
-    captured: list[tuple[str, int, int, str | None]] = []
-    monkeypatch.setattr(
-        "datapipeline.cli.visuals.rich.sources.emit_source_info",
-        lambda stream_id, message, logger, depth=0: captured.append(
-            (f"[{stream_id}] {message}", logging.INFO, depth, "source_info")
-        ),
-    )
-
-    class _Adapter:
-        def __init__(self):
-            transport = FsGlobTransport("/definitely/not/real/*.jsonl")
-            transport._files = ["/tmp/APPL.jsonl", "/tmp/MSFT.jsonl"]  # type: ignore[attr-defined]
-            self.loader = SimpleNamespace(transport=transport)
-
-        def info_lines(self):
-            return ["Inputs: left=equity.left, right=equity.right"]
-
-        def format_label(self, name=None, **kwargs):
-            if name:
-                return f"Loading {name}"
-            return "Loading"
-
-        def initial_label(self):
-            return None
-
-        def count(self):
-            return None
-
-        def current_label(self):
-            return None
-
-    monkeypatch.setattr(
-        "datapipeline.cli.visuals.rich.sources.SourceObservabilityAdapter",
-        lambda stream_source, stream_id: _Adapter(),
-    )
-
-    progress = _RecordingProgress()
-    source = SimpleNamespace(stream=lambda: iter([1]))
-    proxy = _RichSourceProxy(
-        stream_source=source,
-        stream_id="equity.ohlcv",
-        progress=progress,
-    )
-
-    set_current_dag_depth(2)
-    try:
-        list(proxy.stream())
-    finally:
-        set_current_dag_depth(0)
-
-    assert captured
-    assert captured[0] == (
-        "[equity.ohlcv] Inputs: left=equity.left, right=equity.right",
-        logging.INFO,
-        2,
-        "source_info",
-    )
-    assert all("stream complete items=" not in msg for msg, *_ in captured)
-
-
-def test_rich_source_proxy_batches_progress_advances(monkeypatch) -> None:
-    class _Adapter:
-        def info_lines(self):
-            return []
-
-        def format_label(self, name=None, **kwargs):
-            return "streaming"
-
-        def initial_label(self):
-            return None
-
-        def count(self):
-            return 25_000
-
-        def current_label(self):
-            return None
-
-    monkeypatch.setattr(
-        "datapipeline.cli.visuals.rich.sources.SourceObservabilityAdapter",
-        lambda stream_source, stream_id: _Adapter(),
-    )
-    monkeypatch.setattr(
-        "datapipeline.cli.visuals.rich.sources._PROGRESS_ADVANCE_BATCH",
-        10_000,
-    )
-    monkeypatch.setattr(
-        "datapipeline.cli.visuals.rich.sources._PROGRESS_ADVANCE_INTERVAL_SECONDS",
-        999,
-    )
-
-    progress = _RecordingProgress()
-    source = SimpleNamespace(stream=lambda: iter(range(25_000)))
-    proxy = _RichSourceProxy(
-        stream_source=source,
-        stream_id="equity.ohlcv",
-        progress=progress,
-    )
-
-    list(proxy.stream())
-
-    assert progress.advance_calls == [(1, 10_000), (1, 10_000), (1, 5_000)]
-
-
-def test_rich_source_proxy_batches_label_checks(monkeypatch) -> None:
-    class _Adapter:
-        def __init__(self):
-            self.current_label_calls = 0
-
-        def info_lines(self):
-            return []
-
-        def format_label(self, name=None, **kwargs):
-            return "streaming"
-
-        def initial_label(self):
-            return None
-
-        def count(self):
-            return 25_000
-
-        def current_label(self):
-            self.current_label_calls += 1
-            return None
-
-    adapter = _Adapter()
-    monkeypatch.setattr(
-        "datapipeline.cli.visuals.rich.sources.SourceObservabilityAdapter",
-        lambda stream_source, stream_id: adapter,
-    )
-    monkeypatch.setattr(
-        "datapipeline.cli.visuals.rich.sources._PROGRESS_ADVANCE_BATCH",
-        10_000,
-    )
-    monkeypatch.setattr(
-        "datapipeline.cli.visuals.rich.sources._PROGRESS_ADVANCE_INTERVAL_SECONDS",
-        999,
-    )
-
-    progress = _RecordingProgress()
-    source = SimpleNamespace(stream=lambda: iter(range(25_000)))
-    proxy = _RichSourceProxy(
-        stream_source=source,
-        stream_id="equity.ohlcv",
-        progress=progress,
-    )
-
-    list(proxy.stream())
-
-    assert adapter.current_label_calls == 3
-
-
-def test_rich_source_proxy_skips_aggregate_count_for_sequence_progress(
-    monkeypatch,
-) -> None:
-    class _Adapter:
-        def info_lines(self):
-            return []
-
-        def format_label(self, name=None, **kwargs):
-            return "streaming"
-
-        def initial_label(self):
-            return '"AAPL.jsonl"'
-
-        def count(self):
-            raise AssertionError("sequence progress should not call aggregate count")
-
-        def progress_sequence(self):
-            return [SimpleNamespace(label='"AAPL.jsonl"', total=None)]
-
-        def current_label(self):
-            return '"AAPL.jsonl"'
-
-    monkeypatch.setattr(
-        "datapipeline.cli.visuals.rich.sources.SourceObservabilityAdapter",
-        lambda stream_source, stream_id: _Adapter(),
-    )
-
-    progress = _RecordingProgress()
-    source = SimpleNamespace(stream=lambda: iter([1]))
-    proxy = _RichSourceProxy(
-        stream_source=source,
-        stream_id="equity.ohlcv",
-        progress=progress,
-    )
-
-    list(proxy.stream())
-
-    assert progress.advance_calls == [(1, 1)]
-
-
-def test_rich_source_proxy_skips_progress_row_for_virtual_source(monkeypatch) -> None:
-    captured: list[tuple[str, int, int, str | None]] = []
-    monkeypatch.setattr(
-        "datapipeline.cli.visuals.rich.sources.emit_source_info",
-        lambda stream_id, message, logger, depth=0: captured.append(
-            (f"[{stream_id}] {message}", logging.INFO, depth, "source_info")
-        ),
-    )
-
-    class _Adapter:
-        def info_lines(self):
-            return ["Inputs: aapl=equity.aapl, msft=equity.msft"]
-
-        def format_label(self, name=None, **kwargs):
-            if name:
-                return f"Loading {name}"
-            return "ManualStream"
-
-        def initial_label(self):
-            return None
-
-        def count(self):
-            return None
-
-        def current_label(self):
-            return None
-
-        def progress_visible(self):
-            return False
-
-    monkeypatch.setattr(
-        "datapipeline.cli.visuals.rich.sources.SourceObservabilityAdapter",
-        lambda stream_source, stream_id: _Adapter(),
-    )
-
-    progress = _RecordingProgress()
-    source = SimpleNamespace(stream=lambda: iter([1]))
-    proxy = _RichSourceProxy(
-        stream_source=source,
-        stream_id="equity.pair.aapl_msft",
-        progress=progress,
-    )
-
-    set_current_dag_depth(2)
-    try:
-        list(proxy.stream())
-    finally:
-        set_current_dag_depth(0)
-
-    assert progress.added_texts == []
-    assert captured[:1] == [
-        (
-            "[equity.pair.aapl_msft] Inputs: aapl=equity.aapl, msft=equity.msft",
-            logging.INFO,
-            2,
-            "source_info",
-        ),
-    ]
-
-
-def test_rich_source_proxy_tracks_glob_file_transitions_as_progress_rows(
-    monkeypatch,
-) -> None:
-    class _Adapter:
-        def __init__(self):
-            transport = FsGlobTransport("/definitely/not/real/*.jsonl")
-            transport._files = ["/tmp/APPL.jsonl", "/tmp/MSFT.jsonl"]  # type: ignore[attr-defined]
-            self.loader = SimpleNamespace(transport=transport)
-
-        def info_lines(self):
-            return []
-
-        def format_label(self, name=None, **kwargs):
-            if name:
-                return f"Loading {name}"
-            return "Loading"
-
-        def initial_label(self):
-            return '"APPL.jsonl"'
-
-        def count(self):
-            return None
-
-        def current_label(self):
-            return '"MSFT.jsonl"'
-
-    monkeypatch.setattr(
-        "datapipeline.cli.visuals.rich.sources.SourceObservabilityAdapter",
-        lambda stream_source, stream_id: _Adapter(),
-    )
-
-    progress = _RecordingProgress()
-    source = SimpleNamespace(stream=lambda: iter([1]))
-    proxy = _RichSourceProxy(
-        stream_source=source,
-        stream_id="equity.ohlcv",
-        progress=progress,
-    )
-
-    set_current_dag_depth(2)
-    try:
-        list(proxy.stream())
-    finally:
-        set_current_dag_depth(0)
-
-    assert any('Loading "APPL.jsonl"' in text for text in progress.added_texts)
-    assert any('Loading "MSFT.jsonl"' in text for text in progress.updated_texts)
-
-
-def test_rich_source_proxy_replaces_completed_sequence_rows(monkeypatch) -> None:
-    labels = [
-        '"AAPL.jsonl"',
-        '"MSFT.jsonl"',
-        '"NVDA.jsonl"',
-        '"TSLA.jsonl"',
-        '"META.jsonl"',
-    ]
-
-    class _Adapter:
-        def __init__(self):
-            self._calls = 0
-
-        def info_lines(self):
-            return []
-
-        def format_label(self, name=None, **kwargs):
-            if name:
-                return f"streaming from {name}"
-            return "streaming from"
-
-        def initial_label(self):
-            return labels[0]
-
-        def count(self):
-            return None
-
-        def progress_sequence(self):
-            return [SimpleNamespace(label=label, total=1) for label in labels]
-
-        def current_label(self):
-            label = labels[self._calls]
-            self._calls += 1
-            return label
-
-    monkeypatch.setattr(
-        "datapipeline.cli.visuals.rich.sources.SourceObservabilityAdapter",
-        lambda stream_source, stream_id: _Adapter(),
-    )
-    monkeypatch.setattr(
-        "datapipeline.cli.visuals.rich.sources._PROGRESS_ADVANCE_BATCH",
-        1,
-    )
-
-    progress = _RecordingProgress()
-    source = SimpleNamespace(stream=lambda: iter(labels))
-    proxy = _RichSourceProxy(
-        stream_source=source,
-        stream_id="equity.ohlcv",
-        progress=progress,
-    )
-
-    set_current_dag_depth(2)
-    stream = proxy.stream()
-    try:
-        for _label in labels:
-            next(stream)
-        assert progress.removed == [1, 2, 3, 4]
-        assert sorted(progress.task_text) == [5]
-        assert any(
-            '1/5 streaming from "AAPL.jsonl"' in text for text in progress.added_texts
-        )
-        assert any(
-            '5/5 streaming from "META.jsonl"' in text for text in progress.added_texts
-        )
-        with pytest.raises(StopIteration):
-            next(stream)
-    finally:
-        stream.close()
-        set_current_dag_depth(0)
-
-    assert progress.task_text == {}
-
-
-def test_rich_source_proxy_clears_glob_rows_between_invocations(monkeypatch) -> None:
-    class _Adapter:
-        def __init__(self):
-            transport = FsGlobTransport("/definitely/not/real/*.jsonl")
-            transport._files = ["/tmp/APPL.jsonl", "/tmp/MSFT.jsonl"]  # type: ignore[attr-defined]
-            self.loader = SimpleNamespace(transport=transport)
-
-        def info_lines(self):
-            return []
-
-        def format_label(self, name=None, **kwargs):
-            if name:
-                return f"Loading {name}"
-            return "Loading"
-
-        def initial_label(self):
-            return '"APPL.jsonl"'
-
-        def count(self):
-            return None
-
-        def current_label(self):
-            return '"MSFT.jsonl"'
-
-    monkeypatch.setattr(
-        "datapipeline.cli.visuals.rich.sources.SourceObservabilityAdapter",
-        lambda stream_source, stream_id: _Adapter(),
-    )
-
-    progress = _RecordingProgress()
-    source = SimpleNamespace(stream=lambda: iter([1]))
-    proxy = _RichSourceProxy(
-        stream_source=source,
-        stream_id="equity.ohlcv",
-        progress=progress,
-    )
-
-    set_current_dag_depth(2)
-    try:
-        list(proxy.stream())
-        assert progress.task_text == {}
-        first_run_count = len(progress.added_texts)
-        list(proxy.stream())
-        assert progress.task_text == {}
-        assert len(progress.added_texts) == first_run_count * 2
-    finally:
-        set_current_dag_depth(0)
-
-
-def test_rich_source_proxy_handles_foreach_fs_sequence_with_empty_first_value(
-    monkeypatch,
-) -> None:
-    class _ForeachValueLoader(BaseDataLoader):
-        def __init__(self, path: str | None = None, value: str | None = None, **kwargs):
-            self._path = str(path or value or "")
-            self._rows = 0 if "APPL" in self._path else 1
-
-        def load(self):
-            for idx in range(self._rows):
-                yield {"path": self._path, "idx": idx}
-
-    monkeypatch.setattr(
-        "datapipeline.sources.foreach.load_ep",
-        lambda _namespace, _entrypoint: _ForeachValueLoader,
-    )
-
-    foreach_loader = ForeachLoader(
-        foreach={"path": ["/tmp/APPL.jsonl", "/tmp/MSFT.jsonl"]},
-        loader={
-            "entrypoint": "core.io",
-            "args": {
-                "transport": "fs",
-                "path": "${path}",
-            },
-        },
-    )
-    source = SimpleNamespace(
-        stream=lambda: foreach_loader.load(), loader=foreach_loader
-    )
-    progress = _RecordingProgress()
-    proxy = _RichSourceProxy(
-        stream_source=source,
-        stream_id="equity.ohlcv",
-        progress=progress,
-    )
-
-    set_current_dag_depth(2)
-    try:
-        list(proxy.stream())
-    finally:
-        set_current_dag_depth(0)
-
-    assert any(
-        '1/2 streaming from "APPL.jsonl"' in text for text in progress.added_texts
-    )
-    assert any(
-        '2/2 streaming from "MSFT.jsonl"' in text for text in progress.added_texts
-    )
-
-
-def test_rich_source_proxy_removes_finished_stream_task() -> None:
-    console = Console(
-        file=StringIO(),
-        markup=False,
-        highlight=False,
-        force_terminal=False,
-    )
-    progress = Progress(SourceLabelColumn(), console=console)
-    proxy = _RichSourceProxy(
-        stream_source=_SyntheticSource(),
-        stream_id="time.ticks.linear",
-        progress=progress,
-    )
-
-    with progress:
-        list(proxy.stream())
 
     assert progress.tasks == []
 
 
-def test_rich_source_proxy_cleans_tasks_when_count_is_interrupted() -> None:
-    console = Console(
-        file=StringIO(),
-        markup=False,
-        highlight=False,
-        force_terminal=False,
-    )
-    progress = Progress(SourceLabelColumn(), console=console)
-    proxy = _RichSourceProxy(
-        stream_source=_InterruptCountSource(),
-        stream_id="equity.ohlcv",
-        progress=progress,
-    )
+def test_rich_sink_routes_node_progress_to_renderer_without_printing() -> None:
+    console, output = _console()
 
-    with progress:
-        with pytest.raises(KeyboardInterrupt):
-            list(proxy.stream())
+    class _Renderer:
+        def __init__(self) -> None:
+            self.events = []
 
-    assert progress.tasks == []
+        def handle(self, event) -> None:
+            self.events.append(event)
+
+    renderer = _Renderer()
+    sink = _RichConsoleExecutionSink(logging.INFO, console, renderer)
+    event = _node_progress(0, "open_source", ProgressSnapshot(completed=10))
+
+    sink.emit(event)
+
+    assert renderer.events == [event]
+    assert output.getvalue() == ""
 
 
-def test_rich_source_proxy_ignores_missing_task_during_teardown(caplog) -> None:
-    console = Console(
-        file=StringIO(),
-        markup=False,
-        highlight=False,
-        force_terminal=False,
-    )
-    progress = Progress(SourceLabelColumn(), console=console)
-    proxy = _RichSourceProxy(
-        stream_source=_SyntheticSource(),
-        stream_id="equity.ohlcv",
-        progress=progress,
+def test_rich_sink_keeps_static_messages_and_source_information() -> None:
+    console, output = _console()
+    sink = _RichConsoleExecutionSink(logging.INFO, console)
+
+    sink.emit(ExecutionMessage(message="Saved 10 records"))
+    sink.emit(
+        SourceInfoMessage(
+            depth=1,
+            source_label="ingest:ohlcv",
+            message="fs.glob count=17",
+        )
     )
 
-    with progress:
-        iterator = proxy.stream()
-        next(iterator)
-        _clear_progress_tasks(progress)
-        with caplog.at_level(
-            logging.DEBUG, logger="datapipeline.cli.visuals.rich.sources"
-        ):
-            iterator.close()
-
-    messages = [record.getMessage() for record in caplog.records]
-    assert not any(
-        "visuals: failed to finalize progress task" in msg for msg in messages
-    )
-    assert not any("visuals: failed to stop progress task" in msg for msg in messages)
-    assert not any("visuals: failed to remove progress task" in msg for msg in messages)
+    assert output.getvalue().splitlines() == [
+        "Saved 10 records",
+        "  [ingest:ohlcv] fs.glob count=17",
+    ]
 
 
-def test_clear_progress_tasks_removes_orphan_rows() -> None:
-    console = Console(
-        file=StringIO(),
-        markup=False,
-        highlight=False,
-        force_terminal=False,
-    )
-    progress = Progress(SourceLabelColumn(), console=console)
-    proxy = _RichSourceProxy(
-        stream_source=_SyntheticSource(),
-        stream_id="time.ticks.linear",
-        progress=progress,
-    )
-
-    original_safe_call = proxy._safe_progress_call
-
-    def _skip_remove(op, fn, *args, **kwargs):
-        if op == "remove progress task":
-            return None
-        return original_safe_call(op, fn, *args, **kwargs)
-
-    proxy._safe_progress_call = _skip_remove  # type: ignore[method-assign]
-
-    with progress:
-        list(proxy.stream())
-        assert len(progress.tasks) == 1
-        _clear_progress_tasks(progress)
-        assert progress.tasks == []
-
-
-def test_rich_source_proxy_cleans_meta_when_interrupted_during_task_setup() -> None:
-    progress = _InterruptingAddProgress()
-    proxy = _RichSourceProxy(
-        stream_source=_SyntheticSource(),
-        stream_id="equity.ohlcv",
-        progress=progress,
-    )
-
-    with pytest.raises(KeyboardInterrupt):
-        list(proxy.stream())
-
-    assert progress.removed == []
-
-
-def test_rich_source_proxy_keeps_task_updates_isolated_across_concurrent_streams(
-    monkeypatch,
-) -> None:
-    class _Adapter:
-        _instance = 0
-
-        def __init__(self):
-            self._id = _Adapter._instance
-            _Adapter._instance += 1
-            self._calls = 0
-
-        def info_lines(self):
-            return []
-
-        def format_label(self, name=None, **kwargs):
-            if name:
-                return f"Loading {name}"
-            return "Loading"
-
-        def initial_label(self):
-            return f'"APPL-{self._id}.jsonl"'
-
-        def count(self):
-            return 2
-
-        def current_label(self):
-            self._calls += 1
-            if self._calls >= 2:
-                return f'"MSFT-{self._id}.jsonl"'
-            return f'"APPL-{self._id}.jsonl"'
-
+def test_visual_execution_restores_existing_context(monkeypatch) -> None:
+    console, _ = _console()
     monkeypatch.setattr(
-        "datapipeline.cli.visuals.rich.sources.SourceObservabilityAdapter",
-        lambda stream_source, stream_id: _Adapter(),
+        "datapipeline.cli.visuals.rich.progress.Console",
+        lambda **kwargs: console,
     )
-    monkeypatch.setattr(
-        "datapipeline.cli.visuals.rich.sources._PROGRESS_ADVANCE_BATCH",
-        1,
-    )
-
-    source = SimpleNamespace(stream=lambda: iter([1, 2]))
-    progress = _RecordingProgress()
-    proxy = _RichSourceProxy(
-        stream_source=source,
-        stream_id="equity.ohlcv",
-        progress=progress,
-    )
-
-    set_current_dag_depth(2)
+    event_token = set_current_execution_event_sink("previous-event-sink")
+    proxy_token = set_current_terminal_log_proxy_sink("previous-proxy-sink")
     try:
-        stream_one = proxy.stream()
-        stream_two = proxy.stream()
-        next(stream_one)
-        next(stream_two)
-        next(stream_one)
-        next(stream_two)
-        with pytest.raises(StopIteration):
-            next(stream_one)
-        with pytest.raises(StopIteration):
-            next(stream_two)
-    finally:
-        set_current_dag_depth(0)
-
-    assert progress.removed == [1, 2]
-    assert any('Loading "MSFT-0.jsonl"' in text for text in progress.updated_by_task[1])
-    assert any('Loading "MSFT-1.jsonl"' in text for text in progress.updated_by_task[2])
-
-
-def test_visual_sources_resets_context_when_live_fails(monkeypatch) -> None:
-    monkeypatch.setattr(
-        "datapipeline.cli.visuals.rich.sources.Progress", _BrokenProgress
-    )
-    runtime = SimpleNamespace(
-        registries=SimpleNamespace(stream_sources=_StreamRegistry())
-    )
-    sink_token = set_current_execution_event_sink("sentinel")
-    proxy_token = set_current_terminal_log_proxy_sink("proxy-sentinel")
-    set_current_dag_depth(3)
-    try:
-        with pytest.raises(RuntimeError, match="live boom"):
-            with visual_sources(runtime, logging.INFO):
-                pass
-
-        assert current_execution_event_sink() == "sentinel"
-        assert current_terminal_log_proxy_sink() == "proxy-sentinel"
-        assert current_dag_depth() == 0
+        with visual_execution(logging.INFO):
+            assert current_execution_event_sink() != "previous-event-sink"
+            assert current_terminal_log_proxy_sink() != "previous-proxy-sink"
+        assert current_execution_event_sink() == "previous-event-sink"
+        assert current_terminal_log_proxy_sink() == "previous-proxy-sink"
     finally:
         reset_current_terminal_log_proxy_sink(proxy_token)
-        reset_current_execution_event_sink(sink_token)
-
-
-def test_visual_sources_runs_central_task_cleanup_on_interrupt(monkeypatch) -> None:
-    runtime = SimpleNamespace(
-        registries=SimpleNamespace(stream_sources=_StreamRegistry())
-    )
-    runtime.registries.stream_sources.register("time.ticks.linear", _SyntheticSource())
-
-    called = {"count": 0}
-    original_clear = _clear_progress_tasks
-
-    def _capture_clear(progress):
-        called["count"] += 1
-        original_clear(progress)
-
-    monkeypatch.setattr(
-        "datapipeline.cli.visuals.rich.sources._clear_progress_tasks",
-        _capture_clear,
-    )
-
-    with pytest.raises(KeyboardInterrupt):
-        with visual_sources(runtime, logging.INFO):
-            wrapped = runtime.registries.stream_sources._items["time.ticks.linear"]
-            iterator = wrapped.stream()
-            next(iterator)
-            raise KeyboardInterrupt()
-
-    assert called["count"] == 1
-
-
-def test_rich_visual_sources_leave_derived_sources_unwrapped() -> None:
-    source = _DerivedSource()
-    runtime = SimpleNamespace(
-        registries=SimpleNamespace(stream_sources=_StreamRegistry())
-    )
-    runtime.registries.stream_sources.register("derived", source)
-
-    with visual_sources(runtime, logging.INFO):
-        wrapped = runtime.registries.stream_sources._items["derived"]
-
-    assert wrapped is source
+        reset_current_execution_event_sink(event_token)

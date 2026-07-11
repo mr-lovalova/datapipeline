@@ -2,7 +2,7 @@ import logging
 from collections.abc import Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Protocol
 
 from datapipeline.cli.visuals.execution_context import (
     current_dag_label,
@@ -16,8 +16,10 @@ from datapipeline.cli.visuals.execution_context import (
 from datapipeline.dag.events import (
     DagParentRef,
     DagRunEvent,
+    format_node_progress,
     NodeExecutionEvent,
     NodeProgressEvent as DagNodeProgressEvent,
+    ProgressSnapshot,
     RunStatus,
 )
 from datapipeline.dag.node import NodeKind
@@ -72,11 +74,6 @@ class SourceInfoMessage(_ExecutionEvent):
 
 
 @dataclass(frozen=True, kw_only=True)
-class ScopeStartMessage(_ExecutionEvent):
-    message: str
-
-
-@dataclass(frozen=True, kw_only=True)
 class DagStarted(_ExecutionEvent):
     dag_name: str
     node_count: int
@@ -119,7 +116,9 @@ class NodeStarted(_NodeEvent):
 
 @dataclass(frozen=True, kw_only=True)
 class NodeProgress(_NodeEvent):
-    message: str
+    progress: ProgressSnapshot
+    elapsed_seconds: float
+    persistent: bool = False
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -165,7 +164,6 @@ ExecutionLogEvent = (
     | ProfileStartMessage
     | BuildDecisionMessage
     | SourceInfoMessage
-    | ScopeStartMessage
     | DagStarted
     | DagInfo
     | DagFinished
@@ -179,9 +177,8 @@ ExecutionLogEvent = (
 )
 
 
-class ExecutionEventSink:
-    def emit(self, event: ExecutionLogEvent) -> None:
-        raise NotImplementedError
+class ExecutionEventSink(Protocol):
+    def emit(self, event: ExecutionLogEvent) -> None: ...
 
 
 class ExecutionEventFormatter:
@@ -214,16 +211,22 @@ class ExecutionEventFormatter:
         return dag_name
 
     @staticmethod
+    def progress_message(event: NodeProgress) -> str:
+        return format_node_progress(event.progress, event.elapsed_seconds)
+
+    @staticmethod
     def level(event: ExecutionLogEvent) -> int:
         if isinstance(event, ExecutionMessage):
             return int(event.log_level)
         if isinstance(event, ProfileStartMessage):
             return logging.DEBUG
+        if isinstance(event, DagFinished | NodeFinished | OperationFinished):
+            if event.status == "error":
+                return logging.ERROR
         if isinstance(
             event,
             BuildDecisionMessage
             | SourceInfoMessage
-            | ScopeStartMessage
             | DagStarted
             | DagFinished
             | NodeProgress
@@ -248,8 +251,7 @@ class ExecutionEventFormatter:
             event,
             ExecutionMessage
             | ProfileStartMessage
-            | BuildDecisionMessage
-            | ScopeStartMessage,
+            | BuildDecisionMessage,
         ):
             message = event.message
             if not indent or "\n" not in message:
@@ -298,7 +300,7 @@ class ExecutionEventFormatter:
             )
         if isinstance(event, NodeProgress):
             label = cls.execution_label(event.dag_name, event.node_name)
-            return f"{indent}[{label}] {event.message}"
+            return f"{indent}[{label}] {cls.progress_message(event)}"
         if isinstance(event, OperationProgress):
             label = cls.execution_label(event.operation_name, event.step)
             return f"{indent}[{label}] {event.message}"
@@ -312,168 +314,6 @@ class ExecutionEventFormatter:
                 f"elapsed={event.elapsed_seconds:.6f}s"
             )
         raise TypeError(f"Unsupported execution event: {type(event).__name__}")
-
-    @staticmethod
-    def extra(event: ExecutionLogEvent) -> dict[str, object]:
-        values: dict[str, object] = {
-            "dp_event_kind": "",
-            "dp_dag_name": "",
-            "dp_depth": event.depth,
-            "dp_message": None,
-            "dp_message_kind": None,
-            "dp_log_level": None,
-            "dp_node_count": None,
-            "dp_node_name": None,
-            "dp_index": None,
-            "dp_execution_index": None,
-            "dp_node_kind": None,
-            "dp_node_calls_dag": None,
-            "dp_status": None,
-            "dp_error_type": None,
-            "dp_error_message": None,
-            "dp_output_items": None,
-            "dp_elapsed_seconds": None,
-            "dp_operation_entrypoint": None,
-            "dp_info_name": None,
-            "dp_info_line": None,
-            "dp_parent_dag": None,
-            "dp_parent_node": None,
-            "dp_parent_node_index": None,
-            "dp_scope_profile_kind": event.scope.profile_kind,
-            "dp_scope_profile_name": event.scope.profile_name,
-            "dp_scope_target_id": event.scope.target_id,
-            "dp_scope_task_id": event.scope.task_id,
-            "dp_scope_item_index": event.scope.item_index,
-            "dp_scope_item_total": event.scope.item_total,
-        }
-
-        if isinstance(event, ExecutionMessage):
-            values.update(
-                dp_event_kind="message",
-                dp_message=event.message,
-                dp_log_level=event.log_level,
-            )
-        elif isinstance(event, ProfileStartMessage):
-            values.update(
-                dp_event_kind="message",
-                dp_message=event.message,
-                dp_message_kind="profile_start",
-                dp_log_level=logging.DEBUG,
-            )
-        elif isinstance(event, BuildDecisionMessage):
-            values.update(
-                dp_event_kind="message",
-                dp_message=event.message,
-                dp_message_kind="build_decision",
-                dp_log_level=logging.INFO,
-            )
-        elif isinstance(event, SourceInfoMessage):
-            values.update(
-                dp_event_kind="message",
-                dp_message=f"[{event.source_label}] {event.message}",
-                dp_message_kind="source_info",
-                dp_log_level=logging.INFO,
-            )
-        elif isinstance(event, ScopeStartMessage):
-            values.update(
-                dp_event_kind="message",
-                dp_message=event.message,
-                dp_message_kind="scope_start",
-                dp_log_level=logging.INFO,
-            )
-        elif isinstance(event, DagStarted):
-            values.update(
-                dp_event_kind="dag_start",
-                dp_dag_name=event.dag_name,
-                dp_node_count=event.node_count,
-            )
-            _add_parent_fields(values, event.dag_parent)
-        elif isinstance(event, DagInfo):
-            values.update(
-                dp_event_kind="dag_info",
-                dp_dag_name=event.dag_name,
-                dp_info_name=event.info_name,
-                dp_info_line=event.info_line,
-            )
-        elif isinstance(event, DagFinished):
-            values.update(
-                dp_event_kind="dag_end",
-                dp_dag_name=event.dag_name,
-                dp_node_count=event.node_count,
-                dp_status=event.status,
-                dp_error_type=event.error_type,
-                dp_error_message=event.error_message,
-                dp_output_items=event.output_items,
-                dp_elapsed_seconds=event.elapsed_seconds,
-            )
-            _add_parent_fields(values, event.dag_parent)
-        elif isinstance(event, _NodeEvent):
-            values.update(
-                dp_dag_name=event.dag_name,
-                dp_node_name=event.node_name,
-                dp_index=event.node_index,
-                dp_execution_index=event.execution_index,
-                dp_node_kind=event.node_kind,
-                dp_node_calls_dag=event.node_calls_dag,
-            )
-            if isinstance(event, NodeStarted):
-                values["dp_event_kind"] = "node_start"
-            elif isinstance(event, NodeProgress):
-                values.update(
-                    dp_event_kind="node_progress",
-                    dp_message=event.message,
-                )
-            elif isinstance(event, NodeFinished):
-                values.update(
-                    dp_event_kind="node_end",
-                    dp_status=event.status,
-                    dp_error_type=event.error_type,
-                    dp_error_message=event.error_message,
-                    dp_output_items=event.output_items,
-                    dp_elapsed_seconds=event.elapsed_seconds,
-                )
-        elif isinstance(event, _OperationEvent):
-            values["dp_dag_name"] = event.operation_name
-            if isinstance(event, OperationStarted):
-                values.update(
-                    dp_event_kind="operation_start",
-                    dp_operation_entrypoint=event.entrypoint,
-                )
-            elif isinstance(event, OperationInfo):
-                values.update(
-                    dp_event_kind="operation_info",
-                    dp_info_line=event.info_line,
-                )
-            elif isinstance(event, OperationProgress):
-                values.update(
-                    dp_event_kind="operation_progress",
-                    dp_node_name=event.step,
-                    dp_message=event.message,
-                )
-            elif isinstance(event, OperationFinished):
-                values.update(
-                    dp_event_kind="operation_end",
-                    dp_status=event.status,
-                    dp_error_type=event.error_type,
-                    dp_error_message=event.error_message,
-                    dp_elapsed_seconds=event.elapsed_seconds,
-                )
-        else:
-            raise TypeError(f"Unsupported execution event: {type(event).__name__}")
-        return values
-
-
-def _add_parent_fields(
-    values: dict[str, object],
-    parent: DagParentRef | None,
-) -> None:
-    if parent is None:
-        return
-    values.update(
-        dp_parent_dag=parent.dag_name,
-        dp_parent_node=parent.node_name,
-        dp_parent_node_index=parent.node_index,
-    )
 
 
 def _current_scope() -> ExecutionScope:
@@ -495,16 +335,6 @@ def current_source_label(fallback: str) -> str:
     return current_dag_label() or fallback
 
 
-def _scope_message(scope: ExecutionScope) -> str:
-    task = scope.task_id or scope.target_id or scope.profile_name
-    if task is None:
-        return "Scope"
-    item = ""
-    if scope.item_index and scope.item_total:
-        item = f" ({scope.item_index}/{scope.item_total})"
-    return f"Scope: task={task}{item}"
-
-
 @contextmanager
 def execution_scope(
     *,
@@ -514,7 +344,6 @@ def execution_scope(
     task_id: str | None = None,
     item_index: int | None = None,
     item_total: int | None = None,
-    announce: bool = False,
 ):
     merged = dict(current_execution_scope() or {})
     updates = {
@@ -531,15 +360,6 @@ def execution_scope(
 
     token = set_current_execution_scope(merged)
     try:
-        if announce:
-            scope = _current_scope()
-            _emit_event(
-                ScopeStartMessage(
-                    message=_scope_message(scope),
-                    scope=scope,
-                ),
-                logging.getLogger(__name__),
-            )
         yield
     finally:
         reset_current_execution_scope(token)
@@ -559,13 +379,15 @@ class LoggerExecutionEventSink(ExecutionEventSink):
         self._logger = logger
 
     def emit(self, event: ExecutionLogEvent) -> None:
+        if isinstance(event, NodeProgress) and not event.persistent:
+            return
         level = ExecutionEventFormatter.level(event)
         if not self._logger.isEnabledFor(level):
             return
         self._logger.log(
             level,
             ExecutionEventFormatter.message(event),
-            extra=ExecutionEventFormatter.extra(event),
+            extra={"dp_event_kind": "execution"},
         )
 
 
@@ -812,7 +634,9 @@ class HierarchicalExecutionObserver(ExecutionObserver):
                 execution_index=event.execution_index,
                 node_kind=event.node_kind,
                 node_calls_dag=event.node_calls_dag,
-                message=event.message,
+                progress=event.progress,
+                elapsed_seconds=event.elapsed_seconds,
+                persistent=event.persistent,
                 scope=_current_scope(),
             )
         )

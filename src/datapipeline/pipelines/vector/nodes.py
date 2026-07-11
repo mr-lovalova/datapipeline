@@ -1,4 +1,3 @@
-import time
 from collections import defaultdict
 from collections.abc import Iterator, Mapping, Sequence
 from datetime import datetime
@@ -9,61 +8,8 @@ from datapipeline.config.dataset.normalize import floor_time_to_bucket
 from datapipeline.domain.feature import FeatureRecord, FeatureRecordSequence
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector, vectorize_record_group
-from datapipeline.dag.runner import emit_node_progress
 from datapipeline.pipelines.vector.keygen import group_key_for
 from datapipeline.utils.time import parse_cadence, parse_datetime
-
-
-_PROGRESS_INTERVAL_SECONDS = 60.0
-_PROGRESS_ITEM_INTERVAL = 10_000
-
-
-class _VectorAssemblyProgress:
-    def __init__(self, stage: str) -> None:
-        self.stage = stage
-        self.feature_records = 0
-        self.vectors = 0
-        self._next_log_at = time.perf_counter() + _PROGRESS_INTERVAL_SECONDS
-
-    def feature_record_read(self) -> None:
-        self.feature_records += 1
-        if self.feature_records % _PROGRESS_ITEM_INTERVAL:
-            return
-        self._emit_if_due()
-
-    def vector_emitted(self) -> None:
-        self.vectors += 1
-        if self.vectors % _PROGRESS_ITEM_INTERVAL:
-            return
-        self._emit_if_due()
-
-    def _emit_if_due(self) -> None:
-        now = time.perf_counter()
-        if now < self._next_log_at:
-            return
-        emit_node_progress(
-            (
-                f"{self.stage}: read feature_records={self.feature_records} "
-                f"emitted_vectors={self.vectors}"
-            )
-        )
-        self._next_log_at = now + _PROGRESS_INTERVAL_SECONDS
-
-
-class _SampleAssemblyProgress:
-    def __init__(self) -> None:
-        self.samples = 0
-        self._next_log_at = time.perf_counter() + _PROGRESS_INTERVAL_SECONDS
-
-    def sample_emitted(self) -> None:
-        self.samples += 1
-        if self.samples % _PROGRESS_ITEM_INTERVAL:
-            return
-        now = time.perf_counter()
-        if now < self._next_log_at:
-            return
-        emit_node_progress(f"Assembling samples: emitted samples={self.samples}")
-        self._next_log_at = now + _PROGRESS_INTERVAL_SECONDS
 
 
 def _close_iterator(iterator) -> None:
@@ -75,22 +21,18 @@ def _close_iterator(iterator) -> None:
 def vector_assemble_stage(
     merged: Iterator[FeatureRecord | FeatureRecordSequence],
     group_by_cadence: str,
-    progress_stage: str = "Assembling vectors",
 ) -> Iterator[tuple[tuple, Vector]]:
-    progress = _VectorAssemblyProgress(progress_stage)
     try:
         for group_key, group in groupby(
             merged, key=lambda fr: group_key_for(fr, group_by_cadence)
         ):
             feature_map = defaultdict(list)
             for fr in group:
-                progress.feature_record_read()
                 if isinstance(fr, FeatureRecordSequence):
                     feature_map[fr.id].extend(fr.values)
                 else:
                     feature_map[fr.id].append(fr.value)
             vector = vectorize_record_group(feature_map)
-            progress.vector_emitted()
             yield group_key, vector
     finally:
         _close_iterator(merged)
@@ -205,7 +147,6 @@ def sample_assemble_stage(
 ) -> Iterator[Sample]:
     feature_iter = iter(feature_vectors)
     target_iter = iter(target_vectors or ())
-    progress = _SampleAssemblyProgress()
 
     def _advance(it):
         try:
@@ -228,7 +169,6 @@ def sample_assemble_stage(
                 targets = current_target[1]
                 current_target = _advance(target_iter)
 
-            progress.sample_emitted()
             yield Sample(key=feature_key, features=feature_vector, targets=targets)
             current_feature = _advance(feature_iter)
     finally:

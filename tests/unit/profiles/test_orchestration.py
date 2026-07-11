@@ -545,7 +545,7 @@ def test_invalid_preview_is_rejected_before_execution(tmp_path: Path) -> None:
     assert not run_paths.run_root.exists()
 
 
-def test_runtime_profiles_keep_order_heartbeat_and_quiet_parent_scope(
+def test_runtime_profiles_keep_order_heartbeat_and_execution_scope(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -602,7 +602,6 @@ def test_runtime_profiles_keep_order_heartbeat_and_quiet_parent_scope(
         "second",
         "third",
     ]
-    assert all(scope["announce"] is False for scope in scopes)
 
 
 def test_shared_serve_run_is_finalized_once(monkeypatch, tmp_path: Path) -> None:

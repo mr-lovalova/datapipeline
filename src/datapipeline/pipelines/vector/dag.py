@@ -127,7 +127,6 @@ def _build_cached_vector_pipeline(
     feature_vectors = vector_assemble_stage(
         feature_records,
         group_by_cadence,
-        progress_stage="Assembling cached feature vectors",
     )
     aligned_feature_vectors = align_stream(feature_vectors, keys_feature)
 
@@ -143,7 +142,6 @@ def _build_cached_vector_pipeline(
             vector_assemble_stage(
                 target_records,
                 group_by_cadence,
-                progress_stage="Assembling cached target vectors",
             ),
             keys_target,
         )

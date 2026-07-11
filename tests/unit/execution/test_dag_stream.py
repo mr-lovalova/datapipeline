@@ -11,6 +11,7 @@ from datapipeline.dag.events import (
     DagRunEvent,
     NodeExecutionEvent,
     NodeProgressEvent,
+    ProgressSnapshot,
 )
 from datapipeline.dag.observer import LoggingExecutionObserver
 from datapipeline.dag import runner as dag_runner
@@ -88,11 +89,7 @@ def _context(tmp_path: Path) -> PipelineContext:
 
 
 def _heartbeat_events(observer: _CollectingObserver) -> list[NodeProgressEvent]:
-    return [
-        event
-        for event in observer.node_progress_events
-        if event.message.startswith("running elapsed=")
-    ]
+    return [event for event in observer.node_progress_events if event.persistent]
 
 
 def test_dag_upto_node_filters_nodes() -> None:
@@ -164,7 +161,9 @@ def test_run_dag_emits_node_progress_with_active_node_context(tmp_path: Path) ->
     ctx = _context(tmp_path)
 
     def _with_progress():
-        dag_runner.emit_node_progress("items=0")
+        dag_runner.report_node_progress(
+            ProgressSnapshot(completed=0, phase="preparing")
+        )
         yield 1
 
     dag = Dag(
@@ -174,13 +173,18 @@ def test_run_dag_emits_node_progress_with_active_node_context(tmp_path: Path) ->
 
     assert list(run_dag(ctx, dag, observer=observer)) == [1]
 
-    assert len(observer.node_progress_events) == 1
-    event = observer.node_progress_events[0]
+    event = next(
+        event
+        for event in observer.node_progress_events
+        if event.progress.completed == 0
+        and event.progress.phase == "preparing"
+    )
     assert event.dag_name == "progress-demo"
     assert event.node_name == "produce"
     assert event.node_index == 0
     assert event.execution_index == 0
-    assert event.message == "items=0"
+    assert event.progress == ProgressSnapshot(completed=0, phase="preparing")
+    assert event.persistent is False
     assert event.depth == 1
 
 
@@ -192,7 +196,13 @@ def test_downstream_progress_after_input_read_uses_downstream_node_context(
 
     def _consume_with_progress(up):
         for item in up:
-            dag_runner.emit_node_progress("after input read")
+            dag_runner.report_node_progress(
+                ProgressSnapshot(
+                    completed=1,
+                    phase="processing",
+                    detail="after input read",
+                )
+            )
             yield item
 
     dag = Dag(
@@ -209,12 +219,71 @@ def test_downstream_progress_after_input_read_uses_downstream_node_context(
 
     assert list(run_dag(ctx, dag, observer=observer)) == [1]
 
-    assert len(observer.node_progress_events) == 1
-    event = observer.node_progress_events[0]
-    assert event.dag_name == "progress-attribution-demo"
-    assert event.node_name == "consume"
-    assert event.node_index == 1
-    assert event.message == "after input read"
+    attributed = [
+        event
+        for event in observer.node_progress_events
+        if event.progress.detail == "after input read"
+    ]
+    assert attributed
+    assert all(event.dag_name == "progress-attribution-demo" for event in attributed)
+    assert all(event.node_name == "consume" for event in attributed)
+    assert all(event.node_index == 1 for event in attributed)
+
+
+def test_live_progress_tracks_node_output_when_heartbeat_is_disabled(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(dag_runner, "_LIVE_PROGRESS_INTERVAL_SECONDS", 0)
+    observer = _CollectingObserver()
+    ctx = _context(tmp_path)
+    ctx.heartbeat_interval_seconds = 0
+
+    def _work():
+        dag_runner.report_node_progress(
+            ProgressSnapshot(completed=0, total=2, phase="emitting")
+        )
+        yield 1
+        yield 2
+
+    dag = Dag(
+        name="live-progress-demo",
+        nodes=(PipelineNode(name="produce", op=_work),),
+    )
+
+    assert list(run_dag(ctx, dag, observer=observer)) == [1, 2]
+
+    live = [event for event in observer.node_progress_events if not event.persistent]
+    assert [event.progress.completed for event in live] == [0, 1, 2]
+    assert live[-1].progress == ProgressSnapshot(
+        completed=2,
+        total=2,
+        phase="emitting",
+    )
+
+
+def test_closing_a_stream_does_not_invent_a_progress_total(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(dag_runner, "_LIVE_PROGRESS_INTERVAL_SECONDS", 0)
+    observer = _CollectingObserver()
+    ctx = _context(tmp_path)
+    ctx.heartbeat_interval_seconds = 0
+    dag = Dag(
+        name="partial-progress-demo",
+        nodes=(
+            PipelineNode(name="produce", op=lambda: iter((1, 2, 3))),
+            PipelineNode(name="forward", op=lambda records: records, input="produce"),
+        ),
+    )
+
+    stream = run_dag(ctx, dag, observer=observer)
+    assert next(stream) == 1
+    stream.close()
+
+    assert observer.node_progress_events
+    assert all(event.progress.total is None for event in observer.node_progress_events)
 
 
 def test_resolve_heartbeat_interval_accepts_supported_values() -> None:
@@ -252,16 +321,11 @@ def test_resolve_heartbeat_interval_rejects_unsupported_values(
 
 
 def test_run_dag_disables_heartbeat_when_interval_is_zero(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path,
 ) -> None:
     observer = _CollectingObserver()
     ctx = _context(tmp_path)
     ctx.heartbeat_interval_seconds = 0
-    monkeypatch.setattr(
-        dag_runner._RunHeartbeat,
-        "start",
-        lambda self: pytest.fail("heartbeat started for a zero interval"),
-    )
 
     def _quiet_work():
         yield 1
@@ -308,8 +372,8 @@ def test_run_dag_heartbeat_tracks_context_and_items(tmp_path: Path) -> None:
     heartbeats = _heartbeat_events(observer)
     assert heartbeats[0].dag_name == "heartbeat-context-demo"
     assert heartbeats[0].node_name == "produce"
-    assert heartbeats[0].message.endswith("items=0")
-    assert not heartbeats[-1].message.endswith("items=0")
+    assert heartbeats[0].progress.completed == 0
+    assert heartbeats[-1].progress.completed == 1
     assert set(observed_markers) == {"visual-context"}
 
 
@@ -319,11 +383,17 @@ def test_run_dag_heartbeat_reports_buffered_node_work(tmp_path: Path) -> None:
     ctx.heartbeat_interval_seconds = 0.01
 
     def _work():
-        dag_runner.set_node_heartbeat_detail(
-            "sorting input items=200000 spilled_runs=2"
+        dag_runner.report_node_progress(
+            ProgressSnapshot(
+                completed=200_000,
+                phase="sorting input",
+                detail="spilled runs=2",
+            )
         )
         assert observer.wait_for_next_heartbeat()
-        dag_runner.set_node_heartbeat_detail(None)
+        dag_runner.report_node_progress(
+            ProgressSnapshot(completed=0, total=1, phase="emitting")
+        )
         yield 1
 
     dag = Dag(
@@ -335,7 +405,11 @@ def test_run_dag_heartbeat_reports_buffered_node_work(tmp_path: Path) -> None:
 
     heartbeat = _heartbeat_events(observer)[0]
     assert heartbeat.node_name == "order_records"
-    assert heartbeat.message.endswith("sorting input items=200000 spilled_runs=2")
+    assert heartbeat.progress == ProgressSnapshot(
+        completed=200_000,
+        phase="sorting input",
+        detail="spilled runs=2",
+    )
 
 
 def test_heartbeat_tracks_active_node_through_nested_streams(
@@ -369,7 +443,7 @@ def test_heartbeat_tracks_active_node_through_nested_streams(
     assert heartbeats[0].node_name == "source"
     assert heartbeats[-1].dag_name == "heartbeat-downstream-demo"
     assert heartbeats[-1].node_name == "order_records"
-    assert heartbeats[-1].message.endswith("items=0")
+    assert heartbeats[-1].progress.completed == 0
 
 
 def test_heartbeat_delivery_finishes_before_terminal_events(
@@ -382,6 +456,8 @@ def test_heartbeat_delivery_finishes_before_terminal_events(
 
     class OrderedObserver(_CollectingObserver):
         def on_node_progress(self, event: NodeProgressEvent) -> None:
+            if not event.persistent:
+                return
             progress_started.set()
             assert clear_started.wait(1)
             super().on_node_progress(event)
@@ -395,8 +471,8 @@ def test_heartbeat_delivery_finishes_before_terminal_events(
             super().on_dag_end(event)
             order.append("dag_end")
 
-    original_clear = dag_runner._RunHeartbeat.clear
-    original_stop = dag_runner._RunHeartbeat.stop
+    original_clear = dag_runner._RunProgress.clear
+    original_stop = dag_runner._RunProgress.stop
 
     def _record_clear(heartbeat, node) -> None:
         clear_started.set()
@@ -406,8 +482,8 @@ def test_heartbeat_delivery_finishes_before_terminal_events(
         original_stop(heartbeat)
         order.append("heartbeat_stop")
 
-    monkeypatch.setattr(dag_runner._RunHeartbeat, "clear", _record_clear)
-    monkeypatch.setattr(dag_runner._RunHeartbeat, "stop", _record_stop)
+    monkeypatch.setattr(dag_runner._RunProgress, "clear", _record_clear)
+    monkeypatch.setattr(dag_runner._RunProgress, "stop", _record_stop)
     observer = OrderedObserver()
     ctx = _context(tmp_path)
     ctx.heartbeat_interval_seconds = 0.01
@@ -425,7 +501,7 @@ def test_heartbeat_delivery_finishes_before_terminal_events(
     assert order == ["progress", "node_end", "heartbeat_stop", "dag_end"]
 
 
-def test_heartbeat_callback_can_clear_its_node() -> None:
+def test_progress_callback_can_clear_its_node() -> None:
     callback_finished = threading.Event()
     node = dag_runner.NodeProgressContext(
         dag_name="demo",
@@ -439,19 +515,20 @@ def test_heartbeat_callback_can_clear_its_node() -> None:
 
     class ReentrantObserver:
         def on_node_progress(self, event: NodeProgressEvent) -> None:
-            heartbeat.clear(node)
+            progress.clear(node)
             callback_finished.set()
 
-    heartbeat = dag_runner._RunHeartbeat(ReentrantObserver(), 0.001)
-    heartbeat.enter(node, 0)
-    heartbeat.start()
+    progress = dag_runner._RunProgress(ReentrantObserver(), 0.001)
+    progress.start_node(node)
+    progress.enter(node)
+    progress.start()
     try:
         assert callback_finished.wait(1)
     finally:
-        heartbeat.stop()
+        progress.stop()
 
 
-def test_run_dag_ignores_node_progress_when_observer_does_not_support_it(
+def test_run_dag_rejects_observer_without_node_progress_contract(
     tmp_path: Path,
 ) -> None:
     class MinimalObserver:
@@ -470,7 +547,9 @@ def test_run_dag_ignores_node_progress_when_observer_does_not_support_it(
     ctx = _context(tmp_path)
 
     def _with_progress():
-        dag_runner.emit_node_progress("items=0")
+        dag_runner.report_node_progress(
+            ProgressSnapshot(completed=0, phase="preparing")
+        )
         yield 1
 
     dag = Dag(
@@ -478,7 +557,8 @@ def test_run_dag_ignores_node_progress_when_observer_does_not_support_it(
         nodes=(PipelineNode(name="produce", op=_with_progress),),
     )
 
-    assert list(run_dag(ctx, dag, observer=MinimalObserver())) == [1]
+    with pytest.raises(AttributeError, match="on_node_progress"):
+        list(run_dag(ctx, dag, observer=MinimalObserver()))
 
 
 def test_run_dag_restores_context_when_dag_start_fails(tmp_path: Path) -> None:
@@ -625,7 +705,7 @@ def test_run_dag_restores_context_for_nested_siblings_across_yields(
         first = run_dag(ctx, first_child, observer=observer)
         try:
             yield next(first)
-            assert dag_runner._CURRENT_RUN_HEARTBEAT.get() is not None
+            assert dag_runner._CURRENT_RUN_PROGRESS.get() is not None
             assert dag_runner._CURRENT_ROOT_RUN.get() is not None
             second_child = Dag(
                 name="second-child",
@@ -647,7 +727,7 @@ def test_run_dag_restores_context_for_nested_siblings_across_yields(
         output.append(next(output_stream))
         assert (
             dag_runner._current_run_dag_depth(),
-            dag_runner._CURRENT_RUN_HEARTBEAT.get(),
+            dag_runner._CURRENT_RUN_PROGRESS.get(),
             dag_runner._CURRENT_ROOT_RUN.get(),
         ) == (0, None, None)
         unrelated = Dag(
@@ -661,7 +741,7 @@ def test_run_dag_restores_context_for_nested_siblings_across_yields(
     assert output == [1, 3, 2]
     assert (
         dag_runner._current_run_dag_depth(),
-        dag_runner._CURRENT_RUN_HEARTBEAT.get(),
+        dag_runner._CURRENT_RUN_PROGRESS.get(),
         dag_runner._CURRENT_ROOT_RUN.get(),
     ) == (0, None, None)
 
@@ -938,6 +1018,27 @@ def test_logging_observer_logs_dag_at_info_and_nodes_at_debug(caplog) -> None:
                 status="success",
             )
         )
+        observer.on_node_progress(
+            NodeProgressEvent(
+                dag_name="demo",
+                node_name="node_a",
+                node_index=0,
+                execution_index=0,
+                progress=ProgressSnapshot(completed=1),
+                elapsed_seconds=1,
+            )
+        )
+        observer.on_node_progress(
+            NodeProgressEvent(
+                dag_name="demo",
+                node_name="node_a",
+                node_index=0,
+                execution_index=0,
+                progress=ProgressSnapshot(completed=2),
+                elapsed_seconds=2,
+                persistent=True,
+            )
+        )
         observer.on_dag_end(
             DagRunEvent(
                 dag_name="demo",
@@ -952,5 +1053,10 @@ def test_logging_observer_logs_dag_at_info_and_nodes_at_debug(caplog) -> None:
     assert any(message.startswith("[demo] started") for message in messages)
     assert any(message.startswith("  [nested] started") for message in messages)
     assert any(message.startswith("[demo] finished") for message in messages)
+    assert any(
+        message == "[demo/node_a] running elapsed=2s items=2"
+        for message in messages
+    )
+    assert not any("elapsed=1s" in message for message in messages)
     assert not any(message.startswith("[demo/node_a] started") for message in messages)
     assert not any(message.startswith("[demo/node_a] finished") for message in messages)

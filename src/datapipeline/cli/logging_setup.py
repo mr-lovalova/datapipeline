@@ -26,17 +26,14 @@ class _TerminalVisualProxyHandler(logging.StreamHandler):
         if getattr(record, "dp_event_kind", None) is None:
             sink = current_terminal_log_proxy_sink()
             if sink is not None:
-                try:
-                    sink.emit(
-                        ExecutionMessage(
-                            depth=max(0, int(current_dag_depth())),
-                            message=self.format(record),
-                            log_level=int(record.levelno),
-                        )
+                sink.emit(
+                    ExecutionMessage(
+                        depth=max(0, int(current_dag_depth())),
+                        message=self.format(record),
+                        log_level=int(record.levelno),
                     )
-                    return
-                except Exception:
-                    pass
+                )
+                return
         super().emit(record)
 
 
@@ -55,6 +52,7 @@ def configure_root_logging(level: int, output: LogOutputSettings) -> None:
         if key in seen:
             continue
         seen.add(key)
+        handler: logging.Handler
         if transport == "stderr":
             handler = _TerminalVisualProxyHandler(sys.stderr)
             handler.addFilter(_TerminalExecutionEventDedupeFilter())
