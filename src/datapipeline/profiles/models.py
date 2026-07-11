@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, Mapping, Sequence
+from typing import Literal, Sequence
 
 from datapipeline.config.build_resolution import BuildSettings
 from datapipeline.config.dataset.dataset import (
@@ -33,7 +33,6 @@ class ExecutionProfile:
     visuals: str
     log_decision: LogLevelDecision
     log_output: LogOutputSettings
-    profile_report: Mapping[str, Any] | None = None
     runtime: Runtime | None = None
     dataset: ProfileDataset | None = None
     limit: int | None = None
@@ -48,7 +47,6 @@ class ExecutionProfile:
 class ProfileRunRequest:
     command: ProfileKind
     project_path: Path
-    execution_dir: Path
     tasks: Sequence[Task]
     artifact_task_configs: Sequence[ArtifactTask]
     profiles: Sequence[ExecutionProfile]

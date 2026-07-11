@@ -58,17 +58,17 @@ class VisualSettings:
 
 
 def resolve_visuals(
-    
     cli_visuals: str | None,
     config_visuals: str | None,
     default_visuals: str = "on",
 ) -> VisualSettings:
-    visuals = cascade(
-        _normalize_lower(cli_visuals),
-        _normalize_lower(config_visuals),
-        default_visuals,
-    ) or default_visuals
-    return VisualSettings(visuals=visuals)
+    return VisualSettings(
+        visuals=cascade(
+            _normalize_lower(cli_visuals),
+            _normalize_lower(config_visuals),
+            default_visuals,
+        )
+    )
 
 
 def resolve_heartbeat_interval_seconds(
@@ -123,7 +123,6 @@ class LogOutputSettings:
 
 def log_output_targets_from_config(
     outputs,
-    
     resolve_global_path: Callable[[str], Path],
 ) -> list[LogOutputTarget]:
     """Map validated config models into normalized LogOutputTarget values."""
@@ -153,20 +152,16 @@ def log_output_targets_from_config(
 
 def resolve_project_log_outputs(
     outputs,
-    
     project_path: Path,
 ) -> list[LogOutputTarget]:
     return log_output_targets_from_config(
         outputs,
-        resolve_global_path=lambda value: (
-            (project_path.parent / value).resolve()
-        ),
+        resolve_global_path=lambda value: (project_path.parent / value).resolve(),
     )
 
 
 def parse_log_output_specs(
     specs: Sequence[str] | None,
-    
     resolve_global_path: Callable[[str], Path],
 ) -> list[LogOutputTarget]:
     """Parse CLI --log-output specs into normalized targets."""
@@ -187,7 +182,9 @@ def parse_log_output_specs(
         if lower.startswith("execution:") or lower.startswith("execution="):
             raw_path = spec[10:].strip()
             if not raw_path:
-                raise ValueError("--log-output execution target requires a relative path")
+                raise ValueError(
+                    "--log-output execution target requires a relative path"
+                )
             parsed.append(
                 LogOutputTarget(
                     transport="fs",
@@ -250,7 +247,9 @@ def _normalize_log_outputs(
                 normalized.append(
                     LogOutputTarget(
                         transport="fs",
-                        destination=Path(destination) if destination is not None else None,
+                        destination=Path(destination)
+                        if destination is not None
+                        else None,
                         scope="execution",
                     )
                 )
@@ -279,7 +278,6 @@ def _normalize_log_outputs(
 
 
 def resolve_log_output(
-    
     output_candidates: Sequence[Sequence[LogOutputTarget] | None] = (),
     default_transport: str = "stderr",
     allow_execution_scope: bool = False,
@@ -299,34 +297,29 @@ def resolve_log_output(
     )
 
 
-def materialize_log_output_for_execution(
+def resolve_execution_log_outputs(
     settings: LogOutputSettings,
-    execution_dir: Path | None,
+    execution_dir: Path,
     *,
     command: str,
-    label: str | None = None,
+    label: str,
 ) -> LogOutputSettings:
     outputs: list[LogOutputTarget] = []
     for target in settings.outputs:
         if target.scope != "execution":
             outputs.append(target)
             continue
-        if execution_dir is None:
-            raise ValueError(
-                "log scope 'execution' requires an execution directory"
-            )
         relative_path = target.destination
         if relative_path is None:
-            name = sanitize_path_segment(label or "execution")
-            prefix = sanitize_path_segment(command or "execution")
+            name = sanitize_path_segment(label)
+            prefix = sanitize_path_segment(command)
             relative_path = Path("logs") / f"{prefix}.{name}.log"
-        path = Path(relative_path)
-        if path.is_absolute():
+        if relative_path.is_absolute():
             raise ValueError("execution-scoped log path must be relative")
         outputs.append(
             LogOutputTarget(
                 transport="fs",
-                destination=(execution_dir / path).resolve(),
+                destination=(execution_dir / relative_path).resolve(),
                 scope="global",
             )
         )

@@ -119,10 +119,6 @@ def _build_profile(
     )
 
 
-def _execution_dir(tmp_path: Path) -> Path:
-    return tmp_path / "execution"
-
-
 def _run_paths(tmp_path: Path, run_id: str = "r1") -> RunPaths:
     run_root = tmp_path / "runs" / run_id
     return RunPaths(
@@ -149,7 +145,6 @@ def _request(
     return ProfileRunRequest(
         command=command,
         project_path=tmp_path / "project.yaml",
-        execution_dir=_execution_dir(tmp_path),
         tasks=tasks,
         artifact_task_configs=artifact_tasks,
         profiles=profiles,
@@ -165,7 +160,6 @@ def _assert_preflight_rejected(request: ProfileRunRequest) -> None:
         run_profiles(request)
 
     assert exc.value.code == 2
-    assert not request.execution_dir.exists()
 
 
 def test_build_profile_order_accepts_configured_dependency_order() -> None:
@@ -252,7 +246,6 @@ def test_build_profiles_keep_configured_order_and_share_resolved_artifacts(
     assert calls[0]["resolved_artifacts"] is calls[1]["resolved_artifacts"]
     assert calls[1]["resolved_artifacts"] == {VECTOR_INPUTS, VECTOR_SCHEMA}
     assert {call["expected_config_hash"] for call in calls} == {"hash-1"}
-    assert not request.execution_dir.exists()
 
 
 def test_runtime_artifact_union_is_prepared_once_before_profiles(

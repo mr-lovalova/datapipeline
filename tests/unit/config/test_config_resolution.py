@@ -5,7 +5,7 @@ from datapipeline.config.resolution import (
     LogOutputTarget,
     cascade,
     parse_log_output_specs,
-    materialize_log_output_for_execution,
+    resolve_execution_log_outputs,
     minimum_level,
     resolve_heartbeat_interval_seconds,
     resolve_log_level,
@@ -74,7 +74,7 @@ def test_resolve_log_output_validates_file_destination():
         raise AssertionError("Expected ValueError for fs transport without destination")
 
 
-def test_resolve_log_output_rejects_run_scope_when_not_allowed():
+def test_resolve_log_output_rejects_execution_scope_when_not_allowed():
     try:
         resolve_log_output(
             output_candidates=([LogOutputTarget(transport="fs", scope="execution")],),
@@ -82,18 +82,21 @@ def test_resolve_log_output_rejects_run_scope_when_not_allowed():
     except ValueError as exc:
         assert "only valid for execution-scoped operations" in str(exc)
     else:
-        raise AssertionError("Expected ValueError for execution scope outside execution-aware resolution")
+        raise AssertionError(
+            "Expected ValueError for execution scope outside execution-aware resolution"
+        )
 
 
-def test_materialize_log_output_for_execution_resolves_under_execution_directory(tmp_path):
+def test_resolve_execution_log_outputs_resolves_under_execution_directory(tmp_path):
     settings = resolve_log_output(
         output_candidates=([LogOutputTarget(transport="fs", scope="execution")],),
         allow_execution_scope=True,
     )
-    resolved = materialize_log_output_for_execution(
+    resolved = resolve_execution_log_outputs(
         settings=settings,
         execution_dir=tmp_path / "_system" / "executions" / "e1",
         command="serve",
+        label="execution",
     )
     assert resolved.outputs[0].transport == "fs"
     assert resolved.outputs[0].destination == (

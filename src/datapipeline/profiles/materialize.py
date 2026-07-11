@@ -17,7 +17,7 @@ from datapipeline.config.resolution import (
     LogOutputSettings,
     LogOutputTarget,
     logging_value,
-    materialize_log_output_for_execution,
+    resolve_execution_log_outputs,
     observability_value,
     resolve_heartbeat_interval_seconds,
     resolve_log_level,
@@ -172,7 +172,7 @@ def _resolve_profile(
         output_candidates=(cli_log_outputs, configured_outputs),
         allow_execution_scope=True,
     )
-    log_output = materialize_log_output_for_execution(
+    log_output = resolve_execution_log_outputs(
         log_output,
         execution_dir,
         command="materialize",

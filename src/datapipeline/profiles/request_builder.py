@@ -22,7 +22,7 @@ from datapipeline.config.profiles import (
 )
 from datapipeline.config.resolution import (
     LogOutputTarget,
-    materialize_log_output_for_execution,
+    resolve_execution_log_outputs,
 )
 from datapipeline.config.serve_resolution import resolve_run_profiles
 from datapipeline.config.tasks import ArtifactTask, OperationTask
@@ -35,7 +35,6 @@ from datapipeline.profiles.models import (
     ProfileRunRequest,
     ServeRunPlan,
 )
-from datapipeline.profiles.reporting import runtime_profile_report_payload
 from datapipeline.profiles.selection import select_profiles
 from datapipeline.services.path_policy import resolve_workspace_path
 from datapipeline.services.project_paths import tasks_dir
@@ -177,7 +176,7 @@ def _resolve_build_execution_profiles(
         except ValueError as exc:
             logger.error("Invalid build configuration: %s", exc)
             raise SystemExit(2) from exc
-        log_output = materialize_log_output_for_execution(
+        log_output = resolve_execution_log_outputs(
             settings=settings.log_output,
             execution_dir=execution_dir,
             command=params.command,
@@ -188,7 +187,7 @@ def _resolve_build_execution_profiles(
             ExecutionProfile(
                 name=profile.name,
                 target_id=profile.target,
-                visuals=settings.visuals or "on",
+                visuals=settings.visuals,
                 log_decision=settings.log_decision,
                 log_output=log_output,
                 build_settings=settings,
@@ -255,16 +254,15 @@ def _resolve_runtime_execution_profiles(
             ExecutionProfile(
                 name=profile.label,
                 target_id=profile.entry.target_id,
-                visuals=profile.visuals.visuals or "on",
+                visuals=profile.visuals.visuals,
                 log_decision=profile.log_decision,
-                log_output=materialize_log_output_for_execution(
+                log_output=resolve_execution_log_outputs(
                     settings=profile.log_output,
                     execution_dir=execution_dir,
                     command=params.command,
                     label=profile.label,
                 ),
                 runtime=profile.runtime,
-                profile_report=runtime_profile_report_payload(profile),
                 dataset=dataset,
                 limit=profile.limit,
                 output=profile.output,
@@ -438,7 +436,6 @@ def build_profile_run_request(
     return ProfileRunRequest(
         command=kind,
         project_path=project_path,
-        execution_dir=execution_dir,
         tasks=declared_tasks,
         artifact_task_configs=declared_artifact_tasks,
         profiles=profiles,

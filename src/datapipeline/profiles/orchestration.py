@@ -7,7 +7,6 @@ from datapipeline.config.tasks import ArtifactTask, OperationTask, Task
 from datapipeline.profiles.executor import ProfileExecutionSpec, run_profile
 from datapipeline.cli.visuals.execution import execution_scope
 from datapipeline.services.bootstrap import bootstrap_build_runtime
-from datapipeline.services.execution_artifacts import write_profile_artifact
 from datapipeline.services.project_paths import tasks_dir
 from datapipeline.services.runs import (
     finish_run_failed,
@@ -87,19 +86,12 @@ def run_profiles(request: ProfileRunRequest) -> None:
         for idx, profile in enumerate(profiles, start=1):
             runtime = profile_runtimes[idx - 1]
             runtime.heartbeat_interval_seconds = profile.heartbeat_interval_seconds
-            if profile.profile_report is not None:
-                write_profile_artifact(
-                    execution_dir=request.execution_dir,
-                    profile_kind=request.command,
-                    profile_name=profile.name,
-                    payload=profile.profile_report,
-                )
             spec = ProfileExecutionSpec(
                 command=request.command,
                 name=profile.name,
                 index=idx,
                 total=total,
-                visuals=profile.visuals or "on",
+                visuals=profile.visuals,
                 log_decision=profile.log_decision,
                 log_output=profile.log_output,
                 runtime=runtime,

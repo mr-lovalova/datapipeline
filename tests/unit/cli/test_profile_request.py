@@ -60,6 +60,11 @@ def test_inspect_request_requires_declared_inspect_profiles(tmp_path: Path):
 def test_inspect_request_materializes_execution_scoped_log_output(
     tmp_path: Path, monkeypatch
 ):
+    execution_dir = tmp_path / "execution"
+    monkeypatch.setattr(
+        "datapipeline.profiles.request_builder.execution_root",
+        lambda _project: execution_dir,
+    )
     project_yaml = _write_project(tmp_path)
     ops = tmp_path / "tasks" / "operations"
     profiles = tmp_path / "profiles"
@@ -105,9 +110,9 @@ def test_inspect_request_materializes_execution_scoped_log_output(
     profile = request.profiles[0]
     assert profile.log_output.outputs[0].scope == "global"
     assert profile.log_output.outputs[0].destination == (
-        request.execution_dir / "logs" / "inspect.coverage.log"
+        execution_dir / "logs" / "inspect.coverage.log"
     )
-    assert not request.execution_dir.exists()
+    assert not execution_dir.exists()
 
 
 def test_disabled_profiles_do_not_create_execution_directory(tmp_path: Path):
