@@ -1,5 +1,3 @@
-from typing import Optional
-
 from datapipeline.io.writers import (
     JsonLinesFileWriter,
     GzipJsonLinesWriter,
@@ -24,11 +22,7 @@ def _is_json_line_format(value: str) -> bool:
     return value in _JSON_LINE_FORMATS
 
 
-def writer_factory(
-    target: OutputTarget,
-    *,
-    visuals: Optional[str] = None,
-) -> Writer:
+def writer_factory(target: OutputTarget) -> Writer:
     transport = target.transport.lower()
     format_ = target.format.lower()
 

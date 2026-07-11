@@ -67,7 +67,6 @@ def _persist_result(result, target: OutputTarget | None) -> None:
     persist_runtime_result(
         result,
         target=target,
-        visuals=None,
         logger=logging.getLogger(__name__),
     )
 
@@ -296,7 +295,6 @@ def test_inspect_matrix_requires_output_target(monkeypatch) -> None:
         persist_runtime_result(
             result,
             target=None,
-            visuals=None,
             logger=logging.getLogger(__name__),
         )
 
@@ -335,7 +333,6 @@ def test_inspect_matrix_writes_html_when_output_format_is_html(
             encoding=None,
             destination=destination,
         ),
-        visuals=None,
         logger=logging.getLogger(__name__),
     )
 

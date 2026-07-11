@@ -35,7 +35,6 @@ def materialize_stream_to_path(
     output: Path,
     as_stream_id: str | None = None,
     force: bool = False,
-    visuals: str | None = None,
     dataset: Any | None = None,
 ) -> MaterializeResult:
     if dataset is not None:
@@ -63,7 +62,7 @@ def materialize_stream_to_path(
         destination=output.resolve(),
         overwrite=force,
     )
-    count = write_rows(rows, target, visuals=visuals)
+    count = write_rows(rows, target)
     metadata_path = write_materialized_stream_metadata(
         output=output,
         rows=count,
@@ -171,10 +170,8 @@ def write_materialized_stream_metadata(
 def write_rows(
     rows: Iterable[Any],
     target: OutputTarget,
-    *,
-    visuals: str | None = None,
 ) -> int:
-    writer = writer_factory(target, visuals=visuals)
+    writer = writer_factory(target)
     count = 0
     success = False
     try:

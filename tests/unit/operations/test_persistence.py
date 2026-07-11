@@ -99,7 +99,6 @@ def test_failed_runtime_write_preserves_existing_file(tmp_path) -> None:
         persist_runtime_result(
             RuntimeOutput(rows=rows()),
             target=target,
-            visuals="off",
             logger=logging.getLogger(__name__),
         )
 
@@ -125,7 +124,6 @@ def test_runtime_persistence_emits_operation_saved_info(tmp_path) -> None:
                 persist_runtime_result(
                     RuntimeOutput(rows=iter([{"value": 1}])),
                     target=target,
-                    visuals="off",
                     heartbeat_interval_seconds=0,
                     logger=logger,
                 )
@@ -168,7 +166,6 @@ def test_split_runtime_output_routes_rows_to_label_targets(tmp_path) -> None:
             label_for_row=lambda row: row["split"],
         ),
         target=None,
-        visuals="off",
         logger=logging.getLogger(__name__),
     )
 
@@ -215,7 +212,6 @@ def test_split_runtime_output_limit_applies_per_target(tmp_path) -> None:
             limit_per_target=1,
         ),
         target=None,
-        visuals="off",
         logger=logging.getLogger(__name__),
     )
 

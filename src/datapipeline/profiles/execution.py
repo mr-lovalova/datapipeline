@@ -125,7 +125,6 @@ def run_runtime_task(
                 persist=lambda result: persist_runtime_result(
                     result,
                     target=profile.output,
-                    visuals=profile.visuals,
                     heartbeat_interval_seconds=runtime.heartbeat_interval_seconds,
                     logger=logger,
                 ),

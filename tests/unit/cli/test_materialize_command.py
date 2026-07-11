@@ -69,17 +69,30 @@ def test_materialize_command_rejects_non_jsonl_output(monkeypatch, tmp_path) -> 
         )
 
 
-def test_materialize_command_loads_vector_dataset(monkeypatch, tmp_path) -> None:
+@pytest.mark.parametrize(
+    ("visual_args", "expected_visuals"),
+    [([], "on"), (["--visuals", "off"], "off")],
+)
+def test_materialize_command_uses_visual_backend_and_loads_vector_dataset(
+    monkeypatch,
+    tmp_path,
+    visual_args,
+    expected_visuals,
+) -> None:
     selected = {}
+    runtime = object()
 
     def _bootstrap(project):
-        return object()
+        return runtime
 
     def _load_dataset(project, dataset_name):
         selected["dataset_name"] = dataset_name
         return object()
 
     def _materialize_stream_to_path(**kwargs):
+        assert selected["inside_backend"] is True
+        assert "visuals" not in kwargs
+
         class Result:
             count = 0
             output = tmp_path / "prices.jsonl"
@@ -90,11 +103,27 @@ def test_materialize_command_loads_vector_dataset(monkeypatch, tmp_path) -> None
         selected["dataset"] = kwargs["dataset"]
         return Result()
 
+    def _run_with_backend(*, visuals, runtime, level, work):
+        selected["visuals"] = visuals
+        selected["runtime"] = runtime
+        selected["level"] = level
+        selected["inside_backend"] = True
+        try:
+            return work()
+        finally:
+            selected["inside_backend"] = False
+
     monkeypatch.setattr("datapipeline.cli.commands.materialize.bootstrap", _bootstrap)
-    monkeypatch.setattr("datapipeline.cli.commands.materialize.load_dataset", _load_dataset)
+    monkeypatch.setattr(
+        "datapipeline.cli.commands.materialize.load_dataset", _load_dataset
+    )
     monkeypatch.setattr(
         "datapipeline.cli.commands.materialize.materialize_stream_to_path",
         _materialize_stream_to_path,
+    )
+    monkeypatch.setattr(
+        "datapipeline.cli.commands.materialize.run_with_backend",
+        _run_with_backend,
     )
 
     args = build_parser().parse_args(
@@ -106,6 +135,7 @@ def test_materialize_command_loads_vector_dataset(monkeypatch, tmp_path) -> None
             "prices.raw",
             "--output",
             "prices.jsonl",
+            *visual_args,
         ]
     )
 
@@ -120,3 +150,7 @@ def test_materialize_command_loads_vector_dataset(monkeypatch, tmp_path) -> None
 
     assert selected["dataset_name"] == "vectors"
     assert selected["dataset"] is not None
+    assert selected["visuals"] == expected_visuals
+    assert selected["runtime"] is runtime
+    assert isinstance(selected["level"], int)
+    assert selected["inside_backend"] is False

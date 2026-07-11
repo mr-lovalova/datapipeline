@@ -144,7 +144,6 @@ def test_serve_with_runtime_reraises_keyboard_interrupt_and_marks_run_failed(
         persist_runtime_result(
             result,
             target=target,
-            visuals="on",
             logger=logging.getLogger(__name__),
         )
 

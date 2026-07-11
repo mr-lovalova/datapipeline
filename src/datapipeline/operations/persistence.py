@@ -93,7 +93,6 @@ def _persist_runtime_output(
     result: RuntimeOutput,
     *,
     target: OutputTarget | None,
-    visuals: str | None,
     heartbeat_interval_seconds: float | None,
     logger: logging.Logger,
 ) -> None:
@@ -133,7 +132,7 @@ def _persist_runtime_output(
         else:
             rows = (dict(result.payload),)
 
-    writer = writer_factory(effective_target, visuals=visuals)
+    writer = writer_factory(effective_target)
     progress = OperationProgressTracker(
         "write_output",
         resolve_heartbeat_interval_seconds(heartbeat_interval_seconds),
@@ -167,7 +166,6 @@ def _persist_runtime_output(
 def _persist_split_runtime_output(
     result: SplitRuntimeOutput,
     *,
-    visuals: str | None,
     heartbeat_interval_seconds: float | None,
     logger: logging.Logger,
 ) -> None:
@@ -186,7 +184,7 @@ def _persist_split_runtime_output(
         for label, target in result.targets.items():
             if target.transport != "fs":
                 raise ValueError("Split runtime output requires fs targets.")
-            writers[label] = writer_factory(target, visuals=visuals)
+            writers[label] = writer_factory(target)
             counts[label] = 0
 
         for row in rows:
@@ -245,7 +243,6 @@ def persist_runtime_result(
     result: object,
     *,
     target: OutputTarget | None,
-    visuals: str | None,
     heartbeat_interval_seconds: float | None = None,
     logger: logging.Logger,
 ) -> None:
@@ -263,7 +260,6 @@ def persist_runtime_result(
                 if isinstance(output, SplitRuntimeOutput):
                     _persist_split_runtime_output(
                         output,
-                        visuals=visuals,
                         heartbeat_interval_seconds=heartbeat_interval_seconds,
                         logger=logger,
                     )
@@ -271,7 +267,6 @@ def persist_runtime_result(
                     _persist_runtime_output(
                         output,
                         target=target,
-                        visuals=visuals,
                         heartbeat_interval_seconds=heartbeat_interval_seconds,
                         logger=logger,
                     )
@@ -284,7 +279,6 @@ def persist_runtime_result(
     if isinstance(result, SplitRuntimeOutput):
         _persist_split_runtime_output(
             result,
-            visuals=visuals,
             heartbeat_interval_seconds=heartbeat_interval_seconds,
             logger=logger,
         )
@@ -293,7 +287,6 @@ def persist_runtime_result(
     _persist_runtime_output(
         result,
         target=target,
-        visuals=visuals,
         heartbeat_interval_seconds=heartbeat_interval_seconds,
         logger=logger,
     )

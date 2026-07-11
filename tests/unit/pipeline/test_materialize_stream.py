@@ -323,7 +323,6 @@ def test_runtime_materialize_stream_writes_metadata_sidecar(tmp_path: Path) -> N
     persist_runtime_result(
         batch,
         target=target,
-        visuals="off",
         logger=logging.getLogger(__name__),
     )
 
@@ -389,7 +388,6 @@ def test_runtime_materialize_stream_does_not_clobber_output_created_during_run(
         persist_runtime_result(
             batch,
             target=target,
-            visuals="off",
             logger=logging.getLogger(__name__),
         )
 
@@ -422,7 +420,6 @@ def test_runtime_materialize_stream_force_replaces_existing_output(
     persist_runtime_result(
         batch,
         target=target,
-        visuals="off",
         logger=logging.getLogger(__name__),
     )
 
