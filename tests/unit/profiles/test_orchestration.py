@@ -33,7 +33,6 @@ from datapipeline.services.constants import (
     VECTOR_METADATA,
     VECTOR_SCHEMA,
 )
-from datapipeline.services.executions import ExecutionPaths
 from datapipeline.services.runs import RunPaths
 
 _LOG_DECISION = LogLevelDecision(name="INFO", value=20)
@@ -120,15 +119,8 @@ def _build_profile(
     )
 
 
-def _execution_paths(tmp_path: Path) -> ExecutionPaths:
-    root = tmp_path / "execution"
-    return ExecutionPaths(
-        execution_id="e1",
-        root=root,
-        logs_dir=root / "logs",
-        meta_dir=root / "meta",
-        metadata_path=root / "execution.json",
-    )
+def _execution_dir(tmp_path: Path) -> Path:
+    return tmp_path / "execution"
 
 
 def _run_paths(tmp_path: Path, run_id: str = "r1") -> RunPaths:
@@ -157,7 +149,7 @@ def _request(
     return ProfileRunRequest(
         command=command,
         project_path=tmp_path / "project.yaml",
-        execution=_execution_paths(tmp_path),
+        execution_dir=_execution_dir(tmp_path),
         tasks=tasks,
         artifact_task_configs=artifact_tasks,
         profiles=profiles,
@@ -173,7 +165,7 @@ def _assert_preflight_rejected(request: ProfileRunRequest) -> None:
         run_profiles(request)
 
     assert exc.value.code == 2
-    assert not request.execution.root.exists()
+    assert not request.execution_dir.exists()
 
 
 def test_build_profile_order_accepts_configured_dependency_order() -> None:
@@ -260,6 +252,7 @@ def test_build_profiles_keep_configured_order_and_share_resolved_artifacts(
     assert calls[0]["resolved_artifacts"] is calls[1]["resolved_artifacts"]
     assert calls[1]["resolved_artifacts"] == {VECTOR_INPUTS, VECTOR_SCHEMA}
     assert {call["expected_config_hash"] for call in calls} == {"hash-1"}
+    assert not request.execution_dir.exists()
 
 
 def test_runtime_artifact_union_is_prepared_once_before_profiles(
@@ -722,12 +715,8 @@ def test_preview_run_exists_at_profile_boundary_and_is_not_latest(
     observed: dict[str, object] = {}
 
     def run_profile(spec, work):
-        execution = json.loads(
-            request.execution.metadata_path.read_text(encoding="utf-8")
-        )
         run = json.loads(run_paths.metadata_path.read_text(encoding="utf-8"))
         observed.update(
-            command=execution["command"],
             status=run["status"],
             preview_index=run["preview_index"],
             heartbeat=spec.runtime.heartbeat_interval_seconds,
@@ -751,7 +740,6 @@ def test_preview_run_exists_at_profile_boundary_and_is_not_latest(
     run_profiles(request)
 
     assert observed == {
-        "command": "serve",
         "status": "running",
         "preview_index": 3,
         "heartbeat": 15,

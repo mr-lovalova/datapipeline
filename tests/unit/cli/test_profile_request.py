@@ -105,9 +105,9 @@ def test_inspect_request_materializes_execution_scoped_log_output(
     profile = request.profiles[0]
     assert profile.log_output.outputs[0].scope == "global"
     assert profile.log_output.outputs[0].destination == (
-        request.execution.root / "logs" / "inspect.coverage.log"
+        request.execution_dir / "logs" / "inspect.coverage.log"
     )
-    assert not request.execution.root.exists()
+    assert not request.execution_dir.exists()
 
 
 def test_disabled_profiles_do_not_create_execution_directory(tmp_path: Path):

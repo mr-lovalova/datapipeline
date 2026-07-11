@@ -29,7 +29,7 @@ from datapipeline.profiles.executor import ProfileExecutionSpec, run_profile
 from datapipeline.profiles.selection import select_profiles
 from datapipeline.runtime import Runtime
 from datapipeline.services.bootstrap import bootstrap
-from datapipeline.services.executions import get_execution_paths, start_execution
+from datapipeline.services.executions import execution_root
 from datapipeline.services.materialize import (
     MaterializeResult,
     check_materialize_destinations,
@@ -91,13 +91,13 @@ def run_materialize_profiles(
 
     runtime = bootstrap(project_path)
     dataset = load_dataset(project_path, "vectors")
-    execution = get_execution_paths(project_path)
+    execution_dir = execution_root(project_path)
     try:
         jobs = [
             _resolve_profile(
                 profile,
                 project_path,
-                execution.root,
+                execution_dir,
                 overwrite,
                 cli_output,
                 cli_visuals,
@@ -114,7 +114,6 @@ def run_materialize_profiles(
         ) from exc
     _preflight_jobs(runtime, jobs)
 
-    start_execution(execution, project_yaml=project_path, command="materialize")
     results: list[MaterializeResult] = []
     total = len(jobs)
     for index, job in enumerate(jobs, start=1):

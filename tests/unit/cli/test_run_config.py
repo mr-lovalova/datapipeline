@@ -371,7 +371,7 @@ def test_serve_defaults_apply_when_profile_omits_fields(monkeypatch, tmp_path: P
     assert request.artifact_heartbeat_interval_seconds is None
     assert len(request.serve_run_plans) == 1
     assert request.serve_run_plans[0].paths == profile.output.run
-    assert not request.execution.root.exists()
+    assert not request.execution_dir.exists()
     assert not profile.output.run.dataset_dir.exists()
     assert not profile.output.run.metadata_path.exists()
 

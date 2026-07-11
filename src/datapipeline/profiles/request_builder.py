@@ -39,10 +39,7 @@ from datapipeline.profiles.reporting import runtime_profile_report_payload
 from datapipeline.profiles.selection import select_profiles
 from datapipeline.services.path_policy import resolve_workspace_path
 from datapipeline.services.project_paths import tasks_dir
-from datapipeline.services.executions import (
-    ExecutionPaths,
-    get_execution_paths,
-)
+from datapipeline.services.executions import execution_root
 from datapipeline.services.run_entries import RunEntry
 from datapipeline.services.runs import RunPaths
 
@@ -162,7 +159,7 @@ def _select_profiles(params: ProfileResolveParams):
 def _resolve_build_execution_profiles(
     profiles: Sequence[BuildProfile],
     params: ProfileResolveParams,
-    execution: ExecutionPaths,
+    execution_dir: Path,
 ) -> list[ExecutionProfile]:
     resolved: list[ExecutionProfile] = []
     for profile in profiles:
@@ -182,7 +179,7 @@ def _resolve_build_execution_profiles(
             raise SystemExit(2) from exc
         log_output = materialize_log_output_for_execution(
             settings=settings.log_output,
-            execution_dir=execution.root,
+            execution_dir=execution_dir,
             command=params.command,
             label=profile.name,
         )
@@ -204,7 +201,7 @@ def _resolve_runtime_execution_profiles(
     *,
     profiles: Sequence[ServeProfile | InspectProfile],
     params: ProfileResolveParams,
-    execution: ExecutionPaths,
+    execution_dir: Path,
 ) -> list[ExecutionProfile]:
     cli_output_cfg = build_cli_output_config(
         params.output_transport,
@@ -262,7 +259,7 @@ def _resolve_runtime_execution_profiles(
                 log_decision=profile.log_decision,
                 log_output=materialize_log_output_for_execution(
                     settings=profile.log_output,
-                    execution_dir=execution.root,
+                    execution_dir=execution_dir,
                     command=params.command,
                     label=profile.label,
                 ),
@@ -386,13 +383,13 @@ def build_profile_run_request(
             )
             raise SystemExit(2)
 
-    execution = get_execution_paths(project_path)
+    execution_dir = execution_root(project_path)
     resolved_artifact_mode: str | None = None
     if kind == "build":
         profiles = _resolve_build_execution_profiles(
             cast(Sequence[BuildProfile], selected_profiles),
             params,
-            execution,
+            execution_dir,
         )
     else:
         if artifact_mode is not None:
@@ -420,7 +417,7 @@ def build_profile_run_request(
         profiles = _resolve_runtime_execution_profiles(
             profiles=cast(Sequence[ServeProfile | InspectProfile], selected_profiles),
             params=params,
-            execution=execution,
+            execution_dir=execution_dir,
         )
 
     if not profiles:
@@ -441,7 +438,7 @@ def build_profile_run_request(
     return ProfileRunRequest(
         command=kind,
         project_path=project_path,
-        execution=execution,
+        execution_dir=execution_dir,
         tasks=declared_tasks,
         artifact_task_configs=declared_artifact_tasks,
         profiles=profiles,

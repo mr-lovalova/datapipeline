@@ -36,7 +36,6 @@ def _prepare_run(monkeypatch, tmp_path: Path, profiles: list[MaterializeProfile]
         ),
         heartbeat_interval_seconds=None,
     )
-    started = []
     writes = []
     specs = []
     messages = []
@@ -54,13 +53,8 @@ def _prepare_run(monkeypatch, tmp_path: Path, profiles: list[MaterializeProfile]
     )
     monkeypatch.setattr(
         materialize_profiles,
-        "get_execution_paths",
-        lambda project_path: SimpleNamespace(root=tmp_path / "execution"),
-    )
-    monkeypatch.setattr(
-        materialize_profiles,
-        "start_execution",
-        lambda execution, **kwargs: started.append(execution),
+        "execution_root",
+        lambda project_path: tmp_path / "execution",
     )
 
     def _run_profile(spec, work):
@@ -87,7 +81,7 @@ def _prepare_run(monkeypatch, tmp_path: Path, profiles: list[MaterializeProfile]
         "emit_execution_message",
         lambda message: messages.append((current_execution_scope(), message)),
     )
-    return started, writes, specs, messages
+    return writes, specs, messages
 
 
 def _run(
@@ -125,7 +119,7 @@ def test_materialize_runs_all_enabled_profiles_in_order(monkeypatch, tmp_path) -
             overwrite=True,
         ),
     ]
-    started, writes, specs, messages = _prepare_run(monkeypatch, tmp_path, profiles)
+    writes, specs, messages = _prepare_run(monkeypatch, tmp_path, profiles)
 
     results = _run(tmp_path)
 
@@ -139,7 +133,7 @@ def test_materialize_runs_all_enabled_profiles_in_order(monkeypatch, tmp_path) -
         "adv-20.jsonl",
         "adv-126.jsonl",
     ]
-    assert len(started) == 1
+    assert not (tmp_path / "execution").exists()
     assert [scope["profile_name"] for scope, _ in messages] == [
         "adv-20",
         "adv-20",
@@ -171,7 +165,7 @@ def test_materialize_run_selects_one_profile_even_when_disabled(
             enabled=False,
         ),
     ]
-    _, writes, specs, _ = _prepare_run(monkeypatch, tmp_path, profiles)
+    writes, specs, _ = _prepare_run(monkeypatch, tmp_path, profiles)
 
     _run(tmp_path, run_name="adv-63", overwrite=True)
 
@@ -184,7 +178,7 @@ def test_materialize_cli_overrides_selected_profile_output(
     monkeypatch, tmp_path
 ) -> None:
     profiles = [_profile("adv-20", "adv.20", "configured.jsonl")]
-    _, writes, _, _ = _prepare_run(monkeypatch, tmp_path, profiles)
+    writes, _, _ = _prepare_run(monkeypatch, tmp_path, profiles)
     output = tmp_path / "overridden.jsonl"
 
     _run(
@@ -198,7 +192,7 @@ def test_materialize_cli_overrides_selected_profile_output(
 
 def test_materialize_rejects_empty_run_name(monkeypatch, tmp_path) -> None:
     profiles = [_profile("adv-20", "adv.20", "adv-20.jsonl")]
-    started, writes, _, _ = _prepare_run(monkeypatch, tmp_path, profiles)
+    writes, _, _ = _prepare_run(monkeypatch, tmp_path, profiles)
 
     with pytest.raises(
         materialize_profiles.MaterializeProfileError,
@@ -207,7 +201,7 @@ def test_materialize_rejects_empty_run_name(monkeypatch, tmp_path) -> None:
         _run(tmp_path, run_name="")
 
     assert writes == []
-    assert started == []
+    assert not (tmp_path / "execution").exists()
 
 
 def test_materialize_preflight_rejects_duplicate_outputs_before_writing(
@@ -218,13 +212,13 @@ def test_materialize_preflight_rejects_duplicate_outputs_before_writing(
         _profile("adv-20", "adv.20", "same.jsonl"),
         _profile("adv-63", "adv.63", "same.jsonl"),
     ]
-    started, writes, _, _ = _prepare_run(monkeypatch, tmp_path, profiles)
+    writes, _, _ = _prepare_run(monkeypatch, tmp_path, profiles)
 
     with pytest.raises(ValueError, match="write the same path"):
         _run(tmp_path)
 
     assert writes == []
-    assert started == []
+    assert not (tmp_path / "execution").exists()
 
 
 def test_materialize_preflight_checks_every_output_before_writing(
@@ -237,13 +231,13 @@ def test_materialize_preflight_checks_every_output_before_writing(
         _profile("first", "adv.20", "first.jsonl"),
         _profile("second", "adv.63", "second.jsonl"),
     ]
-    started, writes, _, _ = _prepare_run(monkeypatch, tmp_path, profiles)
+    writes, _, _ = _prepare_run(monkeypatch, tmp_path, profiles)
 
     with pytest.raises(FileExistsError, match="--overwrite"):
         _run(tmp_path)
 
     assert writes == []
-    assert started == []
+    assert not (tmp_path / "execution").exists()
 
 
 def test_materialize_reports_success_before_a_later_profile_fails(
@@ -254,7 +248,7 @@ def test_materialize_reports_success_before_a_later_profile_fails(
         _profile("first", "adv.20", "first.jsonl"),
         _profile("second", "adv.63", "second.jsonl"),
     ]
-    _, _, _, messages = _prepare_run(monkeypatch, tmp_path, profiles)
+    _, _, messages = _prepare_run(monkeypatch, tmp_path, profiles)
 
     def materialize(**kwargs):
         if kwargs["stream_id"] == "adv.63":

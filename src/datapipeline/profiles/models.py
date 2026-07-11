@@ -14,7 +14,6 @@ from datapipeline.config.resolution import (
 from datapipeline.config.tasks import ArtifactTask, Task
 from datapipeline.io.output import OutputTarget
 from datapipeline.runtime import Runtime
-from datapipeline.services.executions import ExecutionPaths
 from datapipeline.services.runs import RunPaths
 
 ProfileKind = Literal["serve", "build", "inspect"]
@@ -49,7 +48,7 @@ class ExecutionProfile:
 class ProfileRunRequest:
     command: ProfileKind
     project_path: Path
-    execution: ExecutionPaths
+    execution_dir: Path
     tasks: Sequence[Task]
     artifact_task_configs: Sequence[ArtifactTask]
     profiles: Sequence[ExecutionProfile]
