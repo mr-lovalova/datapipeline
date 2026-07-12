@@ -568,12 +568,12 @@ def test_execute_build_jobs_persists_completed_job_before_failure(
             raise RuntimeError("schema failed")
         return _build_artifact(runtime, task)
 
-    outputs: list[tuple[str, Path, int | None]] = []
+    outputs: list[tuple[str, Path]] = []
     _patch_artifact_build(monkeypatch, build)
     monkeypatch.setattr(
         build_exec,
         "emit_file_result",
-        lambda label, path, records=None: outputs.append((label, path, records)),
+        lambda label, path: outputs.append((label, path)),
     )
     plan = build_exec.BuildPlan(
         reason="stale",
@@ -606,7 +606,6 @@ def test_execute_build_jobs_persists_completed_job_before_failure(
         (
             "Vector inputs",
             (runtime.artifacts_root / vector_inputs.output).resolve(),
-            None,
         )
     ]
 

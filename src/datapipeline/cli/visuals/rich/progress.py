@@ -47,13 +47,10 @@ class _LiveElapsedColumn(TimeElapsedColumn):
     """Show root DAG time across completed local progress phases."""
 
     def render(self, task: Task) -> Text:
-        if not task.fields["timer_scope"]:
+        if not task.fields["show_elapsed"]:
             return Text()
-        elapsed = max(0, int(task.elapsed or 0))
-        return Text(
-            str(timedelta(seconds=elapsed)),
-            style="dim",
-        )
+        elapsed = timedelta(seconds=max(0, int(task.elapsed or 0)))
+        return Text(f"DAG {elapsed}", style="dim")
 
 
 class _ExecutionProgress:
@@ -98,7 +95,7 @@ class _ExecutionProgress:
             total=None,
             status="",
             indent="",
-            timer_scope="DAG",
+            show_elapsed=True,
         )
 
     def _finish_dag(self, event: DagFinished) -> None:
@@ -122,7 +119,7 @@ class _ExecutionProgress:
                 total=None,
                 status="0 out",
                 indent="  " * relative_depth,
-                timer_scope="",
+                show_elapsed=False,
             )
         self._nodes[event.execution_index] = state
         self._active_nodes.append(event.execution_index)
@@ -233,11 +230,6 @@ def visual_execution(log_level: int):
             complete_style="cyan",
             finished_style="cyan",
             pulse_style="cyan",
-            table_column=Column(no_wrap=True),
-        ),
-        TextColumn(
-            "{task.fields[timer_scope]}",
-            style="dim",
             table_column=Column(no_wrap=True),
         ),
         _LiveElapsedColumn(table_column=Column(no_wrap=True)),

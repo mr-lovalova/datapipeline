@@ -272,6 +272,7 @@ def test_cli_artifact_mode_overrides_selected_profiles(monkeypatch, tmp_path: Pa
             "  logging:\n"
             "    level: warning\n"
             "    outputs:\n"
+            "      - transport: stderr\n"
             "      - transport: fs\n"
             "        scope: execution\n"
         ),
@@ -302,16 +303,29 @@ def test_cli_artifact_mode_overrides_selected_profiles(monkeypatch, tmp_path: Pa
     assert settings.observability.heartbeat_interval_seconds == 0
     assert settings.observability.visuals == "on"
     assert settings.observability.log_decision.name == "DEBUG"
-    assert settings.observability.log_output.outputs[0].destination is not None
-    assert (
-        settings.observability.log_output.outputs[0].destination.name
-        == "serve.artifacts.log"
-    )
+    assert [
+        (
+            output.transport,
+            output.destination.name if output.destination is not None else None,
+        )
+        for output in settings.observability.log_output.outputs
+    ] == [
+        ("stderr", None),
+        ("fs", "serve.artifacts.log"),
+    ]
     assert {
-        job.observability.log_output.outputs[0].destination.name
+        job.name: [
+            (
+                output.transport,
+                output.destination.name if output.destination is not None else None,
+            )
+            for output in job.observability.log_output.outputs
+        ]
         for job in request.jobs
-        if job.observability.log_output.outputs[0].destination is not None
-    } == {"serve.first.log", "serve.second.log"}
+    } == {
+        "first": [("stderr", None), ("fs", "serve.first.log")],
+        "second": [("stderr", None), ("fs", "serve.second.log")],
+    }
 
 
 def test_selected_profiles_reject_conflicting_artifact_modes(

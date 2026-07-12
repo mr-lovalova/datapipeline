@@ -8,7 +8,6 @@ from datapipeline.dag.runner import resolve_heartbeat_interval_seconds
 from datapipeline.execution.observability import (
     OperationProgressTracker,
     emit_file_result,
-    format_record_count,
 )
 from datapipeline.io.factory import writer_factory
 from datapipeline.io.output import OutputTarget
@@ -125,12 +124,10 @@ def _persist_runtime_output(
         "write_output",
         resolve_heartbeat_interval_seconds(heartbeat_interval_seconds),
     )
-    count = 0
     success = False
     try:
         for row in rows:
             writer.write(row)
-            count += 1
             progress.advance()
         writer.close()
         success = True
@@ -142,13 +139,9 @@ def _persist_runtime_output(
                 logger.debug("Failed to abort runtime output writer", exc_info=True)
 
     if effective_target.destination is not None:
-        emit_file_result(
-            "Output",
-            effective_target.destination,
-            count if result.rows is not None else None,
-        )
+        emit_file_result("Output", effective_target.destination)
     elif effective_target.transport == "stdout":
-        logger.info("Output: stdout · %s", format_record_count(count))
+        logger.info("Output: stdout")
 
 
 def _persist_split_runtime_output(
@@ -219,7 +212,7 @@ def _persist_split_runtime_output(
                     )
 
     for label, destination in destinations.items():
-        emit_file_result(label, destination, counts[label])
+        emit_file_result(label, destination)
 
 
 def persist_runtime_result(

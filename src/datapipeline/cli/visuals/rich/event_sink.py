@@ -9,7 +9,6 @@ from datapipeline.execution.observability import (
     FileResult,
     OperationFinished,
     OperationStarted,
-    format_record_count,
 )
 
 from ..execution import (
@@ -54,8 +53,7 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
         if event_level < self._level:
             return
         if isinstance(event, OperationStarted):
-            title = Text(f"Operation {event.name}")
-            self._console.print(Rule(title, style="dim"))
+            self._console.print(Rule(Text(f"Operation {event.name}"), style="dim"))
             return
         if isinstance(event, FileResult):
             self._console.print(self._render_file_result(event))
@@ -71,32 +69,19 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
         table = Table.grid(padding=(0, 1))
         table.add_column(no_wrap=True)
         table.add_column(ratio=1, overflow="fold")
-        result = Text()
-        result.append(
-            str(event.path),
-            style=f"blue link {event.path.resolve().as_uri()}",
-        )
-        records = "" if event.records is None else format_record_count(event.records)
-        result.append(f" · {records}" if records else "", style="dim")
+        result = Text(str(event.path))
+        result.stylize(f"blue link {event.path.resolve().as_uri()}")
         table.add_row(f"{event.label}:", result)
         return table
 
     def _render_event(self, event: ExecutionLogEvent) -> Text:
-        if not isinstance(event, ExecutionLogEvent):
-            raise TypeError(f"Unsupported execution event: {type(event).__name__}")
         level = ExecutionEventFormatter.level(event)
-        message = ExecutionEventFormatter.message(event)
-        lifecycle = isinstance(event, DagFinished | NodeFinished | OperationFinished)
-        text = Text(message, style="" if lifecycle else self._message_style(level))
+        text = Text(ExecutionEventFormatter.message(event))
         if isinstance(event, DagFinished | NodeFinished | OperationFinished):
             status_style = "green" if event.status == "success" else "red"
             text.highlight_words([f"status={event.status}"], style=status_style)
+        elif level >= logging.ERROR:
+            text.stylize("red")
+        elif level >= logging.WARNING:
+            text.stylize("yellow")
         return text
-
-    @staticmethod
-    def _message_style(level: int) -> str:
-        if level >= logging.ERROR:
-            return "red"
-        if level >= logging.WARNING:
-            return "yellow"
-        return ""

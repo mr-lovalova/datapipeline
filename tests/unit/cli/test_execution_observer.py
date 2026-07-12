@@ -77,10 +77,9 @@ _PARENT = DagParentRef(
             FileResult(
                 label="train_0",
                 path=Path("/tmp/dataset.train_0.jsonl"),
-                records=1,
             ),
             logging.INFO,
-            "train_0: /tmp/dataset.train_0.jsonl · 1 record",
+            "train_0: /tmp/dataset.train_0.jsonl",
         ),
         (
             SourceInfoMessage(source_label="prices", message="inputs", depth=1),

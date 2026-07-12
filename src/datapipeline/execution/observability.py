@@ -27,12 +27,6 @@ class OperationFinished:
 class FileResult:
     label: str
     path: Path
-    records: int | None = None
-
-
-def format_record_count(records: int) -> str:
-    unit = "record" if records == 1 else "records"
-    return f"{records:,} {unit}"
 
 
 class OperationObserver(Protocol):
@@ -110,12 +104,11 @@ def operation_scope(name: str):
 def emit_file_result(
     label: str,
     path: Path,
-    records: int | None = None,
 ) -> bool:
     observer = current_operation_observer()
     if observer is None:
         return False
-    observer.emit_file_result(FileResult(label, path, records))
+    observer.emit_file_result(FileResult(label, path))
     return True
 
 

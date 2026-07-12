@@ -25,7 +25,6 @@ from datapipeline.execution.observability import (
     FileResult,
     OperationFinished,
     OperationStarted,
-    format_record_count,
 )
 
 
@@ -191,12 +190,7 @@ class ExecutionEventFormatter:
     @classmethod
     def message(cls, event: ExecutionLogEvent) -> str:
         if isinstance(event, FileResult):
-            records = (
-                ""
-                if event.records is None
-                else f" · {format_record_count(event.records)}"
-            )
-            return f"{event.label}: {event.path}{records}"
+            return f"{event.label}: {event.path}"
         if isinstance(event, OperationStarted):
             return f"Operation {event.name} started"
         if isinstance(event, OperationFinished):

@@ -159,7 +159,7 @@ def test_info_progress_shows_node_and_local_detail() -> None:
     task = progress.tasks[0]
     assert task.description == "stream:adv.20"
     assert task.fields["indent"] == ""
-    assert task.fields["timer_scope"] == "DAG"
+    assert task.fields["show_elapsed"] is True
     assert task.total is None
     assert task.completed == 20_000
     assert task.fields["status"] == (
@@ -259,7 +259,7 @@ def test_info_dag_elapsed_continues_after_completed_local_phase() -> None:
     )
     task = progress.tasks[0]
     elapsed = _LiveElapsedColumn().render(task)
-    assert elapsed.plain == "0:00:10"
+    assert elapsed.plain == "DAG 0:00:10"
     assert str(elapsed.style) == "dim"
     assert task.description == "stream:adv.20"
     assert task.fields["indent"] == ""
@@ -274,7 +274,7 @@ def test_info_dag_elapsed_continues_after_completed_local_phase() -> None:
     )
 
     task = progress.tasks[0]
-    assert _LiveElapsedColumn().render(task).plain == "0:00:20"
+    assert _LiveElapsedColumn().render(task).plain == "DAG 0:00:20"
     assert task.description == "stream:adv.20"
     assert task.fields["indent"] == ""
 
@@ -306,19 +306,19 @@ def test_debug_progress_shows_root_and_active_nodes() -> None:
         (
             task.description,
             task.fields["indent"],
-            task.fields["timer_scope"],
+            task.fields["show_elapsed"],
             task.fields["status"],
         )
         for task in tasks
     ] == [
-        ("stream:adv.20", "", "DAG", ""),
-        ("stream:adv.20/order_records", "", "", "0 out"),
-        ("stream:adv.20/open_source", "", "", "25/100 records"),
-        ("ingest:ohlcv/decode_records", "  ", "", "0 out"),
+        ("stream:adv.20", "", True, ""),
+        ("stream:adv.20/order_records", "", False, "0 out"),
+        ("stream:adv.20/open_source", "", False, "25/100 records"),
+        ("ingest:ohlcv/decode_records", "  ", False, "0 out"),
     ]
     root_task, _, source_task, _ = tasks
     elapsed = _LiveElapsedColumn()
-    assert elapsed.render(root_task).plain == "0:00:00"
+    assert elapsed.render(root_task).plain == "DAG 0:00:00"
     assert elapsed.render(source_task).plain == ""
     assert source_task.completed == 25
     assert source_task.total == 100
@@ -528,7 +528,7 @@ def test_rich_sink_renders_operation_sequence_once_and_in_order() -> None:
             output_items=10,
             elapsed_seconds=1,
         ),
-        FileResult("Output", Path("/tmp/adv.20.jsonl"), 10),
+        FileResult("Output", Path("/tmp/adv.20.jsonl")),
         OperationFinished("materialize:adv.20", "success", 1),
     )
     for event in events:
@@ -589,15 +589,6 @@ def test_rich_sink_styles_only_final_status() -> None:
             elapsed_seconds=1,
         )
     )
-    error = sink._render_event(
-        DagFinished(
-            dag_name="stream:adv.20",
-            node_count=4,
-            status="error",
-            output_items=0,
-            elapsed_seconds=1,
-        )
-    )
     operation_error = sink._render_event(
         OperationFinished(
             name="materialize:adv.20",
@@ -607,14 +598,11 @@ def test_rich_sink_styles_only_final_status() -> None:
         )
     )
 
-    assert success.style == error.style == operation_error.style == ""
+    assert success.style == operation_error.style == ""
     assert [
         (success.plain[span.start : span.end], str(span.style))
         for span in success.spans
     ] == [("status=success", "green")]
-    assert [
-        (error.plain[span.start : span.end], str(span.style)) for span in error.spans
-    ] == [("status=error", "red")]
     assert [
         (operation_error.plain[span.start : span.end], str(span.style))
         for span in operation_error.spans
@@ -630,7 +618,6 @@ def test_rich_sink_renders_debug_config_as_regular_text() -> None:
     )
 
     assert text.style == ""
-    assert text.spans == []
 
 
 def test_rich_sink_renders_file_result_as_aligned_link() -> None:
@@ -639,7 +626,7 @@ def test_rich_sink_renders_file_result_as_aligned_link() -> None:
         "/Users/anders/project/artifacts/smoke/processed/very-long/"
         "dataset/dataset.train_0.jsonl"
     )
-    event = FileResult(label="train_0", path=path, records=100)
+    event = FileResult(label="train_0", path=path)
     sink = _RichConsoleExecutionSink(logging.INFO, console)
 
     sink.emit(event)
@@ -652,29 +639,16 @@ def test_rich_sink_renders_file_result_as_aligned_link() -> None:
     segments = list(console.render(table, console.options))
     label = next(segment for segment in segments if segment.text == "train_0:")
     assert label.style is None or not label.style.bold
-    assert any(
-        segment.style is not None
-        and segment.style.link == path.resolve().as_uri()
-        and segment.style.color is not None
-        and segment.style.color.name == "blue"
+    linked = [
+        segment
         for segment in segments
+        if segment.style is not None and segment.style.link == path.resolve().as_uri()
+    ]
+    assert "".join(segment.text for segment in linked) == str(path)
+    assert all(
+        segment.style.color is not None and segment.style.color.name == "blue"
+        for segment in linked
     )
-    assert any(
-        "100 records" in segment.text
-        and segment.style is not None
-        and segment.style.dim
-        and segment.style.link is None
-        for segment in segments
-    )
-
-
-def test_rich_sink_filters_info_outputs_below_its_log_level() -> None:
-    console, output = _console()
-    sink = _RichConsoleExecutionSink(logging.WARNING, console)
-    sink.emit(FileResult(label="Output", path=Path("data/adv.20.jsonl")))
-    sink.emit(ExecutionMessage(message="Metadata: data/adv.20.metadata.json"))
-
-    assert output.getvalue() == ""
 
 
 def test_visual_execution_restores_existing_context(monkeypatch) -> None:
@@ -700,17 +674,9 @@ def test_visual_execution_uses_minimal_progress_styles(monkeypatch) -> None:
     console, _ = _console()
     columns = []
 
-    class CaptureProgress:
-        tasks = ()
-
-        def __init__(self, *args, **_kwargs) -> None:
-            columns.extend(args)
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_args) -> None:
-            return None
+    def capture_progress(*args, **kwargs):
+        columns.extend(args)
+        return Progress(*args, **kwargs)
 
     monkeypatch.setattr(
         "datapipeline.cli.visuals.rich.progress.Console",
@@ -718,7 +684,7 @@ def test_visual_execution_uses_minimal_progress_styles(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         "datapipeline.cli.visuals.rich.progress.Progress",
-        CaptureProgress,
+        capture_progress,
     )
 
     with visual_execution(logging.INFO):

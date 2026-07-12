@@ -101,7 +101,7 @@ def _prepare_run(
     monkeypatch.setattr(
         materialize_profiles,
         "emit_file_result",
-        lambda label, path, records=None: messages.append((label, path, records)),
+        lambda label, path: messages.append((label, path)),
     )
     return writes, specs, messages
 
@@ -171,10 +171,10 @@ def test_materialize_runs_all_enabled_profiles_in_order(monkeypatch, tmp_path) -
         ("adv.126", str(tmp_path / "adv-126.jsonl"), True),
     ]
     assert messages == [
-        ("Output", tmp_path / "adv-20.jsonl", None),
-        ("Metadata", tmp_path / "adv-20.metadata.json", None),
-        ("Output", tmp_path / "adv-126.jsonl", None),
-        ("Metadata", tmp_path / "adv-126.metadata.json", None),
+        ("Output", tmp_path / "adv-20.jsonl"),
+        ("Metadata", tmp_path / "adv-20.metadata.json"),
+        ("Output", tmp_path / "adv-126.jsonl"),
+        ("Metadata", tmp_path / "adv-126.metadata.json"),
     ]
 
 
@@ -500,6 +500,6 @@ def test_materialize_reports_success_before_a_later_profile_fails(
         _run(tmp_path)
 
     assert messages == [
-        ("Output", tmp_path / "first.jsonl", None),
-        ("Metadata", tmp_path / "first.metadata.json", None),
+        ("Output", tmp_path / "first.jsonl"),
+        ("Metadata", tmp_path / "first.metadata.json"),
     ]
