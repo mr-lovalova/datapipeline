@@ -181,7 +181,7 @@ def test_materialize_runs_all_enabled_profiles_in_order(monkeypatch, tmp_path) -
 def test_materialize_uses_command_execution_defaults(monkeypatch, tmp_path) -> None:
     defaults = MaterializeProfileDefaults(
         cmd="materialize",
-        execution=ExecutionConfig(sort_batch_records=32),
+        execution=ExecutionConfig(sort_buffer_mb=32),
     )
     writes, _, _ = _prepare_run(
         monkeypatch,

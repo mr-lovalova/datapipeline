@@ -9,55 +9,65 @@ from datapipeline.dag.events import ProgressSnapshot
 from datapipeline.dag.runner import report_node_progress
 
 T = TypeVar("T")
+_BufferedItem = tuple[Any, bytes]
 _MAX_OPEN_RUNS = 64
 _MERGE_PROGRESS_INTERVAL = 100_000
 
 
-def _sorted_batches(
+def _sorted_runs(
     iterable: Iterable[T],
-    batch_size: int,
+    buffer_bytes: int,
     key: Callable[[T], Any],
-) -> Iterator[list[T]]:
-    if batch_size < 1:
-        raise ValueError("batch_size must be at least 1")
-
-    batch: list[T] = []
+) -> Iterator[tuple[list[_BufferedItem], bool]]:
+    batch: list[_BufferedItem] = []
+    batch_bytes = 0
     for item in iterable:
-        batch.append(item)
-        if len(batch) == batch_size:
-            yield sorted(batch, key=key)
+        sort_key = key(item)
+        try:
+            payload = pickle.dumps(item, protocol=pickle.HIGHEST_PROTOCOL)
+        except (pickle.PickleError, TypeError, AttributeError) as exc:
+            raise TypeError("batch_sort requires pickle-serializable items") from exc
+        payload_bytes = len(payload)
+        if batch and batch_bytes + payload_bytes > buffer_bytes:
+            batch.sort(key=lambda entry: entry[0])
+            yield batch, False
             batch = []
+            batch_bytes = 0
+        batch.append((sort_key, payload))
+        batch_bytes += payload_bytes
     if batch:
-        yield sorted(batch, key=key)
+        batch.sort(key=lambda entry: entry[0])
+        yield batch, True
 
 
 def batch_sort(
     iterable: Iterable[T],
-    batch_size: int,
+    buffer_bytes: int,
     key: Callable[[T], Any],
     spill_dir: Path | None = None,
 ) -> Iterator[T]:
-    """Stably sort records, spilling pickle runs when one batch is insufficient."""
+    """Stably sort serialized values, spilling runs when the buffer is exceeded."""
+    if buffer_bytes < 1:
+        raise ValueError("buffer_bytes must be at least 1")
     report_node_progress(ProgressSnapshot(completed=0, phase="reading"))
-    batches = _sorted_batches(iterable, batch_size, key)
+    runs = _sorted_runs(iterable, buffer_bytes, key)
 
     try:
-        first_batch = next(batches)
+        first_run, final = next(runs)
     except StopIteration:
         return
-    report_node_progress(ProgressSnapshot(completed=len(first_batch), phase="reading"))
+    report_node_progress(ProgressSnapshot(completed=len(first_run), phase="reading"))
 
-    try:
-        second_batch = next(batches)
-    except StopIteration:
+    if final:
         report_node_progress(
             ProgressSnapshot(
                 completed=0,
-                total=len(first_batch),
+                total=len(first_run),
                 phase="emitting",
             )
         )
-        yield from first_batch
+        for _, payload in first_run:
+            yield pickle.loads(payload)
         return
 
     if spill_dir is not None:
@@ -68,11 +78,9 @@ def batch_sort(
         dir=spill_dir,
     ) as tmp:
         temp_dir = Path(tmp)
-        run_paths = [
-            _write_run(temp_dir, 0, first_batch),
-            _write_run(temp_dir, 1, second_batch),
-        ]
-        input_items = len(first_batch) + len(second_batch)
+        run_paths = [_write_serialized_run(temp_dir, 0, first_run)]
+        input_items = len(first_run)
+        first_run.clear()
         report_node_progress(
             ProgressSnapshot(
                 completed=input_items,
@@ -81,9 +89,10 @@ def batch_sort(
             )
         )
 
-        for batch in batches:
-            run_paths.append(_write_run(temp_dir, len(run_paths), batch))
-            input_items += len(batch)
+        for run, _ in runs:
+            run_paths.append(_write_serialized_run(temp_dir, len(run_paths), run))
+            input_items += len(run)
+            run.clear()
             report_node_progress(
                 ProgressSnapshot(
                     completed=input_items,
@@ -113,16 +122,15 @@ def batch_sort(
         yield from _merge_runs(run_paths, key)
 
 
-def _write_run(temp_dir: Path, run_id: int, items: Iterable[T]) -> Path:
+def _write_serialized_run(
+    temp_dir: Path,
+    run_id: int,
+    items: Iterable[_BufferedItem],
+) -> Path:
     path = temp_dir / f"run-{run_id}.pickle"
-    try:
-        with path.open("wb") as fh:
-            for item in items:
-                pickle.dump(item, fh, protocol=pickle.HIGHEST_PROTOCOL)
-    except (pickle.PickleError, TypeError, AttributeError) as exc:
-        raise TypeError(
-            "batch_sort requires pickle-serializable records when input exceeds batch_size"
-        ) from exc
+    with path.open("wb") as fh:
+        for _, payload in items:
+            fh.write(payload)
     return path
 
 

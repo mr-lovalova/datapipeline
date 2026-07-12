@@ -39,7 +39,7 @@ def _runtime(
     runtime = Runtime(
         project_yaml=tmp_path / "project.yaml",
         artifacts_root=tmp_path / "artifacts",
-        execution=ExecutionConfig(sort_batch_records=2),
+        execution=ExecutionConfig(),
     )
     regs = runtime.registries
     regs.stream_specs.register("prices.raw", StreamRuntimeSpec(pipeline="ingest"))

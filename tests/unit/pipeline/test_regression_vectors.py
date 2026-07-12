@@ -61,7 +61,7 @@ def _runtime_with_streams(
     runtime = Runtime(
         project_yaml=project_yaml,
         artifacts_root=artifacts_root,
-        execution=ExecutionConfig(sort_batch_records=1024),
+        execution=ExecutionConfig(),
     )
 
     regs = runtime.registries

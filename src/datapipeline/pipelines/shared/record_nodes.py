@@ -146,7 +146,7 @@ def order_records(
         return
     yield from batch_sort(
         records,
-        batch_size=context.runtime.execution.sort_batch_records,
+        buffer_bytes=context.runtime.execution.sort_buffer_bytes,
         key=record_order_key,
     )
 

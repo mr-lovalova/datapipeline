@@ -184,7 +184,7 @@ def _runtime_with_rows(
     runtime = Runtime(
         project_yaml=project_yaml,
         artifacts_root=artifacts_root,
-        execution=ExecutionConfig(sort_batch_records=128),
+        execution=ExecutionConfig(),
     )
 
     regs = runtime.registries

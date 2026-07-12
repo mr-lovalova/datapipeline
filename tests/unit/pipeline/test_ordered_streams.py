@@ -19,14 +19,14 @@ def _ts(day: int) -> datetime:
     return datetime(2024, 1, day, tzinfo=timezone.utc)
 
 
-def _context(tmp_path, sort_batch_records: int = 100_000):
+def _context(tmp_path):
     project_yaml = tmp_path / "project.yaml"
     project_yaml.write_text("version: 1\n", encoding="utf-8")
     return PipelineContext(
         Runtime(
             project_yaml=project_yaml,
             artifacts_root=tmp_path / "artifacts",
-            execution=ExecutionConfig(sort_batch_records=sort_batch_records),
+            execution=ExecutionConfig(),
         )
     )
 
@@ -96,7 +96,7 @@ def test_order_records_sorts_when_ordered_by_does_not_match(tmp_path) -> None:
 
     ordered = list(
         order_records(
-            _context(tmp_path, 1),
+            _context(tmp_path),
             ["security_id"],
             ["time"],
             records,

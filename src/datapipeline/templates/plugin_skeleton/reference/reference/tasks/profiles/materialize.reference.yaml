@@ -25,7 +25,7 @@
 #   artifact_mode: AUTO       # AUTO | FORCE | OFF
 #   overwrite: true
 #   execution:
-#     sort_batch_records: 100000
+#     sort_buffer_mb: 128
 #
 # `jerry materialize` runs all enabled profiles in order.
 # `jerry materialize --run adv.20` runs one profile.

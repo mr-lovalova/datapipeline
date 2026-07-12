@@ -47,7 +47,7 @@ def _runtime(tmp_path) -> Runtime:
     runtime = Runtime(
         project_yaml=project_yaml,
         artifacts_root=artifacts_root,
-        execution=ExecutionConfig(sort_batch_records=1),
+        execution=ExecutionConfig(),
     )
     regs = runtime.registries
     regs.stream_specs.register("source.stream", StreamRuntimeSpec(pipeline="ingest"))

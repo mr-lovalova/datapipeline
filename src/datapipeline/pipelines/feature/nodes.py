@@ -67,7 +67,7 @@ def order_feature_records(
         key = _sample_group_then_time_and_id(group_by_cadence)
     return batch_sort(
         features,
-        batch_size=context.runtime.execution.sort_batch_records,
+        buffer_bytes=context.runtime.execution.sort_buffer_bytes,
         key=key,
     )
 

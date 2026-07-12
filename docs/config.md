@@ -219,20 +219,23 @@ mode: AUTO # AUTO | FORCE | "OFF"
 - Profile setting precedence is CLI > concrete profile > `<kind>.defaults.yaml` > built-ins.
 
 Sorting is an execution policy, not part of an ingest or stream definition.
-Configure its record budget once in each command's defaults file:
+Configure its buffer once in each command's defaults file:
 
 ```yaml
 # profiles/materialize.defaults.yaml
 cmd: materialize
 artifact_mode: AUTO
 execution:
-  sort_batch_records: 100000
+  sort_buffer_mb: 128
 ```
 
-`sort_batch_records` is the number of records in each in-memory sort batch;
-inputs larger than one batch spill temporary runs. The built-in default is
-`100000`. Build, materialize, serve, and inspect resolve their execution
-settings independently.
+`sort_buffer_mb` is the soft serialized-payload target for each active sort
+buffer, interpreted as MiB (1024² bytes). When another item would exceed a
+non-empty buffer, that buffer is sorted and spilled as a temporary run. One item
+larger than the target occupies a buffer by itself. Python and sort-key overhead
+are additional, so this is not a process memory limit. Sorted items must be
+pickle-serializable. The built-in default is `128`. Build, materialize, serve,
+and inspect resolve their execution settings independently.
 
 ### Runtime Operations (`tasks/operations/*.yaml`)
 

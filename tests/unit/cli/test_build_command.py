@@ -681,7 +681,7 @@ def test_execute_build_job_invalidates_only_graph_descendants(
     config = json.loads(message[8:])
     assert config["task"]["entrypoint"] == "core.artifact.scaler"
     assert config["mode"] == "FORCE"
-    assert config["execution"] == {"sort_batch_records": 100_000}
+    assert config["execution"] == {"sort_buffer_mb": 128}
     assert config["observability"]["visuals"] == "on"
 
 

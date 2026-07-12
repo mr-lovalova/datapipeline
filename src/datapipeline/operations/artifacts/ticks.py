@@ -77,7 +77,7 @@ def materialize_ticks(
     tick_rows = _project_tick_rows(stream, task_cfg.grid_by, project_progress)
     sorted_ticks = batch_sort(
         tick_rows,
-        batch_size=runtime.execution.sort_batch_records,
+        buffer_bytes=runtime.execution.sort_buffer_bytes,
         key=_tick_sort_key,
     )
     rows = 0

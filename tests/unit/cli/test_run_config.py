@@ -523,7 +523,7 @@ def test_build_defaults_apply_to_build_profiles(tmp_path: Path):
             "cmd: build\n"
             "mode: force\n"
             "execution:\n"
-            "  sort_batch_records: 256\n"
+            "  sort_buffer_mb: 256\n"
             "observability:\n"
             "  visuals: off\n"
             "  logging:\n"
@@ -543,7 +543,7 @@ def test_build_defaults_apply_to_build_profiles(tmp_path: Path):
     )
     assert request is not None
     assert request.config_hash is not None
-    assert request.execution.sort_batch_records == 256
+    assert request.execution.sort_buffer_mb == 256
     job = request.jobs[0]
     assert job.settings.mode == "FORCE"
     assert job.settings.observability.visuals == "off"

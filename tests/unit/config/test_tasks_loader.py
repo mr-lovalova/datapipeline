@@ -695,7 +695,7 @@ def test_missing_profile_defaults_resolve_to_builtins(tmp_path):
 
     assert defaults.cmd == "serve"
     assert defaults.source_path is None
-    assert defaults.execution.sort_batch_records == 100_000
+    assert defaults.execution.sort_buffer_mb == 128
 
 
 def test_profile_defaults_reject_executable_fields(tmp_path):
@@ -719,7 +719,7 @@ def test_execution_policy_is_not_allowed_on_concrete_profiles(tmp_path):
             "name: train\n"
             "target: pipeline\n"
             "execution:\n"
-            "  sort_batch_records: 1\n"
+            "  sort_buffer_mb: 1\n"
         ),
         encoding="utf-8",
     )

@@ -22,5 +22,5 @@
 # note: selected build profiles must have distinct targets.
 # note: common pattern: build.scaler (5), build.vector_inputs (8), build.schema (10), build.metadata (20).
 # note: common defaults can be set once in profiles/build.defaults.yaml.
-# execution.sort_batch_records is defaults-only (default 100000).
+# execution.sort_buffer_mb is defaults-only (default 128 MiB per active sort).
 # precedence: CLI > build.<name>.yaml > build.defaults.yaml > built-ins

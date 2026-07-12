@@ -40,5 +40,5 @@
 #       The graph orders those internal jobs; profile order is never changed.
 #       Shared prerequisite observability comes from CLI or serve.defaults.yaml.
 # note: without a CLI override, selected profiles must use the same artifact_mode.
-# execution.sort_batch_records is defaults-only (default 100000).
+# execution.sort_buffer_mb is defaults-only (default 128 MiB per active sort).
 # precedence: CLI > serve.<name>.yaml > serve.defaults.yaml > built-ins

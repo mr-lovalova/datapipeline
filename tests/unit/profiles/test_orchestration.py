@@ -245,7 +245,7 @@ def test_build_jobs_keep_order_and_share_resolved_artifacts(
     schema = SchemaTask(id="schema")
     vector_runtime = _runtime(tmp_path, "vector-runtime")
     schema_runtime = _runtime(tmp_path, "schema-runtime")
-    execution = ExecutionConfig(sort_batch_records=32)
+    execution = ExecutionConfig(sort_buffer_mb=32)
     request = _build_request(
         tmp_path,
         [vector_inputs, schema],
@@ -317,7 +317,7 @@ def test_runtime_artifact_union_is_prepared_once_before_jobs(
     first_runtime = _runtime(tmp_path, "first-job")
     second_runtime = _runtime(tmp_path, "second-job")
     canonical_runtime = _runtime(tmp_path, "canonical-build")
-    execution = ExecutionConfig(sort_batch_records=32)
+    execution = ExecutionConfig(sort_buffer_mb=32)
     artifact_settings = _artifact_settings("FORCE", 0)
     request = _runtime_request(
         tmp_path,
@@ -533,7 +533,7 @@ def test_runtime_jobs_keep_order_and_apply_execution_settings(
     tmp_path: Path,
 ) -> None:
     task = OperationTask(id="pipeline", entrypoint="plugin.runtime")
-    execution = ExecutionConfig(sort_batch_records=16)
+    execution = ExecutionConfig(sort_buffer_mb=16)
     jobs = [
         _runtime_job(
             name,
@@ -597,7 +597,7 @@ def test_runtime_job_emits_resolved_config_at_debug(
     monkeypatch, tmp_path: Path
 ) -> None:
     runtime = _runtime(tmp_path)
-    runtime.execution = ExecutionConfig(sort_batch_records=24)
+    runtime.execution = ExecutionConfig(sort_buffer_mb=24)
     task = OperationTask(id="report", entrypoint="plugin.runtime.report")
     job = _runtime_job("coverage", task, runtime, _dataset())
     messages: list[tuple[str, int]] = []
@@ -629,7 +629,7 @@ def test_runtime_job_emits_resolved_config_at_debug(
     config = json.loads(message.removeprefix("Config:\n"))
     assert config["target"] == "report"
     assert config["dataset"] == "vectors"
-    assert config["execution"]["sort_batch_records"] == 24
+    assert config["execution"]["sort_buffer_mb"] == 24
     assert config["observability"]["log_level"] == "INFO"
 
 

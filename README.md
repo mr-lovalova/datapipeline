@@ -278,9 +278,9 @@ These live under `lib/<plugin>/src/<package>/`:
 - **Feature id fields**: optional stream `feature_id_by` fields appended to feature ids for wide feature schemas.
 - **Group**: sample cadence set by `dataset.sample.cadence` or legacy `dataset.group_by`.
 - **Preview index**: logical debug index for `jerry serve --preview-index 0-13` (ingest nodes -> stream nodes -> feature records -> samples).
-- **Sort spill**: ordered stages sort in bounded batches and spill to temporary
-  pickle runs only when a batch is exceeded; records crossing that boundary must
-  be pickle-serializable.
+- **Sort spill**: ordered stages sort pickle-serializable values in bounded
+  serialized buffers and spill temporary runs when the next value would exceed
+  the configured buffer.
 
 ## Documentation
 
