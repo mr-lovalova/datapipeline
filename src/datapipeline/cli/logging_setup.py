@@ -64,7 +64,7 @@ def configure_root_logging(level: int, output: LogOutputSettings) -> None:
                 raise ValueError("log transport 'fs' requires a destination path")
             path = Path(destination).resolve()
             path.parent.mkdir(parents=True, exist_ok=True)
-            handler = logging.FileHandler(path, encoding="utf-8")
+            handler = logging.FileHandler(path, encoding="utf-8", delay=True)
         else:
             raise ValueError(f"Unsupported log transport: {target.transport!r}")
         handlers.append(handler)

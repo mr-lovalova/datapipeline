@@ -68,40 +68,29 @@ def _report_artifact_plan(
     mode: str,
     requested_artifacts: set[str],
 ) -> None:
-    action = "run" if isinstance(plan, BuildPlan) else "skip"
-    requested = ", ".join(sorted(requested_artifacts)) or "none"
-    required = ", ".join(plan.artifacts) or "none"
     if isinstance(plan, BuildPlan):
-        jobs = ", ".join(job.task.id for job in plan.jobs) or "none"
-        scheduled = {job.task.id for job in plan.jobs}
-        current = (
-            ", ".join(
-                artifact for artifact in plan.artifacts if artifact not in scheduled
-            )
-            or "none"
-        )
+        jobs = [job.task.id for job in plan.jobs]
+        scheduled = set(jobs)
+        current = [artifact for artifact in plan.artifacts if artifact not in scheduled]
     else:
-        jobs = "none"
-        current = required
+        jobs = []
+        current = list(plan.artifacts)
 
     emit_execution_message(
-        "Artifact plan: "
-        f"action={action} reason={plan.reason} mode={mode} "
-        f"requested={requested} required={required} jobs={jobs} current={current}",
+        "Artifact plan:\n"
+        + json.dumps(
+            {
+                "action": "run" if isinstance(plan, BuildPlan) else "skip",
+                "reason": plan.reason,
+                "mode": mode,
+                "requested": sorted(requested_artifacts),
+                "required": list(plan.artifacts),
+                "jobs": jobs,
+                "current": current,
+            },
+            indent=2,
+        ),
         level=logging.DEBUG,
-        logger=logger,
-    )
-
-    if isinstance(plan, BuildPlan):
-        return
-    if plan.reason in {"no_artifacts_selected", "not_required"}:
-        emit_execution_message(
-            f"Artifacts: not required · {requested}",
-            logger=logger,
-        )
-        return
-    emit_execution_message(
-        f"Artifacts: current · {requested}",
         logger=logger,
     )
 

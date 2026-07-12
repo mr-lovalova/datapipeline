@@ -134,18 +134,22 @@ def test_report_artifact_plan_logs_current_roots(monkeypatch) -> None:
             artifacts=(VECTOR_INPUTS, VECTOR_SCHEMA),
         ),
         mode="AUTO",
-        requested_artifacts={VECTOR_SCHEMA},
+        requested_artifacts={VECTOR_SCHEMA, VECTOR_METADATA},
     )
 
-    assert captured == [
-        (
-            "Artifact plan: action=skip reason=up_to_date mode=AUTO "
-            "requested=schema required=vector_inputs, schema jobs=none "
-            "current=vector_inputs, schema",
-            logging.DEBUG,
-        ),
-        ("Artifacts: current · schema", logging.INFO),
-    ]
+    assert len(captured) == 1
+    message, level = captured[0]
+    assert level == logging.DEBUG
+    assert message.startswith("Artifact plan:\n")
+    assert json.loads(message.removeprefix("Artifact plan:\n")) == {
+        "action": "skip",
+        "reason": "up_to_date",
+        "mode": "AUTO",
+        "requested": [VECTOR_METADATA, VECTOR_SCHEMA],
+        "required": [VECTOR_INPUTS, VECTOR_SCHEMA],
+        "jobs": [],
+        "current": [VECTOR_INPUTS, VECTOR_SCHEMA],
+    }
 
 
 def test_report_artifact_plan_logs_not_required(monkeypatch) -> None:
@@ -164,14 +168,19 @@ def test_report_artifact_plan_logs_not_required(monkeypatch) -> None:
         requested_artifacts={SCALER_STATISTICS},
     )
 
-    assert captured == [
-        (
-            "Artifact plan: action=skip reason=not_required mode=AUTO "
-            "requested=scaler required=none jobs=none current=none",
-            logging.DEBUG,
-        ),
-        ("Artifacts: not required · scaler", logging.INFO),
-    ]
+    assert len(captured) == 1
+    message, level = captured[0]
+    assert level == logging.DEBUG
+    assert message.startswith("Artifact plan:\n")
+    assert json.loads(message.removeprefix("Artifact plan:\n")) == {
+        "action": "skip",
+        "reason": "not_required",
+        "mode": "AUTO",
+        "requested": [SCALER_STATISTICS],
+        "required": [],
+        "jobs": [],
+        "current": [],
+    }
 
 
 def test_report_artifact_plan_keeps_run_details_at_debug(monkeypatch) -> None:
@@ -199,13 +208,19 @@ def test_report_artifact_plan_keeps_run_details_at_debug(monkeypatch) -> None:
         requested_artifacts={VECTOR_SCHEMA},
     )
 
-    assert captured == [
-        (
-            "Artifact plan: action=run reason=force mode=FORCE requested=schema "
-            "required=vector_inputs, schema jobs=schema current=vector_inputs",
-            logging.DEBUG,
-        )
-    ]
+    assert len(captured) == 1
+    message, level = captured[0]
+    assert level == logging.DEBUG
+    assert message.startswith("Artifact plan:\n")
+    assert json.loads(message.removeprefix("Artifact plan:\n")) == {
+        "action": "run",
+        "reason": "force",
+        "mode": "FORCE",
+        "requested": [VECTOR_SCHEMA],
+        "required": [VECTOR_INPUTS, VECTOR_SCHEMA],
+        "jobs": [VECTOR_SCHEMA],
+        "current": [VECTOR_INPUTS],
+    }
 
 
 def test_resolve_build_settings_uses_builtin_observability_defaults() -> None:

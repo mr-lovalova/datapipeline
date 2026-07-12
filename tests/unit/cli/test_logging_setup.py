@@ -125,7 +125,24 @@ def test_operation_and_output_logs_obey_warning_threshold(monkeypatch, tmp_path)
     _emit_materialize_outputs(logger)
     _flush_root_handlers()
 
-    assert log_path.read_text(encoding="utf-8") == ""
+    assert not log_path.exists()
+
+
+def test_configure_root_logging_creates_file_on_first_record(tmp_path) -> None:
+    log_path = tmp_path / "logs" / "lazy.log"
+    configure_root_logging(
+        level=logging.INFO,
+        output=LogOutputSettings(
+            outputs=(LogOutputTarget(transport="fs", destination=log_path),)
+        ),
+    )
+
+    assert not log_path.exists()
+
+    logging.getLogger("datapipeline.tests.logging_setup.lazy_file").info("first record")
+    _flush_root_handlers()
+
+    assert log_path.read_text(encoding="utf-8") == "first record\n"
 
 
 def test_configure_root_logging_suppresses_execution_events_on_stderr_when_visual_sink_active(
