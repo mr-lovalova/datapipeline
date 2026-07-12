@@ -45,7 +45,7 @@ def batch_sort(
     buffer_bytes: int,
     key: Callable[[T], Any],
     spill_dir: Path | None = None,
-) -> Iterator[T]:
+) -> Generator[T, None, None]:
     """Stably sort serialized values, spilling runs when the buffer is exceeded."""
     if buffer_bytes < 1:
         raise ValueError("buffer_bytes must be at least 1")

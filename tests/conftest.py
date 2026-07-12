@@ -17,7 +17,6 @@ _TEST_EP_TARGETS = {
         "datapipeline.parsers",
         "core.temporal.jsonpath",
     ): "tests.parsers.temporal_json:TemporalJsonPathParser",
-    ("datapipeline.loaders", "tests.foreach.dummy"): "tests.loaders.dummy:DummyLoader",
 }
 _ORIGINAL_LOAD_EP = dp_load.load_ep
 

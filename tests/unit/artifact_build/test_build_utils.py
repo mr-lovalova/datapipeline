@@ -8,7 +8,10 @@ from datapipeline.artifacts.models import VectorSchemaArtifact
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.config.tasks import MetadataTask, SchemaTask
 from datapipeline.dag.context import PipelineContext
-from datapipeline.operations.artifacts.metadata import _window_bounds_from_stats, _window_size
+from datapipeline.operations.artifacts.metadata import (
+    _window_bounds_from_stats,
+    _window_size,
+)
 from datapipeline.operations.artifacts.metadata import materialize_metadata
 from datapipeline.operations.artifacts.schema import materialize_vector_schema
 from datapipeline.operations.artifacts import utils as artifact_utils
@@ -85,11 +88,12 @@ def test_collect_schema_entries_counts_nan(monkeypatch, tmp_path):
         fake_pipeline,
     )
 
-    stats, vector_count, _, _ = collect_schema_entries(
+    stats, vector_count = collect_schema_entries(
         runtime,
         [cfg],
         group_by="1h",
         collect_metadata=True,
+        progress_step="scan_features",
     )
 
     assert vector_count == 1
@@ -113,32 +117,34 @@ def test_collect_schema_entries_emits_progress(monkeypatch, tmp_path):
         Sample(key=(0,), features=Vector(values={"price": 1.0})),
         Sample(key=(1,), features=Vector(values={"price": 2.0})),
     ]
-    emitted: list[tuple[str, str]] = []
+    trackers: list[tuple[str, float]] = []
+    advances: list[int] = []
 
-    monkeypatch.setattr(artifact_utils, "_COLLECTION_PROGRESS_ITEM_INTERVAL", 1)
-    monkeypatch.setattr(artifact_utils, "_COLLECTION_PROGRESS_INTERVAL_SECONDS", 0.0)
+    class Progress:
+        def __init__(self, step: str, interval_seconds: float) -> None:
+            trackers.append((step, interval_seconds))
+
+        def advance(self, items: int = 1) -> None:
+            advances.append(items)
+
+    runtime.heartbeat_interval_seconds = 180
     monkeypatch.setattr(
         artifact_utils,
         "build_vector_pipeline",
         lambda *_args, **_kwargs: iter(samples),
     )
-    monkeypatch.setattr(
-        artifact_utils,
-        "emit_operation_progress",
-        lambda step, message: emitted.append((step, message)) or True,
-    )
+    monkeypatch.setattr(artifact_utils, "OperationProgressTracker", Progress)
 
     collect_schema_entries(
         runtime,
         [cfg],
         group_by="1h",
         collect_metadata=False,
-        progress_label="schema features",
+        progress_step="scan_features",
     )
 
-    assert emitted
-    assert emitted[0][0] == "collect_schema_entries"
-    assert "schema features: scanned vectors=1" in emitted[0][1]
+    assert trackers == [("scan_features", 180)]
+    assert advances == [1, 1]
 
 
 def test_schema_materialization_rejects_configured_empty_features(
@@ -161,7 +167,7 @@ def test_schema_materialization_rejects_configured_empty_features(
     )
 
     def empty_collection(*args, **kwargs):
-        return [], 0, None, None
+        return [], 0
 
     monkeypatch.setattr(
         "datapipeline.operations.artifacts.schema.collect_schema_entries",
@@ -201,7 +207,7 @@ def test_schema_materialization_omits_legacy_metadata(
                 "kind": "list",
                 "max_length": 3,
             }
-        ], 1, None, None
+        ], 1
 
     monkeypatch.setattr(
         "datapipeline.operations.artifacts.schema.collect_schema_entries",
@@ -319,7 +325,7 @@ def test_metadata_materialization_rejects_configured_empty_features(
     )
 
     def empty_collection(*args, **kwargs):
-        return [], 0, None, None, {}
+        return [], 0, {}
 
     monkeypatch.setattr(
         "datapipeline.operations.artifacts.metadata.collect_schema_entries_and_sample_domain",
@@ -356,17 +362,21 @@ def test_metadata_materialization_writes_keyed_sample_domain(
     end = datetime(2024, 1, 1, 1, tzinfo=timezone.utc)
 
     def collected_entries(*args, **kwargs):
-        return [
-            {
-                "id": "price",
-                "base_id": "price",
-                "kind": "scalar",
-                "present_count": 2,
-                "null_count": 0,
-                "first_ts": start,
-                "last_ts": end,
-            }
-        ], 2, start, end, {("AAPL",): (start, end)}
+        return (
+            [
+                {
+                    "id": "price",
+                    "base_id": "price",
+                    "kind": "scalar",
+                    "present_count": 2,
+                    "null_count": 0,
+                    "first_ts": start,
+                    "last_ts": end,
+                }
+            ],
+            2,
+            {("AAPL",): (start, end)},
+        )
 
     monkeypatch.setattr(
         "datapipeline.operations.artifacts.metadata.collect_schema_entries_and_sample_domain",
@@ -412,8 +422,18 @@ def test_metadata_entries_include_observation_bounds():
 
 def test_window_bounds_modes():
     feature_stats = [
-        {"id": "wind__@A", "base_id": "wind", "first_ts": _hour(0), "last_ts": _hour(6)},
-        {"id": "wind__@B", "base_id": "wind", "first_ts": _hour(2), "last_ts": _hour(5)},
+        {
+            "id": "wind__@A",
+            "base_id": "wind",
+            "first_ts": _hour(0),
+            "last_ts": _hour(6),
+        },
+        {
+            "id": "wind__@B",
+            "base_id": "wind",
+            "first_ts": _hour(2),
+            "last_ts": _hour(5),
+        },
         {"id": "temp", "base_id": "temp", "first_ts": _hour(1), "last_ts": _hour(7)},
     ]
     target_stats: list[dict] = []
@@ -422,7 +442,9 @@ def test_window_bounds_modes():
     assert start == _hour(0)
     assert end == _hour(7)
 
-    start, end = _window_bounds_from_stats(feature_stats, target_stats, mode="intersection")
+    start, end = _window_bounds_from_stats(
+        feature_stats, target_stats, mode="intersection"
+    )
     assert start == _hour(1)
     assert end == _hour(6)
 

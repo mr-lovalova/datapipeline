@@ -6,7 +6,6 @@ import datapipeline.execution.observability as observability
 from datapipeline.execution.observability import (
     FileResult,
     OperationFinished,
-    OperationProgress,
     OperationProgressTracker,
     OperationStarted,
     current_operation_observer,
@@ -112,7 +111,7 @@ def test_operation_progress_tracker_preserves_interval_and_item_counts(
         return True
 
     monkeypatch.setattr(observability, "emit_operation_progress", capture_progress)
-    progress = OperationProgress("write", interval_seconds=1)
+    progress = OperationProgressTracker("write", interval_seconds=1)
 
     progress.advance(2)
     progress.advance()
@@ -127,8 +126,4 @@ def test_operation_progress_tracker_preserves_interval_and_item_counts(
 
 def test_operation_progress_tracker_rejects_negative_interval() -> None:
     with pytest.raises(ValueError, match="interval_seconds must be non-negative"):
-        OperationProgress("write", interval_seconds=-0.1)
-
-
-def test_operation_progress_tracker_alias_preserves_new_name() -> None:
-    assert OperationProgressTracker is OperationProgress
+        OperationProgressTracker("write", interval_seconds=-0.1)

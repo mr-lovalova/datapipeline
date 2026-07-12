@@ -198,7 +198,7 @@ Split timing (leakage note)
 - `jerry source create <provider>.<dataset> ...`: scaffolds a source YAML (no Python code).
 - `jerry domain create <domain>`: scaffolds a domain record stub.
 - `jerry dto create`, `jerry parser create`, `jerry mapper create`, `jerry loader create`: scaffold Python code + register entry points (reinstall after).
-- `jerry stream create [--identity]`: interactive scaffolder for source-backed ingests, joined streams, or manual streams.
+- `jerry stream create [--identity]`: interactive scaffolder for source-backed ingests or aligned streams.
 - `jerry list sources|domains|parsers|mappers|loaders|dtos`: introspection helpers.
 - `pip install -e lib/<name>`: rerun after commands that update `lib/<name>/pyproject.toml` (entry points), or after manual edits to it.
 

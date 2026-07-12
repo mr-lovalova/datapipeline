@@ -1,21 +1,17 @@
-import logging
-import time
 from collections import Counter, OrderedDict
 from collections.abc import Sequence
 from datetime import datetime
 from typing import Any, Literal
 
 from datapipeline.artifacts.models import VectorSchemaCadence, VectorSchemaEntry
+from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.dag.context import PipelineContext
-from datapipeline.execution.observability import emit_operation_progress
+from datapipeline.dag.runner import resolve_heartbeat_interval_seconds
+from datapipeline.execution.observability import OperationProgressTracker
 from datapipeline.pipelines import build_vector_pipeline
 from datapipeline.runtime import Runtime
 from datapipeline.transforms.vector_utils import base_id as _base_feature_id
 from datapipeline.transforms.utils import is_missing
-
-logger = logging.getLogger(__name__)
-_COLLECTION_PROGRESS_INTERVAL_SECONDS = 60.0
-_COLLECTION_PROGRESS_ITEM_INTERVAL = 10_000
 
 
 def _type_name(value: object) -> str:
@@ -26,38 +22,36 @@ def _type_name(value: object) -> str:
 
 def collect_schema_entries(
     runtime: Runtime,
-    configs,
+    configs: Sequence[FeatureRecordConfig],
     group_by: str,
     *,
     sample_keys: Sequence[str] = (),
     collect_metadata: bool,
-    progress_label: str = "schema entries",
-) -> tuple[list[dict], int, datetime | None, datetime | None]:
-    entries, vector_count, min_time, max_time, _ = _collect_schema_entries(
+    progress_step: str,
+) -> tuple[list[dict], int]:
+    entries, vector_count, _ = _collect_schema_entries(
         runtime,
         configs,
         group_by,
         sample_keys=sample_keys,
         collect_metadata=collect_metadata,
         collect_sample_domain=False,
-        progress_label=progress_label,
+        progress_step=progress_step,
     )
-    return entries, vector_count, min_time, max_time
+    return entries, vector_count
 
 
 def collect_schema_entries_and_sample_domain(
     runtime: Runtime,
-    configs,
+    configs: Sequence[FeatureRecordConfig],
     group_by: str,
     *,
     sample_keys: Sequence[str],
     collect_metadata: bool,
-    progress_label: str = "metadata entries",
+    progress_step: str,
 ) -> tuple[
     list[dict],
     int,
-    datetime | None,
-    datetime | None,
     dict[tuple, tuple[datetime, datetime]],
 ]:
     return _collect_schema_entries(
@@ -67,29 +61,26 @@ def collect_schema_entries_and_sample_domain(
         sample_keys=sample_keys,
         collect_metadata=collect_metadata,
         collect_sample_domain=True,
-        progress_label=progress_label,
+        progress_step=progress_step,
     )
 
 
 def _collect_schema_entries(
     runtime: Runtime,
-    configs,
+    configs: Sequence[FeatureRecordConfig],
     group_by: str,
     *,
     sample_keys: Sequence[str],
     collect_metadata: bool,
     collect_sample_domain: bool,
-    progress_label: str,
+    progress_step: str,
 ) -> tuple[
     list[dict],
     int,
-    datetime | None,
-    datetime | None,
     dict[tuple, tuple[datetime, datetime]],
 ]:
-    configs = list(configs or [])
     if not configs:
-        return [], 0, None, None, {}
+        return [], 0, {}
     sanitized = [cfg.model_copy(update={"scale": False}) for cfg in configs]
     context = PipelineContext(runtime)
     vectors = build_vector_pipeline(
@@ -103,22 +94,18 @@ def _collect_schema_entries(
     stats: OrderedDict[str, dict] = OrderedDict()
     sample_domain: dict[tuple, tuple[datetime, datetime]] = {}
     vector_count = 0
-    min_time: datetime | None = None
-    max_time: datetime | None = None
-    started_at = time.perf_counter()
-    next_progress_at = started_at + _COLLECTION_PROGRESS_INTERVAL_SECONDS
+    progress = OperationProgressTracker(
+        progress_step,
+        resolve_heartbeat_interval_seconds(runtime.heartbeat_interval_seconds),
+    )
     for sample in vectors:
         vector_count += 1
         ts = sample.key[0] if isinstance(sample.key, tuple) and sample.key else None
-        if isinstance(ts, datetime):
-            min_time = ts if min_time is None else min(min_time, ts)
-            max_time = ts if max_time is None else max(max_time, ts)
-            if collect_sample_domain and sample_keys:
-                _update_sample_domain(sample_domain, sample.key, ts)
-        payload = sample.features
-        for fid, value in payload.values.items():
+        if collect_sample_domain and sample_keys and isinstance(ts, datetime):
+            _update_sample_domain(sample_domain, sample.key, ts)
+        for fid, value in sample.features.values.items():
             entry = stats.get(fid)
-            if not entry:
+            if entry is None:
                 entry = stats[fid] = {
                     "id": fid,
                     "base_id": _base_feature_id(fid),
@@ -147,17 +134,21 @@ def _collect_schema_entries(
             if isinstance(value, list):
                 entry["kind"] = "list"
                 length = len(value)
-                entry["min_length"] = length if entry["min_length"] is None else min(
-                    entry["min_length"], length
+                entry["min_length"] = (
+                    length
+                    if entry["min_length"] is None
+                    else min(entry["min_length"], length)
                 )
-                entry["max_length"] = length if entry["max_length"] is None else max(
-                    entry["max_length"], length
+                entry["max_length"] = (
+                    length
+                    if entry["max_length"] is None
+                    else max(entry["max_length"], length)
                 )
                 if collect_metadata:
                     entry["lengths"][length] += 1
-                    entry["observed_elements"] = entry.get("observed_elements", 0) + sum(
-                        1 for v in value if not is_missing(v)
-                    )
+                    entry["observed_elements"] = entry.get(
+                        "observed_elements", 0
+                    ) + sum(1 for v in value if not is_missing(v))
                     if not value:
                         entry["element_types"].add("empty")
                     else:
@@ -167,34 +158,9 @@ def _collect_schema_entries(
                     entry["kind"] = "scalar"
                 if collect_metadata:
                     entry["scalar_types"].add(_type_name(value))
-        if vector_count % _COLLECTION_PROGRESS_ITEM_INTERVAL == 0:
-            now = time.perf_counter()
-            if now >= next_progress_at:
-                _emit_collection_progress(
-                    progress_label=progress_label,
-                    vector_count=vector_count,
-                    discovered_ids=len(stats),
-                    elapsed_seconds=now - started_at,
-                )
-                next_progress_at = now + _COLLECTION_PROGRESS_INTERVAL_SECONDS
+        progress.advance()
 
-    return list(stats.values()), vector_count, min_time, max_time, sample_domain
-
-
-def _emit_collection_progress(
-    *,
-    progress_label: str,
-    vector_count: int,
-    discovered_ids: int,
-    elapsed_seconds: float,
-) -> None:
-    message = (
-        f"{progress_label}: scanned vectors={vector_count} "
-        f"discovered_ids={discovered_ids} elapsed={elapsed_seconds:.0f}s"
-    )
-    emitted = emit_operation_progress("collect_schema_entries", message)
-    if not emitted:
-        logger.info("%s", message)
+    return list(stats.values()), vector_count, sample_domain
 
 
 def _update_sample_domain(
@@ -213,7 +179,10 @@ def _update_sample_domain(
     sample_domain[key_values] = min(start, ts), max(end, ts)
 
 
-def configured_vectors_are_empty(configs, vector_count: int) -> bool:
+def configured_vectors_are_empty(
+    configs: Sequence[FeatureRecordConfig],
+    vector_count: int,
+) -> bool:
     return bool(configs) and vector_count == 0
 
 
@@ -232,9 +201,7 @@ def schema_entries_from_stats(
         raw_kind = entry["kind"]
         if raw_kind not in {None, "scalar", "list"}:
             raise ValueError(f"Unknown vector schema kind: {raw_kind!r}")
-        kind: Literal["scalar", "list"] = (
-            "list" if raw_kind == "list" else "scalar"
-        )
+        kind: Literal["scalar", "list"] = "list" if raw_kind == "list" else "scalar"
         cadence: VectorSchemaCadence | None = None
         if kind == "list":
             target = _resolve_cadence_target(entry)
@@ -275,7 +242,9 @@ def metadata_entries_from_stats(entries: list[dict]) -> list[dict]:
         if kind == "list":
             item["element_types"] = sorted(entry.get("element_types", []))
             lengths = entry.get("lengths") or {}
-            item["lengths"] = {str(length): count for length, count in sorted(lengths.items())}
+            item["lengths"] = {
+                str(length): count for length, count in sorted(lengths.items())
+            }
             target = _resolve_cadence_target(entry)
             if target is not None:
                 item["cadence"] = {"target": target}

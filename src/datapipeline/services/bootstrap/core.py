@@ -2,7 +2,12 @@ from pathlib import Path
 from typing import Any
 
 from datapipeline.utils.load import load_yaml
-from datapipeline.config.catalog import IngestConfig, StreamConfig, StreamsConfig
+from datapipeline.config.catalog import (
+    AlignFromConfig,
+    IngestConfig,
+    StreamConfig,
+    StreamsConfig,
+)
 from datapipeline.services.project_paths import ingests_dirs, streams_dirs, sources_dirs
 from datapipeline.services.constants import (
     PARSER_KEY,
@@ -10,7 +15,6 @@ from datapipeline.services.constants import (
     SOURCE_ID_KEY,
     STREAM_ID_KEY,
     STREAM_FROM_KEY,
-    STREAM_MAP_KEY,
     STREAM_CADENCE_KEY,
     STREAM_KIND_KEY,
     POSTPROCESS_PATH_KEY,
@@ -20,8 +24,10 @@ from datapipeline.services.streams.ingest import (
     build_mapper_from_spec,
     build_source_from_spec,
 )
-from datapipeline.services.streams.joined import build_joined_stream
-from datapipeline.services.streams.manual import build_manual_stream
+from datapipeline.services.streams.aligned import (
+    AlignedStream,
+    build_aligned_mapper,
+)
 from datapipeline.services.streams.simple import build_prepared_stream_ref
 from datapipeline.services.streams.validation import (
     stream_partition_by,
@@ -166,9 +172,6 @@ def _load_stream_yaml(path: Path, project_yaml: Path) -> dict[str, Any] | None:
         )
     if STREAM_ID_KEY not in data or STREAM_FROM_KEY not in data:
         return None
-    if "record" in data:
-        raise ValueError("Stream configs cannot define 'record'; use ingests.")
-    _normalize_stream_map(data)
     return data
 
 
@@ -185,11 +188,6 @@ def _load_ingest_yaml(path: Path, project_yaml: Path) -> dict[str, Any] | None:
     if "stream" in data:
         raise ValueError("Ingest configs cannot define 'stream'; use streams.")
     return data
-
-
-def _normalize_stream_map(data: dict[str, Any]) -> None:
-    if STREAM_MAP_KEY not in data:
-        data[STREAM_MAP_KEY] = None
 
 
 def _interpolate_stream_yaml(
@@ -215,8 +213,8 @@ def init_streams(cfg: StreamsConfig, runtime: Runtime) -> None:
     """Compile typed streams config into runtime registries."""
     regs = runtime.registries
     regs.clear_all()
-    ingests = cfg.ingests or {}
-    stream_configs = cfg.streams or {}
+    ingests = cfg.ingests
+    stream_configs = cfg.streams
     validate_unique_stream_ids(ingests, stream_configs)
     validate_stream_configs(ingests, stream_configs)
 
@@ -231,7 +229,7 @@ def init_streams(cfg: StreamsConfig, runtime: Runtime) -> None:
             stream_configs,
         )
 
-    for alias, source_spec in (cfg.raw or {}).items():
+    for alias, source_spec in cfg.raw.items():
         regs.sources.register(
             alias,
             build_source_from_spec(source_spec, project_yaml=runtime.project_yaml),
@@ -270,7 +268,7 @@ def _register_stream_policy(
     regs.stream_operations.register(alias, spec.stream)
     regs.debug_operations.register(alias, spec.debug)
     regs.partition_by.register(
-        alias, stream_partition_by(ingests, stream_configs, spec)
+        alias, stream_partition_by(ingests, stream_configs, alias)
     )
     regs.feature_id_by.register(alias, spec.feature_id_by)
     regs.ordered_by.register(alias, spec.ordered_by)
@@ -293,21 +291,19 @@ def _register_stream_source(
     spec: StreamConfig,
 ) -> None:
     regs = runtime.registries
-    if spec.maps_streams:
-        regs.stream_sources.register(alias, build_manual_stream(alias, spec, runtime))
-        regs.mappers.register(alias, build_mapper_from_spec(None))
-        return
-    if spec.joins_streams:
-        regs.stream_sources.register(alias, build_joined_stream(alias, spec, runtime))
-        regs.mappers.register(
+    if isinstance(spec.from_, AlignFromConfig):
+        regs.stream_sources.register(
             alias,
-            build_mapper_from_spec(spec.map, runtime=runtime, row_mapper=True),
+            AlignedStream(
+                runtime,
+                spec.input_streams(),
+                regs.partition_by.get(alias),
+            ),
         )
+        regs.mappers.register(alias, build_aligned_mapper(spec))
         return
 
     regs.mappers.register(alias, build_mapper_from_spec(spec.map))
-    if spec.from_.stream is None:
-        raise ValueError(f"Stream '{alias}' requires from.stream")
     regs.stream_sources.register(
         alias,
         build_prepared_stream_ref(spec.from_.stream, runtime),

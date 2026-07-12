@@ -16,11 +16,10 @@ from datapipeline.services.scaffold.utils import status
 
 def _loader_args(transport: str, fmt: str | None) -> dict[str, object]:
     if transport == "fs":
-        args = {
+        args: dict[str, object] = {
             "transport": "fs",
             "format": fmt or "<FORMAT (csv|json|jsonl|pickle)>",
             "path": "<PATH OR GLOB>",
-            "glob": False,
             "encoding": "utf-8",
         }
         if fmt == "csv":

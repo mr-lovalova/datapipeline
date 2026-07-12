@@ -19,13 +19,3 @@ features:
     record_stream: equity.ohlcv
     field: open
     scale: true
-
-  - id: pair_close_ratio
-    record_stream: equity.pair.aapl_msft
-    field: close_ratio
-    scale: true
-
-  - id: pair_return_spread
-    record_stream: equity.pair.aapl_msft
-    field: return_spread_1d
-    scale: true

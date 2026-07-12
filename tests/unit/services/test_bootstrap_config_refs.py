@@ -61,7 +61,9 @@ def _write_project_files(project_root: Path) -> None:
     (project_root / "postprocess.yaml").write_text("[]\n", encoding="utf-8")
 
 
-def test_globals_resolve_env_refs_from_project_dotenv(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_globals_resolve_env_refs_from_project_dotenv(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.delenv("RAW_ROOT", raising=False)
     project_root = tmp_path / "project"
     project_root.mkdir(parents=True)
@@ -74,10 +76,15 @@ def test_globals_resolve_env_refs_from_project_dotenv(tmp_path: Path, monkeypatc
     )
 
     assert _globals(project_yaml)["raw_root"] == "../shared-data"
-    assert artifacts_root(project_yaml) == (project_root / "../shared-data" / "artifacts").resolve()
+    assert (
+        artifacts_root(project_yaml)
+        == (project_root / "../shared-data" / "artifacts").resolve()
+    )
 
 
-def test_process_env_overrides_project_dotenv(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_process_env_overrides_project_dotenv(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     project_root = tmp_path / "project"
     project_root.mkdir(parents=True)
     _write_project_files(project_root)
@@ -118,9 +125,7 @@ def test_globals_can_reference_other_globals(tmp_path: Path) -> None:
 
     globals_ = _globals(project_yaml)
 
-    assert globals_["canonical_equity_interim_dir"] == (
-        "data/canonical/equity/interim"
-    )
+    assert globals_["canonical_equity_interim_dir"] == ("data/canonical/equity/interim")
 
 
 def test_load_sources_resolve_nested_globals_before_fs_path_normalization(
@@ -247,12 +252,16 @@ def test_full_placeholder_interpolation_preserves_global_value_type(
     assert isinstance(derive["right_value"], float)
 
 
-def test_load_by_key_resolves_direct_env_refs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_load_by_key_resolves_direct_env_refs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     project_root = tmp_path / "project"
     project_root.mkdir(parents=True)
     _write_project_files(project_root)
     project_yaml = _write_project_yaml(project_root)
-    (project_root / "dataset.yaml").write_text("value: ${env:DATASET_VALUE}\n", encoding="utf-8")
+    (project_root / "dataset.yaml").write_text(
+        "value: ${env:DATASET_VALUE}\n", encoding="utf-8"
+    )
     monkeypatch.setenv("DATASET_VALUE", "records")
 
     loaded = _load_by_key(project_yaml, "dataset")
@@ -288,7 +297,6 @@ def test_load_sources_resolve_env_backed_globals_before_fs_path_normalization(
                 "    transport: fs",
                 "    format: jsonl",
                 "    path: ${raw_glob}",
-                "    glob: true",
             ]
         )
         + "\n",
@@ -306,7 +314,9 @@ def test_load_sources_resolve_env_backed_globals_before_fs_path_normalization(
     )
 
 
-def test_missing_env_ref_raises_clear_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_missing_env_ref_raises_clear_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.delenv("MISSING_ROOT", raising=False)
     project_root = tmp_path / "project"
     project_root.mkdir(parents=True)
@@ -410,9 +420,7 @@ def test_compute_config_hash_includes_multiple_source_roots(tmp_path: Path) -> N
     project_yaml.write_text(
         project_yaml.read_text(encoding="utf-8").replace(
             "  sources: sources",
-            "  sources:\n"
-            "    - sources\n"
-            "    - ../common/sources",
+            "  sources:\n    - sources\n    - ../common/sources",
         ),
         encoding="utf-8",
     )
@@ -455,7 +463,6 @@ loader:
     transport: fs
     format: jsonl
     path: data/*.jsonl
-    glob: true
 """,
             True,
             id="core-io",

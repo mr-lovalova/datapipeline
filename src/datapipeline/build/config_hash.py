@@ -36,8 +36,7 @@ def _hash_env_refs(hasher, project_yaml: Path, config_files: list[Path]) -> None
     for path in config_files:
         data = load_yaml(path, require_mapping=False)
         env_ref_names.update(
-            key
-            for _scheme, key in collect_config_ref_keys(data, scheme="env")
+            key for _scheme, key in collect_config_ref_keys(data, scheme="env")
         )
 
     if not env_ref_names:
@@ -117,7 +116,7 @@ def _source_input_patterns(
         if isinstance(raw_path, str) and raw_path:
             yield (
                 _project_source_path(project_yaml, raw_path),
-                bool(loader.args.get("glob", False)),
+                glob.has_magic(raw_path),
             )
     if source.inputs is not None:
         for raw_path in source.inputs.files:
@@ -188,9 +187,7 @@ def compute_config_hash(project_yaml: Path, tasks_path: Path) -> str:
         raise TypeError(
             f"project.paths.tasks must point to a directory, got: {tasks_path}"
         )
-    hasher.update(
-        f"[dir]{_normalized_label(tasks_path, base_dir)}".encode("utf-8")
-    )
+    hasher.update(f"[dir]{_normalized_label(tasks_path, base_dir)}".encode("utf-8"))
     for p in _yaml_files(tasks_path):
         _hash_file(hasher, p, base_dir)
         hashed_files.append(p)

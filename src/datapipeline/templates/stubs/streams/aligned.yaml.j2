@@ -1,0 +1,14 @@
+id: {{ stream_id }}  # format: domain.dataset.(variant)
+
+from:
+  align:
+{{ input_streams | to_yaml(indent=4) }}
+
+map:
+  entrypoint: {{ mapper_entrypoint }}
+  args: {}
+
+# feature_id_by: []
+# ordered_by: [partition_field, time]
+# stream: []
+# debug: []

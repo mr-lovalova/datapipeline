@@ -1,3 +1,4 @@
+import glob
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -53,7 +54,8 @@ def build_loader(
     Args (by transport/data format):
       transport: "fs" | "http"
       format: "csv" | "json" | "jsonl" | "pickle" (required for fs/http)
-      fs: path (str), glob (bool, optional), encoding (str, default utf-8), delimiter (csv only)
+      fs: path (str; glob characters select matching files), encoding (str,
+          default utf-8), delimiter (csv only)
       http: url (str), headers (dict, optional), params (dict, optional), encoding (str, default utf-8), timeout_seconds (float, optional)
       csv: error_prefixes (list[str], optional)
       json: array_field (str, optional)
@@ -74,8 +76,13 @@ def build_transport(
         path = args.get("path")
         if not path:
             raise ValueError("fs transport requires 'path'")
-        use_glob = bool(args.get("glob", False))
-        return FsGlobTransport(path) if use_glob else FsFileTransport(path)
+        if "glob" in args:
+            raise ValueError(
+                "fs transport no longer accepts 'glob'; remove it because wildcard "
+                "characters in 'path' are detected automatically"
+            )
+        path = str(path)
+        return FsGlobTransport(path) if glob.has_magic(path) else FsFileTransport(path)
     if transport == TRANSPORT_HTTP:
         url = args.get("url")
         if not url:

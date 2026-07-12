@@ -1,10 +1,13 @@
-from collections.abc import Iterator
+from collections.abc import Generator
 from typing import Any
 
 from datapipeline.dag.context import PipelineContext
 
 
-def open_record_stream(context: PipelineContext, stream_id: str) -> Iterator[Any]:
+def open_record_stream(
+    context: PipelineContext,
+    stream_id: str,
+) -> Generator[Any, None, None]:
     pipeline = context.runtime.registries.stream_specs.get(stream_id).pipeline
     if pipeline == "ingest":
         from datapipeline.pipelines.ingest import build_ingest_pipeline

@@ -4,7 +4,6 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from datapipeline.sources.foreach import ForeachLoader
 from datapipeline.sources.adapters.fs import FsFileTransport, FsGlobTransport
 from datapipeline.sources.adapters.http import HttpTransport
 from datapipeline.sources.decoders import (
@@ -32,12 +31,6 @@ def source_summary(stream_source: Any) -> str | None:
     loader = getattr(stream_source, "loader", None)
     if loader is None:
         return None
-    return _loader_source_summary(loader)
-
-
-def _loader_source_summary(loader: Any) -> str | None:
-    if isinstance(loader, ForeachLoader):
-        return _foreach_source_summary(loader)
     return _transport_source_summary(getattr(loader, "transport", None))
 
 
@@ -97,8 +90,6 @@ def loader_current_label(
     loader: Any,
     observability: LoaderObservability | None = None,
 ) -> str | None:
-    if isinstance(loader, ForeachLoader):
-        return _foreach_current_label(loader)
     observability = observability or describe_loader(loader)
     transport = observability.transport
     uri = getattr(loader, "current_resource_uri", None)
@@ -110,8 +101,6 @@ def loader_current_label(
 
 
 def loader_current_resource_id(loader: Any) -> int | str | None:
-    if isinstance(loader, ForeachLoader):
-        return getattr(loader, "_current_index", None)
     return getattr(loader, "current_resource_uri", None)
 
 
@@ -119,8 +108,6 @@ def loader_progress_sequence(
     loader: Any,
     observability: LoaderObservability | None = None,
 ) -> list[SourceProgressEntry] | None:
-    if isinstance(loader, ForeachLoader):
-        return _foreach_progress_sequence(loader)
     observability = observability or describe_loader(loader)
     transport = observability.transport
     if isinstance(transport, FsGlobTransport):
@@ -144,28 +131,6 @@ def transport_resource_label(
         parts = urlparse(uri)
         return f"@{parts.netloc or 'http'}"
     return None
-
-
-def _foreach_source_summary(loader: ForeachLoader) -> str | None:
-    spec = getattr(loader, "_loader_spec", None)
-    if not isinstance(spec, dict):
-        return None
-    args = spec.get("args")
-    transport = args.get("transport") if isinstance(args, dict) else None
-    if str(transport).strip().lower() != "fs":
-        return None
-    values = getattr(loader, "_values", None)
-    if not isinstance(values, list):
-        return None
-
-    labels = [foreach_value_label(value) for value in values]
-    total = len(labels)
-    summary = f"transport=fs.glob count={total}"
-    if total == 1:
-        return f"{summary} file={labels[0]}"
-    if total > 1:
-        return f"{summary} first={labels[0]} last={labels[-1]}"
-    return summary
 
 
 def _glob_root(files: list[str]) -> Path | None:
@@ -202,28 +167,6 @@ def _relative_label(path: str, root: Path | None) -> str:
     return Path(path).name or path
 
 
-def _foreach_current_label(loader: ForeachLoader) -> str | None:
-    value = getattr(loader, "_current_value", None)
-    if value is None:
-        return None
-    return f'"{foreach_value_label(value)}"'
-
-
-def _foreach_progress_sequence(
-    loader: ForeachLoader,
-) -> list[SourceProgressEntry] | None:
-    values = getattr(loader, "_values", None)
-    if not isinstance(values, list) or not values:
-        return None
-    return [
-        SourceProgressEntry(
-            source_resource_id=index,
-            label=f'"{foreach_value_label(value)}"',
-        )
-        for index, value in enumerate(values, start=1)
-    ]
-
-
 def _glob_progress_sequence(
     transport: FsGlobTransport,
     glob_root: Path | None,
@@ -238,9 +181,3 @@ def _glob_progress_sequence(
         )
         for path in files
     ]
-
-
-def foreach_value_label(value: Any) -> str:
-    text = str(value)
-    name = Path(text).name
-    return name or text

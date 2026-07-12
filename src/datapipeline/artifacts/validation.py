@@ -82,7 +82,7 @@ def stream_cadence_artifacts(
             cadence = _artifact_cadence(operation)
             if cadence is not None:
                 artifacts.add(cadence)
-        for input_stream_id in stream.input_refs().values():
+        for input_stream_id in stream.input_streams():
             visit(input_stream_id)
 
     visit(stream_id)
@@ -102,11 +102,3 @@ def _artifact_cadence(operation: TransformSpec) -> str | None:
     if duration.total_seconds() <= 0:
         raise ValueError("ensure_cadence duration must be positive")
     return None
-
-
-__all__ = [
-    "NestedTickDependency",
-    "nested_tick_dependencies",
-    "stream_cadence_artifacts",
-    "validate_artifact_plan",
-]

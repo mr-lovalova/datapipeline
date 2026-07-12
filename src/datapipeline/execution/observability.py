@@ -125,7 +125,7 @@ def emit_operation_progress(step: str, message: str) -> bool:
     return True
 
 
-class OperationProgress:
+class OperationProgressTracker:
     def __init__(self, step: str, interval_seconds: float) -> None:
         interval = float(interval_seconds)
         if interval < 0:
@@ -149,6 +149,3 @@ class OperationProgress:
             self._step,
             f"running elapsed={elapsed:.0f}s items={self._items}",
         )
-
-
-OperationProgressTracker = OperationProgress

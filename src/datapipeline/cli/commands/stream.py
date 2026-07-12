@@ -5,10 +5,8 @@ from datapipeline.cli.workspace_utils import resolve_default_project_yaml
 from datapipeline.services.paths import pkg_root
 from datapipeline.services.project_paths import resolve_project_yaml_path
 from datapipeline.services.scaffold.stream_yaml import (
+    write_aligned_stream,
     write_ingest_stream,
-    write_joined_stream,
-    write_manual_stream,
-    format_inputs,
 )
 from datapipeline.services.scaffold.discovery import (
     list_domains,
@@ -32,10 +30,6 @@ from datapipeline.services.scaffold.layout import (
 )
 from datapipeline.cli.commands.mapper import handle as handle_mapper
 from datapipeline.services.scaffold.domain import create_domain
-from datapipeline.services.scaffold.mapper import (
-    create_joined_mapper,
-    create_manual_mapper,
-)
 
 
 def _select_mapper(
@@ -50,9 +44,6 @@ def _select_mapper(
     if allow_identity:
         options.append(("identity", "Identity mapper"))
     options.append(("custom", "Custom mapper"))
-
-    if not options:
-        error_exit("No mapper options available")
 
     choice = pick_from_menu("Mapper:", options)
     if choice == "existing":
@@ -78,20 +69,17 @@ def handle(
 ) -> None:
     root_dir, _name, _pyproject = pkg_root(plugin_root)
     default_project = resolve_default_project_yaml(workspace)
-    info("Stream type:")
-    info("  [1] Ingest (source → ordered stream)")
-    info("  [2] Joined (aligned streams → stream)")
-    info("  [3] Manual (raw streams → stream)")
-    sel = input("> ").strip()
-    if sel in {"2", "3"}:
+    stream_type = pick_from_menu(
+        "Stream type:",
+        [
+            ("ingest", "Ingest (source → ordered stream)"),
+            ("aligned", "Aligned (streams → ordered stream)"),
+        ],
+    )
+    if stream_type == "aligned":
         if use_identity:
             error_exit("--identity is only supported for ingests.")
-        scaffold_multistream_stream(
-            stream_type="joined" if sel == "2" else "manual",
-            stream_id=None,
-            inputs=None,
-            mapper_path=None,
-            with_mapper_stub=False,
+        _scaffold_aligned_stream(
             plugin_root=plugin_root,
             project_yaml=default_project,
         )
@@ -148,196 +136,32 @@ def handle(
     )
 
 
-def scaffold_multistream_stream(
-    *,
-    stream_type: str,
-    stream_id: str | None,
-    inputs: str | None,
-    mapper_path: str | None,
-    with_mapper_stub: bool,
+def _scaffold_aligned_stream(
     plugin_root: Path | None,
     project_yaml: Path | None,
 ) -> None:
-    if stream_type == "joined":
-        _scaffold_joined_stream(
-            stream_id=stream_id,
-            inputs=inputs,
-            mapper_path=mapper_path,
-            with_mapper_stub=with_mapper_stub,
-            plugin_root=plugin_root,
-            project_yaml=project_yaml,
-        )
-        return
-    if stream_type == "manual":
-        _scaffold_manual_stream(
-            stream_id=stream_id,
-            inputs=inputs,
-            mapper_path=mapper_path,
-            with_mapper_stub=with_mapper_stub,
-            plugin_root=plugin_root,
-            project_yaml=project_yaml,
-        )
-        return
-    error_exit(f"Unsupported stream type '{stream_type}'")
-
-
-def _collect_multistream_base(
-    *,
-    stream_id: str | None,
-    inputs: str | None,
-    plugin_root: Path | None,
-    project_yaml: Path | None,
-) -> tuple[Path, str, str, str, str]:
     root_dir, _name, _ = pkg_root(plugin_root)
     proj_path = project_yaml or resolve_project_yaml_path(root_dir)
-    if not inputs:
-        streams = list_streams(proj_path)
-        if not streams:
-            error_exit("No input streams found. Create an ingest first.")
-        picked = pick_multiple_from_list(
-            "Select one or more input streams (comma-separated numbers):",
-            streams,
-        )
-        inputs_list, driver_key = format_inputs(picked)
-    else:
-        pairs = [s.strip() for s in inputs.split(",") if s.strip()]
-        inputs_list = "\n    ".join(_input_pair_to_yaml(pair) for pair in pairs)
-        driver_key = inputs.split(",")[0].split("=")[0].strip()
-
-    if not stream_id:
-        domain, should_create_domain = choose_existing_or_create_name(
-            label="Domain",
-            existing=list_domains(root=plugin_root),
-            create_label="Create new domain",
-            prompt_new="Domain name",
-        )
-        if should_create_domain:
-            create_domain(domain=domain, root=plugin_root)
-        stream_id = choose_name("Stream id")
-    else:
-        domain = stream_id.split(".")[0]
-    return proj_path, domain, stream_id, inputs_list, driver_key
-
-
-def _input_pair_to_yaml(pair: str) -> str:
-    if "=" not in pair:
-        return f"{pair}: {pair}"
-    alias, ref = pair.split("=", 1)
-    return f"{alias.strip()}: {ref.strip()}"
-
-
-def _select_multistream_mapper(
-    *,
-    label: str,
-    plugin_root: Path | None,
-    mapper_path: str | None,
-) -> tuple[str | None, bool]:
-    if not mapper_path:
-        mappers = list_mappers(root=plugin_root)
-        if mappers:
-            choice = pick_from_menu(
-                "Mapper:",
-                [
-                    ("create", f"Create new {label} mapper (default)"),
-                    ("existing", "Select existing mapper"),
-                    ("custom", "Custom mapper"),
-                ],
-            )
-        else:
-            choice = pick_from_menu(
-                "Mapper:",
-                [
-                    ("create", f"Create new {label} mapper (default)"),
-                    ("custom", "Custom mapper"),
-                ],
-            )
-        if choice == "existing":
-            mapper_path = pick_from_menu(
-                "Select mapper entrypoint:",
-                [(k, k) for k in sorted(mappers.keys())],
-            )
-            with_mapper_stub = False
-        elif choice == "create":
-            with_mapper_stub = True
-        else:
-            mapper_path = input("Mapper entrypoint: ").strip()
-            if not mapper_path:
-                error_exit("Mapper entrypoint is required")
-            with_mapper_stub = False
-    else:
-        with_mapper_stub = False
-    return mapper_path, with_mapper_stub
-
-
-def _scaffold_manual_stream(
-    *,
-    stream_id: str | None,
-    inputs: str | None,
-    mapper_path: str | None,
-    with_mapper_stub: bool,
-    plugin_root: Path | None,
-    project_yaml: Path | None,
-) -> None:
-    proj_path, domain, stream_id, inputs_list, driver_key = _collect_multistream_base(
-        stream_id=stream_id,
-        inputs=inputs,
-        plugin_root=plugin_root,
-        project_yaml=project_yaml,
+    streams = list_streams(proj_path)
+    if len(streams) < 2:
+        error_exit("Aligned streams require at least two input streams.")
+    input_streams = pick_multiple_from_list(
+        "Select at least two input streams (comma-separated numbers):",
+        streams,
     )
-    mapper_path, selected_stub = _select_multistream_mapper(
-        label="manual",
-        plugin_root=plugin_root,
-        mapper_path=mapper_path,
+    if len(set(input_streams)) < 2:
+        error_exit("Aligned streams require at least two distinct input streams.")
+
+    stream_id = choose_name("Stream id")
+    mapper_entrypoint = _select_mapper(
+        allow_identity=False,
+        allow_create=False,
+        root=plugin_root,
     )
-    with_mapper_stub = with_mapper_stub or selected_stub
-    if with_mapper_stub:
-        mapper_path = create_manual_mapper(
-            domain=domain,
-            stream_id=stream_id,
-            root=plugin_root,
-            mapper_path=mapper_path,
-        )
-    write_manual_stream(
+
+    write_aligned_stream(
         project_yaml=proj_path,
         stream_id=stream_id,
-        inputs_list=inputs_list,
-        mapper_entrypoint=mapper_path,
-        driver_key=driver_key,
-    )
-
-
-def _scaffold_joined_stream(
-    *,
-    stream_id: str | None,
-    inputs: str | None,
-    mapper_path: str | None,
-    with_mapper_stub: bool,
-    plugin_root: Path | None,
-    project_yaml: Path | None,
-) -> None:
-    proj_path, domain, stream_id, inputs_list, primary_key = _collect_multistream_base(
-        stream_id=stream_id,
-        inputs=inputs,
-        plugin_root=plugin_root,
-        project_yaml=project_yaml,
-    )
-    mapper_path, selected_stub = _select_multistream_mapper(
-        label="joined",
-        plugin_root=plugin_root,
-        mapper_path=mapper_path,
-    )
-    with_mapper_stub = with_mapper_stub or selected_stub
-    if with_mapper_stub:
-        mapper_path = create_joined_mapper(
-            domain=domain,
-            stream_id=stream_id,
-            root=plugin_root,
-            mapper_path=mapper_path,
-        )
-    write_joined_stream(
-        project_yaml=proj_path,
-        stream_id=stream_id,
-        inputs_list=inputs_list,
-        mapper_entrypoint=mapper_path,
-        primary_key=primary_key,
+        input_streams=input_streams,
+        mapper_entrypoint=mapper_entrypoint,
     )

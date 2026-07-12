@@ -15,39 +15,18 @@ def test_stream_rejects_old_kind_shape() -> None:
         )
 
 
-def test_manual_stream_requires_map_entrypoint() -> None:
-    with pytest.raises(ValueError, match="map.entrypoint is required"):
-        StreamConfig.model_validate(
-            {
-                "id": "derived.sample",
-                "from": {"streams": {"a": "stream.a"}},
-            }
-        )
-
-
-def test_joined_stream_requires_primary() -> None:
-    with pytest.raises(ValueError, match="from.join requires 'primary'"):
-        StreamConfig.model_validate(
-            {
-                "id": "derived.sample",
-                "from": {"join": {"a": "stream.a"}},
-                "map": {"entrypoint": "join", "args": {}},
-            }
-        )
-
-
 def test_stream_rejects_from_source() -> None:
     with pytest.raises(ValueError, match="Extra inputs are not permitted"):
         StreamConfig.model_validate(
             {
                 "id": "sample",
-                "from": {"source": "demo.source", "mode": "left"},
+                "from": {"source": "demo.source"},
             }
         )
 
 
 def test_stream_rejects_record_transforms() -> None:
-    with pytest.raises(ValueError, match="streams cannot define record transforms"):
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
         StreamConfig.model_validate(
             {
                 "id": "sample",
@@ -102,91 +81,107 @@ def test_stream_accepts_upstream_stream_shape() -> None:
     spec = StreamConfig.model_validate(
         {
             "id": "sample",
-            "from": {"stream": "sample.ingest"},
+            "from": {"stream": " sample.ingest "},
             "partition_by": "ticker",
             "feature_id_by": [],
             "stream": [{"dedupe": {}}],
         }
     )
 
-    assert spec.input_refs() == {"stream": "sample.ingest"}
+    assert spec.input_streams() == ("sample.ingest",)
     assert spec.feature_id_by == []
 
 
-def test_manual_stream_rejects_join_options() -> None:
-    with pytest.raises(ValueError, match="from.streams cannot define join options"):
-        StreamConfig.model_validate(
-            {
-                "id": "derived.sample",
-                "from": {"streams": {"a": "stream.a"}, "on": "time"},
-                "map": {"entrypoint": "manual", "args": {}},
-            }
-        )
-
-
-def test_manual_stream_rejects_empty_stream_refs() -> None:
-    with pytest.raises(ValueError, match="from.streams must not be empty"):
-        StreamConfig.model_validate(
-            {
-                "id": "derived.sample",
-                "from": {"streams": {}},
-                "map": {"entrypoint": "manual", "args": {}},
-            }
-        )
-
-
-def test_stream_rejects_duplicate_input_aliases_after_trimming() -> None:
-    with pytest.raises(ValueError, match="duplicate alias"):
-        StreamConfig.model_validate(
-            {
-                "id": "derived.sample",
-                "from": {"streams": {" x ": "stream.a", "x": "stream.b"}},
-                "map": {"entrypoint": "manual", "args": {}},
-            }
-        )
-
-
-def test_joined_stream_rejects_staged_stream_refs() -> None:
-    with pytest.raises(ValueError, match="from.join may not include '@stage'"):
-        StreamConfig.model_validate(
-            {
-                "id": "derived.sample",
-                "from": {
-                    "join": {"a": "stream.a@raw"},
-                    "primary": "a",
-                },
-                "map": {"entrypoint": "join", "args": {}},
-            }
-        )
-
-
-def test_manual_stream_rejects_unknown_driver_alias() -> None:
-    with pytest.raises(
-        ValueError,
-        match="map.args.driver must reference one of the declared input aliases",
-    ):
-        StreamConfig.model_validate(
-            {
-                "id": "derived.sample",
-                "from": {"streams": {"x": "stream.a", "y": "stream.b"}},
-                "map": {"entrypoint": "manual", "args": {"driver": "missing"}},
-            }
-        )
-
-
-def test_joined_stream_accepts_join_shape() -> None:
+def test_aligned_stream_accepts_ordered_stream_list() -> None:
     spec = StreamConfig.model_validate(
         {
             "id": "derived.sample",
-            "from": {
-                "join": {" a ": " stream.a ", " b ": " stream.b "},
-                "primary": "a",
-                "on": [" ticker ", " time "],
-            },
-            "map": {"entrypoint": "join", "args": {}},
+            "from": {"align": [" stream.a ", " stream.b ", "stream.c"]},
+            "map": {"entrypoint": "calculate", "args": {}},
         }
     )
 
-    assert spec.input_refs() == {"a": "stream.a", "b": "stream.b"}
-    assert spec.from_.primary == "a"
-    assert spec.from_.on == ["ticker", "time"]
+    assert spec.aligns_streams
+    assert spec.input_streams() == ("stream.a", "stream.b", "stream.c")
+
+
+def test_aligned_stream_requires_two_inputs() -> None:
+    with pytest.raises(ValueError, match="at least 2 items"):
+        StreamConfig.model_validate(
+            {
+                "id": "derived.sample",
+                "from": {"align": ["stream.a"]},
+                "map": {"entrypoint": "calculate"},
+            }
+        )
+
+
+def test_aligned_stream_requires_mapper() -> None:
+    with pytest.raises(ValueError, match="require map.entrypoint"):
+        StreamConfig.model_validate(
+            {
+                "id": "derived.sample",
+                "from": {"align": ["stream.a", "stream.b"]},
+            }
+        )
+
+
+def test_aligned_stream_rejects_blank_mapper_entrypoint() -> None:
+    with pytest.raises(ValueError, match="at least 1 character"):
+        StreamConfig.model_validate(
+            {
+                "id": "derived.sample",
+                "from": {"align": ["stream.a", "stream.b"]},
+                "map": {"entrypoint": "   "},
+            }
+        )
+
+
+def test_aligned_stream_inherits_partition() -> None:
+    with pytest.raises(ValueError, match="inherit partition_by"):
+        StreamConfig.model_validate(
+            {
+                "id": "derived.sample",
+                "from": {"align": ["stream.a", "stream.b"]},
+                "map": {"entrypoint": "calculate"},
+                "partition_by": "ticker",
+            }
+        )
+
+
+@pytest.mark.parametrize(
+    "streams",
+    [
+        ["stream.a", "stream.a"],
+        ["stream.a@raw", "stream.b"],
+        ["stream:a", "stream.b"],
+        ["", "stream.b"],
+    ],
+)
+def test_aligned_stream_rejects_invalid_stream_ids(streams) -> None:
+    with pytest.raises(ValueError):
+        StreamConfig.model_validate(
+            {
+                "id": "derived.sample",
+                "from": {"align": streams},
+                "map": {"entrypoint": "calculate"},
+            }
+        )
+
+
+@pytest.mark.parametrize(
+    "old_from",
+    [
+        {"join": {"a": "stream.a", "b": "stream.b"}, "primary": "a"},
+        {"streams": {"a": "stream.a", "b": "stream.b"}},
+    ],
+)
+def test_stream_rejects_removed_multi_stream_shapes(old_from) -> None:
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        StreamConfig.model_validate(
+            {
+                "id": "derived.sample",
+                "from": old_from,
+                "map": {"entrypoint": "calculate"},
+            }
+        )

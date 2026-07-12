@@ -24,13 +24,13 @@ def materialize_vector_schema(
     dataset = load_dataset(runtime.project_yaml, "vectors")
     validate_dataset_feature_identity(runtime, dataset)
     features_cfgs = list(dataset.features or [])
-    feature_stats, feature_vectors, feature_min, feature_max = collect_schema_entries(
+    feature_stats, feature_vectors = collect_schema_entries(
         runtime,
         features_cfgs,
         dataset.group_by,
         sample_keys=dataset.sample_keys,
         collect_metadata=False,
-        progress_label="schema features",
+        progress_step="scan_features",
     )
     if configured_vectors_are_empty(features_cfgs, feature_vectors):
         raise RuntimeError(
@@ -40,15 +40,14 @@ def materialize_vector_schema(
         )
     target_stats: list[dict] = []
     target_cfgs = list(dataset.targets or [])
-    target_min = target_max = None
     if target_cfgs:
-        target_stats, target_vectors, target_min, target_max = collect_schema_entries(
+        target_stats, target_vectors = collect_schema_entries(
             runtime,
             target_cfgs,
             dataset.group_by,
             sample_keys=dataset.sample_keys,
             collect_metadata=False,
-            progress_label="schema targets",
+            progress_step="scan_targets",
         )
         if configured_vectors_are_empty(target_cfgs, target_vectors):
             raise RuntimeError(

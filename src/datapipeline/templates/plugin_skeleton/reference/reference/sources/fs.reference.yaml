@@ -12,7 +12,6 @@
 #   args:
 #     transport: fs
 #     format: csv            # required; csv | json | jsonl | pickle
-#     path: ./data/*.csv     # required file or glob pattern
-#     glob: true             # optional; expand path as a glob
+#     path: ./data/*.csv     # required; glob characters select matching files
 #     encoding: utf-8        # optional
 #     delimiter: ","         # optional; csv only

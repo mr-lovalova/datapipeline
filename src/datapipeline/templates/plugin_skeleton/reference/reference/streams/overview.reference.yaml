@@ -5,16 +5,10 @@
 # from:
 #   stream: upstream.stream.id  # single upstream stream
 #   # OR
-#   streams:                    # manual multi-stream mapper
-#     alias: upstream.stream.id
-#   # OR
-#   join:                       # joined stream mapper
-#     primary: upstream.stream.id
-#     reference: reference.stream.id
-#   primary: primary
-#   "on": time
-#   mode: inner
-# map:                          # optional for source ingest; required otherwise
+#   align:                      # inner alignment in positional mapper order
+#     - upstream.stream.id
+#     - other.stream.id
+# map:                          # optional for one input; required for alignment
 #   entrypoint: my_mapper
 #   args: {}
 # cadence: ${group_by}          # optional per-stream variable for interpolation
@@ -49,5 +43,4 @@
 #
 # See also:
 # - ingest.reference.yaml
-# - joined.reference.yaml
-# - manual.reference.yaml
+# - aligned.reference.yaml

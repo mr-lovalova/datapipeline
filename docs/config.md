@@ -7,7 +7,7 @@ These live under the dataset “project root” directory (the folder containing
 - `project.yaml`: paths + globals (single source of truth).
 - `sources/*.yaml`: raw sources (loader + parser wiring).
 - `ingests/*.yaml`: raw source DTOs mapped, record-cleaned, and time-ordered into domain streams.
-- `streams/*.yaml`: derived, joined, or manual streams built from existing stream ids.
+- `streams/*.yaml`: derived or aligned streams built from existing stream ids.
 - `dataset.yaml`: feature/target declarations.
 - `postprocess.yaml`: vector-level transforms.
 - `profiles/serve.<name>.yaml`: serve profiles.
@@ -311,30 +311,13 @@ loader:
 - `inputs.files`: optional project-relative regular files or glob patterns used
   to track custom-loader inputs for artifact freshness. Local `core.io`
   filesystem paths are tracked automatically.
+- A filesystem `path` containing standard glob characters (`*`, `?`, `[`) loads
+  every matching file in sorted order; a path without them loads one file.
 - Local freshness snapshots include glob membership, file paths, sizes, and
   filesystem modification metadata. Use `--force` after metadata-preserving,
   opaque, or remote source changes that cannot be declared as files.
 - Keep secrets and machine-local paths out of source files. Prefer `${env:...}`
   directly or route them through `project.yaml.globals` aliases like `${raw_root}`.
-
-#### Fan-out Sources (`core.foreach`)
-
-Use `core.foreach` to expand any inner loader spec across a list without duplicating YAML. It interpolates string args and optionally injects the foreach value into each row.
-
-```yaml
-loader:
-  entrypoint: core.foreach
-  args:
-    foreach:
-      symbol: [AAPL, MSFT]
-    inject_field: symbol
-    loader:
-      entrypoint: core.io
-      args:
-        transport: http
-        format: csv
-        url: "https://stooq.com/q/d/l/?s=${symbol}&i=d"
-```
 
 ### `<project_root>/ingests/<stream_id>.yaml`
 
@@ -400,25 +383,25 @@ debug:
   feature, set this explicitly: `[]` for scalar keyed-row features or a field
   list for wide feature IDs.
 
-### Manual Streams (Engineered Domains)
+### Aligned Streams (Engineered Domains)
 
-Define engineered streams that depend on other streams. The runtime builds each input as a prepared stream, exposes them as iterators keyed by alias, and calls your mapper to emit fresh records for the derived stream.
+Aligned streams intersect two or more prepared streams with the same
+partition fields and timestamp, then call a mapper with the matching records in
+the configured order.
 
 ```yaml
 # <project_root>/streams/air_density.processed.yaml
 id: air_density.processed
 from:
-  streams:
-    pressure: pressure.processed
-    t: temp_dry.processed
-partition_by: station_id
+  align:
+    - pressure.processed
+    - temp_dry.processed
 feature_id_by: []
+ordered_by: [station_id, time]
 
 map:
-  # Mapper entrypoint required for joined/manual streams.
-  entrypoint: mypkg.domains.air_density:map_to_air_density
-  args:
-    driver: pressure           # optional; defaults to first input alias
+  entrypoint: map_to_air_density
+  args: {}
 
 # Optional policies run after mapping like any stream.
 # stream: [...]
@@ -438,11 +421,16 @@ features:
 
 Notes:
 
-- Inputs always reference canonical stream_ids (not raw sources).
-- Manual mapper signature is `mapper(inputs, *, context, driver, **params)`.
-- Use a joined stream when the framework should align records by timestamp.
+- `from.align` contains at least two canonical stream ids. List order defines
+  positional mapper arguments.
+- Inputs must use the same `partition_by`; the aligned stream inherits it.
+- Alignment externally orders the combined inputs within
+  `execution.sort_buffer_mb`; inputs do not need to arrive ordered.
+- Each input must contain at most one record per `(partition, time)` key. Only
+  keys present in every input are mapped.
+- Mapper signature is `mapper(first_record, second_record, ..., **args)` and it
+  returns one record or `None` to skip that key.
 - The derived stream outputs records; its own `stream`/`debug` rules still apply afterward.
-- Partitioning for the engineered domain is explicit via `partition_by` on the derived stream.
 
 ### `dataset.yaml`
 

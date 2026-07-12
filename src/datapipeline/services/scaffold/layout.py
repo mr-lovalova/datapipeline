@@ -30,8 +30,6 @@ TPL_PARSER = "parser.py.j2"
 TPL_LOADER_BASIC = "loaders/basic.py.j2"
 TPL_LOADER_SYNTHETIC = "loader_synthetic.py.j2"
 TPL_MAPPER_INGEST = "mappers/ingest.py.j2"
-TPL_MAPPER_JOINED = "mappers/joined.py.j2"
-TPL_MAPPER_MANUAL = "mappers/manual.py.j2"
 TPL_DOMAIN_RECORD = "record.py.j2"
 
 
@@ -92,7 +90,9 @@ def default_stream_id_for_source(
     fallback_dataset: str = "dataset",
 ) -> str:
     _provider, dataset, source_variant = source_id_parts(source_id)
-    return default_stream_id(domain, dataset or fallback_dataset, variant or source_variant)
+    return default_stream_id(
+        domain, dataset or fallback_dataset, variant or source_variant
+    )
 
 
 # Prompt labels (keep CLI wording consistent)
@@ -104,6 +104,7 @@ LABEL_MAPPER_INPUT = "Mapper input"
 
 def default_mapper_name_for_identity(domain: str) -> str:
     return f"map_identity_to_{slugify(domain)}"
+
 
 def pyproject_path(root_dir: Path) -> Path:
     return root_dir / "pyproject.toml"

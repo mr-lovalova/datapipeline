@@ -1,0 +1,25 @@
+# Aligned stream reference.
+# This file is documentation only; uncomment the keys you want to use.
+#
+# id: domain.dataset.variant
+# from:
+#   align:                       # required; order defines mapper arguments
+#     - upstream.stream.id
+#     - other.stream.id
+# map:                           # required
+#   entrypoint: my_aligned_mapper
+#   args: {}
+# feature_id_by: []              # optional output feature identity
+# ordered_by: [station_id, time] # optional mapper-output order assertion
+#
+# Inputs must use the same partition_by and are intersected by partition and
+# time. One external sort uses execution.sort_buffer_mb, so inputs need not
+# arrive ordered. Each input must contain at most one record per canonical key.
+# The mapper is called as mapper(first_record, second_record, ..., **args) and
+# may return one record or None to skip that key.
+#
+# stream:                        # optional transforms after mapping
+#   - dedupe: {}
+#
+# debug:                         # optional validation-only transforms
+#   - lint: { mode: error, tick: "${cadence}" }

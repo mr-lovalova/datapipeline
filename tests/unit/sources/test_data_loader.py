@@ -1,6 +1,27 @@
-from datapipeline.sources.adapters.fs import FsGlobTransport
+import pytest
+
+from datapipeline.sources.adapters.fs import FsFileTransport, FsGlobTransport
 from datapipeline.sources.data_loader import DataLoader
 from datapipeline.sources.decoders import JsonLinesDecoder
+from datapipeline.sources.factory import build_loader
+
+
+def test_fs_path_selects_file_or_glob_transport(tmp_path) -> None:
+    file_loader = build_loader("fs", "jsonl", path=str(tmp_path / "rows.jsonl"))
+    glob_loader = build_loader("fs", "jsonl", path=str(tmp_path / "*.jsonl"))
+
+    assert isinstance(file_loader.transport, FsFileTransport)
+    assert isinstance(glob_loader.transport, FsGlobTransport)
+
+
+def test_fs_loader_rejects_removed_glob_option(tmp_path) -> None:
+    with pytest.raises(ValueError, match="no longer accepts 'glob'"):
+        build_loader(
+            "fs",
+            "jsonl",
+            path=str(tmp_path / "*.jsonl"),
+            glob=True,
+        )
 
 
 def test_data_loader_tracks_current_resource_uri(tmp_path):

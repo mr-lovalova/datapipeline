@@ -7,6 +7,7 @@ from datapipeline.services.bootstrap.core import (
     load_streams,
 )
 from datapipeline.services.streams.validation import (
+    stream_partition_by,
     validate_stream_configs,
     validate_unique_stream_ids,
 )
@@ -23,128 +24,84 @@ def _ingest(stream_id: str, partition_by=None) -> IngestConfig:
     )
 
 
-def _manual(
-    stream_id: str,
-    inputs: list[str],
-    partition_by=None,
-    driver: str | None = None,
-) -> StreamConfig:
-    args = {}
-    if driver is not None:
-        args["driver"] = driver
+def _stream(stream_id: str, upstream: str, partition_by=None) -> StreamConfig:
     return StreamConfig.model_validate(
         {
             "id": stream_id,
-            "from": {"streams": _input_map(inputs)},
+            "from": {"stream": upstream},
             "partition_by": partition_by,
-            "map": {"entrypoint": "manual", "args": args},
         }
     )
 
 
-def _joined(
-    stream_id: str,
-    inputs: list[str],
-    primary: str,
-    on: str | list[str] = "time",
-) -> StreamConfig:
+def _aligned(stream_id: str, inputs: list[str]) -> StreamConfig:
     return StreamConfig.model_validate(
         {
             "id": stream_id,
-            "from": {
-                "join": _input_map(inputs),
-                "primary": primary,
-                "on": on,
-                "mode": "inner",
-            },
-            "map": {"entrypoint": "join", "args": {}},
+            "from": {"align": inputs},
+            "map": {"entrypoint": "calculate", "args": {}},
         }
     )
-
-
-def _input_map(inputs: list[str]) -> dict[str, str]:
-    out: dict[str, str] = {}
-    for item in inputs:
-        alias, ref = item.split("=", 1)
-        out[alias.strip()] = ref.strip()
-    return out
 
 
 def test_validate_stream_configs_rejects_missing_refs() -> None:
     ingests = {}
     stream_configs = {
-        "derived": _manual(
-            "derived",
-            ["x=stream.a", "y=stream.b"],
-            driver="x",
-        ),
+        "derived": _aligned("derived", ["stream.a", "stream.b"]),
     }
     with pytest.raises(ValueError, match="references unknown stream"):
         validate_stream_configs(ingests, stream_configs)
 
 
-def test_validate_stream_configs_allows_manual_partition_mismatch() -> None:
+def test_validate_stream_configs_rejects_aligned_partition_mismatch() -> None:
     ingests = {
         "stream.a": _ingest("stream.a", partition_by="station"),
         "stream.b": _ingest("stream.b", partition_by="ticker"),
     }
     stream_configs = {
-        "derived": _manual(
-            "derived",
-            ["x=stream.a", "y=stream.b"],
-            driver="x",
-        ),
+        "derived": _aligned("derived", ["stream.a", "stream.b"]),
+    }
+
+    with pytest.raises(ValueError, match="expected 'station'"):
+        validate_stream_configs(ingests, stream_configs)
+
+
+def test_validate_stream_configs_accepts_aligned_matching_partitions() -> None:
+    ingests = {
+        "stream.a": _ingest("stream.a", partition_by="ticker"),
+        "stream.b": _ingest("stream.b", partition_by=["ticker"]),
+    }
+    stream_configs = {
+        "derived": _aligned("derived", ["stream.a", "stream.b"]),
     }
 
     validate_stream_configs(ingests, stream_configs)
+    assert stream_partition_by(ingests, stream_configs, "derived") == "ticker"
 
 
-def test_validate_stream_configs_allows_joined_unrelated_partitions() -> None:
+def test_aligned_partition_inheritance_is_transitive() -> None:
     ingests = {
-        "stream.a": _ingest("stream.a", partition_by="station"),
+        "stream.a": _ingest("stream.a", partition_by="ticker"),
         "stream.b": _ingest("stream.b", partition_by="ticker"),
+        "stream.c": _ingest("stream.c", partition_by="ticker"),
     }
     stream_configs = {
-        "derived": _joined(
-            "derived",
-            ["x=stream.a", "y=stream.b"],
-            primary="x",
-        ),
-    }
-    validate_stream_configs(ingests, stream_configs)
-
-
-def test_validate_stream_configs_accepts_joined_matching_partitions() -> None:
-    ingests = {
-        "stream.a": _ingest("stream.a", partition_by="station"),
-        "stream.b": _ingest("stream.b", partition_by="station"),
-    }
-    stream_configs = {
-        "derived": _joined(
-            "derived",
-            ["x=stream.a", "y=stream.b"],
-            primary="x",
-        ),
+        "second": _aligned("second", ["first", "stream.c"]),
+        "first": _aligned("first", ["stream.a", "stream.b"]),
     }
 
     validate_stream_configs(ingests, stream_configs)
+    assert stream_partition_by(ingests, stream_configs, "second") == "ticker"
 
 
-def test_validate_stream_configs_accepts_joined_subset_key() -> None:
-    ingests = {
-        "stream.a": _ingest("stream.a", partition_by=["ticker", "horizon"]),
-        "stream.b": _ingest("stream.b", partition_by="ticker"),
-    }
+def test_validate_stream_configs_rejects_dependency_cycle() -> None:
     stream_configs = {
-        "derived": _joined(
-            "derived",
-            ["x=stream.a", "y=stream.b"],
-            primary="x",
-            on=["ticker", "time"],
-        ),
+        "first": _stream("first", "second"),
+        "second": _stream("second", "first"),
     }
 
-    validate_stream_configs(ingests, stream_configs)
+    with pytest.raises(ValueError, match="first -> second -> first"):
+        validate_stream_configs({}, stream_configs)
 
 
 def test_validate_unique_stream_ids_rejects_ingest_stream_duplicate() -> None:
@@ -235,11 +192,11 @@ def test_load_canonical_streams_loads_from_shape(tmp_path) -> None:
     )
 
     assert _load_canonical_streams(project_yaml, {}) == {
-            "old": {
-                "id": "old",
-                "from": {"stream": "stream.a"},
-                "map": {"entrypoint": "old_mapper"},
-            }
+        "old": {
+            "id": "old",
+            "from": {"stream": "stream.a"},
+            "map": {"entrypoint": "old_mapper"},
+        }
     }
 
 

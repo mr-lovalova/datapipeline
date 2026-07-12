@@ -2,7 +2,7 @@ import math
 import threading
 import time
 from dataclasses import dataclass, replace
-from collections.abc import Iterable, Iterator
+from collections.abc import Generator, Iterable, Iterator
 from contextvars import ContextVar, Token, copy_context
 from typing import Any
 
@@ -339,7 +339,7 @@ def run_dag(
     *,
     seed: Iterable[Any] | None = None,
     observer: ExecutionObserver | None = None,
-) -> Iterator[Any]:
+) -> Generator[Any, None, None]:
     active_observer = _resolve_observer(context, observer)
     dag_depth = _current_run_dag_depth()
     is_root_run = dag_depth == 0

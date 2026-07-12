@@ -45,7 +45,6 @@ def _write_source_yaml(sources_dir: Path, path_value: str) -> None:
                 "    transport: fs",
                 "    format: jsonl",
                 f"    path: {path_value}",
-                "    glob: true",
             ]
         )
         + "\n",
@@ -99,14 +98,18 @@ def test_load_sources_resolves_fs_path_from_project_root(tmp_path: Path) -> None
     assert path_value == str((project_root / "data" / "*.jsonl").resolve())
 
 
-def test_load_sources_resolves_fs_path_relative_to_project_root_only(tmp_path: Path) -> None:
+def test_load_sources_resolves_fs_path_relative_to_project_root_only(
+    tmp_path: Path,
+) -> None:
     project_root = tmp_path / "workspace" / "demo" / "demo"
     (project_root / "data").mkdir(parents=True)
     (project_root / "data" / "rows.jsonl").write_text("{}", encoding="utf-8")
     (project_root / "streams").mkdir()
     (project_root / "tasks").mkdir()
     (project_root / "build").mkdir()
-    (project_root / "dataset.yaml").write_text("group_by: 1h\nfeatures: []\n", encoding="utf-8")
+    (project_root / "dataset.yaml").write_text(
+        "group_by: 1h\nfeatures: []\n", encoding="utf-8"
+    )
     (project_root / "postprocess.yaml").write_text("[]\n", encoding="utf-8")
     _write_source_yaml(project_root / "sources", "demo/demo/data/*.jsonl")
     project_yaml = _write_project_yaml(project_root)

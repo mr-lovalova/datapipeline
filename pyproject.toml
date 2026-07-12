@@ -69,8 +69,6 @@ datapipeline = [
 target-version = "py310"
 extend-exclude = ["src/datapipeline/templates"]
 
-[project.entry-points."datapipeline.filters"]
-
 [project.entry-points."datapipeline.transforms.record"]
 floor_time = "datapipeline.transforms.record.floor_time:FloorTimeRecordTransform"
 shift_time = "datapipeline.transforms.record.shift_time:ShiftTimeRecordTransform"
@@ -106,7 +104,6 @@ identity = "datapipeline.mappers.noop:identity"
 
 [project.entry-points."datapipeline.loaders"]
 "core.io" = "datapipeline.sources.factory:build_loader"
-"core.foreach" = "datapipeline.sources.foreach:ForeachLoader"
 "core.synthetic.ticks" = "datapipeline.sources.synthetic.time.loader:make_time_loader"
 
 [project.entry-points."datapipeline.parsers"]

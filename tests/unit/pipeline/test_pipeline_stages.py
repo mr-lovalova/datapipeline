@@ -23,8 +23,8 @@ from datapipeline.pipelines import (
 )
 from datapipeline.pipelines.ingest import build_ingest_dag, build_ingest_pipeline
 from datapipeline.pipelines.stream import build_stream_dag, build_stream_pipeline
-from datapipeline.pipelines.vector import dag as vector_dag
 from datapipeline.pipelines.vector.nodes import sample_domain_window_keys, window_keys
+from datapipeline.pipelines.vector import pipeline as vector_pipeline
 from datapipeline.pipelines.full.nodes import post_process
 from datapipeline.runtime import Runtime, StreamRuntimeSpec
 from datapipeline.services.constants import (
@@ -760,11 +760,11 @@ def test_cached_vector_records_close_streams_when_stopped_early(
         raise AssertionError(path)
 
     monkeypatch.setattr(
-        "datapipeline.pipelines.vector.dag.open_vector_input_records",
+        "datapipeline.pipelines.vector.pipeline.open_vector_input_records",
         _open_records,
     )
 
-    records = vector_dag._merged_cached_records(
+    records = vector_pipeline._merged_cached_records(
         manifest_path=tmp_path / "manifest.json",
         shards=(
             CachedVectorInputShard(id="a", path="a.jsonl.gz", rows=2),

@@ -11,7 +11,7 @@ jerry.yaml: default_dataset
     -> project.yaml: paths.sources / paths.ingests / paths.streams / paths.dataset / paths.tasks
       -> sources/*.yaml: id
         -> ingests/*.yaml: from.source: <sources.id>, id: <stream_id>
-          -> streams/*.yaml: from.stream|from.join|from.streams, id: <stream_id>
+          -> streams/*.yaml: from.stream|from.align, id: <stream_id>
           -> dataset.yaml: record_stream: <streams.id>, field: <record_field>
             -> jerry serve
               -> runs/<run_id>/dataset/<profile>.jsonl|csv|...
@@ -66,12 +66,12 @@ loader:
     transport: fs
     format: jsonl
     path: data/*.jsonl
-    glob: true
 ```
 
 Expected behavior:
 - Ingest `from.source: sandbox.ohlcv` resolves to this source spec.
 - For fs loaders, relative `args.path` is normalized via runtime path policy.
+- Standard glob characters in an fs `args.path` select matching files.
 
 ## 4) Ingest or stream id links canonical records to dataset
 
@@ -101,6 +101,21 @@ partition_by: ticker
 feature_id_by: []
 stream:
   - dedupe: {}
+```
+
+Aligned streams intersect prepared inputs by partition and time. Input order is
+also mapper argument order:
+
+```yaml
+# streams/equity.price_to_earnings.yaml
+id: equity.price_to_earnings
+from:
+  align:
+    - equity.price.daily
+    - equity.earnings.daily
+map:
+  entrypoint: map_price_to_earnings
+  args: {}
 ```
 
 ## 5) Dataset selects fields from stream ids

@@ -4,7 +4,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict
 
-from datapipeline.artifacts.models import SampleMetadata, VectorMetadata, Window
+from datapipeline.artifacts.models import (
+    SampleDomainEntry,
+    SampleMetadata,
+    VectorMetadata,
+    Window,
+)
 from datapipeline.config.dataset.normalize import floor_time_to_bucket
 from datapipeline.config.dataset.loader import load_dataset
 from datapipeline.config.dataset.validation import validate_dataset_feature_identity
@@ -34,7 +39,9 @@ def _entry_window(entry: dict) -> tuple[datetime | None, datetime | None]:
     )
 
 
-def _group_ranges(entries: list[dict], key_name: str) -> list[tuple[datetime, datetime]]:
+def _group_ranges(
+    entries: list[dict], key_name: str
+) -> list[tuple[datetime, datetime]]:
     grouped: dict[str, list[tuple[datetime, datetime]]] = defaultdict(list)
     for entry in entries:
         start, end = _entry_window(entry)
@@ -77,10 +84,12 @@ def _window_bounds_from_stats(
     target_stats: list[dict],
     mode: str,
 ) -> tuple[datetime | None, datetime | None]:
-    base_ranges = _group_ranges(
-        feature_stats, "base_id") + _group_ranges(target_stats, "base_id")
-    partition_ranges = _group_ranges(
-        feature_stats, "id") + _group_ranges(target_stats, "id")
+    base_ranges = _group_ranges(feature_stats, "base_id") + _group_ranges(
+        target_stats, "base_id"
+    )
+    partition_ranges = _group_ranges(feature_stats, "id") + _group_ranges(
+        target_stats, "id"
+    )
 
     if mode == "intersection":
         return _range_intersection(base_ranges)
@@ -128,13 +137,13 @@ def _merge_sample_domains(
 
     merged = dict(feature_domain)
     for key, target_range in target_domain.items():
-        feature_range = merged.get(key)
-        if feature_range is None:
+        existing_range = merged.get(key)
+        if existing_range is None:
             merged[key] = target_range
             continue
         merged[key] = (
-            min(feature_range[0], target_range[0]),
-            max(feature_range[1], target_range[1]),
+            min(existing_range[0], target_range[0]),
+            max(existing_range[1], target_range[1]),
         )
     return merged
 
@@ -148,7 +157,7 @@ def _sample_metadata(
         cadence=cadence,
         keys=sample_keys,
         domain=[
-            {"key": list(key), "start": start, "end": end}
+            SampleDomainEntry(key=list(key), start=start, end=end)
             for key, (start, end) in sorted(domain.items())
         ],
     )
@@ -164,8 +173,6 @@ def materialize_metadata(
     (
         feature_stats,
         feature_vectors,
-        feature_min,
-        feature_max,
         feature_domain,
     ) = collect_schema_entries_and_sample_domain(
         runtime,
@@ -173,7 +180,7 @@ def materialize_metadata(
         dataset.group_by,
         sample_keys=dataset.sample_keys,
         collect_metadata=True,
-        progress_label="metadata features",
+        progress_step="scan_features",
     )
     if configured_vectors_are_empty(features_cfgs, feature_vectors):
         raise RuntimeError(
@@ -185,14 +192,11 @@ def materialize_metadata(
     target_vectors = 0
     target_cfgs = list(dataset.targets or [])
     target_stats: list[dict] = []
-    target_min = target_max = None
     target_domain: dict[tuple, tuple[datetime, datetime]] = {}
     if target_cfgs:
         (
             target_stats,
             target_vectors,
-            target_min,
-            target_max,
             target_domain,
         ) = collect_schema_entries_and_sample_domain(
             runtime,
@@ -200,7 +204,7 @@ def materialize_metadata(
             dataset.group_by,
             sample_keys=dataset.sample_keys,
             collect_metadata=True,
-            progress_label="metadata targets",
+            progress_step="scan_targets",
         )
         if configured_vectors_are_empty(target_cfgs, target_vectors):
             raise RuntimeError(
@@ -222,8 +226,7 @@ def materialize_metadata(
     end = computed_end
     if start is not None and end is not None and start < end:
         size = _window_size(start, end, dataset.group_by)
-        window_obj = Window(start=start, end=end,
-                            mode=task_cfg.window_mode, size=size)
+        window_obj = Window(start=start, end=end, mode=task_cfg.window_mode, size=size)
     sample_domain = _merge_sample_domains(
         feature_domain,
         target_domain,

@@ -26,6 +26,7 @@ def test_create_source_scaffolds_into_example_dataset(tmp_path: Path) -> None:
     plugin_root = _create_plugin(tmp_path)
 
     loader_ep, loader_args = default_loader_config("fs", "csv")
+    assert "glob" not in loader_args
     create_source_yaml(
         source_id="demo.weather",
         loader_ep=loader_ep,

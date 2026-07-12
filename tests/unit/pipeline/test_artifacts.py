@@ -22,7 +22,7 @@ from datapipeline.artifacts.validation import (
     validate_artifact_plan,
 )
 from datapipeline.build.state import BuildState
-from datapipeline.config.catalog import StreamConfig, StreamFromConfig, StreamsConfig
+from datapipeline.config.catalog import StreamConfig, StreamsConfig
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.config.tasks import (
@@ -205,12 +205,7 @@ def test_tick_artifact_rejects_artifact_cadence_in_any_upstream_stream(
                 },
                 "derived": {
                     "id": "derived",
-                    "from": {
-                        "streams": {
-                            "base": "base",
-                            "duration": "duration",
-                        }
-                    },
+                    "from": {"align": ["base", "duration"]},
                     "map": {"entrypoint": "combine"},
                 },
                 "duration": {
@@ -293,7 +288,7 @@ def test_tick_artifact_allows_duration_cadence(monkeypatch, tmp_path) -> None:
 def test_stream_artifacts_reject_invalid_ensure_cadence(cadence, message) -> None:
     stream = StreamConfig(
         id="invalid",
-        from_=StreamFromConfig(stream="raw"),
+        from_={"stream": "raw"},
         stream=[
             TransformSpec(
                 "ensure_cadence",

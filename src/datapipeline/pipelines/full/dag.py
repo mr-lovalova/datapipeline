@@ -5,7 +5,7 @@ from datapipeline.dag.dag import Dag
 from datapipeline.dag.runner import run_dag
 from datapipeline.dag.node import PipelineNode
 from datapipeline.pipelines.full.nodes import post_process
-from datapipeline.pipelines.vector.dag import build_vector_pipeline
+from datapipeline.pipelines.vector.pipeline import build_vector_pipeline
 from datapipeline.dag.context import PipelineContext
 from datapipeline.domain.sample import Sample
 

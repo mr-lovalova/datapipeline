@@ -1,4 +1,4 @@
-from collections.abc import Iterator
+from collections.abc import Generator
 from typing import Any
 
 from datapipeline.dag.context import PipelineContext
@@ -19,7 +19,7 @@ def build_ingest_pipeline(
     context: PipelineContext,
     stream_id: str,
     node: int | None = None,
-) -> Iterator[Any]:
+) -> Generator[Any, None, None]:
     dag = build_ingest_dag(context, stream_id).upto_node(node)
     return run_dag(context, dag)
 
