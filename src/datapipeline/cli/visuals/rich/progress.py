@@ -52,7 +52,7 @@ class _LiveElapsedColumn(TimeElapsedColumn):
         elapsed = max(0, int(task.elapsed or 0))
         return Text(
             str(timedelta(seconds=elapsed)),
-            style="progress.elapsed",
+            style="dim",
         )
 
 
@@ -224,7 +224,6 @@ def visual_execution(log_level: int):
     progress = Progress(
         TextColumn(
             "{task.fields[indent]}[{task.description}]",
-            style="bold cyan",
             markup=False,
             table_column=Column(no_wrap=True, overflow="ellipsis"),
         ),
@@ -232,7 +231,7 @@ def visual_execution(log_level: int):
             bar_width=20,
             style="grey30",
             complete_style="cyan",
-            finished_style="green",
+            finished_style="cyan",
             pulse_style="cyan",
             table_column=Column(no_wrap=True),
         ),

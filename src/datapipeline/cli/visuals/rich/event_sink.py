@@ -54,7 +54,8 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
         if event_level < self._level:
             return
         if isinstance(event, OperationStarted):
-            self._console.print(Rule(f"Operation {event.name}", style="bold white"))
+            title = Text(f"Operation {event.name}")
+            self._console.print(Rule(title, style="dim"))
             return
         if isinstance(event, FileResult):
             self._console.print(self._render_file_result(event))
@@ -68,12 +69,12 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
     @staticmethod
     def _render_file_result(event: FileResult) -> Table:
         table = Table.grid(padding=(0, 1))
-        table.add_column(no_wrap=True, style="bold white")
+        table.add_column(no_wrap=True)
         table.add_column(ratio=1, overflow="fold")
         result = Text()
         result.append(
             str(event.path),
-            style=f"bright_blue link {event.path.resolve().as_uri()}",
+            style=f"blue link {event.path.resolve().as_uri()}",
         )
         records = "" if event.records is None else format_record_count(event.records)
         result.append(f" · {records}" if records else "", style="dim")
@@ -85,22 +86,17 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
             raise TypeError(f"Unsupported execution event: {type(event).__name__}")
         level = ExecutionEventFormatter.level(event)
         message = ExecutionEventFormatter.message(event)
-        text = Text(
-            message,
-            style=self._message_style(level),
-        )
-        text.highlight_regex(r"^\s*\[[^]]+\]", style="bold cyan")
+        lifecycle = isinstance(event, DagFinished | NodeFinished | OperationFinished)
+        text = Text(message, style="" if lifecycle else self._message_style(level))
         if isinstance(event, DagFinished | NodeFinished | OperationFinished):
-            status_style = "green" if event.status == "success" else "bold red"
+            status_style = "green" if event.status == "success" else "red"
             text.highlight_words([f"status={event.status}"], style=status_style)
         return text
 
     @staticmethod
     def _message_style(level: int) -> str:
         if level >= logging.ERROR:
-            return "bold red"
+            return "red"
         if level >= logging.WARNING:
             return "yellow"
-        if level <= logging.DEBUG:
-            return "dim"
         return ""

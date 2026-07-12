@@ -258,7 +258,9 @@ def test_info_dag_elapsed_continues_after_completed_local_phase() -> None:
         )
     )
     task = progress.tasks[0]
-    assert _LiveElapsedColumn().render(task).plain == "0:00:10"
+    elapsed = _LiveElapsedColumn().render(task)
+    assert elapsed.plain == "0:00:10"
+    assert str(elapsed.style) == "dim"
     assert task.description == "stream:adv.20"
     assert task.fields["indent"] == ""
 
@@ -547,15 +549,23 @@ def test_rich_sink_renders_operation_sequence_once_and_in_order() -> None:
     assert "Operation materialize:adv.20 started" not in rendered
 
 
-def test_rich_sink_renders_operation_start_as_header_at_info() -> None:
-    console, output = _console()
+def test_rich_sink_renders_minimal_operation_header_at_info(monkeypatch) -> None:
+    console, _ = _console()
     sink = _RichConsoleExecutionSink(logging.INFO, console)
+    renderables = []
+    monkeypatch.setattr(console, "print", renderables.append)
 
     sink.emit(OperationStarted("materialize:adv.20"))
 
-    rendered = output.getvalue()
-    assert "Operation materialize:adv.20" in rendered
-    assert "started" not in rendered
+    assert len(renderables) == 1
+    segments = list(console.render(renderables[0], console.options))
+    title = next(segment for segment in segments if "Operation" in segment.text)
+    rules = [segment for segment in segments if "─" in segment.text]
+    assert title.text == "Operation materialize:adv.20"
+    assert str(title.style) == "none"
+    assert rules and all(
+        segment.style is not None and segment.style.dim for segment in rules
+    )
 
 
 def test_rich_sink_hides_operation_header_at_warning() -> None:
@@ -567,7 +577,7 @@ def test_rich_sink_hides_operation_header_at_warning() -> None:
     assert output.getvalue() == ""
 
 
-def test_rich_sink_styles_labels_and_final_status() -> None:
+def test_rich_sink_styles_only_final_status() -> None:
     console, _ = _console()
     sink = _RichConsoleExecutionSink(logging.INFO, console)
     success = sink._render_event(
@@ -597,10 +607,30 @@ def test_rich_sink_styles_labels_and_final_status() -> None:
         )
     )
 
-    assert any(str(span.style) == "bold cyan" for span in success.spans)
-    assert any(str(span.style) == "green" for span in success.spans)
-    assert any(str(span.style) == "bold red" for span in error.spans)
-    assert any(str(span.style) == "bold red" for span in operation_error.spans)
+    assert success.style == error.style == operation_error.style == ""
+    assert [
+        (success.plain[span.start : span.end], str(span.style))
+        for span in success.spans
+    ] == [("status=success", "green")]
+    assert [
+        (error.plain[span.start : span.end], str(span.style)) for span in error.spans
+    ] == [("status=error", "red")]
+    assert [
+        (operation_error.plain[span.start : span.end], str(span.style))
+        for span in operation_error.spans
+    ] == [("status=error", "red")]
+
+
+def test_rich_sink_renders_debug_config_as_regular_text() -> None:
+    console, _ = _console()
+    sink = _RichConsoleExecutionSink(logging.DEBUG, console)
+
+    text = sink._render_event(
+        ExecutionMessage(message="Config:\n{}", log_level=logging.DEBUG)
+    )
+
+    assert text.style == ""
+    assert text.spans == []
 
 
 def test_rich_sink_renders_file_result_as_aligned_link() -> None:
@@ -620,15 +650,13 @@ def test_rich_sink_renders_file_result_as_aligned_link() -> None:
 
     table = sink._render_file_result(event)
     segments = list(console.render(table, console.options))
-    assert any(
-        segment.text == "train_0:" and segment.style is not None and segment.style.bold
-        for segment in segments
-    )
+    label = next(segment for segment in segments if segment.text == "train_0:")
+    assert label.style is None or not label.style.bold
     assert any(
         segment.style is not None
         and segment.style.link == path.resolve().as_uri()
         and segment.style.color is not None
-        and segment.style.color.name == "bright_blue"
+        and segment.style.color.name == "blue"
         for segment in segments
     )
     assert any(
@@ -666,3 +694,37 @@ def test_visual_execution_restores_existing_context(monkeypatch) -> None:
     finally:
         reset_current_terminal_log_proxy_sink(proxy_token)
         reset_current_execution_event_sink(event_token)
+
+
+def test_visual_execution_uses_minimal_progress_styles(monkeypatch) -> None:
+    console, _ = _console()
+    columns = []
+
+    class CaptureProgress:
+        tasks = ()
+
+        def __init__(self, *args, **_kwargs) -> None:
+            columns.extend(args)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args) -> None:
+            return None
+
+    monkeypatch.setattr(
+        "datapipeline.cli.visuals.rich.progress.Console",
+        lambda **_kwargs: console,
+    )
+    monkeypatch.setattr(
+        "datapipeline.cli.visuals.rich.progress.Progress",
+        CaptureProgress,
+    )
+
+    with visual_execution(logging.INFO):
+        pass
+
+    label, bar = columns[:2]
+    assert label.style == "none"
+    assert bar.complete_style == "cyan"
+    assert bar.finished_style == "cyan"
