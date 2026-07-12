@@ -2,11 +2,24 @@ import time
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Protocol
 
 
+@dataclass(frozen=True)
+class FileResult:
+    label: str
+    path: Path
+    records: int | None = None
+
+
+def format_record_count(records: int) -> str:
+    unit = "record" if records == 1 else "records"
+    return f"{records:,} {unit}"
+
+
 class OperationObserver(Protocol):
-    def emit_result(self, line: str) -> None: ...
+    def emit_file_result(self, result: FileResult) -> None: ...
 
     def emit_progress(
         self,
@@ -57,11 +70,15 @@ def operation_scope(name: str):
         _CURRENT_OPERATION_CONTEXT.reset(token)
 
 
-def emit_operation_result(line: str) -> bool:
-    context = _CURRENT_OPERATION_CONTEXT.get()
-    if context is None or context.observer is None:
+def emit_file_result(
+    label: str,
+    path: Path,
+    records: int | None = None,
+) -> bool:
+    observer = current_operation_observer()
+    if observer is None:
         return False
-    context.observer.emit_result(line)
+    observer.emit_file_result(FileResult(label, path, records))
     return True
 
 
@@ -104,14 +121,3 @@ class OperationProgress:
 
 
 OperationProgressTracker = OperationProgress
-
-
-__all__ = [
-    "OperationObserver",
-    "OperationProgress",
-    "OperationProgressTracker",
-    "emit_operation_progress",
-    "emit_operation_result",
-    "operation_observer",
-    "operation_scope",
-]

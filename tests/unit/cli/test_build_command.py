@@ -514,12 +514,12 @@ def test_execute_build_jobs_persists_completed_job_before_failure(
             raise RuntimeError("schema failed")
         return _build_artifact(runtime, task)
 
-    outputs: list[str] = []
+    outputs: list[tuple[str, Path, int | None]] = []
     monkeypatch.setattr(build_exec, "_run_artifact_builder", build)
     monkeypatch.setattr(
         build_exec,
-        "emit_execution_message",
-        lambda message, logger: outputs.append(message),
+        "emit_file_result",
+        lambda label, path, records=None: outputs.append((label, path, records)),
     )
     plan = build_exec.BuildPlan(
         reason="stale",
@@ -546,7 +546,11 @@ def test_execute_build_jobs_persists_completed_job_before_failure(
     assert state is not None
     assert list(state.artifacts) == [VECTOR_INPUTS]
     assert outputs == [
-        f"Vector inputs: {(runtime.artifacts_root / vector_inputs.output).resolve()}"
+        (
+            "Vector inputs",
+            (runtime.artifacts_root / vector_inputs.output).resolve(),
+            None,
+        )
     ]
 
 

@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from datapipeline.cli.visuals.execution_context import current_execution_scope
 from datapipeline.config.catalog import StreamsConfig
 from datapipeline.config.execution import ExecutionConfig
 from datapipeline.config.observability import (
@@ -12,7 +13,6 @@ from datapipeline.config.observability import (
 )
 from datapipeline.config.profiles import MaterializeProfile, MaterializeProfileDefaults
 from datapipeline.config.tasks import ArtifactTask, TicksTask
-from datapipeline.cli.visuals.execution_context import current_execution_scope
 from datapipeline.profiles import materialize as materialize_profiles
 from datapipeline.services.materialize import MaterializeResult
 
@@ -99,8 +99,10 @@ def _prepare_run(
     )
     monkeypatch.setattr(
         materialize_profiles,
-        "emit_execution_message",
-        lambda message: messages.append((current_execution_scope(), message)),
+        "emit_file_result",
+        lambda label, path, records=None: messages.append(
+            (current_execution_scope(), label, path, records)
+        ),
     )
     return writes, specs, messages
 
@@ -157,17 +159,17 @@ def test_materialize_runs_all_enabled_profiles_in_order(monkeypatch, tmp_path) -
         "adv-126.jsonl",
     ]
     assert not (tmp_path / "execution").exists()
-    assert [scope["profile_name"] for scope, _ in messages] == [
+    assert [scope["profile_name"] for scope, *_ in messages] == [
         "adv-20",
         "adv-20",
         "adv-126",
         "adv-126",
     ]
-    assert [message for _, message in messages] == [
-        f"Output: {tmp_path / 'adv-20.jsonl'}",
-        f"Metadata: {tmp_path / 'adv-20.metadata.json'}",
-        f"Output: {tmp_path / 'adv-126.jsonl'}",
-        f"Metadata: {tmp_path / 'adv-126.metadata.json'}",
+    assert [(label, path, records) for _, label, path, records in messages] == [
+        ("Output", tmp_path / "adv-20.jsonl", None),
+        ("Metadata", tmp_path / "adv-20.metadata.json", None),
+        ("Output", tmp_path / "adv-126.jsonl", None),
+        ("Metadata", tmp_path / "adv-126.metadata.json", None),
     ]
 
 
@@ -488,11 +490,11 @@ def test_materialize_reports_success_before_a_later_profile_fails(
     with pytest.raises(RuntimeError, match="second profile failed"):
         _run(tmp_path)
 
-    assert [scope["profile_name"] for scope, _ in messages] == [
+    assert [scope["profile_name"] for scope, *_ in messages] == [
         "first",
         "first",
     ]
-    assert [message for _, message in messages] == [
-        f"Output: {tmp_path / 'first.jsonl'}",
-        f"Metadata: {tmp_path / 'first.metadata.json'}",
+    assert [(label, path, records) for _, label, path, records in messages] == [
+        ("Output", tmp_path / "first.jsonl", None),
+        ("Metadata", tmp_path / "first.metadata.json", None),
     ]

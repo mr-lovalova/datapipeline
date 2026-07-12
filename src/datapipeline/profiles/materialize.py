@@ -5,10 +5,7 @@ from typing import Sequence
 from datapipeline.artifacts.executor import run_build_if_needed
 from datapipeline.artifacts.planning import build_artifact_graph
 from datapipeline.artifacts.validation import stream_cadence_artifacts
-from datapipeline.cli.visuals.execution import (
-    emit_execution_message,
-    execution_scope,
-)
+from datapipeline.cli.visuals.execution import execution_scope
 from datapipeline.config.build_resolution import BuildSettings
 from datapipeline.config.dataset.loader import load_dataset
 from datapipeline.config.loaders.operations import operation_specs
@@ -21,7 +18,6 @@ from datapipeline.config.profiles import (
     MaterializeProfileDefaults,
     normalize_artifact_mode,
 )
-from datapipeline.config.tasks import TicksTask
 from datapipeline.config.resolution import (
     LogLevelDecision,
     LogOutputSettings,
@@ -29,6 +25,8 @@ from datapipeline.config.resolution import (
     resolve_execution_log_outputs,
     resolve_observability_settings,
 )
+from datapipeline.config.tasks import TicksTask
+from datapipeline.execution.observability import emit_file_result
 from datapipeline.profiles.executor import (
     ExecutionSpec,
     ProfileExecutionSpec,
@@ -186,8 +184,8 @@ def run_materialize_profiles(
                     overwrite=job.overwrite,
                     dataset=dataset,
                 )
-                emit_execution_message(f"Output: {result.output}")
-                emit_execution_message(f"Metadata: {result.metadata}")
+                emit_file_result("Output", result.output)
+                emit_file_result("Metadata", result.metadata)
                 return result
 
         results.append(run_profile(spec, work))

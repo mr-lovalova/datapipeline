@@ -1,12 +1,13 @@
 import io
 import logging
 import sys
+from pathlib import Path
 
 from datapipeline.cli.logging_setup import configure_root_logging
 from datapipeline.cli.visuals.execution import (
     ExecutionMessage,
-    emit_execution_message,
     emit_profile_started,
+    make_operation_observer,
 )
 from datapipeline.cli.visuals.execution_context import (
     reset_current_execution_event_sink,
@@ -15,6 +16,7 @@ from datapipeline.cli.visuals.execution_context import (
     set_current_terminal_log_proxy_sink,
 )
 from datapipeline.config.resolution import LogOutputSettings, LogOutputTarget
+from datapipeline.execution.observability import emit_file_result, operation_observer
 
 
 def _flush_root_handlers() -> None:
@@ -25,8 +27,9 @@ def _flush_root_handlers() -> None:
 
 def _emit_materialize_outputs(logger: logging.Logger) -> None:
     emit_profile_started("materialize", "adv.20", 2, 3, logger=logger)
-    emit_execution_message("Output: /tmp/adv.20.jsonl", logger=logger)
-    emit_execution_message("Metadata: /tmp/adv.20.metadata.json", logger=logger)
+    with operation_observer(make_operation_observer(logger)):
+        emit_file_result("Output", Path("/tmp/adv.20.jsonl"))
+        emit_file_result("Metadata", Path("/tmp/adv.20.metadata.json"))
 
 
 def test_profile_and_output_events_render_as_flat_plain_logs_without_visuals(

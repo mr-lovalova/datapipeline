@@ -4,11 +4,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
+from datapipeline.dag.runner import resolve_heartbeat_interval_seconds
 from datapipeline.execution.observability import (
     OperationProgressTracker,
-    emit_operation_result,
+    emit_file_result,
+    format_record_count,
 )
-from datapipeline.dag.runner import resolve_heartbeat_interval_seconds
 from datapipeline.io.factory import writer_factory
 from datapipeline.io.output import OutputTarget
 
@@ -100,7 +101,7 @@ def _persist_runtime_output(
         if destination is None:
             raise ValueError("html output requires fs destination.")
         written = result.html_renderer(destination)
-        emit_operation_result(f"Output: {written}")
+        emit_file_result("Output", written)
         return
 
     rows = result.rows
@@ -141,11 +142,13 @@ def _persist_runtime_output(
                 logger.debug("Failed to abort runtime output writer", exc_info=True)
 
     if effective_target.destination is not None:
-        emit_operation_result(
-            f"Output: {effective_target.destination} · {count:,} records",
+        emit_file_result(
+            "Output",
+            effective_target.destination,
+            count if result.rows is not None else None,
         )
     elif effective_target.transport == "stdout":
-        emit_operation_result(f"Output: stdout · {count:,} records")
+        logger.info("Output: stdout · %s", format_record_count(count))
 
 
 def _persist_split_runtime_output(
@@ -159,6 +162,7 @@ def _persist_split_runtime_output(
 
     writers = {}
     counts: dict[str, int] = {}
+    destinations: dict[str, Path] = {}
     rows = iter(result.rows)
     progress = OperationProgressTracker(
         "write_output",
@@ -167,10 +171,12 @@ def _persist_split_runtime_output(
     success = False
     try:
         for label, target in result.targets.items():
-            if target.transport != "fs" or target.destination is None:
+            destination = target.destination
+            if target.transport != "fs" or destination is None:
                 raise ValueError("Split runtime output requires fs destinations.")
             writers[label] = writer_factory(target)
             counts[label] = 0
+            destinations[label] = destination
 
         for row in rows:
             label = result.label_for_row(row)
@@ -212,10 +218,8 @@ def _persist_split_runtime_output(
                         exc_info=True,
                     )
 
-    for label, target in result.targets.items():
-        emit_operation_result(
-            f"{label}: {target.destination} · {counts[label]:,} records"
-        )
+    for label, destination in destinations.items():
+        emit_file_result(label, destination, counts[label])
 
 
 def persist_runtime_result(
@@ -269,13 +273,3 @@ def persist_runtime_result(
         heartbeat_interval_seconds=heartbeat_interval_seconds,
         logger=logger,
     )
-
-
-__all__ = [
-    "ArtifactOutput",
-    "RuntimeOutput",
-    "RuntimeOutputBatch",
-    "SplitRuntimeOutput",
-    "persist_artifact_output",
-    "persist_runtime_result",
-]

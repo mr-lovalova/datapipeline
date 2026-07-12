@@ -2,7 +2,10 @@ import logging
 from typing import Protocol
 
 from rich.rule import Rule
+from rich.table import Table
 from rich.text import Text
+
+from datapipeline.execution.observability import FileResult, format_record_count
 
 from ..execution import (
     DagFinished,
@@ -54,11 +57,29 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
         event_level = ExecutionEventFormatter.level(event)
         if event_level < self._level:
             return
+        if isinstance(event, FileResult):
+            self._console.print(self._render_file_result(event))
+            return
         text = self._render_event(event)
         if isinstance(event, OperationProgress):
             self._console.print(text, overflow="ellipsis", no_wrap=True)
             return
         self._console.print(text)
+
+    @staticmethod
+    def _render_file_result(event: FileResult) -> Table:
+        table = Table.grid(padding=(0, 1))
+        table.add_column(no_wrap=True, style="bold white")
+        table.add_column(ratio=1, overflow="fold")
+        result = Text()
+        result.append(
+            str(event.path),
+            style=f"bright_blue link {event.path.resolve().as_uri()}",
+        )
+        records = "" if event.records is None else format_record_count(event.records)
+        result.append(f" · {records}" if records else "", style="dim")
+        table.add_row(f"{event.label}:", result)
+        return table
 
     def _render_event(self, event: ExecutionLogEvent) -> Text:
         if not isinstance(event, ExecutionLogEvent):

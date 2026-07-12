@@ -13,10 +13,10 @@ from datapipeline.build.state import (
     save_build_state,
 )
 from datapipeline.build.config_hash import compute_config_hash
-from datapipeline.cli.visuals.execution import emit_build_decision, emit_execution_message
+from datapipeline.cli.visuals.execution import emit_build_decision
 from datapipeline.config.dataset.loader import load_dataset
 from datapipeline.config.tasks import ArtifactTask
-from datapipeline.execution.observability import operation_scope
+from datapipeline.execution.observability import emit_file_result, operation_scope
 from datapipeline.operations.dispatch import execute_operation
 from datapipeline.operations.persistence import ArtifactOutput, persist_artifact_output
 from datapipeline.plugins import BUILD_OPERATIONS_EP
@@ -280,7 +280,7 @@ def _execute_build_jobs(
         )
         label = job.task.id.replace("_", " ").capitalize()
         path = (Path(runtime.artifacts_root) / result.relative_path).resolve()
-        emit_execution_message(f"{label}: {path}", logger=logger)
+        emit_file_result(label, path)
     return current_state
 
 

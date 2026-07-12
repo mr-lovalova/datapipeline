@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 
 import pytest
 
@@ -44,8 +45,9 @@ from datapipeline.dag.dag import Dag
 from datapipeline.dag.node import PipelineNode
 from datapipeline.dag.runner import run_dag
 from datapipeline.execution.observability import (
+    FileResult,
+    emit_file_result,
     emit_operation_progress,
-    emit_operation_result,
     operation_observer,
     operation_scope,
 )
@@ -82,6 +84,15 @@ _PARENT = DagParentRef(
             ExecutionMessage(message="plain", log_level=logging.WARNING, depth=1),
             logging.WARNING,
             "  plain",
+        ),
+        (
+            FileResult(
+                label="train_0",
+                path=Path("/tmp/dataset.train_0.jsonl"),
+                records=1,
+            ),
+            logging.INFO,
+            "train_0: /tmp/dataset.train_0.jsonl · 1 record",
         ),
         (
             ProfileStarted(command="serve", name="default", index=1, total=1),
@@ -699,8 +710,9 @@ def test_operation_scope_emits_flat_result_and_labelled_progress(caplog):
             observer = make_operation_observer(logger)
             with operation_observer(observer):
                 with operation_scope("build:model_grid"):
-                    assert emit_operation_result(
-                        "Model grid: /tmp/model_grid.jsonl"
+                    assert emit_file_result(
+                        "Model grid",
+                        Path("/tmp/model_grid.jsonl"),
                     )
                     assert emit_operation_progress(
                         "write_artifact",
@@ -710,10 +722,11 @@ def test_operation_scope_emits_flat_result_and_labelled_progress(caplog):
         reset_current_execution_event_sink(token)
 
     assert [type(event) for event in capture.events] == [
-        ExecutionMessage,
+        FileResult,
         OperationProgress,
     ]
-    assert capture.events[0].message == "Model grid: /tmp/model_grid.jsonl"
+    assert capture.events[0].label == "Model grid"
+    assert capture.events[0].path == Path("/tmp/model_grid.jsonl")
     assert capture.events[1].step == "write_artifact"
     assert capture.events[1].message == "running elapsed=1s items=3"
     messages = [record.getMessage() for record in caplog.records]

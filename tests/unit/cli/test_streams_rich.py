@@ -1,5 +1,6 @@
 from io import StringIO
 import logging
+from pathlib import Path
 
 from rich.console import Console
 from rich.progress import BarColumn, Progress
@@ -29,6 +30,7 @@ from datapipeline.cli.visuals.rich.progress import (
     visual_execution,
 )
 from datapipeline.dag.events import DagParentRef, ProgressResource, ProgressSnapshot
+from datapipeline.execution.observability import FileResult
 
 
 def _console(width: int | None = None) -> tuple[Console, StringIO]:
@@ -536,11 +538,48 @@ def test_rich_sink_styles_labels_and_final_status() -> None:
     assert any(str(span.style) == "bold red" for span in error.spans)
 
 
+def test_rich_sink_renders_file_result_as_aligned_link() -> None:
+    console, output = _console(width=60)
+    path = Path(
+        "/Users/anders/project/artifacts/smoke/processed/very-long/"
+        "dataset/dataset.train_0.jsonl"
+    )
+    event = FileResult(label="train_0", path=path, records=100)
+    sink = _RichConsoleExecutionSink(logging.INFO, console)
+
+    sink.emit(event)
+
+    lines = output.getvalue().splitlines()
+    assert lines[0].startswith("train_0: ")
+    assert lines[1].startswith(" " * 9)
+
+    table = sink._render_file_result(event)
+    segments = list(console.render(table, console.options))
+    assert any(
+        segment.text == "train_0:" and segment.style is not None and segment.style.bold
+        for segment in segments
+    )
+    assert any(
+        segment.style is not None
+        and segment.style.link == path.resolve().as_uri()
+        and segment.style.color is not None
+        and segment.style.color.name == "bright_blue"
+        for segment in segments
+    )
+    assert any(
+        "100 records" in segment.text
+        and segment.style is not None
+        and segment.style.dim
+        and segment.style.link is None
+        for segment in segments
+    )
+
+
 def test_rich_sink_filters_info_outputs_below_its_log_level() -> None:
     console, output = _console()
     sink = _RichConsoleExecutionSink(logging.WARNING, console)
+    sink.emit(FileResult(label="Output", path=Path("data/adv.20.jsonl")))
     sink.emit(ExecutionMessage(message="Metadata: data/adv.20.metadata.json"))
-    sink.emit(ExecutionMessage(message="Output: data/adv.20.jsonl"))
 
     assert output.getvalue() == ""
 

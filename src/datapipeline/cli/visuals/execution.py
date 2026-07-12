@@ -25,6 +25,7 @@ from datapipeline.dag.events import (
 from datapipeline.dag.node import NodeKind
 from datapipeline.dag.observer import ExecutionObserver
 from datapipeline.dag.runner import current_node_progress_context
+from datapipeline.execution.observability import FileResult, format_record_count
 
 
 @dataclass(frozen=True)
@@ -133,6 +134,7 @@ class OperationProgress(_ExecutionEvent):
 
 ExecutionLogEvent = (
     ExecutionMessage
+    | FileResult
     | ProfileStarted
     | BuildDecisionMessage
     | SourceInfoMessage
@@ -169,6 +171,8 @@ class ExecutionEventFormatter:
 
     @staticmethod
     def display_depth(event: ExecutionLogEvent) -> int:
+        if isinstance(event, FileResult):
+            return 0
         if isinstance(event, NodeStarted | NodeProgress | NodeFinished):
             return max(0, int(event.depth) - 1)
         return max(0, int(event.depth))
@@ -192,14 +196,15 @@ class ExecutionEventFormatter:
                 return logging.ERROR
         if isinstance(
             event,
-            ProfileStarted
+            FileResult
+            | ProfileStarted
             | BuildDecisionMessage
             | SourceInfoMessage
             | DagStarted
             | DagSummary
             | DagFinished
             | NodeProgress
-            | OperationProgress
+            | OperationProgress,
         ):
             return logging.INFO
         if isinstance(event, NodeStarted | NodeFinished):
@@ -208,6 +213,13 @@ class ExecutionEventFormatter:
 
     @classmethod
     def message(cls, event: ExecutionLogEvent) -> str:
+        if isinstance(event, FileResult):
+            records = (
+                ""
+                if event.records is None
+                else f" · {format_record_count(event.records)}"
+            )
+            return f"{event.label}: {event.path}{records}"
         indent = cls.indent(cls.display_depth(event))
         if isinstance(event, ProfileStarted):
             return (
@@ -426,14 +438,8 @@ class ExecutionOperationObserver:
     def __init__(self, logger: logging.Logger) -> None:
         self._logger = logger
 
-    def emit_result(self, line: str) -> None:
-        _emit_event(
-            ExecutionMessage(
-                message=line,
-                scope=_current_scope(),
-            ),
-            self._logger,
-        )
+    def emit_file_result(self, result: FileResult) -> None:
+        _emit_event(result, self._logger)
 
     def emit_progress(
         self,
