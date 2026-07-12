@@ -3,7 +3,24 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Literal, Protocol
+
+
+OperationStatus = Literal["success", "error"]
+
+
+@dataclass(frozen=True)
+class OperationStarted:
+    name: str
+
+
+@dataclass(frozen=True)
+class OperationFinished:
+    name: str
+    status: OperationStatus
+    elapsed_seconds: float
+    error_type: str | None = None
+    error_message: str | None = None
 
 
 @dataclass(frozen=True)
@@ -19,6 +36,10 @@ def format_record_count(records: int) -> str:
 
 
 class OperationObserver(Protocol):
+    def emit_started(self, event: OperationStarted) -> None: ...
+
+    def emit_finished(self, event: OperationFinished) -> None: ...
+
     def emit_file_result(self, result: FileResult) -> None: ...
 
     def emit_progress(
@@ -29,18 +50,12 @@ class OperationObserver(Protocol):
     ) -> None: ...
 
 
-@dataclass(frozen=True)
-class _OperationContext:
-    name: str
-    observer: OperationObserver | None
-
-
 _CURRENT_OPERATION_OBSERVER: ContextVar[OperationObserver | None] = ContextVar(
     "datapipeline_current_operation_observer",
     default=None,
 )
-_CURRENT_OPERATION_CONTEXT: ContextVar[_OperationContext | None] = ContextVar(
-    "datapipeline_current_operation_context",
+_CURRENT_OPERATION_NAME: ContextVar[str | None] = ContextVar(
+    "datapipeline_current_operation_name",
     default=None,
 )
 
@@ -61,13 +76,35 @@ def operation_observer(observer: OperationObserver):
 @contextmanager
 def operation_scope(name: str):
     observer = current_operation_observer()
-    token = _CURRENT_OPERATION_CONTEXT.set(
-        _OperationContext(name=name, observer=observer)
-    )
+    started_at = time.perf_counter()
+    if observer is not None:
+        observer.emit_started(OperationStarted(name))
+    token = _CURRENT_OPERATION_NAME.set(name)
     try:
         yield
+    except BaseException as exc:
+        if observer is not None:
+            observer.emit_finished(
+                OperationFinished(
+                    name=name,
+                    status="error",
+                    elapsed_seconds=time.perf_counter() - started_at,
+                    error_type=type(exc).__name__,
+                    error_message=str(exc),
+                )
+            )
+        raise
+    else:
+        if observer is not None:
+            observer.emit_finished(
+                OperationFinished(
+                    name=name,
+                    status="success",
+                    elapsed_seconds=time.perf_counter() - started_at,
+                )
+            )
     finally:
-        _CURRENT_OPERATION_CONTEXT.reset(token)
+        _CURRENT_OPERATION_NAME.reset(token)
 
 
 def emit_file_result(
@@ -83,11 +120,12 @@ def emit_file_result(
 
 
 def emit_operation_progress(step: str, message: str) -> bool:
-    context = _CURRENT_OPERATION_CONTEXT.get()
-    if context is None or context.observer is None:
+    name = _CURRENT_OPERATION_NAME.get()
+    observer = current_operation_observer()
+    if name is None or observer is None:
         return False
-    context.observer.emit_progress(
-        context.name,
+    observer.emit_progress(
+        name,
         step,
         message,
     )

@@ -1,4 +1,3 @@
-import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -13,7 +12,7 @@ from datapipeline.build.state import (
     save_build_state,
 )
 from datapipeline.build.config_hash import compute_config_hash
-from datapipeline.cli.visuals.execution import emit_build_decision
+from datapipeline.cli.visuals.execution import emit_execution_message
 from datapipeline.config.dataset.loader import load_dataset
 from datapipeline.config.tasks import ArtifactTask
 from datapipeline.execution.observability import emit_file_result, operation_scope
@@ -60,35 +59,42 @@ class BuildPlan:
     graph: ArtifactGraph
 
 
-BuildDecision = BuildPlan | SkippedBuild
+ArtifactPlan = BuildPlan | SkippedBuild
 
 
-def _log_build_decision(
-    plan: BuildDecision,
-    *,
+def _report_artifact_plan(
+    plan: ArtifactPlan,
     mode: str,
-    profile_name: str | None,
+    requested_artifacts: set[str],
 ) -> None:
     action = "run" if isinstance(plan, BuildPlan) else "skip"
-    payload: dict[str, object] = {
-        "action": action,
-        "reason": plan.reason,
-        "mode": mode,
-    }
-    if profile_name is not None:
-        payload["profile"] = profile_name
-    payload["selected_artifacts"] = len(plan.artifacts)
-    payload["expanded_artifacts"] = list(plan.artifacts)
+    requested = ", ".join(sorted(requested_artifacts)) or "none"
+    required = ", ".join(plan.artifacts) or "none"
     if isinstance(plan, BuildPlan):
-        payload["jobs"] = [job.task.id for job in plan.jobs]
-        skipped_current = plan.skipped_current
+        jobs = ", ".join(job.task.id for job in plan.jobs) or "none"
+        current = ", ".join(plan.skipped_current) or "none"
     else:
-        payload["jobs"] = []
-        skipped_current = plan.artifacts
-    if skipped_current:
-        payload["skipped_current"] = list(skipped_current)
-    emit_build_decision(
-        f"Build decision:\n{json.dumps(payload, indent=2, default=str)}",
+        jobs = "none"
+        current = required
+
+    emit_execution_message(
+        "Artifact plan: "
+        f"action={action} reason={plan.reason} mode={mode} "
+        f"requested={requested} required={required} jobs={jobs} current={current}",
+        level=logging.DEBUG,
+        logger=logger,
+    )
+
+    if isinstance(plan, BuildPlan):
+        return
+    if plan.reason in {"no_artifacts_selected", "not_required"}:
+        emit_execution_message(
+            f"Artifacts: not required · {requested}",
+            logger=logger,
+        )
+        return
+    emit_execution_message(
+        f"Artifacts: current · {requested}",
         logger=logger,
     )
 
@@ -97,19 +103,18 @@ def _run_artifact_builder(
     runtime: Runtime,
     task: ArtifactTask,
 ) -> ArtifactOutput | None:
-    with operation_scope(f"build:{task.id}"):
-        return execute_operation(
-            operation=task,
-            operation_group=BUILD_OPERATIONS_EP,
-            persist=lambda result: persist_artifact_output(
-                result,
-                artifact_key=task.id,
-                expected_relative_path=task.output,
-                runtime=runtime,
-            ),
+    return execute_operation(
+        operation=task,
+        operation_group=BUILD_OPERATIONS_EP,
+        persist=lambda result: persist_artifact_output(
+            result,
+            artifact_key=task.id,
+            expected_relative_path=task.output,
             runtime=runtime,
-            task_cfg=task,
-        )
+        ),
+        runtime=runtime,
+        task_cfg=task,
+    )
 
 
 def _plan_build(
@@ -120,7 +125,7 @@ def _plan_build(
     mode: str,
     resolved_artifacts: set[str] | None = None,
     expected_config_hash: str | None = None,
-) -> BuildDecision:
+) -> ArtifactPlan:
     try:
         selected_roots = set(required_artifacts)
         selected_keys = set(graph.dependency_closure(selected_roots))
@@ -245,42 +250,45 @@ def _execute_build_jobs(
         config_hash=plan.config_hash,
     )
     for job in plan.jobs:
-        removed = False
-        for key in job.invalidated_artifacts:
-            if current_state.artifacts.pop(key, None) is not None:
-                removed = True
-        if removed:
-            save_build_state(current_state, plan.state_path)
-        hydrate_runtime_artifacts(
-            runtime=runtime,
-            graph=plan.graph,
-            state=current_state,
-            config_hash=plan.config_hash,
-            artifact_keys=plan.artifacts,
-        )
+        with operation_scope(f"build:{job.task.id}"):
+            removed = False
+            for key in job.invalidated_artifacts:
+                if current_state.artifacts.pop(key, None) is not None:
+                    removed = True
+            if removed:
+                save_build_state(current_state, plan.state_path)
+            hydrate_runtime_artifacts(
+                runtime=runtime,
+                graph=plan.graph,
+                state=current_state,
+                config_hash=plan.config_hash,
+                artifact_keys=plan.artifacts,
+            )
 
-        result = _run_artifact_builder(
-            runtime=runtime,
-            task=job.task,
-        )
-        if result is None:
-            raise RuntimeError(f"Artifact task '{job.task.id}' produced no artifact.")
-        current_state = _merge_build_state(
-            previous_state=current_state,
-            built_artifacts={job.task.id: result},
-            config_hash=plan.config_hash,
-        )
-        save_build_state(current_state, plan.state_path)
-        hydrate_runtime_artifacts(
-            runtime=runtime,
-            graph=plan.graph,
-            state=current_state,
-            config_hash=plan.config_hash,
-            artifact_keys=plan.artifacts,
-        )
-        label = job.task.id.replace("_", " ").capitalize()
-        path = (Path(runtime.artifacts_root) / result.relative_path).resolve()
-        emit_file_result(label, path)
+            result = _run_artifact_builder(
+                runtime=runtime,
+                task=job.task,
+            )
+            if result is None:
+                raise RuntimeError(
+                    f"Artifact task '{job.task.id}' produced no artifact."
+                )
+            current_state = _merge_build_state(
+                previous_state=current_state,
+                built_artifacts={job.task.id: result},
+                config_hash=plan.config_hash,
+            )
+            save_build_state(current_state, plan.state_path)
+            hydrate_runtime_artifacts(
+                runtime=runtime,
+                graph=plan.graph,
+                state=current_state,
+                config_hash=plan.config_hash,
+                artifact_keys=plan.artifacts,
+            )
+            label = job.task.id.replace("_", " ").capitalize()
+            path = (Path(runtime.artifacts_root) / result.relative_path).resolve()
+            emit_file_result(label, path)
     return current_state
 
 
@@ -309,7 +317,6 @@ def run_build_if_needed(
     required_artifacts: set[str],
     mode: str,
     runtime: Runtime,
-    profile_name: str | None = None,
     heartbeat_interval_seconds: float | None = None,
     resolved_artifacts: set[str] | None = None,
     expected_config_hash: str | None = None,
@@ -328,10 +335,10 @@ def run_build_if_needed(
         resolved_artifacts=resolved_artifacts,
         expected_config_hash=expected_config_hash,
     )
-    _log_build_decision(
+    _report_artifact_plan(
         plan,
         mode=mode,
-        profile_name=profile_name,
+        requested_artifacts=required_artifacts,
     )
     if isinstance(plan, SkippedBuild):
         if resolved_artifacts is not None:

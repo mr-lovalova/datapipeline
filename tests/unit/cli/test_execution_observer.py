@@ -4,26 +4,20 @@ from pathlib import Path
 import pytest
 
 from datapipeline.cli.visuals.execution import (
-    BuildDecisionMessage,
     DagFinished,
     DagSummary,
     DagStarted,
     ExecutionEventFormatter,
     ExecutionEventSink,
     ExecutionMessage,
-    ExecutionScope,
     HierarchicalExecutionObserver,
     LoggerExecutionEventSink,
     NodeFinished,
     NodeProgress,
     NodeStarted,
     OperationProgress,
-    ProfileStarted,
     SourceInfoMessage,
-    emit_build_decision,
-    execution_scope,
     emit_execution_message,
-    emit_profile_started,
     emit_source_info,
     make_execution_observer,
     make_operation_observer,
@@ -46,6 +40,8 @@ from datapipeline.dag.node import PipelineNode
 from datapipeline.dag.runner import run_dag
 from datapipeline.execution.observability import (
     FileResult,
+    OperationFinished,
+    OperationStarted,
     emit_file_result,
     emit_operation_progress,
     operation_observer,
@@ -62,14 +58,6 @@ class _CaptureSink(ExecutionEventSink):
         self.events.append(event)
 
 
-_SCOPE = ExecutionScope(
-    profile_kind="serve",
-    profile_name="test",
-    target_id="pipeline",
-    task_id="materialize",
-    item_index="1",
-    item_total="2",
-)
 _PARENT = DagParentRef(
     dag_name="pipeline:serve",
     node_name="vector_assemble",
@@ -94,17 +82,6 @@ _PARENT = DagParentRef(
             logging.INFO,
             "train_0: /tmp/dataset.train_0.jsonl · 1 record",
         ),
-        (
-            ProfileStarted(command="serve", name="default", index=1, total=1),
-            logging.INFO,
-            "Profile: serve default (1/1)",
-        ),
-        (
-            ProfileStarted(command="materialize", name="adv.20", index=2, total=3),
-            logging.INFO,
-            "Profile: materialize adv.20 (2/3)",
-        ),
-        (BuildDecisionMessage(message="build"), logging.INFO, "build"),
         (
             SourceInfoMessage(source_label="prices", message="inputs", depth=1),
             logging.INFO,
@@ -182,7 +159,33 @@ _PARENT = DagParentRef(
                 depth=1,
             ),
             logging.INFO,
-            "  [build:schema/write] running",
+            "Operation build:schema · write · running",
+        ),
+        (
+            OperationStarted("serve:dataset"),
+            logging.INFO,
+            "Operation serve:dataset started",
+        ),
+        (
+            OperationFinished(
+                "serve:dataset",
+                "success",
+                elapsed_seconds=0.25,
+            ),
+            logging.INFO,
+            "Operation serve:dataset finished status=success elapsed=0.250000s",
+        ),
+        (
+            OperationFinished(
+                "serve:dataset",
+                "error",
+                elapsed_seconds=0.5,
+                error_type="ValueError",
+                error_message="bad\ninput",
+            ),
+            logging.ERROR,
+            "Operation serve:dataset finished status=error "
+            "error=ValueError: bad\\ninput elapsed=0.500000s",
         ),
     ],
 )
@@ -668,26 +671,6 @@ def test_emit_execution_message_uses_context_sink_when_available(caplog):
     )
 
 
-def test_explicit_message_emitters_create_typed_events():
-    capture = _CaptureSink()
-    token = set_current_execution_event_sink(capture)
-    try:
-        emit_profile_started("materialize", "adv.20", 2, 3)
-        emit_build_decision("build decision")
-    finally:
-        reset_current_execution_event_sink(token)
-
-    assert [type(event) for event in capture.events] == [
-        ProfileStarted,
-        BuildDecisionMessage,
-    ]
-    profile_started = capture.events[0]
-    assert profile_started.command == "materialize"
-    assert profile_started.name == "adv.20"
-    assert profile_started.index == 2
-    assert profile_started.total == 3
-
-
 def test_emit_execution_message_logs_without_context_sink(caplog):
     logger = logging.getLogger(
         "datapipeline.cli.visuals.execution.test.message_default"
@@ -701,7 +684,7 @@ def test_emit_execution_message_logs_without_context_sink(caplog):
     assert getattr(caplog.records[-1], "dp_event_kind", None) == "execution"
 
 
-def test_operation_scope_emits_flat_result_and_labelled_progress(caplog):
+def test_operation_scope_emits_flat_lifecycle_result_and_progress(caplog):
     capture = _CaptureSink()
     logger = logging.getLogger("datapipeline.cli.visuals.execution.test.operation")
     token = set_current_execution_event_sink(capture)
@@ -722,38 +705,22 @@ def test_operation_scope_emits_flat_result_and_labelled_progress(caplog):
         reset_current_execution_event_sink(token)
 
     assert [type(event) for event in capture.events] == [
+        OperationStarted,
         FileResult,
         OperationProgress,
+        OperationFinished,
     ]
-    assert capture.events[0].label == "Model grid"
-    assert capture.events[0].path == Path("/tmp/model_grid.jsonl")
-    assert capture.events[1].step == "write_artifact"
-    assert capture.events[1].message == "running elapsed=1s items=3"
+    assert capture.events[1].label == "Model grid"
+    assert capture.events[1].path == Path("/tmp/model_grid.jsonl")
+    assert capture.events[2].step == "write_artifact"
+    assert capture.events[2].message == "running elapsed=1s items=3"
     messages = [record.getMessage() for record in caplog.records]
+    assert "Operation build:model_grid started" in messages
     assert "Model grid: /tmp/model_grid.jsonl" in messages
-    assert "[build:model_grid/write_artifact] running elapsed=1s items=3" in messages
-
-
-def test_execution_scope_applies_to_messages_and_dag_events():
-    capture = _CaptureSink()
-    observer = make_execution_observer(sink=capture)
-    token = set_current_execution_event_sink(capture)
-
-    try:
-        with execution_scope(
-            profile_kind="serve",
-            profile_name="test",
-            target_id="serve",
-            task_id="schema",
-        ):
-            emit_execution_message("in scope")
-            observer.on_dag_start(dag_name="vector:assemble", node_count=2, depth=0)
-    finally:
-        reset_current_execution_event_sink(token)
-
-    assert len(capture.events) == 2
-    for event in capture.events:
-        assert event.scope.profile_kind == "serve"
-        assert event.scope.profile_name == "test"
-        assert event.scope.target_id == "serve"
-        assert event.scope.task_id == "schema"
+    assert (
+        "Operation build:model_grid · write_artifact · running elapsed=1s items=3"
+    ) in messages
+    assert any(
+        message.startswith("Operation build:model_grid finished status=success")
+        for message in messages
+    )

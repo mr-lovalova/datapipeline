@@ -12,7 +12,6 @@ from datapipeline.cli.visuals.execution import (
     NodeFinished,
     NodeProgress,
     NodeStarted,
-    ProfileStarted,
     SourceInfoMessage,
 )
 from datapipeline.cli.visuals.execution_context import (
@@ -30,7 +29,7 @@ from datapipeline.cli.visuals.rich.progress import (
     visual_execution,
 )
 from datapipeline.dag.events import DagParentRef, ProgressResource, ProgressSnapshot
-from datapipeline.execution.observability import FileResult
+from datapipeline.execution.observability import FileResult, OperationFinished
 
 
 def _console(width: int | None = None) -> tuple[Console, StringIO]:
@@ -492,23 +491,18 @@ def test_rich_sink_static_events_use_only_event_depth() -> None:
     ]
 
 
-def test_rich_sink_renders_profile_header_once_at_warning() -> None:
+def test_rich_sink_hides_debug_profile_context_at_info() -> None:
     console, output = _console()
-    sink = _RichConsoleExecutionSink(logging.WARNING, console)
+    sink = _RichConsoleExecutionSink(logging.INFO, console)
 
     sink.emit(
-        ProfileStarted(
-            command="materialize",
-            name="adv.20",
-            index=1,
-            total=14,
+        ExecutionMessage(
+            message="Profile: serve dataset (1/1) target=pipeline",
+            log_level=logging.DEBUG,
         )
     )
 
-    lines = output.getvalue().splitlines()
-    assert sum("Materialize Profiles" in line for line in lines) == 1
-    assert sum("── adv.20 (1/14) ──" in line for line in lines) == 1
-    assert [line for line in lines if line.strip()][1] == "  ── adv.20 (1/14) ──"
+    assert output.getvalue() == ""
 
 
 def test_rich_sink_styles_labels_and_final_status() -> None:
@@ -532,10 +526,19 @@ def test_rich_sink_styles_labels_and_final_status() -> None:
             elapsed_seconds=1,
         )
     )
+    operation_error = sink._render_event(
+        OperationFinished(
+            name="materialize:adv.20",
+            status="error",
+            elapsed_seconds=1,
+            error_type="ValueError",
+        )
+    )
 
     assert any(str(span.style) == "bold cyan" for span in success.spans)
     assert any(str(span.style) == "green" for span in success.spans)
     assert any(str(span.style) == "bold red" for span in error.spans)
+    assert any(str(span.style) == "bold red" for span in operation_error.spans)
 
 
 def test_rich_sink_renders_file_result_as_aligned_link() -> None:

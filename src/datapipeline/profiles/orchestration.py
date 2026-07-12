@@ -3,14 +3,9 @@ import logging
 from datapipeline.artifacts.executor import run_build_if_needed
 from datapipeline.artifacts.planning import ArtifactGraph, build_artifact_graph
 from datapipeline.build.config_hash import compute_config_hash
+from datapipeline.cli.visuals.execution import emit_execution_message
 from datapipeline.config.tasks import ArtifactTask, OperationTask, Task
-from datapipeline.profiles.executor import (
-    ExecutionSpec,
-    ProfileExecutionSpec,
-    run_execution,
-    run_profile,
-)
-from datapipeline.cli.visuals.execution import execution_scope
+from datapipeline.profiles.executor import ExecutionSpec, run_execution
 from datapipeline.services.bootstrap import bootstrap_build_runtime
 from datapipeline.services.project_paths import tasks_dir
 from datapipeline.services.runs import (
@@ -93,11 +88,7 @@ def run_profiles(request: ProfileRunRequest) -> None:
         for idx, profile in enumerate(profiles, start=1):
             runtime = profile_runtimes[idx - 1]
             runtime.heartbeat_interval_seconds = profile.heartbeat_interval_seconds
-            spec = ProfileExecutionSpec(
-                command=request.command,
-                name=profile.name,
-                index=idx,
-                total=total,
+            spec = ExecutionSpec(
                 visuals=profile.visuals,
                 log_decision=profile.log_decision,
                 log_output=profile.log_output,
@@ -106,24 +97,34 @@ def run_profiles(request: ProfileRunRequest) -> None:
 
             task_plan = profile_task_plans[idx - 1]
 
-            def work(profile=profile, runtime=runtime, task_plan=task_plan):
-                scope_target = profile.target_id
-                with execution_scope(
-                    profile_kind=request.command,
-                    profile_name=profile.name,
-                    target_id=scope_target,
-                ):
-                    return execute_profile(
-                        profile=profile,
-                        request=request,
-                        task_plan=task_plan,
-                        graph=graph,
-                        runtime_override=runtime,
-                        resolved_artifacts=resolved_artifacts,
-                        expected_config_hash=request.config_hash,
-                    )
+            def work(
+                profile=profile,
+                runtime=runtime,
+                task_plan=task_plan,
+                index=idx,
+            ):
+                message = (
+                    f"Profile: {request.command} {profile.name} ({index}/{total}) "
+                    f"target={profile.target_id}"
+                )
+                if profile.build_settings is not None:
+                    message = f"{message} mode={profile.build_settings.mode}"
+                emit_execution_message(
+                    message,
+                    level=logging.DEBUG,
+                    logger=logger,
+                )
+                return execute_profile(
+                    profile=profile,
+                    request=request,
+                    task_plan=task_plan,
+                    graph=graph,
+                    runtime_override=runtime,
+                    resolved_artifacts=resolved_artifacts,
+                    expected_config_hash=request.config_hash,
+                )
 
-            run_profile(spec=spec, work=work)
+            run_execution(spec=spec, work=work)
         succeeded = True
     finally:
         _finalize_serve_runs(started_serve_runs, succeeded)
@@ -191,15 +192,14 @@ def _prepare_runtime_artifacts(
     )
 
     def prepare() -> None:
-        with execution_scope(profile_kind=request.command):
-            run_build_if_needed(
-                request.project_path,
-                graph=graph,
-                required_artifacts=required_artifacts,
-                mode=settings.mode,
-                runtime=runtime,
-                heartbeat_interval_seconds=settings.heartbeat_interval_seconds,
-                expected_config_hash=request.config_hash,
-            )
+        run_build_if_needed(
+            request.project_path,
+            graph=graph,
+            required_artifacts=required_artifacts,
+            mode=settings.mode,
+            runtime=runtime,
+            heartbeat_interval_seconds=settings.heartbeat_interval_seconds,
+            expected_config_hash=request.config_hash,
+        )
 
     run_execution(spec, prepare)

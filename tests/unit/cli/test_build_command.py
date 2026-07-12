@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -102,46 +103,95 @@ def test_load_build_state_invalidates_previous_cache_version(tmp_path: Path) -> 
     assert load_build_state(state_path) is None
 
 
-def test_log_build_decision_describes_explicit_mode_and_profile(monkeypatch) -> None:
-    captured: list[str] = []
+def test_report_artifact_plan_logs_current_roots(monkeypatch) -> None:
+    captured: list[tuple[str, int]] = []
     monkeypatch.setattr(
         build_exec,
-        "emit_build_decision",
-        lambda message, logger: captured.append(message),
+        "emit_execution_message",
+        lambda message, level=logging.INFO, logger=None: captured.append(
+            (message, level)
+        ),
     )
 
-    build_exec._log_build_decision(
+    build_exec._report_artifact_plan(
         build_exec.SkippedBuild(
             reason="up_to_date",
             artifacts=(VECTOR_INPUTS, VECTOR_SCHEMA),
         ),
         mode="AUTO",
-        profile_name="schema",
+        requested_artifacts={VECTOR_SCHEMA},
     )
 
-    assert len(captured) == 1
-    assert '"action": "skip"' in captured[0]
-    assert '"reason": "up_to_date"' in captured[0]
-    assert '"mode": "AUTO"' in captured[0]
-    assert '"profile": "schema"' in captured[0]
-    assert '"jobs": []' in captured[0]
+    assert captured == [
+        (
+            "Artifact plan: action=skip reason=up_to_date mode=AUTO "
+            "requested=schema required=vector_inputs, schema jobs=none "
+            "current=vector_inputs, schema",
+            logging.DEBUG,
+        ),
+        ("Artifacts: current · schema", logging.INFO),
+    ]
 
 
-def test_log_build_decision_omits_absent_profile(monkeypatch) -> None:
-    captured: list[str] = []
+def test_report_artifact_plan_logs_not_required(monkeypatch) -> None:
+    captured: list[tuple[str, int]] = []
     monkeypatch.setattr(
         build_exec,
-        "emit_build_decision",
-        lambda message, logger: captured.append(message),
+        "emit_execution_message",
+        lambda message, level=logging.INFO, logger=None: captured.append(
+            (message, level)
+        ),
     )
 
-    build_exec._log_build_decision(
-        build_exec.SkippedBuild(reason="up_to_date", artifacts=(VECTOR_SCHEMA,)),
+    build_exec._report_artifact_plan(
+        build_exec.SkippedBuild(reason="not_required", artifacts=()),
         mode="AUTO",
-        profile_name=None,
+        requested_artifacts={SCALER_STATISTICS},
     )
 
-    assert '"profile"' not in captured[0]
+    assert captured == [
+        (
+            "Artifact plan: action=skip reason=not_required mode=AUTO "
+            "requested=scaler required=none jobs=none current=none",
+            logging.DEBUG,
+        ),
+        ("Artifacts: not required · scaler", logging.INFO),
+    ]
+
+
+def test_report_artifact_plan_keeps_run_details_at_debug(monkeypatch) -> None:
+    task = SchemaTask(id="schema")
+    captured: list[tuple[str, int]] = []
+    monkeypatch.setattr(
+        build_exec,
+        "emit_execution_message",
+        lambda message, level=logging.INFO, logger=None: captured.append(
+            (message, level)
+        ),
+    )
+
+    build_exec._report_artifact_plan(
+        build_exec.BuildPlan(
+            reason="force",
+            artifacts=(VECTOR_INPUTS, VECTOR_SCHEMA),
+            jobs=(build_exec.ArtifactBuildJob(task, (VECTOR_SCHEMA,)),),
+            skipped_current=(VECTOR_INPUTS,),
+            config_hash="hash-1",
+            state_path=Path("state.json"),
+            previous_state=None,
+            graph=build_artifact_graph([task]),
+        ),
+        mode="FORCE",
+        requested_artifacts={VECTOR_SCHEMA},
+    )
+
+    assert captured == [
+        (
+            "Artifact plan: action=run reason=force mode=FORCE requested=schema "
+            "required=vector_inputs, schema jobs=schema current=vector_inputs",
+            logging.DEBUG,
+        )
+    ]
 
 
 def test_run_artifact_builder_persists_under_task_id(monkeypatch, tmp_path) -> None:
@@ -725,7 +775,7 @@ def test_run_build_rejects_inputs_changed_during_execution(
     )
     monkeypatch.setattr(build_exec, "_plan_build", lambda **_kwargs: plan)
     monkeypatch.setattr(
-        build_exec, "_log_build_decision", lambda *_args, **_kwargs: None
+        build_exec, "_report_artifact_plan", lambda *_args, **_kwargs: None
     )
     monkeypatch.setattr(build_exec, "_execute_build_jobs", lambda **_kwargs: None)
     monkeypatch.setattr(build_exec, "tasks_dir", lambda _project: tmp_path)

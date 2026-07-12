@@ -1,11 +1,14 @@
 import logging
 from typing import Protocol
 
-from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 
-from datapipeline.execution.observability import FileResult, format_record_count
+from datapipeline.execution.observability import (
+    FileResult,
+    OperationFinished,
+    format_record_count,
+)
 
 from ..execution import (
     DagFinished,
@@ -17,7 +20,6 @@ from ..execution import (
     NodeProgress,
     NodeStarted,
     OperationProgress,
-    ProfileStarted,
 )
 
 
@@ -37,14 +39,6 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
         self._progress_renderer = progress_renderer
 
     def emit(self, event: ExecutionLogEvent) -> None:
-        if isinstance(event, ProfileStarted):
-            heading = f"{event.command.capitalize()} Profiles"
-            self._console.print(Rule(heading, style="bold white"))
-            self._console.print(
-                Text(f"  ── {event.name} ({event.index}/{event.total}) ──")
-            )
-            self._console.print()
-            return
         if self._progress_renderer is not None and isinstance(
             event,
             DagStarted | NodeStarted | NodeProgress | NodeFinished | DagFinished,
@@ -91,7 +85,7 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
             style=self._message_style(level),
         )
         text.highlight_regex(r"^\s*\[[^]]+\]", style="bold cyan")
-        if isinstance(event, DagFinished | NodeFinished):
+        if isinstance(event, DagFinished | NodeFinished | OperationFinished):
             status_style = "green" if event.status == "success" else "bold red"
             text.highlight_words([f"status={event.status}"], style=status_style)
         return text

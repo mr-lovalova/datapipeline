@@ -17,10 +17,6 @@ _CURRENT_TERMINAL_LOG_PROXY_SINK: ContextVar[Any | None] = ContextVar(
     "datapipeline_visual_current_terminal_log_proxy_sink",
     default=None,
 )
-_CURRENT_EXECUTION_SCOPE: ContextVar[dict[str, str] | None] = ContextVar(
-    "datapipeline_visual_current_execution_scope",
-    default=None,
-)
 
 
 def set_current_dag_depth(depth: int) -> None:
@@ -64,15 +60,3 @@ def reset_current_terminal_log_proxy_sink(token) -> None:
 
 def current_terminal_log_proxy_sink() -> Any | None:
     return _CURRENT_TERMINAL_LOG_PROXY_SINK.get()
-
-
-def set_current_execution_scope(scope: dict[str, str] | None):
-    return _CURRENT_EXECUTION_SCOPE.set(scope)
-
-
-def reset_current_execution_scope(token) -> None:
-    _CURRENT_EXECUTION_SCOPE.reset(token)
-
-
-def current_execution_scope() -> dict[str, str] | None:
-    return _CURRENT_EXECUTION_SCOPE.get()

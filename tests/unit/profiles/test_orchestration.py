@@ -1,5 +1,5 @@
-from contextlib import contextmanager
 import json
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -230,6 +230,7 @@ def test_build_profiles_keep_configured_order_and_share_resolved_artifacts(
         ],
     )
     calls: list[dict[str, object]] = []
+    messages: list[tuple[str, int]] = []
 
     def build(_project, **kwargs):
         calls.append(dict(kwargs))
@@ -240,8 +241,12 @@ def test_build_profiles_keep_configured_order_and_share_resolved_artifacts(
         lambda *_args: _dataset(),
     )
     monkeypatch.setattr(
-        "datapipeline.profiles.orchestration.run_profile",
+        "datapipeline.profiles.orchestration.run_execution",
         lambda spec, work: work(),
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.emit_execution_message",
+        lambda message, level, logger: messages.append((message, level)),
     )
     monkeypatch.setattr(
         "datapipeline.profiles.execution.run_build_if_needed",
@@ -250,7 +255,10 @@ def test_build_profiles_keep_configured_order_and_share_resolved_artifacts(
 
     run_profiles(request)
 
-    assert [call["profile_name"] for call in calls] == ["vector_inputs", "schema"]
+    assert [call["required_artifacts"] for call in calls] == [
+        {VECTOR_INPUTS},
+        {VECTOR_SCHEMA},
+    ]
     assert [call["runtime"].marker for call in calls] == [
         "vector-runtime",
         "schema-runtime",
@@ -260,6 +268,13 @@ def test_build_profiles_keep_configured_order_and_share_resolved_artifacts(
     assert calls[0]["resolved_artifacts"] is calls[1]["resolved_artifacts"]
     assert calls[1]["resolved_artifacts"] == {VECTOR_INPUTS, VECTOR_SCHEMA}
     assert {call["expected_config_hash"] for call in calls} == {"hash-1"}
+    assert messages == [
+        (
+            "Profile: build vector_inputs (1/2) target=vector_inputs mode=AUTO",
+            logging.DEBUG,
+        ),
+        ("Profile: build schema (2/2) target=schema mode=FORCE", logging.DEBUG),
+    ]
 
 
 def test_runtime_artifact_union_is_prepared_once_before_profiles(
@@ -309,9 +324,9 @@ def test_runtime_artifact_union_is_prepared_once_before_profiles(
 
     def execute(spec, work):
         execution_specs.append(spec)
-        events.append(("artifact execution started", spec.runtime))
+        events.append(("execution started", spec.runtime))
         result = work()
-        events.append(("artifact execution finished", spec.runtime))
+        events.append(("execution finished", spec.runtime))
         return result
 
     monkeypatch.setattr(
@@ -327,10 +342,6 @@ def test_runtime_artifact_union_is_prepared_once_before_profiles(
         execute,
     )
     monkeypatch.setattr(
-        "datapipeline.profiles.orchestration.run_profile",
-        lambda spec, work: work(),
-    )
-    monkeypatch.setattr(
         "datapipeline.profiles.orchestration.execute_profile",
         lambda **kwargs: events.append(("profile", kwargs["runtime_override"])),
     )
@@ -338,11 +349,15 @@ def test_runtime_artifact_union_is_prepared_once_before_profiles(
     run_profiles(request)
 
     assert events == [
-        ("artifact execution started", canonical_runtime),
+        ("execution started", canonical_runtime),
         ("build", canonical_runtime),
-        ("artifact execution finished", canonical_runtime),
+        ("execution finished", canonical_runtime),
+        ("execution started", first_runtime),
         ("profile", first_runtime),
+        ("execution finished", first_runtime),
+        ("execution started", second_runtime),
         ("profile", second_runtime),
+        ("execution finished", second_runtime),
     ]
     assert execution_specs == [
         ExecutionSpec(
@@ -350,7 +365,19 @@ def test_runtime_artifact_union_is_prepared_once_before_profiles(
             log_decision=artifact_settings.log_decision,
             log_output=artifact_settings.log_output,
             runtime=canonical_runtime,
-        )
+        ),
+        ExecutionSpec(
+            visuals="off",
+            log_decision=_LOG_DECISION,
+            log_output=_LOG_OUTPUT,
+            runtime=first_runtime,
+        ),
+        ExecutionSpec(
+            visuals="off",
+            log_decision=_LOG_DECISION,
+            log_output=_LOG_OUTPUT,
+            runtime=second_runtime,
+        ),
     ]
     assert len(build_calls) == 1
     assert build_calls[0]["required_artifacts"] == {
@@ -400,7 +427,7 @@ def test_custom_runtime_artifact_requirement_is_prepared(
         lambda _project, **kwargs: build_calls.append(dict(kwargs)),
     )
     monkeypatch.setattr(
-        "datapipeline.profiles.orchestration.run_profile",
+        "datapipeline.profiles.orchestration.run_execution",
         lambda spec, work: work(),
     )
     monkeypatch.setattr(
@@ -565,7 +592,7 @@ def test_invalid_preview_is_rejected_before_execution(tmp_path: Path) -> None:
     assert not run_paths.run_root.exists()
 
 
-def test_runtime_profiles_keep_order_heartbeat_and_execution_scope(
+def test_runtime_profiles_keep_order_heartbeat_and_report_debug_context(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -588,29 +615,20 @@ def test_runtime_profiles_keep_order_heartbeat_and_execution_scope(
         ],
     )
     observed: list[tuple[str, float | None]] = []
-    scopes: list[dict[str, object]] = []
-    artifact_execution_specs: list[ExecutionSpec] = []
+    messages: list[tuple[str, int]] = []
+    execution_specs: list[ExecutionSpec] = []
 
-    @contextmanager
-    def scope(**kwargs):
-        scopes.append(kwargs)
-        yield
-
-    def artifact_execution(spec, work):
-        artifact_execution_specs.append(spec)
+    def execute(spec, work):
+        execution_specs.append(spec)
         return work()
 
     monkeypatch.setattr(
-        "datapipeline.profiles.orchestration.execution_scope",
-        scope,
+        "datapipeline.profiles.orchestration.emit_execution_message",
+        lambda message, level, logger: messages.append((message, level)),
     )
     monkeypatch.setattr(
         "datapipeline.profiles.orchestration.run_execution",
-        artifact_execution,
-    )
-    monkeypatch.setattr(
-        "datapipeline.profiles.orchestration.run_profile",
-        lambda spec, work: work(),
+        execute,
     )
     monkeypatch.setattr(
         "datapipeline.profiles.orchestration.execute_profile",
@@ -625,12 +643,12 @@ def test_runtime_profiles_keep_order_heartbeat_and_execution_scope(
     run_profiles(request)
 
     assert observed == [("first", 10), ("second", 20), ("third", None)]
-    assert [scope["profile_name"] for scope in scopes] == [
-        "first",
-        "second",
-        "third",
+    assert [spec.runtime for spec in execution_specs] == [runtime, runtime, runtime]
+    assert messages == [
+        ("Profile: inspect first (1/3) target=pipeline", logging.DEBUG),
+        ("Profile: inspect second (2/3) target=pipeline", logging.DEBUG),
+        ("Profile: inspect third (3/3) target=pipeline", logging.DEBUG),
     ]
-    assert artifact_execution_specs == []
 
 
 def test_shared_serve_run_is_finalized_once(monkeypatch, tmp_path: Path) -> None:
@@ -649,7 +667,7 @@ def test_shared_serve_run_is_finalized_once(monkeypatch, tmp_path: Path) -> None
     )
     calls = {"start": 0, "success": 0, "failed": 0, "latest": 0}
     monkeypatch.setattr(
-        "datapipeline.profiles.orchestration.run_profile",
+        "datapipeline.profiles.orchestration.run_execution",
         lambda spec, work: work(),
     )
     monkeypatch.setattr(
@@ -699,7 +717,7 @@ def test_profile_failure_marks_shared_run_failed(
             raise RuntimeError("boom")
 
     monkeypatch.setattr(
-        "datapipeline.profiles.orchestration.run_profile",
+        "datapipeline.profiles.orchestration.run_execution",
         lambda spec, work: work(),
     )
     monkeypatch.setattr(
@@ -747,7 +765,7 @@ def test_preview_run_exists_at_profile_boundary_and_is_not_latest(
     )
     observed: dict[str, object] = {}
 
-    def run_profile(spec, work):
+    def run_execution(spec, work):
         run = json.loads(run_paths.metadata_path.read_text(encoding="utf-8"))
         observed.update(
             status=run["status"],
@@ -757,8 +775,8 @@ def test_preview_run_exists_at_profile_boundary_and_is_not_latest(
         return work()
 
     monkeypatch.setattr(
-        "datapipeline.profiles.orchestration.run_profile",
-        run_profile,
+        "datapipeline.profiles.orchestration.run_execution",
+        run_execution,
     )
     monkeypatch.setattr(
         "datapipeline.profiles.orchestration.execute_profile",

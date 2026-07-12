@@ -3,10 +3,10 @@ import logging
 import sys
 from pathlib import Path
 
+import datapipeline.execution.observability as observability
 from datapipeline.cli.logging_setup import configure_root_logging
 from datapipeline.cli.visuals.execution import (
     ExecutionMessage,
-    emit_profile_started,
     make_operation_observer,
 )
 from datapipeline.cli.visuals.execution_context import (
@@ -16,7 +16,11 @@ from datapipeline.cli.visuals.execution_context import (
     set_current_terminal_log_proxy_sink,
 )
 from datapipeline.config.resolution import LogOutputSettings, LogOutputTarget
-from datapipeline.execution.observability import emit_file_result, operation_observer
+from datapipeline.execution.observability import (
+    emit_file_result,
+    operation_observer,
+    operation_scope,
+)
 
 
 def _flush_root_handlers() -> None:
@@ -26,15 +30,16 @@ def _flush_root_handlers() -> None:
 
 
 def _emit_materialize_outputs(logger: logging.Logger) -> None:
-    emit_profile_started("materialize", "adv.20", 2, 3, logger=logger)
     with operation_observer(make_operation_observer(logger)):
-        emit_file_result("Output", Path("/tmp/adv.20.jsonl"))
-        emit_file_result("Metadata", Path("/tmp/adv.20.metadata.json"))
+        with operation_scope("materialize:adv.20"):
+            emit_file_result("Output", Path("/tmp/adv.20.jsonl"))
+            emit_file_result("Metadata", Path("/tmp/adv.20.metadata.json"))
 
 
-def test_profile_and_output_events_render_as_flat_plain_logs_without_visuals(
+def test_operation_and_output_events_render_as_flat_plain_logs_without_visuals(
     monkeypatch,
 ):
+    monkeypatch.setattr(observability.time, "perf_counter", lambda: 10.0)
     stream = io.StringIO()
     monkeypatch.setattr(sys, "stderr", stream)
     configure_root_logging(
@@ -47,13 +52,18 @@ def test_profile_and_output_events_render_as_flat_plain_logs_without_visuals(
     _flush_root_handlers()
 
     assert stream.getvalue().splitlines() == [
-        "Profile: materialize adv.20 (2/3)",
+        "Operation materialize:adv.20 started",
         "Output: /tmp/adv.20.jsonl",
         "Metadata: /tmp/adv.20.metadata.json",
+        "Operation materialize:adv.20 finished status=success elapsed=0.000000s",
     ]
 
 
-def test_file_profile_and_output_logs_do_not_depend_on_visual_sink(tmp_path):
+def test_operation_and_output_logs_do_not_depend_on_visual_sink(
+    monkeypatch,
+    tmp_path,
+):
+    monkeypatch.setattr(observability.time, "perf_counter", lambda: 10.0)
     without_visuals = tmp_path / "without-visuals.log"
     configure_root_logging(
         level=logging.INFO,
@@ -92,15 +102,17 @@ def test_file_profile_and_output_logs_do_not_depend_on_visual_sink(tmp_path):
     visual_content = with_visuals.read_text(encoding="utf-8")
     assert visual_content == plain_content
     for expected in (
-        "Profile: materialize adv.20 (2/3)",
+        "Operation materialize:adv.20 started",
         "Output: /tmp/adv.20.jsonl",
         "Metadata: /tmp/adv.20.metadata.json",
+        "Operation materialize:adv.20 finished status=success elapsed=0.000000s",
     ):
         assert visual_content.count(expected) == 1
-    assert len(sink.events) == 3
+    assert len(sink.events) == 4
 
 
-def test_file_profile_and_output_logs_obey_warning_threshold(tmp_path):
+def test_operation_and_output_logs_obey_warning_threshold(monkeypatch, tmp_path):
+    monkeypatch.setattr(observability.time, "perf_counter", lambda: 10.0)
     log_path = tmp_path / "warning.log"
     configure_root_logging(
         level=logging.WARNING,

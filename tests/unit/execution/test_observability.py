@@ -5,8 +5,10 @@ import pytest
 import datapipeline.execution.observability as observability
 from datapipeline.execution.observability import (
     FileResult,
+    OperationFinished,
     OperationProgress,
     OperationProgressTracker,
+    OperationStarted,
     current_operation_observer,
     emit_file_result,
     emit_operation_progress,
@@ -17,8 +19,16 @@ from datapipeline.execution.observability import (
 
 class _CaptureObserver:
     def __init__(self) -> None:
+        self.started: list[OperationStarted] = []
+        self.finished: list[OperationFinished] = []
         self.file_results: list[FileResult] = []
         self.progress: list[tuple[str, str, str]] = []
+
+    def emit_started(self, event: OperationStarted) -> None:
+        self.started.append(event)
+
+    def emit_finished(self, event: OperationFinished) -> None:
+        self.finished.append(event)
 
     def emit_file_result(self, result: FileResult) -> None:
         self.file_results.append(result)
@@ -27,7 +37,9 @@ class _CaptureObserver:
         self.progress.append((name, step, message))
 
 
-def test_observer_routes_file_results_and_scoped_progress() -> None:
+def test_observer_routes_operation_lifecycle_results_and_progress(monkeypatch) -> None:
+    times = iter((3.0, 4.25))
+    monkeypatch.setattr(observability.time, "perf_counter", lambda: next(times))
     observer = _CaptureObserver()
 
     assert current_operation_observer() is None
@@ -44,6 +56,14 @@ def test_observer_routes_file_results_and_scoped_progress() -> None:
             assert emit_operation_progress("write", "running items=3")
 
     assert current_operation_observer() is None
+    assert observer.started == [OperationStarted("build:model_grid")]
+    assert observer.finished == [
+        OperationFinished(
+            "build:model_grid",
+            "success",
+            elapsed_seconds=1.25,
+        )
+    ]
     assert observer.file_results == [
         FileResult("Model grid", Path("/tmp/model_grid.jsonl"))
     ]
@@ -52,7 +72,11 @@ def test_observer_routes_file_results_and_scoped_progress() -> None:
     ]
 
 
-def test_operation_scope_restores_progress_context_after_failure() -> None:
+def test_operation_scope_emits_failure_and_restores_progress_context(
+    monkeypatch,
+) -> None:
+    times = iter((5.0, 5.5))
+    monkeypatch.setattr(observability.time, "perf_counter", lambda: next(times))
     observer = _CaptureObserver()
 
     with operation_observer(observer):
@@ -62,6 +86,16 @@ def test_operation_scope_restores_progress_context_after_failure() -> None:
 
         assert emit_operation_progress("after", "ignored") is False
 
+    assert observer.started == [OperationStarted("serve:test")]
+    assert observer.finished == [
+        OperationFinished(
+            "serve:test",
+            "error",
+            elapsed_seconds=0.5,
+            error_type="ValueError",
+            error_message="  bad input  ",
+        )
+    ]
     assert observer.file_results == []
     assert observer.progress == []
 

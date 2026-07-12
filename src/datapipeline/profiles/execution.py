@@ -97,7 +97,6 @@ def run_build_profile(
         required_artifacts={task.id},
         mode=settings.mode,
         runtime=runtime_override,
-        profile_name=profile.name,
         heartbeat_interval_seconds=settings.heartbeat_interval_seconds,
         resolved_artifacts=resolved_artifacts,
         expected_config_hash=expected_config_hash,
@@ -194,14 +193,3 @@ def execute_profile(
         raise SystemExit(2)
 
     run_runtime_task(task, profile, runtime, command=request.command)
-
-
-__all__ = [
-    "execute_profile",
-    "plan_profile_task",
-    "ProfileTaskPlan",
-    "resolve_profile_task",
-    "RuntimeProfileTaskPlan",
-    "run_build_profile",
-    "run_runtime_task",
-]

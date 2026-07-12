@@ -1,3 +1,4 @@
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
@@ -5,7 +6,7 @@ from typing import Sequence
 from datapipeline.artifacts.executor import run_build_if_needed
 from datapipeline.artifacts.planning import build_artifact_graph
 from datapipeline.artifacts.validation import stream_cadence_artifacts
-from datapipeline.cli.visuals.execution import execution_scope
+from datapipeline.cli.visuals.execution import emit_execution_message
 from datapipeline.config.build_resolution import BuildSettings
 from datapipeline.config.dataset.loader import load_dataset
 from datapipeline.config.loaders.operations import operation_specs
@@ -26,13 +27,11 @@ from datapipeline.config.resolution import (
     resolve_observability_settings,
 )
 from datapipeline.config.tasks import TicksTask
-from datapipeline.execution.observability import emit_file_result
-from datapipeline.profiles.executor import (
-    ExecutionSpec,
-    ProfileExecutionSpec,
-    run_execution,
-    run_profile,
+from datapipeline.execution.observability import (
+    emit_file_result,
+    operation_scope,
 )
+from datapipeline.profiles.executor import ExecutionSpec, run_execution
 from datapipeline.profiles.selection import select_profiles
 from datapipeline.runtime import Runtime
 from datapipeline.services.bootstrap import bootstrap
@@ -160,11 +159,7 @@ def run_materialize_profiles(
     total = len(jobs)
     for index, job in enumerate(jobs, start=1):
         runtime.heartbeat_interval_seconds = job.heartbeat_interval_seconds
-        spec = ProfileExecutionSpec(
-            command="materialize",
-            name=job.name,
-            index=index,
-            total=total,
+        spec = ExecutionSpec(
             visuals=job.visuals,
             log_decision=job.log_decision,
             log_output=job.log_output,
@@ -172,11 +167,13 @@ def run_materialize_profiles(
         )
 
         def work() -> MaterializeResult:
-            with execution_scope(
-                profile_kind="materialize",
-                profile_name=job.name,
-                target_id=job.stream,
-            ):
+            emit_execution_message(
+                f"Profile: materialize {job.name} ({index}/{total}) "
+                f"stream={job.stream} output={job.output} "
+                f"overwrite={str(job.overwrite).lower()}",
+                level=logging.DEBUG,
+            )
+            with operation_scope(f"materialize:{job.name}"):
                 result = materialize_stream_to_path(
                     runtime=runtime,
                     stream_id=job.stream,
@@ -188,7 +185,7 @@ def run_materialize_profiles(
                 emit_file_result("Metadata", result.metadata)
                 return result
 
-        results.append(run_profile(spec, work))
+        results.append(run_execution(spec, work))
     return results
 
 
@@ -311,14 +308,13 @@ def _prepare_materialize_artifacts(
     )
 
     def prepare() -> None:
-        with execution_scope(profile_kind="materialize"):
-            run_build_if_needed(
-                project_path,
-                graph=graph,
-                required_artifacts=required_artifacts,
-                mode=settings.mode,
-                runtime=runtime,
-                heartbeat_interval_seconds=settings.heartbeat_interval_seconds,
-            )
+        run_build_if_needed(
+            project_path,
+            graph=graph,
+            required_artifacts=required_artifacts,
+            mode=settings.mode,
+            runtime=runtime,
+            heartbeat_interval_seconds=settings.heartbeat_interval_seconds,
+        )
 
     run_execution(spec, prepare)

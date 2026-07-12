@@ -1,17 +1,13 @@
 import logging
 from collections.abc import Sequence
-from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Protocol
 
 from datapipeline.cli.visuals.execution_context import (
     current_dag_label,
     current_execution_event_sink,
-    current_execution_scope,
-    reset_current_execution_scope,
     set_current_dag_depth,
     set_current_dag_label,
-    set_current_execution_scope,
 )
 from datapipeline.dag.events import (
     DagParentRef,
@@ -25,42 +21,23 @@ from datapipeline.dag.events import (
 from datapipeline.dag.node import NodeKind
 from datapipeline.dag.observer import ExecutionObserver
 from datapipeline.dag.runner import current_node_progress_context
-from datapipeline.execution.observability import FileResult, format_record_count
-
-
-@dataclass(frozen=True)
-class ExecutionScope:
-    profile_kind: str | None = None
-    profile_name: str | None = None
-    target_id: str | None = None
-    task_id: str | None = None
-    item_index: str | None = None
-    item_total: str | None = None
+from datapipeline.execution.observability import (
+    FileResult,
+    OperationFinished,
+    OperationStarted,
+    format_record_count,
+)
 
 
 @dataclass(frozen=True, kw_only=True)
 class _ExecutionEvent:
     depth: int = 0
-    scope: ExecutionScope = field(default_factory=ExecutionScope)
 
 
 @dataclass(frozen=True, kw_only=True)
 class ExecutionMessage(_ExecutionEvent):
     message: str
     log_level: int = logging.INFO
-
-
-@dataclass(frozen=True, kw_only=True)
-class ProfileStarted(_ExecutionEvent):
-    command: str
-    name: str
-    index: int
-    total: int
-
-
-@dataclass(frozen=True, kw_only=True)
-class BuildDecisionMessage(_ExecutionEvent):
-    message: str
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -135,8 +112,6 @@ class OperationProgress(_ExecutionEvent):
 ExecutionLogEvent = (
     ExecutionMessage
     | FileResult
-    | ProfileStarted
-    | BuildDecisionMessage
     | SourceInfoMessage
     | DagStarted
     | DagSummary
@@ -144,6 +119,8 @@ ExecutionLogEvent = (
     | NodeStarted
     | NodeProgress
     | NodeFinished
+    | OperationStarted
+    | OperationFinished
     | OperationProgress
 )
 
@@ -155,7 +132,7 @@ class ExecutionEventSink(Protocol):
 class ExecutionEventFormatter:
     @staticmethod
     def error_suffix(
-        event: DagFinished | NodeFinished,
+        event: DagFinished | NodeFinished | OperationFinished,
     ) -> str:
         if event.status != "error" or event.error_type is None:
             return ""
@@ -171,7 +148,7 @@ class ExecutionEventFormatter:
 
     @staticmethod
     def display_depth(event: ExecutionLogEvent) -> int:
-        if isinstance(event, FileResult):
+        if isinstance(event, FileResult | OperationStarted | OperationFinished):
             return 0
         if isinstance(event, NodeStarted | NodeProgress | NodeFinished):
             return max(0, int(event.depth) - 1)
@@ -191,19 +168,19 @@ class ExecutionEventFormatter:
     def level(event: ExecutionLogEvent) -> int:
         if isinstance(event, ExecutionMessage):
             return int(event.log_level)
-        if isinstance(event, DagFinished | NodeFinished):
+        if isinstance(event, DagFinished | NodeFinished | OperationFinished):
             if event.status == "error":
                 return logging.ERROR
         if isinstance(
             event,
             FileResult
-            | ProfileStarted
-            | BuildDecisionMessage
             | SourceInfoMessage
             | DagStarted
             | DagSummary
             | DagFinished
             | NodeProgress
+            | OperationStarted
+            | OperationFinished
             | OperationProgress,
         ):
             return logging.INFO
@@ -220,16 +197,16 @@ class ExecutionEventFormatter:
                 else f" · {format_record_count(event.records)}"
             )
             return f"{event.label}: {event.path}{records}"
-        indent = cls.indent(cls.display_depth(event))
-        if isinstance(event, ProfileStarted):
+        if isinstance(event, OperationStarted):
+            return f"Operation {event.name} started"
+        if isinstance(event, OperationFinished):
+            error_suffix = cls.error_suffix(event)
             return (
-                f"{indent}Profile: {event.command} {event.name} "
-                f"({event.index}/{event.total})"
+                f"Operation {event.name} finished status={event.status}"
+                f"{error_suffix} elapsed={event.elapsed_seconds:.6f}s"
             )
-        if isinstance(
-            event,
-            ExecutionMessage | BuildDecisionMessage,
-        ):
+        indent = cls.indent(cls.display_depth(event))
+        if isinstance(event, ExecutionMessage):
             message = event.message
             if not indent or "\n" not in message:
                 return f"{indent}{message}"
@@ -257,8 +234,7 @@ class ExecutionEventFormatter:
             label = cls.execution_label(event.dag_name, event.node_name)
             return f"{indent}[{label}] {cls.progress_message(event)}"
         if isinstance(event, OperationProgress):
-            label = cls.execution_label(event.operation_name, event.step)
-            return f"{indent}[{label}] {event.message}"
+            return f"Operation {event.operation_name} · {event.step} · {event.message}"
         if isinstance(event, NodeFinished):
             error_suffix = cls.error_suffix(event)
             label = cls.execution_label(event.dag_name, event.node_name)
@@ -270,53 +246,11 @@ class ExecutionEventFormatter:
         raise TypeError(f"Unsupported execution event: {type(event).__name__}")
 
 
-def _current_scope() -> ExecutionScope:
-    scope = current_execution_scope() or {}
-    return ExecutionScope(
-        profile_kind=scope.get("profile_kind"),
-        profile_name=scope.get("profile_name"),
-        target_id=scope.get("target_id"),
-        task_id=scope.get("task_id"),
-        item_index=scope.get("item_index"),
-        item_total=scope.get("item_total"),
-    )
-
-
 def current_source_label(fallback: str) -> str:
     node = current_node_progress_context()
     if node is not None:
         return node.dag_name
     return current_dag_label() or fallback
-
-
-@contextmanager
-def execution_scope(
-    *,
-    profile_kind: str | None = None,
-    profile_name: str | None = None,
-    target_id: str | None = None,
-    task_id: str | None = None,
-    item_index: int | None = None,
-    item_total: int | None = None,
-):
-    merged = dict(current_execution_scope() or {})
-    updates = {
-        "profile_kind": profile_kind,
-        "profile_name": profile_name,
-        "target_id": target_id,
-        "task_id": task_id,
-        "item_index": item_index,
-        "item_total": item_total,
-    }
-    for key, value in updates.items():
-        if value is not None:
-            merged[key] = str(value)
-
-    token = set_current_execution_scope(merged)
-    try:
-        yield
-    finally:
-        reset_current_execution_scope(token)
 
 
 class CompositeExecutionEventSink(ExecutionEventSink):
@@ -374,46 +308,8 @@ def emit_execution_message(
         depth=max(0, int(depth)),
         message=message,
         log_level=int(level),
-        scope=_current_scope(),
     )
     _emit_event(event, logger)
-
-
-def emit_profile_started(
-    command: str,
-    name: str,
-    index: int,
-    total: int,
-    logger: logging.Logger | None = None,
-    depth: int = 0,
-) -> None:
-    _emit_event(
-        ProfileStarted(
-            command=command,
-            name=name,
-            index=index,
-            total=total,
-            depth=max(0, int(depth)),
-            scope=_current_scope(),
-        ),
-        logger,
-    )
-
-
-def emit_build_decision(
-    message: str,
-    *,
-    logger: logging.Logger | None = None,
-    depth: int = 0,
-) -> None:
-    _emit_event(
-        BuildDecisionMessage(
-            message=message,
-            depth=max(0, int(depth)),
-            scope=_current_scope(),
-        ),
-        logger,
-    )
 
 
 def emit_source_info(
@@ -428,7 +324,6 @@ def emit_source_info(
             source_label=current_source_label(stream_id),
             message=message,
             depth=max(0, int(depth)),
-            scope=_current_scope(),
         ),
         logger,
     )
@@ -441,6 +336,12 @@ class ExecutionOperationObserver:
     def emit_file_result(self, result: FileResult) -> None:
         _emit_event(result, self._logger)
 
+    def emit_started(self, event: OperationStarted) -> None:
+        _emit_event(event, self._logger)
+
+    def emit_finished(self, event: OperationFinished) -> None:
+        _emit_event(event, self._logger)
+
     def emit_progress(
         self,
         name: str,
@@ -452,7 +353,6 @@ class ExecutionOperationObserver:
                 operation_name=name,
                 step=step,
                 message=message,
-                scope=_current_scope(),
             ),
             self._logger,
         )
@@ -485,7 +385,6 @@ class HierarchicalExecutionObserver(ExecutionObserver):
                 depth=dag_depth,
                 node_count=node_count,
                 dag_parent=dag_parent,
-                scope=_current_scope(),
             )
         )
         if summary:
@@ -494,7 +393,6 @@ class HierarchicalExecutionObserver(ExecutionObserver):
                     dag_name=dag_name,
                     depth=dag_depth,
                     summary=summary,
-                    scope=_current_scope(),
                 )
             )
         set_current_dag_depth(dag_depth)
@@ -520,7 +418,6 @@ class HierarchicalExecutionObserver(ExecutionObserver):
                 execution_index=execution_index,
                 node_kind=node_kind,
                 node_calls_dag=node_calls_dag,
-                scope=_current_scope(),
             )
         )
         set_current_dag_depth(node_depth)
@@ -541,7 +438,6 @@ class HierarchicalExecutionObserver(ExecutionObserver):
                 error_message=event.error_message,
                 output_items=event.output_items,
                 elapsed_seconds=event.elapsed_seconds,
-                scope=_current_scope(),
             )
         )
         set_current_dag_depth(node_depth)
@@ -560,7 +456,6 @@ class HierarchicalExecutionObserver(ExecutionObserver):
                 progress=event.progress,
                 elapsed_seconds=event.elapsed_seconds,
                 persistent=event.persistent,
-                scope=_current_scope(),
             )
         )
         set_current_dag_depth(node_depth)
@@ -578,7 +473,6 @@ class HierarchicalExecutionObserver(ExecutionObserver):
                 output_items=event.output_items,
                 elapsed_seconds=event.elapsed_seconds,
                 dag_parent=event.parent,
-                scope=_current_scope(),
             )
         )
         set_current_dag_depth(dag_depth)
