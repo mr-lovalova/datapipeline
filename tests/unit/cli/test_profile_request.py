@@ -86,15 +86,9 @@ def test_inspect_request_materializes_execution_scoped_log_output(
     )
     (tmp_path / "sources").mkdir(parents=True, exist_ok=True)
 
-    def _fake_iter_runtime_runs(project_path, run_entries):
-        total = len(run_entries)
-        for idx, entry in enumerate(run_entries, start=1):
-            runtime = SimpleNamespace(run=entry.config, split=None)
-            yield idx, total, entry, runtime
-
     monkeypatch.setattr(
-        "datapipeline.config.serve_resolution.iter_runtime_runs",
-        _fake_iter_runtime_runs,
+        "datapipeline.config.serve_resolution.bootstrap_build_runtime",
+        lambda _project_path: SimpleNamespace(split=None, execution=None),
     )
     monkeypatch.setattr(
         "datapipeline.profiles.request_builder.load_dataset",
@@ -107,9 +101,9 @@ def test_inspect_request_materializes_execution_scoped_log_output(
         cli_log_outputs=[LogOutputTarget(transport="fs", scope="execution")],
     )
     assert request is not None
-    profile = request.profiles[0]
-    assert profile.log_output.outputs[0].scope == "global"
-    assert profile.log_output.outputs[0].destination == (
+    job = request.jobs[0]
+    assert job.observability.log_output.outputs[0].scope == "global"
+    assert job.observability.log_output.outputs[0].destination == (
         execution_dir / "logs" / "inspect.coverage.log"
     )
     assert not execution_dir.exists()

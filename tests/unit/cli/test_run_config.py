@@ -35,15 +35,9 @@ def _write_op(path: Path, body: str) -> None:
 
 
 def _patch_runtime_resolution(monkeypatch) -> None:
-    def _fake_iter_runtime_runs(project_path, run_entries):
-        total = len(run_entries)
-        for idx, entry in enumerate(run_entries, start=1):
-            runtime = SimpleNamespace(run=entry.config, split=None)
-            yield idx, total, entry, runtime
-
     monkeypatch.setattr(
-        "datapipeline.config.serve_resolution.iter_runtime_runs",
-        _fake_iter_runtime_runs,
+        "datapipeline.config.serve_resolution.bootstrap_build_runtime",
+        lambda _project_path: SimpleNamespace(split=None, execution=None),
     )
     monkeypatch.setattr(
         "datapipeline.profiles.request_builder.load_dataset",
@@ -79,11 +73,10 @@ def test_serve_request_resolves_targeted_profile(monkeypatch, tmp_path: Path):
     )
     assert request is not None
     assert request.command == "serve"
-    assert len(request.profiles) == 1
-    profile = request.profiles[0]
-    assert profile.name == "coverage"
-    assert profile.target_id == "coverage"
-    assert any(task.id == "coverage" for task in request.tasks)
+    assert len(request.jobs) == 1
+    job = request.jobs[0]
+    assert job.name == "coverage"
+    assert job.task.id == "coverage"
     assert request.artifact_settings is not None
     assert request.artifact_settings.mode == "AUTO"
 
@@ -119,10 +112,10 @@ def test_inspect_request_defaults_to_enabled_profiles(monkeypatch, tmp_path: Pat
     )
     assert request is not None
     assert request.command == "inspect"
-    assert len(request.profiles) == 1
-    profile = request.profiles[0]
-    assert profile.name == "matrix"
-    assert profile.target_id == "matrix"
+    assert len(request.jobs) == 1
+    job = request.jobs[0]
+    assert job.name == "matrix"
+    assert job.task.id == "matrix"
 
 
 def test_serve_profile_rejects_artifact_target(monkeypatch, tmp_path: Path, caplog):
@@ -243,8 +236,8 @@ def test_serve_request_orders_enabled_profiles_and_run_targets_only_named_profil
         project=str(project_yaml),
     )
     assert request_all is not None
-    assert [profile.name for profile in request_all.profiles] == ["early", "train"]
-    assert [profile.target_id for profile in request_all.profiles] == [
+    assert [job.name for job in request_all.jobs] == ["early", "train"]
+    assert [job.task.id for job in request_all.jobs] == [
         "pipeline",
         "pipeline",
     ]
@@ -255,8 +248,8 @@ def test_serve_request_orders_enabled_profiles_and_run_targets_only_named_profil
         run_name="train",
     )
     assert request_train is not None
-    assert [profile.name for profile in request_train.profiles] == ["train"]
-    assert [profile.target_id for profile in request_train.profiles] == ["pipeline"]
+    assert [job.name for job in request_train.jobs] == ["train"]
+    assert [job.task.id for job in request_train.jobs] == ["pipeline"]
 
 
 def test_cli_artifact_mode_overrides_selected_profiles(monkeypatch, tmp_path: Path):
@@ -306,15 +299,18 @@ def test_cli_artifact_mode_overrides_selected_profiles(monkeypatch, tmp_path: Pa
     settings = request.artifact_settings
     assert settings is not None
     assert settings.mode == "FORCE"
-    assert settings.heartbeat_interval_seconds == 0
-    assert settings.visuals == "on"
-    assert settings.log_decision.name == "DEBUG"
-    assert settings.log_output.outputs[0].destination is not None
-    assert settings.log_output.outputs[0].destination.name == "serve.artifacts.log"
+    assert settings.observability.heartbeat_interval_seconds == 0
+    assert settings.observability.visuals == "on"
+    assert settings.observability.log_decision.name == "DEBUG"
+    assert settings.observability.log_output.outputs[0].destination is not None
+    assert (
+        settings.observability.log_output.outputs[0].destination.name
+        == "serve.artifacts.log"
+    )
     assert {
-        profile.log_output.outputs[0].destination.name
-        for profile in request.profiles
-        if profile.log_output.outputs[0].destination is not None
+        job.observability.log_output.outputs[0].destination.name
+        for job in request.jobs
+        if job.observability.log_output.outputs[0].destination is not None
     } == {"serve.first.log", "serve.second.log"}
 
 
@@ -390,19 +386,18 @@ def test_serve_defaults_apply_when_profile_omits_fields(monkeypatch, tmp_path: P
         run_name="train",
     )
     assert request is not None
-    profile = request.profiles[0]
-    assert profile.output is not None
-    assert profile.output.transport == "fs"
-    assert profile.output.run is not None
-    assert profile.log_output.outputs[0].transport == "stdout"
-    assert profile.heartbeat_interval_seconds == 30
+    job = request.jobs[0]
+    assert job.output.transport == "fs"
+    assert job.output.run is not None
+    assert job.observability.log_output.outputs[0].transport == "stdout"
+    assert job.observability.heartbeat_interval_seconds == 30
     assert request.artifact_settings is not None
-    assert request.artifact_settings.heartbeat_interval_seconds == 30
+    assert request.artifact_settings.observability.heartbeat_interval_seconds == 30
     assert len(request.serve_run_plans) == 1
-    assert request.serve_run_plans[0].paths == profile.output.run
+    assert request.serve_run_plans[0].paths == job.output.run
     assert not (tmp_path / "artifacts" / "_system" / "executions").exists()
-    assert not profile.output.run.dataset_dir.exists()
-    assert not profile.output.run.metadata_path.exists()
+    assert not job.output.run.dataset_dir.exists()
+    assert not job.output.run.metadata_path.exists()
 
 
 def test_serve_profile_fields_override_serve_defaults(monkeypatch, tmp_path: Path):
@@ -445,10 +440,9 @@ def test_serve_profile_fields_override_serve_defaults(monkeypatch, tmp_path: Pat
         run_name="train",
     )
     assert request is not None
-    profile = request.profiles[0]
-    assert profile.output is not None
-    assert profile.output.transport == "stdout"
-    assert profile.output.run is None
+    job = request.jobs[0]
+    assert job.output.transport == "stdout"
+    assert job.output.run is None
 
 
 def test_serve_profile_nested_observability_deep_merges_defaults(
@@ -494,9 +488,9 @@ def test_serve_profile_nested_observability_deep_merges_defaults(
         run_name="train",
     )
     assert request is not None
-    profile = request.profiles[0]
-    assert profile.log_decision.name == "DEBUG"
-    assert profile.log_output.outputs[0].transport == "stdout"
+    job = request.jobs[0]
+    assert job.observability.log_decision.name == "DEBUG"
+    assert job.observability.log_output.outputs[0].transport == "stdout"
 
 
 def test_build_defaults_apply_to_build_profiles(tmp_path: Path):
@@ -536,8 +530,7 @@ def test_build_defaults_apply_to_build_profiles(tmp_path: Path):
     assert request is not None
     assert request.config_hash is not None
     assert request.execution.sort_batch_records == 256
-    profile = request.profiles[0]
-    assert profile.build_settings is not None
-    assert profile.build_settings.mode == "FORCE"
-    assert profile.build_settings.visuals == "off"
-    assert profile.build_settings.log_decision.name == "DEBUG"
+    job = request.jobs[0]
+    assert job.settings.mode == "FORCE"
+    assert job.settings.observability.visuals == "off"
+    assert job.settings.observability.log_decision.name == "DEBUG"

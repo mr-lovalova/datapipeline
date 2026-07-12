@@ -4,89 +4,58 @@ from types import SimpleNamespace
 import pytest
 from pydantic import ValidationError
 
-from datapipeline.profiles.request_builder import build_cli_output_config
-from datapipeline.services.run_entries import RunEntry
 from datapipeline.config.profiles import (
     BuildProfile,
     InspectProfile,
     ServeOutputConfig,
     ServeProfile,
 )
-from datapipeline.config.serve_resolution import _run_config_value, resolve_run_profiles
 from datapipeline.config.resolution import LogOutputTarget
+from datapipeline.config.serve_resolution import resolve_runtime_profiles
 from datapipeline.config.split import HashSplitConfig
-from datapipeline.config.tasks import (
-    CoverageTask,
-    MatrixTask,
-    PipelineTask,
-)
 from datapipeline.config.workspace import WorkspaceConfig, WorkspaceContext
-
-_SERVE_OPERATION = PipelineTask(
-    id="serve",
-)
-
-_INSPECT_MATRIX_OPERATION = MatrixTask(
-    id="matrix",
-)
-
-_INSPECT_COVERAGE_OPERATION = CoverageTask(
-    id="coverage",
-)
+from datapipeline.profiles.request_builder import build_cli_output_config
 
 
-def _entry(name, config, operation):
-    return RunEntry(
-        name=name,
-        config=config,
-        target_id=operation.id,
-        path=None,
+@pytest.fixture(autouse=True)
+def _bootstrap_runtime(monkeypatch):
+    monkeypatch.setattr(
+        "datapipeline.config.serve_resolution.bootstrap_build_runtime",
+        lambda _project: SimpleNamespace(split=None),
     )
 
 
-def test_run_config_value_ignores_model_defaults():
-    cfg = ServeProfile.model_validate(
-        {"cmd": "serve", "name": "serve", "target": "serve"}
+def _use_split(monkeypatch, split: HashSplitConfig) -> None:
+    monkeypatch.setattr(
+        "datapipeline.config.serve_resolution.bootstrap_build_runtime",
+        lambda _project: SimpleNamespace(split=split),
     )
 
-    assert _run_config_value(cfg, "observability") is None
 
-
-def test_run_config_value_respects_explicit_overrides():
-    cfg = ServeProfile.model_validate(
-        {
-            "cmd": "serve",
-            "name": "serve",
-            "target": "serve",
-            "observability": {
-                "visuals": "off",
-                "logging": {
-                    "level": "debug",
-                    "outputs": [{"transport": "stdout"}],
-                },
-            },
-        }
+def _resolve(
+    project_path: Path,
+    profiles: list[ServeProfile | InspectProfile],
+    preview_index: int | None = None,
+    cli_output: ServeOutputConfig | None = None,
+    cli_log_outputs: list[LogOutputTarget] | None = None,
+    cli_heartbeat_interval_seconds: float | None = None,
+):
+    return resolve_runtime_profiles(
+        project_path=project_path,
+        profiles=profiles,
+        preview_index=preview_index,
+        limit=None,
+        cli_output=cli_output,
+        cli_log_level=None,
+        cli_log_outputs=cli_log_outputs,
+        base_log_level="INFO",
+        cli_visuals=None,
+        cli_heartbeat_interval_seconds=cli_heartbeat_interval_seconds,
     )
-
-    observability = _run_config_value(cfg, "observability")
-    assert observability is not None
-    assert observability.visuals == "OFF"
-    assert observability.logging is not None
-    assert observability.logging.level == "DEBUG"
-    outputs = observability.logging.outputs
-    assert outputs is not None and outputs[0].transport == "STDOUT"
-
-
-def test_run_config_value_preserves_explicit_null():
-    cfg = ServeProfile.model_validate(
-        {"cmd": "serve", "name": "serve", "target": "serve", "observability": None}
-    )
-
-    assert _run_config_value(cfg, "observability") is None
 
 
 def test_serve_profile_accepts_splits_list():
-    cfg = ServeProfile.model_validate(
+    profile = ServeProfile.model_validate(
         {
             "cmd": "serve",
             "name": "splits",
@@ -95,7 +64,7 @@ def test_serve_profile_accepts_splits_list():
         }
     )
 
-    assert cfg.splits == ["train", "val"]
+    assert profile.splits == ["train", "val"]
 
 
 def test_serve_profile_rejects_splits_string():
@@ -144,7 +113,7 @@ def test_runtime_profiles_reject_nested_build_config(profile_type, command):
 
 
 def test_run_profiles_carry_heartbeat_without_mutating_runtime(monkeypatch, tmp_path):
-    run_cfg = ServeProfile.model_validate(
+    profile = ServeProfile.model_validate(
         {
             "cmd": "serve",
             "name": "demo",
@@ -152,42 +121,33 @@ def test_run_profiles_carry_heartbeat_without_mutating_runtime(monkeypatch, tmp_
             "observability": {"heartbeat_interval_seconds": 30},
         }
     )
-    entries = [_entry(name="demo", config=run_cfg, operation=_SERVE_OPERATION)]
+    runtimes = []
 
-    def fake_iter_runtime_runs(project_path, run_entries):
-        total = len(run_entries)
-        for idx, entry in enumerate(run_entries, start=1):
-            runtime = SimpleNamespace(run=entry.config)
-            yield idx, total, entry, runtime
+    def bootstrap(_project):
+        runtime = SimpleNamespace(split=None)
+        runtimes.append(runtime)
+        return runtime
 
     monkeypatch.setattr(
-        "datapipeline.config.serve_resolution.iter_runtime_runs", fake_iter_runtime_runs
+        "datapipeline.config.serve_resolution.bootstrap_build_runtime",
+        bootstrap,
     )
 
-    def resolve(cli_heartbeat_interval_seconds=None):
-        return resolve_run_profiles(
-            project_path=tmp_path,
-            run_entries=entries,
-            preview_index=None,
-            limit=None,
-            cli_output=None,
-            cli_log_level=None,
-            base_log_level="INFO",
-            cli_visuals=None,
-            cli_heartbeat_interval_seconds=cli_heartbeat_interval_seconds,
-        )[0]
+    resolved = _resolve(tmp_path, [profile])[0]
+    assert not hasattr(runtimes[-1], "heartbeat_interval_seconds")
+    assert resolved.observability.heartbeat_interval_seconds == 30
 
-    resolved = resolve()
-    assert not hasattr(resolved.runtime, "heartbeat_interval_seconds")
-    assert resolved.heartbeat_interval_seconds == 30
-
-    cli_override = resolve(0)
-    assert not hasattr(cli_override.runtime, "heartbeat_interval_seconds")
-    assert cli_override.heartbeat_interval_seconds == 0
+    cli_override = _resolve(
+        tmp_path,
+        [profile],
+        cli_heartbeat_interval_seconds=0,
+    )[0]
+    assert not hasattr(runtimes[-1], "heartbeat_interval_seconds")
+    assert cli_override.observability.heartbeat_interval_seconds == 0
 
 
 def test_run_profiles_resolve_splits_for_fs_output(monkeypatch, tmp_path):
-    run_cfg = ServeProfile.model_validate(
+    profile = ServeProfile.model_validate(
         {
             "cmd": "serve",
             "name": "splits",
@@ -200,36 +160,22 @@ def test_run_profiles_resolve_splits_for_fs_output(monkeypatch, tmp_path):
             },
         }
     )
-    entries = [_entry(name="splits", config=run_cfg, operation=_SERVE_OPERATION)]
-
-    def fake_iter_runtime_runs(project_path, run_entries):
-        total = len(run_entries)
-        split = HashSplitConfig(ratios={"train": 0.8, "val": 0.2})
-        for idx, entry in enumerate(run_entries, start=1):
-            runtime = SimpleNamespace(run=entry.config, split=split)
-            yield idx, total, entry, runtime
-
-    monkeypatch.setattr(
-        "datapipeline.config.serve_resolution.iter_runtime_runs", fake_iter_runtime_runs
+    _use_split(
+        monkeypatch,
+        HashSplitConfig(ratios={"train": 0.8, "val": 0.2}),
     )
 
-    profiles = resolve_run_profiles(
-        project_path=tmp_path / "project.yaml",
-        run_entries=entries,
-        preview_index=None,
-        limit=None,
-        cli_output=None,
-        cli_log_level=None,
-        base_log_level="INFO",
-        cli_visuals=None,
-    )
+    resolved = _resolve(tmp_path / "project.yaml", [profile])[0]
 
-    assert profiles[0].output.transport == "fs"
-    assert profiles[0].runtime.run.splits == ["train", "val"]
+    assert resolved.name == "splits"
+    assert resolved.target_id == "serve"
+    assert resolved.splits == ("train", "val")
+    assert not hasattr(resolved.runtime, "run")
+    assert resolved.output.transport == "fs"
 
 
-def test_run_profiles_reject_splits_without_project_split(monkeypatch, tmp_path):
-    run_cfg = ServeProfile.model_validate(
+def test_run_profiles_reject_splits_without_project_split(tmp_path):
+    profile = ServeProfile.model_validate(
         {
             "cmd": "serve",
             "name": "splits",
@@ -242,33 +188,13 @@ def test_run_profiles_reject_splits_without_project_split(monkeypatch, tmp_path)
             },
         }
     )
-    entries = [_entry(name="splits", config=run_cfg, operation=_SERVE_OPERATION)]
-
-    def fake_iter_runtime_runs(project_path, run_entries):
-        total = len(run_entries)
-        for idx, entry in enumerate(run_entries, start=1):
-            runtime = SimpleNamespace(run=entry.config, split=None)
-            yield idx, total, entry, runtime
-
-    monkeypatch.setattr(
-        "datapipeline.config.serve_resolution.iter_runtime_runs", fake_iter_runtime_runs
-    )
 
     with pytest.raises(ValueError, match="project split is not configured"):
-        resolve_run_profiles(
-            project_path=tmp_path / "project.yaml",
-            run_entries=entries,
-            preview_index=None,
-            limit=None,
-            cli_output=None,
-            cli_log_level=None,
-            base_log_level="INFO",
-            cli_visuals=None,
-        )
+        _resolve(tmp_path / "project.yaml", [profile])
 
 
 def test_run_profiles_reject_unknown_splits(monkeypatch, tmp_path):
-    run_cfg = ServeProfile.model_validate(
+    profile = ServeProfile.model_validate(
         {
             "cmd": "serve",
             "name": "splits",
@@ -281,34 +207,17 @@ def test_run_profiles_reject_unknown_splits(monkeypatch, tmp_path):
             },
         }
     )
-    entries = [_entry(name="splits", config=run_cfg, operation=_SERVE_OPERATION)]
-
-    def fake_iter_runtime_runs(project_path, run_entries):
-        total = len(run_entries)
-        split = HashSplitConfig(ratios={"train": 0.8, "val": 0.2})
-        for idx, entry in enumerate(run_entries, start=1):
-            runtime = SimpleNamespace(run=entry.config, split=split)
-            yield idx, total, entry, runtime
-
-    monkeypatch.setattr(
-        "datapipeline.config.serve_resolution.iter_runtime_runs", fake_iter_runtime_runs
+    _use_split(
+        monkeypatch,
+        HashSplitConfig(ratios={"train": 0.8, "val": 0.2}),
     )
 
     with pytest.raises(ValueError, match="unknown split labels: 'test'"):
-        resolve_run_profiles(
-            project_path=tmp_path / "project.yaml",
-            run_entries=entries,
-            preview_index=None,
-            limit=None,
-            cli_output=None,
-            cli_log_level=None,
-            base_log_level="INFO",
-            cli_visuals=None,
-        )
+        _resolve(tmp_path / "project.yaml", [profile])
 
 
 def test_run_profiles_reject_splits_for_stdout(monkeypatch, tmp_path):
-    run_cfg = ServeProfile.model_validate(
+    profile = ServeProfile.model_validate(
         {
             "cmd": "serve",
             "name": "splits",
@@ -316,34 +225,14 @@ def test_run_profiles_reject_splits_for_stdout(monkeypatch, tmp_path):
             "splits": ["train"],
         }
     )
-    entries = [_entry(name="splits", config=run_cfg, operation=_SERVE_OPERATION)]
-
-    def fake_iter_runtime_runs(project_path, run_entries):
-        total = len(run_entries)
-        split = HashSplitConfig(ratios={"train": 1.0})
-        for idx, entry in enumerate(run_entries, start=1):
-            runtime = SimpleNamespace(run=entry.config, split=split)
-            yield idx, total, entry, runtime
-
-    monkeypatch.setattr(
-        "datapipeline.config.serve_resolution.iter_runtime_runs", fake_iter_runtime_runs
-    )
+    _use_split(monkeypatch, HashSplitConfig(ratios={"train": 1.0}))
 
     with pytest.raises(ValueError, match="output transport is not fs"):
-        resolve_run_profiles(
-            project_path=tmp_path / "project.yaml",
-            run_entries=entries,
-            preview_index=None,
-            limit=None,
-            cli_output=None,
-            cli_log_level=None,
-            base_log_level="INFO",
-            cli_visuals=None,
-        )
+        _resolve(tmp_path / "project.yaml", [profile])
 
 
 def test_run_profiles_reject_splits_with_explicit_filename(monkeypatch, tmp_path):
-    run_cfg = ServeProfile.model_validate(
+    profile = ServeProfile.model_validate(
         {
             "cmd": "serve",
             "name": "splits",
@@ -357,36 +246,16 @@ def test_run_profiles_reject_splits_with_explicit_filename(monkeypatch, tmp_path
             },
         }
     )
-    entries = [_entry(name="splits", config=run_cfg, operation=_SERVE_OPERATION)]
-
-    def fake_iter_runtime_runs(project_path, run_entries):
-        total = len(run_entries)
-        split = HashSplitConfig(ratios={"train": 1.0})
-        for idx, entry in enumerate(run_entries, start=1):
-            runtime = SimpleNamespace(run=entry.config, split=split)
-            yield idx, total, entry, runtime
-
-    monkeypatch.setattr(
-        "datapipeline.config.serve_resolution.iter_runtime_runs", fake_iter_runtime_runs
-    )
+    _use_split(monkeypatch, HashSplitConfig(ratios={"train": 1.0}))
 
     with pytest.raises(ValueError, match="cannot set output.filename with splits"):
-        resolve_run_profiles(
-            project_path=tmp_path / "project.yaml",
-            run_entries=entries,
-            preview_index=None,
-            limit=None,
-            cli_output=None,
-            cli_log_level=None,
-            base_log_level="INFO",
-            cli_visuals=None,
-        )
+        _resolve(tmp_path / "project.yaml", [profile])
 
 
 def test_run_profiles_reject_splits_with_colliding_output_filenames(
     monkeypatch, tmp_path
 ):
-    run_cfg = ServeProfile.model_validate(
+    profile = ServeProfile.model_validate(
         {
             "cmd": "serve",
             "name": "splits",
@@ -399,36 +268,17 @@ def test_run_profiles_reject_splits_with_colliding_output_filenames(
             },
         }
     )
-    entries = [_entry(name="splits", config=run_cfg, operation=_SERVE_OPERATION)]
-
-    def fake_iter_runtime_runs(project_path, run_entries):
-        total = len(run_entries)
-        split = HashSplitConfig(ratios={"north/west": 0.5, "north_west": 0.5})
-        for idx, entry in enumerate(run_entries, start=1):
-            runtime = SimpleNamespace(run=entry.config, split=split)
-            yield idx, total, entry, runtime
-
-    monkeypatch.setattr(
-        "datapipeline.config.serve_resolution.iter_runtime_runs", fake_iter_runtime_runs
+    _use_split(
+        monkeypatch,
+        HashSplitConfig(ratios={"north/west": 0.5, "north_west": 0.5}),
     )
 
     with pytest.raises(ValueError, match="same output filename"):
-        resolve_run_profiles(
-            project_path=tmp_path / "project.yaml",
-            run_entries=entries,
-            preview_index=None,
-            limit=None,
-            cli_output=None,
-            cli_log_level=None,
-            base_log_level="INFO",
-            cli_visuals=None,
-        )
+        _resolve(tmp_path / "project.yaml", [profile])
 
 
-def test_operation_options_rejects_preview_index_when_unsupported(
-    monkeypatch, tmp_path
-):
-    run_cfg = InspectProfile.model_validate(
+def test_operation_options_rejects_preview_index_when_unsupported(tmp_path):
+    profile = InspectProfile.model_validate(
         {
             "cmd": "inspect",
             "name": "coverage",
@@ -436,92 +286,33 @@ def test_operation_options_rejects_preview_index_when_unsupported(
             "artifact_mode": "AUTO",
         }
     )
-    entries = [
-        _entry(name="coverage", config=run_cfg, operation=_INSPECT_COVERAGE_OPERATION)
-    ]
 
-    def fake_iter_runtime_runs(project_path, run_entries):
-        total = len(run_entries)
-        for idx, entry in enumerate(run_entries, start=1):
-            runtime = SimpleNamespace(run=entry.config)
-            yield idx, total, entry, runtime
+    with pytest.raises(ValueError, match="does not support preview indices"):
+        _resolve(tmp_path, [profile], preview_index=1)
 
-    monkeypatch.setattr(
-        "datapipeline.config.serve_resolution.iter_runtime_runs", fake_iter_runtime_runs
+
+def test_run_profiles_leave_unconfigured_throttle_unset(tmp_path):
+    profile = ServeProfile.model_validate(
+        {"cmd": "serve", "name": "demo", "target": "serve"}
     )
 
-    with pytest.raises(
-        ValueError,
-        match="does not support preview indices",
-    ):
-        resolve_run_profiles(
-            project_path=tmp_path,
-            run_entries=entries,
-            preview_index=1,
-            limit=None,
-            cli_output=None,
-            cli_log_level=None,
-            base_log_level="INFO",
-            cli_visuals=None,
-        )
+    resolved = _resolve(tmp_path, [profile])[0]
+
+    assert resolved.throttle_ms is None
 
 
-def test_run_profiles_do_not_inherit_workspace_throttle(monkeypatch, tmp_path):
-    entries = [_entry(name="demo", config=None, operation=_SERVE_OPERATION)]
-
-    def fake_iter_runtime_runs(project_path, run_entries):
-        total = len(run_entries)
-        for idx, entry in enumerate(run_entries, start=1):
-            runtime = SimpleNamespace(run=entry.config)
-            yield idx, total, entry, runtime
-
-    monkeypatch.setattr(
-        "datapipeline.config.serve_resolution.iter_runtime_runs", fake_iter_runtime_runs
+def test_run_profiles_use_builtin_visuals_defaults(tmp_path):
+    profile = ServeProfile.model_validate(
+        {"cmd": "serve", "name": "demo", "target": "serve"}
     )
 
-    profiles = resolve_run_profiles(
-        project_path=tmp_path,
-        run_entries=entries,
-        preview_index=None,
-        limit=None,
-        cli_output=None,
-        cli_log_level=None,
-        base_log_level="INFO",
-        cli_visuals=None,
-    )
+    resolved = _resolve(tmp_path, [profile])[0]
 
-    assert profiles[0].throttle_ms is None
+    assert resolved.observability.visuals == "on"
 
 
-def test_run_profiles_use_builtin_visuals_defaults(monkeypatch, tmp_path):
-    entries = [_entry(name="demo", config=None, operation=_SERVE_OPERATION)]
-
-    def fake_iter_runtime_runs(project_path, run_entries):
-        total = len(run_entries)
-        for idx, entry in enumerate(run_entries, start=1):
-            runtime = SimpleNamespace(run=entry.config)
-            yield idx, total, entry, runtime
-
-    monkeypatch.setattr(
-        "datapipeline.config.serve_resolution.iter_runtime_runs", fake_iter_runtime_runs
-    )
-
-    profiles = resolve_run_profiles(
-        project_path=tmp_path,
-        run_entries=entries,
-        preview_index=None,
-        limit=None,
-        cli_output=None,
-        cli_log_level=None,
-        base_log_level="INFO",
-        cli_visuals=None,
-    )
-
-    assert profiles[0].visuals == "on"
-
-
-def test_run_profiles_run_visuals_override_defaults(monkeypatch, tmp_path):
-    run_cfg = ServeProfile.model_validate(
+def test_run_profiles_run_visuals_override_defaults(tmp_path):
+    profile = ServeProfile.model_validate(
         {
             "cmd": "serve",
             "name": "demo",
@@ -529,34 +320,14 @@ def test_run_profiles_run_visuals_override_defaults(monkeypatch, tmp_path):
             "observability": {"visuals": "ON"},
         }
     )
-    entries = [_entry(name="demo", config=run_cfg, operation=_SERVE_OPERATION)]
 
-    def fake_iter_runtime_runs(project_path, run_entries):
-        total = len(run_entries)
-        for idx, entry in enumerate(run_entries, start=1):
-            runtime = SimpleNamespace(run=entry.config)
-            yield idx, total, entry, runtime
+    resolved = _resolve(tmp_path, [profile])[0]
 
-    monkeypatch.setattr(
-        "datapipeline.config.serve_resolution.iter_runtime_runs", fake_iter_runtime_runs
-    )
-
-    profiles = resolve_run_profiles(
-        project_path=tmp_path,
-        run_entries=entries,
-        preview_index=None,
-        limit=None,
-        cli_output=None,
-        cli_log_level=None,
-        base_log_level="INFO",
-        cli_visuals=None,
-    )
-
-    assert profiles[0].visuals == "on"
+    assert resolved.observability.visuals == "on"
 
 
-def test_run_profiles_resolve_log_output_precedence(monkeypatch, tmp_path):
-    run_cfg = ServeProfile.model_validate(
+def test_run_profiles_resolve_log_output_precedence(tmp_path):
+    profile = ServeProfile.model_validate(
         {
             "cmd": "serve",
             "name": "demo",
@@ -564,57 +335,23 @@ def test_run_profiles_resolve_log_output_precedence(monkeypatch, tmp_path):
             "observability": {"logging": {"outputs": [{"transport": "stdout"}]}},
         }
     )
-    entries = [_entry(name="demo", config=run_cfg, operation=_SERVE_OPERATION)]
 
-    def fake_iter_runtime_runs(project_path, run_entries):
-        total = len(run_entries)
-        for idx, entry in enumerate(run_entries, start=1):
-            runtime = SimpleNamespace(run=entry.config)
-            yield idx, total, entry, runtime
+    resolved = _resolve(tmp_path / "project.yaml", [profile])[0]
+    assert resolved.observability.log_output.outputs[0].transport == "stdout"
+    assert resolved.observability.log_output.outputs[0].destination is None
 
-    monkeypatch.setattr(
-        "datapipeline.config.serve_resolution.iter_runtime_runs", fake_iter_runtime_runs
-    )
-
-    profiles = resolve_run_profiles(
-        project_path=tmp_path / "project.yaml",
-        run_entries=entries,
-        preview_index=None,
-        limit=None,
-        cli_output=None,
-        cli_log_level=None,
-        base_log_level="INFO",
-        cli_visuals=None,
-    )
-    assert profiles[0].log_output.outputs[0].transport == "stdout"
-    assert profiles[0].log_output.outputs[0].destination is None
-
-    profiles_cli = resolve_run_profiles(
-        project_path=tmp_path / "project.yaml",
-        run_entries=entries,
-        preview_index=None,
-        limit=None,
-        cli_output=None,
-        cli_log_level=None,
-        cli_log_outputs=[
-            LogOutputTarget(
-                transport="fs",
-                destination=tmp_path / "logs" / "cli.log",
-            )
-        ],
-        base_log_level="INFO",
-        cli_visuals=None,
-    )
-    assert profiles_cli[0].log_output.outputs[0].transport == "fs"
-    assert profiles_cli[0].log_output.outputs[0].destination == (
-        tmp_path / "logs" / "cli.log"
-    )
+    cli_log = tmp_path / "logs" / "cli.log"
+    cli_override = _resolve(
+        tmp_path / "project.yaml",
+        [profile],
+        cli_log_outputs=[LogOutputTarget(transport="fs", destination=cli_log)],
+    )[0]
+    assert cli_override.observability.log_output.outputs[0].transport == "fs"
+    assert cli_override.observability.log_output.outputs[0].destination == cli_log
 
 
-def test_execution_scoped_logs_can_be_resolved_for_inspect_profiles(
-    monkeypatch, tmp_path
-):
-    run_cfg = InspectProfile.model_validate(
+def test_execution_scoped_logs_can_be_resolved_for_inspect_profiles(tmp_path):
+    inspect_profile = InspectProfile.model_validate(
         {
             "cmd": "inspect",
             "name": "demo",
@@ -632,40 +369,22 @@ def test_execution_scoped_logs_can_be_resolved_for_inspect_profiles(
             },
         }
     )
-    entries = [
-        _entry(name="demo", config=run_cfg, operation=_INSPECT_COVERAGE_OPERATION)
-    ]
-
-    def fake_iter_runtime_runs(project_path, run_entries):
-        total = len(run_entries)
-        for idx, entry in enumerate(run_entries, start=1):
-            runtime = SimpleNamespace(run=entry.config)
-            yield idx, total, entry, runtime
-
-    monkeypatch.setattr(
-        "datapipeline.config.serve_resolution.iter_runtime_runs", fake_iter_runtime_runs
-    )
-
     cli_output = ServeOutputConfig(
         transport="fs",
         format="jsonl",
         directory=tmp_path / "out",
     )
 
-    inspect_profiles = resolve_run_profiles(
-        project_path=tmp_path / "project.yaml",
-        run_entries=entries,
-        preview_index=None,
-        limit=None,
+    resolved_inspect = _resolve(
+        tmp_path / "project.yaml",
+        [inspect_profile],
         cli_output=cli_output,
-        cli_log_level=None,
-        base_log_level="INFO",
-        cli_visuals=None,
-    )
-    assert inspect_profiles[0].log_output.outputs[0].scope == "execution"
-    assert inspect_profiles[0].log_output.outputs[0].destination == Path("logs/run.log")
+    )[0]
+    inspect_log = resolved_inspect.observability.log_output.outputs[0]
+    assert inspect_log.scope == "execution"
+    assert inspect_log.destination == Path("logs/run.log")
 
-    serve_cfg = ServeProfile.model_validate(
+    serve_profile = ServeProfile.model_validate(
         {
             "cmd": "serve",
             "name": "demo",
@@ -683,25 +402,19 @@ def test_execution_scoped_logs_can_be_resolved_for_inspect_profiles(
             },
         }
     )
-    serve_entries = [_entry(name="demo", config=serve_cfg, operation=_SERVE_OPERATION)]
-    run_profiles = resolve_run_profiles(
-        project_path=tmp_path / "project.yaml",
-        run_entries=serve_entries,
-        preview_index=None,
-        limit=None,
+    resolved_serve = _resolve(
+        tmp_path / "project.yaml",
+        [serve_profile],
         cli_output=cli_output,
-        cli_log_level=None,
-        base_log_level="INFO",
-        cli_visuals=None,
-    )
-    run_profile = run_profiles[0]
-    assert run_profile.output.run is not None
-    assert run_profile.log_output.outputs[0].scope == "execution"
-    assert run_profile.log_output.outputs[0].destination == Path("logs/run.log")
+    )[0]
+    serve_log = resolved_serve.observability.log_output.outputs[0]
+    assert resolved_serve.output.run is not None
+    assert serve_log.scope == "execution"
+    assert serve_log.destination == Path("logs/run.log")
 
 
-def test_execution_scoped_logs_default_to_task_specific_filename(monkeypatch, tmp_path):
-    run_cfg = ServeProfile.model_validate(
+def test_execution_scoped_logs_default_to_task_specific_filename(tmp_path):
+    profile = ServeProfile.model_validate(
         {
             "cmd": "serve",
             "target": "serve",
@@ -711,42 +424,25 @@ def test_execution_scoped_logs_default_to_task_specific_filename(monkeypatch, tm
             },
         }
     )
-    entries = [_entry(name="val", config=run_cfg, operation=_SERVE_OPERATION)]
-
-    def fake_iter_runtime_runs(project_path, run_entries):
-        total = len(run_entries)
-        for idx, entry in enumerate(run_entries, start=1):
-            runtime = SimpleNamespace(run=entry.config)
-            yield idx, total, entry, runtime
-
-    monkeypatch.setattr(
-        "datapipeline.config.serve_resolution.iter_runtime_runs", fake_iter_runtime_runs
-    )
-
     cli_output = ServeOutputConfig(
         transport="fs",
         format="jsonl",
         directory=tmp_path / "out",
     )
 
-    run_profiles = resolve_run_profiles(
-        project_path=tmp_path / "project.yaml",
-        run_entries=entries,
-        preview_index=None,
-        limit=None,
+    resolved = _resolve(
+        tmp_path / "project.yaml",
+        [profile],
         cli_output=cli_output,
-        cli_log_level=None,
-        base_log_level="INFO",
-        cli_visuals=None,
-    )
-    run_profile = run_profiles[0]
-    assert run_profile.output.run is not None
-    assert run_profile.log_output.outputs[0].scope == "execution"
-    assert run_profile.log_output.outputs[0].destination is None
+    )[0]
+    log_output = resolved.observability.log_output.outputs[0]
+    assert resolved.output.run is not None
+    assert log_output.scope == "execution"
+    assert log_output.destination is None
 
 
 def test_serve_runtime_profiles_share_run_and_namespace_splits(monkeypatch, tmp_path):
-    configs = [
+    profiles = [
         ServeProfile.model_validate(
             {
                 "cmd": "serve",
@@ -761,60 +457,34 @@ def test_serve_runtime_profiles_share_run_and_namespace_splits(monkeypatch, tmp_
             ("train", None),
         )
     ]
-    entries = [
-        _entry(
-            name=config.name,
-            config=config,
-            operation=_SERVE_OPERATION,
-        )
-        for config in configs
-    ]
-
-    def fake_iter_runtime_runs(project_path, run_entries):
-        total = len(run_entries)
-        for idx, entry in enumerate(run_entries, start=1):
-            runtime = SimpleNamespace(
-                run=entry.config,
-                split=HashSplitConfig(ratios={"train": 1.0}),
-            )
-            yield idx, total, entry, runtime
-
-    monkeypatch.setattr(
-        "datapipeline.config.serve_resolution.iter_runtime_runs", fake_iter_runtime_runs
-    )
-
+    _use_split(monkeypatch, HashSplitConfig(ratios={"train": 1.0}))
     cli_output = ServeOutputConfig(
         transport="fs",
         format="jsonl",
         directory=tmp_path / "out",
     )
 
-    profiles = resolve_run_profiles(
-        project_path=tmp_path / "project.yaml",
-        run_entries=entries,
-        preview_index=None,
-        limit=None,
+    resolved = _resolve(
+        tmp_path / "project.yaml",
+        profiles,
         cli_output=cli_output,
-        cli_log_level=None,
-        base_log_level="INFO",
-        cli_visuals=None,
     )
 
     run_ids = {
         profile.output.run.run_id
-        for profile in profiles
+        for profile in resolved
         if profile.output.run is not None
     }
     dataset_dirs = {
         profile.output.run.dataset_dir
-        for profile in profiles
+        for profile in resolved
         if profile.output.run is not None
     }
-
     assert len(run_ids) == 1
     assert len(dataset_dirs) == 1
-    profiles_by_name = {profile.label: profile for profile in profiles}
-    assert {profile.output.destination.name for profile in profiles} == {
+
+    profiles_by_name = {profile.name: profile for profile in resolved}
+    assert {profile.output.destination.name for profile in resolved} == {
         "first.jsonl",
         "second.jsonl",
         "train.jsonl",
@@ -828,174 +498,105 @@ def test_serve_runtime_profiles_share_run_and_namespace_splits(monkeypatch, tmp_
         "second.train.jsonl",
         "train.jsonl",
     }
-    planned_run = profiles[0].output.run
+    planned_run = resolved[0].output.run
     assert planned_run is not None
     assert not planned_run.serve_root.exists()
     assert not planned_run.dataset_dir.exists()
     assert not planned_run.metadata_path.exists()
 
 
-def test_runtime_profiles_reject_sanitized_output_collision(monkeypatch, tmp_path):
-    entries = [
-        _entry(
-            name=name,
-            config=ServeProfile.model_validate(
-                {"cmd": "serve", "name": name, "target": "serve"}
-            ),
-            operation=_SERVE_OPERATION,
-        )
+def test_runtime_profiles_reject_sanitized_output_collision(tmp_path):
+    profiles = [
+        ServeProfile.model_validate({"cmd": "serve", "name": name, "target": "serve"})
         for name in ("daily/eu", "daily_eu")
     ]
-
-    def fake_iter_runtime_runs(project_path, run_entries):
-        total = len(run_entries)
-        for idx, entry in enumerate(run_entries, start=1):
-            yield idx, total, entry, SimpleNamespace(run=entry.config)
-
-    monkeypatch.setattr(
-        "datapipeline.config.serve_resolution.iter_runtime_runs",
-        fake_iter_runtime_runs,
-    )
     output_root = tmp_path / "out"
 
     with pytest.raises(ValueError, match="resolve to the same path"):
-        resolve_run_profiles(
-            project_path=tmp_path / "project.yaml",
-            run_entries=entries,
-            preview_index=None,
-            limit=None,
+        _resolve(
+            tmp_path / "project.yaml",
+            profiles,
             cli_output=ServeOutputConfig(
                 transport="fs",
                 format="jsonl",
                 directory=output_root,
             ),
-            cli_log_level=None,
-            base_log_level="INFO",
-            cli_visuals=None,
         )
 
     assert not output_root.exists()
 
 
-def test_shared_serve_run_rejects_mixed_preview_indices_without_writes(
-    monkeypatch,
-    tmp_path,
-):
-    entries = [
-        _entry(
-            name=name,
-            config=ServeProfile.model_validate(
-                {
-                    "cmd": "serve",
-                    "name": name,
-                    "target": "serve",
-                    "preview_index": preview_index,
-                }
-            ),
-            operation=_SERVE_OPERATION,
+def test_shared_serve_run_rejects_mixed_preview_indices_without_writes(tmp_path):
+    profiles = [
+        ServeProfile.model_validate(
+            {
+                "cmd": "serve",
+                "name": name,
+                "target": "serve",
+                "preview_index": preview_index,
+            }
         )
         for name, preview_index in (("first", 1), ("second", 2))
     ]
-
-    def fake_iter_runtime_runs(project_path, run_entries):
-        total = len(run_entries)
-        for idx, entry in enumerate(run_entries, start=1):
-            runtime = SimpleNamespace(run=entry.config)
-            yield idx, total, entry, runtime
-
-    monkeypatch.setattr(
-        "datapipeline.config.serve_resolution.iter_runtime_runs",
-        fake_iter_runtime_runs,
-    )
     output_root = tmp_path / "out"
 
     with pytest.raises(ValueError, match="must use the same preview_index"):
-        resolve_run_profiles(
-            project_path=tmp_path / "project.yaml",
-            run_entries=entries,
-            preview_index=None,
-            limit=None,
+        _resolve(
+            tmp_path / "project.yaml",
+            profiles,
             cli_output=ServeOutputConfig(
                 transport="fs",
                 format="jsonl",
                 directory=output_root,
             ),
-            cli_log_level=None,
-            base_log_level="INFO",
-            cli_visuals=None,
         )
 
     assert not output_root.exists()
 
 
-def test_shared_serve_runs_reject_explicit_output_filename(monkeypatch, tmp_path):
-    entries = [
-        _entry(
-            name=name,
-            config=ServeProfile.model_validate(
-                {
-                    "cmd": "serve",
-                    "name": name,
-                    "target": "serve",
-                    "output": {
-                        "transport": "fs",
-                        "format": "jsonl",
-                        "directory": str(tmp_path / "out"),
-                        "filename": "vectors",
-                    },
-                }
-            ),
-            operation=_SERVE_OPERATION,
+def test_shared_serve_runs_reject_explicit_output_filename(tmp_path):
+    profiles = [
+        ServeProfile.model_validate(
+            {
+                "cmd": "serve",
+                "name": name,
+                "target": "serve",
+                "output": {
+                    "transport": "fs",
+                    "format": "jsonl",
+                    "directory": str(tmp_path / "out"),
+                    "filename": "vectors",
+                },
+            }
         )
         for name in ("train", "val")
     ]
 
-    def fake_iter_runtime_runs(project_path, run_entries):
-        total = len(run_entries)
-        for idx, entry in enumerate(run_entries, start=1):
-            runtime = SimpleNamespace(run=entry.config)
-            yield idx, total, entry, runtime
+    with pytest.raises(ValueError, match="cannot set output.filename"):
+        _resolve(tmp_path / "project.yaml", profiles)
 
-    monkeypatch.setattr(
-        "datapipeline.config.serve_resolution.iter_runtime_runs", fake_iter_runtime_runs
-    )
-
-    with pytest.raises(
-        ValueError,
-        match="cannot set output.filename",
-    ):
-        resolve_run_profiles(
-            project_path=tmp_path / "project.yaml",
-            run_entries=entries,
-            preview_index=None,
-            limit=None,
-            cli_output=None,
-            cli_log_level=None,
-            base_log_level="INFO",
-            cli_visuals=None,
-        )
     assert not (tmp_path / "out").exists()
 
 
 def test_cli_output_directory_resolves_relative_to_workspace(tmp_path):
-    workspace_cfg = WorkspaceConfig.model_validate({})
     workspace = WorkspaceContext(
-        file_path=tmp_path / "jerry.yaml", config=workspace_cfg
+        file_path=tmp_path / "jerry.yaml",
+        config=WorkspaceConfig.model_validate({}),
     )
 
-    cfg = build_cli_output_config(
+    config = build_cli_output_config(
         "fs",
         "jsonl",
         ".",
         workspace=workspace,
     )
 
-    assert cfg is not None
-    assert cfg.directory == tmp_path.resolve()
+    assert config is not None
+    assert config.directory == tmp_path.resolve()
 
 
-def test_inspect_profiles_accept_html_output_for_matrix(monkeypatch, tmp_path):
-    run_cfg = InspectProfile.model_validate(
+def test_inspect_profiles_accept_html_output_for_matrix(tmp_path):
+    profile = InspectProfile.model_validate(
         {
             "cmd": "inspect",
             "name": "matrix",
@@ -1008,37 +609,15 @@ def test_inspect_profiles_accept_html_output_for_matrix(monkeypatch, tmp_path):
             },
         }
     )
-    entries = [
-        _entry(name="matrix", config=run_cfg, operation=_INSPECT_MATRIX_OPERATION)
-    ]
 
-    def fake_iter_runtime_runs(project_path, run_entries):
-        total = len(run_entries)
-        for idx, entry in enumerate(run_entries, start=1):
-            runtime = SimpleNamespace(run=entry.config)
-            yield idx, total, entry, runtime
+    resolved = _resolve(tmp_path, [profile])[0]
 
-    monkeypatch.setattr(
-        "datapipeline.config.serve_resolution.iter_runtime_runs", fake_iter_runtime_runs
-    )
-
-    profiles = resolve_run_profiles(
-        project_path=tmp_path,
-        run_entries=entries,
-        preview_index=None,
-        limit=None,
-        cli_output=None,
-        cli_log_level=None,
-        base_log_level="INFO",
-        cli_visuals=None,
-    )
-
-    assert profiles[0].output.format == "html"
-    assert profiles[0].output.transport == "fs"
+    assert resolved.output.format == "html"
+    assert resolved.output.transport == "fs"
 
 
 def test_inspect_profile_model_allows_html_output_for_any_target(tmp_path):
-    cfg = InspectProfile.model_validate(
+    profile = InspectProfile.model_validate(
         {
             "cmd": "inspect",
             "name": "coverage",
@@ -1051,14 +630,13 @@ def test_inspect_profile_model_allows_html_output_for_any_target(tmp_path):
             },
         }
     )
-    assert cfg.output is not None
-    assert cfg.output.format == "html"
+
+    assert profile.output is not None
+    assert profile.output.format == "html"
 
 
-def test_inspect_profiles_accept_cli_html_override_for_non_matrix(
-    monkeypatch, tmp_path
-):
-    run_cfg = InspectProfile.model_validate(
+def test_inspect_profiles_accept_cli_html_override_for_non_matrix(tmp_path):
+    profile = InspectProfile.model_validate(
         {
             "cmd": "inspect",
             "name": "coverage",
@@ -1066,39 +644,22 @@ def test_inspect_profiles_accept_cli_html_override_for_non_matrix(
             "artifact_mode": "AUTO",
         }
     )
-    entries = [
-        _entry(name="coverage", config=run_cfg, operation=_INSPECT_COVERAGE_OPERATION)
-    ]
 
-    def fake_iter_runtime_runs(project_path, run_entries):
-        total = len(run_entries)
-        for idx, entry in enumerate(run_entries, start=1):
-            runtime = SimpleNamespace(run=entry.config)
-            yield idx, total, entry, runtime
-
-    monkeypatch.setattr(
-        "datapipeline.config.serve_resolution.iter_runtime_runs", fake_iter_runtime_runs
-    )
-
-    profiles = resolve_run_profiles(
-        project_path=tmp_path,
-        run_entries=entries,
-        preview_index=None,
-        limit=None,
+    resolved = _resolve(
+        tmp_path,
+        [profile],
         cli_output=ServeOutputConfig(
             transport="fs",
             format="html",
             directory=tmp_path / "inspect",
         ),
-        cli_log_level=None,
-        base_log_level="INFO",
-        cli_visuals=None,
-    )
-    assert profiles[0].output.format == "html"
+    )[0]
+
+    assert resolved.output.format == "html"
 
 
 def test_serve_profile_model_allows_html_output(tmp_path):
-    cfg = ServeProfile.model_validate(
+    profile = ServeProfile.model_validate(
         {
             "cmd": "serve",
             "name": "serve",
@@ -1110,12 +671,13 @@ def test_serve_profile_model_allows_html_output(tmp_path):
             },
         }
     )
-    assert cfg.output is not None
-    assert cfg.output.format == "html"
+
+    assert profile.output is not None
+    assert profile.output.format == "html"
 
 
-def test_serve_profiles_accept_cli_txt_override(monkeypatch, tmp_path):
-    run_cfg = ServeProfile.model_validate(
+def test_serve_profiles_accept_cli_txt_override(tmp_path):
+    profile = ServeProfile.model_validate(
         {
             "cmd": "serve",
             "name": "serve",
@@ -1123,33 +685,18 @@ def test_serve_profiles_accept_cli_txt_override(monkeypatch, tmp_path):
             "artifact_mode": "AUTO",
         }
     )
-    entries = [_entry(name="serve", config=run_cfg, operation=_SERVE_OPERATION)]
 
-    def fake_iter_runtime_runs(project_path, run_entries):
-        total = len(run_entries)
-        for idx, entry in enumerate(run_entries, start=1):
-            runtime = SimpleNamespace(run=entry.config)
-            yield idx, total, entry, runtime
-
-    monkeypatch.setattr(
-        "datapipeline.config.serve_resolution.iter_runtime_runs", fake_iter_runtime_runs
-    )
-
-    profiles = resolve_run_profiles(
-        project_path=tmp_path,
-        run_entries=entries,
-        preview_index=None,
-        limit=None,
+    resolved = _resolve(
+        tmp_path,
+        [profile],
         cli_output=ServeOutputConfig(
             transport="fs",
             format="txt",
             directory=tmp_path / "serve",
         ),
-        cli_log_level=None,
-        base_log_level="INFO",
-        cli_visuals=None,
-    )
-    assert profiles[0].output.format == "txt"
+    )[0]
+
+    assert resolved.output.format == "txt"
 
 
 def test_build_profile_rejects_runtime_output_fields():

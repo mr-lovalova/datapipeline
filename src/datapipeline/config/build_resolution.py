@@ -4,20 +4,16 @@ from typing import Sequence
 
 from datapipeline.config.profiles import BuildProfile
 from datapipeline.config.resolution import (
-    LogLevelDecision,
-    LogOutputSettings,
     LogOutputTarget,
+    ObservabilitySettings,
     resolve_observability_settings,
 )
 
 
 @dataclass(frozen=True)
 class BuildSettings:
-    visuals: str
-    log_decision: LogLevelDecision
-    log_output: LogOutputSettings
     mode: str
-    heartbeat_interval_seconds: float | None = None
+    observability: ObservabilitySettings
 
 
 def resolve_build_settings(
@@ -49,9 +45,6 @@ def resolve_build_settings(
     )
     effective_mode = "FORCE" if force_flag else profile_mode_default or "AUTO"
     return BuildSettings(
-        visuals=observability.visuals,
-        log_decision=observability.log_decision,
-        log_output=observability.log_output,
         mode=effective_mode,
-        heartbeat_interval_seconds=observability.heartbeat_interval_seconds,
+        observability=observability,
     )

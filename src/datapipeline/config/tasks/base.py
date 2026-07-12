@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Generic, Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic_core import PydanticSerializationError
 
 from datapipeline.config.model_utils import normalize_required_text
 
@@ -27,6 +28,16 @@ class Task(BaseModel):
     @classmethod
     def _normalize_entrypoint(cls, value):
         return normalize_required_text(value, field_name="entrypoint")
+
+    @model_validator(mode="after")
+    def _validate_serializable_config(self):
+        try:
+            self.model_dump(mode="json", exclude={"source_path"})
+        except PydanticSerializationError as exc:
+            raise ValueError(
+                "task configuration must contain only JSON-serializable values"
+            ) from exc
+        return self
 
 
 class ArtifactTask(Task):

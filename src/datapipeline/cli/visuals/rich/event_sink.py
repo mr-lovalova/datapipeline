@@ -1,12 +1,14 @@
 import logging
 from typing import Protocol
 
+from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 
 from datapipeline.execution.observability import (
     FileResult,
     OperationFinished,
+    OperationStarted,
     format_record_count,
 )
 
@@ -50,6 +52,9 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
             return
         event_level = ExecutionEventFormatter.level(event)
         if event_level < self._level:
+            return
+        if isinstance(event, OperationStarted):
+            self._console.print(Rule(f"Operation {event.name}", style="bold white"))
             return
         if isinstance(event, FileResult):
             self._console.print(self._render_file_result(event))

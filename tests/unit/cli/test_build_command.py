@@ -1,3 +1,5 @@
+from dataclasses import replace
+import json
 import logging
 from pathlib import Path
 from types import SimpleNamespace
@@ -10,6 +12,7 @@ from datapipeline.build.state import BuildState, load_build_state, save_build_st
 from datapipeline.config.build_resolution import resolve_build_settings
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig
+from datapipeline.config.execution import ExecutionConfig
 from datapipeline.config.profiles import BuildProfile
 from datapipeline.config.resolution import LogOutputTarget
 from datapipeline.config.tasks import (
@@ -52,6 +55,7 @@ def _runtime(artifacts_root: Path) -> SimpleNamespace:
         artifacts=ArtifactManager(artifacts_root),
         execution_observer=None,
         heartbeat_interval_seconds=None,
+        execution=ExecutionConfig(),
     )
 
 
@@ -88,9 +92,20 @@ def _build_artifact(runtime, task: ArtifactTask) -> ArtifactOutput:
     return ArtifactOutput(relative_path=task.output)
 
 
+def _patch_artifact_build(monkeypatch, build) -> None:
+    def execute_operation(*, operation, persist, runtime, **_kwargs):
+        return persist(build(runtime, operation))
+
+    monkeypatch.setattr(build_exec, "execute_operation", execute_operation)
+
+
 def _patch_hash(monkeypatch, value: str) -> None:
     monkeypatch.setattr(build_exec, "tasks_dir", lambda _project: Path("tasks"))
     monkeypatch.setattr(build_exec, "compute_config_hash", lambda *_args: value)
+
+
+def _build_settings(mode: str = "AUTO"):
+    return replace(resolve_build_settings(), mode=mode)
 
 
 def test_load_build_state_invalidates_previous_cache_version(tmp_path: Path) -> None:
@@ -175,7 +190,6 @@ def test_report_artifact_plan_keeps_run_details_at_debug(monkeypatch) -> None:
             reason="force",
             artifacts=(VECTOR_INPUTS, VECTOR_SCHEMA),
             jobs=(build_exec.ArtifactBuildJob(task, (VECTOR_SCHEMA,)),),
-            skipped_current=(VECTOR_INPUTS,),
             config_hash="hash-1",
             state_path=Path("state.json"),
             previous_state=None,
@@ -194,36 +208,12 @@ def test_report_artifact_plan_keeps_run_details_at_debug(monkeypatch) -> None:
     ]
 
 
-def test_run_artifact_builder_persists_under_task_id(monkeypatch, tmp_path) -> None:
-    task = SchemaTask(id="schema")
-    captured: dict[str, object] = {}
-    monkeypatch.setattr(
-        build_exec,
-        "execute_operation",
-        lambda *, persist, **_kwargs: persist(
-            ArtifactOutput(relative_path=task.output, meta={"features": 5})
-        ),
-    )
-
-    def persist(result, *, artifact_key, expected_relative_path, **_kwargs):
-        captured["key"] = artifact_key
-        captured["path"] = expected_relative_path
-        return result
-
-    monkeypatch.setattr(build_exec, "persist_artifact_output", persist)
-
-    result = build_exec._run_artifact_builder(_runtime(tmp_path), task)
-
-    assert result is not None
-    assert captured == {"key": "schema", "path": task.output}
-
-
 def test_resolve_build_settings_uses_builtin_observability_defaults() -> None:
     settings = resolve_build_settings(base_log_level="WARNING")
 
-    assert settings.visuals == "on"
-    assert settings.log_decision.name == "WARNING"
-    assert settings.log_output.outputs[0].transport == "stderr"
+    assert settings.observability.visuals == "on"
+    assert settings.observability.log_decision.name == "WARNING"
+    assert settings.observability.log_output.outputs[0].transport == "stderr"
     assert settings.mode == "AUTO"
 
 
@@ -238,9 +228,9 @@ def test_resolve_build_settings_applies_cli_overrides() -> None:
         base_log_level="INFO",
     )
 
-    assert settings.visuals == "off"
-    assert settings.log_decision.name == "ERROR"
-    assert settings.log_output.outputs == (target,)
+    assert settings.observability.visuals == "off"
+    assert settings.observability.log_decision.name == "ERROR"
+    assert settings.observability.log_output.outputs == (target,)
     assert settings.mode == "FORCE"
 
 
@@ -270,11 +260,11 @@ def test_resolve_build_settings_uses_profile_configuration(tmp_path: Path) -> No
     )
 
     assert settings.mode == "FORCE"
-    assert settings.visuals == "on"
-    assert settings.heartbeat_interval_seconds == 15
-    assert settings.log_decision.name == "DEBUG"
+    assert settings.observability.visuals == "on"
+    assert settings.observability.heartbeat_interval_seconds == 15
+    assert settings.observability.log_decision.name == "DEBUG"
     assert (
-        settings.log_output.outputs[0].destination
+        settings.observability.log_output.outputs[0].destination
         == (tmp_path / "logs/build.log").resolve()
     )
 
@@ -395,7 +385,6 @@ def test_plan_skips_current_dependency(monkeypatch, tmp_path: Path) -> None:
 
     assert isinstance(plan, build_exec.BuildPlan)
     assert tuple(job.task.id for job in plan.jobs) == (VECTOR_SCHEMA,)
-    assert plan.skipped_current == (VECTOR_INPUTS,)
 
 
 def test_plan_rejects_config_drift_before_build(
@@ -565,7 +554,7 @@ def test_execute_build_jobs_persists_completed_job_before_failure(
         return _build_artifact(runtime, task)
 
     outputs: list[tuple[str, Path, int | None]] = []
-    monkeypatch.setattr(build_exec, "_run_artifact_builder", build)
+    _patch_artifact_build(monkeypatch, build)
     monkeypatch.setattr(
         build_exec,
         "emit_file_result",
@@ -581,7 +570,6 @@ def test_execute_build_jobs_persists_completed_job_before_failure(
             ),
             build_exec.ArtifactBuildJob(schema, (VECTOR_SCHEMA,)),
         ),
-        skipped_current=(),
         config_hash="hash-1",
         state_path=state_path,
         previous_state=previous_state,
@@ -590,7 +578,11 @@ def test_execute_build_jobs_persists_completed_job_before_failure(
 
     runtime = _runtime(tmp_path / "artifacts")
     with pytest.raises(RuntimeError, match="schema failed"):
-        build_exec._execute_build_jobs(runtime=runtime, plan=plan)
+        build_exec._execute_build_jobs(
+            runtime=runtime,
+            plan=plan,
+            settings=_build_settings(),
+        )
 
     state = load_build_state(state_path)
     assert state is not None
@@ -625,6 +617,12 @@ def test_execute_build_job_invalidates_only_graph_descendants(
         ]
     )
     runtime = _runtime(tmp_path / "artifacts")
+    messages: list[tuple[str, int]] = []
+    monkeypatch.setattr(
+        build_exec,
+        "emit_execution_message",
+        lambda message, level, logger: messages.append((message, level)),
+    )
     previous_state = BuildState()
     for task in graph.tasks_by_id.values():
         previous_state.register(
@@ -633,7 +631,7 @@ def test_execute_build_job_invalidates_only_graph_descendants(
             config_hash="hash-1",
         )
         _write_artifact(runtime.artifacts_root, task)
-    monkeypatch.setattr(build_exec, "_run_artifact_builder", _build_artifact)
+    _patch_artifact_build(monkeypatch, _build_artifact)
     plan = build_exec.BuildPlan(
         reason="force",
         artifacts=(SCALER_STATISTICS,),
@@ -649,16 +647,28 @@ def test_execute_build_job_invalidates_only_graph_descendants(
                 ),
             ),
         ),
-        skipped_current=(),
         config_hash="hash-1",
         state_path=tmp_path / "artifacts/_system/build/state.json",
         previous_state=previous_state,
         graph=graph,
     )
 
-    state = build_exec._execute_build_jobs(runtime=runtime, plan=plan)
+    state = build_exec._execute_build_jobs(
+        runtime=runtime,
+        plan=plan,
+        settings=_build_settings("FORCE"),
+    )
 
     assert set(state.artifacts) == {SCALER_STATISTICS, custom.id}
+    assert len(messages) == 1
+    message, level = messages[0]
+    assert level == logging.DEBUG
+    assert message.startswith("Config:\n")
+    config = json.loads(message[8:])
+    assert config["task"]["entrypoint"] == "core.artifact.scaler"
+    assert config["mode"] == "FORCE"
+    assert config["execution"] == {"sort_batch_records": 100_000}
+    assert config["observability"]["visuals"] == "on"
 
 
 def test_run_build_hydrates_current_dependencies_before_job(
@@ -688,13 +698,13 @@ def test_run_build_hydrates_current_dependencies_before_job(
         assert runtime.artifacts.has(VECTOR_METADATA)
         return _build_artifact(runtime, task)
 
-    monkeypatch.setattr(build_exec, "_run_artifact_builder", build)
+    _patch_artifact_build(monkeypatch, build)
 
     did_build = build_exec.run_build_if_needed(
         project_path,
         graph=graph,
         required_artifacts={VECTOR_STATS},
-        mode="AUTO",
+        settings=_build_settings(),
         runtime=runtime,
     )
 
@@ -727,7 +737,7 @@ def test_force_build_preserves_artifacts_resolved_by_previous_profile(
         built.append(task.id)
         return _build_artifact(runtime, task)
 
-    monkeypatch.setattr(build_exec, "_run_artifact_builder", build)
+    _patch_artifact_build(monkeypatch, build)
     runtime = _runtime(tmp_path / "artifacts")
     resolved: set[str] = set()
 
@@ -735,7 +745,7 @@ def test_force_build_preserves_artifacts_resolved_by_previous_profile(
         project_path,
         graph=graph,
         required_artifacts={VECTOR_SCHEMA},
-        mode="AUTO",
+        settings=_build_settings(),
         runtime=runtime,
         resolved_artifacts=resolved,
     )
@@ -743,7 +753,7 @@ def test_force_build_preserves_artifacts_resolved_by_previous_profile(
         project_path,
         graph=graph,
         required_artifacts={VECTOR_METADATA},
-        mode="FORCE",
+        settings=_build_settings("FORCE"),
         runtime=runtime,
         resolved_artifacts=resolved,
     )
@@ -767,7 +777,6 @@ def test_run_build_rejects_inputs_changed_during_execution(
         reason="missing",
         artifacts=(task.id,),
         jobs=(),
-        skipped_current=(),
         config_hash="before",
         state_path=tmp_path / "state.json",
         previous_state=None,
@@ -787,7 +796,7 @@ def test_run_build_rejects_inputs_changed_during_execution(
             project_path,
             graph=graph,
             required_artifacts={task.id},
-            mode="AUTO",
+            settings=_build_settings(),
             runtime=_runtime(tmp_path / "artifacts"),
             resolved_artifacts=resolved,
         )
@@ -801,6 +810,6 @@ def test_run_build_rejects_unknown_mode(tmp_path: Path) -> None:
             _write_project(tmp_path),
             graph=build_artifact_graph([]),
             required_artifacts=set(),
-            mode="sometimes",
+            settings=_build_settings("sometimes"),
             runtime=_runtime(tmp_path / "artifacts"),
         )

@@ -1,7 +1,11 @@
 from pathlib import Path
-from types import SimpleNamespace
 
-from datapipeline.config.resolution import LogOutputSettings, LogOutputTarget
+from datapipeline.config.resolution import (
+    LogLevelDecision,
+    LogOutputSettings,
+    LogOutputTarget,
+    ObservabilitySettings,
+)
 from datapipeline.profiles.executor import ExecutionSpec, run_execution
 from datapipeline.runtime import Runtime
 
@@ -45,9 +49,12 @@ def test_run_execution_configures_logging_and_runs_work_inside_backend(monkeypat
     log_output = _log_output()
     result = run_execution(
         ExecutionSpec(
-            visuals="on",
-            log_decision=SimpleNamespace(name="INFO", value=20),
-            log_output=log_output,
+            observability=ObservabilitySettings(
+                visuals="on",
+                heartbeat_interval_seconds=None,
+                log_decision=LogLevelDecision(name="INFO", value=20),
+                log_output=log_output,
+            ),
             runtime=runtime,
         ),
         work,

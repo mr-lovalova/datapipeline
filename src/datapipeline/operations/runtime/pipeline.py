@@ -380,7 +380,7 @@ def serve_with_runtime(
     if group_by is None:
         raise ValueError("Feature dataset requires sample cadence.")
 
-    split_labels = list(getattr(getattr(runtime, "run", None), "splits", None) or [])
+    split_labels = list(runtime.split_labels)
     if split_labels:
         if preview_index is not None:
             raise ValueError("serve splits do not support preview indices")

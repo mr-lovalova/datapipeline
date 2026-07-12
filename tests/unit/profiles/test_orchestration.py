@@ -10,7 +10,11 @@ from datapipeline.config.build_resolution import BuildSettings
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.config.execution import ExecutionConfig
-from datapipeline.config.resolution import LogLevelDecision, LogOutputSettings
+from datapipeline.config.resolution import (
+    LogLevelDecision,
+    LogOutputSettings,
+    ObservabilitySettings,
+)
 from datapipeline.config.tasks import (
     ArtifactTask,
     MetadataTask,
@@ -19,16 +23,17 @@ from datapipeline.config.tasks import (
     SchemaTask,
     VectorInputsTask,
 )
+from datapipeline.io.output import OutputTarget
+from datapipeline.profiles.execution import RuntimeJobPlan, execute_runtime_job
 from datapipeline.profiles.executor import ExecutionSpec
 from datapipeline.profiles.models import (
-    ExecutionProfile,
-    ProfileRunRequest,
+    BuildJob,
+    BuildRunRequest,
+    RuntimeJob,
+    RuntimeRunRequest,
     ServeRunPlan,
 )
-from datapipeline.profiles.orchestration import (
-    _validate_build_profile_order,
-    run_profiles,
-)
+from datapipeline.profiles.orchestration import _validate_build_order, run_profiles
 from datapipeline.services.artifacts import ArtifactManager
 from datapipeline.services.constants import (
     VECTOR_INPUTS,
@@ -37,7 +42,7 @@ from datapipeline.services.constants import (
 )
 from datapipeline.services.runs import RunPaths
 
-_LOG_DECISION = LogLevelDecision(name="INFO", value=20)
+_LOG_DECISION = LogLevelDecision(name="INFO", value=logging.INFO)
 _LOG_OUTPUT = LogOutputSettings(outputs=())
 
 
@@ -46,11 +51,19 @@ def _artifact_settings(
     heartbeat_interval_seconds: float | None = None,
 ) -> BuildSettings:
     return BuildSettings(
+        mode=mode,
+        observability=_observability(heartbeat_interval_seconds),
+    )
+
+
+def _observability(
+    heartbeat_interval_seconds: float | None = None,
+) -> ObservabilitySettings:
+    return ObservabilitySettings(
         visuals="off",
+        heartbeat_interval_seconds=heartbeat_interval_seconds,
         log_decision=_LOG_DECISION,
         log_output=_LOG_OUTPUT,
-        mode=mode,
-        heartbeat_interval_seconds=heartbeat_interval_seconds,
     )
 
 
@@ -84,52 +97,81 @@ def _runtime(tmp_path: Path, marker: str = "runtime") -> SimpleNamespace:
     return SimpleNamespace(
         marker=marker,
         artifacts=ArtifactManager(tmp_path / marker / "artifacts"),
+        execution=ExecutionConfig(),
         heartbeat_interval_seconds=None,
+        split_labels=(),
     )
 
 
-def _runtime_profile(
+def _output() -> OutputTarget:
+    return OutputTarget(
+        transport="stdout",
+        format="jsonl",
+        view="raw",
+        encoding=None,
+        destination=None,
+    )
+
+
+def _runtime_job(
     name: str,
-    target_id: str,
+    task: OperationTask,
     runtime,
     dataset,
     *,
     preview_index: int | None = None,
     heartbeat_interval_seconds: float | None = None,
-) -> ExecutionProfile:
-    return ExecutionProfile(
+    splits: tuple[str, ...] = (),
+) -> RuntimeJob:
+    return RuntimeJob(
         name=name,
-        target_id=target_id,
-        visuals="off",
-        log_decision=_LOG_DECISION,
-        log_output=_LOG_OUTPUT,
+        task=task,
         runtime=runtime,
+        dataset_name="features" if preview_index is not None else "vectors",
         dataset=dataset,
+        output=_output(),
+        observability=_observability(heartbeat_interval_seconds),
+        limit=None,
+        throttle_ms=None,
         preview_index=preview_index,
-        heartbeat_interval_seconds=heartbeat_interval_seconds,
+        splits=splits,
     )
 
 
-def _build_profile(
-    name: str,
-    target_id: str,
-    runtime,
+def _build_request(
+    tmp_path: Path,
+    artifact_tasks,
+    jobs,
+    execution: ExecutionConfig | None = None,
+) -> BuildRunRequest:
+    return BuildRunRequest(
+        project_path=tmp_path / "project.yaml",
+        artifact_task_configs=artifact_tasks,
+        jobs=jobs,
+        execution=ExecutionConfig() if execution is None else execution,
+        config_hash="hash-1",
+    )
+
+
+def _runtime_request(
+    tmp_path: Path,
     *,
-    mode: str = "AUTO",
-) -> ExecutionProfile:
-    return ExecutionProfile(
-        name=name,
-        target_id=target_id,
-        visuals="off",
-        log_decision=_LOG_DECISION,
-        log_output=_LOG_OUTPUT,
-        runtime=runtime,
-        build_settings=BuildSettings(
-            visuals="off",
-            log_decision=_LOG_DECISION,
-            log_output=_LOG_OUTPUT,
-            mode=mode,
-        ),
+    command: str,
+    artifact_tasks,
+    jobs,
+    artifact_settings: BuildSettings | None = None,
+    serve_run_plans: tuple[ServeRunPlan, ...] = (),
+    execution: ExecutionConfig | None = None,
+) -> RuntimeRunRequest:
+    return RuntimeRunRequest(
+        command=command,
+        project_path=tmp_path / "project.yaml",
+        artifact_task_configs=artifact_tasks,
+        jobs=jobs,
+        execution=ExecutionConfig() if execution is None else execution,
+        config_hash="hash-1",
+        artifact_settings=artifact_settings or _artifact_settings(),
+        serve_run_plans=serve_run_plans,
     )
 
 
@@ -145,73 +187,57 @@ def _run_paths(tmp_path: Path, run_id: str = "r1") -> RunPaths:
     )
 
 
-def _request(
-    tmp_path: Path,
-    *,
-    command: str,
-    tasks,
-    artifact_tasks,
-    profiles,
-    artifact_settings: BuildSettings | None = None,
-    serve_run_plans: tuple[ServeRunPlan, ...] = (),
-    execution: ExecutionConfig | None = None,
-) -> ProfileRunRequest:
-    return ProfileRunRequest(
-        command=command,
-        project_path=tmp_path / "project.yaml",
-        tasks=tasks,
-        artifact_task_configs=artifact_tasks,
-        profiles=profiles,
-        execution=ExecutionConfig() if execution is None else execution,
-        config_hash="hash-1",
-        artifact_settings=artifact_settings,
-        serve_run_plans=serve_run_plans,
-    )
-
-
-def _assert_preflight_rejected(request: ProfileRunRequest) -> None:
+def _assert_preflight_rejected(request: BuildRunRequest | RuntimeRunRequest) -> None:
     with pytest.raises(SystemExit) as exc:
         run_profiles(request)
-
     assert exc.value.code == 2
 
 
-def test_build_profile_order_accepts_configured_dependency_order() -> None:
+def test_build_order_accepts_configured_dependency_order() -> None:
     vector_inputs = VectorInputsTask(id="vector_inputs")
     schema = SchemaTask(id="schema")
     metadata = MetadataTask(id="metadata")
     graph = build_artifact_graph([vector_inputs, schema, metadata])
 
-    _validate_build_profile_order([vector_inputs, schema, metadata], graph)
+    _validate_build_order(
+        [
+            BuildJob(vector_inputs, _artifact_settings()),
+            BuildJob(schema, _artifact_settings()),
+            BuildJob(metadata, _artifact_settings()),
+        ],
+        graph,
+    )
 
 
-def test_build_profile_order_rejects_dependency_after_dependent() -> None:
+def test_build_order_rejects_dependency_after_dependent() -> None:
     vector_inputs = VectorInputsTask(id="vector_inputs")
     schema = SchemaTask(id="schema")
     graph = build_artifact_graph([vector_inputs, schema])
 
     with pytest.raises(ValueError, match="vector_inputs.*before.*schema"):
-        _validate_build_profile_order([schema, vector_inputs], graph)
+        _validate_build_order(
+            [
+                BuildJob(schema, _artifact_settings()),
+                BuildJob(vector_inputs, _artifact_settings()),
+            ],
+            graph,
+        )
 
 
-def test_build_profile_order_rejects_duplicate_targets() -> None:
+def test_build_order_rejects_duplicate_targets() -> None:
     schema = SchemaTask(id="schema")
 
     with pytest.raises(ValueError, match="unique artifact targets"):
-        _validate_build_profile_order(
-            [schema, schema],
+        _validate_build_order(
+            [
+                BuildJob(schema, _artifact_settings()),
+                BuildJob(schema, _artifact_settings()),
+            ],
             build_artifact_graph([schema]),
         )
 
 
-def test_build_profile_order_rejects_runtime_task() -> None:
-    task = OperationTask(id="pipeline", entrypoint="plugin.runtime")
-
-    with pytest.raises(ValueError, match="must target artifact tasks"):
-        _validate_build_profile_order([task], build_artifact_graph([]))
-
-
-def test_build_profiles_keep_configured_order_and_share_resolved_artifacts(
+def test_build_jobs_keep_order_and_share_resolved_artifacts(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -219,37 +245,42 @@ def test_build_profiles_keep_configured_order_and_share_resolved_artifacts(
     schema = SchemaTask(id="schema")
     vector_runtime = _runtime(tmp_path, "vector-runtime")
     schema_runtime = _runtime(tmp_path, "schema-runtime")
-    request = _request(
+    execution = ExecutionConfig(sort_batch_records=32)
+    request = _build_request(
         tmp_path,
-        command="build",
-        tasks=[vector_inputs, schema],
-        artifact_tasks=[vector_inputs, schema],
-        profiles=[
-            _build_profile("vector_inputs", "vector_inputs", vector_runtime),
-            _build_profile("schema", "schema", schema_runtime, mode="FORCE"),
+        [vector_inputs, schema],
+        [
+            BuildJob(vector_inputs, _artifact_settings()),
+            BuildJob(schema, _artifact_settings("FORCE")),
         ],
+        execution,
     )
     calls: list[dict[str, object]] = []
-    messages: list[tuple[str, int]] = []
+    execution_specs: list[ExecutionSpec] = []
+    runtimes = iter((vector_runtime, schema_runtime))
 
     def build(_project, **kwargs):
         calls.append(dict(kwargs))
         kwargs["resolved_artifacts"].update(kwargs["required_artifacts"])
+
+    def execute(spec, work):
+        execution_specs.append(spec)
+        return work()
 
     monkeypatch.setattr(
         "datapipeline.profiles.execution.load_dataset",
         lambda *_args: _dataset(),
     )
     monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.bootstrap_build_runtime",
+        lambda _project: next(runtimes),
+    )
+    monkeypatch.setattr(
         "datapipeline.profiles.orchestration.run_execution",
-        lambda spec, work: work(),
+        execute,
     )
     monkeypatch.setattr(
-        "datapipeline.profiles.orchestration.emit_execution_message",
-        lambda message, level, logger: messages.append((message, level)),
-    )
-    monkeypatch.setattr(
-        "datapipeline.profiles.execution.run_build_if_needed",
+        "datapipeline.profiles.orchestration.run_build_if_needed",
         build,
     )
 
@@ -263,21 +294,19 @@ def test_build_profiles_keep_configured_order_and_share_resolved_artifacts(
         "vector-runtime",
         "schema-runtime",
     ]
-    assert calls[0]["mode"] == "AUTO"
-    assert calls[1]["mode"] == "FORCE"
+    assert [call["settings"].mode for call in calls] == ["AUTO", "FORCE"]
     assert calls[0]["resolved_artifacts"] is calls[1]["resolved_artifacts"]
     assert calls[1]["resolved_artifacts"] == {VECTOR_INPUTS, VECTOR_SCHEMA}
     assert {call["expected_config_hash"] for call in calls} == {"hash-1"}
-    assert messages == [
-        (
-            "Profile: build vector_inputs (1/2) target=vector_inputs mode=AUTO",
-            logging.DEBUG,
-        ),
-        ("Profile: build schema (2/2) target=schema mode=FORCE", logging.DEBUG),
+    assert [spec.runtime for spec in execution_specs] == [
+        vector_runtime,
+        schema_runtime,
     ]
+    assert vector_runtime.execution == execution
+    assert schema_runtime.execution == execution
 
 
-def test_runtime_artifact_union_is_prepared_once_before_profiles(
+def test_runtime_artifact_union_is_prepared_once_before_jobs(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -285,27 +314,26 @@ def test_runtime_artifact_union_is_prepared_once_before_profiles(
     schema = SchemaTask(id="schema")
     metadata = MetadataTask(id="metadata")
     pipeline = PipelineTask(id="pipeline")
-    first_runtime = _runtime(tmp_path, "first-profile")
-    second_runtime = _runtime(tmp_path, "second-profile")
+    first_runtime = _runtime(tmp_path, "first-job")
+    second_runtime = _runtime(tmp_path, "second-job")
     canonical_runtime = _runtime(tmp_path, "canonical-build")
     execution = ExecutionConfig(sort_batch_records=32)
     artifact_settings = _artifact_settings("FORCE", 0)
-    request = _request(
+    request = _runtime_request(
         tmp_path,
         command="serve",
-        tasks=[vector_inputs, schema, metadata, pipeline],
         artifact_tasks=[vector_inputs, schema, metadata],
-        profiles=[
-            _runtime_profile(
+        jobs=[
+            _runtime_job(
                 "metadata-preview",
-                "pipeline",
+                pipeline,
                 first_runtime,
                 _dataset(),
                 preview_index=12,
             ),
-            _runtime_profile(
+            _runtime_job(
                 "schema-preview",
-                "pipeline",
+                pipeline,
                 second_runtime,
                 _dataset(),
                 preview_index=13,
@@ -342,8 +370,10 @@ def test_runtime_artifact_union_is_prepared_once_before_profiles(
         execute,
     )
     monkeypatch.setattr(
-        "datapipeline.profiles.orchestration.execute_profile",
-        lambda **kwargs: events.append(("profile", kwargs["runtime_override"])),
+        "datapipeline.profiles.orchestration.execute_runtime_job",
+        lambda _command, _project, _graph, plan: events.append(
+            ("job", plan.job.runtime)
+        ),
     )
 
     run_profiles(request)
@@ -353,31 +383,16 @@ def test_runtime_artifact_union_is_prepared_once_before_profiles(
         ("build", canonical_runtime),
         ("execution finished", canonical_runtime),
         ("execution started", first_runtime),
-        ("profile", first_runtime),
+        ("job", first_runtime),
         ("execution finished", first_runtime),
         ("execution started", second_runtime),
-        ("profile", second_runtime),
+        ("job", second_runtime),
         ("execution finished", second_runtime),
     ]
-    assert execution_specs == [
-        ExecutionSpec(
-            visuals=artifact_settings.visuals,
-            log_decision=artifact_settings.log_decision,
-            log_output=artifact_settings.log_output,
-            runtime=canonical_runtime,
-        ),
-        ExecutionSpec(
-            visuals="off",
-            log_decision=_LOG_DECISION,
-            log_output=_LOG_OUTPUT,
-            runtime=first_runtime,
-        ),
-        ExecutionSpec(
-            visuals="off",
-            log_decision=_LOG_DECISION,
-            log_output=_LOG_OUTPUT,
-            runtime=second_runtime,
-        ),
+    assert [spec.runtime for spec in execution_specs] == [
+        canonical_runtime,
+        first_runtime,
+        second_runtime,
     ]
     assert len(build_calls) == 1
     assert build_calls[0]["required_artifacts"] == {
@@ -385,9 +400,7 @@ def test_runtime_artifact_union_is_prepared_once_before_profiles(
         VECTOR_SCHEMA,
         VECTOR_METADATA,
     }
-    assert build_calls[0]["mode"] == "FORCE"
-    assert "profile_name" not in build_calls[0]
-    assert build_calls[0]["heartbeat_interval_seconds"] == 0
+    assert build_calls[0]["settings"] is artifact_settings
     assert build_calls[0]["expected_config_hash"] == "hash-1"
     assert canonical_runtime.execution == execution
     assert first_runtime.execution == execution
@@ -408,13 +421,11 @@ def test_custom_runtime_artifact_requirement_is_prepared(
         entrypoint="plugin.runtime.report",
         requires=("snapshot",),
     )
-    request = _request(
+    request = _runtime_request(
         tmp_path,
         command="inspect",
-        tasks=[snapshot, report],
         artifact_tasks=[snapshot],
-        profiles=[_runtime_profile("report", "report", _runtime(tmp_path), object())],
-        artifact_settings=_artifact_settings(),
+        jobs=[_runtime_job("report", report, _runtime(tmp_path), _dataset())],
     )
     build_calls: list[dict[str, object]] = []
 
@@ -431,8 +442,8 @@ def test_custom_runtime_artifact_requirement_is_prepared(
         lambda spec, work: work(),
     )
     monkeypatch.setattr(
-        "datapipeline.profiles.orchestration.execute_profile",
-        lambda **kwargs: None,
+        "datapipeline.profiles.orchestration.execute_runtime_job",
+        lambda *_args: None,
     )
 
     run_profiles(request)
@@ -449,12 +460,11 @@ def test_custom_runtime_missing_required_producer_is_rejected_before_execution(
         entrypoint="plugin.runtime.report",
         requires=("schema",),
     )
-    request = _request(
+    request = _runtime_request(
         tmp_path,
         command="inspect",
-        tasks=[report],
         artifact_tasks=[],
-        profiles=[_runtime_profile("report", "report", _runtime(tmp_path), object())],
+        jobs=[_runtime_job("report", report, _runtime(tmp_path), _dataset())],
     )
 
     _assert_preflight_rejected(request)
@@ -465,85 +475,15 @@ def test_artifact_free_runtime_rejects_config_drift_before_execution(
     tmp_path: Path,
 ) -> None:
     report = OperationTask(id="report", entrypoint="plugin.runtime.report")
-    request = _request(
+    request = _runtime_request(
         tmp_path,
         command="inspect",
-        tasks=[report],
         artifact_tasks=[],
-        profiles=[_runtime_profile("report", "report", _runtime(tmp_path), object())],
+        jobs=[_runtime_job("report", report, _runtime(tmp_path), _dataset())],
     )
     monkeypatch.setattr(
         "datapipeline.profiles.orchestration.compute_config_hash",
         lambda *_args: "changed",
-    )
-
-    _assert_preflight_rejected(request)
-
-
-def test_unknown_target_is_rejected_before_execution(tmp_path: Path) -> None:
-    request = _request(
-        tmp_path,
-        command="serve",
-        tasks=[],
-        artifact_tasks=[],
-        profiles=[_runtime_profile("serve", "missing", _runtime(tmp_path), object())],
-    )
-
-    _assert_preflight_rejected(request)
-
-
-@pytest.mark.parametrize("command", ["serve", "inspect"])
-def test_runtime_command_rejects_artifact_target(
-    command: str,
-    tmp_path: Path,
-) -> None:
-    artifact = ArtifactTask(
-        id="snapshot",
-        entrypoint="plugin.snapshot",
-        output="build/snapshot.json",
-    )
-    request = _request(
-        tmp_path,
-        command=command,
-        tasks=[artifact],
-        artifact_tasks=[artifact],
-        profiles=[
-            _runtime_profile("snapshot", "snapshot", _runtime(tmp_path), object())
-        ],
-    )
-
-    _assert_preflight_rejected(request)
-
-
-def test_build_command_rejects_runtime_target(tmp_path: Path) -> None:
-    task = OperationTask(id="pipeline", entrypoint="plugin.runtime")
-    request = _request(
-        tmp_path,
-        command="build",
-        tasks=[task],
-        artifact_tasks=[],
-        profiles=[_build_profile("pipeline", "pipeline", _runtime(tmp_path))],
-    )
-
-    _assert_preflight_rejected(request)
-
-
-def test_runtime_profile_requires_dataset_before_execution(tmp_path: Path) -> None:
-    task = OperationTask(id="pipeline", entrypoint="plugin.runtime")
-    profile = ExecutionProfile(
-        name="serve",
-        target_id="pipeline",
-        visuals="off",
-        log_decision=_LOG_DECISION,
-        log_output=_LOG_OUTPUT,
-        runtime=_runtime(tmp_path),
-    )
-    request = _request(
-        tmp_path,
-        command="serve",
-        tasks=[task],
-        artifact_tasks=[],
-        profiles=[profile],
     )
 
     _assert_preflight_rejected(request)
@@ -555,31 +495,27 @@ def test_missing_runtime_artifact_producer_is_rejected_before_execution(
     schema = SchemaTask(id="schema")
     metadata = MetadataTask(id="metadata")
     pipeline = PipelineTask(id="pipeline")
-    request = _request(
+    request = _runtime_request(
         tmp_path,
         command="serve",
-        tasks=[schema, metadata, pipeline],
         artifact_tasks=[schema, metadata],
-        profiles=[
-            _runtime_profile("serve", "pipeline", _runtime(tmp_path), _dataset())
-        ],
+        jobs=[_runtime_job("serve", pipeline, _runtime(tmp_path), _dataset())],
     )
 
     _assert_preflight_rejected(request)
 
 
-def test_invalid_preview_is_rejected_before_execution(tmp_path: Path) -> None:
+def test_invalid_preview_is_rejected_before_starting_run(tmp_path: Path) -> None:
     pipeline = PipelineTask(id="pipeline")
     run_paths = _run_paths(tmp_path)
-    request = _request(
+    request = _runtime_request(
         tmp_path,
         command="serve",
-        tasks=[pipeline],
         artifact_tasks=[],
-        profiles=[
-            _runtime_profile(
+        jobs=[
+            _runtime_job(
                 "preview",
-                "pipeline",
+                pipeline,
                 _runtime(tmp_path),
                 _dataset(),
                 preview_index=14,
@@ -592,75 +528,144 @@ def test_invalid_preview_is_rejected_before_execution(tmp_path: Path) -> None:
     assert not run_paths.run_root.exists()
 
 
-def test_runtime_profiles_keep_order_heartbeat_and_report_debug_context(
+def test_runtime_jobs_keep_order_and_apply_execution_settings(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
     task = OperationTask(id="pipeline", entrypoint="plugin.runtime")
-    runtime = _runtime(tmp_path)
-    request = _request(
+    execution = ExecutionConfig(sort_batch_records=16)
+    jobs = [
+        _runtime_job(
+            name,
+            task,
+            _runtime(tmp_path, name),
+            _dataset(),
+            heartbeat_interval_seconds=heartbeat,
+            splits=splits,
+        )
+        for name, heartbeat, splits in (
+            ("first", 10, ("train",)),
+            ("second", 20, ("val",)),
+            ("third", None, ()),
+        )
+    ]
+    request = _runtime_request(
         tmp_path,
-        command="inspect",
-        tasks=[task],
+        command="serve",
         artifact_tasks=[],
-        profiles=[
-            _runtime_profile(
-                name,
-                "pipeline",
-                runtime,
-                object(),
-                heartbeat_interval_seconds=heartbeat,
-            )
-            for name, heartbeat in (("first", 10), ("second", 20), ("third", None))
-        ],
+        jobs=jobs,
+        execution=execution,
     )
-    observed: list[tuple[str, float | None]] = []
-    messages: list[tuple[str, int]] = []
+    observed: list[tuple[str, object, object, object]] = []
     execution_specs: list[ExecutionSpec] = []
 
     def execute(spec, work):
         execution_specs.append(spec)
         return work()
 
-    monkeypatch.setattr(
-        "datapipeline.profiles.orchestration.emit_execution_message",
-        lambda message, level, logger: messages.append((message, level)),
-    )
+    def execute_job(_command, _project, _graph, plan):
+        runtime = plan.job.runtime
+        observed.append(
+            (
+                plan.job.name,
+                runtime.heartbeat_interval_seconds,
+                runtime.split_labels,
+                runtime.execution,
+            )
+        )
+
     monkeypatch.setattr(
         "datapipeline.profiles.orchestration.run_execution",
         execute,
     )
     monkeypatch.setattr(
-        "datapipeline.profiles.orchestration.execute_profile",
-        lambda **kwargs: observed.append(
-            (
-                kwargs["profile"].name,
-                kwargs["runtime_override"].heartbeat_interval_seconds,
-            )
-        ),
+        "datapipeline.profiles.orchestration.execute_runtime_job",
+        execute_job,
     )
 
     run_profiles(request)
 
-    assert observed == [("first", 10), ("second", 20), ("third", None)]
-    assert [spec.runtime for spec in execution_specs] == [runtime, runtime, runtime]
-    assert messages == [
-        ("Profile: inspect first (1/3) target=pipeline", logging.DEBUG),
-        ("Profile: inspect second (2/3) target=pipeline", logging.DEBUG),
-        ("Profile: inspect third (3/3) target=pipeline", logging.DEBUG),
+    assert observed == [
+        ("first", 10, ("train",), execution),
+        ("second", 20, ("val",), execution),
+        ("third", None, (), execution),
     ]
+    assert [spec.runtime for spec in execution_specs] == [job.runtime for job in jobs]
+
+
+def test_runtime_job_emits_resolved_config_at_debug(
+    monkeypatch, tmp_path: Path
+) -> None:
+    runtime = _runtime(tmp_path)
+    runtime.execution = ExecutionConfig(sort_batch_records=24)
+    task = OperationTask(id="report", entrypoint="plugin.runtime.report")
+    job = _runtime_job("coverage", task, runtime, _dataset())
+    messages: list[tuple[str, int]] = []
+
+    monkeypatch.setattr(
+        "datapipeline.profiles.execution.hydrate_runtime_artifacts_for_project",
+        lambda *_args, **_kwargs: (),
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.execution.emit_execution_message",
+        lambda message, level, logger: messages.append((message, level)),
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.execution.execute_operation",
+        lambda **_kwargs: None,
+    )
+
+    execute_runtime_job(
+        "inspect",
+        tmp_path / "project.yaml",
+        build_artifact_graph([]),
+        RuntimeJobPlan(job, ()),
+    )
+
+    assert len(messages) == 1
+    message, level = messages[0]
+    assert level == logging.DEBUG
+    assert message.startswith("Config:\n")
+    config = json.loads(message.removeprefix("Config:\n"))
+    assert config["target"] == "report"
+    assert config["dataset"] == "vectors"
+    assert config["execution"]["sort_batch_records"] == 24
+    assert config["observability"]["log_level"] == "INFO"
+
+
+def test_runtime_job_does_not_hide_plugin_value_errors(
+    monkeypatch, tmp_path: Path
+) -> None:
+    task = OperationTask(id="report", entrypoint="plugin.runtime.report")
+    job = _runtime_job("coverage", task, _runtime(tmp_path), _dataset())
+    monkeypatch.setattr(
+        "datapipeline.profiles.execution.hydrate_runtime_artifacts_for_project",
+        lambda *_args, **_kwargs: (),
+    )
+
+    def fail(**_kwargs):
+        raise ValueError("plugin bug")
+
+    monkeypatch.setattr("datapipeline.profiles.execution.execute_operation", fail)
+
+    with pytest.raises(ValueError, match="plugin bug"):
+        execute_runtime_job(
+            "inspect",
+            tmp_path / "project.yaml",
+            build_artifact_graph([]),
+            RuntimeJobPlan(job, ()),
+        )
 
 
 def test_shared_serve_run_is_finalized_once(monkeypatch, tmp_path: Path) -> None:
     task = OperationTask(id="pipeline", entrypoint="plugin.runtime")
     run_paths = _run_paths(tmp_path)
-    request = _request(
+    request = _runtime_request(
         tmp_path,
         command="serve",
-        tasks=[task],
         artifact_tasks=[],
-        profiles=[
-            _runtime_profile(name, "pipeline", _runtime(tmp_path, name), object())
+        jobs=[
+            _runtime_job(name, task, _runtime(tmp_path, name), _dataset())
             for name in ("train", "val")
         ],
         serve_run_plans=(ServeRunPlan(run_paths, None),),
@@ -671,8 +676,8 @@ def test_shared_serve_run_is_finalized_once(monkeypatch, tmp_path: Path) -> None
         lambda spec, work: work(),
     )
     monkeypatch.setattr(
-        "datapipeline.profiles.orchestration.execute_profile",
-        lambda **kwargs: None,
+        "datapipeline.profiles.orchestration.execute_runtime_job",
+        lambda *_args: None,
     )
     for name in calls:
         function = "set_latest_run" if name == "latest" else f"{name}_run"
@@ -690,19 +695,15 @@ def test_shared_serve_run_is_finalized_once(monkeypatch, tmp_path: Path) -> None
     assert calls == {"start": 1, "success": 1, "failed": 0, "latest": 1}
 
 
-def test_profile_failure_marks_shared_run_failed(
-    monkeypatch,
-    tmp_path: Path,
-) -> None:
+def test_job_failure_marks_shared_run_failed(monkeypatch, tmp_path: Path) -> None:
     task = OperationTask(id="pipeline", entrypoint="plugin.runtime")
     run_paths = _run_paths(tmp_path)
-    request = _request(
+    request = _runtime_request(
         tmp_path,
         command="serve",
-        tasks=[task],
         artifact_tasks=[],
-        profiles=[
-            _runtime_profile(name, "pipeline", _runtime(tmp_path, name), object())
+        jobs=[
+            _runtime_job(name, task, _runtime(tmp_path, name), _dataset())
             for name in ("train", "val")
         ],
         serve_run_plans=(ServeRunPlan(run_paths, None),),
@@ -710,7 +711,7 @@ def test_profile_failure_marks_shared_run_failed(
     calls = 0
     failed: list[RunPaths] = []
 
-    def execute(**_kwargs):
+    def execute(*_args):
         nonlocal calls
         calls += 1
         if calls == 2:
@@ -721,7 +722,7 @@ def test_profile_failure_marks_shared_run_failed(
         lambda spec, work: work(),
     )
     monkeypatch.setattr(
-        "datapipeline.profiles.orchestration.execute_profile",
+        "datapipeline.profiles.orchestration.execute_runtime_job",
         execute,
     )
     monkeypatch.setattr(
@@ -739,24 +740,23 @@ def test_profile_failure_marks_shared_run_failed(
     assert failed == [run_paths]
 
 
-def test_preview_run_exists_at_profile_boundary_and_is_not_latest(
+def test_preview_run_exists_at_job_boundary_and_is_not_latest(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
     pipeline = PipelineTask(id="pipeline")
     run_paths = _run_paths(tmp_path)
     runtime = _runtime(tmp_path)
-    request = _request(
+    request = _runtime_request(
         tmp_path,
         command="serve",
-        tasks=[pipeline],
         artifact_tasks=[],
-        profiles=[
-            _runtime_profile(
+        jobs=[
+            _runtime_job(
                 "preview",
-                "pipeline",
+                pipeline,
                 runtime,
-                object(),
+                _dataset(),
                 preview_index=3,
                 heartbeat_interval_seconds=15,
             )
@@ -765,7 +765,7 @@ def test_preview_run_exists_at_profile_boundary_and_is_not_latest(
     )
     observed: dict[str, object] = {}
 
-    def run_execution(spec, work):
+    def execute(spec, work):
         run = json.loads(run_paths.metadata_path.read_text(encoding="utf-8"))
         observed.update(
             status=run["status"],
@@ -776,11 +776,11 @@ def test_preview_run_exists_at_profile_boundary_and_is_not_latest(
 
     monkeypatch.setattr(
         "datapipeline.profiles.orchestration.run_execution",
-        run_execution,
+        execute,
     )
     monkeypatch.setattr(
-        "datapipeline.profiles.orchestration.execute_profile",
-        lambda **kwargs: None,
+        "datapipeline.profiles.orchestration.execute_runtime_job",
+        lambda *_args: None,
     )
     latest: list[RunPaths] = []
     monkeypatch.setattr(
@@ -807,12 +807,11 @@ def test_later_run_start_failure_fails_only_started_run(
     task = OperationTask(id="pipeline", entrypoint="plugin.runtime")
     first = _run_paths(tmp_path / "first")
     second = _run_paths(tmp_path / "second")
-    request = _request(
+    request = _runtime_request(
         tmp_path,
         command="serve",
-        tasks=[task],
         artifact_tasks=[],
-        profiles=[_runtime_profile("serve", "pipeline", _runtime(tmp_path), object())],
+        jobs=[_runtime_job("serve", task, _runtime(tmp_path), _dataset())],
         serve_run_plans=(ServeRunPlan(first, None), ServeRunPlan(second, None)),
     )
     starts: list[RunPaths] = []

@@ -29,7 +29,11 @@ from datapipeline.cli.visuals.rich.progress import (
     visual_execution,
 )
 from datapipeline.dag.events import DagParentRef, ProgressResource, ProgressSnapshot
-from datapipeline.execution.observability import FileResult, OperationFinished
+from datapipeline.execution.observability import (
+    FileResult,
+    OperationFinished,
+    OperationStarted,
+)
 
 
 def _console(width: int | None = None) -> tuple[Console, StringIO]:
@@ -491,16 +495,74 @@ def test_rich_sink_static_events_use_only_event_depth() -> None:
     ]
 
 
-def test_rich_sink_hides_debug_profile_context_at_info() -> None:
+def test_rich_sink_hides_debug_config_at_info() -> None:
     console, output = _console()
     sink = _RichConsoleExecutionSink(logging.INFO, console)
 
     sink.emit(
         ExecutionMessage(
-            message="Profile: serve dataset (1/1) target=pipeline",
+            message="Config:\n{}",
             log_level=logging.DEBUG,
         )
     )
+
+    assert output.getvalue() == ""
+
+
+def test_rich_sink_renders_operation_sequence_once_and_in_order() -> None:
+    console, output = _console()
+    sink = _RichConsoleExecutionSink(logging.DEBUG, console)
+
+    events = (
+        OperationStarted("materialize:adv.20"),
+        ExecutionMessage(
+            message='Config:\n{"stream": "adv.20"}', log_level=logging.DEBUG
+        ),
+        DagStarted(dag_name="stream:adv.20", node_count=1),
+        DagFinished(
+            dag_name="stream:adv.20",
+            node_count=1,
+            status="success",
+            output_items=10,
+            elapsed_seconds=1,
+        ),
+        FileResult("Output", Path("/tmp/adv.20.jsonl"), 10),
+        OperationFinished("materialize:adv.20", "success", 1),
+    )
+    for event in events:
+        sink.emit(event)
+
+    rendered = output.getvalue()
+    markers = [
+        "Operation materialize:adv.20",
+        "Config:",
+        "[stream:adv.20] started",
+        "[stream:adv.20] finished",
+        "Output:",
+        "Operation materialize:adv.20 finished",
+    ]
+    positions = [rendered.index(marker) for marker in markers]
+    assert positions == sorted(positions)
+    assert rendered.count("Config:") == 1
+    assert "Operation materialize:adv.20 started" not in rendered
+
+
+def test_rich_sink_renders_operation_start_as_header_at_info() -> None:
+    console, output = _console()
+    sink = _RichConsoleExecutionSink(logging.INFO, console)
+
+    sink.emit(OperationStarted("materialize:adv.20"))
+
+    rendered = output.getvalue()
+    assert "Operation materialize:adv.20" in rendered
+    assert "started" not in rendered
+
+
+def test_rich_sink_hides_operation_header_at_warning() -> None:
+    console, output = _console()
+    sink = _RichConsoleExecutionSink(logging.WARNING, console)
+
+    sink.emit(OperationStarted("materialize:adv.20"))
 
     assert output.getvalue() == ""
 

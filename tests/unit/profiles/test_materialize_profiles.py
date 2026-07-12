@@ -1,3 +1,4 @@
+import json
 import logging
 from pathlib import Path
 from types import SimpleNamespace
@@ -160,17 +161,14 @@ def test_materialize_runs_all_enabled_profiles_in_order(monkeypatch, tmp_path) -
         "adv-126.jsonl",
     ]
     assert not (tmp_path / "execution").exists()
-    assert profile_messages == [
-        (
-            f"Profile: materialize adv-20 (1/2) stream=adv.20 "
-            f"output={tmp_path / 'adv-20.jsonl'} overwrite=false",
-            logging.DEBUG,
-        ),
-        (
-            f"Profile: materialize adv-126 (2/2) stream=adv.126 "
-            f"output={tmp_path / 'adv-126.jsonl'} overwrite=true",
-            logging.DEBUG,
-        ),
+    assert all(message.startswith("Config:\n") for message, _ in profile_messages)
+    configs = [json.loads(message[8:]) for message, _ in profile_messages]
+    assert [level for _, level in profile_messages] == [logging.DEBUG, logging.DEBUG]
+    assert [
+        (config["stream"], config["output"], config["overwrite"]) for config in configs
+    ] == [
+        ("adv.20", str(tmp_path / "adv-20.jsonl"), False),
+        ("adv.126", str(tmp_path / "adv-126.jsonl"), True),
     ]
     assert messages == [
         ("Output", tmp_path / "adv-20.jsonl", None),
@@ -285,20 +283,23 @@ def test_materialize_prepares_required_artifacts_once(
     artifact_spec, *profile_specs = execution_specs
     assert len(build_calls) == 1
     assert build_calls[0]["required_artifacts"] == {"ticks_20", "ticks_63"}
-    assert build_calls[0]["mode"] == expected_mode
-    assert build_calls[0]["heartbeat_interval_seconds"] == 12
+    assert build_calls[0]["settings"].mode == expected_mode
+    assert build_calls[0]["settings"].observability.heartbeat_interval_seconds == 12
     assert build_calls[0]["runtime"] is writes[0]["runtime"]
-    assert artifact_spec.visuals == "off"
-    assert artifact_spec.log_decision.name == "WARNING"
-    artifact_log = artifact_spec.log_output.outputs[0].destination
+    assert artifact_spec.observability.visuals == "off"
+    assert artifact_spec.observability.log_decision.name == "WARNING"
+    artifact_log = artifact_spec.observability.log_output.outputs[0].destination
     assert artifact_log is not None
     assert artifact_log.name == "materialize.artifacts.log"
-    assert [spec.visuals for spec in profile_specs] == ["on", "on"]
-    assert [spec.log_decision.name for spec in profile_specs] == ["DEBUG", "DEBUG"]
+    assert [spec.observability.visuals for spec in profile_specs] == ["on", "on"]
+    assert [spec.observability.log_decision.name for spec in profile_specs] == [
+        "DEBUG",
+        "DEBUG",
+    ]
     assert {
-        spec.log_output.outputs[0].destination.name
+        spec.observability.log_output.outputs[0].destination.name
         for spec in profile_specs
-        if spec.log_output.outputs[0].destination is not None
+        if spec.observability.log_output.outputs[0].destination is not None
     } == {"materialize.adv-20.log", "materialize.adv-63.log"}
 
 

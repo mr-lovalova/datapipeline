@@ -342,7 +342,7 @@ def bootstrap_build_runtime(project_yaml: Path) -> Runtime:
 def _attach_project_config(runtime: Runtime, project_yaml: Path) -> None:
     proj = _project(project_yaml)
     runtime.split = proj.split
-    runtime.run = None
+    runtime.split_labels = ()
 
 
 def _register_postprocesses(runtime: Runtime, project_yaml: Path) -> None:

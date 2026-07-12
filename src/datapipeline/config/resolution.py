@@ -122,6 +122,25 @@ class ObservabilitySettings:
     log_decision: LogLevelDecision
     log_output: LogOutputSettings
 
+    def effective_config(self) -> dict[str, object]:
+        return {
+            "visuals": self.visuals,
+            "heartbeat_interval_seconds": self.heartbeat_interval_seconds,
+            "log_level": self.log_decision.name,
+            "log_outputs": [
+                {
+                    "transport": output.transport,
+                    "scope": output.scope,
+                    "destination": (
+                        str(output.destination)
+                        if output.destination is not None
+                        else None
+                    ),
+                }
+                for output in self.log_output.outputs
+            ],
+        }
+
 
 def log_output_targets_from_config(
     outputs,

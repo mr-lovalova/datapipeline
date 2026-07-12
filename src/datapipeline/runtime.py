@@ -4,7 +4,6 @@ from typing import Any, List, Literal, Optional, Sequence, Union
 from datetime import datetime
 
 from datapipeline.config.execution import ExecutionConfig
-from datapipeline.config.profiles import Profile
 from datapipeline.config.split import SplitConfig
 from datapipeline.domain.stream import RecordStream
 
@@ -81,7 +80,7 @@ class Runtime:
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
     registries: Registries = field(default_factory=Registries)
     split: Optional[SplitConfig] = None
-    run: Optional[Profile] = None
+    split_labels: tuple[str, ...] = ()
     sample_keys: list[str] = field(default_factory=list)
     window_bounds: tuple[datetime | None, datetime | None] | None = None
     heartbeat_interval_seconds: float | None = None

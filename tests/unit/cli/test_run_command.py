@@ -51,6 +51,17 @@ def test_build_cli_output_config_fs_requires_directory() -> None:
     assert exc.value.code == 2
 
 
+def test_build_cli_output_config_rejects_unknown_transport() -> None:
+    with pytest.raises(SystemExit) as exc:
+        build_cli_output_config(
+            transport="s3",
+            fmt="jsonl",
+            directory=None,
+        )
+
+    assert exc.value.code == 2
+
+
 def test_build_cli_output_config_stdout_rejects_directory() -> None:
     with pytest.raises(SystemExit) as exc:
         build_cli_output_config(

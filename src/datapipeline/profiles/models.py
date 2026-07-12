@@ -9,10 +9,9 @@ from datapipeline.config.dataset.dataset import (
     RecordDatasetConfig,
 )
 from datapipeline.config.resolution import (
-    LogLevelDecision,
-    LogOutputSettings,
+    ObservabilitySettings,
 )
-from datapipeline.config.tasks import ArtifactTask, Task
+from datapipeline.config.tasks import ArtifactTask, OperationTask
 from datapipeline.io.output import OutputTarget
 from datapipeline.runtime import Runtime
 from datapipeline.services.runs import RunPaths
@@ -27,40 +26,46 @@ class ServeRunPlan:
     preview_index: int | None
 
 
-@dataclass(frozen=True, kw_only=True)
-class ExecutionProfile:
+@dataclass(frozen=True)
+class BuildJob:
+    task: ArtifactTask
+    settings: BuildSettings
+
+
+@dataclass(frozen=True)
+class RuntimeJob:
     name: str
-    target_id: str
-    visuals: str
-    log_decision: LogLevelDecision
-    log_output: LogOutputSettings
-    runtime: Runtime | None = None
-    dataset: ProfileDataset | None = None
-    limit: int | None = None
-    output: OutputTarget | None = None
-    throttle_ms: float | None = None
-    preview_index: int | None = None
-    build_settings: BuildSettings | None = None
-    heartbeat_interval_seconds: float | None = None
+    task: OperationTask
+    runtime: Runtime
+    dataset_name: Literal["vectors", "features"]
+    dataset: ProfileDataset
+    output: OutputTarget
+    observability: ObservabilitySettings
+    limit: int | None
+    throttle_ms: float | None
+    preview_index: int | None
+    splits: tuple[str, ...]
 
 
 @dataclass(frozen=True, kw_only=True)
-class ProfileRunRequest:
-    command: ProfileKind
+class BuildRunRequest:
     project_path: Path
-    tasks: Sequence[Task]
     artifact_task_configs: Sequence[ArtifactTask]
-    profiles: Sequence[ExecutionProfile]
+    jobs: Sequence[BuildJob]
     execution: ExecutionConfig
     config_hash: str
-    artifact_settings: BuildSettings | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class RuntimeRunRequest:
+    command: Literal["serve", "inspect"]
+    project_path: Path
+    artifact_task_configs: Sequence[ArtifactTask]
+    jobs: Sequence[RuntimeJob]
+    execution: ExecutionConfig
+    config_hash: str
+    artifact_settings: BuildSettings
     serve_run_plans: tuple[ServeRunPlan, ...] = ()
 
 
-__all__ = [
-    "ExecutionProfile",
-    "ServeRunPlan",
-    "ProfileKind",
-    "ProfileDataset",
-    "ProfileRunRequest",
-]
+ProfileRunRequest = BuildRunRequest | RuntimeRunRequest

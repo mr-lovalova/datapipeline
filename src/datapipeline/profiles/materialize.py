@@ -1,5 +1,6 @@
+import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Sequence
 
@@ -20,9 +21,8 @@ from datapipeline.config.profiles import (
     normalize_artifact_mode,
 )
 from datapipeline.config.resolution import (
-    LogLevelDecision,
-    LogOutputSettings,
     LogOutputTarget,
+    ObservabilitySettings,
     resolve_execution_log_outputs,
     resolve_observability_settings,
 )
@@ -51,10 +51,7 @@ class MaterializeJob:
     stream: str
     output: Path
     overwrite: bool
-    visuals: str
-    heartbeat_interval_seconds: float | None
-    log_decision: LogLevelDecision
-    log_output: LogOutputSettings
+    observability: ObservabilitySettings
 
 
 class MaterializeProfileError(ValueError):
@@ -137,16 +134,16 @@ def run_materialize_profiles(
         normalize_artifact_mode(cli_artifact_mode) or defaults.artifact_mode or "AUTO"
     )
     artifact_settings = BuildSettings(
-        visuals=artifact_observability.visuals,
-        heartbeat_interval_seconds=artifact_observability.heartbeat_interval_seconds,
-        log_decision=artifact_observability.log_decision,
-        log_output=resolve_execution_log_outputs(
-            artifact_observability.log_output,
-            execution_dir,
-            command="materialize",
-            label="artifacts",
-        ),
         mode=artifact_mode,
+        observability=replace(
+            artifact_observability,
+            log_output=resolve_execution_log_outputs(
+                artifact_observability.log_output,
+                execution_dir,
+                command="materialize",
+                label="artifacts",
+            ),
+        ),
     )
     _prepare_materialize_artifacts(
         project_path,
@@ -156,24 +153,31 @@ def run_materialize_profiles(
     )
 
     results: list[MaterializeResult] = []
-    total = len(jobs)
-    for index, job in enumerate(jobs, start=1):
-        runtime.heartbeat_interval_seconds = job.heartbeat_interval_seconds
+    for job in jobs:
+        runtime.heartbeat_interval_seconds = (
+            job.observability.heartbeat_interval_seconds
+        )
         spec = ExecutionSpec(
-            visuals=job.visuals,
-            log_decision=job.log_decision,
-            log_output=job.log_output,
+            observability=job.observability,
             runtime=runtime,
         )
 
         def work() -> MaterializeResult:
-            emit_execution_message(
-                f"Profile: materialize {job.name} ({index}/{total}) "
-                f"stream={job.stream} output={job.output} "
-                f"overwrite={str(job.overwrite).lower()}",
-                level=logging.DEBUG,
-            )
             with operation_scope(f"materialize:{job.name}"):
+                emit_execution_message(
+                    "Config:\n"
+                    + json.dumps(
+                        {
+                            "stream": job.stream,
+                            "output": str(job.output),
+                            "overwrite": job.overwrite,
+                            "execution": runtime.execution.model_dump(mode="json"),
+                            "observability": job.observability.effective_config(),
+                        },
+                        indent=2,
+                    ),
+                    level=logging.DEBUG,
+                )
                 result = materialize_stream_to_path(
                     runtime=runtime,
                     stream_id=job.stream,
@@ -210,11 +214,14 @@ def _resolve_profile(
         cli_log_outputs=cli_log_outputs,
         base_log_level=base_log_level,
     )
-    log_output = resolve_execution_log_outputs(
-        observability.log_output,
-        execution_dir,
-        command="materialize",
-        label=profile.name,
+    observability = replace(
+        observability,
+        log_output=resolve_execution_log_outputs(
+            observability.log_output,
+            execution_dir,
+            command="materialize",
+            label=profile.name,
+        ),
     )
     output = cli_output if cli_output is not None else profile.output
     if not output.is_absolute():
@@ -224,10 +231,7 @@ def _resolve_profile(
         stream=profile.stream,
         output=output.resolve(),
         overwrite=profile.overwrite if overwrite is None else overwrite,
-        visuals=observability.visuals,
-        heartbeat_interval_seconds=observability.heartbeat_interval_seconds,
-        log_decision=observability.log_decision,
-        log_output=log_output,
+        observability=observability,
     )
 
 
@@ -301,9 +305,7 @@ def _prepare_materialize_artifacts(
             )
 
     spec = ExecutionSpec(
-        visuals=settings.visuals,
-        log_decision=settings.log_decision,
-        log_output=settings.log_output,
+        observability=settings.observability,
         runtime=runtime,
     )
 
@@ -312,9 +314,8 @@ def _prepare_materialize_artifacts(
             project_path,
             graph=graph,
             required_artifacts=required_artifacts,
-            mode=settings.mode,
+            settings=settings,
             runtime=runtime,
-            heartbeat_interval_seconds=settings.heartbeat_interval_seconds,
         )
 
     run_execution(spec, prepare)

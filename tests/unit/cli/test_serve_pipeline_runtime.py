@@ -24,7 +24,11 @@ def _skip_dataset_identity_validation(monkeypatch):
 
 
 def _runtime():
-    return SimpleNamespace(window_bounds=None, execution_observer=None)
+    return SimpleNamespace(
+        window_bounds=None,
+        execution_observer=None,
+        split_labels=(),
+    )
 
 
 def _runtime_with_stream_kinds(kinds):
@@ -35,6 +39,7 @@ def _runtime_with_stream_kinds(kinds):
     return SimpleNamespace(
         window_bounds=None,
         execution_observer=None,
+        split_labels=(),
         registries=SimpleNamespace(stream_specs=_StreamSpecs()),
     )
 
@@ -152,7 +157,7 @@ def test_serve_with_runtime_returns_split_fanout_output(monkeypatch, tmp_path):
     runtime = SimpleNamespace(
         window_bounds=None,
         execution_observer=None,
-        run=SimpleNamespace(splits=["train", "val"]),
+        split_labels=("train", "val"),
         split=TimeSplitConfig(
             boundaries=["2021-01-01T00:00:00Z"],
             labels=["train", "val"],

@@ -88,6 +88,15 @@ def _profile_kind_dir(project_yaml: Path) -> Path:
     return path
 
 
+def test_operation_task_rejects_non_serializable_options() -> None:
+    with pytest.raises(ValueError, match="JSON-serializable"):
+        OperationTask(
+            id="plugin",
+            entrypoint="plugin.runtime",
+            options={"value": object()},
+        )
+
+
 def test_artifact_tasks_load_configs(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     tasks_dir = _operations_dir(project_yaml)
