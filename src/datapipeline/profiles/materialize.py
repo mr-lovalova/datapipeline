@@ -2,33 +2,43 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
+from datapipeline.artifacts.executor import run_build_if_needed
+from datapipeline.artifacts.planning import build_artifact_graph
+from datapipeline.artifacts.validation import stream_cadence_artifacts
 from datapipeline.cli.visuals.execution import (
     emit_execution_message,
     execution_scope,
 )
+from datapipeline.config.build_resolution import BuildSettings
 from datapipeline.config.dataset.loader import load_dataset
+from datapipeline.config.loaders.operations import operation_specs
 from datapipeline.config.loaders.profiles import (
     apply_profile_defaults,
     profile_specs_with_defaults,
 )
-from datapipeline.config.profiles import MaterializeProfile
+from datapipeline.config.profiles import (
+    MaterializeProfile,
+    MaterializeProfileDefaults,
+    normalize_artifact_mode,
+)
+from datapipeline.config.tasks import TicksTask
 from datapipeline.config.resolution import (
     LogLevelDecision,
     LogOutputSettings,
     LogOutputTarget,
-    logging_value,
     resolve_execution_log_outputs,
-    observability_value,
-    resolve_heartbeat_interval_seconds,
-    resolve_log_level,
-    resolve_log_output,
-    resolve_project_log_outputs,
-    resolve_visuals,
+    resolve_observability_settings,
 )
-from datapipeline.profiles.executor import ProfileExecutionSpec, run_profile
+from datapipeline.profiles.executor import (
+    ExecutionSpec,
+    ProfileExecutionSpec,
+    run_execution,
+    run_profile,
+)
 from datapipeline.profiles.selection import select_profiles
 from datapipeline.runtime import Runtime
 from datapipeline.services.bootstrap import bootstrap
+from datapipeline.services.bootstrap.core import load_streams
 from datapipeline.services.executions import execution_root
 from datapipeline.services.materialize import (
     MaterializeResult,
@@ -61,6 +71,7 @@ def run_materialize_profiles(
     cli_output: Path | None,
     cli_visuals: str | None,
     cli_heartbeat_interval_seconds: float | None,
+    cli_artifact_mode: str | None,
     cli_log_level: str | None,
     cli_log_outputs: Sequence[LogOutputTarget],
     base_log_level: str,
@@ -71,6 +82,8 @@ def run_materialize_profiles(
         raise MaterializeProfileError(
             f"Failed to load materialize profiles: {exc}"
         ) from exc
+    if not isinstance(defaults, MaterializeProfileDefaults):
+        raise TypeError("Materialize profile loading returned the wrong defaults type")
     if not profiles:
         raise MaterializeProfileError("Project does not define materialize profiles.")
 
@@ -90,6 +103,7 @@ def run_materialize_profiles(
         return []
 
     runtime = bootstrap(project_path)
+    runtime.execution = defaults.execution
     dataset = load_dataset(project_path, "vectors")
     execution_dir = execution_root(project_path)
     try:
@@ -108,11 +122,41 @@ def run_materialize_profiles(
             )
             for profile in materialize_profiles
         ]
+        artifact_observability = resolve_observability_settings(
+            project_path,
+            defaults.observability,
+            cli_visuals=cli_visuals,
+            cli_heartbeat_interval_seconds=cli_heartbeat_interval_seconds,
+            cli_log_level=cli_log_level,
+            cli_log_outputs=cli_log_outputs,
+            base_log_level=base_log_level,
+        )
     except ValueError as exc:
         raise MaterializeProfileError(
             f"Invalid materialize profile settings: {exc}"
         ) from exc
     _preflight_jobs(runtime, jobs)
+    artifact_mode = (
+        normalize_artifact_mode(cli_artifact_mode) or defaults.artifact_mode or "AUTO"
+    )
+    artifact_settings = BuildSettings(
+        visuals=artifact_observability.visuals,
+        heartbeat_interval_seconds=artifact_observability.heartbeat_interval_seconds,
+        log_decision=artifact_observability.log_decision,
+        log_output=resolve_execution_log_outputs(
+            artifact_observability.log_output,
+            execution_dir,
+            command="materialize",
+            label="artifacts",
+        ),
+        mode=artifact_mode,
+    )
+    _prepare_materialize_artifacts(
+        project_path,
+        runtime,
+        jobs,
+        artifact_settings,
+    )
 
     results: list[MaterializeResult] = []
     total = len(jobs)
@@ -142,7 +186,6 @@ def run_materialize_profiles(
                     overwrite=job.overwrite,
                     dataset=dataset,
                 )
-                emit_execution_message(f"Result: {result.count:,} records")
                 emit_execution_message(f"Output: {result.output}")
                 emit_execution_message(f"Metadata: {result.metadata}")
                 return result
@@ -163,17 +206,17 @@ def _resolve_profile(
     cli_log_outputs: Sequence[LogOutputTarget],
     base_log_level: str,
 ) -> MaterializeJob:
-    observability = profile.observability
-    configured_outputs = resolve_project_log_outputs(
-        logging_value(observability, "outputs"),
+    observability = resolve_observability_settings(
         project_path,
-    )
-    log_output = resolve_log_output(
-        output_candidates=(cli_log_outputs, configured_outputs),
-        allow_execution_scope=True,
+        profile.observability,
+        cli_visuals=cli_visuals,
+        cli_heartbeat_interval_seconds=cli_heartbeat_interval_seconds,
+        cli_log_level=cli_log_level,
+        cli_log_outputs=cli_log_outputs,
+        base_log_level=base_log_level,
     )
     log_output = resolve_execution_log_outputs(
-        log_output,
+        observability.log_output,
         execution_dir,
         command="materialize",
         label=profile.name,
@@ -186,19 +229,9 @@ def _resolve_profile(
         stream=profile.stream,
         output=output.resolve(),
         overwrite=profile.overwrite if overwrite is None else overwrite,
-        visuals=resolve_visuals(
-            cli_visuals,
-            observability_value(observability, "visuals"),
-        ).visuals,
-        heartbeat_interval_seconds=resolve_heartbeat_interval_seconds(
-            cli_heartbeat_interval_seconds,
-            observability_value(observability, "heartbeat_interval_seconds"),
-        ),
-        log_decision=resolve_log_level(
-            cli_log_level,
-            logging_value(observability, "level"),
-            base_log_level,
-        ),
+        visuals=observability.visuals,
+        heartbeat_interval_seconds=observability.heartbeat_interval_seconds,
+        log_decision=observability.log_decision,
         log_output=log_output,
     )
 
@@ -210,6 +243,7 @@ def _preflight_jobs(
     destinations: list[tuple[MaterializeJob, tuple[Path, Path]]] = []
     owners: dict[Path, str] = {}
     available_streams = set(runtime.registries.stream_specs.keys())
+    artifacts_root = runtime.artifacts_root.resolve()
     for job in jobs:
         if job.stream not in available_streams:
             raise MaterializeProfileError(
@@ -219,6 +253,11 @@ def _preflight_jobs(
         paths = materialize_destination_paths(job.output)
         destinations.append((job, paths))
         for path in paths:
+            if path.is_relative_to(artifacts_root):
+                raise MaterializeProfileError(
+                    f"Materialize profile '{job.name}' writes inside the managed "
+                    f"artifacts root: {path}"
+                )
             owner = owners.get(path)
             if owner is not None:
                 raise MaterializeProfileError(
@@ -229,3 +268,59 @@ def _preflight_jobs(
 
     for job, paths in destinations:
         check_materialize_destinations(paths, job.overwrite)
+
+
+def _prepare_materialize_artifacts(
+    project_path: Path,
+    runtime: Runtime,
+    jobs: Sequence[MaterializeJob],
+    settings: BuildSettings,
+) -> None:
+    try:
+        streams = load_streams(project_path)
+        required_artifacts = {
+            artifact
+            for job in jobs
+            for artifact in stream_cadence_artifacts(job.stream, streams)
+        }
+        if not required_artifacts:
+            return
+        artifact_tasks, _ = operation_specs(project_path)
+        graph = build_artifact_graph(artifact_tasks)
+    except (OSError, TypeError, ValueError) as exc:
+        raise MaterializeProfileError(
+            f"Failed to prepare materialize artifacts: {exc}"
+        ) from exc
+
+    for artifact in sorted(required_artifacts):
+        task = graph.tasks_by_id.get(artifact)
+        if task is None:
+            raise MaterializeProfileError(
+                f"Artifact-backed cadence '{artifact}' requires a declared ticks "
+                "task with the same id."
+            )
+        if not isinstance(task, TicksTask):
+            raise MaterializeProfileError(
+                f"Artifact-backed cadence '{artifact}' references task "
+                f"entrypoint '{task.entrypoint}', not a ticks task."
+            )
+
+    spec = ExecutionSpec(
+        visuals=settings.visuals,
+        log_decision=settings.log_decision,
+        log_output=settings.log_output,
+        runtime=runtime,
+    )
+
+    def prepare() -> None:
+        with execution_scope(profile_kind="materialize"):
+            run_build_if_needed(
+                project_path,
+                graph=graph,
+                required_artifacts=required_artifacts,
+                mode=settings.mode,
+                runtime=runtime,
+                heartbeat_interval_seconds=settings.heartbeat_interval_seconds,
+            )
+
+    run_execution(spec, prepare)

@@ -29,6 +29,8 @@ def test_materialize_parser_accepts_profile_overrides() -> None:
             "--output",
             "adv-20.jsonl",
             "--overwrite",
+            "--artifact-mode",
+            "force",
             "--visuals",
             "off",
             "--heartbeat-interval",
@@ -40,6 +42,7 @@ def test_materialize_parser_accepts_profile_overrides() -> None:
     assert args.run == "adv-20"
     assert args.output == "adv-20.jsonl"
     assert args.overwrite is True
+    assert args.artifact_mode == "FORCE"
     assert args.visuals == "off"
     assert args.heartbeat_interval_seconds == 10
 
@@ -60,6 +63,8 @@ def test_materialize_dispatches_one_profile_execution_path(monkeypatch) -> None:
             "--output",
             "adv-20.jsonl",
             "--no-overwrite",
+            "--artifact-mode",
+            "auto",
         ]
     )
 
@@ -69,6 +74,7 @@ def test_materialize_dispatches_one_profile_execution_path(monkeypatch) -> None:
         "run_name": "adv-20",
         "output": "adv-20.jsonl",
         "overwrite": False,
+        "artifact_mode": "AUTO",
         "visuals": None,
         "heartbeat_interval_seconds": None,
         "cli_log_level": "DEBUG",
@@ -111,12 +117,15 @@ def test_materialize_resolves_profile_output_from_workspace(
             "adv-20",
             "--output",
             "outputs/adv-20.jsonl",
+            "--artifact-mode",
+            "off",
         ]
     )
 
     assert _execute(args, workspace) is True
     assert captured["cli_output"] == (tmp_path / "outputs/adv-20.jsonl").resolve()
     assert captured["run_name"] == "adv-20"
+    assert captured["cli_artifact_mode"] == "OFF"
 
 
 def test_materialize_rejects_non_jsonl_output(monkeypatch) -> None:

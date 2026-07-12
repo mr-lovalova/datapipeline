@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 import pytest
 
+from datapipeline.config.execution import ExecutionConfig
 from datapipeline.config.tasks import TicksTask
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.operations.artifacts.ticks import materialize_ticks
@@ -43,7 +44,11 @@ def _runtime(tmp_path) -> Runtime:
     project_yaml.write_text("version: 1\n", encoding="utf-8")
     artifacts_root = tmp_path / "artifacts"
     artifacts_root.mkdir()
-    runtime = Runtime(project_yaml=project_yaml, artifacts_root=artifacts_root)
+    runtime = Runtime(
+        project_yaml=project_yaml,
+        artifacts_root=artifacts_root,
+        execution=ExecutionConfig(sort_batch_records=1),
+    )
     regs = runtime.registries
     regs.stream_specs.register("source.stream", StreamRuntimeSpec(pipeline="ingest"))
     regs.stream_sources.register(
@@ -57,7 +62,6 @@ def _runtime(tmp_path) -> Runtime:
     regs.partition_by.register("source.stream", None)
     regs.feature_id_by.register("source.stream", None)
     regs.ordered_by.register("source.stream", None)
-    regs.sort_batch_size.register("source.stream", 1)
     return runtime
 
 
@@ -82,7 +86,6 @@ def _stream_runtime(tmp_path) -> Runtime:
     regs.partition_by.register("derived.stream", None)
     regs.feature_id_by.register("derived.stream", None)
     regs.ordered_by.register("derived.stream", None)
-    regs.sort_batch_size.register("derived.stream", 1)
     return runtime
 
 

@@ -45,7 +45,6 @@ def test_persist_artifact_output_requires_declared_existing_file(tmp_path) -> No
             artifact_key="snapshot",
             expected_relative_path="snapshot.json",
             runtime=runtime,
-            logger=logging.getLogger(__name__),
         )
 
     with pytest.raises(RuntimeError, match="did not create its declared output"):
@@ -54,7 +53,6 @@ def test_persist_artifact_output_requires_declared_existing_file(tmp_path) -> No
             artifact_key="snapshot",
             expected_relative_path="snapshot.json",
             runtime=runtime,
-            logger=logging.getLogger(__name__),
         )
 
 
@@ -71,7 +69,6 @@ def test_persist_artifact_output_registers_declared_file(tmp_path) -> None:
         artifact_key="snapshot",
         expected_relative_path="snapshot.json",
         runtime=runtime,
-        logger=logging.getLogger(__name__),
     )
 
     assert info is not None
@@ -120,7 +117,7 @@ def test_runtime_persistence_emits_operation_saved_info(tmp_path) -> None:
         logger = logging.getLogger(__name__)
         observer = make_operation_observer(logger)
         with operation_observer(observer):
-            with operation_scope("serve:train", "core.runtime.pipeline"):
+            with operation_scope("serve:train"):
                 persist_runtime_result(
                     RuntimeOutput(rows=iter([{"value": 1}])),
                     target=target,

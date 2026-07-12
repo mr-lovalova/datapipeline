@@ -20,12 +20,18 @@
 #       #   scope: EXECUTION # GLOBAL | EXECUTION
 #       #   path: logs/materialize.log
 #
-# Put shared overwrite/observability values in materialize.defaults.yaml:
+# Put command-wide values in materialize.defaults.yaml:
 #   cmd: materialize
+#   artifact_mode: AUTO       # AUTO | FORCE | OFF
 #   overwrite: true
+#   execution:
+#     sort_batch_records: 100000
 #
 # `jerry materialize` runs all enabled profiles in order.
 # `jerry materialize --run adv.20` runs one profile.
 # CLI `--output` overrides one profile and requires `--run`.
 # CLI `--overwrite` / `--no-overwrite` overrides every selected profile.
-# precedence: CLI > materialize.<name>.yaml > materialize.defaults.yaml > built-ins
+# CLI `--artifact-mode` overrides materialize.defaults.yaml.
+# Shared prerequisite observability comes from CLI or materialize.defaults.yaml.
+# profile precedence: CLI > materialize.<name>.yaml > materialize.defaults.yaml > built-ins
+# artifact mode precedence: CLI > materialize.defaults.yaml > AUTO

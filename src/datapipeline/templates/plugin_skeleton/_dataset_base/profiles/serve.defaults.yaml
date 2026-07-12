@@ -1,5 +1,5 @@
 # See ../../reference/reference/tasks/profiles/serve.reference.yaml for full options.
-# Defaults for all serve.<name>.yaml profiles in this project.
+# Defaults for the serve command and its serve.<name>.yaml profiles.
 # precedence: CLI > serve.<name>.yaml > serve.defaults.yaml > built-ins
 cmd: serve
 # artifact_mode: AUTO

@@ -536,10 +536,10 @@ def test_rich_sink_styles_labels_and_final_status() -> None:
     assert any(str(span.style) == "bold red" for span in error.spans)
 
 
-def test_rich_sink_filters_info_results_below_its_log_level() -> None:
+def test_rich_sink_filters_info_outputs_below_its_log_level() -> None:
     console, output = _console()
     sink = _RichConsoleExecutionSink(logging.WARNING, console)
-    sink.emit(ExecutionMessage(message="Result: 20 records"))
+    sink.emit(ExecutionMessage(message="Metadata: data/adv.20.metadata.json"))
     sink.emit(ExecutionMessage(message="Output: data/adv.20.jsonl"))
 
     assert output.getvalue() == ""

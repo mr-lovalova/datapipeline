@@ -1,12 +1,12 @@
 import logging
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Literal, Sequence, cast
+from typing import Literal, Sequence
 
 from pydantic import ValidationError
 
 from datapipeline.build.config_hash import compute_config_hash
-from datapipeline.config.build_resolution import resolve_build_settings
+from datapipeline.config.build_resolution import BuildSettings, resolve_build_settings
 from datapipeline.config.dataset.loader import load_dataset
 from datapipeline.config.loaders.operations import operation_specs
 from datapipeline.config.loaders.profiles import (
@@ -16,6 +16,8 @@ from datapipeline.config.loaders.profiles import (
 from datapipeline.config.profiles import (
     BuildProfile,
     InspectProfile,
+    Profile,
+    ProfileDefaults,
     ServeOutputConfig,
     ServeProfile,
     normalize_artifact_mode,
@@ -23,6 +25,7 @@ from datapipeline.config.profiles import (
 from datapipeline.config.resolution import (
     LogOutputTarget,
     resolve_execution_log_outputs,
+    resolve_observability_settings,
 )
 from datapipeline.config.serve_resolution import resolve_run_profiles
 from datapipeline.config.tasks import ArtifactTask, OperationTask
@@ -131,13 +134,15 @@ def build_cli_output_config(
         raise SystemExit(2) from exc
 
 
-def _select_profiles(params: ProfileResolveParams):
+def _select_profiles(
+    params: ProfileResolveParams,
+) -> tuple[list[Profile], ProfileDefaults]:
     try:
         profiles, defaults = profile_specs_with_defaults(
             params.project_path,
             cmd=params.command,
         )
-    except Exception as exc:
+    except (OSError, TypeError, ValueError) as exc:
         logger.error("Failed to load %s profiles: %s", params.command, exc)
         raise SystemExit(2) from exc
     if not profiles:
@@ -149,7 +154,10 @@ def _select_profiles(params: ProfileResolveParams):
             params.run_name,
             params.command,
         )
-        return [apply_profile_defaults(profile, defaults) for profile in selected]
+        return (
+            [apply_profile_defaults(profile, defaults) for profile in selected],
+            defaults,
+        )
     except ValueError as exc:
         logger.error("%s", exc)
         raise SystemExit(2) from exc
@@ -218,7 +226,7 @@ def _resolve_runtime_execution_profiles(
                     name=profile.name,
                     config=profile,
                     target_id=profile.target,
-                    path=getattr(profile, "source_path", None),
+                    path=profile.source_path,
                 )
                 for profile in profiles
             ],
@@ -254,7 +262,7 @@ def _resolve_runtime_execution_profiles(
             ExecutionProfile(
                 name=profile.label,
                 target_id=profile.entry.target_id,
-                visuals=profile.visuals.visuals,
+                visuals=profile.visuals,
                 log_decision=profile.log_decision,
                 log_output=resolve_execution_log_outputs(
                     settings=profile.log_output,
@@ -331,9 +339,14 @@ def build_profile_run_request(
         cli_heartbeat_interval_seconds=cli_heartbeat_interval_seconds,
         workspace=workspace,
     )
-    selected_profiles = _select_profiles(params)
-    if not selected_profiles:
+    loaded_profiles, defaults = _select_profiles(params)
+    if not loaded_profiles:
         return None
+    selected_profiles: list[BuildProfile | InspectProfile | ServeProfile] = []
+    for profile in loaded_profiles:
+        if not isinstance(profile, BuildProfile | InspectProfile | ServeProfile):
+            raise TypeError("Profile loading returned an unsupported profile type")
+        selected_profiles.append(profile)
 
     try:
         config_hash = compute_config_hash(
@@ -348,7 +361,7 @@ def build_profile_run_request(
         declared_artifact_tasks, declared_operation_tasks = operation_specs(
             project_path
         )
-    except Exception as exc:
+    except (OSError, TypeError, ValueError) as exc:
         logger.error("Failed to load task definitions: %s", exc)
         raise SystemExit(2) from exc
     declared_tasks = list(declared_artifact_tasks) + list(declared_operation_tasks)
@@ -382,14 +395,28 @@ def build_profile_run_request(
             raise SystemExit(2)
 
     execution_dir = execution_root(project_path)
-    resolved_artifact_mode: str | None = None
+    artifact_settings: BuildSettings | None = None
     if kind == "build":
+        build_profiles = [
+            profile
+            for profile in selected_profiles
+            if isinstance(profile, BuildProfile)
+        ]
+        if len(build_profiles) != len(selected_profiles):
+            raise TypeError("Build profile loading returned the wrong profile type")
         profiles = _resolve_build_execution_profiles(
-            cast(Sequence[BuildProfile], selected_profiles),
+            build_profiles,
             params,
             execution_dir,
         )
     else:
+        runtime_profiles = [
+            profile
+            for profile in selected_profiles
+            if isinstance(profile, ServeProfile | InspectProfile)
+        ]
+        if len(runtime_profiles) != len(selected_profiles):
+            raise TypeError("Runtime profile loading returned the wrong profile type")
         if artifact_mode is not None:
             try:
                 resolved_artifact_mode = normalize_artifact_mode(artifact_mode)
@@ -398,12 +425,12 @@ def build_profile_run_request(
                 raise SystemExit(2) from exc
         else:
             profile_modes = {
-                profile.artifact_mode or "AUTO" for profile in selected_profiles
+                profile.artifact_mode or "AUTO" for profile in runtime_profiles
             }
             if len(profile_modes) != 1:
                 configured = ", ".join(
                     f"{profile.name}={profile.artifact_mode or 'AUTO'}"
-                    for profile in selected_profiles
+                    for profile in runtime_profiles
                 )
                 logger.error(
                     "Selected %s profiles disagree on artifact_mode: %s.",
@@ -412,8 +439,35 @@ def build_profile_run_request(
                 )
                 raise SystemExit(2)
             resolved_artifact_mode = profile_modes.pop()
+        try:
+            artifact_observability = resolve_observability_settings(
+                project_path,
+                defaults.observability,
+                cli_visuals=cli_visuals,
+                cli_heartbeat_interval_seconds=cli_heartbeat_interval_seconds,
+                cli_log_level=cli_log_level,
+                cli_log_outputs=cli_log_outputs,
+                base_log_level=base_log_level,
+            )
+        except ValueError as exc:
+            logger.error("Invalid prerequisite observability: %s", exc)
+            raise SystemExit(2) from exc
+        artifact_settings = BuildSettings(
+            visuals=artifact_observability.visuals,
+            heartbeat_interval_seconds=(
+                artifact_observability.heartbeat_interval_seconds
+            ),
+            log_decision=artifact_observability.log_decision,
+            log_output=resolve_execution_log_outputs(
+                artifact_observability.log_output,
+                execution_dir,
+                command=kind,
+                label="artifacts",
+            ),
+            mode=resolved_artifact_mode or "AUTO",
+        )
         profiles = _resolve_runtime_execution_profiles(
-            profiles=cast(Sequence[ServeProfile | InspectProfile], selected_profiles),
+            profiles=runtime_profiles,
             params=params,
             execution_dir=execution_dir,
         )
@@ -439,10 +493,8 @@ def build_profile_run_request(
         tasks=declared_tasks,
         artifact_task_configs=declared_artifact_tasks,
         profiles=profiles,
+        execution=defaults.execution,
         config_hash=config_hash,
-        artifact_mode=resolved_artifact_mode,
-        artifact_heartbeat_interval_seconds=(
-            cli_heartbeat_interval_seconds if kind != "build" else None
-        ),
+        artifact_settings=artifact_settings,
         serve_run_plans=_serve_run_plans(profiles) if kind == "serve" else (),
     )

@@ -185,35 +185,31 @@ def profile_specs(
 def profile_specs_with_defaults(
     project_yaml: Path,
     cmd: ProfileCmd,
-) -> tuple[list[Profile], ProfileDefaults | None]:
+) -> tuple[list[Profile], ProfileDefaults]:
     specs, defaults_by_kind = _load_profile_specs(project_yaml)
     grouped = _group_profiles(specs)
-    return list(grouped[cmd]), defaults_by_kind.get(cmd)
-
-
-def profile_defaults(
-    project_yaml: Path,
-    cmd: ProfileCmd,
-) -> ProfileDefaults | None:
-    _, defaults = profile_specs_with_defaults(project_yaml, cmd=cmd)
-    return defaults
+    defaults = defaults_by_kind.get(cmd)
+    if defaults is None:
+        defaults = PROFILE_DEFAULTS_ADAPTER.validate_python({"cmd": cmd})
+    return list(grouped[cmd]), defaults
 
 
 def apply_profile_defaults(
     profile: Profile,
-    defaults: ProfileDefaults | None,
+    defaults: ProfileDefaults,
 ) -> Profile:
-    if defaults is None:
-        return profile
     if profile.cmd != defaults.cmd:
         raise ValueError(
             f"Cannot apply {defaults.cmd} defaults to {profile.cmd} profile '{profile.name}'."
         )
 
+    non_profile_fields = {"execution", "source_path"}
+    if isinstance(defaults, MaterializeProfileDefaults):
+        non_profile_fields.add("artifact_mode")
     defaults_payload = defaults.model_dump(
         exclude_unset=True,
         exclude_none=True,
-        exclude={"source_path"},
+        exclude=non_profile_fields,
     )
     profile_payload = profile.model_dump(
         exclude_unset=True,
@@ -274,7 +270,6 @@ def _group_profiles(specs: list[Profile]) -> dict[str, list[Profile]]:
 
 __all__ = [
     "apply_profile_defaults",
-    "profile_defaults",
     "profile_specs",
     "profile_specs_with_defaults",
 ]

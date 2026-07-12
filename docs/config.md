@@ -169,6 +169,12 @@ overwrite: true
 - `overwrite: false` is the built-in default. `--overwrite` and
   `--no-overwrite` override every selected profile; shared defaults belong in
   `profiles/materialize.defaults.yaml`.
+- Output and metadata paths must be outside `project.paths.artifacts`; that
+  directory is reserved for managed artifacts and build state.
+- `artifact_mode` is command-wide and belongs only in
+  `profiles/materialize.defaults.yaml`. `AUTO` prepares missing or stale stream
+  prerequisites, `FORCE` rebuilds them, and `OFF` requires them to be current.
+  CLI `--artifact-mode` takes precedence; the built-in mode is `AUTO`.
 
 ### Build Profiles (`profiles/build.<name>.yaml`)
 
@@ -205,7 +211,28 @@ mode: AUTO # AUTO | FORCE | "OFF"
 - Defaults files are optional and non-executable.
 - They must include only `cmd` plus non-routing defaults for that kind.
 - They must not include execution identity fields such as `name`, `target`, `enabled`, or `order`.
-- Recommended precedence for runtime/build settings: CLI > concrete profile > `<kind>.defaults.yaml` > built-ins.
+- `execution` is command-wide and is not accepted in concrete profiles.
+  Materialize `artifact_mode` is likewise defaults-only.
+- Defaults-level `observability` configures the shared prerequisite phase as
+  well as providing profile defaults. Concrete observability overrides apply
+  only to that profile.
+- Profile setting precedence is CLI > concrete profile > `<kind>.defaults.yaml` > built-ins.
+
+Sorting is an execution policy, not part of an ingest or stream definition.
+Configure its record budget once in each command's defaults file:
+
+```yaml
+# profiles/materialize.defaults.yaml
+cmd: materialize
+artifact_mode: AUTO
+execution:
+  sort_batch_records: 100000
+```
+
+`sort_batch_records` is the number of records in each in-memory sort batch;
+inputs larger than one batch spill temporary runs. The built-in default is
+`100000`. Build, materialize, serve, and inspect resolve their execution
+settings independently.
 
 ### Runtime Operations (`tasks/operations/*.yaml`)
 
@@ -323,7 +350,6 @@ map:
 
 partition_by: station
 feature_id_by: []
-sort_batch_size: 50000
 
 record:
   - where: { field: time, operator: ge, comparand: "${start_time}" }
@@ -342,7 +368,6 @@ from:
   stream: equity.ohlcv
 partition_by: station
 feature_id_by: []
-sort_batch_size: 50000
 stream:
   - ensure_cadence: { field: close, to: close, cadence: 10m }
   - granularity: { field: close, to: close, mode: mean }
@@ -371,8 +396,6 @@ debug:
   `temp__@station_id:XYZ`). If a partitioned stream is used as a dataset
   feature, set this explicitly: `[]` for scalar keyed-row features or a field
   list for wide feature IDs.
-- `sort_batch_size`: batch size used by the stable sorter before it spills
-  temporary runs while normalizing order.
 
 ### Manual Streams (Engineered Domains)
 
@@ -387,7 +410,6 @@ from:
     t: temp_dry.processed
 partition_by: station_id
 feature_id_by: []
-sort_batch_size: 20000
 
 map:
   # Mapper entrypoint required for joined/manual streams.

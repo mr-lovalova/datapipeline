@@ -26,14 +26,14 @@ def test_resolve_visuals_applies_priority():
         cli_visuals="OFF",
         config_visuals="ON",
     )
-    assert visuals.visuals == "off"
+    assert visuals == "off"
 
     visuals = resolve_visuals(
         cli_visuals=None,
         config_visuals=None,
         default_visuals="on",
     )
-    assert visuals.visuals == "on"
+    assert visuals == "on"
 
 
 def test_resolve_heartbeat_interval_seconds_applies_priority():

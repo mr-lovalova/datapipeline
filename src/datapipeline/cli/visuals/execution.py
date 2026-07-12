@@ -27,11 +27,8 @@ from datapipeline.dag.observer import ExecutionObserver
 from datapipeline.dag.runner import current_node_progress_context
 from datapipeline.execution.observability import (
     OperationEvent as ObservedOperationEvent,
-    OperationFinished as ObservedOperationFinished,
     OperationInfo as ObservedOperationInfo,
     OperationProgressEvent as ObservedOperationProgress,
-    OperationStarted as ObservedOperationStarted,
-    OperationStatus,
 )
 
 
@@ -138,11 +135,6 @@ class _OperationEvent(_ExecutionEvent):
 
 
 @dataclass(frozen=True, kw_only=True)
-class OperationStarted(_OperationEvent):
-    entrypoint: str
-
-
-@dataclass(frozen=True, kw_only=True)
 class OperationInfo(_OperationEvent):
     info_line: str
 
@@ -151,14 +143,6 @@ class OperationInfo(_OperationEvent):
 class OperationProgress(_OperationEvent):
     step: str
     message: str
-
-
-@dataclass(frozen=True, kw_only=True)
-class OperationFinished(_OperationEvent):
-    status: OperationStatus
-    elapsed_seconds: float
-    error_type: str | None = None
-    error_message: str | None = None
 
 
 ExecutionLogEvent = (
@@ -172,10 +156,8 @@ ExecutionLogEvent = (
     | NodeStarted
     | NodeProgress
     | NodeFinished
-    | OperationStarted
     | OperationInfo
     | OperationProgress
-    | OperationFinished
 )
 
 
@@ -186,7 +168,7 @@ class ExecutionEventSink(Protocol):
 class ExecutionEventFormatter:
     @staticmethod
     def error_suffix(
-        event: DagFinished | NodeFinished | OperationFinished,
+        event: DagFinished | NodeFinished,
     ) -> str:
         if event.status != "error" or event.error_type is None:
             return ""
@@ -220,7 +202,7 @@ class ExecutionEventFormatter:
     def level(event: ExecutionLogEvent) -> int:
         if isinstance(event, ExecutionMessage):
             return int(event.log_level)
-        if isinstance(event, DagFinished | NodeFinished | OperationFinished):
+        if isinstance(event, DagFinished | NodeFinished):
             if event.status == "error":
                 return logging.ERROR
         if isinstance(
@@ -232,10 +214,8 @@ class ExecutionEventFormatter:
             | DagSummary
             | DagFinished
             | NodeProgress
-            | OperationStarted
             | OperationInfo
             | OperationProgress
-            | OperationFinished,
         ):
             return logging.INFO
         if isinstance(event, NodeStarted | NodeFinished):
@@ -269,22 +249,11 @@ class ExecutionEventFormatter:
             return f"{indent}[{event.operation_name}] {event.info_line}"
         if isinstance(event, DagStarted):
             return f"{indent}[{event.dag_name}] started nodes={event.node_count}"
-        if isinstance(event, OperationStarted):
-            return (
-                f"{indent}[{event.operation_name}] started operation={event.entrypoint}"
-            )
         if isinstance(event, DagFinished):
             error_suffix = cls.error_suffix(event)
             return (
                 f"{indent}[{event.dag_name}] finished "
                 f"status={event.status}{error_suffix} items={event.output_items} "
-                f"elapsed={event.elapsed_seconds:.6f}s"
-            )
-        if isinstance(event, OperationFinished):
-            error_suffix = cls.error_suffix(event)
-            return (
-                f"{indent}[{event.operation_name}] finished "
-                f"status={event.status}{error_suffix} "
                 f"elapsed={event.elapsed_seconds:.6f}s"
             )
         if isinstance(event, NodeStarted):
@@ -477,14 +446,7 @@ class ExecutionOperationObserver:
 
     def emit_operation_event(self, event: ObservedOperationEvent) -> None:
         log_event: _OperationEvent
-        if isinstance(event, ObservedOperationStarted):
-            log_event = OperationStarted(
-                operation_name=event.name,
-                depth=event.depth,
-                entrypoint=event.entrypoint,
-                scope=_current_scope(),
-            )
-        elif isinstance(event, ObservedOperationInfo):
+        if isinstance(event, ObservedOperationInfo):
             log_event = OperationInfo(
                 operation_name=event.name,
                 depth=event.depth,
@@ -497,16 +459,6 @@ class ExecutionOperationObserver:
                 depth=event.depth,
                 step=event.step,
                 message=event.message,
-                scope=_current_scope(),
-            )
-        elif isinstance(event, ObservedOperationFinished):
-            log_event = OperationFinished(
-                operation_name=event.name,
-                depth=event.depth,
-                status=event.status,
-                error_type=event.error_type,
-                error_message=event.error_message,
-                elapsed_seconds=event.elapsed_seconds,
                 scope=_current_scope(),
             )
         else:

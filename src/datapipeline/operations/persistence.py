@@ -49,7 +49,6 @@ def persist_artifact_output(
     artifact_key: str,
     expected_relative_path: str | None = None,
     runtime,
-    logger: logging.Logger,
 ) -> ArtifactOutput | None:
     if result is None:
         return None
@@ -75,10 +74,6 @@ def persist_artifact_output(
             f"Artifact '{artifact_key}' did not create its declared output: {full_path}."
         )
     meta = dict(result.meta)
-    line = f"materialized path={full_path}"
-    if meta:
-        line = f"{line} " + " ".join(f"{key}={value}" for key, value in meta.items())
-    emit_operation_info(line)
     artifacts = getattr(runtime, "artifacts", None)
     if artifacts is not None and hasattr(artifacts, "register"):
         artifacts.register(

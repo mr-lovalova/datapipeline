@@ -23,14 +23,13 @@ def _flush_root_handlers() -> None:
         handler.flush()
 
 
-def _emit_materialize_result(logger: logging.Logger) -> None:
+def _emit_materialize_outputs(logger: logging.Logger) -> None:
     emit_profile_started("materialize", "adv.20", 2, 3, logger=logger)
-    emit_execution_message("Result: 1,255 records", logger=logger)
     emit_execution_message("Output: /tmp/adv.20.jsonl", logger=logger)
     emit_execution_message("Metadata: /tmp/adv.20.metadata.json", logger=logger)
 
 
-def test_profile_and_result_events_render_as_flat_plain_logs_without_visuals(
+def test_profile_and_output_events_render_as_flat_plain_logs_without_visuals(
     monkeypatch,
 ):
     stream = io.StringIO()
@@ -41,18 +40,17 @@ def test_profile_and_result_events_render_as_flat_plain_logs_without_visuals(
     )
 
     logger = logging.getLogger("datapipeline.tests.logging_setup.plain_result")
-    _emit_materialize_result(logger)
+    _emit_materialize_outputs(logger)
     _flush_root_handlers()
 
     assert stream.getvalue().splitlines() == [
         "Profile: materialize adv.20 (2/3)",
-        "Result: 1,255 records",
         "Output: /tmp/adv.20.jsonl",
         "Metadata: /tmp/adv.20.metadata.json",
     ]
 
 
-def test_file_profile_and_result_logs_do_not_depend_on_visual_sink(tmp_path):
+def test_file_profile_and_output_logs_do_not_depend_on_visual_sink(tmp_path):
     without_visuals = tmp_path / "without-visuals.log"
     configure_root_logging(
         level=logging.INFO,
@@ -61,7 +59,7 @@ def test_file_profile_and_result_logs_do_not_depend_on_visual_sink(tmp_path):
         ),
     )
     logger = logging.getLogger("datapipeline.tests.logging_setup.file_result")
-    _emit_materialize_result(logger)
+    _emit_materialize_outputs(logger)
     _flush_root_handlers()
 
     with_visuals = tmp_path / "with-visuals.log"
@@ -82,7 +80,7 @@ def test_file_profile_and_result_logs_do_not_depend_on_visual_sink(tmp_path):
     sink = _CaptureSink()
     token = set_current_execution_event_sink(sink)
     try:
-        _emit_materialize_result(logger)
+        _emit_materialize_outputs(logger)
     finally:
         reset_current_execution_event_sink(token)
         _flush_root_handlers()
@@ -92,15 +90,14 @@ def test_file_profile_and_result_logs_do_not_depend_on_visual_sink(tmp_path):
     assert visual_content == plain_content
     for expected in (
         "Profile: materialize adv.20 (2/3)",
-        "Result: 1,255 records",
         "Output: /tmp/adv.20.jsonl",
         "Metadata: /tmp/adv.20.metadata.json",
     ):
         assert visual_content.count(expected) == 1
-    assert len(sink.events) == 4
+    assert len(sink.events) == 3
 
 
-def test_file_profile_and_result_logs_obey_warning_threshold(tmp_path):
+def test_file_profile_and_output_logs_obey_warning_threshold(tmp_path):
     log_path = tmp_path / "warning.log"
     configure_root_logging(
         level=logging.WARNING,
@@ -110,7 +107,7 @@ def test_file_profile_and_result_logs_obey_warning_threshold(tmp_path):
     )
 
     logger = logging.getLogger("datapipeline.tests.logging_setup.warning_result")
-    _emit_materialize_result(logger)
+    _emit_materialize_outputs(logger)
     _flush_root_handlers()
 
     assert log_path.read_text(encoding="utf-8") == ""

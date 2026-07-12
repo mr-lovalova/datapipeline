@@ -9,27 +9,34 @@ from datapipeline.runtime import Runtime
 
 
 @dataclass(frozen=True, kw_only=True)
-class ProfileExecutionSpec:
-    command: str
-    name: str
-    index: int
-    total: int
+class ExecutionSpec:
     visuals: str
     log_decision: LogLevelDecision
     log_output: LogOutputSettings
     runtime: Runtime
 
 
-def run_profile(spec: ProfileExecutionSpec, work: Callable[[], Any]) -> Any:
+@dataclass(frozen=True, kw_only=True)
+class ProfileExecutionSpec(ExecutionSpec):
+    command: str
+    name: str
+    index: int
+    total: int
+
+
+def run_execution(spec: ExecutionSpec, work: Callable[[], Any]) -> Any:
     configure_root_logging(level=spec.log_decision.value, output=spec.log_output)
-
-    def work_with_profile_start() -> Any:
-        emit_profile_started(spec.command, spec.name, spec.index, spec.total)
-        return work()
-
     return run_with_backend(
         visuals=spec.visuals,
         runtime=spec.runtime,
         level=spec.log_decision.value,
-        work=work_with_profile_start,
+        work=work,
     )
+
+
+def run_profile(spec: ProfileExecutionSpec, work: Callable[[], Any]) -> Any:
+    def work_with_profile_start() -> Any:
+        emit_profile_started(spec.command, spec.name, spec.index, spec.total)
+        return work()
+
+    return run_execution(spec, work_with_profile_start)

@@ -49,7 +49,6 @@ def build_ingest_nodes(
         ordered_by = registries.ordered_by.get(stream_id)
     except KeyError:
         ordered_by = None
-    batch_size = registries.sort_batch_size.get(stream_id)
     return (
         PipelineNode(
             name="open_source",
@@ -77,7 +76,6 @@ def build_ingest_nodes(
             op=order_records,
             args=(
                 context,
-                batch_size,
                 state_by,
                 ordered_by,
             ),

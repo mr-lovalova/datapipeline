@@ -127,6 +127,23 @@ def test_log_build_decision_describes_explicit_mode_and_profile(monkeypatch) -> 
     assert '"jobs": []' in captured[0]
 
 
+def test_log_build_decision_omits_absent_profile(monkeypatch) -> None:
+    captured: list[str] = []
+    monkeypatch.setattr(
+        build_exec,
+        "emit_build_decision",
+        lambda message, logger: captured.append(message),
+    )
+
+    build_exec._log_build_decision(
+        build_exec.SkippedBuild(reason="up_to_date", artifacts=(VECTOR_SCHEMA,)),
+        mode="AUTO",
+        profile_name=None,
+    )
+
+    assert '"profile"' not in captured[0]
+
+
 def test_run_artifact_builder_persists_under_task_id(monkeypatch, tmp_path) -> None:
     task = SchemaTask(id="schema")
     captured: dict[str, object] = {}
@@ -158,7 +175,6 @@ def test_resolve_build_settings_uses_builtin_observability_defaults() -> None:
     assert settings.log_decision.name == "WARNING"
     assert settings.log_output.outputs[0].transport == "stderr"
     assert settings.mode == "AUTO"
-    assert settings.profile_name is None
 
 
 def test_resolve_build_settings_applies_cli_overrides() -> None:
@@ -203,7 +219,6 @@ def test_resolve_build_settings_uses_profile_configuration(tmp_path: Path) -> No
         build_profile=profile,
     )
 
-    assert settings.profile_name == "nightly"
     assert settings.mode == "FORCE"
     assert settings.visuals == "on"
     assert settings.heartbeat_interval_seconds == 15
@@ -499,7 +514,13 @@ def test_execute_build_jobs_persists_completed_job_before_failure(
             raise RuntimeError("schema failed")
         return _build_artifact(runtime, task)
 
+    outputs: list[str] = []
     monkeypatch.setattr(build_exec, "_run_artifact_builder", build)
+    monkeypatch.setattr(
+        build_exec,
+        "emit_execution_message",
+        lambda message, logger: outputs.append(message),
+    )
     plan = build_exec.BuildPlan(
         reason="stale",
         artifacts=(VECTOR_INPUTS, VECTOR_SCHEMA),
@@ -517,14 +538,16 @@ def test_execute_build_jobs_persists_completed_job_before_failure(
         graph=graph,
     )
 
+    runtime = _runtime(tmp_path / "artifacts")
     with pytest.raises(RuntimeError, match="schema failed"):
-        build_exec._execute_build_jobs(
-            runtime=_runtime(tmp_path / "artifacts"), plan=plan
-        )
+        build_exec._execute_build_jobs(runtime=runtime, plan=plan)
 
     state = load_build_state(state_path)
     assert state is not None
     assert list(state.artifacts) == [VECTOR_INPUTS]
+    assert outputs == [
+        f"Vector inputs: {(runtime.artifacts_root / vector_inputs.output).resolve()}"
+    ]
 
 
 def test_execute_build_job_invalidates_only_graph_descendants(

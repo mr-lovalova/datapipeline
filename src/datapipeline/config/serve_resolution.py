@@ -7,15 +7,8 @@ from datapipeline.config.resolution import (
     LogLevelDecision,
     LogOutputSettings,
     LogOutputTarget,
-    VisualSettings,
     cascade,
-    logging_value,
-    observability_value,
-    resolve_log_level,
-    resolve_log_output,
-    resolve_project_log_outputs,
-    resolve_visuals,
-    resolve_heartbeat_interval_seconds,
+    resolve_observability_settings,
 )
 from datapipeline.config.split import HashSplitConfig, TimeSplitConfig
 from datapipeline.io.output import OutputTarget, resolve_output_target
@@ -75,7 +68,7 @@ class RunProfile:
     throttle_ms: float | None
     log_decision: LogLevelDecision
     log_output: LogOutputSettings
-    visuals: VisualSettings
+    visuals: str
     output: OutputTarget
     heartbeat_interval_seconds: float | None = None
 
@@ -96,9 +89,6 @@ def resolve_run_profiles(
     cli_visuals: str | None = None,
     cli_heartbeat_interval_seconds: float | None = None,
 ) -> list[RunProfile]:
-    fallback_log_level = str(base_log_level).upper()
-    cli_log_output_candidates = list(cli_log_outputs or [])
-
     resolved_entries = list(iter_runtime_runs(project_path, run_entries))
     shared_runtime_profile_counts: dict[Path, int] = {}
     shared_runs: dict[Path, RunPaths] = {}
@@ -128,9 +118,14 @@ def resolve_run_profiles(
         run_label = entry_name or f"run{idx}"
         run_cfg = getattr(runtime, "run", None)
         run_observability = _run_config_value(run_cfg, "observability")
-        heartbeat_interval_seconds = resolve_heartbeat_interval_seconds(
-            cli_heartbeat_interval_seconds,
-            observability_value(run_observability, "heartbeat_interval_seconds"),
+        observability = resolve_observability_settings(
+            project_path,
+            run_observability,
+            cli_visuals=cli_visuals,
+            cli_heartbeat_interval_seconds=cli_heartbeat_interval_seconds,
+            cli_log_level=cli_log_level,
+            cli_log_outputs=cli_log_outputs,
+            base_log_level=base_log_level,
         )
         resolved_preview_index = cascade(
             preview_index,
@@ -168,29 +163,6 @@ def resolve_run_profiles(
                     f"Serve profile '{run_label}' references unknown split labels: {unknown}"
                 )
         throttle_ms = _run_config_value(run_cfg, "throttle_ms")
-        log_decision = resolve_log_level(
-            cli_log_level,
-            logging_value(run_observability, "level"),
-            fallback=fallback_log_level,
-        )
-        run_log_outputs = resolve_project_log_outputs(
-            logging_value(run_observability, "outputs"),
-            project_path=project_path,
-        )
-        log_output = resolve_log_output(
-            output_candidates=(
-                cli_log_output_candidates,
-                run_log_outputs,
-            ),
-            allow_execution_scope=True,
-        )
-
-        run_visuals = observability_value(run_observability, "visuals")
-        visuals = resolve_visuals(
-            cli_visuals=cli_visuals,
-            config_visuals=run_visuals,
-        )
-
         shared_run = None
         serve_root = serve_roots.get(idx)
         if run_cmd == "serve" and serve_root is not None:
@@ -237,11 +209,11 @@ def resolve_run_profiles(
                 preview_index=resolved_preview_index,
                 limit=resolved_limit,
                 throttle_ms=throttle_ms,
-                log_decision=log_decision,
-                log_output=log_output,
-                visuals=visuals,
+                log_decision=observability.log_decision,
+                log_output=observability.log_output,
+                visuals=observability.visuals,
                 output=target,
-                heartbeat_interval_seconds=heartbeat_interval_seconds,
+                heartbeat_interval_seconds=observability.heartbeat_interval_seconds,
             )
         )
 

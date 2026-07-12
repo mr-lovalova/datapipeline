@@ -84,7 +84,8 @@ def test_serve_request_resolves_targeted_profile(monkeypatch, tmp_path: Path):
     assert profile.name == "coverage"
     assert profile.target_id == "coverage"
     assert any(task.id == "coverage" for task in request.tasks)
-    assert request.artifact_mode == "AUTO"
+    assert request.artifact_settings is not None
+    assert request.artifact_settings.mode == "AUTO"
 
 
 def test_inspect_request_defaults_to_enabled_profiles(monkeypatch, tmp_path: Path):
@@ -269,6 +270,20 @@ def test_cli_artifact_mode_overrides_selected_profiles(monkeypatch, tmp_path: Pa
         ops / "pipeline.yaml",
         "id: pipeline\nkind: runtime\nentrypoint: core.runtime.pipeline\n",
     )
+    (profiles / "serve.defaults.yaml").write_text(
+        (
+            'cmd: serve\nartifact_mode: "OFF"\n'
+            "observability:\n"
+            "  visuals: off\n"
+            "  heartbeat_interval_seconds: 30\n"
+            "  logging:\n"
+            "    level: warning\n"
+            "    outputs:\n"
+            "      - transport: fs\n"
+            "        scope: execution\n"
+        ),
+        encoding="utf-8",
+    )
     (profiles / "serve.first.yaml").write_text(
         'cmd: serve\nname: first\ntarget: pipeline\nartifact_mode: "OFF"\n',
         encoding="utf-8",
@@ -283,11 +298,24 @@ def test_cli_artifact_mode_overrides_selected_profiles(monkeypatch, tmp_path: Pa
         project=str(project_yaml),
         artifact_mode="force",
         cli_heartbeat_interval_seconds=0,
+        cli_log_level="debug",
+        cli_visuals="on",
     )
 
     assert request is not None
-    assert request.artifact_mode == "FORCE"
-    assert request.artifact_heartbeat_interval_seconds == 0
+    settings = request.artifact_settings
+    assert settings is not None
+    assert settings.mode == "FORCE"
+    assert settings.heartbeat_interval_seconds == 0
+    assert settings.visuals == "on"
+    assert settings.log_decision.name == "DEBUG"
+    assert settings.log_output.outputs[0].destination is not None
+    assert settings.log_output.outputs[0].destination.name == "serve.artifacts.log"
+    assert {
+        profile.log_output.outputs[0].destination.name
+        for profile in request.profiles
+        if profile.log_output.outputs[0].destination is not None
+    } == {"serve.first.log", "serve.second.log"}
 
 
 def test_selected_profiles_reject_conflicting_artifact_modes(
@@ -368,7 +396,8 @@ def test_serve_defaults_apply_when_profile_omits_fields(monkeypatch, tmp_path: P
     assert profile.output.run is not None
     assert profile.log_output.outputs[0].transport == "stdout"
     assert profile.heartbeat_interval_seconds == 30
-    assert request.artifact_heartbeat_interval_seconds is None
+    assert request.artifact_settings is not None
+    assert request.artifact_settings.heartbeat_interval_seconds == 30
     assert len(request.serve_run_plans) == 1
     assert request.serve_run_plans[0].paths == profile.output.run
     assert not (tmp_path / "artifacts" / "_system" / "executions").exists()
@@ -485,6 +514,8 @@ def test_build_defaults_apply_to_build_profiles(tmp_path: Path):
         (
             "cmd: build\n"
             "mode: force\n"
+            "execution:\n"
+            "  sort_batch_records: 256\n"
             "observability:\n"
             "  visuals: off\n"
             "  logging:\n"
@@ -504,6 +535,7 @@ def test_build_defaults_apply_to_build_profiles(tmp_path: Path):
     )
     assert request is not None
     assert request.config_hash is not None
+    assert request.execution.sort_batch_records == 256
     profile = request.profiles[0]
     assert profile.build_settings is not None
     assert profile.build_settings.mode == "FORCE"

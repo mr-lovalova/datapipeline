@@ -1,9 +1,13 @@
 import argparse
 
 from datapipeline.config.options import OUTPUT_FORMATS, OUTPUT_TRANSPORTS, OUTPUT_VIEWS
-from datapipeline.config.profiles import ARTIFACT_MODES
 
-from .common import add_dataset_flag, add_project_flag, add_visual_flags
+from .common import (
+    add_artifact_mode_flag,
+    add_dataset_flag,
+    add_project_flag,
+    add_visual_flags,
+)
 
 
 def add_serve_command(sub, common: argparse.ArgumentParser) -> None:
@@ -55,10 +59,4 @@ def add_serve_command(sub, common: argparse.ArgumentParser) -> None:
         help="preview a 0-based serve preview index",
     )
     add_visual_flags(parser)
-    parser.add_argument(
-        "--artifact-mode",
-        choices=ARTIFACT_MODES,
-        type=str.upper,
-        default=None,
-        help="prerequisite artifact policy: AUTO | FORCE | OFF",
-    )
+    add_artifact_mode_flag(parser)

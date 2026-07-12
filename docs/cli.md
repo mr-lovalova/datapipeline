@@ -80,11 +80,16 @@ reading the data. Visuals are independent of log filtering.
     profile order. The graph orders only the internal dependency jobs needed by
     each root; it never reorders the profiles. A selected dependency profile
     must be ordered before a selected dependent profile.
-- `jerry materialize [--run <profile>] [--output <path.jsonl>] [--overwrite|--no-overwrite] [--visuals on|off] [--heartbeat-interval SECONDS]`
+- `jerry materialize [--run <profile>] [--output <path.jsonl>] [--overwrite|--no-overwrite] [--artifact-mode AUTO|FORCE|OFF] [--visuals on|off] [--heartbeat-interval SECONDS]`
   - Runs every enabled `profiles/materialize.<name>.yaml` entry in configured
     order, or one profile selected by `--run`.
   - Checks every selected output and metadata file before the first profile
     starts writing.
+  - Collects the selected streams' artifact requirements and prepares their
+    union once. `--artifact-mode` overrides `materialize.defaults.yaml`; the
+    built-in mode is `AUTO`.
+  - Shared prerequisite visuals and logs use CLI settings, then
+    `materialize.defaults.yaml`; concrete profile overrides begin afterward.
   - A CLI overwrite choice applies to every selected profile. Without it, each
     profile uses its own `overwrite` setting or `materialize.defaults.yaml`.
   - `--output` overrides one selected profile and therefore requires `--run`.

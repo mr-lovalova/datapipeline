@@ -1,4 +1,4 @@
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from typing import Any, Mapping
 
 from datapipeline.domain.feature import FeatureRecord, FeatureRecordSequence
@@ -36,7 +36,7 @@ def feature_transforms(
     context: PipelineContext,
     scale: Mapping[str, Any] | bool | None,
     sequence: Mapping[str, Any] | None,
-    features: Iterable[Any] | None,
+    features: Iterator[Any],
 ) -> Iterable[FeatureRecord | FeatureRecordSequence]:
     clauses: list[TransformSpec] = []
     if scale:
@@ -59,16 +59,15 @@ def feature_transforms(
 
 def order_feature_records(
     context: PipelineContext,
-    batch_size: int,
     group_by_cadence: str | None,
-    features: Iterable[Any] | None,
+    features: Iterator[Any],
 ) -> Iterable[Any]:
     key = _time_then_id
     if context.runtime.sample_keys and group_by_cadence is not None:
         key = _sample_group_then_time_and_id(group_by_cadence)
     return batch_sort(
         features,
-        batch_size=batch_size,
+        batch_size=context.runtime.execution.sort_batch_records,
         key=key,
     )
 

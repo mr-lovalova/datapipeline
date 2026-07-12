@@ -67,7 +67,6 @@ class IngestConfig(BaseModel):
     partition_by: str | list[str] | None = Field(default=None)
     feature_id_by: str | list[str] | None = Field(default=None)
     ordered_by: list[str] | None = Field(default=None)
-    sort_batch_size: int = Field(default=100_000)
     record: list[_ConfiguredTransform] | None = Field(default=None)
 
 
@@ -177,7 +176,6 @@ class StreamConfig(BaseModel):
     partition_by: str | list[str] | None = Field(default=None)
     feature_id_by: str | list[str] | None = Field(default=None)
     ordered_by: list[str] | None = Field(default=None)
-    sort_batch_size: int = Field(default=100_000)
     record: list[_ConfiguredTransform] | None = Field(default=None)
     stream: list[_ConfiguredTransform] | None = Field(default=None)
     # Optional debug-only transforms (applied after stream transforms)

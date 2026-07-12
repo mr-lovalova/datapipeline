@@ -3,6 +3,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
 
+from datapipeline.config.execution import ExecutionConfig
 from datapipeline.config.observability import ObservabilityConfig
 
 from .build import normalize_artifact_mode
@@ -13,13 +14,14 @@ class ProfileDefaults(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     cmd: str
+    execution: ExecutionConfig = Field(default_factory=ExecutionConfig)
+    observability: ObservabilityConfig | None = None
     source_path: Path | None = Field(default=None, exclude=True)
 
 
 class ServeProfileDefaults(ProfileDefaults):
     cmd: Literal["serve"]
     output: ServeOutputConfig | None = None
-    observability: ObservabilityConfig | None = Field(default=None)
     artifact_mode: str | None = Field(default=None)
     limit: int | None = Field(default=None, ge=1)
     preview_index: int | None = Field(default=None, ge=0)
@@ -33,7 +35,6 @@ class ServeProfileDefaults(ProfileDefaults):
 
 class BuildProfileDefaults(ProfileDefaults):
     cmd: Literal["build"]
-    observability: ObservabilityConfig | None = Field(default=None)
     mode: str | None = Field(default=None)
 
     @field_validator("mode", mode="before")
@@ -45,7 +46,6 @@ class BuildProfileDefaults(ProfileDefaults):
 class InspectProfileDefaults(ProfileDefaults):
     cmd: Literal["inspect"]
     output: ServeOutputConfig | None = None
-    observability: ObservabilityConfig | None = Field(default=None)
     artifact_mode: str | None = Field(default=None)
 
     @field_validator("artifact_mode", mode="before")
@@ -56,8 +56,13 @@ class InspectProfileDefaults(ProfileDefaults):
 
 class MaterializeProfileDefaults(ProfileDefaults):
     cmd: Literal["materialize"]
+    artifact_mode: str | None = Field(default=None)
     overwrite: StrictBool | None = None
-    observability: ObservabilityConfig | None = None
+
+    @field_validator("artifact_mode", mode="before")
+    @classmethod
+    def _normalize_artifact_mode(cls, value: object) -> str | None:
+        return normalize_artifact_mode(value)
 
 
 __all__ = [

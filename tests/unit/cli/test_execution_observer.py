@@ -16,10 +16,8 @@ from datapipeline.cli.visuals.execution import (
     NodeFinished,
     NodeProgress,
     NodeStarted,
-    OperationFinished,
     OperationInfo,
     OperationProgress,
-    OperationStarted,
     ProfileStarted,
     SourceInfoMessage,
     emit_build_decision,
@@ -167,15 +165,6 @@ _PARENT = DagParentRef(
             "[pipeline/load] finished status=success out=3 elapsed=0.250000s",
         ),
         (
-            OperationStarted(
-                operation_name="build:schema",
-                entrypoint="core.artifact.schema",
-                depth=1,
-            ),
-            logging.INFO,
-            "  [build:schema] started operation=core.artifact.schema",
-        ),
-        (
             OperationInfo(
                 operation_name="build:schema",
                 info_line="saved path=schema.json",
@@ -193,16 +182,6 @@ _PARENT = DagParentRef(
             ),
             logging.INFO,
             "  [build:schema/write] running",
-        ),
-        (
-            OperationFinished(
-                operation_name="build:schema",
-                status="success",
-                elapsed_seconds=0.75,
-                depth=1,
-            ),
-            logging.INFO,
-            "  [build:schema] finished status=success elapsed=0.750000s",
         ),
     ],
 )
@@ -721,7 +700,7 @@ def test_emit_execution_message_logs_without_context_sink(caplog):
     assert getattr(caplog.records[-1], "dp_event_kind", None) == "execution"
 
 
-def test_operation_scope_emits_lifecycle_and_info_events(caplog):
+def test_operation_scope_emits_info_and_progress_events(caplog):
     capture = _CaptureSink()
     logger = logging.getLogger("datapipeline.cli.visuals.execution.test.operation")
     token = set_current_execution_event_sink(capture)
@@ -729,7 +708,7 @@ def test_operation_scope_emits_lifecycle_and_info_events(caplog):
         with caplog.at_level(logging.INFO, logger=logger.name):
             observer = make_operation_observer(logger)
             with operation_observer(observer):
-                with operation_scope("build:model_grid", "core.artifact.ticks"):
+                with operation_scope("build:model_grid"):
                     assert emit_operation_info(
                         "materialized path=/tmp/model_grid.jsonl"
                     )
@@ -741,18 +720,14 @@ def test_operation_scope_emits_lifecycle_and_info_events(caplog):
         reset_current_execution_event_sink(token)
 
     assert [type(event) for event in capture.events] == [
-        OperationStarted,
         OperationInfo,
         OperationProgress,
-        OperationFinished,
     ]
     assert capture.events[0].operation_name == "build:model_grid"
-    assert capture.events[0].entrypoint == "core.artifact.ticks"
-    assert capture.events[1].info_line == "materialized path=/tmp/model_grid.jsonl"
-    assert capture.events[2].step == "write_artifact"
-    assert capture.events[2].message == "running elapsed=1s items=3"
+    assert capture.events[0].info_line == "materialized path=/tmp/model_grid.jsonl"
+    assert capture.events[1].step == "write_artifact"
+    assert capture.events[1].message == "running elapsed=1s items=3"
     messages = [record.getMessage() for record in caplog.records]
-    assert "[build:model_grid] started operation=core.artifact.ticks" in messages
     assert "[build:model_grid] materialized path=/tmp/model_grid.jsonl" in messages
     assert "[build:model_grid/write_artifact] running elapsed=1s items=3" in messages
 

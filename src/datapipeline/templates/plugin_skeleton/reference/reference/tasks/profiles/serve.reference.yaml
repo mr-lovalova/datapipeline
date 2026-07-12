@@ -38,5 +38,7 @@
 #       #   path: logs/serve.log  # required for FS+GLOBAL; optional for EXECUTION (default logs/serve.<task>.log)
 # note: selected profiles' artifact requirements are combined and prepared once.
 #       The graph orders those internal jobs; profile order is never changed.
+#       Shared prerequisite observability comes from CLI or serve.defaults.yaml.
 # note: without a CLI override, selected profiles must use the same artifact_mode.
+# execution.sort_batch_records is defaults-only (default 100000).
 # precedence: CLI > serve.<name>.yaml > serve.defaults.yaml > built-ins

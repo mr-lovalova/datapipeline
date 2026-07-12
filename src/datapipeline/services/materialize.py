@@ -31,10 +31,16 @@ def materialize_stream_to_path(
     overwrite: bool = False,
     dataset: FeatureDatasetConfig | None = None,
 ) -> MaterializeResult:
+    destinations = materialize_destination_paths(output)
+    artifacts_root = runtime.artifacts_root.resolve()
+    for path in destinations:
+        if path.is_relative_to(artifacts_root):
+            raise ValueError(
+                f"materialize output must be outside the managed artifacts root: {path}"
+            )
+    check_materialize_destinations(destinations, overwrite)
     if dataset is not None:
         runtime.sample_keys = dataset.sample_keys
-    destinations = materialize_destination_paths(output)
-    check_materialize_destinations(destinations, overwrite)
     output_path = destinations[0]
     raw_partition_by = runtime.registries.partition_by.get(stream_id)
     ordered_by = required_record_order(raw_partition_by)

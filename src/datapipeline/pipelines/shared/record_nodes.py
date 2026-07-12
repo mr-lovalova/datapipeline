@@ -124,7 +124,6 @@ def apply_record_operations(
 
 def order_records(
     context: PipelineContext,
-    batch_size: int,
     partition_by: str | list[str] | None,
     ordered_by: list[str] | None,
     records: Iterator[Any],
@@ -147,7 +146,7 @@ def order_records(
         return
     yield from batch_sort(
         records,
-        batch_size=batch_size,
+        batch_size=context.runtime.execution.sort_batch_records,
         key=record_order_key,
     )
 

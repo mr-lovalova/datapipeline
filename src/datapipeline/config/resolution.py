@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional, Sequence
 
+from datapipeline.config.observability import ObservabilityConfig
 from datapipeline.config.options import LOG_SCOPE_CHOICES, LOG_TRANSPORT_CHOICES
 from datapipeline.services.path_policy import sanitize_path_segment
 
@@ -52,22 +53,15 @@ def logging_value(observability, field: str):
     return getattr(logging_cfg, field, None)
 
 
-@dataclass(frozen=True)
-class VisualSettings:
-    visuals: str
-
-
 def resolve_visuals(
     cli_visuals: str | None,
     config_visuals: str | None,
     default_visuals: str = "on",
-) -> VisualSettings:
-    return VisualSettings(
-        visuals=cascade(
-            _normalize_lower(cli_visuals),
-            _normalize_lower(config_visuals),
-            default_visuals,
-        )
+) -> str:
+    return cascade(
+        _normalize_lower(cli_visuals),
+        _normalize_lower(config_visuals),
+        default_visuals,
     )
 
 
@@ -119,6 +113,14 @@ class LogOutputTarget:
 @dataclass(frozen=True)
 class LogOutputSettings:
     outputs: tuple[LogOutputTarget, ...]
+
+
+@dataclass(frozen=True)
+class ObservabilitySettings:
+    visuals: str
+    heartbeat_interval_seconds: float | None
+    log_decision: LogLevelDecision
+    log_output: LogOutputSettings
 
 
 def log_output_targets_from_config(
@@ -294,6 +296,45 @@ def resolve_log_output(
         transport = "stderr"
     return LogOutputSettings(
         outputs=(LogOutputTarget(transport=transport, scope="global"),)
+    )
+
+
+def resolve_observability_settings(
+    project_path: Path | None,
+    observability: ObservabilityConfig | None,
+    *,
+    cli_visuals: str | None,
+    cli_heartbeat_interval_seconds: float | None,
+    cli_log_level: str | None,
+    cli_log_outputs: Sequence[LogOutputTarget] | None,
+    base_log_level: str,
+) -> ObservabilitySettings:
+    configured_output_specs = logging_value(observability, "outputs")
+    if configured_output_specs and project_path is None:
+        raise ValueError("project_path is required for configured log outputs")
+    configured_outputs = (
+        resolve_project_log_outputs(configured_output_specs, project_path)
+        if project_path is not None
+        else []
+    )
+    return ObservabilitySettings(
+        visuals=resolve_visuals(
+            cli_visuals,
+            observability_value(observability, "visuals"),
+        ),
+        heartbeat_interval_seconds=resolve_heartbeat_interval_seconds(
+            cli_heartbeat_interval_seconds,
+            observability_value(observability, "heartbeat_interval_seconds"),
+        ),
+        log_decision=resolve_log_level(
+            cli_log_level,
+            logging_value(observability, "level"),
+            base_log_level,
+        ),
+        log_output=resolve_log_output(
+            output_candidates=(cli_log_outputs, configured_outputs),
+            allow_execution_scope=True,
+        ),
     )
 
 

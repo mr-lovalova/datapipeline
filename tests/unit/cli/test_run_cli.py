@@ -517,7 +517,7 @@ def test_run_profiles_use_builtin_visuals_defaults(monkeypatch, tmp_path):
         cli_visuals=None,
     )
 
-    assert profiles[0].visuals.visuals == "on"
+    assert profiles[0].visuals == "on"
 
 
 def test_run_profiles_run_visuals_override_defaults(monkeypatch, tmp_path):
@@ -552,7 +552,7 @@ def test_run_profiles_run_visuals_override_defaults(monkeypatch, tmp_path):
         cli_visuals=None,
     )
 
-    assert profiles[0].visuals.visuals == "on"
+    assert profiles[0].visuals == "on"
 
 
 def test_run_profiles_resolve_log_output_precedence(monkeypatch, tmp_path):

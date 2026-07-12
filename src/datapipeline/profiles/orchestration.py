@@ -4,7 +4,12 @@ from datapipeline.artifacts.executor import run_build_if_needed
 from datapipeline.artifacts.planning import ArtifactGraph, build_artifact_graph
 from datapipeline.build.config_hash import compute_config_hash
 from datapipeline.config.tasks import ArtifactTask, OperationTask, Task
-from datapipeline.profiles.executor import ProfileExecutionSpec, run_profile
+from datapipeline.profiles.executor import (
+    ExecutionSpec,
+    ProfileExecutionSpec,
+    run_execution,
+    run_profile,
+)
 from datapipeline.cli.visuals.execution import execution_scope
 from datapipeline.services.bootstrap import bootstrap_build_runtime
 from datapipeline.services.project_paths import tasks_dir
@@ -61,9 +66,11 @@ def run_profiles(request: ProfileRunRequest) -> None:
         profile_runtimes = []
         for profile in profiles:
             if profile.runtime is not None:
-                profile_runtimes.append(profile.runtime)
+                runtime = profile.runtime
             else:
-                profile_runtimes.append(bootstrap_build_runtime(request.project_path))
+                runtime = bootstrap_build_runtime(request.project_path)
+            runtime.execution = request.execution
+            profile_runtimes.append(runtime)
     except (OSError, TypeError, ValueError) as exc:
         logger.error("%s", exc)
         raise SystemExit(2) from exc
@@ -171,15 +178,28 @@ def _prepare_runtime_artifacts(
     }
     if not required_artifacts:
         return
-    if request.artifact_mode is None:
-        raise ValueError("Runtime profiles require a resolved artifact_mode.")
-    run_build_if_needed(
-        request.project_path,
-        graph=graph,
-        required_artifacts=required_artifacts,
-        mode=request.artifact_mode,
-        runtime=bootstrap_build_runtime(request.project_path),
-        profile_name=request.command,
-        heartbeat_interval_seconds=request.artifact_heartbeat_interval_seconds,
-        expected_config_hash=request.config_hash,
+    settings = request.artifact_settings
+    if settings is None:
+        raise ValueError("Runtime profiles require resolved artifact settings.")
+    runtime = bootstrap_build_runtime(request.project_path)
+    runtime.execution = request.execution
+    spec = ExecutionSpec(
+        visuals=settings.visuals,
+        log_decision=settings.log_decision,
+        log_output=settings.log_output,
+        runtime=runtime,
     )
+
+    def prepare() -> None:
+        with execution_scope(profile_kind=request.command):
+            run_build_if_needed(
+                request.project_path,
+                graph=graph,
+                required_artifacts=required_artifacts,
+                mode=settings.mode,
+                runtime=runtime,
+                heartbeat_interval_seconds=settings.heartbeat_interval_seconds,
+                expected_config_hash=request.config_hash,
+            )
+
+    run_execution(spec, prepare)

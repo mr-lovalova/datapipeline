@@ -3,7 +3,15 @@ from types import SimpleNamespace
 
 import pytest
 
-from datapipeline.config.profiles import MaterializeProfile
+from datapipeline.config.catalog import StreamsConfig
+from datapipeline.config.execution import ExecutionConfig
+from datapipeline.config.observability import (
+    LoggingConfig,
+    LogOutputConfig,
+    ObservabilityConfig,
+)
+from datapipeline.config.profiles import MaterializeProfile, MaterializeProfileDefaults
+from datapipeline.config.tasks import ArtifactTask, TicksTask
 from datapipeline.cli.visuals.execution_context import current_execution_scope
 from datapipeline.profiles import materialize as materialize_profiles
 from datapipeline.services.materialize import MaterializeResult
@@ -16,6 +24,7 @@ def _profile(
     *,
     enabled: bool = True,
     overwrite: bool = False,
+    observability: ObservabilityConfig | None = None,
 ) -> MaterializeProfile:
     return MaterializeProfile(
         cmd="materialize",
@@ -24,13 +33,22 @@ def _profile(
         output=output,
         enabled=enabled,
         overwrite=overwrite,
+        observability=observability,
     )
 
 
-def _prepare_run(monkeypatch, tmp_path: Path, profiles: list[MaterializeProfile]):
+def _prepare_run(
+    monkeypatch,
+    tmp_path: Path,
+    profiles: list[MaterializeProfile],
+    defaults: MaterializeProfileDefaults | None = None,
+):
+    if defaults is None:
+        defaults = MaterializeProfileDefaults(cmd="materialize")
     stream_ids = {profile.stream for profile in profiles}
     runtime = SimpleNamespace(
         project_yaml=tmp_path / "project.yaml",
+        artifacts_root=tmp_path / "artifacts",
         registries=SimpleNamespace(
             stream_specs={stream_id: object() for stream_id in stream_ids}
         ),
@@ -43,9 +61,12 @@ def _prepare_run(monkeypatch, tmp_path: Path, profiles: list[MaterializeProfile]
     monkeypatch.setattr(
         materialize_profiles,
         "profile_specs_with_defaults",
-        lambda project_path, command: (profiles, None),
+        lambda project_path, command: (profiles, defaults),
     )
     monkeypatch.setattr(materialize_profiles, "bootstrap", lambda project_path: runtime)
+    monkeypatch.setattr(
+        materialize_profiles, "load_streams", lambda project_path: StreamsConfig()
+    )
     monkeypatch.setattr(
         materialize_profiles,
         "load_dataset",
@@ -89,6 +110,7 @@ def _run(
     run_name: str | None = None,
     overwrite: bool | None = None,
     output: Path | None = None,
+    artifact_mode: str | None = None,
 ):
     return materialize_profiles.run_materialize_profiles(
         project_path=tmp_path / "project.yaml",
@@ -97,6 +119,7 @@ def _run(
         cli_output=output,
         cli_visuals=None,
         cli_heartbeat_interval_seconds=None,
+        cli_artifact_mode=artifact_mode,
         cli_log_level=None,
         cli_log_outputs=[],
         base_log_level="INFO",
@@ -137,19 +160,180 @@ def test_materialize_runs_all_enabled_profiles_in_order(monkeypatch, tmp_path) -
     assert [scope["profile_name"] for scope, _ in messages] == [
         "adv-20",
         "adv-20",
-        "adv-20",
-        "adv-126",
         "adv-126",
         "adv-126",
     ]
     assert [message for _, message in messages] == [
-        "Result: 1 records",
         f"Output: {tmp_path / 'adv-20.jsonl'}",
         f"Metadata: {tmp_path / 'adv-20.metadata.json'}",
-        "Result: 1 records",
         f"Output: {tmp_path / 'adv-126.jsonl'}",
         f"Metadata: {tmp_path / 'adv-126.metadata.json'}",
     ]
+
+
+def test_materialize_uses_command_execution_defaults(monkeypatch, tmp_path) -> None:
+    defaults = MaterializeProfileDefaults(
+        cmd="materialize",
+        execution=ExecutionConfig(sort_batch_records=32),
+    )
+    writes, _, _ = _prepare_run(
+        monkeypatch,
+        tmp_path,
+        [_profile("adv-20", "adv.20", "adv-20.jsonl")],
+        defaults,
+    )
+
+    _run(tmp_path)
+
+    assert writes[0]["runtime"].execution == defaults.execution
+
+
+@pytest.mark.parametrize(
+    ("default_mode", "cli_mode", "expected_mode"),
+    [
+        (None, None, "AUTO"),
+        ("FORCE", None, "FORCE"),
+        ("FORCE", "OFF", "OFF"),
+    ],
+)
+def test_materialize_prepares_required_artifacts_once(
+    monkeypatch,
+    tmp_path,
+    default_mode,
+    cli_mode,
+    expected_mode,
+) -> None:
+    default_observability = ObservabilityConfig(
+        visuals="off",
+        heartbeat_interval_seconds=12,
+        logging=LoggingConfig(
+            level="warning",
+            outputs=[LogOutputConfig(transport="fs", scope="execution")],
+        ),
+    )
+    profile_observability = ObservabilityConfig(
+        visuals="on",
+        heartbeat_interval_seconds=99,
+        logging=LoggingConfig(level="debug"),
+    )
+    defaults = MaterializeProfileDefaults(
+        cmd="materialize",
+        artifact_mode=default_mode,
+        observability=default_observability,
+    )
+    profiles = [
+        _profile(name, stream, f"{name}.jsonl", observability=profile_observability)
+        for name, stream in (("adv-20", "adv.20"), ("adv-63", "adv.63"))
+    ]
+    writes, profile_specs, _ = _prepare_run(monkeypatch, tmp_path, profiles, defaults)
+    monkeypatch.setattr(
+        materialize_profiles,
+        "stream_cadence_artifacts",
+        lambda stream, streams: {
+            "adv.20": {"ticks_20"},
+            "adv.63": {"ticks_63"},
+        }[stream],
+    )
+    monkeypatch.setattr(
+        materialize_profiles,
+        "operation_specs",
+        lambda project_path: (
+            [
+                TicksTask(id="ticks_20", stream="raw.20", output="ticks-20.jsonl"),
+                TicksTask(id="ticks_63", stream="raw.63", output="ticks-63.jsonl"),
+            ],
+            [],
+        ),
+    )
+    build_calls = []
+    artifact_specs = []
+    inside_artifact_execution = False
+
+    def run_execution(spec, work):
+        nonlocal inside_artifact_execution
+        artifact_specs.append(spec)
+        inside_artifact_execution = True
+        try:
+            return work()
+        finally:
+            inside_artifact_execution = False
+
+    def run_build(project_path, **kwargs):
+        assert inside_artifact_execution
+        assert writes == []
+        build_calls.append(kwargs)
+
+    monkeypatch.setattr(materialize_profiles, "run_execution", run_execution)
+    monkeypatch.setattr(
+        materialize_profiles,
+        "run_build_if_needed",
+        run_build,
+    )
+
+    _run(tmp_path, artifact_mode=cli_mode)
+
+    assert len(artifact_specs) == 1
+    assert len(build_calls) == 1
+    assert build_calls[0]["required_artifacts"] == {"ticks_20", "ticks_63"}
+    assert build_calls[0]["mode"] == expected_mode
+    assert build_calls[0]["heartbeat_interval_seconds"] == 12
+    assert build_calls[0]["runtime"] is writes[0]["runtime"]
+    assert artifact_specs[0].visuals == "off"
+    assert artifact_specs[0].log_decision.name == "WARNING"
+    artifact_log = artifact_specs[0].log_output.outputs[0].destination
+    assert artifact_log is not None
+    assert artifact_log.name == "materialize.artifacts.log"
+    assert [spec.visuals for spec in profile_specs] == ["on", "on"]
+    assert [spec.log_decision.name for spec in profile_specs] == ["DEBUG", "DEBUG"]
+    assert {
+        spec.log_output.outputs[0].destination.name
+        for spec in profile_specs
+        if spec.log_output.outputs[0].destination is not None
+    } == {"materialize.adv-20.log", "materialize.adv-63.log"}
+
+
+@pytest.mark.parametrize(
+    ("artifact_tasks", "message"),
+    [
+        ([], "requires a declared ticks task"),
+        (
+            [
+                ArtifactTask(
+                    id="market_ticks",
+                    entrypoint="plugin.snapshot",
+                    output="snapshot.json",
+                )
+            ],
+            "not a ticks task",
+        ),
+    ],
+)
+def test_materialize_rejects_invalid_tick_artifact_producer(
+    monkeypatch,
+    tmp_path,
+    artifact_tasks,
+    message,
+) -> None:
+    writes, _, _ = _prepare_run(
+        monkeypatch,
+        tmp_path,
+        [_profile("adv-20", "adv.20", "adv-20.jsonl")],
+    )
+    monkeypatch.setattr(
+        materialize_profiles,
+        "stream_cadence_artifacts",
+        lambda stream, streams: {"market_ticks"},
+    )
+    monkeypatch.setattr(
+        materialize_profiles,
+        "operation_specs",
+        lambda project_path: (artifact_tasks, []),
+    )
+
+    with pytest.raises(materialize_profiles.MaterializeProfileError, match=message):
+        _run(tmp_path)
+
+    assert writes == []
 
 
 def test_materialize_run_selects_one_profile_even_when_disabled(
@@ -232,12 +416,47 @@ def test_materialize_preflight_checks_every_output_before_writing(
         _profile("second", "adv.63", "second.jsonl"),
     ]
     writes, _, _ = _prepare_run(monkeypatch, tmp_path, profiles)
+    monkeypatch.setattr(
+        materialize_profiles,
+        "load_streams",
+        lambda project_path: pytest.fail(
+            "artifact planning ran before output preflight"
+        ),
+    )
 
     with pytest.raises(FileExistsError, match="--overwrite"):
         _run(tmp_path)
 
     assert writes == []
     assert not (tmp_path / "execution").exists()
+
+
+def test_materialize_rejects_outputs_inside_managed_artifacts(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    profiles = [
+        _profile(
+            "ticks",
+            "adv.20",
+            "artifacts/ticks.jsonl",
+            overwrite=True,
+        )
+    ]
+    writes, _, _ = _prepare_run(monkeypatch, tmp_path, profiles)
+    monkeypatch.setattr(
+        materialize_profiles,
+        "load_streams",
+        lambda project_path: pytest.fail("artifact preparation ran before preflight"),
+    )
+
+    with pytest.raises(
+        materialize_profiles.MaterializeProfileError,
+        match="inside the managed artifacts root",
+    ):
+        _run(tmp_path)
+
+    assert writes == []
 
 
 def test_materialize_reports_success_before_a_later_profile_fails(
@@ -272,10 +491,8 @@ def test_materialize_reports_success_before_a_later_profile_fails(
     assert [scope["profile_name"] for scope, _ in messages] == [
         "first",
         "first",
-        "first",
     ]
     assert [message for _, message in messages] == [
-        "Result: 1 records",
         f"Output: {tmp_path / 'first.jsonl'}",
         f"Metadata: {tmp_path / 'first.metadata.json'}",
     ]

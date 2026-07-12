@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from datapipeline.config.execution import ExecutionConfig
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.runtime import Runtime, StreamRuntimeSpec
 from datapipeline.services.materialize import materialize_stream_to_path
@@ -38,6 +39,7 @@ def _runtime(
     runtime = Runtime(
         project_yaml=tmp_path / "project.yaml",
         artifacts_root=tmp_path / "artifacts",
+        execution=ExecutionConfig(sort_batch_records=2),
     )
     regs = runtime.registries
     regs.stream_specs.register("prices.raw", StreamRuntimeSpec(pipeline="ingest"))
@@ -49,7 +51,6 @@ def _runtime(
     regs.partition_by.register("prices.raw", partition_by)
     regs.feature_id_by.register("prices.raw", feature_id_by)
     regs.ordered_by.register("prices.raw", None)
-    regs.sort_batch_size.register("prices.raw", 2)
     return runtime
 
 
@@ -142,6 +143,23 @@ def test_materialize_stream_refuses_existing_output_without_overwrite(
             stream_id="prices.raw",
             output=output,
         )
+
+
+def test_materialize_stream_refuses_managed_artifact_paths(
+    tmp_path: Path,
+    one_row_runtime: Runtime,
+) -> None:
+    output = tmp_path / "artifacts" / "ticks.jsonl"
+
+    with pytest.raises(ValueError, match="outside the managed artifacts root"):
+        materialize_stream_to_path(
+            runtime=one_row_runtime,
+            stream_id="prices.raw",
+            output=output,
+            overwrite=True,
+        )
+
+    assert not output.exists()
 
 
 def test_materialize_stream_does_not_clobber_output_created_during_stream(

@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 import datapipeline.pipelines.shared.record_nodes as record_nodes
 import pytest
+from datapipeline.config.execution import ExecutionConfig
 from datapipeline.dag.context import PipelineContext
 from datapipeline.pipelines.shared.record_nodes import order_records
 from datapipeline.runtime import Runtime
@@ -18,11 +19,15 @@ def _ts(day: int) -> datetime:
     return datetime(2024, 1, day, tzinfo=timezone.utc)
 
 
-def _context(tmp_path):
+def _context(tmp_path, sort_batch_records: int = 100_000):
     project_yaml = tmp_path / "project.yaml"
     project_yaml.write_text("version: 1\n", encoding="utf-8")
     return PipelineContext(
-        Runtime(project_yaml=project_yaml, artifacts_root=tmp_path / "artifacts")
+        Runtime(
+            project_yaml=project_yaml,
+            artifacts_root=tmp_path / "artifacts",
+            execution=ExecutionConfig(sort_batch_records=sort_batch_records),
+        )
     )
 
 
@@ -47,7 +52,6 @@ def test_order_records_skips_sort_when_ordered_by_matches_required_order(
     ordered = list(
         order_records(
             _context(tmp_path),
-            100,
             ["security_id"],
             ["security_id", "time"],
             records,
@@ -77,7 +81,6 @@ def test_order_records_rejects_false_declaration(tmp_path, rows) -> None:
         list(
             order_records(
                 _context(tmp_path),
-                100,
                 ["security_id"],
                 ["security_id", "time"],
                 records,
@@ -93,8 +96,7 @@ def test_order_records_sorts_when_ordered_by_does_not_match(tmp_path) -> None:
 
     ordered = list(
         order_records(
-            _context(tmp_path),
-            1,
+            _context(tmp_path, 1),
             ["security_id"],
             ["time"],
             records,

@@ -97,7 +97,7 @@ def run_build_profile(
         required_artifacts={task.id},
         mode=settings.mode,
         runtime=runtime_override,
-        profile_name=settings.profile_name,
+        profile_name=profile.name,
         heartbeat_interval_seconds=settings.heartbeat_interval_seconds,
         resolved_artifacts=resolved_artifacts,
         expected_config_hash=expected_config_hash,
@@ -115,10 +115,7 @@ def run_runtime_task(
             f"Runtime profile '{profile.name}' is missing dataset context."
         )
     try:
-        with operation_scope(
-            f"{command}:{profile.name}",
-            task.entrypoint,
-        ):
+        with operation_scope(f"{command}:{profile.name}"):
             execute_operation(
                 operation=task,
                 operation_group=RUNTIME_OPERATIONS_EP,

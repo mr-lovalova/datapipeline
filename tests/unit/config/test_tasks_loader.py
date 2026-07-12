@@ -5,8 +5,8 @@ import pytest
 from datapipeline.config.loaders.operations import operation_specs
 from datapipeline.config.loaders.profiles import (
     apply_profile_defaults,
-    profile_defaults,
     profile_specs,
+    profile_specs_with_defaults,
 )
 from datapipeline.config.profiles import MaterializeProfile
 from datapipeline.config.tasks import (
@@ -45,11 +45,11 @@ def _materialize_profiles(project_yaml: Path):
 
 
 def _serve_defaults(project_yaml: Path):
-    return profile_defaults(project_yaml, cmd="serve")
+    return profile_specs_with_defaults(project_yaml, cmd="serve")[1]
 
 
 def _materialize_defaults(project_yaml: Path):
-    return profile_defaults(project_yaml, cmd="materialize")
+    return profile_specs_with_defaults(project_yaml, cmd="materialize")[1]
 
 
 def _write_project(tmp_path: Path, tasks_ref: str | None = None) -> Path:
@@ -571,6 +571,7 @@ def test_materialize_defaults_apply_overwrite_and_observability(tmp_path):
     (profiles_dir / "materialize.defaults.yaml").write_text(
         (
             "cmd: materialize\n"
+            "artifact_mode: force\n"
             "overwrite: true\n"
             "observability:\n"
             "  heartbeat_interval_seconds: 30\n"
@@ -593,11 +594,43 @@ def test_materialize_defaults_apply_overwrite_and_observability(tmp_path):
     defaults = _materialize_defaults(project_yaml)
     merged = apply_profile_defaults(profile, defaults)
 
+    assert defaults.artifact_mode == "FORCE"
     assert isinstance(merged, MaterializeProfile)
+    assert not hasattr(merged, "artifact_mode")
     assert merged.overwrite is True
     assert merged.observability is not None
     assert merged.observability.visuals == "OFF"
     assert merged.observability.heartbeat_interval_seconds == 30
+
+
+def test_materialize_artifact_mode_is_defaults_only(tmp_path):
+    project_yaml = _write_project(tmp_path, tasks_ref="tasks")
+    profiles_dir = _profile_kind_dir(project_yaml)
+    (profiles_dir / "materialize.adv-20.yaml").write_text(
+        (
+            "cmd: materialize\n"
+            "name: adv-20\n"
+            "stream: adv.20\n"
+            "output: data/features/adv/20.jsonl\n"
+            "artifact_mode: AUTO\n"
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        _materialize_profiles(project_yaml)
+
+
+def test_materialize_defaults_reject_unknown_artifact_mode(tmp_path):
+    project_yaml = _write_project(tmp_path, tasks_ref="tasks")
+    profiles_dir = _profile_kind_dir(project_yaml)
+    (profiles_dir / "materialize.defaults.yaml").write_text(
+        "cmd: materialize\nartifact_mode: SOMETIMES\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="artifact mode must be one of"):
+        _materialize_defaults(project_yaml)
 
 
 def test_profile_order_overrides_file_order(tmp_path):
@@ -642,9 +675,18 @@ def test_serve_defaults_are_loaded_but_not_executable_profiles(tmp_path):
     defaults = _serve_defaults(project_yaml)
 
     assert [task.name for task in tasks] == ["train"]
-    assert defaults is not None
     assert defaults.cmd == "serve"
     assert defaults.observability is not None
+
+
+def test_missing_profile_defaults_resolve_to_builtins(tmp_path):
+    project_yaml = _write_project(tmp_path, tasks_ref="tasks")
+
+    defaults = _serve_defaults(project_yaml)
+
+    assert defaults.cmd == "serve"
+    assert defaults.source_path is None
+    assert defaults.execution.sort_batch_records == 100_000
 
 
 def test_profile_defaults_reject_executable_fields(tmp_path):
@@ -652,6 +694,24 @@ def test_profile_defaults_reject_executable_fields(tmp_path):
     profiles_dir = _profile_kind_dir(project_yaml)
     (profiles_dir / "serve.defaults.yaml").write_text(
         "cmd: serve\nname: should-not-exist\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        _serve_profiles(project_yaml)
+
+
+def test_execution_policy_is_not_allowed_on_concrete_profiles(tmp_path):
+    project_yaml = _write_project(tmp_path, tasks_ref="tasks")
+    profiles_dir = _profile_kind_dir(project_yaml)
+    (profiles_dir / "serve.train.yaml").write_text(
+        (
+            "cmd: serve\n"
+            "name: train\n"
+            "target: pipeline\n"
+            "execution:\n"
+            "  sort_batch_records: 1\n"
+        ),
         encoding="utf-8",
     )
 

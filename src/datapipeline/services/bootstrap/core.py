@@ -256,7 +256,6 @@ def _register_ingest_policy(
     regs.partition_by.register(alias, spec.partition_by)
     regs.feature_id_by.register(alias, spec.feature_id_by)
     regs.ordered_by.register(alias, spec.ordered_by)
-    regs.sort_batch_size.register(alias, spec.sort_batch_size)
 
 
 def _register_stream_policy(
@@ -275,7 +274,6 @@ def _register_stream_policy(
     )
     regs.feature_id_by.register(alias, spec.feature_id_by)
     regs.ordered_by.register(alias, spec.ordered_by)
-    regs.sort_batch_size.register(alias, spec.sort_batch_size)
     regs.record_operations.register(alias, [])
 
 

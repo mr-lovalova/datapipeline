@@ -53,7 +53,7 @@ def nested_tick_dependencies(
     streams = load_streams(project_path)
     nested: list[NestedTickDependency] = []
     for task in tick_tasks:
-        cadence_artifacts = _stream_cadence_artifacts(task.stream, streams)
+        cadence_artifacts = stream_cadence_artifacts(task.stream, streams)
         if cadence_artifacts:
             nested.append(
                 NestedTickDependency(
@@ -64,7 +64,7 @@ def nested_tick_dependencies(
     return tuple(nested)
 
 
-def _stream_cadence_artifacts(
+def stream_cadence_artifacts(
     stream_id: str,
     streams: StreamsConfig,
 ) -> set[str]:
@@ -94,16 +94,19 @@ def _artifact_cadence(operation: TransformSpec) -> str | None:
         return None
     cadence = operation.params.get("cadence")
     if not isinstance(cadence, str) or not cadence.strip():
-        return None
+        raise ValueError("ensure_cadence requires a non-empty string cadence")
     try:
-        parse_timecode(cadence)
+        duration = parse_timecode(cadence)
     except ValueError:
         return cadence
+    if duration.total_seconds() <= 0:
+        raise ValueError("ensure_cadence duration must be positive")
     return None
 
 
 __all__ = [
     "NestedTickDependency",
     "nested_tick_dependencies",
+    "stream_cadence_artifacts",
     "validate_artifact_plan",
 ]

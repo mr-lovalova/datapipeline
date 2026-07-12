@@ -70,7 +70,6 @@ def materialize_ticks(
         task_cfg.stream,
         node=3,
     )
-    batch_size = runtime.registries.sort_batch_size.get(task_cfg.stream)
     project_progress = OperationProgressTracker(
         "project_ticks",
         heartbeat_interval,
@@ -78,7 +77,7 @@ def materialize_ticks(
     tick_rows = _project_tick_rows(stream, task_cfg.grid_by, project_progress)
     sorted_ticks = batch_sort(
         tick_rows,
-        batch_size=batch_size,
+        batch_size=runtime.execution.sort_batch_records,
         key=_tick_sort_key,
     )
     rows = 0

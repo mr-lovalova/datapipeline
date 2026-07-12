@@ -18,10 +18,11 @@ from datapipeline.artifacts.specs import (
 )
 from datapipeline.artifacts.validation import (
     nested_tick_dependencies,
+    stream_cadence_artifacts,
     validate_artifact_plan,
 )
 from datapipeline.build.state import BuildState
-from datapipeline.config.catalog import StreamsConfig
+from datapipeline.config.catalog import StreamConfig, StreamFromConfig, StreamsConfig
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.config.tasks import (
@@ -44,6 +45,7 @@ from datapipeline.services.constants import (
     VECTOR_SCHEMA,
     VECTOR_STATS,
 )
+from datapipeline.transforms.spec import TransformSpec
 
 
 def _declared_entrypoints(group: str) -> dict[str, str]:
@@ -176,7 +178,7 @@ def test_tick_artifacts_feed_scaler_and_vector_inputs() -> None:
     }
 
 
-def test_tick_artifact_rejects_artifact_cadence_in_upstream_stream(
+def test_tick_artifact_rejects_artifact_cadence_in_any_upstream_stream(
     monkeypatch,
     tmp_path,
 ) -> None:
@@ -203,7 +205,25 @@ def test_tick_artifact_rejects_artifact_cadence_in_upstream_stream(
                 },
                 "derived": {
                     "id": "derived",
-                    "from": {"stream": "base"},
+                    "from": {
+                        "streams": {
+                            "base": "base",
+                            "duration": "duration",
+                        }
+                    },
+                    "map": {"entrypoint": "combine"},
+                },
+                "duration": {
+                    "id": "duration",
+                    "from": {"stream": "raw"},
+                    "stream": [
+                        {
+                            "ensure_cadence": {
+                                "field": "value",
+                                "cadence": "1d",
+                            }
+                        }
+                    ],
                 },
             }
         }
@@ -212,6 +232,8 @@ def test_tick_artifact_rejects_artifact_cadence_in_upstream_stream(
         "datapipeline.artifacts.validation.load_streams",
         lambda _project_path: streams,
     )
+
+    assert stream_cadence_artifacts("derived", streams) == {"base_ticks"}
 
     dependencies = nested_tick_dependencies(
         tmp_path / "project.yaml",
@@ -257,6 +279,31 @@ def test_tick_artifact_allows_duration_cadence(monkeypatch, tmp_path) -> None:
     )
 
     validate_artifact_plan(tmp_path / "project.yaml", graph, {"hourly_ticks"})
+
+
+@pytest.mark.parametrize(
+    ("cadence", "message"),
+    [
+        (None, "non-empty string cadence"),
+        ("", "non-empty string cadence"),
+        ("0m", "duration must be positive"),
+        ("-1h", "duration must be positive"),
+    ],
+)
+def test_stream_artifacts_reject_invalid_ensure_cadence(cadence, message) -> None:
+    stream = StreamConfig(
+        id="invalid",
+        from_=StreamFromConfig(stream="raw"),
+        stream=[
+            TransformSpec(
+                "ensure_cadence",
+                {"field": "value", "cadence": cadence},
+            )
+        ],
+    )
+
+    with pytest.raises(ValueError, match=message):
+        stream_cadence_artifacts("invalid", StreamsConfig(streams={"invalid": stream}))
 
 
 def test_inactive_scaler_prunes_its_tick_dependency() -> None:

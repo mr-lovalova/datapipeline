@@ -13,14 +13,10 @@ from datapipeline.build.state import (
     save_build_state,
 )
 from datapipeline.build.config_hash import compute_config_hash
-from datapipeline.cli.visuals.execution import (
-    emit_build_decision,
-    make_execution_observer,
-    make_operation_observer,
-)
+from datapipeline.cli.visuals.execution import emit_build_decision, emit_execution_message
 from datapipeline.config.dataset.loader import load_dataset
 from datapipeline.config.tasks import ArtifactTask
-from datapipeline.execution.observability import operation_observer, operation_scope
+from datapipeline.execution.observability import operation_scope
 from datapipeline.operations.dispatch import execute_operation
 from datapipeline.operations.persistence import ArtifactOutput, persist_artifact_output
 from datapipeline.plugins import BUILD_OPERATIONS_EP
@@ -78,8 +74,9 @@ def _log_build_decision(
         "action": action,
         "reason": plan.reason,
         "mode": mode,
-        "profile": profile_name,
     }
+    if profile_name is not None:
+        payload["profile"] = profile_name
     payload["selected_artifacts"] = len(plan.artifacts)
     payload["expanded_artifacts"] = list(plan.artifacts)
     if isinstance(plan, BuildPlan):
@@ -100,7 +97,7 @@ def _run_artifact_builder(
     runtime: Runtime,
     task: ArtifactTask,
 ) -> ArtifactOutput | None:
-    with operation_scope(f"build:{task.id}", task.entrypoint):
+    with operation_scope(f"build:{task.id}"):
         return execute_operation(
             operation=task,
             operation_group=BUILD_OPERATIONS_EP,
@@ -109,7 +106,6 @@ def _run_artifact_builder(
                 artifact_key=task.id,
                 expected_relative_path=task.output,
                 runtime=runtime,
-                logger=logger,
             ),
             runtime=runtime,
             task_cfg=task,
@@ -243,62 +239,49 @@ def _execute_build_jobs(
     runtime: Runtime,
     plan: BuildPlan,
 ) -> BuildState:
-    previous_observer = runtime.execution_observer
-    install_observer = previous_observer is None
-    if install_observer:
-        runtime.execution_observer = make_execution_observer(
-            logging.getLogger("datapipeline.dag.observer")
+    current_state = _merge_build_state(
+        previous_state=plan.previous_state,
+        built_artifacts={},
+        config_hash=plan.config_hash,
+    )
+    for job in plan.jobs:
+        removed = False
+        for key in job.invalidated_artifacts:
+            if current_state.artifacts.pop(key, None) is not None:
+                removed = True
+        if removed:
+            save_build_state(current_state, plan.state_path)
+        hydrate_runtime_artifacts(
+            runtime=runtime,
+            graph=plan.graph,
+            state=current_state,
+            config_hash=plan.config_hash,
+            artifact_keys=plan.artifacts,
         )
-    try:
-        observer = make_operation_observer(
-            logging.getLogger("datapipeline.operation.observer")
-        )
-        with operation_observer(observer):
-            current_state = _merge_build_state(
-                previous_state=plan.previous_state,
-                built_artifacts={},
-                config_hash=plan.config_hash,
-            )
-            for job in plan.jobs:
-                removed = False
-                for key in job.invalidated_artifacts:
-                    if current_state.artifacts.pop(key, None) is not None:
-                        removed = True
-                if removed:
-                    save_build_state(current_state, plan.state_path)
-                hydrate_runtime_artifacts(
-                    runtime=runtime,
-                    graph=plan.graph,
-                    state=current_state,
-                    config_hash=plan.config_hash,
-                    artifact_keys=plan.artifacts,
-                )
 
-                result = _run_artifact_builder(
-                    runtime=runtime,
-                    task=job.task,
-                )
-                if result is None:
-                    raise RuntimeError(
-                        f"Artifact task '{job.task.id}' produced no artifact."
-                    )
-                current_state = _merge_build_state(
-                    previous_state=current_state,
-                    built_artifacts={job.task.id: result},
-                    config_hash=plan.config_hash,
-                )
-                save_build_state(current_state, plan.state_path)
-                hydrate_runtime_artifacts(
-                    runtime=runtime,
-                    graph=plan.graph,
-                    state=current_state,
-                    config_hash=plan.config_hash,
-                    artifact_keys=plan.artifacts,
-                )
-            return current_state
-    finally:
-        if install_observer:
-            runtime.execution_observer = previous_observer
+        result = _run_artifact_builder(
+            runtime=runtime,
+            task=job.task,
+        )
+        if result is None:
+            raise RuntimeError(f"Artifact task '{job.task.id}' produced no artifact.")
+        current_state = _merge_build_state(
+            previous_state=current_state,
+            built_artifacts={job.task.id: result},
+            config_hash=plan.config_hash,
+        )
+        save_build_state(current_state, plan.state_path)
+        hydrate_runtime_artifacts(
+            runtime=runtime,
+            graph=plan.graph,
+            state=current_state,
+            config_hash=plan.config_hash,
+            artifact_keys=plan.artifacts,
+        )
+        label = job.task.id.replace("_", " ").capitalize()
+        path = (Path(runtime.artifacts_root) / result.relative_path).resolve()
+        emit_execution_message(f"{label}: {path}", logger=logger)
+    return current_state
 
 
 def _merge_build_state(

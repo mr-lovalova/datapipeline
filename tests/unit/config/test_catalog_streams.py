@@ -69,6 +69,21 @@ def test_ingest_rejects_stream_transforms() -> None:
         )
 
 
+@pytest.mark.parametrize("config_type", [IngestConfig, StreamConfig])
+def test_stream_configs_reject_execution_sort_policy(config_type) -> None:
+    config = {
+        "id": "sample",
+        "from": {"source": "demo.source"},
+        "map": {"entrypoint": "identity", "args": {}},
+        "sort_batch_size": 100,
+    }
+    if config_type is StreamConfig:
+        config["from"] = {"stream": "demo.ingest"}
+
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        config_type.model_validate(config)
+
+
 def test_ingest_accepts_feature_id_by() -> None:
     spec = IngestConfig.model_validate(
         {

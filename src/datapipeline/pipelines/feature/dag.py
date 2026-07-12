@@ -57,7 +57,9 @@ def build_feature_dag(
     group_by_cadence: str | None = None,
 ) -> Dag:
     record_nodes = (
-        build_stream_id_nodes(context, cfg.record_stream) if include_record_nodes else ()
+        build_stream_id_nodes(context, cfg.record_stream)
+        if include_record_nodes
+        else ()
     )
     record_input = (
         _record_node_output(context, cfg.record_stream)
@@ -102,7 +104,6 @@ def build_feature_nodes(
     record_input: str = "stream_transforms",
 ) -> tuple[PipelineNode, ...]:
     feature_id_by = context.runtime.registries.feature_id_by.get(record_stream_id)
-    batch_size = context.runtime.registries.sort_batch_size.get(record_stream_id)
     return (
         PipelineNode(
             name="build_feature_stream",
@@ -119,11 +120,7 @@ def build_feature_nodes(
         PipelineNode(
             name="order_feature_records",
             op=order_feature_records,
-            args=(
-                context,
-                batch_size,
-                group_by_cadence,
-            ),
+            args=(context, group_by_cadence),
             input="feature_transforms",
         ),
     )

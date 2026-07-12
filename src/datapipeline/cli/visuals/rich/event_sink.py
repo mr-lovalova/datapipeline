@@ -13,7 +13,6 @@ from ..execution import (
     NodeFinished,
     NodeProgress,
     NodeStarted,
-    OperationFinished,
     OperationProgress,
     ProfileStarted,
 )
@@ -71,7 +70,7 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
             style=self._message_style(level),
         )
         text.highlight_regex(r"^\s*\[[^]]+\]", style="bold cyan")
-        if isinstance(event, DagFinished | NodeFinished | OperationFinished):
+        if isinstance(event, DagFinished | NodeFinished):
             status_style = "green" if event.status == "success" else "bold red"
             text.highlight_words([f"status={event.status}"], style=status_style)
         return text

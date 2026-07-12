@@ -33,7 +33,9 @@ only when its config and local-source snapshot, declared output path, file, and
 dependency chain are all current. Runtime hydration registers only those current
 artifacts; orphaned, missing, stale, and incomplete chains are left unavailable.
 
-Runtime profiles use a flat `artifact_mode` for their prerequisite phase:
+Serve and inspect profiles use a flat `artifact_mode` for their prerequisite
+phase. Materialize uses the same command-wide policy from
+`materialize.defaults.yaml` or `--artifact-mode`:
 
 - `AUTO`: build missing/stale requirements and reuse current dependencies.
 - `FORCE`: rebuild the selected dependency closure.
@@ -42,18 +44,31 @@ Runtime profiles use a flat `artifact_mode` for their prerequisite phase:
 Before any selected serve or inspect profile runs, Jerry unions their artifact
 requirements and prepares that union once. The graph orders internal artifact
 jobs; profile `order` remains authoritative for the subsequent runtime actions.
-Without a command-line override, selected profiles must resolve to the same
-mode. Artifact tasks must be declared; built-in defaults do not create missing
-producer tasks implicitly.
+Without a command-line override, selected serve or inspect profiles must resolve
+to the same mode. Artifact tasks must be declared; built-in defaults do not
+create missing producer tasks implicitly.
+
+Before any selected materialize profile runs, Jerry similarly unions the
+artifact requirements of its selected streams and prepares them once.
+For built-in transforms, these are tick IDs referenced by artifact-backed
+`ensure_cadence` operations on the selected or upstream streams. Dependencies
+hidden inside plugin code are not inferred. Materialize profiles do not carry
+individual artifact modes.
+
+The shared prerequisite phase has its own visual and logging envelope. Its
+observability precedence is CLI, then `<command>.defaults.yaml`, then built-ins;
+settings on a concrete profile apply only while that profile runs. A bare
+execution-scoped log target writes the shared phase to
+`logs/<command>.artifacts.log`.
 
 Runtime operation tasks may add `requires: [artifact_task_id, ...]` when they
 need artifacts beyond the built-in operation requirements. These IDs enter the
-same dependency closure and must have declared, active producers. A CLI
-`--heartbeat-interval` applies to the shared prerequisite build; heartbeat
+same dependency closure and must have declared, active producers. A CLI or
+command-default heartbeat applies to the shared prerequisite build; heartbeat
 values defined on individual profiles apply only when those profiles run.
 
 Build profiles remain explicit roots for `jerry build` and retain their own
-`mode`. They are not consulted by `serve` or `inspect`.
+`mode`. They are not consulted by `serve`, `inspect`, or `materialize`.
 
 ---
 

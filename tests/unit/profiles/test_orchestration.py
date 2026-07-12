@@ -9,6 +9,7 @@ from datapipeline.artifacts.planning import build_artifact_graph
 from datapipeline.config.build_resolution import BuildSettings
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig
+from datapipeline.config.execution import ExecutionConfig
 from datapipeline.config.resolution import LogLevelDecision, LogOutputSettings
 from datapipeline.config.tasks import (
     ArtifactTask,
@@ -18,6 +19,7 @@ from datapipeline.config.tasks import (
     SchemaTask,
     VectorInputsTask,
 )
+from datapipeline.profiles.executor import ExecutionSpec
 from datapipeline.profiles.models import (
     ExecutionProfile,
     ProfileRunRequest,
@@ -37,6 +39,19 @@ from datapipeline.services.runs import RunPaths
 
 _LOG_DECISION = LogLevelDecision(name="INFO", value=20)
 _LOG_OUTPUT = LogOutputSettings(outputs=())
+
+
+def _artifact_settings(
+    mode: str = "AUTO",
+    heartbeat_interval_seconds: float | None = None,
+) -> BuildSettings:
+    return BuildSettings(
+        visuals="off",
+        log_decision=_LOG_DECISION,
+        log_output=_LOG_OUTPUT,
+        mode=mode,
+        heartbeat_interval_seconds=heartbeat_interval_seconds,
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -114,7 +129,6 @@ def _build_profile(
             log_decision=_LOG_DECISION,
             log_output=_LOG_OUTPUT,
             mode=mode,
-            profile_name=name,
         ),
     )
 
@@ -138,9 +152,9 @@ def _request(
     tasks,
     artifact_tasks,
     profiles,
-    artifact_mode: str | None = None,
-    artifact_heartbeat_interval_seconds: float | None = None,
+    artifact_settings: BuildSettings | None = None,
     serve_run_plans: tuple[ServeRunPlan, ...] = (),
+    execution: ExecutionConfig | None = None,
 ) -> ProfileRunRequest:
     return ProfileRunRequest(
         command=command,
@@ -148,9 +162,9 @@ def _request(
         tasks=tasks,
         artifact_task_configs=artifact_tasks,
         profiles=profiles,
+        execution=ExecutionConfig() if execution is None else execution,
         config_hash="hash-1",
-        artifact_mode=artifact_mode,
-        artifact_heartbeat_interval_seconds=artifact_heartbeat_interval_seconds,
+        artifact_settings=artifact_settings,
         serve_run_plans=serve_run_plans,
     )
 
@@ -259,6 +273,8 @@ def test_runtime_artifact_union_is_prepared_once_before_profiles(
     first_runtime = _runtime(tmp_path, "first-profile")
     second_runtime = _runtime(tmp_path, "second-profile")
     canonical_runtime = _runtime(tmp_path, "canonical-build")
+    execution = ExecutionConfig(sort_batch_records=32)
+    artifact_settings = _artifact_settings("FORCE", 0)
     request = _request(
         tmp_path,
         command="serve",
@@ -280,15 +296,23 @@ def test_runtime_artifact_union_is_prepared_once_before_profiles(
                 preview_index=13,
             ),
         ],
-        artifact_mode="FORCE",
-        artifact_heartbeat_interval_seconds=0,
+        artifact_settings=artifact_settings,
+        execution=execution,
     )
     events: list[tuple[str, object]] = []
     build_calls: list[dict[str, object]] = []
+    execution_specs: list[ExecutionSpec] = []
 
     def build(_project, **kwargs):
         events.append(("build", kwargs["runtime"]))
         build_calls.append(dict(kwargs))
+
+    def execute(spec, work):
+        execution_specs.append(spec)
+        events.append(("artifact execution started", spec.runtime))
+        result = work()
+        events.append(("artifact execution finished", spec.runtime))
+        return result
 
     monkeypatch.setattr(
         "datapipeline.profiles.orchestration.bootstrap_build_runtime",
@@ -297,6 +321,10 @@ def test_runtime_artifact_union_is_prepared_once_before_profiles(
     monkeypatch.setattr(
         "datapipeline.profiles.orchestration.run_build_if_needed",
         build,
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.run_execution",
+        execute,
     )
     monkeypatch.setattr(
         "datapipeline.profiles.orchestration.run_profile",
@@ -310,9 +338,19 @@ def test_runtime_artifact_union_is_prepared_once_before_profiles(
     run_profiles(request)
 
     assert events == [
+        ("artifact execution started", canonical_runtime),
         ("build", canonical_runtime),
+        ("artifact execution finished", canonical_runtime),
         ("profile", first_runtime),
         ("profile", second_runtime),
+    ]
+    assert execution_specs == [
+        ExecutionSpec(
+            visuals=artifact_settings.visuals,
+            log_decision=artifact_settings.log_decision,
+            log_output=artifact_settings.log_output,
+            runtime=canonical_runtime,
+        )
     ]
     assert len(build_calls) == 1
     assert build_calls[0]["required_artifacts"] == {
@@ -321,9 +359,12 @@ def test_runtime_artifact_union_is_prepared_once_before_profiles(
         VECTOR_METADATA,
     }
     assert build_calls[0]["mode"] == "FORCE"
-    assert build_calls[0]["profile_name"] == "serve"
+    assert "profile_name" not in build_calls[0]
     assert build_calls[0]["heartbeat_interval_seconds"] == 0
     assert build_calls[0]["expected_config_hash"] == "hash-1"
+    assert canonical_runtime.execution == execution
+    assert first_runtime.execution == execution
+    assert second_runtime.execution == execution
 
 
 def test_custom_runtime_artifact_requirement_is_prepared(
@@ -346,7 +387,7 @@ def test_custom_runtime_artifact_requirement_is_prepared(
         tasks=[snapshot, report],
         artifact_tasks=[snapshot],
         profiles=[_runtime_profile("report", "report", _runtime(tmp_path), object())],
-        artifact_mode="AUTO",
+        artifact_settings=_artifact_settings(),
     )
     build_calls: list[dict[str, object]] = []
 
@@ -387,7 +428,6 @@ def test_custom_runtime_missing_required_producer_is_rejected_before_execution(
         tasks=[report],
         artifact_tasks=[],
         profiles=[_runtime_profile("report", "report", _runtime(tmp_path), object())],
-        artifact_mode="AUTO",
     )
 
     _assert_preflight_rejected(request)
@@ -404,7 +444,6 @@ def test_artifact_free_runtime_rejects_config_drift_before_execution(
         tasks=[report],
         artifact_tasks=[],
         profiles=[_runtime_profile("report", "report", _runtime(tmp_path), object())],
-        artifact_mode="AUTO",
     )
     monkeypatch.setattr(
         "datapipeline.profiles.orchestration.compute_config_hash",
@@ -421,7 +460,6 @@ def test_unknown_target_is_rejected_before_execution(tmp_path: Path) -> None:
         tasks=[],
         artifact_tasks=[],
         profiles=[_runtime_profile("serve", "missing", _runtime(tmp_path), object())],
-        artifact_mode="AUTO",
     )
 
     _assert_preflight_rejected(request)
@@ -445,7 +483,6 @@ def test_runtime_command_rejects_artifact_target(
         profiles=[
             _runtime_profile("snapshot", "snapshot", _runtime(tmp_path), object())
         ],
-        artifact_mode="AUTO",
     )
 
     _assert_preflight_rejected(request)
@@ -480,7 +517,6 @@ def test_runtime_profile_requires_dataset_before_execution(tmp_path: Path) -> No
         tasks=[task],
         artifact_tasks=[],
         profiles=[profile],
-        artifact_mode="AUTO",
     )
 
     _assert_preflight_rejected(request)
@@ -500,7 +536,6 @@ def test_missing_runtime_artifact_producer_is_rejected_before_execution(
         profiles=[
             _runtime_profile("serve", "pipeline", _runtime(tmp_path), _dataset())
         ],
-        artifact_mode="AUTO",
     )
 
     _assert_preflight_rejected(request)
@@ -523,7 +558,6 @@ def test_invalid_preview_is_rejected_before_execution(tmp_path: Path) -> None:
                 preview_index=14,
             )
         ],
-        artifact_mode="AUTO",
         serve_run_plans=(ServeRunPlan(run_paths, 14),),
     )
 
@@ -552,19 +586,27 @@ def test_runtime_profiles_keep_order_heartbeat_and_execution_scope(
             )
             for name, heartbeat in (("first", 10), ("second", 20), ("third", None))
         ],
-        artifact_mode="AUTO",
     )
     observed: list[tuple[str, float | None]] = []
     scopes: list[dict[str, object]] = []
+    artifact_execution_specs: list[ExecutionSpec] = []
 
     @contextmanager
     def scope(**kwargs):
         scopes.append(kwargs)
         yield
 
+    def artifact_execution(spec, work):
+        artifact_execution_specs.append(spec)
+        return work()
+
     monkeypatch.setattr(
         "datapipeline.profiles.orchestration.execution_scope",
         scope,
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.run_execution",
+        artifact_execution,
     )
     monkeypatch.setattr(
         "datapipeline.profiles.orchestration.run_profile",
@@ -588,6 +630,7 @@ def test_runtime_profiles_keep_order_heartbeat_and_execution_scope(
         "second",
         "third",
     ]
+    assert artifact_execution_specs == []
 
 
 def test_shared_serve_run_is_finalized_once(monkeypatch, tmp_path: Path) -> None:
@@ -602,7 +645,6 @@ def test_shared_serve_run_is_finalized_once(monkeypatch, tmp_path: Path) -> None
             _runtime_profile(name, "pipeline", _runtime(tmp_path, name), object())
             for name in ("train", "val")
         ],
-        artifact_mode="AUTO",
         serve_run_plans=(ServeRunPlan(run_paths, None),),
     )
     calls = {"start": 0, "success": 0, "failed": 0, "latest": 0}
@@ -645,7 +687,6 @@ def test_profile_failure_marks_shared_run_failed(
             _runtime_profile(name, "pipeline", _runtime(tmp_path, name), object())
             for name in ("train", "val")
         ],
-        artifact_mode="AUTO",
         serve_run_plans=(ServeRunPlan(run_paths, None),),
     )
     calls = 0
@@ -702,7 +743,6 @@ def test_preview_run_exists_at_profile_boundary_and_is_not_latest(
                 heartbeat_interval_seconds=15,
             )
         ],
-        artifact_mode="AUTO",
         serve_run_plans=(ServeRunPlan(run_paths, 3),),
     )
     observed: dict[str, object] = {}
@@ -755,7 +795,6 @@ def test_later_run_start_failure_fails_only_started_run(
         tasks=[task],
         artifact_tasks=[],
         profiles=[_runtime_profile("serve", "pipeline", _runtime(tmp_path), object())],
-        artifact_mode="AUTO",
         serve_run_plans=(ServeRunPlan(first, None), ServeRunPlan(second, None)),
     )
     starts: list[RunPaths] = []

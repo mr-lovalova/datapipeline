@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from datapipeline.config.execution import ExecutionConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.config.tasks import VectorInputsTask
 from datapipeline.domain.feature import FeatureRecord, FeatureRecordSequence
@@ -180,7 +181,11 @@ def _runtime_with_rows(
     artifacts_root.mkdir(parents=True, exist_ok=True)
     project_yaml = tmp_path / "project.yaml"
     project_yaml.write_text("version: 1\n", encoding="utf-8")
-    runtime = Runtime(project_yaml=project_yaml, artifacts_root=artifacts_root)
+    runtime = Runtime(
+        project_yaml=project_yaml,
+        artifacts_root=artifacts_root,
+        execution=ExecutionConfig(sort_batch_records=128),
+    )
 
     regs = runtime.registries
     if stream_ops is None:
@@ -193,7 +198,6 @@ def _runtime_with_rows(
         regs.partition_by.register(stream_id, partition_by)
         regs.feature_id_by.register(stream_id, feature_id_by)
         regs.ordered_by.register(stream_id, None)
-        regs.sort_batch_size.register(stream_id, 128)
         return runtime
 
     ingest_id = f"{stream_id}.ingest"
@@ -206,7 +210,6 @@ def _runtime_with_rows(
     regs.partition_by.register(ingest_id, partition_by)
     regs.feature_id_by.register(ingest_id, feature_id_by)
     regs.ordered_by.register(ingest_id, None)
-    regs.sort_batch_size.register(ingest_id, 128)
 
     regs.stream_sources.register(stream_id, _UpstreamSource(runtime, ingest_id))
     regs.stream_specs.register(stream_id, StreamRuntimeSpec(pipeline="stream"))
@@ -217,7 +220,6 @@ def _runtime_with_rows(
     regs.partition_by.register(stream_id, partition_by)
     regs.feature_id_by.register(stream_id, feature_id_by)
     regs.ordered_by.register(stream_id, None)
-    regs.sort_batch_size.register(stream_id, 128)
     return runtime
 
 

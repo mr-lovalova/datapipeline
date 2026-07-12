@@ -55,6 +55,7 @@ def execute_command(
                 run_name=args.run,
                 output=args.output,
                 overwrite=args.overwrite,
+                artifact_mode=args.artifact_mode,
                 visuals=args.visuals,
                 heartbeat_interval_seconds=args.heartbeat_interval_seconds,
                 cli_log_level=cli_level_arg,

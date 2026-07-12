@@ -1,6 +1,11 @@
 import argparse
 
-from .common import add_dataset_flag, add_project_flag, add_visual_flags
+from .common import (
+    add_artifact_mode_flag,
+    add_dataset_flag,
+    add_project_flag,
+    add_visual_flags,
+)
 
 
 def add_materialize_command(sub, common: argparse.ArgumentParser) -> None:
@@ -26,4 +31,5 @@ def add_materialize_command(sub, common: argparse.ArgumentParser) -> None:
         default=None,
         help="overwrite existing materialized outputs",
     )
+    add_artifact_mode_flag(parser)
     add_visual_flags(parser)

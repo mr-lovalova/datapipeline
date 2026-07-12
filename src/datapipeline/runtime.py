@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Any, List, Literal, Optional, Sequence, Union
 from datetime import datetime
 
+from datapipeline.config.execution import ExecutionConfig
 from datapipeline.config.profiles import Profile
 from datapipeline.config.split import SplitConfig
 from datapipeline.domain.stream import RecordStream
@@ -53,7 +54,6 @@ class Registries:
         default_factory=Registry
     )
     ordered_by: Registry[str, Optional[List[str]]] = field(default_factory=Registry)
-    sort_batch_size: Registry[str, int] = field(default_factory=Registry)
 
     def clear_all(self) -> None:
         for reg in (
@@ -62,7 +62,6 @@ class Registries:
             self.partition_by,
             self.feature_id_by,
             self.ordered_by,
-            self.sort_batch_size,
             self.record_operations,
             self.postprocesses,
             self.sources,
@@ -79,6 +78,7 @@ class Runtime:
 
     project_yaml: Path
     artifacts_root: Path
+    execution: ExecutionConfig = field(default_factory=ExecutionConfig)
     registries: Registries = field(default_factory=Registries)
     split: Optional[SplitConfig] = None
     run: Optional[Profile] = None

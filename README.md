@@ -192,7 +192,7 @@ Split timing (leakage note)
 - `jerry serve [--dataset <alias>|--project <path>] [--limit N] [--preview-index 0-13] [--artifact-mode AUTO|FORCE|OFF]`: prepares the combined artifact requirements once, then streams enabled `serve.*` runtime profiles in their configured order.
 - `jerry build [--dataset <alias>|--project <path>] [--force]`: materializes artifacts (schema, scaler, etc.).
 - `jerry inspect [--dataset <alias>|--project <path>] [--run <inspect-profile>] [--artifact-mode AUTO|FORCE|OFF]`: prepares the combined artifact requirements once, then runs enabled inspect profiles (or one selected profile).
-- `jerry materialize [--run <profile>] [--output <path.jsonl>] [--overwrite|--no-overwrite]`: runs all enabled `materialize.*` profiles, or one selected profile. `--output` overrides a selected profile and therefore requires `--run`.
+- `jerry materialize [--run <profile>] [--output <path.jsonl>] [--overwrite|--no-overwrite] [--artifact-mode AUTO|FORCE|OFF]`: prepares the selected streams' artifact requirements once, then runs all enabled `materialize.*` profiles or one selected profile. `--output` overrides a selected profile and therefore requires `--run`.
 - `jerry clean [--yes] [--older-than <age>]`: lists or removes stale sort spill directories. It does not delete materialized outputs.
 - `jerry inflow create`: interactive wizard to scaffold an end-to-end ingest (source + parser/DTO + mapper + ingest).
 - `jerry source create <provider>.<dataset> ...`: scaffolds a source YAML (no Python code).

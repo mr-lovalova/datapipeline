@@ -51,7 +51,6 @@ def build_stream_nodes(
         ordered_by = registries.ordered_by.get(stream_id)
     except KeyError:
         ordered_by = None
-    batch_size = registries.sort_batch_size.get(stream_id)
     return (
         PipelineNode(
             name="open_records",
@@ -70,7 +69,7 @@ def build_stream_nodes(
             input="mapped",
             name="order_records",
             op=order_records,
-            args=(context, batch_size, state_by, ordered_by),
+            args=(context, state_by, ordered_by),
             output="ordered",
         ),
         PipelineNode(

@@ -1,6 +1,7 @@
 import argparse
 
 from datapipeline.config.options import VISUAL_CHOICES
+from datapipeline.config.profiles import ARTIFACT_MODES
 
 
 def _heartbeat_interval_seconds(value: str) -> float:
@@ -31,6 +32,16 @@ def add_project_flag(parser: argparse.ArgumentParser) -> None:
         "-p",
         default=None,
         help="path to project.yaml",
+    )
+
+
+def add_artifact_mode_flag(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--artifact-mode",
+        choices=ARTIFACT_MODES,
+        type=str.upper,
+        default=None,
+        help="prerequisite artifact policy: AUTO | FORCE | OFF",
     )
 
 

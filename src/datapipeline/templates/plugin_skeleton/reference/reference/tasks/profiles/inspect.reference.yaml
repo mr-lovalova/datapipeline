@@ -31,6 +31,8 @@
 #       #   path: logs/inspect.log  # required for FS+GLOBAL; optional for EXECUTION
 # note: selected profiles' artifact requirements are combined and prepared once.
 #       The graph orders those internal jobs; profile order is never changed.
+#       Shared prerequisite observability comes from CLI or inspect.defaults.yaml.
 # note: without a CLI override, selected profiles must use the same artifact_mode.
 # note: common defaults can be set once in profiles/inspect.defaults.yaml.
+# execution.sort_batch_records is defaults-only (default 100000).
 # precedence: CLI --log-output > inspect.<name>.yaml > inspect.defaults.yaml > built-ins

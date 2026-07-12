@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Literal, Sequence
 
 from datapipeline.config.build_resolution import BuildSettings
+from datapipeline.config.execution import ExecutionConfig
 from datapipeline.config.dataset.dataset import (
     FeatureDatasetConfig,
     RecordDatasetConfig,
@@ -50,9 +51,9 @@ class ProfileRunRequest:
     tasks: Sequence[Task]
     artifact_task_configs: Sequence[ArtifactTask]
     profiles: Sequence[ExecutionProfile]
+    execution: ExecutionConfig
     config_hash: str
-    artifact_mode: str | None = None
-    artifact_heartbeat_interval_seconds: float | None = None
+    artifact_settings: BuildSettings | None = None
     serve_run_plans: tuple[ServeRunPlan, ...] = ()
 
 

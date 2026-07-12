@@ -11,7 +11,6 @@
 # partition_by: station_id      # optional; string or list of strings
 # feature_id_by: []             # optional; [] for scalar keyed features, fields for wide IDs
 # ordered_by: [station_id, time] # optional; assert source order and validate without sorting
-# sort_batch_size: 100000       # optional; in-memory chunk size for sorting
 #
 # record:                       # optional record transforms, one-key mappings
 #   - where: { field: time, operator: ge, comparand: "${start_time}" }

@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 import math
 from pathlib import Path
 
+from datapipeline.config.execution import ExecutionConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.domain.feature import FeatureRecordSequence
 from datapipeline.domain.record import TemporalRecord
@@ -57,7 +58,11 @@ def _runtime_with_streams(
     project_yaml = tmp_path / "project.yaml"
     artifacts_root = tmp_path / "artifacts"
     artifacts_root.mkdir(parents=True, exist_ok=True)
-    runtime = Runtime(project_yaml=project_yaml, artifacts_root=artifacts_root)
+    runtime = Runtime(
+        project_yaml=project_yaml,
+        artifacts_root=artifacts_root,
+        execution=ExecutionConfig(sort_batch_records=1024),
+    )
 
     regs = runtime.registries
     stream_transforms = stream_transforms or {}
@@ -72,7 +77,6 @@ def _runtime_with_streams(
         regs.debug_operations.register(alias, [])
         regs.partition_by.register(alias, None)
         regs.feature_id_by.register(alias, None)
-        regs.sort_batch_size.register(alias, 1024)
         for rec in rows:
             ts = getattr(rec, "time", None)
             if isinstance(ts, datetime):
