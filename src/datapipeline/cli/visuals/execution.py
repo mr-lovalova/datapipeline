@@ -25,11 +25,6 @@ from datapipeline.dag.events import (
 from datapipeline.dag.node import NodeKind
 from datapipeline.dag.observer import ExecutionObserver
 from datapipeline.dag.runner import current_node_progress_context
-from datapipeline.execution.observability import (
-    OperationEvent as ObservedOperationEvent,
-    OperationInfo as ObservedOperationInfo,
-    OperationProgressEvent as ObservedOperationProgress,
-)
 
 
 @dataclass(frozen=True)
@@ -130,17 +125,8 @@ class NodeFinished(_NodeEvent):
 
 
 @dataclass(frozen=True, kw_only=True)
-class _OperationEvent(_ExecutionEvent):
+class OperationProgress(_ExecutionEvent):
     operation_name: str
-
-
-@dataclass(frozen=True, kw_only=True)
-class OperationInfo(_OperationEvent):
-    info_line: str
-
-
-@dataclass(frozen=True, kw_only=True)
-class OperationProgress(_OperationEvent):
     step: str
     message: str
 
@@ -156,7 +142,6 @@ ExecutionLogEvent = (
     | NodeStarted
     | NodeProgress
     | NodeFinished
-    | OperationInfo
     | OperationProgress
 )
 
@@ -214,7 +199,6 @@ class ExecutionEventFormatter:
             | DagSummary
             | DagFinished
             | NodeProgress
-            | OperationInfo
             | OperationProgress
         ):
             return logging.INFO
@@ -245,8 +229,6 @@ class ExecutionEventFormatter:
             return f"{indent}" + message.replace("\n", f"\n{indent}")
         if isinstance(event, DagSummary):
             return f"{indent}[{event.dag_name}] {event.summary}"
-        if isinstance(event, OperationInfo):
-            return f"{indent}[{event.operation_name}] {event.info_line}"
         if isinstance(event, DagStarted):
             return f"{indent}[{event.dag_name}] started nodes={event.node_count}"
         if isinstance(event, DagFinished):
@@ -444,26 +426,30 @@ class ExecutionOperationObserver:
     def __init__(self, logger: logging.Logger) -> None:
         self._logger = logger
 
-    def emit_operation_event(self, event: ObservedOperationEvent) -> None:
-        log_event: _OperationEvent
-        if isinstance(event, ObservedOperationInfo):
-            log_event = OperationInfo(
-                operation_name=event.name,
-                depth=event.depth,
-                info_line=event.info_line,
+    def emit_result(self, line: str) -> None:
+        _emit_event(
+            ExecutionMessage(
+                message=line,
                 scope=_current_scope(),
-            )
-        elif isinstance(event, ObservedOperationProgress):
-            log_event = OperationProgress(
-                operation_name=event.name,
-                depth=event.depth,
-                step=event.step,
-                message=event.message,
+            ),
+            self._logger,
+        )
+
+    def emit_progress(
+        self,
+        name: str,
+        step: str,
+        message: str,
+    ) -> None:
+        _emit_event(
+            OperationProgress(
+                operation_name=name,
+                step=step,
+                message=message,
                 scope=_current_scope(),
-            )
-        else:
-            raise TypeError(f"Unsupported operation event: {type(event).__name__}")
-        _emit_event(log_event, self._logger)
+            ),
+            self._logger,
+        )
 
 
 def make_operation_observer(

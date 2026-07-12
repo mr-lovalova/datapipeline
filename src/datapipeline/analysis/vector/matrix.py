@@ -2,17 +2,12 @@ import base64
 import csv
 import html
 import json
-import logging
 from pathlib import Path
 
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .collector import VectorStatsCollector
-
-
-logger = logging.getLogger(__name__)
-
 
 def export_matrix_data(collector: "VectorStatsCollector") -> Path | None:
     output = collector.matrix_output
@@ -21,16 +16,11 @@ def export_matrix_data(collector: "VectorStatsCollector") -> Path | None:
 
     path = Path(output)
     path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        if collector.matrix_format == "html":
-            _write_matrix_html(collector, path)
-        else:
-            _write_matrix_csv(collector, path)
-        return path
-    except OSError as exc:
-        warning = f"[warn] Failed to write availability matrix to {path}: {exc}"
-        logger.warning("\n%s", warning)
-        return None
+    if collector.matrix_format == "html":
+        _write_matrix_html(collector, path)
+    else:
+        _write_matrix_csv(collector, path)
+    return path
 
 
 def _write_matrix_csv(collector: "VectorStatsCollector", path: Path) -> None:

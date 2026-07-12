@@ -16,7 +16,6 @@ from datapipeline.cli.visuals.execution import (
     NodeFinished,
     NodeProgress,
     NodeStarted,
-    OperationInfo,
     OperationProgress,
     ProfileStarted,
     SourceInfoMessage,
@@ -45,8 +44,8 @@ from datapipeline.dag.dag import Dag
 from datapipeline.dag.node import PipelineNode
 from datapipeline.dag.runner import run_dag
 from datapipeline.execution.observability import (
-    emit_operation_info,
     emit_operation_progress,
+    emit_operation_result,
     operation_observer,
     operation_scope,
 )
@@ -163,15 +162,6 @@ _PARENT = DagParentRef(
             ),
             logging.DEBUG,
             "[pipeline/load] finished status=success out=3 elapsed=0.250000s",
-        ),
-        (
-            OperationInfo(
-                operation_name="build:schema",
-                info_line="saved path=schema.json",
-                depth=1,
-            ),
-            logging.INFO,
-            "  [build:schema] saved path=schema.json",
         ),
         (
             OperationProgress(
@@ -700,7 +690,7 @@ def test_emit_execution_message_logs_without_context_sink(caplog):
     assert getattr(caplog.records[-1], "dp_event_kind", None) == "execution"
 
 
-def test_operation_scope_emits_info_and_progress_events(caplog):
+def test_operation_scope_emits_flat_result_and_labelled_progress(caplog):
     capture = _CaptureSink()
     logger = logging.getLogger("datapipeline.cli.visuals.execution.test.operation")
     token = set_current_execution_event_sink(capture)
@@ -709,8 +699,8 @@ def test_operation_scope_emits_info_and_progress_events(caplog):
             observer = make_operation_observer(logger)
             with operation_observer(observer):
                 with operation_scope("build:model_grid"):
-                    assert emit_operation_info(
-                        "materialized path=/tmp/model_grid.jsonl"
+                    assert emit_operation_result(
+                        "Model grid: /tmp/model_grid.jsonl"
                     )
                     assert emit_operation_progress(
                         "write_artifact",
@@ -720,15 +710,14 @@ def test_operation_scope_emits_info_and_progress_events(caplog):
         reset_current_execution_event_sink(token)
 
     assert [type(event) for event in capture.events] == [
-        OperationInfo,
+        ExecutionMessage,
         OperationProgress,
     ]
-    assert capture.events[0].operation_name == "build:model_grid"
-    assert capture.events[0].info_line == "materialized path=/tmp/model_grid.jsonl"
+    assert capture.events[0].message == "Model grid: /tmp/model_grid.jsonl"
     assert capture.events[1].step == "write_artifact"
     assert capture.events[1].message == "running elapsed=1s items=3"
     messages = [record.getMessage() for record in caplog.records]
-    assert "[build:model_grid] materialized path=/tmp/model_grid.jsonl" in messages
+    assert "Model grid: /tmp/model_grid.jsonl" in messages
     assert "[build:model_grid/write_artifact] running elapsed=1s items=3" in messages
 
 

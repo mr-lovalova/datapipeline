@@ -772,6 +772,44 @@ def test_run_dag_restores_context_for_nested_siblings_across_yields(
     }
 
 
+def test_preconstructed_seed_dag_joins_consuming_root_run(tmp_path: Path) -> None:
+    observer = _CollectingObserver()
+    ctx = _context(tmp_path)
+
+    ingest = Dag(
+        name="ingest",
+        nodes=(PipelineNode(name="open_source", op=lambda: [1, 2]),),
+    )
+    records = run_dag(ctx, ingest, observer=observer)
+
+    feature = Dag(
+        name="feature",
+        nodes=(
+            PipelineNode(
+                name="build_feature_stream",
+                op=lambda seed: seed,
+                input="seed",
+            ),
+        ),
+    )
+    features = run_dag(ctx, feature, seed=records, observer=observer)
+
+    assert list(features) == [1, 2]
+    assert observer.dag_started == [("feature", 1), ("ingest", 1)]
+    assert observer.dag_start_depths == [0, 1]
+    assert observer.dag_start_parents == [
+        None,
+        DagParentRef("feature", "build_feature_stream", 0),
+    ]
+    assert {
+        event.node_name: event.depth for event in observer.node_events
+    } == {
+        "build_feature_stream": 1,
+        "open_source": 2,
+    }
+    assert {event.execution_index for event in observer.node_events} == {0, 1}
+
+
 def test_run_dag_uses_consuming_node_depth_for_seeded_child_dag(tmp_path: Path) -> None:
     observer = _CollectingObserver()
     ctx = _context(tmp_path)

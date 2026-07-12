@@ -345,7 +345,7 @@ def run_dag(
     is_root_run = dag_depth == 0
     run_state = _RootRunState() if is_root_run else _CURRENT_ROOT_RUN.get()
     if run_state is None:
-        raise RuntimeError("Cannot construct a nested DAG outside a root run")
+        raise RuntimeError("Cannot execute a nested DAG outside a root run")
 
     def _build_stream() -> Iterator[Any]:
         node_bindings = tuple((node, dict(node.kwinputs or {})) for node in dag.nodes)
@@ -380,7 +380,7 @@ def run_dag(
             state[node.output or node.name] = stream
         yield from stream
 
-    return _observe_dag_stream(
+    yield from _observe_dag_stream(
         context=context,
         dag=dag,
         depth=dag_depth,

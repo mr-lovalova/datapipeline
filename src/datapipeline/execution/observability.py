@@ -5,34 +5,20 @@ from dataclasses import dataclass
 from typing import Protocol
 
 
-@dataclass(frozen=True, kw_only=True)
-class _OperationEvent:
-    name: str
-    depth: int = 0
-
-
-@dataclass(frozen=True, kw_only=True)
-class OperationInfo(_OperationEvent):
-    info_line: str
-
-
-@dataclass(frozen=True, kw_only=True)
-class OperationProgressEvent(_OperationEvent):
-    step: str
-    message: str
-
-
-OperationEvent = OperationInfo | OperationProgressEvent
-
-
 class OperationObserver(Protocol):
-    def emit_operation_event(self, event: OperationEvent) -> None: ...
+    def emit_result(self, line: str) -> None: ...
+
+    def emit_progress(
+        self,
+        name: str,
+        step: str,
+        message: str,
+    ) -> None: ...
 
 
 @dataclass(frozen=True)
 class _OperationContext:
     name: str
-    depth: int
     observer: OperationObserver | None
 
 
@@ -60,11 +46,10 @@ def operation_observer(observer: OperationObserver):
 
 
 @contextmanager
-def operation_scope(name: str, depth: int = 0):
-    operation_depth = max(0, int(depth))
+def operation_scope(name: str):
     observer = current_operation_observer()
     token = _CURRENT_OPERATION_CONTEXT.set(
-        _OperationContext(name=name, depth=operation_depth, observer=observer)
+        _OperationContext(name=name, observer=observer)
     )
     try:
         yield
@@ -72,17 +57,11 @@ def operation_scope(name: str, depth: int = 0):
         _CURRENT_OPERATION_CONTEXT.reset(token)
 
 
-def emit_operation_info(line: str) -> bool:
+def emit_operation_result(line: str) -> bool:
     context = _CURRENT_OPERATION_CONTEXT.get()
     if context is None or context.observer is None:
         return False
-    context.observer.emit_operation_event(
-        OperationInfo(
-            name=context.name,
-            depth=context.depth,
-            info_line=line,
-        )
-    )
+    context.observer.emit_result(line)
     return True
 
 
@@ -90,13 +69,10 @@ def emit_operation_progress(step: str, message: str) -> bool:
     context = _CURRENT_OPERATION_CONTEXT.get()
     if context is None or context.observer is None:
         return False
-    context.observer.emit_operation_event(
-        OperationProgressEvent(
-            name=context.name,
-            depth=context.depth,
-            step=step,
-            message=message,
-        )
+    context.observer.emit_progress(
+        context.name,
+        step,
+        message,
     )
     return True
 
@@ -131,14 +107,11 @@ OperationProgressTracker = OperationProgress
 
 
 __all__ = [
-    "OperationEvent",
-    "OperationInfo",
     "OperationObserver",
     "OperationProgress",
-    "OperationProgressEvent",
     "OperationProgressTracker",
-    "emit_operation_info",
     "emit_operation_progress",
+    "emit_operation_result",
     "operation_observer",
     "operation_scope",
 ]

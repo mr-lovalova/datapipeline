@@ -28,14 +28,15 @@ def inspect_matrix_with_runtime(
     collector = load_collector(runtime)
     rows = matrix_status_rows(collector)
 
-    def _render_html(destination: Path) -> Path | None:
+    def _render_html(destination: Path) -> Path:
         collector.matrix_format = "html"
         collector.matrix_output = destination
-        return export_matrix_data(collector)
+        written = export_matrix_data(collector)
+        if written is None:
+            raise RuntimeError("Matrix output path was not configured.")
+        return written
 
     return RuntimeOutput(
         rows=rows,
         html_renderer=_render_html,
-        materialized_key="inspect_matrix",
-        materialized_meta={"format": "html"},
     )

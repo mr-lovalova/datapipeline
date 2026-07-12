@@ -3,6 +3,7 @@ import json
 
 import pytest
 
+from datapipeline.analysis.vector import matrix as matrix_module
 from datapipeline.analysis.vector.collector import VectorStatsCollector
 from datapipeline.analysis.vector.matrix import export_matrix_data
 from datapipeline.analysis.vector.snapshot import (
@@ -105,6 +106,22 @@ def test_export_matrix_data_writes_html_shell(tmp_path):
     assert "<h2>Partition Availability</h2>" in html
     assert "setupMatrix('feature'" in html
     assert "setupMatrix('partition'" in html
+
+
+def test_export_matrix_data_propagates_write_errors(monkeypatch, tmp_path) -> None:
+    collector = VectorStatsCollector(
+        expected_feature_ids=["speed"],
+        matrix_output=str(tmp_path / "matrix.csv"),
+        matrix_format="csv",
+    )
+
+    def fail_write(_collector, _path):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(matrix_module, "_write_matrix_csv", fail_write)
+
+    with pytest.raises(OSError, match="disk full"):
+        export_matrix_data(collector)
 
 
 def test_vector_analyzer_snapshot_round_trip():

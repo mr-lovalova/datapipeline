@@ -6,7 +6,7 @@ from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from datapipeline.execution.observability import (
     OperationProgressTracker,
-    emit_operation_info,
+    emit_operation_result,
 )
 from datapipeline.dag.runner import resolve_heartbeat_interval_seconds
 from datapipeline.io.factory import writer_factory
@@ -23,10 +23,8 @@ class ArtifactOutput:
 class RuntimeOutput:
     rows: Iterable[Any] | None = None
     payload: Mapping[str, Any] | None = None
-    html_renderer: Callable[[Path], Path | None] | None = None
+    html_renderer: Callable[[Path], Path] | None = None
     target: OutputTarget | None = None
-    materialized_key: str | None = None
-    materialized_meta: dict[str, object] | None = None
 
 
 @dataclass(frozen=True)
@@ -102,13 +100,7 @@ def _persist_runtime_output(
         if destination is None:
             raise ValueError("html output requires fs destination.")
         written = result.html_renderer(destination)
-        if written is not None and result.materialized_key:
-            line = f"materialized path={written}"
-            if result.materialized_meta:
-                line = f"{line} " + " ".join(
-                    f"{key}={value}" for key, value in result.materialized_meta.items()
-                )
-            emit_operation_info(line)
+        emit_operation_result(f"Output: {written}")
         return
 
     rows = result.rows
@@ -148,14 +140,12 @@ def _persist_runtime_output(
             except Exception:
                 logger.debug("Failed to abort runtime output writer", exc_info=True)
 
-    if effective_target.destination:
-        emit_operation_info(
-            f"saved path={effective_target.destination} items={count}",
+    if effective_target.destination is not None:
+        emit_operation_result(
+            f"Output: {effective_target.destination} · {count:,} records",
         )
     elif effective_target.transport == "stdout":
-        emit_operation_info(f"streamed target=stdout items={count}")
-    else:
-        emit_operation_info(f"emitted items={count}")
+        emit_operation_result(f"Output: stdout · {count:,} records")
 
 
 def _persist_split_runtime_output(
@@ -177,8 +167,8 @@ def _persist_split_runtime_output(
     success = False
     try:
         for label, target in result.targets.items():
-            if target.transport != "fs":
-                raise ValueError("Split runtime output requires fs targets.")
+            if target.transport != "fs" or target.destination is None:
+                raise ValueError("Split runtime output requires fs destinations.")
             writers[label] = writer_factory(target)
             counts[label] = 0
 
@@ -223,15 +213,9 @@ def _persist_split_runtime_output(
                     )
 
     for label, target in result.targets.items():
-        if target.destination:
-            line = (
-                f"saved label={label} path={target.destination} items={counts[label]}"
-            )
-        elif target.transport == "stdout":
-            line = f"streamed target=stdout items={counts[label]}"
-        else:
-            line = f"emitted items={counts[label]}"
-        emit_operation_info(line)
+        emit_operation_result(
+            f"{label}: {target.destination} · {counts[label]:,} records"
+        )
 
 
 def persist_runtime_result(

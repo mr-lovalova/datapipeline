@@ -4,9 +4,10 @@ from types import SimpleNamespace
 
 import pytest
 
+import datapipeline.operations.persistence as persistence
 from datapipeline.cli.visuals.execution import (
     ExecutionEventSink,
-    OperationInfo,
+    ExecutionMessage,
     make_operation_observer,
 )
 from datapipeline.cli.visuals.execution_context import (
@@ -102,7 +103,7 @@ def test_failed_runtime_write_preserves_existing_file(tmp_path) -> None:
     assert destination.read_text(encoding="utf-8") == "previous\n"
 
 
-def test_runtime_persistence_emits_operation_saved_info(tmp_path) -> None:
+def test_runtime_persistence_emits_flat_output(tmp_path) -> None:
     destination = tmp_path / "out.jsonl"
     target = OutputTarget(
         transport="fs",
@@ -127,13 +128,59 @@ def test_runtime_persistence_emits_operation_saved_info(tmp_path) -> None:
     finally:
         reset_current_execution_event_sink(token)
 
-    infos = [event for event in capture.events if isinstance(event, OperationInfo)]
-    assert len(infos) == 1
-    assert infos[0].operation_name == "serve:train"
-    assert infos[0].info_line == f"saved path={destination} items=1"
+    outputs = [event for event in capture.events if isinstance(event, ExecutionMessage)]
+    assert len(outputs) == 1
+    assert outputs[0].message == f"Output: {destination} · 1 records"
 
 
-def test_split_runtime_output_routes_rows_to_label_targets(tmp_path) -> None:
+def test_runtime_persistence_reports_stdout_count(monkeypatch, capsys) -> None:
+    results: list[str] = []
+    monkeypatch.setattr(persistence, "emit_operation_result", results.append)
+
+    persist_runtime_result(
+        RuntimeOutput(rows=({"value": 1},)),
+        target=OutputTarget(
+            transport="stdout",
+            format="jsonl",
+            view="raw",
+            encoding=None,
+            destination=None,
+        ),
+        logger=logging.getLogger(__name__),
+    )
+
+    assert capsys.readouterr().out == '{"value": 1}\n'
+    assert results == ["Output: stdout · 1 records"]
+
+
+def test_runtime_persistence_reports_html_path(monkeypatch, tmp_path) -> None:
+    destination = tmp_path / "matrix.html"
+    results: list[str] = []
+    monkeypatch.setattr(persistence, "emit_operation_result", results.append)
+
+    def render(path):
+        path.write_text("<html></html>", encoding="utf-8")
+        return path
+
+    persist_runtime_result(
+        RuntimeOutput(html_renderer=render),
+        target=OutputTarget(
+            transport="fs",
+            format="html",
+            view="flat",
+            encoding="utf-8",
+            destination=destination,
+        ),
+        logger=logging.getLogger(__name__),
+    )
+
+    assert results == [f"Output: {destination}"]
+
+
+def test_split_runtime_output_routes_rows_to_label_targets(
+    monkeypatch,
+    tmp_path,
+) -> None:
     train_path = tmp_path / "train.jsonl"
     val_path = tmp_path / "val.jsonl"
     train_target = OutputTarget(
@@ -155,6 +202,8 @@ def test_split_runtime_output_routes_rows_to_label_targets(tmp_path) -> None:
         {"split": "val", "value": 2},
         {"split": "test", "value": 3},
     ]
+    results: list[str] = []
+    monkeypatch.setattr(persistence, "emit_operation_result", results.append)
 
     persist_runtime_result(
         SplitRuntimeOutput(
@@ -174,6 +223,10 @@ def test_split_runtime_output_routes_rows_to_label_targets(tmp_path) -> None:
     ]
     assert train_rows == [{"split": "train", "value": 1}]
     assert val_rows == [{"split": "val", "value": 2}]
+    assert results == [
+        f"train: {train_path} · 1 records",
+        f"val: {val_path} · 1 records",
+    ]
 
 
 def test_split_runtime_output_limit_applies_per_target(tmp_path) -> None:

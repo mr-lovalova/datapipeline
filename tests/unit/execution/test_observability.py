@@ -2,14 +2,11 @@ import pytest
 
 import datapipeline.execution.observability as observability
 from datapipeline.execution.observability import (
-    OperationEvent,
-    OperationInfo,
     OperationProgress,
-    OperationProgressEvent,
     OperationProgressTracker,
     current_operation_observer,
-    emit_operation_info,
     emit_operation_progress,
+    emit_operation_result,
     operation_observer,
     operation_scope,
 )
@@ -17,53 +14,48 @@ from datapipeline.execution.observability import (
 
 class _CaptureObserver:
     def __init__(self) -> None:
-        self.events: list[OperationEvent] = []
+        self.results: list[str] = []
+        self.progress: list[tuple[str, str, str]] = []
 
-    def emit_operation_event(self, event: OperationEvent) -> None:
-        self.events.append(event)
+    def emit_result(self, line: str) -> None:
+        self.results.append(line)
+
+    def emit_progress(self, name: str, step: str, message: str) -> None:
+        self.progress.append((name, step, message))
 
 
-def test_operation_scope_emits_typed_detail_events() -> None:
+def test_operation_scope_routes_result_and_progress() -> None:
     observer = _CaptureObserver()
 
     assert current_operation_observer() is None
-    assert emit_operation_info("outside") is False
+    assert emit_operation_result("outside") is False
     assert emit_operation_progress("outside", "ignored") is False
 
     with operation_observer(observer):
         assert current_operation_observer() is observer
-        with operation_scope("build:model_grid", depth=-1):
-            assert emit_operation_info("materialized path=/tmp/model_grid.jsonl")
+        with operation_scope("build:model_grid"):
+            assert emit_operation_result("Model grid: /tmp/model_grid.jsonl")
             assert emit_operation_progress("write", "running items=3")
 
     assert current_operation_observer() is None
-    assert observer.events == [
-        OperationInfo(
-            name="build:model_grid",
-            depth=0,
-            info_line="materialized path=/tmp/model_grid.jsonl",
-        ),
-        OperationProgressEvent(
-            name="build:model_grid",
-            depth=0,
-            step="write",
-            message="running items=3",
-        ),
+    assert observer.results == ["Model grid: /tmp/model_grid.jsonl"]
+    assert observer.progress == [
+        ("build:model_grid", "write", "running items=3"),
     ]
-    assert all(isinstance(event, OperationEvent) for event in observer.events)
 
 
-def test_operation_scope_restores_detail_context_after_failure() -> None:
+def test_operation_scope_restores_context_after_failure() -> None:
     observer = _CaptureObserver()
 
     with operation_observer(observer):
         with pytest.raises(ValueError, match="bad input"):
-            with operation_scope("serve:test", depth=2):
+            with operation_scope("serve:test"):
                 raise ValueError("  bad input  ")
 
-        assert emit_operation_info("after failure") is False
+        assert emit_operation_result("after failure") is False
 
-    assert observer.events == []
+    assert observer.results == []
+    assert observer.progress == []
 
 
 def test_operation_progress_tracker_preserves_interval_and_item_counts(
