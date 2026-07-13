@@ -2,9 +2,6 @@ id: equity.ohlcv
 from:
   stream: equity.ohlcv.ingest
 
-partition_by: [ticker]
-feature_id_by: [ticker]
-
 stream: # per-stream transforms (input sorted by partition,time)
   # - { operation: lag, field: close, to: close_lag_1, periods: 1 }
   # - { operation: lead, field: close, to: close_lead_126, periods: 126 }

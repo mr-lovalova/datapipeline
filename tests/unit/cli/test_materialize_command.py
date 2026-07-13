@@ -4,7 +4,6 @@ import pytest
 
 from datapipeline.cli.command_router import execute_command
 from datapipeline.cli.parser_builder import build_parser
-from datapipeline.profiles.materialize import MaterializeProfileError
 
 
 def _execute(args, workspace=None) -> bool:
@@ -86,7 +85,7 @@ def test_materialize_dispatches_one_profile_execution_path(monkeypatch) -> None:
 
 def test_materialize_output_override_requires_run(monkeypatch) -> None:
     monkeypatch.setattr(
-        "datapipeline.cli.commands.materialize.run_materialize_profiles",
+        "datapipeline.cli.commands.materialize.build_materialize_run_request",
         lambda **kwargs: pytest.fail("profiles should not run"),
     )
     args = build_parser().parse_args(
@@ -103,9 +102,15 @@ def test_materialize_resolves_profile_output_from_workspace(
     monkeypatch, tmp_path
 ) -> None:
     captured = {}
+    request = object()
     monkeypatch.setattr(
-        "datapipeline.cli.commands.materialize.run_materialize_profiles",
-        lambda **kwargs: captured.update(kwargs) or [object()],
+        "datapipeline.cli.commands.materialize.build_materialize_run_request",
+        lambda **kwargs: captured.update(kwargs) or request,
+    )
+    executed = []
+    monkeypatch.setattr(
+        "datapipeline.cli.commands.materialize.run_profiles",
+        executed.append,
     )
     workspace = SimpleNamespace(root=tmp_path)
     args = build_parser().parse_args(
@@ -123,14 +128,15 @@ def test_materialize_resolves_profile_output_from_workspace(
     )
 
     assert _execute(args, workspace) is True
-    assert captured["cli_output"] == (tmp_path / "outputs/adv-20.jsonl").resolve()
+    assert captured["output"] == (tmp_path / "outputs/adv-20.jsonl").resolve()
     assert captured["run_name"] == "adv-20"
-    assert captured["cli_artifact_mode"] == "OFF"
+    assert captured["artifact_mode"] == "OFF"
+    assert executed == [request]
 
 
 def test_materialize_rejects_non_jsonl_output(monkeypatch) -> None:
     monkeypatch.setattr(
-        "datapipeline.cli.commands.materialize.run_materialize_profiles",
+        "datapipeline.cli.commands.materialize.build_materialize_run_request",
         lambda **kwargs: pytest.fail("profiles should not run"),
     )
     args = build_parser().parse_args(
@@ -153,9 +159,14 @@ def test_materialize_rejects_non_jsonl_output(monkeypatch) -> None:
 
 def test_materialize_allows_global_overrides_without_run(monkeypatch) -> None:
     captured = {}
+    request = object()
     monkeypatch.setattr(
-        "datapipeline.cli.commands.materialize.run_materialize_profiles",
-        lambda **kwargs: captured.update(kwargs) or [object()],
+        "datapipeline.cli.commands.materialize.build_materialize_run_request",
+        lambda **kwargs: captured.update(kwargs) or request,
+    )
+    monkeypatch.setattr(
+        "datapipeline.cli.commands.materialize.run_profiles",
+        lambda selected: None,
     )
     args = build_parser().parse_args(
         [
@@ -170,17 +181,17 @@ def test_materialize_allows_global_overrides_without_run(monkeypatch) -> None:
 
     assert _execute(args) is True
     assert captured["run_name"] is None
-    assert captured["cli_output"] is None
+    assert captured["output"] is None
     assert captured["overwrite"] is True
     assert captured["cli_visuals"] == "off"
 
 
 def test_materialize_profile_validation_error_exits_cleanly(monkeypatch) -> None:
     def fail(**kwargs):
-        raise MaterializeProfileError("Unknown materialize profile 'missing'")
+        raise SystemExit(2)
 
     monkeypatch.setattr(
-        "datapipeline.cli.commands.materialize.run_materialize_profiles",
+        "datapipeline.cli.commands.materialize.build_materialize_run_request",
         fail,
     )
     args = build_parser().parse_args(

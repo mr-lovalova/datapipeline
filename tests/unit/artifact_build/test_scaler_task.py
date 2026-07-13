@@ -64,7 +64,7 @@ def _dataset(*, scale: bool = True, sequence: SequenceConfig | None = None):
         features=[
             FeatureRecordConfig(
                 id="x",
-                record_stream="stream",
+                stream="stream",
                 field="value",
                 scale=scale,
                 sequence=sequence,
@@ -194,7 +194,7 @@ def test_scaler_fitting_disables_scale_and_sequence() -> None:
         [
             FeatureRecordConfig(
                 id="x",
-                record_stream="stream",
+                stream="stream",
                 field="value",
                 scale=True,
                 sequence=SequenceConfig(size=3),

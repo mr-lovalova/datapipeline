@@ -152,7 +152,7 @@ def test_sequence_config_is_strict(sequence: object) -> None:
         FeatureRecordConfig.model_validate(
             {
                 "id": "close",
-                "record_stream": "prices.daily",
+                "stream": "prices.daily",
                 "field": "close",
                 "sequence": sequence,
             }
@@ -163,7 +163,7 @@ def test_feature_config_uses_explicit_scale_and_sequence_models() -> None:
     config = FeatureRecordConfig.model_validate(
         {
             "id": "close",
-            "record_stream": "prices.daily",
+            "stream": "prices.daily",
             "field": "close",
             "scale": True,
             "sequence": {"size": 20, "stride": 5},

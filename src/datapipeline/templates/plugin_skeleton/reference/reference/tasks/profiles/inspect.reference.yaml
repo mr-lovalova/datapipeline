@@ -1,8 +1,7 @@
 # Inspect profile reference (all options).
 # This file is documentation only; uncomment the keys you want to use.
+# Save it as inspect.<name>.yaml; the filename supplies command and name.
 #
-# cmd: inspect
-# name: matrix                # required; must be unique among inspect profiles
 # order: 10                   # optional; lower runs first, unset uses filename order
 # target: matrix              # required; runtime task id from tasks/operations
 # enabled: true               # optional

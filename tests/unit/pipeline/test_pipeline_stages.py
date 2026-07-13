@@ -290,7 +290,7 @@ def test_pipeline_builders_expose_structure(tmp_path: Path) -> None:
     runtime = _runtime_with_rows(tmp_path, [{"time": _ts(0), "value": 1.0}])
     _register_price_schema(runtime)
     context = PipelineContext(runtime)
-    cfg = FeatureRecordConfig(record_stream="stream", id="price", field="value")
+    cfg = FeatureRecordConfig(stream="stream", id="price", field="value")
 
     stream_pipeline = build_stream_pipeline(context, "stream")
     feature_pipeline = build_feature_pipeline(context, cfg)
@@ -420,7 +420,7 @@ def test_feature_pipeline_wraps_record_values(tmp_path: Path) -> None:
     )
     ctx = PipelineContext(runtime)
     cfg = FeatureRecordConfig(
-        record_stream="stream",
+        stream="stream",
         id="price",
         field="value",
     )
@@ -448,7 +448,7 @@ def test_feature_pipeline_builds_sequences(tmp_path: Path) -> None:
     runtime = _runtime_with_rows(tmp_path, rows)
     ctx = PipelineContext(runtime)
     cfg = FeatureRecordConfig(
-        record_stream="stream",
+        stream="stream",
         id="price",
         field="value",
         sequence={"size": 2, "stride": 2},
@@ -491,7 +491,7 @@ def test_full_pipeline_matches_vector_and_postprocess_chain(tmp_path: Path) -> N
     runtime = _runtime_with_rows(tmp_path, rows)
     _register_price_schema(runtime)
     ctx = PipelineContext(runtime)
-    cfg = FeatureRecordConfig(record_stream="stream", id="price", field="value")
+    cfg = FeatureRecordConfig(stream="stream", id="price", field="value")
     register_vector_inputs(runtime, [cfg], "1h")
 
     full_out = list(run_full_pipeline(ctx, [cfg], "1h", rectangular=False))
@@ -525,10 +525,10 @@ def test_vector_inputs_artifact_feeds_serve_pipeline(tmp_path: Path) -> None:
                 "  keys: [id_]",
                 "features:",
                 "  - id: value_feature",
-                "    record_stream: prices",
+                "    stream: prices",
                 "    field: value",
                 "  - id: other_feature",
-                "    record_stream: prices",
+                "    stream: prices",
                 "    field: other",
                 "targets: []",
             ]
@@ -555,12 +555,12 @@ def test_vector_inputs_artifact_feeds_serve_pipeline(tmp_path: Path) -> None:
     )
     configs = [
         FeatureRecordConfig(
-            record_stream="prices",
+            stream="prices",
             id="value_feature",
             field="value",
         ),
         FeatureRecordConfig(
-            record_stream="prices",
+            stream="prices",
             id="other_feature",
             field="other",
         ),
@@ -655,7 +655,7 @@ def test_vector_pipeline_requires_vector_inputs_artifact(tmp_path: Path) -> None
         rows=[{"time": _ts(0), "value": 1.0}],
     )
     context = PipelineContext(runtime)
-    cfg = FeatureRecordConfig(record_stream="stream", id="price", field="value")
+    cfg = FeatureRecordConfig(stream="stream", id="price", field="value")
 
     with pytest.raises(RuntimeError, match="Vector inputs artifact is required"):
         list(build_vector_pipeline(context, [cfg], "1h", rectangular=False))
@@ -668,7 +668,7 @@ def test_cached_vector_pipeline_rejects_manifest_cadence_mismatch(
         tmp_path,
         rows=[{"time": _ts(0), "value": 1.0}],
     )
-    cfg = FeatureRecordConfig(record_stream="stream", id="price", field="value")
+    cfg = FeatureRecordConfig(stream="stream", id="price", field="value")
     register_vector_inputs(runtime, [cfg], "1h")
     manifest = runtime.artifacts_root / "build/vector_inputs/manifest.json"
     payload = json.loads(manifest.read_text(encoding="utf-8"))
@@ -694,8 +694,8 @@ def test_cached_vector_pipeline_reads_requested_feature_subset(
         {"time": _ts(1), "value": 2.0, "other": 20.0},
     ]
     runtime = _runtime_with_rows(tmp_path, rows)
-    value_cfg = FeatureRecordConfig(record_stream="stream", id="price", field="value")
-    other_cfg = FeatureRecordConfig(record_stream="stream", id="other", field="other")
+    value_cfg = FeatureRecordConfig(stream="stream", id="price", field="value")
+    other_cfg = FeatureRecordConfig(stream="stream", id="other", field="other")
     register_vector_inputs(runtime, [value_cfg, other_cfg], "1h")
 
     samples = list(
@@ -718,8 +718,8 @@ def test_cached_vector_records_close_streams_when_stopped_early(
     monkeypatch,
 ) -> None:
     configs = [
-        FeatureRecordConfig(record_stream="stream", id="a", field="value"),
-        FeatureRecordConfig(record_stream="stream", id="b", field="value"),
+        FeatureRecordConfig(stream="stream", id="a", field="value"),
+        FeatureRecordConfig(stream="stream", id="b", field="value"),
     ]
     closed_streams: list[str] = []
 

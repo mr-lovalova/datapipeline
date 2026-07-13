@@ -1,7 +1,6 @@
 # See ../../reference/reference/tasks/profiles/inspect.reference.yaml for full options.
 # Defaults for the inspect command and its inspect.<name>.yaml profiles.
 # precedence: CLI > inspect.<name>.yaml > inspect.defaults.yaml > built-ins
-cmd: inspect
 # artifact_mode: AUTO
 # output:
 #   transport: stdout

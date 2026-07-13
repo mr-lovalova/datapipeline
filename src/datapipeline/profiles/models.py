@@ -14,7 +14,7 @@ from datapipeline.io.output import OutputTarget
 from datapipeline.runtime import Runtime
 from datapipeline.services.runs import RunPaths
 
-ProfileKind = Literal["serve", "build", "inspect"]
+TaskProfileKind = Literal["serve", "build", "inspect"]
 
 
 @dataclass(frozen=True)
@@ -43,6 +43,15 @@ class RuntimeJob:
     splits: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class MaterializeJob:
+    name: str
+    stream: str
+    output: Path
+    overwrite: bool
+    observability: ObservabilitySettings
+
+
 @dataclass(frozen=True, kw_only=True)
 class BuildRunRequest:
     project_path: Path
@@ -64,4 +73,15 @@ class RuntimeRunRequest:
     serve_run_plans: tuple[ServeRunPlan, ...] = ()
 
 
-ProfileRunRequest = BuildRunRequest | RuntimeRunRequest
+@dataclass(frozen=True, kw_only=True)
+class MaterializeRunRequest:
+    project_path: Path
+    artifact_task_configs: Sequence[ArtifactTask]
+    jobs: Sequence[MaterializeJob]
+    execution: ExecutionConfig
+    config_hash: str
+    artifact_settings: BuildSettings
+    runtime: Runtime
+
+
+ProfileRunRequest = BuildRunRequest | RuntimeRunRequest | MaterializeRunRequest

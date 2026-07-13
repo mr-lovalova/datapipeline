@@ -3,8 +3,8 @@ from types import SimpleNamespace
 from datapipeline.operations.runtime.pipeline import _preview_plan
 
 
-def _cfg(id_: str, record_stream: str):
-    return SimpleNamespace(id=id_, record_stream=record_stream)
+def _cfg(id_: str, stream: str):
+    return SimpleNamespace(id=id_, stream=stream)
 
 
 def test_record_preview_plan_dedupes_shared_streams() -> None:

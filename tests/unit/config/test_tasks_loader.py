@@ -293,11 +293,9 @@ def test_stats_task_requires_explicit_mode(tmp_path):
 def test_serve_tasks_respect_name_and_enabled(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     tasks_dir = _profile_kind_dir(project_yaml)
-    (tasks_dir / "serve.train.yaml").write_text(
-        "cmd: serve\nname: train\ntarget: pipeline\n", encoding="utf-8"
-    )
+    (tasks_dir / "serve.train.yaml").write_text("target: pipeline\n", encoding="utf-8")
     (tasks_dir / "serve.val.yaml").write_text(
-        "cmd: serve\nname: val\ntarget: pipeline\nenabled: false\n",
+        "target: pipeline\nenabled: false\n",
         encoding="utf-8",
     )
 
@@ -311,7 +309,7 @@ def test_serve_profiles_load_splits(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     tasks_dir = _profile_kind_dir(project_yaml)
     (tasks_dir / "serve.splits.yaml").write_text(
-        "cmd: serve\nname: splits\ntarget: pipeline\nsplits: [train, val]\n",
+        "target: pipeline\nsplits: [train, val]\n",
         encoding="utf-8",
     )
 
@@ -352,8 +350,6 @@ def test_serve_profiles_interpolate_project_globals(tmp_path):
     (profiles_dir / "serve.processed.yaml").write_text(
         "\n".join(
             [
-                "cmd: serve",
-                "name: processed",
                 "target: pipeline",
                 "output:",
                 "  transport: fs",
@@ -400,7 +396,6 @@ def test_profile_defaults_interpolate_project_globals(tmp_path):
     (profiles_dir / "serve.defaults.yaml").write_text(
         "\n".join(
             [
-                "cmd: serve",
                 "output:",
                 "  transport: fs",
                 "  format: jsonl",
@@ -416,22 +411,22 @@ def test_profile_defaults_interpolate_project_globals(tmp_path):
     assert defaults.output.directory == Path("../../data/processed/momentum_price")
 
 
-def test_profile_name_is_required(tmp_path):
+def test_profile_identity_comes_from_filename(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     tasks_dir = _profile_kind_dir(project_yaml)
-    (tasks_dir / "serve.train.yaml").write_text(
-        "cmd: serve\ntarget: pipeline\n", encoding="utf-8"
-    )
+    (tasks_dir / "serve.train.yaml").write_text("target: pipeline\n", encoding="utf-8")
 
-    with pytest.raises(ValueError, match="serve\\.name|Field required"):
-        _serve_profiles(project_yaml)
+    profile = _serve_profiles(project_yaml)[0]
+
+    assert profile.cmd == "serve"
+    assert profile.name == "train"
 
 
 def test_profile_version_field_is_rejected(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     profiles_dir = _profile_kind_dir(project_yaml)
     (profiles_dir / "serve.train.yaml").write_text(
-        "cmd: serve\nname: train\ntarget: pipeline\nversion: 1\n",
+        "target: pipeline\nversion: 1\n",
         encoding="utf-8",
     )
 
@@ -443,7 +438,7 @@ def test_profile_defaults_version_field_is_rejected(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     profiles_dir = _profile_kind_dir(project_yaml)
     (profiles_dir / "serve.defaults.yaml").write_text(
-        "cmd: serve\nversion: 1\n",
+        "version: 1\n",
         encoding="utf-8",
     )
 
@@ -455,11 +450,11 @@ def test_build_profiles_load_and_respect_enabled(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     tasks_dir = _profile_kind_dir(project_yaml)
     (tasks_dir / "build.fast.yaml").write_text(
-        "cmd: build\nname: fast\nenabled: true\nmode: auto\ntarget: schema\n",
+        "enabled: true\nmode: auto\ntarget: schema\n",
         encoding="utf-8",
     )
     (tasks_dir / "build.full.yaml").write_text(
-        "cmd: build\nname: full\nenabled: false\nmode: force\ntarget: metadata\n",
+        "enabled: false\nmode: force\ntarget: metadata\n",
         encoding="utf-8",
     )
 
@@ -474,11 +469,11 @@ def test_inspect_profiles_load_and_respect_enabled(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     tasks_dir = _profile_kind_dir(project_yaml)
     (tasks_dir / "inspect.default.yaml").write_text(
-        "cmd: inspect\nname: default\nenabled: true\ntarget: coverage\n",
+        "enabled: true\ntarget: coverage\n",
         encoding="utf-8",
     )
     (tasks_dir / "inspect.extra.yaml").write_text(
-        "cmd: inspect\nname: extra\nenabled: false\ntarget: coverage\n",
+        "enabled: false\ntarget: coverage\n",
         encoding="utf-8",
     )
 
@@ -494,8 +489,6 @@ def test_materialize_profiles_load_and_normalize_fields(tmp_path):
     profiles_dir = _profile_kind_dir(project_yaml)
     (profiles_dir / "materialize.adv-20.yaml").write_text(
         (
-            "cmd: materialize\n"
-            "name: adv-20\n"
             "order: 20\n"
             "stream: ' adv.20 '\n"
             "output: ' data/features/adv/20.jsonl '\n"
@@ -525,12 +518,7 @@ def test_materialize_profile_requires_nonempty_paths(tmp_path, field):
     values = {"stream": "adv.20", "output": "adv-20.jsonl"}
     values[field] = "   "
     (profiles_dir / "materialize.adv-20.yaml").write_text(
-        (
-            "cmd: materialize\n"
-            "name: adv-20\n"
-            f"stream: '{values['stream']}'\n"
-            f"output: '{values['output']}'\n"
-        ),
+        (f"stream: '{values['stream']}'\noutput: '{values['output']}'\n"),
         encoding="utf-8",
     )
 
@@ -542,12 +530,7 @@ def test_materialize_profile_requires_jsonl_output(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     profiles_dir = _profile_kind_dir(project_yaml)
     (profiles_dir / "materialize.adv-20.yaml").write_text(
-        (
-            "cmd: materialize\n"
-            "name: adv-20\n"
-            "stream: adv.20\n"
-            "output: data/features/adv/20.csv\n"
-        ),
+        ("stream: adv.20\noutput: data/features/adv/20.csv\n"),
         encoding="utf-8",
     )
 
@@ -559,13 +542,7 @@ def test_materialize_profile_requires_boolean_overwrite(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     profiles_dir = _profile_kind_dir(project_yaml)
     (profiles_dir / "materialize.adv-20.yaml").write_text(
-        (
-            "cmd: materialize\n"
-            "name: adv-20\n"
-            "stream: adv.20\n"
-            "output: data/features/adv/20.jsonl\n"
-            "overwrite: 'false'\n"
-        ),
+        ("stream: adv.20\noutput: data/features/adv/20.jsonl\noverwrite: 'false'\n"),
         encoding="utf-8",
     )
 
@@ -578,7 +555,6 @@ def test_materialize_defaults_apply_overwrite_and_observability(tmp_path):
     profiles_dir = _profile_kind_dir(project_yaml)
     (profiles_dir / "materialize.defaults.yaml").write_text(
         (
-            "cmd: materialize\n"
             "artifact_mode: force\n"
             "overwrite: true\n"
             "observability:\n"
@@ -588,8 +564,6 @@ def test_materialize_defaults_apply_overwrite_and_observability(tmp_path):
     )
     (profiles_dir / "materialize.adv-20.yaml").write_text(
         (
-            "cmd: materialize\n"
-            "name: adv-20\n"
             "stream: adv.20\n"
             "output: data/features/adv/20.jsonl\n"
             "observability:\n"
@@ -615,13 +589,7 @@ def test_materialize_artifact_mode_is_defaults_only(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     profiles_dir = _profile_kind_dir(project_yaml)
     (profiles_dir / "materialize.adv-20.yaml").write_text(
-        (
-            "cmd: materialize\n"
-            "name: adv-20\n"
-            "stream: adv.20\n"
-            "output: data/features/adv/20.jsonl\n"
-            "artifact_mode: AUTO\n"
-        ),
+        ("stream: adv.20\noutput: data/features/adv/20.jsonl\nartifact_mode: AUTO\n"),
         encoding="utf-8",
     )
 
@@ -633,7 +601,7 @@ def test_materialize_defaults_reject_unknown_artifact_mode(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     profiles_dir = _profile_kind_dir(project_yaml)
     (profiles_dir / "materialize.defaults.yaml").write_text(
-        "cmd: materialize\nartifact_mode: SOMETIMES\n",
+        "artifact_mode: SOMETIMES\n",
         encoding="utf-8",
     )
 
@@ -645,15 +613,15 @@ def test_profile_order_overrides_file_order(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     profiles_dir = _profile_kind_dir(project_yaml)
     (profiles_dir / "serve.train.yaml").write_text(
-        "cmd: serve\nname: train\ntarget: pipeline\n",
+        "target: pipeline\n",
         encoding="utf-8",
     )
     (profiles_dir / "serve.val.yaml").write_text(
-        "cmd: serve\nname: val\norder: 2\ntarget: pipeline\n",
+        "order: 2\ntarget: pipeline\n",
         encoding="utf-8",
     )
     (profiles_dir / "serve.test.yaml").write_text(
-        "cmd: serve\nname: test\norder: 1\ntarget: pipeline\n",
+        "order: 1\ntarget: pipeline\n",
         encoding="utf-8",
     )
 
@@ -665,17 +633,11 @@ def test_serve_defaults_are_loaded_but_not_executable_profiles(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     profiles_dir = _profile_kind_dir(project_yaml)
     (profiles_dir / "serve.defaults.yaml").write_text(
-        (
-            "cmd: serve\n"
-            "observability:\n"
-            "  logging:\n"
-            "    outputs:\n"
-            "      - transport: stdout\n"
-        ),
+        ("observability:\n  logging:\n    outputs:\n      - transport: stdout\n"),
         encoding="utf-8",
     )
     (profiles_dir / "serve.train.yaml").write_text(
-        "cmd: serve\nname: train\ntarget: pipeline\n",
+        "target: pipeline\n",
         encoding="utf-8",
     )
 
@@ -701,7 +663,7 @@ def test_profile_defaults_reject_executable_fields(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     profiles_dir = _profile_kind_dir(project_yaml)
     (profiles_dir / "serve.defaults.yaml").write_text(
-        "cmd: serve\nname: should-not-exist\n",
+        "name: should-not-exist\n",
         encoding="utf-8",
     )
 
@@ -709,17 +671,65 @@ def test_profile_defaults_reject_executable_fields(tmp_path):
         _serve_profiles(project_yaml)
 
 
+def test_profile_defaults_reject_body_command(tmp_path):
+    project_yaml = _write_project(tmp_path, tasks_ref="tasks")
+    profiles_dir = _profile_kind_dir(project_yaml)
+    (profiles_dir / "serve.defaults.yaml").write_text(
+        "cmd: serve\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="command comes from the defaults filename"):
+        _serve_profiles(project_yaml)
+
+
+@pytest.mark.parametrize("identity", ["cmd: serve\n", "name: train\n"])
+def test_concrete_profile_rejects_body_identity(tmp_path, identity):
+    project_yaml = _write_project(tmp_path, tasks_ref="tasks")
+    profiles_dir = _profile_kind_dir(project_yaml)
+    (profiles_dir / "serve.train.yaml").write_text(
+        identity + "target: pipeline\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="come from the filename"):
+        _serve_profiles(project_yaml)
+
+
+def test_profile_file_requires_one_mapping(tmp_path):
+    project_yaml = _write_project(tmp_path, tasks_ref="tasks")
+    profiles_dir = _profile_kind_dir(project_yaml)
+    (profiles_dir / "serve.train.yaml").write_text(
+        "- target: pipeline\n- target: pipeline\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(TypeError, match="one mapping profile"):
+        _serve_profiles(project_yaml)
+
+
+def test_command_load_ignores_malformed_other_profile_kinds(tmp_path):
+    project_yaml = _write_project(tmp_path, tasks_ref="tasks")
+    profiles_dir = _profile_kind_dir(project_yaml)
+    (profiles_dir / "serve.train.yaml").write_text(
+        "target: pipeline\n",
+        encoding="utf-8",
+    )
+    (profiles_dir / "build.broken.yaml").write_text(
+        "- not-a-profile\n",
+        encoding="utf-8",
+    )
+
+    assert [profile.name for profile in _serve_profiles(project_yaml)] == ["train"]
+    with pytest.raises(TypeError, match="one mapping profile"):
+        profile_specs(project_yaml)
+
+
 def test_execution_policy_is_not_allowed_on_concrete_profiles(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     profiles_dir = _profile_kind_dir(project_yaml)
     (profiles_dir / "serve.train.yaml").write_text(
-        (
-            "cmd: serve\n"
-            "name: train\n"
-            "target: pipeline\n"
-            "execution:\n"
-            "  sort_buffer_mb: 1\n"
-        ),
+        ("target: pipeline\nexecution:\n  sort_buffer_mb: 1\n"),
         encoding="utf-8",
     )
 
@@ -731,11 +741,11 @@ def test_duplicate_profile_defaults_per_kind_raise(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     profiles_dir = _profile_kind_dir(project_yaml)
     (profiles_dir / "serve.defaults.yaml").write_text(
-        "cmd: serve\n",
+        "",
         encoding="utf-8",
     )
     (profiles_dir / "serve.defaults.yml").write_text(
-        "cmd: serve\n",
+        "",
         encoding="utf-8",
     )
 
@@ -1009,12 +1019,8 @@ def test_duplicate_artifact_kinds_raise(tmp_path):
 def test_duplicate_serve_profile_names_raise(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     tasks_dir = _profile_kind_dir(project_yaml)
-    (tasks_dir / "serve.a.yaml").write_text(
-        "cmd: serve\nname: train\ntarget: pipeline\n", encoding="utf-8"
-    )
-    (tasks_dir / "serve.b.yaml").write_text(
-        "cmd: serve\nname: train\ntarget: pipeline\n", encoding="utf-8"
-    )
+    (tasks_dir / "serve.train.yaml").write_text("target: pipeline\n", encoding="utf-8")
+    (tasks_dir / "serve.train.yml").write_text("target: pipeline\n", encoding="utf-8")
 
     with pytest.raises(ValueError, match="Duplicate serve profile names"):
         _serve_profiles(project_yaml)
@@ -1055,12 +1061,12 @@ def test_task_ids_must_be_globally_unique_across_kinds(tmp_path):
 def test_duplicate_build_profile_names_raise(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     tasks_dir = _profile_kind_dir(project_yaml)
-    (tasks_dir / "build.a.yaml").write_text(
-        "cmd: build\nname: nightly\ntarget: schema\n",
+    (tasks_dir / "build.nightly.yaml").write_text(
+        "target: schema\n",
         encoding="utf-8",
     )
-    (tasks_dir / "build.b.yaml").write_text(
-        "cmd: build\nname: nightly\ntarget: metadata\n",
+    (tasks_dir / "build.nightly.yml").write_text(
+        "target: metadata\n",
         encoding="utf-8",
     )
 
@@ -1071,12 +1077,12 @@ def test_duplicate_build_profile_names_raise(tmp_path):
 def test_duplicate_inspect_profile_names_raise(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     tasks_dir = _profile_kind_dir(project_yaml)
-    (tasks_dir / "inspect.a.yaml").write_text(
-        "cmd: inspect\nname: inspect\ntarget: coverage\n",
+    (tasks_dir / "inspect.inspect.yaml").write_text(
+        "target: coverage\n",
         encoding="utf-8",
     )
-    (tasks_dir / "inspect.b.yaml").write_text(
-        "cmd: inspect\nname: inspect\ntarget: coverage\n",
+    (tasks_dir / "inspect.inspect.yml").write_text(
+        "target: coverage\n",
         encoding="utf-8",
     )
 
@@ -1102,7 +1108,7 @@ def test_nested_profile_files_are_rejected(tmp_path):
     profiles_root = _profiles_dir(project_yaml) / "serve"
     profiles_root.mkdir(parents=True, exist_ok=True)
     (profiles_root / "train.yaml").write_text(
-        "cmd: serve\nname: train\ntarget: pipeline\n",
+        "target: pipeline\n",
         encoding="utf-8",
     )
 
@@ -1110,15 +1116,15 @@ def test_nested_profile_files_are_rejected(tmp_path):
         _serve_profiles(project_yaml)
 
 
-def test_profile_kind_directory_mismatch_is_rejected(tmp_path):
+def test_profile_command_cannot_override_filename(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     build_dir = _profile_kind_dir(project_yaml)
     (build_dir / "build.oops.yaml").write_text(
-        "cmd: serve\nname: oops\ntarget: pipeline\n",
+        "cmd: serve\ntarget: pipeline\n",
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError, match="declares profile cmd 'serve'"):
+    with pytest.raises(ValueError, match="command and name come from the filename"):
         _build_profiles(project_yaml)
 
 
@@ -1126,7 +1132,7 @@ def test_profile_filename_prefix_is_required(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     profiles_root = _profiles_dir(project_yaml)
     (profiles_root / "oops.yaml").write_text(
-        "cmd: serve\nname: oops\ntarget: pipeline\n",
+        "target: pipeline\n",
         encoding="utf-8",
     )
 
@@ -1141,7 +1147,7 @@ def test_profile_rejects_unknown_fields(tmp_path):
     project_yaml = _write_project(tmp_path, tasks_ref="tasks")
     profiles_root = _profiles_dir(project_yaml)
     (profiles_root / "build.schema.yaml").write_text(
-        "cmd: build\nname: schema\ntarget: schema\noutput: should-not-exist\n",
+        "target: schema\noutput: should-not-exist\n",
         encoding="utf-8",
     )
 

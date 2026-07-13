@@ -1,12 +1,9 @@
 import logging
-from pathlib import Path
 
 from datapipeline.config.resolution import LogOutputTarget
 from datapipeline.config.workspace import WorkspaceContext
-from datapipeline.profiles.materialize import (
-    MaterializeProfileError,
-    run_materialize_profiles,
-)
+from datapipeline.profiles.orchestration import run_profiles
+from datapipeline.profiles.request_builder import build_materialize_run_request
 from datapipeline.services.materialize import validate_materialize_output_path
 from datapipeline.services.path_policy import resolve_workspace_path
 
@@ -42,21 +39,19 @@ def handle(
         logger.error("%s", exc)
         raise SystemExit(2) from None
 
-    try:
-        results = run_materialize_profiles(
-            project_path=Path(project).resolve(),
-            run_name=run_name,
-            overwrite=overwrite,
-            cli_artifact_mode=artifact_mode,
-            cli_output=output_path,
-            cli_visuals=visuals,
-            cli_heartbeat_interval_seconds=heartbeat_interval_seconds,
-            cli_log_level=cli_log_level,
-            cli_log_outputs=cli_log_outputs,
-            base_log_level=base_log_level,
-        )
-    except (FileExistsError, MaterializeProfileError) as exc:
-        logger.error("%s", exc)
-        raise SystemExit(2) from None
-    if not results:
+    request = build_materialize_run_request(
+        project=project,
+        run_name=run_name,
+        overwrite=overwrite,
+        artifact_mode=artifact_mode,
+        output=output_path,
+        cli_visuals=visuals,
+        cli_heartbeat_interval_seconds=heartbeat_interval_seconds,
+        cli_log_level=cli_log_level,
+        cli_log_outputs=cli_log_outputs,
+        base_log_level=base_log_level,
+    )
+    if request is None:
         logger.info("No enabled materialize profiles; skipping materialize.")
+        return
+    run_profiles(request)

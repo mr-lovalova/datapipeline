@@ -25,8 +25,8 @@ options are merged in the following order (highest precedence first):
 
 1. **CLI flags** – anything you pass on the command line always wins.
 2. **Project profile files** – profile configs under `project.paths.profiles`
-   (`cmd: serve|build|inspect|materialize`) supply per-command settings and
-   selection policy.
+   supply per-command settings and selection policy. The filename determines
+   the command and profile name.
 3. **Per-kind profile defaults** – optional `profiles/<kind>.defaults.yaml`.
 4. **Built-in defaults** – runtime hard-coded defaults.
 
@@ -84,15 +84,15 @@ globals:
   Optional defaults files may also be declared once per kind:
   `profiles/serve.defaults.yaml`, `profiles/build.defaults.yaml`,
   `profiles/inspect.defaults.yaml`, and `profiles/materialize.defaults.yaml`.
-  When multiple profiles exist, `--run <name>` selects one profile for the
-  requested command by its explicit `name`.
+  Each concrete file contains one mapping. Its `<kind>.<name>.yaml` filename is
+  the profile identity; `cmd` and `name` are not repeated in the YAML body.
+  When multiple profiles exist, `--run <name>` selects one by filename.
 - Label names are free-form: match whatever keys you declare in `split.ratios` (hash) or `split.labels` (time).
 
 ### Serve Profiles (`profiles/serve.<name>.yaml`)
 
 ```yaml
-cmd: serve
-name: splits # required; unique among serve profiles
+# profiles/serve.splits.yaml
 target: pipeline # serve operation name from tasks/operations
 artifact_mode: AUTO # AUTO | FORCE | "OFF"; prepares runtime prerequisites once
 splits: [train, val, test] # optional; write one fs output per project split label
@@ -138,7 +138,7 @@ throttle_ms: null # milliseconds to sleep between emitted vectors
   `--heartbeat-interval` override. A profile heartbeat setting starts applying
   when that profile itself runs; Jerry does not select one profile's setting for
   shared prerequisite work.
-- Add additional `cmd: serve` files under `profiles/` using the `serve.` prefix
+- Add additional `serve.<name>.yaml` files under `profiles/`
   for distinct serve policies; `jerry serve` runs each enabled profile unless
   you pass `--run <name>`.
 - Use `profiles/serve.defaults.yaml` for common serve defaults shared across all serve profiles in a project. CLI flags and concrete profiles still take precedence.
@@ -146,8 +146,7 @@ throttle_ms: null # milliseconds to sleep between emitted vectors
 ### Materialize Profiles (`profiles/materialize.<name>.yaml`)
 
 ```yaml
-cmd: materialize
-name: adv.20
+# profiles/materialize.adv.20.yaml
 order: 10
 stream: adv.20
 output: ${data_root}/features/liquidity/adv/20.jsonl
@@ -181,8 +180,7 @@ overwrite: true
 ### Build Profiles (`profiles/build.<name>.yaml`)
 
 ```yaml
-cmd: build
-name: schema # required; unique among build profiles
+# profiles/build.schema.yaml
 target: schema # required; artifact task ID to execute
 mode: AUTO # AUTO | FORCE | "OFF"
 # enabled: true # optional; profile-level switch
@@ -198,7 +196,7 @@ mode: AUTO # AUTO | FORCE | "OFF"
 #         path: ./logs/build.log
 ```
 
-- `cmd: build` profiles are orchestration profiles; they do not replace artifact task definitions.
+- Build profiles are orchestration profiles; they do not replace artifact task definitions.
 - `target` selects the artifact task ID for that profile (`schema`, `scaler`, `metadata`, ...). Selected build profiles must have distinct targets.
 - Build profile `observability.logging.outputs[].path` values are resolved relative to the dataset project root (`project.yaml` directory).
 - `jerry build` runs enabled build profiles when they exist; `jerry build --run <name>` targets one profile.
@@ -211,7 +209,8 @@ mode: AUTO # AUTO | FORCE | "OFF"
 ### Profile Defaults (`profiles/<kind>.defaults.yaml`)
 
 - Defaults files are optional and non-executable.
-- They must include only `cmd` plus non-routing defaults for that kind.
+- Their `<kind>.defaults.yaml` filename determines the command. The YAML body
+  contains only non-routing defaults for that kind.
 - They must not include execution identity fields such as `name`, `target`, `enabled`, or `order`.
 - `execution` is command-wide and is not accepted in concrete profiles.
   Materialize `artifact_mode` is likewise defaults-only.
@@ -225,7 +224,6 @@ Configure its buffer once in each command's defaults file:
 
 ```yaml
 # profiles/materialize.defaults.yaml
-cmd: materialize
 artifact_mode: AUTO
 execution:
   sort_buffer_mb: 128
@@ -357,8 +355,6 @@ transforms. They cannot reference raw sources and cannot define `record:`.
 id: equity.ohlcv.liquid
 from:
   stream: equity.ohlcv
-partition_by: [station]
-feature_id_by: [] # requires dataset sample.keys: [station]
 stream:
   - { operation: ensure_cadence, cadence: 10m }
   - { operation: collapse, keep: last }
@@ -377,21 +373,23 @@ stream:
 - `partition_by`, `feature_id_by`, and `ordered_by` must be YAML lists when
   present; scalar shorthand is not accepted. Blank and duplicate fields are
   rejected.
-- `partition_by`: optional stream state keys used by ordering and history-based
-  transforms. The runtime appends the reserved `time` field to the canonical
-  sort key, so it must not appear here.
+- `partition_by`: stream state keys used by ordering and history-based
+  transforms. A single-input stream inherits its upstream fields when this key
+  is omitted; an explicit list replaces them, and `[]` clears them. The runtime
+  appends the reserved `time` field to the canonical sort key, so it must not
+  appear here. Aligned streams always inherit matching fields from their inputs.
 - `ordered_by`: optional assertion that records entering the ordering stage use
   `[*partition_by, time]` order. When present, it must equal that canonical
   order and is validated while streaming. When absent, records are externally
   sorted.
-- `feature_id_by`: optional field list used to suffix feature IDs (e.g.,
-  `temp__@station_id:XYZ`). If a partitioned stream is used as a dataset
-  feature, set this explicitly. Every `partition_by` field must appear in
-  either `dataset.sample.keys` or `feature_id_by`; use `[]` only when sample
-  keys carry the full partition identity. Dataset feature and target IDs cannot
-  contain the reserved `__` separator. Generated suffixes escape strings and
-  tag non-string scalar values so different component tuples cannot produce the
-  same feature ID.
+- `feature_id_by`: fields used to suffix feature IDs (e.g.,
+  `temp__@station_id:XYZ`). A single-input stream inherits its upstream fields
+  when this key is omitted; an explicit list replaces them, and `[]` clears
+  them. Every `partition_by` field must appear in either `dataset.sample.keys`
+  or `feature_id_by`; use `[]` only when sample keys carry the full partition
+  identity. Dataset feature and target IDs cannot contain the reserved `__`
+  separator. Generated suffixes escape strings and tag non-string scalar values
+  so different component tuples cannot produce the same feature ID.
 
 ### Aligned Streams (Engineered Domains)
 
@@ -427,7 +425,7 @@ sample:
   keys: [station_id]
 features:
   - id: air_density
-    record_stream: air_density.processed
+    stream: air_density.processed
     field: air_density
 ```
 
@@ -456,14 +454,14 @@ sample:
 
 features:
   - id: close
-    record_stream: equity.ohlcv
+    stream: equity.ohlcv
     field: close
     scale: true
     sequence: { size: 6, stride: 1 }
 
 targets:
   - id: returns_1d
-    record_stream: equity.ohlcv
+    stream: equity.ohlcv
     field: returns_1d
 ```
 
@@ -471,12 +469,15 @@ targets:
   `^\\d+(m|min|h|d)$`, e.g. `10m`, `60min`, `1h`, `1d`).
 - `sample.keys` optionally adds record fields to the sample key. For example,
   `keys: [security_id]` emits one sample per `(time, security_id)`.
+- `stream` references the canonical ingest or derived stream that supplies the
+  feature or target records.
 - Each sample-key field must contain non-null JSON scalar values of one stable
   type. Floating-point keys must be finite; booleans, integers, and floats are
   distinct key types and cannot be mixed within one field.
 - Stateful stream transforms such as `lag`, `lead`, `rolling`, `fill`, and
-  `ensure_cadence` use stream `partition_by` as their entity partition. Add
-  `partition_by: [security_id]` when transform state must stay per security.
+  `ensure_cadence` use stream `partition_by` as their entity partition. Define
+  `partition_by: [security_id]` on the ingest when transform state must stay per
+  security; single-input streams inherit it unless they explicitly replace it.
 - `sample.keys`, stream `partition_by`, and stream `feature_id_by` are separate:
   `sample.keys` controls output row identity, `partition_by` controls stream
   transform state, and `feature_id_by` controls feature-id suffixes such as

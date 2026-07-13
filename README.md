@@ -194,7 +194,7 @@ These live under `lib/<plugin>/src/<package>/`:
 ### Glossary
 
 - **Source alias**: `sources/*.yaml:id` (referenced by ingests under `from.source`).
-- **Stream id**: `ingests/*.yaml:id` or `streams/*.yaml:id` (referenced by `dataset.yaml` under `record_stream:`).
+- **Stream id**: `ingests/*.yaml:id` or `streams/*.yaml:id` (referenced by `dataset.yaml` under `stream:`).
 - **Sample key**: vector identity: floored time plus optional `dataset.sample.keys`.
 - **Partition**: stream state boundary for history-based transforms, driven by `stream.partition_by`.
 - **Feature id fields**: optional stream `feature_id_by` fields appended to feature ids for wide feature schemas.

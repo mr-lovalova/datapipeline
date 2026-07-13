@@ -6,11 +6,14 @@ from datapipeline.config.catalog import (
     IngestConfig,
 )
 from datapipeline.services.bootstrap.core import (
+    _build_runtime_stream,
     _load_canonical_ingests,
     _load_canonical_streams,
     load_streams,
 )
+from datapipeline.runtime import DerivedRuntimeStream
 from datapipeline.services.streams.validation import (
+    stream_feature_id_by,
     stream_partition_by,
     validate_ingest_sources,
     validate_stream_configs,
@@ -26,33 +29,38 @@ def test_validate_ingest_sources_rejects_unknown_source() -> None:
 def _ingest(
     stream_id: str,
     partition_by: list[str] | None = None,
+    feature_id_by: list[str] | None = None,
     ordered_by: list[str] | None = None,
 ) -> IngestConfig:
-    return IngestConfig.model_validate(
-        {
-            "id": stream_id,
-            "from": {"source": "source.alias"},
-            "map": {"entrypoint": "identity", "args": {}},
-            "partition_by": [] if partition_by is None else partition_by,
-            "ordered_by": ordered_by,
-        }
-    )
+    config = {
+        "id": stream_id,
+        "from": {"source": "source.alias"},
+        "map": {"entrypoint": "identity", "args": {}},
+        "partition_by": [] if partition_by is None else partition_by,
+        "ordered_by": ordered_by,
+    }
+    if feature_id_by is not None:
+        config["feature_id_by"] = feature_id_by
+    return IngestConfig.model_validate(config)
 
 
 def _stream(
     stream_id: str,
     upstream: str,
     partition_by: list[str] | None = None,
+    feature_id_by: list[str] | None = None,
     ordered_by: list[str] | None = None,
 ) -> DerivedStreamConfig:
-    return DerivedStreamConfig.model_validate(
-        {
-            "id": stream_id,
-            "from": {"stream": upstream},
-            "partition_by": [] if partition_by is None else partition_by,
-            "ordered_by": ordered_by,
-        }
-    )
+    config = {
+        "id": stream_id,
+        "from": {"stream": upstream},
+        "ordered_by": ordered_by,
+    }
+    if partition_by is not None:
+        config["partition_by"] = partition_by
+    if feature_id_by is not None:
+        config["feature_id_by"] = feature_id_by
+    return DerivedStreamConfig.model_validate(config)
 
 
 def _aligned(
@@ -121,6 +129,65 @@ def test_aligned_partition_inheritance_is_transitive() -> None:
 
     validate_stream_configs(ingests, stream_configs)
     assert stream_partition_by(ingests, stream_configs, "second") == ("ticker",)
+
+
+def test_single_input_identity_inheritance_is_transitive() -> None:
+    ingests = {
+        "prices": _ingest(
+            "prices",
+            partition_by=["ticker"],
+            feature_id_by=["ticker"],
+        )
+    }
+    stream_configs = {
+        "daily": _stream("daily", "prices"),
+        "returns": _stream("returns", "daily"),
+    }
+
+    validate_stream_configs(ingests, stream_configs)
+
+    assert stream_partition_by(ingests, stream_configs, "returns") == ("ticker",)
+    assert stream_feature_id_by(ingests, stream_configs, "returns") == ("ticker",)
+    runtime_stream = _build_runtime_stream(
+        stream_configs["returns"],
+        ingests,
+        stream_configs,
+    )
+    assert isinstance(runtime_stream, DerivedRuntimeStream)
+    assert runtime_stream.partition_by == ("ticker",)
+    assert runtime_stream.feature_id_by == ("ticker",)
+
+
+def test_single_input_identity_can_be_replaced_with_empty_lists() -> None:
+    ingests = {
+        "prices": _ingest(
+            "prices",
+            partition_by=["ticker"],
+            feature_id_by=["ticker"],
+        )
+    }
+    stream_configs = {
+        "cleared": _stream(
+            "cleared",
+            "prices",
+            partition_by=[],
+            feature_id_by=[],
+        ),
+        "downstream": _stream("downstream", "cleared"),
+    }
+
+    validate_stream_configs(ingests, stream_configs)
+
+    assert stream_partition_by(ingests, stream_configs, "downstream") == ()
+    assert stream_feature_id_by(ingests, stream_configs, "downstream") == ()
+    runtime_stream = _build_runtime_stream(
+        stream_configs["downstream"],
+        ingests,
+        stream_configs,
+    )
+    assert isinstance(runtime_stream, DerivedRuntimeStream)
+    assert runtime_stream.partition_by == ()
+    assert runtime_stream.feature_id_by == ()
 
 
 def test_validate_stream_configs_rejects_noncanonical_ingest_order() -> None:

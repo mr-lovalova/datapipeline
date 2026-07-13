@@ -46,7 +46,7 @@ def _dataset_with_feature(*, scale: bool) -> FeatureDatasetConfig:
         features=[
             FeatureRecordConfig(
                 id="x",
-                record_stream="stream",
+                stream="stream",
                 field="value",
                 scale=scale,
             )

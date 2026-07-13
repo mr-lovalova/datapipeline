@@ -3,11 +3,11 @@ sample:
 
 features:
   - id: onshore_mwh_scaled
-    record_stream: metrics.production.wind
+    stream: metrics.production.wind
     field: value
     scale: true
   - id: onshore_mwh_window
-    record_stream: metrics.production.wind
+    stream: metrics.production.wind
     field: value
     sequence:
       size: 2
@@ -15,5 +15,5 @@ features:
 
 targets:
   - id: dk1_price
-    record_stream: targets.price.dk1
+    stream: targets.price.dk1
     field: value

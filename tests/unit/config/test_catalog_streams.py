@@ -179,7 +179,7 @@ def test_stream_accepts_upstream_stream_shape() -> None:
     assert spec.feature_id_by == ()
 
 
-def test_feature_identity_distinguishes_missing_from_explicit_empty() -> None:
+def test_derived_identity_distinguishes_inheritance_from_explicit_empty() -> None:
     missing = DerivedStreamConfig.model_validate(
         {"id": "missing", "from": {"stream": "source"}}
     )
@@ -192,10 +192,22 @@ def test_feature_identity_distinguishes_missing_from_explicit_empty() -> None:
         }
     )
 
-    assert missing.partition_by == ()
+    assert missing.partition_by is None
     assert missing.feature_id_by is None
     assert empty.partition_by == ()
     assert empty.feature_id_by == ()
+
+
+@pytest.mark.parametrize("field", ["partition_by", "feature_id_by"])
+def test_derived_identity_rejects_null_override(field: str) -> None:
+    with pytest.raises(ValueError, match=rf"{field} must be a list.*omit it"):
+        DerivedStreamConfig.model_validate(
+            {
+                "id": "sample",
+                "from": {"stream": "source"},
+                field: None,
+            }
+        )
 
 
 def test_aligned_stream_accepts_ordered_stream_list() -> None:

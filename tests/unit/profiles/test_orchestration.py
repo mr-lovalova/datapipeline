@@ -22,6 +22,7 @@ from datapipeline.config.tasks import (
     OperationTask,
     PipelineTask,
     SchemaTask,
+    TicksTask,
     VectorInputsTask,
 )
 from datapipeline.io.output import OutputTarget
@@ -30,6 +31,8 @@ from datapipeline.profiles.executor import ExecutionSpec
 from datapipeline.profiles.models import (
     BuildJob,
     BuildRunRequest,
+    MaterializeJob,
+    MaterializeRunRequest,
     RuntimeJob,
     RuntimeRunRequest,
     ServeRunPlan,
@@ -86,7 +89,7 @@ def _dataset(*, scale: bool = False) -> FeatureDatasetConfig:
         features=[
             FeatureRecordConfig(
                 id="feature",
-                record_stream="stream",
+                stream="stream",
                 field="value",
                 scale=scale,
             )
@@ -172,6 +175,24 @@ def _runtime_request(
         config_hash="hash-1",
         artifact_settings=artifact_settings or _artifact_settings(),
         serve_run_plans=serve_run_plans,
+    )
+
+
+def _materialize_request(
+    tmp_path: Path,
+    artifact_tasks,
+    jobs,
+    runtime,
+    execution: ExecutionConfig | None = None,
+) -> MaterializeRunRequest:
+    return MaterializeRunRequest(
+        project_path=tmp_path / "project.yaml",
+        artifact_task_configs=artifact_tasks,
+        jobs=jobs,
+        execution=ExecutionConfig() if execution is None else execution,
+        config_hash="hash-1",
+        artifact_settings=_artifact_settings(),
+        runtime=runtime,
     )
 
 
@@ -847,3 +868,125 @@ def test_later_run_start_failure_fails_only_started_run(
 
     assert starts == [first, second]
     assert failed == [first]
+
+
+def test_materialize_uses_shared_artifact_and_execution_lifecycle(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    ticks = TicksTask(id="market_ticks", stream="prices", output="ticks.jsonl")
+    execution = ExecutionConfig(sort_buffer_mb=32)
+    runtime = SimpleNamespace(
+        execution=ExecutionConfig(),
+        heartbeat_interval_seconds=None,
+        streams={"adv.20": object(), "adv.63": object()},
+        artifacts_root=tmp_path / "artifacts",
+    )
+    jobs = [
+        MaterializeJob(
+            name="adv-20",
+            stream="adv.20",
+            output=tmp_path / "adv-20.jsonl",
+            overwrite=False,
+            observability=_observability(10),
+        ),
+        MaterializeJob(
+            name="adv-63",
+            stream="adv.63",
+            output=tmp_path / "adv-63.jsonl",
+            overwrite=False,
+            observability=_observability(20),
+        ),
+    ]
+    request = _materialize_request(
+        tmp_path,
+        [ticks],
+        jobs,
+        runtime,
+        execution,
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.load_streams",
+        lambda project_path: object(),
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.stream_tick_artifacts",
+        lambda stream, streams: {"market_ticks"},
+    )
+    build_calls: list[dict] = []
+    materialized: list[tuple[str, float | None]] = []
+
+    def build(project_path, **kwargs):
+        assert runtime.execution == execution
+        build_calls.append(kwargs)
+
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.run_build_if_needed",
+        build,
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.run_execution",
+        lambda spec, work: work(),
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.execute_materialize_job",
+        lambda job, active_runtime: materialized.append(
+            (job.name, active_runtime.heartbeat_interval_seconds)
+        ),
+    )
+
+    run_profiles(request)
+
+    assert len(build_calls) == 1
+    assert build_calls[0]["required_artifacts"] == {"market_ticks"}
+    assert build_calls[0]["expected_config_hash"] == "hash-1"
+    assert materialized == [("adv-20", 10), ("adv-63", 20)]
+
+
+@pytest.mark.parametrize(
+    ("artifact_tasks", "message"),
+    [
+        ([], "requires a declared ticks task"),
+        (
+            [
+                ArtifactTask(
+                    id="market_ticks",
+                    entrypoint="plugin.snapshot",
+                    output="snapshot.json",
+                )
+            ],
+            "not a ticks task",
+        ),
+    ],
+)
+def test_materialize_rejects_invalid_tick_artifact_producer(
+    monkeypatch,
+    tmp_path: Path,
+    artifact_tasks,
+    message,
+) -> None:
+    runtime = SimpleNamespace(
+        execution=ExecutionConfig(),
+        heartbeat_interval_seconds=None,
+        streams={"adv.20": object()},
+        artifacts_root=tmp_path / "artifacts",
+    )
+    job = MaterializeJob(
+        name="adv-20",
+        stream="adv.20",
+        output=tmp_path / "adv-20.jsonl",
+        overwrite=False,
+        observability=_observability(),
+    )
+    request = _materialize_request(tmp_path, artifact_tasks, [job], runtime)
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.load_streams",
+        lambda project_path: object(),
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.stream_tick_artifacts",
+        lambda stream, streams: {"market_ticks"},
+    )
+
+    with pytest.raises(SystemExit, match="2"):
+        run_profiles(request)

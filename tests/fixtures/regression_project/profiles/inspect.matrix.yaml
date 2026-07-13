@@ -1,5 +1,3 @@
-cmd: inspect
-name: matrix
 target: matrix
 enabled: true
 artifact_mode: AUTO

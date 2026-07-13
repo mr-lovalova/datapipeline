@@ -7,8 +7,8 @@
 # map:                          # optional iterator -> iterable mapping
 #   entrypoint: my_mapper
 #   args: {}
-# partition_by: [station_id]    # optional list; time is reserved
-# feature_id_by: []             # optional list; [] requires partition fields in sample.keys
+# partition_by: [station_id]    # omitted: inherit; explicit list replaces; [] clears
+# feature_id_by: []             # omitted: inherit; [] requires partition fields in sample.keys
 # ordered_by: [station_id, time] # optional list; must equal [*partition_by, time]
 #
 # stream:                       # optional flat typed stream operations
@@ -40,7 +40,7 @@
 # combine:                      # required record(s) -> record | None function
 #   entrypoint: my_combine_function
 #   args: {}
-# partition_by is inherited from aligned inputs and cannot be set here.
+# Aligned partition_by is inherited from its inputs and cannot be set here.
 #
 # See also:
 # - ingest.reference.yaml

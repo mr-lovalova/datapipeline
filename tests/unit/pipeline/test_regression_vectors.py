@@ -166,14 +166,14 @@ def test_vector_targets_respect_partitioned_ids(tmp_path) -> None:
     context = PipelineContext(runtime)
     feature_cfgs = [
         FeatureRecordConfig(
-            record_stream="wind_speed_stream",
+            stream="wind_speed_stream",
             id="wind_speed",
             field="value",
         ),
     ]
     target_cfgs = [
         FeatureRecordConfig(
-            record_stream="wind_production_stream",
+            stream="wind_production_stream",
             id="wind_production",
             field="value",
         ),
@@ -216,14 +216,14 @@ def test_vector_samples_can_group_by_record_key_fields(tmp_path) -> None:
     context = PipelineContext(runtime)
     feature_cfgs = [
         FeatureRecordConfig(
-            record_stream="momentum_stream",
+            stream="momentum_stream",
             id="momentum",
             field="value",
         ),
     ]
     target_cfgs = [
         FeatureRecordConfig(
-            record_stream="return_stream",
+            stream="return_stream",
             id="forward_return",
             field="value",
         ),
@@ -288,12 +288,12 @@ def test_vector_samples_keep_entity_buckets_contiguous(tmp_path) -> None:
     context = PipelineContext(runtime)
     feature_cfgs = [
         FeatureRecordConfig(
-            record_stream="momentum_stream",
+            stream="momentum_stream",
             id="momentum",
             field="value",
         ),
         FeatureRecordConfig(
-            record_stream="volume_stream",
+            stream="volume_stream",
             id="volume",
             field="value",
         ),
@@ -343,7 +343,7 @@ def test_sequence_features_are_windowed_by_sample_keys(tmp_path) -> None:
     context = PipelineContext(runtime)
     feature_cfgs = [
         FeatureRecordConfig(
-            record_stream="monthly_returns",
+            stream="monthly_returns",
             id="monthly_return",
             field="value",
             sequence={"size": 2, "stride": 1},
@@ -397,7 +397,7 @@ def test_feature_id_by_controls_partitioned_feature_identity(tmp_path) -> None:
     context = PipelineContext(runtime)
     feature_cfgs = [
         FeatureRecordConfig(
-            record_stream="monthly_returns",
+            stream="monthly_returns",
             id="monthly_return",
             field="value",
             sequence={"size": 2, "stride": 1},
@@ -462,7 +462,7 @@ def test_stream_transforms_use_explicit_stream_partition(tmp_path) -> None:
     context = PipelineContext(runtime)
     feature_cfgs = [
         FeatureRecordConfig(
-            record_stream="daily_prices",
+            stream="daily_prices",
             id="value_mean_2",
             field="value_mean_2",
         ),
@@ -525,13 +525,13 @@ def test_regression_scaled_shapes_airpressure_high_freq_and_windspeed_hourly(
 
     configs = [
         FeatureRecordConfig(
-            record_stream="air_pressure",
+            stream="air_pressure",
             id="air_pressure",
             field="value",
             scale=True,
         ),
         FeatureRecordConfig(
-            record_stream="wind_speed",
+            stream="wind_speed",
             id="wind_speed",
             field="value",
             scale=True,
@@ -609,13 +609,13 @@ def test_regression_fill_then_scale_with_missing_values(tmp_path) -> None:
 
     configs = [
         FeatureRecordConfig(
-            record_stream="ap",
+            stream="ap",
             id="air_pressure",
             field="value",
             scale=True,
         ),
         FeatureRecordConfig(
-            record_stream="ws",
+            stream="ws",
             id="wind_speed",
             field="value",
             scale=True,

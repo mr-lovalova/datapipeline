@@ -41,7 +41,7 @@ def build_feature_pipeline(
     sample_keys: Sequence[str] = (),
     group_by_cadence: str | None = None,
 ) -> Pipeline:
-    record_pipeline = build_stream_pipeline(context, cfg.record_stream)
+    record_pipeline = build_stream_pipeline(context, cfg.stream)
     record_nodes = tuple(
         replace(node, name=f"{record_pipeline.name}/{node.name}")
         for node in record_pipeline.nodes
@@ -52,7 +52,7 @@ def build_feature_pipeline(
             *record_nodes,
             *build_feature_nodes(
                 context,
-                record_stream_id=cfg.record_stream,
+                stream_id=cfg.stream,
                 feature_id=cfg.id,
                 field=cfg.field,
                 scale=cfg.scale,
@@ -67,7 +67,7 @@ def build_feature_pipeline(
 
 def build_feature_nodes(
     context: PipelineContext,
-    record_stream_id: str,
+    stream_id: str,
     feature_id: str,
     field: str,
     scale: bool,
@@ -75,7 +75,7 @@ def build_feature_nodes(
     sample_keys: Sequence[str] = (),
     group_by_cadence: str | None = None,
 ) -> tuple[PipelineNode, ...]:
-    stream = require_runtime_stream(context.runtime, record_stream_id)
+    stream = require_runtime_stream(context.runtime, stream_id)
     nodes = [
         PipelineNode(
             name="build_feature_stream",

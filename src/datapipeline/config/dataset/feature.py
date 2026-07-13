@@ -22,7 +22,7 @@ class FeatureRecordConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
     id: NonEmptyString
-    record_stream: NonEmptyString
+    stream: NonEmptyString
     field: NonEmptyString
     scale: bool = Field(default=False, strict=True)
     sequence: SequenceConfig | None = None

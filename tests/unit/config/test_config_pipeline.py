@@ -8,7 +8,7 @@ def test_feature_config_simple_fields():
     config = FeatureRecordConfig.model_validate(
         {
             "id": "time",
-            "record_stream": "time_linear",
+            "stream": "time_linear",
             "field": "value",
             "scale": True,
             "sequence": {"size": 5, "stride": 1},
@@ -16,9 +16,20 @@ def test_feature_config_simple_fields():
     )
 
     assert config.id == "time"
-    assert config.record_stream == "time_linear"
+    assert config.stream == "time_linear"
     assert config.scale is True
     assert config.sequence == SequenceConfig(size=5, stride=1)
+
+
+def test_feature_config_rejects_record_stream() -> None:
+    with pytest.raises(ValidationError, match="record_stream"):
+        FeatureRecordConfig.model_validate(
+            {
+                "id": "time",
+                "record_stream": "time_linear",
+                "field": "value",
+            }
+        )
 
 
 def test_feature_config_rejects_reserved_partition_separator() -> None:
@@ -26,7 +37,7 @@ def test_feature_config_rejects_reserved_partition_separator() -> None:
         FeatureRecordConfig.model_validate(
             {
                 "id": "price__region",
-                "record_stream": "prices",
+                "stream": "prices",
                 "field": "close",
             }
         )

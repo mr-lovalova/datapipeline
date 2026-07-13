@@ -1,4 +1,4 @@
-from .base import Profile
+from .base import Profile, ProfileCommand
 from .build import ARTIFACT_MODES, BuildProfile, normalize_artifact_mode
 from .defaults import (
     BuildProfileDefaults,
@@ -14,6 +14,7 @@ from .serve import ServeProfile
 
 __all__ = [
     "Profile",
+    "ProfileCommand",
     "ServeOutputConfig",
     "Transport",
     "Format",

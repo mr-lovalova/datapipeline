@@ -45,7 +45,7 @@ def test_materialize_vector_stats_reads_metadata_and_omits_schema_meta(
     dataset = FeatureDatasetConfig(
         sample=SampleConfig(cadence="1h"),
         features=[
-            FeatureRecordConfig(id="speed", record_stream="stream", field="value")
+            FeatureRecordConfig(id="speed", stream="stream", field="value")
         ],
         targets=[],
     )

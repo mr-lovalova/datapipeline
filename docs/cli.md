@@ -52,7 +52,7 @@ reading the data. Visuals are independent of log filtering.
 ### Build & Quality
 
 - `jerry inspect --project <project.yaml> [--run <inspect-profile>] [--artifact-mode AUTO|FORCE|OFF] [--visuals on|off] [--heartbeat-interval SECONDS]`
-  - Runs inspect profiles declared as `profiles/inspect.<name>.yaml` (`cmd: inspect`).
+  - Runs inspect profiles declared as `profiles/inspect.<name>.yaml`.
   - Without `--run`, executes all enabled inspect profiles.
   - Use `--run coverage`, `--run matrix`, or `--run thresholds` to execute one profile.
   - Like `serve`, prepares the union of selected profiles' artifact requirements
@@ -68,7 +68,7 @@ reading the data. Visuals are independent of log filtering.
     `options` (for example `sort` and `threshold`).
 - `jerry build --project <project.yaml> [--run <profile>] [--force] [--visuals on|off] [--heartbeat-interval SECONDS]`
   - Regenerates artifact tasks declared under `project.paths.tasks` when the configuration hash changes.
-  - If `cmd: build` profiles are defined, enabled profiles run by default; use `--run` to target one profile.
+  - If build profiles are defined, enabled profiles run by default; use `--run` to target one profile.
   - Each build profile executes one configured artifact task `target`; selected
     profiles must have distinct targets.
   - Build profiles remain explicit artifact roots and execute in their configured
@@ -76,7 +76,7 @@ reading the data. Visuals are independent of log filtering.
     each root; it never reorders the profiles. A selected dependency profile
     must be ordered before a selected dependent profile.
 - `jerry materialize [--run <profile>] [--output <path.jsonl>] [--overwrite|--no-overwrite] [--artifact-mode AUTO|FORCE|OFF] [--visuals on|off] [--heartbeat-interval SECONDS]`
-  - Runs every enabled `profiles/materialize.<name>.yaml` entry in configured
+  - Runs every enabled `profiles/materialize.<name>.yaml` file in configured
     order, or one profile selected by `--run`.
   - Checks every selected output and metadata file before the first profile
     starts writing.

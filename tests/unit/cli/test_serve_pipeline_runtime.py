@@ -42,9 +42,9 @@ def _dataset(*, targets=None):
     )
 
 
-def _preview_dataset(record_stream):
+def _preview_dataset(stream):
     return SimpleNamespace(
-        features=[SimpleNamespace(id="price", record_stream=record_stream)],
+        features=[SimpleNamespace(id="price", stream=stream)],
         targets=[],
         sample=SimpleNamespace(cadence="1d", keys=[]),
     )

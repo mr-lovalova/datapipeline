@@ -1,8 +1,7 @@
 # Serve profile reference (all options).
 # This file is documentation only; uncomment the keys you want to use.
+# Save it as serve.<name>.yaml; the filename supplies command and name.
 #
-# cmd: serve
-# name: splits                # required; must be unique among serve profiles
 # order: 10                   # optional; lower runs first, unset uses filename order
 # target: pipeline            # required; runtime task id from tasks/operations
 # enabled: true               # optional

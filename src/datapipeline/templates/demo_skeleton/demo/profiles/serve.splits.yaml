@@ -1,6 +1,4 @@
 # See ../../../plugin_skeleton/reference/reference/tasks/profiles/serve.reference.yaml for full options.
-cmd: serve
-name: splits
 order: 40
 target: pipeline
 enabled: true

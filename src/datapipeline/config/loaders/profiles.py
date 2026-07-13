@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated
 
 from pydantic import Field
 from pydantic.type_adapter import TypeAdapter
@@ -12,6 +12,7 @@ from datapipeline.config.profiles import (
     MaterializeProfile,
     MaterializeProfileDefaults,
     Profile,
+    ProfileCommand,
     ProfileDefaults,
     ServeProfile,
     ServeProfileDefaults,
@@ -31,15 +32,13 @@ ProfileModel = Annotated[
     Field(discriminator="cmd"),
 ]
 
-ProfileCmd = Literal["serve", "build", "inspect", "materialize"]
-PROFILE_KINDS: tuple[ProfileCmd, ...] = (
+PROFILE_KINDS: tuple[ProfileCommand, ...] = (
     "serve",
     "build",
     "inspect",
     "materialize",
 )
 PROFILE_ADAPTER: TypeAdapter[ProfileModel] = TypeAdapter(ProfileModel)
-PROFILE_KIND_PREFIXES = set(PROFILE_KINDS)
 ProfileDefaultsModel = Annotated[
     ServeProfileDefaults
     | BuildProfileDefaults
@@ -52,51 +51,34 @@ PROFILE_DEFAULTS_ADAPTER: TypeAdapter[ProfileDefaultsModel] = TypeAdapter(
 )
 
 
-def _load_profile_entry(entry: dict) -> Profile:
-    return PROFILE_ADAPTER.validate_python(entry)
-
-
 def _project_vars(project_yaml: Path) -> dict:
     data = resolve_config_refs(load_yaml(project_yaml), project_yaml=project_yaml)
     return project_vars_from_data(data)
 
 
 def _load_profile_doc(path: Path, project_yaml: Path, vars_: dict):
-    doc = resolve_config_refs(load_yaml(path), project_yaml=project_yaml)
+    doc = resolve_config_refs(
+        load_yaml(path, require_mapping=False),
+        project_yaml=project_yaml,
+    )
     return interpolate_config_vars(doc, vars_)
 
 
-def _load_profile_specs_from_file(
+def _profile_identity_from_filename(
     path: Path,
-    project_yaml: Path,
-    vars_: dict,
-) -> list[Profile]:
-    doc = _load_profile_doc(path, project_yaml, vars_)
-    entries = doc if isinstance(doc, list) else [doc]
-    specs: list[Profile] = []
-    for entry in entries:
-        if not isinstance(entry, dict):
-            raise TypeError(f"{path} must define mapping profiles.")
-        spec = _load_profile_entry(entry)
-        setattr(spec, "source_path", path)
-        specs.append(spec)
-    return specs
-
-
-def _profile_kind_from_filename(path: Path) -> str | None:
-    stem = path.stem.strip().lower()
+) -> tuple[ProfileCommand, str] | None:
+    stem = path.stem.strip()
     if not stem or "." not in stem:
         return None
-    prefix, _ = stem.split(".", 1)
-    return prefix if prefix in PROFILE_KIND_PREFIXES else None
-
-
-def _is_defaults_profile(path: Path) -> bool:
-    stem = path.stem.strip().lower()
-    if "." not in stem:
-        return False
-    _, suffix = stem.split(".", 1)
-    return suffix == "defaults"
+    prefix, name = stem.split(".", 1)
+    command = prefix.lower()
+    name = name.strip()
+    if not name:
+        return None
+    for profile_command in PROFILE_KINDS:
+        if command == profile_command:
+            return profile_command, name
+    return None
 
 
 def _validate_profile_layout(root: Path) -> None:
@@ -114,7 +96,9 @@ def _validate_profile_layout(root: Path) -> None:
         )
 
     invalid = sorted(
-        path for path in spec_files(root) if _profile_kind_from_filename(path) is None
+        path
+        for path in spec_files(root)
+        if _profile_identity_from_filename(path) is None
     )
     if not invalid:
         return
@@ -128,6 +112,7 @@ def _validate_profile_layout(root: Path) -> None:
 
 def _load_profile_specs(
     project_yaml: Path,
+    command: ProfileCommand | None = None,
 ) -> tuple[list[Profile], dict[str, ProfileDefaults]]:
     root = profiles_dir(project_yaml)
     _validate_profile_layout(root)
@@ -135,19 +120,24 @@ def _load_profile_specs(
     specs: list[Profile] = []
     defaults_by_kind: dict[str, ProfileDefaults] = {}
     for path in sorted(root.glob("*.y*ml")):
-        expected_kind = _profile_kind_from_filename(path)
-        if expected_kind is None:
+        identity = _profile_identity_from_filename(path)
+        if identity is None:
             continue
-        if _is_defaults_profile(path):
+        expected_kind, profile_name = identity
+        if command is not None and expected_kind != command:
+            continue
+        if profile_name.lower() == "defaults":
             doc = _load_profile_doc(path, project_yaml, vars_)
             if not isinstance(doc, dict):
                 raise TypeError(f"{path} must define a mapping profile defaults.")
-            defaults = PROFILE_DEFAULTS_ADAPTER.validate_python(doc)
-            if defaults.cmd != expected_kind:
+            if "cmd" in doc:
                 raise ValueError(
-                    f"{path} declares profile cmd '{defaults.cmd}' but is located under "
-                    f"profiles/{expected_kind}.defaults.yaml."
+                    "Profile command comes from the defaults filename; "
+                    "remove the 'cmd' key."
                 )
+            defaults = PROFILE_DEFAULTS_ADAPTER.validate_python(
+                {"cmd": expected_kind, **doc}
+            )
             existing = defaults_by_kind.get(expected_kind)
             if existing is not None:
                 first_path = getattr(existing, "source_path", None)
@@ -158,20 +148,25 @@ def _load_profile_specs(
             setattr(defaults, "source_path", path)
             defaults_by_kind[expected_kind] = defaults
             continue
-        loaded = _load_profile_specs_from_file(path, project_yaml, vars_)
-        for spec in loaded:
-            if spec.cmd != expected_kind:
-                raise ValueError(
-                    f"{path} declares profile cmd '{spec.cmd}' but is located under "
-                    f"profiles/{expected_kind}.<name>.yaml."
-                )
-            specs.append(spec)
+        doc = _load_profile_doc(path, project_yaml, vars_)
+        if not isinstance(doc, dict):
+            raise TypeError(f"{path} must define one mapping profile.")
+        if "cmd" in doc or "name" in doc:
+            raise ValueError(
+                "Profile command and name come from the filename; "
+                "remove the 'cmd' and 'name' keys."
+            )
+        spec = PROFILE_ADAPTER.validate_python(
+            {"cmd": expected_kind, "name": profile_name, **doc}
+        )
+        setattr(spec, "source_path", path)
+        specs.append(spec)
     return specs, defaults_by_kind
 
 
 def profile_specs(
     project_yaml: Path,
-    cmd: ProfileCmd | None = None,
+    cmd: ProfileCommand | None = None,
 ) -> list[Profile]:
     if cmd is not None:
         profiles, _ = profile_specs_with_defaults(project_yaml, cmd=cmd)
@@ -184,9 +179,9 @@ def profile_specs(
 
 def profile_specs_with_defaults(
     project_yaml: Path,
-    cmd: ProfileCmd,
+    cmd: ProfileCommand,
 ) -> tuple[list[Profile], ProfileDefaults]:
-    specs, defaults_by_kind = _load_profile_specs(project_yaml)
+    specs, defaults_by_kind = _load_profile_specs(project_yaml, command=cmd)
     grouped = _group_profiles(specs)
     defaults = defaults_by_kind.get(cmd)
     if defaults is None:

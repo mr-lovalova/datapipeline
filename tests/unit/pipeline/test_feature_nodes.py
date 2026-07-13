@@ -66,7 +66,7 @@ def _feature(
 def test_feature_nodes_make_scaling_and_sequence_explicit(tmp_path) -> None:
     nodes = build_feature_nodes(
         _context(tmp_path),
-        record_stream_id="stream",
+        stream_id="stream",
         feature_id="x",
         field="value",
         scale=True,
@@ -84,7 +84,7 @@ def test_feature_nodes_make_scaling_and_sequence_explicit(tmp_path) -> None:
 def test_feature_nodes_omit_disabled_stages(tmp_path) -> None:
     nodes = build_feature_nodes(
         _context(tmp_path),
-        record_stream_id="stream",
+        stream_id="stream",
         feature_id="x",
         field="value",
         scale=False,

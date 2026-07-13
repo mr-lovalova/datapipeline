@@ -17,6 +17,8 @@ three keep typed transforms, partition identity (`partition_by`), feature identi
 generic source adapter that hides another pipeline. Single-input streams are
 flattened; aligned streams use the explicit fan-in boundary described below.
 Their strict config models make `map` and `combine` mutually exclusive.
+Single-input streams inherit partition and feature identity when those fields
+are omitted; explicit lists replace the inherited values.
 
 Configured loader, parser, map, and combine entry points are resolved while
 bootstrapping the project. The resulting callables are stored on the runtime stream. There are

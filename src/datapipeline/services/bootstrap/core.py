@@ -23,6 +23,7 @@ from datapipeline.services.streams.ingest import (
 )
 from datapipeline.services.streams.aligned import build_combine_stage
 from datapipeline.services.streams.validation import (
+    stream_feature_id_by,
     stream_partition_by,
     validate_ingest_sources,
     validate_unique_stream_ids,
@@ -232,13 +233,14 @@ def _build_runtime_stream(
     stream_configs: dict[str, StreamConfig],
 ) -> DerivedRuntimeStream | AlignedRuntimeStream:
     partition_by = stream_partition_by(ingests, stream_configs, spec.id)
+    feature_id_by = stream_feature_id_by(ingests, stream_configs, spec.id)
     if isinstance(spec, AlignedStreamConfig):
         return AlignedRuntimeStream(
             input_streams=spec.input_streams(),
             combine=build_combine_stage(spec),
             transforms=tuple(spec.stream),
             partition_by=partition_by,
-            feature_id_by=spec.feature_id_by,
+            feature_id_by=feature_id_by,
             presorted=spec.ordered_by is not None,
         )
     return DerivedRuntimeStream(
@@ -246,7 +248,7 @@ def _build_runtime_stream(
         mapper=build_mapper_from_spec(spec.map),
         transforms=tuple(spec.stream),
         partition_by=partition_by,
-        feature_id_by=spec.feature_id_by,
+        feature_id_by=feature_id_by,
         presorted=spec.ordered_by is not None,
     )
 

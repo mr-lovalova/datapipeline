@@ -3,8 +3,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from datapipeline.profiles.request_builder import build_profile_run_request
+from datapipeline.config.execution import ExecutionConfig
 from datapipeline.config.resolution import LogOutputTarget
+from datapipeline.profiles.request_builder import (
+    build_materialize_run_request,
+    build_profile_run_request,
+)
 
 
 def _write_project(tmp_path: Path) -> Path:
@@ -75,13 +79,7 @@ def test_inspect_request_materializes_execution_scoped_log_output(
         encoding="utf-8",
     )
     (profiles / "inspect.coverage.yaml").write_text(
-        (
-            "cmd: inspect\n"
-            "name: coverage\n"
-            "target: coverage\n"
-            "enabled: true\n"
-            "artifact_mode: AUTO\n"
-        ),
+        ("target: coverage\nenabled: true\nartifact_mode: AUTO\n"),
         encoding="utf-8",
     )
     (tmp_path / "sources").mkdir(parents=True, exist_ok=True)
@@ -120,7 +118,7 @@ def test_disabled_profiles_do_not_create_execution_directory(tmp_path: Path):
         encoding="utf-8",
     )
     (profiles / "inspect.coverage.yaml").write_text(
-        ("cmd: inspect\nname: coverage\ntarget: coverage\nenabled: false\n"),
+        ("target: coverage\nenabled: false\n"),
         encoding="utf-8",
     )
 
@@ -131,3 +129,59 @@ def test_disabled_profiles_do_not_create_execution_directory(tmp_path: Path):
 
     assert request is None
     assert not (tmp_path / "artifacts" / "_system" / "executions").exists()
+
+
+def test_materialize_request_uses_shared_resolution_snapshot(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    project_yaml = _write_project(tmp_path)
+    (tmp_path / "tasks" / "operations").mkdir(parents=True, exist_ok=True)
+    profiles = tmp_path / "profiles"
+    profiles.mkdir(parents=True, exist_ok=True)
+    (profiles / "materialize.defaults.yaml").write_text(
+        "artifact_mode: FORCE\nexecution:\n  sort_buffer_mb: 32\n",
+        encoding="utf-8",
+    )
+    (profiles / "materialize.adv-20.yaml").write_text(
+        "stream: adv.20\noutput: outputs/adv-20.jsonl\n",
+        encoding="utf-8",
+    )
+    runtime = SimpleNamespace(execution=ExecutionConfig())
+    monkeypatch.setattr(
+        "datapipeline.profiles.request_builder.bootstrap",
+        lambda path: runtime,
+    )
+    hashes: list[tuple[Path, Path]] = []
+
+    def config_hash(project_path, task_path):
+        hashes.append((project_path, task_path))
+        return "stable"
+
+    monkeypatch.setattr(
+        "datapipeline.profiles.request_builder.compute_config_hash",
+        config_hash,
+    )
+
+    request = build_materialize_run_request(
+        project=str(project_yaml),
+        run_name=None,
+        overwrite=None,
+        output=None,
+        artifact_mode=None,
+        cli_log_level=None,
+        cli_log_outputs=[],
+        base_log_level="INFO",
+        cli_visuals=None,
+        cli_heartbeat_interval_seconds=None,
+    )
+
+    assert request is not None
+    assert request.config_hash == "stable"
+    assert request.execution.sort_buffer_mb == 32
+    assert request.artifact_settings.mode == "FORCE"
+    assert request.runtime is runtime
+    assert request.jobs[0].name == "adv-20"
+    assert request.jobs[0].stream == "adv.20"
+    assert request.jobs[0].output == tmp_path / "outputs" / "adv-20.jsonl"
+    assert len(hashes) == 2

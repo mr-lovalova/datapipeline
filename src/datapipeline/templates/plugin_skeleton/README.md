@@ -33,7 +33,7 @@ jerry serve --dataset your-dataset --limit 3
 - `your-dataset/.env.example`
   - Copy to `.env` next to `project.yaml` for local dataset-specific secrets and paths
 - `your-dataset/dataset.yaml`
-  - Ensure `record_stream:` points at the stream id you created.
+  - Ensure `stream:` points at the stream id you created.
   - Select a `field:` for each feature/target (record attribute to use as value).
   - Ensure `sample.cadence` matches `^\d+(m|min|h|d)$` (e.g. `10m`, `1h`, `1d`). The scaffold fills it from the `${group_by}` project global.
 
@@ -60,6 +60,8 @@ YAML config (dataset project root):
 
 Profile sequencing:
 
+- Each concrete profile is one mapping in `<command>.<name>.yaml`; the filename
+  supplies both command and name. Defaults use `<command>.defaults.yaml`.
 - Profiles execute by `order` (ascending); unset falls back to filename order.
 - Materialize profiles name a stream and an exact durable JSONL output; they do
   not target runtime tasks.

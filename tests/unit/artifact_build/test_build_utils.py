@@ -82,7 +82,7 @@ def test_collect_vector_metadata_counts_nan(monkeypatch, tmp_path):
     runtime = Runtime(project_yaml=project_yaml, artifacts_root=artifacts_root)
     cfg = FeatureRecordConfig(
         id="wind_speed",
-        record_stream="met.obs",
+        stream="met.obs",
         field="value",
     )
     sample = Sample(key=(0,), features=Vector(values={"wind_speed": math.nan}))
@@ -127,7 +127,7 @@ def test_collect_vector_metadata_emits_progress(monkeypatch, tmp_path):
     runtime = Runtime(project_yaml=project_yaml, artifacts_root=artifacts_root)
     cfg = FeatureRecordConfig(
         id="price",
-        record_stream="market.prices",
+        stream="market.prices",
         field="close",
     )
     samples = [
@@ -179,7 +179,7 @@ def test_collect_vector_metadata_rejects_scalar_list_mixtures(
     runtime = _runtime_with_dataset(tmp_path, "sample:\n  cadence: 1h\n")
     config = FeatureRecordConfig(
         id="history",
-        record_stream="market.prices",
+        stream="market.prices",
         field="close",
     )
     samples = [
@@ -209,7 +209,7 @@ def test_collect_vector_metadata_rejects_variable_list_lengths(
     runtime = _runtime_with_dataset(tmp_path, "sample:\n  cadence: 1h\n")
     config = FeatureRecordConfig(
         id="history",
-        record_stream="market.prices",
+        stream="market.prices",
         field="close",
     )
     samples = [
@@ -243,7 +243,7 @@ def test_schema_materialization_derives_entries_from_metadata(
                 "  cadence: 1h",
                 "features:",
                 "  - id: price",
-                "    record_stream: market.prices",
+                "    stream: market.prices",
                 "    field: close",
                 "targets: []",
                 "",
@@ -393,7 +393,7 @@ def test_metadata_materialization_rejects_configured_empty_features(
                 "  cadence: 1h",
                 "features:",
                 "  - id: price",
-                "    record_stream: market.prices",
+                "    stream: market.prices",
                 "    field: close",
                 "targets: []",
                 "",
@@ -428,7 +428,7 @@ def test_metadata_materialization_writes_keyed_sample_domain(
                 "  keys: [security_id]",
                 "features:",
                 "  - id: price",
-                "    record_stream: market.prices",
+                "    stream: market.prices",
                 "    field: close",
                 "targets: []",
                 "",
@@ -489,7 +489,7 @@ def test_metadata_materialization_preserves_one_timestamp_window(
                 "  cadence: 1h",
                 "features:",
                 "  - id: price",
-                "    record_stream: market.prices",
+                "    stream: market.prices",
                 "    field: close",
                 "targets: []",
                 "",

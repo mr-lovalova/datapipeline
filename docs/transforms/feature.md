@@ -13,12 +13,12 @@ vector assembly. `dataset.yaml` exposes two explicit stages: `scale` and
 ```yaml
 features:
   - id: temperature
-    record_stream: weather.hourly
+    stream: weather.hourly
     field: temp_c
     scale: true
 
   - id: monthly_return
-    record_stream: equity.monthly_returns
+    stream: equity.monthly_returns
     field: return_1m
     sequence:
       size: 12

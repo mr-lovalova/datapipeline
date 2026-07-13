@@ -12,7 +12,7 @@ jerry.yaml: default_dataset
       -> sources/*.yaml: id
         -> ingests/*.yaml: from.source: <sources.id>, id: <stream_id>
           -> streams/*.yaml: from.stream|from.align, id: <stream_id>
-          -> dataset.yaml: record_stream: <streams.id>, field: <record_field>
+          -> dataset.yaml: stream: <streams.id>, field: <record_field>
             -> jerry serve
               -> runs/<run_id>/dataset/<profile>.jsonl|csv|...
               -> runs/<run_id>/dataset/<profile>.<split>.jsonl|csv|... when the profile sets splits
@@ -88,7 +88,7 @@ map:
 
 Expected behavior:
 - `from.source` must match a `sources/*.yaml:id`.
-- `id` is what `dataset.yaml` references under `record_stream`.
+- `id` is what `dataset.yaml` references under `stream`.
 
 Derived streams consume existing stream ids:
 
@@ -97,11 +97,13 @@ Derived streams consume existing stream ids:
 id: equity.daily_liquid
 from:
   stream: equity.ohlcv
-partition_by: [ticker]
-feature_id_by: [ticker]
 stream:
   - operation: dedupe
 ```
+
+The derived stream inherits `partition_by` and `feature_id_by` from
+`equity.ohlcv`. Set either field to an explicit list to replace it; `[]` clears
+it.
 
 Aligned streams intersect their inputs by partition and time. Input order is
 also combine argument order:
@@ -127,15 +129,15 @@ sample:
   cadence: ${group_by}
 features:
   - id: closing_price
-    record_stream: equity.ohlcv
+    stream: equity.ohlcv
     field: close
   - id: opening_price
-    record_stream: equity.ohlcv
+    stream: equity.ohlcv
     field: open
 ```
 
 Expected behavior:
-- `record_stream` must match a stream `id`.
+- `stream` must match a stream `id`.
 - `field` must exist on emitted records.
 
 ## 6) Serve writes run-scoped outputs
@@ -168,7 +170,7 @@ Expected behavior:
 
 2. Unknown stream/source ids:
 - Verify `ingests/*.yaml:from.source` matches `sources/*.yaml:id`.
-- Verify `dataset.yaml:record_stream` matches an id in `ingests/` or `streams/`.
+- Verify `dataset.yaml:stream` matches an id in `ingests/` or `streams/`.
 
 3. Empty output:
 - Check source loader `path/url`.

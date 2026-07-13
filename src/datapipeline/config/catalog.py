@@ -141,16 +141,33 @@ class _StreamConfig(BaseModel):
 class DerivedStreamConfig(_StreamConfig):
     from_: StreamRefConfig = Field(alias="from")
     map: EntryPointConfig | None = None
-    partition_by: tuple[_FieldName, ...] = ()
+    partition_by: tuple[_FieldName, ...] | None = None
 
     @field_validator("partition_by")
     @classmethod
-    def validate_partition_by(cls, fields: tuple[str, ...]) -> tuple[str, ...]:
+    def validate_partition_by(
+        cls,
+        fields: tuple[str, ...] | None,
+    ) -> tuple[str, ...] | None:
+        if fields is None:
+            return None
         if len(fields) != len(set(fields)):
             raise ValueError("partition_by must not contain duplicate fields")
         if "time" in fields:
             raise ValueError("partition_by must not contain the reserved field 'time'")
         return fields
+
+    @model_validator(mode="after")
+    def validate_identity_overrides(self) -> Self:
+        if "partition_by" in self.model_fields_set and self.partition_by is None:
+            raise ValueError(
+                "partition_by must be a list when set; omit it to inherit"
+            )
+        if "feature_id_by" in self.model_fields_set and self.feature_id_by is None:
+            raise ValueError(
+                "feature_id_by must be a list when set; omit it to inherit"
+            )
+        return self
 
     def input_streams(self) -> tuple[str, ...]:
         return (self.from_.stream,)

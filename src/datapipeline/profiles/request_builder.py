@@ -16,7 +16,10 @@ from datapipeline.config.loaders.profiles import (
 from datapipeline.config.profiles import (
     BuildProfile,
     InspectProfile,
+    MaterializeProfile,
+    MaterializeProfileDefaults,
     Profile,
+    ProfileCommand,
     ProfileDefaults,
     ServeOutputConfig,
     ServeProfile,
@@ -35,13 +38,16 @@ from datapipeline.io.output import OutputResolutionError
 from datapipeline.profiles.models import (
     BuildJob,
     BuildRunRequest,
-    ProfileKind,
+    MaterializeRunRequest,
     ProfileRunRequest,
     RuntimeJob,
     RuntimeRunRequest,
     ServeRunPlan,
+    TaskProfileKind,
 )
+from datapipeline.profiles.materialize import resolve_materialize_jobs
 from datapipeline.profiles.selection import select_profiles
+from datapipeline.services.bootstrap import bootstrap
 from datapipeline.services.path_policy import resolve_workspace_path
 from datapipeline.services.project_paths import tasks_dir
 from datapipeline.services.executions import execution_root
@@ -66,7 +72,7 @@ _OUTPUT_MATRIX_HELP = (
 
 @dataclass(frozen=True)
 class ProfileResolveParams:
-    command: ProfileKind
+    command: TaskProfileKind
     project_path: Path
     run_name: str | None
     force: bool
@@ -139,24 +145,26 @@ def build_cli_output_config(
 
 
 def _select_profiles(
-    params: ProfileResolveParams,
+    project_path: Path,
+    command: ProfileCommand,
+    run_name: str | None,
 ) -> tuple[list[Profile], ProfileDefaults]:
     try:
         profiles, defaults = profile_specs_with_defaults(
-            params.project_path,
-            cmd=params.command,
+            project_path,
+            cmd=command,
         )
     except (OSError, TypeError, ValueError) as exc:
-        logger.error("Failed to load %s profiles: %s", params.command, exc)
+        logger.error("Failed to load %s profiles: %s", command, exc)
         raise SystemExit(2) from exc
     if not profiles:
-        logger.error("Project does not define %s profiles.", params.command)
+        logger.error("Project does not define %s profiles.", command)
         raise SystemExit(2)
     try:
         selected = select_profiles(
             profiles,
-            params.run_name,
-            params.command,
+            run_name,
+            command,
         )
         return (
             [apply_profile_defaults(profile, defaults) for profile in selected],
@@ -165,6 +173,25 @@ def _select_profiles(
     except ValueError as exc:
         logger.error("%s", exc)
         raise SystemExit(2) from exc
+
+
+def _load_pipeline_config_hash(project_path: Path) -> str:
+    try:
+        return compute_config_hash(project_path, tasks_dir(project_path))
+    except (OSError, TypeError, ValueError) as exc:
+        logger.error("Failed to load pipeline inputs: %s", exc)
+        raise SystemExit(2) from exc
+
+
+def _verify_pipeline_config_hash(project_path: Path, expected: str) -> None:
+    try:
+        current = compute_config_hash(project_path, tasks_dir(project_path))
+    except (OSError, TypeError, ValueError) as exc:
+        logger.error("Failed to verify pipeline inputs: %s", exc)
+        raise SystemExit(2) from exc
+    if current != expected:
+        logger.error("Pipeline inputs changed while profiles were being resolved.")
+        raise SystemExit(2)
 
 
 def _resolve_build_jobs(
@@ -284,7 +311,7 @@ def _serve_run_plans(
 
 def build_profile_run_request(
     *,
-    kind: ProfileKind,
+    kind: TaskProfileKind,
     project: str,
     run_name: str | None = None,
     force: bool = False,
@@ -323,7 +350,7 @@ def build_profile_run_request(
         cli_heartbeat_interval_seconds=cli_heartbeat_interval_seconds,
         workspace=workspace,
     )
-    loaded_profiles, defaults = _select_profiles(params)
+    loaded_profiles, defaults = _select_profiles(project_path, kind, run_name)
     if not loaded_profiles:
         return None
     selected_profiles: list[BuildProfile | InspectProfile | ServeProfile] = []
@@ -332,14 +359,7 @@ def build_profile_run_request(
             raise TypeError("Profile loading returned an unsupported profile type")
         selected_profiles.append(profile)
 
-    try:
-        config_hash = compute_config_hash(
-            project_path,
-            tasks_dir(project_path),
-        )
-    except (OSError, TypeError, ValueError) as exc:
-        logger.error("Failed to load pipeline inputs: %s", exc)
-        raise SystemExit(2) from exc
+    config_hash = _load_pipeline_config_hash(project_path)
 
     try:
         declared_artifact_tasks, declared_operation_tasks = operation_specs(
@@ -476,15 +496,92 @@ def build_profile_run_request(
             serve_run_plans=(_serve_run_plans(runtime_jobs) if kind == "serve" else ()),
         )
 
+    _verify_pipeline_config_hash(project_path, config_hash)
+    return request
+
+
+def build_materialize_run_request(
+    project: str,
+    run_name: str | None,
+    overwrite: bool | None,
+    output: Path | None,
+    artifact_mode: str | None,
+    cli_log_level: str | None,
+    cli_log_outputs: Sequence[LogOutputTarget],
+    base_log_level: str,
+    cli_visuals: str | None,
+    cli_heartbeat_interval_seconds: float | None,
+) -> MaterializeRunRequest | None:
+    project_path = Path(project).resolve()
+    loaded_profiles, defaults = _select_profiles(
+        project_path,
+        "materialize",
+        run_name,
+    )
+    materialize_profiles = [
+        profile
+        for profile in loaded_profiles
+        if isinstance(profile, MaterializeProfile)
+    ]
+    if len(materialize_profiles) != len(loaded_profiles):
+        raise TypeError("Materialize profile loading returned the wrong profile type")
+    if not isinstance(defaults, MaterializeProfileDefaults):
+        raise TypeError("Materialize profile loading returned the wrong defaults type")
+    if not materialize_profiles:
+        return None
+
+    config_hash = _load_pipeline_config_hash(project_path)
     try:
-        current_config_hash = compute_config_hash(
+        artifact_tasks, _ = operation_specs(project_path)
+        runtime = bootstrap(project_path)
+        jobs = resolve_materialize_jobs(
+            profiles=materialize_profiles,
+            project_path=project_path,
+            overwrite=overwrite,
+            cli_output=output,
+            cli_visuals=cli_visuals,
+            cli_heartbeat_interval_seconds=cli_heartbeat_interval_seconds,
+            cli_log_level=cli_log_level,
+            cli_log_outputs=cli_log_outputs,
+            base_log_level=base_log_level,
+        )
+        resolved_artifact_mode = (
+            normalize_artifact_mode(artifact_mode) or defaults.artifact_mode or "AUTO"
+        )
+        artifact_observability = resolve_observability_settings(
             project_path,
-            tasks_dir(project_path),
+            defaults.observability,
+            cli_visuals=cli_visuals,
+            cli_heartbeat_interval_seconds=cli_heartbeat_interval_seconds,
+            cli_log_level=cli_log_level,
+            cli_log_outputs=cli_log_outputs,
+            base_log_level=base_log_level,
         )
     except (OSError, TypeError, ValueError) as exc:
-        logger.error("Failed to verify pipeline inputs: %s", exc)
+        logger.error("Invalid materialize configuration: %s", exc)
         raise SystemExit(2) from exc
-    if current_config_hash != config_hash:
-        logger.error("Pipeline inputs changed while profiles were being resolved.")
-        raise SystemExit(2)
+
+    execution_dir = execution_root(project_path)
+    artifact_settings = BuildSettings(
+        mode=resolved_artifact_mode,
+        observability=replace(
+            artifact_observability,
+            log_output=resolve_execution_log_outputs(
+                artifact_observability.log_output,
+                execution_dir,
+                command="materialize",
+                label="artifacts",
+            ),
+        ),
+    )
+    request = MaterializeRunRequest(
+        project_path=project_path,
+        artifact_task_configs=artifact_tasks,
+        jobs=jobs,
+        execution=defaults.execution,
+        config_hash=config_hash,
+        artifact_settings=artifact_settings,
+        runtime=runtime,
+    )
+    _verify_pipeline_config_hash(project_path, config_hash)
     return request

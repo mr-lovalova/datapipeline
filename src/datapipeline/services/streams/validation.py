@@ -74,7 +74,9 @@ def stream_partition_by(
 
     spec = stream_configs[stream_id]
     if not isinstance(spec, AlignedStreamConfig):
-        return spec.partition_by
+        if spec.partition_by is not None:
+            return spec.partition_by
+        return stream_partition_by(ingests, stream_configs, spec.from_.stream)
 
     input_partitions = [
         stream_partition_by(ingests, stream_configs, input_stream)
@@ -92,6 +94,20 @@ def stream_partition_by(
                 f"partition_by {list(partition_by)!r}; expected {list(expected)!r}"
             )
     return input_partitions[0]
+
+
+def stream_feature_id_by(
+    ingests: dict[str, IngestConfig],
+    stream_configs: dict[str, StreamConfig],
+    stream_id: str,
+) -> tuple[str, ...] | None:
+    if stream_id in ingests:
+        return ingests[stream_id].feature_id_by
+
+    spec = stream_configs[stream_id]
+    if isinstance(spec, AlignedStreamConfig) or spec.feature_id_by is not None:
+        return spec.feature_id_by
+    return stream_feature_id_by(ingests, stream_configs, spec.from_.stream)
 
 
 def _validate_stream_cycles(stream_configs: dict[str, StreamConfig]) -> None:

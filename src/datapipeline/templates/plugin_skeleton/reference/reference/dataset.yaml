@@ -11,14 +11,14 @@
 #
 # features:                    # optional
 #   - id: time_linear
-#     record_stream: time.ticks.linear
+#     stream: time.ticks.linear
 #     field: value
 #     scale: true             # optional; true uses the managed scaler artifact
 #     sequence: { size: 6, stride: 1 }  # optional
 #
 # targets:                     # optional
 #   - id: some_target
-#     record_stream: time.ticks.linear
+#     stream: time.ticks.linear
 #     field: value
 #     scale: false            # optional
 #     sequence: null          # optional
@@ -28,4 +28,4 @@
 # stream feature_id_by controls feature-id suffixes, e.g. close__@security_id:AAPL.
 # Feature and target ids must not contain the reserved `__` separator.
 #
-# Record-only stages use only record_stream entries; id/field/scale/sequence are ignored.
+# Record-only stages use only stream entries; id/field/scale/sequence are ignored.

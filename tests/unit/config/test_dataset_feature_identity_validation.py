@@ -36,7 +36,7 @@ def test_partitioned_dataset_feature_requires_explicit_feature_id_by(
         feature_id_by=None,
         presorted=False,
     )
-    cfg = FeatureRecordConfig(record_stream="prices", id="close", field="close")
+    cfg = FeatureRecordConfig(stream="prices", id="close", field="close")
     dataset = FeatureDatasetConfig(sample=SampleConfig(cadence="1d"), features=[cfg])
 
     with pytest.raises(ValueError, match="Set feature_id_by"):
@@ -55,7 +55,7 @@ def test_partitioned_dataset_feature_requires_complete_identity(
         feature_id_by=(),
         presorted=False,
     )
-    cfg = FeatureRecordConfig(record_stream="prices", id="close", field="close")
+    cfg = FeatureRecordConfig(stream="prices", id="close", field="close")
     dataset = FeatureDatasetConfig(sample=SampleConfig(cadence="1d"), features=[cfg])
 
     with pytest.raises(ValueError, match=r"security_id.*sample\.keys"):
@@ -74,7 +74,7 @@ def test_partitioned_dataset_feature_accepts_scalar_id_keyed_by_partition(
         feature_id_by=(),
         presorted=False,
     )
-    cfg = FeatureRecordConfig(record_stream="prices", id="close", field="close")
+    cfg = FeatureRecordConfig(stream="prices", id="close", field="close")
     dataset = FeatureDatasetConfig(
         sample=SampleConfig(
             cadence="1d",
@@ -98,7 +98,7 @@ def test_partitioned_dataset_feature_rejects_partially_keyed_scalar_id(
         feature_id_by=(),
         presorted=False,
     )
-    cfg = FeatureRecordConfig(record_stream="prices", id="close", field="close")
+    cfg = FeatureRecordConfig(stream="prices", id="close", field="close")
     dataset = FeatureDatasetConfig(
         sample=SampleConfig(cadence="1d", keys=["security_id"]),
         features=[cfg],
@@ -120,7 +120,7 @@ def test_partitioned_dataset_feature_accepts_wide_feature_identity(
         feature_id_by=("security_id",),
         presorted=False,
     )
-    cfg = FeatureRecordConfig(record_stream="prices", id="close", field="close")
+    cfg = FeatureRecordConfig(stream="prices", id="close", field="close")
     dataset = FeatureDatasetConfig(sample=SampleConfig(cadence="1d"), features=[cfg])
 
     validate_dataset_feature_identity(runtime, dataset)
@@ -138,7 +138,7 @@ def test_partitioned_dataset_feature_rejects_partially_suffixed_identity(
         feature_id_by=("security_id",),
         presorted=False,
     )
-    cfg = FeatureRecordConfig(record_stream="prices", id="close", field="close")
+    cfg = FeatureRecordConfig(stream="prices", id="close", field="close")
     dataset = FeatureDatasetConfig(sample=SampleConfig(cadence="1d"), features=[cfg])
 
     with pytest.raises(ValueError, match="exchange"):
@@ -157,7 +157,7 @@ def test_partitioned_dataset_feature_accepts_identity_split_across_sample_and_fe
         feature_id_by=("security_id",),
         presorted=False,
     )
-    cfg = FeatureRecordConfig(record_stream="prices", id="close", field="close")
+    cfg = FeatureRecordConfig(stream="prices", id="close", field="close")
     dataset = FeatureDatasetConfig(
         sample=SampleConfig(cadence="1d", keys=["exchange"]),
         features=[cfg],
@@ -178,7 +178,7 @@ def test_unpartitioned_dataset_feature_does_not_require_feature_id_by(
         feature_id_by=None,
         presorted=False,
     )
-    cfg = FeatureRecordConfig(record_stream="market", id="spy_close", field="close")
+    cfg = FeatureRecordConfig(stream="market", id="spy_close", field="close")
     dataset = FeatureDatasetConfig(sample=SampleConfig(cadence="1d"), features=[cfg])
 
     validate_dataset_feature_identity(runtime, dataset)

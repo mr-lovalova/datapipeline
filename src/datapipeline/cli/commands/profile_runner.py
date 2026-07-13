@@ -1,19 +1,18 @@
 import argparse
 import logging
-from typing import Literal
 
 from datapipeline.config.resolution import LogOutputTarget
 from datapipeline.config.workspace import WorkspaceContext
 from datapipeline.profiles.orchestration import run_profiles
+from datapipeline.profiles.models import TaskProfileKind
 from datapipeline.profiles.request_builder import build_profile_run_request
 
 logger = logging.getLogger(__name__)
-ProfileKind = Literal["serve", "build", "inspect"]
 
 
 def handle_profile_command(
     *,
-    kind: ProfileKind,
+    kind: TaskProfileKind,
     args: argparse.Namespace,
     workspace_context: WorkspaceContext | None,
     cli_level_arg: str | None,

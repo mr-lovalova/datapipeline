@@ -96,7 +96,7 @@ def _preview_plan(
     seen: set[str] = set()
     plan: list[tuple[str, FeatureRecordConfig]] = []
     for cfg in preview_cfgs:
-        stream_id = cfg.record_stream
+        stream_id = cfg.stream
         if stream_id in seen:
             continue
         seen.add(stream_id)

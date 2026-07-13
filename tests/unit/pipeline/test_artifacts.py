@@ -624,7 +624,7 @@ def test_dataset_scaler_requirement_matches_feature_config(scale, expected):
         features=[
             FeatureRecordConfig(
                 id="price",
-                record_stream="prices",
+                stream="prices",
                 field="close",
                 scale=scale,
             )

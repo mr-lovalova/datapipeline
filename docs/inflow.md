@@ -56,7 +56,7 @@ shape (timezone‑aware `time` plus any identity fields). Otherwise choose
 ## After Scaffolding
 
 1. Fill placeholders in `sources/*.yaml` (paths/URLs/auth/etc.).
-2. Reference your stream id in `dataset.yaml` under `record_stream: <stream_id>`
+2. Reference your stream id in `dataset.yaml` under `stream: <stream_id>`
    and select a `field` for each feature/target.
 3. Reinstall the plugin if entry points were added:
 

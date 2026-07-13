@@ -62,7 +62,7 @@ def test_serve_request_resolves_targeted_profile(monkeypatch, tmp_path: Path):
         "id: coverage\nkind: runtime\nentrypoint: core.runtime.coverage\n",
     )
     (profiles / "serve.coverage.yaml").write_text(
-        "cmd: serve\nname: coverage\ntarget: coverage\n",
+        "target: coverage\n",
         encoding="utf-8",
     )
 
@@ -98,11 +98,11 @@ def test_inspect_request_defaults_to_enabled_profiles(monkeypatch, tmp_path: Pat
         "id: matrix\nkind: runtime\nentrypoint: core.runtime.matrix\n",
     )
     (profiles / "inspect.coverage.yaml").write_text(
-        "cmd: inspect\nname: coverage\ntarget: coverage\nenabled: false\n",
+        "target: coverage\nenabled: false\n",
         encoding="utf-8",
     )
     (profiles / "inspect.matrix.yaml").write_text(
-        "cmd: inspect\nname: matrix\ntarget: matrix\nenabled: true\n",
+        "target: matrix\nenabled: true\n",
         encoding="utf-8",
     )
 
@@ -131,7 +131,7 @@ def test_serve_profile_rejects_artifact_target(monkeypatch, tmp_path: Path, capl
         "id: schema\nkind: artifact\noutput: schema.json\n",
     )
     (profiles / "serve.schema.yaml").write_text(
-        "cmd: serve\nname: schema\ntarget: schema\n",
+        "target: schema\n",
         encoding="utf-8",
     )
 
@@ -157,7 +157,7 @@ def test_inspect_profile_rejects_artifact_target(tmp_path: Path, caplog):
         "id: stats\nkind: artifact\nmode: raw\noutput: stats.json\n",
     )
     (profiles / "inspect.stats.yaml").write_text(
-        "cmd: inspect\nname: stats\ntarget: stats\n",
+        "target: stats\n",
         encoding="utf-8",
     )
 
@@ -179,7 +179,7 @@ def test_build_profile_rejects_runtime_target(tmp_path: Path, caplog):
         "id: pipeline\nkind: runtime\nentrypoint: core.runtime.pipeline\n",
     )
     (profiles / "build.pipeline.yaml").write_text(
-        "cmd: build\nname: pipeline\ntarget: pipeline\n",
+        "target: pipeline\n",
         encoding="utf-8",
     )
 
@@ -196,7 +196,7 @@ def test_build_profile_rejects_unknown_target(tmp_path: Path, caplog):
     profiles = tmp_path / "profiles"
     profiles.mkdir(parents=True, exist_ok=True)
     (profiles / "build.typo.yaml").write_text(
-        "cmd: build\nname: typo\ntarget: scheam\n",
+        "target: scheam\n",
         encoding="utf-8",
     )
 
@@ -223,11 +223,11 @@ def test_serve_request_orders_enabled_profiles_and_run_targets_only_named_profil
         "id: pipeline\nkind: runtime\nentrypoint: core.runtime.pipeline\n",
     )
     (profiles / "serve.early.yaml").write_text(
-        "cmd: serve\nname: early\norder: 10\ntarget: pipeline\nenabled: true\n",
+        "order: 10\ntarget: pipeline\nenabled: true\n",
         encoding="utf-8",
     )
     (profiles / "serve.train.yaml").write_text(
-        "cmd: serve\nname: train\norder: 40\ntarget: pipeline\nenabled: true\n",
+        "order: 40\ntarget: pipeline\nenabled: true\n",
         encoding="utf-8",
     )
 
@@ -265,7 +265,7 @@ def test_cli_artifact_mode_overrides_selected_profiles(monkeypatch, tmp_path: Pa
     )
     (profiles / "serve.defaults.yaml").write_text(
         (
-            'cmd: serve\nartifact_mode: "OFF"\n'
+            'artifact_mode: "OFF"\n'
             "observability:\n"
             "  visuals: off\n"
             "  heartbeat_interval_seconds: 30\n"
@@ -279,11 +279,11 @@ def test_cli_artifact_mode_overrides_selected_profiles(monkeypatch, tmp_path: Pa
         encoding="utf-8",
     )
     (profiles / "serve.first.yaml").write_text(
-        'cmd: serve\nname: first\ntarget: pipeline\nartifact_mode: "OFF"\n',
+        'target: pipeline\nartifact_mode: "OFF"\n',
         encoding="utf-8",
     )
     (profiles / "serve.second.yaml").write_text(
-        "cmd: serve\nname: second\ntarget: pipeline\nartifact_mode: AUTO\n",
+        "target: pipeline\nartifact_mode: AUTO\n",
         encoding="utf-8",
     )
 
@@ -344,11 +344,11 @@ def test_selected_profiles_reject_conflicting_artifact_modes(
         "id: pipeline\nkind: runtime\nentrypoint: core.runtime.pipeline\n",
     )
     (profiles / "serve.first.yaml").write_text(
-        'cmd: serve\nname: first\ntarget: pipeline\nartifact_mode: "OFF"\n',
+        'target: pipeline\nartifact_mode: "OFF"\n',
         encoding="utf-8",
     )
     (profiles / "serve.second.yaml").write_text(
-        "cmd: serve\nname: second\ntarget: pipeline\nartifact_mode: AUTO\n",
+        "target: pipeline\nartifact_mode: AUTO\n",
         encoding="utf-8",
     )
 
@@ -376,7 +376,6 @@ def test_serve_defaults_apply_when_profile_omits_fields(monkeypatch, tmp_path: P
     )
     (profiles / "serve.defaults.yaml").write_text(
         (
-            "cmd: serve\n"
             "output:\n"
             "  transport: fs\n"
             "  format: jsonl\n"
@@ -390,7 +389,7 @@ def test_serve_defaults_apply_when_profile_omits_fields(monkeypatch, tmp_path: P
         encoding="utf-8",
     )
     (profiles / "serve.train.yaml").write_text(
-        "cmd: serve\nname: train\ntarget: pipeline\n",
+        "target: pipeline\n",
         encoding="utf-8",
     )
 
@@ -427,24 +426,11 @@ def test_serve_profile_fields_override_serve_defaults(monkeypatch, tmp_path: Pat
         "id: pipeline\nkind: runtime\nentrypoint: core.runtime.pipeline\n",
     )
     (profiles / "serve.defaults.yaml").write_text(
-        (
-            "cmd: serve\n"
-            "output:\n"
-            "  transport: fs\n"
-            "  format: jsonl\n"
-            "  directory: ./artifacts/serve\n"
-        ),
+        ("output:\n  transport: fs\n  format: jsonl\n  directory: ./artifacts/serve\n"),
         encoding="utf-8",
     )
     (profiles / "serve.train.yaml").write_text(
-        (
-            "cmd: serve\n"
-            "name: train\n"
-            "target: pipeline\n"
-            "output:\n"
-            "  transport: stdout\n"
-            "  format: jsonl\n"
-        ),
+        ("target: pipeline\noutput:\n  transport: stdout\n  format: jsonl\n"),
         encoding="utf-8",
     )
 
@@ -475,24 +461,11 @@ def test_serve_profile_nested_observability_deep_merges_defaults(
         "id: pipeline\nkind: runtime\nentrypoint: core.runtime.pipeline\n",
     )
     (profiles / "serve.defaults.yaml").write_text(
-        (
-            "cmd: serve\n"
-            "observability:\n"
-            "  logging:\n"
-            "    outputs:\n"
-            "      - transport: stdout\n"
-        ),
+        ("observability:\n  logging:\n    outputs:\n      - transport: stdout\n"),
         encoding="utf-8",
     )
     (profiles / "serve.train.yaml").write_text(
-        (
-            "cmd: serve\n"
-            "name: train\n"
-            "target: pipeline\n"
-            "observability:\n"
-            "  logging:\n"
-            "    level: debug\n"
-        ),
+        ("target: pipeline\nobservability:\n  logging:\n    level: debug\n"),
         encoding="utf-8",
     )
 
@@ -520,7 +493,6 @@ def test_build_defaults_apply_to_build_profiles(tmp_path: Path):
     )
     (profiles / "build.defaults.yaml").write_text(
         (
-            "cmd: build\n"
             "mode: force\n"
             "execution:\n"
             "  sort_buffer_mb: 256\n"
@@ -532,7 +504,7 @@ def test_build_defaults_apply_to_build_profiles(tmp_path: Path):
         encoding="utf-8",
     )
     (profiles / "build.schema.yaml").write_text(
-        "cmd: build\nname: schema\ntarget: schema\n",
+        "target: schema\n",
         encoding="utf-8",
     )
 

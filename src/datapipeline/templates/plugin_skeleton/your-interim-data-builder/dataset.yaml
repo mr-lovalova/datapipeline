@@ -1,5 +1,5 @@
 # Early-stage dataset definition (record/feature prep only).
-# Populate record_stream entries with your canonical stream ids.
+# Populate stream entries with your canonical stream ids.
 
 sample:
   cadence: ${group_by}
@@ -7,5 +7,5 @@ sample:
 
 features:
   - id: first_feature
-    record_stream: your.stream.one
+    stream: your.stream.one
     field: some_field

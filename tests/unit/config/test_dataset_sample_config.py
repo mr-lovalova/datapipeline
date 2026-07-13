@@ -53,7 +53,7 @@ def test_feature_dataset_rejects_invalid_sample_keys(keys: list[str]) -> None:
 def test_feature_dataset_rejects_duplicate_vector_ids(
     duplicate_section: str,
 ) -> None:
-    vector = {"id": "price", "record_stream": "prices", "field": "close"}
+    vector = {"id": "price", "stream": "prices", "field": "close"}
     payload = {
         "sample": {"cadence": "1d"},
         "features": [vector],
@@ -66,7 +66,7 @@ def test_feature_dataset_rejects_duplicate_vector_ids(
 
 
 def test_feature_dataset_rejects_vector_id_shared_by_feature_and_target() -> None:
-    vector = {"id": "price", "record_stream": "prices", "field": "close"}
+    vector = {"id": "price", "stream": "prices", "field": "close"}
 
     with pytest.raises(ValidationError, match="must be unique"):
         FeatureDatasetConfig.model_validate(

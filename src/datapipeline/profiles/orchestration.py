@@ -3,9 +3,16 @@ from pathlib import Path
 
 from datapipeline.artifacts.executor import run_build_if_needed
 from datapipeline.artifacts.planning import ArtifactGraph, build_artifact_graph
+from datapipeline.artifacts.validation import stream_tick_artifacts
 from datapipeline.build.config_hash import compute_config_hash
+from datapipeline.config.tasks import TicksTask
 from datapipeline.profiles.executor import ExecutionSpec, run_execution
+from datapipeline.profiles.materialize import (
+    execute_materialize_job,
+    preflight_materialize_jobs,
+)
 from datapipeline.services.bootstrap import bootstrap_build_runtime
+from datapipeline.services.bootstrap.core import load_streams
 from datapipeline.services.project_paths import tasks_dir
 from datapipeline.services.runs import (
     finish_run_failed,
@@ -23,6 +30,7 @@ from .execution import (
 from .models import (
     BuildJob,
     BuildRunRequest,
+    MaterializeRunRequest,
     ProfileRunRequest,
     RuntimeRunRequest,
     ServeRunPlan,
@@ -34,8 +42,10 @@ logger = logging.getLogger(__name__)
 def run_profiles(request: ProfileRunRequest) -> None:
     if isinstance(request, BuildRunRequest):
         _run_build_profiles(request)
-    else:
+    elif isinstance(request, RuntimeRunRequest):
         _run_runtime_profiles(request)
+    else:
+        _run_materialize_profiles(request)
 
 
 def _run_build_profiles(request: BuildRunRequest) -> None:
@@ -121,6 +131,53 @@ def _run_runtime_profiles(request: RuntimeRunRequest) -> None:
         _finalize_serve_runs(started_runs, succeeded)
 
 
+def _run_materialize_profiles(request: MaterializeRunRequest) -> None:
+    jobs = list(request.jobs)
+    if not jobs:
+        return
+    request.runtime.execution = request.execution
+    try:
+        _verify_config_hash(request.project_path, request.config_hash)
+        preflight_materialize_jobs(request.runtime, jobs)
+        graph = build_artifact_graph(request.artifact_task_configs)
+        streams = load_streams(request.project_path)
+        required_artifacts = {
+            artifact
+            for job in jobs
+            for artifact in stream_tick_artifacts(job.stream, streams)
+        }
+        for artifact in sorted(required_artifacts):
+            task = graph.tasks_by_id.get(artifact)
+            if task is None:
+                raise ValueError(
+                    f"Tick artifact '{artifact}' requires a declared ticks "
+                    "task with the same id."
+                )
+            if not isinstance(task, TicksTask):
+                raise ValueError(
+                    f"Tick artifact '{artifact}' references task "
+                    f"entrypoint '{task.entrypoint}', not a ticks task."
+                )
+    except (FileExistsError, OSError, ValueError) as exc:
+        logger.error("%s", exc)
+        raise SystemExit(2) from exc
+
+    _prepare_materialize_artifacts(request, graph, required_artifacts)
+    for job in jobs:
+        request.runtime.heartbeat_interval_seconds = (
+            job.observability.heartbeat_interval_seconds
+        )
+        spec = ExecutionSpec(
+            observability=job.observability,
+            runtime=request.runtime,
+        )
+
+        def execute(job=job) -> None:
+            execute_materialize_job(job, request.runtime)
+
+        run_execution(spec, execute)
+
+
 def _verify_config_hash(project_path: Path, expected_hash: str) -> None:
     if compute_config_hash(project_path, tasks_dir(project_path)) != expected_hash:
         raise ValueError(
@@ -180,6 +237,31 @@ def _prepare_runtime_artifacts(
             required_artifacts=required_artifacts,
             settings=settings,
             runtime=runtime,
+            expected_config_hash=request.config_hash,
+        )
+
+    run_execution(spec, prepare)
+
+
+def _prepare_materialize_artifacts(
+    request: MaterializeRunRequest,
+    graph: ArtifactGraph,
+    required_artifacts: set[str],
+) -> None:
+    if not required_artifacts:
+        return
+    spec = ExecutionSpec(
+        observability=request.artifact_settings.observability,
+        runtime=request.runtime,
+    )
+
+    def prepare() -> None:
+        run_build_if_needed(
+            request.project_path,
+            graph=graph,
+            required_artifacts=required_artifacts,
+            settings=request.artifact_settings,
+            runtime=request.runtime,
             expected_config_hash=request.config_hash,
         )
 

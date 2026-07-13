@@ -1,8 +1,7 @@
 # Materialize profile reference (all options).
 # This file is documentation only; uncomment the keys you want to use.
+# Save it as materialize.<name>.yaml; the filename supplies command and name.
 #
-# cmd: materialize
-# name: adv.20               # required; must be unique among materialize profiles
 # order: 10                  # optional; lower runs first, unset uses filename order
 # enabled: true              # optional
 # stream: adv.20             # required; source or derived stream id
@@ -21,7 +20,6 @@
 #       #   path: logs/materialize.log
 #
 # Put command-wide values in materialize.defaults.yaml:
-#   cmd: materialize
 #   artifact_mode: AUTO       # AUTO | FORCE | OFF
 #   overwrite: true
 #   execution:
