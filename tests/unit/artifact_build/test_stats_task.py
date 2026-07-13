@@ -37,7 +37,7 @@ def test_materialize_vector_stats_reads_metadata_and_omits_schema_meta(
         source=_EmptySource(),
         mapper=_identity,
         transforms=(),
-        partition_by=None,
+        partition_by=(),
         feature_id_by=None,
         presorted=False,
     )

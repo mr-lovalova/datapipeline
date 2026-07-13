@@ -53,7 +53,7 @@ def test_align_streams_sorts_inputs_and_preserves_configured_order() -> None:
     rows = list(
         align_streams(
             [("left", iter(left)), ("right", iter(right))],
-            partition_by="id_",
+            partition_by=("id_",),
             buffer_bytes=1,
         )
     )
@@ -101,7 +101,7 @@ def test_align_streams_intersects_three_inputs() -> None:
                     ),
                 ),
             ],
-            partition_by="id_",
+            partition_by=("id_",),
             buffer_bytes=1,
         )
     )
@@ -119,7 +119,7 @@ def test_align_streams_skips_keys_without_a_complete_match() -> None:
                 ("left", iter([_record("A", 1, "left")])),
                 ("right", iter([_record("A", 2, "right")])),
             ],
-            partition_by="id_",
+            partition_by=("id_",),
             buffer_bytes=1_000,
         )
     )
@@ -144,7 +144,7 @@ def test_align_streams_rejects_duplicates_in_every_input(duplicate_input: int) -
         list(
             align_streams(
                 [(name, iter(stream)) for name, stream in inputs],
-                partition_by="id_",
+                partition_by=("id_",),
                 buffer_bytes=1,
             )
         )
@@ -172,7 +172,7 @@ def test_align_streams_validates_duplicates_after_intersection_is_exhausted() ->
                         ),
                     ),
                 ],
-                partition_by="id_",
+                partition_by=("id_",),
                 buffer_bytes=1,
             )
         )
@@ -192,7 +192,7 @@ def test_align_streams_returns_empty_when_any_input_is_empty(empty_input: int) -
         list(
             align_streams(
                 [(name, iter(stream)) for name, stream in inputs],
-                partition_by="id_",
+                partition_by=("id_",),
                 buffer_bytes=1,
             )
         )
@@ -210,7 +210,7 @@ def test_align_streams_stops_opening_inputs_after_an_empty_stream() -> None:
             ("empty", iter(())),
             ("unused", unused_records()),
         ],
-        partition_by="id_",
+        partition_by=("id_",),
         buffer_bytes=1,
     )
 
@@ -250,7 +250,7 @@ def test_alignment_resets_sort_total_before_alignment(tmp_path, monkeypatch) -> 
                     ),
                 ),
             ],
-            partition_by="id_",
+            partition_by=("id_",),
             buffer_bytes=10_000,
         )
 
@@ -290,7 +290,7 @@ def test_align_streams_requires_at_least_two_inputs() -> None:
         list(
             align_streams(
                 [("only", iter([_record("A", 1, "only")]))],
-                partition_by="id_",
+                partition_by=("id_",),
                 buffer_bytes=1,
             )
         )
@@ -319,7 +319,7 @@ def test_align_streams_closes_combined_sorter(monkeypatch, exit_kind: str) -> No
             ("left", iter([_record("A", 1, "left")])),
             ("right", iter(right)),
         ],
-        partition_by="id_",
+        partition_by=("id_",),
         buffer_bytes=37,
     )
 

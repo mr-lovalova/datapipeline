@@ -10,15 +10,17 @@ Every canonical stream ID has exactly one entry in `Runtime.streams`:
 `IngestRuntimeStream`, `DerivedRuntimeStream`, or `AlignedRuntimeStream`.
 
 An ingest owns an external source. A derived stream names one upstream stream;
-an aligned stream names two or more inputs. All three keep their prepared mapper,
-typed transforms, partition identity (`partition_by`), feature identity
+an aligned stream names two or more inputs. Ingests and derived streams keep a
+prepared iterator mapper; aligned streams keep their prepared combine stage. All
+three keep typed transforms, partition identity (`partition_by`), feature identity
 (`feature_id_by`), and ordering policy (`presorted`) together. There is no
 generic source adapter that hides another pipeline. Single-input streams are
 flattened; aligned streams use the explicit fan-in boundary described below.
+Their strict config models make `map` and `combine` mutually exclusive.
 
-Loader, parser, and mapper entry points are resolved while bootstrapping the
-project. The resulting source and mapper callables are stored on the runtime
-stream. There are no parallel `stream_sources`, `mappers`, record-operation,
+Configured loader, parser, map, and combine entry points are resolved while
+bootstrapping the project. The resulting callables are stored on the runtime stream. There are
+no parallel `stream_sources`, `mappers`, record-operation,
 stream-operation, or debug-transform registries to keep synchronized.
 
 ```mermaid
@@ -60,8 +62,9 @@ stream:<id>
 Aligned streams are the one real fan-in boundary. Their root source node is
 `align_inputs`; it owns opening, ordering, and closing the configured inputs.
 Those input pipelines run internally without starting competing visual pipelines.
-The aligned root remains the single observable pipeline and `align_inputs` reports
-its current progress.
+The aligned root remains the single observable pipeline: `align_inputs` reports
+its current progress, then `combine_records` applies the configured combine
+function before ordering and stream transforms.
 
 The runner accepts only a source followed by stream stages. It owns lazy
 iteration, closing, output counts, timings, and sampled progress. It has no

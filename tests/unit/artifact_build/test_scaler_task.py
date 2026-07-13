@@ -51,7 +51,7 @@ def _runtime(tmp_path) -> Runtime:
         source=_EmptySource(),
         mapper=_identity,
         transforms=(),
-        partition_by=None,
+        partition_by=(),
         feature_id_by=None,
         presorted=False,
     )

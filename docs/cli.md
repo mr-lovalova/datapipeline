@@ -14,7 +14,7 @@ reading the data. Visuals are independent of log filtering.
 
 - `jerry serve --project <project.yaml> --preview <stage> --limit N [--log-level LEVEL] [--visuals on|off] [--heartbeat-interval SECONDS]`
   - `source`: opened source values before mapping.
-  - `mapped`: records immediately after mapping.
+  - `mapped`: records immediately after the stream's map or combine stage.
   - `records`: records after configured transforms and ordering.
   - `features`: fully processed and ordered feature/target records, including
     configured scaling and sequence construction.
@@ -100,6 +100,13 @@ reading the data. Visuals are independent of log filtering.
   - Generates a standalone demo plugin at `./demo/` and wires a `demo` dataset alias.
 - `jerry inflow create`
   - Wizard to scaffold a complete ingest flow (source YAML + parser/DTO + mapper + stream).
+- `jerry stream create [--identity]`
+  - Scaffolds either a source-backed ingest or an aligned stream.
+  - Aligned streams require at least two existing input streams and the name of
+    a combine entry point already registered in `datapipeline.mappers`. The
+    combine function receives one matching record from each input in the
+    selected order and returns one record or `None`.
+  - `--identity` applies only to source-backed ingests.
 - `jerry source create <provider>.<dataset> --transport fs|http|synthetic --format csv|json|jsonl|pickle`
   - Also supports positional `<provider> <dataset>` and `--alias <provider>.<dataset>`.
   - Creates a source YAML only (no Python code).

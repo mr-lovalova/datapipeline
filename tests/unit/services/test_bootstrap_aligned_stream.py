@@ -1,7 +1,11 @@
 from datapipeline.execution.context import PipelineContext
 from datapipeline.execution.observer import NoopPipelineObserver
 from datapipeline.domain.record import TemporalRecord
-from datapipeline.pipelines.stream.pipeline import run_stream_pipeline
+from datapipeline.operations.runtime.pipeline import _record_preview_stream
+from datapipeline.pipelines.stream.pipeline import (
+    build_stream_pipeline,
+    run_stream_pipeline,
+)
 from datapipeline.plugins import MAPPERS_EP
 from datapipeline.runtime import Runtime
 from datapipeline.services.bootstrap.core import init_streams, load_streams
@@ -20,7 +24,7 @@ class _PipelineObserver(NoopPipelineObserver):
         self.started.append(pipeline_name)
 
 
-def test_yaml_aligned_stream_runs_with_inherited_partition_and_positional_mapper(
+def test_yaml_aligned_stream_runs_with_inherited_partition_and_combiner(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -81,7 +85,7 @@ loader:
 id: {input_name}
 from:
   source: {input_name}.source
-partition_by: ticker
+partition_by: [ticker]
 map:
   entrypoint: identity
 """,
@@ -95,7 +99,7 @@ from:
   align:
     - left
     - right
-map:
+combine:
   entrypoint: combine
   args:
     offset: 5
@@ -121,10 +125,20 @@ map:
 
     runtime = Runtime(project_yaml, tmp_path / "artifacts")
     init_streams(load_streams(project_yaml), runtime)
+    context = PipelineContext(runtime)
+    pipeline = build_stream_pipeline(context, "combined")
+    assert [node.name for node in pipeline.nodes] == [
+        "align_inputs",
+        "combine_records",
+        "order_records",
+    ]
+    preview = list(_record_preview_stream(context, "combined", "mapped"))
+    assert [record.value for record in preview] == [115, 225]
+
     observer = _PipelineObserver()
     runtime.pipeline_observer = observer
 
-    assert runtime.streams["combined"].partition_by == "ticker"
+    assert runtime.streams["combined"].partition_by == ("ticker",)
     records = list(run_stream_pipeline(PipelineContext(runtime), "combined"))
     assert [(record.time.day, record.ticker, record.value) for record in records] == [
         (1, "A", 115),

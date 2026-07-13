@@ -200,7 +200,7 @@ def test_tick_artifact_rejects_nested_tick_artifact_in_any_upstream_stream(
                 "derived": {
                     "id": "derived",
                     "from": {"align": ["base", "duration"]},
-                    "map": {"entrypoint": "combine"},
+                    "combine": {"entrypoint": "combine"},
                 },
                 "duration": {
                     "id": "duration",

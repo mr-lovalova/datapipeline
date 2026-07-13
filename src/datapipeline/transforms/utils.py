@@ -36,13 +36,10 @@ def get_field(record: object, field: str) -> Any:
 
 def partition_key(
     record: object,
-    partition_by: str | list[str] | tuple[str, ...] | None,
+    partition_by: tuple[str, ...],
 ) -> tuple:
-    if partition_by is None:
-        return ()
-    fields = [partition_by] if isinstance(partition_by, str) else partition_by
     values: list[Any] = []
-    for field in fields:
+    for field in partition_by:
         if not hasattr(record, field):
             raise KeyError(
                 f"Partition field '{field}' not found on {type(record).__name__}"

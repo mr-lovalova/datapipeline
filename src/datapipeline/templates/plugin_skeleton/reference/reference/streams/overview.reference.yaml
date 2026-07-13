@@ -4,24 +4,19 @@
 # id: domain.dataset.variant
 # from:
 #   stream: upstream.stream.id  # single upstream stream
-#   # OR
-#   align:                      # fan-in alignment in positional mapper order
-#     - upstream.stream.id
-#     - other.stream.id
-# map:                          # optional for one input; required for alignment
+# map:                          # optional iterator -> iterable mapping
 #   entrypoint: my_mapper
 #   args: {}
-# cadence: ${group_by}          # optional per-stream variable for interpolation
-# partition_by: station_id      # optional; string or list of strings
-# feature_id_by: []             # [] requires partition_by fields in dataset sample.keys
-# ordered_by: [station_id, time] # optional; must equal [*partition_by, time]
+# partition_by: [station_id]    # optional list; time is reserved
+# feature_id_by: []             # optional list; [] requires partition fields in sample.keys
+# ordered_by: [station_id, time] # optional list; must equal [*partition_by, time]
 #
 # stream:                       # optional flat typed stream operations
 #   - operation: dedupe
 #   - { operation: lag, field: close, to: close_lag_1, periods: 1 }
 #   - { operation: lead, field: close, to: close_lead_126, periods: 126 }
 #   - { operation: collapse, keep: last } # first | last
-#   - { operation: ensure_cadence, cadence: "${cadence}" }
+#   - { operation: ensure_cadence, cadence: "${group_by}" }
 #   - { operation: fill, field: close, statistic: median, window: 6, min_samples: 1 }
 #     # statistic: mean | median
 #   - { operation: forward_fill, field: close, to: close_asof }
@@ -36,6 +31,16 @@
 #     right_value: 1.0
 #     to: momentum_189_21
 #     # operator: add | sub | mul | div
+#
+# An aligned stream uses a different callable contract:
+# from:
+#   align:                      # order defines positional combine arguments
+#     - upstream.stream.id
+#     - other.stream.id
+# combine:                      # required record(s) -> record | None function
+#   entrypoint: my_combine_function
+#   args: {}
+# partition_by is inherited from aligned inputs and cannot be set here.
 #
 # See also:
 # - ingest.reference.yaml

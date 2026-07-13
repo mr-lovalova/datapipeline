@@ -336,7 +336,7 @@ map:
   entrypoint: equity.ohlcv
   args: {}
 
-partition_by: station
+partition_by: [station]
 feature_id_by: [] # requires dataset sample.keys: [station]
 
 record:
@@ -344,6 +344,9 @@ record:
   - { operation: where, field: time, operator: lt, comparand: "${end_time}" }
   - { operation: floor_time, cadence: 10m }
 ```
+
+An ingest must define `map`. Its callable receives the parsed source iterator
+and returns an iterable of canonical domain records.
 
 ### `<project_root>/streams/<stream_id>.yaml`
 
@@ -354,7 +357,7 @@ transforms. They cannot reference raw sources and cannot define `record:`.
 id: equity.ohlcv.liquid
 from:
   stream: equity.ohlcv
-partition_by: station
+partition_by: [station]
 feature_id_by: [] # requires dataset sample.keys: [station]
 stream:
   - { operation: ensure_cadence, cadence: 10m }
@@ -365,29 +368,37 @@ stream:
 
 - `record`: built-in per-record transforms applied before ordering. Ingest-only.
 - `stream`: transforms applied after ingest ordering; operate on record fields before feature selection.
+- `map`: optional only on a single-input derived stream; the callable receives
+  the upstream iterator and returns an iterable. Aligned streams use `combine`
+  instead.
 - Each item is a flat mapping with an `operation` discriminator and that
   operation's fields. Missing or unknown operations, unknown fields, and
   invalid values are rejected. See [Transforms](transforms/index.md).
+- `partition_by`, `feature_id_by`, and `ordered_by` must be YAML lists when
+  present; scalar shorthand is not accepted. Blank and duplicate fields are
+  rejected.
 - `partition_by`: optional stream state keys used by ordering and history-based
-  transforms.
+  transforms. The runtime appends the reserved `time` field to the canonical
+  sort key, so it must not appear here.
 - `ordered_by`: optional assertion that records entering the ordering stage use
   `[*partition_by, time]` order. When present, it must equal that canonical
   order and is validated while streaming. When absent, records are externally
   sorted.
-- `feature_id_by`: optional fields used to suffix feature IDs (e.g.,
+- `feature_id_by`: optional field list used to suffix feature IDs (e.g.,
   `temp__@station_id:XYZ`). If a partitioned stream is used as a dataset
-  feature, set this explicitly. Use `[]` only when every `partition_by` field
-  is present in `dataset.sample.keys`; otherwise use a field list for wide
-  feature IDs. Dataset feature and target IDs cannot contain the reserved
-  `__` separator. Generated suffixes escape strings and tag non-string scalar
-  values so different component tuples cannot produce the same feature ID.
+  feature, set this explicitly. Every `partition_by` field must appear in
+  either `dataset.sample.keys` or `feature_id_by`; use `[]` only when sample
+  keys carry the full partition identity. Dataset feature and target IDs cannot
+  contain the reserved `__` separator. Generated suffixes escape strings and
+  tag non-string scalar values so different component tuples cannot produce the
+  same feature ID.
 
 ### Aligned Streams (Engineered Domains)
 
 Aligned streams intersect two or more input streams with the same
-partition fields and timestamp, then call a mapper with the matching records in
-the configured order. In this example, both inputs use
-`partition_by: station_id`, which the aligned stream inherits.
+partition fields and timestamp, then call a combine function with the matching
+records in the configured order. In this example, both inputs use
+`partition_by: [station_id]`, which the aligned stream inherits.
 
 ```yaml
 # <project_root>/streams/air_density.processed.yaml
@@ -399,11 +410,11 @@ from:
 feature_id_by: []
 ordered_by: [station_id, time]
 
-map:
-  entrypoint: map_to_air_density
+combine:
+  entrypoint: combine_air_density
   args: {}
 
-# Optional policies run after mapping like any stream.
+# Optional policies run after combining like any stream.
 # stream: [...]
 ```
 
@@ -423,13 +434,14 @@ features:
 Notes:
 
 - `from.align` contains at least two canonical stream ids. List order defines
-  positional mapper arguments.
+  positional combine arguments.
+- `combine` is required and cannot be replaced by the iterator-level `map`.
 - Inputs must use the same `partition_by`; the aligned stream inherits it.
 - Alignment externally orders the combined inputs within
   `execution.sort_buffer_mb`; inputs do not need to arrive ordered.
 - Each input must contain at most one record per `(partition, time)` key. Only
-  keys present in every input are mapped.
-- Mapper signature is `mapper(first_record, second_record, ..., **args)` and it
+  keys present in every input are combined.
+- Combine signature is `combine(first_record, second_record, ..., **args)` and it
   returns one record or `None` to skip that key.
 - The derived stream outputs records; its own `stream` transforms apply afterward.
 
@@ -464,7 +476,7 @@ targets:
   distinct key types and cannot be mixed within one field.
 - Stateful stream transforms such as `lag`, `lead`, `rolling`, `fill`, and
   `ensure_cadence` use stream `partition_by` as their entity partition. Add
-  `partition_by: security_id` when transform state must stay per security.
+  `partition_by: [security_id]` when transform state must stay per security.
 - `sample.keys`, stream `partition_by`, and stream `feature_id_by` are separate:
   `sample.keys` controls output row identity, `partition_by` controls stream
   transform state, and `feature_id_by` controls feature-id suffixes such as

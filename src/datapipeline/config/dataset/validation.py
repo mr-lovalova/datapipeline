@@ -8,7 +8,7 @@ def validate_dataset_feature_identity(
 ) -> None:
     for cfg in [*dataset.features, *dataset.targets]:
         stream = require_runtime_stream(runtime, cfg.record_stream)
-        if stream.partition_by is None:
+        if not stream.partition_by:
             continue
         if stream.feature_id_by is None:
             raise ValueError(
@@ -17,21 +17,13 @@ def validate_dataset_feature_identity(
                 "keyed features, or set feature_id_by to the fields that should "
                 "suffix feature ids."
             )
-        if stream.feature_id_by != []:
-            continue
-
-        partition_fields = (
-            [stream.partition_by]
-            if isinstance(stream.partition_by, str)
-            else stream.partition_by
-        )
-        missing_sample_keys = [
-            field for field in partition_fields if field not in dataset.sample.keys
+        identity_fields = set(dataset.sample.keys) | set(stream.feature_id_by)
+        missing_partition_fields = [
+            field for field in stream.partition_by if field not in identity_fields
         ]
-        if missing_sample_keys:
+        if missing_partition_fields:
             raise ValueError(
-                f"Stream '{cfg.record_stream}' uses feature_id_by: [], so its "
-                "partition fields must identify dataset samples. Add "
-                f"{missing_sample_keys!r} to sample.keys or suffix feature ids "
-                "with feature_id_by."
+                f"Stream '{cfg.record_stream}' does not preserve partition identity "
+                f"for {missing_partition_fields!r}. Add those fields to sample.keys "
+                "or feature_id_by."
             )

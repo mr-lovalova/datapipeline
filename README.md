@@ -162,7 +162,7 @@ These live under `lib/<plugin>/src/<package>/`:
 - `dtos/*.py`: DTO models (raw source shapes).
 - `parsers/*.py`: raw -> DTO parsers (referenced by source YAML via entry point).
 - `domains/<domain>/model.py`: domain record models.
-- `mappers/*.py`: DTO/domain -> domain record mapping functions (referenced by ingests and mapped streams via entry point).
+- `mappers/*.py`: iterator mapping and aligned combine functions (registered in the mapper entry-point group).
 - `loaders/*.py`: optional custom loaders (fs/http usually use the built-in core loader).
 - `pyproject.toml`: entry points for loaders/parsers/mappers (rerun `pip install -e lib/<plugin>` after changes).
 

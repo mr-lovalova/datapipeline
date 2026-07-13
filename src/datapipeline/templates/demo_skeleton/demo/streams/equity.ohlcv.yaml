@@ -2,14 +2,13 @@ id: equity.ohlcv
 from:
   stream: equity.ohlcv.ingest
 
-cadence: ${group_by} # optional per-stream cadence
-partition_by: ticker
-feature_id_by: ticker
+partition_by: [ticker]
+feature_id_by: [ticker]
 
 stream: # per-stream transforms (input sorted by partition,time)
   # - { operation: lag, field: close, to: close_lag_1, periods: 1 }
   # - { operation: lead, field: close, to: close_lead_126, periods: 126 }
-  # - { operation: ensure_cadence, cadence: "${cadence}" }
+  # - { operation: ensure_cadence, cadence: "${group_by}" }
   # - { operation: collapse, keep: first }
   - operation: rolling # compute 5-day average dollar volume (ADV5)
     field: dollar_volume

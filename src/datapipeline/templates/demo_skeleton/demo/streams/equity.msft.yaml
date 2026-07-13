@@ -2,8 +2,6 @@ id: equity.msft
 from:
   stream: equity.msft.ingest
 
-cadence: ${group_by}
-
 stream:
   - operation: dedupe
   - { operation: collapse, keep: first }

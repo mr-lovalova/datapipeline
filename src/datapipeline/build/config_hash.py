@@ -1,7 +1,7 @@
 import glob
 import hashlib
 import stat
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable
 from pathlib import Path
 
 from datapipeline.config.catalog import SourceConfig
@@ -133,18 +133,10 @@ def _hash_source_inputs(
     project_data = resolve_config_refs(
         load_yaml(project_yaml), project_yaml=project_yaml
     )
-    if not isinstance(project_data, Mapping):
-        return
     project_vars = project_vars_from_data(project_data)
 
     for source_file in source_files:
         data = resolve_config_refs(load_yaml(source_file), project_yaml=project_yaml)
-        if (
-            not isinstance(data, Mapping)
-            or not isinstance(data.get("parser"), Mapping)
-            or not isinstance(data.get("loader"), Mapping)
-        ):
-            continue
         source = SourceConfig.model_validate(
             interpolate_config_vars(data, project_vars)
         )

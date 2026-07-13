@@ -38,7 +38,7 @@ def write_aligned_stream(
     project_yaml: Path,
     stream_id: str,
     input_streams: list[str],
-    mapper_entrypoint: str,
+    combine_entrypoint: str,
 ) -> Path:
     ensure_project_scaffold(project_yaml)
     streams_path = resolve_streams_dir(project_yaml)
@@ -50,7 +50,7 @@ def write_aligned_stream(
             "streams/aligned.yaml.j2",
             stream_id=stream_id,
             input_streams=input_streams,
-            mapper_entrypoint=mapper_entrypoint,
+            combine_entrypoint=combine_entrypoint,
         ).strip()
         + "\n",
         encoding="utf-8",

@@ -14,7 +14,7 @@ _CanonicalKey = tuple[tuple[object, ...], datetime]
 
 def align_streams(
     inputs: Sequence[tuple[str, Iterator[TemporalRecord]]],
-    partition_by: str | list[str] | None,
+    partition_by: tuple[str, ...],
     buffer_bytes: int,
 ) -> Generator[tuple[TemporalRecord, ...], None, None]:
     if len(inputs) < 2:
@@ -69,6 +69,6 @@ def align_streams(
 
 def _canonical_key(
     record: TemporalRecord,
-    partition_by: str | list[str] | None,
+    partition_by: tuple[str, ...],
 ) -> _CanonicalKey:
     return partition_key(record, partition_by), record.time

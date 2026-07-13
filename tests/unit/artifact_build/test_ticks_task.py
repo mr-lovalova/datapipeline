@@ -53,7 +53,7 @@ def _runtime(tmp_path, rows=None) -> Runtime:
         source=_Source([_record(2), _record(0), _record(2)] if rows is None else rows),
         mapper=_identity,
         transforms=(),
-        partition_by=None,
+        partition_by=(),
         feature_id_by=None,
         presorted=False,
     )
@@ -69,7 +69,7 @@ def _stream_runtime(tmp_path, rows=None) -> Runtime:
         input_stream="source.stream",
         mapper=_identity,
         transforms=(FloorTimeConfig(cadence="1h"),),
-        partition_by=None,
+        partition_by=(),
         feature_id_by=None,
         presorted=False,
     )

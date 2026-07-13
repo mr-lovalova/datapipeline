@@ -181,7 +181,7 @@ def test_source_listing_uses_workspace_project_without_python_package(
     monkeypatch.setattr(
         list_command,
         "load_streams",
-        lambda path: SimpleNamespace(raw={"nasa.weather": object()}),
+        lambda path: SimpleNamespace(sources={"nasa.weather": object()}),
     )
     monkeypatch.setattr(
         list_command,

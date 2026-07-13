@@ -97,14 +97,14 @@ Derived streams consume existing stream ids:
 id: equity.daily_liquid
 from:
   stream: equity.ohlcv
-partition_by: ticker
-feature_id_by: ticker
+partition_by: [ticker]
+feature_id_by: [ticker]
 stream:
   - operation: dedupe
 ```
 
 Aligned streams intersect their inputs by partition and time. Input order is
-also mapper argument order:
+also combine argument order:
 
 ```yaml
 # streams/equity.price_to_earnings.yaml
@@ -113,8 +113,8 @@ from:
   align:
     - equity.price.daily
     - equity.earnings.daily
-map:
-  entrypoint: map_price_to_earnings
+combine:
+  entrypoint: combine_price_to_earnings
   args: {}
 ```
 
@@ -172,7 +172,8 @@ Expected behavior:
 
 3. Empty output:
 - Check source loader `path/url`.
-- Check parser/mapper output with `jerry serve --preview source|mapped|records`.
+- Check parser and map/combine output with
+  `jerry serve --preview source|mapped|records`.
 
 4. Wrong output location:
 - Check workspace root and `--output-directory` value.

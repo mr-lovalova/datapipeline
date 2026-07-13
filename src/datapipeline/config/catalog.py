@@ -1,4 +1,4 @@
-from typing import Annotated, Any
+from typing import Annotated, Any, Self, TypeAlias
 
 from pydantic import (
     BaseModel,
@@ -20,13 +20,24 @@ _EntryPoint = Annotated[
     StringConstraints(strip_whitespace=True, min_length=1),
 ]
 
-_FeatureIdentityField = Annotated[
+_FieldName = Annotated[
     str,
     StringConstraints(strip_whitespace=True, min_length=1),
 ]
 
+_CanonicalId = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True,
+        min_length=1,
+        pattern=r"^[^@:]+$",
+    ),
+]
 
-class EPArgs(BaseModel):
+
+class EntryPointConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     entrypoint: _EntryPoint
     args: dict[str, Any] = Field(default_factory=dict)
 
@@ -44,39 +55,47 @@ class SourceInputsConfig(BaseModel):
 
 
 class SourceConfig(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-    parser: EPArgs
-    loader: EPArgs
+    model_config = ConfigDict(extra="forbid")
+
+    id: _CanonicalId
+    parser: EntryPointConfig
+    loader: EntryPointConfig
     inputs: SourceInputsConfig | None = None
 
 
 class IngestFromConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    source: str
+    source: _CanonicalId
 
 
 class IngestConfig(BaseModel):
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+    model_config = ConfigDict(extra="forbid")
 
-    id: str
+    id: _CanonicalId
     from_: IngestFromConfig = Field(alias="from")
-    map: EPArgs
-    cadence: Any | None = None
-    partition_by: str | list[str] | None = Field(default=None)
-    feature_id_by: _FeatureIdentityField | list[_FeatureIdentityField] | None = Field(
-        default=None
-    )
-    ordered_by: list[str] | None = Field(default=None)
+    map: EntryPointConfig
+    partition_by: tuple[_FieldName, ...] = ()
+    feature_id_by: tuple[_FieldName, ...] | None = None
+    ordered_by: tuple[_FieldName, ...] | None = None
     record: list[RecordTransformConfig] = Field(default_factory=list)
+
+    @field_validator("partition_by")
+    @classmethod
+    def validate_partition_by(cls, fields: tuple[str, ...]) -> tuple[str, ...]:
+        if len(fields) != len(set(fields)):
+            raise ValueError("partition_by must not contain duplicate fields")
+        if "time" in fields:
+            raise ValueError("partition_by must not contain the reserved field 'time'")
+        return fields
 
     @field_validator("feature_id_by")
     @classmethod
     def validate_feature_id_by(
         cls,
-        fields: str | list[str] | None,
-    ) -> str | list[str] | None:
-        if isinstance(fields, list) and len(fields) != len(set(fields)):
+        fields: tuple[str, ...] | None,
+    ) -> tuple[str, ...] | None:
+        if fields is not None and len(fields) != len(set(fields)):
             raise ValueError("feature_id_by must not contain duplicate fields")
         return fields
 
@@ -84,80 +103,95 @@ class IngestConfig(BaseModel):
 class StreamRefConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    stream: str
-
-    @field_validator("stream")
-    @classmethod
-    def validate_stream(cls, stream: str) -> str:
-        stream = stream.strip()
-        if not stream:
-            raise ValueError("from.stream must not be empty")
-        if "@" in stream or ":" in stream:
-            raise ValueError("from.stream must reference a canonical stream id")
-        return stream
+    stream: _CanonicalId
 
 
 class AlignFromConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    align: list[str] = Field(min_length=2)
+    align: tuple[_CanonicalId, ...] = Field(min_length=2)
 
     @field_validator("align")
     @classmethod
-    def validate_streams(cls, streams: list[str]) -> list[str]:
-        normalized = [stream.strip() for stream in streams]
-        if any(not stream for stream in normalized):
-            raise ValueError("from.align stream ids must not be empty")
-        if any("@" in stream or ":" in stream for stream in normalized):
-            raise ValueError("from.align must reference canonical stream ids")
-        if len(set(normalized)) != len(normalized):
+    def validate_streams(cls, streams: tuple[str, ...]) -> tuple[str, ...]:
+        if len(set(streams)) != len(streams):
             raise ValueError("from.align must not contain duplicate stream ids")
-        return normalized
+        return streams
 
 
-class StreamConfig(BaseModel):
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+class _StreamConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 
-    id: str
-    from_: StreamRefConfig | AlignFromConfig = Field(alias="from")
-    map: EPArgs | None = None
-    cadence: Any | None = None
-    partition_by: str | list[str] | None = Field(default=None)
-    feature_id_by: _FeatureIdentityField | list[_FeatureIdentityField] | None = Field(
-        default=None
-    )
-    ordered_by: list[str] | None = Field(default=None)
+    id: _CanonicalId
+    feature_id_by: tuple[_FieldName, ...] | None = None
+    ordered_by: tuple[_FieldName, ...] | None = None
     stream: list[StreamTransformConfig] = Field(default_factory=list)
 
     @field_validator("feature_id_by")
     @classmethod
     def validate_feature_id_by(
         cls,
-        fields: str | list[str] | None,
-    ) -> str | list[str] | None:
-        if isinstance(fields, list) and len(fields) != len(set(fields)):
+        fields: tuple[str, ...] | None,
+    ) -> tuple[str, ...] | None:
+        if fields is not None and len(fields) != len(set(fields)):
             raise ValueError("feature_id_by must not contain duplicate fields")
         return fields
 
-    @property
-    def aligns_streams(self) -> bool:
-        return isinstance(self.from_, AlignFromConfig)
+
+class DerivedStreamConfig(_StreamConfig):
+    from_: StreamRefConfig = Field(alias="from")
+    map: EntryPointConfig | None = None
+    partition_by: tuple[_FieldName, ...] = ()
+
+    @field_validator("partition_by")
+    @classmethod
+    def validate_partition_by(cls, fields: tuple[str, ...]) -> tuple[str, ...]:
+        if len(fields) != len(set(fields)):
+            raise ValueError("partition_by must not contain duplicate fields")
+        if "time" in fields:
+            raise ValueError("partition_by must not contain the reserved field 'time'")
+        return fields
 
     def input_streams(self) -> tuple[str, ...]:
-        if isinstance(self.from_, AlignFromConfig):
-            return tuple(self.from_.align)
         return (self.from_.stream,)
 
-    @model_validator(mode="after")
-    def _validate_stream(self):
-        if self.aligns_streams and self.partition_by is not None:
-            raise ValueError("aligned streams inherit partition_by from their inputs")
-        if self.aligns_streams and self.map is None:
-            raise ValueError("aligned streams require map.entrypoint")
-        return self
+
+class AlignedStreamConfig(_StreamConfig):
+    from_: AlignFromConfig = Field(alias="from")
+    combine: EntryPointConfig
+
+    def input_streams(self) -> tuple[str, ...]:
+        return self.from_.align
+
+
+StreamConfig: TypeAlias = DerivedStreamConfig | AlignedStreamConfig
 
 
 class StreamsConfig(BaseModel):
-    raw: dict[str, SourceConfig] = Field(default_factory=dict)
+    model_config = ConfigDict(extra="forbid")
+
+    sources: dict[str, SourceConfig] = Field(default_factory=dict)
     ingests: dict[str, IngestConfig] = Field(default_factory=dict)
     streams: dict[str, StreamConfig] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_registry_keys(self) -> Self:
+        for source_id, source in self.sources.items():
+            if source_id != source.id:
+                raise ValueError(
+                    f"Source registry key {source_id!r} does not match "
+                    f"source id {source.id!r}"
+                )
+        for ingest_id, ingest in self.ingests.items():
+            if ingest_id != ingest.id:
+                raise ValueError(
+                    f"Ingest registry key {ingest_id!r} does not match "
+                    f"ingest id {ingest.id!r}"
+                )
+        for stream_id, stream in self.streams.items():
+            if stream_id != stream.id:
+                raise ValueError(
+                    f"Stream registry key {stream_id!r} does not match "
+                    f"stream id {stream.id!r}"
+                )
+        return self

@@ -88,13 +88,9 @@ def open_records(stream: RecordStream[Any]) -> Iterator[Any]:
         yield record
 
 
-def map_records(mapper, records):
-    return mapper(records)
-
-
 def order_records(
     context: PipelineContext,
-    partition_by: str | list[str] | None,
+    partition_by: tuple[str, ...],
     presorted: bool,
     records: Iterator[Any],
 ) -> Iterator[Any]:
@@ -103,7 +99,7 @@ def order_records(
         return partition_key(record, partition_by), record.time
 
     if presorted:
-        ordered_by = canonical_record_order(partition_by)
+        ordered_by = list(canonical_record_order(partition_by))
         previous_key = None
         for position, record in enumerate(records, start=1):
             current_key = record_order_key(record)

@@ -1,11 +1,17 @@
 import pytest
 
-from datapipeline.config.catalog import IngestConfig, StreamConfig
+from datapipeline.config.catalog import (
+    AlignedStreamConfig,
+    DerivedStreamConfig,
+    IngestConfig,
+    SourceConfig,
+    StreamsConfig,
+)
 
 
 def test_stream_rejects_old_kind_shape() -> None:
     with pytest.raises(ValueError, match="Extra inputs are not permitted"):
-        StreamConfig.model_validate(
+        DerivedStreamConfig.model_validate(
             {
                 "kind": "ingest",
                 "id": "sample",
@@ -17,7 +23,7 @@ def test_stream_rejects_old_kind_shape() -> None:
 
 def test_stream_rejects_from_source() -> None:
     with pytest.raises(ValueError, match="Extra inputs are not permitted"):
-        StreamConfig.model_validate(
+        DerivedStreamConfig.model_validate(
             {
                 "id": "sample",
                 "from": {"source": "demo.source"},
@@ -27,7 +33,7 @@ def test_stream_rejects_from_source() -> None:
 
 def test_stream_rejects_record_transforms() -> None:
     with pytest.raises(ValueError, match="Extra inputs are not permitted"):
-        StreamConfig.model_validate(
+        DerivedStreamConfig.model_validate(
             {
                 "id": "sample",
                 "from": {"stream": "demo.ingest"},
@@ -48,7 +54,7 @@ def test_ingest_rejects_stream_transforms() -> None:
         )
 
 
-@pytest.mark.parametrize("config_type", [IngestConfig, StreamConfig])
+@pytest.mark.parametrize("config_type", [IngestConfig, DerivedStreamConfig])
 def test_stream_configs_reject_execution_sort_policy(config_type) -> None:
     config = {
         "id": "sample",
@@ -56,7 +62,7 @@ def test_stream_configs_reject_execution_sort_policy(config_type) -> None:
         "map": {"entrypoint": "identity", "args": {}},
         "sort_batch_size": 100,
     }
-    if config_type is StreamConfig:
+    if config_type is DerivedStreamConfig:
         config["from"] = {"stream": "demo.ingest"}
 
     with pytest.raises(ValueError, match="Extra inputs are not permitted"):
@@ -69,15 +75,18 @@ def test_ingest_accepts_feature_id_by() -> None:
             "id": "sample",
             "from": {"source": "demo.source"},
             "map": {"entrypoint": "identity", "args": {}},
-            "partition_by": "ticker",
-            "feature_id_by": "ticker",
+            "partition_by": ["ticker"],
+            "feature_id_by": ["ticker"],
+            "ordered_by": ["ticker", "time"],
         }
     )
 
-    assert spec.feature_id_by == "ticker"
+    assert spec.partition_by == ("ticker",)
+    assert spec.feature_id_by == ("ticker",)
+    assert spec.ordered_by == ("ticker", "time")
 
 
-@pytest.mark.parametrize("feature_id_by", [["ticker", "ticker"], [""], ""])
+@pytest.mark.parametrize("feature_id_by", [["ticker", "ticker"], [""]])
 def test_ingest_rejects_invalid_feature_id_fields(feature_id_by) -> None:
     with pytest.raises(ValueError, match="duplicate|at least 1 character"):
         IngestConfig.model_validate(
@@ -90,9 +99,62 @@ def test_ingest_rejects_invalid_feature_id_fields(feature_id_by) -> None:
         )
 
 
+def test_ingest_rejects_scalar_identity_fields() -> None:
+    with pytest.raises(ValueError, match="partition_by|tuple"):
+        IngestConfig.model_validate(
+            {
+                "id": "sample",
+                "from": {"source": "demo.source"},
+                "map": {"entrypoint": "identity"},
+                "partition_by": "ticker",
+            }
+        )
+
+    with pytest.raises(ValueError, match="feature_id_by|tuple"):
+        IngestConfig.model_validate(
+            {
+                "id": "sample",
+                "from": {"source": "demo.source"},
+                "map": {"entrypoint": "identity"},
+                "feature_id_by": "ticker",
+            }
+        )
+
+
+@pytest.mark.parametrize(
+    "partition_by",
+    [[""], ["ticker", "ticker"], ["time"]],
+)
+def test_ingest_rejects_invalid_partition_fields(partition_by) -> None:
+    with pytest.raises(ValueError, match="partition_by|at least 1 character"):
+        IngestConfig.model_validate(
+            {
+                "id": "sample",
+                "from": {"source": "demo.source"},
+                "map": {"entrypoint": "identity"},
+                "partition_by": partition_by,
+            }
+        )
+
+
+@pytest.mark.parametrize(
+    "partition_by",
+    [[""], ["ticker", "ticker"], ["time"]],
+)
+def test_derived_stream_rejects_invalid_partition_fields(partition_by) -> None:
+    with pytest.raises(ValueError, match="partition_by|at least 1 character"):
+        DerivedStreamConfig.model_validate(
+            {
+                "id": "sample",
+                "from": {"stream": "demo.ingest"},
+                "partition_by": partition_by,
+            }
+        )
+
+
 def test_stream_rejects_duplicate_feature_id_fields() -> None:
     with pytest.raises(ValueError, match="duplicate"):
-        StreamConfig.model_validate(
+        DerivedStreamConfig.model_validate(
             {
                 "id": "sample",
                 "from": {"stream": "demo.ingest"},
@@ -102,47 +164,92 @@ def test_stream_rejects_duplicate_feature_id_fields() -> None:
 
 
 def test_stream_accepts_upstream_stream_shape() -> None:
-    spec = StreamConfig.model_validate(
+    spec = DerivedStreamConfig.model_validate(
         {
             "id": "sample",
             "from": {"stream": " sample.ingest "},
-            "partition_by": "ticker",
+            "partition_by": ["ticker"],
             "feature_id_by": [],
             "stream": [{"operation": "dedupe"}],
         }
     )
 
     assert spec.input_streams() == ("sample.ingest",)
-    assert spec.feature_id_by == []
+    assert spec.partition_by == ("ticker",)
+    assert spec.feature_id_by == ()
 
 
-def test_aligned_stream_accepts_ordered_stream_list() -> None:
-    spec = StreamConfig.model_validate(
+def test_feature_identity_distinguishes_missing_from_explicit_empty() -> None:
+    missing = DerivedStreamConfig.model_validate(
+        {"id": "missing", "from": {"stream": "source"}}
+    )
+    empty = DerivedStreamConfig.model_validate(
         {
-            "id": "derived.sample",
-            "from": {"align": [" stream.a ", " stream.b ", "stream.c"]},
-            "map": {"entrypoint": "calculate", "args": {}},
+            "id": "empty",
+            "from": {"stream": "source"},
+            "partition_by": [],
+            "feature_id_by": [],
         }
     )
 
-    assert spec.aligns_streams
+    assert missing.partition_by == ()
+    assert missing.feature_id_by is None
+    assert empty.partition_by == ()
+    assert empty.feature_id_by == ()
+
+
+def test_aligned_stream_accepts_ordered_stream_list() -> None:
+    spec = AlignedStreamConfig.model_validate(
+        {
+            "id": "derived.sample",
+            "from": {"align": [" stream.a ", " stream.b ", "stream.c"]},
+            "combine": {"entrypoint": "calculate", "args": {}},
+        }
+    )
+
     assert spec.input_streams() == ("stream.a", "stream.b", "stream.c")
+
+
+def test_stream_catalog_selects_concrete_stream_types() -> None:
+    catalog = StreamsConfig.model_validate(
+        {
+            "streams": {
+                "derived": {
+                    "id": "derived",
+                    "from": {"stream": "source"},
+                },
+                "aligned": {
+                    "id": "aligned",
+                    "from": {"align": ["source", "derived"]},
+                    "combine": {"entrypoint": "calculate"},
+                },
+            }
+        }
+    )
+
+    assert isinstance(catalog.streams["derived"], DerivedStreamConfig)
+    assert isinstance(catalog.streams["aligned"], AlignedStreamConfig)
+
+
+def test_stream_catalog_rejects_legacy_raw_source_key() -> None:
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        StreamsConfig.model_validate({"raw": {}})
 
 
 def test_aligned_stream_requires_two_inputs() -> None:
     with pytest.raises(ValueError, match="at least 2 items"):
-        StreamConfig.model_validate(
+        AlignedStreamConfig.model_validate(
             {
                 "id": "derived.sample",
                 "from": {"align": ["stream.a"]},
-                "map": {"entrypoint": "calculate"},
+                "combine": {"entrypoint": "calculate"},
             }
         )
 
 
-def test_aligned_stream_requires_mapper() -> None:
-    with pytest.raises(ValueError, match="require map.entrypoint"):
-        StreamConfig.model_validate(
+def test_aligned_stream_requires_combiner() -> None:
+    with pytest.raises(ValueError, match="combine"):
+        AlignedStreamConfig.model_validate(
             {
                 "id": "derived.sample",
                 "from": {"align": ["stream.a", "stream.b"]},
@@ -150,24 +257,24 @@ def test_aligned_stream_requires_mapper() -> None:
         )
 
 
-def test_aligned_stream_rejects_blank_mapper_entrypoint() -> None:
+def test_aligned_stream_rejects_blank_combiner_entrypoint() -> None:
     with pytest.raises(ValueError, match="at least 1 character"):
-        StreamConfig.model_validate(
+        AlignedStreamConfig.model_validate(
             {
                 "id": "derived.sample",
                 "from": {"align": ["stream.a", "stream.b"]},
-                "map": {"entrypoint": "   "},
+                "combine": {"entrypoint": "   "},
             }
         )
 
 
-def test_aligned_stream_inherits_partition() -> None:
-    with pytest.raises(ValueError, match="inherit partition_by"):
-        StreamConfig.model_validate(
+def test_aligned_stream_rejects_partition_override() -> None:
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        AlignedStreamConfig.model_validate(
             {
                 "id": "derived.sample",
                 "from": {"align": ["stream.a", "stream.b"]},
-                "map": {"entrypoint": "calculate"},
+                "combine": {"entrypoint": "calculate"},
                 "partition_by": "ticker",
             }
         )
@@ -184,11 +291,11 @@ def test_aligned_stream_inherits_partition() -> None:
 )
 def test_aligned_stream_rejects_invalid_stream_ids(streams) -> None:
     with pytest.raises(ValueError):
-        StreamConfig.model_validate(
+        AlignedStreamConfig.model_validate(
             {
                 "id": "derived.sample",
                 "from": {"align": streams},
-                "map": {"entrypoint": "calculate"},
+                "combine": {"entrypoint": "calculate"},
             }
         )
 
@@ -202,10 +309,193 @@ def test_aligned_stream_rejects_invalid_stream_ids(streams) -> None:
 )
 def test_stream_rejects_removed_multi_stream_shapes(old_from) -> None:
     with pytest.raises(ValueError, match="Extra inputs are not permitted"):
-        StreamConfig.model_validate(
+        AlignedStreamConfig.model_validate(
             {
                 "id": "derived.sample",
                 "from": old_from,
+                "combine": {"entrypoint": "calculate"},
+            }
+        )
+
+
+def test_aligned_stream_rejects_iterator_map() -> None:
+    with pytest.raises(ValueError, match="combine|Extra inputs are not permitted"):
+        AlignedStreamConfig.model_validate(
+            {
+                "id": "derived.sample",
+                "from": {"align": ["stream.a", "stream.b"]},
                 "map": {"entrypoint": "calculate"},
+            }
+        )
+
+
+def test_derived_stream_rejects_combiner() -> None:
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        DerivedStreamConfig.model_validate(
+            {
+                "id": "derived.sample",
+                "from": {"stream": "stream.a"},
+                "combine": {"entrypoint": "calculate"},
+            }
+        )
+
+
+def test_ingest_rejects_top_level_cadence() -> None:
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        IngestConfig.model_validate(
+            {
+                "id": "sample",
+                "from": {"source": "demo.source"},
+                "map": {"entrypoint": "identity"},
+                "cadence": "1d",
+            }
+        )
+
+
+def test_derived_stream_rejects_top_level_cadence() -> None:
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        DerivedStreamConfig.model_validate(
+            {
+                "id": "sample",
+                "from": {"stream": "demo.ingest"},
+                "cadence": "1d",
+            }
+        )
+
+
+def test_source_rejects_unknown_top_level_field() -> None:
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        SourceConfig.model_validate(
+            {
+                "id": "demo.source",
+                "parser": {"entrypoint": "parse"},
+                "loader": {"entrypoint": "load"},
+                "cadence": "1d",
+            }
+        )
+
+
+def test_source_rejects_unknown_parser_field() -> None:
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        SourceConfig.model_validate(
+            {
+                "id": "demo.source",
+                "parser": {
+                    "entrypoint": "parse",
+                    "fallback": "hidden.magic",
+                },
+                "loader": {"entrypoint": "load"},
+            }
+        )
+
+
+def test_source_rejects_unknown_loader_field() -> None:
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        SourceConfig.model_validate(
+            {
+                "id": "demo.source",
+                "parser": {"entrypoint": "parse"},
+                "loader": {
+                    "entrypoint": "load",
+                    "fallback": "hidden.magic",
+                },
+            }
+        )
+
+
+def test_ingest_rejects_unknown_map_field() -> None:
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        IngestConfig.model_validate(
+            {
+                "id": "sample",
+                "from": {"source": "demo.source"},
+                "map": {"entrypoint": "identity", "mode": "implicit"},
+            }
+        )
+
+
+def test_aligned_stream_rejects_unknown_combine_field() -> None:
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        AlignedStreamConfig.model_validate(
+            {
+                "id": "sample",
+                "from": {"align": ["stream.a", "stream.b"]},
+                "combine": {"entrypoint": "calculate", "mode": "implicit"},
+            }
+        )
+
+
+def test_ingest_rejects_internal_from_field_name() -> None:
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        IngestConfig.model_validate(
+            {
+                "id": "sample",
+                "from_": {"source": "demo.source"},
+                "map": {"entrypoint": "identity"},
+            }
+        )
+
+
+def test_derived_stream_rejects_internal_from_field_name() -> None:
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        DerivedStreamConfig.model_validate(
+            {
+                "id": "sample",
+                "from_": {"stream": "demo.ingest"},
+            }
+        )
+
+
+def test_aligned_stream_rejects_internal_from_field_name() -> None:
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        AlignedStreamConfig.model_validate(
+            {
+                "id": "sample",
+                "from_": {"align": ["stream.a", "stream.b"]},
+                "combine": {"entrypoint": "calculate"},
+            }
+        )
+
+
+def test_stream_catalog_rejects_source_registry_key_mismatch() -> None:
+    with pytest.raises(ValueError, match="Source registry key 'alias'.*'demo.source'"):
+        StreamsConfig.model_validate(
+            {
+                "sources": {
+                    "alias": {
+                        "id": "demo.source",
+                        "parser": {"entrypoint": "parse"},
+                        "loader": {"entrypoint": "load"},
+                    }
+                }
+            }
+        )
+
+
+def test_stream_catalog_rejects_ingest_registry_key_mismatch() -> None:
+    with pytest.raises(ValueError, match="Ingest registry key 'alias'.*'demo.ingest'"):
+        StreamsConfig.model_validate(
+            {
+                "ingests": {
+                    "alias": {
+                        "id": "demo.ingest",
+                        "from": {"source": "demo.source"},
+                        "map": {"entrypoint": "identity"},
+                    }
+                }
+            }
+        )
+
+
+def test_stream_catalog_rejects_stream_registry_key_mismatch() -> None:
+    with pytest.raises(ValueError, match="Stream registry key 'alias'.*'demo.stream'"):
+        StreamsConfig.model_validate(
+            {
+                "streams": {
+                    "alias": {
+                        "id": "demo.stream",
+                        "from": {"stream": "demo.ingest"},
+                    }
+                }
             }
         )

@@ -1,1 +1,1 @@
-"""Stream mappers (DTO -> domain records)."""
+"""Iterator mappers and aligned-stream combine functions."""

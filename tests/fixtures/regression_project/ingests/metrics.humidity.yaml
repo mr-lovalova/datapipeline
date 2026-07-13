@@ -1,8 +1,8 @@
 id: metrics.humidity.ingest
 from:
   source: regression.humidity
-partition_by: location
-feature_id_by: location
+partition_by: [location]
+feature_id_by: [location]
 
 map:
   entrypoint: identity

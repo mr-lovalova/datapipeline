@@ -6,12 +6,11 @@ map:
   entrypoint: map_sandbox_ohlcv_dto_to_equity
   args: {}
 
-cadence: ${group_by} # optional per-stream cadence
-partition_by: ticker
-feature_id_by: ticker
+partition_by: [ticker]
+feature_id_by: [ticker]
 
 record: # record-level transforms
   - { operation: where, field: time, operator: ge, comparand: "${start_time}" }
   - { operation: where, field: time, operator: le, comparand: "${end_time}" }
-  - { operation: floor_time, cadence: "${cadence}" }
+  - { operation: floor_time, cadence: "${group_by}" }
 #   - { operation: shift_time, by: -10m }

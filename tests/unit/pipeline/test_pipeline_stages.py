@@ -152,8 +152,8 @@ def _runtime_with_rows(
     stream_id: str = "stream",
     record_ops: list[RecordTransformConfig] | None = None,
     stream_ops: list[StreamTransformConfig] | None = None,
-    partition_by: str | None = None,
-    feature_id_by: str | list[str] | None = None,
+    partition_by: tuple[str, ...] = (),
+    feature_id_by: tuple[str, ...] | None = None,
 ) -> Runtime:
     artifacts_root = tmp_path / "artifacts"
     artifacts_root.mkdir(parents=True, exist_ok=True)
@@ -316,7 +316,7 @@ def test_ingest_pipeline_orders_by_partition_and_time(tmp_path: Path) -> None:
         {"time": _ts(0), "value": 5.0, "symbol": "A"},
         {"time": _ts(2), "value": 6.0, "symbol": "A"},
     ]
-    runtime = _runtime_with_rows(tmp_path, rows, partition_by="symbol")
+    runtime = _runtime_with_rows(tmp_path, rows, partition_by=("symbol",))
     ctx = PipelineContext(runtime)
 
     ordered = list(run_pipeline(ctx, build_ingest_pipeline(ctx, "stream")))
@@ -357,7 +357,7 @@ def test_ensure_cadence_placeholders_do_not_copy_payload_fields(
     runtime = _runtime_with_rows(
         tmp_path,
         rows,
-        partition_by="symbol",
+        partition_by=("symbol",),
         stream_ops=[EnsureCadenceConfig(cadence="1h")],
     )
     ctx = PipelineContext(runtime)
@@ -379,7 +379,7 @@ def test_ensure_ticks_uses_stream_partition_for_tick_artifact(
     runtime = _runtime_with_rows(
         tmp_path,
         rows,
-        partition_by="symbol",
+        partition_by=("symbol",),
         stream_ops=[EnsureTicksConfig(artifact="model_grid")],
     )
     artifact_path = runtime.artifacts_root / "model_grid.jsonl"
@@ -415,8 +415,8 @@ def test_feature_pipeline_wraps_record_values(tmp_path: Path) -> None:
     runtime = _runtime_with_rows(
         tmp_path,
         rows,
-        partition_by="symbol",
-        feature_id_by="symbol",
+        partition_by=("symbol",),
+        feature_id_by=("symbol",),
     )
     ctx = PipelineContext(runtime)
     cfg = FeatureRecordConfig(
@@ -512,8 +512,8 @@ def test_vector_inputs_artifact_feeds_serve_pipeline(tmp_path: Path) -> None:
         tmp_path,
         rows,
         stream_id="prices",
-        partition_by="id_",
-        feature_id_by=[],
+        partition_by=("id_",),
+        feature_id_by=(),
     )
     for name in ("ingests", "streams", "sources", "tasks", "profiles"):
         (tmp_path / name).mkdir(parents=True, exist_ok=True)

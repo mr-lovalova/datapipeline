@@ -2,9 +2,7 @@ id: time.ticks.hour_sin
 from:
   stream: time.ticks.hour_sin.ingest
 
-cadence: ${group_by}
-
 stream:
   - operation: dedupe
   - { operation: collapse, keep: first }
-  - { operation: ensure_cadence, cadence: "${cadence}" }
+  - { operation: ensure_cadence, cadence: "${group_by}" }

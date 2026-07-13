@@ -2,8 +2,8 @@ id: metrics.production.wind
 from:
   stream: metrics.production.wind.ingest
 
-partition_by: municipality
-feature_id_by: municipality
+partition_by: [municipality]
+feature_id_by: [municipality]
 
 stream:
   - { operation: ensure_cadence, cadence: 1h }

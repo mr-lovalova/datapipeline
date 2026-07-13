@@ -1,6 +1,10 @@
 import pytest
 
-from datapipeline.config.catalog import IngestConfig, StreamConfig
+from datapipeline.config.catalog import (
+    AlignedStreamConfig,
+    DerivedStreamConfig,
+    IngestConfig,
+)
 from datapipeline.services.bootstrap.core import (
     _load_canonical_ingests,
     _load_canonical_streams,
@@ -21,7 +25,7 @@ def test_validate_ingest_sources_rejects_unknown_source() -> None:
 
 def _ingest(
     stream_id: str,
-    partition_by=None,
+    partition_by: list[str] | None = None,
     ordered_by: list[str] | None = None,
 ) -> IngestConfig:
     return IngestConfig.model_validate(
@@ -29,7 +33,7 @@ def _ingest(
             "id": stream_id,
             "from": {"source": "source.alias"},
             "map": {"entrypoint": "identity", "args": {}},
-            "partition_by": partition_by,
+            "partition_by": [] if partition_by is None else partition_by,
             "ordered_by": ordered_by,
         }
     )
@@ -38,14 +42,14 @@ def _ingest(
 def _stream(
     stream_id: str,
     upstream: str,
-    partition_by=None,
+    partition_by: list[str] | None = None,
     ordered_by: list[str] | None = None,
-) -> StreamConfig:
-    return StreamConfig.model_validate(
+) -> DerivedStreamConfig:
+    return DerivedStreamConfig.model_validate(
         {
             "id": stream_id,
             "from": {"stream": upstream},
-            "partition_by": partition_by,
+            "partition_by": [] if partition_by is None else partition_by,
             "ordered_by": ordered_by,
         }
     )
@@ -55,12 +59,12 @@ def _aligned(
     stream_id: str,
     inputs: list[str],
     ordered_by: list[str] | None = None,
-) -> StreamConfig:
-    return StreamConfig.model_validate(
+) -> AlignedStreamConfig:
+    return AlignedStreamConfig.model_validate(
         {
             "id": stream_id,
             "from": {"align": inputs},
-            "map": {"entrypoint": "calculate", "args": {}},
+            "combine": {"entrypoint": "calculate", "args": {}},
             "ordered_by": ordered_by,
         }
     )
@@ -77,20 +81,23 @@ def test_validate_stream_configs_rejects_missing_refs() -> None:
 
 def test_validate_stream_configs_rejects_aligned_partition_mismatch() -> None:
     ingests = {
-        "stream.a": _ingest("stream.a", partition_by="station"),
-        "stream.b": _ingest("stream.b", partition_by="ticker"),
+        "stream.a": _ingest("stream.a", partition_by=["station"]),
+        "stream.b": _ingest("stream.b", partition_by=["ticker"]),
     }
     stream_configs = {
         "derived": _aligned("derived", ["stream.a", "stream.b"]),
     }
 
-    with pytest.raises(ValueError, match="expected 'station'"):
+    with pytest.raises(
+        ValueError,
+        match=r"partition_by \['ticker'\]; expected \['station'\]",
+    ):
         validate_stream_configs(ingests, stream_configs)
 
 
 def test_validate_stream_configs_accepts_aligned_matching_partitions() -> None:
     ingests = {
-        "stream.a": _ingest("stream.a", partition_by="ticker"),
+        "stream.a": _ingest("stream.a", partition_by=["ticker"]),
         "stream.b": _ingest("stream.b", partition_by=["ticker"]),
     }
     stream_configs = {
@@ -98,14 +105,14 @@ def test_validate_stream_configs_accepts_aligned_matching_partitions() -> None:
     }
 
     validate_stream_configs(ingests, stream_configs)
-    assert stream_partition_by(ingests, stream_configs, "derived") == "ticker"
+    assert stream_partition_by(ingests, stream_configs, "derived") == ("ticker",)
 
 
 def test_aligned_partition_inheritance_is_transitive() -> None:
     ingests = {
-        "stream.a": _ingest("stream.a", partition_by="ticker"),
-        "stream.b": _ingest("stream.b", partition_by="ticker"),
-        "stream.c": _ingest("stream.c", partition_by="ticker"),
+        "stream.a": _ingest("stream.a", partition_by=["ticker"]),
+        "stream.b": _ingest("stream.b", partition_by=["ticker"]),
+        "stream.c": _ingest("stream.c", partition_by=["ticker"]),
     }
     stream_configs = {
         "second": _aligned("second", ["first", "stream.c"]),
@@ -113,14 +120,14 @@ def test_aligned_partition_inheritance_is_transitive() -> None:
     }
 
     validate_stream_configs(ingests, stream_configs)
-    assert stream_partition_by(ingests, stream_configs, "second") == "ticker"
+    assert stream_partition_by(ingests, stream_configs, "second") == ("ticker",)
 
 
 def test_validate_stream_configs_rejects_noncanonical_ingest_order() -> None:
     ingests = {
         "prices": _ingest(
             "prices",
-            partition_by="security_id",
+            partition_by=["security_id"],
             ordered_by=["time"],
         )
     }
@@ -138,7 +145,7 @@ def test_validate_stream_configs_rejects_noncanonical_stream_order() -> None:
         "returns": _stream(
             "returns",
             "prices",
-            partition_by="security_id",
+            partition_by=["security_id"],
             ordered_by=["time"],
         )
     }
@@ -152,8 +159,8 @@ def test_validate_stream_configs_rejects_noncanonical_stream_order() -> None:
 
 def test_validate_stream_configs_uses_aligned_partition_for_canonical_order() -> None:
     ingests = {
-        "prices": _ingest("prices", partition_by="security_id"),
-        "shares": _ingest("shares", partition_by="security_id"),
+        "prices": _ingest("prices", partition_by=["security_id"]),
+        "shares": _ingest("shares", partition_by=["security_id"]),
     }
     stream_configs = {
         "market_cap": _aligned(
@@ -188,7 +195,7 @@ def test_validate_unique_stream_ids_rejects_ingest_stream_duplicate() -> None:
         validate_unique_stream_ids(
             {"same": _ingest("same")},
             {
-                "same": StreamConfig.model_validate(
+                "same": DerivedStreamConfig.model_validate(
                     {"id": "same", "from": {"stream": "upstream"}}
                 )
             },
@@ -218,7 +225,7 @@ def test_load_canonical_ingests_loads_source_shape(tmp_path) -> None:
     (ingests_dir / "old.yaml").write_text(
         "\n".join(
             [
-                "id: old",
+                "id: ${configured_id}",
                 "from:",
                 "  source: demo.source",
                 "map:",
@@ -228,13 +235,15 @@ def test_load_canonical_ingests_loads_source_shape(tmp_path) -> None:
         encoding="utf-8",
     )
 
-    assert _load_canonical_ingests(project_yaml, {}) == {
-        "old": {
-            "id": "old",
-            "from": {"source": "demo.source"},
-            "map": {"entrypoint": "old_mapper"},
-        }
-    }
+    loaded = _load_canonical_ingests(
+        project_yaml,
+        {"configured_id": " old "},
+    )
+
+    assert list(loaded) == ["old"]
+    assert loaded["old"].id == "old"
+    assert loaded["old"].from_.source == "demo.source"
+    assert loaded["old"].map.entrypoint == "old_mapper"
 
 
 def test_load_canonical_streams_loads_from_shape(tmp_path) -> None:
@@ -260,7 +269,7 @@ def test_load_canonical_streams_loads_from_shape(tmp_path) -> None:
     (streams_dir / "old.yaml").write_text(
         "\n".join(
             [
-                "id: old",
+                "id: ${configured_id}",
                 "from:",
                 "  stream: stream.a",
                 "map:",
@@ -270,13 +279,18 @@ def test_load_canonical_streams_loads_from_shape(tmp_path) -> None:
         encoding="utf-8",
     )
 
-    assert _load_canonical_streams(project_yaml, {}) == {
-        "old": {
-            "id": "old",
-            "from": {"stream": "stream.a"},
-            "map": {"entrypoint": "old_mapper"},
-        }
-    }
+    loaded = _load_canonical_streams(
+        project_yaml,
+        {"configured_id": " old "},
+    )
+
+    assert list(loaded) == ["old"]
+    stream = loaded["old"]
+    assert isinstance(stream, DerivedStreamConfig)
+    assert stream.id == "old"
+    assert stream.from_.stream == "stream.a"
+    assert stream.map is not None
+    assert stream.map.entrypoint == "old_mapper"
 
 
 def test_load_canonical_streams_reads_multiple_stream_roots(tmp_path) -> None:
@@ -357,11 +371,14 @@ def test_load_canonical_streams_rejects_duplicate_ids_across_roots(tmp_path) -> 
         ),
         encoding="utf-8",
     )
-    for streams_dir in (local_streams, common_streams):
+    for streams_dir, configured_id in (
+        (local_streams, "same"),
+        (common_streams, '" same "'),
+    ):
         (streams_dir / "same.yaml").write_text(
             "\n".join(
                 [
-                    "id: same",
+                    f"id: {configured_id}",
                     "from:",
                     "  stream: base",
                 ]
@@ -421,9 +438,11 @@ def test_load_canonical_ingests_reads_multiple_ingest_roots(tmp_path) -> None:
     assert sorted(loaded) == ["common", "local"]
 
 
-def test_load_canonical_streams_rejects_old_kind_shape(tmp_path) -> None:
+def test_load_streams_rejects_old_kind_shape(tmp_path) -> None:
     streams_dir = tmp_path / "stream_configs"
     streams_dir.mkdir()
+    (tmp_path / "ingest_configs").mkdir()
+    (tmp_path / "sources").mkdir()
     project_yaml = tmp_path / "project.yaml"
     project_yaml.write_text(
         "\n".join(
@@ -454,8 +473,8 @@ def test_load_canonical_streams_rejects_old_kind_shape(tmp_path) -> None:
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError, match="'kind' is no longer supported"):
-        _load_canonical_streams(project_yaml, {})
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        load_streams(project_yaml)
 
 
 def test_load_streams_rejects_malformed_map(tmp_path) -> None:
@@ -496,3 +515,81 @@ def test_load_streams_rejects_malformed_map(tmp_path) -> None:
 
     with pytest.raises(ValueError):
         load_streams(project_yaml)
+
+
+@pytest.mark.parametrize(
+    ("directory_name", "loader"),
+    [
+        ("ingests", _load_canonical_ingests),
+        ("streams", _load_canonical_streams),
+    ],
+)
+def test_canonical_loaders_reject_non_mapping_yaml(
+    tmp_path,
+    directory_name,
+    loader,
+) -> None:
+    config_dir = tmp_path / directory_name
+    config_dir.mkdir()
+    project_yaml = tmp_path / "project.yaml"
+    project_yaml.write_text(
+        "\n".join(
+            [
+                "version: 1",
+                "name: test",
+                "paths:",
+                "  ingests: ./ingests",
+                "  streams: ./streams",
+                "  sources: ./sources",
+                "  dataset: dataset.yaml",
+                "  postprocess: postprocess.yaml",
+                "  artifacts: ./artifacts",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (config_dir / "bad.yaml").write_text("- not\n- a\n- mapping\n", encoding="utf-8")
+
+    with pytest.raises(TypeError, match="Top-level YAML .* must be a mapping"):
+        loader(project_yaml, {})
+
+
+@pytest.mark.parametrize(
+    ("directory_name", "loader", "expected_message"),
+    [
+        ("ingests", _load_canonical_ingests, "Missing 'id' in ingest file"),
+        ("streams", _load_canonical_streams, "Missing 'id' in stream file"),
+    ],
+)
+def test_canonical_loaders_reject_missing_id(
+    tmp_path,
+    directory_name,
+    loader,
+    expected_message,
+) -> None:
+    config_dir = tmp_path / directory_name
+    config_dir.mkdir()
+    project_yaml = tmp_path / "project.yaml"
+    project_yaml.write_text(
+        "\n".join(
+            [
+                "version: 1",
+                "name: test",
+                "paths:",
+                "  ingests: ./ingests",
+                "  streams: ./streams",
+                "  sources: ./sources",
+                "  dataset: dataset.yaml",
+                "  postprocess: postprocess.yaml",
+                "  artifacts: ./artifacts",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (config_dir / "bad.yaml").write_text(
+        "from:\n  stream: upstream\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match=expected_message):
+        loader(project_yaml, {})

@@ -37,9 +37,11 @@ def materialize_stream_to_path(
     check_materialize_destinations(destinations, overwrite)
     output_path = destinations[0]
     stream = require_runtime_stream(runtime, stream_id)
-    ordered_by = canonical_record_order(stream.partition_by)
-    partition_by = _field_list(stream.partition_by)
-    feature_id_by = _field_list(stream.feature_id_by)
+    ordered_by = list(canonical_record_order(stream.partition_by))
+    partition_by = list(stream.partition_by)
+    feature_id_by = (
+        None if stream.feature_id_by is None else list(stream.feature_id_by)
+    )
 
     rows = materialized_stream_rows(runtime, stream_id)
     target = OutputTarget(
@@ -72,14 +74,6 @@ def materialized_stream_rows(runtime: Runtime, stream_id: str) -> Iterator[Any]:
     return run_stream_pipeline(context, stream_id)
 
 
-def _field_list(value: str | list[str] | None) -> list[str] | None:
-    if value is None:
-        return None
-    if isinstance(value, str):
-        return [value]
-    return list(value)
-
-
 def materialized_metadata_path(output: Path) -> Path:
     return output.with_suffix(".metadata.json")
 
@@ -110,7 +104,7 @@ def write_materialized_stream_metadata(
     *,
     output: Path,
     rows: int,
-    partition_by: list[str] | None,
+    partition_by: list[str],
     feature_id_by: list[str] | None,
     ordered_by: list[str],
     overwrite: bool,

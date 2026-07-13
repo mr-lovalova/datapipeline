@@ -5,6 +5,7 @@ import pytest
 import yaml
 
 from datapipeline.cli.commands.stream import handle as handle_stream_create
+from datapipeline.config.catalog import AlignedStreamConfig
 
 
 def _create_plugin(tmp_path: Path) -> Path:
@@ -196,8 +197,7 @@ def test_aligned_stream_scaffold_writes_ordered_inputs(
             "2",  # aligned stream
             "1,2",  # input stream order
             "air_density.processed",
-            "1",  # custom mapper
-            "map_air_density",
+            "combine_air_density",
         ],
     )
 
@@ -206,5 +206,7 @@ def test_aligned_stream_scaffold_writes_ordered_inputs(
     stream_path = streams_dir / "air_density.processed.yaml"
     assert stream_path.exists()
     config = yaml.safe_load(stream_path.read_text(encoding="utf-8"))
-    assert config["from"]["align"] == ["weather.pressure", "weather.temperature"]
-    assert config["map"] == {"entrypoint": "map_air_density", "args": {}}
+    spec = AlignedStreamConfig.model_validate(config)
+    assert spec.from_.align == ("weather.pressure", "weather.temperature")
+    assert spec.combine.entrypoint == "combine_air_density"
+    assert spec.combine.args == {}

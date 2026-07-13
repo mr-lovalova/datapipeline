@@ -32,7 +32,7 @@ def test_partitioned_dataset_feature_requires_explicit_feature_id_by(
         source=_EmptySource(),
         mapper=_identity,
         transforms=(),
-        partition_by="security_id",
+        partition_by=("security_id",),
         feature_id_by=None,
         presorted=False,
     )
@@ -43,7 +43,7 @@ def test_partitioned_dataset_feature_requires_explicit_feature_id_by(
         validate_dataset_feature_identity(runtime, dataset)
 
 
-def test_partitioned_dataset_feature_requires_partition_sample_keys_for_scalar_id(
+def test_partitioned_dataset_feature_requires_complete_identity(
     tmp_path: Path,
 ) -> None:
     runtime = _runtime(tmp_path)
@@ -51,8 +51,8 @@ def test_partitioned_dataset_feature_requires_partition_sample_keys_for_scalar_i
         source=_EmptySource(),
         mapper=_identity,
         transforms=(),
-        partition_by="security_id",
-        feature_id_by=[],
+        partition_by=("security_id",),
+        feature_id_by=(),
         presorted=False,
     )
     cfg = FeatureRecordConfig(record_stream="prices", id="close", field="close")
@@ -70,8 +70,8 @@ def test_partitioned_dataset_feature_accepts_scalar_id_keyed_by_partition(
         source=_EmptySource(),
         mapper=_identity,
         transforms=(),
-        partition_by=["exchange", "security_id"],
-        feature_id_by=[],
+        partition_by=("exchange", "security_id"),
+        feature_id_by=(),
         presorted=False,
     )
     cfg = FeatureRecordConfig(record_stream="prices", id="close", field="close")
@@ -94,8 +94,8 @@ def test_partitioned_dataset_feature_rejects_partially_keyed_scalar_id(
         source=_EmptySource(),
         mapper=_identity,
         transforms=(),
-        partition_by=["exchange", "security_id"],
-        feature_id_by=[],
+        partition_by=("exchange", "security_id"),
+        feature_id_by=(),
         presorted=False,
     )
     cfg = FeatureRecordConfig(record_stream="prices", id="close", field="close")
@@ -116,12 +116,52 @@ def test_partitioned_dataset_feature_accepts_wide_feature_identity(
         source=_EmptySource(),
         mapper=_identity,
         transforms=(),
-        partition_by="security_id",
-        feature_id_by="security_id",
+        partition_by=("security_id",),
+        feature_id_by=("security_id",),
         presorted=False,
     )
     cfg = FeatureRecordConfig(record_stream="prices", id="close", field="close")
     dataset = FeatureDatasetConfig(sample=SampleConfig(cadence="1d"), features=[cfg])
+
+    validate_dataset_feature_identity(runtime, dataset)
+
+
+def test_partitioned_dataset_feature_rejects_partially_suffixed_identity(
+    tmp_path: Path,
+) -> None:
+    runtime = _runtime(tmp_path)
+    runtime.streams["prices"] = IngestRuntimeStream(
+        source=_EmptySource(),
+        mapper=_identity,
+        transforms=(),
+        partition_by=("exchange", "security_id"),
+        feature_id_by=("security_id",),
+        presorted=False,
+    )
+    cfg = FeatureRecordConfig(record_stream="prices", id="close", field="close")
+    dataset = FeatureDatasetConfig(sample=SampleConfig(cadence="1d"), features=[cfg])
+
+    with pytest.raises(ValueError, match="exchange"):
+        validate_dataset_feature_identity(runtime, dataset)
+
+
+def test_partitioned_dataset_feature_accepts_identity_split_across_sample_and_feature(
+    tmp_path: Path,
+) -> None:
+    runtime = _runtime(tmp_path)
+    runtime.streams["prices"] = IngestRuntimeStream(
+        source=_EmptySource(),
+        mapper=_identity,
+        transforms=(),
+        partition_by=("exchange", "security_id"),
+        feature_id_by=("security_id",),
+        presorted=False,
+    )
+    cfg = FeatureRecordConfig(record_stream="prices", id="close", field="close")
+    dataset = FeatureDatasetConfig(
+        sample=SampleConfig(cadence="1d", keys=["exchange"]),
+        features=[cfg],
+    )
 
     validate_dataset_feature_identity(runtime, dataset)
 
@@ -134,7 +174,7 @@ def test_unpartitioned_dataset_feature_does_not_require_feature_id_by(
         source=_EmptySource(),
         mapper=_identity,
         transforms=(),
-        partition_by=None,
+        partition_by=(),
         feature_id_by=None,
         presorted=False,
     )

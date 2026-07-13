@@ -24,12 +24,13 @@ def _skip_dataset_identity_validation(monkeypatch):
     )
 
 
-def _runtime():
+def _runtime(streams=None):
     return SimpleNamespace(
         window_bounds=None,
         pipeline_observer=None,
         heartbeat_interval_seconds=None,
         split_labels=(),
+        streams=streams or {},
     )
 
 
@@ -245,9 +246,8 @@ def test_record_previews_stop_at_the_named_stage(monkeypatch, preview, expected)
         "datapipeline.operations.runtime.pipeline.build_stream_pipeline",
         build_pipeline,
     )
-
     result = _serve(
-        _runtime(),
+        _runtime({"derived.prices": object()}),
         _preview_dataset("derived.prices"),
         _target(),
         preview=preview,

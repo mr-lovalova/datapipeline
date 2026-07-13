@@ -550,3 +550,47 @@ loader: {entrypoint: custom.loader, args: {}}
 
     with pytest.raises(ValueError, match="not a regular file"):
         compute_config_hash(project_yaml, project_root / "tasks")
+
+
+@pytest.mark.parametrize(
+    ("source_yaml", "invalid_field"),
+    [
+        (
+            """\
+id: sample.fs
+loader: {entrypoint: core.io, args: {}}
+""",
+            "parser",
+        ),
+        (
+            """\
+id: sample.fs
+parser: {entrypoint: identity, args: {}}
+""",
+            "loader",
+        ),
+        (
+            """\
+id: sample.fs
+parser: identity
+loader: {entrypoint: core.io, args: {}}
+""",
+            "parser",
+        ),
+    ],
+)
+def test_compute_config_hash_rejects_malformed_source_config(
+    tmp_path: Path,
+    source_yaml: str,
+    invalid_field: str,
+) -> None:
+    project_root = tmp_path / "project"
+    _write_project_files(project_root)
+    project_yaml = _write_project_yaml(project_root)
+    (project_root / "sources" / "malformed.yaml").write_text(
+        source_yaml,
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match=invalid_field):
+        compute_config_hash(project_yaml, project_root / "tasks")

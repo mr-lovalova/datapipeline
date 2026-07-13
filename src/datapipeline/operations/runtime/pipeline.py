@@ -24,7 +24,7 @@ from datapipeline.pipelines.full.pipeline import (
 )
 from datapipeline.pipelines.full.split import build_labeler
 from datapipeline.pipelines.stream.pipeline import build_stream_pipeline
-from datapipeline.runtime import Runtime
+from datapipeline.runtime import AlignedRuntimeStream, Runtime, require_runtime_stream
 from datapipeline.utils.window import resolve_window_bounds
 
 logger = logging.getLogger(__name__)
@@ -113,7 +113,13 @@ def _record_preview_stream(
     if preview == "source":
         return run_pipeline(context, pipeline.through_node(0))
     if preview == "mapped":
-        return run_pipeline(context, pipeline.through_node_named("map_records"))
+        stream = require_runtime_stream(context.runtime, stream_id)
+        node_name = (
+            "combine_records"
+            if isinstance(stream, AlignedRuntimeStream)
+            else "map_records"
+        )
+        return run_pipeline(context, pipeline.through_node_named(node_name))
     if preview == "records":
         return run_pipeline(context, pipeline)
     raise ValueError(f"Preview stage {preview!r} does not produce records")

@@ -19,7 +19,7 @@ def test_feature_id_generator_without_components() -> None:
 
 
 def test_feature_id_generator_tags_non_string_scalar_types() -> None:
-    generator = FeatureIdGenerator("station_id")
+    generator = FeatureIdGenerator(("station_id",))
 
     assert generator.generate("temp", _Record(station_id=123)) == (
         "temp__@station_id:!i:123"
@@ -33,7 +33,7 @@ def test_feature_id_generator_tags_non_string_scalar_types() -> None:
 
 
 def test_feature_id_generator_distinguishes_null_empty_and_scalar_types() -> None:
-    generator = FeatureIdGenerator("station_id")
+    generator = FeatureIdGenerator(("station_id",))
 
     identifiers = {
         generator.generate("temp", _Record(station_id=None)),
@@ -48,7 +48,7 @@ def test_feature_id_generator_distinguishes_null_empty_and_scalar_types() -> Non
 
 
 def test_feature_id_generator_escapes_component_delimiters() -> None:
-    generator = FeatureIdGenerator(["station_id", "sensor"])
+    generator = FeatureIdGenerator(("station_id", "sensor"))
     identifier = generator.generate(
         "temp",
         _Record(station_id="north__west|@sensor:x", sensor="A:B/100%"),
@@ -65,7 +65,7 @@ def test_feature_id_generator_escapes_component_delimiters() -> None:
 
 
 def test_distinct_component_tuples_cannot_generate_the_same_id() -> None:
-    generator = FeatureIdGenerator(["station_id", "sensor"])
+    generator = FeatureIdGenerator(("station_id", "sensor"))
 
     first = generator.generate(
         "temp",
@@ -80,14 +80,14 @@ def test_distinct_component_tuples_cannot_generate_the_same_id() -> None:
 
 
 def test_feature_id_generator_rejects_unsupported_component_types() -> None:
-    generator = FeatureIdGenerator("station_id")
+    generator = FeatureIdGenerator(("station_id",))
 
     with pytest.raises(TypeError, match="string, integer, float, boolean, or null"):
         generator.generate("temp", _Record(station_id=object()))
 
 
 def test_feature_id_generator_rejects_non_finite_components() -> None:
-    generator = FeatureIdGenerator("station_id")
+    generator = FeatureIdGenerator(("station_id",))
 
     with pytest.raises(ValueError, match="finite float"):
         generator.generate("temp", _Record(station_id=float("nan")))

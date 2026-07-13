@@ -32,17 +32,12 @@ from datapipeline.cli.commands.mapper import handle as handle_mapper
 from datapipeline.services.scaffold.domain import create_domain
 
 
-def _select_mapper(
-    *, allow_identity: bool, allow_create: bool, root: Path | None
-) -> str:
+def _select_ingest_mapper(root: Path | None) -> str:
     mappers = list_mappers(root=root)
-    options: list[tuple[str, str]] = []
-    if allow_create:
-        options.append(("create", "Create new mapper (default)"))
+    options = [("create", "Create new mapper (default)")]
     if mappers:
         options.append(("existing", "Select existing mapper"))
-    if allow_identity:
-        options.append(("identity", "Identity mapper"))
+    options.append(("identity", "Identity mapper"))
     options.append(("custom", "Custom mapper"))
 
     choice = pick_from_menu("Mapper:", options)
@@ -113,11 +108,7 @@ def handle(
         mapper_ep = "identity"
         status("ok", "Using built-in mapper entry point 'identity'.")
     else:
-        mapper_ep = _select_mapper(
-            allow_identity=True,
-            allow_create=True,
-            root=plugin_root,
-        )
+        mapper_ep = _select_ingest_mapper(plugin_root)
 
     # Derive canonical stream id as domain.dataset[.variant]
     variant_default = f" (default: {source_variant})" if source_variant else ""
@@ -153,15 +144,13 @@ def _scaffold_aligned_stream(
         error_exit("Aligned streams require at least two distinct input streams.")
 
     stream_id = choose_name("Stream id")
-    mapper_entrypoint = _select_mapper(
-        allow_identity=False,
-        allow_create=False,
-        root=plugin_root,
-    )
+    combine_entrypoint = input("Combine entrypoint: ").strip()
+    if not combine_entrypoint:
+        error_exit("Combine entrypoint is required")
 
     write_aligned_stream(
         project_yaml=proj_path,
         stream_id=stream_id,
         input_streams=input_streams,
-        mapper_entrypoint=mapper_entrypoint,
+        combine_entrypoint=combine_entrypoint,
     )

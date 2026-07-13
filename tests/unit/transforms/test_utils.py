@@ -8,14 +8,14 @@ def test_partition_key_requires_declared_object_field() -> None:
     record = make_time_record(1.0, 0)
 
     with pytest.raises(KeyError, match="Partition field 'security_id'"):
-        partition_key(record, "security_id")
+        partition_key(record, ("security_id",))
 
 
 def test_partition_key_preserves_present_none_value() -> None:
     record = make_time_record(1.0, 0)
     record.security_id = None
 
-    assert partition_key(record, "security_id") == (None,)
+    assert partition_key(record, ("security_id",)) == (None,)
 
 
 def test_partition_key_reads_multiple_fields_in_declared_order() -> None:
@@ -23,7 +23,7 @@ def test_partition_key_reads_multiple_fields_in_declared_order() -> None:
     record.security_id = "AAPL"
     record.venue = "XNAS"
 
-    assert partition_key(record, ["security_id", "venue"]) == ("AAPL", "XNAS")
+    assert partition_key(record, ("security_id", "venue")) == ("AAPL", "XNAS")
 
 
 def test_get_field_distinguishes_absent_from_missing() -> None:

@@ -71,7 +71,7 @@ def build_stream_pipeline(
 def _align_inputs(
     context: PipelineContext,
     input_streams: tuple[str, ...],
-    partition_by: str | list[str] | None,
+    partition_by: tuple[str, ...],
 ) -> Iterator[tuple[Any, ...]]:
     with ExitStack() as opened:
         inputs = []

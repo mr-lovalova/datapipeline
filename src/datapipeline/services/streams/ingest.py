@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from datapipeline.config.catalog import EPArgs, SourceConfig
+from datapipeline.config.catalog import EntryPointConfig, SourceConfig
 from datapipeline.mappers.noop import identity
 from datapipeline.plugins import LOADERS_EP, MAPPERS_EP, PARSERS_EP
 from datapipeline.services.constants import DEFAULT_IO_LOADER_EP
@@ -23,9 +23,9 @@ def build_source_from_spec(
     return Source(loader=loader_cls(**loader_args), parser=parser_cls(**parser_args))
 
 
-def build_mapper_from_spec(spec: EPArgs | None):
+def build_mapper_from_spec(spec: EntryPointConfig | None):
     """Return a callable(raw_iter) -> iter with args bound if present."""
-    if not spec or not spec.entrypoint:
+    if spec is None:
         return identity
     fn = load_ep(MAPPERS_EP, spec.entrypoint)
     args = normalize_args(spec.args)

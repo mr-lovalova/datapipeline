@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from datapipeline.config.catalog import IngestConfig, StreamConfig
+from datapipeline.config.catalog import DerivedStreamConfig, IngestConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig, SequenceConfig
 from datapipeline.config.tasks import ScalerTask
 from datapipeline.config.transforms import (
@@ -27,8 +27,8 @@ def _ingest(**values: object) -> IngestConfig:
     )
 
 
-def _stream(**values: object) -> StreamConfig:
-    return StreamConfig.model_validate(
+def _stream(**values: object) -> DerivedStreamConfig:
+    return DerivedStreamConfig.model_validate(
         {
             "id": "prices.daily",
             "from": {"stream": "prices.raw"},

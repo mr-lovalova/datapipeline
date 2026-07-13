@@ -84,15 +84,8 @@ def build_record_transform_nodes(
 def build_stream_transform_nodes(
     context: PipelineContext,
     operations: Sequence[StreamTransformConfig],
-    partition_by: str | list[str] | None,
+    partition_by: tuple[str, ...],
 ) -> tuple[PipelineNode, ...]:
-    if partition_by is None:
-        partition_fields: tuple[str, ...] = ()
-    elif isinstance(partition_by, str):
-        partition_fields = (partition_by,)
-    else:
-        partition_fields = tuple(partition_by)
-
     configured = tuple(operations)
     totals = Counter(operation.operation for operation in configured)
     occurrences: Counter[str] = Counter()
@@ -118,53 +111,53 @@ def build_stream_transform_nodes(
             node_op = LagTransform(
                 operation.field,
                 operation.periods,
-                partition_fields,
+                partition_by,
                 operation.to,
             ).apply
         elif isinstance(operation, LeadConfig):
             node_op = LeadTransform(
                 operation.field,
                 operation.periods,
-                partition_fields,
+                partition_by,
                 operation.to,
             ).apply
         elif isinstance(operation, EnsureCadenceConfig):
             node_op = EnsureCadenceTransform(
                 operation.cadence,
-                partition_fields,
+                partition_by,
             ).apply
         elif isinstance(operation, EnsureTicksConfig):
             node_op = partial(
                 apply_tick_grid,
                 context,
                 operation,
-                partition_fields,
+                partition_by,
             )
         elif isinstance(operation, FillConfig):
             node_op = StatisticalFillTransform(
                 operation.field,
                 operation.window,
                 operation.statistic,
-                partition_fields,
+                partition_by,
                 operation.to,
                 operation.min_samples,
             ).apply
         elif isinstance(operation, ForwardFillConfig):
             node_op = ForwardFillTransform(
                 operation.field,
-                partition_fields,
+                partition_by,
                 operation.to,
             ).apply
         elif isinstance(operation, CollapseConfig):
             node_op = CollapseTransform(
-                partition_fields,
+                partition_by,
                 operation.keep,
             ).apply
         elif isinstance(operation, RollingConfig):
             node_op = RollingTransform(
                 operation.field,
                 operation.window,
-                partition_fields,
+                partition_by,
                 operation.to,
                 operation.min_samples,
                 operation.statistic,

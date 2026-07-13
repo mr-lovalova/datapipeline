@@ -4,7 +4,6 @@ from datapipeline.execution.context import PipelineContext
 from datapipeline.execution.node import Node, PipelineNode, SourceNode
 from datapipeline.execution.pipeline import Pipeline
 from datapipeline.pipelines.shared.record_nodes import (
-    map_records,
     open_records,
     order_records,
 )
@@ -42,7 +41,7 @@ def build_ingest_nodes(
         ),
         PipelineNode(
             name="map_records",
-            apply=partial(map_records, stream.mapper),
+            apply=stream.mapper,
         ),
         *build_record_transform_nodes(stream.transforms),
         PipelineNode(

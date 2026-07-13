@@ -1,29 +1,27 @@
 from pathlib import Path
 from typing import Any
 
+from pydantic import TypeAdapter
+
 from datapipeline.utils.load import load_yaml
 from datapipeline.config.catalog import (
-    AlignFromConfig,
+    AlignedStreamConfig,
     IngestConfig,
+    SourceConfig,
     StreamConfig,
     StreamsConfig,
 )
 from datapipeline.services.project_paths import ingests_dirs, streams_dirs, sources_dirs
 from datapipeline.services.constants import (
-    PARSER_KEY,
-    LOADER_KEY,
     SOURCE_ID_KEY,
     STREAM_ID_KEY,
-    STREAM_FROM_KEY,
-    STREAM_CADENCE_KEY,
-    STREAM_KIND_KEY,
     POSTPROCESS_PATH_KEY,
 )
 from datapipeline.services.streams.ingest import (
     build_mapper_from_spec,
     build_source_from_spec,
 )
-from datapipeline.services.streams.aligned import build_aligned_mapper
+from datapipeline.services.streams.aligned import build_combine_stage
 from datapipeline.services.streams.validation import (
     stream_partition_by,
     validate_ingest_sources,
@@ -49,27 +47,25 @@ from .config import (
 )
 
 
-def _load_sources_from_dir(project_yaml: Path, vars_: dict[str, Any]) -> dict:
-    """Aggregate per-source YAML files into a raw-sources mapping.
+_STREAM_CONFIG_ADAPTER: TypeAdapter[StreamConfig] = TypeAdapter(StreamConfig)
 
-    Scans for YAML files under the sources directory (recursing through
-    subfolders). Expects each file to define a single source with top-level
-    'parser' and 'loader' keys. The top-level 'id' inside the file becomes the
-    runtime alias.
-    """
-    out: dict[str, dict] = {}
+
+def _load_sources_from_dir(
+    project_yaml: Path,
+    vars_: dict[str, Any],
+) -> dict[str, SourceConfig]:
+    """Load source files by their declared ids."""
+    out: dict[str, SourceConfig] = {}
     source_paths: dict[str, Path] = {}
     for path in _source_yaml_files(project_yaml):
-        source_doc = _load_source_yaml(path, project_yaml, vars_)
-        if source_doc is None:
-            continue
-        source_id = source_doc[SOURCE_ID_KEY]
+        source = _load_source_yaml(path, project_yaml, vars_)
+        source_id = source.id
         if source_id in out:
             raise ValueError(
                 f"Duplicate source id '{source_id}' in source files: "
                 f"{source_paths[source_id]} and {path}"
             )
-        out[source_id] = source_doc
+        out[source_id] = source
         source_paths[source_id] = path
     return out
 
@@ -82,61 +78,50 @@ def _load_source_yaml(
     path: Path,
     project_yaml: Path,
     vars_: dict[str, Any],
-) -> dict[str, Any] | None:
+) -> SourceConfig:
     data = resolve_config_refs(load_yaml(path), project_yaml=project_yaml)
-    if not isinstance(data, dict) or not _is_source_yaml(data):
-        return None
+    data = _interpolate(data, vars_)
     if not data.get(SOURCE_ID_KEY):
         raise ValueError(f"Missing 'id' in source file: {path}")
-    source_doc = _interpolate(data, vars_)
-    return source_doc
+    return SourceConfig.model_validate(data)
 
 
-def _is_source_yaml(data: dict[str, Any]) -> bool:
-    return isinstance(data.get(PARSER_KEY), dict) and isinstance(
-        data.get(LOADER_KEY), dict
-    )
-
-
-def _load_canonical_streams(project_yaml: Path, vars_: dict[str, Any]) -> dict:
-    """Aggregate canonical stream specs from streams_dir (supports subfolders).
-
-    Recursively scans for *.yml|*.yaml under the configured streams dir.
-    Stream alias is derived from the relative path with '/' replaced by '.'
-    and extension removed, e.g. 'metobs/precip.yaml' -> 'metobs.precip'.
-    """
-    out: dict[str, dict] = {}
+def _load_canonical_streams(
+    project_yaml: Path,
+    vars_: dict[str, Any],
+) -> dict[str, StreamConfig]:
+    """Load stream files by their declared ids."""
+    out: dict[str, StreamConfig] = {}
     stream_paths: dict[str, Path] = {}
     for path in _stream_yaml_files(project_yaml):
-        data = _load_stream_yaml(path, project_yaml)
-        if data is None:
-            continue
-        alias = data[STREAM_ID_KEY]
-        if alias in out:
+        stream = _load_stream_yaml(path, project_yaml, vars_)
+        stream_id = stream.id
+        if stream_id in out:
             raise ValueError(
-                f"Duplicate stream id '{alias}' in stream files: "
-                f"{stream_paths[alias]} and {path}"
+                f"Duplicate stream id '{stream_id}' in stream files: "
+                f"{stream_paths[stream_id]} and {path}"
             )
-        out[alias] = _interpolate_stream_yaml(data, vars_)
-        stream_paths[alias] = path
+        out[stream_id] = stream
+        stream_paths[stream_id] = path
     return out
 
 
-def _load_canonical_ingests(project_yaml: Path, vars_: dict[str, Any]) -> dict:
-    out: dict[str, dict] = {}
+def _load_canonical_ingests(
+    project_yaml: Path,
+    vars_: dict[str, Any],
+) -> dict[str, IngestConfig]:
+    out: dict[str, IngestConfig] = {}
     ingest_paths: dict[str, Path] = {}
     for path in _ingest_yaml_files(project_yaml):
-        data = _load_ingest_yaml(path, project_yaml)
-        if data is None:
-            continue
-        alias = data[STREAM_ID_KEY]
-        if alias in out:
+        ingest = _load_ingest_yaml(path, project_yaml, vars_)
+        ingest_id = ingest.id
+        if ingest_id in out:
             raise ValueError(
-                f"Duplicate stream id '{alias}' in ingest files: "
-                f"{ingest_paths[alias]} and {path}"
+                f"Duplicate stream id '{ingest_id}' in ingest files: "
+                f"{ingest_paths[ingest_id]} and {path}"
             )
-        out[alias] = _interpolate_stream_yaml(data, vars_)
-        ingest_paths[alias] = path
+        out[ingest_id] = ingest
+        ingest_paths[ingest_id] = path
     return out
 
 
@@ -164,53 +149,42 @@ def _yaml_files(root: Path) -> list[Path]:
     )
 
 
-def _load_stream_yaml(path: Path, project_yaml: Path) -> dict[str, Any] | None:
-    data = resolve_config_refs(load_yaml(path), project_yaml=project_yaml)
-    if not isinstance(data, dict):
-        return None
-    if STREAM_KIND_KEY in data:
-        raise ValueError(
-            "Stream config field 'kind' is no longer supported; use 'from'."
-        )
-    if STREAM_ID_KEY not in data or STREAM_FROM_KEY not in data:
-        return None
-    return data
-
-
-def _load_ingest_yaml(path: Path, project_yaml: Path) -> dict[str, Any] | None:
-    data = resolve_config_refs(load_yaml(path), project_yaml=project_yaml)
-    if not isinstance(data, dict):
-        return None
-    if STREAM_KIND_KEY in data:
-        raise ValueError(
-            "Ingest config field 'kind' is no longer supported; use 'from'."
-        )
-    if STREAM_ID_KEY not in data or STREAM_FROM_KEY not in data:
-        return None
-    if "stream" in data:
-        raise ValueError("Ingest configs cannot define 'stream'; use streams.")
-    return data
-
-
-def _interpolate_stream_yaml(
-    data: dict[str, Any],
+def _load_stream_yaml(
+    path: Path,
+    project_yaml: Path,
     vars_: dict[str, Any],
-) -> dict[str, Any]:
-    local_vars = dict(vars_)
-    cadence_expr = data.get(STREAM_CADENCE_KEY)
-    if cadence_expr is not None:
-        local_vars[STREAM_CADENCE_KEY] = _interpolate(cadence_expr, vars_)
-    return _interpolate(data, local_vars)
+) -> StreamConfig:
+    data = resolve_config_refs(load_yaml(path), project_yaml=project_yaml)
+    data = _interpolate(data, vars_)
+    if not data.get(STREAM_ID_KEY):
+        raise ValueError(f"Missing 'id' in stream file: {path}")
+    return _STREAM_CONFIG_ADAPTER.validate_python(data)
+
+
+def _load_ingest_yaml(
+    path: Path,
+    project_yaml: Path,
+    vars_: dict[str, Any],
+) -> IngestConfig:
+    data = resolve_config_refs(load_yaml(path), project_yaml=project_yaml)
+    data = _interpolate(data, vars_)
+    if not data.get(STREAM_ID_KEY):
+        raise ValueError(f"Missing 'id' in ingest file: {path}")
+    return IngestConfig.model_validate(data)
 
 
 def load_streams(project_yaml: Path) -> StreamsConfig:
     vars_ = _globals(project_yaml)
-    raw = _load_sources_from_dir(project_yaml, vars_)
+    sources = _load_sources_from_dir(project_yaml, vars_)
     ingests = _load_canonical_ingests(project_yaml, vars_)
     stream_configs = _load_canonical_streams(project_yaml, vars_)
-    config = StreamsConfig(raw=raw, ingests=ingests, streams=stream_configs)
+    config = StreamsConfig(
+        sources=sources,
+        ingests=ingests,
+        streams=stream_configs,
+    )
     validate_unique_stream_ids(config.ingests, config.streams)
-    validate_ingest_sources(config.raw, config.ingests)
+    validate_ingest_sources(config.sources, config.ingests)
     validate_stream_configs(config.ingests, config.streams)
     return config
 
@@ -222,7 +196,7 @@ def init_streams(cfg: StreamsConfig, runtime: Runtime) -> None:
     stream_configs = cfg.streams
     sources = {
         alias: build_source_from_spec(spec, project_yaml=runtime.project_yaml)
-        for alias, spec in cfg.raw.items()
+        for alias, spec in cfg.sources.items()
     }
 
     for alias, ingest_spec in ingests.items():
@@ -231,7 +205,7 @@ def init_streams(cfg: StreamsConfig, runtime: Runtime) -> None:
             sources,
         )
     for alias, stream_spec in stream_configs.items():
-        runtime.streams[alias] = _build_derived_runtime_stream(
+        runtime.streams[alias] = _build_runtime_stream(
             stream_spec,
             ingests,
             stream_configs,
@@ -252,16 +226,16 @@ def _build_ingest_runtime_stream(
     )
 
 
-def _build_derived_runtime_stream(
+def _build_runtime_stream(
     spec: StreamConfig,
     ingests: dict[str, IngestConfig],
     stream_configs: dict[str, StreamConfig],
 ) -> DerivedRuntimeStream | AlignedRuntimeStream:
     partition_by = stream_partition_by(ingests, stream_configs, spec.id)
-    if isinstance(spec.from_, AlignFromConfig):
+    if isinstance(spec, AlignedStreamConfig):
         return AlignedRuntimeStream(
             input_streams=spec.input_streams(),
-            mapper=build_aligned_mapper(spec),
+            combine=build_combine_stage(spec),
             transforms=tuple(spec.stream),
             partition_by=partition_by,
             feature_id_by=spec.feature_id_by,

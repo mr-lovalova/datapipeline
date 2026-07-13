@@ -33,8 +33,8 @@ def _mapper(rows):
 def _runtime(
     tmp_path: Path,
     rows: list[dict],
-    partition_by: str | list[str] | None = None,
-    feature_id_by: str | list[str] | None = None,
+    partition_by: tuple[str, ...] = (),
+    feature_id_by: tuple[str, ...] | None = None,
 ) -> Runtime:
     runtime = Runtime(
         project_yaml=tmp_path / "project.yaml",
@@ -90,7 +90,7 @@ def test_materialize_stream_writes_jsonl_and_metadata(tmp_path: Path) -> None:
         "rows": 2,
         "format": "jsonl",
         "encoding": "utf-8",
-        "partition_by": None,
+        "partition_by": [],
         "feature_id_by": None,
         "ordered_by": ["time"],
     }
@@ -106,8 +106,8 @@ def test_materialize_stream_preserves_explicit_partition_and_feature_id_by(
     runtime = _runtime(
         tmp_path,
         rows,
-        partition_by="security_id",
-        feature_id_by=[],
+        partition_by=("security_id",),
+        feature_id_by=(),
     )
     output = tmp_path / "interim" / "prices.materialized.jsonl"
 

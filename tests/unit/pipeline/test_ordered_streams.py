@@ -52,7 +52,7 @@ def test_order_records_skips_sort_for_presorted_records(
     ordered = list(
         order_records(
             _context(tmp_path),
-            ["security_id"],
+            ("security_id",),
             True,
             records,
         )
@@ -81,7 +81,27 @@ def test_order_records_rejects_false_presorted_declaration(tmp_path, rows) -> No
         list(
             order_records(
                 _context(tmp_path),
-                ["security_id"],
+                ("security_id",),
+                True,
+                records,
+            )
+        )
+
+
+def test_order_records_error_uses_config_list_syntax(tmp_path) -> None:
+    records = [
+        _Record(time=_ts(2), security_id="AAPL"),
+        _Record(time=_ts(1), security_id="AAPL"),
+    ]
+
+    with pytest.raises(
+        ValueError,
+        match=r"declared ordered_by \['security_id', 'time'\]",
+    ):
+        list(
+            order_records(
+                _context(tmp_path),
+                ("security_id",),
                 True,
                 records,
             )
@@ -97,7 +117,7 @@ def test_order_records_sorts_without_presorted_declaration(tmp_path) -> None:
     ordered = list(
         order_records(
             _context(tmp_path),
-            ["security_id"],
+            ("security_id",),
             False,
             records,
         )

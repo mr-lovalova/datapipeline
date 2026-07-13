@@ -7,12 +7,11 @@ map:
   entrypoint: {{ mapper_entrypoint }}
   args: {}
 
-cadence: ${group_by}                # optional per-ingest cadence
-# partition_by: <field or [fields]>
-# feature_id_by: []  # requires partition_by fields in dataset sample.keys
+# partition_by: [field]  # list only; time is reserved
+# feature_id_by: []  # list only; requires partition fields in dataset sample.keys
 
 record:                              # record-level transforms
   - { operation: where, field: time, operator: ge, comparand: "${start_time}" }
   - { operation: where, field: time, operator: le, comparand: "${end_time}" }
-  - { operation: floor_time, cadence: "${cadence}" }
+  - { operation: floor_time, cadence: "${group_by}" }
 #   - { operation: shift_time, by: -10m }

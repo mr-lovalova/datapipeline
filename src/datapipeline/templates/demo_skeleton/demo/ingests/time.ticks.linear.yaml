@@ -2,8 +2,6 @@
 id: time.ticks.linear.ingest
 from:
   source: synthetic.ticks
-cadence: ${group_by}
-
 map:
   entrypoint: encode_time
   args: { mode: linear }
@@ -11,4 +9,4 @@ map:
 record:
   - { operation: where, field: time, operator: ge, comparand: "${start_time}" }
   - { operation: where, field: time, operator: le, comparand: "${end_time}" }
-  - { operation: floor_time, cadence: "${cadence}" }
+  - { operation: floor_time, cadence: "${group_by}" }

@@ -46,7 +46,7 @@ def handle(
             streams = load_streams(proj_path)
         except FileNotFoundError as exc:
             error_exit(str(exc))
-        aliases = sorted(streams.raw.keys())
+        aliases = sorted(streams.sources)
         for alias in aliases:
             print(alias)
     elif subcmd == "domains":

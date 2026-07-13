@@ -3,20 +3,20 @@
 #
 # id: domain.dataset.variant
 # from:
-#   align:                       # required; order defines mapper arguments
+#   align:                       # required; order defines combine arguments
 #     - upstream.stream.id
 #     - other.stream.id
-# map:                           # required
-#   entrypoint: my_aligned_mapper
+# combine:                       # required
+#   entrypoint: my_combine_function
 #   args: {}
-# feature_id_by: []              # requires inherited partition fields in sample.keys
-# ordered_by: [station_id, time] # optional; must equal inherited partition order + time
+# feature_id_by: []              # optional list; partition fields must remain identifiable
+# ordered_by: [station_id, time] # optional list; inherited partition order + time
 #
 # Inputs must use the same partition_by and are intersected by partition and
 # time. One external sort uses execution.sort_buffer_mb, so inputs need not
 # arrive ordered. Each input must contain at most one record per canonical key.
-# The mapper is called as mapper(first_record, second_record, ..., **args) and
+# The function is called as combine(first_record, second_record, ..., **args) and
 # may return one record or None to skip that key.
 #
-# stream:                        # optional transforms after mapping
+# stream:                        # optional transforms after combining
 #   - operation: dedupe

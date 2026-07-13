@@ -18,7 +18,7 @@ from datapipeline.utils.time import parse_cadence
 def build_feature_stream(
     feature_id: str,
     field: str,
-    feature_id_by: str | list[str] | None,
+    feature_id_by: tuple[str, ...] | None,
     sample_keys: Sequence[str],
     records: Iterable[Any],
 ) -> Iterator[FeatureRecord]:
@@ -27,7 +27,7 @@ def build_feature_stream(
     for rec in records:
         if not _record_has_field(rec, field):
             raise KeyError(f"Record field '{field}' not found on {type(rec).__name__}")
-        entity_key = partition_key(rec, list(sample_keys))
+        entity_key = partition_key(rec, tuple(sample_keys))
         sample_key_contract.validate(entity_key)
         yield FeatureRecord(
             record=rec,

@@ -4,16 +4,15 @@
 # id: domain.dataset.variant
 # from:
 #   source: source.alias        # required
-# map:                          # optional (defaults to identity)
+# map:                          # required
 #   entrypoint: my_mapper
 #   args: {}
-# cadence: ${group_by}          # optional per-ingest variable for interpolation
-# partition_by: station_id      # optional; string or list of strings
-# feature_id_by: []             # [] requires partition_by fields in dataset sample.keys
-# ordered_by: [station_id, time] # optional; must equal [*partition_by, time]
+# partition_by: [station_id]    # optional list; time is reserved
+# feature_id_by: []             # optional list; [] requires partition fields in sample.keys
+# ordered_by: [station_id, time] # optional list; must equal [*partition_by, time]
 #
 # record:                       # optional flat typed record operations
 #   - { operation: where, field: time, operator: ge, comparand: "${start_time}" }
-#   - { operation: floor_time, cadence: "${cadence}" }
+#   - { operation: floor_time, cadence: "${group_by}" }
 #   - { operation: shift_time, by: "-1h" }
 #

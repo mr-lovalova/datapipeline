@@ -40,7 +40,7 @@ def _context(tmp_path) -> PipelineContext:
         source=_EmptySource(),
         mapper=_identity,
         transforms=(),
-        partition_by=None,
+        partition_by=(),
         feature_id_by=None,
         presorted=False,
     )

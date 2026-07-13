@@ -1,23 +1,20 @@
 from collections.abc import Iterator
 from typing import Any
 
-from datapipeline.config.catalog import StreamConfig
+from datapipeline.config.catalog import AlignedStreamConfig
 from datapipeline.plugins import MAPPERS_EP
 from datapipeline.utils.load import load_ep
 from datapipeline.utils.placeholders import normalize_args
 
 
-def build_aligned_mapper(spec: StreamConfig):
-    mapper = spec.map
-    if mapper is None:
-        raise ValueError(f"Aligned stream '{spec.id}' requires map.entrypoint")
-    function = load_ep(MAPPERS_EP, mapper.entrypoint)
-    args = normalize_args(mapper.args)
+def build_combine_stage(spec: AlignedStreamConfig):
+    combine = load_ep(MAPPERS_EP, spec.combine.entrypoint)
+    args = normalize_args(spec.combine.args)
 
-    def map_records(rows: Iterator[tuple[Any, ...]]) -> Iterator[Any]:
+    def combine_records(rows: Iterator[tuple[Any, ...]]) -> Iterator[Any]:
         for records in rows:
-            record = function(*records, **args)
+            record = combine(*records, **args)
             if record is not None:
                 yield record
 
-    return map_records
+    return combine_records

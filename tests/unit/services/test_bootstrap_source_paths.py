@@ -183,7 +183,11 @@ def test_load_sources_rejects_duplicate_source_ids_across_roots(tmp_path: Path) 
     )
     (project_root / "postprocess.yaml").write_text("{}\n", encoding="utf-8")
     _write_named_source_yaml(project_root / "sources", "local.yaml", "same.fs")
-    _write_named_source_yaml(common_root / "sources", "common.yaml", "same.fs")
+    _write_named_source_yaml(
+        common_root / "sources",
+        "common.yaml",
+        '" same.fs "',
+    )
     project_yaml = project_root / "project.yaml"
     project_yaml.write_text(
         "\n".join(
@@ -207,4 +211,50 @@ def test_load_sources_rejects_duplicate_source_ids_across_roots(tmp_path: Path) 
     )
 
     with pytest.raises(ValueError, match="Duplicate source id 'same.fs'"):
+        _load_sources_from_dir(project_yaml, vars_={})
+
+
+def test_load_sources_keys_by_interpolated_id(tmp_path: Path) -> None:
+    project_root = tmp_path / "project"
+    _write_named_source_yaml(
+        project_root / "sources",
+        "source.yaml",
+        "${configured_id}",
+    )
+    project_yaml = _write_project_yaml(project_root)
+
+    loaded = _load_sources_from_dir(
+        project_yaml,
+        vars_={"configured_id": " canonical.source "},
+    )
+
+    assert list(loaded) == ["canonical.source"]
+    assert loaded["canonical.source"].id == "canonical.source"
+
+
+def test_load_sources_rejects_non_mapping_yaml(tmp_path: Path) -> None:
+    project_root = tmp_path / "project"
+    sources_dir = project_root / "sources"
+    sources_dir.mkdir(parents=True)
+    (sources_dir / "bad.yaml").write_text(
+        "- not\n- a\n- mapping\n",
+        encoding="utf-8",
+    )
+    project_yaml = _write_project_yaml(project_root)
+
+    with pytest.raises(TypeError, match="Top-level YAML .* must be a mapping"):
+        _load_sources_from_dir(project_yaml, vars_={})
+
+
+def test_load_sources_rejects_missing_id(tmp_path: Path) -> None:
+    project_root = tmp_path / "project"
+    sources_dir = project_root / "sources"
+    sources_dir.mkdir(parents=True)
+    (sources_dir / "bad.yaml").write_text(
+        "parser:\n  entrypoint: identity\nloader:\n  entrypoint: core.io\n",
+        encoding="utf-8",
+    )
+    project_yaml = _write_project_yaml(project_root)
+
+    with pytest.raises(ValueError, match="Missing 'id' in source file"):
         _load_sources_from_dir(project_yaml, vars_={})

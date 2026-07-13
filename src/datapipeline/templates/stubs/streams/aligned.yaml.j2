@@ -4,10 +4,10 @@ from:
   align:
 {{ input_streams | to_yaml(indent=4) }}
 
-map:
-  entrypoint: {{ mapper_entrypoint }}
+combine:
+  entrypoint: {{ combine_entrypoint }}
   args: {}
 
-# feature_id_by: []  # requires inherited partition fields in dataset sample.keys
-# ordered_by: [partition_field, time]  # must equal inherited partition order + time
+# feature_id_by: []  # list only; requires inherited partition fields in sample.keys
+# ordered_by: [partition_field, time]  # list only; inherited partition order + time
 # stream: []

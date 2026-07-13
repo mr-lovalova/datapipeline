@@ -1,9 +1,9 @@
 from pathlib import Path
 
 import pytest
-
 import yaml
 
+from datapipeline.services.bootstrap.core import load_streams
 from datapipeline.services.scaffold.plugin import scaffold_plugin
 
 _TEMPLATES_ROOT = Path(__file__).parents[3] / "src" / "datapipeline" / "templates"
@@ -26,6 +26,29 @@ def test_demo_stream_templates_do_not_define_record_transforms() -> None:
     for path in streams_root.glob("*.yaml"):
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
         assert "record" not in data, path
+
+
+def test_demo_stream_catalog_matches_config_models() -> None:
+    project = _TEMPLATES_ROOT / "demo_skeleton" / "demo" / "project.yaml"
+
+    config = load_streams(project)
+
+    assert len(config.sources) == 2
+    assert len(config.ingests) == 5
+    assert len(config.streams) == 5
+
+
+def test_reference_yaml_files_remain_comments_only() -> None:
+    reference_root = _PLUGIN_SKELETON_ROOT / "reference" / "reference"
+    references = sorted(reference_root.rglob("*.reference.yaml"))
+
+    assert references
+    populated = {}
+    for path in references:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        if data is not None:
+            populated[path.relative_to(reference_root)] = data
+    assert populated == {}
 
 
 def test_template_profiles_separate_builds_from_runtime_actions() -> None:

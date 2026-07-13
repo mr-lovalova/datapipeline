@@ -7,8 +7,6 @@ ENTRYPOINT_KEY = "entrypoint"
 ARGS_KEY = "args"
 STREAM_ID_KEY = "id"
 STREAM_FROM_KEY = "from"
-STREAM_CADENCE_KEY = "cadence"
-STREAM_KIND_KEY = "kind"
 POSTPROCESS_PATH_KEY = "postprocess"
 
 PARSERS_GROUP = "parsers"

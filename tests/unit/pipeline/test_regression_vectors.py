@@ -79,7 +79,7 @@ def _runtime_with_streams(
             source=_StubSource(rows),
             mapper=_identity,
             transforms=(),
-            partition_by=None,
+            partition_by=(),
             feature_id_by=None,
             presorted=False,
         )
@@ -87,7 +87,7 @@ def _runtime_with_streams(
             input_stream=ingest_id,
             mapper=_identity,
             transforms=tuple(stream_transforms.get(alias, ())),
-            partition_by=None,
+            partition_by=(),
             feature_id_by=None,
             presorted=False,
         )
@@ -154,13 +154,13 @@ def test_vector_targets_respect_partitioned_ids(tmp_path) -> None:
     runtime = _runtime_with_streams(tmp_path, streams)
     runtime.streams["wind_speed_stream"] = replace(
         runtime.streams["wind_speed_stream"],
-        partition_by="municipality",
-        feature_id_by="municipality",
+        partition_by=("municipality",),
+        feature_id_by=("municipality",),
     )
     runtime.streams["wind_production_stream"] = replace(
         runtime.streams["wind_production_stream"],
-        partition_by="municipality",
-        feature_id_by="municipality",
+        partition_by=("municipality",),
+        feature_id_by=("municipality",),
     )
 
     context = PipelineContext(runtime)
@@ -391,8 +391,8 @@ def test_feature_id_by_controls_partitioned_feature_identity(tmp_path) -> None:
     runtime = _runtime_with_streams(tmp_path, streams)
     runtime.streams["monthly_returns"] = replace(
         runtime.streams["monthly_returns"],
-        partition_by="security_id",
-        feature_id_by="security_id",
+        partition_by=("security_id",),
+        feature_id_by=("security_id",),
     )
     context = PipelineContext(runtime)
     feature_cfgs = [
@@ -456,8 +456,8 @@ def test_stream_transforms_use_explicit_stream_partition(tmp_path) -> None:
     )
     runtime.streams["daily_prices"] = replace(
         runtime.streams["daily_prices"],
-        partition_by="security_id",
-        feature_id_by=[],
+        partition_by=("security_id",),
+        feature_id_by=(),
     )
     context = PipelineContext(runtime)
     feature_cfgs = [

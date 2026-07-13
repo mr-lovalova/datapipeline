@@ -1,4 +1,9 @@
-from datapipeline.config.catalog import IngestConfig, SourceConfig, StreamConfig
+from datapipeline.config.catalog import (
+    AlignedStreamConfig,
+    IngestConfig,
+    SourceConfig,
+    StreamConfig,
+)
 from datapipeline.domain.stream import canonical_record_order
 
 
@@ -32,8 +37,8 @@ def validate_stream_configs(
         canonical_order = canonical_record_order(ingest.partition_by)
         if ingest.ordered_by != canonical_order:
             raise ValueError(
-                f"Ingest '{ingest_id}' ordered_by must be {canonical_order!r}; "
-                f"got {ingest.ordered_by!r}"
+                f"Ingest '{ingest_id}' ordered_by must be "
+                f"{list(canonical_order)!r}; got {list(ingest.ordered_by)!r}"
             )
 
     for stream_id, stream in stream_configs.items():
@@ -43,8 +48,8 @@ def validate_stream_configs(
         canonical_order = canonical_record_order(partition_by)
         if stream.ordered_by != canonical_order:
             raise ValueError(
-                f"Stream '{stream_id}' ordered_by must be {canonical_order!r}; "
-                f"got {stream.ordered_by!r}"
+                f"Stream '{stream_id}' ordered_by must be "
+                f"{list(canonical_order)!r}; got {list(stream.ordered_by)!r}"
             )
 
 
@@ -63,38 +68,30 @@ def stream_partition_by(
     ingests: dict[str, IngestConfig],
     stream_configs: dict[str, StreamConfig],
     stream_id: str,
-) -> str | list[str] | None:
+) -> tuple[str, ...]:
     if stream_id in ingests:
         return ingests[stream_id].partition_by
 
     spec = stream_configs[stream_id]
-    if not spec.aligns_streams:
+    if not isinstance(spec, AlignedStreamConfig):
         return spec.partition_by
 
     input_partitions = [
         stream_partition_by(ingests, stream_configs, input_stream)
         for input_stream in spec.input_streams()
     ]
-    expected = _partition_fields(input_partitions[0])
+    expected = input_partitions[0]
     for input_stream, partition_by in zip(
         spec.input_streams()[1:],
         input_partitions[1:],
         strict=True,
     ):
-        if _partition_fields(partition_by) != expected:
+        if partition_by != expected:
             raise ValueError(
                 f"Aligned stream '{stream_id}' input '{input_stream}' has "
-                f"partition_by {partition_by!r}; expected {input_partitions[0]!r}"
+                f"partition_by {list(partition_by)!r}; expected {list(expected)!r}"
             )
     return input_partitions[0]
-
-
-def _partition_fields(partition_by: str | list[str] | None) -> tuple[str, ...]:
-    if partition_by is None:
-        return ()
-    if isinstance(partition_by, str):
-        return (partition_by,)
-    return tuple(partition_by)
 
 
 def _validate_stream_cycles(stream_configs: dict[str, StreamConfig]) -> None:

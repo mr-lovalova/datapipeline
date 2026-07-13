@@ -20,36 +20,36 @@ from datapipeline.services.artifacts import ArtifactManager
 if TYPE_CHECKING:
     from datapipeline.execution.observer import PipelineObserver
 
-RecordMapper = Callable[[Iterator[Any]], Iterable[Any]]
+RecordStage = Callable[[Iterator[Any]], Iterable[Any]]
 
 
 @dataclass(frozen=True)
 class IngestRuntimeStream:
     source: RecordStream[Any]
-    mapper: RecordMapper
+    mapper: RecordStage
     transforms: tuple[RecordTransformConfig, ...]
-    partition_by: str | list[str] | None
-    feature_id_by: str | list[str] | None
+    partition_by: tuple[str, ...]
+    feature_id_by: tuple[str, ...] | None
     presorted: bool
 
 
 @dataclass(frozen=True)
 class DerivedRuntimeStream:
     input_stream: str
-    mapper: RecordMapper
+    mapper: RecordStage
     transforms: tuple[StreamTransformConfig, ...]
-    partition_by: str | list[str] | None
-    feature_id_by: str | list[str] | None
+    partition_by: tuple[str, ...]
+    feature_id_by: tuple[str, ...] | None
     presorted: bool
 
 
 @dataclass(frozen=True)
 class AlignedRuntimeStream:
     input_streams: tuple[str, ...]
-    mapper: RecordMapper
+    combine: RecordStage
     transforms: tuple[StreamTransformConfig, ...]
-    partition_by: str | list[str] | None
-    feature_id_by: str | list[str] | None
+    partition_by: tuple[str, ...]
+    feature_id_by: tuple[str, ...] | None
     presorted: bool
 
 
