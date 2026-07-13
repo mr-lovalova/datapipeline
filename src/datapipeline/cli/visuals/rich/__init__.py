@@ -1,0 +1,1 @@
+"""Rich visuals package."""

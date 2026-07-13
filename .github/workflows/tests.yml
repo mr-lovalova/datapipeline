@@ -1,0 +1,136 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install development dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Run Ruff
+        run: ruff check .
+
+  pytest:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.13"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install package and test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[test]"
+
+      - name: Run tests
+        run: python -m pytest -q -W error
+
+  wheel-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Build wheel
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build --wheel
+
+      - name: Verify wheel contents
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          wheels = list(Path("dist").glob("*.whl"))
+          if len(wheels) != 1:
+              raise SystemExit(f"Expected one wheel, found: {wheels}")
+
+          with ZipFile(wheels[0]) as archive:
+              names = set(archive.namelist())
+
+          source_root = Path("src/datapipeline/templates")
+          expected_templates = {
+              f"datapipeline/templates/{path.relative_to(source_root).as_posix()}"
+              for path in source_root.rglob("*")
+              if path.is_file()
+              and path.suffix != ".pyc"
+              and path.name != ".DS_Store"
+          }
+          packaged_templates = {
+              name
+              for name in names
+              if name.startswith("datapipeline/templates/")
+              and not name.endswith("/")
+          }
+          missing = expected_templates - packaged_templates
+          unexpected = packaged_templates - expected_templates
+          if missing or unexpected:
+              raise SystemExit(
+                  "Wheel template inventory differs from source: "
+                  f"missing={sorted(missing)}, unexpected={sorted(unexpected)}"
+              )
+
+          junk = sorted(
+              name
+              for name in names
+              if "__pycache__" in name
+              or name.endswith(".pyc")
+              or name.endswith(".pyo")
+              or name.endswith(".DS_Store")
+          )
+          if junk:
+              raise SystemExit(f"Wheel contains generated files: {junk}")
+          PY
+
+      - name: Smoke test installed wheel
+        run: |
+          python -m pip install --force-reinstall dist/*.whl
+          jerry --help
+          smoke_root="$(mktemp -d)"
+          cd "$smoke_root"
+          jerry plugin init smoke-plugin --out .
+          test -f smoke-plugin/your-dataset/.env.example
+          test -f smoke-plugin/your-interim-data-builder/.env.example
+          test -f smoke-plugin/your-dataset/profiles/build.defaults.yaml
+          test -f smoke-plugin/your-interim-data-builder/profiles/build.defaults.yaml
+          test -f smoke-plugin/your-dataset/tasks/operations/pipeline.yaml
+          test -f smoke-plugin/your-interim-data-builder/tasks/operations/pipeline.yaml
+          test ! -e smoke-plugin/_dataset_base
+          jerry demo init --out .
+          test -f demo/demo/.env.example
+          test ! -e demo/_dataset_base
+          if find smoke-plugin demo \( -name __pycache__ -o -name '*.pyc' -o -name '.DS_Store' \) | grep -q .; then
+            echo "Scaffolded output contains generated files"
+            exit 1
+          fi

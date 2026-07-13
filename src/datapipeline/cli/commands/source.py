@@ -1,19 +1,158 @@
+import sys
 from pathlib import Path
 
-from datapipeline.config.workspace import WorkspaceContext
 from datapipeline.cli.workspace_utils import resolve_default_project_yaml
+from datapipeline.config.options import SOURCE_TRANSPORTS, source_formats_for
+from datapipeline.config.workspace import WorkspaceContext
+from datapipeline.services.constants import DEFAULT_TEMPORAL_RECORD_PARSER_EP
+from datapipeline.services.scaffold.discovery import list_loaders, list_parsers
 from datapipeline.services.scaffold.source_yaml import (
     create_source_yaml,
     default_loader_config,
+    validate_source_id,
 )
-from datapipeline.config.options import SOURCE_TRANSPORTS, source_formats_for
-from datapipeline.services.scaffold.discovery import list_loaders, list_parsers
 from datapipeline.services.scaffold.utils import (
     error_exit,
     pick_from_menu,
     prompt_required,
 )
-import sys
+
+
+def _resolve_source_parts(
+    provider: str | None,
+    dataset: str | None,
+    alias: str | None,
+) -> tuple[str, str]:
+    if provider and dataset:
+        return provider, dataset
+
+    if alias:
+        parts = alias.split(".", 1)
+        if len(parts) == 2 and all(parts):
+            return parts[0], parts[1]
+        error_exit("Alias must be 'provider.dataset'")
+
+    if provider and "." in provider and not dataset:
+        parts = provider.split(".", 1)
+        if len(parts) == 2 and all(parts):
+            return parts[0], parts[1]
+        error_exit(
+            "Source must be specified as '<provider> <dataset>' or '<provider>.<dataset>'"
+        )
+
+    source_id = prompt_required("Source id (provider.dataset)")
+    parts = source_id.split(".", 1)
+    if len(parts) == 2 and all(parts):
+        return parts[0], parts[1]
+    error_exit("Source id must be in the form 'provider.dataset'")
+
+
+def _choose_loader_transport_or_entrypoint(
+    plugin_root: Path | None,
+) -> tuple[str | None, str | None]:
+    known_loaders = list_loaders(root=plugin_root)
+    options = [
+        ("fs", "Built-in fs"),
+        ("http", "Built-in http"),
+        ("synthetic", "Built-in synthetic"),
+    ]
+    if known_loaders:
+        options.append(("existing", "Select existing loader"))
+    options.append(("custom", "Custom loader"))
+
+    choice = pick_from_menu("Loader:", options)
+    if choice in SOURCE_TRANSPORTS:
+        return choice, None
+    if choice == "existing":
+        loader_ep = pick_from_menu(
+            "Select loader entrypoint:",
+            [(key, key) for key in sorted(known_loaders.keys())],
+        )
+        return None, loader_ep
+    if choice == "custom":
+        return None, prompt_required("Loader entrypoint")
+    return None, None
+
+
+def _resolve_loader_config(
+    transport: str | None,
+    source_format: str | None,
+    loader: str | None,
+    plugin_root: Path | None,
+) -> tuple[str, dict]:
+    if loader:
+        return loader, {}
+
+    loader_ep = None
+    selected_transport = transport
+    if not selected_transport:
+        selected_transport, loader_ep = _choose_loader_transport_or_entrypoint(
+            plugin_root
+        )
+
+    if loader_ep:
+        return loader_ep, {}
+
+    if selected_transport in {"fs", "http"} and not source_format:
+        source_format = pick_from_menu(
+            "Format:",
+            [(name, name) for name in source_formats_for(selected_transport)],
+        )
+    if not selected_transport:
+        error_exit("--transport is required when no --loader is provided")
+    return default_loader_config(selected_transport, source_format)
+
+
+def _select_parser_from_menu(plugin_root: Path | None) -> str:
+    parsers = list_parsers(root=plugin_root)
+    if parsers:
+        choice = pick_from_menu(
+            "Parser:",
+            [
+                ("existing", "Select existing parser (default)"),
+                ("temporal_record", "Temporal record rehydration"),
+                ("identity", "Identity parser"),
+                ("custom", "Custom parser"),
+            ],
+        )
+        if choice == "existing":
+            return pick_from_menu(
+                "Select parser entrypoint:",
+                [(key, key) for key in sorted(parsers.keys())],
+            )
+        if choice == "temporal_record":
+            return DEFAULT_TEMPORAL_RECORD_PARSER_EP
+        if choice == "identity":
+            return "identity"
+        return prompt_required("Parser entrypoint")
+
+    choice = pick_from_menu(
+        "Parser:",
+        [
+            ("identity", "Identity parser (default)"),
+            ("temporal_record", "Temporal record rehydration"),
+            ("custom", "Custom parser"),
+        ],
+    )
+    if choice == "temporal_record":
+        return DEFAULT_TEMPORAL_RECORD_PARSER_EP
+    if choice == "identity":
+        return "identity"
+    return prompt_required("Parser entrypoint")
+
+
+def _resolve_parser_entrypoint(
+    identity: bool,
+    parser: str | None,
+    plugin_root: Path | None,
+) -> str:
+    if identity:
+        return "identity"
+    if parser:
+        return parser
+    if not sys.stdin.isatty():
+        return "identity"
+    return _select_parser_from_menu(plugin_root)
 
 
 def handle(
@@ -31,108 +170,23 @@ def handle(
     workspace: WorkspaceContext | None = None,
 ) -> None:
     if subcmd == "create":
-        # Allow: positional provider dataset, --provider/--dataset, --alias, or provider as 'prov.ds'
-        if (not provider or not dataset):
-            # Try alias flag first
-            if alias:
-                parts = alias.split(".", 1)
-                if len(parts) == 2 and all(parts):
-                    provider, dataset = parts[0], parts[1]
-                else:
-                    error_exit("Alias must be 'provider.dataset'")
-            # Try provider passed as 'prov.ds' positional/flag
-            elif provider and ("." in provider) and not dataset:
-                parts = provider.split(".", 1)
-                if len(parts) == 2 and all(parts):
-                    provider, dataset = parts[0], parts[1]
-                else:
-                    error_exit("Source must be specified as '<provider> <dataset>' or '<provider>.<dataset>'")
-
-        if not provider or not dataset:
-            source_id = prompt_required("Source id (provider.dataset)")
-            parts = source_id.split(".", 1)
-            if len(parts) == 2 and all(parts):
-                provider, dataset = parts[0], parts[1]
-            else:
-                error_exit("Source id must be in the form 'provider.dataset'")
-
-        # Loader selection: either explicit loader EP or built-in transport defaults
-        loader_ep: str | None = loader
-        loader_args: dict = {}
-        if not loader_ep:
-            if not transport:
-                known_loaders = list_loaders(root=plugin_root)
-                options = [
-                    ("fs", "Built-in fs"),
-                    ("http", "Built-in http"),
-                    ("synthetic", "Built-in synthetic"),
-                ]
-                if known_loaders:
-                    options.append(("existing", "Select existing loader"))
-                options.append(("custom", "Custom loader"))
-                choice = pick_from_menu("Loader:", options)
-                if choice in SOURCE_TRANSPORTS:
-                    transport = choice
-                elif choice == "existing":
-                    loader_ep = pick_from_menu(
-                        "Select loader entrypoint:",
-                        [(k, k) for k in sorted(known_loaders.keys())],
-                    )
-                elif choice == "custom":
-                    loader_ep = prompt_required("Loader entrypoint")
-            if not loader_ep:
-                if transport in {"fs", "http"} and not format:
-                    format = pick_from_menu(
-                        "Format:",
-                        [(name, name) for name in source_formats_for(transport)],
-                    )
-                if not transport:
-                    error_exit("--transport is required when no --loader is provided")
-                loader_ep, loader_args = default_loader_config(transport, format)
-
-        # Parser selection (no code generation)
-        if identity:
-            parser_ep = "identity"
-        elif parser:
-            parser_ep = parser
-        else:
-            interactive = sys.stdin.isatty()
-            if not interactive:
-                parser_ep = "identity"
-            else:
-                parsers = list_parsers(root=plugin_root)
-                if parsers:
-                    choice = pick_from_menu(
-                        "Parser:",
-                        [
-                            ("existing", "Select existing parser (default)"),
-                            ("identity", "Identity parser"),
-                            ("custom", "Custom parser"),
-                        ],
-                    )
-                    if choice == "existing":
-                        parser_ep = pick_from_menu(
-                            "Select parser entrypoint:",
-                            [(k, k) for k in sorted(parsers.keys())],
-                        )
-                    elif choice == "identity":
-                        parser_ep = "identity"
-                    else:
-                        parser_ep = prompt_required("Parser entrypoint")
-                else:
-                    choice = pick_from_menu(
-                        "Parser:",
-                        [
-                            ("identity", "Identity parser (default)"),
-                            ("custom", "Custom parser"),
-                        ],
-                    )
-                    parser_ep = "identity" if choice == "identity" else prompt_required("Parser entrypoint")
+        provider, dataset = _resolve_source_parts(provider, dataset, alias)
+        source_id = f"{provider}.{dataset}"
+        try:
+            validate_source_id(source_id)
+        except ValueError as exc:
+            error_exit(str(exc))
+        loader_ep, loader_args = _resolve_loader_config(
+            transport,
+            format,
+            loader,
+            plugin_root,
+        )
+        parser_ep = _resolve_parser_entrypoint(identity, parser, plugin_root)
 
         project_yaml = resolve_default_project_yaml(workspace)
         create_source_yaml(
-            provider=provider,
-            dataset=dataset,
+            source_id=source_id,
             loader_ep=loader_ep,
             loader_args=loader_args,
             parser_ep=parser_ep,

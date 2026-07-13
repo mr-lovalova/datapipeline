@@ -1,0 +1,38 @@
+# Inspect profile reference (all options).
+# This file is documentation only; uncomment the keys you want to use.
+#
+# cmd: inspect
+# name: matrix                # required; must be unique among inspect profiles
+# order: 10                   # optional; lower runs first, unset uses filename order
+# target: matrix              # required; runtime task id from tasks/operations
+# enabled: true               # optional
+# artifact_mode: AUTO         # optional; AUTO | FORCE | "OFF"
+#
+# output:                     # optional; omit to use CLI defaults
+#   transport: stdout          # stdout | fs
+#   format: txt
+#   # view: raw               # optional; flat | raw
+#   # encoding: utf-8          # fs jsonl/csv/txt only
+#   # fs transport only:
+#   # transport: fs
+#   # format: txt
+#   # directory: artifacts/inspect
+#   # filename: matrix        # optional filename stem (no extension)
+#
+# observability:              # optional
+#   visuals: ON               # optional; ON | OFF (false -> OFF)
+#   heartbeat_interval_seconds: 60 # optional; 0 disables heartbeat log records
+#   logging:                  # optional
+#     level: INFO             # optional; CRITICAL | ERROR | WARNING | INFO | DEBUG
+#     outputs:                # optional; ordered list
+#       - transport: STDERR   # STDERR | STDOUT | FS
+#       # - transport: FS
+#       #   scope: EXECUTION  # GLOBAL | EXECUTION
+#       #   path: logs/inspect.log  # required for FS+GLOBAL; optional for EXECUTION
+# note: selected profiles' artifact requirements are combined and prepared once.
+#       The graph orders those internal jobs; profile order is never changed.
+#       Shared prerequisite observability comes from CLI or inspect.defaults.yaml.
+# note: without a CLI override, selected profiles must use the same artifact_mode.
+# note: common defaults can be set once in profiles/inspect.defaults.yaml.
+# execution.sort_buffer_mb is defaults-only (default 128 MiB per active sort).
+# precedence: CLI --log-output > inspect.<name>.yaml > inspect.defaults.yaml > built-ins

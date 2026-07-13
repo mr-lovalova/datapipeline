@@ -1,0 +1,6 @@
+id: time.ticks.linear
+from:
+  stream: time.ticks.linear.ingest
+
+stream:
+  - ensure_cadence: { cadence: 1h, field: value }

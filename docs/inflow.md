@@ -1,7 +1,7 @@
 # Inflow Walkthrough
 
 `jerry inflow create` is an interactive wizard that scaffolds an end‑to‑end ingest flow:
-source YAML + DTO/parser + domain + mapper + contract.
+source YAML + DTO/parser + domain + mapper + ingest.
 
 ## Quick Example
 
@@ -33,7 +33,7 @@ This produces (paths may vary):
 - `src/<package>/domains/weather/model.py`
 - `src/<package>/mappers/map_weather_noaa_dto_to_weather.py`
 - `config/<dataset>/sources/noaa.weather.yaml`
-- `config/<dataset>/contracts/weather.weather.yaml`
+- `config/<dataset>/ingests/weather.weather.yaml`
 
 ## Identity vs Custom
 
@@ -42,6 +42,10 @@ This produces (paths may vary):
 Choose **Identity parser** when your loader already emits dicts/objects that match
 your DTO shape and no type conversion is needed. Choose **Create parser** when you
 need to parse timestamps, coerce types, rename fields, or drop/validate rows.
+
+For persisted domain-record-like JSON/JSONL rows, choose **Temporal record
+rehydration** (`core.temporal_record`) to rehydrate canonical records without
+creating a DTO or custom mapper.
 
 ### Mapper
 
@@ -52,7 +56,7 @@ shape (timezone‑aware `time` plus any identity fields). Otherwise choose
 ## After Scaffolding
 
 1. Fill placeholders in `sources/*.yaml` (paths/URLs/auth/etc.).
-2. Reference your stream contract id in `dataset.yaml` under `record_stream: <contract_id>`
+2. Reference your stream id in `dataset.yaml` under `record_stream: <stream_id>`
    and select a `field` for each feature/target.
 3. Reinstall the plugin if entry points were added:
 

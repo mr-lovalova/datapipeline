@@ -30,7 +30,6 @@ TPL_PARSER = "parser.py.j2"
 TPL_LOADER_BASIC = "loaders/basic.py.j2"
 TPL_LOADER_SYNTHETIC = "loader_synthetic.py.j2"
 TPL_MAPPER_INGEST = "mappers/ingest.py.j2"
-TPL_MAPPER_COMPOSED = "mappers/composed.py.j2"
 TPL_DOMAIN_RECORD = "record.py.j2"
 
 
@@ -74,6 +73,28 @@ def default_stream_id(domain: str, dataset: str, variant: str | None = None) -> 
     return f"{base}.{slugify(variant)}" if variant else base
 
 
+def source_id_parts(source_id: str) -> tuple[str | None, str | None, str | None]:
+    parts = [part for part in source_id.split(".") if part]
+    if len(parts) < 2:
+        return None, None, None
+    provider, dataset, *variant_parts = parts
+    variant = ".".join(variant_parts) if variant_parts else None
+    return provider, dataset, variant
+
+
+def default_stream_id_for_source(
+    domain: str,
+    source_id: str,
+    variant: str | None = None,
+    *,
+    fallback_dataset: str = "dataset",
+) -> str:
+    _provider, dataset, source_variant = source_id_parts(source_id)
+    return default_stream_id(
+        domain, dataset or fallback_dataset, variant or source_variant
+    )
+
+
 # Prompt labels (keep CLI wording consistent)
 LABEL_DTO_FOR_PARSER = "DTO for parser"
 LABEL_DTO_FOR_MAPPER = "DTO for mapper"
@@ -83,6 +104,7 @@ LABEL_MAPPER_INPUT = "Mapper input"
 
 def default_mapper_name_for_identity(domain: str) -> str:
     return f"map_identity_to_{slugify(domain)}"
+
 
 def pyproject_path(root_dir: Path) -> Path:
     return root_dir / "pyproject.toml"

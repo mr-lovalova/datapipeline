@@ -12,9 +12,11 @@ class BaseFeature:
 class FeatureRecord(BaseFeature):
     record: TemporalRecord
     value: Any
+    entity_key: tuple = ()
 
 
 @dataclass
 class FeatureRecordSequence(BaseFeature):
     records: list[TemporalRecord]
     values: list[Any]
+    entity_key: tuple = ()

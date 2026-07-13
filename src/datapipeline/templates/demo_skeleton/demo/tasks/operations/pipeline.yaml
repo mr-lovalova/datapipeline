@@ -1,0 +1,4 @@
+# See ../../../../plugin_skeleton/reference/reference/tasks/operations/pipeline.reference.yaml for the task contract.
+id: pipeline
+kind: runtime
+entrypoint: core.runtime.pipeline

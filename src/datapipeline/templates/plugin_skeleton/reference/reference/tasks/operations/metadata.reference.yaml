@@ -1,0 +1,11 @@
+# Metadata task reference (all options).
+# This file is documentation only; uncomment the keys you want to use.
+#
+# version: 1                # optional
+# id: metadata
+# kind: artifact            # required; runtime | artifact
+
+# entrypoint: core.artifact.metadata # optional; build runner id
+#
+# output: build/metadata.json # optional; relative to project.paths.artifacts
+# window_mode: intersection  # optional; union | intersection | strict | relaxed

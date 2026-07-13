@@ -1,0 +1,12 @@
+# See ../../../plugin_skeleton/reference/reference/tasks/profiles/build.reference.yaml for full options.
+# Defaults for the build command and its build.<name>.yaml profiles.
+# precedence: CLI > build.<name>.yaml > build.defaults.yaml > built-ins
+cmd: build
+# mode: AUTO
+observability:
+  visuals: ON
+  heartbeat_interval_seconds: 60
+  logging:
+    level: INFO
+    outputs:
+      - transport: STDERR

@@ -1,8 +1,12 @@
+from datetime import datetime, timezone
 from math import isclose
 
 import pytest
 
+from datapipeline.domain.feature import FeatureRecord
+from datapipeline.domain.record import TemporalRecord
 from datapipeline.transforms.feature.scaler import StandardScaler, StandardScalerTransform
+from datapipeline.utils.json_artifact import write_json_artifact
 from tests.unit.transforms.helpers import make_feature_record, make_vector
 
 
@@ -97,7 +101,7 @@ def test_standard_scaler_fit_and_serialize(tmp_path):
     scaler = StandardScaler()
     total = scaler.fit(vectors)
     assert total == 4
-    path = tmp_path / "scaler.pkl"
+    path = tmp_path / "scaler.json"
     scaler.save(path)
     restored = StandardScaler.load(path)
     transform = StandardScalerTransform(model_path=path)
@@ -225,3 +229,101 @@ def test_standard_scaler_warn_callback_invoked_with_counts():
     assert [fr.value for fr in transformed] == [-1.0, None, None]
     assert transform.missing_counts == {"temp": 2}
     assert calls == [("temp", 1, 1), ("temp", 2, 2)]
+
+
+def _feature_record_at(value: float | None, day: int, feature_id: str) -> FeatureRecord:
+    record = TemporalRecord(
+        time=datetime(2024, 1, day, tzinfo=timezone.utc),
+    )
+    setattr(record, "value", value)
+    return FeatureRecord(record=record, id=feature_id, value=value)
+
+
+def test_temporal_scaler_routes_records_by_time_split(tmp_path):
+    path = tmp_path / "temporal_scaler.json"
+    write_json_artifact(
+        path,
+        {
+            "kind": "temporal_scaler",
+            "version": 1,
+            "split": {
+                "mode": "time",
+                "boundaries": ["2024-01-02T00:00:00Z"],
+                "labels": ["train_0", "val_0"],
+            },
+            "folds": [
+                {
+                    "fit": ["train_0"],
+                    "apply": ["train_0"],
+                    "observations": 1,
+                    "scaler": {
+                        "kind": "standard_scaler",
+                        "version": 1,
+                        "with_mean": True,
+                        "with_std": True,
+                        "epsilon": 1e-12,
+                        "statistics": {"x": {"mean": 1.0, "std": 1.0, "count": 1}},
+                    },
+                },
+                {
+                    "fit": ["val_0"],
+                    "apply": ["val_0"],
+                    "observations": 1,
+                    "scaler": {
+                        "kind": "standard_scaler",
+                        "version": 1,
+                        "with_mean": True,
+                        "with_std": True,
+                        "epsilon": 1e-12,
+                        "statistics": {"x": {"mean": 10.0, "std": 2.0, "count": 1}},
+                    },
+                },
+            ],
+        },
+    )
+    transform = StandardScalerTransform(model_path=path)
+    stream = iter(
+        [
+            _feature_record_at(2.0, 1, "x"),
+            _feature_record_at(12.0, 3, "x"),
+        ]
+    )
+
+    transformed = list(transform.apply(stream))
+
+    assert [fr.value for fr in transformed] == [1.0, 1.0]
+
+
+def test_temporal_scaler_errors_when_no_fold_applies(tmp_path):
+    path = tmp_path / "temporal_scaler.json"
+    write_json_artifact(
+        path,
+        {
+            "kind": "temporal_scaler",
+            "version": 1,
+            "split": {
+                "mode": "time",
+                "boundaries": ["2024-01-02T00:00:00Z"],
+                "labels": ["train_0", "val_0"],
+            },
+            "folds": [
+                {
+                    "fit": ["train_0"],
+                    "apply": ["train_0"],
+                    "observations": 1,
+                    "scaler": {
+                        "kind": "standard_scaler",
+                        "version": 1,
+                        "with_mean": True,
+                        "with_std": True,
+                        "epsilon": 1e-12,
+                        "statistics": {"x": {"mean": 1.0, "std": 1.0, "count": 1}},
+                    },
+                },
+            ],
+        },
+    )
+    transform = StandardScalerTransform(model_path=path)
+
+    with pytest.raises(KeyError, match="No scaler fold applies"):
+        list(transform.apply(iter([_feature_record_at(12.0, 3, "x")])))

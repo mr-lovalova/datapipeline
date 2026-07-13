@@ -1,0 +1,4 @@
+# See ../../../reference/reference/tasks/operations/matrix.reference.yaml for the task contract.
+id: matrix
+kind: runtime
+entrypoint: core.runtime.matrix

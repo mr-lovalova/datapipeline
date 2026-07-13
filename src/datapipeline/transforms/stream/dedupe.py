@@ -6,10 +6,6 @@ from datapipeline.domain.record import TemporalRecord
 class FeatureDeduplicateTransform:
     """Drop consecutive identical records (timestamp + payload)."""
 
-    def __init__(self, **_: object) -> None:
-        # Accept arbitrary config mapping for consistency with other transforms.
-        pass
-
     def __call__(self, stream: Iterator[TemporalRecord]) -> Iterator[TemporalRecord]:
         return self.apply(stream)
 

@@ -1,7 +1,9 @@
 # Early-stage dataset definition (record/feature prep only).
 # Populate record_stream entries with your canonical stream ids.
 
-group_by: ${group_by}
+sample:
+  cadence: ${group_by}
+  keys: []
 
 features:
   - id: first_feature

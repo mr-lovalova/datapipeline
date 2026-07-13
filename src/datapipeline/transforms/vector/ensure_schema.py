@@ -1,10 +1,9 @@
-from collections import OrderedDict
 from collections.abc import Iterator
 from typing import Any, Literal
 
+from datapipeline.dag.context import PipelineContext
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
-from datapipeline.transforms.vector_utils import clone
 
 from .common import VectorContextMixin, replace_vector, select_vector
 
@@ -13,7 +12,7 @@ ExtraPolicy = Literal["error", "drop", "keep"]
 
 
 class VectorEnsureSchemaTransform(VectorContextMixin):
-    """Ensure vectors conform to the vector schema (`schema.json`) artifact.
+    """Ensure vectors conform to the vector schema (`build/schema.json`) artifact.
 
     Options allow filling or dropping rows with missing identifiers and
     pruning/raising on unexpected identifiers.
@@ -36,14 +35,31 @@ class VectorEnsureSchemaTransform(VectorContextMixin):
         self._fill_value = fill_value
         self._on_extra = on_extra
         self._baseline: list[str] | None = None
-        self._schema_entries: list[dict[str, Any]] | None = None
-        self._schema_meta: dict[str, dict[str, Any]] = {}
+        self._list_lengths: dict[str, int] = {}
 
     def __call__(self, stream: Iterator[Sample]) -> Iterator[Sample]:
         return self.apply(stream)
 
+    def bind_context(self, context: PipelineContext) -> None:
+        super().bind_context(context)
+        # Snapshot schema entries when the transform is wired up so lazy stream
+        # iteration cannot observe a later artifact/context mismatch.
+        schema = context.load_schema()
+        entries = schema.targets if self._payload == "targets" else schema.features
+        self._baseline = [entry.id for entry in entries]
+        self._list_lengths = {
+            entry.id: entry.cadence.target
+            for entry in entries
+            if entry.kind == "list" and entry.cadence is not None
+        }
+
     def apply(self, stream: Iterator[Sample]) -> Iterator[Sample]:
-        baseline = self._schema_ids()
+        baseline = self._baseline
+        if not baseline:
+            raise RuntimeError(
+                "Vector schema artifact is empty or unavailable; run `jerry build` "
+                "to materialize `build/schema.json` via the `schema` task."
+            )
         baseline_set = set(baseline)
 
         for sample in stream:
@@ -53,104 +69,59 @@ class VectorEnsureSchemaTransform(VectorContextMixin):
                 continue
 
             values = vector.values
-            working = None
 
             missing = [fid for fid in baseline if fid not in values]
             if missing:
-                decision = self._on_missing
-                if decision == "error":
+                if self._on_missing == "error":
                     raise ValueError(
                         f"Vector missing required identifiers {missing} "
                         f"for payload '{self._payload}'."
                     )
-                if decision == "drop":
+                if self._on_missing == "drop":
                     continue
-                working = clone(values)
-                for fid in missing:
-                    working[fid] = self._fill_value
 
             extras = [fid for fid in values if fid not in baseline_set]
             if extras:
-                decision = self._on_extra
-                if decision == "error":
+                if self._on_extra == "error":
                     raise ValueError(
                         f"Vector contains unexpected identifiers {extras} "
                         f"for payload '{self._payload}'."
                     )
-                if decision == "drop":
-                    working = working or clone(values)
-                    for fid in extras:
-                        working.pop(fid, None)
 
-            current_values = working or values
-
-            # Optionally enforce per-id cadence from schema metadata
-            current_values = self._enforce_cadence(current_values)
-
-            ordered = OrderedDict()
-            for fid in baseline:
-                ordered[fid] = current_values.get(fid)
-            if self._on_extra == "keep":
-                for fid, value in current_values.items():
-                    if fid not in baseline_set:
-                        ordered[fid] = value
-            current_values = ordered
-
-            if current_values is not values:
-                updated_vector = Vector(values=dict(current_values))
-                sample = replace_vector(sample, self._payload, updated_vector)
-
-            yield sample
-
-    def _schema_ids(self) -> list[str]:
-        if self._baseline is None:
-            entries = self._load_schema_entries()
-            ordered = [entry["id"] for entry in entries if isinstance(entry.get("id"), str)]
-            if not ordered:
-                raise RuntimeError(
-                    "Vector schema artifact is empty or unavailable; run `jerry build` "
-                    "to materialize `schema.json` via the `vector_schema` task."
-                )
-            self._baseline = ordered
-            self._schema_meta = {
-                entry["id"]: entry for entry in entries if isinstance(entry.get("id"), str)
+            ordered = {
+                fid: values[fid] if fid in values else self._fill_value
+                for fid in baseline
             }
-        return list(self._baseline)
+            if self._on_extra == "keep":
+                ordered.update((fid, values[fid]) for fid in extras)
 
-    def _load_schema_entries(self) -> list[dict[str, Any]]:
-        if self._schema_entries is None:
-            context = getattr(self, "_context", None)
-            if not context:
-                entries = []
-            else:
-                entries = context.load_schema(payload=self._payload)
-            self._schema_entries = entries or []
-        return self._schema_entries
+            normalized = self._enforce_list_lengths(ordered)
+            if normalized is None:
+                continue
 
-    def _enforce_cadence(self, values: dict[str, Any]) -> dict[str, Any]:
-        if not values or not self._schema_meta:
-            return values
-        adjusted = None
-        for fid, value in values.items():
-            meta = self._schema_meta.get(fid)
-            if not meta or meta.get("kind") != "list":
+            yield replace_vector(sample, self._payload, Vector(values=normalized))
+
+    def _enforce_list_lengths(
+        self,
+        values: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        for fid, target_len in self._list_lengths.items():
+            value = values[fid]
+            current_len = len(value) if isinstance(value, list) else None
+            if current_len == target_len:
                 continue
-            expected = self._expected_lengths(meta)
-            if not expected:
-                continue
-            current_len = len(value) if isinstance(value, list) else (0 if value is None else 1)
-            if current_len in expected:
-                continue
-            decision = self._on_missing
-            if decision == "error":
-                raise ValueError(
-                    f"List feature '{fid}' length {current_len} violates schema cadence {sorted(expected)}"
+            if self._on_missing == "error":
+                actual = (
+                    f"list with length {current_len}"
+                    if current_len is not None
+                    else type(value).__name__
                 )
-            if decision == "drop":
-                return {}
-            # fill: pad or truncate to the closest expected length
-            target_len = expected[0]
-            adjusted = adjusted or clone(values)
+                raise ValueError(
+                    f"Value '{fid}' must be a list with length {target_len}; "
+                    f"got {actual}."
+                )
+            if self._on_missing == "drop":
+                return None
             if isinstance(value, list):
                 seq = value[:target_len]
             elif value is None:
@@ -159,24 +130,5 @@ class VectorEnsureSchemaTransform(VectorContextMixin):
                 seq = [value]
             if len(seq) < target_len:
                 seq = seq + [self._fill_value] * (target_len - len(seq))
-            adjusted[fid] = seq
-        return adjusted or values
-
-    def _expected_lengths(self, meta: dict[str, Any]) -> list[int]:
-        cadence = meta.get("cadence")
-        if isinstance(cadence, dict):
-            target = cadence.get("target")
-            if isinstance(target, (int, float)) and target > 0:
-                return [int(target)]
-        modes = meta.get("list_length", {}).get("modes")
-        if isinstance(modes, (list, tuple)) and modes:
-            ints = [int(m) for m in modes if isinstance(m, (int, float))]
-            if ints:
-                return sorted(ints)
-        expected = meta.get("expected_length")
-        if isinstance(expected, (int, float)):
-            return [int(expected)]
-        max_len = meta.get("list_length", {}).get("max")
-        if isinstance(max_len, (int, float)) and max_len > 0:
-            return [int(max_len)]
-        return []
+            values[fid] = seq
+        return values

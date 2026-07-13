@@ -1,8 +1,9 @@
 from typing import Literal
 
+from datapipeline.artifacts.models import SchemaPayload
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
-from datapipeline.pipeline.context import (
+from datapipeline.dag.context import (
     PipelineContext,
     try_get_current_context,
 )
@@ -20,6 +21,26 @@ def replace_vector(sample: Sample, payload: Literal["features", "targets"], vect
     return sample.with_features(vector)
 
 
+def sample_time(sample: Sample):
+    if isinstance(sample.key, tuple) and sample.key:
+        return sample.key[0]
+    return sample.key
+
+
+def sample_entity_key(sample: Sample) -> tuple:
+    if not isinstance(sample.key, tuple):
+        return ()
+    return tuple(sample.key[1:])
+
+
+def vector_history_key(
+    sample: Sample,
+    payload: Literal["features", "targets"],
+    feature_id: str,
+) -> tuple:
+    return (payload, sample_entity_key(sample), str(feature_id))
+
+
 class VectorContextMixin:
     def __init__(self, payload: Literal["features", "targets"] = "features") -> None:
         if payload not in {"features", "targets"}:
@@ -30,30 +51,24 @@ class VectorContextMixin:
     def bind_context(self, context: PipelineContext) -> None:
         self._context = context
 
-    def _expected_ids(self, payload: str | None = None) -> list[str]:
+    def _expected_ids(self, payload: SchemaPayload | None = None) -> list[str]:
         """Return expected feature/target ids for the given payload.
 
         When `payload` is omitted, the instance default is used.
         """
         ctx = self._context or try_get_current_context()
-        if not ctx:
-            return []
+        if ctx is None:
+            raise RuntimeError("Vector postprocess transforms require a pipeline context.")
         kind = payload or self._payload
-        if kind not in {"features", "targets"}:
-            return []
-        schema = ctx.load_schema(payload=kind) or []
-        ids = [
-            entry.get("id")
-            for entry in schema
-            if isinstance(entry, dict) and isinstance(entry.get("id"), str)
-        ]
-        return ids or []
+        schema = ctx.load_schema()
+        entries = schema.targets if kind == "targets" else schema.features
+        return [entry.id for entry in entries]
 
 
 class VectorPostprocessBase(VectorContextMixin):
     """Shared envelope for vector postprocess transforms.
 
-    Provides a consistent contract for payload selection and id filtering:
+    Provides a consistent interface for payload selection and id filtering:
     - payload: features | targets | both
     - only: optional allow-list of ids
     - exclude: optional deny-list of ids

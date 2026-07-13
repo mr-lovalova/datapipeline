@@ -1,0 +1,15 @@
+# See ../../../plugin_skeleton/reference/reference/ingests/ingest.reference.yaml for full options.
+id: equity.aapl.ingest
+from:
+  source: sandbox.ohlcv
+cadence: ${group_by}
+
+map:
+  entrypoint: map_sandbox_ohlcv_dto_to_equity
+  args: {}
+
+record:
+  - where: { field: time, operator: ge, comparand: "${start_time}" }
+  - where: { field: time, operator: le, comparand: "${end_time}" }
+  - where: { field: ticker, operator: eq, comparand: "AAPL" }
+  - floor_time: { cadence: "${cadence}" }

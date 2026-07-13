@@ -1,0 +1,37 @@
+# Materialize profile reference (all options).
+# This file is documentation only; uncomment the keys you want to use.
+#
+# cmd: materialize
+# name: adv.20               # required; must be unique among materialize profiles
+# order: 10                  # optional; lower runs first, unset uses filename order
+# enabled: true              # optional
+# stream: adv.20             # required; source or derived stream id
+# output: data/adv/20.jsonl  # required; relative to project.yaml, or absolute
+# overwrite: false           # optional; refuse existing output files by default
+#
+# observability:             # optional
+#   visuals: ON              # optional; ON | OFF (false -> OFF)
+#   heartbeat_interval_seconds: 60 # optional; 0 disables heartbeat log records
+#   logging:                 # optional
+#     level: INFO            # optional; CRITICAL | ERROR | WARNING | INFO | DEBUG
+#     outputs:               # optional; ordered list
+#       - transport: STDERR  # STDERR | STDOUT | FS
+#       # - transport: FS
+#       #   scope: EXECUTION # GLOBAL | EXECUTION
+#       #   path: logs/materialize.log
+#
+# Put command-wide values in materialize.defaults.yaml:
+#   cmd: materialize
+#   artifact_mode: AUTO       # AUTO | FORCE | OFF
+#   overwrite: true
+#   execution:
+#     sort_buffer_mb: 128
+#
+# `jerry materialize` runs all enabled profiles in order.
+# `jerry materialize --run adv.20` runs one profile.
+# CLI `--output` overrides one profile and requires `--run`.
+# CLI `--overwrite` / `--no-overwrite` overrides every selected profile.
+# CLI `--artifact-mode` overrides materialize.defaults.yaml.
+# Shared prerequisite observability comes from CLI or materialize.defaults.yaml.
+# profile precedence: CLI > materialize.<name>.yaml > materialize.defaults.yaml > built-ins
+# artifact mode precedence: CLI > materialize.defaults.yaml > AUTO

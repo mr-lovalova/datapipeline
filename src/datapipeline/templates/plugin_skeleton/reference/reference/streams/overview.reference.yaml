@@ -1,0 +1,46 @@
+# Stream config reference (overview).
+# This file is documentation only; uncomment the keys you want to use.
+#
+# id: domain.dataset.variant
+# from:
+#   stream: upstream.stream.id  # single upstream stream
+#   # OR
+#   align:                      # inner alignment in positional mapper order
+#     - upstream.stream.id
+#     - other.stream.id
+# map:                          # optional for one input; required for alignment
+#   entrypoint: my_mapper
+#   args: {}
+# cadence: ${group_by}          # optional per-stream variable for interpolation
+# partition_by: station_id      # optional; string or list of strings
+# feature_id_by: []             # optional; [] for scalar keyed features, fields for wide IDs
+# ordered_by: [station_id, time] # optional; must equal [*partition_by, time]
+#
+# stream:                       # optional stream transforms, one-key mappings
+#   - dedupe: {}
+#   - lag: { field: close, to: close_lag_1, periods: 1 }
+#   - lead: { field: close, to: close_lead_126, periods: 126 }
+#   - granularity: { field: close, mode: first }   # first | last | mean | median
+#   - ensure_cadence: { field: close, cadence: "${cadence}" }
+#   - fill: { field: close, to: close, method: median, window: 6, min_samples: 1 }
+#     # method: mean | median | forward; rolling methods require window > 0
+#   - fill: { field: close, to: close_asof, method: forward }
+#   - derive:
+#       left: close_lag_21
+#       operator: div
+#       right_field: close_lag_189
+#       to: close_ratio_21_189
+#   - derive:
+#       left: close_ratio_21_189
+#       operator: sub
+#       right_value: 1.0
+#       to: momentum_189_21
+#     # operator: add | sub | mul | div
+#
+# debug:                        # optional validation-only transforms
+#   - lint: { mode: error, tick: "${cadence}" }  # mode: warn | error
+#   - identity: {}
+#
+# See also:
+# - ingest.reference.yaml
+# - aligned.reference.yaml

@@ -1,0 +1,3 @@
+id: pipeline
+kind: runtime
+entrypoint: core.runtime.pipeline

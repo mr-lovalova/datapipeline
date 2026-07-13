@@ -87,7 +87,7 @@ class CsvDecoder(Decoder):
 
 
 class JsonDecoder(Decoder):
-    def __init__(self, *, encoding: str = "utf-8", array_field: Optional[str] = None):
+    def __init__(self, encoding: str = "utf-8", array_field: Optional[str] = None):
         self.encoding = encoding
         self.array_field = array_field
 
@@ -128,7 +128,7 @@ class JsonDecoder(Decoder):
 
 
 class JsonLinesDecoder(Decoder):
-    def __init__(self, *, encoding: str = "utf-8"):
+    def __init__(self, encoding: str = "utf-8"):
         self.encoding = encoding
 
     def decode(self, chunks: Iterable[bytes]) -> Iterator[dict]:

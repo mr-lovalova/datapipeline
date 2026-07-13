@@ -8,6 +8,7 @@ class EquityRecord(TemporalRecord):
     """
     Domain record for 'equity'.
     """
+
     open: float
     high: float
     low: float

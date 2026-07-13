@@ -1,0 +1,13 @@
+id: time.ticks.hour_sin
+from:
+  stream: time.ticks.hour_sin.ingest
+
+cadence: ${group_by}
+
+stream:
+  - dedupe: {}
+  - granularity: { field: value, mode: first }
+  - ensure_cadence: { field: value, cadence: "${cadence}" }
+
+debug:
+  - lint: { mode: error, tick: "${cadence}" }

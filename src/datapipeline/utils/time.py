@@ -1,34 +1,58 @@
-from datetime import timedelta, datetime, timezone
+import re
+from datetime import datetime, timedelta, timezone
 
 
-def parse_timecode(s: str) -> timedelta:
-    """Parse duration strings like '30s', '10m', '1h', '2d' into timedelta."""
-    unit = s[-1]
-    value = int(s[:-1])
-    if unit == 's':
-        return timedelta(seconds=value)
-    if unit == 'm':
-        return timedelta(minutes=value)
-    if unit == 'h':
-        return timedelta(hours=value)
-    if unit == 'd':
-        return timedelta(days=value)
-    raise ValueError(f"Unsupported time unit in: {s}")
+CADENCE_PATTERN = r"^(0*[1-9]\d*)(min|m|h|d)$"
+_CADENCE_PATTERN = re.compile(CADENCE_PATTERN)
+_TIMECODE_PATTERN = re.compile(r"^([+-]?\d+)(s|min|m|h|d)$")
+_SECONDS_PER_UNIT = {
+    "s": 1,
+    "m": 60,
+    "min": 60,
+    "h": 60 * 60,
+    "d": 24 * 60 * 60,
+}
 
 
-def parse_datetime(s: str) -> datetime:
+def parse_timecode(value: str) -> timedelta:
+    """Parse a signed duration such as 30s, 10min, -1h, or 2d."""
+    if not isinstance(value, str):
+        raise ValueError("parse_timecode expects a string")
+    match = _TIMECODE_PATTERN.fullmatch(value)
+    if match is None:
+        raise ValueError(f"Unsupported timecode: {value}")
+
+    amount = int(match.group(1))
+    unit = match.group(2)
+    return timedelta(seconds=amount * _SECONDS_PER_UNIT[unit])
+
+
+def parse_cadence(value: str) -> timedelta:
+    """Parse a positive dataset cadence in minutes, hours, or days."""
+    if not isinstance(value, str):
+        raise ValueError(f"Unsupported cadence: {value}")
+    match = _CADENCE_PATTERN.fullmatch(value)
+    if match is None:
+        raise ValueError(f"Unsupported cadence: {value}")
+
+    return timedelta(
+        seconds=int(match.group(1)) * _SECONDS_PER_UNIT[match.group(2)]
+    )
+
+
+def parse_datetime(value: str) -> datetime:
     """Parse an ISO-8601 datetime.
 
     - Accepts 'Z' or numeric offsets (e.g. '+00:00', '+01:30').
     - If input is timezone-naive, assume UTC.
     """
-    if not isinstance(s, str):
+    if not isinstance(value, str):
         raise ValueError("parse_datetime expects a string")
-    s2 = s[:-1] + "+00:00" if s.endswith("Z") else s
+    normalized = value[:-1] + "+00:00" if value.endswith("Z") else value
     try:
-        dt = datetime.fromisoformat(s2)
-    except Exception as e:
-        raise ValueError(f"Invalid ISO-8601 datetime: {s}") from e
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError as exc:
+        raise ValueError(f"Invalid ISO-8601 datetime: {value}") from exc
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed

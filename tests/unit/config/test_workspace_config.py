@@ -10,53 +10,77 @@ def _write_jerry(tmp_path: Path, content: str) -> Path:
     return path
 
 
-def test_shared_visuals_config(tmp_path):
+def test_workspace_rejects_shared_block(tmp_path):
     _write_jerry(
         tmp_path,
         """
         shared:
-          visuals: OFF
-          progress: bars
+          observability:
+            visuals: OFF
         """,
     )
 
-    context = load_workspace_context(tmp_path)
-    assert context
-    shared = context.config.shared
-    assert shared.visuals == "OFF"
-    assert shared.progress == "BARS"
+    try:
+        load_workspace_context(tmp_path)
+    except Exception as exc:
+        assert "shared" in str(exc)
+    else:
+        raise AssertionError("Expected workspace validation failure for shared defaults")
 
 
-def test_shared_visuals_defaults_when_missing(tmp_path):
-    _write_jerry(
-        tmp_path,
-        """
-        shared:
-          visuals: auto
-        """,
-    )
-
-    context = load_workspace_context(tmp_path)
-    assert context
-    shared = context.config.shared
-    assert shared.visuals == "AUTO"
-    assert shared.progress is None
-
-
-def test_workspace_serve_defaults_limit(tmp_path):
+def test_workspace_rejects_serve_defaults_block(tmp_path):
     _write_jerry(
         tmp_path,
         """
         serve:
           limit: 25
-          throttle_ms: 100
         """,
     )
 
-    context = load_workspace_context(tmp_path)
-    assert context
-    assert context.config.serve.limit == 25
-    assert context.config.serve.throttle_ms == 100
+    try:
+        load_workspace_context(tmp_path)
+    except Exception as exc:
+        assert "serve" in str(exc)
+    else:
+        raise AssertionError("Expected workspace validation failure for serve defaults")
+
+
+def test_workspace_rejects_build_defaults_block(tmp_path):
+    _write_jerry(
+        tmp_path,
+        """
+        build:
+          mode: AUTO
+        """,
+    )
+
+    try:
+        load_workspace_context(tmp_path)
+    except Exception as exc:
+        assert "build" in str(exc)
+    else:
+        raise AssertionError("Expected workspace validation failure for build defaults")
+
+
+def test_workspace_rejects_serve_observability_block(tmp_path):
+    _write_jerry(
+        tmp_path,
+        """
+        serve:
+          observability:
+            logging:
+              outputs:
+                - transport: fs
+                  scope: execution
+        """,
+    )
+
+    try:
+        load_workspace_context(tmp_path)
+    except Exception as exc:
+        assert "serve" in str(exc)
+    else:
+        raise AssertionError("Expected workspace validation failure for serve observability")
 
 
 def test_workspace_resolve_dataset_alias(tmp_path: Path):
@@ -69,7 +93,7 @@ def test_workspace_resolve_dataset_alias(tmp_path: Path):
         """,
     )
     (tmp_path / "example").mkdir(parents=True, exist_ok=True)
-    (tmp_path / "example" / "project.yaml").write_text("version: 1\nname: x\npaths:\n  streams: ./contracts\n  sources: ./sources\n  dataset: dataset.yaml\n  postprocess: postprocess.yaml\n  artifacts: ./artifacts\n  tasks: ./tasks\n", encoding="utf-8")
+    (tmp_path / "example" / "project.yaml").write_text("version: 1\nname: x\npaths:\n  ingests: ./ingests\n  streams: ./streams\n  sources: ./sources\n  dataset: dataset.yaml\n  postprocess: postprocess.yaml\n  artifacts: ./artifacts\n  tasks: ./tasks\n", encoding="utf-8")
 
     context = load_workspace_context(tmp_path)
     assert context

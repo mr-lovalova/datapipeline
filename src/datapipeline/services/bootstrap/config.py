@@ -1,33 +1,23 @@
-import re
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
 from datapipeline.config.project import ProjectConfig
+from datapipeline.services.config_refs import (
+    interpolate_config_vars,
+    project_vars_from_data,
+    resolve_config_refs,
+)
 from datapipeline.services.path_policy import resolve_project_path
 from datapipeline.utils.load import load_yaml
-from datapipeline.utils.placeholders import MissingInterpolation, is_missing
-
-
-def _serialize_global_value(value: Any) -> Any:
-    """Normalize project global values for interpolation."""
-    if isinstance(value, datetime):
-        try:
-            return value.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        except ValueError:
-            return value.isoformat()
-    if value is None:
-        return None
-    return str(value)
 
 
 def _project(project_yaml: Path) -> ProjectConfig:
     """Load and validate project.yaml."""
-    data = load_yaml(project_yaml)
+    data = resolve_config_refs(load_yaml(project_yaml), project_yaml=project_yaml)
     vars_ = _project_vars(data)
     paths = data.get("paths")
     if isinstance(paths, dict) and vars_:
-        data["paths"] = _interpolate(paths, vars_)
+        data["paths"] = interpolate_config_vars(paths, vars_)
     return ProjectConfig.model_validate(data)
 
 
@@ -37,21 +27,7 @@ def _paths(project_yaml: Path) -> Mapping[str, str]:
 
 
 def _project_vars(data: dict) -> dict[str, Any]:
-    vars_: dict[str, Any] = {}
-    name = data.get("name")
-    if name:
-        vars_["project"] = str(name)
-        vars_["project_name"] = str(name)
-
-    version = data.get("version")
-    if version is not None:
-        vars_["version"] = str(version)
-        vars_["project_version"] = str(version)
-
-    globals_ = data.get("globals") or {}
-    for k, v in globals_.items():
-        vars_[str(k)] = _serialize_global_value(v)
-    return vars_
+    return project_vars_from_data(data)
 
 
 def artifacts_root(project_yaml: Path) -> Path:
@@ -69,22 +45,9 @@ def artifacts_root(project_yaml: Path) -> Path:
     return resolve_project_path(project_yaml, a)
 
 
-def run_root(project_yaml: Path, run_id: str | None = None) -> Path:
-    """Return a per-run artifacts directory under the project artifacts root.
-
-    Example:
-      artifacts_root: /.../artifacts/my_dataset/v3
-      run_root:       /.../artifacts/my_dataset/v3/runs/2025-11-29T14-15-23Z
-    """
-    base = artifacts_root(project_yaml)
-
-    if run_id is None:
-        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
-        run_id = ts
-
-    root = (base / "runs" / run_id).resolve()
-    root.mkdir(parents=True, exist_ok=True)
-    return root
+def build_state_path(project_yaml: Path) -> Path:
+    """Return the internal build-state ledger path."""
+    return (artifacts_root(project_yaml) / "_system" / "build" / "state.json").resolve()
 
 
 def _load_by_key(
@@ -98,7 +61,10 @@ def _load_by_key(
     if not p:
         raise FileNotFoundError(f"project.paths must include '{key}'.")
     path = resolve_project_path(project_yaml, p)
-    return load_yaml(path, require_mapping=require_mapping)
+    return resolve_config_refs(
+        load_yaml(path, require_mapping=require_mapping),
+        project_yaml=project_yaml,
+    )
 
 
 def _globals(project_yaml: Path) -> dict[str, Any]:
@@ -108,56 +74,33 @@ def _globals(project_yaml: Path) -> dict[str, Any]:
     downstream components expecting ISO Z will work predictably.
     Preserve explicit nulls; otherwise coerce to string.
     """
-    proj = _project(project_yaml)
-    g = proj.globals.model_dump()
+    # Validate the project first, then return globals from the same project-var
+    # resolver used for paths/source interpolation. This keeps nested globals
+    # consistent across all config surfaces.
+    _project(project_yaml)
+    data = resolve_config_refs(load_yaml(project_yaml), project_yaml=project_yaml)
+    g = data.get("globals") or {}
+    if not isinstance(g, Mapping):
+        return {}
+    vars_ = _project_vars(data)
     out: dict[str, Any] = {}
-    for k, v in g.items():
-        out[str(k)] = _serialize_global_value(v)
+    for k in g:
+        key = str(k)
+        out[key] = vars_.get(key)
     return out
 
 
-_VAR_RE = re.compile(r"\$\{([^}]+)\}")
-
-
 def _interpolate(obj, vars_: dict[str, Any]):
-    """Recursively substitute ${var} in strings using vars_ map.
-
-    Minimal behavior: if a key is missing, leave placeholder as-is.
-    """
-    if isinstance(obj, dict):
-        return {k: _interpolate(v, vars_) for k, v in obj.items()}
-    if isinstance(obj, list):
-        return [_interpolate(v, vars_) for v in obj]
-    if isinstance(obj, str):
-        match = _VAR_RE.fullmatch(obj)
-        if match:
-            key = match.group(1)
-            if key in vars_:
-                value = vars_[key]
-                if value is None or is_missing(value):
-                    return MissingInterpolation(key)
-                return str(value)
-            return obj
-
-        def repl(m):
-            key = m.group(1)
-            value = vars_.get(key, m.group(0))
-            if value is None or is_missing(value):
-                return m.group(0)
-            return str(value)
-
-        return _VAR_RE.sub(repl, obj)
-    return obj
+    return interpolate_config_vars(obj, vars_)
 
 
 __all__ = [
     "artifacts_root",
-    "run_root",
+    "build_state_path",
     "_globals",
     "_interpolate",
     "_load_by_key",
     "_paths",
     "_project",
     "_project_vars",
-    "_serialize_global_value",
 ]

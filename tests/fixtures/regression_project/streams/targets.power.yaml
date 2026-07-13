@@ -1,0 +1,6 @@
+id: targets.power
+from:
+  stream: targets.power.ingest
+
+stream:
+  - ensure_cadence: { cadence: 1h, field: value }

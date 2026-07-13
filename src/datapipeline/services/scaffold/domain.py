@@ -4,7 +4,6 @@ from typing import Optional
 from datapipeline.services.scaffold.templates import render
 from datapipeline.services.scaffold.utils import (
     ensure_pkg_dir,
-    to_snake,
     validate_identifier,
     write_if_missing,
 )

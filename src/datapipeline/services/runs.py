@@ -1,10 +1,11 @@
-from dataclasses import dataclass, asdict
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any, Tuple
-
 import json
 import shutil
+from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Literal
+
+RunStatus = Literal["running", "success", "failed"]
 
 
 @dataclass(frozen=True)
@@ -22,7 +23,6 @@ class RunPaths:
               dataset/        # main output for this run
               run.json        # metadata for this run
           latest/             # symlink or copy pointing at the current live run
-          current_run.json    # pointer to the run currently marked as "latest"
     """
 
     serve_root: Path
@@ -40,9 +40,9 @@ class RunMetadata:
     run_id: str
     started_at: str
     finished_at: str | None = None
-    status: str | None = None  # e.g. "running", "success", "failed"
+    status: RunStatus | None = None
     notes: str | None = None
-    stage: int | None = None
+    preview_index: int | None = None
 
 
 def _now_utc_iso() -> str:
@@ -51,7 +51,7 @@ def _now_utc_iso() -> str:
 
 def make_run_id() -> str:
     """Create a filesystem-safe, sortable run identifier."""
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%S-%fZ")
 
 
 def get_serve_root(directory: str | Path) -> Path:
@@ -95,17 +95,24 @@ def start_run_for_directory(
     directory: str | Path,
     run_id: str | None = None,
     *,
-    stage: int | None = None,
-) -> Tuple[RunPaths, RunMetadata]:
+    preview_index: int | None = None,
+) -> tuple[RunPaths, RunMetadata]:
     """Initialise a new run rooted at the given directory.
 
     This will create the run's dataset directory and an initial metadata file
     with status set to "running".
     """
-    serve_root = get_serve_root(directory)
-    paths = get_run_paths(serve_root, run_id)
+    paths = get_run_paths(get_serve_root(directory), run_id)
+    return paths, start_run(paths, preview_index=preview_index)
 
-    # Ensure the run directories exist
+
+def start_run(
+    paths: RunPaths,
+    *,
+    preview_index: int | None = None,
+) -> RunMetadata:
+    """Initialise a previously planned run."""
+
     paths.dataset_dir.mkdir(parents=True, exist_ok=True)
 
     meta = RunMetadata(
@@ -114,18 +121,21 @@ def start_run_for_directory(
         finished_at=None,
         status="running",
         notes=None,
-        stage=stage,
+        preview_index=preview_index,
     )
     _write_run_metadata(meta, paths.metadata_path)
-    return paths, meta
+    return meta
 
 
-def finish_run(paths: RunPaths, status: str, notes: str | None = None) -> RunMetadata:
+def finish_run(
+    paths: RunPaths,
+    status: Literal["success", "failed"],
+    notes: str | None = None,
+) -> RunMetadata:
     """Mark an existing run as finished with the given status."""
     if paths.metadata_path.exists():
         meta = _load_run_metadata(paths.metadata_path)
     else:
-        # Fallback: create a minimal metadata record if none exists yet
         meta = RunMetadata(
             run_id=paths.run_id,
             started_at=_now_utc_iso(),
@@ -153,14 +163,10 @@ def finish_run_failed(paths: RunPaths, notes: str | None = None) -> RunMetadata:
 def set_latest_run(paths: RunPaths) -> None:
     """Mark the given run as the latest/live run for its serve directory.
 
-    This updates two things under the serve root:
-
-      * `latest/` – a symlink (or copied directory as a fallback) pointing to
-        this run's root directory, so consumers can read from
-        `<directory>/latest/dataset`.
-
-      * `current_run.json` – a small pointer file recording which run is
-        currently live and when this pointer was updated.
+    This updates `latest/` under the serve root. It is a symlink (or copied
+    directory as a fallback) pointing to this run's root directory, so consumers
+    can read current outputs and metadata from `<directory>/latest/dataset` and
+    `<directory>/latest/run.json`.
     """
     serve_root = paths.serve_root
     latest_root = serve_root / "latest"
@@ -180,17 +186,6 @@ def set_latest_run(paths: RunPaths) -> None:
     except OSError:
         shutil.copytree(paths.run_root, latest_root)
 
-    # Write/update current_run.json with a simple pointer
-    current_meta_path = serve_root / "current_run.json"
-    current_data: dict[str, Any] = {
-        "run_id": paths.run_id,
-        "run_root": str(paths.run_root),
-        "dataset_dir": str(paths.dataset_dir),
-        "updated_at": _now_utc_iso(),
-    }
-    with current_meta_path.open("w", encoding="utf-8") as f:
-        json.dump(current_data, f, indent=2, sort_keys=True)
-
 
 __all__ = [
     "RunPaths",
@@ -198,6 +193,7 @@ __all__ = [
     "make_run_id",
     "get_serve_root",
     "get_run_paths",
+    "start_run",
     "start_run_for_directory",
     "finish_run",
     "finish_run_success",

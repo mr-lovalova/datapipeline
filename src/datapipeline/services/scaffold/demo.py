@@ -64,14 +64,24 @@ def _update_workspace_jerry(
             datasets.pop(key, None)
     data["datasets"] = datasets
     data["default_dataset"] = _DEMO_DATASET_ALIAS
-    workspace_jerry.write_text(
-        yaml.safe_dump(data, sort_keys=False), encoding="utf-8"
-    )
+    workspace_jerry.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
 
 
 def _copy_tree(src: Path, dest: Path) -> None:
+    if src.name in {"__pycache__", ".DS_Store"} or src.suffix in {".pyc", ".pyo"}:
+        return
     if src.is_dir():
-        shutil.copytree(src, dest, dirs_exist_ok=True)
+        shutil.copytree(
+            src,
+            dest,
+            dirs_exist_ok=True,
+            ignore=shutil.ignore_patterns(
+                "__pycache__",
+                "*.pyc",
+                "*.pyo",
+                ".DS_Store",
+            ),
+        )
     else:
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, dest)

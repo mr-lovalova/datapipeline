@@ -1,6 +1,10 @@
 from datetime import datetime, timezone
 from typing import Any
 
+from datapipeline.artifacts.models import (
+    SchemaPayload,
+    VectorSchemaArtifact,
+)
 from datapipeline.domain.feature import FeatureRecord
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.domain.sample import Sample
@@ -34,34 +38,47 @@ class StubVectorContext:
         *,
         schema: dict[str, list[dict]] | None = None,
     ):
-        if isinstance(expected, dict):
-            self._expected_map = {k: list(v) for k, v in expected.items()}
-        else:
-            self._expected_map = {"features": list(expected)}
-        self._schema_map = schema or {}
-        self._cache: dict[str, Any] = {}
+        expected_map = expected if isinstance(expected, dict) else {"features": expected}
+        schema = schema or {}
+        features = schema.get(
+            "features",
+            [{"id": identifier} for identifier in expected_map.get("features", [])],
+        )
+        targets = schema.get(
+            "targets",
+            [{"id": identifier} for identifier in expected_map.get("targets", [])],
+        )
+        self._schema = VectorSchemaArtifact.model_validate(
+            {
+                "schema_version": 2,
+                "features": [{"kind": "scalar", **entry} for entry in features],
+                "targets": [{"kind": "scalar", **entry} for entry in targets],
+            }
+        )
         self._metadata_doc: dict | None = None
 
-    def load_expected_ids(self, *, payload: str = "features") -> list[str]:
-        ids = list(self._expected_map.get(payload, []))
-        self._cache[f"expected_ids:{payload}"] = list(ids)
-        return ids
+    def load_schema(self) -> VectorSchemaArtifact:
+        return self._schema
 
-    def load_schema(self, *, payload: str = "features") -> list[dict]:
-        entries = self._schema_map.get(payload)
-        if entries is not None:
-            snapshot = [dict(item) for item in entries]
+    def remove_schema_ids(
+        self,
+        payload: SchemaPayload,
+        identifiers: set[str],
+    ) -> None:
+        schema = self._schema
+        if payload == "features":
+            entries = schema.features
+        elif payload == "targets":
+            entries = schema.targets
         else:
-            expected = self._expected_map.get(payload)
-            if expected is None:
-                snapshot = []
-            else:
-                snapshot = [{"id": fid} for fid in expected]
-        self._cache[f"schema:{payload}"] = [dict(item) for item in snapshot]
-        self._cache[f"expected_ids:{payload}"] = [
-            entry["id"] for entry in snapshot if isinstance(entry.get("id"), str)
-        ]
-        return snapshot
+            raise ValueError("schema payload must be 'features' or 'targets'")
+        self._schema = schema.model_copy(
+            update={
+                payload: tuple(
+                    entry for entry in entries if entry.id not in identifiers
+                )
+            }
+        )
 
     def set_metadata(self, doc: dict) -> None:
         self._metadata_doc = doc

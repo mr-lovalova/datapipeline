@@ -1,5 +1,5 @@
-from typing import Iterator, Generic, TypeVar, Optional
-from .base import SourceInterface
+from typing import Iterator, Generic, TypeVar
+from datapipeline.domain.stream import RecordStream
 from .loader import BaseDataLoader
 from .parser import DataParser
 from .parsing_error import ParsingError
@@ -7,7 +7,7 @@ from .parsing_error import ParsingError
 TRecord = TypeVar("TRecord")
 
 
-class Source(SourceInterface[TRecord], Generic[TRecord]):
+class Source(RecordStream[TRecord], Generic[TRecord]):
     def __init__(self, loader: BaseDataLoader, parser: DataParser[TRecord]):
         self.loader = loader
         self.parser = parser
@@ -20,9 +20,3 @@ class Source(SourceInterface[TRecord], Generic[TRecord]):
                     yield parsed
             except Exception as exc:
                 raise ParsingError(row=row, index=i, original_exc=exc) from exc
-
-    def count(self) -> Optional[int]:
-        try:
-            return self.loader.count()
-        except Exception:
-            return None

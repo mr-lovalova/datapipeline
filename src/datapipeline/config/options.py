@@ -5,15 +5,18 @@ stay in sync.
 """
 
 OUTPUT_TRANSPORTS = ("stdout", "fs")
-OUTPUT_FORMATS = ("print", "jsonl", "json", "csv", "pickle")
-OUTPUT_STDOUT_FORMATS = ("print", "jsonl", "json")
+OUTPUT_FORMATS = ("jsonl", "csv", "pickle")
+OUTPUT_INSPECT_FORMATS = ("jsonl", "csv", "pickle", "txt", "html")
+OUTPUT_STDOUT_FORMATS = ("jsonl", "txt")
+OUTPUT_VIEWS = ("raw", "flat")
 
 SOURCE_TRANSPORTS = ("fs", "http", "synthetic")
 SOURCE_FS_HTTP_FORMATS = ("csv", "json", "jsonl")
 SOURCE_FS_FORMATS = (*SOURCE_FS_HTTP_FORMATS, "pickle")
 
-VISUAL_CHOICES = ("auto", "tqdm", "rich", "off")
-PROGRESS_CHOICES = ("auto", "spinner", "bars", "off")
+VISUAL_CHOICES = ("on", "off")
+LOG_TRANSPORT_CHOICES = ("stderr", "stdout", "fs")
+LOG_SCOPE_CHOICES = ("global", "execution")
 
 
 def source_formats_for(transport: str) -> tuple[str, ...]:

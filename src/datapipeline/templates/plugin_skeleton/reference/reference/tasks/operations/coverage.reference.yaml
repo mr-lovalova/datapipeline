@@ -1,0 +1,13 @@
+# Coverage inspect task reference.
+# This file is documentation only; uncomment the keys you want to use.
+#
+# version: 1
+# id: coverage
+# kind: runtime
+# entrypoint: core.runtime.coverage
+# requires: [custom_artifact] # optional extra artifact task IDs
+# options:
+#   sort: missing             # missing | nulls
+#   threshold: 0.95           # 0.0 - 1.0
+#
+# Output transport/format/path is resolved from the selected inspect profile.

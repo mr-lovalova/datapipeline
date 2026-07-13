@@ -1,4 +1,4 @@
-# See ../reference/reference/postprocess.yaml for full options.
+# See ../../plugin_skeleton/reference/reference/postprocess.yaml for full options.
 # - drop: # no targets so no effect but included here for demonstration
 #     axis: vertical
 #     payload: targets

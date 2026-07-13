@@ -1,0 +1,18 @@
+id: equity.msft
+from:
+  stream: equity.msft.ingest
+
+cadence: ${group_by}
+
+stream:
+  - dedupe: {}
+  - granularity: { field: close, mode: first }
+  - rolling:
+      field: dollar_volume
+      to: adv5
+      window: 5
+      statistic: mean
+      min_samples: 3
+
+debug:
+  - lint: { mode: warn, tick: "${cadence}" }

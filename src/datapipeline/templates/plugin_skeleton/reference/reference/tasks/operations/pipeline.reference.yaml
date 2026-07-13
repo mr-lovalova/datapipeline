@@ -1,0 +1,13 @@
+# Serve operation task reference.
+# This file is documentation only; uncomment the keys you want to use.
+#
+# version: 1                        # optional
+# id: pipeline
+# kind: runtime                     # required; runtime | artifact
+
+# entrypoint: core.runtime.pipeline   # required; built-in serve runner id
+# requires: [custom_artifact]         # optional extra artifact task IDs
+#
+# This operation does not accept task options. Split selection belongs to the
+# serve profile; limit, preview, throttle, output, and visuals can also be
+# overridden by the CLI.

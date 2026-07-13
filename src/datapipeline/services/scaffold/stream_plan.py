@@ -1,129 +1,148 @@
 from dataclasses import dataclass
 from pathlib import Path
 
+from datapipeline.services.paths import pkg_root
 from datapipeline.services.scaffold.domain import create_domain
 from datapipeline.services.scaffold.dto import create_dto
-from datapipeline.services.scaffold.parser import create_parser
 from datapipeline.services.scaffold.mapper import create_mapper
-from datapipeline.services.scaffold.source_yaml import create_source_yaml
-from datapipeline.services.scaffold.contract_yaml import write_ingest_contract
-from datapipeline.services.scaffold.discovery import list_dtos
-from datapipeline.services.paths import pkg_root
-from datapipeline.services.scaffold.utils import error_exit, status
+from datapipeline.services.scaffold.parser import create_parser
+from datapipeline.services.scaffold.source_yaml import (
+    create_source_yaml,
+    validate_source_id,
+)
+from datapipeline.services.scaffold.stream_yaml import write_ingest_stream
+from datapipeline.services.scaffold.utils import status
 
 
-@dataclass
-class ParserPlan:
-    create: bool
-    create_dto: bool = False
-    dto_class: str | None = None
-    dto_module: str | None = None
-    parser_name: str | None = None
-    parser_ep: str | None = None
+@dataclass(frozen=True)
+class PythonType:
+    class_name: str
+    module: str
 
 
-@dataclass
-class MapperPlan:
-    create: bool
-    create_dto: bool = False
-    input_class: str | None = None
-    input_module: str | None = None
-    mapper_name: str | None = None
-    mapper_ep: str | None = None
-    domain: str | None = None
+@dataclass(frozen=True)
+class ParserReference:
+    entrypoint: str
 
 
-@dataclass
-class StreamPlan:
-    provider: str
-    dataset: str
+@dataclass(frozen=True)
+class ParserCreation:
+    name: str
+    dto: PythonType
+
+
+ParserPlan = ParserReference | ParserCreation
+
+
+@dataclass(frozen=True)
+class MapperReference:
+    entrypoint: str
+
+
+@dataclass(frozen=True)
+class MapperCreation:
+    name: str
+    input_type: PythonType
+
+
+MapperPlan = MapperReference | MapperCreation
+
+
+@dataclass(frozen=True)
+class SourceReference:
     source_id: str
+
+
+@dataclass(frozen=True)
+class SourceCreation:
+    source_id: str
+    loader_entrypoint: str
+    loader_args: dict[str, object]
+    parser: ParserPlan
+
+
+SourcePlan = SourceReference | SourceCreation
+
+
+@dataclass(frozen=True)
+class DomainReference:
+    name: str
+
+
+@dataclass(frozen=True)
+class DomainCreation:
+    name: str
+
+
+DomainPlan = DomainReference | DomainCreation
+
+
+@dataclass(frozen=True)
+class StreamPlan:
     project_yaml: Path
     stream_id: str
     root: Path | None
-    create_source: bool
-    loader_ep: str | None = None
-    loader_args: dict | None = None
-    parser: ParserPlan | None = None
-    mapper: MapperPlan | None = None
-    domain: str | None = None
-    create_domain: bool = False
+    source: SourcePlan
+    mapper: MapperPlan
+    domain: DomainPlan
+    dto_to_create: str | None
 
 
 def execute_stream_plan(plan: StreamPlan) -> None:
-    pyproject_path = None
-    before_pyproject = None
-    try:
-        root_dir, _, pyproject = pkg_root(plan.root)
-        pyproject_path = pyproject
-        if pyproject_path.exists():
-            before_pyproject = pyproject_path.read_text()
-    except SystemExit:
-        pyproject_path = None
-        before_pyproject = None
+    if isinstance(plan.source, SourceCreation):
+        validate_source_id(plan.source.source_id)
+    _, _, pyproject_path = pkg_root(plan.root)
+    before_pyproject = pyproject_path.read_text(encoding="utf-8")
 
-    if plan.create_domain and plan.domain:
-        create_domain(domain=plan.domain, root=plan.root)
+    if isinstance(plan.domain, DomainCreation):
+        create_domain(domain=plan.domain.name, root=plan.root)
 
-    parser_ep = None
-    if plan.parser:
-        if plan.parser.create:
-            if plan.parser.dto_class and plan.parser.create_dto:
-                create_dto(name=plan.parser.dto_class, root=plan.root)
-            dto_module = plan.parser.dto_module or list_dtos(root=plan.root).get(plan.parser.dto_class or "")
-            if not dto_module:
-                error_exit("Failed to resolve DTO module.")
-            parser_ep = create_parser(
-                name=plan.parser.parser_name or "parser",
-                dto_class=plan.parser.dto_class or "DTO",
-                dto_module=dto_module,
+    if plan.dto_to_create is not None:
+        create_dto(name=plan.dto_to_create, root=plan.root)
+
+    if isinstance(plan.source, SourceCreation):
+        if isinstance(plan.source.parser, ParserCreation):
+            parser_entrypoint = create_parser(
+                name=plan.source.parser.name,
+                dto_class=plan.source.parser.dto.class_name,
+                dto_module=plan.source.parser.dto.module,
                 root=plan.root,
             )
         else:
-            parser_ep = plan.parser.parser_ep
+            parser_entrypoint = plan.source.parser.entrypoint
 
-    mapper_ep = None
-    if plan.mapper:
-        if plan.mapper.create:
-            if plan.mapper.input_class and plan.mapper.create_dto:
-                create_dto(name=plan.mapper.input_class, root=plan.root)
-            input_module = plan.mapper.input_module
-            if not input_module and plan.mapper.input_class:
-                input_module = list_dtos(root=plan.root).get(plan.mapper.input_class)
-            if not input_module:
-                error_exit("Failed to resolve mapper input module.")
-            mapper_ep = create_mapper(
-                name=plan.mapper.mapper_name or "mapper",
-                input_class=plan.mapper.input_class or "Record",
-                input_module=input_module,
-                domain=plan.mapper.domain or plan.domain or "domain",
-                root=plan.root,
-            )
-        else:
-            mapper_ep = plan.mapper.mapper_ep
+    if isinstance(plan.mapper, MapperCreation):
+        mapper_entrypoint = create_mapper(
+            name=plan.mapper.name,
+            input_class=plan.mapper.input_type.class_name,
+            input_module=plan.mapper.input_type.module,
+            domain=plan.domain.name,
+            root=plan.root,
+        )
+    else:
+        mapper_entrypoint = plan.mapper.entrypoint
 
-    if plan.create_source and plan.loader_ep and plan.loader_args is not None:
+    if isinstance(plan.source, SourceCreation):
         create_source_yaml(
-            provider=plan.provider,
-            dataset=plan.dataset,
-            loader_ep=plan.loader_ep,
-            loader_args=plan.loader_args,
-            parser_ep=parser_ep or "identity",
+            source_id=plan.source.source_id,
+            loader_ep=plan.source.loader_entrypoint,
+            loader_args=plan.source.loader_args,
+            parser_ep=parser_entrypoint,
             root=plan.root,
             project_yaml=plan.project_yaml,
         )
 
-    write_ingest_contract(
+    write_ingest_stream(
         project_yaml=plan.project_yaml,
         stream_id=plan.stream_id,
-        source=plan.source_id,
-        mapper_entrypoint=mapper_ep or "identity",
+        source=plan.source.source_id,
+        mapper_entrypoint=mapper_entrypoint,
     )
     status("ok", "Stream created.")
-    if pyproject_path and before_pyproject is not None:
-        after_pyproject = pyproject_path.read_text()
-        if after_pyproject != before_pyproject:
-            status(
-                "note",
-                f"Entry points updated; reinstall plugin: pip install -e {pyproject_path.parent}",
-            )
+
+    after_pyproject = pyproject_path.read_text(encoding="utf-8")
+    if after_pyproject != before_pyproject:
+        status(
+            "note",
+            f"Entry points updated; reinstall plugin: pip install -e {pyproject_path.parent}",
+        )

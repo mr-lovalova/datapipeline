@@ -6,11 +6,11 @@ from typing import Any, Literal
 
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.dataset.loader import load_dataset
-from datapipeline.domain.sample import Sample
+from datapipeline.config.dataset.validation import validate_dataset_feature_identity
 from datapipeline.domain.vector import Vector
-from datapipeline.pipeline.context import PipelineContext
-from datapipeline.pipeline.pipelines import build_vector_pipeline
-from datapipeline.pipeline.stages import post_process
+from datapipeline.pipelines.full.nodes import post_process
+from datapipeline.dag.context import PipelineContext
+from datapipeline.pipelines import build_vector_pipeline
 from datapipeline.runtime import Runtime
 from datapipeline.services.bootstrap import bootstrap
 
@@ -19,7 +19,7 @@ GroupFormat = Literal["mapping", "tuple", "list", "flat"]
 
 def _normalize_group(
     group_key: Sequence[Any],
-    group_by: str,
+    sample_keys: Sequence[str],
     fmt: GroupFormat,
 ) -> Any:
     if fmt == "tuple":
@@ -32,8 +32,7 @@ def _normalize_group(
                 "group_format='flat' requires exactly one group key value",
             )
         return group_key[0]
-    # Default: mapping of field names -> values. With simplified GroupBy, use 'time'.
-    fields = ["time"]
+    fields = ["time", *sample_keys]
     return {field: value for field, value in zip(fields, group_key)}
 
 
@@ -62,6 +61,7 @@ class VectorAdapter:
         project_path = Path(project_yaml)
         dataset = load_dataset(project_path, "vectors")
         runtime = bootstrap(project_path)
+        validate_dataset_feature_identity(runtime, dataset)
         return cls(dataset=dataset, runtime=runtime)
 
     def stream(
@@ -77,6 +77,7 @@ class VectorAdapter:
             features,
             self.dataset.group_by,
             target_configs=target_cfgs,
+            sample_keys=self.dataset.sample_keys,
         )
         base_stream = post_process(context, vectors)
         sample_iter = base_stream
@@ -101,18 +102,19 @@ class VectorAdapter:
             features,
             self.dataset.group_by,
             target_configs=target_cfgs,
+            sample_keys=self.dataset.sample_keys,
         )
         base_stream = post_process(context, vectors)
         if limit is not None:
             base_stream = islice(base_stream, limit)
-        group_by = self.dataset.group_by
+        sample_keys = self.dataset.sample_keys
 
         def _rows() -> Iterator[dict[str, Any]]:
             for sample in base_stream:
                 row: dict[str, Any] = {}
                 if include_group:
                     row[group_column] = _normalize_group(
-                        sample.key, group_by, group_format
+                        sample.key, sample_keys, group_format
                     )
                 vectors = [sample.features]
                 if sample.targets:

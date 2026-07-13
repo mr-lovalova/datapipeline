@@ -1,64 +1,149 @@
-from typing import Dict, Optional, Any, List, Mapping, Union, Literal
-from pydantic import BaseModel, Field, ConfigDict, model_validator
+from typing import Annotated, Any
+
+from pydantic import (
+    BeforeValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    PlainSerializer,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
+
+from datapipeline.transforms.spec import (
+    TransformSpec,
+    parse_transform_spec,
+    serialize_transform_spec,
+)
+
+
+_ConfiguredTransform = Annotated[
+    TransformSpec,
+    BeforeValidator(parse_transform_spec),
+    PlainSerializer(
+        serialize_transform_spec,
+        return_type=dict[str, dict[str, Any]],
+    ),
+]
+
+
+_EntryPoint = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1),
+]
 
 
 class EPArgs(BaseModel):
-    entrypoint: str
-    args: Dict[str, Any] = Field(default_factory=dict)
+    entrypoint: _EntryPoint
+    args: dict[str, Any] = Field(default_factory=dict)
+
+
+_SourceInputPath = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1),
+]
+
+
+class SourceInputsConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    files: list[_SourceInputPath] = Field(min_length=1)
 
 
 class SourceConfig(BaseModel):
-    model_config = ConfigDict(extra='ignore')
+    model_config = ConfigDict(extra="ignore")
     parser: EPArgs
     loader: EPArgs
+    inputs: SourceInputsConfig | None = None
 
 
-class ContractConfig(BaseModel):
-    """Unified contract model with explicit kind.
+class IngestFromConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 
-    - kind = 'ingest': exactly one raw source via source alias
-    - kind = 'composed': inputs must reference canonical streams only
-    """
-    kind: Literal['ingest', 'composed']
+    source: str
+
+
+class IngestConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
     id: str
+    from_: IngestFromConfig = Field(alias="from")
+    map: EPArgs
+    cadence: Any | None = None
+    partition_by: str | list[str] | None = Field(default=None)
+    feature_id_by: str | list[str] | None = Field(default=None)
+    ordered_by: list[str] | None = Field(default=None)
+    record: list[_ConfiguredTransform] | None = Field(default=None)
 
-    # Ingest-only
-    source: Optional[str] = Field(default=None)
 
-    # Composed-only: list of "[alias=]stream_id" (streams only)
-    inputs: Optional[List[str]] = Field(default=None)
+class StreamRefConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 
-    mapper: Optional[EPArgs] = None
-    partition_by: Optional[Union[str, List[str]]] = Field(default=None)
-    sort_batch_size: int = Field(default=100_000)
-    record: Optional[List[Mapping[str, Any]]] = Field(default=None)
-    stream: Optional[List[Mapping[str, Any]]] = Field(default=None)
+    stream: str
+
+    @field_validator("stream")
+    @classmethod
+    def validate_stream(cls, stream: str) -> str:
+        stream = stream.strip()
+        if not stream:
+            raise ValueError("from.stream must not be empty")
+        if "@" in stream or ":" in stream:
+            raise ValueError("from.stream must reference a canonical stream id")
+        return stream
+
+
+class AlignFromConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    align: list[str] = Field(min_length=2)
+
+    @field_validator("align")
+    @classmethod
+    def validate_streams(cls, streams: list[str]) -> list[str]:
+        normalized = [stream.strip() for stream in streams]
+        if any(not stream for stream in normalized):
+            raise ValueError("from.align stream ids must not be empty")
+        if any("@" in stream or ":" in stream for stream in normalized):
+            raise ValueError("from.align must reference canonical stream ids")
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("from.align must not contain duplicate stream ids")
+        return normalized
+
+
+class StreamConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    id: str
+    from_: StreamRefConfig | AlignFromConfig = Field(alias="from")
+    map: EPArgs | None = None
+    cadence: Any | None = None
+    partition_by: str | list[str] | None = Field(default=None)
+    feature_id_by: str | list[str] | None = Field(default=None)
+    ordered_by: list[str] | None = Field(default=None)
+    stream: list[_ConfiguredTransform] | None = Field(default=None)
     # Optional debug-only transforms (applied after stream transforms)
-    debug: Optional[List[Mapping[str, Any]]] = Field(default=None)
+    debug: list[_ConfiguredTransform] | None = Field(default=None)
 
-    @model_validator(mode='after')
-    def _validate_mode(self):
-        if self.kind == 'ingest':
-            if not self.source:
-                raise ValueError("ingest contract requires 'source'")
-            if self.inputs:
-                raise ValueError("ingest contract cannot define 'inputs'")
-        elif self.kind == 'composed':
-            if not self.inputs or not isinstance(self.inputs, list):
-                raise ValueError("composed contract requires 'inputs' (list of stream ids)")
-            if self.source:
-                raise ValueError("composed contract cannot define 'source'")
-            # Enforce simple grammar: alias=stream_id or stream_id, no stages/prefixes
-            for item in self.inputs:
-                if '@' in item:
-                    raise ValueError("composed inputs may not include '@stage'; streams are aligned by default")
-                # allow alias=ref
-                ref = item.split('=', 1)[1] if '=' in item else item
-                if ':' in ref:
-                    raise ValueError("composed inputs must reference canonical stream ids only")
+    @property
+    def aligns_streams(self) -> bool:
+        return isinstance(self.from_, AlignFromConfig)
+
+    def input_streams(self) -> tuple[str, ...]:
+        if isinstance(self.from_, AlignFromConfig):
+            return tuple(self.from_.align)
+        return (self.from_.stream,)
+
+    @model_validator(mode="after")
+    def _validate_stream(self):
+        if self.aligns_streams and self.partition_by is not None:
+            raise ValueError("aligned streams inherit partition_by from their inputs")
+        if self.aligns_streams and self.map is None:
+            raise ValueError("aligned streams require map.entrypoint")
         return self
 
 
 class StreamsConfig(BaseModel):
-    raw: Dict[str, SourceConfig] = Field(default_factory=dict)
-    contracts: Dict[str, ContractConfig] = Field(default_factory=dict)
+    raw: dict[str, SourceConfig] = Field(default_factory=dict)
+    ingests: dict[str, IngestConfig] = Field(default_factory=dict)
+    streams: dict[str, StreamConfig] = Field(default_factory=dict)

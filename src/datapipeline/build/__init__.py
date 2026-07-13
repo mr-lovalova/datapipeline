@@ -2,5 +2,5 @@
 
 __all__ = [
     "state",
-    "tasks",
+    "config_hash",
 ]

@@ -8,4 +8,4 @@ loader:
   args:
     transport: fs
     format: pickle
-    path: tests/fixtures/regression_project/data/power_target.pkl
+    path: data/power_target.pkl

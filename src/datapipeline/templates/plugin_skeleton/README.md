@@ -10,7 +10,7 @@ python -m pip install -U jerry-thomas
 jerry plugin init {{DIST_NAME}} --out .
 python -m pip install -e {{DIST_NAME}}
 
-# One-stop wizard: source YAML + DTO/parser + domain + mapper + contract.
+# One-stop wizard: source YAML + DTO/parser + domain + mapper + stream.
 jerry inflow create
 
 # If a workspace-level `jerry.yaml` was created (fresh workspace), you can use the dataset alias:
@@ -25,10 +25,13 @@ jerry serve --dataset your-dataset --limit 3
 
 - `your-dataset/sources/*.yaml`
   - Replace placeholders (`path`/`url`, headers/params, delimiter, etc.)
+  - Prefer `${env:NAME}` for secrets or machine-local paths instead of literal values
+- `your-dataset/.env.example`
+  - Copy to `.env` next to `project.yaml` for local dataset-specific secrets and paths
 - `your-dataset/dataset.yaml`
-  - Ensure `record_stream:` points at the contract id you created.
+  - Ensure `record_stream:` points at the stream id you created.
   - Select a `field:` for each feature/target (record attribute to use as value).
-  - Ensure `group_by` matches `^\d+(m|min|h|d)$` (e.g. `10m`, `1h`, `1d`).
+  - Ensure `sample.cadence` or legacy `group_by` matches `^\d+(m|min|h|d)$` (e.g. `10m`, `1h`, `1d`).
 
 If you add/edit entry points in `pyproject.toml`, reinstall the plugin:
 
@@ -41,12 +44,30 @@ python -m pip install -e .
 YAML config (dataset project root):
 
 - `your-dataset/`
-  - `project.yaml` (paths, globals, split)
+  - `project.yaml` (paths, split, globals)
   - `sources/*.yaml` (raw source definitions)
-  - `contracts/*.yaml` (canonical streams)
+  - `streams/*.yaml` (canonical streams)
   - `dataset.yaml` (features/targets)
   - `postprocess.yaml` (vector-level transforms)
-  - `tasks/*.yaml` (serve/build tasks; optional overrides)
+  - `profiles/{serve,build,inspect,materialize}.<name>.yaml` (profiles; optional overrides)
+  - `profiles/{serve,build,inspect,materialize}.defaults.yaml` (optional per-kind defaults)
+  - `tasks/operations/*.yaml` (declared artifact and runtime operations)
+
+Profile sequencing:
+
+- Profiles execute by `order` (ascending); unset falls back to filename order.
+- Materialize profiles name a stream and an exact durable JSONL output; they do
+  not target runtime tasks.
+- Build profiles target artifact tasks; serve and inspect profiles target runtime
+  tasks.
+- Before selected serve or inspect profiles run, their artifact requirements are
+  combined and prepared once according to `artifact_mode: AUTO|FORCE|OFF`.
+- The dependency graph orders only internal artifact jobs. It never changes
+  profile order; build profiles remain explicit artifact roots.
+- Selected build profiles must have distinct targets.
+- A selected dependency build profile must precede a selected dependent profile.
+- Use multiple ordered profiles only when you want separate named build/runtime
+  steps or different per-profile output and observability settings.
 
 Python plugin code:
 
@@ -59,5 +80,5 @@ Python plugin code:
 
 ## Learn more
 
-- Pipeline stages and split/build timing: the Jerry Thomas runtime `README.md` ("Pipeline Stages (serve --stage)").
-- Deep dives: runtime `docs/config.md`, `docs/transforms.md`, `docs/artifacts.md`, `docs/extending.md`, `docs/architecture.md`.
+- Preview indices and split/build timing: the Jerry Thomas runtime `README.md` ("Preview Indices (serve --preview-index)").
+- Deep dives: runtime `docs/config.md`, `docs/transforms/`, `docs/artifacts.md`, `docs/extending.md`, `docs/architecture.md`.

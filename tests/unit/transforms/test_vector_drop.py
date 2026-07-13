@@ -129,14 +129,12 @@ def test_vector_drop_partitions_drops_when_coverage_low():
     transform = VectorDropTransform(axis="vertical", threshold=0.8)
     transform.bind_context(ctx)
 
-    ctx.load_schema()
     out = list(transform.apply(stream))
     assert list(out[0].features.values.keys()) == [
         "humidity__@location:south",
         "temp",
     ]
-    schema = ctx._cache.get("schema:features") or ctx.load_schema()
-    assert [entry["id"] for entry in schema] == [
+    assert [entry.id for entry in ctx.load_schema().features] == [
         "humidity__@location:south",
         "temp",
     ]
@@ -179,15 +177,13 @@ def test_vector_drop_partitions_keeps_when_coverage_sufficient():
     transform = VectorDropTransform(axis="vertical", threshold=0.7)
     transform.bind_context(ctx)
 
-    ctx.load_schema()
     out = list(transform.apply(stream))
     assert list(out[0].features.values.keys()) == [
         "precip__@station:north",
         "precip__@station:south",
         "temp",
     ]
-    schema = ctx._cache.get("schema:features") or ctx.load_schema()
-    assert [entry["id"] for entry in schema] == [
+    assert [entry.id for entry in ctx.load_schema().features] == [
         "precip__@station:north",
         "precip__@station:south",
         "temp",

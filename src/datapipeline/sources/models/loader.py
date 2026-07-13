@@ -18,7 +18,7 @@ class BaseDataLoader(ABC):
 class SyntheticLoader(BaseDataLoader):
     """Adapter that turns a `DataGenerator` into a `BaseDataLoader`.
 
-    Keeps the `load()` contract used by the pipeline, while making the
+    Keeps the `load()` interface used by the pipeline, while making the
     generative intent explicit and separate from I/O loaders.
     """
 
