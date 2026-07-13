@@ -31,7 +31,7 @@ def _context(tmp_path):
     )
 
 
-def test_order_records_skips_sort_when_ordered_by_matches_required_order(
+def test_order_records_skips_sort_for_presorted_records(
     monkeypatch,
     tmp_path,
 ) -> None:
@@ -53,7 +53,7 @@ def test_order_records_skips_sort_when_ordered_by_matches_required_order(
         order_records(
             _context(tmp_path),
             ["security_id"],
-            ["security_id", "time"],
+            True,
             records,
         )
     )
@@ -73,7 +73,7 @@ def test_order_records_skips_sort_when_ordered_by_matches_required_order(
         ),
     ],
 )
-def test_order_records_rejects_false_declaration(tmp_path, rows) -> None:
+def test_order_records_rejects_false_presorted_declaration(tmp_path, rows) -> None:
     records = [
         _Record(time=_ts(day), security_id=security_id) for day, security_id in rows
     ]
@@ -82,13 +82,13 @@ def test_order_records_rejects_false_declaration(tmp_path, rows) -> None:
             order_records(
                 _context(tmp_path),
                 ["security_id"],
-                ["security_id", "time"],
+                True,
                 records,
             )
         )
 
 
-def test_order_records_sorts_when_ordered_by_does_not_match(tmp_path) -> None:
+def test_order_records_sorts_without_presorted_declaration(tmp_path) -> None:
     records = [
         _Record(time=_ts(2), security_id="MSFT"),
         _Record(time=_ts(1), security_id="AAPL"),
@@ -98,7 +98,7 @@ def test_order_records_sorts_when_ordered_by_does_not_match(tmp_path) -> None:
         order_records(
             _context(tmp_path),
             ["security_id"],
-            ["time"],
+            False,
             records,
         )
     )

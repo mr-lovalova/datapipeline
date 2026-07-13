@@ -45,10 +45,7 @@ def build_ingest_nodes(
     mapper = registries.mappers.get(stream_id)
     record_operations = registries.record_operations.get(stream_id)
     state_by = registries.partition_by.get(stream_id)
-    try:
-        ordered_by = registries.ordered_by.get(stream_id)
-    except KeyError:
-        ordered_by = None
+    presorted = registries.presorted.get(stream_id)
     return (
         PipelineNode(
             name="open_source",
@@ -77,7 +74,7 @@ def build_ingest_nodes(
             args=(
                 context,
                 state_by,
-                ordered_by,
+                presorted,
             ),
             output="ordered",
         ),

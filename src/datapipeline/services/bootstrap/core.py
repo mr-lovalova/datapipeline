@@ -206,7 +206,10 @@ def load_streams(project_yaml: Path) -> StreamsConfig:
     raw = _load_sources_from_dir(project_yaml, vars_)
     ingests = _load_canonical_ingests(project_yaml, vars_)
     stream_configs = _load_canonical_streams(project_yaml, vars_)
-    return StreamsConfig(raw=raw, ingests=ingests, streams=stream_configs)
+    config = StreamsConfig(raw=raw, ingests=ingests, streams=stream_configs)
+    validate_unique_stream_ids(config.ingests, config.streams)
+    validate_stream_configs(config.ingests, config.streams)
+    return config
 
 
 def init_streams(cfg: StreamsConfig, runtime: Runtime) -> None:
@@ -215,8 +218,6 @@ def init_streams(cfg: StreamsConfig, runtime: Runtime) -> None:
     regs.clear_all()
     ingests = cfg.ingests
     stream_configs = cfg.streams
-    validate_unique_stream_ids(ingests, stream_configs)
-    validate_stream_configs(ingests, stream_configs)
 
     for alias, ingest_spec in ingests.items():
         _register_ingest_policy(runtime, alias, ingest_spec)
@@ -253,7 +254,7 @@ def _register_ingest_policy(
     regs.debug_operations.register(alias, [])
     regs.partition_by.register(alias, spec.partition_by)
     regs.feature_id_by.register(alias, spec.feature_id_by)
-    regs.ordered_by.register(alias, spec.ordered_by)
+    regs.presorted.register(alias, spec.ordered_by is not None)
 
 
 def _register_stream_policy(
@@ -271,7 +272,7 @@ def _register_stream_policy(
         alias, stream_partition_by(ingests, stream_configs, alias)
     )
     regs.feature_id_by.register(alias, spec.feature_id_by)
-    regs.ordered_by.register(alias, spec.ordered_by)
+    regs.presorted.register(alias, spec.ordered_by is not None)
     regs.record_operations.register(alias, [])
 
 

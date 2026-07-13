@@ -13,33 +13,49 @@ from datapipeline.services.streams.validation import (
 )
 
 
-def _ingest(stream_id: str, partition_by=None) -> IngestConfig:
+def _ingest(
+    stream_id: str,
+    partition_by=None,
+    ordered_by: list[str] | None = None,
+) -> IngestConfig:
     return IngestConfig.model_validate(
         {
             "id": stream_id,
             "from": {"source": "source.alias"},
             "map": {"entrypoint": "identity", "args": {}},
             "partition_by": partition_by,
+            "ordered_by": ordered_by,
         }
     )
 
 
-def _stream(stream_id: str, upstream: str, partition_by=None) -> StreamConfig:
+def _stream(
+    stream_id: str,
+    upstream: str,
+    partition_by=None,
+    ordered_by: list[str] | None = None,
+) -> StreamConfig:
     return StreamConfig.model_validate(
         {
             "id": stream_id,
             "from": {"stream": upstream},
             "partition_by": partition_by,
+            "ordered_by": ordered_by,
         }
     )
 
 
-def _aligned(stream_id: str, inputs: list[str]) -> StreamConfig:
+def _aligned(
+    stream_id: str,
+    inputs: list[str],
+    ordered_by: list[str] | None = None,
+) -> StreamConfig:
     return StreamConfig.model_validate(
         {
             "id": stream_id,
             "from": {"align": inputs},
             "map": {"entrypoint": "calculate", "args": {}},
+            "ordered_by": ordered_by,
         }
     )
 
@@ -92,6 +108,63 @@ def test_aligned_partition_inheritance_is_transitive() -> None:
 
     validate_stream_configs(ingests, stream_configs)
     assert stream_partition_by(ingests, stream_configs, "second") == "ticker"
+
+
+def test_validate_stream_configs_rejects_noncanonical_ingest_order() -> None:
+    ingests = {
+        "prices": _ingest(
+            "prices",
+            partition_by="security_id",
+            ordered_by=["time"],
+        )
+    }
+
+    with pytest.raises(
+        ValueError,
+        match=r"Ingest 'prices' ordered_by must be \['security_id', 'time'\]",
+    ):
+        validate_stream_configs(ingests, {})
+
+
+def test_validate_stream_configs_rejects_noncanonical_stream_order() -> None:
+    ingests = {"prices": _ingest("prices")}
+    stream_configs = {
+        "returns": _stream(
+            "returns",
+            "prices",
+            partition_by="security_id",
+            ordered_by=["time"],
+        )
+    }
+
+    with pytest.raises(
+        ValueError,
+        match=r"Stream 'returns' ordered_by must be \['security_id', 'time'\]",
+    ):
+        validate_stream_configs(ingests, stream_configs)
+
+
+def test_validate_stream_configs_uses_aligned_partition_for_canonical_order() -> None:
+    ingests = {
+        "prices": _ingest("prices", partition_by="security_id"),
+        "shares": _ingest("shares", partition_by="security_id"),
+    }
+    stream_configs = {
+        "market_cap": _aligned(
+            "market_cap",
+            ["prices", "shares"],
+            ordered_by=["security_id", "time"],
+        )
+    }
+
+    validate_stream_configs(ingests, stream_configs)
+
+
+def test_validate_stream_configs_accepts_time_order_without_partition() -> None:
+    validate_stream_configs(
+        {"prices": _ingest("prices", ordered_by=["time"])},
+        {},
+    )
 
 
 def test_validate_stream_configs_rejects_dependency_cycle() -> None:

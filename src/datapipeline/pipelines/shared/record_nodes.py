@@ -4,7 +4,7 @@ from typing import Any
 from datapipeline.dag.context import PipelineContext
 from datapipeline.dag.events import ProgressResource, ProgressSnapshot
 from datapipeline.dag.runner import report_node_progress
-from datapipeline.domain.stream import RecordStream
+from datapipeline.domain.stream import RecordStream, canonical_record_order
 from datapipeline.pipelines.shared.sort import batch_sort
 from datapipeline.plugins import (
     DEBUG_TRANSFORMS_EP,
@@ -20,9 +20,6 @@ from datapipeline.sources.observability import (
 )
 from datapipeline.transforms.engine import apply_transforms
 from datapipeline.transforms.utils import partition_key
-
-
-TIME_ORDER_FIELD = "time"
 
 
 def open_records(stream: RecordStream[Any]) -> Iterator[Any]:
@@ -125,14 +122,15 @@ def apply_record_operations(
 def order_records(
     context: PipelineContext,
     partition_by: str | list[str] | None,
-    ordered_by: list[str] | None,
+    presorted: bool,
     records: Iterator[Any],
 ) -> Iterator[Any]:
 
     def record_order_key(record: Any) -> tuple[Any, Any]:
         return partition_key(record, partition_by), record.time
 
-    if ordered_by == required_record_order(partition_by):
+    if presorted:
+        ordered_by = canonical_record_order(partition_by)
         previous_key = None
         for position, record in enumerate(records, start=1):
             current_key = record_order_key(record)
@@ -149,16 +147,6 @@ def order_records(
         buffer_bytes=context.runtime.execution.sort_buffer_bytes,
         key=record_order_key,
     )
-
-
-def required_record_order(partition_by: str | list[str] | None) -> list[str]:
-    if partition_by is None:
-        return [TIME_ORDER_FIELD]
-    if isinstance(partition_by, str):
-        fields = [partition_by]
-    else:
-        fields = list(partition_by)
-    return [*fields, TIME_ORDER_FIELD]
 
 
 def apply_stream_operations(

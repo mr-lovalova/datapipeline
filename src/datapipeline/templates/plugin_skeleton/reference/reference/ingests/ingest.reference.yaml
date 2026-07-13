@@ -10,7 +10,7 @@
 # cadence: ${group_by}          # optional per-ingest variable for interpolation
 # partition_by: station_id      # optional; string or list of strings
 # feature_id_by: []             # optional; [] for scalar keyed features, fields for wide IDs
-# ordered_by: [station_id, time] # optional; assert source order and validate without sorting
+# ordered_by: [station_id, time] # optional; must equal [*partition_by, time]
 #
 # record:                       # optional record transforms, one-key mappings
 #   - where: { field: time, operator: ge, comparand: "${start_time}" }

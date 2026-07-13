@@ -1,11 +1,7 @@
 from pathlib import Path
+import tomllib
 
 import pytest
-
-try:
-    import tomllib
-except ModuleNotFoundError:
-    import tomli as tomllib
 
 from datapipeline.artifacts.planning import (
     ArtifactGraph,

@@ -1,9 +1,5 @@
 from importlib import import_module
-
-try:
-    import tomllib
-except ModuleNotFoundError:
-    import tomli as tomllib
+import tomllib
 
 
 def _load_entry_point(target: str):

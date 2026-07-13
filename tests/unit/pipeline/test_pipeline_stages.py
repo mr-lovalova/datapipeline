@@ -197,7 +197,7 @@ def _runtime_with_rows(
         regs.debug_operations.register(stream_id, [])
         regs.partition_by.register(stream_id, partition_by)
         regs.feature_id_by.register(stream_id, feature_id_by)
-        regs.ordered_by.register(stream_id, None)
+        regs.presorted.register(stream_id, False)
         return runtime
 
     ingest_id = f"{stream_id}.ingest"
@@ -209,7 +209,7 @@ def _runtime_with_rows(
     regs.debug_operations.register(ingest_id, [])
     regs.partition_by.register(ingest_id, partition_by)
     regs.feature_id_by.register(ingest_id, feature_id_by)
-    regs.ordered_by.register(ingest_id, None)
+    regs.presorted.register(ingest_id, False)
 
     regs.stream_sources.register(stream_id, _UpstreamSource(runtime, ingest_id))
     regs.stream_specs.register(stream_id, StreamRuntimeSpec(pipeline="stream"))
@@ -219,7 +219,7 @@ def _runtime_with_rows(
     regs.debug_operations.register(stream_id, [])
     regs.partition_by.register(stream_id, partition_by)
     regs.feature_id_by.register(stream_id, feature_id_by)
-    regs.ordered_by.register(stream_id, None)
+    regs.presorted.register(stream_id, False)
     return runtime
 
 

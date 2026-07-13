@@ -7,7 +7,7 @@ name = "jerry-thomas"
 version = "4.0.0"
 description = "Jerry-Thomas: a stream-first, plugin-friendly data pipeline (mixology-themed CLI)"
 readme = { file = "README.md", content-type = "text/markdown" }
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "Anders Skott Lind" }]
 urls = { "Homepage" = "https://github.com/mr-lovalova/datapipeline", "Repository" = "https://github.com/mr-lovalova/datapipeline", "Issues" = "https://github.com/mr-lovalova/datapipeline/issues" }
@@ -24,16 +24,12 @@ ml = [
   "pandas>=2.0",
   "torch>=2.0",
 ]
-test = [
-  "pytest>=8.0",
-  "tomli>=2.0; python_version < '3.11'",
-]
+test = ["pytest>=8.0"]
 dev = [
   "build>=1.2",
   "mypy>=1.10",
   "pytest>=8.0",
   "ruff>=0.9",
-  "tomli>=2.0; python_version < '3.11'",
   "types-PyYAML>=6.0",
 ]
 
@@ -66,7 +62,7 @@ datapipeline = [
 ]
 
 [tool.ruff]
-target-version = "py310"
+target-version = "py311"
 extend-exclude = ["src/datapipeline/templates"]
 
 [project.entry-points."datapipeline.transforms.record"]

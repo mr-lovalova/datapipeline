@@ -1,7 +1,8 @@
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any, List, Literal, Optional, Sequence, Union
 from datetime import datetime
+from pathlib import Path
+from typing import Any, Literal
 
 from datapipeline.config.execution import ExecutionConfig
 from datapipeline.config.split import SplitConfig
@@ -46,13 +47,13 @@ class Registries:
     debug_operations: Registry[str, Sequence[TransformSpec] | None] = field(
         default_factory=Registry
     )
-    partition_by: Registry[str, Optional[Union[str, List[str]]]] = field(
+    partition_by: Registry[str, str | list[str] | None] = field(
         default_factory=Registry
     )
-    feature_id_by: Registry[str, Optional[Union[str, List[str]]]] = field(
+    feature_id_by: Registry[str, str | list[str] | None] = field(
         default_factory=Registry
     )
-    ordered_by: Registry[str, Optional[List[str]]] = field(default_factory=Registry)
+    presorted: Registry[str, bool] = field(default_factory=Registry)
 
     def clear_all(self) -> None:
         for reg in (
@@ -60,7 +61,7 @@ class Registries:
             self.debug_operations,
             self.partition_by,
             self.feature_id_by,
-            self.ordered_by,
+            self.presorted,
             self.record_operations,
             self.postprocesses,
             self.sources,
@@ -79,7 +80,7 @@ class Runtime:
     artifacts_root: Path
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
     registries: Registries = field(default_factory=Registries)
-    split: Optional[SplitConfig] = None
+    split: SplitConfig | None = None
     split_labels: tuple[str, ...] = ()
     sample_keys: list[str] = field(default_factory=list)
     window_bounds: tuple[datetime | None, datetime | None] | None = None

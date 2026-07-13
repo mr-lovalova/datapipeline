@@ -77,6 +77,7 @@ def _runtime_with_streams(
         regs.debug_operations.register(alias, [])
         regs.partition_by.register(alias, None)
         regs.feature_id_by.register(alias, None)
+        regs.presorted.register(alias, False)
         for rec in rows:
             ts = getattr(rec, "time", None)
             if isinstance(ts, datetime):

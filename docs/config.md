@@ -376,8 +376,9 @@ debug:
 - `partition_by`: optional stream state keys used by ordering and history-based
   transforms.
 - `ordered_by`: optional assertion that records entering the ordering stage use
-  `[*partition_by, time]` order. A matching assertion avoids external sorting
-  but is validated while streaming; an out-of-order record fails the pipeline.
+  `[*partition_by, time]` order. When present, it must equal that canonical
+  order and is validated while streaming. When absent, records are externally
+  sorted.
 - `feature_id_by`: optional fields used to suffix feature IDs (e.g.,
   `temp__@station_id:XYZ`). If a partitioned stream is used as a dataset
   feature, set this explicitly: `[]` for scalar keyed-row features or a field
@@ -387,7 +388,8 @@ debug:
 
 Aligned streams intersect two or more prepared streams with the same
 partition fields and timestamp, then call a mapper with the matching records in
-the configured order.
+the configured order. In this example, both inputs use
+`partition_by: station_id`, which the aligned stream inherits.
 
 ```yaml
 # <project_root>/streams/air_density.processed.yaml

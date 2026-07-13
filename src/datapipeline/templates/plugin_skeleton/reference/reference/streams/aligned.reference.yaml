@@ -10,7 +10,7 @@
 #   entrypoint: my_aligned_mapper
 #   args: {}
 # feature_id_by: []              # optional output feature identity
-# ordered_by: [station_id, time] # optional mapper-output order assertion
+# ordered_by: [station_id, time] # optional; must equal inherited partition order + time
 #
 # Inputs must use the same partition_by and are intersected by partition and
 # time. One external sort uses execution.sort_buffer_mb, so inputs need not

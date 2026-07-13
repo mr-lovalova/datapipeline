@@ -50,7 +50,7 @@ def _runtime(
     regs.debug_operations.register("prices.raw", [])
     regs.partition_by.register("prices.raw", partition_by)
     regs.feature_id_by.register("prices.raw", feature_id_by)
-    regs.ordered_by.register("prices.raw", None)
+    regs.presorted.register("prices.raw", False)
     return runtime
 
 

@@ -61,7 +61,7 @@ def _runtime(tmp_path) -> Runtime:
     regs.debug_operations.register("source.stream", [])
     regs.partition_by.register("source.stream", None)
     regs.feature_id_by.register("source.stream", None)
-    regs.ordered_by.register("source.stream", None)
+    regs.presorted.register("source.stream", False)
     return runtime
 
 
@@ -85,7 +85,7 @@ def _stream_runtime(tmp_path) -> Runtime:
     )
     regs.partition_by.register("derived.stream", None)
     regs.feature_id_by.register("derived.stream", None)
-    regs.ordered_by.register("derived.stream", None)
+    regs.presorted.register("derived.stream", False)
     return runtime
 
 

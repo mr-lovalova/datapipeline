@@ -1,4 +1,5 @@
 from datapipeline.config.catalog import IngestConfig, StreamConfig
+from datapipeline.domain.stream import canonical_record_order
 
 
 def validate_unique_stream_ids(
@@ -24,9 +25,27 @@ def validate_stream_configs(
                 f"Stream '{stream_id}' references unknown stream(s): {missing}"
             )
     _validate_stream_cycles(stream_configs)
+
+    for ingest_id, spec in ingests.items():
+        if spec.ordered_by is None:
+            continue
+        canonical_order = canonical_record_order(spec.partition_by)
+        if spec.ordered_by != canonical_order:
+            raise ValueError(
+                f"Ingest '{ingest_id}' ordered_by must be {canonical_order!r}; "
+                f"got {spec.ordered_by!r}"
+            )
+
     for stream_id, spec in stream_configs.items():
-        if spec.aligns_streams:
-            stream_partition_by(ingests, stream_configs, stream_id)
+        partition_by = stream_partition_by(ingests, stream_configs, stream_id)
+        if spec.ordered_by is None:
+            continue
+        canonical_order = canonical_record_order(partition_by)
+        if spec.ordered_by != canonical_order:
+            raise ValueError(
+                f"Stream '{stream_id}' ordered_by must be {canonical_order!r}; "
+                f"got {spec.ordered_by!r}"
+            )
 
 
 def stream_partition_by(

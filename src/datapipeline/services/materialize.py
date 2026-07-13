@@ -7,11 +7,11 @@ import json
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.dag.context import PipelineContext
 from datapipeline.dag.runner import run_dag
+from datapipeline.domain.stream import canonical_record_order
 from datapipeline.io.factory import writer_factory
 from datapipeline.io.output import OutputTarget
 from datapipeline.io.sinks import AtomicTextFileSink
 from datapipeline.pipelines.ingest import build_ingest_pipeline
-from datapipeline.pipelines.shared.record_nodes import required_record_order
 from datapipeline.pipelines.stream import build_stream_dag
 from datapipeline.runtime import Runtime
 
@@ -43,7 +43,7 @@ def materialize_stream_to_path(
         runtime.sample_keys = dataset.sample_keys
     output_path = destinations[0]
     raw_partition_by = runtime.registries.partition_by.get(stream_id)
-    ordered_by = required_record_order(raw_partition_by)
+    ordered_by = canonical_record_order(raw_partition_by)
     partition_by = _field_list(raw_partition_by)
     feature_id_by = _field_list(runtime.registries.feature_id_by.get(stream_id))
 

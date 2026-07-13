@@ -47,10 +47,7 @@ def build_stream_nodes(
     stream_operations = registries.stream_operations.get(stream_id)
     debug_operations = registries.debug_operations.get(stream_id)
     state_by = registries.partition_by.get(stream_id)
-    try:
-        ordered_by = registries.ordered_by.get(stream_id)
-    except KeyError:
-        ordered_by = None
+    presorted = registries.presorted.get(stream_id)
     return (
         PipelineNode(
             name="open_records",
@@ -69,7 +66,7 @@ def build_stream_nodes(
             input="mapped",
             name="order_records",
             op=order_records,
-            args=(context, state_by, ordered_by),
+            args=(context, state_by, presorted),
             output="ordered",
         ),
         PipelineNode(
