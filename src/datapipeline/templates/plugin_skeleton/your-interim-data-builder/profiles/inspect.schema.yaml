@@ -1,8 +1,0 @@
-# See ../../reference/reference/tasks/profiles/inspect.reference.yaml for full options.
-cmd: inspect
-name: schema
-order: 10
-target: schema
-enabled: true
-build:
-  mode: AUTO

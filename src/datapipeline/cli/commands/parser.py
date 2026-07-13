@@ -9,7 +9,10 @@ from datapipeline.services.scaffold.utils import (
     error_exit,
     status,
 )
-from datapipeline.services.scaffold.layout import default_parser_name, LABEL_DTO_FOR_PARSER
+from datapipeline.services.scaffold.layout import (
+    default_parser_name,
+    LABEL_DTO_FOR_PARSER,
+)
 
 
 def handle(

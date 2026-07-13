@@ -1,28 +1,26 @@
 import argparse
 from pathlib import Path
 
+from datapipeline.cli.commands.clean import handle as handle_clean
 from datapipeline.cli.commands.profile_runner import handle_profile_command
-from datapipeline.cli.commands.contract import handle as handle_contract
 from datapipeline.cli.commands.demo import handle as handle_demo
 from datapipeline.cli.commands.domain import handle as handle_domain
 from datapipeline.cli.commands.dto import handle as handle_dto
 from datapipeline.cli.commands.filter import handle as handle_filter
+from datapipeline.cli.commands.inflow import handle as handle_inflow
 from datapipeline.cli.commands.list_ import handle as handle_list
 from datapipeline.cli.commands.loader import handle as handle_loader
 from datapipeline.cli.commands.mapper import handle as handle_mapper
+from datapipeline.cli.commands.materialize import handle as handle_materialize
 from datapipeline.cli.commands.parser import handle as handle_parser
-from datapipeline.cli.commands.plugin import bar as handle_bar
+from datapipeline.cli.commands.plugin import handle as handle_plugin
 from datapipeline.cli.commands.source import handle as handle_source
-from datapipeline.cli.commands.stream import handle as handle_stream
+from datapipeline.cli.commands.stream import handle as handle_stream_create
+from datapipeline.cli.commands.version import handle as handle_version
+from datapipeline.cli.commands.version import handle_env
 from datapipeline.config.resolution import LogOutputTarget
 from datapipeline.config.workspace import WorkspaceContext
 
-NAMED_HANDLERS = {
-    "dto": handle_dto,
-    "parser": handle_parser,
-    "mapper": handle_mapper,
-    "loader": handle_loader,
-}
 
 def execute_command(
     args: argparse.Namespace,
@@ -32,76 +30,126 @@ def execute_command(
     base_level_name: str,
     cli_log_outputs: list[LogOutputTarget],
 ) -> bool:
-    if args.cmd in {"serve", "build", "inspect"}:
-        return handle_profile_command(
-            kind=args.cmd,
-            args=args,
-            workspace_context=workspace_context,
-            cli_level_arg=cli_level_arg,
-            base_level_name=base_level_name,
-            cli_log_outputs=cli_log_outputs,
-        )
-    if args.cmd == "source":
-        if args.source_cmd == "list":
-            handle_list(subcmd="sources", workspace=workspace_context)
+    match args.cmd:
+        case "version":
+            handle_version()
             return True
-        handle_source(
-            subcmd=args.source_cmd,
-            provider=(getattr(args, "provider", None) or getattr(args, "provider_opt", None)),
-            dataset=(getattr(args, "dataset", None) or getattr(args, "dataset_opt", None)),
-            transport=getattr(args, "transport", None),
-            format=getattr(args, "format", None),
-            alias=getattr(args, "alias", None),
-            identity=getattr(args, "identity", False),
-            loader=getattr(args, "loader", None),
-            parser=getattr(args, "parser", None),
-            plugin_root=plugin_root,
-            workspace=workspace_context,
-        )
-        return True
-    if args.cmd == "list":
-        handle_list(subcmd=args.list_cmd, workspace=workspace_context)
-        return True
-    if args.cmd == "domain":
-        if args.domain_cmd == "list":
-            handle_list(subcmd="domains")
+        case "env":
+            handle_env()
             return True
-        handle_domain(
-            subcmd=args.domain_cmd,
-            domain=getattr(args, "domain", None),
-            plugin_root=plugin_root,
-        )
-        return True
-    handler = NAMED_HANDLERS.get(args.cmd)
-    if handler is not None:
-        handler(name=getattr(args, "name", None), plugin_root=plugin_root)
-        return True
-    if args.cmd == "inflow":
-        handle_stream(plugin_root=plugin_root, workspace=workspace_context)
-        return True
-    if args.cmd == "contract":
-        handle_contract(
-            plugin_root=plugin_root,
-            use_identity=getattr(args, "identity", False),
-            workspace=workspace_context,
-        )
-        return True
-    if args.cmd == "plugin":
-        handle_bar(
-            subcmd=args.bar_cmd,
-            name=getattr(args, "name", None),
-            out=getattr(args, "out", "."),
-            workspace=workspace_context,
-        )
-        return True
-    if args.cmd == "demo":
-        handle_demo(
-            subcmd=args.demo_cmd,
-            out=getattr(args, "out", None),
-            workspace=workspace_context,
-        )
-        return True
-    if args.cmd == "filter":
-        handle_filter(subcmd=args.filter_cmd, name=getattr(args, "name", None))
-        return True
-    return False
+        case "serve" | "build" | "inspect":
+            return handle_profile_command(
+                kind=args.cmd,
+                args=args,
+                workspace_context=workspace_context,
+                cli_level_arg=cli_level_arg,
+                base_level_name=base_level_name,
+                cli_log_outputs=cli_log_outputs,
+            )
+        case "clean":
+            handle_clean(yes=args.yes, older_than=args.older_than)
+            return True
+        case "materialize":
+            handle_materialize(
+                project=args.project,
+                run_name=args.run,
+                output=args.output,
+                overwrite=args.overwrite,
+                artifact_mode=args.artifact_mode,
+                visuals=args.visuals,
+                heartbeat_interval_seconds=args.heartbeat_interval_seconds,
+                cli_log_level=cli_level_arg,
+                cli_log_outputs=cli_log_outputs,
+                base_log_level=base_level_name,
+                workspace=workspace_context,
+            )
+            return True
+        case "source":
+            if args.source_cmd == "list":
+                handle_list(
+                    subcmd="sources",
+                    plugin_root=plugin_root,
+                    workspace=workspace_context,
+                )
+                return True
+            handle_source(
+                subcmd=args.source_cmd,
+                provider=args.provider or args.provider_opt,
+                dataset=args.dataset or args.dataset_opt,
+                transport=args.transport,
+                format=args.format,
+                alias=args.alias,
+                identity=args.identity,
+                loader=args.loader,
+                parser=args.parser,
+                plugin_root=plugin_root,
+                workspace=workspace_context,
+            )
+            return True
+        case "list":
+            handle_list(
+                subcmd=args.list_cmd,
+                plugin_root=plugin_root,
+                workspace=workspace_context,
+            )
+            return True
+        case "domain":
+            if args.domain_cmd == "list":
+                handle_list(
+                    subcmd="domains",
+                    plugin_root=plugin_root,
+                    workspace=workspace_context,
+                )
+                return True
+            handle_domain(
+                subcmd=args.domain_cmd,
+                domain=args.domain_name or args.domain_name_option,
+                plugin_root=plugin_root,
+            )
+            return True
+        case "dto":
+            handle_dto(name=args.name, plugin_root=plugin_root)
+            return True
+        case "parser":
+            handle_parser(name=args.name, plugin_root=plugin_root)
+            return True
+        case "mapper":
+            handle_mapper(name=args.name, plugin_root=plugin_root)
+            return True
+        case "loader":
+            handle_loader(name=args.name, plugin_root=plugin_root)
+            return True
+        case "inflow":
+            handle_inflow(plugin_root=plugin_root, workspace=workspace_context)
+            return True
+        case "stream":
+            handle_stream_create(
+                plugin_root=plugin_root,
+                use_identity=args.identity,
+                workspace=workspace_context,
+            )
+            return True
+        case "plugin":
+            handle_plugin(
+                subcmd=args.plugin_cmd,
+                name=args.plugin_name or args.plugin_name_option,
+                out=args.out,
+                workspace=workspace_context,
+            )
+            return True
+        case "demo":
+            handle_demo(
+                subcmd=args.demo_cmd,
+                out=args.out,
+                workspace=workspace_context,
+            )
+            return True
+        case "filter":
+            handle_filter(
+                subcmd=args.filter_cmd,
+                name=args.name,
+                plugin_root=plugin_root,
+            )
+            return True
+        case _:
+            return False

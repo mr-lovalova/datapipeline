@@ -1,164 +1,183 @@
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
-from datapipeline.sources.foreach import ForeachLoader
+from datapipeline.sources.adapters.fs import FsFileTransport, FsGlobTransport
+from datapipeline.sources.adapters.http import HttpTransport
+from datapipeline.sources.decoders import (
+    CsvDecoder,
+    JsonDecoder,
+    JsonLinesDecoder,
+    PickleDecoder,
+)
 from datapipeline.sources.models.loader import SyntheticLoader
 
 
 @dataclass(frozen=True)
 class LoaderObservability:
     transport: Any | None
-    current_label: str | None
-    composed_inputs: list[str] | None
-    info_lines: list[str] | None = None
-    debug_lines: list[str] | None = None
+    glob_root: Path | None = None
+
+
+@dataclass(frozen=True)
+class SourceProgressEntry:
+    source_resource_id: int | str
+    label: str
+
+
+def source_summary(stream_source: Any) -> str | None:
+    loader = getattr(stream_source, "loader", None)
+    if loader is None:
+        return None
+    return _transport_source_summary(getattr(loader, "transport", None))
+
+
+def _transport_source_summary(transport: Any) -> str | None:
+    if isinstance(transport, FsFileTransport):
+        path = getattr(transport, "path", "")
+        return f"transport=fs.file file={Path(path).name or str(path)}"
+
+    if isinstance(transport, FsGlobTransport):
+        files = transport.files
+        total = len(files)
+        parts = ["transport=fs.glob", f"count={total}"]
+        root = _glob_root(files)
+        if total == 0:
+            pattern = getattr(transport, "pattern", "")
+            parts.append(f"root={_compact_root(root) if root else pattern or 'fs'}")
+        elif total == 1:
+            parts.append(f"file={_relative_label(files[0], root)}")
+        else:
+            parts.append(f"first={_relative_label(files[0], root)}")
+            parts.append(f"last={_relative_label(files[-1], root)}")
+        return " ".join(parts)
+
+    if isinstance(transport, HttpTransport):
+        url = getattr(transport, "url", "")
+        parsed_url = urlparse(url)
+        host = parsed_url.netloc or "http"
+        resource = Path(parsed_url.path or "").name
+        summary = f"transport=http.fetch host={host}"
+        return f"{summary} resource={resource}" if resource else summary
+
+    return None
+
+
+def unit_for_loader(loader: Any) -> str:
+    if isinstance(loader, SyntheticLoader):
+        return "ticks"
+    decoder = getattr(loader, "decoder", None)
+    if decoder is None:
+        return "records"
+    if isinstance(decoder, CsvDecoder):
+        return "rows"
+    if isinstance(decoder, (JsonDecoder, JsonLinesDecoder, PickleDecoder)):
+        return "items"
+    return "records"
 
 
 def describe_loader(loader: Any) -> LoaderObservability:
-    if isinstance(loader, ForeachLoader):
-        return _describe_foreach_loader(loader)
-    if isinstance(loader, SyntheticLoader):
-        return _describe_synthetic_loader(loader)
-
+    transport = getattr(loader, "transport", None)
     return LoaderObservability(
-        transport=getattr(loader, "transport", None),
-        current_label=None,
-        composed_inputs=_coerce_inputs(
-            getattr(getattr(loader, "_spec", None), "inputs", None)
-        ),
-        info_lines=_loader_lines(loader, "info_lines"),
-        debug_lines=_loader_lines(loader, "debug_lines"),
+        transport=transport,
+        glob_root=_transport_glob_root(transport),
     )
 
 
-def _loader_lines(loader: Any, attr: str) -> list[str] | None:
-    producer = getattr(loader, attr, None)
-    if not callable(producer):
-        return None
-    try:
-        values = list(producer() or [])
-    except Exception:
-        return None
-    lines = [str(value).strip() for value in values if str(value).strip()]
-    return lines or None
+def loader_current_label(
+    loader: Any,
+    observability: LoaderObservability | None = None,
+) -> str | None:
+    observability = observability or describe_loader(loader)
+    transport = observability.transport
+    uri = getattr(loader, "current_resource_uri", None)
+    if uri is None and isinstance(transport, FsFileTransport):
+        uri = transport.path
+    elif uri is None and isinstance(transport, HttpTransport):
+        uri = transport.url
+    return transport_resource_label(transport, uri, observability.glob_root)
 
 
-def _describe_foreach_loader(loader: ForeachLoader) -> LoaderObservability:
-    value = getattr(loader, "_current_value", None)
-    values = getattr(loader, "_values", None)
-    entrypoint = ""
-    spec_args = None
-    spec = getattr(loader, "_loader_spec", None)
-    if isinstance(spec, dict):
-        entrypoint = str(spec.get("entrypoint", ""))
-        maybe_args = spec.get("args")
-        if isinstance(maybe_args, dict):
-            spec_args = maybe_args
-    args = getattr(loader, "_current_args", None)
-    action = foreach_action(entrypoint, args, spec_args)
-
-    if value is None:
-        current_label = None
-    else:
-        value_label = foreach_value_label(value)
-        current_label = join_action_value(action, value_label)
-
-    info_lines = foreach_info_lines(entrypoint, args, spec_args, values)
-    return LoaderObservability(
-        transport=getattr(loader, "_current_transport", None),
-        current_label=current_label,
-        composed_inputs=None,
-        info_lines=info_lines,
-    )
+def loader_current_resource_id(loader: Any) -> int | str | None:
+    return getattr(loader, "current_resource_uri", None)
 
 
-def _describe_synthetic_loader(loader: SyntheticLoader) -> LoaderObservability:
-    generator = getattr(loader, "generator", None)
-    generator_name = type(generator).__name__ if generator is not None else "generator"
-    info_lines = []
-    debug_lines = []
-    if generator is not None:
-        try:
-            info_lines = list(getattr(generator, "info_lines", lambda: [])() or [])
-        except Exception:
-            info_lines = []
-        try:
-            debug_lines = list(getattr(generator, "debug_lines", lambda: [])() or [])
-        except Exception:
-            debug_lines = []
-    if not info_lines:
-        info_lines = [f"synthetic.generate: {generator_name}"]
-    return LoaderObservability(
-        transport=getattr(loader, "transport", None),
-        current_label=None,
-        composed_inputs=None,
-        info_lines=info_lines,
-        debug_lines=debug_lines or None,
-    )
-
-
-def _coerce_inputs(raw: Any) -> list[str] | None:
-    if not isinstance(raw, (list, tuple)):
-        return None
-    values = [str(item) for item in raw if str(item)]
-    return values or None
-
-
-def foreach_transport_name(args: Any, spec_args: Any) -> str | None:
-    if isinstance(args, dict):
-        raw = args.get("transport")
-        if raw is not None:
-            return str(raw).strip().lower() or None
-    if isinstance(spec_args, dict):
-        raw = spec_args.get("transport")
-        if raw is not None:
-            return str(raw).strip().lower() or None
+def loader_progress_sequence(
+    loader: Any,
+    observability: LoaderObservability | None = None,
+) -> list[SourceProgressEntry] | None:
+    observability = observability or describe_loader(loader)
+    transport = observability.transport
+    if isinstance(transport, FsGlobTransport):
+        return _glob_progress_sequence(transport, observability.glob_root)
     return None
 
 
-def foreach_action(entrypoint: str, args: Any, spec_args: Any) -> str | None:
-    if entrypoint == "core.io":
-        transport_name = foreach_transport_name(args, spec_args)
-        if transport_name == "http":
-            return "Downloading"
-        if transport_name == "fs":
-            return "Loading"
+def transport_resource_label(
+    transport: Any,
+    uri: str | None,
+    glob_root: Path | None = None,
+) -> str | None:
+    if not uri:
         return None
-    if entrypoint:
-        return f"via {entrypoint}"
+    if isinstance(transport, FsGlobTransport):
+        return f'"{_relative_label(uri, glob_root)}"'
+    if isinstance(transport, FsFileTransport):
+        name = Path(uri).name or str(uri)
+        return f'"{name}"'
+    if isinstance(transport, HttpTransport):
+        parts = urlparse(uri)
+        return f"@{parts.netloc or 'http'}"
     return None
 
 
-def foreach_value_label(value: Any) -> str:
-    text = str(value)
-    name = Path(text).name
-    return name or text
-
-
-def join_action_value(action: str | None, value_label: str) -> str:
-    if action:
-        return f'{action} "{value_label}"'
-    return f'"{value_label}"'
-
-
-def foreach_info_lines(
-    entrypoint: str,
-    args: Any,
-    spec_args: Any,
-    values: Any,
-) -> list[str] | None:
-    if entrypoint != "core.io":
+def _glob_root(files: list[str]) -> Path | None:
+    if not files:
         return None
-    if foreach_transport_name(args, spec_args) != "fs":
-        return None
-    if not isinstance(values, list):
-        return None
-    if not values:
-        return ["fs.glob: 0 files"]
+    if len(files) == 1:
+        return Path(files[0]).parent
+    return Path(os.path.commonpath(files))
 
-    labels = [foreach_value_label(value) for value in values]
-    total = len(labels)
-    if total == 1:
-        return [f"fs.glob: 1 file (file={labels[0]})"]
-    return [f"fs.glob: {total} files (first={labels[0]}, last={labels[-1]})"]
+
+def _transport_glob_root(transport: Any) -> Path | None:
+    if isinstance(transport, FsGlobTransport):
+        return _glob_root(transport.files)
+    return None
+
+
+def _compact_root(path: Path, segments: int = 3) -> str:
+    parts = [part for part in path.as_posix().split("/") if part]
+    if len(parts) > segments:
+        parts = ["...", *parts[-segments:]]
+    return "/".join(parts) if parts else "/"
+
+
+def _relative_label(path: str, root: Path | None) -> str:
+    if root is not None:
+        try:
+            rel = Path(path).relative_to(root)
+            rel_str = rel.as_posix()
+            if rel_str:
+                return rel_str
+            return rel.name or path
+        except (TypeError, ValueError):
+            pass
+    return Path(path).name or path
+
+
+def _glob_progress_sequence(
+    transport: FsGlobTransport,
+    glob_root: Path | None,
+) -> list[SourceProgressEntry] | None:
+    files = transport.files
+    if not files:
+        return None
+    return [
+        SourceProgressEntry(
+            source_resource_id=path,
+            label=f'"{_relative_label(path, glob_root)}"',
+        )
+        for path in files
+    ]

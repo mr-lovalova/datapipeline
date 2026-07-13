@@ -1,24 +1,23 @@
 from collections import deque
 from itertools import groupby
-from statistics import mean, median
+from statistics import mean, median, pstdev, stdev
 from typing import Iterator
 
 from datapipeline.domain.record import TemporalRecord
-from datapipeline.transforms.interfaces import FieldStreamTransformBase
+from datapipeline.transforms.interfaces import FieldValueStreamTransformBase
 from datapipeline.transforms.utils import (
     get_field,
     is_missing,
     clone_record_with_field,
-    partition_key,
 )
 
 
-class RollingTransformer(FieldStreamTransformBase):
+class RollingTransformer(FieldValueStreamTransformBase):
     """Compute a rolling statistic over record field values.
 
     - window: number of recent ticks to consider (including missing ticks).
     - min_samples: minimum number of valid samples required to emit a value.
-    - statistic: 'mean' (default) or 'median'.
+    - statistic: 'mean' (default), 'median', 'stdev', 'pstdev', 'max', or 'min'.
     - field: record attribute to read.
     - to: record attribute to write (defaults to field).
     """
@@ -40,18 +39,31 @@ class RollingTransformer(FieldStreamTransformBase):
             min_samples = window
         if min_samples <= 0:
             raise ValueError("min_samples must be positive")
+        if statistic == "stdev" and min_samples < 2:
+            raise ValueError("min_samples must be at least 2 for statistic='stdev'")
         if statistic == "mean":
             self.statistic = mean
         elif statistic == "median":
             self.statistic = median
+        elif statistic == "stdev":
+            self.statistic = stdev
+        elif statistic == "pstdev":
+            self.statistic = pstdev
+        elif statistic == "max":
+            self.statistic = max
+        elif statistic == "min":
+            self.statistic = min
         else:
-            raise ValueError(f"Unsupported statistic: {statistic!r}")
+            raise ValueError(
+                f"Unsupported statistic: {statistic!r}; "
+                "expected one of: mean, median, stdev, pstdev, max, min"
+            )
 
         self.window = window
         self.min_samples = min_samples
 
     def apply(self, stream: Iterator[TemporalRecord]) -> Iterator[TemporalRecord]:
-        grouped = groupby(stream, key=lambda rec: partition_key(rec, self.partition_by))
+        grouped = groupby(stream, key=self.partition_key)
 
         for _, records in grouped:
             tick_window: deque[float | None] = deque(maxlen=self.window)

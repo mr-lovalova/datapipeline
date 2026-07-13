@@ -1,19 +1,21 @@
 # Backlog
 
-## Cache V2 (Checkpoint-Based)
+## Additional Checkpoints
 
 Current status:
-- Session fan-out cache was removed from core pipeline to keep orchestration simple and explicit.
-- `build_feature_pipeline`/`build_vector_pipeline` now use the direct non-cached flow.
+- Hidden session fan-out caching was removed from pipeline orchestration.
+- `vector_inputs` is now an explicit durable artifact with a manifest, compressed
+  per-feature shards, config freshness, and graph dependencies.
+- Vector assembly requires that artifact instead of silently switching between
+  cached and uncached execution paths.
 
-Proposed redesign:
-1. Add explicit stage checkpoints (not hidden source contracts).
-2. Keep cache/checkpoint concerns outside pipeline orchestration.
-3. Define manifest for each checkpoint:
-- stage boundary
-- config/signature hash
-- upstream dependency hashes
-- row count + path
-4. Resume/start options should select a valid checkpoint and continue downstream stages only.
-5. Visuals should render checkpoints via existing source-like progress adapters.
-6. Durable checkpoints (artifacts/runs) and ephemeral caches should share the same model but different retention policy.
+Possible future work:
+
+1. Add other explicit stage checkpoints only where recomputation cost justifies
+   another public artifact contract.
+2. Support content-addressed source versions for metadata-preserving local
+   changes and remote or opaque inputs.
+3. Let resume options select a validated checkpoint without adding hidden source
+   substitution to pipeline construction.
+4. Give durable artifacts and ephemeral spill/cache data one explicit retention
+   policy model while keeping their lifetimes distinct.

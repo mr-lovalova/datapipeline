@@ -1,25 +1,40 @@
 from pathlib import Path
+from typing import Any
 
 from datapipeline.config.model_utils import normalize_required_text
 from datapipeline.config.tasks import (
     ArtifactTask,
+    CoverageTask,
+    MatrixTask,
     MetadataTask,
     OperationTask,
+    PipelineTask,
     ScalerTask,
     SchemaTask,
     StatsTask,
     Task,
+    ThresholdsTask,
+    TicksTask,
+    VectorInputsTask,
 )
 from datapipeline.services.project_paths import tasks_dir
 
 from .common import ensure_unique_specs, load_specs, spec_files
 
 ARTIFACT_OPERATION_MODELS: dict[str, type[ArtifactTask]] = {
+    "vector_inputs": VectorInputsTask,
     "schema": SchemaTask,
     "scaler": ScalerTask,
     "metadata": MetadataTask,
     "stats": StatsTask,
 }
+RUNTIME_OPERATION_MODELS: dict[str, type[OperationTask[Any]]] = {
+    "core.runtime.pipeline": PipelineTask,
+    "core.runtime.coverage": CoverageTask,
+    "core.runtime.thresholds": ThresholdsTask,
+    "core.runtime.matrix": MatrixTask,
+}
+TICKS_ENTRYPOINT = "core.artifact.ticks"
 
 
 def _load_operation_entry(entry: dict) -> Task:
@@ -31,7 +46,13 @@ def _load_operation_entry(entry: dict) -> Task:
     )
     normalized_entry["kind"] = operation_kind
     if operation_kind == "runtime":
-        return OperationTask.model_validate(normalized_entry)
+        entrypoint = normalize_required_text(
+            normalized_entry.get("entrypoint"),
+            field_name="entrypoint",
+        )
+        normalized_entry["entrypoint"] = entrypoint
+        runtime_model_cls = RUNTIME_OPERATION_MODELS.get(entrypoint, OperationTask)
+        return runtime_model_cls.model_validate(normalized_entry)
     if operation_kind != "artifact":
         raise ValueError(
             f"Unsupported task kind '{operation_kind}'. Use 'artifact' or 'runtime'."
@@ -42,8 +63,22 @@ def _load_operation_entry(entry: dict) -> Task:
         lower=True,
     )
     normalized_entry["id"] = operation_id
-    model_cls = ARTIFACT_OPERATION_MODELS.get(operation_id, ArtifactTask)
-    return model_cls.model_validate(normalized_entry)
+    raw_entrypoint = normalized_entry.get("entrypoint")
+    if raw_entrypoint is not None:
+        entrypoint = normalize_required_text(
+            raw_entrypoint,
+            field_name="entrypoint",
+        )
+        normalized_entry["entrypoint"] = entrypoint
+        if entrypoint == TICKS_ENTRYPOINT:
+            if operation_id in ARTIFACT_OPERATION_MODELS:
+                raise ValueError(
+                    f"Ticks artifact task id '{operation_id}' is reserved for "
+                    "a built-in artifact task."
+                )
+            return TicksTask.model_validate(normalized_entry)
+    artifact_model_cls = ARTIFACT_OPERATION_MODELS.get(operation_id, ArtifactTask)
+    return artifact_model_cls.model_validate(normalized_entry)
 
 
 def _validate_operation_layout(root: Path) -> None:
@@ -90,7 +125,10 @@ def operation_specs(
         error_template="Duplicate operation task ids are not allowed: {details}",
         key_fn=lambda spec: spec.id,
     )
-    overlap = sorted({spec.id for spec in artifact_specs} & {spec.id for spec in operation_task_specs})
+    overlap = sorted(
+        {spec.id for spec in artifact_specs}
+        & {spec.id for spec in operation_task_specs}
+    )
     if overlap:
         raise ValueError(
             "Task ids must be globally unique across artifact/runtime tasks: "

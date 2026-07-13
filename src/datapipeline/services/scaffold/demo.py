@@ -15,7 +15,6 @@ logger = logging.getLogger(__name__)
 _DEMO_DATASET_ALIAS = "demo"
 _DEMO_PARSER_EP = "sandbox_ohlcv_dto_parser"
 _DEMO_MAPPER_EP = "map_sandbox_ohlcv_dto_to_equity"
-_DEMO_COMPOSED_MAPPER_EP = "compose_equity_pair_aapl_msft"
 
 
 def _replace_placeholders(path: Path, replacements: dict[str, str]) -> None:
@@ -43,12 +42,6 @@ def _inject_demo_entrypoints(pyproject: Path, pkg_name: str) -> None:
         _DEMO_MAPPER_EP,
         f"{pkg_name}.mappers.map_sandbox_ohlcv_dto_to_equity:map_sandbox_ohlcv_dto_to_equity",
     )
-    toml = inject_ep(
-        toml,
-        "mappers",
-        _DEMO_COMPOSED_MAPPER_EP,
-        f"{pkg_name}.mappers.compose_equity_pair_aapl_msft:compose_equity_pair_aapl_msft",
-    )
     pyproject.write_text(toml)
 
 
@@ -71,14 +64,24 @@ def _update_workspace_jerry(
             datasets.pop(key, None)
     data["datasets"] = datasets
     data["default_dataset"] = _DEMO_DATASET_ALIAS
-    workspace_jerry.write_text(
-        yaml.safe_dump(data, sort_keys=False), encoding="utf-8"
-    )
+    workspace_jerry.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
 
 
 def _copy_tree(src: Path, dest: Path) -> None:
+    if src.name in {"__pycache__", ".DS_Store"} or src.suffix in {".pyc", ".pyo"}:
+        return
     if src.is_dir():
-        shutil.copytree(src, dest, dirs_exist_ok=True)
+        shutil.copytree(
+            src,
+            dest,
+            dirs_exist_ok=True,
+            ignore=shutil.ignore_patterns(
+                "__pycache__",
+                "*.pyc",
+                "*.pyo",
+                ".DS_Store",
+            ),
+        )
     else:
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, dest)

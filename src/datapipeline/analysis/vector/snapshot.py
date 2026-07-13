@@ -69,7 +69,9 @@ def _deserialize_status_map(values: dict[str, Any]) -> defaultdict[str, dict[str
     )
 
 
-def _deserialize_sub_map(values: dict[str, Any]) -> defaultdict[str, dict[str, list[str]]]:
+def _deserialize_sub_map(
+    values: dict[str, Any],
+) -> defaultdict[str, dict[str, list[str]]]:
     return defaultdict(
         dict,
         {
@@ -92,7 +94,9 @@ def snapshot_from_collector(collector: VectorStatsCollector) -> dict[str, Any]:
         "total_vectors": collector.total_vectors,
         "empty_vectors": collector.empty_vectors,
         "group_feature_status": _serialize_status_map(collector.group_feature_status),
-        "group_partition_status": _serialize_status_map(collector.group_partition_status),
+        "group_partition_status": _serialize_status_map(
+            collector.group_partition_status
+        ),
         "group_feature_sub": _serialize_sub_map(collector.group_feature_sub),
         "group_partition_sub": _serialize_sub_map(collector.group_partition_sub),
     }
@@ -112,12 +116,8 @@ def collector_from_snapshot(
     *,
     expected_feature_ids: list[str] | None,
     schema_meta: dict[str, dict[str, Any]] | None,
-    threshold: float | None,
-    show_matrix: bool,
-    matrix_rows: int,
-    matrix_cols: int,
-    matrix_output: str | None,
-    matrix_format: str,
+    matrix_output: str | None = None,
+    matrix_format: str = "html",
 ) -> VectorStatsCollector:
     _require_schema_version(snapshot)
     collector = VectorStatsCollector(
@@ -125,10 +125,6 @@ def collector_from_snapshot(
         match_partition=snapshot.get("match_partition", "base"),
         schema_meta=schema_meta,
         sample_limit=snapshot.get("sample_limit", 5),
-        threshold=threshold,
-        show_matrix=show_matrix,
-        matrix_rows=matrix_rows,
-        matrix_cols=matrix_cols,
         matrix_output=matrix_output,
         matrix_format=matrix_format,
     )

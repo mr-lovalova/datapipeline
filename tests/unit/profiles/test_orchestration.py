@@ -1,580 +1,835 @@
-from contextlib import contextmanager
+import json
+import logging
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from datapipeline.build.state import BuildState, save_build_state
-from datapipeline.config.tasks import MetadataTask, OperationTask, SchemaTask
+from datapipeline.artifacts.planning import build_artifact_graph
+from datapipeline.config.build_resolution import BuildSettings
+from datapipeline.config.dataset.dataset import FeatureDatasetConfig
+from datapipeline.config.dataset.feature import FeatureRecordConfig
+from datapipeline.config.execution import ExecutionConfig
+from datapipeline.config.resolution import (
+    LogLevelDecision,
+    LogOutputSettings,
+    ObservabilitySettings,
+)
+from datapipeline.config.tasks import (
+    ArtifactTask,
+    MetadataTask,
+    OperationTask,
+    PipelineTask,
+    SchemaTask,
+    VectorInputsTask,
+)
 from datapipeline.io.output import OutputTarget
-from datapipeline.profiles.models import ExecutionProfile, ProfileRunRequest
-from datapipeline.profiles.orchestration import run_profiles
-from datapipeline.runtime import Runtime
+from datapipeline.profiles.execution import RuntimeJobPlan, execute_runtime_job
+from datapipeline.profiles.executor import ExecutionSpec
+from datapipeline.profiles.models import (
+    BuildJob,
+    BuildRunRequest,
+    RuntimeJob,
+    RuntimeRunRequest,
+    ServeRunPlan,
+)
+from datapipeline.profiles.orchestration import _validate_build_order, run_profiles
 from datapipeline.services.artifacts import ArtifactManager
-from datapipeline.services.bootstrap import build_state_path
-from datapipeline.services.constants import VECTOR_SCHEMA
+from datapipeline.services.constants import (
+    VECTOR_INPUTS,
+    VECTOR_METADATA,
+    VECTOR_SCHEMA,
+)
 from datapipeline.services.runs import RunPaths
 
+_LOG_DECISION = LogLevelDecision(name="INFO", value=logging.INFO)
+_LOG_OUTPUT = LogOutputSettings(outputs=())
 
-def _log_config():
-    return (
-        SimpleNamespace(name="INFO", value=20),
-        SimpleNamespace(outputs=()),
+
+def _artifact_settings(
+    mode: str = "AUTO",
+    heartbeat_interval_seconds: float | None = None,
+) -> BuildSettings:
+    return BuildSettings(
+        mode=mode,
+        observability=_observability(heartbeat_interval_seconds),
     )
 
 
-def _run_paths(tmp_path):
-    run_root = tmp_path / "runs" / "r1"
+def _observability(
+    heartbeat_interval_seconds: float | None = None,
+) -> ObservabilitySettings:
+    return ObservabilitySettings(
+        visuals="off",
+        heartbeat_interval_seconds=heartbeat_interval_seconds,
+        log_decision=_LOG_DECISION,
+        log_output=_LOG_OUTPUT,
+    )
+
+
+@pytest.fixture(autouse=True)
+def _stable_config_hash(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.compute_config_hash",
+        lambda *_args: "hash-1",
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.tasks_dir",
+        lambda project: project.parent / "tasks",
+    )
+
+
+def _dataset(*, scale: bool = False) -> FeatureDatasetConfig:
+    return FeatureDatasetConfig(
+        group_by="1h",
+        features=[
+            FeatureRecordConfig(
+                id="feature",
+                record_stream="stream",
+                field="value",
+                scale=scale,
+            )
+        ],
+    )
+
+
+def _runtime(tmp_path: Path, marker: str = "runtime") -> SimpleNamespace:
+    return SimpleNamespace(
+        marker=marker,
+        artifacts=ArtifactManager(tmp_path / marker / "artifacts"),
+        execution=ExecutionConfig(),
+        heartbeat_interval_seconds=None,
+        split_labels=(),
+    )
+
+
+def _output() -> OutputTarget:
+    return OutputTarget(
+        transport="stdout",
+        format="jsonl",
+        view="raw",
+        encoding=None,
+        destination=None,
+    )
+
+
+def _runtime_job(
+    name: str,
+    task: OperationTask,
+    runtime,
+    dataset,
+    *,
+    preview_index: int | None = None,
+    heartbeat_interval_seconds: float | None = None,
+    splits: tuple[str, ...] = (),
+) -> RuntimeJob:
+    return RuntimeJob(
+        name=name,
+        task=task,
+        runtime=runtime,
+        dataset_name="features" if preview_index is not None else "vectors",
+        dataset=dataset,
+        output=_output(),
+        observability=_observability(heartbeat_interval_seconds),
+        limit=None,
+        throttle_ms=None,
+        preview_index=preview_index,
+        splits=splits,
+    )
+
+
+def _build_request(
+    tmp_path: Path,
+    artifact_tasks,
+    jobs,
+    execution: ExecutionConfig | None = None,
+) -> BuildRunRequest:
+    return BuildRunRequest(
+        project_path=tmp_path / "project.yaml",
+        artifact_task_configs=artifact_tasks,
+        jobs=jobs,
+        execution=ExecutionConfig() if execution is None else execution,
+        config_hash="hash-1",
+    )
+
+
+def _runtime_request(
+    tmp_path: Path,
+    *,
+    command: str,
+    artifact_tasks,
+    jobs,
+    artifact_settings: BuildSettings | None = None,
+    serve_run_plans: tuple[ServeRunPlan, ...] = (),
+    execution: ExecutionConfig | None = None,
+) -> RuntimeRunRequest:
+    return RuntimeRunRequest(
+        command=command,
+        project_path=tmp_path / "project.yaml",
+        artifact_task_configs=artifact_tasks,
+        jobs=jobs,
+        execution=ExecutionConfig() if execution is None else execution,
+        config_hash="hash-1",
+        artifact_settings=artifact_settings or _artifact_settings(),
+        serve_run_plans=serve_run_plans,
+    )
+
+
+def _run_paths(tmp_path: Path, run_id: str = "r1") -> RunPaths:
+    run_root = tmp_path / "runs" / run_id
     return RunPaths(
         serve_root=tmp_path,
         runs_root=tmp_path / "runs",
-        run_id="r1",
+        run_id=run_id,
         run_root=run_root,
         dataset_dir=run_root / "dataset",
         metadata_path=run_root / "run.json",
     )
 
 
-def test_run_profiles_executes_profile_target(monkeypatch, tmp_path):
+def _assert_preflight_rejected(request: BuildRunRequest | RuntimeRunRequest) -> None:
+    with pytest.raises(SystemExit) as exc:
+        run_profiles(request)
+    assert exc.value.code == 2
+
+
+def test_build_order_accepts_configured_dependency_order() -> None:
+    vector_inputs = VectorInputsTask(id="vector_inputs")
     schema = SchemaTask(id="schema")
     metadata = MetadataTask(id="metadata")
-    serve = OperationTask.model_validate(
-        {
-            "id": "pipeline",
-            "kind": "runtime",
-            "entrypoint": "core.runtime.pipeline",
-        }
-    )
+    graph = build_artifact_graph([vector_inputs, schema, metadata])
 
-    log_decision, log_output = _log_config()
-    request = ProfileRunRequest(
-        command="serve",
-        project_path=tmp_path / "project.yaml",
-        tasks=[schema, metadata, serve],
-        artifact_task_configs=[schema, metadata],
-        profiles=[
-            ExecutionProfile(
-                name="serve",
-                target_id="pipeline",
-                visuals="on",
-                log_decision=log_decision,
-                log_output=log_output,
-                runtime=object(),
-                dataset=object(),
-            )
+    _validate_build_order(
+        [
+            BuildJob(vector_inputs, _artifact_settings()),
+            BuildJob(schema, _artifact_settings()),
+            BuildJob(metadata, _artifact_settings()),
         ],
+        graph,
     )
 
-    calls = {"build": 0, "dispatch": 0}
 
-    monkeypatch.setattr(
-        "datapipeline.profiles.orchestration.run_profile",
-        lambda spec, work: work(),
-    )
-    monkeypatch.setattr(
-        "datapipeline.profiles.execution.run_build_if_needed",
-        lambda *args, **kwargs: calls.__setitem__("build", calls["build"] + 1),
-    )
-    monkeypatch.setattr(
-        "datapipeline.profiles.execution.execute_operation",
-        lambda **kwargs: calls.__setitem__("dispatch", calls["dispatch"] + 1),
-    )
-
-    run_profiles(request)
-
-    assert calls["build"] == 0
-    assert calls["dispatch"] == 1
-
-
-def test_run_profiles_parent_scope_does_not_announce(monkeypatch, tmp_path):
-    serve = OperationTask.model_validate(
-        {
-            "id": "pipeline",
-            "kind": "runtime",
-            "entrypoint": "core.runtime.pipeline",
-        }
-    )
-
-    log_decision, log_output = _log_config()
-    request = ProfileRunRequest(
-        command="serve",
-        project_path=tmp_path / "project.yaml",
-        tasks=[serve],
-        artifact_task_configs=[],
-        profiles=[
-            ExecutionProfile(
-                name="serve",
-                target_id="pipeline",
-                visuals="on",
-                log_decision=log_decision,
-                log_output=log_output,
-                runtime=object(),
-                dataset=object(),
-            )
-        ],
-    )
-
-    captured: dict[str, object] = {}
-
-    @contextmanager
-    def _capture_scope(**kwargs):
-        captured.update(kwargs)
-        yield
-
-    monkeypatch.setattr(
-        "datapipeline.profiles.orchestration.execution_scope",
-        _capture_scope,
-    )
-    monkeypatch.setattr(
-        "datapipeline.profiles.orchestration.run_profile",
-        lambda spec, work: work(),
-    )
-    monkeypatch.setattr(
-        "datapipeline.profiles.execution.execute_operation",
-        lambda **kwargs: None,
-    )
-
-    run_profiles(request)
-
-    assert captured.get("announce") is False
-
-
-def test_run_profiles_can_skip_artifact_build(monkeypatch, tmp_path):
+def test_build_order_rejects_dependency_after_dependent() -> None:
+    vector_inputs = VectorInputsTask(id="vector_inputs")
     schema = SchemaTask(id="schema")
-    serve = OperationTask.model_validate(
-        {
-            "id": "pipeline",
-            "kind": "runtime",
-            "entrypoint": "core.runtime.pipeline",
-        }
-    )
+    graph = build_artifact_graph([vector_inputs, schema])
 
-    log_decision, log_output = _log_config()
-    request = ProfileRunRequest(
-        command="serve",
-        project_path=tmp_path / "project.yaml",
-        tasks=[schema, serve],
-        artifact_task_configs=[schema],
-        skip_build=True,
-        profiles=[
-            ExecutionProfile(
-                name="serve",
-                target_id="pipeline",
-                visuals="on",
-                log_decision=log_decision,
-                log_output=log_output,
-                runtime=object(),
-                dataset=object(),
-            )
-        ],
-    )
-
-    calls = {"build": 0, "dispatch": 0}
-    monkeypatch.setattr(
-        "datapipeline.profiles.orchestration.run_profile",
-        lambda spec, work: work(),
-    )
-    monkeypatch.setattr(
-        "datapipeline.profiles.execution.run_build_if_needed",
-        lambda *args, **kwargs: calls.__setitem__("build", calls["build"] + 1),
-    )
-    monkeypatch.setattr(
-        "datapipeline.profiles.execution.execute_operation",
-        lambda **kwargs: calls.__setitem__("dispatch", calls["dispatch"] + 1),
-    )
-
-    run_profiles(request)
-
-    assert calls["build"] == 0
-    assert calls["dispatch"] == 1
-
-
-def test_run_profiles_syncs_runtime_artifacts_after_build(monkeypatch, tmp_path):
-    (tmp_path / "project.yaml").write_text(
-        "\n".join(
+    with pytest.raises(ValueError, match="vector_inputs.*before.*schema"):
+        _validate_build_order(
             [
-                "version: 1",
-                "paths:",
-                "  streams: ./streams",
-                "  sources: ./sources",
-                "  dataset: ./dataset.yaml",
-                "  postprocess: ./postprocess.yaml",
-                "  artifacts: ./artifacts",
-                "  tasks: ./tasks",
-                "  profiles: ./profiles",
-            ]
-        ),
-        encoding="utf-8",
-    )
-
-    schema = SchemaTask(id="schema")
-    serve = OperationTask.model_validate(
-        {
-            "id": "pipeline",
-            "kind": "runtime",
-            "entrypoint": "core.runtime.pipeline",
-        }
-    )
-
-    log_decision, log_output = _log_config()
-    runtime = SimpleNamespace(artifacts=ArtifactManager(tmp_path / "artifacts"))
-    request = ProfileRunRequest(
-        command="serve",
-        project_path=tmp_path / "project.yaml",
-        tasks=[schema, serve],
-        artifact_task_configs=[schema],
-        profiles=[
-            ExecutionProfile(
-                name="serve",
-                target_id="pipeline",
-                visuals="on",
-                log_decision=log_decision,
-                log_output=log_output,
-                runtime=runtime,
-                dataset=object(),
-            )
-        ],
-    )
-
-    state = BuildState(config_hash="hash-1")
-    state.register(
-        VECTOR_SCHEMA,
-        "build/metadata.json",
-        meta={"_config_hash": "hash-1"},
-    )
-    save_build_state(state, build_state_path(request.project_path))
-
-    seen = {"synced": False}
-
-    def _capture_dispatch(**kwargs):
-        seen["synced"] = kwargs["runtime"].artifacts.has(VECTOR_SCHEMA)
-
-    monkeypatch.setattr(
-        "datapipeline.profiles.orchestration.run_profile",
-        lambda spec, work: work(),
-    )
-    monkeypatch.setattr(
-        "datapipeline.profiles.execution.execute_operation",
-        _capture_dispatch,
-    )
-
-    run_profiles(request)
-
-    assert seen["synced"] is True
+                BuildJob(schema, _artifact_settings()),
+                BuildJob(vector_inputs, _artifact_settings()),
+            ],
+            graph,
+        )
 
 
-def test_run_profiles_forward_runtime_build_settings(monkeypatch, tmp_path):
+def test_build_order_rejects_duplicate_targets() -> None:
     schema = SchemaTask(id="schema")
 
-    log_decision, log_output = _log_config()
-    request = ProfileRunRequest(
-        command="serve",
-        project_path=tmp_path / "project.yaml",
-        tasks=[schema],
-        artifact_task_configs=[schema],
-        profiles=[
-            ExecutionProfile(
-                name="serve",
-                target_id="schema",
-                visuals="on",
-                log_decision=log_decision,
-                log_output=log_output,
-                runtime=object(),
-                dataset=object(),
-                build_mode="FORCE",
-            )
-        ],
-    )
-
-    seen: dict[str, object] = {}
-    monkeypatch.setattr(
-        "datapipeline.profiles.orchestration.run_profile",
-        lambda spec, work: work(),
-    )
-    monkeypatch.setattr(
-        "datapipeline.profiles.execution.run_build_if_needed",
-        lambda *args, **kwargs: seen.update(kwargs),
-    )
-    monkeypatch.setattr(
-        "datapipeline.profiles.execution.execute_operation",
-        lambda **kwargs: None,
-    )
-
-    run_profiles(request)
-
-    settings = seen["settings"]
-    assert settings.mode == "FORCE"
-    assert settings.force is True
-    assert settings.profile_name == "serve"
+    with pytest.raises(ValueError, match="unique artifact targets"):
+        _validate_build_order(
+            [
+                BuildJob(schema, _artifact_settings()),
+                BuildJob(schema, _artifact_settings()),
+            ],
+            build_artifact_graph([schema]),
+        )
 
 
-def test_runtime_dependency_build_scope_isolated_from_parent_profile(monkeypatch, tmp_path):
-    schema = SchemaTask(id="schema")
-    serve = OperationTask.model_validate(
-        {
-            "id": "pipeline",
-            "kind": "runtime",
-            "entrypoint": "core.runtime.pipeline",
-        }
-    )
-
-    log_decision, log_output = _log_config()
-    request = ProfileRunRequest(
-        command="inspect",
-        project_path=tmp_path / "project.yaml",
-        tasks=[schema, serve],
-        artifact_task_configs=[schema],
-        profiles=[
-            ExecutionProfile(
-                name="coverage",
-                target_id="pipeline",
-                visuals="on",
-                log_decision=log_decision,
-                log_output=log_output,
-                runtime=SimpleNamespace(artifacts=ArtifactManager(tmp_path / "artifacts")),
-                dataset=object(),
-            )
-        ],
-    )
-
-    captured = {"count": 0}
-
-    def _capture_selected_artifacts(**_kwargs):
-        captured["count"] += 1
-
-    monkeypatch.setattr(
-        "datapipeline.profiles.orchestration.run_profile",
-        lambda spec, work: work(),
-    )
-    monkeypatch.setattr(
-        "datapipeline.profiles.execution.run_selected_artifacts",
-        _capture_selected_artifacts,
-    )
-    monkeypatch.setattr(
-        "datapipeline.profiles.execution.execute_operation",
-        lambda **kwargs: None,
-    )
-    monkeypatch.setattr(
-        "datapipeline.profiles.execution.sync_runtime_artifacts_from_state",
-        lambda *_args, **_kwargs: None,
-    )
-
-    run_profiles(request)
-
-    assert captured["count"] == 0
-
-
-def test_run_profiles_share_ephemeral_cache_root_across_runtime_profiles(
+def test_build_jobs_keep_order_and_share_resolved_artifacts(
     monkeypatch,
-    tmp_path,
-):
-    serve = OperationTask.model_validate(
-        {
-            "id": "pipeline",
-            "kind": "runtime",
-            "entrypoint": "core.runtime.pipeline",
-        }
-    )
-    project_yaml = tmp_path / "project.yaml"
-    runtime_one = Runtime(project_yaml=project_yaml, artifacts_root=tmp_path / "artifacts")
-    runtime_two = Runtime(project_yaml=project_yaml, artifacts_root=tmp_path / "artifacts")
-    log_decision, log_output = _log_config()
-    request = ProfileRunRequest(
-        command="serve",
-        project_path=project_yaml,
-        tasks=[serve],
-        artifact_task_configs=[],
-        profiles=[
-            ExecutionProfile(
-                name="train",
-                target_id="pipeline",
-                visuals="on",
-                log_decision=log_decision,
-                log_output=log_output,
-                runtime=runtime_one,
-                dataset=object(),
-            ),
-            ExecutionProfile(
-                name="val",
-                target_id="pipeline",
-                visuals="on",
-                log_decision=log_decision,
-                log_output=log_output,
-                runtime=runtime_two,
-                dataset=object(),
-            ),
+    tmp_path: Path,
+) -> None:
+    vector_inputs = VectorInputsTask(id="vector_inputs")
+    schema = SchemaTask(id="schema")
+    vector_runtime = _runtime(tmp_path, "vector-runtime")
+    schema_runtime = _runtime(tmp_path, "schema-runtime")
+    execution = ExecutionConfig(sort_buffer_mb=32)
+    request = _build_request(
+        tmp_path,
+        [vector_inputs, schema],
+        [
+            BuildJob(vector_inputs, _artifact_settings()),
+            BuildJob(schema, _artifact_settings("FORCE")),
         ],
+        execution,
     )
+    calls: list[dict[str, object]] = []
+    execution_specs: list[ExecutionSpec] = []
+    runtimes = iter((vector_runtime, schema_runtime))
 
-    seen_roots = []
+    def build(_project, **kwargs):
+        calls.append(dict(kwargs))
+        kwargs["resolved_artifacts"].update(kwargs["required_artifacts"])
+
+    def execute(spec, work):
+        execution_specs.append(spec)
+        return work()
 
     monkeypatch.setattr(
-        "datapipeline.profiles.orchestration.run_profile",
+        "datapipeline.profiles.execution.load_dataset",
+        lambda *_args: _dataset(),
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.bootstrap_build_runtime",
+        lambda _project: next(runtimes),
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.run_execution",
+        execute,
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.run_build_if_needed",
+        build,
+    )
+
+    run_profiles(request)
+
+    assert [call["required_artifacts"] for call in calls] == [
+        {VECTOR_INPUTS},
+        {VECTOR_SCHEMA},
+    ]
+    assert [call["runtime"].marker for call in calls] == [
+        "vector-runtime",
+        "schema-runtime",
+    ]
+    assert [call["settings"].mode for call in calls] == ["AUTO", "FORCE"]
+    assert calls[0]["resolved_artifacts"] is calls[1]["resolved_artifacts"]
+    assert calls[1]["resolved_artifacts"] == {VECTOR_INPUTS, VECTOR_SCHEMA}
+    assert {call["expected_config_hash"] for call in calls} == {"hash-1"}
+    assert [spec.runtime for spec in execution_specs] == [
+        vector_runtime,
+        schema_runtime,
+    ]
+    assert vector_runtime.execution == execution
+    assert schema_runtime.execution == execution
+
+
+def test_runtime_artifact_union_is_prepared_once_before_jobs(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    vector_inputs = VectorInputsTask(id="vector_inputs")
+    schema = SchemaTask(id="schema")
+    metadata = MetadataTask(id="metadata")
+    pipeline = PipelineTask(id="pipeline")
+    first_runtime = _runtime(tmp_path, "first-job")
+    second_runtime = _runtime(tmp_path, "second-job")
+    canonical_runtime = _runtime(tmp_path, "canonical-build")
+    execution = ExecutionConfig(sort_buffer_mb=32)
+    artifact_settings = _artifact_settings("FORCE", 0)
+    request = _runtime_request(
+        tmp_path,
+        command="serve",
+        artifact_tasks=[vector_inputs, schema, metadata],
+        jobs=[
+            _runtime_job(
+                "metadata-preview",
+                pipeline,
+                first_runtime,
+                _dataset(),
+                preview_index=12,
+            ),
+            _runtime_job(
+                "schema-preview",
+                pipeline,
+                second_runtime,
+                _dataset(),
+                preview_index=13,
+            ),
+        ],
+        artifact_settings=artifact_settings,
+        execution=execution,
+    )
+    events: list[tuple[str, object]] = []
+    build_calls: list[dict[str, object]] = []
+    execution_specs: list[ExecutionSpec] = []
+
+    def build(_project, **kwargs):
+        events.append(("build", kwargs["runtime"]))
+        build_calls.append(dict(kwargs))
+
+    def execute(spec, work):
+        execution_specs.append(spec)
+        events.append(("execution started", spec.runtime))
+        result = work()
+        events.append(("execution finished", spec.runtime))
+        return result
+
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.bootstrap_build_runtime",
+        lambda _project: canonical_runtime,
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.run_build_if_needed",
+        build,
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.run_execution",
+        execute,
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.execute_runtime_job",
+        lambda _command, _project, _graph, plan: events.append(
+            ("job", plan.job.runtime)
+        ),
+    )
+
+    run_profiles(request)
+
+    assert events == [
+        ("execution started", canonical_runtime),
+        ("build", canonical_runtime),
+        ("execution finished", canonical_runtime),
+        ("execution started", first_runtime),
+        ("job", first_runtime),
+        ("execution finished", first_runtime),
+        ("execution started", second_runtime),
+        ("job", second_runtime),
+        ("execution finished", second_runtime),
+    ]
+    assert [spec.runtime for spec in execution_specs] == [
+        canonical_runtime,
+        first_runtime,
+        second_runtime,
+    ]
+    assert len(build_calls) == 1
+    assert build_calls[0]["required_artifacts"] == {
+        VECTOR_INPUTS,
+        VECTOR_SCHEMA,
+        VECTOR_METADATA,
+    }
+    assert build_calls[0]["settings"] is artifact_settings
+    assert build_calls[0]["expected_config_hash"] == "hash-1"
+    assert canonical_runtime.execution == execution
+    assert first_runtime.execution == execution
+    assert second_runtime.execution == execution
+
+
+def test_custom_runtime_artifact_requirement_is_prepared(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    snapshot = ArtifactTask(
+        id="snapshot",
+        entrypoint="plugin.snapshot",
+        output="build/snapshot.json",
+    )
+    report = OperationTask(
+        id="report",
+        entrypoint="plugin.runtime.report",
+        requires=("snapshot",),
+    )
+    request = _runtime_request(
+        tmp_path,
+        command="inspect",
+        artifact_tasks=[snapshot],
+        jobs=[_runtime_job("report", report, _runtime(tmp_path), _dataset())],
+    )
+    build_calls: list[dict[str, object]] = []
+
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.bootstrap_build_runtime",
+        lambda _project: _runtime(tmp_path, "artifact-build"),
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.run_build_if_needed",
+        lambda _project, **kwargs: build_calls.append(dict(kwargs)),
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.run_execution",
         lambda spec, work: work(),
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.execute_runtime_job",
+        lambda *_args: None,
+    )
+
+    run_profiles(request)
+
+    assert len(build_calls) == 1
+    assert build_calls[0]["required_artifacts"] == {"snapshot"}
+
+
+def test_custom_runtime_missing_required_producer_is_rejected_before_execution(
+    tmp_path: Path,
+) -> None:
+    report = OperationTask(
+        id="report",
+        entrypoint="plugin.runtime.report",
+        requires=("schema",),
+    )
+    request = _runtime_request(
+        tmp_path,
+        command="inspect",
+        artifact_tasks=[],
+        jobs=[_runtime_job("report", report, _runtime(tmp_path), _dataset())],
+    )
+
+    _assert_preflight_rejected(request)
+
+
+def test_artifact_free_runtime_rejects_config_drift_before_execution(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    report = OperationTask(id="report", entrypoint="plugin.runtime.report")
+    request = _runtime_request(
+        tmp_path,
+        command="inspect",
+        artifact_tasks=[],
+        jobs=[_runtime_job("report", report, _runtime(tmp_path), _dataset())],
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.compute_config_hash",
+        lambda *_args: "changed",
+    )
+
+    _assert_preflight_rejected(request)
+
+
+def test_missing_runtime_artifact_producer_is_rejected_before_execution(
+    tmp_path: Path,
+) -> None:
+    schema = SchemaTask(id="schema")
+    metadata = MetadataTask(id="metadata")
+    pipeline = PipelineTask(id="pipeline")
+    request = _runtime_request(
+        tmp_path,
+        command="serve",
+        artifact_tasks=[schema, metadata],
+        jobs=[_runtime_job("serve", pipeline, _runtime(tmp_path), _dataset())],
+    )
+
+    _assert_preflight_rejected(request)
+
+
+def test_invalid_preview_is_rejected_before_starting_run(tmp_path: Path) -> None:
+    pipeline = PipelineTask(id="pipeline")
+    run_paths = _run_paths(tmp_path)
+    request = _runtime_request(
+        tmp_path,
+        command="serve",
+        artifact_tasks=[],
+        jobs=[
+            _runtime_job(
+                "preview",
+                pipeline,
+                _runtime(tmp_path),
+                _dataset(),
+                preview_index=14,
+            )
+        ],
+        serve_run_plans=(ServeRunPlan(run_paths, 14),),
+    )
+
+    _assert_preflight_rejected(request)
+    assert not run_paths.run_root.exists()
+
+
+def test_runtime_jobs_keep_order_and_apply_execution_settings(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    task = OperationTask(id="pipeline", entrypoint="plugin.runtime")
+    execution = ExecutionConfig(sort_buffer_mb=16)
+    jobs = [
+        _runtime_job(
+            name,
+            task,
+            _runtime(tmp_path, name),
+            _dataset(),
+            heartbeat_interval_seconds=heartbeat,
+            splits=splits,
+        )
+        for name, heartbeat, splits in (
+            ("first", 10, ("train",)),
+            ("second", 20, ("val",)),
+            ("third", None, ()),
+        )
+    ]
+    request = _runtime_request(
+        tmp_path,
+        command="serve",
+        artifact_tasks=[],
+        jobs=jobs,
+        execution=execution,
+    )
+    observed: list[tuple[str, object, object, object]] = []
+    execution_specs: list[ExecutionSpec] = []
+
+    def execute(spec, work):
+        execution_specs.append(spec)
+        return work()
+
+    def execute_job(_command, _project, _graph, plan):
+        runtime = plan.job.runtime
+        observed.append(
+            (
+                plan.job.name,
+                runtime.heartbeat_interval_seconds,
+                runtime.split_labels,
+                runtime.execution,
+            )
+        )
+
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.run_execution",
+        execute,
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.execute_runtime_job",
+        execute_job,
+    )
+
+    run_profiles(request)
+
+    assert observed == [
+        ("first", 10, ("train",), execution),
+        ("second", 20, ("val",), execution),
+        ("third", None, (), execution),
+    ]
+    assert [spec.runtime for spec in execution_specs] == [job.runtime for job in jobs]
+
+
+def test_runtime_job_emits_resolved_config_at_debug(
+    monkeypatch, tmp_path: Path
+) -> None:
+    runtime = _runtime(tmp_path)
+    runtime.execution = ExecutionConfig(sort_buffer_mb=24)
+    task = OperationTask(id="report", entrypoint="plugin.runtime.report")
+    job = _runtime_job("coverage", task, runtime, _dataset())
+    messages: list[tuple[str, int]] = []
+
+    monkeypatch.setattr(
+        "datapipeline.profiles.execution.hydrate_runtime_artifacts_for_project",
+        lambda *_args, **_kwargs: (),
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.execution.emit_execution_message",
+        lambda message, level, logger: messages.append((message, level)),
     )
     monkeypatch.setattr(
         "datapipeline.profiles.execution.execute_operation",
-        lambda **kwargs: seen_roots.append(kwargs["runtime"].cache_root),
+        lambda **_kwargs: None,
     )
 
-    run_profiles(request)
-
-    assert len(seen_roots) == 2
-    assert seen_roots[0] == seen_roots[1]
-    assert not seen_roots[0].exists()
-
-
-def test_run_profiles_finalize_shared_serve_run_once(monkeypatch, tmp_path):
-    serve = OperationTask.model_validate(
-        {
-            "id": "pipeline",
-            "kind": "runtime",
-            "entrypoint": "core.runtime.pipeline",
-        }
-    )
-    run_paths = _run_paths(tmp_path)
-    target = OutputTarget(
-        transport="fs",
-        format="jsonl",
-        view="raw",
-        encoding="utf-8",
-        destination=run_paths.dataset_dir / "train.jsonl",
-        run=run_paths,
-    )
-    log_decision, log_output = _log_config()
-    request = ProfileRunRequest(
-        command="serve",
-        project_path=tmp_path / "project.yaml",
-        tasks=[serve],
-        artifact_task_configs=[],
-        profiles=[
-            ExecutionProfile(
-                name="train",
-                target_id="pipeline",
-                visuals="on",
-                log_decision=log_decision,
-                log_output=log_output,
-                runtime=object(),
-                dataset=object(),
-                output=target,
-            ),
-            ExecutionProfile(
-                name="val",
-                target_id="pipeline",
-                visuals="on",
-                log_decision=log_decision,
-                log_output=log_output,
-                runtime=object(),
-                dataset=object(),
-                output=target,
-            ),
-        ],
+    execute_runtime_job(
+        "inspect",
+        tmp_path / "project.yaml",
+        build_artifact_graph([]),
+        RuntimeJobPlan(job, ()),
     )
 
-    calls = {"success": 0, "failed": 0, "latest": 0}
+    assert len(messages) == 1
+    message, level = messages[0]
+    assert level == logging.DEBUG
+    assert message.startswith("Config:\n")
+    config = json.loads(message.removeprefix("Config:\n"))
+    assert config["target"] == "report"
+    assert config["dataset"] == "vectors"
+    assert config["execution"]["sort_buffer_mb"] == 24
+    assert config["observability"]["log_level"] == "INFO"
+
+
+def test_runtime_job_does_not_hide_plugin_value_errors(
+    monkeypatch, tmp_path: Path
+) -> None:
+    task = OperationTask(id="report", entrypoint="plugin.runtime.report")
+    job = _runtime_job("coverage", task, _runtime(tmp_path), _dataset())
     monkeypatch.setattr(
-        "datapipeline.profiles.orchestration.run_profile",
+        "datapipeline.profiles.execution.hydrate_runtime_artifacts_for_project",
+        lambda *_args, **_kwargs: (),
+    )
+
+    def fail(**_kwargs):
+        raise ValueError("plugin bug")
+
+    monkeypatch.setattr("datapipeline.profiles.execution.execute_operation", fail)
+
+    with pytest.raises(ValueError, match="plugin bug"):
+        execute_runtime_job(
+            "inspect",
+            tmp_path / "project.yaml",
+            build_artifact_graph([]),
+            RuntimeJobPlan(job, ()),
+        )
+
+
+def test_shared_serve_run_is_finalized_once(monkeypatch, tmp_path: Path) -> None:
+    task = OperationTask(id="pipeline", entrypoint="plugin.runtime")
+    run_paths = _run_paths(tmp_path)
+    request = _runtime_request(
+        tmp_path,
+        command="serve",
+        artifact_tasks=[],
+        jobs=[
+            _runtime_job(name, task, _runtime(tmp_path, name), _dataset())
+            for name in ("train", "val")
+        ],
+        serve_run_plans=(ServeRunPlan(run_paths, None),),
+    )
+    calls = {"start": 0, "success": 0, "failed": 0, "latest": 0}
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.run_execution",
         lambda spec, work: work(),
     )
     monkeypatch.setattr(
-        "datapipeline.profiles.orchestration.execute_profile",
-        lambda **kwargs: None,
+        "datapipeline.profiles.orchestration.execute_runtime_job",
+        lambda *_args: None,
     )
-    monkeypatch.setattr(
-        "datapipeline.profiles.orchestration.finish_run_success",
-        lambda _run: calls.__setitem__("success", calls["success"] + 1),
-    )
-    monkeypatch.setattr(
-        "datapipeline.profiles.orchestration.finish_run_failed",
-        lambda _run: calls.__setitem__("failed", calls["failed"] + 1),
-    )
-    monkeypatch.setattr(
-        "datapipeline.profiles.orchestration.set_latest_run",
-        lambda _run: calls.__setitem__("latest", calls["latest"] + 1),
-    )
+    for name in calls:
+        function = "set_latest_run" if name == "latest" else f"{name}_run"
+        if name == "success":
+            function = "finish_run_success"
+        elif name == "failed":
+            function = "finish_run_failed"
+        monkeypatch.setattr(
+            f"datapipeline.profiles.orchestration.{function}",
+            lambda *_args, key=name, **_kwargs: calls.__setitem__(key, calls[key] + 1),
+        )
 
     run_profiles(request)
 
-    assert calls == {"success": 1, "failed": 0, "latest": 1}
+    assert calls == {"start": 1, "success": 1, "failed": 0, "latest": 1}
 
 
-def test_run_profiles_fail_shared_serve_run_once_when_later_profile_errors(monkeypatch, tmp_path):
-    serve = OperationTask.model_validate(
-        {
-            "id": "pipeline",
-            "kind": "runtime",
-            "entrypoint": "core.runtime.pipeline",
-        }
-    )
+def test_job_failure_marks_shared_run_failed(monkeypatch, tmp_path: Path) -> None:
+    task = OperationTask(id="pipeline", entrypoint="plugin.runtime")
     run_paths = _run_paths(tmp_path)
-    target = OutputTarget(
-        transport="fs",
-        format="jsonl",
-        view="raw",
-        encoding="utf-8",
-        destination=run_paths.dataset_dir / "train.jsonl",
-        run=run_paths,
-    )
-    log_decision, log_output = _log_config()
-    request = ProfileRunRequest(
+    request = _runtime_request(
+        tmp_path,
         command="serve",
-        project_path=tmp_path / "project.yaml",
-        tasks=[serve],
-        artifact_task_configs=[],
-        profiles=[
-            ExecutionProfile(
-                name="train",
-                target_id="pipeline",
-                visuals="on",
-                log_decision=log_decision,
-                log_output=log_output,
-                runtime=object(),
-                dataset=object(),
-                output=target,
-            ),
-            ExecutionProfile(
-                name="val",
-                target_id="pipeline",
-                visuals="on",
-                log_decision=log_decision,
-                log_output=log_output,
-                runtime=object(),
-                dataset=object(),
-                output=target,
-            ),
+        artifact_tasks=[],
+        jobs=[
+            _runtime_job(name, task, _runtime(tmp_path, name), _dataset())
+            for name in ("train", "val")
         ],
+        serve_run_plans=(ServeRunPlan(run_paths, None),),
     )
+    calls = 0
+    failed: list[RunPaths] = []
 
-    state = {"calls": 0}
-    outcomes = {"success": 0, "failed": 0, "latest": 0}
-
-    monkeypatch.setattr(
-        "datapipeline.profiles.orchestration.run_profile",
-        lambda spec, work: work(),
-    )
-
-    def _execute_profile(**kwargs):
-        state["calls"] += 1
-        if state["calls"] == 2:
+    def execute(*_args):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
             raise RuntimeError("boom")
 
     monkeypatch.setattr(
-        "datapipeline.profiles.orchestration.execute_profile",
-        _execute_profile,
+        "datapipeline.profiles.orchestration.run_execution",
+        lambda spec, work: work(),
     )
     monkeypatch.setattr(
-        "datapipeline.profiles.orchestration.finish_run_success",
-        lambda _run: outcomes.__setitem__("success", outcomes["success"] + 1),
+        "datapipeline.profiles.orchestration.execute_runtime_job",
+        execute,
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.start_run",
+        lambda *_args, **_kwargs: None,
     )
     monkeypatch.setattr(
         "datapipeline.profiles.orchestration.finish_run_failed",
-        lambda _run: outcomes.__setitem__("failed", outcomes["failed"] + 1),
-    )
-    monkeypatch.setattr(
-        "datapipeline.profiles.orchestration.set_latest_run",
-        lambda _run: outcomes.__setitem__("latest", outcomes["latest"] + 1),
+        failed.append,
     )
 
     with pytest.raises(RuntimeError, match="boom"):
         run_profiles(request)
 
-    assert outcomes == {"success": 0, "failed": 1, "latest": 0}
+    assert failed == [run_paths]
+
+
+def test_preview_run_exists_at_job_boundary_and_is_not_latest(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    pipeline = PipelineTask(id="pipeline")
+    run_paths = _run_paths(tmp_path)
+    runtime = _runtime(tmp_path)
+    request = _runtime_request(
+        tmp_path,
+        command="serve",
+        artifact_tasks=[],
+        jobs=[
+            _runtime_job(
+                "preview",
+                pipeline,
+                runtime,
+                _dataset(),
+                preview_index=3,
+                heartbeat_interval_seconds=15,
+            )
+        ],
+        serve_run_plans=(ServeRunPlan(run_paths, 3),),
+    )
+    observed: dict[str, object] = {}
+
+    def execute(spec, work):
+        run = json.loads(run_paths.metadata_path.read_text(encoding="utf-8"))
+        observed.update(
+            status=run["status"],
+            preview_index=run["preview_index"],
+            heartbeat=spec.runtime.heartbeat_interval_seconds,
+        )
+        return work()
+
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.run_execution",
+        execute,
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.execute_runtime_job",
+        lambda *_args: None,
+    )
+    latest: list[RunPaths] = []
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.set_latest_run",
+        latest.append,
+    )
+
+    run_profiles(request)
+
+    assert observed == {
+        "status": "running",
+        "preview_index": 3,
+        "heartbeat": 15,
+    }
+    finished = json.loads(run_paths.metadata_path.read_text(encoding="utf-8"))
+    assert finished["status"] == "success"
+    assert latest == []
+
+
+def test_later_run_start_failure_fails_only_started_run(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    task = OperationTask(id="pipeline", entrypoint="plugin.runtime")
+    first = _run_paths(tmp_path / "first")
+    second = _run_paths(tmp_path / "second")
+    request = _runtime_request(
+        tmp_path,
+        command="serve",
+        artifact_tasks=[],
+        jobs=[_runtime_job("serve", task, _runtime(tmp_path), _dataset())],
+        serve_run_plans=(ServeRunPlan(first, None), ServeRunPlan(second, None)),
+    )
+    starts: list[RunPaths] = []
+    failed: list[RunPaths] = []
+
+    def start(paths, *, preview_index):
+        starts.append(paths)
+        if paths == second:
+            raise RuntimeError("cannot start second run")
+
+    monkeypatch.setattr("datapipeline.profiles.orchestration.start_run", start)
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.finish_run_failed",
+        failed.append,
+    )
+
+    with pytest.raises(RuntimeError, match="cannot start second run"):
+        run_profiles(request)
+
+    assert starts == [first, second]
+    assert failed == [first]

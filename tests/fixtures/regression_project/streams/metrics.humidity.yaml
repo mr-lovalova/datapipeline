@@ -1,0 +1,10 @@
+id: metrics.humidity
+from:
+  stream: metrics.humidity.ingest
+
+partition_by: location
+feature_id_by: location
+
+stream:
+  - ensure_cadence: { cadence: 1h, field: value }
+  - fill: { method: median, window: 3, min_samples: 1, field: value }

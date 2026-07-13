@@ -7,7 +7,12 @@ from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
 from datapipeline.transforms.vector_utils import clone, is_missing
 
-from .common import VectorPostprocessBase, replace_vector, select_vector
+from .common import (
+    VectorPostprocessBase,
+    replace_vector,
+    select_vector,
+    vector_history_key,
+)
 
 
 class VectorFillTransform(VectorPostprocessBase):
@@ -31,24 +36,24 @@ class VectorFillTransform(VectorPostprocessBase):
         self.statistic = statistic
         self.window = window
         self.min_samples = min_samples
-        self.history: dict[str, deque[float]] = {}
+        self.history: dict[tuple, deque[float]] = {}
 
-    def _compute(self, feature_id: str) -> float | None:
-        values = self.history.get(feature_id)
+    def _compute(self, key: tuple) -> float | None:
+        values = self.history.get(key)
         if not values or len(values) < self.min_samples:
             return None
         if self.statistic == "mean":
             return float(mean(values))
         return float(median(values))
 
-    def _push(self, feature_id: str, value: Any) -> None:
+    def _push(self, key: tuple, value: Any) -> None:
         if is_missing(value):
             return
         try:
             num = float(value)
         except (TypeError, ValueError):
             return
-        bucket = self.history.setdefault(str(feature_id), deque(maxlen=self.window))
+        bucket = self.history.setdefault(key, deque(maxlen=self.window))
         bucket.append(num)
 
     def __call__(self, stream: Iterator[Sample]) -> Iterator[Sample]:
@@ -76,12 +81,14 @@ class VectorFillTransform(VectorPostprocessBase):
         for feature in ids:
             if feature in data and not is_missing(data[feature]):
                 continue
-            fill = self._compute(feature)
+            key = vector_history_key(sample, payload, feature)
+            fill = self._compute(key)
             if fill is not None:
                 data[feature] = fill
                 updated = True
         for fid, value in data.items():
-            self._push(fid, value)
+            key = vector_history_key(sample, payload, fid)
+            self._push(key, value)
         if not updated:
             return sample
         return replace_vector(sample, payload, Vector(values=data))

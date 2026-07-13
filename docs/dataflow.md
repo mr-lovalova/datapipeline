@@ -8,12 +8,14 @@ The goal is to make the reference chain explicit and easy to debug.
 ```text
 jerry.yaml: default_dataset
   -> datasets.<alias> = <path/to/project.yaml>
-    -> project.yaml: paths.sources / paths.streams / paths.dataset / paths.tasks
+    -> project.yaml: paths.sources / paths.ingests / paths.streams / paths.dataset / paths.tasks
       -> sources/*.yaml: id
-        -> contracts/*.yaml: source: <sources.id>, id: <stream_id>
-          -> dataset.yaml: record_stream: <contracts.id>, field: <record_field>
+        -> ingests/*.yaml: from.source: <sources.id>, id: <stream_id>
+          -> streams/*.yaml: from.stream|from.align, id: <stream_id>
+          -> dataset.yaml: record_stream: <streams.id>, field: <record_field>
             -> jerry serve
-              -> runs/<run_id>/dataset/<split>.jsonl|csv|...
+              -> runs/<run_id>/dataset/<profile>.jsonl|csv|...
+              -> runs/<run_id>/dataset/<profile>.<split>.jsonl|csv|... when the profile sets splits
 ```
 
 ## 1) Workspace selects dataset project
@@ -31,17 +33,15 @@ Expected behavior:
 - `jerry serve` resolves to `datasets.demo`.
 - Relative paths here are resolved from the workspace root (directory containing `jerry.yaml`).
 
-Screenshot slot:
-`docs/assets/dataflow-01-workspace.png`
-
 ## 2) Project maps to config folders/files
 
 `project.yaml` is the root map for all dataset config.
 
 ```yaml
 paths:
+  ingests: ./ingests
   sources: ./sources
-  streams: ./contracts
+  streams: ./streams
   dataset: dataset.yaml
   postprocess: postprocess.yaml
   tasks: ./tasks
@@ -51,10 +51,7 @@ paths:
 Expected behavior:
 - All relative `paths.*` values are resolved relative to this `project.yaml`.
 
-Screenshot slot:
-`docs/assets/dataflow-02-project-paths.png`
-
-## 3) Source id links source YAML to contract
+## 3) Source id links source YAML to ingest
 
 A source file declares the raw source id plus loader/parser wiring.
 
@@ -69,39 +66,61 @@ loader:
     transport: fs
     format: jsonl
     path: data/*.jsonl
-    glob: true
 ```
 
 Expected behavior:
-- Contract `source: sandbox.ohlcv` resolves to this source spec.
+- Ingest `from.source: sandbox.ohlcv` resolves to this source spec.
 - For fs loaders, relative `args.path` is normalized via runtime path policy.
+- Standard glob characters in an fs `args.path` select matching files.
 
-Screenshot slot:
-`docs/assets/dataflow-03-source-yaml.png`
+## 4) Ingest or stream id links canonical records to dataset
 
-## 4) Contract id links canonical stream to dataset
-
-Contracts define canonical stream ids and source mapping.
+Ingests define source-backed stream ids.
 
 ```yaml
-# contracts/equity.ohlcv.yaml
-kind: ingest
+# ingests/equity.ohlcv.yaml
 id: equity.ohlcv
-source: sandbox.ohlcv
-mapper:
+from:
+  source: sandbox.ohlcv
+map:
   entrypoint: map_sandbox_ohlcv_dto_to_equity
 ```
 
 Expected behavior:
-- `source` must match a `sources/*.yaml:id`.
+- `from.source` must match a `sources/*.yaml:id`.
 - `id` is what `dataset.yaml` references under `record_stream`.
 
-Screenshot slot:
-`docs/assets/dataflow-04-contract-yaml.png`
+Derived streams consume existing stream ids:
+
+```yaml
+# streams/equity.daily_liquid.yaml
+id: equity.daily_liquid
+from:
+  stream: equity.ohlcv
+partition_by: ticker
+feature_id_by: []
+stream:
+  - dedupe: {}
+```
+
+Aligned streams intersect prepared inputs by partition and time. Input order is
+also mapper argument order:
+
+```yaml
+# streams/equity.price_to_earnings.yaml
+id: equity.price_to_earnings
+from:
+  align:
+    - equity.price.daily
+    - equity.earnings.daily
+map:
+  entrypoint: map_price_to_earnings
+  args: {}
+```
 
 ## 5) Dataset selects fields from stream ids
 
-Dataset config chooses which contract streams become features/targets and which record field is used as value.
+Dataset config chooses which streams become features/targets and which record field is used as value.
 
 ```yaml
 group_by: ${group_by}
@@ -115,11 +134,8 @@ features:
 ```
 
 Expected behavior:
-- `record_stream` must match a contract `id`.
+- `record_stream` must match a stream `id`.
 - `field` must exist on emitted records.
-
-Screenshot slot:
-`docs/assets/dataflow-05-dataset-yaml.png`
 
 ## 6) Serve writes run-scoped outputs
 
@@ -135,17 +151,14 @@ Output layout:
 vectors/
   runs/<run_id>/
     dataset/
-      test.jsonl
-      train.jsonl
-      val.jsonl
+      splits.test.jsonl
+      splits.train.jsonl
+      splits.val.jsonl
 ```
 
 Expected behavior:
 - Relative output directory resolves from workspace root.
 - Output format extension follows `--output-format` or configured format.
-
-Screenshot slot:
-`docs/assets/dataflow-06-run-output.png`
 
 ## Quick Debug Checklist
 
@@ -153,12 +166,12 @@ Screenshot slot:
 - Verify `jerry.yaml` `default_dataset` and `datasets.<alias>`.
 
 2. Unknown stream/source ids:
-- Verify `contracts/*.yaml:source` matches `sources/*.yaml:id`.
-- Verify `dataset.yaml:record_stream` matches `contracts/*.yaml:id`.
+- Verify `ingests/*.yaml:from.source` matches `sources/*.yaml:id`.
+- Verify `dataset.yaml:record_stream` matches an id in `ingests/` or `streams/`.
 
 3. Empty output:
 - Check source loader `path/url`.
-- Check parser/mapper output and stage previews (`jerry serve --stage 0..8`).
+- Check parser/mapper output and preview indices (`jerry serve --preview-index 0..13`).
 
 4. Wrong output location:
 - Check workspace root and `--output-directory` value.

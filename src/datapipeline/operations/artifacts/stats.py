@@ -6,6 +6,7 @@ from datapipeline.analysis.vector.collector import VectorStatsCollector
 from datapipeline.analysis.vector.snapshot import snapshot_from_collector
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.dataset.loader import load_dataset
+from datapipeline.config.dataset.validation import validate_dataset_feature_identity
 from datapipeline.config.metadata import build_vector_metadata_lookup
 from datapipeline.config.tasks import StatsTask
 from datapipeline.dag.context import PipelineContext
@@ -41,6 +42,7 @@ def _iter_merged_vectors(
         dataset.group_by,
         target_configs=target_cfgs,
         rectangular=True,
+        sample_keys=dataset.sample_keys,
     )
     if apply_postprocess:
         vectors = post_process(context, vectors)
@@ -54,6 +56,7 @@ def materialize_vector_stats(
     task_cfg: StatsTask,
 ) -> ArtifactOutput:
     dataset = load_dataset(runtime.project_yaml, "vectors")
+    validate_dataset_feature_identity(runtime, dataset)
     context = PipelineContext(runtime)
     expected_feature_ids, schema_meta = build_vector_metadata_lookup(
         context.require_artifact(VECTOR_METADATA_SPEC)
@@ -63,8 +66,6 @@ def materialize_vector_stats(
         expected_feature_ids or None,
         match_partition="base",
         schema_meta=schema_meta,
-        threshold=None,
-        show_matrix=False,
     )
     apply_postprocess = task_cfg.mode == "final"
     for key, merged in _iter_merged_vectors(

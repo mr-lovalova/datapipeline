@@ -1,11 +1,11 @@
 from abc import ABC
 from typing import TypeVar
 
-from datapipeline.sources.models.base import SourceInterface
+from datapipeline.domain.stream import RecordStream
 
 TRecord = TypeVar("TRecord")
 
 
-class GenerativeSourceInterface(SourceInterface[TRecord], ABC):
+class GenerativeSourceInterface(RecordStream[TRecord], ABC):
     """Marker interface - use if source doesn't rely on external data."""
     pass

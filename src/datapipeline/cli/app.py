@@ -83,11 +83,10 @@ def _resolve_project_from_args(
 
 
 def _resolve_project_arguments(
-    
     args: argparse.Namespace,
     workspace_context: WorkspaceContext | None,
 ) -> None:
-    if args.cmd not in {"serve", "build", "inspect"}:
+    if args.cmd not in {"serve", "build", "inspect", "materialize"}:
         return
     if not (hasattr(args, "project") or hasattr(args, "dataset")):
         return
@@ -105,7 +104,6 @@ def _resolve_project_arguments(
 
 
 def _configure_cli_logging(
-    
     parser: argparse.ArgumentParser,
     args: argparse.Namespace,
     workspace_context: WorkspaceContext | None,
@@ -152,9 +150,7 @@ def main() -> None:
         args=args,
         workspace_context=workspace_context,
     )
-    plugin_root = (
-        workspace_context.resolve_plugin_root() if workspace_context else None
-    )
+    plugin_root = workspace_context.resolve_plugin_root() if workspace_context else None
 
     try:
         handled = execute_command(
@@ -169,7 +165,9 @@ def main() -> None:
             return
     except KeyboardInterrupt:
         message = (
-            "Serve interrupted by user" if args.cmd == "serve" else "Interrupted by user"
+            "Serve interrupted by user"
+            if args.cmd == "serve"
+            else "Interrupted by user"
         )
         print(message, file=sys.stderr)
         raise SystemExit(130) from None

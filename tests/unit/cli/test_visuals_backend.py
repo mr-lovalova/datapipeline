@@ -1,113 +1,93 @@
 from contextlib import contextmanager
 import logging
 
-from datapipeline.cli.visuals.streams import (
-    _BasicBackend,
-    _OffBackend,
+from datapipeline.cli.visuals.backend import (
     _RichBackend,
+    VisualsBackend,
     get_visuals_backend,
 )
 
 
 def test_get_visuals_backend_selects_rich_only_when_live_supported(monkeypatch):
-    monkeypatch.setattr("datapipeline.cli.visuals.streams._rich_available", lambda: True)
-    monkeypatch.setattr("datapipeline.cli.visuals.streams._is_tty", lambda: True)
-    monkeypatch.setattr("datapipeline.cli.visuals.streams._rich_live_supported", lambda: True)
+    monkeypatch.setattr("datapipeline.cli.visuals.backend._is_tty", lambda: True)
+    monkeypatch.setattr(
+        "datapipeline.cli.visuals.backend._rich_live_supported", lambda: True
+    )
 
     backend = get_visuals_backend("on")
     assert isinstance(backend, _RichBackend)
 
 
 def test_get_visuals_backend_falls_back_to_basic_when_live_not_supported(monkeypatch):
-    monkeypatch.setattr("datapipeline.cli.visuals.streams._rich_available", lambda: True)
-    monkeypatch.setattr("datapipeline.cli.visuals.streams._is_tty", lambda: True)
-    monkeypatch.setattr("datapipeline.cli.visuals.streams._rich_live_supported", lambda: False)
+    monkeypatch.setattr("datapipeline.cli.visuals.backend._is_tty", lambda: True)
+    monkeypatch.setattr(
+        "datapipeline.cli.visuals.backend._rich_live_supported", lambda: False
+    )
 
     backend = get_visuals_backend("on")
-    assert isinstance(backend, _BasicBackend)
+    assert type(backend) is VisualsBackend
 
 
 def test_get_visuals_backend_off_mode(monkeypatch):
-    monkeypatch.setattr("datapipeline.cli.visuals.streams._rich_available", lambda: True)
-    monkeypatch.setattr("datapipeline.cli.visuals.streams._is_tty", lambda: True)
-    monkeypatch.setattr("datapipeline.cli.visuals.streams._rich_live_supported", lambda: True)
+    monkeypatch.setattr("datapipeline.cli.visuals.backend._is_tty", lambda: True)
+    monkeypatch.setattr(
+        "datapipeline.cli.visuals.backend._rich_live_supported", lambda: True
+    )
 
     backend = get_visuals_backend("off")
-    assert isinstance(backend, _OffBackend)
+    assert type(backend) is VisualsBackend
 
 
-def test_off_backend_wraps_sources_with_basic_logging(monkeypatch):
-    calls = {"count": 0, "runtime": None, "level": None}
-
-    @contextmanager
-    def _fake_basic(runtime, log_level):
-        calls["count"] += 1
-        calls["runtime"] = runtime
-        calls["level"] = log_level
-        yield
-
-    monkeypatch.setattr(
-        "datapipeline.cli.visuals.streams_basic.visual_sources",
-        _fake_basic,
-    )
-
-    backend = _OffBackend()
-    runtime = object()
-    with backend.wrap_sources(runtime, 20):
+def test_off_backend_wrap_execution_is_noop():
+    backend = get_visuals_backend("off")
+    with backend.wrap_execution(logging.INFO):
         pass
 
-    assert calls["count"] == 1
-    assert calls["runtime"] is runtime
-    assert calls["level"] == 20
+
+def test_rich_backend_wraps_execution_at_info_or_debug(monkeypatch):
+    calls: list[int] = []
+
+    class _Context:
+        def __enter__(self):
+            return None
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    def _fake_rich(log_level):
+        calls.append(log_level)
+        return _Context()
+
+    monkeypatch.setattr(
+        "datapipeline.cli.visuals.rich.progress.visual_execution", _fake_rich
+    )
+
+    backend = _RichBackend()
+    with backend.wrap_execution(logging.INFO):
+        pass
+    with backend.wrap_execution(logging.DEBUG):
+        pass
+
+    assert calls == [logging.INFO, logging.DEBUG]
 
 
-def test_rich_backend_wraps_sources_when_level_is_info_or_debug(monkeypatch):
-    calls = {"count": 0, "runtime": None, "level": None}
+def test_rich_backend_keeps_visuals_independent_of_log_level(monkeypatch):
+    calls: list[int] = []
 
     @contextmanager
-    def _fake_rich(runtime, log_level):
-        calls["count"] += 1
-        calls["runtime"] = runtime
-        calls["level"] = log_level
+    def _fake_rich(log_level):
+        calls.append(log_level)
         yield
 
     monkeypatch.setattr(
-        "datapipeline.cli.visuals.rich.sources.visual_sources",
+        "datapipeline.cli.visuals.rich.progress.visual_execution",
         _fake_rich,
     )
 
     backend = _RichBackend()
-    runtime = object()
-    with backend.wrap_sources(runtime, logging.INFO):
+    with backend.wrap_execution(logging.WARNING):
         pass
-    assert calls["count"] == 1
-    assert calls["runtime"] is runtime
-    assert calls["level"] == logging.INFO
-
-    with backend.wrap_sources(runtime, logging.DEBUG):
-        pass
-    assert calls["count"] == 2
-    assert calls["runtime"] is runtime
-    assert calls["level"] == logging.DEBUG
-
-
-def test_rich_backend_suppresses_source_visuals_at_warning_or_higher(monkeypatch):
-    calls = {"count": 0}
-
-    @contextmanager
-    def _fake_rich(runtime, log_level):
-        calls["count"] += 1
-        yield
-
-    monkeypatch.setattr(
-        "datapipeline.cli.visuals.rich.sources.visual_sources",
-        _fake_rich,
-    )
-
-    backend = _RichBackend()
-    with backend.wrap_sources(object(), logging.WARNING):
-        pass
-    with backend.wrap_sources(object(), logging.ERROR):
+    with backend.wrap_execution(logging.ERROR):
         pass
 
-    assert calls["count"] == 0
+    assert calls == [logging.WARNING, logging.ERROR]

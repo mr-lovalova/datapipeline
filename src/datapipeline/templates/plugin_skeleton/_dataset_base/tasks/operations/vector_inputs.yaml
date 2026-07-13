@@ -1,0 +1,4 @@
+# See ../../../reference/reference/tasks/operations/vector_inputs.reference.yaml for full options.
+id: vector_inputs
+kind: artifact
+entrypoint: core.artifact.vector_inputs

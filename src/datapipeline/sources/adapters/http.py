@@ -1,9 +1,9 @@
-from typing import Any, Dict, Iterable, Iterator, Optional
+from typing import Any, Dict, Iterator, Optional
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 from urllib.request import Request, urlopen
 
-from datapipeline.sources.ports import SourceTransport
+from datapipeline.sources.ports import SourceResource, SourceTransport
 
 
 class HttpTransport(SourceTransport):
@@ -33,7 +33,7 @@ class HttpTransport(SourceTransport):
         except Exception:
             return self.url
 
-    def streams(self) -> Iterator[Iterable[bytes]]:
+    def resources(self) -> Iterator[SourceResource]:
         req_url = self._build_url()
         req = Request(req_url, headers=self.headers)
 
@@ -50,4 +50,4 @@ class HttpTransport(SourceTransport):
                         break
                     yield chunk
 
-        yield byte_stream()
+        yield SourceResource(uri=req_url, stream=byte_stream())

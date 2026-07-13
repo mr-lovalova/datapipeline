@@ -17,13 +17,14 @@ class Profile(BaseModel):
 
     @field_validator("name", mode="before")
     @classmethod
-    def _normalize_name(cls, value):
+    def _normalize_name(cls, value: object) -> str:
         text = str(value).strip() if value is not None else ""
         if not text:
             raise ValueError("profile name must be set")
         return text
 
-def normalize_profile_target(value) -> str:
+
+def normalize_profile_target(value: object) -> str:
     return normalize_required_text(
         value,
         field_name="target",

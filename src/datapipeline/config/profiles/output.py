@@ -31,8 +31,6 @@ class ServeOutputConfig(BaseModel):
             return None
         if any(sep in text for sep in ("/", "\\")):
             raise ValueError("filename must not contain path separators")
-        if "." in Path(text).name:
-            raise ValueError("filename must not include an extension")
         return text
 
     @field_validator("view", mode="before")

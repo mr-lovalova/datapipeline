@@ -1,5 +1,4 @@
 from pathlib import Path
-from typing import Optional
 
 from datapipeline.services.paths import pkg_root
 from datapipeline.services.project_paths import (
@@ -15,13 +14,12 @@ from datapipeline.services.constants import (
 from datapipeline.services.scaffold.utils import status
 
 
-def _loader_args(transport: str, fmt: Optional[str]) -> dict:
+def _loader_args(transport: str, fmt: str | None) -> dict[str, object]:
     if transport == "fs":
-        args = {
+        args: dict[str, object] = {
             "transport": "fs",
             "format": fmt or "<FORMAT (csv|json|jsonl|pickle)>",
             "path": "<PATH OR GLOB>",
-            "glob": False,
             "encoding": "utf-8",
         }
         if fmt == "csv":
@@ -44,27 +42,43 @@ def _loader_args(transport: str, fmt: Optional[str]) -> dict:
     return {}
 
 
+def validate_source_id(source_id: str) -> None:
+    parts = source_id.split(".")
+    if len(parts) < 2 or any(
+        not part
+        or any(not (character.isalnum() or character in "_-") for character in part)
+        for part in parts
+    ):
+        raise ValueError(
+            "source_id must contain at least two dot-separated segments using only "
+            "letters, numbers, underscores, or hyphens"
+        )
+
+
 def create_source_yaml(
     *,
-    provider: str,
-    dataset: str,
+    source_id: str,
     loader_ep: str,
-    loader_args: dict,
+    loader_args: dict[str, object],
     parser_ep: str,
-    parser_args: dict | None = None,
-    root: Optional[Path],
-    project_yaml: Optional[Path] = None,
+    parser_args: dict[str, object] | None = None,
+    root: Path | None,
+    project_yaml: Path | None = None,
 ) -> None:
     root_dir, _, _ = pkg_root(root)
-    alias = f"{provider}.{dataset}"
+    validate_source_id(source_id)
     parser_args = parser_args or {}
 
-    proj_yaml = project_yaml.resolve() if project_yaml is not None else resolve_project_yaml_path(root_dir)
+    proj_yaml = (
+        project_yaml.resolve()
+        if project_yaml is not None
+        else resolve_project_yaml_path(root_dir)
+    )
     ensure_project_scaffold(proj_yaml)
     sources_dir = resolve_sources_dir(proj_yaml).resolve()
     sources_dir.mkdir(parents=True, exist_ok=True)
 
-    src_cfg_path = sources_dir / f"{alias}.yaml"
+    src_cfg_path = sources_dir / f"{source_id}.yaml"
     if src_cfg_path.exists():
         status("skip", f"Source YAML already exists: {src_cfg_path.resolve()}")
         return
@@ -72,18 +86,22 @@ def create_source_yaml(
     src_cfg_path.write_text(
         render(
             "source.yaml.j2",
-            id=alias,
+            id=source_id,
             parser_ep=parser_ep,
             parser_args=parser_args,
             loader_ep=loader_ep,
             loader_args=loader_args,
             default_io_loader_ep=DEFAULT_IO_LOADER_EP,
-        )
+        ),
+        encoding="utf-8",
     )
     status("new", str(src_cfg_path.resolve()))
 
 
-def default_loader_config(transport: str, fmt: Optional[str]) -> tuple[str, dict]:
+def default_loader_config(
+    transport: str,
+    fmt: str | None,
+) -> tuple[str, dict[str, object]]:
     if transport in {"fs", "http"}:
         return DEFAULT_IO_LOADER_EP, _loader_args(transport, fmt)
     if transport == "synthetic":

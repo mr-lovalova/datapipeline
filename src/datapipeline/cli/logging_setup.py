@@ -1,9 +1,8 @@
-
 import logging
 import sys
 from pathlib import Path
 
-from datapipeline.cli.visuals.execution import ExecutionLogEvent
+from datapipeline.cli.visuals.execution import ExecutionMessage
 from datapipeline.cli.visuals.execution_context import current_execution_event_sink
 from datapipeline.cli.visuals.execution_context import current_dag_depth
 from datapipeline.cli.visuals.execution_context import current_terminal_log_proxy_sink
@@ -27,23 +26,18 @@ class _TerminalVisualProxyHandler(logging.StreamHandler):
         if getattr(record, "dp_event_kind", None) is None:
             sink = current_terminal_log_proxy_sink()
             if sink is not None:
-                try:
-                    sink.emit(
-                        ExecutionLogEvent(
-                            kind="message",
-                            dag_name="",
-                            depth=max(0, int(current_dag_depth())),
-                            message=self.format(record),
-                            log_level=int(record.levelno),
-                        )
+                sink.emit(
+                    ExecutionMessage(
+                        depth=max(0, int(current_dag_depth())),
+                        message=self.format(record),
+                        log_level=int(record.levelno),
                     )
-                    return
-                except Exception:
-                    pass
+                )
+                return
         super().emit(record)
 
 
-def configure_root_logging( level: int, output: LogOutputSettings) -> None:
+def configure_root_logging(level: int, output: LogOutputSettings) -> None:
     """Configure root logging handlers for the resolved outputs."""
     handlers: list[logging.Handler] = []
     seen: set[tuple[str, str | None, str]] = set()
@@ -58,6 +52,7 @@ def configure_root_logging( level: int, output: LogOutputSettings) -> None:
         if key in seen:
             continue
         seen.add(key)
+        handler: logging.Handler
         if transport == "stderr":
             handler = _TerminalVisualProxyHandler(sys.stderr)
             handler.addFilter(_TerminalExecutionEventDedupeFilter())
@@ -69,7 +64,7 @@ def configure_root_logging( level: int, output: LogOutputSettings) -> None:
                 raise ValueError("log transport 'fs' requires a destination path")
             path = Path(destination).resolve()
             path.parent.mkdir(parents=True, exist_ok=True)
-            handler = logging.FileHandler(path, encoding="utf-8")
+            handler = logging.FileHandler(path, encoding="utf-8", delay=True)
         else:
             raise ValueError(f"Unsupported log transport: {target.transport!r}")
         handlers.append(handler)

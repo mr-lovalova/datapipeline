@@ -19,8 +19,18 @@ class JsonLinesStdoutWriter(LineWriter, HeaderJsonlMixin):
 
 
 class JsonLinesFileWriter(LineWriter, HeaderJsonlMixin, HasFilePath):
-    def __init__(self, dest: Path, serializer=None, encoding: str = "utf-8"):
-        self._sink = AtomicTextFileSink(dest, encoding=encoding)
+    def __init__(
+        self,
+        dest: Path,
+        serializer=None,
+        encoding: str = "utf-8",
+        overwrite: bool = True,
+    ):
+        self._sink = AtomicTextFileSink(
+            dest,
+            encoding=encoding,
+            overwrite=overwrite,
+        )
         super().__init__(self._sink, serializer or json_line_serializer())
 
     @property
@@ -29,8 +39,14 @@ class JsonLinesFileWriter(LineWriter, HeaderJsonlMixin, HasFilePath):
 
 
 class GzipJsonLinesWriter(Writer, HeaderCapable, HasFilePath):
-    def __init__(self, dest: Path, serializer=None, encoding: str = "utf-8"):
-        self.sink = GzipBinarySink(dest)
+    def __init__(
+        self,
+        dest: Path,
+        serializer=None,
+        encoding: str = "utf-8",
+        overwrite: bool = True,
+    ):
+        self.sink = GzipBinarySink(dest, overwrite=overwrite)
         self._serializer = serializer or json_line_serializer()
         self._encoding = encoding
 
@@ -51,3 +67,6 @@ class GzipJsonLinesWriter(Writer, HeaderCapable, HasFilePath):
 
     def close(self) -> None:
         self.sink.close()
+
+    def abort(self) -> None:
+        self.sink.abort()

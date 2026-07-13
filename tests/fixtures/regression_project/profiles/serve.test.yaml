@@ -1,5 +1,0 @@
-cmd: serve
-name: test
-target: pipeline
-enabled: true
-keep: test

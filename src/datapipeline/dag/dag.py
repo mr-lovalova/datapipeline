@@ -1,26 +1,34 @@
 from dataclasses import dataclass
-from typing import Any
 
-from datapipeline.dag.node import PipelineStep
+from datapipeline.dag.node import PipelineNode
 
 
 @dataclass(frozen=True)
-class StageDag:
+class Dag:
     name: str
-    nodes: tuple[PipelineStep, ...]
-    metadata: dict[str, Any] | None = None
-
-    def upto_step(self, step: int | None) -> "StageDag":
-        if step is None:
-            return self
-        if step < 0:
-            return StageDag(name=self.name, nodes=(), metadata=self.metadata)
-        return StageDag(
-            name=self.name,
-            nodes=self.nodes[: step + 1],
-            metadata=self.metadata,
-        )
+    nodes: tuple[PipelineNode, ...]
+    summary: str | None = None
 
     @property
-    def steps(self) -> tuple[PipelineStep, ...]:
-        return self.nodes
+    def node_count(self) -> int:
+        return len(self.nodes)
+
+    def index_of(self, node_name: str) -> int:
+        for index, node in enumerate(self.nodes):
+            if node.name == node_name:
+                return index
+        raise ValueError(f"DAG '{self.name}' has no node named '{node_name}'.")
+
+    def upto_node_named(self, node_name: str) -> "Dag":
+        return self.upto_node(self.index_of(node_name))
+
+    def upto_node(self, node_index: int | None) -> "Dag":
+        if node_index is None:
+            return self
+        if node_index < 0:
+            return Dag(name=self.name, nodes=(), summary=self.summary)
+        return Dag(
+            name=self.name,
+            nodes=self.nodes[: node_index + 1],
+            summary=self.summary,
+        )

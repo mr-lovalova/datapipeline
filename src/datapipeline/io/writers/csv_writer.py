@@ -9,8 +9,18 @@ from datapipeline.io.sinks import AtomicTextFileSink
 
 
 class CsvFileWriter(Writer, HasFilePath):
-    def __init__(self, dest: Path, serializer=None, encoding: str = "utf-8"):
-        self.sink = AtomicTextFileSink(dest, encoding=encoding)
+    def __init__(
+        self,
+        dest: Path,
+        serializer=None,
+        encoding: str = "utf-8",
+        overwrite: bool = True,
+    ):
+        self.sink = AtomicTextFileSink(
+            dest,
+            encoding=encoding,
+            overwrite=overwrite,
+        )
         self.writer = csv.writer(self.sink.fh)
         self._header_written = False
         row_projector = serializer or csv_row_serializer()
@@ -29,3 +39,6 @@ class CsvFileWriter(Writer, HasFilePath):
 
     def close(self) -> None:
         self.sink.close()
+
+    def abort(self) -> None:
+        self.sink.abort()

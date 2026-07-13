@@ -1,59 +1,71 @@
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, Mapping, Sequence
+from typing import Literal, Sequence
 
 from datapipeline.config.build_resolution import BuildSettings
+from datapipeline.config.execution import ExecutionConfig
 from datapipeline.config.dataset.dataset import (
     FeatureDatasetConfig,
     RecordDatasetConfig,
 )
 from datapipeline.config.resolution import (
-    LogLevelDecision,
-    LogOutputSettings,
+    ObservabilitySettings,
 )
-from datapipeline.config.tasks import ArtifactTask, Task
+from datapipeline.config.tasks import ArtifactTask, OperationTask
 from datapipeline.io.output import OutputTarget
 from datapipeline.runtime import Runtime
-from datapipeline.services.executions import ExecutionPaths
+from datapipeline.services.runs import RunPaths
 
 ProfileKind = Literal["serve", "build", "inspect"]
 ProfileDataset = FeatureDatasetConfig | RecordDatasetConfig
 
 
-@dataclass(frozen=True, kw_only=True)
-class ExecutionProfile:
+@dataclass(frozen=True)
+class ServeRunPlan:
+    paths: RunPaths
+    preview_index: int | None
+
+
+@dataclass(frozen=True)
+class BuildJob:
+    task: ArtifactTask
+    settings: BuildSettings
+
+
+@dataclass(frozen=True)
+class RuntimeJob:
     name: str
-    target_id: str
-    visuals: str
-    log_decision: LogLevelDecision
-    log_output: LogOutputSettings
-    sections: tuple[str, ...] = ()
-    label: str | None = None
-    profile_report: Mapping[str, Any] | None = None
-    runtime: Runtime | None = None
-    dataset: ProfileDataset | None = None
-    execution: ExecutionPaths | None = None
-    limit: int | None = None
-    output: OutputTarget | None = None
-    throttle_ms: float | None = None
-    cache_enabled: bool = True
-    step: int | None = None
-    build_mode: str | None = None
-    build_settings: BuildSettings | None = None
+    task: OperationTask
+    runtime: Runtime
+    dataset_name: Literal["vectors", "features"]
+    dataset: ProfileDataset
+    output: OutputTarget
+    observability: ObservabilitySettings
+    limit: int | None
+    throttle_ms: float | None
+    preview_index: int | None
+    splits: tuple[str, ...]
+
 
 @dataclass(frozen=True, kw_only=True)
-class ProfileRunRequest:
-    command: ProfileKind
+class BuildRunRequest:
     project_path: Path
-    tasks: Sequence[Task]
     artifact_task_configs: Sequence[ArtifactTask]
-    profiles: Sequence[ExecutionProfile]
-    skip_build: bool = False
+    jobs: Sequence[BuildJob]
+    execution: ExecutionConfig
+    config_hash: str
 
 
-__all__ = [
-    "ExecutionProfile",
-    "ProfileKind",
-    "ProfileDataset",
-    "ProfileRunRequest",
-]
+@dataclass(frozen=True, kw_only=True)
+class RuntimeRunRequest:
+    command: Literal["serve", "inspect"]
+    project_path: Path
+    artifact_task_configs: Sequence[ArtifactTask]
+    jobs: Sequence[RuntimeJob]
+    execution: ExecutionConfig
+    config_hash: str
+    artifact_settings: BuildSettings
+    serve_run_plans: tuple[ServeRunPlan, ...] = ()
+
+
+ProfileRunRequest = BuildRunRequest | RuntimeRunRequest

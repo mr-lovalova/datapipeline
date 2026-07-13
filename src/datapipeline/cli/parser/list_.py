@@ -1,7 +1,7 @@
 import argparse
 
 
-def add_list_command(sub,  common: argparse.ArgumentParser) -> None:
+def add_list_command(sub, common: argparse.ArgumentParser) -> None:
     parser = sub.add_parser(
         "list",
         help="list known resources",

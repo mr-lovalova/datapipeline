@@ -1,8 +1,0 @@
-# See ../../reference/reference/tasks/profiles/inspect.reference.yaml for full options.
-cmd: inspect
-name: stats
-order: 40
-target: stats
-enabled: true
-build:
-  mode: AUTO

@@ -1,12 +1,16 @@
-# Inspect operation task reference (all options).
+# Inspect operation task reference.
 # This file is documentation only; uncomment the keys you want to use.
 #
-# version: 1                            # optional
-# id: matrix                            # any unique inspect operation id
-# kind: runtime                         # required; runtime | artifact
+# Inspect operations are runtime tasks. Use the specific examples beside this
+# file for coverage, matrix, and thresholds.
 #
-# entrypoint: core.runtime.coverage     # core.runtime.coverage | core.runtime.thresholds | core.runtime.matrix
-# options:                              # operation-specific options (all optional)
-#   sort: missing                       # coverage/thresholds sort key: missing | nulls
-#   threshold: 0.95                     # thresholds used by coverage/thresholds
-#   # output transport/format/path is resolved from profile output target
+# version: 1                 # optional
+# id: coverage               # any unique operation id
+# kind: runtime              # required for inspect runtime operations
+# entrypoint: core.runtime.coverage # core.runtime.coverage | core.runtime.matrix | core.runtime.thresholds
+# requires: [custom_artifact] # optional extra artifact task IDs
+#
+# See the operation-specific reference file for its accepted options. Matrix
+# does not accept task options.
+#
+# Output transport/format/path is resolved from the selected inspect profile.

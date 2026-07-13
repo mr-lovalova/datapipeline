@@ -1,4 +1,4 @@
-from typing import Any, Callable, TypeVar
+from typing import Callable, TypeVar
 
 from datapipeline.config.tasks import Task
 from datapipeline.utils.load import load_ep

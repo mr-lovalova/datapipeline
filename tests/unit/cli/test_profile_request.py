@@ -14,6 +14,7 @@ def _write_project(tmp_path: Path) -> Path:
             [
                 "version: 1",
                 "paths:",
+                "  ingests: ./ingests",
                 "  streams: streams",
                 "  sources: sources",
                 "  dataset: dataset.yaml",
@@ -25,6 +26,8 @@ def _write_project(tmp_path: Path) -> Path:
         ),
         encoding="utf-8",
     )
+    (tmp_path / "dataset.yaml").write_text("{}\n", encoding="utf-8")
+    (tmp_path / "postprocess.yaml").write_text("{}\n", encoding="utf-8")
     return project_yaml
 
 
@@ -54,7 +57,14 @@ def test_inspect_request_requires_declared_inspect_profiles(tmp_path: Path):
     assert exc.value.code == 2
 
 
-def test_inspect_request_materializes_execution_scoped_log_output(tmp_path: Path, monkeypatch):
+def test_inspect_request_materializes_execution_scoped_log_output(
+    tmp_path: Path, monkeypatch
+):
+    execution_dir = tmp_path / "execution"
+    monkeypatch.setattr(
+        "datapipeline.profiles.request_builder.execution_root",
+        lambda _project: execution_dir,
+    )
     project_yaml = _write_project(tmp_path)
     ops = tmp_path / "tasks" / "operations"
     profiles = tmp_path / "profiles"
@@ -70,22 +80,15 @@ def test_inspect_request_materializes_execution_scoped_log_output(tmp_path: Path
             "name: coverage\n"
             "target: coverage\n"
             "enabled: true\n"
-            "build:\n"
-            "  mode: AUTO\n"
+            "artifact_mode: AUTO\n"
         ),
         encoding="utf-8",
     )
     (tmp_path / "sources").mkdir(parents=True, exist_ok=True)
 
-    def _fake_iter_runtime_runs(project_path, run_entries, keep_override):
-        total = len(run_entries)
-        for idx, entry in enumerate(run_entries, start=1):
-            runtime = SimpleNamespace(run=entry.config, split=SimpleNamespace(keep=None))
-            yield idx, total, entry, runtime
-
     monkeypatch.setattr(
-        "datapipeline.config.serve_resolution.iter_runtime_runs",
-        _fake_iter_runtime_runs,
+        "datapipeline.config.serve_resolution.bootstrap_build_runtime",
+        lambda _project_path: SimpleNamespace(split=None, execution=None),
     )
     monkeypatch.setattr(
         "datapipeline.profiles.request_builder.load_dataset",
@@ -98,12 +101,12 @@ def test_inspect_request_materializes_execution_scoped_log_output(tmp_path: Path
         cli_log_outputs=[LogOutputTarget(transport="fs", scope="execution")],
     )
     assert request is not None
-    profile = request.profiles[0]
-    assert profile.execution is not None
-    assert profile.log_output.outputs[0].scope == "global"
-    assert profile.log_output.outputs[0].destination == (
-        profile.execution.root / "logs" / "inspect.coverage.log"
+    job = request.jobs[0]
+    assert job.observability.log_output.outputs[0].scope == "global"
+    assert job.observability.log_output.outputs[0].destination == (
+        execution_dir / "logs" / "inspect.coverage.log"
     )
+    assert not execution_dir.exists()
 
 
 def test_disabled_profiles_do_not_create_execution_directory(tmp_path: Path):
@@ -117,12 +120,7 @@ def test_disabled_profiles_do_not_create_execution_directory(tmp_path: Path):
         encoding="utf-8",
     )
     (profiles / "inspect.coverage.yaml").write_text(
-        (
-            "cmd: inspect\n"
-            "name: coverage\n"
-            "target: coverage\n"
-            "enabled: false\n"
-        ),
+        ("cmd: inspect\nname: coverage\ntarget: coverage\nenabled: false\n"),
         encoding="utf-8",
     )
 

@@ -19,11 +19,22 @@ def get_field(record: Any, field: str) -> Any:
 
 
 def partition_key(record: Any, partition_by: str | list[str] | None) -> tuple:
-    if not partition_by:
+    if partition_by is None or partition_by == []:
         return ()
-    if isinstance(partition_by, str):
-        return (get_field(record, partition_by),)
-    return tuple(get_field(record, field) for field in partition_by)
+    fields = [partition_by] if isinstance(partition_by, str) else partition_by
+    values: list[Any] = []
+    for field in fields:
+        if isinstance(record, dict):
+            if field not in record:
+                raise KeyError(f"Partition field '{field}' not found in record mapping")
+            values.append(record[field])
+            continue
+        if not hasattr(record, field):
+            raise KeyError(
+                f"Partition field '{field}' not found on {type(record).__name__}"
+            )
+        values.append(getattr(record, field))
+    return tuple(values)
 
 
 def clone_record(record: Any, **updates: Any) -> Any:

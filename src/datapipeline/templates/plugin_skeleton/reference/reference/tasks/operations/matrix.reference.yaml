@@ -1,0 +1,13 @@
+# Matrix inspect task reference.
+# This file is documentation only; uncomment the keys you want to use.
+#
+# version: 1
+# id: matrix
+# kind: runtime
+# entrypoint: core.runtime.matrix
+# requires: [custom_artifact] # optional extra artifact task IDs
+#
+# This operation does not accept task options. Output format and destination
+# belong to the selected inspect profile or CLI output overrides.
+#
+# Matrix output supports profile output format html when using fs transport.

@@ -1,0 +1,7 @@
+# See ../../../reference/reference/tasks/operations/thresholds.reference.yaml for full options.
+id: thresholds
+kind: runtime
+entrypoint: core.runtime.thresholds
+options:
+  sort: missing
+  threshold: 0.95

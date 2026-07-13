@@ -17,6 +17,12 @@
 #     only: [feature_id]       # optional
 #     exclude: [feature_id]    # optional
 #
+# - forward_fill:
+#     max_age: 540d            # optional; duration such as 30d or 12h
+#     payload: features        # optional; features | targets | both
+#     only: [feature_id]       # optional
+#     exclude: [feature_id]    # optional
+#
 # - replace:
 #     value: 0.0               # required
 #     payload: targets         # optional; features | targets | both

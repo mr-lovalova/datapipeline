@@ -3,7 +3,7 @@ import argparse
 from datapipeline.config.options import SOURCE_FS_FORMATS, SOURCE_TRANSPORTS
 
 
-def add_source_command(sub,  common: argparse.ArgumentParser) -> None:
+def add_source_command(sub, common: argparse.ArgumentParser) -> None:
     parser = sub.add_parser(
         "source",
         help="create or list raw sources",
@@ -25,14 +25,17 @@ def add_source_command(sub,  common: argparse.ArgumentParser) -> None:
             "  fs CSV:        -t fs  -f csv\n"
             "  fs NDJSON:     -t fs  -f jsonl\n"
             "  HTTP JSON:     -t http -f json\n"
-            "  Synthetic:     -t synthetic\n\n"
-            "Note: set 'glob: true' in the generated YAML if your 'path' contains wildcards."
+            "  Synthetic:     -t synthetic"
         ),
     )
     create.add_argument("provider", nargs="?", help="provider name")
     create.add_argument("dataset", nargs="?", help="dataset slug")
     create.add_argument(
-        "--provider", "-p", dest="provider_opt", metavar="PROVIDER", help="provider name"
+        "--provider",
+        "-p",
+        dest="provider_opt",
+        metavar="PROVIDER",
+        help="provider name",
     )
     create.add_argument(
         "--dataset", "-d", dest="dataset_opt", metavar="DATASET", help="dataset slug"

@@ -16,3 +16,6 @@ class StdoutTextSink(BaseSink):
 
     def close(self) -> None:
         self.flush()
+
+    def abort(self) -> None:
+        self.flush()

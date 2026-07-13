@@ -1,17 +1,24 @@
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-import shutil
-import tempfile
-from pathlib import Path
-from typing import Any, List, Mapping, Optional, Sequence, Union
 from datetime import datetime
+from pathlib import Path
+from typing import Any, Literal
 
-from datapipeline.cache import RecordStreamCache
-from datapipeline.config.profiles import ServeProfile
+from datapipeline.config.execution import ExecutionConfig
 from datapipeline.config.split import SplitConfig
+from datapipeline.domain.stream import RecordStream
 
 from datapipeline.registries.registry import Registry
 from datapipeline.sources.models.source import Source
 from datapipeline.services.artifacts import ArtifactManager
+from datapipeline.transforms.spec import TransformSpec
+
+StreamPipelineKind = Literal["ingest", "stream"]
+
+
+@dataclass(frozen=True)
+class StreamRuntimeSpec:
+    pipeline: StreamPipelineKind
 
 
 @dataclass
@@ -24,39 +31,43 @@ class Registries:
 
     sources: Registry[str, Source] = field(default_factory=Registry)
     mappers: Registry[str, Any] = field(default_factory=Registry)
-    stream_sources: Registry[str, Any] = field(default_factory=Registry)
-    record_operations: Registry[str, Sequence[Mapping[str, object]]] = field(
+    stream_sources: Registry[str, RecordStream[Any]] = field(default_factory=Registry)
+    stream_specs: Registry[str, StreamRuntimeSpec] = field(default_factory=Registry)
+    record_operations: Registry[str, Sequence[TransformSpec] | None] = field(
         default_factory=Registry
     )
-    feature_transforms: Registry[str, Sequence[Mapping[str, object]]] = field(
+    postprocesses: Registry[str, Sequence[TransformSpec] | None] = field(
         default_factory=Registry
     )
-    postprocesses: Registry[str, Any] = field(default_factory=Registry)
 
     # Per-stream policies
-    stream_operations: Registry[str, Sequence[Mapping[str, object]]] = field(
+    stream_operations: Registry[str, Sequence[TransformSpec] | None] = field(
         default_factory=Registry
     )
-    debug_operations: Registry[str, Sequence[Mapping[str, object]]] = field(
+    debug_operations: Registry[str, Sequence[TransformSpec] | None] = field(
         default_factory=Registry
     )
-    partition_by: Registry[str, Optional[Union[str, List[str]]]] = field(
+    partition_by: Registry[str, str | list[str] | None] = field(
         default_factory=Registry
     )
-    sort_batch_size: Registry[str, int] = field(default_factory=Registry)
+    feature_id_by: Registry[str, str | list[str] | None] = field(
+        default_factory=Registry
+    )
+    presorted: Registry[str, bool] = field(default_factory=Registry)
 
     def clear_all(self) -> None:
         for reg in (
             self.stream_operations,
             self.debug_operations,
             self.partition_by,
-            self.sort_batch_size,
+            self.feature_id_by,
+            self.presorted,
             self.record_operations,
-            self.feature_transforms,
             self.postprocesses,
             self.sources,
             self.mappers,
             self.stream_sources,
+            self.stream_specs,
         ):
             reg.clear()
 
@@ -67,55 +78,15 @@ class Runtime:
 
     project_yaml: Path
     artifacts_root: Path
-    cache_root: Path | None = None
-    cache_enabled: bool = True
+    execution: ExecutionConfig = field(default_factory=ExecutionConfig)
     registries: Registries = field(default_factory=Registries)
-    split: Optional[SplitConfig] = None
-    split_keep: Optional[str] = None
-    run: Optional[ServeProfile] = None
-    schema_required: bool = True
+    split: SplitConfig | None = None
+    split_labels: tuple[str, ...] = ()
+    sample_keys: list[str] = field(default_factory=list)
     window_bounds: tuple[datetime | None, datetime | None] | None = None
+    heartbeat_interval_seconds: float | None = None
+    execution_observer: object | None = None
     artifacts: ArtifactManager = field(init=False)
-    record_stream_cache: RecordStreamCache = field(init=False)
-    _owns_cache_root: bool = field(init=False, repr=False, default=False)
 
     def __post_init__(self) -> None:
         self.artifacts = ArtifactManager(self.artifacts_root)
-        self.cache_root = self._resolve_cache_root(self.cache_root)
-        self.record_stream_cache = RecordStreamCache(
-            project_yaml=self.project_yaml,
-            root=self.cache_root,
-        )
-
-    def cleanup_cache(self) -> None:
-        cache_root = self.cache_root
-        if not self._owns_cache_root or cache_root is None:
-            return
-        shutil.rmtree(cache_root, ignore_errors=True)
-
-    def set_cache_root(self, root: Path, *, owned: bool = False) -> None:
-        current = self.cache_root
-        if self._owns_cache_root and current is not None and current != root:
-            shutil.rmtree(current, ignore_errors=True)
-        resolved = Path(root).resolve()
-        resolved.mkdir(parents=True, exist_ok=True)
-        self.cache_root = resolved
-        self._owns_cache_root = bool(owned)
-        self.record_stream_cache = RecordStreamCache(
-            project_yaml=self.project_yaml,
-            root=resolved,
-        )
-
-    def _resolve_cache_root(self, configured: Path | None) -> Path:
-        if configured is not None:
-            root = Path(configured).resolve()
-            root.mkdir(parents=True, exist_ok=True)
-            self._owns_cache_root = False
-            return root
-
-        project_name = self.project_yaml.stem or "project"
-        root = Path(
-            tempfile.mkdtemp(prefix=f"datapipeline-cache-{project_name}-")
-        ).resolve()
-        self._owns_cache_root = True
-        return root

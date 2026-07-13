@@ -4,14 +4,14 @@ from itertools import groupby
 from typing import Iterator
 
 from datapipeline.domain.record import TemporalRecord
-from datapipeline.transforms.utils import partition_key
+from datapipeline.transforms.interfaces import PartitionedStreamTransformBase
 from datapipeline.utils.time import parse_timecode
 
 
 logger = logging.getLogger(__name__)
 
 
-class StreamLint:
+class StreamLint(PartitionedStreamTransformBase):
     """Validate structural properties of a feature stream (order, cadence, duplicates).
 
     Parameters
@@ -26,9 +26,9 @@ class StreamLint:
         tick: str | None = None,
         partition_by: str | list[str] | None = None,
     ) -> None:
+        super().__init__(partition_by=partition_by)
         self.mode = mode
         self.tick = tick
-        self.partition_by = partition_by
 
         # Pre-compute tick step in seconds when provided to avoid repeated parsing.
         self._tick_seconds: int | None = None
@@ -41,9 +41,6 @@ class StreamLint:
                 )
                 self._tick_seconds = None
 
-    def __call__(self, stream: Iterator[TemporalRecord]) -> Iterator[TemporalRecord]:
-        return self.apply(stream)
-
     def _violation(self, msg: str) -> None:
         if self.mode == "error":
             raise ValueError(msg)
@@ -51,7 +48,7 @@ class StreamLint:
 
     def apply(self, stream: Iterator[TemporalRecord]) -> Iterator[TemporalRecord]:
         # Group by partition key to keep state local
-        for key, records in groupby(stream, key=lambda rec: partition_key(rec, self.partition_by)):
+        for key, records in groupby(stream, key=self.partition_key):
             last_time = None
             seen_times: set = set()
             for record in records:
@@ -73,11 +70,7 @@ class StreamLint:
                 seen_times.add(t)
 
                 # Regularity check requires explicit tick; done at stream layer via ensure_cadence normally
-                if (
-                    self._tick_seconds
-                    and last_time is not None
-                    and t is not None
-                ):
+                if self._tick_seconds and last_time is not None and t is not None:
                     expect = last_time + timedelta(seconds=self._tick_seconds)
                     if t != expect and t > expect:
                         self._violation(

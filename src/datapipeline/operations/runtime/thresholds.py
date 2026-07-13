@@ -1,14 +1,12 @@
 from typing import Optional
 
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
-from datapipeline.config.tasks import OperationTask
+from datapipeline.config.tasks import ThresholdsOptions, ThresholdsTask
 from datapipeline.io.output import OutputTarget
 from datapipeline.operations.persistence import RuntimeOutput
 from datapipeline.runtime import Runtime
 
-from .vector_stats_common import (
-    metrics_summary_output,
-)
+from .vector_stats_common import build_metrics, load_collector
 
 
 def inspect_thresholds_with_runtime(
@@ -17,14 +15,22 @@ def inspect_thresholds_with_runtime(
     limit: Optional[int] = None,
     target: OutputTarget | None = None,
     throttle_ms: Optional[float] = None,
-    step: Optional[int] = None,
+    preview_index: Optional[int] = None,
     visuals: Optional[str] = None,
-    operation_task: OperationTask | None = None,
+    operation_task: ThresholdsTask | None = None,
 ) -> RuntimeOutput:
-    _ = dataset, limit, target, throttle_ms, step, visuals
-    return metrics_summary_output(
-        runtime,
-        operation_task,
-        report="thresholds",
-        include_threshold=True,
+    _ = dataset, limit, target, throttle_ms, preview_index, visuals
+    options = operation_task.options if operation_task else ThresholdsOptions()
+    collector = load_collector(runtime)
+    metrics = build_metrics(
+        collector,
+        sort_key=options.sort,
+        threshold=options.threshold,
+    )
+    return RuntimeOutput(
+        payload={
+            "report": "thresholds",
+            "metrics": metrics,
+            "threshold": options.threshold,
+        }
     )

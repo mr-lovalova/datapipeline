@@ -1,105 +1,68 @@
-from types import SimpleNamespace
+from pathlib import Path
 
-import pytest
+from datapipeline.config.resolution import (
+    LogLevelDecision,
+    LogOutputSettings,
+    LogOutputTarget,
+    ObservabilitySettings,
+)
+from datapipeline.profiles.executor import ExecutionSpec, run_execution
+from datapipeline.runtime import Runtime
 
-from datapipeline.config.resolution import LogOutputSettings, LogOutputTarget
-from datapipeline.profiles.executor import ProfileExecutionSpec, run_profile
+
+def _log_output() -> LogOutputSettings:
+    return LogOutputSettings(outputs=(LogOutputTarget(transport="stderr"),))
 
 
-def test_run_profile_without_visual_runner(monkeypatch):
-    configured: list[tuple[int, LogOutputSettings]] = []
-    messages: list[str] = []
+def _runtime() -> Runtime:
+    return Runtime(project_yaml=Path("."), artifacts_root=Path("."))
+
+
+def test_run_execution_configures_logging_and_runs_work_inside_backend(monkeypatch):
+    runtime = _runtime()
+    calls = []
+    inside_visual_context = False
+
     monkeypatch.setattr(
         "datapipeline.profiles.executor.configure_root_logging",
-        lambda level, output: configured.append((level, output)),
+        lambda level, output: calls.append(("logging", level, output)),
     )
+
+    def run_with_backend(visuals, runtime, level, work):
+        nonlocal inside_visual_context
+        calls.append(("visuals", visuals, runtime, level))
+        inside_visual_context = True
+        try:
+            return work()
+        finally:
+            inside_visual_context = False
+
     monkeypatch.setattr(
-        "datapipeline.profiles.executor.emit_execution_message",
-        lambda message, level, logger, message_kind=None: messages.append(message),
+        "datapipeline.profiles.executor.run_with_backend",
+        run_with_backend,
     )
 
-    called = {"work": 0}
-
-    def _work():
-        called["work"] += 1
+    def work():
+        calls.append(("work", inside_visual_context))
         return "ok"
 
-    result = run_profile(
-        spec=ProfileExecutionSpec(
-            command="build",
-            name="schema",
-            idx=1,
-            total=1,
-            visuals="off",
-            log_decision=SimpleNamespace(name="INFO", value=20),
-            log_output=LogOutputSettings(
-                outputs=(LogOutputTarget(transport="stderr"),)
+    log_output = _log_output()
+    result = run_execution(
+        ExecutionSpec(
+            observability=ObservabilitySettings(
+                visuals="on",
+                heartbeat_interval_seconds=None,
+                log_decision=LogLevelDecision(name="INFO", value=20),
+                log_output=log_output,
             ),
-            use_visual_runner=False,
+            runtime=runtime,
         ),
-        work=_work,
+        work,
     )
 
     assert result == "ok"
-    assert called["work"] == 1
-    assert configured
-    assert messages and messages[0].startswith("Profile start ")
-    assert "command=build" in messages[0]
-    assert "name=schema" in messages[0]
-
-
-def test_run_profile_visual_runner_requires_runtime():
-    with pytest.raises(ValueError, match="runtime is required"):
-        run_profile(
-            spec=ProfileExecutionSpec(
-                command="build",
-                name="schema",
-                idx=1,
-                total=1,
-                visuals="off",
-                log_decision=SimpleNamespace(name="INFO", value=20),
-                log_output=LogOutputSettings(
-                    outputs=(LogOutputTarget(transport="stderr"),)
-                ),
-                use_visual_runner=True,
-            ),
-            work=lambda: None,
-        )
-
-
-def test_run_profile_can_skip_header_without_visual_runner(monkeypatch):
-    monkeypatch.setattr(
-        "datapipeline.profiles.executor.configure_root_logging",
-        lambda level, output: None,
-    )
-    messages: list[str] = []
-    monkeypatch.setattr(
-        "datapipeline.profiles.executor.emit_execution_message",
-        lambda message, level, logger, message_kind=None: messages.append(message),
-    )
-
-    rendered = {"count": 0}
-    monkeypatch.setattr(
-        "datapipeline.profiles.executor._render_profile_header",
-        lambda _spec: rendered.__setitem__("count", rendered["count"] + 1),
-    )
-
-    run_profile(
-        spec=ProfileExecutionSpec(
-            command="build",
-            name="coverage.skip_header",
-            idx=1,
-            total=1,
-            visuals="on",
-            log_decision=SimpleNamespace(name="INFO", value=20),
-            log_output=LogOutputSettings(
-                outputs=(LogOutputTarget(transport="stderr"),)
-            ),
-            use_visual_runner=False,
-            render_header=False,
-        ),
-        work=lambda: None,
-    )
-
-    assert rendered["count"] == 0
-    assert messages and messages[0].startswith("Profile start ")
+    assert calls == [
+        ("logging", 20, log_output),
+        ("visuals", "on", runtime, 20),
+        ("work", True),
+    ]

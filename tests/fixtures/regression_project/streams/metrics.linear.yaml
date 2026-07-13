@@ -1,0 +1,6 @@
+id: metrics.linear
+from:
+  stream: metrics.linear.ingest
+
+stream:
+  - ensure_cadence: { cadence: 1h, field: value }

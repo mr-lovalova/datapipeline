@@ -1,6 +1,12 @@
 from pathlib import Path
 
-from datapipeline.services.scaffold.source_yaml import create_source_yaml, default_loader_config
+import pytest
+import yaml
+
+from datapipeline.services.scaffold.source_yaml import (
+    create_source_yaml,
+    default_loader_config,
+)
 
 
 def _create_plugin(tmp_path: Path) -> Path:
@@ -20,9 +26,9 @@ def test_create_source_scaffolds_into_example_dataset(tmp_path: Path) -> None:
     plugin_root = _create_plugin(tmp_path)
 
     loader_ep, loader_args = default_loader_config("fs", "csv")
+    assert "glob" not in loader_args
     create_source_yaml(
-        provider="demo",
-        dataset="weather",
+        source_id="demo.weather",
         loader_ep=loader_ep,
         loader_args=loader_args,
         parser_ep="identity",
@@ -31,3 +37,37 @@ def test_create_source_scaffolds_into_example_dataset(tmp_path: Path) -> None:
 
     expected = plugin_root / "example" / "sources" / "demo.weather.yaml"
     assert expected.exists(), f"expected scaffolded source at {expected}"
+
+
+def test_create_source_preserves_custom_source_id(tmp_path: Path) -> None:
+    plugin_root = _create_plugin(tmp_path)
+
+    create_source_yaml(
+        source_id="demo.weather.hourly",
+        loader_ep="custom.loader",
+        loader_args={},
+        parser_ep="identity",
+        root=plugin_root,
+    )
+
+    path = plugin_root / "example" / "sources" / "demo.weather.hourly.yaml"
+    assert yaml.safe_load(path.read_text(encoding="utf-8"))["id"] == (
+        "demo.weather.hourly"
+    )
+
+
+@pytest.mark.parametrize("source_id", ["weather", "demo/weather", "demo..weather"])
+def test_create_source_rejects_unsafe_source_id(
+    source_id: str,
+    tmp_path: Path,
+) -> None:
+    plugin_root = _create_plugin(tmp_path)
+
+    with pytest.raises(ValueError, match="source_id"):
+        create_source_yaml(
+            source_id=source_id,
+            loader_ep="custom.loader",
+            loader_args={},
+            parser_ep="identity",
+            root=plugin_root,
+        )

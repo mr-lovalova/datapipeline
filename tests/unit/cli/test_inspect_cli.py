@@ -4,14 +4,14 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-
+from datapipeline.config.tasks import CoverageTask, MatrixTask, ThresholdsTask
 from datapipeline.io.output import OutputTarget
 from datapipeline.operations.runtime import coverage as coverage_ops
 from datapipeline.operations.runtime import matrix as matrix_ops
 from datapipeline.operations.runtime import thresholds as thresholds_ops
 from datapipeline.operations.persistence import persist_runtime_result
 from datapipeline.operations.runtime import vector_stats_common
-from datapipeline.services.constants import VECTOR_SCHEMA_METADATA, VECTOR_STATS
+from datapipeline.services.constants import VECTOR_METADATA, VECTOR_STATS
 
 
 def _snapshot() -> dict:
@@ -43,7 +43,7 @@ class _ArtifactCtx:
     def require_artifact(self, spec):
         if spec.key == VECTOR_STATS:
             return _snapshot()
-        assert spec.key == VECTOR_SCHEMA_METADATA
+        assert spec.key == VECTOR_METADATA
         return _metadata()
 
 
@@ -67,9 +67,7 @@ def _persist_result(result, target: OutputTarget | None) -> None:
     persist_runtime_result(
         result,
         target=target,
-        visuals=None,
         logger=logging.getLogger(__name__),
-        emit_message=lambda *args, **kwargs: None,
     )
 
 
@@ -80,7 +78,7 @@ def test_inspect_coverage_reads_stats_artifact(monkeypatch, tmp_path: Path) -> N
     result = coverage_ops.inspect_coverage_with_runtime(
         runtime=SimpleNamespace(),
         dataset=SimpleNamespace(),
-        operation_task=SimpleNamespace(options={}),
+        operation_task=CoverageTask(id="coverage"),
     )
     _persist_result(
         result,
@@ -104,7 +102,7 @@ def test_inspect_thresholds_reads_stats_artifact(monkeypatch, tmp_path: Path) ->
     result = thresholds_ops.inspect_thresholds_with_runtime(
         runtime=SimpleNamespace(),
         dataset=SimpleNamespace(),
-        operation_task=SimpleNamespace(options={"threshold": 0.95}),
+        operation_task=ThresholdsTask(id="thresholds"),
     )
     _persist_result(
         result,
@@ -121,14 +119,86 @@ def test_inspect_thresholds_reads_stats_artifact(monkeypatch, tmp_path: Path) ->
     assert '"below_features"' in report
 
 
-def test_inspect_coverage_writes_jsonl_when_fs_target(monkeypatch, tmp_path: Path) -> None:
+def test_inspect_coverage_applies_typed_options(monkeypatch) -> None:
+    collector = object()
+    loaded: list[object] = []
+    built: list[tuple[object, str, float]] = []
+
+    def load_collector(runtime):
+        loaded.append(runtime)
+        return collector
+
+    def build_metrics(value, *, sort_key, threshold):
+        built.append((value, sort_key, threshold))
+        return {"result": "ok"}
+
+    monkeypatch.setattr(coverage_ops, "load_collector", load_collector)
+    monkeypatch.setattr(coverage_ops, "build_metrics", build_metrics)
+    runtime = SimpleNamespace()
+
+    result = coverage_ops.inspect_coverage_with_runtime(
+        runtime=runtime,
+        dataset=SimpleNamespace(),
+        operation_task=CoverageTask(
+            id="coverage",
+            options={"sort": "nulls", "threshold": 0.8},
+        ),
+    )
+
+    assert loaded == [runtime]
+    assert built == [(collector, "nulls", 0.8)]
+    assert result.payload == {
+        "report": "coverage",
+        "metrics": {"result": "ok"},
+        "sort": "nulls",
+    }
+
+
+def test_inspect_thresholds_applies_typed_options(monkeypatch) -> None:
+    collector = object()
+    loaded: list[object] = []
+    built: list[tuple[object, str, float]] = []
+
+    def load_collector(runtime):
+        loaded.append(runtime)
+        return collector
+
+    def build_metrics(value, *, sort_key, threshold):
+        built.append((value, sort_key, threshold))
+        return {"result": "ok"}
+
+    monkeypatch.setattr(thresholds_ops, "load_collector", load_collector)
+    monkeypatch.setattr(thresholds_ops, "build_metrics", build_metrics)
+    runtime = SimpleNamespace()
+
+    result = thresholds_ops.inspect_thresholds_with_runtime(
+        runtime=runtime,
+        dataset=SimpleNamespace(),
+        operation_task=ThresholdsTask(
+            id="thresholds",
+            options={"sort": "nulls", "threshold": 0.8},
+        ),
+    )
+
+    assert loaded == [runtime]
+    assert built == [(collector, "nulls", 0.8)]
+    assert result.payload == {
+        "report": "thresholds",
+        "metrics": {"result": "ok"},
+        "threshold": 0.8,
+    }
+
+
+def test_inspect_coverage_writes_jsonl_when_fs_target(
+    monkeypatch, tmp_path: Path
+) -> None:
     _patch_context(monkeypatch)
     destination = (tmp_path / "inspect" / "coverage.jsonl").resolve()
 
     result = coverage_ops.inspect_coverage_with_runtime(
         runtime=SimpleNamespace(),
         dataset=SimpleNamespace(),
-        operation_task=SimpleNamespace(options={}),
+        operation_task=CoverageTask(id="coverage"),
     )
     _persist_result(
         result,
@@ -148,14 +218,16 @@ def test_inspect_coverage_writes_jsonl_when_fs_target(monkeypatch, tmp_path: Pat
     assert payload["metrics"]["total_vectors"] == 1
 
 
-def test_inspect_thresholds_writes_csv_when_fs_target(monkeypatch, tmp_path: Path) -> None:
+def test_inspect_thresholds_writes_csv_when_fs_target(
+    monkeypatch, tmp_path: Path
+) -> None:
     _patch_context(monkeypatch)
     destination = (tmp_path / "inspect" / "thresholds.csv").resolve()
 
     result = thresholds_ops.inspect_thresholds_with_runtime(
         runtime=SimpleNamespace(),
         dataset=SimpleNamespace(),
-        operation_task=SimpleNamespace(options={"threshold": 0.95}),
+        operation_task=ThresholdsTask(id="thresholds"),
     )
     _persist_result(
         result,
@@ -180,18 +252,19 @@ def test_load_collector_rejects_non_object_artifact(monkeypatch) -> None:
     with pytest.raises(RuntimeError, match="Invalid vector stats artifact"):
         vector_stats_common.load_collector(
             runtime=SimpleNamespace(),
-            options={},
         )
 
 
-def test_inspect_matrix_writes_jsonl_when_output_target(monkeypatch, tmp_path: Path) -> None:
+def test_inspect_matrix_writes_jsonl_when_output_target(
+    monkeypatch, tmp_path: Path
+) -> None:
     _patch_context(monkeypatch)
     destination = (tmp_path / "inspect" / "matrix.jsonl").resolve()
 
     result = matrix_ops.inspect_matrix_with_runtime(
         runtime=SimpleNamespace(artifacts_root=tmp_path),
         dataset=SimpleNamespace(),
-        operation_task=SimpleNamespace(options={}),
+        operation_task=MatrixTask(id="matrix"),
     )
     _persist_result(
         result,
@@ -216,32 +289,40 @@ def test_inspect_matrix_requires_output_target(monkeypatch) -> None:
     result = matrix_ops.inspect_matrix_with_runtime(
         runtime=SimpleNamespace(),
         dataset=SimpleNamespace(),
-        operation_task=SimpleNamespace(options={}),
+        operation_task=MatrixTask(id="matrix"),
     )
     with pytest.raises(ValueError, match="requires profile output target"):
         persist_runtime_result(
             result,
             target=None,
-            visuals=None,
             logger=logging.getLogger(__name__),
-            emit_message=lambda *args, **kwargs: None,
         )
 
 
-def test_inspect_matrix_writes_html_when_output_format_is_html(monkeypatch, tmp_path: Path) -> None:
+def test_inspect_matrix_writes_html_when_output_format_is_html(
+    monkeypatch, tmp_path: Path
+) -> None:
     _patch_context(monkeypatch)
     destination = (tmp_path / "inspect" / "matrix.html").resolve()
-    emitted: list[tuple[str, str | None]] = []
+    written_paths: list[Path] = []
+
+    def _export_matrix_data(collector):
+        if collector.matrix_output:
+            path = Path(collector.matrix_output)
+            written_paths.append(path)
+            return path
+        return None
+
     monkeypatch.setattr(
         matrix_ops,
         "export_matrix_data",
-        lambda collector: Path(collector.matrix_output) if collector.matrix_output else None,
+        _export_matrix_data,
     )
 
     result = matrix_ops.inspect_matrix_with_runtime(
         runtime=SimpleNamespace(artifacts_root=tmp_path),
         dataset=SimpleNamespace(),
-        operation_task=SimpleNamespace(options={}),
+        operation_task=MatrixTask(id="matrix"),
     )
     persist_runtime_result(
         result,
@@ -252,13 +333,7 @@ def test_inspect_matrix_writes_html_when_output_format_is_html(monkeypatch, tmp_
             encoding=None,
             destination=destination,
         ),
-        visuals=None,
         logger=logging.getLogger(__name__),
-        emit_message=lambda message, level, logger, message_kind=None: emitted.append(
-            (message, message_kind)
-        ),
     )
 
-    assert emitted
-    assert emitted[0][1] == "materialized"
-    assert str(destination) in emitted[0][0]
+    assert written_paths == [destination]

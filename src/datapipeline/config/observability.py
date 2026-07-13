@@ -103,6 +103,11 @@ class ObservabilityConfig(BaseModel):
         default=None,
         description="Visuals mode: ON or OFF.",
     )
+    heartbeat_interval_seconds: float | None = Field(
+        default=None,
+        ge=0,
+        description="Node heartbeat interval in seconds. Set to 0 to disable.",
+    )
     logging: LoggingConfig | None = Field(
         default=None,
         description="Logging settings.",

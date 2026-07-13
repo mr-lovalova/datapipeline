@@ -2,7 +2,7 @@ from pathlib import Path
 
 from datapipeline.config.workspace import WorkspaceContext
 from datapipeline.cli.workspace_utils import resolve_default_project_yaml
-from datapipeline.services.paths import pkg_root, resolve_base_pkg_dir
+from datapipeline.services.paths import pkg_root
 from datapipeline.services.bootstrap.core import load_streams
 from datapipeline.services.scaffold.discovery import (
     list_domains,
@@ -29,12 +29,16 @@ def _default_project_path(root_dir: Path) -> Path | None:
     return None
 
 
-def handle(subcmd: str, *, workspace: WorkspaceContext | None = None) -> None:
-    root_dir, name, pyproject = pkg_root(None)
+def handle(
+    subcmd: str,
+    *,
+    plugin_root: Path | None = None,
+    workspace: WorkspaceContext | None = None,
+) -> None:
     if subcmd == "sources":
-        # Discover sources by scanning sources_dir for YAML files
-        proj_path = resolve_default_project_yaml(workspace) if workspace is not None else None
+        proj_path = resolve_default_project_yaml(workspace)
         if proj_path is None:
+            root_dir, _, _ = pkg_root(plugin_root)
             proj_path = _default_project_path(root_dir)
         if proj_path is None:
             error_exit("No project.yaml found under config/.")
@@ -46,17 +50,17 @@ def handle(subcmd: str, *, workspace: WorkspaceContext | None = None) -> None:
         for alias in aliases:
             print(alias)
     elif subcmd == "domains":
-        for k in list_domains():
+        for k in list_domains(root=plugin_root):
             print(k)
     elif subcmd == "parsers":
-        for k in sorted(list_parsers().keys()):
+        for k in sorted(list_parsers(root=plugin_root).keys()):
             print(k)
     elif subcmd == "mappers":
-        for k in sorted(list_mappers().keys()):
+        for k in sorted(list_mappers(root=plugin_root).keys()):
             print(k)
     elif subcmd == "loaders":
-        for k in sorted(list_loaders().keys()):
+        for k in sorted(list_loaders(root=plugin_root).keys()):
             print(k)
     elif subcmd == "dtos":
-        for k in sorted(list_dtos().keys()):
+        for k in sorted(list_dtos(root=plugin_root).keys()):
             print(k)

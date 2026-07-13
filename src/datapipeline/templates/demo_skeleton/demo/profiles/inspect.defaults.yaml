@@ -1,14 +1,14 @@
 # See ../../../plugin_skeleton/reference/reference/tasks/profiles/inspect.reference.yaml for full options.
-# Defaults for all inspect.<name>.yaml profiles in this project.
+# Defaults for the inspect command and its inspect.<name>.yaml profiles.
 # precedence: CLI > inspect.<name>.yaml > inspect.defaults.yaml > built-ins
 cmd: inspect
-# build:
-#   mode: AUTO
+# artifact_mode: AUTO
 # output:
 #   transport: stdout
 #   format: txt
 observability:
   visuals: ON
+  heartbeat_interval_seconds: 60
   logging:
     level: INFO
     outputs:

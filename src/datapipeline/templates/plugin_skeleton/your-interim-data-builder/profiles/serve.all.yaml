@@ -4,7 +4,6 @@ name: all
 order: 40
 target: pipeline
 enabled: true
-keep: null
 output:
   transport: fs
   format: jsonl

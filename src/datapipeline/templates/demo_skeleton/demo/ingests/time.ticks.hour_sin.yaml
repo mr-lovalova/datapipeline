@@ -1,0 +1,14 @@
+# See ../../../plugin_skeleton/reference/reference/ingests/ingest.reference.yaml for full options.
+id: time.ticks.hour_sin.ingest
+from:
+  source: synthetic.ticks
+cadence: ${group_by}
+
+map:
+  entrypoint: encode_time
+  args: { mode: hour_sin }
+
+record:
+  - where: { field: time, operator: ge, comparand: "${start_time}" }
+  - where: { field: time, operator: le, comparand: "${end_time}" }
+  - floor_time: { cadence: "${cadence}" }

@@ -2,5 +2,4 @@ cmd: inspect
 name: coverage
 target: coverage
 enabled: true
-build:
-  mode: AUTO
+artifact_mode: AUTO

@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jerry-thomas"
-version = "2.1.0"
+version = "4.0.0"
 description = "Jerry-Thomas: a stream-first, plugin-friendly data pipeline (mixology-themed CLI)"
 readme = { file = "README.md", content-type = "text/markdown" }
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "Anders Skott Lind" }]
 urls = { "Homepage" = "https://github.com/mr-lovalova/datapipeline", "Repository" = "https://github.com/mr-lovalova/datapipeline", "Issues" = "https://github.com/mr-lovalova/datapipeline/issues" }
@@ -24,6 +24,14 @@ ml = [
   "pandas>=2.0",
   "torch>=2.0",
 ]
+test = ["pytest>=8.0"]
+dev = [
+  "build>=1.2",
+  "mypy>=1.10",
+  "pytest>=8.0",
+  "ruff>=0.9",
+  "types-PyYAML>=6.0",
+]
 
 [project.scripts]
 jerry = "datapipeline.cli.app:main"
@@ -33,32 +41,46 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+exclude = ["datapipeline.templates*"]
 
 [tool.setuptools.package-data]
 datapipeline = [
-  "templates/dataset_config.yaml",
   "templates/plugin_skeleton/**",
+  "templates/plugin_skeleton/your-dataset/.env.example",
+  "templates/plugin_skeleton/your-interim-data-builder/.env.example",
   "templates/demo_skeleton/**",
+  "templates/demo_skeleton/demo/.env.example",
   "templates/stubs/**"
 ]
 
-[project.entry-points."datapipeline.filters"]
+[tool.setuptools.exclude-package-data]
+datapipeline = [
+  "templates/**/.DS_Store",
+  "templates/**/*.pyc",
+  "templates/**/*.pyo",
+  "templates/**/__pycache__/*",
+]
+
+[tool.ruff]
+target-version = "py311"
+extend-exclude = ["src/datapipeline/templates"]
 
 [project.entry-points."datapipeline.transforms.record"]
-lag = "datapipeline.transforms.record.lag:LagRecordTransform"
 floor_time = "datapipeline.transforms.record.floor_time:FloorTimeRecordTransform"
-filter = "datapipeline.transforms.filter:filter"
+shift_time = "datapipeline.transforms.record.shift_time:ShiftTimeRecordTransform"
+where = "datapipeline.transforms.where:where"
 
 [project.entry-points."datapipeline.transforms.stream"]
 floor_time = "datapipeline.transforms.stream.floor_time:FloorTimeTransform"
-lag = "datapipeline.transforms.stream.lag:LagTransform"
+lag = "datapipeline.transforms.stream.lag:LagTransformer"
+lead = "datapipeline.transforms.stream.lead:LeadTransformer"
 ensure_cadence = "datapipeline.transforms.stream.ensure_ticks:EnsureCadenceTransform"
 fill = "datapipeline.transforms.stream.fill:FillTransformer"
 granularity = "datapipeline.transforms.stream.granularity:FeatureGranularityTransform"
-lint = "datapipeline.transforms.stream.lint:StreamLint"
 dedupe = "datapipeline.transforms.stream.dedupe:FeatureDeduplicateTransform"
 rolling = "datapipeline.transforms.stream.rolling:RollingTransformer"
-filter = "datapipeline.transforms.stream.filter:FilterTransform"
+where = "datapipeline.transforms.stream.where:WhereTransform"
+derive = "datapipeline.transforms.stream.derive:DeriveTransform"
 
 [project.entry-points."datapipeline.transforms.feature"]
 scale = "datapipeline.transforms.feature.scaler:StandardScalerTransform"
@@ -68,6 +90,7 @@ sequence = "datapipeline.transforms.sequence:WindowTransformer"
 [project.entry-points."datapipeline.transforms.vector"]
 drop = "datapipeline.transforms.vector:VectorDropTransform"
 fill = "datapipeline.transforms.vector:VectorFillTransform"
+forward_fill = "datapipeline.transforms.vector:VectorForwardFillTransform"
 replace = "datapipeline.transforms.vector:VectorReplaceTransform"
 
 [project.entry-points."datapipeline.mappers"]
@@ -77,7 +100,6 @@ identity = "datapipeline.mappers.noop:identity"
 
 [project.entry-points."datapipeline.loaders"]
 "core.io" = "datapipeline.sources.factory:build_loader"
-"core.foreach" = "datapipeline.sources.foreach:ForeachLoader"
 "core.synthetic.ticks" = "datapipeline.sources.synthetic.time.loader:make_time_loader"
 
 [project.entry-points."datapipeline.parsers"]
@@ -86,10 +108,12 @@ identity = "datapipeline.parsers.identity:IdentityParser"
 "core.synthetic.ticks" = "datapipeline.sources.synthetic.time.parser:TimeRowParser"
 
 [project.entry-points."datapipeline.operations.build"]
+"core.artifact.vector_inputs" = "datapipeline.operations.artifacts.vector_inputs:materialize_vector_inputs"
 "core.artifact.schema" = "datapipeline.operations.artifacts.schema:materialize_vector_schema"
 "core.artifact.metadata" = "datapipeline.operations.artifacts.metadata:materialize_metadata"
 "core.artifact.scaler" = "datapipeline.operations.artifacts.scaler:materialize_scaler_statistics"
 "core.artifact.stats" = "datapipeline.operations.artifacts.stats:materialize_vector_stats"
+"core.artifact.ticks" = "datapipeline.operations.artifacts.ticks:materialize_ticks"
 
 [project.entry-points."datapipeline.operations.runtime"]
 "core.runtime.pipeline" = "datapipeline.operations.runtime.pipeline:serve_with_runtime"

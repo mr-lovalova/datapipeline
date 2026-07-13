@@ -1,0 +1,6 @@
+# See ../../../reference/reference/tasks/operations/coverage.reference.yaml for full options.
+id: coverage
+kind: runtime
+entrypoint: core.runtime.coverage
+options:
+  sort: missing

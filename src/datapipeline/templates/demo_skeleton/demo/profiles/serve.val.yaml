@@ -1,7 +1,0 @@
-# See ../../../plugin_skeleton/reference/reference/tasks/profiles/serve.reference.yaml for full options.
-cmd: serve
-name: val
-order: 50
-target: pipeline
-enabled: true
-keep: val

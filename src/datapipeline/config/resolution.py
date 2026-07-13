@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional, Sequence
 
+from datapipeline.config.observability import ObservabilityConfig
 from datapipeline.config.options import LOG_SCOPE_CHOICES, LOG_TRANSPORT_CHOICES
 from datapipeline.services.path_policy import sanitize_path_segment
 
@@ -52,23 +53,32 @@ def logging_value(observability, field: str):
     return getattr(logging_cfg, field, None)
 
 
-@dataclass(frozen=True)
-class VisualSettings:
-    visuals: str
-
-
 def resolve_visuals(
-    
     cli_visuals: str | None,
     config_visuals: str | None,
     default_visuals: str = "on",
-) -> VisualSettings:
-    visuals = cascade(
+) -> str:
+    return cascade(
         _normalize_lower(cli_visuals),
         _normalize_lower(config_visuals),
         default_visuals,
-    ) or default_visuals
-    return VisualSettings(visuals=visuals)
+    )
+
+
+def resolve_heartbeat_interval_seconds(
+    cli_heartbeat_interval_seconds: float | None,
+    config_heartbeat_interval_seconds: float | None,
+) -> float | None:
+    value = cascade(
+        cli_heartbeat_interval_seconds,
+        config_heartbeat_interval_seconds,
+    )
+    if value is None:
+        return None
+    interval = float(value)
+    if interval < 0:
+        raise ValueError("heartbeat_interval_seconds must be non-negative")
+    return interval
 
 
 @dataclass(frozen=True)
@@ -105,9 +115,35 @@ class LogOutputSettings:
     outputs: tuple[LogOutputTarget, ...]
 
 
+@dataclass(frozen=True)
+class ObservabilitySettings:
+    visuals: str
+    heartbeat_interval_seconds: float | None
+    log_decision: LogLevelDecision
+    log_output: LogOutputSettings
+
+    def effective_config(self) -> dict[str, object]:
+        return {
+            "visuals": self.visuals,
+            "heartbeat_interval_seconds": self.heartbeat_interval_seconds,
+            "log_level": self.log_decision.name,
+            "log_outputs": [
+                {
+                    "transport": output.transport,
+                    "scope": output.scope,
+                    "destination": (
+                        str(output.destination)
+                        if output.destination is not None
+                        else None
+                    ),
+                }
+                for output in self.log_output.outputs
+            ],
+        }
+
+
 def log_output_targets_from_config(
     outputs,
-    
     resolve_global_path: Callable[[str], Path],
 ) -> list[LogOutputTarget]:
     """Map validated config models into normalized LogOutputTarget values."""
@@ -137,20 +173,16 @@ def log_output_targets_from_config(
 
 def resolve_project_log_outputs(
     outputs,
-    
     project_path: Path,
 ) -> list[LogOutputTarget]:
     return log_output_targets_from_config(
         outputs,
-        resolve_global_path=lambda value: (
-            (project_path.parent / value).resolve()
-        ),
+        resolve_global_path=lambda value: (project_path.parent / value).resolve(),
     )
 
 
 def parse_log_output_specs(
     specs: Sequence[str] | None,
-    
     resolve_global_path: Callable[[str], Path],
 ) -> list[LogOutputTarget]:
     """Parse CLI --log-output specs into normalized targets."""
@@ -171,7 +203,9 @@ def parse_log_output_specs(
         if lower.startswith("execution:") or lower.startswith("execution="):
             raw_path = spec[10:].strip()
             if not raw_path:
-                raise ValueError("--log-output execution target requires a relative path")
+                raise ValueError(
+                    "--log-output execution target requires a relative path"
+                )
             parsed.append(
                 LogOutputTarget(
                     transport="fs",
@@ -234,7 +268,9 @@ def _normalize_log_outputs(
                 normalized.append(
                     LogOutputTarget(
                         transport="fs",
-                        destination=Path(destination) if destination is not None else None,
+                        destination=Path(destination)
+                        if destination is not None
+                        else None,
                         scope="execution",
                     )
                 )
@@ -263,7 +299,6 @@ def _normalize_log_outputs(
 
 
 def resolve_log_output(
-    
     output_candidates: Sequence[Sequence[LogOutputTarget] | None] = (),
     default_transport: str = "stderr",
     allow_execution_scope: bool = False,
@@ -283,34 +318,68 @@ def resolve_log_output(
     )
 
 
-def materialize_log_output_for_execution(
+def resolve_observability_settings(
+    project_path: Path | None,
+    observability: ObservabilityConfig | None,
+    *,
+    cli_visuals: str | None,
+    cli_heartbeat_interval_seconds: float | None,
+    cli_log_level: str | None,
+    cli_log_outputs: Sequence[LogOutputTarget] | None,
+    base_log_level: str,
+) -> ObservabilitySettings:
+    configured_output_specs = logging_value(observability, "outputs")
+    if configured_output_specs and project_path is None:
+        raise ValueError("project_path is required for configured log outputs")
+    configured_outputs = (
+        resolve_project_log_outputs(configured_output_specs, project_path)
+        if project_path is not None
+        else []
+    )
+    return ObservabilitySettings(
+        visuals=resolve_visuals(
+            cli_visuals,
+            observability_value(observability, "visuals"),
+        ),
+        heartbeat_interval_seconds=resolve_heartbeat_interval_seconds(
+            cli_heartbeat_interval_seconds,
+            observability_value(observability, "heartbeat_interval_seconds"),
+        ),
+        log_decision=resolve_log_level(
+            cli_log_level,
+            logging_value(observability, "level"),
+            base_log_level,
+        ),
+        log_output=resolve_log_output(
+            output_candidates=(cli_log_outputs, configured_outputs),
+            allow_execution_scope=True,
+        ),
+    )
+
+
+def resolve_execution_log_outputs(
     settings: LogOutputSettings,
-    execution_dir: Path | None,
+    execution_dir: Path,
     *,
     command: str,
-    label: str | None = None,
+    label: str,
 ) -> LogOutputSettings:
     outputs: list[LogOutputTarget] = []
     for target in settings.outputs:
         if target.scope != "execution":
             outputs.append(target)
             continue
-        if execution_dir is None:
-            raise ValueError(
-                "log scope 'execution' requires an execution directory"
-            )
         relative_path = target.destination
         if relative_path is None:
-            name = sanitize_path_segment(label or "execution")
-            prefix = sanitize_path_segment(command or "execution")
+            name = sanitize_path_segment(label)
+            prefix = sanitize_path_segment(command)
             relative_path = Path("logs") / f"{prefix}.{name}.log"
-        path = Path(relative_path)
-        if path.is_absolute():
+        if relative_path.is_absolute():
             raise ValueError("execution-scoped log path must be relative")
         outputs.append(
             LogOutputTarget(
                 transport="fs",
-                destination=(execution_dir / path).resolve(),
+                destination=(execution_dir / relative_path).resolve(),
                 scope="global",
             )
         )

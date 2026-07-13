@@ -1,0 +1,7 @@
+id: metrics.sine
+from:
+  stream: metrics.sine.ingest
+
+stream:
+  - ensure_cadence: { cadence: 30m, field: value }
+  - granularity: { mode: last, field: value }

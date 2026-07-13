@@ -2,39 +2,49 @@ from pathlib import Path
 from typing import Any
 
 from datapipeline.utils.load import load_yaml
-from datapipeline.config.catalog import ContractConfig, StreamsConfig
-from datapipeline.services.project_paths import streams_dir, sources_dir
-from datapipeline.services.path_policy import resolve_relative_fs_loader_path
-from datapipeline.build.state import load_build_state
+from datapipeline.config.catalog import (
+    AlignFromConfig,
+    IngestConfig,
+    StreamConfig,
+    StreamsConfig,
+)
+from datapipeline.services.project_paths import ingests_dirs, streams_dirs, sources_dirs
 from datapipeline.services.constants import (
     PARSER_KEY,
     LOADER_KEY,
     SOURCE_ID_KEY,
-    MAPPER_KEY,
-    ENTRYPOINT_KEY,
     STREAM_ID_KEY,
+    STREAM_FROM_KEY,
+    STREAM_CADENCE_KEY,
+    STREAM_KIND_KEY,
+    POSTPROCESS_PATH_KEY,
     POSTPROCESS_TRANSFORMS,
 )
-from datapipeline.services.factories import (
-    build_source_from_spec,
+from datapipeline.services.streams.ingest import (
     build_mapper_from_spec,
-    build_composed_source,
+    build_source_from_spec,
+)
+from datapipeline.services.streams.aligned import (
+    AlignedStream,
+    build_aligned_mapper,
+)
+from datapipeline.services.streams.simple import build_prepared_stream_ref
+from datapipeline.services.streams.validation import (
+    stream_partition_by,
+    validate_unique_stream_ids,
+    validate_stream_configs,
 )
 
-from datapipeline.runtime import Runtime
+from datapipeline.runtime import Runtime, StreamRuntimeSpec
 from datapipeline.config.postprocess import PostprocessConfig
+from datapipeline.services.config_refs import resolve_config_refs
 from .config import (
     artifacts_root,
-    build_state_path,
     _globals,
     _interpolate,
     _load_by_key,
     _project,
 )
-
-
-SRC_PARSER_KEY = PARSER_KEY
-SRC_LOADER_KEY = LOADER_KEY
 
 
 def _load_sources_from_dir(project_yaml: Path, vars_: dict[str, Any]) -> dict:
@@ -45,55 +55,44 @@ def _load_sources_from_dir(project_yaml: Path, vars_: dict[str, Any]) -> dict:
     'parser' and 'loader' keys. The top-level 'id' inside the file becomes the
     runtime alias.
     """
-    src_dir = sources_dir(project_yaml)
-    if not src_dir.exists() or not src_dir.is_dir():
-        return {}
     out: dict[str, dict] = {}
-    candidates = sorted(
-        (p for p in src_dir.rglob("*.y*ml") if p.is_file()),
-        key=lambda p: p.relative_to(src_dir).as_posix(),
-    )
-    for path in candidates:
-        data = load_yaml(path)
-        if not isinstance(data, dict):
+    source_paths: dict[str, Path] = {}
+    for path in _source_yaml_files(project_yaml):
+        source_doc = _load_source_yaml(path, project_yaml, vars_)
+        if source_doc is None:
             continue
-        if isinstance(data.get(SRC_PARSER_KEY), dict) and isinstance(data.get(SRC_LOADER_KEY), dict):
-            alias = data.get(SOURCE_ID_KEY)
-            if not alias:
-                raise ValueError(
-                    f"Missing 'id' in source file: {path.relative_to(src_dir)}")
-            source_doc = _interpolate(data, vars_)
-            _normalize_source_loader_paths(
-                source_doc,
-                project_yaml=project_yaml,
-                source_yaml=path,
+        source_id = source_doc[SOURCE_ID_KEY]
+        if source_id in out:
+            raise ValueError(
+                f"Duplicate source id '{source_id}' in source files: "
+                f"{source_paths[source_id]} and {path}"
             )
-            out[alias] = source_doc
-            continue
+        out[source_id] = source_doc
+        source_paths[source_id] = path
     return out
 
 
-def _normalize_source_loader_paths(
-    source_doc: dict[str, Any],
+def _source_yaml_files(project_yaml: Path) -> list[Path]:
+    return _yaml_files_from_roots(sources_dirs(project_yaml))
+
+
+def _load_source_yaml(
+    path: Path,
     project_yaml: Path,
-    source_yaml: Path,
-) -> None:
-    loader = source_doc.get(SRC_LOADER_KEY)
-    if not isinstance(loader, dict):
-        return
-    args = loader.get("args")
-    if not isinstance(args, dict):
-        return
-    if str(args.get("transport", "")).lower() != "fs":
-        return
-    raw_path = args.get("path")
-    if not isinstance(raw_path, str) or not raw_path:
-        return
-    if Path(raw_path).is_absolute():
-        return
-    args["path"] = resolve_relative_fs_loader_path(
-        raw_path,
-        project_yaml.parent.resolve(),
+    vars_: dict[str, Any],
+) -> dict[str, Any] | None:
+    data = resolve_config_refs(load_yaml(path), project_yaml=project_yaml)
+    if not isinstance(data, dict) or not _is_source_yaml(data):
+        return None
+    if not data.get(SOURCE_ID_KEY):
+        raise ValueError(f"Missing 'id' in source file: {path}")
+    source_doc = _interpolate(data, vars_)
+    return source_doc
+
+
+def _is_source_yaml(data: dict[str, Any]) -> bool:
+    return isinstance(data.get(PARSER_KEY), dict) and isinstance(
+        data.get(LOADER_KEY), dict
     )
 
 
@@ -105,129 +104,211 @@ def _load_canonical_streams(project_yaml: Path, vars_: dict[str, Any]) -> dict:
     and extension removed, e.g. 'metobs/precip.yaml' -> 'metobs.precip'.
     """
     out: dict[str, dict] = {}
-    sdir = streams_dir(project_yaml)
-    if not sdir.exists() or not sdir.is_dir():
-        return {}
-    for p in sorted(sdir.rglob("*.y*ml")):
-        if not p.is_file():
+    stream_paths: dict[str, Path] = {}
+    for path in _stream_yaml_files(project_yaml):
+        data = _load_stream_yaml(path, project_yaml)
+        if data is None:
             continue
-        data = load_yaml(p)
-        # Contracts must declare kind: 'ingest' | 'composed'
-        if not isinstance(data, dict):
-            continue
-        kind = data.get("kind")
-        if kind not in {"ingest", "composed"}:
-            continue
-        if (STREAM_ID_KEY not in data):
-            continue
-        if kind == "ingest" and ("source" not in data):
-            continue
-        if kind == "composed" and ("inputs" not in data):
-            continue
-        m = data.get(MAPPER_KEY)
-        if (not isinstance(m, dict)) or (ENTRYPOINT_KEY not in (m or {})):
-            data[MAPPER_KEY] = None
-        # Support simple per-contract variables like 'cadence' while keeping
-        # project-level globals as the single source of truth for shared values.
-        local_vars = dict(vars_)
-        cadence_expr = data.get("cadence")
-        if cadence_expr is not None:
-            # Allow cadence to reference globals (e.g. ${group_by}) while also
-            # making ${cadence} usable elsewhere in the same contract.
-            resolved_cadence = _interpolate(cadence_expr, vars_)
-            local_vars["cadence"] = resolved_cadence
-        alias = data.get(STREAM_ID_KEY)
-        out[alias] = _interpolate(data, local_vars)
+        alias = data[STREAM_ID_KEY]
+        if alias in out:
+            raise ValueError(
+                f"Duplicate stream id '{alias}' in stream files: "
+                f"{stream_paths[alias]} and {path}"
+            )
+        out[alias] = _interpolate_stream_yaml(data, vars_)
+        stream_paths[alias] = path
     return out
+
+
+def _load_canonical_ingests(project_yaml: Path, vars_: dict[str, Any]) -> dict:
+    out: dict[str, dict] = {}
+    ingest_paths: dict[str, Path] = {}
+    for path in _ingest_yaml_files(project_yaml):
+        data = _load_ingest_yaml(path, project_yaml)
+        if data is None:
+            continue
+        alias = data[STREAM_ID_KEY]
+        if alias in out:
+            raise ValueError(
+                f"Duplicate stream id '{alias}' in ingest files: "
+                f"{ingest_paths[alias]} and {path}"
+            )
+        out[alias] = _interpolate_stream_yaml(data, vars_)
+        ingest_paths[alias] = path
+    return out
+
+
+def _ingest_yaml_files(project_yaml: Path) -> list[Path]:
+    return _yaml_files_from_roots(ingests_dirs(project_yaml))
+
+
+def _stream_yaml_files(project_yaml: Path) -> list[Path]:
+    return _yaml_files_from_roots(streams_dirs(project_yaml))
+
+
+def _yaml_files_from_roots(roots: list[Path]) -> list[Path]:
+    out: list[Path] = []
+    for root in roots:
+        out.extend(_yaml_files(root))
+    return out
+
+
+def _yaml_files(root: Path) -> list[Path]:
+    if not root.exists() or not root.is_dir():
+        return []
+    return sorted(
+        (path for path in root.rglob("*.y*ml") if path.is_file()),
+        key=lambda path: path.relative_to(root).as_posix(),
+    )
+
+
+def _load_stream_yaml(path: Path, project_yaml: Path) -> dict[str, Any] | None:
+    data = resolve_config_refs(load_yaml(path), project_yaml=project_yaml)
+    if not isinstance(data, dict):
+        return None
+    if STREAM_KIND_KEY in data:
+        raise ValueError(
+            "Stream config field 'kind' is no longer supported; use 'from'."
+        )
+    if STREAM_ID_KEY not in data or STREAM_FROM_KEY not in data:
+        return None
+    return data
+
+
+def _load_ingest_yaml(path: Path, project_yaml: Path) -> dict[str, Any] | None:
+    data = resolve_config_refs(load_yaml(path), project_yaml=project_yaml)
+    if not isinstance(data, dict):
+        return None
+    if STREAM_KIND_KEY in data:
+        raise ValueError(
+            "Ingest config field 'kind' is no longer supported; use 'from'."
+        )
+    if STREAM_ID_KEY not in data or STREAM_FROM_KEY not in data:
+        return None
+    if "stream" in data:
+        raise ValueError("Ingest configs cannot define 'stream'; use streams.")
+    return data
+
+
+def _interpolate_stream_yaml(
+    data: dict[str, Any],
+    vars_: dict[str, Any],
+) -> dict[str, Any]:
+    local_vars = dict(vars_)
+    cadence_expr = data.get(STREAM_CADENCE_KEY)
+    if cadence_expr is not None:
+        local_vars[STREAM_CADENCE_KEY] = _interpolate(cadence_expr, vars_)
+    return _interpolate(data, local_vars)
 
 
 def load_streams(project_yaml: Path) -> StreamsConfig:
     vars_ = _globals(project_yaml)
     raw = _load_sources_from_dir(project_yaml, vars_)
-    contracts = _load_canonical_streams(project_yaml, vars_)
-    return StreamsConfig(raw=raw, contracts=contracts)
-
-
-def _partition_signature(
-    value: str | list[str] | None,
-) -> tuple[str, ...]:
-    if value is None:
-        return ()
-    if isinstance(value, str):
-        return (value,)
-    return tuple(value)
-
-
-def _validate_composed_contracts(contracts: dict[str, ContractConfig]) -> None:
-    for stream_id, spec in contracts.items():
-        if spec.kind != "composed":
-            continue
-        inputs = list(spec.inputs or [])
-        refs: list[str] = []
-        for item in inputs:
-            _alias, ref = ContractConfig.parse_input_spec(item)
-            refs.append(ref)
-
-        missing = [ref for ref in refs if ref not in contracts]
-        if missing:
-            raise ValueError(
-                f"Composed stream '{stream_id}' references unknown stream(s): {missing}"
-            )
-
-        partition_by_per_input: dict[str, tuple[str, ...]] = {
-            ref: _partition_signature(contracts[ref].partition_by)
-            for ref in refs
-        }
-        unique_input_partitions = set(partition_by_per_input.values())
-        if len(unique_input_partitions) > 1:
-            details = ", ".join(
-                f"{ref}={list(partition_by_per_input[ref])}"
-                for ref in refs
-            )
-            raise ValueError(
-                "Composed stream "
-                f"'{stream_id}' inputs have incompatible partition_by settings: {details}"
-            )
-
-        if spec.partition_by is not None and unique_input_partitions:
-            input_partition = next(iter(unique_input_partitions))
-            composed_partition = _partition_signature(spec.partition_by)
-            if composed_partition != input_partition:
-                raise ValueError(
-                    "Composed stream "
-                    f"'{stream_id}' partition_by={list(composed_partition)} does not "
-                    f"match inputs partition_by={list(input_partition)}"
-                )
+    ingests = _load_canonical_ingests(project_yaml, vars_)
+    stream_configs = _load_canonical_streams(project_yaml, vars_)
+    config = StreamsConfig(raw=raw, ingests=ingests, streams=stream_configs)
+    validate_unique_stream_ids(config.ingests, config.streams)
+    validate_stream_configs(config.ingests, config.streams)
+    return config
 
 
 def init_streams(cfg: StreamsConfig, runtime: Runtime) -> None:
     """Compile typed streams config into runtime registries."""
     regs = runtime.registries
     regs.clear_all()
-    _validate_composed_contracts(cfg.contracts or {})
+    ingests = cfg.ingests
+    stream_configs = cfg.streams
 
-    # Register per-stream policies and record transforms for runtime lookups
-    for alias, spec in (cfg.contracts or {}).items():
-        regs.stream_operations.register(alias, spec.stream)
-        regs.debug_operations.register(alias, spec.debug)
-        regs.partition_by.register(alias, spec.partition_by)
-        regs.sort_batch_size.register(alias, spec.sort_batch_size)
-        ops = spec.record
-        regs.record_operations.register(alias, ops)
+    for alias, ingest_spec in ingests.items():
+        _register_ingest_policy(runtime, alias, ingest_spec)
+    for alias, stream_spec in stream_configs.items():
+        _register_stream_policy(
+            runtime,
+            alias,
+            stream_spec,
+            ingests,
+            stream_configs,
+        )
 
-    for alias, spec in (cfg.raw or {}).items():
-        regs.sources.register(alias, build_source_from_spec(spec))
-    for alias, spec in (cfg.contracts or {}).items():
-        if getattr(spec, "kind", None) == "composed":
-            # Composed stream: register virtual source and identity mapper
-            regs.stream_sources.register(
-                alias, build_composed_source(alias, spec, runtime)
-            )
-            regs.mappers.register(alias, build_mapper_from_spec(None))
-        else:
-            mapper = build_mapper_from_spec(spec.mapper)
-            regs.mappers.register(alias, mapper)
-            regs.stream_sources.register(alias, regs.sources.get(spec.source))
+    for alias, source_spec in cfg.raw.items():
+        regs.sources.register(
+            alias,
+            build_source_from_spec(source_spec, project_yaml=runtime.project_yaml),
+        )
+
+    for alias, ingest_spec in ingests.items():
+        _register_ingest_source(runtime, alias, ingest_spec)
+    for alias, stream_spec in stream_configs.items():
+        _register_stream_source(runtime, alias, stream_spec)
+
+
+def _register_ingest_policy(
+    runtime: Runtime,
+    alias: str,
+    spec: IngestConfig,
+) -> None:
+    regs = runtime.registries
+    regs.record_operations.register(alias, spec.record)
+    regs.stream_specs.register(alias, StreamRuntimeSpec(pipeline="ingest"))
+    regs.stream_operations.register(alias, [])
+    regs.debug_operations.register(alias, [])
+    regs.partition_by.register(alias, spec.partition_by)
+    regs.feature_id_by.register(alias, spec.feature_id_by)
+    regs.presorted.register(alias, spec.ordered_by is not None)
+
+
+def _register_stream_policy(
+    runtime: Runtime,
+    alias: str,
+    spec: StreamConfig,
+    ingests: dict[str, IngestConfig],
+    stream_configs: dict[str, StreamConfig],
+) -> None:
+    regs = runtime.registries
+    regs.stream_specs.register(alias, StreamRuntimeSpec(pipeline="stream"))
+    regs.stream_operations.register(alias, spec.stream)
+    regs.debug_operations.register(alias, spec.debug)
+    regs.partition_by.register(
+        alias, stream_partition_by(ingests, stream_configs, alias)
+    )
+    regs.feature_id_by.register(alias, spec.feature_id_by)
+    regs.presorted.register(alias, spec.ordered_by is not None)
+    regs.record_operations.register(alias, [])
+
+
+def _register_ingest_source(
+    runtime: Runtime,
+    alias: str,
+    spec: IngestConfig,
+) -> None:
+    regs = runtime.registries
+    regs.mappers.register(alias, build_mapper_from_spec(spec.map))
+    regs.stream_sources.register(alias, regs.sources.get(spec.from_.source))
+
+
+def _register_stream_source(
+    runtime: Runtime,
+    alias: str,
+    spec: StreamConfig,
+) -> None:
+    regs = runtime.registries
+    if isinstance(spec.from_, AlignFromConfig):
+        regs.stream_sources.register(
+            alias,
+            AlignedStream(
+                runtime,
+                spec.input_streams(),
+                regs.partition_by.get(alias),
+            ),
+        )
+        regs.mappers.register(alias, build_aligned_mapper(spec))
+        return
+
+    regs.mappers.register(alias, build_mapper_from_spec(spec.map))
+    regs.stream_sources.register(
+        alias,
+        build_prepared_stream_ref(spec.from_.stream, runtime),
+    )
 
 
 def bootstrap(project_yaml: Path) -> Runtime:
@@ -236,44 +317,43 @@ def bootstrap(project_yaml: Path) -> Runtime:
     Loads streams and postprocess config, fills registries, and wires artifacts
     under a per-project runtime instance.
     """
-    art_root = artifacts_root(project_yaml)
-    runtime = Runtime(project_yaml=project_yaml, artifacts_root=art_root)
+    from datapipeline.artifacts.hydration import hydrate_runtime_artifacts_for_project
 
-    # Attach project-level split config once to runtime (avoid reloading later)
-    try:
-        proj = _project(project_yaml)
-        runtime.split = getattr(proj.globals, "split", None)
-    except Exception:
-        runtime.split = None
-
-    runtime.run = None
-    runtime.split_keep = getattr(runtime.split, "keep", None)
-
-    streams = load_streams(project_yaml)
-    init_streams(streams, runtime)
-
-    post_doc = _load_by_key(project_yaml, "postprocess", require_mapping=False)
-    # Allow interpolation of ${var} using project.globals in postprocess.yaml
-    try:
-        vars_ = _globals(project_yaml)
-        post_doc = _interpolate(post_doc, vars_)
-    except Exception:
-        pass
-    if post_doc is None:
-        transforms = None
-    else:
-        postprocess = PostprocessConfig.model_validate(post_doc)
-        transforms = postprocess.root
-    runtime.registries.postprocesses.register(
-        POSTPROCESS_TRANSFORMS, transforms)
-
-    state_path = build_state_path(project_yaml)
-    state = load_build_state(state_path)
-    if state:
-        for key, info in state.artifacts.items():
-            runtime.artifacts.register(
-                key,
-                relative_path=info.relative_path,
-                meta=info.meta,
-            )
+    runtime = bootstrap_build_runtime(project_yaml)
+    hydrate_runtime_artifacts_for_project(runtime, project_yaml)
     return runtime
+
+
+def bootstrap_build_runtime(project_yaml: Path) -> Runtime:
+    """Initialize project services without hydrating cached artifacts."""
+    runtime = Runtime(
+        project_yaml=project_yaml,
+        artifacts_root=artifacts_root(project_yaml),
+    )
+    _attach_project_config(runtime, project_yaml)
+    init_streams(load_streams(project_yaml), runtime)
+    _register_postprocesses(runtime, project_yaml)
+    return runtime
+
+
+def _attach_project_config(runtime: Runtime, project_yaml: Path) -> None:
+    proj = _project(project_yaml)
+    runtime.split = proj.split
+    runtime.split_labels = ()
+
+
+def _register_postprocesses(runtime: Runtime, project_yaml: Path) -> None:
+    transforms = _load_postprocess_transforms(project_yaml)
+    runtime.registries.postprocesses.register(POSTPROCESS_TRANSFORMS, transforms)
+
+
+def _load_postprocess_transforms(project_yaml: Path):
+    post_doc = _load_by_key(
+        project_yaml,
+        POSTPROCESS_PATH_KEY,
+        require_mapping=False,
+    )
+    post_doc = _interpolate(post_doc, _globals(project_yaml))
+    if post_doc is None:
+        return None
+    return PostprocessConfig.model_validate(post_doc).root

@@ -6,7 +6,7 @@ raw source ──▶ loader/parser DTOs ──▶ canonical stream ──▶ rec
       └──▶ vector assembly ──▶ postprocess transforms
 ```
 
-See "Pipeline Stages (serve --stage)" for the detailed stage-by-stage breakdown.
+See "Preview Indices (serve --preview-index)" for the detailed preview-index breakdown.
 
 #### Visual Flowchart
 
@@ -16,23 +16,23 @@ flowchart TB
     cliInflow[jerry inflow create]
     cliSource[jerry source create]
     cliDomain[jerry domain create]
-    cliContract[jerry contract]
+    cliStream[jerry stream]
     cliServe[jerry serve]
     project[[project.yaml]]
     sourcesCfg[sources/*.yaml]
-    contractsCfg[contracts/*.yaml]
+    streamsCfg[streams/*.yaml]
     datasetCfg[dataset.yaml]
     postprocessCfg[postprocess.yaml]
   end
 
   cliInflow --> sourcesCfg
-  cliInflow --> contractsCfg
+  cliInflow --> streamsCfg
   cliSource --> sourcesCfg
   cliDomain --> domainPkg
-  cliContract --> contractsCfg
+  cliStream --> streamsCfg
   cliServe --> vectorSamples
   project -.->|paths.sources| sourcesCfg
-  project -.->|paths.streams| contractsCfg
+  project -.->|paths.streams| streamsCfg
   project -.->|paths.dataset| datasetCfg
   project -.->|paths.postprocess| postprocessCfg
 
@@ -41,7 +41,7 @@ flowchart TB
     mappersPkg[mappers/*]
   end
 
-  cliContract --> mappersPkg
+  cliStream --> mappersPkg
   domainPkg -. domain models .-> mappersPkg
 
   subgraph Registries
@@ -73,7 +73,8 @@ flowchart TB
   sourceArgs -. paths/creds .-> sourceNode
   rawData --> sourceNode --> dtoStream
   sourcesCfg -. build_source_from_spec .-> registrySources
-  contractsCfg -. stream_id + source .-> registryStreamSources
+  ingestsCfg -. stream_id + source .-> registryStreamSources
+  streamsCfg -. stream_id + upstream stream .-> registryStreamSources
   registrySources -. alias -> Source .-> registryStreamSources
 
   subgraph Canonical stream
@@ -90,13 +91,13 @@ flowchart TB
   end
 
   dtoStream --> canonical --> domainRecords --> recordStage --> streamXforms --> featureWrap --> featureRecords
-  contractsCfg --> mapperEP
+  streamsCfg --> mapperEP
   mappersPkg -. ep target .-> mapperEP
   mapperEP -. build_mapper_from_spec .-> registryMappers
   registryMappers --> canonical
-  contractsCfg --> recordRules
-  contractsCfg --> streamRules
-  contractsCfg --> debugRules
+  streamsCfg --> recordRules
+  streamsCfg --> streamRules
+  streamsCfg --> debugRules
   registryRecordOps --> recordRules
   registryStreamOps --> streamRules
   registryDebugOps --> debugRules
@@ -118,7 +119,7 @@ flowchart TB
   datasetCfg --> groupBySpec
   datasetCfg --> streamRefs
   streamRefs -.->|build_feature_pipeline| registryStreamSources
-  registryStreamSources -.->|open_source_stream| sourceNode
+  registryStreamSources -.->|open_source| sourceNode
   featureRecords --> regularization --> featureTrans --> sequenceStream --> vectorStage --> vectorSamples
   featureSpec -. scale/sequence .-> featureTrans
   groupBySpec -. cadence .-> vectorStage

@@ -1,30 +1,88 @@
 from pathlib import Path
-from typing import Optional
 
+from datapipeline.services.config_refs import (
+    interpolate_config_vars,
+    project_vars_from_data,
+    resolve_config_refs,
+)
 from datapipeline.services.path_policy import resolve_project_path
 from datapipeline.utils.load import load_yaml
 from datapipeline.config.project import ProjectConfig
 
 
+_DEFAULT_DOTENV_EXAMPLE = (
+    "# Copy this file to .env next to project.yaml for local dataset-specific secrets.\n"
+    "RAW_ROOT=\n"
+)
+
+
 def read_project(project_yaml: Path) -> ProjectConfig:
-    data = load_yaml(project_yaml)
+    data = resolve_config_refs(load_yaml(project_yaml), project_yaml=project_yaml)
+    paths = data.get("paths")
+    vars_ = project_vars_from_data(data)
+    if isinstance(paths, dict) and vars_:
+        data["paths"] = interpolate_config_vars(paths, vars_)
     return ProjectConfig.model_validate(data)
 
 
 def streams_dir(project_yaml: Path) -> Path:
+    return streams_dirs(project_yaml)[0]
+
+
+def streams_dirs(project_yaml: Path) -> list[Path]:
     cfg = read_project(project_yaml)
-    p = resolve_project_path(project_yaml, cfg.paths.streams)
-    if not p.exists() or not p.is_dir():
-        raise FileNotFoundError(f"streams dir not found: {p}")
-    return p
+    paths = (
+        cfg.paths.streams
+        if isinstance(cfg.paths.streams, list)
+        else [cfg.paths.streams]
+    )
+    out: list[Path] = []
+    for raw_path in paths:
+        p = resolve_project_path(project_yaml, raw_path)
+        if not p.exists() or not p.is_dir():
+            raise FileNotFoundError(f"streams dir not found: {p}")
+        out.append(p)
+    return out
+
+
+def ingests_dir(project_yaml: Path) -> Path:
+    return ingests_dirs(project_yaml)[0]
+
+
+def ingests_dirs(project_yaml: Path) -> list[Path]:
+    cfg = read_project(project_yaml)
+    paths = (
+        cfg.paths.ingests
+        if isinstance(cfg.paths.ingests, list)
+        else [cfg.paths.ingests]
+    )
+    out: list[Path] = []
+    for raw_path in paths:
+        p = resolve_project_path(project_yaml, raw_path)
+        if not p.exists() or not p.is_dir():
+            raise FileNotFoundError(f"ingests dir not found: {p}")
+        out.append(p)
+    return out
 
 
 def sources_dir(project_yaml: Path) -> Path:
+    return sources_dirs(project_yaml)[0]
+
+
+def sources_dirs(project_yaml: Path) -> list[Path]:
     cfg = read_project(project_yaml)
-    p = resolve_project_path(project_yaml, cfg.paths.sources)
-    if not p.exists() or not p.is_dir():
-        raise FileNotFoundError(f"sources dir not found: {p}")
-    return p
+    paths = (
+        cfg.paths.sources
+        if isinstance(cfg.paths.sources, list)
+        else [cfg.paths.sources]
+    )
+    out: list[Path] = []
+    for raw_path in paths:
+        p = resolve_project_path(project_yaml, raw_path)
+        if not p.exists() or not p.is_dir():
+            raise FileNotFoundError(f"sources dir not found: {p}")
+        out.append(p)
+    return out
 
 
 def tasks_dir(project_yaml: Path) -> Path:
@@ -66,7 +124,8 @@ def ensure_project_scaffold(project_yaml: Path) -> None:
             "version: 1\n"
             "name: default\n"
             "paths:\n"
-            "  streams: ./contracts\n"
+            "  ingests: ./ingests\n"
+            "  streams: ./streams\n"
             "  sources: ./sources\n"
             "  dataset: dataset.yaml\n"
             "  postprocess: postprocess.yaml\n"
@@ -82,11 +141,32 @@ def ensure_project_scaffold(project_yaml: Path) -> None:
     # Ensure paths exist based on the (possibly newly created) project file
     try:
         cfg = read_project(project_yaml)
-        streams = resolve_project_path(project_yaml, cfg.paths.streams)
-        streams.mkdir(parents=True, exist_ok=True)
+        ingest_paths = (
+            cfg.paths.ingests
+            if isinstance(cfg.paths.ingests, list)
+            else [cfg.paths.ingests]
+        )
+        for raw_ingest_path in ingest_paths:
+            ingests = resolve_project_path(project_yaml, raw_ingest_path)
+            ingests.mkdir(parents=True, exist_ok=True)
 
-        sources = resolve_project_path(project_yaml, cfg.paths.sources)
-        sources.mkdir(parents=True, exist_ok=True)
+        stream_paths = (
+            cfg.paths.streams
+            if isinstance(cfg.paths.streams, list)
+            else [cfg.paths.streams]
+        )
+        for raw_stream_path in stream_paths:
+            streams = resolve_project_path(project_yaml, raw_stream_path)
+            streams.mkdir(parents=True, exist_ok=True)
+
+        source_paths = (
+            cfg.paths.sources
+            if isinstance(cfg.paths.sources, list)
+            else [cfg.paths.sources]
+        )
+        for raw_source_path in source_paths:
+            sources = resolve_project_path(project_yaml, raw_source_path)
+            sources.mkdir(parents=True, exist_ok=True)
 
         tasks = getattr(cfg.paths, "tasks", None)
         if tasks:
@@ -99,6 +179,9 @@ def ensure_project_scaffold(project_yaml: Path) -> None:
             else resolve_project_path(project_yaml, "./profiles")
         )
         profiles_path.mkdir(parents=True, exist_ok=True)
+        dotenv_example = project_yaml.parent / ".env.example"
+        if not dotenv_example.exists():
+            dotenv_example.write_text(_DEFAULT_DOTENV_EXAMPLE, encoding="utf-8")
     except Exception:
         # If the file is malformed, leave it to callers to report; this helper
         # is best-effort to create a sensible starting point.

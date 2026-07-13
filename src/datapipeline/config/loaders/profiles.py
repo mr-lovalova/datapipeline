@@ -9,33 +9,78 @@ from datapipeline.config.profiles import (
     BuildProfileDefaults,
     InspectProfile,
     InspectProfileDefaults,
+    MaterializeProfile,
+    MaterializeProfileDefaults,
     Profile,
     ProfileDefaults,
     ServeProfile,
     ServeProfileDefaults,
 )
+from datapipeline.services.config_refs import (
+    interpolate_config_vars,
+    project_vars_from_data,
+    resolve_config_refs,
+)
 from datapipeline.services.project_paths import profiles_dir
 from datapipeline.utils.load import load_yaml
 
-from .common import ensure_unique_specs, load_specs, spec_files
+from .common import ensure_unique_specs, spec_files
 
 ProfileModel = Annotated[
-    ServeProfile | BuildProfile | InspectProfile,
+    ServeProfile | BuildProfile | InspectProfile | MaterializeProfile,
     Field(discriminator="cmd"),
 ]
 
-PROFILE_ADAPTER = TypeAdapter(ProfileModel)
-PROFILE_KIND_PREFIXES = {"serve", "build", "inspect"}
-ProfileCmd = Literal["serve", "build", "inspect"]
+ProfileCmd = Literal["serve", "build", "inspect", "materialize"]
+PROFILE_KINDS: tuple[ProfileCmd, ...] = (
+    "serve",
+    "build",
+    "inspect",
+    "materialize",
+)
+PROFILE_ADAPTER: TypeAdapter[ProfileModel] = TypeAdapter(ProfileModel)
+PROFILE_KIND_PREFIXES = set(PROFILE_KINDS)
 ProfileDefaultsModel = Annotated[
-    ServeProfileDefaults | BuildProfileDefaults | InspectProfileDefaults,
+    ServeProfileDefaults
+    | BuildProfileDefaults
+    | InspectProfileDefaults
+    | MaterializeProfileDefaults,
     Field(discriminator="cmd"),
 ]
-PROFILE_DEFAULTS_ADAPTER = TypeAdapter(ProfileDefaultsModel)
+PROFILE_DEFAULTS_ADAPTER: TypeAdapter[ProfileDefaultsModel] = TypeAdapter(
+    ProfileDefaultsModel
+)
 
 
 def _load_profile_entry(entry: dict) -> Profile:
     return PROFILE_ADAPTER.validate_python(entry)
+
+
+def _project_vars(project_yaml: Path) -> dict:
+    data = resolve_config_refs(load_yaml(project_yaml), project_yaml=project_yaml)
+    return project_vars_from_data(data)
+
+
+def _load_profile_doc(path: Path, project_yaml: Path, vars_: dict):
+    doc = resolve_config_refs(load_yaml(path), project_yaml=project_yaml)
+    return interpolate_config_vars(doc, vars_)
+
+
+def _load_profile_specs_from_file(
+    path: Path,
+    project_yaml: Path,
+    vars_: dict,
+) -> list[Profile]:
+    doc = _load_profile_doc(path, project_yaml, vars_)
+    entries = doc if isinstance(doc, list) else [doc]
+    specs: list[Profile] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            raise TypeError(f"{path} must define mapping profiles.")
+        spec = _load_profile_entry(entry)
+        setattr(spec, "source_path", path)
+        specs.append(spec)
+    return specs
 
 
 def _profile_kind_from_filename(path: Path) -> str | None:
@@ -64,7 +109,7 @@ def _validate_profile_layout(root: Path) -> None:
         listed = ", ".join(str(path.relative_to(root)) for path in nested_files)
         raise ValueError(
             "Profile files must be flat under profiles/ using "
-            "{serve,build,inspect}.<name|defaults>.yaml naming; "
+            "{serve,build,inspect,materialize}.<name|defaults>.yaml naming; "
             f"found nested profile files: {listed}"
         )
 
@@ -75,7 +120,8 @@ def _validate_profile_layout(root: Path) -> None:
         return
     listed = ", ".join(str(path.relative_to(root)) for path in invalid)
     raise ValueError(
-        "Profile files must use {serve,build,inspect}.<name|defaults>.yaml naming under profiles/; "
+        "Profile files must use {serve,build,inspect,materialize}.<name|defaults>.yaml "
+        "naming under profiles/; "
         f"found invalid profile locations: {listed}"
     )
 
@@ -85,6 +131,7 @@ def _load_profile_specs(
 ) -> tuple[list[Profile], dict[str, ProfileDefaults]]:
     root = profiles_dir(project_yaml)
     _validate_profile_layout(root)
+    vars_ = _project_vars(project_yaml)
     specs: list[Profile] = []
     defaults_by_kind: dict[str, ProfileDefaults] = {}
     for path in sorted(root.glob("*.y*ml")):
@@ -92,7 +139,7 @@ def _load_profile_specs(
         if expected_kind is None:
             continue
         if _is_defaults_profile(path):
-            doc = load_yaml(path)
+            doc = _load_profile_doc(path, project_yaml, vars_)
             if not isinstance(doc, dict):
                 raise TypeError(f"{path} must define a mapping profile defaults.")
             defaults = PROFILE_DEFAULTS_ADAPTER.validate_python(doc)
@@ -111,7 +158,7 @@ def _load_profile_specs(
             setattr(defaults, "source_path", path)
             defaults_by_kind[expected_kind] = defaults
             continue
-        loaded = load_specs(path, _load_profile_entry)
+        loaded = _load_profile_specs_from_file(path, project_yaml, vars_)
         for spec in loaded:
             if spec.cmd != expected_kind:
                 raise ValueError(
@@ -131,65 +178,38 @@ def profile_specs(
         return profiles
 
     specs, _ = _load_profile_specs(project_yaml)
-    grouped: dict[str, list[Profile]] = {"serve": [], "build": [], "inspect": []}
-    for spec in specs:
-        grouped[spec.cmd].append(spec)
-
-    for kind, kind_specs in grouped.items():
-        grouped[kind] = _ordered_profiles(kind_specs)
-        ensure_unique_specs(
-            grouped[kind],
-            error_template=f"Duplicate {kind} profile names are not allowed: {{details}}",
-            key_fn=lambda spec: spec.name,
-        )
-
-    if cmd is not None:
-        return list(grouped[cmd])
-    return grouped["serve"] + grouped["build"] + grouped["inspect"]
+    grouped = _group_profiles(specs)
+    return [profile for kind in PROFILE_KINDS for profile in grouped[kind]]
 
 
 def profile_specs_with_defaults(
     project_yaml: Path,
     cmd: ProfileCmd,
-) -> tuple[list[Profile], ProfileDefaults | None]:
+) -> tuple[list[Profile], ProfileDefaults]:
     specs, defaults_by_kind = _load_profile_specs(project_yaml)
-    grouped: dict[str, list[Profile]] = {"serve": [], "build": [], "inspect": []}
-    for spec in specs:
-        grouped[spec.cmd].append(spec)
-
-    for kind, kind_specs in grouped.items():
-        grouped[kind] = _ordered_profiles(kind_specs)
-        ensure_unique_specs(
-            grouped[kind],
-            error_template=f"Duplicate {kind} profile names are not allowed: {{details}}",
-            key_fn=lambda spec: spec.name,
-        )
-    return list(grouped[cmd]), defaults_by_kind.get(cmd)
-
-
-def profile_defaults(
-    project_yaml: Path,
-    cmd: ProfileCmd,
-) -> ProfileDefaults | None:
-    _, defaults = profile_specs_with_defaults(project_yaml, cmd=cmd)
-    return defaults
+    grouped = _group_profiles(specs)
+    defaults = defaults_by_kind.get(cmd)
+    if defaults is None:
+        defaults = PROFILE_DEFAULTS_ADAPTER.validate_python({"cmd": cmd})
+    return list(grouped[cmd]), defaults
 
 
 def apply_profile_defaults(
     profile: Profile,
-    defaults: ProfileDefaults | None,
+    defaults: ProfileDefaults,
 ) -> Profile:
-    if defaults is None:
-        return profile
     if profile.cmd != defaults.cmd:
         raise ValueError(
             f"Cannot apply {defaults.cmd} defaults to {profile.cmd} profile '{profile.name}'."
         )
 
+    non_profile_fields = {"execution", "source_path"}
+    if isinstance(defaults, MaterializeProfileDefaults):
+        non_profile_fields.add("artifact_mode")
     defaults_payload = defaults.model_dump(
         exclude_unset=True,
         exclude_none=True,
-        exclude={"source_path"},
+        exclude=non_profile_fields,
     )
     profile_payload = profile.model_dump(
         exclude_unset=True,
@@ -234,9 +254,22 @@ def _ordered_profiles(specs: list[Profile]) -> list[Profile]:
     return ordered + unordered
 
 
+def _group_profiles(specs: list[Profile]) -> dict[str, list[Profile]]:
+    grouped: dict[str, list[Profile]] = {kind: [] for kind in PROFILE_KINDS}
+    for spec in specs:
+        grouped[spec.cmd].append(spec)
+    for kind, kind_specs in grouped.items():
+        grouped[kind] = _ordered_profiles(kind_specs)
+        ensure_unique_specs(
+            grouped[kind],
+            error_template=f"Duplicate {kind} profile names are not allowed: {{details}}",
+            key_fn=lambda spec: spec.name,
+        )
+    return grouped
+
+
 __all__ = [
     "apply_profile_defaults",
-    "profile_defaults",
     "profile_specs",
     "profile_specs_with_defaults",
 ]

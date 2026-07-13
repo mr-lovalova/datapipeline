@@ -1,8 +1,13 @@
 from collections import Counter, OrderedDict
+from collections.abc import Sequence
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
+from datapipeline.artifacts.models import VectorSchemaCadence, VectorSchemaEntry
+from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.dag.context import PipelineContext
+from datapipeline.dag.runner import resolve_heartbeat_interval_seconds
+from datapipeline.execution.observability import OperationProgressTracker
 from datapipeline.pipelines import build_vector_pipeline
 from datapipeline.runtime import Runtime
 from datapipeline.transforms.vector_utils import base_id as _base_feature_id
@@ -17,15 +22,65 @@ def _type_name(value: object) -> str:
 
 def collect_schema_entries(
     runtime: Runtime,
-    configs,
+    configs: Sequence[FeatureRecordConfig],
     group_by: str,
     *,
-    cadence_strategy: str,
+    sample_keys: Sequence[str] = (),
     collect_metadata: bool,
-) -> tuple[list[dict], int, datetime | None, datetime | None]:
-    configs = list(configs or [])
+    progress_step: str,
+) -> tuple[list[dict], int]:
+    entries, vector_count, _ = _collect_schema_entries(
+        runtime,
+        configs,
+        group_by,
+        sample_keys=sample_keys,
+        collect_metadata=collect_metadata,
+        collect_sample_domain=False,
+        progress_step=progress_step,
+    )
+    return entries, vector_count
+
+
+def collect_schema_entries_and_sample_domain(
+    runtime: Runtime,
+    configs: Sequence[FeatureRecordConfig],
+    group_by: str,
+    *,
+    sample_keys: Sequence[str],
+    collect_metadata: bool,
+    progress_step: str,
+) -> tuple[
+    list[dict],
+    int,
+    dict[tuple, tuple[datetime, datetime]],
+]:
+    return _collect_schema_entries(
+        runtime,
+        configs,
+        group_by,
+        sample_keys=sample_keys,
+        collect_metadata=collect_metadata,
+        collect_sample_domain=True,
+        progress_step=progress_step,
+    )
+
+
+def _collect_schema_entries(
+    runtime: Runtime,
+    configs: Sequence[FeatureRecordConfig],
+    group_by: str,
+    *,
+    sample_keys: Sequence[str],
+    collect_metadata: bool,
+    collect_sample_domain: bool,
+    progress_step: str,
+) -> tuple[
+    list[dict],
+    int,
+    dict[tuple, tuple[datetime, datetime]],
+]:
     if not configs:
-        return [], 0, None, None
+        return [], 0, {}
     sanitized = [cfg.model_copy(update={"scale": False}) for cfg in configs]
     context = PipelineContext(runtime)
     vectors = build_vector_pipeline(
@@ -33,22 +88,24 @@ def collect_schema_entries(
         sanitized,
         group_by,
         rectangular=False,
+        sample_keys=sample_keys,
     )
 
     stats: OrderedDict[str, dict] = OrderedDict()
+    sample_domain: dict[tuple, tuple[datetime, datetime]] = {}
     vector_count = 0
-    min_time: datetime | None = None
-    max_time: datetime | None = None
+    progress = OperationProgressTracker(
+        progress_step,
+        resolve_heartbeat_interval_seconds(runtime.heartbeat_interval_seconds),
+    )
     for sample in vectors:
         vector_count += 1
         ts = sample.key[0] if isinstance(sample.key, tuple) and sample.key else None
-        if isinstance(ts, datetime):
-            min_time = ts if min_time is None else min(min_time, ts)
-            max_time = ts if max_time is None else max(max_time, ts)
-        payload = sample.features
-        for fid, value in payload.values.items():
+        if collect_sample_domain and sample_keys and isinstance(ts, datetime):
+            _update_sample_domain(sample_domain, sample.key, ts)
+        for fid, value in sample.features.values.items():
             entry = stats.get(fid)
-            if not entry:
+            if entry is None:
                 entry = stats[fid] = {
                     "id": fid,
                     "base_id": _base_feature_id(fid),
@@ -77,17 +134,21 @@ def collect_schema_entries(
             if isinstance(value, list):
                 entry["kind"] = "list"
                 length = len(value)
-                entry["min_length"] = length if entry["min_length"] is None else min(
-                    entry["min_length"], length
+                entry["min_length"] = (
+                    length
+                    if entry["min_length"] is None
+                    else min(entry["min_length"], length)
                 )
-                entry["max_length"] = length if entry["max_length"] is None else max(
-                    entry["max_length"], length
+                entry["max_length"] = (
+                    length
+                    if entry["max_length"] is None
+                    else max(entry["max_length"], length)
                 )
                 if collect_metadata:
                     entry["lengths"][length] += 1
-                    entry["observed_elements"] = entry.get("observed_elements", 0) + sum(
-                        1 for v in value if not is_missing(v)
-                    )
+                    entry["observed_elements"] = entry.get(
+                        "observed_elements", 0
+                    ) + sum(1 for v in value if not is_missing(v))
                     if not value:
                         entry["element_types"].add("empty")
                     else:
@@ -97,33 +158,59 @@ def collect_schema_entries(
                     entry["kind"] = "scalar"
                 if collect_metadata:
                     entry["scalar_types"].add(_type_name(value))
+        progress.advance()
 
-    return list(stats.values()), vector_count, min_time, max_time
+    return list(stats.values()), vector_count, sample_domain
 
 
-def _resolve_cadence_target(stats: dict, strategy: str) -> int | None:
-    if strategy == "max":
-        max_len = stats.get("max_length")
-        if isinstance(max_len, (int, float)) and max_len > 0:
-            return int(max_len)
+def _update_sample_domain(
+    sample_domain: dict[tuple, tuple[datetime, datetime]],
+    group_key: Any,
+    ts: datetime,
+) -> None:
+    if not isinstance(group_key, tuple) or len(group_key) < 2:
+        return
+    key_values = tuple(group_key[1:])
+    current = sample_domain.get(key_values)
+    if current is None:
+        sample_domain[key_values] = (ts, ts)
+        return
+    start, end = current
+    sample_domain[key_values] = min(start, ts), max(end, ts)
+
+
+def configured_vectors_are_empty(
+    configs: Sequence[FeatureRecordConfig],
+    vector_count: int,
+) -> bool:
+    return bool(configs) and vector_count == 0
+
+
+def _resolve_cadence_target(stats: dict) -> int | None:
+    max_len = stats.get("max_length")
+    if isinstance(max_len, (int, float)) and max_len > 0:
+        return int(max_len)
     return None
 
 
-def schema_entries_from_stats(entries: list[dict], cadence_strategy: str) -> list[dict]:
-    doc: list[dict] = []
+def schema_entries_from_stats(
+    entries: list[dict],
+) -> tuple[VectorSchemaEntry, ...]:
+    schema_entries: list[VectorSchemaEntry] = []
     for entry in entries:
-        kind = entry.get("kind") or "scalar"
-        item = {
-            "id": entry["id"],
-            "base_id": entry["base_id"],
-            "kind": kind,
-        }
+        raw_kind = entry["kind"]
+        if raw_kind not in {None, "scalar", "list"}:
+            raise ValueError(f"Unknown vector schema kind: {raw_kind!r}")
+        kind: Literal["scalar", "list"] = "list" if raw_kind == "list" else "scalar"
+        cadence: VectorSchemaCadence | None = None
         if kind == "list":
-            target = _resolve_cadence_target(entry, cadence_strategy)
+            target = _resolve_cadence_target(entry)
             if target is not None:
-                item["cadence"] = {"strategy": cadence_strategy, "target": target}
-        doc.append(item)
-    return doc
+                cadence = VectorSchemaCadence(target=target)
+        schema_entries.append(
+            VectorSchemaEntry(id=entry["id"], kind=kind, cadence=cadence)
+        )
+    return tuple(schema_entries)
 
 
 def _to_iso(ts: datetime | None) -> str | None:
@@ -135,7 +222,7 @@ def _to_iso(ts: datetime | None) -> str | None:
     return None
 
 
-def metadata_entries_from_stats(entries: list[dict], cadence_strategy: str) -> list[dict]:
+def metadata_entries_from_stats(entries: list[dict]) -> list[dict]:
     meta_entries: list[dict] = []
     for entry in entries:
         kind = entry.get("kind") or "scalar"
@@ -155,10 +242,12 @@ def metadata_entries_from_stats(entries: list[dict], cadence_strategy: str) -> l
         if kind == "list":
             item["element_types"] = sorted(entry.get("element_types", []))
             lengths = entry.get("lengths") or {}
-            item["lengths"] = {str(length): count for length, count in sorted(lengths.items())}
-            target = _resolve_cadence_target(entry, cadence_strategy)
+            item["lengths"] = {
+                str(length): count for length, count in sorted(lengths.items())
+            }
+            target = _resolve_cadence_target(entry)
             if target is not None:
-                item["cadence"] = {"strategy": cadence_strategy, "target": target}
+                item["cadence"] = {"target": target}
             if "observed_elements" in entry:
                 item["observed_elements"] = int(entry.get("observed_elements", 0))
         else:

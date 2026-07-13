@@ -1,19 +1,19 @@
 from datetime import datetime, timezone
 import math
-import json
 from pathlib import Path
 
+from datapipeline.config.execution import ExecutionConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig
+from datapipeline.domain.feature import FeatureRecordSequence
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.dag.context import PipelineContext
+from datapipeline.pipelines.feature.dag import build_feature_pipeline
 from datapipeline.pipelines import build_vector_pipeline
-from datapipeline.runtime import Runtime
-from datapipeline.services.constants import SCALER_STATISTICS, VECTOR_SCHEMA
-from datapipeline.transforms.feature.scaler import StandardScaler
-from datapipeline.transforms.vector import (
-    VectorDropTransform,
-    VectorFillTransform,
-)
+from datapipeline.runtime import Runtime, StreamRuntimeSpec
+from datapipeline.services.constants import SCALER_STATISTICS
+from datapipeline.transforms.feature.scaler import StandardScalerAccumulator
+from datapipeline.transforms.spec import TransformSpec
+from tests.vector_input_helpers import register_vector_inputs
 
 
 def _ts(hour: int, minute: int = 0) -> datetime:
@@ -53,12 +53,16 @@ class _StubSource:
 def _runtime_with_streams(
     tmp_path: Path,
     streams: dict[str, list[TemporalRecord]],
-    stream_transforms: dict[str, list[dict[str, object]]] | None = None,
+    stream_transforms: dict[str, list[TransformSpec]] | None = None,
 ) -> Runtime:
     project_yaml = tmp_path / "project.yaml"
     artifacts_root = tmp_path / "artifacts"
     artifacts_root.mkdir(parents=True, exist_ok=True)
-    runtime = Runtime(project_yaml=project_yaml, artifacts_root=artifacts_root)
+    runtime = Runtime(
+        project_yaml=project_yaml,
+        artifacts_root=artifacts_root,
+        execution=ExecutionConfig(),
+    )
 
     regs = runtime.registries
     stream_transforms = stream_transforms or {}
@@ -66,13 +70,14 @@ def _runtime_with_streams(
     end_time: datetime | None = None
     for alias, rows in streams.items():
         regs.stream_sources.register(alias, _StubSource(rows))
+        regs.stream_specs.register(alias, StreamRuntimeSpec(pipeline="stream"))
         regs.mappers.register(alias, _identity)
         regs.record_operations.register(alias, [])
-        regs.stream_operations.register(
-            alias, stream_transforms.get(alias, []))
+        regs.stream_operations.register(alias, stream_transforms.get(alias, []))
         regs.debug_operations.register(alias, [])
         regs.partition_by.register(alias, None)
-        regs.sort_batch_size.register(alias, 1024)
+        regs.feature_id_by.register(alias, None)
+        regs.presorted.register(alias, False)
         for rec in rows:
             ts = getattr(rec, "time", None)
             if isinstance(ts, datetime):
@@ -83,33 +88,40 @@ def _runtime_with_streams(
     return runtime
 
 
-def _register_scaler(runtime: Runtime, configs: list[FeatureRecordConfig], group_by: str) -> None:
+def _register_scaler(
+    runtime: Runtime, configs: list[FeatureRecordConfig], group_by: str
+) -> None:
     sanitized = [cfg.model_copy(update={"scale": False}) for cfg in configs]
     context = PipelineContext(runtime)
-    vectors = build_vector_pipeline(context, sanitized, group_by)
-
-    scaler = StandardScaler()
-    total = scaler.fit(vectors)
+    accumulator = StandardScalerAccumulator()
+    total = 0
+    for cfg in sanitized:
+        stream = build_feature_pipeline(
+            context,
+            cfg,
+            group_by_cadence=group_by,
+        )
+        try:
+            for item in stream:
+                value = (
+                    list(item.values)
+                    if isinstance(item, FeatureRecordSequence)
+                    else item.value
+                )
+                total += accumulator.observe({item.id: value})
+        finally:
+            closer = getattr(stream, "close", None)
+            if callable(closer):
+                closer()
     if not total:
-        raise RuntimeError(
-            "Unable to compute scaler statistics for test runtime.")
+        raise RuntimeError("Unable to compute scaler statistics for test runtime.")
+    scaler = accumulator.to_scaler()
 
     destination = runtime.artifacts_root / "scaler.json"
     scaler.save(destination)
     runtime.artifacts.register(
         SCALER_STATISTICS,
-        relative_path=destination.relative_to(
-            runtime.artifacts_root).as_posix(),
-    )
-
-
-def _register_partitioned_ids(runtime: Runtime, ids: list[str]) -> None:
-    schema_path = runtime.artifacts_root / "schema.json"
-    schema_doc = {"features": [{"id": fid} for fid in ids], "targets": []}
-    schema_path.write_text(json.dumps(schema_doc, indent=2), encoding="utf-8")
-    runtime.artifacts.register(
-        VECTOR_SCHEMA,
-        relative_path=schema_path.relative_to(runtime.artifacts_root).as_posix(),
+        relative_path=destination.relative_to(runtime.artifacts_root).as_posix(),
     )
 
 
@@ -130,10 +142,10 @@ def test_vector_targets_respect_partitioned_ids(tmp_path) -> None:
         ],
     }
     runtime = _runtime_with_streams(tmp_path, streams)
-    runtime.registries.partition_by.register(
-        "wind_speed_stream", "municipality")
-    runtime.registries.partition_by.register(
-        "wind_production_stream", "municipality")
+    runtime.registries.partition_by.register("wind_speed_stream", "municipality")
+    runtime.registries.partition_by.register("wind_production_stream", "municipality")
+    runtime.registries.feature_id_by.register("wind_speed_stream", "municipality")
+    runtime.registries.feature_id_by.register("wind_production_stream", "municipality")
 
     context = PipelineContext(runtime)
     feature_cfgs = [
@@ -150,11 +162,10 @@ def test_vector_targets_respect_partitioned_ids(tmp_path) -> None:
             field="value",
         ),
     ]
+    register_vector_inputs(runtime, feature_cfgs, "1h", targets=target_cfgs)
 
     samples = list(
-        build_vector_pipeline(
-            context, feature_cfgs, "1h", target_configs=target_cfgs
-        )
+        build_vector_pipeline(context, feature_cfgs, "1h", target_configs=target_cfgs)
     )
 
     assert len(samples) == 1
@@ -164,13 +175,313 @@ def test_vector_targets_respect_partitioned_ids(tmp_path) -> None:
         "wind_production__@municipality:06019",
         "wind_production__@municipality:06030",
     }
-    assert all(
-        not key.startswith("wind_production")
-        for key in sample.features.keys()
+    assert all(not key.startswith("wind_production") for key in sample.features.keys())
+
+
+def test_vector_samples_can_group_by_record_key_fields(tmp_path) -> None:
+    def _equity_record(hour: int, security_id: str, value: float) -> TemporalRecord:
+        rec = _record(_ts(hour), value)
+        setattr(rec, "security_id", security_id)
+        return rec
+
+    streams = {
+        "momentum_stream": [
+            _equity_record(0, "MSFT", 2.0),
+            _equity_record(0, "AAPL", 1.0),
+            _equity_record(1, "AAPL", 3.0),
+        ],
+        "return_stream": [
+            _equity_record(0, "AAPL", 0.1),
+            _equity_record(0, "MSFT", 0.2),
+            _equity_record(1, "AAPL", 0.3),
+        ],
+    }
+    runtime = _runtime_with_streams(tmp_path, streams)
+    context = PipelineContext(runtime)
+    feature_cfgs = [
+        FeatureRecordConfig(
+            record_stream="momentum_stream",
+            id="momentum",
+            field="value",
+        ),
+    ]
+    target_cfgs = [
+        FeatureRecordConfig(
+            record_stream="return_stream",
+            id="forward_return",
+            field="value",
+        ),
+    ]
+    register_vector_inputs(
+        runtime,
+        feature_cfgs,
+        "1h",
+        targets=target_cfgs,
+        sample_keys=["security_id"],
     )
 
+    samples = list(
+        build_vector_pipeline(
+            context,
+            feature_cfgs,
+            "1h",
+            target_configs=target_cfgs,
+            rectangular=False,
+            sample_keys=["security_id"],
+        )
+    )
 
-def test_regression_scaled_shapes_airpressure_high_freq_and_windspeed_hourly(tmp_path) -> None:
+    assert [sample.key for sample in samples] == [
+        (_ts(0), "AAPL"),
+        (_ts(0), "MSFT"),
+        (_ts(1), "AAPL"),
+    ]
+    assert [sample.features.values["momentum"] for sample in samples] == [
+        1.0,
+        2.0,
+        3.0,
+    ]
+    assert [sample.targets.values["forward_return"] for sample in samples] == [
+        0.1,
+        0.2,
+        0.3,
+    ]
+
+
+def test_vector_samples_keep_entity_buckets_contiguous(tmp_path) -> None:
+    def _equity_record(hour: int, security_id: str, value: float) -> TemporalRecord:
+        rec = _record(_ts(hour), value)
+        setattr(rec, "security_id", security_id)
+        return rec
+
+    streams = {
+        "momentum_stream": [
+            _equity_record(0, "AAPL", 1.0),
+            _equity_record(0, "MSFT", 10.0),
+            _equity_record(1, "AAPL", 2.0),
+            _equity_record(1, "MSFT", 20.0),
+        ],
+        "volume_stream": [
+            _equity_record(0, "AAPL", 100.0),
+            _equity_record(0, "MSFT", 1000.0),
+            _equity_record(1, "AAPL", 200.0),
+            _equity_record(1, "MSFT", 2000.0),
+        ],
+    }
+    runtime = _runtime_with_streams(tmp_path, streams)
+    context = PipelineContext(runtime)
+    feature_cfgs = [
+        FeatureRecordConfig(
+            record_stream="momentum_stream",
+            id="momentum",
+            field="value",
+        ),
+        FeatureRecordConfig(
+            record_stream="volume_stream",
+            id="volume",
+            field="value",
+        ),
+    ]
+    register_vector_inputs(
+        runtime,
+        feature_cfgs,
+        "1d",
+        sample_keys=["security_id"],
+    )
+
+    samples = list(
+        build_vector_pipeline(
+            context,
+            feature_cfgs,
+            "1d",
+            rectangular=False,
+            sample_keys=["security_id"],
+        )
+    )
+
+    assert [sample.key for sample in samples] == [
+        (_ts(0), "AAPL"),
+        (_ts(0), "MSFT"),
+    ]
+    assert [sample.features.values for sample in samples] == [
+        {"momentum": [1.0, 2.0], "volume": [100.0, 200.0]},
+        {"momentum": [10.0, 20.0], "volume": [1000.0, 2000.0]},
+    ]
+
+
+def test_sequence_features_are_windowed_by_sample_keys(tmp_path) -> None:
+    def _equity_record(hour: int, security_id: str, value: float) -> TemporalRecord:
+        rec = _record(_ts(hour), value)
+        setattr(rec, "security_id", security_id)
+        return rec
+
+    streams = {
+        "monthly_returns": [
+            _equity_record(0, "AAPL", 1.0),
+            _equity_record(0, "MSFT", 10.0),
+            _equity_record(1, "AAPL", 2.0),
+            _equity_record(1, "MSFT", 20.0),
+        ],
+    }
+    runtime = _runtime_with_streams(tmp_path, streams)
+    context = PipelineContext(runtime)
+    feature_cfgs = [
+        FeatureRecordConfig(
+            record_stream="monthly_returns",
+            id="monthly_return",
+            field="value",
+            sequence={"size": 2, "stride": 1},
+        ),
+    ]
+    register_vector_inputs(
+        runtime,
+        feature_cfgs,
+        "1h",
+        sample_keys=["security_id"],
+    )
+
+    samples = list(
+        build_vector_pipeline(
+            context,
+            feature_cfgs,
+            "1h",
+            rectangular=False,
+            sample_keys=["security_id"],
+        )
+    )
+
+    assert [sample.key for sample in samples] == [
+        (_ts(1), "AAPL"),
+        (_ts(1), "MSFT"),
+    ]
+    assert [sample.features.values for sample in samples] == [
+        {"monthly_return": [1.0, 2.0]},
+        {"monthly_return": [10.0, 20.0]},
+    ]
+
+
+def test_feature_id_by_controls_partitioned_feature_identity(tmp_path) -> None:
+    def _equity_record(hour: int, security_id: str, value: float) -> TemporalRecord:
+        rec = _record(_ts(hour), value)
+        setattr(rec, "security_id", security_id)
+        return rec
+
+    streams = {
+        "monthly_returns": [
+            _equity_record(0, "AAPL", 1.0),
+            _equity_record(1, "AAPL", 2.0),
+        ],
+    }
+    runtime = _runtime_with_streams(tmp_path, streams)
+    runtime.registries.partition_by.register("monthly_returns", "security_id")
+    runtime.registries.feature_id_by.register("monthly_returns", "security_id")
+    context = PipelineContext(runtime)
+    feature_cfgs = [
+        FeatureRecordConfig(
+            record_stream="monthly_returns",
+            id="monthly_return",
+            field="value",
+            sequence={"size": 2, "stride": 1},
+        ),
+    ]
+    register_vector_inputs(
+        runtime,
+        feature_cfgs,
+        "1h",
+        sample_keys=["security_id"],
+    )
+
+    samples = list(
+        build_vector_pipeline(
+            context,
+            feature_cfgs,
+            "1h",
+            rectangular=False,
+            sample_keys=["security_id"],
+        )
+    )
+
+    assert samples[0].key == (_ts(1), "AAPL")
+    assert samples[0].features.values == {
+        "monthly_return__@security_id:AAPL": [1.0, 2.0],
+    }
+
+
+def test_stream_transforms_use_explicit_stream_partition(tmp_path) -> None:
+    def _equity_record(hour: int, security_id: str, value: float) -> TemporalRecord:
+        rec = _record(_ts(hour), value)
+        setattr(rec, "security_id", security_id)
+        return rec
+
+    streams = {
+        "daily_prices": [
+            _equity_record(0, "AAPL", 10.0),
+            _equity_record(0, "MSFT", 100.0),
+            _equity_record(1, "AAPL", 20.0),
+            _equity_record(1, "MSFT", 200.0),
+        ],
+    }
+    runtime = _runtime_with_streams(
+        tmp_path,
+        streams,
+        stream_transforms={
+            "daily_prices": [
+                TransformSpec(
+                    name="rolling",
+                    params={
+                        "field": "value",
+                        "to": "value_mean_2",
+                        "window": 2,
+                        "min_samples": 2,
+                    },
+                )
+            ]
+        },
+    )
+    runtime.registries.partition_by.register("daily_prices", "security_id")
+    runtime.registries.feature_id_by.register("daily_prices", [])
+    context = PipelineContext(runtime)
+    feature_cfgs = [
+        FeatureRecordConfig(
+            record_stream="daily_prices",
+            id="value_mean_2",
+            field="value_mean_2",
+        ),
+    ]
+    register_vector_inputs(
+        runtime,
+        feature_cfgs,
+        "1h",
+        sample_keys=["security_id"],
+    )
+
+    samples = list(
+        build_vector_pipeline(
+            context,
+            feature_cfgs,
+            "1h",
+            rectangular=False,
+            sample_keys=["security_id"],
+        )
+    )
+
+    assert [sample.key for sample in samples] == [
+        (_ts(0), "AAPL"),
+        (_ts(0), "MSFT"),
+        (_ts(1), "AAPL"),
+        (_ts(1), "MSFT"),
+    ]
+    assert [sample.features.values for sample in samples] == [
+        {"value_mean_2": None},
+        {"value_mean_2": None},
+        {"value_mean_2": 15.0},
+        {"value_mean_2": 150.0},
+    ]
+
+
+def test_regression_scaled_shapes_airpressure_high_freq_and_windspeed_hourly(
+    tmp_path,
+) -> None:
     # Fake raw streams
     # high-frequency mock series (multiple samples per hour)
     high_freq_raw = [
@@ -209,6 +520,7 @@ def test_regression_scaled_shapes_airpressure_high_freq_and_windspeed_hourly(tmp
     ]
 
     _register_scaler(runtime, configs, group_by)
+    register_vector_inputs(runtime, configs, group_by)
     context = PipelineContext(runtime)
 
     out = list(build_vector_pipeline(context, configs, group_by))
@@ -220,10 +532,8 @@ def test_regression_scaled_shapes_airpressure_high_freq_and_windspeed_hourly(tmp
     v0 = out[0].features.values
     v1 = out[1].features.values
 
-    assert isinstance(v0["air_pressure"], list) and len(
-        v0["air_pressure"]) == 3
-    assert isinstance(v1["air_pressure"], list) and len(
-        v1["air_pressure"]) == 2
+    assert isinstance(v0["air_pressure"], list) and len(v0["air_pressure"]) == 3
+    assert isinstance(v1["air_pressure"], list) and len(v1["air_pressure"]) == 2
     assert not isinstance(v0["wind_speed"], list)
     assert not isinstance(v1["wind_speed"], list)
 
@@ -257,29 +567,32 @@ def test_regression_fill_then_scale_with_missing_values(tmp_path) -> None:
     # Fill then scale for both features
     stream_transforms = {
         "ap": [
-            {
-                "fill": {
+            TransformSpec(
+                name="fill",
+                params={
                     "field": "value",
-                    "statistic": "median",
+                    "method": "median",
                     "window": 10,
                     "min_samples": 1,
-                }
-            },
+                },
+            ),
         ],
         "ws": [
-            {
-                "fill": {
+            TransformSpec(
+                name="fill",
+                params={
                     "field": "value",
-                    "statistic": "mean",
+                    "method": "mean",
                     "window": 10,
                     "min_samples": 1,
-                }
-            },
+                },
+            ),
         ],
     }
 
-    runtime = _runtime_with_streams(tmp_path, streams,
-                                    stream_transforms=stream_transforms)
+    runtime = _runtime_with_streams(
+        tmp_path, streams, stream_transforms=stream_transforms
+    )
 
     configs = [
         FeatureRecordConfig(
@@ -297,6 +610,7 @@ def test_regression_fill_then_scale_with_missing_values(tmp_path) -> None:
     ]
 
     _register_scaler(runtime, configs, group_by)
+    register_vector_inputs(runtime, configs, group_by)
     context = PipelineContext(runtime)
     out = list(build_vector_pipeline(context, configs, group_by))
 
@@ -305,10 +619,8 @@ def test_regression_fill_then_scale_with_missing_values(tmp_path) -> None:
 
     v0 = out[0].features.values
     # air_pressure list length = 3 with middle filled (not None)
-    assert isinstance(v0["air_pressure"], list) and len(
-        v0["air_pressure"]) == 3
-    assert all(isinstance(x, float)
-               for x in v0["air_pressure"])  # filled and scaled
+    assert isinstance(v0["air_pressure"], list) and len(v0["air_pressure"]) == 3
+    assert all(isinstance(x, float) for x in v0["air_pressure"])  # filled and scaled
 
     # wind_speed hour 0 present and scaled; hour 1 present due to fill then scale
     v1 = out[1].features.values

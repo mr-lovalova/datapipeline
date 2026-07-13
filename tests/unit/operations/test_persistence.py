@@ -1,0 +1,311 @@
+import json
+import logging
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+import datapipeline.operations.persistence as persistence
+from datapipeline.cli.visuals.execution import (
+    ExecutionEventSink,
+    make_operation_observer,
+)
+from datapipeline.cli.visuals.execution_context import (
+    reset_current_execution_event_sink,
+    set_current_execution_event_sink,
+)
+from datapipeline.execution.observability import (
+    FileResult,
+    operation_observer,
+    operation_scope,
+)
+from datapipeline.io.output import OutputTarget
+from datapipeline.operations.persistence import (
+    ArtifactOutput,
+    RuntimeOutput,
+    SplitRuntimeOutput,
+    persist_artifact_output,
+    persist_runtime_result,
+)
+from datapipeline.services.artifacts import ArtifactManager
+
+
+class _CaptureSink(ExecutionEventSink):
+    def __init__(self) -> None:
+        self.events = []
+
+    def emit(self, event) -> None:
+        self.events.append(event)
+
+
+def test_persist_artifact_output_requires_declared_existing_file(tmp_path) -> None:
+    runtime = SimpleNamespace(
+        artifacts_root=tmp_path,
+        artifacts=ArtifactManager(tmp_path),
+    )
+
+    with pytest.raises(ValueError, match="but its task declares"):
+        persist_artifact_output(
+            ArtifactOutput(relative_path="other.json"),
+            artifact_key="snapshot",
+            expected_relative_path="snapshot.json",
+            runtime=runtime,
+        )
+
+    with pytest.raises(RuntimeError, match="did not create its declared output"):
+        persist_artifact_output(
+            ArtifactOutput(relative_path="snapshot.json"),
+            artifact_key="snapshot",
+            expected_relative_path="snapshot.json",
+            runtime=runtime,
+        )
+
+
+def test_persist_artifact_output_registers_declared_file(tmp_path) -> None:
+    output = tmp_path / "snapshot.json"
+    output.write_text("{}", encoding="utf-8")
+    runtime = SimpleNamespace(
+        artifacts_root=tmp_path,
+        artifacts=ArtifactManager(tmp_path),
+    )
+
+    info = persist_artifact_output(
+        ArtifactOutput(relative_path="snapshot.json", meta={"rows": 1}),
+        artifact_key="snapshot",
+        expected_relative_path="snapshot.json",
+        runtime=runtime,
+    )
+
+    assert info is not None
+    assert info.relative_path == "snapshot.json"
+    assert runtime.artifacts.has("snapshot")
+
+
+def test_failed_runtime_write_preserves_existing_file(tmp_path) -> None:
+    destination = tmp_path / "out.jsonl"
+    destination.write_text("previous\n", encoding="utf-8")
+
+    def rows():
+        yield {"value": 1}
+        raise RuntimeError("boom")
+
+    target = OutputTarget(
+        transport="fs",
+        format="jsonl",
+        view="raw",
+        encoding="utf-8",
+        destination=destination,
+    )
+
+    with pytest.raises(RuntimeError, match="boom"):
+        persist_runtime_result(
+            RuntimeOutput(rows=rows()),
+            target=target,
+            logger=logging.getLogger(__name__),
+        )
+
+    assert destination.read_text(encoding="utf-8") == "previous\n"
+
+
+def test_runtime_persistence_emits_flat_output(tmp_path) -> None:
+    destination = tmp_path / "out.jsonl"
+    target = OutputTarget(
+        transport="fs",
+        format="jsonl",
+        view="raw",
+        encoding="utf-8",
+        destination=destination,
+    )
+    capture = _CaptureSink()
+    token = set_current_execution_event_sink(capture)
+    try:
+        logger = logging.getLogger(__name__)
+        observer = make_operation_observer(logger)
+        with operation_observer(observer):
+            with operation_scope("serve:train"):
+                persist_runtime_result(
+                    RuntimeOutput(rows=iter([{"value": 1}])),
+                    target=target,
+                    heartbeat_interval_seconds=0,
+                    logger=logger,
+                )
+    finally:
+        reset_current_execution_event_sink(token)
+
+    outputs = [event for event in capture.events if isinstance(event, FileResult)]
+    assert len(outputs) == 1
+    assert outputs[0].label == "Output"
+    assert outputs[0].path == destination
+
+
+def test_runtime_payload_emits_output_path(monkeypatch, tmp_path) -> None:
+    destination = tmp_path / "coverage.json"
+    results: list[tuple[str, Path]] = []
+    monkeypatch.setattr(
+        persistence,
+        "emit_file_result",
+        lambda label, path: results.append((label, path)),
+    )
+
+    persist_runtime_result(
+        RuntimeOutput(payload={"covered": True}),
+        target=OutputTarget(
+            transport="fs",
+            format="jsonl",
+            view="raw",
+            encoding="utf-8",
+            destination=destination,
+        ),
+        logger=logging.getLogger(__name__),
+    )
+
+    assert results == [("Output", destination)]
+
+
+def test_runtime_persistence_reports_stdout(capsys, caplog) -> None:
+    logger = logging.getLogger("datapipeline.tests.persistence.stdout")
+    with caplog.at_level(logging.INFO, logger=logger.name):
+        persist_runtime_result(
+            RuntimeOutput(rows=({"value": 1},)),
+            target=OutputTarget(
+                transport="stdout",
+                format="jsonl",
+                view="raw",
+                encoding=None,
+                destination=None,
+            ),
+            logger=logger,
+        )
+
+    assert capsys.readouterr().out == '{"value": 1}\n'
+    assert [record.getMessage() for record in caplog.records] == ["Output: stdout"]
+
+
+def test_runtime_persistence_reports_html_path(monkeypatch, tmp_path) -> None:
+    destination = tmp_path / "matrix.html"
+    results: list[tuple[str, Path]] = []
+    monkeypatch.setattr(
+        persistence,
+        "emit_file_result",
+        lambda label, path: results.append((label, path)),
+    )
+
+    def render(path):
+        path.write_text("<html></html>", encoding="utf-8")
+        return path
+
+    persist_runtime_result(
+        RuntimeOutput(html_renderer=render),
+        target=OutputTarget(
+            transport="fs",
+            format="html",
+            view="flat",
+            encoding="utf-8",
+            destination=destination,
+        ),
+        logger=logging.getLogger(__name__),
+    )
+
+    assert results == [("Output", destination)]
+
+
+def test_split_runtime_output_routes_rows_to_label_targets(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    train_path = tmp_path / "train.jsonl"
+    val_path = tmp_path / "val.jsonl"
+    train_target = OutputTarget(
+        transport="fs",
+        format="jsonl",
+        view="raw",
+        encoding="utf-8",
+        destination=train_path,
+    )
+    val_target = OutputTarget(
+        transport="fs",
+        format="jsonl",
+        view="raw",
+        encoding="utf-8",
+        destination=val_path,
+    )
+    rows = [
+        {"split": "train", "value": 1},
+        {"split": "val", "value": 2},
+        {"split": "test", "value": 3},
+    ]
+    results: list[tuple[str, Path]] = []
+    monkeypatch.setattr(
+        persistence,
+        "emit_file_result",
+        lambda label, path: results.append((label, path)),
+    )
+
+    persist_runtime_result(
+        SplitRuntimeOutput(
+            rows=iter(rows),
+            targets={"train": train_target, "val": val_target},
+            label_for_row=lambda row: row["split"],
+        ),
+        target=None,
+        logger=logging.getLogger(__name__),
+    )
+
+    train_rows = [
+        json.loads(line) for line in train_path.read_text(encoding="utf-8").splitlines()
+    ]
+    val_rows = [
+        json.loads(line) for line in val_path.read_text(encoding="utf-8").splitlines()
+    ]
+    assert train_rows == [{"split": "train", "value": 1}]
+    assert val_rows == [{"split": "val", "value": 2}]
+    assert results == [
+        ("train", train_path),
+        ("val", val_path),
+    ]
+
+
+def test_split_runtime_output_limit_applies_per_target(tmp_path) -> None:
+    train_path = tmp_path / "train.jsonl"
+    val_path = tmp_path / "val.jsonl"
+    train_target = OutputTarget(
+        transport="fs",
+        format="jsonl",
+        view="raw",
+        encoding="utf-8",
+        destination=train_path,
+    )
+    val_target = OutputTarget(
+        transport="fs",
+        format="jsonl",
+        view="raw",
+        encoding="utf-8",
+        destination=val_path,
+    )
+    rows = [
+        {"split": "ignored", "value": 0},
+        {"split": "train", "value": 1},
+        {"split": "train", "value": 2},
+        {"split": "val", "value": 3},
+        {"split": "val", "value": 4},
+    ]
+
+    persist_runtime_result(
+        SplitRuntimeOutput(
+            rows=iter(rows),
+            targets={"train": train_target, "val": val_target},
+            label_for_row=lambda row: row["split"],
+            limit_per_target=1,
+        ),
+        target=None,
+        logger=logging.getLogger(__name__),
+    )
+
+    train_rows = [
+        json.loads(line) for line in train_path.read_text(encoding="utf-8").splitlines()
+    ]
+    val_rows = [
+        json.loads(line) for line in val_path.read_text(encoding="utf-8").splitlines()
+    ]
+    assert train_rows == [{"split": "train", "value": 1}]
+    assert val_rows == [{"split": "val", "value": 3}]

@@ -1,5 +1,7 @@
-# See ../reference/reference/dataset.yaml for full options.
-group_by: ${group_by}
+# See ../../plugin_skeleton/reference/reference/dataset.yaml for full options.
+sample:
+  cadence: ${group_by}
+  keys: []
 
 features:
   - id: linear_time
@@ -16,14 +18,4 @@ features:
   - id: opening_price
     record_stream: equity.ohlcv
     field: open
-    scale: true
-
-  - id: pair_close_ratio
-    record_stream: equity.pair.aapl_msft
-    field: close_ratio
-    scale: true
-
-  - id: pair_return_spread
-    record_stream: equity.pair.aapl_msft
-    field: return_spread_1d
     scale: true

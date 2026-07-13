@@ -42,11 +42,12 @@ class OutputTarget:
     """Resolved writer target describing how and where to emit records."""
 
     transport: str  # stdout | fs
-    format: str     # jsonl | csv | pickle | html
-    view: str       # flat | raw
+    format: str  # jsonl | csv | pickle | html
+    view: str  # flat | raw
     encoding: str | None
     destination: Optional[Path]
     run: RunPaths | None = None
+    overwrite: bool = True
 
     def for_feature(self, feature_id: str) -> "OutputTarget":
         if self.transport != "fs" or self.destination is None:
@@ -67,6 +68,26 @@ class OutputTarget:
             encoding=self.encoding,
             destination=new_path,
             run=self.run,
+            overwrite=self.overwrite,
+        )
+
+    def for_split(self, label: str) -> "OutputTarget":
+        if self.transport != "fs" or self.destination is None:
+            return self
+        safe_label = sanitize_path_segment(str(label))
+        dest = self.destination
+        suffix = "".join(dest.suffixes)
+        stem = dest.name[: -len(suffix)] if suffix else dest.name
+        new_name = f"{stem}.{safe_label}{suffix}"
+        new_path = dest.with_name(new_name)
+        return OutputTarget(
+            transport=self.transport,
+            format=self.format,
+            view=self.view,
+            encoding=self.encoding,
+            destination=new_path,
+            run=self.run,
+            overwrite=self.overwrite,
         )
 
 
@@ -97,28 +118,7 @@ def resolve_destination(
     return (base_dir / default_filename).resolve()
 
 
-def served_output_message(target: OutputTarget, count: int) -> str:
-    if target.destination:
-        return f"Saved {count} items: {target.destination}"
-    if target.transport == "stdout":
-        return f"Streamed {count} items: stdout"
-    return f"Emitted {count} items"
-
-
-def materialized_output_message(
-    artifact_key: str,
-    path: Path,
-    *,
-    meta: dict[str, object] | None = None,
-) -> str:
-    if not meta:
-        return f"Materialized {artifact_key}: {path}"
-    details = ", ".join(f"{k}={v}" for k, v in meta.items())
-    return f"Materialized {artifact_key}: {path} ({details})"
-
-
 def resolve_output_target(
-    
     cli_output: ServeOutputConfig | None,
     config_output: ServeOutputConfig | None,
     default: ServeOutputConfig | None = None,
@@ -165,6 +165,8 @@ def resolve_output_target(
         sanitize_path_segment(run_name) if run_name else None
     )
     if filename_stem:
+        if Path(filename_stem).suffix == suffix:
+            raise OutputResolutionError(f"filename must omit the '{suffix}' extension")
         filename = f"{filename_stem}{suffix}"
     else:
         filename = _default_filename_for_format(config.format)

@@ -25,46 +25,32 @@ def _apply_vector_schema(
     stream: Iterator[Sample],
 ) -> Iterator[Sample]:
     with context.activate():
-        feature_entries = context.load_schema(payload="features")
-        target_entries = context.load_schema(payload="targets")
+        schema = context.load_schema()
 
-        if not feature_entries:
-            if context.schema_required:
-                raise RuntimeError(
-                    "Schema missing for payload 'features'. Run `jerry build` to materialize build/schema.json."
-                )
-            feature_stream = stream
-        else:
-            feature_schema = VectorEnsureSchemaTransform(
-                on_missing="fill", on_extra="drop"
+        if not schema.features:
+            raise RuntimeError(
+                "Schema has no feature entries. Rebuild build/schema.json."
             )
-            feature_schema.bind_context(context)
-            feature_stream = feature_schema(stream)
+        feature_schema = VectorEnsureSchemaTransform(
+            on_missing="fill", on_extra="drop"
+        )
+        feature_schema.bind_context(context)
+        feature_stream = feature_schema(stream)
 
-        def _apply_targets(upstream: Iterator[Sample]) -> Iterator[Sample]:
-            if target_entries:
-                target_schema = VectorEnsureSchemaTransform(
-                    payload="targets", on_missing="fill", on_extra="drop"
-                )
-                target_schema.bind_context(context)
-                return target_schema(upstream)
-            if not context.schema_required:
-                return upstream
+        if not schema.targets:
+            return _reject_undeclared_targets(feature_stream)
+        target_schema = VectorEnsureSchemaTransform(
+            payload="targets", on_missing="fill", on_extra="drop"
+        )
+        target_schema.bind_context(context)
+        return target_schema(feature_stream)
 
-            def _validate_targets() -> Iterator[Sample]:
-                iterator = iter(upstream)
-                try:
-                    first = next(iterator)
-                except StopIteration:
-                    return
-                if first.targets is None:
-                    yield first
-                    yield from iterator
-                    return
-                raise RuntimeError(
-                    "Schema missing for payload 'targets'. Run `jerry build` to materialize build/schema.json."
-                )
 
-            return _validate_targets()
-
-        return _apply_targets(feature_stream)
+def _reject_undeclared_targets(stream: Iterator[Sample]) -> Iterator[Sample]:
+    for sample in stream:
+        if sample.targets is not None:
+            raise RuntimeError(
+                "Schema has no target entries, but the pipeline produced targets. "
+                "Rebuild build/schema.json."
+            )
+        yield sample

@@ -9,9 +9,7 @@ from datapipeline.services.scaffold.utils import (
     choose_name,
     error_exit,
     info,
-    status,
     pick_from_menu,
-    pick_from_list,
 )
 from datapipeline.services.scaffold.layout import (
     default_mapper_name,
@@ -67,10 +65,12 @@ def handle(name: str | None, *, plugin_root: Path | None = None) -> str:
     if not name:
         if input_choice == "identity":
             name = choose_name(
-                "Mapper name", default=default_mapper_name_for_identity(domain))
+                "Mapper name", default=default_mapper_name_for_identity(domain)
+            )
         else:
             name = choose_name(
-                "Mapper name", default=default_mapper_name(input_module, domain))
+                "Mapper name", default=default_mapper_name(input_module, domain)
+            )
 
     ep = create_mapper(
         name=name,

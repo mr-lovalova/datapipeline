@@ -1,239 +1,250 @@
 import logging
-from contextlib import contextmanager
-from dataclasses import dataclass
 from collections.abc import Sequence
-from typing import Any, Literal
+from dataclasses import dataclass
+from typing import Protocol
 
-from datapipeline.dag.events import DagParentRef, DagRunEvent, StepRunEvent
-from datapipeline.dag.node import StepKind
-from datapipeline.dag.observer import ExecutionObserver
 from datapipeline.cli.visuals.execution_context import (
-    current_execution_scope,
-    reset_current_execution_scope,
-    set_current_execution_scope,
+    current_dag_label,
     current_execution_event_sink,
     set_current_dag_depth,
+    set_current_dag_label,
+)
+from datapipeline.dag.events import (
+    DagParentRef,
+    DagRunEvent,
+    format_node_progress,
+    NodeExecutionEvent,
+    NodeProgressEvent as DagNodeProgressEvent,
+    ProgressSnapshot,
+    RunStatus,
+)
+from datapipeline.dag.node import NodeKind
+from datapipeline.dag.observer import ExecutionObserver
+from datapipeline.dag.runner import current_node_progress_context
+from datapipeline.execution.observability import (
+    FileResult,
+    OperationFinished,
+    OperationStarted,
 )
 
 
-ExecutionEventKind = Literal[
-    "message",
-    "dag_start",
-    "dag_info",
-    "dag_end",
-    "step_start",
-    "step_end",
-]
+@dataclass(frozen=True, kw_only=True)
+class _ExecutionEvent:
+    depth: int = 0
 
 
-@dataclass(frozen=True)
-class ExecutionLogEvent:
-    kind: ExecutionEventKind
+@dataclass(frozen=True, kw_only=True)
+class ExecutionMessage(_ExecutionEvent):
+    message: str
+    log_level: int = logging.INFO
+
+
+@dataclass(frozen=True, kw_only=True)
+class SourceInfoMessage(_ExecutionEvent):
+    source_label: str
+    message: str
+
+
+@dataclass(frozen=True, kw_only=True)
+class DagStarted(_ExecutionEvent):
     dag_name: str
-    depth: int
-    message: str | None = None
-    message_kind: str | None = None
-    log_level: int | None = None
-    step_count: int | None = None
-    step_name: str | None = None
-    step_index: int | None = None
-    step_kind: StepKind = "function"
-    step_calls_dag: str | None = None
-    status: str | None = None
-    error_type: str | None = None
-    output_items: int | None = None
-    elapsed_seconds: float | None = None
-    info_line: str | None = None
+    node_count: int
     dag_parent: DagParentRef | None = None
-    scope_profile_kind: str | None = None
-    scope_profile_name: str | None = None
-    scope_target_id: str | None = None
-    scope_task_id: str | None = None
-    scope_item_index: str | None = None
-    scope_item_total: str | None = None
 
 
-class ExecutionEventSink:
-    def emit(self, event: ExecutionLogEvent) -> None:
-        raise NotImplementedError
+@dataclass(frozen=True, kw_only=True)
+class DagSummary(_ExecutionEvent):
+    dag_name: str
+    summary: str
+
+
+@dataclass(frozen=True, kw_only=True)
+class DagFinished(_ExecutionEvent):
+    dag_name: str
+    node_count: int
+    status: RunStatus
+    output_items: int
+    elapsed_seconds: float
+    error_type: str | None = None
+    error_message: str | None = None
+    dag_parent: DagParentRef | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class _NodeEvent(_ExecutionEvent):
+    dag_name: str
+    node_name: str
+    node_index: int
+    execution_index: int
+    node_kind: NodeKind = "function"
+    node_calls_dag: str | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class NodeStarted(_NodeEvent):
+    pass
+
+
+@dataclass(frozen=True, kw_only=True)
+class NodeProgress(_NodeEvent):
+    progress: ProgressSnapshot
+    elapsed_seconds: float
+    persistent: bool = False
+
+
+@dataclass(frozen=True, kw_only=True)
+class NodeFinished(_NodeEvent):
+    status: RunStatus
+    output_items: int
+    elapsed_seconds: float
+    error_type: str | None = None
+    error_message: str | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class OperationProgress(_ExecutionEvent):
+    operation_name: str
+    step: str
+    message: str
+
+
+ExecutionLogEvent = (
+    ExecutionMessage
+    | FileResult
+    | SourceInfoMessage
+    | DagStarted
+    | DagSummary
+    | DagFinished
+    | NodeStarted
+    | NodeProgress
+    | NodeFinished
+    | OperationStarted
+    | OperationFinished
+    | OperationProgress
+)
+
+
+class ExecutionEventSink(Protocol):
+    def emit(self, event: ExecutionLogEvent) -> None: ...
 
 
 class ExecutionEventFormatter:
+    @staticmethod
+    def error_suffix(
+        event: DagFinished | NodeFinished | OperationFinished,
+    ) -> str:
+        if event.status != "error" or event.error_type is None:
+            return ""
+        suffix = f" error={event.error_type}"
+        if event.error_message:
+            message = event.error_message.replace("\n", "\\n")
+            suffix = f"{suffix}: {message}"
+        return suffix
+
     @staticmethod
     def indent(depth: int) -> str:
         return "  " * max(0, depth)
 
     @staticmethod
+    def display_depth(event: ExecutionLogEvent) -> int:
+        if isinstance(event, FileResult | OperationStarted | OperationFinished):
+            return 0
+        if isinstance(event, NodeStarted | NodeProgress | NodeFinished):
+            return max(0, int(event.depth) - 1)
+        return max(0, int(event.depth))
+
+    @staticmethod
+    def execution_label(dag_name: str, node_name: str | None) -> str:
+        if node_name:
+            return f"{dag_name}/{node_name}"
+        return dag_name
+
+    @staticmethod
+    def progress_message(event: NodeProgress) -> str:
+        return format_node_progress(event.progress, event.elapsed_seconds)
+
+    @staticmethod
     def level(event: ExecutionLogEvent) -> int:
-        if event.kind == "message":
-            return int(event.log_level) if event.log_level is not None else logging.INFO
-        if event.kind in {"dag_start", "dag_end"}:
-            # Keep DAG lifecycle visible at INFO, regardless of nesting depth.
+        if isinstance(event, ExecutionMessage):
+            return int(event.log_level)
+        if isinstance(event, DagFinished | NodeFinished | OperationFinished):
+            if event.status == "error":
+                return logging.ERROR
+        if isinstance(
+            event,
+            FileResult
+            | SourceInfoMessage
+            | DagStarted
+            | DagSummary
+            | DagFinished
+            | NodeProgress
+            | OperationStarted
+            | OperationFinished
+            | OperationProgress,
+        ):
             return logging.INFO
-        if event.kind == "dag_info":
-            info_line = str(event.info_line or "")
-            if info_line.startswith("feature.config:") or info_line.startswith(
-                "feature.transforms:"
-            ):
-                return logging.INFO
-            if event.depth <= 1:
-                return logging.INFO
+        if isinstance(event, NodeStarted | NodeFinished):
             return logging.DEBUG
-        if event.kind in {"step_start", "step_end"}:
-            return logging.DEBUG
-        return logging.INFO
+        raise TypeError(f"Unsupported execution event: {type(event).__name__}")
 
     @classmethod
     def message(cls, event: ExecutionLogEvent) -> str:
-        indent = cls.indent(event.depth)
-        if event.kind == "message":
-            message = event.message or ""
+        if isinstance(event, FileResult):
+            return f"{event.label}: {event.path}"
+        if isinstance(event, OperationStarted):
+            return f"Operation {event.name} started"
+        if isinstance(event, OperationFinished):
+            error_suffix = cls.error_suffix(event)
+            return (
+                f"Operation {event.name} finished status={event.status}"
+                f"{error_suffix} elapsed={event.elapsed_seconds:.6f}s"
+            )
+        indent = cls.indent(cls.display_depth(event))
+        if isinstance(event, ExecutionMessage):
+            message = event.message
             if not indent or "\n" not in message:
                 return f"{indent}{message}"
             return f"{indent}" + message.replace("\n", f"\n{indent}")
-        if event.kind == "dag_info":
-            return f"{indent}[{event.dag_name}] {event.info_line or ''}"
-        if event.kind == "dag_start":
-            parent_suffix = ""
-            if event.dag_parent is not None:
-                parent_suffix = (
-                    f" parent_dag={event.dag_parent.dag_name}"
-                    f" parent_step={event.dag_parent.step_name}"
-                    f" parent_step_index={event.dag_parent.step_index}"
-                )
+        if isinstance(event, SourceInfoMessage):
+            message = f"[{event.source_label}] {event.message}"
+            if not indent or "\n" not in message:
+                return f"{indent}{message}"
+            return f"{indent}" + message.replace("\n", f"\n{indent}")
+        if isinstance(event, DagSummary):
+            return f"{indent}[{event.dag_name}] {event.summary}"
+        if isinstance(event, DagStarted):
+            return f"{indent}[{event.dag_name}] started nodes={event.node_count}"
+        if isinstance(event, DagFinished):
+            error_suffix = cls.error_suffix(event)
             return (
-                f"{indent}DAG started name={event.dag_name} "
-                f"steps={event.step_count}{parent_suffix}"
-            )
-        if event.kind == "dag_end":
-            error_suffix = (
-                f" error={event.error_type}"
-                if event.status == "error" and event.error_type
-                else ""
-            )
-            return (
-                f"{indent}DAG finished name={event.dag_name} "
+                f"{indent}[{event.dag_name}] finished "
                 f"status={event.status}{error_suffix} items={event.output_items} "
                 f"elapsed={event.elapsed_seconds:.6f}s"
             )
-        if event.kind == "step_start":
-            calls_suffix = (
-                f" calls={event.step_calls_dag}"
-                if event.step_calls_dag is not None
-                else ""
-            )
+        if isinstance(event, NodeStarted):
+            label = cls.execution_label(event.dag_name, event.node_name)
+            return f"{indent}[{label}] started"
+        if isinstance(event, NodeProgress):
+            label = cls.execution_label(event.dag_name, event.node_name)
+            return f"{indent}[{label}] {cls.progress_message(event)}"
+        if isinstance(event, OperationProgress):
+            return f"Operation {event.operation_name} · {event.step} · {event.message}"
+        if isinstance(event, NodeFinished):
+            error_suffix = cls.error_suffix(event)
+            label = cls.execution_label(event.dag_name, event.node_name)
             return (
-                f"{indent}Step activated dag={event.dag_name} "
-                f"step={event.step_name} index={event.step_index} "
-                f"kind={event.step_kind}{calls_suffix}"
+                f"{indent}[{label}] finished "
+                f"status={event.status}{error_suffix} out={event.output_items} "
+                f"elapsed={event.elapsed_seconds:.6f}s"
             )
-        error_suffix = (
-            f" error={event.error_type}"
-            if event.status == "error" and event.error_type
-            else ""
-        )
-        return (
-            f"{indent}Step finished dag={event.dag_name} "
-            f"step={event.step_name} index={event.step_index} kind={event.step_kind} "
-            f"status={event.status}{error_suffix} items={event.output_items} "
-            f"elapsed={event.elapsed_seconds:.6f}s"
-        )
-
-    @staticmethod
-    def extra(event: ExecutionLogEvent) -> dict[str, object]:
-        return {
-            "dp_event_kind": event.kind,
-            "dp_dag_name": event.dag_name,
-            "dp_depth": event.depth,
-            "dp_message": event.message,
-            "dp_message_kind": event.message_kind,
-            "dp_log_level": event.log_level,
-            "dp_step_count": event.step_count,
-            "dp_step_name": event.step_name,
-            "dp_index": event.step_index,
-            "dp_step_kind": event.step_kind,
-            "dp_step_calls_dag": event.step_calls_dag,
-            "dp_status": event.status,
-            "dp_error_type": event.error_type,
-            "dp_output_items": event.output_items,
-            "dp_elapsed_seconds": event.elapsed_seconds,
-            "dp_info_line": event.info_line,
-            "dp_parent_dag": (
-                event.dag_parent.dag_name if event.dag_parent is not None else None
-            ),
-            "dp_parent_step": (
-                event.dag_parent.step_name if event.dag_parent is not None else None
-            ),
-            "dp_parent_step_index": (
-                event.dag_parent.step_index if event.dag_parent is not None else None
-            ),
-            "dp_scope_profile_kind": event.scope_profile_kind,
-            "dp_scope_profile_name": event.scope_profile_name,
-            "dp_scope_target_id": event.scope_target_id,
-            "dp_scope_task_id": event.scope_task_id,
-            "dp_scope_item_index": event.scope_item_index,
-            "dp_scope_item_total": event.scope_item_total,
-        }
+        raise TypeError(f"Unsupported execution event: {type(event).__name__}")
 
 
-def _scope_fields() -> dict[str, str | None]:
-    scope = current_execution_scope() or {}
-    return {
-        "scope_profile_kind": scope.get("profile_kind"),
-        "scope_profile_name": scope.get("profile_name"),
-        "scope_target_id": scope.get("target_id"),
-        "scope_task_id": scope.get("task_id"),
-        "scope_item_index": scope.get("item_index"),
-        "scope_item_total": scope.get("item_total"),
-    }
-
-
-def _scope_message(scope: dict[str, str]) -> str:
-    task = scope.get("task_id") or scope.get("target_id") or scope.get("profile_name")
-    if task is None:
-        return "Scope"
-    item = ""
-    if scope.get("item_index") and scope.get("item_total"):
-        item = f" ({scope['item_index']}/{scope['item_total']})"
-    return f"Scope: task={task}{item}"
-
-
-@contextmanager
-def execution_scope(
-    *,
-    profile_kind: str | None = None,
-    profile_name: str | None = None,
-    target_id: str | None = None,
-    task_id: str | None = None,
-    item_index: int | None = None,
-    item_total: int | None = None,
-    announce: bool = False,
-):
-    merged = dict(current_execution_scope() or {})
-    updates = {
-        "profile_kind": profile_kind,
-        "profile_name": profile_name,
-        "target_id": target_id,
-        "task_id": task_id,
-        "item_index": item_index,
-        "item_total": item_total,
-    }
-    for key, value in updates.items():
-        if value is not None:
-            merged[key] = str(value)
-
-    token = set_current_execution_scope(merged)
-    try:
-        if announce:
-            emit_execution_message(
-                _scope_message(merged),
-                level=logging.INFO,
-                logger=logging.getLogger(__name__),
-                message_kind="scope_start",
-            )
-        yield
-    finally:
-        reset_current_execution_scope(token)
+def current_source_label(fallback: str) -> str:
+    node = current_node_progress_context()
+    if node is not None:
+        return node.dag_name
+    return current_dag_label() or fallback
 
 
 class CompositeExecutionEventSink(ExecutionEventSink):
@@ -250,13 +261,15 @@ class LoggerExecutionEventSink(ExecutionEventSink):
         self._logger = logger
 
     def emit(self, event: ExecutionLogEvent) -> None:
+        if isinstance(event, NodeProgress) and not event.persistent:
+            return
         level = ExecutionEventFormatter.level(event)
         if not self._logger.isEnabledFor(level):
             return
         self._logger.log(
             level,
             ExecutionEventFormatter.message(event),
-            extra=ExecutionEventFormatter.extra(event),
+            extra={"dp_event_kind": "execution"},
         )
 
 
@@ -270,148 +283,201 @@ class ContextExecutionEventSink(ExecutionEventSink):
         sink.emit(event)
 
 
-def emit_execution_message(
-    message: str,
-    
-    level: int = logging.INFO,
+def _emit_event(
+    event: ExecutionLogEvent,
     logger: logging.Logger | None = None,
-    depth: int = 0,
-    message_kind: str | None = None,
 ) -> None:
-    event = ExecutionLogEvent(
-        kind="message",
-        dag_name="",
-        depth=max(0, int(depth)),
-        message=message,
-        message_kind=message_kind,
-        log_level=int(level),
-        **_scope_fields(),
-    )
     logger_sink = LoggerExecutionEventSink(logger or logging.getLogger(__name__))
     logger_sink.emit(event)
     ContextExecutionEventSink().emit(event)
+
+
+def emit_execution_message(
+    message: str,
+    level: int = logging.INFO,
+    logger: logging.Logger | None = None,
+    depth: int = 0,
+) -> None:
+    event = ExecutionMessage(
+        depth=max(0, int(depth)),
+        message=message,
+        log_level=int(level),
+    )
+    _emit_event(event, logger)
+
+
+def emit_source_info(
+    stream_id: str,
+    message: str,
+    *,
+    logger: logging.Logger | None = None,
+    depth: int = 0,
+) -> None:
+    _emit_event(
+        SourceInfoMessage(
+            source_label=current_source_label(stream_id),
+            message=message,
+            depth=max(0, int(depth)),
+        ),
+        logger,
+    )
+
+
+class ExecutionOperationObserver:
+    def __init__(self, logger: logging.Logger) -> None:
+        self._logger = logger
+
+    def emit_file_result(self, result: FileResult) -> None:
+        _emit_event(result, self._logger)
+
+    def emit_started(self, event: OperationStarted) -> None:
+        _emit_event(event, self._logger)
+
+    def emit_finished(self, event: OperationFinished) -> None:
+        _emit_event(event, self._logger)
+
+    def emit_progress(
+        self,
+        name: str,
+        step: str,
+        message: str,
+    ) -> None:
+        _emit_event(
+            OperationProgress(
+                operation_name=name,
+                step=step,
+                message=message,
+            ),
+            self._logger,
+        )
+
+
+def make_operation_observer(
+    logger: logging.Logger | None = None,
+) -> ExecutionOperationObserver:
+    return ExecutionOperationObserver(logger or logging.getLogger(__name__))
 
 
 class HierarchicalExecutionObserver(ExecutionObserver):
     def __init__(self, sink: ExecutionEventSink) -> None:
         self._sink = sink
         set_current_dag_depth(0)
-
-    def _emit(self, event: ExecutionLogEvent) -> None:
-        self._sink.emit(event)
-
-    @staticmethod
-    def _metadata_lines(dag_metadata: dict[str, Any] | None) -> list[str]:
-        if not dag_metadata:
-            return []
-        lines: list[str] = []
-        for key, value in dag_metadata.items():
-            if isinstance(value, dict):
-                parts = [f"{k}={value[k]}" for k in value]
-                lines.append(f"{key}: {' '.join(parts)}")
-            else:
-                lines.append(f"{key}: {value}")
-        return lines
+        set_current_dag_label(None)
 
     def on_dag_start(
         self,
-        
         dag_name: str,
-        step_count: int,
+        node_count: int,
         depth: int = 0,
-        dag_metadata: dict[str, Any] | None = None,
+        summary: str | None = None,
         dag_parent: DagParentRef | None = None,
     ) -> None:
         dag_depth = max(0, int(depth))
-        self._emit(
-            ExecutionLogEvent(
-                kind="dag_start",
+        self._sink.emit(
+            DagStarted(
                 dag_name=dag_name,
                 depth=dag_depth,
-                step_count=step_count,
+                node_count=node_count,
                 dag_parent=dag_parent,
-                **_scope_fields(),
             )
         )
-        for line in self._metadata_lines(dag_metadata):
-            self._emit(
-                ExecutionLogEvent(
-                    kind="dag_info",
+        if summary:
+            self._sink.emit(
+                DagSummary(
                     dag_name=dag_name,
-                    depth=dag_depth + 1,
-                    info_line=line,
-                    **_scope_fields(),
+                    depth=dag_depth,
+                    summary=summary,
                 )
             )
-        set_current_dag_depth(dag_depth + 1)
+        set_current_dag_depth(dag_depth)
+        set_current_dag_label(dag_name)
 
-    def on_step_start(
+    def on_node_start(
         self,
-        
         dag_name: str,
-        step_name: str,
-        step_index: int,
-        step_kind: StepKind = "function",
-        step_calls_dag: str | None = None,
+        node_name: str,
+        node_index: int,
+        execution_index: int,
+        node_kind: NodeKind = "function",
+        node_calls_dag: str | None = None,
         depth: int = 0,
     ) -> None:
-        step_depth = max(0, int(depth))
-        self._emit(
-            ExecutionLogEvent(
-                kind="step_start",
+        node_depth = max(0, int(depth))
+        self._sink.emit(
+            NodeStarted(
                 dag_name=dag_name,
-                depth=step_depth,
-                step_name=step_name,
-                step_index=step_index,
-                step_kind=step_kind,
-                step_calls_dag=step_calls_dag,
-                **_scope_fields(),
+                depth=node_depth,
+                node_name=node_name,
+                node_index=node_index,
+                execution_index=execution_index,
+                node_kind=node_kind,
+                node_calls_dag=node_calls_dag,
             )
         )
-        set_current_dag_depth(step_depth)
+        set_current_dag_depth(node_depth)
 
-    def on_step_end(self, event: StepRunEvent) -> None:
-        step_depth = max(0, int(event.depth))
-        self._emit(
-            ExecutionLogEvent(
-                kind="step_end",
+    def on_node_end(self, event: NodeExecutionEvent) -> None:
+        node_depth = max(0, int(event.depth))
+        self._sink.emit(
+            NodeFinished(
                 dag_name=event.dag_name,
-                depth=step_depth,
-                step_name=event.step_name,
-                step_index=event.step_index,
-                step_kind=event.step_kind,
-                step_calls_dag=event.step_calls_dag,
+                depth=node_depth,
+                node_name=event.node_name,
+                node_index=event.node_index,
+                execution_index=event.execution_index,
+                node_kind=event.node_kind,
+                node_calls_dag=event.node_calls_dag,
                 status=event.status,
                 error_type=event.error_type,
+                error_message=event.error_message,
                 output_items=event.output_items,
                 elapsed_seconds=event.elapsed_seconds,
-                **_scope_fields(),
             )
         )
-        set_current_dag_depth(step_depth)
+        set_current_dag_depth(node_depth)
+
+    def on_node_progress(self, event: DagNodeProgressEvent) -> None:
+        node_depth = max(0, int(event.depth))
+        self._sink.emit(
+            NodeProgress(
+                dag_name=event.dag_name,
+                depth=node_depth,
+                node_name=event.node_name,
+                node_index=event.node_index,
+                execution_index=event.execution_index,
+                node_kind=event.node_kind,
+                node_calls_dag=event.node_calls_dag,
+                progress=event.progress,
+                elapsed_seconds=event.elapsed_seconds,
+                persistent=event.persistent,
+            )
+        )
+        set_current_dag_depth(node_depth)
 
     def on_dag_end(self, event: DagRunEvent) -> None:
         dag_depth = max(0, int(event.depth))
-        self._emit(
-            ExecutionLogEvent(
-                kind="dag_end",
+        self._sink.emit(
+            DagFinished(
                 dag_name=event.dag_name,
                 depth=dag_depth,
-                step_count=event.step_count,
+                node_count=event.node_count,
                 status=event.status,
                 error_type=event.error_type,
+                error_message=event.error_message,
                 output_items=event.output_items,
                 elapsed_seconds=event.elapsed_seconds,
                 dag_parent=event.parent,
-                **_scope_fields(),
             )
         )
         set_current_dag_depth(dag_depth)
+        if event.parent is not None:
+            set_current_dag_label(event.parent.dag_name)
+        else:
+            set_current_dag_label(None)
 
 
 def make_execution_observer(
     logger: logging.Logger | None = None,
-    
     sink: ExecutionEventSink | None = None,
     sinks: Sequence[ExecutionEventSink] | None = None,
 ) -> ExecutionObserver:

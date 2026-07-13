@@ -1,7 +1,8 @@
 version: 1
 name: regression_project
 paths:
-  streams: contracts
+  ingests: ./ingests
+  streams: streams
   sources: sources
   dataset: dataset.yaml
   postprocess: postprocess.yaml

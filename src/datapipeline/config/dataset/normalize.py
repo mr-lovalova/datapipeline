@@ -1,29 +1,18 @@
-from datetime import datetime, timedelta
-import re
+from datetime import datetime, timezone
+
+from datapipeline.utils.time import parse_cadence
+
+
+_UTC_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 
 def floor_time_to_bucket(ts: datetime, bucket: str) -> datetime:
-    """Floor a timestamp to the nearest bucket boundary.
+    """Floor on a continuous UTC grid, treating naive timestamps as UTC."""
+    step = parse_cadence(bucket)
+    if ts.tzinfo is None:
+        epoch = _UTC_EPOCH.replace(tzinfo=None)
+        return epoch + ((ts - epoch) // step) * step
 
-    Supports patterns like '10m', '10min', '1h', '2h', '1d'.
-    Minutes may be specified as 'm' or 'min'.
-    """
-    m = re.fullmatch(r"^(\d+)(m|min|h|d)$", bucket)
-    if not m:
-        raise ValueError(f"Unsupported cadence: {bucket}")
-    n = int(m.group(1))
-    unit = m.group(2)
-    if n <= 0:
-        raise ValueError("resolution must be positive")
-
-    if unit in ("m", "min"):
-        floored_minute = (ts.minute // n) * n
-        return ts.replace(minute=floored_minute, second=0, microsecond=0)
-    if unit == "h":
-        floored_hour = (ts.hour // n) * n
-        return ts.replace(hour=floored_hour, minute=0, second=0, microsecond=0)
-    base = ts.replace(hour=0, minute=0, second=0, microsecond=0)
-    if n == 1:
-        return base
-    remainder = (base.toordinal() - 1) % n
-    return base - timedelta(days=remainder)
+    utc_timestamp = ts.astimezone(timezone.utc)
+    floored = _UTC_EPOCH + ((utc_timestamp - _UTC_EPOCH) // step) * step
+    return floored.astimezone(ts.tzinfo)

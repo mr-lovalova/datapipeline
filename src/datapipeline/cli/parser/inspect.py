@@ -5,9 +5,13 @@ from datapipeline.config.options import (
     OUTPUT_TRANSPORTS,
     OUTPUT_VIEWS,
 )
-from datapipeline.config.profiles import VALID_BUILD_MODES
 
-from .common import add_cache_flags, add_dataset_flag, add_project_flag, add_visual_flags
+from .common import (
+    add_artifact_mode_flag,
+    add_dataset_flag,
+    add_project_flag,
+    add_visual_flags,
+)
 
 
 def add_inspect_command(sub, common: argparse.ArgumentParser) -> None:
@@ -52,17 +56,5 @@ def add_inspect_command(sub, common: argparse.ArgumentParser) -> None:
         choices=OUTPUT_VIEWS,
         help="output representation view (jsonl: raw|flat, csv: flat, pickle: raw)",
     )
-    parser.add_argument(
-        "--skip-build",
-        action="store_true",
-        help="skip artifact execution when the selected profile target is an artifact task",
-    )
-    parser.add_argument(
-        "--build-mode",
-        choices=VALID_BUILD_MODES,
-        type=str.upper,
-        default=None,
-        help="artifact build policy when the selected profile target is an artifact task: AUTO | FORCE | OFF",
-    )
+    add_artifact_mode_flag(parser)
     add_visual_flags(parser)
-    add_cache_flags(parser)

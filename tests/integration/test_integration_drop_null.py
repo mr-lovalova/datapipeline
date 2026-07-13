@@ -1,7 +1,11 @@
 from datetime import datetime, timezone
 from datapipeline.config.context import load_dataset_context
+from datapipeline.config.tasks import SchemaTask
+from datapipeline.operations.artifacts.schema import materialize_vector_schema
 from datapipeline.pipelines.full.nodes import post_process
 from datapipeline.pipelines import build_vector_pipeline
+from datapipeline.services.constants import VECTOR_SCHEMA
+from tests.vector_input_helpers import register_vector_inputs
 
 
 def test_drop_with_schema_and_partitioned_streams(copy_fixture):
@@ -9,6 +13,20 @@ def test_drop_with_schema_and_partitioned_streams(copy_fixture):
     project = project_root / "project.yaml"
     dataset_ctx = load_dataset_context(project)
     context = dataset_ctx.pipeline_context
+    register_vector_inputs(
+        dataset_ctx.runtime,
+        dataset_ctx.features,
+        dataset_ctx.dataset.group_by,
+        targets=dataset_ctx.targets,
+    )
+    schema = materialize_vector_schema(
+        dataset_ctx.runtime,
+        SchemaTask(id="schema", output="schema.json"),
+    )
+    dataset_ctx.runtime.artifacts.register(
+        VECTOR_SCHEMA,
+        relative_path=schema.relative_path,
+    )
 
     vectors = build_vector_pipeline(
         context,

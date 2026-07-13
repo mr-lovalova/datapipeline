@@ -1,10 +1,14 @@
 # Dataset config reference (all options).
 # This file is documentation only; uncomment the keys you want to use.
 #
-# Feature/vector stages require group_by.
-# group_by must match ^\d+(m|min|h|d)$ (e.g., 10m, 1h, 1d).
+# Feature/vector stages require sample.cadence or legacy group_by.
+# Cadence must match ^\d+(m|min|h|d)$ (e.g., 10m, 1h, 1d).
 #
-# group_by: ${group_by}        # required for feature/vector stages
+# sample:                     # preferred
+#   cadence: ${group_by}      # required for feature/vector stages
+#   keys: []                  # optional row identity fields, e.g. [security_id]
+#
+# group_by: ${group_by}       # legacy time-only form; same as sample.keys: []
 #
 # features:                    # optional
 #   - id: time_linear
@@ -26,4 +30,8 @@
 #     scale: false            # optional
 #     sequence: null          # optional
 #
-# Record-only stage uses only record_stream entries; id/field/scale/sequence are ignored.
+# sample.keys creates one vector sample per cadence bucket and key tuple.
+# stream partition_by isolates stream state for history-based transforms.
+# stream feature_id_by controls feature-id suffixes, e.g. close__@security_id:AAPL.
+#
+# Record-only stages use only record_stream entries; id/field/scale/sequence are ignored.

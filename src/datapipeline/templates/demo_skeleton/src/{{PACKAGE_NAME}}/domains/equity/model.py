@@ -8,6 +8,7 @@ class EquityRecord(TemporalRecord):
     """
     Domain record for 'equity'.
     """
+
     open: float
     high: float
     low: float
@@ -16,13 +17,3 @@ class EquityRecord(TemporalRecord):
     dollar_volume: float
     hl_range: float
     ticker: str  # equity ticker symbol
-
-
-@dataclass
-class EquityPairRecord(TemporalRecord):
-    """
-    Domain record for composed pair analytics.
-    """
-    close_ratio: float
-    return_spread_1d: float
-    adv5_ratio: float

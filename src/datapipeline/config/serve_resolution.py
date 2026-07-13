@@ -1,220 +1,236 @@
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Sequence
+from typing import Sequence
 
-from datapipeline.config.resolution import (
-    LogLevelDecision,
-    LogOutputSettings,
-    LogOutputTarget,
-    VisualSettings,
-    cascade,
-    logging_value,
-    observability_value,
-    resolve_log_level,
-    resolve_log_output,
-    resolve_project_log_outputs,
-    resolve_visuals,
+from datapipeline.config.profiles import (
+    InspectProfile,
+    ServeOutputConfig,
+    ServeProfile,
 )
-from datapipeline.io.output import OutputTarget, resolve_output_target
-from datapipeline.io.output import resolve_output_directory
+from datapipeline.config.resolution import (
+    LogOutputTarget,
+    ObservabilitySettings,
+    cascade,
+    resolve_observability_settings,
+)
+from datapipeline.config.split import HashSplitConfig, TimeSplitConfig
+from datapipeline.io.output import (
+    OutputTarget,
+    resolve_output_directory,
+    resolve_output_target,
+)
 from datapipeline.runtime import Runtime
-from datapipeline.services.runs import RunPaths, start_run_for_directory
-from datapipeline.services.run_entries import RunEntry, iter_runtime_runs
-
-
-def _run_config_value(run_cfg, field: str):
-    """Return a run config field only when it was explicitly provided."""
-    if run_cfg is None:
-        return None
-    fields_set = getattr(run_cfg, "model_fields_set", None)
-    if fields_set is not None and field not in fields_set:
-        return None
-    return getattr(run_cfg, field, None)
+from datapipeline.services.bootstrap import bootstrap_build_runtime
+from datapipeline.services.path_policy import sanitize_path_segment
+from datapipeline.services.runs import RunPaths, get_run_paths
 
 
 @dataclass(frozen=True)
-class RunProfile:
-    idx: int
-    total: int
-    entry: RunEntry
+class ResolvedRuntimeProfile:
+    name: str
+    target_id: str
     runtime: Runtime
-    step: Optional[int]
-    limit: Optional[int]
-    throttle_ms: Optional[float]
-    cache_enabled: bool
-    log_decision: LogLevelDecision
-    log_output: LogOutputSettings
-    visuals: VisualSettings
+    preview_index: int | None
+    limit: int | None
+    throttle_ms: float | None
+    observability: ObservabilitySettings
     output: OutputTarget
-    build_mode: str
-
-    @property
-    def label(self) -> str:
-        return self.entry.name or f"run{self.idx}"
+    splits: tuple[str, ...]
 
 
-def resolve_run_profiles(
+def _project_split_labels(runtime: Runtime) -> set[str] | None:
+    split = runtime.split
+    if split is None:
+        return None
+    if isinstance(split, TimeSplitConfig):
+        return set(split.labels or ())
+    if isinstance(split, HashSplitConfig):
+        return set((split.ratios or {}).keys())
+    return set()
+
+
+def _validate_split_output_filenames(
+    profile_name: str, splits: tuple[str, ...]
+) -> None:
+    filenames: dict[str, str] = {}
+    for label in splits:
+        filename = sanitize_path_segment(label)
+        existing = filenames.get(filename)
+        if existing is not None:
+            raise ValueError(
+                f"Serve profile '{profile_name}' split labels {existing!r} and "
+                f"{label!r} resolve to the same output filename."
+            )
+        filenames[filename] = label
+
+
+def resolve_runtime_profiles(
     project_path: Path,
-    run_entries: Sequence[RunEntry],
-    keep: Optional[str],
-    step: Optional[int],
-    limit: Optional[int],
-    cli_build_mode: Optional[str],
-    cli_output,
-    cli_log_level: Optional[str] = None,
+    profiles: Sequence[ServeProfile | InspectProfile],
+    preview_index: int | None,
+    limit: int | None,
+    cli_output: ServeOutputConfig | None,
+    cli_log_level: str | None = None,
     cli_log_outputs: Sequence[LogOutputTarget] | None = None,
     base_log_level: str = "INFO",
-    cli_visuals: Optional[str] = None,
-    cli_cache: Optional[bool] = None,
-    managed_run_targets: set[str] | None = None,
-) -> list[RunProfile]:
-    fallback_log_level = str(base_log_level).upper()
-    cli_log_output_candidates = list(cli_log_outputs or [])
-    managed_target_ids = None if managed_run_targets is None else set(managed_run_targets)
-
-    resolved_entries = list(iter_runtime_runs(
-        project_path, run_entries, keep
-    ))
-    has_runtime_serve_profiles = any(
-        getattr(getattr(runtime, "run", None), "cmd", None) == "serve"
-        and (managed_target_ids is None or entry.target_id in managed_target_ids)
-        for _, _, entry, runtime in resolved_entries
-    )
-    shared_runtime_profile_counts: dict[Path, int] = {}
+    cli_visuals: str | None = None,
+    cli_heartbeat_interval_seconds: float | None = None,
+) -> list[ResolvedRuntimeProfile]:
+    resolved_profiles = [
+        (profile, bootstrap_build_runtime(project_path)) for profile in profiles
+    ]
+    shared_profile_counts: dict[Path, int] = {}
     shared_runs: dict[Path, RunPaths] = {}
-    serve_roots: dict[int, Path | None] = {}
+    serve_roots: dict[str, Path | None] = {}
 
-    for idx, _, entry, runtime in resolved_entries:
-        entry_name = entry.name
-        run_label = entry_name or f"run{idx}"
-        run_cfg = getattr(runtime, "run", None)
+    for profile, _runtime in resolved_profiles:
         serve_root = resolve_output_directory(
-            cli_output or getattr(run_cfg, "output", None),
+            cli_output or profile.output,
             base_path=project_path.parent,
         )
-        serve_roots[idx] = serve_root
+        serve_roots[profile.name] = serve_root
+        if isinstance(profile, ServeProfile) and serve_root is not None:
+            shared_profile_counts[serve_root] = (
+                shared_profile_counts.get(serve_root, 0) + 1
+            )
+            if serve_root not in shared_runs:
+                shared_runs[serve_root] = get_run_paths(serve_root)
+
+    resolved: list[ResolvedRuntimeProfile] = []
+    for profile, runtime in resolved_profiles:
+        if isinstance(profile, ServeProfile):
+            is_serve = True
+            configured_preview = profile.preview_index
+            configured_limit = profile.limit
+            throttle_ms = profile.throttle_ms
+            splits = tuple(profile.splits or ())
+        else:
+            is_serve = False
+            configured_preview = None
+            configured_limit = None
+            throttle_ms = None
+            splits = ()
+        resolved_preview = cascade(preview_index, configured_preview)
+        if resolved_preview is not None and not is_serve:
+            raise ValueError(
+                f"Runtime profile '{profile.name}' does not support preview indices."
+            )
+        resolved_limit = cascade(limit, configured_limit)
+
+        if splits and resolved_preview is not None:
+            raise ValueError(
+                f"Serve profile '{profile.name}' cannot combine preview_index with splits."
+            )
+        if splits:
+            _validate_split_output_filenames(profile.name, splits)
+            project_labels = _project_split_labels(runtime)
+            if project_labels is None:
+                raise ValueError(
+                    f"Serve profile '{profile.name}' defines splits but project split is not configured."
+                )
+            unknown_labels = [label for label in splits if label not in project_labels]
+            if unknown_labels:
+                unknown = ", ".join(repr(label) for label in unknown_labels)
+                raise ValueError(
+                    f"Serve profile '{profile.name}' references unknown split labels: {unknown}"
+                )
+
+        effective_output = cli_output or profile.output
+        if splits and effective_output is not None and effective_output.filename:
+            raise ValueError(
+                f"Serve profile '{profile.name}' cannot set output.filename with splits."
+            )
+
+        serve_root = serve_roots[profile.name]
         if (
-            getattr(run_cfg, "cmd", None) == "serve"
-            and (managed_target_ids is None or entry.target_id in managed_target_ids)
+            is_serve
             and serve_root is not None
-        ):
-            shared_runtime_profile_counts[serve_root] = (
-                shared_runtime_profile_counts.get(serve_root, 0) + 1
-            )
-        if (
-            getattr(run_cfg, "cmd", None) == "serve"
-            and (managed_target_ids is None or entry.target_id in managed_target_ids)
-            and serve_root is not None
-            and serve_root not in shared_runs
-        ):
-            run_paths, _ = start_run_for_directory(serve_root, step=step)
-            shared_runs[serve_root] = run_paths
-
-    profiles: list[RunProfile] = []
-    for idx, total_runs, entry, runtime in resolved_entries:
-        entry_name = entry.name
-        run_label = entry_name or f"run{idx}"
-        run_cfg = getattr(runtime, "run", None)
-        run_observability = _run_config_value(run_cfg, "observability")
-        build_cfg = _run_config_value(run_cfg, "build")
-        profile_build_mode = getattr(build_cfg, "mode", None) if build_cfg is not None else None
-        resolved_build_mode = str(
-            cascade(cli_build_mode, profile_build_mode, "AUTO")
-        ).upper()
-
-        resolved_step = cascade(step, _run_config_value(run_cfg, "step"))
-        resolved_limit = cascade(limit, _run_config_value(run_cfg, "limit"))
-        resolved_cache = bool(cascade(cli_cache, _run_config_value(run_cfg, "cache"), True))
-        run_cmd = getattr(run_cfg, "cmd", None)
-        create_run = run_cmd == "serve" and (
-            managed_target_ids is None or entry.target_id in managed_target_ids
-        )
-        if resolved_step is not None and run_cmd != "serve":
-            raise ValueError(
-                f"Runtime profile '{run_label}' does not support step previews."
-            )
-        if resolved_step is not None and not has_runtime_serve_profiles:
-            raise ValueError(
-                f"Serve profile '{run_label}' does not support step previews."
-            )
-        if not create_run:
-            resolved_step = None
-        if keep is not None and run_cmd != "serve":
-            raise ValueError(
-                f"Runtime profile '{run_label}' does not support keep filters."
-            )
-        if keep is not None and run_cmd == "serve" and not has_runtime_serve_profiles:
-            raise ValueError(
-                f"Serve profile '{run_label}' does not support keep filters."
-            )
-        throttle_ms = _run_config_value(run_cfg, "throttle_ms")
-        runtime.cache_enabled = resolved_cache
-        log_decision = resolve_log_level(
-            cli_log_level,
-            logging_value(run_observability, "level"),
-            fallback=fallback_log_level,
-        )
-        run_log_outputs = resolve_project_log_outputs(
-            logging_value(run_observability, "outputs"),
-            project_path=project_path,
-        )
-        log_output = resolve_log_output(
-            output_candidates=(
-                cli_log_output_candidates,
-                run_log_outputs,
-            ),
-            allow_execution_scope=True,
-        )
-
-        run_visuals = observability_value(run_observability, "visuals")
-        visuals = resolve_visuals(
-            cli_visuals=cli_visuals,
-            config_visuals=run_visuals,
-        )
-
-        shared_run = None
-        serve_root = serve_roots.get(idx)
-        if run_cmd == "serve" and serve_root is not None:
-            shared_run = shared_runs.get(serve_root)
-        effective_output = cli_output or getattr(run_cfg, "output", None)
-        if (
-            create_run
-            and serve_root is not None
-            and shared_runtime_profile_counts.get(serve_root, 0) > 1
+            and shared_profile_counts.get(serve_root, 0) > 1
             and effective_output is not None
-            and getattr(effective_output, "filename", None)
+            and effective_output.filename
         ):
             raise ValueError(
-                f"Serve profile '{run_label}' cannot set output.filename when multiple runtime serve profiles share one run."
+                f"Serve profile '{profile.name}' cannot set output.filename when "
+                "multiple runtime serve profiles share one run."
             )
 
         target = resolve_output_target(
             cli_output=cli_output,
-            config_output=getattr(run_cfg, "output", None),
+            config_output=profile.output,
             default=None,
             base_path=project_path.parent,
-            run_name=run_label,
-            run_paths=shared_run if create_run else None,
+            run_name=profile.name,
+            run_paths=(
+                shared_runs.get(serve_root)
+                if is_serve and serve_root is not None
+                else None
+            ),
         )
+        if splits and target.transport != "fs":
+            raise ValueError(
+                f"Serve profile '{profile.name}' defines splits but output transport is not fs."
+            )
 
-        profiles.append(
-            RunProfile(
-                idx=idx,
-                total=total_runs,
-                entry=entry,
+        observability = resolve_observability_settings(
+            project_path,
+            profile.observability,
+            cli_visuals=cli_visuals,
+            cli_heartbeat_interval_seconds=cli_heartbeat_interval_seconds,
+            cli_log_level=cli_log_level,
+            cli_log_outputs=cli_log_outputs,
+            base_log_level=base_log_level,
+        )
+        resolved.append(
+            ResolvedRuntimeProfile(
+                name=profile.name,
+                target_id=profile.target,
                 runtime=runtime,
-                step=resolved_step,
+                preview_index=resolved_preview if is_serve else None,
                 limit=resolved_limit,
                 throttle_ms=throttle_ms,
-                cache_enabled=resolved_cache,
-                log_decision=log_decision,
-                log_output=log_output,
-                visuals=visuals,
+                observability=observability,
                 output=target,
-                build_mode=resolved_build_mode,
+                splits=splits,
             )
         )
-    return profiles
 
+    output_owners: dict[Path, str] = {}
+    for resolved_profile in resolved:
+        if resolved_profile.output.destination is None:
+            continue
+        destinations = (
+            [
+                (label, resolved_profile.output.for_split(label).destination)
+                for label in resolved_profile.splits
+            ]
+            if resolved_profile.splits
+            else [(None, resolved_profile.output.destination)]
+        )
+        for split_label, destination in destinations:
+            if destination is None:
+                continue
+            owner = f"profile '{resolved_profile.name}'"
+            if split_label is not None:
+                owner = f"{owner} split {split_label!r}"
+            previous = output_owners.get(destination)
+            if previous is not None:
+                raise ValueError(
+                    f"Runtime outputs for {previous} and {owner} resolve to the "
+                    f"same path '{destination}'."
+                )
+            output_owners[destination] = owner
 
-__all__ = ["RunProfile", "resolve_run_profiles", "_run_config_value"]
+    preview_indices_by_run: dict[RunPaths, set[int | None]] = {}
+    for resolved_profile in resolved:
+        run = resolved_profile.output.run
+        if run is not None:
+            preview_indices_by_run.setdefault(run, set()).add(
+                resolved_profile.preview_index
+            )
+    for run, preview_indices in preview_indices_by_run.items():
+        if len(preview_indices) > 1:
+            raise ValueError(
+                "Serve profiles sharing output directory "
+                f"'{run.serve_root}' must use the same preview_index."
+            )
+    return resolved

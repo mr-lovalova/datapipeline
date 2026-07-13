@@ -1,0 +1,20 @@
+id: {{ stream_id }}  # format: domain.dataset.(variant)
+
+from:
+  stream: {{ upstream_stream }}
+
+# cadence: ${group_by}          # optional per-stream cadence
+# partition_by: <field or [fields]>
+# feature_id_by: []
+
+stream:
+  - dedupe: {}
+#   - lag: { field: close, to: close_lag_1, periods: 1 }
+#   - lead: { field: close, to: close_lead_126, periods: 126 }
+#   - ensure_cadence: { field: some_field, cadence: "${cadence}" }
+#   - granularity: { field: some_field, mode: first }
+#   - fill: { field: some_field, to: some_field, method: median, window: 6, min_samples: 1 }
+#   - fill: { field: some_field, to: some_field_asof, method: forward }
+
+debug:
+  - lint: { mode: warn, tick: "${cadence}" }

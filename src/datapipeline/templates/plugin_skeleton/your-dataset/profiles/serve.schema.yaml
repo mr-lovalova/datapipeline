@@ -1,6 +1,0 @@
-# See ../../reference/reference/tasks/profiles/serve.reference.yaml for full options.
-cmd: serve
-name: schema
-order: 10
-target: schema
-enabled: true
