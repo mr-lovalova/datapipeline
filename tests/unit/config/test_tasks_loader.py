@@ -133,7 +133,6 @@ def test_vector_inputs_artifact_task_loads_defaults(tmp_path):
     assert task.id == "vector_inputs"
     assert task.entrypoint == "core.artifact.vector_inputs"
     assert task.output == "build/vector_inputs/manifest.json"
-    assert task.format == "jsonl.gz"
 
 
 def test_ticks_artifact_task_loads_arbitrary_id(tmp_path):
@@ -209,7 +208,7 @@ def test_scaler_task_loads_folds(tmp_path):
             "kind: artifact\n"
             "output: build/scaler.json\n"
             "folds:\n"
-            "  - fit: train_0\n"
+            "  - fit: [train_0]\n"
             "    apply: [train_0, val_0]\n"
             "  - fit: [train_1]\n"
             "    apply: [train_1, val_1]\n"

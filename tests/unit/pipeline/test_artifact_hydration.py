@@ -5,8 +5,12 @@ from datapipeline.artifacts.hydration import (
 from datapipeline.artifacts.planning import build_artifact_graph
 from datapipeline.artifacts.validation import NestedTickDependency
 from datapipeline.build.config_hash import compute_config_hash
-from datapipeline.build.state import BuildState, save_build_state
-from datapipeline.config.dataset.dataset import FeatureDatasetConfig
+from datapipeline.build.state import (
+    ArtifactFileFingerprint,
+    BuildState,
+    save_build_state,
+)
+from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
 from datapipeline.config.tasks import (
     ArtifactTask,
     MetadataTask,
@@ -51,14 +55,6 @@ def test_hydration_replaces_registry_with_dependency_current_artifacts(
         VECTOR_METADATA: "build/missing-metadata.json",
         "custom_snapshot": "build/custom.json",
     }
-    for key, relative_path in paths.items():
-        state.register(
-            key,
-            relative_path,
-            config_hash="current",
-        )
-    state.artifacts[VECTOR_INPUTS].config_hash = "old"
-
     for relative_path in (
         paths[VECTOR_INPUTS],
         paths[VECTOR_SCHEMA],
@@ -67,6 +63,33 @@ def test_hydration_replaces_registry_with_dependency_current_artifacts(
         destination = runtime.artifacts_root / relative_path
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_text("{}", encoding="utf-8")
+
+    for key in (VECTOR_INPUTS, VECTOR_SCHEMA, "custom_snapshot"):
+        relative_path = paths[key]
+        state.register(
+            key,
+            relative_path,
+            config_hash="current",
+            files=(
+                ArtifactFileFingerprint.from_path(
+                    relative_path,
+                    runtime.artifacts_root / relative_path,
+                ),
+            ),
+        )
+    state.register(
+        VECTOR_METADATA,
+        paths[VECTOR_METADATA],
+        config_hash="current",
+        files=(
+            ArtifactFileFingerprint(
+                relative_path=paths[VECTOR_METADATA],
+                size=0,
+                mtime_ns=0,
+            ),
+        ),
+    )
+    state.artifacts[VECTOR_INPUTS].config_hash = "old"
 
     for key, relative_path in paths.items():
         runtime.artifacts.register(key, relative_path)
@@ -77,7 +100,7 @@ def test_hydration_replaces_registry_with_dependency_current_artifacts(
         graph=graph,
         state=state,
         config_hash="current",
-        artifact_keys=paths,
+        artifact_keys=graph.dependency_closure(paths),
     )
 
     assert hydrated == ("custom_snapshot",)
@@ -110,14 +133,19 @@ def test_hydration_skips_incomplete_unrelated_artifact_chain(tmp_path) -> None:
         destination = runtime.artifacts_root / relative_path
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_text("{}", encoding="utf-8")
-        state.register(key, relative_path, config_hash="current")
+        state.register(
+            key,
+            relative_path,
+            config_hash="current",
+            files=(ArtifactFileFingerprint.from_path(relative_path, destination),),
+        )
 
     hydrated = hydrate_runtime_artifacts(
         runtime=runtime,
         graph=graph,
         state=state,
         config_hash="current",
-        artifact_keys=paths,
+        artifact_keys=graph.dependency_closure(paths),
     )
 
     assert hydrated == ("custom_snapshot",)
@@ -149,7 +177,12 @@ def test_project_hydration_excludes_nested_tick_and_dependents(
         destination = runtime.artifacts_root / relative_path
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_text("{}", encoding="utf-8")
-        state.register(key, relative_path, config_hash="current")
+        state.register(
+            key,
+            relative_path,
+            config_hash="current",
+            files=(ArtifactFileFingerprint.from_path(relative_path, destination),),
+        )
     runtime.artifacts.register("derived_ticks", tick.output)
     runtime.artifacts.register(VECTOR_INPUTS, vector_inputs.output)
     monkeypatch.setattr(
@@ -173,7 +206,7 @@ def test_project_hydration_excludes_nested_tick_and_dependents(
         lambda *_args: (
             NestedTickDependency(
                 task=tick,
-                cadence_artifacts=frozenset({"base_ticks"}),
+                tick_artifacts=frozenset({"base_ticks"}),
             ),
         ),
     )
@@ -182,7 +215,7 @@ def test_project_hydration_excludes_nested_tick_and_dependents(
         runtime,
         runtime.project_yaml,
         graph=graph,
-        dataset=FeatureDatasetConfig(group_by="1h"),
+        dataset=FeatureDatasetConfig(sample=SampleConfig(cadence="1h")),
     )
 
     assert hydrated == ()
@@ -210,7 +243,7 @@ def test_project_hydration_rejects_artifact_after_config_changes(tmp_path) -> No
         encoding="utf-8",
     )
     (tmp_path / "dataset.yaml").write_text("{}\n", encoding="utf-8")
-    (tmp_path / "postprocess.yaml").write_text("[]\n", encoding="utf-8")
+    (tmp_path / "postprocess.yaml").write_text("{}\n", encoding="utf-8")
     for directory in ("ingests", "streams", "sources"):
         (tmp_path / directory).mkdir()
     operations = tmp_path / "tasks/operations"
@@ -240,6 +273,7 @@ def test_project_hydration_rejects_artifact_after_config_changes(tmp_path) -> No
         "custom_snapshot",
         "build/custom.json",
         config_hash=config_hash,
+        files=(ArtifactFileFingerprint.from_path("build/custom.json", output),),
     )
     save_build_state(state, build_state_path(project_path))
 

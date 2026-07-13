@@ -1,16 +1,22 @@
-from collections import Counter, OrderedDict
+from collections import Counter
 from collections.abc import Sequence
+from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Literal
+from typing import Literal
 
-from datapipeline.artifacts.models import VectorSchemaCadence, VectorSchemaEntry
+from datapipeline.artifacts.models import (
+    ListVectorMetadataEntry,
+    ScalarVectorMetadataEntry,
+    VectorMetadataEntry,
+    VectorSchemaCadence,
+)
 from datapipeline.config.dataset.feature import FeatureRecordConfig
-from datapipeline.dag.context import PipelineContext
-from datapipeline.dag.runner import resolve_heartbeat_interval_seconds
+from datapipeline.execution.context import PipelineContext
+from datapipeline.execution.runner import resolve_heartbeat_interval_seconds
 from datapipeline.execution.observability import OperationProgressTracker
-from datapipeline.pipelines import build_vector_pipeline
+from datapipeline.pipelines.vector.pipeline import build_vector_pipeline
 from datapipeline.runtime import Runtime
-from datapipeline.transforms.vector_utils import base_id as _base_feature_id
+from datapipeline.domain.feature_id import base_id as _base_feature_id
 from datapipeline.transforms.utils import is_missing
 
 
@@ -20,62 +26,80 @@ def _type_name(value: object) -> str:
     return type(value).__name__
 
 
-def collect_schema_entries(
-    runtime: Runtime,
-    configs: Sequence[FeatureRecordConfig],
-    group_by: str,
-    *,
-    sample_keys: Sequence[str] = (),
-    collect_metadata: bool,
-    progress_step: str,
-) -> tuple[list[dict], int]:
-    entries, vector_count, _ = _collect_schema_entries(
-        runtime,
-        configs,
-        group_by,
-        sample_keys=sample_keys,
-        collect_metadata=collect_metadata,
-        collect_sample_domain=False,
-        progress_step=progress_step,
-    )
-    return entries, vector_count
+@dataclass
+class VectorMetadataStats:
+    id: str
+    base_id: str
+    kind: Literal["scalar", "list"] | None = None
+    list_length: int | None = None
+    present_count: int = 0
+    null_count: int = 0
+    scalar_types: set[str] = field(default_factory=set)
+    element_types: set[str] = field(default_factory=set)
+    lengths: Counter[int] = field(default_factory=Counter)
+    first_observed: datetime | None = None
+    last_observed: datetime | None = None
+    observed_elements: int = 0
+
+    def observe(self, value: object, observed_at: datetime | None) -> None:
+        if observed_at is not None:
+            self.first_observed = (
+                observed_at
+                if self.first_observed is None
+                else min(self.first_observed, observed_at)
+            )
+            self.last_observed = (
+                observed_at
+                if self.last_observed is None
+                else max(self.last_observed, observed_at)
+            )
+
+        self.present_count += 1
+        if is_missing(value):
+            self.null_count += 1
+            return
+
+        if isinstance(value, list):
+            if self.kind == "scalar":
+                raise ValueError(
+                    f"Vector {self.id!r} contains both scalar and list values."
+                )
+            if not value:
+                raise ValueError(
+                    f"Vector {self.id!r} contains an empty list; "
+                    "list vectors require a positive fixed length."
+                )
+            length = len(value)
+            if self.list_length is not None and self.list_length != length:
+                raise ValueError(
+                    f"Vector {self.id!r} contains list values with different "
+                    f"lengths: {self.list_length} and {length}."
+                )
+            self.kind = "list"
+            self.list_length = length
+            self.lengths[length] += 1
+            self.observed_elements += sum(
+                1 for element in value if not is_missing(element)
+            )
+            self.element_types.update(_type_name(element) for element in value)
+            return
+
+        if self.kind == "list":
+            raise ValueError(
+                f"Vector {self.id!r} contains both list and scalar values."
+            )
+        self.kind = "scalar"
+        self.scalar_types.add(_type_name(value))
 
 
-def collect_schema_entries_and_sample_domain(
+def collect_vector_metadata(
     runtime: Runtime,
     configs: Sequence[FeatureRecordConfig],
-    group_by: str,
-    *,
+    cadence: str,
     sample_keys: Sequence[str],
-    collect_metadata: bool,
     progress_step: str,
 ) -> tuple[
-    list[dict],
-    int,
-    dict[tuple, tuple[datetime, datetime]],
-]:
-    return _collect_schema_entries(
-        runtime,
-        configs,
-        group_by,
-        sample_keys=sample_keys,
-        collect_metadata=collect_metadata,
-        collect_sample_domain=True,
-        progress_step=progress_step,
-    )
-
-
-def _collect_schema_entries(
-    runtime: Runtime,
-    configs: Sequence[FeatureRecordConfig],
-    group_by: str,
-    *,
-    sample_keys: Sequence[str],
-    collect_metadata: bool,
-    collect_sample_domain: bool,
-    progress_step: str,
-) -> tuple[
-    list[dict],
+    list[VectorMetadataStats],
     int,
     dict[tuple, tuple[datetime, datetime]],
 ]:
@@ -86,12 +110,12 @@ def _collect_schema_entries(
     vectors = build_vector_pipeline(
         context,
         sanitized,
-        group_by,
+        cadence,
         rectangular=False,
         sample_keys=sample_keys,
     )
 
-    stats: OrderedDict[str, dict] = OrderedDict()
+    stats: dict[str, VectorMetadataStats] = {}
     sample_domain: dict[tuple, tuple[datetime, datetime]] = {}
     vector_count = 0
     progress = OperationProgressTracker(
@@ -101,63 +125,16 @@ def _collect_schema_entries(
     for sample in vectors:
         vector_count += 1
         ts = sample.key[0] if isinstance(sample.key, tuple) and sample.key else None
-        if collect_sample_domain and sample_keys and isinstance(ts, datetime):
+        if sample_keys and isinstance(ts, datetime):
             _update_sample_domain(sample_domain, sample.key, ts)
         for fid, value in sample.features.values.items():
             entry = stats.get(fid)
             if entry is None:
-                entry = stats[fid] = {
-                    "id": fid,
-                    "base_id": _base_feature_id(fid),
-                    "kind": None,
-                    "max_length": None,
-                    "present_count": 0,
-                    "null_count": 0,
-                    "scalar_types": set(),
-                    "element_types": set(),
-                    "min_length": None,
-                    "lengths": Counter(),
-                    "first_ts": None,
-                    "last_ts": None,
-                }
-            if isinstance(ts, datetime):
-                prev_start = entry.get("first_ts")
-                entry["first_ts"] = ts if prev_start is None else min(prev_start, ts)
-                prev_end = entry.get("last_ts")
-                entry["last_ts"] = ts if prev_end is None else max(prev_end, ts)
-            if collect_metadata:
-                entry["present_count"] += 1
-            if is_missing(value):
-                if collect_metadata:
-                    entry["null_count"] += 1
-                continue
-            if isinstance(value, list):
-                entry["kind"] = "list"
-                length = len(value)
-                entry["min_length"] = (
-                    length
-                    if entry["min_length"] is None
-                    else min(entry["min_length"], length)
+                entry = stats[fid] = VectorMetadataStats(
+                    id=fid,
+                    base_id=_base_feature_id(fid),
                 )
-                entry["max_length"] = (
-                    length
-                    if entry["max_length"] is None
-                    else max(entry["max_length"], length)
-                )
-                if collect_metadata:
-                    entry["lengths"][length] += 1
-                    entry["observed_elements"] = entry.get(
-                        "observed_elements", 0
-                    ) + sum(1 for v in value if not is_missing(v))
-                    if not value:
-                        entry["element_types"].add("empty")
-                    else:
-                        entry["element_types"].update(_type_name(v) for v in value)
-            else:
-                if entry["kind"] != "list":
-                    entry["kind"] = "scalar"
-                if collect_metadata:
-                    entry["scalar_types"].add(_type_name(value))
+            entry.observe(value, ts if isinstance(ts, datetime) else None)
         progress.advance()
 
     return list(stats.values()), vector_count, sample_domain
@@ -165,7 +142,7 @@ def _collect_schema_entries(
 
 def _update_sample_domain(
     sample_domain: dict[tuple, tuple[datetime, datetime]],
-    group_key: Any,
+    group_key: object,
     ts: datetime,
 ) -> None:
     if not isinstance(group_key, tuple) or len(group_key) < 2:
@@ -186,71 +163,49 @@ def configured_vectors_are_empty(
     return bool(configs) and vector_count == 0
 
 
-def _resolve_cadence_target(stats: dict) -> int | None:
-    max_len = stats.get("max_length")
-    if isinstance(max_len, (int, float)) and max_len > 0:
-        return int(max_len)
-    return None
-
-
-def schema_entries_from_stats(
-    entries: list[dict],
-) -> tuple[VectorSchemaEntry, ...]:
-    schema_entries: list[VectorSchemaEntry] = []
+def metadata_entries_from_stats(
+    entries: Sequence[VectorMetadataStats],
+) -> tuple[VectorMetadataEntry, ...]:
+    metadata_entries: list[VectorMetadataEntry] = []
     for entry in entries:
-        raw_kind = entry["kind"]
-        if raw_kind not in {None, "scalar", "list"}:
-            raise ValueError(f"Unknown vector schema kind: {raw_kind!r}")
-        kind: Literal["scalar", "list"] = "list" if raw_kind == "list" else "scalar"
-        cadence: VectorSchemaCadence | None = None
+        kind = entry.kind or "scalar"
         if kind == "list":
-            target = _resolve_cadence_target(entry)
-            if target is not None:
-                cadence = VectorSchemaCadence(target=target)
-        schema_entries.append(
-            VectorSchemaEntry(id=entry["id"], kind=kind, cadence=cadence)
+            target = entry.list_length
+            if target is None:
+                raise ValueError(
+                    f"List metadata entry {entry.id!r} has no fixed sequence length."
+                )
+            metadata_entries.append(
+                ListVectorMetadataEntry(
+                    id=entry.id,
+                    base_id=entry.base_id,
+                    kind="list",
+                    present_count=entry.present_count,
+                    null_count=entry.null_count,
+                    first_observed=entry.first_observed,
+                    last_observed=entry.last_observed,
+                    element_types=tuple(sorted(entry.element_types)),
+                    lengths={
+                        str(length): count
+                        for length, count in sorted(entry.lengths.items())
+                    },
+                    cadence=VectorSchemaCadence(target=target),
+                    observed_elements=entry.observed_elements,
+                )
+            )
+            continue
+        if kind != "scalar":
+            raise ValueError(f"Unsupported vector metadata kind {kind!r}.")
+        metadata_entries.append(
+            ScalarVectorMetadataEntry(
+                id=entry.id,
+                base_id=entry.base_id,
+                kind="scalar",
+                present_count=entry.present_count,
+                null_count=entry.null_count,
+                first_observed=entry.first_observed,
+                last_observed=entry.last_observed,
+                value_types=tuple(sorted(entry.scalar_types)),
+            )
         )
-    return tuple(schema_entries)
-
-
-def _to_iso(ts: datetime | None) -> str | None:
-    if isinstance(ts, datetime):
-        text = ts.isoformat()
-        if text.endswith("+00:00"):
-            return text[:-6] + "Z"
-        return text
-    return None
-
-
-def metadata_entries_from_stats(entries: list[dict]) -> list[dict]:
-    meta_entries: list[dict] = []
-    for entry in entries:
-        kind = entry.get("kind") or "scalar"
-        item: dict[str, Any] = {
-            "id": entry["id"],
-            "base_id": entry["base_id"],
-            "kind": kind,
-            "present_count": entry.get("present_count", 0),
-            "null_count": entry.get("null_count", 0),
-        }
-        first_ts = _to_iso(entry.get("first_ts"))
-        last_ts = _to_iso(entry.get("last_ts"))
-        if first_ts:
-            item["first_observed"] = first_ts
-        if last_ts:
-            item["last_observed"] = last_ts
-        if kind == "list":
-            item["element_types"] = sorted(entry.get("element_types", []))
-            lengths = entry.get("lengths") or {}
-            item["lengths"] = {
-                str(length): count for length, count in sorted(lengths.items())
-            }
-            target = _resolve_cadence_target(entry)
-            if target is not None:
-                item["cadence"] = {"target": target}
-            if "observed_elements" in entry:
-                item["observed_elements"] = int(entry.get("observed_elements", 0))
-        else:
-            item["value_types"] = sorted(entry.get("scalar_types", []))
-        meta_entries.append(item)
-    return meta_entries
+    return tuple(metadata_entries)

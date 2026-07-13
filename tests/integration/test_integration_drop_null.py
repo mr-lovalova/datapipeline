@@ -1,10 +1,12 @@
 from datetime import datetime, timezone
+
 from datapipeline.config.context import load_dataset_context
-from datapipeline.config.tasks import SchemaTask
+from datapipeline.config.tasks import MetadataTask, SchemaTask
+from datapipeline.operations.artifacts.metadata import materialize_metadata
 from datapipeline.operations.artifacts.schema import materialize_vector_schema
-from datapipeline.pipelines.full.nodes import post_process
-from datapipeline.pipelines import build_vector_pipeline
-from datapipeline.services.constants import VECTOR_SCHEMA
+from datapipeline.pipelines.full.nodes import apply_postprocess
+from datapipeline.pipelines.vector.pipeline import build_vector_pipeline
+from datapipeline.services.constants import VECTOR_METADATA, VECTOR_SCHEMA
 from tests.vector_input_helpers import register_vector_inputs
 
 
@@ -16,8 +18,16 @@ def test_drop_with_schema_and_partitioned_streams(copy_fixture):
     register_vector_inputs(
         dataset_ctx.runtime,
         dataset_ctx.features,
-        dataset_ctx.dataset.group_by,
+        dataset_ctx.dataset.sample.cadence,
         targets=dataset_ctx.targets,
+    )
+    metadata = materialize_metadata(
+        dataset_ctx.runtime,
+        MetadataTask(id="metadata", output="metadata.json"),
+    )
+    dataset_ctx.runtime.artifacts.register(
+        VECTOR_METADATA,
+        relative_path=metadata.relative_path,
     )
     schema = materialize_vector_schema(
         dataset_ctx.runtime,
@@ -31,11 +41,11 @@ def test_drop_with_schema_and_partitioned_streams(copy_fixture):
     vectors = build_vector_pipeline(
         context,
         dataset_ctx.features,
-        dataset_ctx.dataset.group_by,
+        dataset_ctx.dataset.sample.cadence,
         target_configs=dataset_ctx.targets,
         rectangular=False,
     )
-    processed = post_process(context, vectors)
+    processed = apply_postprocess(context, vectors)
     samples = list(processed)
 
     # Source emits ticks every 2h; ensure_cadence fills 1h gaps with None.

@@ -3,6 +3,7 @@ from typing import Optional
 
 from datapipeline.analysis.vector.matrix import export_matrix_data
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
+from datapipeline.config.preview import PreviewStage
 from datapipeline.config.tasks import MatrixTask
 from datapipeline.io.output import OutputTarget
 from datapipeline.operations.persistence import RuntimeOutput
@@ -20,11 +21,11 @@ def inspect_matrix_with_runtime(
     limit: Optional[int] = None,
     target: OutputTarget | None = None,
     throttle_ms: Optional[float] = None,
-    preview_index: Optional[int] = None,
+    preview: PreviewStage | None = None,
     visuals: Optional[str] = None,
     operation_task: MatrixTask | None = None,
 ) -> RuntimeOutput:
-    _ = dataset, limit, target, throttle_ms, preview_index, visuals, operation_task
+    _ = dataset, limit, target, throttle_ms, preview, visuals, operation_task
     collector = load_collector(runtime)
     rows = matrix_status_rows(collector)
 

@@ -6,6 +6,7 @@ from types import MappingProxyType
 from datapipeline.artifacts.specs import ARTIFACT_DEFINITIONS, ArtifactDefinition
 from datapipeline.build.state import BuildState
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
+from datapipeline.config.preview import PREVIEW_STAGES, PreviewStage
 from datapipeline.config.tasks import ArtifactTask, OperationTask, StatsTask, TicksTask
 from datapipeline.services.constants import (
     SCALER_STATISTICS,
@@ -159,7 +160,7 @@ class ArtifactGraph:
         self,
         task: OperationTask,
         *,
-        preview_index: int | None,
+        preview: PreviewStage | None,
     ) -> set[str]:
         declared = set(task.requires)
         tick_artifacts = {
@@ -168,17 +169,16 @@ class ArtifactGraph:
             if isinstance(artifact_task, TicksTask)
         }
         if task.entrypoint == "core.runtime.pipeline":
-            if preview_index is None:
+            if preview is None:
                 return declared | {VECTOR_METADATA, VECTOR_SCHEMA}
-            if preview_index < 0 or preview_index > 13:
-                raise ValueError("preview_index must be between 0 and 13")
-            if preview_index <= 6:
-                return declared
-            if preview_index <= 9:
+            if preview not in PREVIEW_STAGES:
+                expected = ", ".join(PREVIEW_STAGES)
+                raise ValueError(f"preview must be one of: {expected}")
+            if preview in {"source", "mapped", "records"}:
                 return declared | tick_artifacts
-            if preview_index <= 11:
+            if preview == "features":
                 return declared | {SCALER_STATISTICS, *tick_artifacts}
-            if preview_index == 12:
+            if preview == "samples":
                 return declared | {VECTOR_METADATA}
             return declared | {VECTOR_METADATA, VECTOR_SCHEMA}
         if task.entrypoint in {
@@ -193,10 +193,10 @@ class ArtifactGraph:
         self,
         task: OperationTask,
         *,
-        preview_index: int | None,
+        preview: PreviewStage | None,
         dataset: FeatureDatasetConfig | None,
     ) -> tuple[str, ...]:
-        roots = self.runtime_requirements(task, preview_index=preview_index)
+        roots = self.runtime_requirements(task, preview=preview)
         if (
             task.entrypoint == "core.runtime.pipeline"
             and dataset is not None
@@ -357,14 +357,23 @@ class ArtifactGraph:
             if info.config_hash != config_hash:
                 stale.add(key)
                 continue
-            artifact_path = (root / info.relative_path).resolve()
-            try:
-                artifact_path.relative_to(root)
-            except ValueError:
-                stale.add(key)
-                continue
-            if not artifact_path.is_file():
-                missing.add(key)
+            for fingerprint in info.files:
+                artifact_path = (root / fingerprint.relative_path).resolve()
+                try:
+                    artifact_path.relative_to(root)
+                except ValueError:
+                    stale.add(key)
+                    break
+                if not artifact_path.is_file():
+                    missing.add(key)
+                    break
+                stat = artifact_path.stat()
+                if (
+                    stat.st_size != fingerprint.size
+                    or stat.st_mtime_ns != fingerprint.mtime_ns
+                ):
+                    stale.add(key)
+                    break
 
         outdated = missing | stale
         for key in self.topological_order(selected):

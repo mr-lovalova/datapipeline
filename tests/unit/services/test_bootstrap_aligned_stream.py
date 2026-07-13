@@ -1,9 +1,23 @@
-from datapipeline.dag.context import PipelineContext
+from datapipeline.execution.context import PipelineContext
+from datapipeline.execution.observer import NoopPipelineObserver
 from datapipeline.domain.record import TemporalRecord
-from datapipeline.pipelines.record.streams import open_record_stream
+from datapipeline.pipelines.stream.pipeline import run_stream_pipeline
 from datapipeline.plugins import MAPPERS_EP
 from datapipeline.runtime import Runtime
 from datapipeline.services.bootstrap.core import init_streams, load_streams
+
+
+class _PipelineObserver(NoopPipelineObserver):
+    def __init__(self) -> None:
+        self.started: list[str] = []
+
+    def on_pipeline_start(
+        self,
+        pipeline_name: str,
+        node_count: int,
+        summary: str | None = None,
+    ) -> None:
+        self.started.append(pipeline_name)
 
 
 def test_yaml_aligned_stream_runs_with_inherited_partition_and_positional_mapper(
@@ -107,10 +121,13 @@ map:
 
     runtime = Runtime(project_yaml, tmp_path / "artifacts")
     init_streams(load_streams(project_yaml), runtime)
+    observer = _PipelineObserver()
+    runtime.pipeline_observer = observer
 
-    assert runtime.registries.partition_by.get("combined") == "ticker"
-    records = list(open_record_stream(PipelineContext(runtime), "combined"))
+    assert runtime.streams["combined"].partition_by == "ticker"
+    records = list(run_stream_pipeline(PipelineContext(runtime), "combined"))
     assert [(record.time.day, record.ticker, record.value) for record in records] == [
         (1, "A", 115),
         (2, "A", 225),
     ]
+    assert observer.started == ["stream:combined"]

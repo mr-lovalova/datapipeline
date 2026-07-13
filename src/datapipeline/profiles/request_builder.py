@@ -1,7 +1,7 @@
 import logging
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Literal, Sequence
+from typing import Sequence
 
 from pydantic import ValidationError
 
@@ -22,6 +22,7 @@ from datapipeline.config.profiles import (
     ServeProfile,
     normalize_artifact_mode,
 )
+from datapipeline.config.preview import PreviewStage
 from datapipeline.config.resolution import (
     LogOutputTarget,
     resolve_execution_log_outputs,
@@ -35,7 +36,6 @@ from datapipeline.profiles.models import (
     BuildJob,
     BuildRunRequest,
     ProfileKind,
-    ProfileDataset,
     ProfileRunRequest,
     RuntimeJob,
     RuntimeRunRequest,
@@ -71,7 +71,7 @@ class ProfileResolveParams:
     run_name: str | None
     force: bool
     limit: int | None
-    preview_index: int | None
+    preview: PreviewStage | None
     output_transport: str | None
     output_format: str | None
     output_directory: str | None
@@ -223,7 +223,7 @@ def _resolve_runtime_jobs(
         runtime_profiles = resolve_runtime_profiles(
             project_path=params.project_path,
             profiles=profiles,
-            preview_index=params.preview_index,
+            preview=params.preview,
             limit=params.limit,
             cli_output=cli_output_cfg,
             cli_log_level=params.cli_log_level,
@@ -239,24 +239,14 @@ def _resolve_runtime_jobs(
         logger.error("Invalid output configuration: %s", exc)
         raise SystemExit(2) from exc
 
-    datasets: dict[str, ProfileDataset] = {
-        "vectors": load_dataset(params.project_path, "vectors")
-    }
+    dataset = load_dataset(params.project_path)
     jobs: list[RuntimeJob] = []
     for profile in runtime_profiles:
-        dataset_name: Literal["vectors", "features"] = (
-            "vectors" if profile.preview_index is None else "features"
-        )
-        dataset = datasets.get(dataset_name)
-        if dataset is None:
-            dataset = load_dataset(params.project_path, dataset_name)
-            datasets[dataset_name] = dataset
         jobs.append(
             RuntimeJob(
                 name=profile.name,
                 task=tasks_by_id[profile.target_id],
                 runtime=profile.runtime,
-                dataset_name=dataset_name,
                 dataset=dataset,
                 output=profile.output,
                 observability=replace(
@@ -270,7 +260,7 @@ def _resolve_runtime_jobs(
                 ),
                 limit=profile.limit,
                 throttle_ms=profile.throttle_ms,
-                preview_index=profile.preview_index,
+                preview=profile.preview,
                 splits=profile.splits,
             )
         )
@@ -287,7 +277,7 @@ def _serve_run_plans(
         if job.output.run not in plans_by_run:
             plans_by_run[job.output.run] = ServeRunPlan(
                 paths=job.output.run,
-                preview_index=job.preview_index,
+                preview=job.preview,
             )
     return tuple(plans_by_run.values())
 
@@ -300,7 +290,7 @@ def build_profile_run_request(
     force: bool = False,
     artifact_mode: str | None = None,
     limit: int | None = None,
-    preview_index: int | None = None,
+    preview: PreviewStage | None = None,
     output_transport: str | None = None,
     output_format: str | None = None,
     output_directory: str | None = None,
@@ -320,7 +310,7 @@ def build_profile_run_request(
         run_name=run_name,
         force=force,
         limit=limit,
-        preview_index=preview_index,
+        preview=preview,
         output_transport=output_transport,
         output_format=output_format,
         output_directory=output_directory,

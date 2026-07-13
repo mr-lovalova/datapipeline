@@ -2,7 +2,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Mapping
 
-from datapipeline.dag.context import PipelineContext
+from datapipeline.execution.context import PipelineContext
 
 from .adapter import VectorAdapter
 
@@ -82,11 +82,15 @@ def torch_dataset(
 
         def __getitem__(self, idx: int):
             sample = rows[idx]
-            features = torch.as_tensor(
-                [sample[col] for col in feature_cols],
-                dtype=dtype,
-                device=device,
-            ) if feature_cols else torch.tensor([], dtype=dtype, device=device)
+            features = (
+                torch.as_tensor(
+                    [sample[col] for col in feature_cols],
+                    dtype=dtype,
+                    device=device,
+                )
+                if feature_cols
+                else torch.tensor([], dtype=dtype, device=device)
+            )
             if not target_cols:
                 return features
             targets = torch.as_tensor(

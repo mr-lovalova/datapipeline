@@ -2,15 +2,18 @@ from datetime import datetime, timezone
 
 import pytest
 
+from datapipeline.config.split import HashSplitConfig, TimeSplitConfig
 from datapipeline.domain.vector import Vector
 from datapipeline.pipelines.full.split import HashLabeler, TimeLabeler
 
 
 def test_hash_split_feature_key_errors_when_feature_is_missing():
     labeler = HashLabeler(
-        ratios={"train": 0.5, "test": 0.5},
-        key="feature:missing",
-        seed=7,
+        HashSplitConfig(
+            ratios={"train": 0.5, "test": 0.5},
+            key="feature:missing",
+            seed=7,
+        )
     )
 
     with pytest.raises(KeyError, match="hash split feature key 'missing' not found"):
@@ -19,10 +22,35 @@ def test_hash_split_feature_key_errors_when_feature_is_missing():
 
 def test_time_labeler_uses_boundaries():
     labeler = TimeLabeler(
-        boundaries=["1970-01-02T00:00:00Z"],
-        labels=["train", "test"],
+        TimeSplitConfig(
+            boundaries=["1970-01-02T00:00:00Z"],
+            labels=["train", "test"],
+        )
     )
     vector = Vector(values={})
 
     assert labeler.label(datetime(1970, 1, 1, tzinfo=timezone.utc), vector) == "train"
     assert labeler.label(datetime(1970, 1, 2, tzinfo=timezone.utc), vector) == "test"
+
+
+def test_time_labeler_accepts_iso_string_keys():
+    labeler = TimeLabeler(
+        TimeSplitConfig(
+            boundaries=["1970-01-02T00:00:00Z"],
+            labels=["train", "test"],
+        )
+    )
+
+    assert labeler.label("1970-01-02T00:00:00Z", Vector(values={})) == "test"
+
+
+def test_time_labeler_rejects_ambiguous_keys():
+    labeler = TimeLabeler(
+        TimeSplitConfig(
+            boundaries=["1970-01-02T00:00:00Z"],
+            labels=["train", "test"],
+        )
+    )
+
+    with pytest.raises(TypeError, match="datetimes or ISO-8601 strings"):
+        labeler.label(1, Vector(values={}))

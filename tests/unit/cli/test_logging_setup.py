@@ -158,7 +158,10 @@ def test_configure_root_logging_suppresses_execution_events_on_stderr_when_visua
     logger = logging.getLogger("datapipeline.tests.logging_setup.stderr")
     token = set_current_execution_event_sink(object())
     try:
-        logger.info("DAG started name=demo", extra={"dp_event_kind": "dag_start"})
+        logger.info(
+            "Pipeline started name=demo",
+            extra={"dp_event_kind": "pipeline_start"},
+        )
         logger.info("plain log line")
     finally:
         reset_current_execution_event_sink(token)
@@ -166,7 +169,7 @@ def test_configure_root_logging_suppresses_execution_events_on_stderr_when_visua
 
     rendered = stream.getvalue()
     assert "plain log line" in rendered
-    assert "DAG started name=demo" not in rendered
+    assert "Pipeline started name=demo" not in rendered
 
 
 def test_configure_root_logging_keeps_execution_events_in_file_when_visual_sink_active(
@@ -183,13 +186,16 @@ def test_configure_root_logging_keeps_execution_events_in_file_when_visual_sink_
     logger = logging.getLogger("datapipeline.tests.logging_setup.file")
     token = set_current_execution_event_sink(object())
     try:
-        logger.info("DAG started name=demo", extra={"dp_event_kind": "dag_start"})
+        logger.info(
+            "Pipeline started name=demo",
+            extra={"dp_event_kind": "pipeline_start"},
+        )
     finally:
         reset_current_execution_event_sink(token)
         _flush_root_handlers()
 
     content = log_path.read_text(encoding="utf-8")
-    assert "DAG started name=demo" in content
+    assert "Pipeline started name=demo" in content
 
 
 def test_configure_root_logging_proxies_plain_terminal_logs_into_rich_visual_sink(
@@ -230,7 +236,6 @@ def test_configure_root_logging_proxies_plain_terminal_logs_into_rich_visual_sin
     assert isinstance(event, ExecutionMessage)
     assert event.message == "plain log line"
     assert event.log_level == logging.WARNING
-    assert event.depth == 0
 
 
 def test_configure_root_logging_does_not_proxy_plain_logs_without_proxy_sink(

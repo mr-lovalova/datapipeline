@@ -72,7 +72,7 @@ def hydrate_runtime_artifacts_for_project(
         return ()
     if graph.requires_dataset(artifact_keys):
         if dataset is None:
-            dataset = load_dataset(project_path, "vectors")
+            dataset = load_dataset(project_path)
         artifact_keys = set(graph.active_dependency_closure(artifact_roots, dataset))
     nested_ticks = {
         dependency.task.id

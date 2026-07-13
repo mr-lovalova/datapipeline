@@ -6,5 +6,5 @@ partition_by: location
 feature_id_by: location
 
 stream:
-  - ensure_cadence: { cadence: 1h, field: value }
-  - fill: { method: median, window: 3, min_samples: 1, field: value }
+  - { operation: ensure_cadence, cadence: 1h }
+  - { operation: fill, statistic: median, window: 3, min_samples: 1, field: value }

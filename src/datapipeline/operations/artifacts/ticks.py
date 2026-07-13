@@ -5,10 +5,10 @@ from typing import Any, Iterator
 
 from datapipeline.execution.observability import OperationProgressTracker
 from datapipeline.config.tasks import TicksTask
-from datapipeline.dag.runner import resolve_heartbeat_interval_seconds
-from datapipeline.dag.context import PipelineContext
+from datapipeline.execution.context import PipelineContext
+from datapipeline.execution.runner import resolve_heartbeat_interval_seconds
 from datapipeline.operations.persistence import ArtifactOutput
-from datapipeline.pipelines import build_stream_id_pipeline
+from datapipeline.pipelines.stream.pipeline import run_stream_pipeline
 from datapipeline.pipelines.shared.sort import batch_sort
 from datapipeline.runtime import Runtime
 from datapipeline.transforms.utils import get_field
@@ -65,11 +65,8 @@ def materialize_ticks(
     heartbeat_interval = resolve_heartbeat_interval_seconds(
         runtime.heartbeat_interval_seconds
     )
-    stream = build_stream_id_pipeline(
-        PipelineContext(runtime),
-        task_cfg.stream,
-        node=3,
-    )
+    context = PipelineContext(runtime)
+    stream = run_stream_pipeline(context, task_cfg.stream)
     project_progress = OperationProgressTracker(
         "project_ticks",
         heartbeat_interval,

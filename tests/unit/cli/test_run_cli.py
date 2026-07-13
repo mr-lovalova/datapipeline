@@ -10,6 +10,7 @@ from datapipeline.config.profiles import (
     ServeOutputConfig,
     ServeProfile,
 )
+from datapipeline.config.preview import PreviewStage
 from datapipeline.config.resolution import LogOutputTarget
 from datapipeline.config.serve_resolution import resolve_runtime_profiles
 from datapipeline.config.split import HashSplitConfig
@@ -35,7 +36,7 @@ def _use_split(monkeypatch, split: HashSplitConfig) -> None:
 def _resolve(
     project_path: Path,
     profiles: list[ServeProfile | InspectProfile],
-    preview_index: int | None = None,
+    preview: PreviewStage | None = None,
     cli_output: ServeOutputConfig | None = None,
     cli_log_outputs: list[LogOutputTarget] | None = None,
     cli_heartbeat_interval_seconds: float | None = None,
@@ -43,7 +44,7 @@ def _resolve(
     return resolve_runtime_profiles(
         project_path=project_path,
         profiles=profiles,
-        preview_index=preview_index,
+        preview=preview,
         limit=None,
         cli_output=cli_output,
         cli_log_level=None,
@@ -75,6 +76,18 @@ def test_serve_profile_rejects_splits_string():
                 "name": "splits",
                 "target": "serve",
                 "splits": "train",
+            }
+        )
+
+
+def test_serve_profile_rejects_numeric_preview() -> None:
+    with pytest.raises(ValidationError, match="preview"):
+        ServeProfile.model_validate(
+            {
+                "cmd": "serve",
+                "name": "preview",
+                "target": "serve",
+                "preview": 3,
             }
         )
 
@@ -277,7 +290,7 @@ def test_run_profiles_reject_splits_with_colliding_output_filenames(
         _resolve(tmp_path / "project.yaml", [profile])
 
 
-def test_operation_options_rejects_preview_index_when_unsupported(tmp_path):
+def test_operation_options_rejects_preview_when_unsupported(tmp_path):
     profile = InspectProfile.model_validate(
         {
             "cmd": "inspect",
@@ -287,8 +300,8 @@ def test_operation_options_rejects_preview_index_when_unsupported(tmp_path):
         }
     )
 
-    with pytest.raises(ValueError, match="does not support preview indices"):
-        _resolve(tmp_path, [profile], preview_index=1)
+    with pytest.raises(ValueError, match="does not support previews"):
+        _resolve(tmp_path, [profile], preview="source")
 
 
 def test_run_profiles_leave_unconfigured_throttle_unset(tmp_path):
@@ -526,21 +539,21 @@ def test_runtime_profiles_reject_sanitized_output_collision(tmp_path):
     assert not output_root.exists()
 
 
-def test_shared_serve_run_rejects_mixed_preview_indices_without_writes(tmp_path):
+def test_shared_serve_run_rejects_mixed_preview_stages_without_writes(tmp_path):
     profiles = [
         ServeProfile.model_validate(
             {
                 "cmd": "serve",
                 "name": name,
                 "target": "serve",
-                "preview_index": preview_index,
+                "preview": preview,
             }
         )
-        for name, preview_index in (("first", 1), ("second", 2))
+        for name, preview in (("first", "source"), ("second", "mapped"))
     ]
     output_root = tmp_path / "out"
 
-    with pytest.raises(ValueError, match="must use the same preview_index"):
+    with pytest.raises(ValueError, match="must use the same preview"):
         _resolve(
             tmp_path / "project.yaml",
             profiles,

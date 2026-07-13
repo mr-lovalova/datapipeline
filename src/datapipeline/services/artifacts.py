@@ -2,8 +2,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Generic, Mapping, Optional, TypeVar
 
-from datapipeline.artifacts.models import VectorSchemaArtifact
+from datapipeline.artifacts.models import VectorMetadata, VectorSchemaArtifact
+from datapipeline.artifacts.scaler import ScalerArtifact, load_scaler_artifact
 from datapipeline.services.constants import (
+    SCALER_STATISTICS,
     VECTOR_SCHEMA,
     VECTOR_METADATA,
     VECTOR_STATS,
@@ -101,14 +103,23 @@ def _read_vector_schema(path: Path) -> VectorSchemaArtifact:
     return VectorSchemaArtifact.model_validate(read_json_artifact(path))
 
 
+def _read_vector_metadata(path: Path) -> VectorMetadata:
+    return VectorMetadata.model_validate(read_json_artifact(path))
+
+
 VECTOR_SCHEMA_SPEC = ArtifactSpec[VectorSchemaArtifact](
     key=VECTOR_SCHEMA,
     loader=_read_vector_schema,
 )
 
-VECTOR_METADATA_SPEC = ArtifactSpec[dict](
+VECTOR_METADATA_SPEC = ArtifactSpec[VectorMetadata](
     key=VECTOR_METADATA,
-    loader=_read_json,
+    loader=_read_vector_metadata,
+)
+
+SCALER_SPEC = ArtifactSpec[ScalerArtifact](
+    key=SCALER_STATISTICS,
+    loader=load_scaler_artifact,
 )
 
 VECTOR_STATS_SPEC = ArtifactSpec[dict](

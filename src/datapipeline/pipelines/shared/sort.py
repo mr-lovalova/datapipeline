@@ -5,8 +5,8 @@ from collections.abc import Callable, Generator, Iterable, Iterator, Sequence
 from pathlib import Path
 from typing import Any, TypeVar
 
-from datapipeline.dag.events import ProgressSnapshot
-from datapipeline.dag.runner import report_node_progress
+from datapipeline.execution.events import ProgressSnapshot
+from datapipeline.execution.runner import report_node_progress
 
 T = TypeVar("T")
 _BufferedItem = tuple[Any, bytes]

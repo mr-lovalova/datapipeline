@@ -6,7 +6,6 @@ from datapipeline.cli.commands.profile_runner import handle_profile_command
 from datapipeline.cli.commands.demo import handle as handle_demo
 from datapipeline.cli.commands.domain import handle as handle_domain
 from datapipeline.cli.commands.dto import handle as handle_dto
-from datapipeline.cli.commands.filter import handle as handle_filter
 from datapipeline.cli.commands.inflow import handle as handle_inflow
 from datapipeline.cli.commands.list_ import handle as handle_list
 from datapipeline.cli.commands.loader import handle as handle_loader
@@ -142,13 +141,6 @@ def execute_command(
                 subcmd=args.demo_cmd,
                 out=args.out,
                 workspace=workspace_context,
-            )
-            return True
-        case "filter":
-            handle_filter(
-                subcmd=args.filter_cmd,
-                name=args.name,
-                plugin_root=plugin_root,
             )
             return True
         case _:

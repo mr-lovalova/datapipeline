@@ -1,5 +1,6 @@
 import shutil
 
+from datapipeline.config.postprocess import PostprocessConfig
 from datapipeline.operations.artifacts.metadata import materialize_metadata
 from datapipeline.operations.artifacts.vector_inputs import materialize_vector_inputs
 from datapipeline.operations.artifacts.schema import materialize_vector_schema
@@ -11,8 +12,9 @@ from datapipeline.config.tasks import (
     ScalerTask,
     VectorInputsTask,
 )
-from datapipeline.dag.context import PipelineContext
-from datapipeline.pipelines import build_vector_pipeline
+from datapipeline.execution.context import PipelineContext
+from datapipeline.pipelines.vector.pipeline import build_vector_pipeline
+from datapipeline.pipelines.full.nodes import apply_postprocess
 from datapipeline.services.bootstrap import bootstrap
 from datapipeline.services.constants import (
     VECTOR_METADATA,
@@ -20,10 +22,9 @@ from datapipeline.services.constants import (
     SCALER_STATISTICS,
     VECTOR_INPUTS,
 )
-from datapipeline.transforms.vector import VectorDropTransform
 
 
-def test_vertical_drop_respects_element_coverage_after_metadata_build(copy_fixture):
+def test_column_selection_counts_absent_sequence_opportunities(copy_fixture):
     project_root = copy_fixture("incomplete_prices_project")
     project = project_root / "project.yaml"
 
@@ -50,14 +51,6 @@ def test_vertical_drop_respects_element_coverage_after_metadata_build(copy_fixtu
         VECTOR_INPUTS,
         relative_path=vector_inputs_rel.relative_path,
     )
-    schema_rel = materialize_vector_schema(
-        runtime,
-        SchemaTask(id="schema", output="schema.json"),
-    )
-    if schema_rel:
-        runtime.artifacts.register(
-            VECTOR_SCHEMA, relative_path=schema_rel.relative_path
-        )
     meta_rel = materialize_metadata(
         runtime,
         MetadataTask(id="metadata", output="metadata.json"),
@@ -67,23 +60,31 @@ def test_vertical_drop_respects_element_coverage_after_metadata_build(copy_fixtu
         VECTOR_METADATA,
         relative_path=meta_rel.relative_path,
     )
+    schema_rel = materialize_vector_schema(
+        runtime,
+        SchemaTask(id="schema", output="schema.json"),
+    )
+    runtime.artifacts.register(VECTOR_SCHEMA, relative_path=schema_rel.relative_path)
+    runtime.postprocess = PostprocessConfig.model_validate(
+        {"columns": {"features": {"threshold": 1.0}}}
+    )
 
-    dataset = load_dataset(project, "vectors")
+    dataset = load_dataset(project)
     ctx = PipelineContext(runtime)
 
-    # Build raw vectors (no postprocess) and apply vertical drop with threshold=1.0.
     vectors = build_vector_pipeline(
         ctx,
         dataset.features,
-        dataset.group_by,
+        dataset.sample.cadence,
         target_configs=dataset.targets,
         rectangular=False,
     )
-    drop = VectorDropTransform(axis="vertical", threshold=1.0, payload="features")
-    drop.bind_context(ctx)
-    samples = list(drop.apply(vectors))
+    samples = list(apply_postprocess(ctx, vectors))
 
-    # Sequences are fully populated, so they should be kept.
+    assert all(
+        "spot_eur_sequence__@area:DK1" not in sample.features.values
+        for sample in samples
+    )
     assert any(
-        "spot_eur_sequence__@area:DK1" in sample.features.values for sample in samples
+        "spot_eur_scaled__@area:DK1" in sample.features.values for sample in samples
     )

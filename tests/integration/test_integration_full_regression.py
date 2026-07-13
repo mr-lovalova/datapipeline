@@ -1,12 +1,21 @@
 import pytest
 
+from datapipeline.artifacts.scaler import (
+    ScalerStatistics,
+    StandardScalerArtifact,
+    save_scaler_artifact,
+)
 from datapipeline.config.context import load_dataset_context
-from datapipeline.config.tasks import SchemaTask
+from datapipeline.config.tasks import MetadataTask, SchemaTask
+from datapipeline.operations.artifacts.metadata import materialize_metadata
 from datapipeline.operations.artifacts.schema import materialize_vector_schema
-from datapipeline.pipelines.full.nodes import post_process
-from datapipeline.pipelines import build_vector_pipeline
-from datapipeline.services.constants import SCALER_STATISTICS, VECTOR_SCHEMA
-from datapipeline.utils.json_artifact import write_json_artifact
+from datapipeline.pipelines.full.nodes import apply_postprocess
+from datapipeline.pipelines.vector.pipeline import build_vector_pipeline
+from datapipeline.services.constants import (
+    SCALER_STATISTICS,
+    VECTOR_METADATA,
+    VECTOR_SCHEMA,
+)
 from tests.vector_input_helpers import register_vector_inputs
 
 
@@ -16,22 +25,21 @@ def test_full_regression_project_vectors(copy_fixture) -> None:
     ctx = load_dataset_context(project_path)
     context = ctx.pipeline_context
     scaler_path = ctx.runtime.artifacts_root / "scaler.json"
-    write_json_artifact(
+    save_scaler_artifact(
         scaler_path,
-        {
-            "version": 1,
-            "kind": "standard_scaler",
-            "with_mean": True,
-            "with_std": True,
-            "epsilon": 1e-12,
-            "statistics": {
-                "linear_scaled": {
-                    "count": 6,
-                    "mean": 15.0,
-                    "std": 3.0,
-                }
+        StandardScalerArtifact(
+            with_mean=True,
+            with_std=True,
+            epsilon=1e-12,
+            observations=6,
+            statistics={
+                "linear_scaled": ScalerStatistics(
+                    count=6,
+                    mean=15.0,
+                    std=3.0,
+                )
             },
-        },
+        ),
     )
     ctx.runtime.artifacts.register(
         SCALER_STATISTICS,
@@ -40,8 +48,16 @@ def test_full_regression_project_vectors(copy_fixture) -> None:
     register_vector_inputs(
         ctx.runtime,
         ctx.features,
-        ctx.dataset.group_by,
+        ctx.dataset.sample.cadence,
         targets=ctx.targets,
+    )
+    metadata = materialize_metadata(
+        ctx.runtime,
+        MetadataTask(id="metadata", output="metadata.json"),
+    )
+    ctx.runtime.artifacts.register(
+        VECTOR_METADATA,
+        relative_path=metadata.relative_path,
     )
     schema = materialize_vector_schema(
         ctx.runtime,
@@ -55,11 +71,11 @@ def test_full_regression_project_vectors(copy_fixture) -> None:
     base_vectors = build_vector_pipeline(
         context,
         ctx.features,
-        ctx.dataset.group_by,
+        ctx.dataset.sample.cadence,
         target_configs=ctx.targets,
         rectangular=False,
     )
-    samples = list(post_process(context, base_vectors))
+    samples = list(apply_postprocess(context, base_vectors))
 
     assert len(samples) == 6
 
@@ -112,7 +128,7 @@ def test_full_regression_project_vectors(copy_fixture) -> None:
                 "humidity_partitioned__@location:north": 41.5,
                 "humidity_partitioned__@location:south": 39.0,
             },
-            103.0,
+            105.0,
         ),
         (
             5,

@@ -4,7 +4,7 @@ from pathlib import Path
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.dataset.loader import load_dataset
 from datapipeline.config.dataset.validation import validate_dataset_feature_identity
-from datapipeline.dag.context import PipelineContext
+from datapipeline.execution.context import PipelineContext
 from datapipeline.runtime import Runtime
 from datapipeline.services.bootstrap import bootstrap
 
@@ -18,16 +18,16 @@ class DatasetContext:
 
     @property
     def features(self):
-        return list(self.dataset.features or [])
+        return list(self.dataset.features)
 
     @property
     def targets(self):
-        return list(self.dataset.targets or [])
+        return list(self.dataset.targets)
 
 
 def load_dataset_context(project: Path | str) -> DatasetContext:
     project_path = Path(project)
-    dataset = load_dataset(project_path, "vectors")
+    dataset = load_dataset(project_path)
     runtime = bootstrap(project_path)
     validate_dataset_feature_identity(runtime, dataset)
     context = PipelineContext(runtime)

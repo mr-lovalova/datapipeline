@@ -21,8 +21,8 @@ def test_vector_metrics_are_serializable():
         expected_feature_ids=["speed", "temp"],
     )
 
-    collector.update("g0", {"speed__station:A": None})
-    collector.update("g1", {"temp__station:B": 7.0})
+    collector.update("g0", {"speed__@station:A": None})
+    collector.update("g1", {"temp__@station:B": 7.0})
 
     summary = build_metrics(collector, sort_key="missing", threshold=0.8)
 
@@ -31,15 +31,17 @@ def test_vector_metrics_are_serializable():
     assert summary["total_vectors"] == 2
     assert set(summary["below_features"]) == {"speed", "temp"}
     assert set(summary["below_partitions"]) == {
-        "speed__station:A",
-        "temp__station:B",
+        "speed__@station:A",
+        "temp__@station:B",
     }
-    assert set(summary["below_suffixes"]) == {"station:A", "station:B"}
-    assert set(summary["keep_suffixes"]) == {"station:A", "station:B"}
+    assert set(summary["below_suffixes"]) == {"@station:A", "@station:B"}
+    assert set(summary["keep_suffixes"]) == {"@station:A", "@station:B"}
     assert set(summary["below_partition_values"]) == {"A", "B"}
     assert set(summary["keep_partition_values"]) == {"A", "B"}
 
-    speed_stats = next(item for item in summary["feature_stats"] if item["id"] == "speed")
+    speed_stats = next(
+        item for item in summary["feature_stats"] if item["id"] == "speed"
+    )
     assert speed_stats["present"] == 1  # seen once, missing once
     assert speed_stats["missing"] == 1
     assert speed_stats["nulls"] == 1
@@ -55,8 +57,8 @@ def test_export_matrix_data_writes_csv_rows(tmp_path):
         matrix_output=str(path),
         matrix_format="csv",
     )
-    collector.update("g0", {"speed__station:A": 1.0})
-    collector.update("g1", {"temp__station:B": None})
+    collector.update("g0", {"speed__@station:A": 1.0})
+    collector.update("g1", {"temp__@station:B": None})
 
     assert export_matrix_data(collector) == path
 
@@ -71,9 +73,9 @@ def test_export_matrix_data_writes_csv_rows(tmp_path):
         ("feature", "temp", "g0", "absent"),
         ("feature", "temp", "g1", "null"),
         ("feature", "speed", "g1", "absent"),
-        ("partition", "speed__station:A", "g0", "present"),
-        ("partition", "speed__station:A", "g1", "absent"),
-        ("partition", "temp__station:B", "g1", "null"),
+        ("partition", "speed__@station:A", "g0", "present"),
+        ("partition", "speed__@station:A", "g1", "absent"),
+        ("partition", "temp__@station:B", "g1", "null"),
     }
     assert {
         (row["matrix_kind"], row["identifier"], row["group_key"], row["status"])
@@ -83,9 +85,9 @@ def test_export_matrix_data_writes_csv_rows(tmp_path):
         ("feature", "temp", "g0", "absent"),
         ("feature", "temp", "g1", "null"),
         ("feature", "speed", "g1", "absent"),
-        ("partition", "speed__station:A", "g0", "present"),
-        ("partition", "speed__station:A", "g1", "absent"),
-        ("partition", "temp__station:B", "g1", "null"),
+        ("partition", "speed__@station:A", "g0", "present"),
+        ("partition", "speed__@station:A", "g1", "absent"),
+        ("partition", "temp__@station:B", "g1", "null"),
     }
 
 
@@ -96,7 +98,7 @@ def test_export_matrix_data_writes_html_shell(tmp_path):
         matrix_output=str(path),
         matrix_format="html",
     )
-    collector.update("g0", {"speed__station:A": [1.0, None]})
+    collector.update("g0", {"speed__@station:A": [1.0, None]})
 
     assert export_matrix_data(collector) == path
 
@@ -146,14 +148,19 @@ def test_vector_analyzer_snapshot_round_trip():
 
     assert restored.total_vectors == collector.total_vectors
     assert restored.seen_counts["speed"] == collector.seen_counts["speed"]
-    assert restored.null_counts_partitions["temp"] == collector.null_counts_partitions["temp"]
+    assert (
+        restored.null_counts_partitions["temp"]
+        == collector.null_counts_partitions["temp"]
+    )
     assert "g0" in restored.group_feature_status
     assert str(restored.matrix_output) == "matrix.csv"
     assert restored.matrix_format == "csv"
 
 
 def test_vector_analyzer_snapshot_rejects_unknown_schema_version():
-    with pytest.raises(ValueError, match="Unsupported vector stats snapshot schema version"):
+    with pytest.raises(
+        ValueError, match="Unsupported vector stats snapshot schema version"
+    ):
         collector_from_snapshot(
             {
                 "schema_version": 999,

@@ -1,18 +1,24 @@
 from datetime import datetime, timezone
+from dataclasses import replace
 import math
 from pathlib import Path
 
+from datapipeline.artifacts.scaler import save_scaler_artifact
+from datapipeline.config.transforms import (
+    FillConfig,
+    RollingConfig,
+    StreamTransformConfig,
+)
 from datapipeline.config.execution import ExecutionConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig
-from datapipeline.domain.feature import FeatureRecordSequence
+from datapipeline.domain.feature import FeatureRecord
 from datapipeline.domain.record import TemporalRecord
-from datapipeline.dag.context import PipelineContext
-from datapipeline.pipelines.feature.dag import build_feature_pipeline
-from datapipeline.pipelines import build_vector_pipeline
-from datapipeline.runtime import Runtime, StreamRuntimeSpec
+from datapipeline.execution.context import PipelineContext
+from datapipeline.pipelines.feature.pipeline import run_feature_pipeline
+from datapipeline.pipelines.vector.pipeline import build_vector_pipeline
+from datapipeline.runtime import DerivedRuntimeStream, IngestRuntimeStream, Runtime
 from datapipeline.services.constants import SCALER_STATISTICS
-from datapipeline.transforms.feature.scaler import StandardScalerAccumulator
-from datapipeline.transforms.spec import TransformSpec
+from datapipeline.transforms.feature.scaler import ScalerAccumulator
 from tests.vector_input_helpers import register_vector_inputs
 
 
@@ -53,7 +59,7 @@ class _StubSource:
 def _runtime_with_streams(
     tmp_path: Path,
     streams: dict[str, list[TemporalRecord]],
-    stream_transforms: dict[str, list[TransformSpec]] | None = None,
+    stream_transforms: dict[str, list[StreamTransformConfig]] | None = None,
 ) -> Runtime:
     project_yaml = tmp_path / "project.yaml"
     artifacts_root = tmp_path / "artifacts"
@@ -64,20 +70,27 @@ def _runtime_with_streams(
         execution=ExecutionConfig(),
     )
 
-    regs = runtime.registries
     stream_transforms = stream_transforms or {}
     start_time: datetime | None = None
     end_time: datetime | None = None
     for alias, rows in streams.items():
-        regs.stream_sources.register(alias, _StubSource(rows))
-        regs.stream_specs.register(alias, StreamRuntimeSpec(pipeline="stream"))
-        regs.mappers.register(alias, _identity)
-        regs.record_operations.register(alias, [])
-        regs.stream_operations.register(alias, stream_transforms.get(alias, []))
-        regs.debug_operations.register(alias, [])
-        regs.partition_by.register(alias, None)
-        regs.feature_id_by.register(alias, None)
-        regs.presorted.register(alias, False)
+        ingest_id = f"{alias}.raw"
+        runtime.streams[ingest_id] = IngestRuntimeStream(
+            source=_StubSource(rows),
+            mapper=_identity,
+            transforms=(),
+            partition_by=None,
+            feature_id_by=None,
+            presorted=False,
+        )
+        runtime.streams[alias] = DerivedRuntimeStream(
+            input_stream=ingest_id,
+            mapper=_identity,
+            transforms=tuple(stream_transforms.get(alias, ())),
+            partition_by=None,
+            feature_id_by=None,
+            presorted=False,
+        )
         for rec in rows:
             ts = getattr(rec, "time", None)
             if isinstance(ts, datetime):
@@ -91,34 +104,31 @@ def _runtime_with_streams(
 def _register_scaler(
     runtime: Runtime, configs: list[FeatureRecordConfig], group_by: str
 ) -> None:
-    sanitized = [cfg.model_copy(update={"scale": False}) for cfg in configs]
+    sanitized = [
+        cfg.model_copy(update={"scale": False, "sequence": None}) for cfg in configs
+    ]
     context = PipelineContext(runtime)
-    accumulator = StandardScalerAccumulator()
-    total = 0
+    accumulator = ScalerAccumulator()
     for cfg in sanitized:
-        stream = build_feature_pipeline(
+        stream = run_feature_pipeline(
             context,
             cfg,
             group_by_cadence=group_by,
         )
         try:
-            for item in stream:
-                value = (
-                    list(item.values)
-                    if isinstance(item, FeatureRecordSequence)
-                    else item.value
-                )
-                total += accumulator.observe({item.id: value})
+            for feature in stream:
+                if not isinstance(feature, FeatureRecord):
+                    raise TypeError("Scaler tests require scalar feature records")
+                accumulator.observe(feature.id, feature.value)
         finally:
             closer = getattr(stream, "close", None)
             if callable(closer):
                 closer()
-    if not total:
+    if not accumulator.observations:
         raise RuntimeError("Unable to compute scaler statistics for test runtime.")
-    scaler = accumulator.to_scaler()
 
     destination = runtime.artifacts_root / "scaler.json"
-    scaler.save(destination)
+    save_scaler_artifact(destination, accumulator.artifact())
     runtime.artifacts.register(
         SCALER_STATISTICS,
         relative_path=destination.relative_to(runtime.artifacts_root).as_posix(),
@@ -142,10 +152,16 @@ def test_vector_targets_respect_partitioned_ids(tmp_path) -> None:
         ],
     }
     runtime = _runtime_with_streams(tmp_path, streams)
-    runtime.registries.partition_by.register("wind_speed_stream", "municipality")
-    runtime.registries.partition_by.register("wind_production_stream", "municipality")
-    runtime.registries.feature_id_by.register("wind_speed_stream", "municipality")
-    runtime.registries.feature_id_by.register("wind_production_stream", "municipality")
+    runtime.streams["wind_speed_stream"] = replace(
+        runtime.streams["wind_speed_stream"],
+        partition_by="municipality",
+        feature_id_by="municipality",
+    )
+    runtime.streams["wind_production_stream"] = replace(
+        runtime.streams["wind_production_stream"],
+        partition_by="municipality",
+        feature_id_by="municipality",
+    )
 
     context = PipelineContext(runtime)
     feature_cfgs = [
@@ -373,8 +389,11 @@ def test_feature_id_by_controls_partitioned_feature_identity(tmp_path) -> None:
         ],
     }
     runtime = _runtime_with_streams(tmp_path, streams)
-    runtime.registries.partition_by.register("monthly_returns", "security_id")
-    runtime.registries.feature_id_by.register("monthly_returns", "security_id")
+    runtime.streams["monthly_returns"] = replace(
+        runtime.streams["monthly_returns"],
+        partition_by="security_id",
+        feature_id_by="security_id",
+    )
     context = PipelineContext(runtime)
     feature_cfgs = [
         FeatureRecordConfig(
@@ -426,20 +445,20 @@ def test_stream_transforms_use_explicit_stream_partition(tmp_path) -> None:
         streams,
         stream_transforms={
             "daily_prices": [
-                TransformSpec(
-                    name="rolling",
-                    params={
-                        "field": "value",
-                        "to": "value_mean_2",
-                        "window": 2,
-                        "min_samples": 2,
-                    },
+                RollingConfig(
+                    field="value",
+                    to="value_mean_2",
+                    window=2,
+                    min_samples=2,
                 )
             ]
         },
     )
-    runtime.registries.partition_by.register("daily_prices", "security_id")
-    runtime.registries.feature_id_by.register("daily_prices", [])
+    runtime.streams["daily_prices"] = replace(
+        runtime.streams["daily_prices"],
+        partition_by="security_id",
+        feature_id_by=[],
+    )
     context = PipelineContext(runtime)
     feature_cfgs = [
         FeatureRecordConfig(
@@ -567,25 +586,19 @@ def test_regression_fill_then_scale_with_missing_values(tmp_path) -> None:
     # Fill then scale for both features
     stream_transforms = {
         "ap": [
-            TransformSpec(
-                name="fill",
-                params={
-                    "field": "value",
-                    "method": "median",
-                    "window": 10,
-                    "min_samples": 1,
-                },
+            FillConfig(
+                field="value",
+                statistic="median",
+                window=10,
+                min_samples=1,
             ),
         ],
         "ws": [
-            TransformSpec(
-                name="fill",
-                params={
-                    "field": "value",
-                    "method": "mean",
-                    "window": 10,
-                    "min_samples": 1,
-                },
+            FillConfig(
+                field="value",
+                statistic="mean",
+                window=10,
+                min_samples=1,
             ),
         ],
     }

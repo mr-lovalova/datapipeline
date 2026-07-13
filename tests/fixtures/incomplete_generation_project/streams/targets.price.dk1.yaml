@@ -3,5 +3,5 @@ from:
   stream: targets.price.dk1.ingest
 
 stream:
-  - ensure_cadence: { cadence: 1h, field: value }
-  - fill: { method: mean, window: 2, min_samples: 1, field: value }
+  - { operation: ensure_cadence, cadence: 1h }
+  - { operation: fill, statistic: mean, window: 2, min_samples: 1, field: value }

@@ -1,41 +1,55 @@
-from pydantic import BaseModel, Field, model_validator
+from typing import Annotated, Self
 
-from datapipeline.config.dataset.feature import BaseRecordConfig, FeatureRecordConfig
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
+
+from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.utils.time import CADENCE_PATTERN
 
 
-class RecordDatasetConfig(BaseModel):
-    features: list[BaseRecordConfig] = Field(default_factory=list)
-    targets: list[BaseRecordConfig] = Field(default_factory=list)
+NonEmptyString = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1),
+]
 
 
 class SampleConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
     cadence: str = Field(..., pattern=CADENCE_PATTERN)
-    keys: list[str] = Field(default_factory=list)
+    keys: list[NonEmptyString] = Field(default_factory=list)
+
+    @field_validator("keys")
+    @classmethod
+    def validate_keys(cls, keys: list[str]) -> list[str]:
+        if any(not key.strip() for key in keys):
+            raise ValueError("sample keys must not be empty")
+        if len(keys) != len(set(keys)):
+            raise ValueError("sample keys must not contain duplicates")
+        return keys
 
 
 class FeatureDatasetConfig(BaseModel):
-    group_by: str | None = Field(default=None, pattern=CADENCE_PATTERN)
-    sample: SampleConfig | None = None
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    sample: SampleConfig
     features: list[FeatureRecordConfig] = Field(default_factory=list)
     targets: list[FeatureRecordConfig] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def _normalize_sample_config(self) -> "FeatureDatasetConfig":
-        if self.sample is None:
-            if self.group_by is None:
-                raise ValueError("Feature datasets require sample.cadence or group_by")
-            self.sample = SampleConfig(cadence=self.group_by)
-            return self
-
-        if self.group_by is None:
-            self.group_by = self.sample.cadence
-            return self
-
-        if self.group_by != self.sample.cadence:
-            raise ValueError("group_by must match sample.cadence when both are set")
+    def validate_unique_vector_ids(self) -> Self:
+        seen: set[str] = set()
+        for config in (*self.features, *self.targets):
+            if config.id in seen:
+                raise ValueError(
+                    f"dataset vector id {config.id!r} must be unique across "
+                    "features and targets"
+                )
+            seen.add(config.id)
         return self
-
-    @property
-    def sample_keys(self) -> list[str]:
-        return list(self.sample.keys if self.sample else [])

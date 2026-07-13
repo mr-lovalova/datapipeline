@@ -1,17 +1,24 @@
 import pytest
 
 from datapipeline.config.context import load_dataset_context
+from datapipeline.operations.artifacts.metadata import materialize_metadata
 from datapipeline.operations.artifacts.vector_inputs import materialize_vector_inputs
 from datapipeline.operations.artifacts.schema import materialize_vector_schema
 from datapipeline.operations.artifacts.scaler import materialize_scaler_statistics
-from datapipeline.config.tasks import SchemaTask, ScalerTask, VectorInputsTask
-from datapipeline.services.constants import (
-    VECTOR_INPUTS,
-    VECTOR_SCHEMA,
-    SCALER_STATISTICS,
+from datapipeline.config.tasks import (
+    MetadataTask,
+    SchemaTask,
+    ScalerTask,
+    VectorInputsTask,
 )
-from datapipeline.pipelines.full.nodes import post_process
-from datapipeline.pipelines import build_vector_pipeline
+from datapipeline.services.constants import (
+    SCALER_STATISTICS,
+    VECTOR_INPUTS,
+    VECTOR_METADATA,
+    VECTOR_SCHEMA,
+)
+from datapipeline.pipelines.full.nodes import apply_postprocess
+from datapipeline.pipelines.vector.pipeline import build_vector_pipeline
 
 
 def _vector_samples(project_yaml):
@@ -35,20 +42,27 @@ def _vector_samples(project_yaml):
         VECTOR_INPUTS,
         relative_path=vector_inputs_rel.relative_path,
     )
+    metadata_rel = materialize_metadata(
+        runtime,
+        MetadataTask(id="metadata", output="metadata.json"),
+    )
+    runtime.artifacts.register(
+        VECTOR_METADATA,
+        relative_path=metadata_rel.relative_path,
+    )
     schema_rel = materialize_vector_schema(
         runtime, SchemaTask(id="schema", output="schema.json")
     )
-    if schema_rel:
-        runtime.artifacts.register(VECTOR_SCHEMA, relative_path=schema_rel.relative_path)
+    runtime.artifacts.register(VECTOR_SCHEMA, relative_path=schema_rel.relative_path)
 
     vectors = build_vector_pipeline(
         context,
         ctx.features,
-        ctx.dataset.group_by,
+        ctx.dataset.sample.cadence,
         target_configs=ctx.targets,
         rectangular=False,
     )
-    return list(post_process(context, vectors))
+    return list(apply_postprocess(context, vectors))
 
 
 def test_incomplete_prices_project_vectors(copy_fixture):
@@ -62,8 +76,12 @@ def test_incomplete_prices_project_vectors(copy_fixture):
     assert first.key[0].hour == 3
     assert len(first.features.values) == 14  # 7 areas x 2 feature ids
     values = first.features.values
-    assert values["spot_eur_scaled__@area:DK1"] == pytest.approx(-1.0020365384, rel=1e-6)
-    assert values["spot_eur_scaled__@area:SYSTEM"] == pytest.approx(-1.3841396412, rel=1e-6)
+    assert values["spot_eur_scaled__@area:DK1"] == pytest.approx(
+        -1.0020365384, rel=1e-6
+    )
+    assert values["spot_eur_scaled__@area:SYSTEM"] == pytest.approx(
+        -1.3841396412, rel=1e-6
+    )
     assert all(v is None for v in values["spot_eur_sequence__@area:DK1"])
 
     # Window stride keeps only a subset of buckets populated; others stay empty after postprocess.
@@ -94,10 +112,13 @@ def test_incomplete_generation_project_alignment(copy_fixture):
     assert set(first.features.keys()) == expected_features
     assert first.targets is not None
     assert first.targets.values["dk1_price"] == pytest.approx(39.700001, rel=1e-6)
-    assert first.features.values["onshore_mwh_scaled__@municipality:849"] == pytest.approx(
-        0.2560143735, rel=1e-6
-    )
-    assert first.features.values["onshore_mwh_window__@municipality:849"] == [None, None]
+    assert first.features.values[
+        "onshore_mwh_scaled__@municipality:849"
+    ] == pytest.approx(0.2560143735, rel=1e-6)
+    assert first.features.values["onshore_mwh_window__@municipality:849"] == [
+        None,
+        None,
+    ]
 
     window_sample = samples[3]
     assert window_sample.key[0].hour == 7

@@ -2,8 +2,8 @@ from collections.abc import Generator, Iterator, Sequence
 from datetime import datetime
 from itertools import chain, groupby
 
-from datapipeline.dag.events import ProgressSnapshot
-from datapipeline.dag.runner import report_node_progress
+from datapipeline.execution.events import ProgressSnapshot
+from datapipeline.execution.runner import report_node_progress
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.pipelines.shared.sort import batch_sort
 from datapipeline.transforms.utils import partition_key

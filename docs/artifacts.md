@@ -7,14 +7,14 @@ An artifact's registry key is its task `id` (`scaler`, `vector_inputs`,
 `schema`, `metadata`, or `stats`). Custom tick artifacts likewise use their
 task ID, such as `model_grid`.
 
-- `build/vector_inputs/manifest.json` plus compressed feature/target shards:
+- `build/vector_inputs/manifest.json` plus compressed feature/target shards under
+  `build/vector_inputs/manifest.shards/`:
   durable inputs consumed by vector assembly. Values may contain only `None`,
   `bool`, `int`, `float`, `str`, lists, and string-keyed dictionaries;
   sample-key components may use only those scalar types. Other Python objects
   fail the build instead of being converted to strings.
 - `build/scaler.json`: managed scaler statistics fitted on the configured split,
-  either as one standard scaler or a folded temporal scaler container. Features
-  with an explicit `scale.model_path` do not use this artifact.
+  either as one standard scaler or a folded temporal scaler container.
 - `build/schema.json`: discovered feature/target identifiers, value shapes, and
   cadence hints used during postprocess.
 - `build/metadata.json`: counts, sample domain, and resolved dataset window.
@@ -24,14 +24,15 @@ task ID, such as `model_grid`.
   `ensure_cadence` transforms. Their output paths are task-defined.
 
 The dependency graph is explicit: tick artifacts feed scaler/vector inputs;
-vector inputs feed schema and metadata; stats depend on metadata and, in final
-mode, schema. Nested tick artifacts are rejected because that dependency is not
-yet representable safely.
+vector inputs feed metadata; schema is derived from metadata without rescanning
+the vectors; stats depend on metadata and, in final mode, schema. Nested tick
+artifacts are rejected because that dependency is not yet representable safely.
 
 Build state lives at `artifacts/_system/build/state.json`. An entry is current
-only when its config and local-source snapshot, declared output path, file, and
-dependency chain are all current. Runtime hydration registers only those current
-artifacts; orphaned, missing, stale, and incomplete chains are left unavailable.
+only when its config and local-source snapshot, declared output path, primary
+file, companion-file fingerprints, and dependency chain are all current.
+Runtime hydration registers only those current artifacts; orphaned, missing,
+altered, stale, and incomplete chains are left unavailable.
 
 Serve and inspect profiles use a flat `artifact_mode` for their prerequisite
 phase. Materialize uses the same command-wide policy from

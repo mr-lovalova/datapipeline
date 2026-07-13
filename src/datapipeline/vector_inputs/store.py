@@ -1,34 +1,83 @@
 import gzip
 import json
 from collections.abc import Iterable, Iterator, Mapping
-from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any, Final, Literal, Self
+
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from datapipeline.domain.feature import FeatureRecord, FeatureRecordSequence
 from datapipeline.domain.record import TemporalRecord
+from datapipeline.domain.sample_key import (
+    SampleKeyValueType,
+    sample_key_value_type,
+)
 from datapipeline.io.sinks import GzipBinarySink
-from datapipeline.utils.time import parse_datetime
+from datapipeline.utils.time import CADENCE_PATTERN, parse_datetime
 
-VECTOR_INPUTS_MANIFEST_VERSION = 3
+VECTOR_INPUTS_MANIFEST_VERSION: Final = 4
 _JSON_SCALAR_TYPES = {type(None), bool, int, float, str}
+_NonEmptyString = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1),
+]
 
 
-@dataclass(frozen=True)
-class CachedVectorInputShard:
-    id: str
-    path: str
-    rows: int
+class CachedVectorInputShard(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    id: _NonEmptyString
+    path: _NonEmptyString
+    rows: int = Field(strict=True, ge=0)
+
+    @field_validator("path")
+    @classmethod
+    def validate_relative_path(cls, value: str) -> str:
+        path = Path(value)
+        if path.is_absolute() or ".." in path.parts:
+            raise ValueError("shard path must be relative to the manifest")
+        return str(path)
 
 
-@dataclass(frozen=True)
-class CachedVectorInputsManifest:
-    format: str
-    group_by: str
-    sample_keys: tuple[str, ...]
-    feature_shards: tuple[CachedVectorInputShard, ...]
-    target_shards: tuple[CachedVectorInputShard, ...]
+class CachedVectorInputsManifest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    version: Literal[4] = VECTOR_INPUTS_MANIFEST_VERSION
+    format: Literal["jsonl.gz"] = "jsonl.gz"
+    cadence: str = Field(pattern=CADENCE_PATTERN)
+    sample_keys: tuple[_NonEmptyString, ...] = ()
+    sample_key_types: tuple[SampleKeyValueType, ...] = ()
+    features: tuple[CachedVectorInputShard, ...] = ()
+    targets: tuple[CachedVectorInputShard, ...] = ()
+
+    @field_validator("sample_keys")
+    @classmethod
+    def validate_unique_sample_keys(cls, keys: tuple[str, ...]) -> tuple[str, ...]:
+        if len(keys) != len(set(keys)):
+            raise ValueError("sample keys must be unique")
+        return keys
+
+    @model_validator(mode="after")
+    def validate_unique_shards(self) -> Self:
+        if len(self.sample_key_types) != len(self.sample_keys):
+            raise ValueError("sample key type count must match sample keys")
+        for name, shards in (("feature", self.features), ("target", self.targets)):
+            identifiers = [shard.id for shard in shards]
+            if len(identifiers) != len(set(identifiers)):
+                raise ValueError(f"{name} shard ids must be unique")
+        paths = [shard.path for shard in (*self.features, *self.targets)]
+        if len(paths) != len(set(paths)):
+            raise ValueError("shard paths must be unique")
+        return self
 
 
 def _to_iso(value: datetime) -> str:
@@ -101,12 +150,8 @@ def write_vector_input_rows(
             entity_key = payload.get("entity_key")
             if type(entity_key) is not list:
                 raise TypeError("Vector input rows require list 'entity_key'.")
-            for component in entity_key:
-                if type(component) not in _JSON_SCALAR_TYPES:
-                    raise TypeError(
-                        "Vector input entity keys require JSON scalar values; "
-                        f"got {type(component).__name__}."
-                    )
+            for index, component in enumerate(entity_key):
+                sample_key_value_type(f"entity_key[{index}]", component)
             kind = payload.get("kind")
             if kind == "record":
                 if "value" not in payload:
@@ -139,16 +184,34 @@ def load_vector_inputs_manifest(path: Path) -> CachedVectorInputsManifest:
             f"Unsupported vector inputs manifest version {version!r} in '{path}'. "
             "Rebuild vector inputs and dependent artifacts in FORCE mode."
         )
-    return CachedVectorInputsManifest(
-        format=_required_string(payload, "format", path),
-        group_by=_required_string(payload, "group_by", path),
-        sample_keys=tuple(_string_list(payload.get("sample_keys"), "sample_keys", path)),
-        feature_shards=_shards(payload.get("features"), "features", path),
-        target_shards=_shards(payload.get("targets"), "targets", path),
-    )
+    try:
+        manifest = CachedVectorInputsManifest.model_validate(payload)
+    except ValidationError as exc:
+        raise ValueError(
+            f"Invalid vector inputs manifest '{path}'. Rebuild vector inputs and "
+            "dependent artifacts in FORCE mode."
+        ) from exc
+
+    root = path.parent.resolve()
+    resolved_paths: list[Path] = []
+    for shard in (*manifest.features, *manifest.targets):
+        try:
+            resolved = (root / shard.path).resolve()
+            resolved.relative_to(root)
+        except ValueError as exc:
+            raise ValueError(
+                f"Vector inputs shard '{shard.path}' escapes manifest directory "
+                f"'{root}'."
+            ) from exc
+        resolved_paths.append(resolved)
+    if len(resolved_paths) != len(set(resolved_paths)):
+        raise ValueError(f"Vector inputs manifest '{path}' has duplicate shard paths.")
+    return manifest
 
 
-def open_vector_input_records(path: Path) -> Iterator[FeatureRecord | FeatureRecordSequence]:
+def open_vector_input_records(
+    path: Path,
+) -> Iterator[FeatureRecord | FeatureRecordSequence]:
     with gzip.open(path, "rt", encoding="utf-8") as fh:
         for line in fh:
             if not line.strip():
@@ -182,7 +245,9 @@ def _row_to_feature_record(
     if kind == "sequence":
         values = row.get("values")
         if not isinstance(values, list):
-            raise ValueError(f"Vector input sequence row in '{path}' must define values.")
+            raise ValueError(
+                f"Vector input sequence row in '{path}' must define values."
+            )
         return FeatureRecordSequence(
             records=[record],
             id=feature_id,
@@ -196,11 +261,13 @@ def _entity_key(row: Mapping[str, Any], path: Path) -> tuple:
     value = row.get("entity_key")
     if not isinstance(value, list):
         raise ValueError(f"Vector input row in '{path}' must define list 'entity_key'.")
-    for component in value:
-        if type(component) not in _JSON_SCALAR_TYPES:
+    for index, component in enumerate(value):
+        try:
+            sample_key_value_type(f"entity_key[{index}]", component)
+        except (TypeError, ValueError) as exc:
             raise ValueError(
-                f"Vector input row in '{path}' entity key requires JSON scalar values."
-            )
+                f"Vector input row in '{path}' has an invalid entity key."
+            ) from exc
     return tuple(value)
 
 
@@ -213,38 +280,3 @@ def _required_string(
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"Vector inputs manifest '{path}' must define '{key}'.")
     return value
-
-
-def _string_list(value: Any, key: str, path: Path) -> list[str]:
-    if not isinstance(value, list):
-        raise ValueError(f"Vector inputs manifest '{path}' must define list '{key}'.")
-    items: list[str] = []
-    for item in value:
-        if not isinstance(item, str):
-            raise ValueError(
-                f"Vector inputs manifest '{path}' has non-string item in '{key}'."
-            )
-        items.append(item)
-    return items
-
-
-def _shards(value: Any, key: str, path: Path) -> tuple[CachedVectorInputShard, ...]:
-    if not isinstance(value, list):
-        raise ValueError(f"Vector inputs manifest '{path}' must define list '{key}'.")
-    shards: list[CachedVectorInputShard] = []
-    for item in value:
-        if not isinstance(item, dict):
-            raise ValueError(f"Vector inputs manifest '{path}' has invalid '{key}' item.")
-        rows = item.get("rows")
-        if not isinstance(rows, int):
-            raise ValueError(
-                f"Vector inputs manifest '{path}' shard in '{key}' must define rows."
-            )
-        shards.append(
-            CachedVectorInputShard(
-                id=_required_string(item, "id", path),
-                path=_required_string(item, "path", path),
-                rows=rows,
-            )
-        )
-    return tuple(shards)

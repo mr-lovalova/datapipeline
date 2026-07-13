@@ -18,24 +18,26 @@ from datapipeline.services.constants import (
     STREAM_CADENCE_KEY,
     STREAM_KIND_KEY,
     POSTPROCESS_PATH_KEY,
-    POSTPROCESS_TRANSFORMS,
 )
 from datapipeline.services.streams.ingest import (
     build_mapper_from_spec,
     build_source_from_spec,
 )
-from datapipeline.services.streams.aligned import (
-    AlignedStream,
-    build_aligned_mapper,
-)
-from datapipeline.services.streams.simple import build_prepared_stream_ref
+from datapipeline.services.streams.aligned import build_aligned_mapper
 from datapipeline.services.streams.validation import (
     stream_partition_by,
+    validate_ingest_sources,
     validate_unique_stream_ids,
     validate_stream_configs,
 )
 
-from datapipeline.runtime import Runtime, StreamRuntimeSpec
+from datapipeline.runtime import (
+    AlignedRuntimeStream,
+    DerivedRuntimeStream,
+    IngestRuntimeStream,
+    Runtime,
+)
+from datapipeline.sources.models.source import Source
 from datapipeline.config.postprocess import PostprocessConfig
 from datapipeline.services.config_refs import resolve_config_refs
 from .config import (
@@ -208,113 +210,77 @@ def load_streams(project_yaml: Path) -> StreamsConfig:
     stream_configs = _load_canonical_streams(project_yaml, vars_)
     config = StreamsConfig(raw=raw, ingests=ingests, streams=stream_configs)
     validate_unique_stream_ids(config.ingests, config.streams)
+    validate_ingest_sources(config.raw, config.ingests)
     validate_stream_configs(config.ingests, config.streams)
     return config
 
 
 def init_streams(cfg: StreamsConfig, runtime: Runtime) -> None:
-    """Compile typed streams config into runtime registries."""
-    regs = runtime.registries
-    regs.clear_all()
+    """Compile typed stream config into prepared runtime streams."""
+    runtime.streams.clear()
     ingests = cfg.ingests
     stream_configs = cfg.streams
+    sources = {
+        alias: build_source_from_spec(spec, project_yaml=runtime.project_yaml)
+        for alias, spec in cfg.raw.items()
+    }
 
     for alias, ingest_spec in ingests.items():
-        _register_ingest_policy(runtime, alias, ingest_spec)
+        runtime.streams[alias] = _build_ingest_runtime_stream(
+            ingest_spec,
+            sources,
+        )
     for alias, stream_spec in stream_configs.items():
-        _register_stream_policy(
-            runtime,
-            alias,
+        runtime.streams[alias] = _build_derived_runtime_stream(
             stream_spec,
             ingests,
             stream_configs,
         )
 
-    for alias, source_spec in cfg.raw.items():
-        regs.sources.register(
-            alias,
-            build_source_from_spec(source_spec, project_yaml=runtime.project_yaml),
-        )
 
-    for alias, ingest_spec in ingests.items():
-        _register_ingest_source(runtime, alias, ingest_spec)
-    for alias, stream_spec in stream_configs.items():
-        _register_stream_source(runtime, alias, stream_spec)
-
-
-def _register_ingest_policy(
-    runtime: Runtime,
-    alias: str,
+def _build_ingest_runtime_stream(
     spec: IngestConfig,
-) -> None:
-    regs = runtime.registries
-    regs.record_operations.register(alias, spec.record)
-    regs.stream_specs.register(alias, StreamRuntimeSpec(pipeline="ingest"))
-    regs.stream_operations.register(alias, [])
-    regs.debug_operations.register(alias, [])
-    regs.partition_by.register(alias, spec.partition_by)
-    regs.feature_id_by.register(alias, spec.feature_id_by)
-    regs.presorted.register(alias, spec.ordered_by is not None)
+    sources: dict[str, Source],
+) -> IngestRuntimeStream:
+    return IngestRuntimeStream(
+        source=sources[spec.from_.source],
+        mapper=build_mapper_from_spec(spec.map),
+        transforms=tuple(spec.record),
+        partition_by=spec.partition_by,
+        feature_id_by=spec.feature_id_by,
+        presorted=spec.ordered_by is not None,
+    )
 
 
-def _register_stream_policy(
-    runtime: Runtime,
-    alias: str,
+def _build_derived_runtime_stream(
     spec: StreamConfig,
     ingests: dict[str, IngestConfig],
     stream_configs: dict[str, StreamConfig],
-) -> None:
-    regs = runtime.registries
-    regs.stream_specs.register(alias, StreamRuntimeSpec(pipeline="stream"))
-    regs.stream_operations.register(alias, spec.stream)
-    regs.debug_operations.register(alias, spec.debug)
-    regs.partition_by.register(
-        alias, stream_partition_by(ingests, stream_configs, alias)
-    )
-    regs.feature_id_by.register(alias, spec.feature_id_by)
-    regs.presorted.register(alias, spec.ordered_by is not None)
-    regs.record_operations.register(alias, [])
-
-
-def _register_ingest_source(
-    runtime: Runtime,
-    alias: str,
-    spec: IngestConfig,
-) -> None:
-    regs = runtime.registries
-    regs.mappers.register(alias, build_mapper_from_spec(spec.map))
-    regs.stream_sources.register(alias, regs.sources.get(spec.from_.source))
-
-
-def _register_stream_source(
-    runtime: Runtime,
-    alias: str,
-    spec: StreamConfig,
-) -> None:
-    regs = runtime.registries
+) -> DerivedRuntimeStream | AlignedRuntimeStream:
+    partition_by = stream_partition_by(ingests, stream_configs, spec.id)
     if isinstance(spec.from_, AlignFromConfig):
-        regs.stream_sources.register(
-            alias,
-            AlignedStream(
-                runtime,
-                spec.input_streams(),
-                regs.partition_by.get(alias),
-            ),
+        return AlignedRuntimeStream(
+            input_streams=spec.input_streams(),
+            mapper=build_aligned_mapper(spec),
+            transforms=tuple(spec.stream),
+            partition_by=partition_by,
+            feature_id_by=spec.feature_id_by,
+            presorted=spec.ordered_by is not None,
         )
-        regs.mappers.register(alias, build_aligned_mapper(spec))
-        return
-
-    regs.mappers.register(alias, build_mapper_from_spec(spec.map))
-    regs.stream_sources.register(
-        alias,
-        build_prepared_stream_ref(spec.from_.stream, runtime),
+    return DerivedRuntimeStream(
+        input_stream=spec.from_.stream,
+        mapper=build_mapper_from_spec(spec.map),
+        transforms=tuple(spec.stream),
+        partition_by=partition_by,
+        feature_id_by=spec.feature_id_by,
+        presorted=spec.ordered_by is not None,
     )
 
 
 def bootstrap(project_yaml: Path) -> Runtime:
     """One-call init returning a scoped Runtime.
 
-    Loads streams and postprocess config, fills registries, and wires artifacts
+    Loads streams and postprocess config, prepares streams, and wires artifacts
     under a per-project runtime instance.
     """
     from datapipeline.artifacts.hydration import hydrate_runtime_artifacts_for_project
@@ -332,7 +298,7 @@ def bootstrap_build_runtime(project_yaml: Path) -> Runtime:
     )
     _attach_project_config(runtime, project_yaml)
     init_streams(load_streams(project_yaml), runtime)
-    _register_postprocesses(runtime, project_yaml)
+    runtime.postprocess = _load_postprocess_config(project_yaml)
     return runtime
 
 
@@ -342,12 +308,7 @@ def _attach_project_config(runtime: Runtime, project_yaml: Path) -> None:
     runtime.split_labels = ()
 
 
-def _register_postprocesses(runtime: Runtime, project_yaml: Path) -> None:
-    transforms = _load_postprocess_transforms(project_yaml)
-    runtime.registries.postprocesses.register(POSTPROCESS_TRANSFORMS, transforms)
-
-
-def _load_postprocess_transforms(project_yaml: Path):
+def _load_postprocess_config(project_yaml: Path) -> PostprocessConfig:
     post_doc = _load_by_key(
         project_yaml,
         POSTPROCESS_PATH_KEY,
@@ -355,5 +316,5 @@ def _load_postprocess_transforms(project_yaml: Path):
     )
     post_doc = _interpolate(post_doc, _globals(project_yaml))
     if post_doc is None:
-        return None
-    return PostprocessConfig.model_validate(post_doc).root
+        return PostprocessConfig()
+    return PostprocessConfig.model_validate(post_doc)

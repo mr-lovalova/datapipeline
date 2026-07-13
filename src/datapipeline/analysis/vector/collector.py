@@ -1,8 +1,13 @@
 from collections import Counter, defaultdict
-from typing import Any, Hashable, Iterable, Literal
-from datapipeline.transforms.vector_utils import base_id as _base_id
 from datetime import datetime
 from pathlib import Path
+from typing import Any, Hashable, Iterable, Literal
+
+from datapipeline.domain.feature_id import (
+    base_id as _base_id,
+    feature_id_components,
+    partition_suffix,
+)
 
 
 def _base_feature_id(feature_id: str) -> str:
@@ -48,26 +53,34 @@ class VectorStatsCollector:
         self.total_vectors = 0
         self.empty_vectors = 0
 
-        self.seen_counts = Counter()
-        self.null_counts_features = Counter()
-        self.seen_counts_partitions = Counter()
-        self.null_counts_partitions = Counter()
-        self.cadence_null_counts = Counter()
-        self.cadence_opportunities = Counter()
-        self.cadence_null_counts_partitions = Counter()
-        self.cadence_opportunities_partitions = Counter()
+        self.seen_counts: Counter[str] = Counter()
+        self.null_counts_features: Counter[str] = Counter()
+        self.seen_counts_partitions: Counter[str] = Counter()
+        self.null_counts_partitions: Counter[str] = Counter()
+        self.cadence_null_counts: Counter[str] = Counter()
+        self.cadence_opportunities: Counter[str] = Counter()
+        self.cadence_null_counts_partitions: Counter[str] = Counter()
+        self.cadence_opportunities_partitions: Counter[str] = Counter()
 
-        self.missing_samples = defaultdict(list)
-        self.missing_partition_samples = defaultdict(list)
+        self.missing_samples: defaultdict[str, list[tuple[Hashable, str]]] = (
+            defaultdict(list)
+        )
+        self.missing_partition_samples: defaultdict[str, list[tuple[Hashable, str]]] = (
+            defaultdict(list)
+        )
         self.sample_limit = sample_limit
 
-        self.group_feature_status = defaultdict(dict)
-        self.group_partition_status = defaultdict(dict)
+        self.group_feature_status: defaultdict[Hashable, dict[str, str]] = defaultdict(
+            dict
+        )
+        self.group_partition_status: defaultdict[Hashable, dict[str, str]] = (
+            defaultdict(dict)
+        )
         # Optional per-cell sub-status for list-valued entries (finer resolution inside a bucket)
-        self.group_feature_sub: dict[Hashable,
-                                     dict[str, list[str]]] = defaultdict(dict)
-        self.group_partition_sub: dict[Hashable,
-                                       dict[str, list[str]]] = defaultdict(dict)
+        self.group_feature_sub: dict[Hashable, dict[str, list[str]]] = defaultdict(dict)
+        self.group_partition_sub: dict[Hashable, dict[str, list[str]]] = defaultdict(
+            dict
+        )
 
     @staticmethod
     def _group_sort_key(g: Hashable):
@@ -78,6 +91,7 @@ class VectorStatsCollector:
         hours "3" vs "21"). This helper prefers numeric datetime ordering and
         falls back to string representation only when needed.
         """
+
         def norm(p: Any):
             if isinstance(p, datetime):
                 # Use POSIX timestamp for monotonic ordering
@@ -134,26 +148,33 @@ class VectorStatsCollector:
                 if sub:
                     self.group_partition_sub[group_key][partition_id] = sub
                     # Only store one sub per normalized id (first seen)
-                    self.group_feature_sub[group_key].setdefault(
-                        normalized, sub)
+                    self.group_feature_sub[group_key].setdefault(normalized, sub)
 
-            is_null = (not has_present_element) if isinstance(value, list) else _is_missing_value(value)
+            is_null = (
+                (not has_present_element)
+                if isinstance(value, list)
+                else _is_missing_value(value)
+            )
             if is_null:
                 status_partitions[partition_id] = "null"
                 feature_seen_null[normalized] = True
                 self.null_counts_partitions[partition_id] += 1
-                if len(self.missing_partition_samples[partition_id]) < self.sample_limit:
+                if (
+                    len(self.missing_partition_samples[partition_id])
+                    < self.sample_limit
+                ):
                     self.missing_partition_samples[partition_id].append(
                         (group_key, "null")
                     )
                 if len(self.missing_samples[normalized]) < self.sample_limit:
-                    self.missing_samples[normalized].append(
-                        (group_key, "null"))
+                    self.missing_samples[normalized].append((group_key, "null"))
             else:
                 feature_seen_present[normalized] = True
 
             # Cadence-aware null accounting (per schema metadata)
-            meta = self.schema_meta.get(normalized) or self.schema_meta.get(partition_id)
+            meta = self.schema_meta.get(normalized) or self.schema_meta.get(
+                partition_id
+            )
             expected_len = self._cadence_expected_length(meta) if meta else None
             if expected_len is not None:
                 self._update_cadence(normalized, expected_len, value, partitions=False)
@@ -175,7 +196,9 @@ class VectorStatsCollector:
             self.seen_counts_partitions[partition_id] += 1
 
         tracked_features = (
-            self.expected_features if self.expected_features else self.discovered_features
+            self.expected_features
+            if self.expected_features
+            else self.discovered_features
         )
         missing_features = tracked_features - present_normalized
         for feature_id in missing_features:
@@ -186,7 +209,9 @@ class VectorStatsCollector:
 
         if self.match_partition == "full":
             tracked_partitions = (
-                set(self.expected_features) if self.expected_features else self.discovered_partitions
+                set(self.expected_features)
+                if self.expected_features
+                else self.discovered_partitions
             )
         else:
             tracked_partitions = self.discovered_partitions
@@ -231,31 +256,15 @@ class VectorStatsCollector:
 
     @staticmethod
     def _partition_suffix(partition_id: str) -> str:
-        return partition_id.split("__", 1)[1] if "__" in partition_id else partition_id
+        return partition_suffix(partition_id) or partition_id
 
     @staticmethod
     def _partition_values(partition_id: str) -> list[str]:
         """Return partition values without base id or field names."""
-        suffix = partition_id.split("__", 1)[1] if "__" in partition_id else partition_id
-        if not suffix:
-            return []
-
-        def _components(raw: str) -> list[str]:
-            if raw.startswith("@"):
-                parts = raw.split("_@")
-                return [parts[0]] + [f"@{rest}" for rest in parts[1:]]
-            return [raw]
-
-        values: list[str] = []
-        for component in _components(suffix):
-            field_value = component.lstrip("@")
-            _, _, value = field_value.partition(":")
-            candidate = value or field_value
-            # If no explicit value delimiter, drop leading field name-ish prefixes
-            if not value and "_" in candidate:
-                candidate = candidate.rsplit("_", 1)[-1]
-            values.append(candidate)
-        return values
+        return [
+            "null" if value is None else str(value)
+            for _, value in feature_id_components(partition_id)
+        ]
 
     @classmethod
     def _partition_value(cls, partition_id: str) -> str:
@@ -295,7 +304,9 @@ class VectorStatsCollector:
         if expected_len is None:
             return
         counter_nulls = (
-            self.cadence_null_counts_partitions if partitions else self.cadence_null_counts
+            self.cadence_null_counts_partitions
+            if partitions
+            else self.cadence_null_counts
         )
         counter_opps = (
             self.cadence_opportunities_partitions

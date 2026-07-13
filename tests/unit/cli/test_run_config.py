@@ -41,7 +41,7 @@ def _patch_runtime_resolution(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         "datapipeline.profiles.request_builder.load_dataset",
-        lambda project_path, dataset_name: SimpleNamespace(name=dataset_name),
+        lambda project_path: SimpleNamespace(),
     )
 
 

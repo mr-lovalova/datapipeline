@@ -23,7 +23,8 @@
 #   # filename: vectors.train  # no extension, no path separators
 #
 # limit: 100                  # optional; per output/selected split label
-# preview_index: 8            # optional; 0-13; cannot be combined with splits
+# preview: features           # optional; source | mapped | records | features |
+#                             # samples | postprocess; cannot combine with splits
 # throttle_ms: 0              # optional; milliseconds; null disables
 #
 # observability:              # optional

@@ -10,8 +10,8 @@ python -m pytest
 ruff check .
 ```
 
-When iterating on configs and transforms, `jerry serve --preview-index <0-13>`
-is the fastest way to validate a specific pipeline boundary.
+When iterating on configs and transforms, `jerry serve --preview <stage>` is the
+fastest way to validate a semantic pipeline boundary.
 
 ## Scaffolding Internals (Internal API)
 
@@ -34,7 +34,6 @@ Key entrypoints:
   - `datapipeline.services.scaffold.mapper.create_mapper` (used by `jerry mapper create`)
   - `datapipeline.services.scaffold.loader.create_loader` (used by `jerry loader create`)
   - `datapipeline.services.scaffold.domain.create_domain` (used by `jerry domain create`)
-  - `datapipeline.services.scaffold.filter.create_filter` (used by `jerry filter create`)
 
 - Composition (wizard)
   - `datapipeline.services.scaffold.stream_plan.execute_stream_plan` (used by `jerry inflow create`)

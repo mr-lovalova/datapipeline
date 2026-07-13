@@ -35,7 +35,7 @@ def validate_build_job(
     roots = {task.id}
     artifact_keys = set(graph.dependency_closure(roots))
     if graph.requires_dataset(artifact_keys):
-        dataset = load_dataset(project_path, "vectors")
+        dataset = load_dataset(project_path)
         artifact_keys = set(graph.active_dependency_closure(roots, dataset))
     validate_artifact_plan(project_path, graph, artifact_keys)
 
@@ -50,7 +50,7 @@ def plan_runtime_job(
     )
     required_artifacts = graph.runtime_dependency_closure(
         job.task,
-        preview_index=job.preview_index,
+        preview=job.preview,
         dataset=feature_dataset,
     )
     validate_artifact_plan(project_path, graph, set(required_artifacts))
@@ -97,9 +97,8 @@ def execute_runtime_job(
                         exclude={"version", "kind", "id", "source_path"},
                         exclude_none=True,
                     ),
-                    "dataset": job.dataset_name,
                     "limit": job.limit,
-                    "preview_index": job.preview_index,
+                    "preview": job.preview,
                     "throttle_ms": job.throttle_ms,
                     "splits": list(job.splits),
                     "output": {
@@ -137,6 +136,6 @@ def execute_runtime_job(
             limit=job.limit,
             target=job.output,
             throttle_ms=job.throttle_ms,
-            preview_index=job.preview_index,
+            preview=job.preview,
             visuals=job.observability.visuals,
         )

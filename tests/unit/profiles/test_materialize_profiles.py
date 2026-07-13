@@ -50,9 +50,7 @@ def _prepare_run(
     runtime = SimpleNamespace(
         project_yaml=tmp_path / "project.yaml",
         artifacts_root=tmp_path / "artifacts",
-        registries=SimpleNamespace(
-            stream_specs={stream_id: object() for stream_id in stream_ids}
-        ),
+        streams={stream_id: object() for stream_id in stream_ids},
         heartbeat_interval_seconds=None,
     )
     writes = []
@@ -67,11 +65,6 @@ def _prepare_run(
     monkeypatch.setattr(materialize_profiles, "bootstrap", lambda project_path: runtime)
     monkeypatch.setattr(
         materialize_profiles, "load_streams", lambda project_path: StreamsConfig()
-    )
-    monkeypatch.setattr(
-        materialize_profiles,
-        "load_dataset",
-        lambda project_path, dataset_name: object(),
     )
     monkeypatch.setattr(
         materialize_profiles,
@@ -235,7 +228,7 @@ def test_materialize_prepares_required_artifacts_once(
     writes, _, _ = _prepare_run(monkeypatch, tmp_path, profiles, defaults)
     monkeypatch.setattr(
         materialize_profiles,
-        "stream_cadence_artifacts",
+        "stream_tick_artifacts",
         lambda stream, streams: {
             "adv.20": {"ticks_20"},
             "adv.63": {"ticks_63"},
@@ -332,7 +325,7 @@ def test_materialize_rejects_invalid_tick_artifact_producer(
     )
     monkeypatch.setattr(
         materialize_profiles,
-        "stream_cadence_artifacts",
+        "stream_tick_artifacts",
         lambda stream, streams: {"market_ticks"},
     )
     monkeypatch.setattr(

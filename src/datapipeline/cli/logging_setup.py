@@ -4,7 +4,6 @@ from pathlib import Path
 
 from datapipeline.cli.visuals.execution import ExecutionMessage
 from datapipeline.cli.visuals.execution_context import current_execution_event_sink
-from datapipeline.cli.visuals.execution_context import current_dag_depth
 from datapipeline.cli.visuals.execution_context import current_terminal_log_proxy_sink
 from datapipeline.config.resolution import LogOutputSettings
 
@@ -28,7 +27,6 @@ class _TerminalVisualProxyHandler(logging.StreamHandler):
             if sink is not None:
                 sink.emit(
                     ExecutionMessage(
-                        depth=max(0, int(current_dag_depth())),
                         message=self.format(record),
                         log_level=int(record.levelno),
                     )

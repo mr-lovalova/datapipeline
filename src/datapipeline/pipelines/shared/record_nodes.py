@@ -1,16 +1,11 @@
 from collections.abc import Iterator
 from typing import Any
 
-from datapipeline.dag.context import PipelineContext
-from datapipeline.dag.events import ProgressResource, ProgressSnapshot
-from datapipeline.dag.runner import report_node_progress
+from datapipeline.execution.context import PipelineContext
+from datapipeline.execution.events import ProgressResource, ProgressSnapshot
+from datapipeline.execution.runner import report_node_progress
 from datapipeline.domain.stream import RecordStream, canonical_record_order
 from datapipeline.pipelines.shared.sort import batch_sort
-from datapipeline.plugins import (
-    DEBUG_TRANSFORMS_EP,
-    RECORD_TRANSFORMS_EP,
-    STREAM_TRANFORMS_EP,
-)
 from datapipeline.sources.observability import (
     describe_loader,
     loader_current_label,
@@ -18,7 +13,6 @@ from datapipeline.sources.observability import (
     loader_progress_sequence,
     unit_for_loader,
 )
-from datapipeline.transforms.engine import apply_transforms
 from datapipeline.transforms.utils import partition_key
 
 
@@ -94,29 +88,8 @@ def open_records(stream: RecordStream[Any]) -> Iterator[Any]:
         yield record
 
 
-def require_stream_source(context: PipelineContext, stream_id: str) -> Any:
-    source_registry = context.runtime.registries.stream_sources
-    try:
-        return source_registry.get(stream_id)
-    except KeyError as exc:
-        available = sorted(source_registry.keys())
-        available_text = ", ".join(available) if available else "(none)"
-        raise KeyError(
-            f"Unknown stream '{stream_id}'. Check dataset.yaml and stream ids. "
-            f"Available streams: {available_text}"
-        ) from exc
-
-
 def map_records(mapper, records):
     return mapper(records)
-
-
-def apply_record_operations(
-    context: PipelineContext,
-    operations: Any,
-    records: Iterator[Any],
-) -> Iterator[Any]:
-    return apply_transforms(records, RECORD_TRANSFORMS_EP, operations, context)
 
 
 def order_records(
@@ -146,34 +119,4 @@ def order_records(
         records,
         buffer_bytes=context.runtime.execution.sort_buffer_bytes,
         key=record_order_key,
-    )
-
-
-def apply_stream_operations(
-    context: PipelineContext,
-    operations: Any,
-    state_partition_by: str | list[str] | None,
-    records: Iterator[Any],
-) -> Iterator[Any]:
-    return apply_transforms(
-        records,
-        STREAM_TRANFORMS_EP,
-        operations,
-        context,
-        partition_by=state_partition_by,
-    )
-
-
-def apply_debug_operations(
-    context: PipelineContext,
-    operations: Any,
-    state_partition_by: str | list[str] | None,
-    records: Iterator[Any],
-) -> Iterator[Any]:
-    return apply_transforms(
-        records,
-        DEBUG_TRANSFORMS_EP,
-        operations,
-        context,
-        partition_by=state_partition_by,
     )

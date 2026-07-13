@@ -77,6 +77,30 @@ def test_ingest_accepts_feature_id_by() -> None:
     assert spec.feature_id_by == "ticker"
 
 
+@pytest.mark.parametrize("feature_id_by", [["ticker", "ticker"], [""], ""])
+def test_ingest_rejects_invalid_feature_id_fields(feature_id_by) -> None:
+    with pytest.raises(ValueError, match="duplicate|at least 1 character"):
+        IngestConfig.model_validate(
+            {
+                "id": "sample",
+                "from": {"source": "demo.source"},
+                "map": {"entrypoint": "identity", "args": {}},
+                "feature_id_by": feature_id_by,
+            }
+        )
+
+
+def test_stream_rejects_duplicate_feature_id_fields() -> None:
+    with pytest.raises(ValueError, match="duplicate"):
+        StreamConfig.model_validate(
+            {
+                "id": "sample",
+                "from": {"stream": "demo.ingest"},
+                "feature_id_by": ["ticker", "ticker"],
+            }
+        )
+
+
 def test_stream_accepts_upstream_stream_shape() -> None:
     spec = StreamConfig.model_validate(
         {
@@ -84,7 +108,7 @@ def test_stream_accepts_upstream_stream_shape() -> None:
             "from": {"stream": " sample.ingest "},
             "partition_by": "ticker",
             "feature_id_by": [],
-            "stream": [{"dedupe": {}}],
+            "stream": [{"operation": "dedupe"}],
         }
     )
 

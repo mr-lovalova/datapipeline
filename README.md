@@ -5,8 +5,8 @@ maps it into ordered record streams, applies declarative transforms, and serves
 feature vectors for analysis or model training.
 
 The runtime is iterator-first: streams are processed on demand, with explicit
-sorting, artifacts, observability, and plugin entry points for custom loaders,
-parsers, mappers, and transforms.
+sorting, artifacts, observability, built-in transforms, and plugin entry points
+for custom loaders, parsers, and mappers.
 
 Contributing: PRs welcome on [GitHub](https://github.com/mr-lovalova/datapipeline).
 
@@ -14,7 +14,7 @@ Contributing: PRs welcome on [GitHub](https://github.com/mr-lovalova/datapipelin
 >
 > - Every record carries a timezone-aware `time` attribute. Time-zone awareness
 >   is a quality gate for correct vector assembly.
-> - Samples are grouped by `sample.cadence`/`group_by`, plus optional
+> - Samples are grouped by `sample.cadence`, plus optional
 >   `sample.keys` such as `security_id`.
 > - Stream state is partitioned with `partition_by` when transforms need
 >   per-entity history. Feature-id suffixing is configured separately with
@@ -86,99 +86,28 @@ jerry serve --limit 3
 
 ---
 
-## Preview Indices (serve --preview-index)
+## Preview stages (serve --preview)
 
-`--preview-index` previews the serve pipeline up to a 0-based serve preview index. Indices 0-11 run per feature/target config; indices 12-13 switch to the combined sample stream.
+`--preview` stops serve at a stable semantic boundary. Choose one of:
 
-- Index 0 (DTO stream)
-  - Input: raw source rows (loader transport + decoder)
-  - Ops: loader -> decoder -> parser (raw -> DTO; return None to drop rows)
-  - Output: DTO objects yielded by the parser
+- `source`: opened source values before mapping.
+- `mapped`: records immediately after mapping.
+- `records`: records after configured transforms and ordering.
+- `features`: fully processed and ordered feature/target records, including
+  scaling and sequence construction.
+- `samples`: assembled `Sample` objects before postprocess.
+- `postprocess`: samples after the configured postprocess pipeline.
 
-- Index 1 (record stream)
-  - Input: DTO stream
-  - Ops: mapper (DTO -> domain TemporalRecord)
-  - Output: TemporalRecord instances (must have timezone-aware `time`)
-
-- Index 2 (record transforms)
-  - Input: TemporalRecord stream
-  - Ops: stream `record:` transforms (e.g. filter, floor_time); per-record only (no history)
-  - Output: TemporalRecord stream (possibly filtered/mutated)
-
-- Index 3 (ordered record stream)
-  - Input: TemporalRecord stream
-  - Ops:
-    - validate a declared canonical `ordered_by`; without one, sort by `(partition_key, record.time)`
-  - Output: TemporalRecord stream (sorted by partition, time)
-
-- Index 4 (derived stream input)
-  - Input: source streams for a derived stream
-  - Ops: open upstream streams referenced by `streams/*.yaml`
-  - Output: upstream TemporalRecord streams
-
-- Index 5 (derived stream records)
-  - Input: derived stream inputs
-  - Ops: optional mapper for derived stream rows
-  - Output: derived TemporalRecord stream
-
-- Index 6 (derived stream ordered records)
-  - Input: derived TemporalRecord stream
-  - Ops: validate a declared canonical `ordered_by`; without one, sort by `(partition_key, record.time)`
-  - Output: TemporalRecord stream (sorted by partition, time)
-
-- Index 7 (derived stream transforms)
-  - Input: ordered TemporalRecord stream
-  - Ops:
-    - apply stream `stream:` transforms (per-partition history; e.g. ensure_cadence, rolling, fill)
-  - Output: TemporalRecord stream (sorted by partition,time)
-
-- Index 8 (derived stream debug transforms)
-  - Input: TemporalRecord stream
-  - Ops: apply stream `debug:` transforms (validation only; e.g. lint)
-  - Output: TemporalRecord stream (validated, still sorted by partition,time)
-
-- Index 9 (feature stream)
-  - Input: TemporalRecord stream
-  - Ops: wrap each record as `FeatureRecord(id, record, value)`; `id` is derived from:
-    - dataset `id:` (base feature id), and
-    - optional stream `feature_id_by:` fields (wide feature ids)
-    - `value` is selected from `dataset.yaml` via `field: <record_attr>`
-  - Output: FeatureRecord stream (keeps sample identity separately from public feature id)
-
-- Index 10 (feature transforms)
-  - Input: FeatureRecord stream (sorted by id,time)
-  - Ops: explicit per-feature `scale` and `sequence` processing
-  - Output: FeatureRecord or FeatureRecordSequence
-
-- Index 11 (ordered feature records)
-  - Input: FeatureRecord stream after feature transforms
-  - Ops: sort by `(feature_id, record.time)`
-  - Output: FeatureRecord or FeatureRecordSequence stream
-
-- Index 12 (vector assembly)
-  - Input: all features/targets after preview index 11
-  - Ops:
-    - merge feature streams by sample key (`sample.cadence`/`group_by` plus `sample.keys`)
-    - assemble `Vector` objects (feature_id -> value or sequence)
-    - assemble `Sample(key, features, targets)`
-    - if rectangular mode is on, align to the expected time window keys (missing buckets become empty vectors)
-  - Output: Sample stream (no postprocess, no split)
-
-- Index 13 (postprocess)
-  - Input: Sample stream
-  - Ops:
-    - ensure vector schema (fill missing configured feature ids, drop extras)
-    - apply project `postprocess.yaml` vector transforms
-  - Output: Sample stream (not split)
-
-Full run (no --preview-index)
-
-- Equivalent to preview index 13, plus normal output persistence.
+The record stages emit once per unique configured record stream. `features`
+emits once per feature and target. `samples` and `postprocess` emit one combined
+sample stream. A full run without `--preview` uses the postprocessed stream and
+then performs normal output persistence.
 
 Split timing (leakage note)
 
 - A serve profile with `splits:` routes the postprocessed sample stream to one fs output per requested label. Split filenames retain the profile name, such as `splits.train.jsonl`. Profiles without `splits:` emit the combined stream.
-- Split fan-out cannot be combined with `--preview-index`; use indices 12 and 13 to inspect vector assembly and postprocess output before running the fan-out profile.
+- Split fan-out cannot be combined with `--preview`; use `samples` or
+  `postprocess` to inspect the combined stream before running the fan-out profile.
 - Feature engineering runs before split; keep it causal (no look-ahead, no future leakage).
 - Scaler statistics are fit by the build task `scaler.yaml` and are typically restricted to the `train` split (configurable via `split_label`). Scaler filtering supports time splits and hash splits keyed by `group`; a hash `feature:<id>` key requires `split_label: all`. Temporal folds can fit multiple internal scalers in the same scaler artifact.
 
@@ -189,7 +118,7 @@ Split timing (leakage note)
 - `jerry demo init`: scaffolds a standalone demo plugin at `./demo/` and wires a `demo` dataset.
 - `jerry plugin init <name> --out lib/`: scaffolds `lib/<name>/` (writes workspace `jerry.yaml` when missing).
 - `jerry.yaml`: sets `plugin_root` for scaffolding commands and `datasets/default_dataset` so you can omit `--project`/`--dataset`.
-- `jerry serve [--dataset <alias>|--project <path>] [--limit N] [--preview-index 0-13] [--artifact-mode AUTO|FORCE|OFF]`: prepares the combined artifact requirements once, then streams enabled `serve.*` runtime profiles in their configured order.
+- `jerry serve [--dataset <alias>|--project <path>] [--limit N] [--preview <stage>] [--artifact-mode AUTO|FORCE|OFF]`: prepares the combined artifact requirements once, then streams enabled `serve.*` runtime profiles in their configured order.
 - `jerry build [--dataset <alias>|--project <path>] [--force]`: materializes artifacts (schema, scaler, etc.).
 - `jerry inspect [--dataset <alias>|--project <path>] [--run <inspect-profile>] [--artifact-mode AUTO|FORCE|OFF]`: prepares the combined artifact requirements once, then runs enabled inspect profiles (or one selected profile).
 - `jerry materialize [--run <profile>] [--output <path.jsonl>] [--overwrite|--no-overwrite] [--artifact-mode AUTO|FORCE|OFF]`: prepares the selected streams' artifact requirements once, then runs all enabled `materialize.*` profiles or one selected profile. `--output` overrides a selected profile and therefore requires `--run`.
@@ -235,7 +164,7 @@ These live under `lib/<plugin>/src/<package>/`:
 - `domains/<domain>/model.py`: domain record models.
 - `mappers/*.py`: DTO/domain -> domain record mapping functions (referenced by ingests and mapped streams via entry point).
 - `loaders/*.py`: optional custom loaders (fs/http usually use the built-in core loader).
-- `pyproject.toml`: entry points for loaders/parsers/mappers/transforms (rerun `pip install -e lib/<plugin>` after changes).
+- `pyproject.toml`: entry points for loaders/parsers/mappers (rerun `pip install -e lib/<plugin>` after changes).
 
 ### Loaders & Parsers
 
@@ -257,17 +186,10 @@ These live under `lib/<plugin>/src/<package>/`:
 - **Record transforms** run on mapped domain records before ordering. Each transform operates on one record at a time. Configure in `ingests/*.yaml` under `record:`.
 - **Stream transforms** run on ordered records (dedupe, cadence enforcement, lag/lead, rolling, derive, fills). These operate across a sequence of records for a partition because they depend on sorted partition/time order and cadence. Configure in `streams/*.yaml` under `stream:`.
 - **Feature transforms** run after stream regularization and shape the per-feature payload for vectorization. The explicit `scale` and `sequence` fields in `dataset.yaml` configure this stage; it is not an arbitrary transform list.
-- **Vector (postprocess) transforms** operate on assembled vectors (coverage/drop/fill/replace). Configure in `postprocess.yaml`.
-- **Debug transforms** run after stream transforms for validation only. Configure in `streams/*.yaml` under `debug:`.
-- Custom transforms are registered in your plugin `pyproject.toml` under the matching entry-point group:
-  - `datapipeline.transforms.record`
-  - `datapipeline.transforms.stream`
-  - `datapipeline.transforms.vector`
-  - `datapipeline.transforms.debug`
-
-  Reference them by name in the corresponding transform list. Each YAML clause
-  must have exactly one transform name with mapping or `null` parameters; see
-  the [transform guide](docs/transforms/index.md) for the callable contract.
+- **Postprocess policies** select assembled vector columns and filter samples by coverage. Configure in `postprocess.yaml`.
+- Transform lists contain flat, validated built-in operations. Each item has an
+  `operation` discriminator and that operation's fields. See the
+  [transform guide](docs/transforms/index.md) for the supported operations.
 
 ### Glossary
 
@@ -276,8 +198,9 @@ These live under `lib/<plugin>/src/<package>/`:
 - **Sample key**: vector identity: floored time plus optional `dataset.sample.keys`.
 - **Partition**: stream state boundary for history-based transforms, driven by `stream.partition_by`.
 - **Feature id fields**: optional stream `feature_id_by` fields appended to feature ids for wide feature schemas.
-- **Group**: sample cadence set by `dataset.sample.cadence` or legacy `dataset.group_by`.
-- **Preview index**: logical debug index for `jerry serve --preview-index 0-13` (ingest nodes -> stream nodes -> feature records -> samples).
+- **Group**: sample cadence set by `dataset.sample.cadence`.
+- **Preview stage**: stable semantic boundary selected with
+  `jerry serve --preview <stage>`.
 - **Sort spill**: ordered stages sort pickle-serializable values in bounded
   serialized buffers and spill temporary runs when the next value would exceed
   the configured buffer.
@@ -287,7 +210,7 @@ These live under `lib/<plugin>/src/<package>/`:
 - `docs/config.md`: config layout, resolution order, and YAML reference.
 - `docs/dataflow.md`: end-to-end YAML reference chain (`jerry.yaml -> project -> source -> stream -> dataset -> outputs`).
 - `docs/cli.md`: CLI reference (beyond the cheat sheet).
-- `docs/transforms/`: record, stream, feature, and postprocess transforms.
+- `docs/transforms/`: record and stream transforms, feature shaping, and postprocess policies.
 - `docs/artifacts.md`: build artifacts and split timing.
 - `docs/python.md`: Python API usage patterns.
 - `docs/extending.md`: entry points and writing plugins.

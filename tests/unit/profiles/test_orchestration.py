@@ -7,9 +7,10 @@ import pytest
 
 from datapipeline.artifacts.planning import build_artifact_graph
 from datapipeline.config.build_resolution import BuildSettings
-from datapipeline.config.dataset.dataset import FeatureDatasetConfig
+from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.config.execution import ExecutionConfig
+from datapipeline.config.preview import PreviewStage
 from datapipeline.config.resolution import (
     LogLevelDecision,
     LogOutputSettings,
@@ -81,7 +82,7 @@ def _stable_config_hash(monkeypatch) -> None:
 
 def _dataset(*, scale: bool = False) -> FeatureDatasetConfig:
     return FeatureDatasetConfig(
-        group_by="1h",
+        sample=SampleConfig(cadence="1h"),
         features=[
             FeatureRecordConfig(
                 id="feature",
@@ -119,7 +120,7 @@ def _runtime_job(
     runtime,
     dataset,
     *,
-    preview_index: int | None = None,
+    preview: PreviewStage | None = None,
     heartbeat_interval_seconds: float | None = None,
     splits: tuple[str, ...] = (),
 ) -> RuntimeJob:
@@ -127,13 +128,12 @@ def _runtime_job(
         name=name,
         task=task,
         runtime=runtime,
-        dataset_name="features" if preview_index is not None else "vectors",
         dataset=dataset,
         output=_output(),
         observability=_observability(heartbeat_interval_seconds),
         limit=None,
         throttle_ms=None,
-        preview_index=preview_index,
+        preview=preview,
         splits=splits,
     )
 
@@ -202,8 +202,8 @@ def test_build_order_accepts_configured_dependency_order() -> None:
     _validate_build_order(
         [
             BuildJob(vector_inputs, _artifact_settings()),
-            BuildJob(schema, _artifact_settings()),
             BuildJob(metadata, _artifact_settings()),
+            BuildJob(schema, _artifact_settings()),
         ],
         graph,
     )
@@ -211,8 +211,9 @@ def test_build_order_accepts_configured_dependency_order() -> None:
 
 def test_build_order_rejects_dependency_after_dependent() -> None:
     vector_inputs = VectorInputsTask(id="vector_inputs")
+    metadata = MetadataTask(id="metadata")
     schema = SchemaTask(id="schema")
-    graph = build_artifact_graph([vector_inputs, schema])
+    graph = build_artifact_graph([vector_inputs, metadata, schema])
 
     with pytest.raises(ValueError, match="vector_inputs.*before.*schema"):
         _validate_build_order(
@@ -242,22 +243,25 @@ def test_build_jobs_keep_order_and_share_resolved_artifacts(
     tmp_path: Path,
 ) -> None:
     vector_inputs = VectorInputsTask(id="vector_inputs")
+    metadata = MetadataTask(id="metadata")
     schema = SchemaTask(id="schema")
     vector_runtime = _runtime(tmp_path, "vector-runtime")
+    metadata_runtime = _runtime(tmp_path, "metadata-runtime")
     schema_runtime = _runtime(tmp_path, "schema-runtime")
     execution = ExecutionConfig(sort_buffer_mb=32)
     request = _build_request(
         tmp_path,
-        [vector_inputs, schema],
+        [vector_inputs, metadata, schema],
         [
             BuildJob(vector_inputs, _artifact_settings()),
+            BuildJob(metadata, _artifact_settings()),
             BuildJob(schema, _artifact_settings("FORCE")),
         ],
         execution,
     )
     calls: list[dict[str, object]] = []
     execution_specs: list[ExecutionSpec] = []
-    runtimes = iter((vector_runtime, schema_runtime))
+    runtimes = iter((vector_runtime, metadata_runtime, schema_runtime))
 
     def build(_project, **kwargs):
         calls.append(dict(kwargs))
@@ -288,21 +292,29 @@ def test_build_jobs_keep_order_and_share_resolved_artifacts(
 
     assert [call["required_artifacts"] for call in calls] == [
         {VECTOR_INPUTS},
+        {VECTOR_METADATA},
         {VECTOR_SCHEMA},
     ]
     assert [call["runtime"].marker for call in calls] == [
         "vector-runtime",
+        "metadata-runtime",
         "schema-runtime",
     ]
-    assert [call["settings"].mode for call in calls] == ["AUTO", "FORCE"]
-    assert calls[0]["resolved_artifacts"] is calls[1]["resolved_artifacts"]
-    assert calls[1]["resolved_artifacts"] == {VECTOR_INPUTS, VECTOR_SCHEMA}
+    assert [call["settings"].mode for call in calls] == ["AUTO", "AUTO", "FORCE"]
+    assert calls[0]["resolved_artifacts"] is calls[2]["resolved_artifacts"]
+    assert calls[2]["resolved_artifacts"] == {
+        VECTOR_INPUTS,
+        VECTOR_METADATA,
+        VECTOR_SCHEMA,
+    }
     assert {call["expected_config_hash"] for call in calls} == {"hash-1"}
     assert [spec.runtime for spec in execution_specs] == [
         vector_runtime,
+        metadata_runtime,
         schema_runtime,
     ]
     assert vector_runtime.execution == execution
+    assert metadata_runtime.execution == execution
     assert schema_runtime.execution == execution
 
 
@@ -325,18 +337,18 @@ def test_runtime_artifact_union_is_prepared_once_before_jobs(
         artifact_tasks=[vector_inputs, schema, metadata],
         jobs=[
             _runtime_job(
-                "metadata-preview",
+                "samples-preview",
                 pipeline,
                 first_runtime,
                 _dataset(),
-                preview_index=12,
+                preview="samples",
             ),
             _runtime_job(
-                "schema-preview",
+                "postprocess-preview",
                 pipeline,
                 second_runtime,
                 _dataset(),
-                preview_index=13,
+                preview="postprocess",
             ),
         ],
         artifact_settings=artifact_settings,
@@ -518,10 +530,12 @@ def test_invalid_preview_is_rejected_before_starting_run(tmp_path: Path) -> None
                 pipeline,
                 _runtime(tmp_path),
                 _dataset(),
-                preview_index=14,
+                preview="unknown",  # type: ignore[arg-type]
             )
         ],
-        serve_run_plans=(ServeRunPlan(run_paths, 14),),
+        serve_run_plans=(
+            ServeRunPlan(run_paths, "unknown"),  # type: ignore[arg-type]
+        ),
     )
 
     _assert_preflight_rejected(request)
@@ -628,7 +642,7 @@ def test_runtime_job_emits_resolved_config_at_debug(
     assert message.startswith("Config:\n")
     config = json.loads(message.removeprefix("Config:\n"))
     assert config["target"] == "report"
-    assert config["dataset"] == "vectors"
+    assert "dataset" not in config
     assert config["execution"]["sort_buffer_mb"] == 24
     assert config["observability"]["log_level"] == "INFO"
 
@@ -757,11 +771,11 @@ def test_preview_run_exists_at_job_boundary_and_is_not_latest(
                 pipeline,
                 runtime,
                 _dataset(),
-                preview_index=3,
+                preview="records",
                 heartbeat_interval_seconds=15,
             )
         ],
-        serve_run_plans=(ServeRunPlan(run_paths, 3),),
+        serve_run_plans=(ServeRunPlan(run_paths, "records"),),
     )
     observed: dict[str, object] = {}
 
@@ -769,7 +783,7 @@ def test_preview_run_exists_at_job_boundary_and_is_not_latest(
         run = json.loads(run_paths.metadata_path.read_text(encoding="utf-8"))
         observed.update(
             status=run["status"],
-            preview_index=run["preview_index"],
+            preview=run["preview"],
             heartbeat=spec.runtime.heartbeat_interval_seconds,
         )
         return work()
@@ -792,7 +806,7 @@ def test_preview_run_exists_at_job_boundary_and_is_not_latest(
 
     assert observed == {
         "status": "running",
-        "preview_index": 3,
+        "preview": "records",
         "heartbeat": 15,
     }
     finished = json.loads(run_paths.metadata_path.read_text(encoding="utf-8"))
@@ -817,7 +831,7 @@ def test_later_run_start_failure_fails_only_started_run(
     starts: list[RunPaths] = []
     failed: list[RunPaths] = []
 
-    def start(paths, *, preview_index):
+    def start(paths, *, preview):
         starts.append(paths)
         if paths == second:
             raise RuntimeError("cannot start second run")

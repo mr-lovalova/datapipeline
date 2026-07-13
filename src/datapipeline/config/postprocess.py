@@ -1,30 +1,47 @@
-from typing import Annotated, Any
+from typing import Annotated
 
-from pydantic import BeforeValidator, PlainSerializer, RootModel, model_validator
-
-from datapipeline.transforms.spec import (
-    TransformSpec,
-    parse_transform_spec,
-    serialize_transform_spec,
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
 )
 
 
-_ConfiguredTransform = Annotated[
-    TransformSpec,
-    BeforeValidator(parse_transform_spec),
-    PlainSerializer(
-        serialize_transform_spec,
-        return_type=dict[str, dict[str, Any]],
-    ),
+NonEmptyString = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1),
 ]
 
 
-class PostprocessConfig(RootModel[list[_ConfiguredTransform]]):
-    """Schema for postprocess.yaml (list of transforms)."""
+class _Config(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
-    @model_validator(mode="before")
+
+class CoverageConfig(_Config):
+    threshold: float = Field(ge=0, le=1, allow_inf_nan=False)
+    ids: list[NonEmptyString] | None = None
+
+    @field_validator("ids")
     @classmethod
-    def allow_empty(cls, value: Any) -> Any:
-        if value in (None, {}):
-            return []
-        return value
+    def validate_ids(cls, ids: list[str] | None) -> list[str] | None:
+        if ids is None:
+            return None
+        if not ids:
+            raise ValueError("ids must not be empty")
+        if len(ids) != len(set(ids)):
+            raise ValueError("ids must not contain duplicates")
+        return ids
+
+
+class CoveragePolicies(_Config):
+    features: CoverageConfig | None = None
+    targets: CoverageConfig | None = None
+
+
+class PostprocessConfig(_Config):
+    """Policies applied after feature and target vectors are assembled."""
+
+    columns: CoveragePolicies = Field(default_factory=CoveragePolicies)
+    samples: CoveragePolicies = Field(default_factory=CoveragePolicies)

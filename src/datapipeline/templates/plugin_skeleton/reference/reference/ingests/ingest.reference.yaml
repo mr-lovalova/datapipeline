@@ -9,11 +9,11 @@
 #   args: {}
 # cadence: ${group_by}          # optional per-ingest variable for interpolation
 # partition_by: station_id      # optional; string or list of strings
-# feature_id_by: []             # optional; [] for scalar keyed features, fields for wide IDs
+# feature_id_by: []             # [] requires partition_by fields in dataset sample.keys
 # ordered_by: [station_id, time] # optional; must equal [*partition_by, time]
 #
-# record:                       # optional record transforms, one-key mappings
-#   - where: { field: time, operator: ge, comparand: "${start_time}" }
-#   - floor_time: { cadence: "${cadence}" }
-#   - shift_time: { by: "-1h" }
+# record:                       # optional flat typed record operations
+#   - { operation: where, field: time, operator: ge, comparand: "${start_time}" }
+#   - { operation: floor_time, cadence: "${cadence}" }
+#   - { operation: shift_time, by: "-1h" }
 #

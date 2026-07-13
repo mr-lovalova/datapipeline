@@ -1,39 +1,30 @@
 import hashlib
-from collections.abc import Mapping, Sequence
+from bisect import bisect_right
 from datetime import datetime
 from typing import Any
 
-from datapipeline.domain.vector import Vector
 from datapipeline.config.split import (
     HASH_SPLIT_FEATURE_PREFIX,
+    HashSplitConfig,
     SplitConfig,
     TimeSplitConfig,
 )
+from datapipeline.domain.vector import Vector
+from datapipeline.utils.time import parse_datetime
 
 
 class HashLabeler:
-    """Deterministic hash-based label selection.
+    """Assign deterministic labels from a validated hash split."""
 
-    ratios: mapping label -> fraction from validated split config.
-    key: "group" or "feature:<id>"
-    seed: integer for deterministic hashing
-    """
-
-    def __init__(
-        self,
-        *,
-        ratios: Mapping[str, float],
-        key: str = "group",
-        seed: int = 0,
-    ) -> None:
+    def __init__(self, config: HashSplitConfig) -> None:
         total = 0.0
         thresholds: list[tuple[float, str]] = []
-        for label, frac in ratios.items():
-            total += float(frac)
-            thresholds.append((total, str(label)))
+        for label, frac in config.ratios.items():
+            total += frac
+            thresholds.append((total, label))
         self._thresholds = thresholds
-        self._seed = int(seed)
-        self._key = str(key)
+        self._seed = config.seed
+        self._key = config.key
 
     @staticmethod
     def _hash_token(token: str, seed: int) -> float:
@@ -60,25 +51,26 @@ class HashLabeler:
 class TimeLabeler:
     """Time-based label selection using ascending boundaries and labels."""
 
-    def __init__(self, *, boundaries: Sequence[str], labels: Sequence[str]) -> None:
-        self._boundaries = [self._parse_iso(ts) for ts in boundaries]
-        self._labels = [str(x) for x in labels]
-
-    @staticmethod
-    def _parse_iso(text: str) -> datetime:
-        t = text.strip().replace("Z", "+00:00")
-        return datetime.fromisoformat(t)
+    def __init__(self, config: TimeSplitConfig) -> None:
+        self._boundaries = tuple(
+            parse_datetime(boundary) for boundary in config.boundaries
+        )
+        self._labels = tuple(config.labels)
 
     def label(self, group_key: Any, vector: Vector) -> str:  # noqa: ARG002 - vector not used
         key = group_key[0] if isinstance(group_key, (list, tuple)) else group_key
-        ts = key if isinstance(key, datetime) else self._parse_iso(str(key))
-        for idx, bound in enumerate(self._boundaries):
-            if ts < bound:
-                return self._labels[idx]
-        return self._labels[-1]
+        if isinstance(key, datetime):
+            timestamp = (
+                key if key.tzinfo is not None else parse_datetime(key.isoformat())
+            )
+        elif isinstance(key, str):
+            timestamp = parse_datetime(key)
+        else:
+            raise TypeError("time split keys must be datetimes or ISO-8601 strings")
+        return self._labels[bisect_right(self._boundaries, timestamp)]
 
 
 def build_labeler(cfg: SplitConfig) -> HashLabeler | TimeLabeler:
     if isinstance(cfg, TimeSplitConfig):
-        return TimeLabeler(boundaries=cfg.boundaries, labels=cfg.labels)
-    return HashLabeler(ratios=cfg.ratios, key=cfg.key, seed=cfg.seed)
+        return TimeLabeler(cfg)
+    return HashLabeler(cfg)

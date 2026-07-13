@@ -8,9 +8,15 @@ from datapipeline.services.bootstrap.core import (
 )
 from datapipeline.services.streams.validation import (
     stream_partition_by,
+    validate_ingest_sources,
     validate_stream_configs,
     validate_unique_stream_ids,
 )
+
+
+def test_validate_ingest_sources_rejects_unknown_source() -> None:
+    with pytest.raises(ValueError, match="references unknown source 'source.alias'"):
+        validate_ingest_sources({}, {"prices": _ingest("prices")})
 
 
 def _ingest(

@@ -122,7 +122,7 @@ def _plan_build(
 
     dataset = None
     if graph.requires_dataset(selected_keys):
-        dataset = load_dataset(project_path, "vectors")
+        dataset = load_dataset(project_path)
         selected_keys = set(graph.active_dependency_closure(selected_roots, dataset))
     if not selected_keys:
         return SkippedBuild(reason="not_required", artifacts=())
@@ -279,6 +279,7 @@ def _execute_build_jobs(
                 job.task.id,
                 result.relative_path,
                 config_hash=plan.config_hash,
+                files=result.files,
                 meta=result.meta,
             )
             save_build_state(current_state, plan.state_path)

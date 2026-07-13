@@ -92,7 +92,7 @@ def test_inspect_request_materializes_execution_scoped_log_output(
     )
     monkeypatch.setattr(
         "datapipeline.profiles.request_builder.load_dataset",
-        lambda project_path, dataset_name: SimpleNamespace(name=dataset_name),
+        lambda project_path: SimpleNamespace(),
     )
 
     request = build_profile_run_request(

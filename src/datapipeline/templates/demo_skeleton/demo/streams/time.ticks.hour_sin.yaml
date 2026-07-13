@@ -5,9 +5,6 @@ from:
 cadence: ${group_by}
 
 stream:
-  - dedupe: {}
-  - granularity: { field: value, mode: first }
-  - ensure_cadence: { field: value, cadence: "${cadence}" }
-
-debug:
-  - lint: { mode: error, tick: "${cadence}" }
+  - operation: dedupe
+  - { operation: collapse, keep: first }
+  - { operation: ensure_cadence, cadence: "${cadence}" }

@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from datapipeline.artifacts.models import VectorMetadata
 from datapipeline.services.artifacts import (
     ArtifactNotRegisteredError,
     VECTOR_METADATA_SPEC,
@@ -20,9 +21,23 @@ class _Artifacts:
 
     def load(self, spec):
         try:
-            return self._docs[spec.key]
+            doc = self._docs[spec.key]
         except KeyError as exc:
             raise ArtifactNotRegisteredError(spec.key) from exc
+        if spec is VECTOR_METADATA_SPEC:
+            return VectorMetadata.model_validate(
+                {
+                    "schema_version": 1,
+                    "features": [],
+                    "targets": [],
+                    "counts": {
+                        "feature_vectors": 0,
+                        "target_vectors": 0,
+                    },
+                    **doc,
+                }
+            )
+        return doc
 
 
 def _runtime(docs=None, window_bounds=None):
@@ -45,6 +60,8 @@ def test_resolve_window_bounds_prefers_metadata_window() -> None:
                 "window": {
                     "start": START.isoformat(),
                     "end": END.isoformat(),
+                    "mode": "union",
+                    "size": 2,
                 }
             },
         }
@@ -64,7 +81,7 @@ def test_resolve_window_bounds_requires_complete_metadata_window() -> None:
         }
     )
 
-    with pytest.raises(RuntimeError, match="Window bounds unavailable"):
+    with pytest.raises(ValueError, match="validation error"):
         resolve_window_bounds(runtime, rectangular_required=True)
 
 
@@ -75,6 +92,8 @@ def test_resolve_window_bounds_rejects_malformed_metadata() -> None:
                 "window": {
                     "start": "not-a-timestamp",
                     "end": END.isoformat(),
+                    "mode": "union",
+                    "size": 2,
                 }
             }
         }

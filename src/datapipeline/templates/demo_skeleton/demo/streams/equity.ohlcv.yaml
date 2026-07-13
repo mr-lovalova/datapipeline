@@ -7,20 +7,16 @@ partition_by: ticker
 feature_id_by: ticker
 
 stream: # per-stream transforms (input sorted by partition,time)
-  # - lag: { field: close, to: close_lag_1, periods: 1 }
-  # - lead: { field: close, to: close_lead_126, periods: 126 }
-  # - ensure_cadence: { field: close, cadence: "${cadence}" }
-  # - granularity: { field: close, mode: first }
-  - rolling: {
-        field: dollar_volume,
-        to: adv5,
-        window: 5,
-        statistic: mean,
-        min_samples: 3,
-      } # compute 5-day average dollar volume (ADV5)
-  - where: { field: adv5, operator: ge, comparand: 1_000_000 } # keep liquid stocks
-#   - fill: { method: median, window: 6, min_samples: 1 }
-#   - fill: { field: close, to: close_asof, method: forward }
-
-debug: # optional validation-only checks
-  #- lint: { mode: warn, tick: "${cadence}" }
+  # - { operation: lag, field: close, to: close_lag_1, periods: 1 }
+  # - { operation: lead, field: close, to: close_lead_126, periods: 126 }
+  # - { operation: ensure_cadence, cadence: "${cadence}" }
+  # - { operation: collapse, keep: first }
+  - operation: rolling # compute 5-day average dollar volume (ADV5)
+    field: dollar_volume
+    to: adv5
+    window: 5
+    statistic: mean
+    min_samples: 3
+  - { operation: where, field: adv5, operator: ge, comparand: 1_000_000 } # keep liquid stocks
+#   - { operation: fill, field: close, statistic: median, window: 6, min_samples: 1 }
+#   - { operation: forward_fill, field: close, to: close_asof }

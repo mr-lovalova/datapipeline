@@ -6,7 +6,7 @@ import pytest
 
 from datapipeline.config.execution import ExecutionConfig
 from datapipeline.domain.record import TemporalRecord
-from datapipeline.runtime import Runtime, StreamRuntimeSpec
+from datapipeline.runtime import IngestRuntimeStream, Runtime
 from datapipeline.services.materialize import materialize_stream_to_path
 
 
@@ -41,16 +41,14 @@ def _runtime(
         artifacts_root=tmp_path / "artifacts",
         execution=ExecutionConfig(),
     )
-    regs = runtime.registries
-    regs.stream_specs.register("prices.raw", StreamRuntimeSpec(pipeline="ingest"))
-    regs.stream_sources.register("prices.raw", _Source(rows))
-    regs.mappers.register("prices.raw", _mapper)
-    regs.record_operations.register("prices.raw", [])
-    regs.stream_operations.register("prices.raw", [])
-    regs.debug_operations.register("prices.raw", [])
-    regs.partition_by.register("prices.raw", partition_by)
-    regs.feature_id_by.register("prices.raw", feature_id_by)
-    regs.presorted.register("prices.raw", False)
+    runtime.streams["prices.raw"] = IngestRuntimeStream(
+        source=_Source(rows),
+        mapper=_mapper,
+        transforms=(),
+        partition_by=partition_by,
+        feature_id_by=feature_id_by,
+        presorted=False,
+    )
     return runtime
 
 
@@ -68,7 +66,6 @@ def test_materialize_stream_writes_jsonl_and_metadata(tmp_path: Path) -> None:
         {"time": _ts(1), "security_id": "AAPL", "close": 10.0},
     ]
     runtime = _runtime(tmp_path, rows)
-    runtime.sample_keys = ["security_id"]
     output = tmp_path / "interim" / "prices.materialized.jsonl"
 
     result = materialize_stream_to_path(

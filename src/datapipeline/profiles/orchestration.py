@@ -92,7 +92,7 @@ def _run_runtime_profiles(request: RuntimeRunRequest) -> None:
     try:
         _prepare_runtime_artifacts(request, graph, plans)
         for run_plan in request.serve_run_plans:
-            start_run(run_plan.paths, preview_index=run_plan.preview_index)
+            start_run(run_plan.paths, preview=run_plan.preview)
             started_runs.append(run_plan)
 
         for plan in plans:
@@ -150,7 +150,7 @@ def _finalize_serve_runs(plans: list[ServeRunPlan], succeeded: bool) -> None:
             finish_run_failed(plan.paths)
             continue
         finish_run_success(plan.paths)
-        if plan.preview_index is None:
+        if plan.preview is None:
             set_latest_run(plan.paths)
 
 

@@ -61,7 +61,7 @@ def test_persist_artifact_output_requires_declared_existing_file(tmp_path) -> No
         )
 
 
-def test_persist_artifact_output_registers_declared_file(tmp_path) -> None:
+def test_persist_artifact_output_snapshots_declared_file(tmp_path) -> None:
     output = tmp_path / "snapshot.json"
     output.write_text("{}", encoding="utf-8")
     runtime = SimpleNamespace(
@@ -78,7 +78,55 @@ def test_persist_artifact_output_registers_declared_file(tmp_path) -> None:
 
     assert info is not None
     assert info.relative_path == "snapshot.json"
-    assert runtime.artifacts.has("snapshot")
+    assert tuple(file.relative_path for file in info.files) == ("snapshot.json",)
+    assert not runtime.artifacts.has("snapshot")
+
+
+def test_persist_artifact_output_validates_companion_files(tmp_path) -> None:
+    output = tmp_path / "manifest.json"
+    companion = tmp_path / "manifest.shards/000000.jsonl.gz"
+    output.write_text("{}", encoding="utf-8")
+    companion.parent.mkdir()
+    companion.write_bytes(b"shard")
+    runtime = SimpleNamespace(
+        artifacts_root=tmp_path,
+        artifacts=ArtifactManager(tmp_path),
+    )
+
+    info = persist_artifact_output(
+        ArtifactOutput(
+            relative_path="manifest.json",
+            companion_paths=("manifest.shards/000000.jsonl.gz",),
+        ),
+        artifact_key="vector_inputs",
+        expected_relative_path="manifest.json",
+        runtime=runtime,
+    )
+
+    assert info is not None
+    assert tuple(file.relative_path for file in info.files) == (
+        "manifest.json",
+        "manifest.shards/000000.jsonl.gz",
+    )
+
+
+def test_persist_artifact_output_rejects_escaping_companion(tmp_path) -> None:
+    (tmp_path / "manifest.json").write_text("{}", encoding="utf-8")
+    runtime = SimpleNamespace(
+        artifacts_root=tmp_path,
+        artifacts=ArtifactManager(tmp_path),
+    )
+
+    with pytest.raises(ValueError, match="must be relative"):
+        persist_artifact_output(
+            ArtifactOutput(
+                relative_path="manifest.json",
+                companion_paths=("../outside.jsonl.gz",),
+            ),
+            artifact_key="vector_inputs",
+            expected_relative_path="manifest.json",
+            runtime=runtime,
+        )
 
 
 def test_failed_runtime_write_preserves_existing_file(tmp_path) -> None:

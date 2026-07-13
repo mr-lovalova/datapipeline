@@ -4,7 +4,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
-from datapipeline.dag.runner import resolve_heartbeat_interval_seconds
+from datapipeline.build.state import ArtifactFileFingerprint
+from datapipeline.execution.runner import resolve_heartbeat_interval_seconds
 from datapipeline.execution.observability import (
     OperationProgressTracker,
     emit_file_result,
@@ -16,7 +17,15 @@ from datapipeline.io.output import OutputTarget
 @dataclass(frozen=True)
 class ArtifactOutput:
     relative_path: str
+    companion_paths: tuple[str, ...] = ()
     meta: Mapping[str, object] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class PersistedArtifact:
+    relative_path: str
+    files: tuple[ArtifactFileFingerprint, ...]
+    meta: Mapping[str, object]
 
 
 @dataclass(frozen=True)
@@ -47,7 +56,7 @@ def persist_artifact_output(
     artifact_key: str,
     expected_relative_path: str | None = None,
     runtime,
-) -> ArtifactOutput | None:
+) -> PersistedArtifact | None:
     if result is None:
         return None
     if not isinstance(result, ArtifactOutput):
@@ -59,27 +68,39 @@ def persist_artifact_output(
             f"Artifact '{artifact_key}' returned path '{result.relative_path}', "
             f"but its task declares '{expected_relative_path}'."
         )
+    relative_paths = (result.relative_path, *result.companion_paths)
+    normalized_paths = tuple(Path(relative_path) for relative_path in relative_paths)
+    if len(normalized_paths) != len(set(normalized_paths)):
+        raise ValueError(f"Artifact '{artifact_key}' output paths must be unique.")
+
     artifacts_root = Path(runtime.artifacts_root).resolve()
-    full_path = (artifacts_root / result.relative_path).resolve()
-    try:
-        full_path.relative_to(artifacts_root)
-    except ValueError as exc:
-        raise ValueError(
-            f"Artifact '{artifact_key}' output must stay under {artifacts_root}."
-        ) from exc
-    if not full_path.is_file():
-        raise RuntimeError(
-            f"Artifact '{artifact_key}' did not create its declared output: {full_path}."
-        )
-    meta = dict(result.meta)
-    artifacts = getattr(runtime, "artifacts", None)
-    if artifacts is not None and hasattr(artifacts, "register"):
-        artifacts.register(
-            artifact_key,
-            relative_path=result.relative_path,
-            meta=meta,
-        )
-    return result
+    files: list[ArtifactFileFingerprint] = []
+    for relative_path, normalized_path in zip(relative_paths, normalized_paths):
+        if normalized_path.is_absolute() or ".." in normalized_path.parts:
+            raise ValueError(
+                f"Artifact '{artifact_key}' output path '{relative_path}' must be "
+                "relative to the artifacts root."
+            )
+        full_path = (artifacts_root / normalized_path).resolve()
+        try:
+            full_path.relative_to(artifacts_root)
+        except ValueError as exc:
+            raise ValueError(
+                f"Artifact '{artifact_key}' output must stay under {artifacts_root}."
+            ) from exc
+        if not full_path.is_file():
+            raise RuntimeError(
+                f"Artifact '{artifact_key}' did not create its declared output: "
+                f"{full_path}."
+            )
+        files.append(ArtifactFileFingerprint.from_path(str(normalized_path), full_path))
+
+    persisted = PersistedArtifact(
+        relative_path=str(normalized_paths[0]),
+        files=tuple(files),
+        meta=dict(result.meta),
+    )
+    return persisted
 
 
 def _persist_runtime_output(

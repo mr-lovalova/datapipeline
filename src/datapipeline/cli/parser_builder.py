@@ -9,7 +9,6 @@ from datapipeline.cli.parser.common import (
 )
 from datapipeline.cli.parser.demo import add_demo_command
 from datapipeline.cli.parser.domain import add_domain_command
-from datapipeline.cli.parser.filter import add_filter_command
 from datapipeline.cli.parser.inflow import add_inflow_command
 from datapipeline.cli.parser.inspect import add_inspect_command
 from datapipeline.cli.parser.list_ import add_list_command
@@ -78,5 +77,4 @@ def build_parser() -> argparse.ArgumentParser:
     add_inflow_command(sub, common=command_common)
     add_stream_command(sub, common=command_common)
     add_plugin_command(sub, common=command_common)
-    add_filter_command(sub, common=command_common)
     return parser

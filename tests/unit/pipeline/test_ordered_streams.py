@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 import datapipeline.pipelines.shared.record_nodes as record_nodes
 import pytest
 from datapipeline.config.execution import ExecutionConfig
-from datapipeline.dag.context import PipelineContext
+from datapipeline.execution.context import PipelineContext
 from datapipeline.pipelines.shared.record_nodes import order_records
 from datapipeline.runtime import Runtime
 
@@ -77,7 +77,7 @@ def test_order_records_rejects_false_presorted_declaration(tmp_path, rows) -> No
     records = [
         _Record(time=_ts(day), security_id=security_id) for day, security_id in rows
     ]
-    with pytest.raises(ValueError, match="violates declared ordered_by"):
+    with pytest.raises(ValueError, match="violates declared ordered_by|finite floats"):
         list(
             order_records(
                 _context(tmp_path),

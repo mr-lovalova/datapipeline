@@ -20,7 +20,7 @@
 #   key: group                # group | feature:<id>
 #                             # feature keys require scaler split_label: all
 #
-# Time-based split (labels length must be len(boundaries) + 1):
+# Time-based split (ordered ISO-8601 boundaries; nonempty unique labels):
 # split:
 #   mode: time
 #   boundaries:

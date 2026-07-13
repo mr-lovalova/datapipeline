@@ -1,134 +1,122 @@
-# Pipeline Architecture (WIP)
+# Pipeline Architecture
 
-```text
-raw source ──▶ loader/parser DTOs ──▶ canonical stream ──▶ record policies
-      └──▶ feature wrapping ──▶ stream regularization ──▶ feature transforms/sequence
-      └──▶ vector assembly ──▶ postprocess transforms
-```
+Project configuration is validated and compiled into a small runtime model.
+Execution consumes that prepared model; it does not repeatedly interpret YAML
+or coordinate parallel registries.
 
-See "Preview Indices (serve --preview-index)" for the detailed preview-index breakdown.
+## Runtime streams
 
-#### Visual Flowchart
+Every canonical stream ID has exactly one entry in `Runtime.streams`:
+`IngestRuntimeStream`, `DerivedRuntimeStream`, or `AlignedRuntimeStream`.
+
+An ingest owns an external source. A derived stream names one upstream stream;
+an aligned stream names two or more inputs. All three keep their prepared mapper,
+typed transforms, partition identity (`partition_by`), feature identity
+(`feature_id_by`), and ordering policy (`presorted`) together. There is no
+generic source adapter that hides another pipeline. Single-input streams are
+flattened; aligned streams use the explicit fan-in boundary described below.
+
+Loader, parser, and mapper entry points are resolved while bootstrapping the
+project. The resulting source and mapper callables are stored on the runtime
+stream. There are no parallel `stream_sources`, `mappers`, record-operation,
+stream-operation, or debug-transform registries to keep synchronized.
 
 ```mermaid
-flowchart TB
-  subgraph CLI & Project config
-    cliInflow[jerry inflow create]
-    cliSource[jerry source create]
-    cliDomain[jerry domain create]
-    cliStream[jerry stream]
-    cliServe[jerry serve]
-    project[[project.yaml]]
-    sourcesCfg[sources/*.yaml]
-    streamsCfg[streams/*.yaml]
-    datasetCfg[dataset.yaml]
-    postprocessCfg[postprocess.yaml]
-  end
-
-  cliInflow --> sourcesCfg
-  cliInflow --> streamsCfg
-  cliSource --> sourcesCfg
-  cliDomain --> domainPkg
-  cliStream --> streamsCfg
-  cliServe --> vectorSamples
-  project -.->|paths.sources| sourcesCfg
-  project -.->|paths.streams| streamsCfg
-  project -.->|paths.dataset| datasetCfg
-  project -.->|paths.postprocess| postprocessCfg
-
-  subgraph Plugin code
-    domainPkg[domains/*]
-    mappersPkg[mappers/*]
-  end
-
-  cliStream --> mappersPkg
-  domainPkg -. domain models .-> mappersPkg
-
-  subgraph Registries
-    registrySources[sources]
-    registryStreamSources[stream_sources]
-    registryMappers[mappers]
-    registryRecordOps[record_ops]
-    registryStreamOps[stream_ops]
-    registryDebugOps[debug_ops]
-  end
-
-  subgraph Source wiring
-    rawData[(external data)]
-    transportSpec[transport + format]
-    loaderEP[loader ep]
-    parserEP[parser ep]
-    sourceArgs[loader args]
-    sourceNode[Source]
-    dtoStream[(DTOs)]
-  end
-
-  sourcesCfg --> transportSpec
-  sourcesCfg --> loaderEP
-  sourcesCfg --> parserEP
-  sourcesCfg --> sourceArgs
-  transportSpec -. select fs/http/synth .-> loaderEP
-  loaderEP -. build loader .-> sourceNode
-  parserEP -. build parser .-> sourceNode
-  sourceArgs -. paths/creds .-> sourceNode
-  rawData --> sourceNode --> dtoStream
-  sourcesCfg -. build_source_from_spec .-> registrySources
-  ingestsCfg -. stream_id + source .-> registryStreamSources
-  streamsCfg -. stream_id + upstream stream .-> registryStreamSources
-  registrySources -. alias -> Source .-> registryStreamSources
-
-  subgraph Canonical stream
-    mapperEP[mapper ep]
-    recordRules[record rules]
-    streamRules[stream rules]
-    debugRules[debug rules]
-    canonical[DTO -> record]
-    domainRecords((TemporalRecord))
-    recordStage[record xforms]
-    streamXforms[stream xforms]
-    featureWrap[record -> feature (field select)]
-    featureRecords((FeatureRecord))
-  end
-
-  dtoStream --> canonical --> domainRecords --> recordStage --> streamXforms --> featureWrap --> featureRecords
-  streamsCfg --> mapperEP
-  mappersPkg -. ep target .-> mapperEP
-  mapperEP -. build_mapper_from_spec .-> registryMappers
-  registryMappers --> canonical
-  streamsCfg --> recordRules
-  streamsCfg --> streamRules
-  streamsCfg --> debugRules
-  registryRecordOps --> recordRules
-  registryStreamOps --> streamRules
-  registryDebugOps --> debugRules
-  recordRules --> recordStage
-  streamRules --> streamXforms
-  debugRules --> streamXforms
-
-  subgraph Dataset shaping
-    featureSpec[feature cfg]
-    groupBySpec[group_by]
-    streamRefs[record_stream ids]
-    featureTrans[feature/seq xforms]
-    sequenceStream((seq/features))
-    vectorStage[vector assembly]
-    vectorSamples((samples))
-  end
-
-  datasetCfg --> featureSpec
-  datasetCfg --> groupBySpec
-  datasetCfg --> streamRefs
-  streamRefs -.->|build_feature_pipeline| registryStreamSources
-  registryStreamSources -.->|open_source| sourceNode
-  featureRecords --> regularization --> featureTrans --> sequenceStream --> vectorStage --> vectorSamples
-  featureSpec -. scale/sequence .-> featureTrans
-  groupBySpec -. cadence .-> vectorStage
-
-  subgraph Postprocess
-    vectorTransforms[vector xforms]
-    postprocessNode[postprocess]
-  end
-
-  postprocessCfg --> vectorTransforms -. drop/fill .-> postprocessNode
-  vectorStage --> postprocessNode
+flowchart LR
+  config["project configuration"] --> bootstrap["validate and prepare"]
+  bootstrap --> runtime["Runtime.streams<br/>id -> typed stream"]
+  runtime --> records["linear record pipeline"]
+  records --> feature["feature processing"] --> inputs["vector inputs"]
+  inputs --> vectors["vector assembly"] --> postprocess["postprocess stages"]
+  postprocess --> output["samples / output"]
 ```
+
+## Record and stream pipelines
+
+An ingest is one source followed by ordered stages:
+
+```text
+ingest:<id>
+  open_source
+  map_records
+  <one node per configured record transform>
+  order_records
+```
+
+A single-input derived stream flattens its upstream pipeline into the same run. The
+upstream names are qualified, so debug output identifies both the root stream
+and the stage that produced a record:
+
+```text
+stream:<id>
+  ingest:<upstream>/open_source
+  ingest:<upstream>/map_records
+  ingest:<upstream>/...
+  map_records
+  order_records
+  <one node per configured stream transform>
+```
+
+Aligned streams are the one real fan-in boundary. Their root source node is
+`align_inputs`; it owns opening, ordering, and closing the configured inputs.
+Those input pipelines run internally without starting competing visual pipelines.
+The aligned root remains the single observable pipeline and `align_inputs` reports
+its current progress.
+
+The runner accepts only a source followed by stream stages. It owns lazy
+iteration, closing, output counts, timings, and sampled progress. It has no
+generic fan-out, keyword-input, node-kind, nested-parent, or nested-pipeline
+machinery.
+
+Record and stream transform configuration is a strict discriminated union. Each
+entry names its built-in operation directly:
+
+```yaml
+record:
+  - operation: floor_time
+    cadence: 1d
+
+stream:
+  - operation: rolling
+    field: close
+    window: 20
+    statistic: mean
+```
+
+Pydantic validates operation-specific fields and rejects extras before the pipeline
+is built. Pipeline construction uses explicit type dispatch to create the transform.
+There is no generic transform engine, signature inspection, arbitrary keyword
+injection, transform plugin lookup, or debug transform registry.
+
+Feature scaling and sequence construction remain feature-pipeline stages rather
+than record or stream transforms. This keeps stream normalization separate from
+dataset shaping.
+
+## Vector postprocess
+
+`postprocess.yaml` is validated into `PostprocessConfig`, with separate typed
+policies for feature selection, target selection, and sample filtering.
+
+The serve pipeline has one fixed postprocess order:
+
+```text
+pipeline:serve
+  vector_assemble
+  optional select_features
+  optional select_targets
+  normalize_features
+  normalize_targets (or reject_undeclared_targets)
+  optional filter_samples_by_features
+  optional filter_samples_by_targets
+```
+
+Configuration can enable and parameterize selection and filtering, but cannot
+reorder phases or mutate vector values. Schema and vector metadata are loaded at
+the boundary where their validated contracts are needed.
+
+## Preview boundaries
+
+`jerry serve --preview` selects a semantic boundary rather than a numeric node
+position: `source`, `mapped`, `records`, `features`, `samples`, or `postprocess`.
+The meaning stays stable when optional pipeline nodes are added or removed. See the
+README's **Preview stages** section for the output behavior of each boundary.

@@ -1,6 +1,6 @@
 import json
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Dict, Iterator
 
 from datapipeline.analysis.vector.collector import VectorStatsCollector
 from datapipeline.analysis.vector.snapshot import snapshot_from_collector
@@ -9,10 +9,10 @@ from datapipeline.config.dataset.loader import load_dataset
 from datapipeline.config.dataset.validation import validate_dataset_feature_identity
 from datapipeline.config.metadata import build_vector_metadata_lookup
 from datapipeline.config.tasks import StatsTask
-from datapipeline.dag.context import PipelineContext
+from datapipeline.execution.context import PipelineContext
 from datapipeline.operations.persistence import ArtifactOutput
-from datapipeline.pipelines import build_vector_pipeline
-from datapipeline.pipelines.full.nodes import post_process
+from datapipeline.pipelines.vector.pipeline import build_vector_pipeline
+from datapipeline.pipelines.full.nodes import apply_postprocess
 from datapipeline.runtime import Runtime
 from datapipeline.services.artifacts import VECTOR_METADATA_SPEC
 from datapipeline.utils.paths import ensure_parent
@@ -29,23 +29,23 @@ def _iter_merged_vectors(
     runtime: Runtime,
     dataset: FeatureDatasetConfig,
     *,
-    apply_postprocess: bool,
+    postprocess: bool,
 ) -> Iterator[tuple[object, dict]]:
     context = PipelineContext(runtime)
-    feature_cfgs = list(dataset.features or [])
-    target_cfgs = list(dataset.targets or [])
+    feature_cfgs = list(dataset.features)
+    target_cfgs = list(dataset.targets)
 
     context.window_bounds(rectangular_required=True)
     vectors = build_vector_pipeline(
         context,
         feature_cfgs,
-        dataset.group_by,
+        dataset.sample.cadence,
         target_configs=target_cfgs,
         rectangular=True,
-        sample_keys=dataset.sample_keys,
+        sample_keys=dataset.sample.keys,
     )
-    if apply_postprocess:
-        vectors = post_process(context, vectors)
+    if postprocess:
+        vectors = apply_postprocess(context, vectors)
 
     for sample in vectors:
         yield sample.key, _merge_sample_values(sample)
@@ -55,7 +55,7 @@ def materialize_vector_stats(
     runtime: Runtime,
     task_cfg: StatsTask,
 ) -> ArtifactOutput:
-    dataset = load_dataset(runtime.project_yaml, "vectors")
+    dataset = load_dataset(runtime.project_yaml)
     validate_dataset_feature_identity(runtime, dataset)
     context = PipelineContext(runtime)
     expected_feature_ids, schema_meta = build_vector_metadata_lookup(
@@ -67,11 +67,11 @@ def materialize_vector_stats(
         match_partition="base",
         schema_meta=schema_meta,
     )
-    apply_postprocess = task_cfg.mode == "final"
+    postprocess = task_cfg.mode == "final"
     for key, merged in _iter_merged_vectors(
         runtime,
         dataset,
-        apply_postprocess=apply_postprocess,
+        postprocess=postprocess,
     ):
         collector.update(key, merged)
 
@@ -81,7 +81,7 @@ def materialize_vector_stats(
     with destination.open("w", encoding="utf-8") as fh:
         json.dump(snapshot_from_collector(collector), fh, indent=2)
 
-    meta: Dict[str, object] = {
+    meta: dict[str, object] = {
         "mode": task_cfg.mode,
         "vectors": collector.total_vectors,
         "features": len(collector.discovered_features),

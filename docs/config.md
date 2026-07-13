@@ -9,7 +9,7 @@ These live under the dataset “project root” directory (the folder containing
 - `ingests/*.yaml`: raw source DTOs mapped, record-cleaned, and time-ordered into domain streams.
 - `streams/*.yaml`: derived or aligned streams built from existing stream ids.
 - `dataset.yaml`: feature/target declarations.
-- `postprocess.yaml`: vector-level transforms.
+- `postprocess.yaml`: column selection and sample filtering policies.
 - `profiles/serve.<name>.yaml`: serve profiles.
 - `profiles/build.<name>.yaml`: build profiles.
 - `profiles/inspect.<name>.yaml`: inspect profiles.
@@ -71,7 +71,9 @@ globals:
   environment first and then an optional project-root `.env` file.
 - New scaffolded dataset projects include a `.env.example` next to `project.yaml`.
 - `split` config defines how labels are assigned; a serve profile's `splits`
-  selects which labels receive filesystem outputs.
+  selects which labels receive filesystem outputs. Labels must be nonempty and
+  unique. Time boundaries must be valid ISO-8601 datetimes in strictly
+  increasing order.
 - `paths.tasks` points to operation task specs under `tasks/operations/*.yaml`.
   Artifact operations (`vector_inputs`, `schema`, `scaler`, `metadata`, `stats`,
   and optional tick artifacts) define what can be materialized. Runtime operations
@@ -335,12 +337,12 @@ map:
   args: {}
 
 partition_by: station
-feature_id_by: []
+feature_id_by: [] # requires dataset sample.keys: [station]
 
 record:
-  - where: { field: time, operator: ge, comparand: "${start_time}" }
-  - where: { field: time, operator: lt, comparand: "${end_time}" }
-  - floor_time: { cadence: 10m }
+  - { operation: where, field: time, operator: ge, comparand: "${start_time}" }
+  - { operation: where, field: time, operator: lt, comparand: "${end_time}" }
+  - { operation: floor_time, cadence: 10m }
 ```
 
 ### `<project_root>/streams/<stream_id>.yaml`
@@ -353,26 +355,19 @@ id: equity.ohlcv.liquid
 from:
   stream: equity.ohlcv
 partition_by: station
-feature_id_by: []
+feature_id_by: [] # requires dataset sample.keys: [station]
 stream:
-  - ensure_cadence: { field: close, to: close, cadence: 10m }
-  - granularity: { field: close, to: close, mode: mean }
-  - fill: { field: close, to: close, method: median, window: 6, min_samples: 2 }
-  - fill: { field: close, to: close_asof, method: forward }
-
-debug:
-  - lint: { mode: warn, tick: 10m }
+  - { operation: ensure_cadence, cadence: 10m }
+  - { operation: collapse, keep: last }
+  - { operation: fill, field: close, statistic: median, window: 6, min_samples: 2 }
+  - { operation: forward_fill, field: close, to: close_asof }
 ```
 
-- `record`: per-record transforms applied before ordering (`where`, `floor_time`,
-  and custom transforms registered under the `record` entry-point group).
-  Ingest-only.
+- `record`: built-in per-record transforms applied before ordering. Ingest-only.
 - `stream`: transforms applied after ingest ordering; operate on record fields before feature selection.
-- `debug`: instrumentation-only transforms (linters, assertions).
-- Each item in these lists must contain exactly one transform name whose value
-  is a parameter mapping or `null`. Scalar/list parameters and multi-transform
-  items are invalid. See [Transforms](transforms/index.md) for the entry-point
-  callable contract.
+- Each item is a flat mapping with an `operation` discriminator and that
+  operation's fields. Missing or unknown operations, unknown fields, and
+  invalid values are rejected. See [Transforms](transforms/index.md).
 - `partition_by`: optional stream state keys used by ordering and history-based
   transforms.
 - `ordered_by`: optional assertion that records entering the ordering stage use
@@ -381,12 +376,15 @@ debug:
   sorted.
 - `feature_id_by`: optional fields used to suffix feature IDs (e.g.,
   `temp__@station_id:XYZ`). If a partitioned stream is used as a dataset
-  feature, set this explicitly: `[]` for scalar keyed-row features or a field
-  list for wide feature IDs.
+  feature, set this explicitly. Use `[]` only when every `partition_by` field
+  is present in `dataset.sample.keys`; otherwise use a field list for wide
+  feature IDs. Dataset feature and target IDs cannot contain the reserved
+  `__` separator. Generated suffixes escape strings and tag non-string scalar
+  values so different component tuples cannot produce the same feature ID.
 
 ### Aligned Streams (Engineered Domains)
 
-Aligned streams intersect two or more prepared streams with the same
+Aligned streams intersect two or more input streams with the same
 partition fields and timestamp, then call a mapper with the matching records in
 the configured order. In this example, both inputs use
 `partition_by: station_id`, which the aligned stream inherits.
@@ -407,14 +405,15 @@ map:
 
 # Optional policies run after mapping like any stream.
 # stream: [...]
-# debug:  [...]
 ```
 
 Dataset stays minimal — features only reference the derived stream:
 
 ```yaml
 # dataset.yaml
-group_by: 1h
+sample:
+  cadence: 1h
+  keys: [station_id]
 features:
   - id: air_density
     record_stream: air_density.processed
@@ -432,7 +431,7 @@ Notes:
   keys present in every input are mapped.
 - Mapper signature is `mapper(first_record, second_record, ..., **args)` and it
   returns one record or `None` to skip that key.
-- The derived stream outputs records; its own `stream`/`debug` rules still apply afterward.
+- The derived stream outputs records; its own `stream` transforms apply afterward.
 
 ### `dataset.yaml`
 
@@ -460,21 +459,23 @@ targets:
   `^\\d+(m|min|h|d)$`, e.g. `10m`, `60min`, `1h`, `1d`).
 - `sample.keys` optionally adds record fields to the sample key. For example,
   `keys: [security_id]` emits one sample per `(time, security_id)`.
+- Each sample-key field must contain non-null JSON scalar values of one stable
+  type. Floating-point keys must be finite; booleans, integers, and floats are
+  distinct key types and cannot be mixed within one field.
 - Stateful stream transforms such as `lag`, `lead`, `rolling`, `fill`, and
   `ensure_cadence` use stream `partition_by` as their entity partition. Add
   `partition_by: security_id` when transform state must stay per security.
-- `group_by: 1h` is still accepted as the legacy time-only form and is
-  equivalent to `sample: { cadence: 1h, keys: [] }`.
 - `sample.keys`, stream `partition_by`, and stream `feature_id_by` are separate:
   `sample.keys` controls output row identity, `partition_by` controls stream
   transform state, and `feature_id_by` controls feature-id suffixes such as
   `close__@security_id:AAPL`.
 - `field` selects the record attribute used as the feature/target value.
-- `scale: true` inserts the standard scaler feature transform (requires scaler
-  stats artifact or inline statistics).
-  - Downstream consumers can load the `build/scaler.json` artifact and call
-    `StandardScaler.inverse_transform` (or `StandardScalerTransform.inverse`)
-    to undo scaling.
+- Every `id` must be unique across both `features` and `targets`. Scaler,
+  schema, metadata, and postprocess artifacts use this shared vector-ID space.
+- `scale: true` scales scalar feature values with the managed
+  `build/scaler.json` artifact. Fitting options belong to the scaler task and
+  cannot be overridden per feature. `None` remains `None`; other nonnumeric or
+  non-finite values fail.
 - `sequence` emits `FeatureRecordSequence` windows and accepts `size` plus
   optional `stride` (default `1`). Regularize cadence with stream transforms
   before feature extraction when contiguous ticks are required.
@@ -483,30 +484,30 @@ targets:
 
 ### `postprocess.yaml`
 
-Project-scoped vector transforms that run after assembly and before serving.
+Project-scoped structural policies that run after assembly and before serving.
 
 ```yaml
-- drop:
-    axis: horizontal
-    payload: features
+columns:
+  features:
+    threshold: 0.8
+  targets:
+    threshold: 0.9
+samples:
+  features:
     threshold: 0.95
-- fill:
-    statistic: median
-    window: 48
-    min_samples: 6
-- replace:
-    payload: targets
-    value: 0.0
 ```
 
-- Each top-level item must contain exactly one transform name whose value is a
-  parameter mapping or `null`.
-- Each transform receives the sample stream; set `payload: targets` when you
-  want the built-in transform to mutate label vectors, otherwise the feature
-  vector is used.
-- Vector transforms rely on the schema artifact (for expected IDs/cadence)
-  and scaler stats when scaling is enabled. When no transforms are configured
-  the stream passes through unchanged.
+- `columns.features` and `columns.targets` have separate selection policies.
+- `samples.features` and `samples.targets` filter complete rows after schema
+  normalization.
+- `ids` is optional. Selection and sample filters default to every retained ID.
+  Empty, duplicate, or unknown IDs are errors.
+- Column selection requires `build/metadata.json`; normalization always uses
+  the typed `build/schema.json` artifact.
+- Execution order is fixed: column selection, schema normalization, then sample
+  filters.
+- Postprocess does not mutate values. Configure missing-value repair on the
+  ordered record stream before feature extraction.
 
 ### Task Specs (`tasks/operations/*.yaml`)
 
@@ -523,6 +524,9 @@ kind: artifact
 entrypoint: core.artifact.scaler
 output: build/scaler.json
 split_label: train
+with_mean: true
+with_std: true
+epsilon: 1.0e-12
 ```
 
 Folded temporal scaler:
@@ -541,13 +545,19 @@ folds:
 
 - `build/scaler.json` stores either one standard scaler fitted on `split_label`
   or a folded temporal scaler container fitted from `folds`.
+- `with_mean`, `with_std`, and positive finite `epsilon` are build-time options
+  stored in the artifact and used unchanged at runtime.
 - A filtered standard scaler supports time splits and hash splits keyed by
   `group`. When `project.split.key` is `feature:<id>`, set `split_label: all`.
 - Folded temporal scaling requires `project.split.mode: time`. `fit` and
   `apply` labels must exist in `project.split`; `apply` labels cannot overlap
-  across folds.
-- `build/schema.json` (from the `schema` task) enumerates the discovered feature/target identifiers (including partitions), their kinds (scalar/list), and cadence hints used to enforce ordering downstream.
-  - Every list-valued feature records its maximum observed length as the enforcement target.
+  across folds, and every configured split label must appear in exactly one
+  apply fold.
+- `build/schema.json` (from the `schema` task) is derived from typed metadata
+  without rescanning vectors. It enumerates discovered feature/target
+  identifiers (including partitions), scalar/list kinds, and fixed list
+  lengths used during normalization. Mixed scalar/list values, empty lists,
+  and varying list lengths fail metadata generation.
 - `build/metadata.json` (from the `metadata` task) captures heavier statistics—present/null counts, inferred value types, list-length histograms, per-partition timestamps, and the dataset window. Configure `metadata.window_mode` with `union|intersection|strict|relaxed` (default `intersection`) to control how start/end bounds are derived. `union` considers base features, `intersection` uses their overlap, `strict` intersects every partition, and `relaxed` unions partitions independently.
 - Artifact task execution order comes from the typed dependency graph. Runtime
   commands prepare the union of all selected profiles' requirements once;

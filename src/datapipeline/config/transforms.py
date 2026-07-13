@@ -1,0 +1,217 @@
+from datetime import datetime
+from math import isfinite
+from typing import Annotated, Any, Literal
+
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
+
+from datapipeline.utils.placeholders import is_missing
+from datapipeline.utils.time import parse_cadence, parse_datetime, parse_timecode
+
+
+NonEmptyString = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1),
+]
+PositiveInt = Annotated[int, Field(strict=True, gt=0)]
+
+
+class TransformConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+
+class WhereConfig(TransformConfig):
+    operation: Literal["where"] = "where"
+
+    field: NonEmptyString
+    operator: Literal["eq", "ne", "lt", "le", "gt", "ge", "in", "not_in"]
+    comparand: Any
+
+    @model_validator(mode="after")
+    def validate_comparand(self) -> "WhereConfig":
+        if is_missing(self.comparand):
+            raise ValueError("where comparand must resolve to a value")
+        if self.operator in {"in", "not_in"}:
+            if not isinstance(self.comparand, (list, tuple)):
+                raise ValueError(
+                    f"where operator {self.operator!r} requires a list or tuple"
+                )
+            values = self.comparand
+        else:
+            values = (self.comparand,)
+        if self.field == "time":
+            for value in values:
+                if isinstance(value, datetime):
+                    continue
+                if not isinstance(value, str):
+                    raise ValueError("where time comparands must be datetimes")
+                parse_datetime(value)
+        return self
+
+
+class FloorTimeConfig(TransformConfig):
+    operation: Literal["floor_time"] = "floor_time"
+
+    cadence: NonEmptyString
+
+    @field_validator("cadence")
+    @classmethod
+    def validate_cadence(cls, cadence: str) -> str:
+        parse_cadence(cadence)
+        return cadence
+
+
+class ShiftTimeConfig(TransformConfig):
+    operation: Literal["shift_time"] = "shift_time"
+
+    by: NonEmptyString
+
+    @field_validator("by")
+    @classmethod
+    def validate_shift(cls, by: str) -> str:
+        if parse_timecode(by).total_seconds() == 0:
+            raise ValueError("shift_time by must be non-zero")
+        return by
+
+
+class DedupeConfig(TransformConfig):
+    operation: Literal["dedupe"] = "dedupe"
+
+
+class LagConfig(TransformConfig):
+    operation: Literal["lag"] = "lag"
+
+    field: NonEmptyString
+    periods: PositiveInt
+    to: NonEmptyString | None = None
+
+
+class LeadConfig(TransformConfig):
+    operation: Literal["lead"] = "lead"
+
+    field: NonEmptyString
+    periods: PositiveInt
+    to: NonEmptyString | None = None
+
+
+class EnsureCadenceConfig(TransformConfig):
+    operation: Literal["ensure_cadence"] = "ensure_cadence"
+
+    cadence: NonEmptyString
+
+    @field_validator("cadence")
+    @classmethod
+    def validate_cadence(cls, cadence: str) -> str:
+        if parse_timecode(cadence).total_seconds() <= 0:
+            raise ValueError("ensure_cadence cadence must be positive")
+        return cadence
+
+
+class EnsureTicksConfig(TransformConfig):
+    operation: Literal["ensure_ticks"] = "ensure_ticks"
+
+    artifact: NonEmptyString
+
+
+class FillConfig(TransformConfig):
+    operation: Literal["fill"] = "fill"
+
+    field: NonEmptyString
+    window: PositiveInt
+    statistic: Literal["mean", "median"]
+    to: NonEmptyString | None = None
+    min_samples: PositiveInt = 1
+
+    @model_validator(mode="after")
+    def validate_samples(self) -> "FillConfig":
+        if self.min_samples > self.window:
+            raise ValueError("fill min_samples cannot exceed window")
+        return self
+
+
+class ForwardFillConfig(TransformConfig):
+    operation: Literal["forward_fill"] = "forward_fill"
+
+    field: NonEmptyString
+    to: NonEmptyString | None = None
+
+
+class CollapseConfig(TransformConfig):
+    operation: Literal["collapse"] = "collapse"
+
+    keep: Literal["first", "last"]
+
+
+class RollingConfig(TransformConfig):
+    operation: Literal["rolling"] = "rolling"
+
+    field: NonEmptyString
+    window: PositiveInt
+    to: NonEmptyString | None = None
+    min_samples: PositiveInt | None = None
+    statistic: Literal["mean", "median", "stdev", "pstdev", "max", "min"] = "mean"
+
+    @model_validator(mode="after")
+    def validate_samples(self) -> "RollingConfig":
+        min_samples = self.window if self.min_samples is None else self.min_samples
+        if min_samples > self.window:
+            raise ValueError("rolling min_samples cannot exceed window")
+        if self.statistic == "stdev" and min_samples < 2:
+            raise ValueError(
+                "rolling min_samples must be at least 2 for statistic='stdev'"
+            )
+        return self
+
+
+class DeriveConfig(TransformConfig):
+    operation: Literal["derive"] = "derive"
+
+    left: NonEmptyString
+    operator: Literal["add", "sub", "mul", "div"]
+    to: NonEmptyString
+    right_field: NonEmptyString | None = None
+    right_value: int | float | None = None
+
+    @model_validator(mode="after")
+    def validate_right_operand(self) -> "DeriveConfig":
+        has_field = "right_field" in self.model_fields_set
+        has_value = "right_value" in self.model_fields_set
+        if has_field == has_value:
+            raise ValueError(
+                "derive requires exactly one of right_field or right_value"
+            )
+        if has_field and self.right_field is None:
+            raise ValueError("derive right_field must not be null")
+        if has_value:
+            if self.right_value is None:
+                raise ValueError("derive right_value must not be null")
+            if isinstance(self.right_value, float) and not isfinite(self.right_value):
+                raise ValueError("derive right_value must be finite")
+        return self
+
+
+RecordTransformConfig = Annotated[
+    WhereConfig | FloorTimeConfig | ShiftTimeConfig,
+    Field(discriminator="operation"),
+]
+StreamTransformConfig = Annotated[
+    WhereConfig
+    | FloorTimeConfig
+    | DedupeConfig
+    | LagConfig
+    | LeadConfig
+    | EnsureCadenceConfig
+    | EnsureTicksConfig
+    | FillConfig
+    | ForwardFillConfig
+    | CollapseConfig
+    | RollingConfig
+    | DeriveConfig,
+    Field(discriminator="operation"),
+]

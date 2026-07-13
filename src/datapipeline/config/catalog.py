@@ -1,34 +1,26 @@
 from typing import Annotated, Any
 
 from pydantic import (
-    BeforeValidator,
     BaseModel,
     ConfigDict,
     Field,
-    PlainSerializer,
     StringConstraints,
     field_validator,
     model_validator,
 )
 
-from datapipeline.transforms.spec import (
-    TransformSpec,
-    parse_transform_spec,
-    serialize_transform_spec,
+from datapipeline.config.transforms import (
+    RecordTransformConfig,
+    StreamTransformConfig,
 )
 
 
-_ConfiguredTransform = Annotated[
-    TransformSpec,
-    BeforeValidator(parse_transform_spec),
-    PlainSerializer(
-        serialize_transform_spec,
-        return_type=dict[str, dict[str, Any]],
-    ),
+_EntryPoint = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1),
 ]
 
-
-_EntryPoint = Annotated[
+_FeatureIdentityField = Annotated[
     str,
     StringConstraints(strip_whitespace=True, min_length=1),
 ]
@@ -72,9 +64,21 @@ class IngestConfig(BaseModel):
     map: EPArgs
     cadence: Any | None = None
     partition_by: str | list[str] | None = Field(default=None)
-    feature_id_by: str | list[str] | None = Field(default=None)
+    feature_id_by: _FeatureIdentityField | list[_FeatureIdentityField] | None = Field(
+        default=None
+    )
     ordered_by: list[str] | None = Field(default=None)
-    record: list[_ConfiguredTransform] | None = Field(default=None)
+    record: list[RecordTransformConfig] = Field(default_factory=list)
+
+    @field_validator("feature_id_by")
+    @classmethod
+    def validate_feature_id_by(
+        cls,
+        fields: str | list[str] | None,
+    ) -> str | list[str] | None:
+        if isinstance(fields, list) and len(fields) != len(set(fields)):
+            raise ValueError("feature_id_by must not contain duplicate fields")
+        return fields
 
 
 class StreamRefConfig(BaseModel):
@@ -119,11 +123,21 @@ class StreamConfig(BaseModel):
     map: EPArgs | None = None
     cadence: Any | None = None
     partition_by: str | list[str] | None = Field(default=None)
-    feature_id_by: str | list[str] | None = Field(default=None)
+    feature_id_by: _FeatureIdentityField | list[_FeatureIdentityField] | None = Field(
+        default=None
+    )
     ordered_by: list[str] | None = Field(default=None)
-    stream: list[_ConfiguredTransform] | None = Field(default=None)
-    # Optional debug-only transforms (applied after stream transforms)
-    debug: list[_ConfiguredTransform] | None = Field(default=None)
+    stream: list[StreamTransformConfig] = Field(default_factory=list)
+
+    @field_validator("feature_id_by")
+    @classmethod
+    def validate_feature_id_by(
+        cls,
+        fields: str | list[str] | None,
+    ) -> str | list[str] | None:
+        if isinstance(fields, list) and len(fields) != len(set(fields)):
+            raise ValueError("feature_id_by must not contain duplicate fields")
+        return fields
 
     @property
     def aligns_streams(self) -> bool:

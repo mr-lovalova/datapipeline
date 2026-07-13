@@ -1,20 +1,7 @@
-# See ../reference/reference/postprocess.yaml for full options.
-- drop:
-    axis: vertical
-    payload: targets
+# See ../reference/reference/postprocess.yaml for all options.
+columns:
+  features:
     threshold: 0.9
-
-- drop:
-    axis: vertical
-    payload: features
-    threshold: 0.9
-
-- drop:
-    axis: horizontal
-    payload: features
-    threshold: 1
-
-- drop:
-    axis: horizontal
-    payload: targets
-    threshold: 1
+samples:
+  features:
+    threshold: 1.0

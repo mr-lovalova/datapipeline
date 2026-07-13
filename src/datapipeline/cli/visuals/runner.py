@@ -2,7 +2,7 @@ import logging
 from typing import Any, Callable
 
 from datapipeline.cli.visuals.execution import (
-    make_execution_observer,
+    make_pipeline_observer,
     make_operation_observer,
 )
 from datapipeline.cli.visuals.backend import get_visuals_backend
@@ -16,11 +16,11 @@ def _run_work(
     level: int,
     work: Callable[[], Any],
 ):
-    previous_observer = getattr(runtime, "execution_observer", None)
+    previous_observer = getattr(runtime, "pipeline_observer", None)
     installed = previous_observer is None
     if installed:
-        runtime.execution_observer = make_execution_observer(
-            logging.getLogger("datapipeline.dag.observer")
+        runtime.pipeline_observer = make_pipeline_observer(
+            logging.getLogger("datapipeline.execution.observer")
         )
     try:
         observer = make_operation_observer(
@@ -31,7 +31,7 @@ def _run_work(
                 return work()
     finally:
         if installed:
-            runtime.execution_observer = previous_observer
+            runtime.pipeline_observer = previous_observer
 
 
 def run_with_backend(

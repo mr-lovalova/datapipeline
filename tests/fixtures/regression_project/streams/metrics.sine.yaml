@@ -3,5 +3,5 @@ from:
   stream: metrics.sine.ingest
 
 stream:
-  - ensure_cadence: { cadence: 30m, field: value }
-  - granularity: { mode: last, field: value }
+  - { operation: ensure_cadence, cadence: 30m }
+  - { operation: collapse, keep: last }

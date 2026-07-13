@@ -6,10 +6,9 @@ from typing import Sequence
 
 from datapipeline.artifacts.executor import run_build_if_needed
 from datapipeline.artifacts.planning import build_artifact_graph
-from datapipeline.artifacts.validation import stream_cadence_artifacts
+from datapipeline.artifacts.validation import stream_tick_artifacts
 from datapipeline.cli.visuals.execution import emit_execution_message
 from datapipeline.config.build_resolution import BuildSettings
-from datapipeline.config.dataset.loader import load_dataset
 from datapipeline.config.loaders.operations import operation_specs
 from datapipeline.config.loaders.profiles import (
     apply_profile_defaults,
@@ -98,7 +97,6 @@ def run_materialize_profiles(
 
     runtime = bootstrap(project_path)
     runtime.execution = defaults.execution
-    dataset = load_dataset(project_path, "vectors")
     execution_dir = execution_root(project_path)
     try:
         jobs = [
@@ -183,7 +181,6 @@ def run_materialize_profiles(
                     stream_id=job.stream,
                     output=job.output,
                     overwrite=job.overwrite,
-                    dataset=dataset,
                 )
                 emit_file_result("Output", result.output)
                 emit_file_result("Metadata", result.metadata)
@@ -241,7 +238,7 @@ def _preflight_jobs(
 ) -> None:
     destinations: list[tuple[MaterializeJob, tuple[Path, Path]]] = []
     owners: dict[Path, str] = {}
-    available_streams = set(runtime.registries.stream_specs.keys())
+    available_streams = set(runtime.streams)
     artifacts_root = runtime.artifacts_root.resolve()
     for job in jobs:
         if job.stream not in available_streams:
@@ -280,7 +277,7 @@ def _prepare_materialize_artifacts(
         required_artifacts = {
             artifact
             for job in jobs
-            for artifact in stream_cadence_artifacts(job.stream, streams)
+            for artifact in stream_tick_artifacts(job.stream, streams)
         }
         if not required_artifacts:
             return
@@ -295,12 +292,12 @@ def _prepare_materialize_artifacts(
         task = graph.tasks_by_id.get(artifact)
         if task is None:
             raise MaterializeProfileError(
-                f"Artifact-backed cadence '{artifact}' requires a declared ticks "
+                f"Tick artifact '{artifact}' requires a declared ticks "
                 "task with the same id."
             )
         if not isinstance(task, TicksTask):
             raise MaterializeProfileError(
-                f"Artifact-backed cadence '{artifact}' references task "
+                f"Tick artifact '{artifact}' references task "
                 f"entrypoint '{task.entrypoint}', not a ticks task."
             )
 

@@ -58,7 +58,7 @@ def _write_project_files(project_root: Path) -> None:
     (project_root / "sources").mkdir(parents=True, exist_ok=True)
     (project_root / "tasks").mkdir(parents=True, exist_ok=True)
     (project_root / "dataset.yaml").write_text("value: default\n", encoding="utf-8")
-    (project_root / "postprocess.yaml").write_text("[]\n", encoding="utf-8")
+    (project_root / "postprocess.yaml").write_text("{}\n", encoding="utf-8")
 
 
 def test_globals_resolve_env_refs_from_project_dotenv(
@@ -224,27 +224,25 @@ def test_full_placeholder_interpolation_preserves_global_value_type(
         {
             "stream": [
                 {
-                    "rolling": {
-                        "field": "dollar_volume",
-                        "window": "${adv_window_days}",
-                        "to": "adv_${adv_window_days}",
-                    }
+                    "operation": "rolling",
+                    "field": "dollar_volume",
+                    "window": "${adv_window_days}",
+                    "to": "adv_${adv_window_days}",
                 },
                 {
-                    "derive": {
-                        "left": "return_pstdev_63",
-                        "operator": "mul",
-                        "right_value": "${annualization_factor}",
-                        "to": "volatility_63",
-                    }
+                    "operation": "derive",
+                    "left": "return_pstdev_63",
+                    "operator": "mul",
+                    "right_value": "${annualization_factor}",
+                    "to": "volatility_63",
                 },
             ]
         },
         _globals(project_yaml),
     )
 
-    rolling = interpolated["stream"][0]["rolling"]
-    derive = interpolated["stream"][1]["derive"]
+    rolling = interpolated["stream"][0]
+    derive = interpolated["stream"][1]
     assert rolling["window"] == 21
     assert isinstance(rolling["window"], int)
     assert rolling["to"] == "adv_21"

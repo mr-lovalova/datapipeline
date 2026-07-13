@@ -27,7 +27,7 @@ def handle_profile_command(
         force=getattr(args, "force", False),
         artifact_mode=getattr(args, "artifact_mode", None),
         limit=getattr(args, "limit", None),
-        preview_index=getattr(args, "preview_index", None),
+        preview=getattr(args, "preview", None),
         output_transport=getattr(args, "output_transport", None),
         output_format=getattr(args, "output_format", None),
         output_directory=getattr(args, "output_directory", None),

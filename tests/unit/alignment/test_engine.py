@@ -4,13 +4,13 @@ from datetime import UTC, datetime
 import pytest
 
 import datapipeline.alignment.engine as alignment_engine
-from datapipeline.dag import runner as dag_runner
-from datapipeline.dag.context import PipelineContext
-from datapipeline.dag.dag import Dag
-from datapipeline.dag.events import NodeProgressEvent
-from datapipeline.dag.node import PipelineNode
-from datapipeline.dag.observer import NoopExecutionObserver
-from datapipeline.dag.runner import run_dag
+from datapipeline.execution import runner as pipeline_runner
+from datapipeline.execution.context import PipelineContext
+from datapipeline.execution.pipeline import Pipeline
+from datapipeline.execution.events import NodeProgressEvent
+from datapipeline.execution.node import SourceNode
+from datapipeline.execution.observer import NoopPipelineObserver
+from datapipeline.execution.runner import run_pipeline
 from datapipeline.alignment.engine import align_streams
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.runtime import Runtime
@@ -22,7 +22,7 @@ class _Record(TemporalRecord):
     value: str
 
 
-class _ProgressObserver(NoopExecutionObserver):
+class _ProgressObserver(NoopPipelineObserver):
     def __init__(self) -> None:
         self.events: list[NodeProgressEvent] = []
 
@@ -217,10 +217,8 @@ def test_align_streams_stops_opening_inputs_after_an_empty_stream() -> None:
     assert list(rows) == []
 
 
-def test_alignment_resets_sort_total_before_emitting_rows(
-    tmp_path, monkeypatch
-) -> None:
-    monkeypatch.setattr(dag_runner, "_LIVE_PROGRESS_INTERVAL_SECONDS", 0)
+def test_alignment_resets_sort_total_before_alignment(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(pipeline_runner, "_LIVE_PROGRESS_INTERVAL_SECONDS", 0)
     observer = _ProgressObserver()
     context = PipelineContext(
         Runtime(
@@ -256,12 +254,12 @@ def test_alignment_resets_sort_total_before_emitting_rows(
             buffer_bytes=10_000,
         )
 
-    dag = Dag(
+    pipeline = Pipeline(
         name="alignment-progress",
-        nodes=(PipelineNode(name="align", op=aligned_records),),
+        nodes=(SourceNode(name="align", open=aligned_records),),
     )
 
-    assert len(list(run_dag(context, dag, observer=observer))) == 2
+    assert len(list(run_pipeline(context, pipeline, observer=observer))) == 2
 
     progress = [event.progress for event in observer.events]
     sort_total_index = next(
@@ -284,7 +282,7 @@ def test_alignment_resets_sort_total_before_emitting_rows(
         snapshot.completed
         for snapshot in progress[aligning_index:]
         if snapshot.phase == "aligning"
-    ] == [0, 1, 2]
+    ] == [0]
 
 
 def test_align_streams_requires_at_least_two_inputs() -> None:

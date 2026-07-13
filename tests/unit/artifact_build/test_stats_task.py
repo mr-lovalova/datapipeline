@@ -1,18 +1,28 @@
 from datetime import datetime, timezone
 import json
 
+from datapipeline.artifacts.models import VectorMetadata
 from datapipeline.operations.artifacts.stats import materialize_vector_stats
-from datapipeline.config.dataset.dataset import FeatureDatasetConfig
+from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.config.tasks import StatsTask
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
-from datapipeline.runtime import Runtime
+from datapipeline.runtime import IngestRuntimeStream, Runtime
 from datapipeline.services.constants import VECTOR_METADATA
 
 
 def _ts(day: int) -> datetime:
     return datetime(2024, 1, day, tzinfo=timezone.utc)
+
+
+class _EmptySource:
+    def stream(self):
+        return iter(())
+
+
+def _identity(records):
+    return records
 
 
 def test_materialize_vector_stats_reads_metadata_and_omits_schema_meta(
@@ -23,11 +33,17 @@ def test_materialize_vector_stats_reads_metadata_and_omits_schema_meta(
     project_yaml = tmp_path / "project.yaml"
     project_yaml.write_text("version: 1\n", encoding="utf-8")
     runtime = Runtime(project_yaml=project_yaml, artifacts_root=artifacts_root)
-    runtime.registries.partition_by.register("stream", None)
-    runtime.registries.feature_id_by.register("stream", None)
+    runtime.streams["stream"] = IngestRuntimeStream(
+        source=_EmptySource(),
+        mapper=_identity,
+        transforms=(),
+        partition_by=None,
+        feature_id_by=None,
+        presorted=False,
+    )
 
     dataset = FeatureDatasetConfig(
-        group_by="1h",
+        sample=SampleConfig(cadence="1h"),
         features=[
             FeatureRecordConfig(id="speed", record_stream="stream", field="value")
         ],
@@ -43,10 +59,28 @@ def test_materialize_vector_stats_reads_metadata_and_omits_schema_meta(
 
         def require_artifact(self, spec):
             assert spec.key == VECTOR_METADATA
-            return {
-                "features": [{"id": "speed", "cadence": {"target": 2}}],
-                "targets": [],
-            }
+            return VectorMetadata.model_validate(
+                {
+                    "schema_version": 1,
+                    "features": [
+                        {
+                            "id": "speed",
+                            "base_id": "speed",
+                            "kind": "list",
+                            "present_count": 1,
+                            "null_count": 0,
+                            "first_observed": "2024-01-01T00:00:00Z",
+                            "last_observed": "2024-01-01T00:00:00Z",
+                            "element_types": ["float", "null"],
+                            "lengths": {"2": 1},
+                            "cadence": {"target": 2},
+                            "observed_elements": 1,
+                        }
+                    ],
+                    "targets": [],
+                    "counts": {"feature_vectors": 1, "target_vectors": 0},
+                }
+            )
 
         def window_bounds(self, rectangular_required: bool):
             assert rectangular_required is True
@@ -64,7 +98,7 @@ def test_materialize_vector_stats_reads_metadata_and_omits_schema_meta(
         lambda *_args, **_kwargs: iter(samples),
     )
     monkeypatch.setattr(
-        "datapipeline.operations.artifacts.stats.post_process",
+        "datapipeline.operations.artifacts.stats.apply_postprocess",
         lambda _context, vectors: vectors,
     )
 

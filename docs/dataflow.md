@@ -98,12 +98,12 @@ id: equity.daily_liquid
 from:
   stream: equity.ohlcv
 partition_by: ticker
-feature_id_by: []
+feature_id_by: ticker
 stream:
-  - dedupe: {}
+  - operation: dedupe
 ```
 
-Aligned streams intersect prepared inputs by partition and time. Input order is
+Aligned streams intersect their inputs by partition and time. Input order is
 also mapper argument order:
 
 ```yaml
@@ -123,7 +123,8 @@ map:
 Dataset config chooses which streams become features/targets and which record field is used as value.
 
 ```yaml
-group_by: ${group_by}
+sample:
+  cadence: ${group_by}
 features:
   - id: closing_price
     record_stream: equity.ohlcv
@@ -171,7 +172,7 @@ Expected behavior:
 
 3. Empty output:
 - Check source loader `path/url`.
-- Check parser/mapper output and preview indices (`jerry serve --preview-index 0..13`).
+- Check parser/mapper output with `jerry serve --preview source|mapped|records`.
 
 4. Wrong output location:
 - Check workspace root and `--output-directory` value.

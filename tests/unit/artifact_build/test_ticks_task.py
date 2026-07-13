@@ -5,10 +5,10 @@ import pytest
 
 from datapipeline.config.execution import ExecutionConfig
 from datapipeline.config.tasks import TicksTask
+from datapipeline.config.transforms import FloorTimeConfig
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.operations.artifacts.ticks import materialize_ticks
-from datapipeline.runtime import Runtime, StreamRuntimeSpec
-from datapipeline.transforms.spec import TransformSpec
+from datapipeline.runtime import DerivedRuntimeStream, IngestRuntimeStream, Runtime
 
 
 class _Source:
@@ -39,7 +39,7 @@ def _identity(records):
     yield from records
 
 
-def _runtime(tmp_path) -> Runtime:
+def _runtime(tmp_path, rows=None) -> Runtime:
     project_yaml = tmp_path / "project.yaml"
     project_yaml.write_text("version: 1\n", encoding="utf-8")
     artifacts_root = tmp_path / "artifacts"
@@ -49,43 +49,30 @@ def _runtime(tmp_path) -> Runtime:
         artifacts_root=artifacts_root,
         execution=ExecutionConfig(),
     )
-    regs = runtime.registries
-    regs.stream_specs.register("source.stream", StreamRuntimeSpec(pipeline="ingest"))
-    regs.stream_sources.register(
-        "source.stream",
-        _Source([_record(2), _record(0), _record(2)]),
+    runtime.streams["source.stream"] = IngestRuntimeStream(
+        source=_Source([_record(2), _record(0), _record(2)] if rows is None else rows),
+        mapper=_identity,
+        transforms=(),
+        partition_by=None,
+        feature_id_by=None,
+        presorted=False,
     )
-    regs.mappers.register("source.stream", _identity)
-    regs.record_operations.register("source.stream", [])
-    regs.stream_operations.register("source.stream", [])
-    regs.debug_operations.register("source.stream", [])
-    regs.partition_by.register("source.stream", None)
-    regs.feature_id_by.register("source.stream", None)
-    regs.presorted.register("source.stream", False)
     return runtime
 
 
-def _stream_runtime(tmp_path) -> Runtime:
-    runtime = _runtime(tmp_path)
-    regs = runtime.registries
-    regs.stream_specs.register("derived.stream", StreamRuntimeSpec(pipeline="stream"))
-    regs.stream_sources.register(
-        "derived.stream",
-        _Source([_record(0), _record(1)]),
+def _stream_runtime(tmp_path, rows=None) -> Runtime:
+    runtime = _runtime(
+        tmp_path,
+        [_record(0), _record(1)] if rows is None else rows,
     )
-    regs.mappers.register("derived.stream", _identity)
-    regs.record_operations.register("derived.stream", [])
-    regs.stream_operations.register(
-        "derived.stream",
-        [TransformSpec(name="floor_time", params={"cadence": "1h"})],
+    runtime.streams["derived.stream"] = DerivedRuntimeStream(
+        input_stream="source.stream",
+        mapper=_identity,
+        transforms=(FloorTimeConfig(cadence="1h"),),
+        partition_by=None,
+        feature_id_by=None,
+        presorted=False,
     )
-    regs.debug_operations.register(
-        "derived.stream",
-        [TransformSpec(name="missing_debug", params={})],
-    )
-    regs.partition_by.register("derived.stream", None)
-    regs.feature_id_by.register("derived.stream", None)
-    regs.presorted.register("derived.stream", False)
     return runtime
 
 
@@ -112,16 +99,13 @@ def test_materialize_ticks_writes_sorted_unique_tick_rows(tmp_path) -> None:
 
 
 def test_materialize_ticks_writes_keyed_grid_rows(tmp_path) -> None:
-    runtime = _runtime(tmp_path)
-    runtime.registries.stream_sources.register(
-        "source.stream",
-        _Source(
-            [
-                _record(1, "MSFT"),
-                _record(0, "AAPL"),
-                _record(1, "AAPL"),
-            ]
-        ),
+    runtime = _runtime(
+        tmp_path,
+        [
+            _record(1, "MSFT"),
+            _record(0, "AAPL"),
+            _record(1, "AAPL"),
+        ],
     )
 
     result = materialize_ticks(
@@ -150,13 +134,9 @@ def test_materialize_ticks_writes_keyed_grid_rows(tmp_path) -> None:
 
 
 def test_materialize_ticks_rejects_missing_key_field(tmp_path) -> None:
-    runtime = _runtime(tmp_path)
-    runtime.registries.stream_sources.register(
-        "source.stream",
-        _Source([_record(0)]),
-    )
+    runtime = _runtime(tmp_path, [_record(0)])
 
-    with pytest.raises(ValueError, match="missing grid_by field 'security_id'"):
+    with pytest.raises(KeyError, match="security_id"):
         materialize_ticks(
             runtime,
             TicksTask(
@@ -169,13 +149,12 @@ def test_materialize_ticks_rejects_missing_key_field(tmp_path) -> None:
         )
 
 
-def test_materialize_ticks_uses_stream_transforms_but_excludes_debug(
+def test_materialize_ticks_uses_stream_transforms(
     tmp_path,
 ) -> None:
-    runtime = _stream_runtime(tmp_path)
-    runtime.registries.stream_sources.register(
-        "derived.stream",
-        _Source([_record(2, minute=30), _record(0, minute=30)]),
+    runtime = _stream_runtime(
+        tmp_path,
+        [_record(2, minute=30), _record(0, minute=30)],
     )
 
     result = materialize_ticks(

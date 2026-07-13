@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from datapipeline.artifacts.models import VectorMetadata
 from datapipeline.config.tasks import CoverageTask, MatrixTask, ThresholdsTask
 from datapipeline.io.output import OutputTarget
 from datapipeline.operations.runtime import coverage as coverage_ops
@@ -28,12 +29,24 @@ def _snapshot() -> dict:
     }
 
 
-def _metadata() -> dict:
-    return {
-        "schema_version": 1,
-        "features": [{"id": "speed"}],
-        "targets": [],
-    }
+def _metadata() -> VectorMetadata:
+    return VectorMetadata.model_validate(
+        {
+            "schema_version": 1,
+            "features": [
+                {
+                    "id": "speed",
+                    "base_id": "speed",
+                    "kind": "scalar",
+                    "present_count": 1,
+                    "null_count": 0,
+                    "value_types": ["float"],
+                }
+            ],
+            "targets": [],
+            "counts": {"feature_vectors": 1, "target_vectors": 0},
+        }
+    )
 
 
 class _ArtifactCtx:

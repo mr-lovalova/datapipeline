@@ -1,49 +1,207 @@
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 
+from datapipeline.artifacts.models import (
+    ListVectorMetadataEntry,
+    VectorMetadataEntry,
+    VectorSchemaEntry,
+)
+from datapipeline.execution.context import PipelineContext
+from datapipeline.execution.node import PipelineNode
 from datapipeline.domain.sample import Sample
-from datapipeline.dag.context import PipelineContext
-from datapipeline.transforms.engine import apply_transforms
-from datapipeline.plugins import VECTOR_TRANSFORMS_EP
-from datapipeline.services.constants import POSTPROCESS_TRANSFORMS
-from datapipeline.transforms.vector import VectorEnsureSchemaTransform
+from datapipeline.services.artifacts import VECTOR_METADATA_SPEC
+from datapipeline.transforms.vector.drop.horizontal import (
+    DropSamplesTransform,
+    DropTargetSamplesTransform,
+)
+from datapipeline.transforms.vector.drop.vertical import (
+    ColumnCoverage,
+    SelectFeaturesTransform,
+    SelectTargetsTransform,
+)
+from datapipeline.transforms.vector.ensure_schema import (
+    NormalizeFeaturesTransform,
+    NormalizeTargetsTransform,
+)
 
 
-def post_process(
-    context: PipelineContext,
-    stream: Iterator[Sample],
-) -> Iterator[Sample]:
-    stream = _apply_vector_schema(context, stream)
-    runtime = context.runtime
-    transforms = runtime.registries.postprocesses.get(POSTPROCESS_TRANSFORMS)
-    if not transforms:
-        return stream
-    return apply_transforms(stream, VECTOR_TRANSFORMS_EP, transforms, context)
+def build_postprocess_nodes(context: PipelineContext) -> tuple[PipelineNode, ...]:
+    schema = context.load_schema()
+    if not schema.features:
+        raise RuntimeError("Schema has no feature entries. Rebuild build/schema.json.")
 
+    config = context.runtime.postprocess
+    feature_entries = schema.features
+    target_entries = schema.targets
+    nodes: list[PipelineNode] = []
 
-def _apply_vector_schema(
-    context: PipelineContext,
-    stream: Iterator[Sample],
-) -> Iterator[Sample]:
-    with context.activate():
-        schema = context.load_schema()
+    if config.columns.features is not None or config.columns.targets is not None:
+        metadata = context.require_artifact(VECTOR_METADATA_SPEC)
 
-        if not schema.features:
-            raise RuntimeError(
-                "Schema has no feature entries. Rebuild build/schema.json."
+        if config.columns.features is not None:
+            policy = config.columns.features
+            feature_selection = SelectFeaturesTransform(
+                [entry.id for entry in feature_entries],
+                _column_coverage(
+                    feature_entries,
+                    metadata.features,
+                    policy.ids,
+                ),
+                metadata.counts.feature_vectors,
+                policy.threshold,
+                policy.ids,
             )
-        feature_schema = VectorEnsureSchemaTransform(
-            on_missing="fill", on_extra="drop"
-        )
-        feature_schema.bind_context(context)
-        feature_stream = feature_schema(stream)
+            feature_entries = _retained_entries(
+                feature_entries,
+                feature_selection.retained_ids,
+            )
+            if not feature_entries:
+                raise ValueError("Feature selection removed every schema entry.")
+            nodes.append(
+                PipelineNode(
+                    name="select_features",
+                    apply=feature_selection.apply,
+                )
+            )
 
-        if not schema.targets:
-            return _reject_undeclared_targets(feature_stream)
-        target_schema = VectorEnsureSchemaTransform(
-            payload="targets", on_missing="fill", on_extra="drop"
+        if config.columns.targets is not None:
+            policy = config.columns.targets
+            target_selection = SelectTargetsTransform(
+                [entry.id for entry in target_entries],
+                _column_coverage(
+                    target_entries,
+                    metadata.targets,
+                    policy.ids,
+                ),
+                metadata.counts.target_vectors,
+                policy.threshold,
+                policy.ids,
+            )
+            target_entries = _retained_entries(
+                target_entries,
+                target_selection.retained_ids,
+            )
+            if not target_entries:
+                raise ValueError("Target selection removed every schema entry.")
+            nodes.append(
+                PipelineNode(
+                    name="select_targets",
+                    apply=target_selection.apply,
+                )
+            )
+
+    nodes.append(
+        PipelineNode(
+            name="normalize_features",
+            apply=NormalizeFeaturesTransform(feature_entries).apply,
         )
-        target_schema.bind_context(context)
-        return target_schema(feature_stream)
+    )
+
+    if target_entries:
+        target_normalizer = NormalizeTargetsTransform(target_entries).apply
+        target_node_name = "normalize_targets"
+    else:
+        target_normalizer = _reject_undeclared_targets
+        target_node_name = "reject_undeclared_targets"
+    nodes.append(
+        PipelineNode(
+            name=target_node_name,
+            apply=target_normalizer,
+        )
+    )
+
+    if config.samples.features is not None:
+        feature_filter = DropSamplesTransform(
+            [entry.id for entry in feature_entries],
+            config.samples.features.threshold,
+            config.samples.features.ids,
+        )
+        nodes.append(
+            PipelineNode(
+                name="filter_samples_by_features",
+                apply=feature_filter.apply,
+            )
+        )
+
+    if config.samples.targets is not None:
+        target_filter = DropTargetSamplesTransform(
+            [entry.id for entry in target_entries],
+            config.samples.targets.threshold,
+            config.samples.targets.ids,
+        )
+        nodes.append(
+            PipelineNode(
+                name="filter_samples_by_targets",
+                apply=target_filter.apply,
+            )
+        )
+
+    return tuple(nodes)
+
+
+def apply_postprocess(
+    context: PipelineContext,
+    samples: Iterator[Sample],
+) -> Iterator[Sample]:
+    """Apply the same ordered postprocess stages used by the full pipeline."""
+
+    stream = samples
+    for node in build_postprocess_nodes(context):
+        stream = iter(node.apply(stream))
+    return stream
+
+
+def _column_coverage(
+    schema_entries: Sequence[VectorSchemaEntry],
+    metadata_entries: Sequence[VectorMetadataEntry],
+    selected_ids: Sequence[str] | None,
+) -> tuple[ColumnCoverage, ...]:
+    schema_by_id = {entry.id: entry for entry in schema_entries}
+    selected = None if selected_ids is None else frozenset(selected_ids)
+    coverage: list[ColumnCoverage] = []
+
+    for metadata in metadata_entries:
+        if selected is not None and metadata.id not in selected:
+            continue
+        schema = schema_by_id.get(metadata.id)
+        if schema is None:
+            raise ValueError(f"Vector metadata contains unexpected id {metadata.id!r}.")
+        if metadata.kind != schema.kind:
+            raise ValueError(
+                f"Vector metadata kind for {metadata.id!r} does not match the schema."
+            )
+
+        if isinstance(metadata, ListVectorMetadataEntry):
+            assert schema.cadence is not None
+            if metadata.cadence.target != schema.cadence.target:
+                raise ValueError(
+                    f"Vector metadata length for {metadata.id!r} "
+                    "does not match the schema."
+                )
+            sequence_length = metadata.cadence.target
+            observed_elements = metadata.observed_elements
+        else:
+            sequence_length = None
+            observed_elements = None
+
+        coverage.append(
+            ColumnCoverage(
+                metadata.id,
+                metadata.kind,
+                metadata.present_count,
+                metadata.null_count,
+                sequence_length,
+                observed_elements,
+            )
+        )
+    return tuple(coverage)
+
+
+def _retained_entries(
+    entries: Sequence[VectorSchemaEntry],
+    retained_ids: Sequence[str],
+) -> tuple[VectorSchemaEntry, ...]:
+    retained = frozenset(retained_ids)
+    return tuple(entry for entry in entries if entry.id in retained)
 
 
 def _reject_undeclared_targets(stream: Iterator[Sample]) -> Iterator[Sample]:

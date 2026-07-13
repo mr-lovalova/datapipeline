@@ -7,13 +7,14 @@ from datapipeline.config.profiles import (
     ServeOutputConfig,
     ServeProfile,
 )
+from datapipeline.config.preview import PreviewStage
 from datapipeline.config.resolution import (
     LogOutputTarget,
     ObservabilitySettings,
     cascade,
     resolve_observability_settings,
 )
-from datapipeline.config.split import HashSplitConfig, TimeSplitConfig
+from datapipeline.config.split import TimeSplitConfig
 from datapipeline.io.output import (
     OutputTarget,
     resolve_output_directory,
@@ -30,7 +31,7 @@ class ResolvedRuntimeProfile:
     name: str
     target_id: str
     runtime: Runtime
-    preview_index: int | None
+    preview: PreviewStage | None
     limit: int | None
     throttle_ms: float | None
     observability: ObservabilitySettings
@@ -43,10 +44,8 @@ def _project_split_labels(runtime: Runtime) -> set[str] | None:
     if split is None:
         return None
     if isinstance(split, TimeSplitConfig):
-        return set(split.labels or ())
-    if isinstance(split, HashSplitConfig):
-        return set((split.ratios or {}).keys())
-    return set()
+        return set(split.labels)
+    return set(split.ratios)
 
 
 def _validate_split_output_filenames(
@@ -67,7 +66,7 @@ def _validate_split_output_filenames(
 def resolve_runtime_profiles(
     project_path: Path,
     profiles: Sequence[ServeProfile | InspectProfile],
-    preview_index: int | None,
+    preview: PreviewStage | None,
     limit: int | None,
     cli_output: ServeOutputConfig | None,
     cli_log_level: str | None = None,
@@ -100,7 +99,7 @@ def resolve_runtime_profiles(
     for profile, runtime in resolved_profiles:
         if isinstance(profile, ServeProfile):
             is_serve = True
-            configured_preview = profile.preview_index
+            configured_preview = profile.preview
             configured_limit = profile.limit
             throttle_ms = profile.throttle_ms
             splits = tuple(profile.splits or ())
@@ -110,16 +109,16 @@ def resolve_runtime_profiles(
             configured_limit = None
             throttle_ms = None
             splits = ()
-        resolved_preview = cascade(preview_index, configured_preview)
+        resolved_preview = cascade(preview, configured_preview)
         if resolved_preview is not None and not is_serve:
             raise ValueError(
-                f"Runtime profile '{profile.name}' does not support preview indices."
+                f"Runtime profile '{profile.name}' does not support previews."
             )
         resolved_limit = cascade(limit, configured_limit)
 
         if splits and resolved_preview is not None:
             raise ValueError(
-                f"Serve profile '{profile.name}' cannot combine preview_index with splits."
+                f"Serve profile '{profile.name}' cannot combine preview with splits."
             )
         if splits:
             _validate_split_output_filenames(profile.name, splits)
@@ -185,7 +184,7 @@ def resolve_runtime_profiles(
                 name=profile.name,
                 target_id=profile.target,
                 runtime=runtime,
-                preview_index=resolved_preview if is_serve else None,
+                preview=resolved_preview if is_serve else None,
                 limit=resolved_limit,
                 throttle_ms=throttle_ms,
                 observability=observability,
@@ -220,17 +219,15 @@ def resolve_runtime_profiles(
                 )
             output_owners[destination] = owner
 
-    preview_indices_by_run: dict[RunPaths, set[int | None]] = {}
+    previews_by_run: dict[RunPaths, set[PreviewStage | None]] = {}
     for resolved_profile in resolved:
         run = resolved_profile.output.run
         if run is not None:
-            preview_indices_by_run.setdefault(run, set()).add(
-                resolved_profile.preview_index
-            )
-    for run, preview_indices in preview_indices_by_run.items():
-        if len(preview_indices) > 1:
+            previews_by_run.setdefault(run, set()).add(resolved_profile.preview)
+    for run, previews in previews_by_run.items():
+        if len(previews) > 1:
             raise ValueError(
                 "Serve profiles sharing output directory "
-                f"'{run.serve_root}' must use the same preview_index."
+                f"'{run.serve_root}' must use the same preview."
             )
     return resolved

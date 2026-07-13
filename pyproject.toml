@@ -65,34 +65,6 @@ datapipeline = [
 target-version = "py311"
 extend-exclude = ["src/datapipeline/templates"]
 
-[project.entry-points."datapipeline.transforms.record"]
-floor_time = "datapipeline.transforms.record.floor_time:FloorTimeRecordTransform"
-shift_time = "datapipeline.transforms.record.shift_time:ShiftTimeRecordTransform"
-where = "datapipeline.transforms.where:where"
-
-[project.entry-points."datapipeline.transforms.stream"]
-floor_time = "datapipeline.transforms.stream.floor_time:FloorTimeTransform"
-lag = "datapipeline.transforms.stream.lag:LagTransformer"
-lead = "datapipeline.transforms.stream.lead:LeadTransformer"
-ensure_cadence = "datapipeline.transforms.stream.ensure_ticks:EnsureCadenceTransform"
-fill = "datapipeline.transforms.stream.fill:FillTransformer"
-granularity = "datapipeline.transforms.stream.granularity:FeatureGranularityTransform"
-dedupe = "datapipeline.transforms.stream.dedupe:FeatureDeduplicateTransform"
-rolling = "datapipeline.transforms.stream.rolling:RollingTransformer"
-where = "datapipeline.transforms.stream.where:WhereTransform"
-derive = "datapipeline.transforms.stream.derive:DeriveTransform"
-
-[project.entry-points."datapipeline.transforms.feature"]
-scale = "datapipeline.transforms.feature.scaler:StandardScalerTransform"
-sequence = "datapipeline.transforms.sequence:WindowTransformer"
-
-
-[project.entry-points."datapipeline.transforms.vector"]
-drop = "datapipeline.transforms.vector:VectorDropTransform"
-fill = "datapipeline.transforms.vector:VectorFillTransform"
-forward_fill = "datapipeline.transforms.vector:VectorForwardFillTransform"
-replace = "datapipeline.transforms.vector:VectorReplaceTransform"
-
 [project.entry-points."datapipeline.mappers"]
 "time.synthetic" = "datapipeline.mappers.noop:identity"
 encode_time = "datapipeline.mappers.synthetic.time:encode"
@@ -123,6 +95,3 @@ identity = "datapipeline.parsers.identity:IdentityParser"
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
-[project.entry-points."datapipeline.transforms.debug"]
-identity = "datapipeline.transforms.debug.identity:IdentityGuardTransform"
-lint = "datapipeline.transforms.debug.lint:StreamLint"

@@ -45,7 +45,7 @@ def _usable_cached_bounds(
     return None
 
 
-def _optional_metadata_doc(runtime: Runtime) -> dict | None:
+def _optional_metadata(runtime: Runtime) -> VectorMetadata | None:
     try:
         return runtime.artifacts.load(VECTOR_METADATA_SPEC)
     except ArtifactNotRegisteredError:
@@ -53,10 +53,9 @@ def _optional_metadata_doc(runtime: Runtime) -> dict | None:
 
 
 def _metadata_window_bounds(runtime: Runtime) -> WindowBounds:
-    doc = _optional_metadata_doc(runtime)
-    if doc is None:
+    metadata = _optional_metadata(runtime)
+    if metadata is None:
         return None, None
-    meta = VectorMetadata.model_validate(doc)
-    if meta.window is None:
+    if metadata.window is None:
         return None, None
-    return meta.window.start, meta.window.end
+    return metadata.window.start, metadata.window.end

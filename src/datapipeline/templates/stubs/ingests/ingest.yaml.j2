@@ -9,10 +9,10 @@ map:
 
 cadence: ${group_by}                # optional per-ingest cadence
 # partition_by: <field or [fields]>
-# feature_id_by: []
+# feature_id_by: []  # requires partition_by fields in dataset sample.keys
 
 record:                              # record-level transforms
-  - where: { field: time, operator: ge, comparand: "${start_time}" }
-  - where: { field: time, operator: le, comparand: "${end_time}" }
-  - floor_time: { cadence: "${cadence}" }
-#   - shift_time: { by: -10m }
+  - { operation: where, field: time, operator: ge, comparand: "${start_time}" }
+  - { operation: where, field: time, operator: le, comparand: "${end_time}" }
+  - { operation: floor_time, cadence: "${cadence}" }
+#   - { operation: shift_time, by: -10m }

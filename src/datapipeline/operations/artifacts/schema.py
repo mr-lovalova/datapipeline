@@ -1,62 +1,42 @@
 import json
 from pathlib import Path
-from typing import Dict
 
-from datapipeline.artifacts.models import VectorSchemaArtifact
+from datapipeline.artifacts.models import (
+    ListVectorMetadataEntry,
+    VectorMetadataEntry,
+    VectorSchemaArtifact,
+    VectorSchemaEntry,
+)
 from datapipeline.config.tasks import SchemaTask
-from datapipeline.config.dataset.loader import load_dataset
-from datapipeline.config.dataset.validation import validate_dataset_feature_identity
+from datapipeline.execution.context import PipelineContext
 from datapipeline.operations.persistence import ArtifactOutput
 from datapipeline.runtime import Runtime
+from datapipeline.services.artifacts import VECTOR_METADATA_SPEC
 from datapipeline.utils.paths import ensure_parent
 
-from .utils import (
-    collect_schema_entries,
-    configured_vectors_are_empty,
-    schema_entries_from_stats,
-)
+
+def _schema_entries(
+    metadata_entries: tuple[VectorMetadataEntry, ...],
+) -> tuple[VectorSchemaEntry, ...]:
+    return tuple(
+        VectorSchemaEntry(
+            id=entry.id,
+            kind=entry.kind,
+            cadence=(
+                entry.cadence if isinstance(entry, ListVectorMetadataEntry) else None
+            ),
+        )
+        for entry in metadata_entries
+    )
 
 
 def materialize_vector_schema(
     runtime: Runtime,
     task_cfg: SchemaTask,
 ) -> ArtifactOutput:
-    dataset = load_dataset(runtime.project_yaml, "vectors")
-    validate_dataset_feature_identity(runtime, dataset)
-    features_cfgs = list(dataset.features or [])
-    feature_stats, feature_vectors = collect_schema_entries(
-        runtime,
-        features_cfgs,
-        dataset.group_by,
-        sample_keys=dataset.sample_keys,
-        collect_metadata=False,
-        progress_step="scan_features",
-    )
-    if configured_vectors_are_empty(features_cfgs, feature_vectors):
-        raise RuntimeError(
-            "Cannot materialize vector schema: "
-            f"{len(features_cfgs)} configured features produced zero vectors. "
-            "Check upstream source data and credentials."
-        )
-    target_stats: list[dict] = []
-    target_cfgs = list(dataset.targets or [])
-    if target_cfgs:
-        target_stats, target_vectors = collect_schema_entries(
-            runtime,
-            target_cfgs,
-            dataset.group_by,
-            sample_keys=dataset.sample_keys,
-            collect_metadata=False,
-            progress_step="scan_targets",
-        )
-        if configured_vectors_are_empty(target_cfgs, target_vectors):
-            raise RuntimeError(
-                "Cannot materialize vector schema: "
-                f"{len(target_cfgs)} configured targets produced zero vectors. "
-                "Check upstream source data and credentials."
-            )
-    target_entries = schema_entries_from_stats(target_stats)
-    feature_entries = schema_entries_from_stats(feature_stats)
+    metadata = PipelineContext(runtime).require_artifact(VECTOR_METADATA_SPEC)
+    feature_entries = _schema_entries(metadata.features)
+    target_entries = _schema_entries(metadata.targets)
 
     doc = VectorSchemaArtifact(
         schema_version=2,
@@ -70,7 +50,7 @@ def materialize_vector_schema(
     with destination.open("w", encoding="utf-8") as fh:
         json.dump(doc.model_dump(mode="json", exclude_none=True), fh, indent=2)
 
-    meta: Dict[str, object] = {
+    meta: dict[str, object] = {
         "features": len(feature_entries),
         "targets": len(target_entries),
     }

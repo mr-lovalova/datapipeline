@@ -3,9 +3,10 @@ from typing import Any, Literal
 from datapipeline.analysis.vector.collector import VectorStatsCollector
 from datapipeline.analysis.vector.snapshot import collector_from_snapshot
 from datapipeline.config.metadata import build_vector_metadata_lookup
-from datapipeline.dag.context import PipelineContext
+from datapipeline.execution.context import PipelineContext
 from datapipeline.runtime import Runtime
 from datapipeline.services.artifacts import VECTOR_METADATA_SPEC, VECTOR_STATS_SPEC
+from datapipeline.domain.feature_id import is_partitioned
 
 
 def load_collector(runtime: Runtime) -> VectorStatsCollector:
@@ -112,12 +113,12 @@ def build_metrics(
     below_partition_values = [
         collector._partition_value(pid)
         for pid in below_partitions
-        if "__" in pid and collector._partition_value(pid)
+        if is_partitioned(pid) and collector._partition_value(pid)
     ]
     keep_partition_values = [
         collector._partition_value(pid)
         for pid in keep_partitions
-        if "__" in pid and collector._partition_value(pid)
+        if is_partitioned(pid) and collector._partition_value(pid)
     ]
 
     keep_partitions_cadence = [

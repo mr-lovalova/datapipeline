@@ -31,7 +31,7 @@ jerry serve --dataset your-dataset --limit 3
 - `your-dataset/dataset.yaml`
   - Ensure `record_stream:` points at the stream id you created.
   - Select a `field:` for each feature/target (record attribute to use as value).
-  - Ensure `sample.cadence` or legacy `group_by` matches `^\d+(m|min|h|d)$` (e.g. `10m`, `1h`, `1d`).
+  - Ensure `sample.cadence` matches `^\d+(m|min|h|d)$` (e.g. `10m`, `1h`, `1d`). The scaffold fills it from the `${group_by}` project global.
 
 If you add/edit entry points in `pyproject.toml`, reinstall the plugin:
 
@@ -48,7 +48,7 @@ YAML config (dataset project root):
   - `sources/*.yaml` (raw source definitions)
   - `streams/*.yaml` (canonical streams)
   - `dataset.yaml` (features/targets)
-  - `postprocess.yaml` (vector-level transforms)
+  - `postprocess.yaml` (column selection and sample filtering)
   - `profiles/{serve,build,inspect,materialize}.<name>.yaml` (profiles; optional overrides)
   - `profiles/{serve,build,inspect,materialize}.defaults.yaml` (optional per-kind defaults)
   - `tasks/operations/*.yaml` (declared artifact and runtime operations)
@@ -80,5 +80,5 @@ Python plugin code:
 
 ## Learn more
 
-- Preview indices and split/build timing: the Jerry Thomas runtime `README.md` ("Preview Indices (serve --preview-index)").
+- Preview stages and split/build timing: the Jerry Thomas runtime `README.md` ("Preview stages (serve --preview)").
 - Deep dives: runtime `docs/config.md`, `docs/transforms/`, `docs/artifacts.md`, `docs/extending.md`, `docs/architecture.md`.

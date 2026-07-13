@@ -4,16 +4,13 @@ from pathlib import Path
 from typing import Any
 import json
 
-from datapipeline.config.dataset.dataset import FeatureDatasetConfig
-from datapipeline.dag.context import PipelineContext
-from datapipeline.dag.runner import run_dag
+from datapipeline.execution.context import PipelineContext
 from datapipeline.domain.stream import canonical_record_order
 from datapipeline.io.factory import writer_factory
 from datapipeline.io.output import OutputTarget
 from datapipeline.io.sinks import AtomicTextFileSink
-from datapipeline.pipelines.ingest import build_ingest_pipeline
-from datapipeline.pipelines.stream import build_stream_dag
-from datapipeline.runtime import Runtime
+from datapipeline.pipelines.stream.pipeline import run_stream_pipeline
+from datapipeline.runtime import Runtime, require_runtime_stream
 
 
 @dataclass(frozen=True)
@@ -29,7 +26,6 @@ def materialize_stream_to_path(
     stream_id: str,
     output: Path,
     overwrite: bool = False,
-    dataset: FeatureDatasetConfig | None = None,
 ) -> MaterializeResult:
     destinations = materialize_destination_paths(output)
     artifacts_root = runtime.artifacts_root.resolve()
@@ -39,13 +35,11 @@ def materialize_stream_to_path(
                 f"materialize output must be outside the managed artifacts root: {path}"
             )
     check_materialize_destinations(destinations, overwrite)
-    if dataset is not None:
-        runtime.sample_keys = dataset.sample_keys
     output_path = destinations[0]
-    raw_partition_by = runtime.registries.partition_by.get(stream_id)
-    ordered_by = canonical_record_order(raw_partition_by)
-    partition_by = _field_list(raw_partition_by)
-    feature_id_by = _field_list(runtime.registries.feature_id_by.get(stream_id))
+    stream = require_runtime_stream(runtime, stream_id)
+    ordered_by = canonical_record_order(stream.partition_by)
+    partition_by = _field_list(stream.partition_by)
+    feature_id_by = _field_list(stream.feature_id_by)
 
     rows = materialized_stream_rows(runtime, stream_id)
     target = OutputTarget(
@@ -75,13 +69,7 @@ def materialize_stream_to_path(
 
 def materialized_stream_rows(runtime: Runtime, stream_id: str) -> Iterator[Any]:
     context = PipelineContext(runtime)
-    pipeline = runtime.registries.stream_specs.get(stream_id).pipeline
-    if pipeline == "ingest":
-        return build_ingest_pipeline(context, stream_id)
-    return run_dag(
-        context,
-        build_stream_dag(context, stream_id).upto_node_named("stream_transforms"),
-    )
+    return run_stream_pipeline(context, stream_id)
 
 
 def _field_list(value: str | list[str] | None) -> list[str] | None:

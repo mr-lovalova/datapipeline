@@ -1,4 +1,4 @@
-from datapipeline.config.catalog import IngestConfig, StreamConfig
+from datapipeline.config.catalog import IngestConfig, SourceConfig, StreamConfig
 from datapipeline.domain.stream import canonical_record_order
 
 
@@ -26,25 +26,36 @@ def validate_stream_configs(
             )
     _validate_stream_cycles(stream_configs)
 
-    for ingest_id, spec in ingests.items():
-        if spec.ordered_by is None:
+    for ingest_id, ingest in ingests.items():
+        if ingest.ordered_by is None:
             continue
-        canonical_order = canonical_record_order(spec.partition_by)
-        if spec.ordered_by != canonical_order:
+        canonical_order = canonical_record_order(ingest.partition_by)
+        if ingest.ordered_by != canonical_order:
             raise ValueError(
                 f"Ingest '{ingest_id}' ordered_by must be {canonical_order!r}; "
-                f"got {spec.ordered_by!r}"
+                f"got {ingest.ordered_by!r}"
             )
 
-    for stream_id, spec in stream_configs.items():
+    for stream_id, stream in stream_configs.items():
         partition_by = stream_partition_by(ingests, stream_configs, stream_id)
-        if spec.ordered_by is None:
+        if stream.ordered_by is None:
             continue
         canonical_order = canonical_record_order(partition_by)
-        if spec.ordered_by != canonical_order:
+        if stream.ordered_by != canonical_order:
             raise ValueError(
                 f"Stream '{stream_id}' ordered_by must be {canonical_order!r}; "
-                f"got {spec.ordered_by!r}"
+                f"got {stream.ordered_by!r}"
+            )
+
+
+def validate_ingest_sources(
+    sources: dict[str, SourceConfig],
+    ingests: dict[str, IngestConfig],
+) -> None:
+    for ingest_id, spec in ingests.items():
+        if spec.from_.source not in sources:
+            raise ValueError(
+                f"Ingest '{ingest_id}' references unknown source '{spec.from_.source}'"
             )
 
 

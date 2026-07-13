@@ -8,4 +8,3 @@
 # entrypoint: core.artifact.vector_inputs # optional; build runner id
 #
 # output: build/vector_inputs/manifest.json # optional; relative to project.paths.artifacts
-# format: jsonl.gz          # optional; currently only "jsonl.gz"

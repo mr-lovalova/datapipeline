@@ -6,6 +6,7 @@ import pytest
 from datapipeline.cli.command_router import execute_command
 from datapipeline.cli.commands import list_ as list_command
 from datapipeline.cli.parser_builder import build_parser
+from datapipeline.config.preview import PREVIEW_STAGES
 from datapipeline.config.workspace import WorkspaceConfig, WorkspaceContext
 
 
@@ -117,25 +118,6 @@ def test_list_routes_forward_plugin_and_workspace(
     }
 
 
-def test_filter_create_forwards_plugin_root(monkeypatch, tmp_path) -> None:
-    plugin_root = tmp_path / "plugin"
-    captured: dict[str, object] = {}
-    monkeypatch.setattr(
-        "datapipeline.cli.command_router.handle_filter",
-        lambda **kwargs: captured.update(kwargs),
-    )
-
-    assert (
-        _execute(
-            build_parser().parse_args(["filter", "create", "--name", "clean"]),
-            plugin_root=plugin_root,
-        )
-        is True
-    )
-
-    assert captured["plugin_root"] == plugin_root
-
-
 @pytest.mark.parametrize(
     "argv",
     [
@@ -169,6 +151,20 @@ def test_common_options_survive_before_or_after_command(argv) -> None:
     assert args.log_level == "DEBUG"
     assert args.log_output == ["stdout"]
     assert args.heartbeat_interval_seconds == 5
+
+
+@pytest.mark.parametrize("preview", PREVIEW_STAGES)
+def test_serve_parser_accepts_semantic_preview_stages(preview) -> None:
+    args = build_parser().parse_args(["serve", "--preview", preview])
+
+    assert args.preview == preview
+
+
+def test_serve_parser_rejects_numeric_preview(capsys) -> None:
+    with pytest.raises(SystemExit) as exc:
+        build_parser().parse_args(["serve", "--preview", "3"])
+
+    assert exc.value.code == 2
 
 
 def test_source_listing_uses_workspace_project_without_python_package(

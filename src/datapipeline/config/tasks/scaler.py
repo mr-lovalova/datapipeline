@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -6,32 +6,22 @@ from .base import ArtifactTask
 
 
 class ScalerFold(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", strict=True)
 
     fit: list[str] = Field(min_length=1)
     apply: list[str] = Field(min_length=1)
 
-    @field_validator("fit", "apply", mode="before")
-    @classmethod
-    def _normalize_labels(cls, value):
-        if isinstance(value, str):
-            return [value]
-        return value
-
     @field_validator("fit", "apply")
     @classmethod
     def _validate_labels(cls, value: list[str]) -> list[str]:
-        labels: list[str] = []
-        seen: set[str] = set()
-        for item in value:
-            label = str(item).strip()
-            if not label:
+        for label in value:
+            if not label.strip():
                 raise ValueError("scaler fold labels must not be empty")
-            if label in seen:
-                raise ValueError(f"duplicate scaler fold label {label!r}")
-            labels.append(label)
-            seen.add(label)
-        return labels
+            if label != label.strip():
+                raise ValueError("scaler fold labels must not contain outer whitespace")
+        if len(value) != len(set(value)):
+            raise ValueError("scaler fold labels must be unique")
+        return value
 
 
 class ScalerTask(ArtifactTask):
@@ -40,13 +30,29 @@ class ScalerTask(ArtifactTask):
     output: str = Field(default="build/scaler.json")
     split_label: str = Field(default="train")
     folds: list[ScalerFold] | None = Field(default=None, min_length=1)
+    with_mean: bool = Field(default=True, strict=True)
+    with_std: bool = Field(default=True, strict=True)
+    epsilon: float = Field(
+        default=1e-12,
+        gt=0,
+        allow_inf_nan=False,
+        strict=True,
+    )
+
+    @field_validator("split_label")
+    @classmethod
+    def _validate_split_label(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("scaler split_label must not be empty")
+        if value != value.strip():
+            raise ValueError("scaler split_label must not contain outer whitespace")
+        return value
 
     @model_validator(mode="after")
-    def _validate_fold_config(self):
+    def _validate_fold_config(self) -> Self:
         if self.folds is None:
             return self
-        fields_set = getattr(self, "model_fields_set", set())
-        if "split_label" in fields_set:
+        if "split_label" in self.model_fields_set:
             raise ValueError("scaler task cannot define both split_label and folds")
 
         applied: dict[str, int] = {}
@@ -60,6 +66,3 @@ class ScalerTask(ArtifactTask):
                     )
                 applied[label] = index
         return self
-
-
-__all__ = ["ScalerFold", "ScalerTask"]

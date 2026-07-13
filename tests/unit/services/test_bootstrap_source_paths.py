@@ -82,10 +82,10 @@ def test_load_sources_resolves_fs_path_from_project_root(tmp_path: Path) -> None
     (project_root / "tasks").mkdir()
     (project_root / "build").mkdir()
     (project_root / "dataset.yaml").write_text(
-        "group_by: 1h\nfeatures: []\n",
+        "sample:\n  cadence: 1h\nfeatures: []\n",
         encoding="utf-8",
     )
-    (project_root / "postprocess.yaml").write_text("[]\n", encoding="utf-8")
+    (project_root / "postprocess.yaml").write_text("{}\n", encoding="utf-8")
     _write_source_yaml(project_root / "sources", "data/*.jsonl")
     project_yaml = _write_project_yaml(project_root)
 
@@ -108,9 +108,9 @@ def test_load_sources_resolves_fs_path_relative_to_project_root_only(
     (project_root / "tasks").mkdir()
     (project_root / "build").mkdir()
     (project_root / "dataset.yaml").write_text(
-        "group_by: 1h\nfeatures: []\n", encoding="utf-8"
+        "sample:\n  cadence: 1h\nfeatures: []\n", encoding="utf-8"
     )
-    (project_root / "postprocess.yaml").write_text("[]\n", encoding="utf-8")
+    (project_root / "postprocess.yaml").write_text("{}\n", encoding="utf-8")
     _write_source_yaml(project_root / "sources", "demo/demo/data/*.jsonl")
     project_yaml = _write_project_yaml(project_root)
 
@@ -135,10 +135,10 @@ def test_load_sources_reads_multiple_source_roots(tmp_path: Path) -> None:
     (project_root / "data").mkdir()
     (project_root / "data" / "rows.jsonl").write_text("{}", encoding="utf-8")
     (project_root / "dataset.yaml").write_text(
-        "group_by: 1h\nfeatures: []\n",
+        "sample:\n  cadence: 1h\nfeatures: []\n",
         encoding="utf-8",
     )
-    (project_root / "postprocess.yaml").write_text("[]\n", encoding="utf-8")
+    (project_root / "postprocess.yaml").write_text("{}\n", encoding="utf-8")
     _write_named_source_yaml(project_root / "sources", "local.yaml", "local.fs")
     _write_named_source_yaml(common_root / "sources", "common.yaml", "common.fs")
     project_yaml = project_root / "project.yaml"
@@ -178,10 +178,10 @@ def test_load_sources_rejects_duplicate_source_ids_across_roots(tmp_path: Path) 
     (project_root / "data").mkdir()
     (project_root / "data" / "rows.jsonl").write_text("{}", encoding="utf-8")
     (project_root / "dataset.yaml").write_text(
-        "group_by: 1h\nfeatures: []\n",
+        "sample:\n  cadence: 1h\nfeatures: []\n",
         encoding="utf-8",
     )
-    (project_root / "postprocess.yaml").write_text("[]\n", encoding="utf-8")
+    (project_root / "postprocess.yaml").write_text("{}\n", encoding="utf-8")
     _write_named_source_yaml(project_root / "sources", "local.yaml", "same.fs")
     _write_named_source_yaml(common_root / "sources", "common.yaml", "same.fs")
     project_yaml = project_root / "project.yaml"

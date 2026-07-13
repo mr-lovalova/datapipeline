@@ -5,35 +5,30 @@ Pass `--help` on any command for flags.
 All commands that take a project accept either `--project <path/to/project.yaml>` or `--dataset <alias>` (from `jerry.yaml datasets:`).
 
 With `--visuals on` in an interactive terminal, runtime commands show one live
-DAG row with the active node. `--log-level DEBUG` expands that view to one row
+pipeline row with the active node. `--log-level DEBUG` expands that view to one row
 per active node. File-backed sources include the current file and position
 (`2/17`); bars remain indeterminate when the record total is not known without
 reading the data. Visuals are independent of log filtering.
 
-### Preview Indices
+### Preview Stages
 
-- `jerry serve --project <project.yaml> --preview-index <0-13> --limit N [--log-level LEVEL] [--visuals on|off] [--heartbeat-interval SECONDS]`
-  - Index 0: ingest source records
-  - Index 1: ingest mapped domain records
-  - Index 2: ingest record transforms applied
-  - Index 3: ingest ordered records
-  - Index 4: stream input records
-  - Index 5: stream mapped records
-  - Index 6: stream ordered records
-  - Index 7: stream transforms applied
-  - Index 8: debug transforms applied
-  - Index 9: feature records
-  - Index 10: feature transforms/sequence outputs
-  - Index 11: ordered feature records
-  - Index 12: vectors/samples assembled across configured features and targets
-  - Index 13: postprocess transforms applied
-  - Omit `--preview-index` to run the full pipeline and output persistence.
+- `jerry serve --project <project.yaml> --preview <stage> --limit N [--log-level LEVEL] [--visuals on|off] [--heartbeat-interval SECONDS]`
+  - `source`: opened source values before mapping.
+  - `mapped`: records immediately after mapping.
+  - `records`: records after configured transforms and ordering.
+  - `features`: fully processed and ordered feature/target records, including
+    configured scaling and sequence construction.
+  - `samples`: assembled samples before postprocess.
+  - `postprocess`: samples after the configured postprocess pipeline.
+  - Record stages emit once per unique configured record stream, `features`
+    emits once per feature/target, and sample stages emit one combined stream.
+  - Omit `--preview` to run the full pipeline and output persistence.
   - Use `--log-level DEBUG` for full debug output; the CLI default is `WARNING`.
   - Before runtime execution, Jerry combines the artifact requirements of all
     selected profiles and prepares that union once. The artifact graph orders
     those internal jobs; it never changes profile order.
 - `jerry serve --project <project.yaml> --output-transport stdout --output-format jsonl --output-view flat|raw --output-encoding <codec> --limit N [--artifact-mode AUTO|FORCE|OFF] [--log-level LEVEL] [--visuals on|off] [--heartbeat-interval SECONDS] [--run name]`
-  - Applies postprocess transforms before emitting. A profile with `splits:` routes samples to one fs output per requested split label, names files `<profile>.<label>.<ext>`, and cannot be combined with `--preview-index`. `--limit` applies separately to each selected label.
+  - Applies postprocess selection and filtering before emitting. A profile with `splits:` routes samples to one fs output per requested split label, names files `<profile>.<label>.<ext>`, and cannot be combined with `--preview`. `--limit` applies separately to each selected label.
   - Use `--output-transport fs --output-format jsonl --output-directory build/serve` (or `csv`, `pickle`) to write outputs under `<output-directory>/runs/<run_id>/dataset/`.
   - `--output-view` controls payload shape:
     - `flat`: key + kind + flattened fields
@@ -41,7 +36,7 @@ reading the data. Visuals are independent of log filtering.
   - If `--output-view` is omitted: `jsonl -> raw`, `csv/pickle -> flat`.
   - `csv` supports `flat` view.
   - `--output-encoding` applies to fs `jsonl`/`csv` outputs (default `utf-8`).
-  - Set `--log-level DEBUG` (or set `observability.logging.level: DEBUG` in the serve profile) to increase log detail for preview indices.
+  - Set `--log-level DEBUG` (or set `observability.logging.level: DEBUG` in the serve profile) to increase log detail while previewing a stage.
   - Set `--heartbeat-interval 0` to disable persistent node heartbeat records. Live progress remains enabled when visuals are on. The CLI value also controls the shared artifact prerequisite phase; profile `observability.heartbeat_interval_seconds` begins applying only when that profile runs.
   - When multiple serve profiles exist, add `--run <profile-name>` to target a
     single profile; otherwise every enabled profile is executed in its exact
@@ -110,8 +105,6 @@ reading the data. Visuals are independent of log filtering.
   - Creates a source YAML only (no Python code).
 - `jerry domain create <name>` (also supports `-n/--name`)
   - Adds a `domains/<name>/` package with a `model.py` stub.
-- `jerry filter create --name <identifier>`
-  - Scaffolds an entry-point-ready filter (helpful for custom record predicates).
 - `jerry list sources|domains`
   - Introspect configured source aliases or domain packages.
 

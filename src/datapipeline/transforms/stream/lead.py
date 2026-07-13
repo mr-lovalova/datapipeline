@@ -1,19 +1,53 @@
-from datapipeline.transforms.stream.period_shift import PeriodShiftTransformer
+from collections import deque
+from collections.abc import Iterator
+from itertools import groupby
+
+from datapipeline.domain.record import TemporalRecord
+from datapipeline.transforms.utils import (
+    clone_record_with_field,
+    get_field,
+    partition_key,
+)
 
 
-class LeadTransformer(PeriodShiftTransformer):
+class LeadTransform:
     def __init__(
         self,
-        *,
         field: str,
         periods: int,
+        partition_fields: tuple[str, ...],
         to: str | None = None,
-        partition_by: str | list[str] | None = None,
     ) -> None:
-        super().__init__(
-            field=field,
-            periods=periods,
-            direction="lead",
-            to=to,
-            partition_by=partition_by,
-        )
+        self.field = field
+        self.to = field if to is None else to
+        self.periods = periods
+        self.partition_fields = partition_fields
+
+    def apply(self, stream: Iterator[TemporalRecord]) -> Iterator[TemporalRecord]:
+        for _, records in groupby(
+            stream,
+            key=lambda record: partition_key(record, self.partition_fields),
+        ):
+            yield from self._lead(records)
+
+    def _lead(self, records: Iterator[TemporalRecord]) -> Iterator[TemporalRecord]:
+        future: deque[TemporalRecord] = deque()
+        for _ in range(self.periods):
+            record = next(records, None)
+            if record is None:
+                break
+            get_field(record, self.field)
+            future.append(record)
+
+        for record in records:
+            get_field(record, self.field)
+            lead_record = future.popleft()
+            future.append(record)
+            yield clone_record_with_field(
+                lead_record,
+                self.to,
+                get_field(record, self.field),
+            )
+
+        while future:
+            yield clone_record_with_field(future.popleft(), self.to, None)

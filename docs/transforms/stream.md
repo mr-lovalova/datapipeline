@@ -15,37 +15,41 @@ the transform writes back to `field`.
 
 ```yaml
 stream:
-  - rolling: { field: dollar_volume, to: adv20, window: 20, statistic: mean }
+  - { operation: rolling, field: dollar_volume, to: adv20, window: 20, statistic: mean }
 ```
 
 ## Built-In Transforms
 
-- `ensure_cadence`: insert placeholder ticks so timestamps are exactly one
-  cadence apart per partition.
+- `ensure_cadence`: insert placeholder ticks at a fixed duration within each
+  partition.
+- `ensure_ticks`: reindex records against a resolved tick-grid artifact.
 - `floor_time`: snap timestamps down to a cadence.
 - `where`: filter ordered records using the record `where` operator language.
 - `lag` / `lead`: copy a prior or future field value into `to` by `periods`
   within each partition.
 - `derive`: write `to` from binary arithmetic on `left` and exactly one of
   `right_field` or `right_value`. Operators: `add`, `sub`, `mul`, `div`.
-- `granularity`: merge duplicate timestamps using `first`, `last`, `mean`, or
-  `median`.
+- `collapse`: keep the `first` or `last` adjacent record for each partition and
+  timestamp.
 - `dedupe`: drop exact duplicate records from an already sorted stream.
-- `fill`: impute missing values from rolling history using `mean` or `median`,
-  or carry the last known value with `method: forward`.
+- `fill`: impute missing values from rolling history using an explicit `mean`
+  or `median` statistic.
+- `forward_fill`: carry the last known value within each partition.
 - `rolling`: compute `mean`, `median`, `stdev`, `pstdev`, `max`, or `min` over
-  a rolling window.
+  a rolling window. Missing ticks occupy a window position but do not count
+  toward `min_samples`, which defaults to `window`. Values must be finite;
+  `None` and `NaN` are treated as missing.
 
 ```yaml
 stream:
-  - lag: { field: close, to: close_lag_21, periods: 21 }
-  - lag: { field: close, to: close_lag_189, periods: 189 }
-  - derive: { left: close_lag_21, operator: div, right_field: close_lag_189, to: close_ratio }
-  - derive: { left: close_ratio, operator: sub, right_value: 1, to: momentum_189_21 }
+  - { operation: lag, field: close, to: close_lag_21, periods: 21 }
+  - { operation: lag, field: close, to: close_lag_189, periods: 189 }
+  - { operation: derive, left: close_lag_21, operator: div, right_field: close_lag_189, to: close_ratio }
+  - { operation: derive, left: close_ratio, operator: sub, right_value: 1, to: momentum_189_21 }
 ```
 
 ```yaml
 stream:
-  - ensure_cadence: { field: gross_margin, cadence: model_grid }
-  - fill: { field: gross_margin, method: forward }
+  - { operation: ensure_ticks, artifact: model_grid }
+  - { operation: forward_fill, field: gross_margin }
 ```

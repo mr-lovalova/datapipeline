@@ -6,13 +6,13 @@ in `ingests/*.yaml` under `record:`.
 ## `where`
 
 - Binary comparisons: `eq`, `ne`, `lt`, `le`, `gt`, `ge`.
-- Membership: `in`, `nin`.
+- Membership: `in`, `not_in`.
 - ISO or datetime literals are compared with timezone awareness.
 
 ```yaml
 record:
-  - where: { field: time, operator: ge, comparand: "${start_time}" }
-  - where: { field: station, operator: in, comparand: [a, b, c] }
+  - { operation: where, field: time, operator: ge, comparand: "${start_time}" }
+  - { operation: where, field: station, operator: in, comparand: [a, b, c] }
 ```
 
 ## Built-In Transforms

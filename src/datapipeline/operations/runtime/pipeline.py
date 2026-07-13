@@ -1,16 +1,15 @@
 import logging
 import time
-from dataclasses import dataclass
 from itertools import islice
-from typing import Iterator, Literal, Optional, TypeVar
+from typing import Iterator, Optional, TypeVar
 
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.config.dataset.validation import validate_dataset_feature_identity
+from datapipeline.config.preview import PreviewStage
 from datapipeline.config.tasks import PipelineTask
-from datapipeline.dag.context import PipelineContext
-from datapipeline.dag.runner import run_dag
-from datapipeline.dag.transform_observability import default_observer_registry
+from datapipeline.execution.context import PipelineContext
+from datapipeline.execution.runner import run_pipeline
 from datapipeline.domain.sample import Sample
 from datapipeline.io.output import OutputTarget
 from datapipeline.operations.persistence import (
@@ -18,48 +17,20 @@ from datapipeline.operations.persistence import (
     RuntimeOutputBatch,
     SplitRuntimeOutput,
 )
-from datapipeline.pipelines import (
-    build_feature_pipeline,
-    build_full_dag,
+from datapipeline.pipelines.feature.pipeline import run_feature_pipeline
+from datapipeline.pipelines.full.pipeline import (
     build_full_pipeline,
-    build_stream_id_dag,
-    build_stream_id_pipeline,
+    run_full_pipeline,
 )
 from datapipeline.pipelines.full.split import build_labeler
-from datapipeline.runtime import Runtime, StreamPipelineKind
+from datapipeline.pipelines.stream.pipeline import build_stream_pipeline
+from datapipeline.runtime import Runtime
 from datapipeline.utils.window import resolve_window_bounds
 
 logger = logging.getLogger(__name__)
-PreviewScope = Literal["record", "feature", "sample"]
 T = TypeVar("T")
 
-
-@dataclass(frozen=True)
-class PreviewNode:
-    name: str
-    scope: PreviewScope
-    stream_pipeline: StreamPipelineKind | None = None
-    record_node_index: int | None = None
-    feature_node_index: int | None = None
-    serve_node_index: int | None = None
-
-
-SERVE_PREVIEW_NODES = (
-    PreviewNode("ingest:open_source", "record", "ingest", 0),
-    PreviewNode("ingest:map_records", "record", "ingest", 1),
-    PreviewNode("ingest:record_transforms", "record", "ingest", 2),
-    PreviewNode("ingest:order_records", "record", "ingest", 3),
-    PreviewNode("stream:open_records", "record", "stream", 0),
-    PreviewNode("stream:map_records", "record", "stream", 1),
-    PreviewNode("stream:order_records", "record", "stream", 2),
-    PreviewNode("stream:stream_transforms", "record", "stream", 3),
-    PreviewNode("stream:debug_transforms", "record", "stream", 4),
-    PreviewNode("build_feature_stream", "feature", feature_node_index=0),
-    PreviewNode("feature_transforms", "feature", feature_node_index=1),
-    PreviewNode("order_feature_records", "feature", feature_node_index=2),
-    PreviewNode("sample_assembly", "sample", serve_node_index=0),
-    PreviewNode("post_process", "sample", serve_node_index=1),
-)
+_RECORD_PREVIEWS = {"source", "mapped", "records"}
 
 
 def limit_items(items: Iterator[object], limit: Optional[int]) -> Iterator[object]:
@@ -115,19 +86,11 @@ def _sample_output(
     return _runtime_output(throttle_vectors(stream, throttle_ms), target, limit)
 
 
-def _preview_node(preview_index: int) -> PreviewNode:
-    if preview_index < 0 or preview_index >= len(SERVE_PREVIEW_NODES):
-        raise ValueError(
-            f"preview_index must be between 0 and {len(SERVE_PREVIEW_NODES) - 1}"
-        )
-    return SERVE_PREVIEW_NODES[preview_index]
-
-
 def _preview_plan(
     preview_cfgs: list[FeatureRecordConfig],
-    selected_node: PreviewNode,
+    preview: PreviewStage,
 ) -> list[tuple[str, FeatureRecordConfig]]:
-    if selected_node.scope != "record":
+    if preview not in _RECORD_PREVIEWS:
         return [(cfg.id, cfg) for cfg in preview_cfgs]
 
     seen: set[str] = set()
@@ -141,81 +104,19 @@ def _preview_plan(
     return plan
 
 
-def _stream_pipeline_kind(runtime: Runtime, stream_id: str) -> StreamPipelineKind:
-    return runtime.registries.stream_specs.get(stream_id).pipeline
-
-
-def _record_preview_index_range(pipeline: StreamPipelineKind) -> str:
-    if pipeline == "ingest":
-        return "0-3"
-    return "4-8"
-
-
-def _validate_record_preview_streams(
-    runtime: Runtime,
-    stream_ids: list[str],
-    selected_node: PreviewNode,
-    preview_index: int,
-) -> None:
-    if selected_node.stream_pipeline is None:
-        raise ValueError(f"Preview node '{selected_node.name}' is not a record node.")
-
-    mismatches: list[tuple[str, StreamPipelineKind]] = []
-    for stream_id in stream_ids:
-        actual_kind = _stream_pipeline_kind(runtime, stream_id)
-        if actual_kind != selected_node.stream_pipeline:
-            mismatches.append((stream_id, actual_kind))
-
-    if not mismatches:
-        return
-
-    expected_range = _record_preview_index_range(selected_node.stream_pipeline)
-    actual_ranges = sorted(
-        {_record_preview_index_range(actual_kind) for _, actual_kind in mismatches}
-    )
-    mismatch_text = ", ".join(
-        f"'{stream_id}' is a {actual_kind} stream"
-        for stream_id, actual_kind in mismatches
-    )
-    raise ValueError(
-        f"Preview index {preview_index} ('{selected_node.name}') applies to "
-        f"{selected_node.stream_pipeline} streams ({expected_range}), but "
-        f"{mismatch_text}. Use preview indices {' or '.join(actual_ranges)} "
-        "for those record streams, or 9-13 for feature/sample previews."
-    )
-
-
 def _record_preview_stream(
     context: PipelineContext,
-    runtime: Runtime,
     stream_id: str,
-    selected_node: PreviewNode,
+    preview: PreviewStage,
 ) -> Iterator[object]:
-    if selected_node.stream_pipeline is None or selected_node.record_node_index is None:
-        raise ValueError(f"Preview node '{selected_node.name}' is not a record node.")
-    actual_kind = _stream_pipeline_kind(runtime, stream_id)
-    if actual_kind != selected_node.stream_pipeline:
-        raise ValueError(
-            f"Preview node '{selected_node.name}' applies to "
-            f"{selected_node.stream_pipeline} "
-            f"streams, but '{stream_id}' is a {actual_kind} stream."
-        )
-    return build_stream_id_pipeline(
-        context,
-        stream_id,
-        node=selected_node.record_node_index,
-    )
-
-
-def _feature_preview_index(
-    context: PipelineContext,
-    stream_id: str,
-    selected_node: PreviewNode,
-) -> int:
-    if selected_node.feature_node_index is None:
-        raise ValueError(f"Preview node '{selected_node.name}' is not a feature node.")
-    record_dag = build_stream_id_dag(context, stream_id)
-    return record_dag.node_count + selected_node.feature_node_index
+    pipeline = build_stream_pipeline(context, stream_id)
+    if preview == "source":
+        return run_pipeline(context, pipeline.through_node(0))
+    if preview == "mapped":
+        return run_pipeline(context, pipeline.through_node_named("map_records"))
+    if preview == "records":
+        return run_pipeline(context, pipeline)
+    raise ValueError(f"Preview stage {preview!r} does not produce records")
 
 
 def _serve_preview(
@@ -224,61 +125,49 @@ def _serve_preview(
     runtime: Runtime,
     feature_cfgs: list[FeatureRecordConfig],
     target_cfgs: list[FeatureRecordConfig],
-    group_by: str,
+    cadence: str,
     sample_keys: list[str],
     limit: Optional[int],
     target: OutputTarget,
     throttle_ms: Optional[float],
-    preview_index: int,
+    preview: PreviewStage,
 ) -> RuntimeOutputBatch:
-    selected_node = _preview_node(preview_index)
-    if selected_node.scope == "sample":
+    if preview in {"samples", "postprocess"}:
         runtime.window_bounds = resolve_window_bounds(runtime, True)
-        full_dag = build_full_dag(
+        full_pipeline = build_full_pipeline(
             context,
             feature_cfgs,
-            group_by,
+            cadence,
             target_configs=target_cfgs,
             rectangular=True,
             sample_keys=sample_keys,
         )
-        if selected_node.serve_node_index is None:
-            raise ValueError(
-                f"Preview node '{selected_node.name}' is not a sample node."
-            )
-        stream = run_dag(
-            context,
-            full_dag.upto_node(selected_node.serve_node_index),
+        selected_pipeline = (
+            full_pipeline.through_node(0) if preview == "samples" else full_pipeline
         )
+        sample_stream = run_pipeline(context, selected_pipeline)
         return RuntimeOutputBatch(
-            outputs=(_sample_output(stream, target, limit, throttle_ms),),
+            outputs=(_sample_output(sample_stream, target, limit, throttle_ms),),
         )
 
     outputs: list[RuntimeOutput] = []
-    preview_plan = _preview_plan(feature_cfgs + target_cfgs, selected_node)
-    if selected_node.scope == "record":
-        _validate_record_preview_streams(
-            runtime,
-            [str(output_id) for output_id, _ in preview_plan],
-            selected_node,
-            preview_index,
-        )
+    preview_plan = _preview_plan(feature_cfgs + target_cfgs, preview)
     for output_id, cfg in preview_plan:
-        if selected_node.scope == "record":
+        if preview in _RECORD_PREVIEWS:
             stream = _record_preview_stream(
                 context,
-                runtime,
                 str(output_id),
-                selected_node,
+                preview,
             )
-        else:
-            stream = build_feature_pipeline(
+        elif preview == "features":
+            stream = run_feature_pipeline(
                 context,
                 cfg,
-                node=_feature_preview_index(context, cfg.record_stream, selected_node),
                 sample_keys=sample_keys,
-                group_by_cadence=group_by,
+                group_by_cadence=cadence,
             )
+        else:
+            raise ValueError(f"Unsupported preview stage: {preview!r}")
         outputs.append(_runtime_output(stream, target.for_feature(output_id), limit))
     return RuntimeOutputBatch(outputs=tuple(outputs))
 
@@ -289,17 +178,17 @@ def _serve_full(
     runtime: Runtime,
     feature_cfgs: list[FeatureRecordConfig],
     target_cfgs: list[FeatureRecordConfig],
-    group_by: str,
+    cadence: str,
     sample_keys: list[str],
     limit: Optional[int],
     target: OutputTarget,
     throttle_ms: Optional[float],
 ) -> RuntimeOutputBatch:
     runtime.window_bounds = resolve_window_bounds(runtime, True)
-    vectors = build_full_pipeline(
+    vectors = run_full_pipeline(
         context,
         feature_cfgs,
-        group_by,
+        cadence,
         target_configs=target_cfgs,
         rectangular=True,
         sample_keys=sample_keys,
@@ -315,7 +204,7 @@ def _serve_split_outputs(
     runtime: Runtime,
     feature_cfgs: list[FeatureRecordConfig],
     target_cfgs: list[FeatureRecordConfig],
-    group_by: str,
+    cadence: str,
     sample_keys: list[str],
     split_labels: list[str],
     limit: Optional[int],
@@ -324,15 +213,15 @@ def _serve_split_outputs(
 ) -> RuntimeOutputBatch:
     if target.transport != "fs":
         raise ValueError("serve splits require fs output")
-    split_cfg = getattr(runtime, "split", None)
+    split_cfg = runtime.split
     if split_cfg is None:
         raise ValueError("serve splits require project split configuration")
 
     runtime.window_bounds = resolve_window_bounds(runtime, True)
-    vectors = build_full_pipeline(
+    vectors = run_full_pipeline(
         context,
         feature_cfgs,
-        group_by,
+        cadence,
         target_configs=target_cfgs,
         rectangular=True,
         sample_keys=sample_keys,
@@ -359,64 +248,58 @@ def serve_with_runtime(
     limit: Optional[int],
     target: OutputTarget,
     throttle_ms: Optional[float],
-    preview_index: Optional[int],
+    preview: PreviewStage | None,
     visuals: Optional[str] = None,
     operation_task: PipelineTask | None = None,
 ) -> RuntimeOutputBatch | None:
     _ = operation_task, visuals
     validate_dataset_feature_identity(runtime, dataset)
 
-    context = PipelineContext(
-        runtime,
-        observer_registry=default_observer_registry(),
-    )
-    feature_cfgs = list(dataset.features or [])
-    target_cfgs = list(dataset.targets or [])
-    runtime.sample_keys = dataset.sample_keys
+    context = PipelineContext(runtime)
+    feature_cfgs = list(dataset.features)
+    target_cfgs = list(dataset.targets)
     if not feature_cfgs and not target_cfgs:
         logger.warning("(no features configured; nothing to serve)")
         return None
-    group_by = dataset.group_by
-    if group_by is None:
-        raise ValueError("Feature dataset requires sample cadence.")
+    cadence = dataset.sample.cadence
 
     split_labels = list(runtime.split_labels)
     if split_labels:
-        if preview_index is not None:
-            raise ValueError("serve splits do not support preview indices")
+        if preview is not None:
+            raise ValueError("serve splits do not support previews")
         return _serve_split_outputs(
             context=context,
             runtime=runtime,
             feature_cfgs=feature_cfgs,
             target_cfgs=target_cfgs,
-            group_by=group_by,
-            sample_keys=dataset.sample_keys,
+            cadence=cadence,
+            sample_keys=dataset.sample.keys,
             split_labels=split_labels,
             limit=limit,
             target=target,
             throttle_ms=throttle_ms,
         )
 
-    if preview_index is not None:
+    if preview is not None:
         return _serve_preview(
             context=context,
             runtime=runtime,
             feature_cfgs=feature_cfgs,
             target_cfgs=target_cfgs,
-            group_by=group_by,
-            sample_keys=dataset.sample_keys,
+            cadence=cadence,
+            sample_keys=dataset.sample.keys,
             limit=limit,
             target=target,
             throttle_ms=throttle_ms,
-            preview_index=preview_index,
+            preview=preview,
         )
     return _serve_full(
         context=context,
         runtime=runtime,
         feature_cfgs=feature_cfgs,
         target_cfgs=target_cfgs,
-        group_by=group_by,
-        sample_keys=dataset.sample_keys,
+        cadence=cadence,
+        sample_keys=dataset.sample.keys,
         limit=limit,
         target=target,
         throttle_ms=throttle_ms,

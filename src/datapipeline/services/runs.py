@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
+from datapipeline.config.preview import PreviewStage
+
 RunStatus = Literal["running", "success", "failed"]
 
 
@@ -42,7 +44,7 @@ class RunMetadata:
     finished_at: str | None = None
     status: RunStatus | None = None
     notes: str | None = None
-    preview_index: int | None = None
+    preview: PreviewStage | None = None
 
 
 def _now_utc_iso() -> str:
@@ -95,7 +97,7 @@ def start_run_for_directory(
     directory: str | Path,
     run_id: str | None = None,
     *,
-    preview_index: int | None = None,
+    preview: PreviewStage | None = None,
 ) -> tuple[RunPaths, RunMetadata]:
     """Initialise a new run rooted at the given directory.
 
@@ -103,13 +105,13 @@ def start_run_for_directory(
     with status set to "running".
     """
     paths = get_run_paths(get_serve_root(directory), run_id)
-    return paths, start_run(paths, preview_index=preview_index)
+    return paths, start_run(paths, preview=preview)
 
 
 def start_run(
     paths: RunPaths,
     *,
-    preview_index: int | None = None,
+    preview: PreviewStage | None = None,
 ) -> RunMetadata:
     """Initialise a previously planned run."""
 
@@ -121,7 +123,7 @@ def start_run(
         finished_at=None,
         status="running",
         notes=None,
-        preview_index=preview_index,
+        preview=preview,
     )
     _write_run_metadata(meta, paths.metadata_path)
     return meta

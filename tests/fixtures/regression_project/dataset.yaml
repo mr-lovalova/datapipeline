@@ -1,4 +1,5 @@
-group_by: 1h
+sample:
+  cadence: 1h
 
 features:
   - id: linear_scaled

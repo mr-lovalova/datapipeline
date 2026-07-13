@@ -1,31 +1,64 @@
-# Postprocess Transforms
+# Sample Postprocessing
 
-Postprocess runs after vector assembly and before split/output persistence.
-Configure it in `postprocess.yaml`.
+Postprocessing runs after vector assembly. Configure its structural policies in
+`postprocess.yaml`:
 
-Jerry first enforces the required `build/schema.json`. That makes vector
-ordering deterministic, fills missing configured feature IDs, drops unexpected
-IDs unless allowed, and enforces recorded list cadence metadata.
+```yaml
+columns:
+  features:
+    threshold: 0.8
+    ids: [price, volume]       # optional; defaults to every feature
+  targets:
+    threshold: 0.9
+    ids: [return]
 
-## Built-In Transforms
+samples:
+  features:
+    threshold: 0.5
+  targets:
+    threshold: 1.0
+    ids: [return]
+```
 
-- `drop`: apply coverage thresholds along the horizontal axis (vectors) or
-  vertical axis (features/partitions) using `axis: horizontal|vertical` and
-  `threshold`. Vertical mode uses `build/metadata.json` when partition coverage
-  needs metadata.
-- `fill`: impute missing vector values from prior vectors using rolling
-  `mean` or `median` history. History is isolated by the sample entity key when
-  samples are keyed, e.g. `(time, security_id)`.
-- `forward_fill`: fill missing vector values with the latest prior non-missing
-  value for the same sample entity and feature id. Use `max_age` to cap staleness.
-- `replace`: seed missing IDs with a constant or literal value.
+The pipeline has one fixed order:
 
-## Artifacts
+1. assemble feature and target vectors;
+2. select feature and target columns;
+3. normalize vectors against the retained typed schema;
+4. filter sample rows by feature coverage, then target coverage.
 
-- `build/schema.json` is produced by the schema task and used automatically
-  before configured postprocess transforms.
-- `build/metadata.json` is produced by the metadata task and required by some
-  vertical coverage workflows.
+Feature and target policies are separate. Row filtering is also separate from
+column selection:
 
-If a required artifact is missing, Jerry fails with a message pointing to
-`jerry build`.
+- `DropSamplesTransform` and `DropTargetSamplesTransform` filter complete sample
+  rows by the coverage of selected cells.
+- `SelectFeaturesTransform` and `SelectTargetsTransform` remove columns using
+  precomputed `ColumnCoverage` entries. The resulting `retained_ids` is the
+  effective schema for downstream validation.
+
+Selection and sample filters accept an optional `ids` subset and default to
+every retained ID. Empty, duplicate, or unknown IDs are errors.
+
+Postprocessing does not mutate vector values. Repair missing record values with
+an ordered stream `fill` or `forward_fill` operation before feature extraction.
+This keeps history and partition semantics at the stage where they are known.
+
+## Coverage metadata
+
+`ColumnCoverage` makes the denominator explicit:
+
+- scalar coverage is `(present_count - null_count) / total_opportunities`;
+- list coverage is `observed_elements / (total_opportunities * sequence_length)`.
+
+List coverage therefore includes absent sample buckets instead of measuring only
+buckets where the list happened to appear. The pipeline uses the feature or
+target vector count from `build/metadata.json`, matching the population used to
+collect `present_count`, `null_count`, and `observed_elements`.
+
+## Schema normalization
+
+`NormalizeFeaturesTransform` and `NormalizeTargetsTransform` receive typed
+`VectorSchemaEntry` objects directly. They fill wholly absent schema entries,
+order values by the schema, and reject unexpected IDs, invalid numeric values,
+and incorrect list lengths. They do not truncate values, silently discard extra
+columns, or mutate the pipeline context.

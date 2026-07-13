@@ -7,7 +7,6 @@ map:
   args: {}
 
 record:
-  - where: { operator: ge, field: time, comparand: "${start_time}" }
-  - where: { operator: le, field: time, comparand: "${end_time}" }
-  - where: { operator: eq, field: area, comparand: DK1 }
-
+  - { operation: where, operator: ge, field: time, comparand: "${start_time}" }
+  - { operation: where, operator: le, field: time, comparand: "${end_time}" }
+  - { operation: where, operator: eq, field: area, comparand: DK1 }

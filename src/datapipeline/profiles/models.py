@@ -4,10 +4,8 @@ from typing import Literal, Sequence
 
 from datapipeline.config.build_resolution import BuildSettings
 from datapipeline.config.execution import ExecutionConfig
-from datapipeline.config.dataset.dataset import (
-    FeatureDatasetConfig,
-    RecordDatasetConfig,
-)
+from datapipeline.config.dataset.dataset import FeatureDatasetConfig
+from datapipeline.config.preview import PreviewStage
 from datapipeline.config.resolution import (
     ObservabilitySettings,
 )
@@ -17,13 +15,12 @@ from datapipeline.runtime import Runtime
 from datapipeline.services.runs import RunPaths
 
 ProfileKind = Literal["serve", "build", "inspect"]
-ProfileDataset = FeatureDatasetConfig | RecordDatasetConfig
 
 
 @dataclass(frozen=True)
 class ServeRunPlan:
     paths: RunPaths
-    preview_index: int | None
+    preview: PreviewStage | None
 
 
 @dataclass(frozen=True)
@@ -37,13 +34,12 @@ class RuntimeJob:
     name: str
     task: OperationTask
     runtime: Runtime
-    dataset_name: Literal["vectors", "features"]
-    dataset: ProfileDataset
+    dataset: FeatureDatasetConfig
     output: OutputTarget
     observability: ObservabilitySettings
     limit: int | None
     throttle_ms: float | None
-    preview_index: int | None
+    preview: PreviewStage | None
     splits: tuple[str, ...]
 
 

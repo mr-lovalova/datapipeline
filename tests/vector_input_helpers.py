@@ -2,13 +2,14 @@ import shutil
 from collections.abc import Sequence
 
 from datapipeline.config.dataset.feature import FeatureRecordConfig
-from datapipeline.dag.context import PipelineContext
-from datapipeline.pipelines.feature.dag import build_feature_pipeline
+from datapipeline.execution.context import PipelineContext
+from datapipeline.domain.sample_key import SampleKeyContract
+from datapipeline.pipelines.feature.pipeline import run_feature_pipeline
 from datapipeline.runtime import Runtime
 from datapipeline.services.constants import VECTOR_INPUTS
 from datapipeline.services.path_policy import sanitize_path_segment
 from datapipeline.utils.json_artifact import write_json_artifact
-from datapipeline.vector_inputs import (
+from datapipeline.vector_inputs.store import (
     VECTOR_INPUTS_MANIFEST_VERSION,
     feature_record_to_vector_input_row,
     write_vector_input_rows,
@@ -18,7 +19,7 @@ from datapipeline.vector_inputs import (
 def register_vector_inputs(
     runtime: Runtime,
     features: Sequence[FeatureRecordConfig],
-    group_by: str,
+    cadence: str,
     *,
     targets: Sequence[FeatureRecordConfig] = (),
     sample_keys: Sequence[str] = (),
@@ -28,30 +29,31 @@ def register_vector_inputs(
     root = manifest_path.parent
     shutil.rmtree(root, ignore_errors=True)
     context = PipelineContext(runtime)
-    runtime.sample_keys = list(sample_keys)
+    sample_key_contract = SampleKeyContract(sample_keys)
     feature_shards = _write_shards(
         context,
         root,
         "features",
         features,
-        group_by,
-        sample_keys,
+        cadence,
+        sample_key_contract,
     )
     target_shards = _write_shards(
         context,
         root,
         "targets",
         targets,
-        group_by,
-        sample_keys,
+        cadence,
+        sample_key_contract,
     )
     write_json_artifact(
         manifest_path,
         {
             "version": VECTOR_INPUTS_MANIFEST_VERSION,
             "format": "jsonl.gz",
-            "group_by": group_by,
+            "cadence": cadence,
             "sample_keys": list(sample_keys),
+            "sample_key_types": list(sample_key_contract.types),
             "features": feature_shards,
             "targets": target_shards,
         },
@@ -64,25 +66,27 @@ def _write_shards(
     root,
     directory: str,
     configs: Sequence[FeatureRecordConfig],
-    group_by: str,
-    sample_keys: Sequence[str],
+    cadence: str,
+    sample_key_contract: SampleKeyContract,
 ) -> list[dict[str, object]]:
     shards: list[dict[str, object]] = []
     for cfg in configs:
         file_name = f"{sanitize_path_segment(cfg.id)}.jsonl.gz"
         relative_path = f"{directory}/{file_name}"
-        stream = build_feature_pipeline(
+        stream = run_feature_pipeline(
             context,
             cfg,
-            sample_keys=sample_keys,
-            group_by_cadence=group_by,
+            sample_keys=sample_key_contract.fields,
+            group_by_cadence=cadence,
         )
         try:
-            rows = (
-                feature_record_to_vector_input_row(item)
-                for item in stream
-            )
-            count = write_vector_input_rows(root / relative_path, rows)
+
+            def rows():
+                for item in stream:
+                    sample_key_contract.validate(item.entity_key)
+                    yield feature_record_to_vector_input_row(item)
+
+            count = write_vector_input_rows(root / relative_path, rows())
         finally:
             closer = getattr(stream, "close", None)
             if callable(closer):

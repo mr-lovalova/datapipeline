@@ -12,8 +12,8 @@ from datapipeline.execution.observability import (
 )
 
 from ..execution import (
-    DagFinished,
-    DagStarted,
+    PipelineFinished,
+    PipelineStarted,
     ExecutionEventFormatter,
     ExecutionEventSink,
     ExecutionLogEvent,
@@ -42,7 +42,11 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
     def emit(self, event: ExecutionLogEvent) -> None:
         if self._progress_renderer is not None and isinstance(
             event,
-            DagStarted | NodeStarted | NodeProgress | NodeFinished | DagFinished,
+            PipelineStarted
+            | NodeStarted
+            | NodeProgress
+            | NodeFinished
+            | PipelineFinished,
         ):
             self._progress_renderer.handle(event)
             if isinstance(event, NodeStarted | NodeProgress):
@@ -77,7 +81,7 @@ class _RichConsoleExecutionSink(ExecutionEventSink):
     def _render_event(self, event: ExecutionLogEvent) -> Text:
         level = ExecutionEventFormatter.level(event)
         text = Text(ExecutionEventFormatter.message(event))
-        if isinstance(event, DagFinished | NodeFinished | OperationFinished):
+        if isinstance(event, PipelineFinished | NodeFinished | OperationFinished):
             status_style = "green" if event.status == "success" else "red"
             text.highlight_words([f"status={event.status}"], style=status_style)
         elif level >= logging.ERROR:

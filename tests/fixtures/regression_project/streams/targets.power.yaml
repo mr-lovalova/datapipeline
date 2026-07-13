@@ -3,4 +3,5 @@ from:
   stream: targets.power.ingest
 
 stream:
-  - ensure_cadence: { cadence: 1h, field: value }
+  - { operation: ensure_cadence, cadence: 1h }
+  - { operation: fill, field: value, statistic: mean, window: 2, min_samples: 1 }
