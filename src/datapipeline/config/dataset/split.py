@@ -12,11 +12,25 @@ HASH_SPLIT_FEATURE_PREFIX = "feature:"
 Ratio = Annotated[float, Field(gt=0.0, le=1.0)]
 
 
+def _validate_output_labels(labels: list[str] | None) -> list[str] | None:
+    if labels is None:
+        return None
+    for label in labels:
+        if not label.strip():
+            raise ValueError("split output labels must not be empty")
+        if label != label.strip():
+            raise ValueError("split output labels must not contain outer whitespace")
+    if len(labels) != len(set(labels)):
+        raise ValueError("split output labels must be unique")
+    return labels
+
+
 class HashSplitConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
     mode: Literal["hash"] = "hash"
     ratios: dict[str, Ratio]
+    output_labels: list[str] | None = Field(default=None, min_length=1)
     seed: int = 42
     key: str = HASH_SPLIT_GROUP_KEY
 
@@ -46,6 +60,23 @@ class HashSplitConfig(BaseModel):
             raise ValueError(f"hash split ratios must sum to 1.0 (got {total})")
         return dict(sorted(ratios.items()))
 
+    @field_validator("output_labels")
+    @classmethod
+    def validate_output_labels(cls, labels: list[str] | None) -> list[str] | None:
+        return _validate_output_labels(labels)
+
+    @model_validator(mode="after")
+    def validate_output_labels_exist(self) -> Self:
+        if self.output_labels is None:
+            return self
+        unknown = set(self.output_labels) - set(self.ratios)
+        if unknown:
+            raise ValueError(
+                "split output labels are not defined by ratios: "
+                + ", ".join(sorted(unknown))
+            )
+        return self
+
 
 class TimeSplitConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
@@ -53,6 +84,7 @@ class TimeSplitConfig(BaseModel):
     mode: Literal["time"] = "time"
     boundaries: list[str]
     labels: list[str] = Field(min_length=1)
+    output_labels: list[str] | None = Field(default=None, min_length=1)
 
     @field_validator("boundaries")
     @classmethod
@@ -82,10 +114,22 @@ class TimeSplitConfig(BaseModel):
             raise ValueError("time split labels must be unique")
         return labels
 
+    @field_validator("output_labels")
+    @classmethod
+    def validate_output_labels(cls, labels: list[str] | None) -> list[str] | None:
+        return _validate_output_labels(labels)
+
     @model_validator(mode="after")
     def validate_label_count(self) -> Self:
         if len(self.labels) != len(self.boundaries) + 1:
             raise ValueError("time split labels length must equal len(boundaries) + 1")
+        if self.output_labels is not None:
+            unknown = set(self.output_labels) - set(self.labels)
+            if unknown:
+                raise ValueError(
+                    "split output labels are not defined by labels: "
+                    + ", ".join(sorted(unknown))
+                )
         return self
 
 
@@ -93,3 +137,11 @@ SplitConfig = Annotated[
     HashSplitConfig | TimeSplitConfig,
     Field(discriminator="mode"),
 ]
+
+
+def split_output_labels(config: SplitConfig) -> tuple[str, ...]:
+    if config.output_labels is not None:
+        return tuple(config.output_labels)
+    if isinstance(config, TimeSplitConfig):
+        return tuple(config.labels)
+    return tuple(config.ratios)

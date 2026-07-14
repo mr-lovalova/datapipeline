@@ -1,14 +1,16 @@
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
+from unicodedata import normalize
 
+from datapipeline.config.dataset.split import split_output_labels
 from datapipeline.config.profiles import (
     InspectProfile,
     ServeOutputConfig,
     ServeProfile,
 )
 from datapipeline.config.preview import PreviewStage
-from datapipeline.config.dataset.split import TimeSplitConfig
+from datapipeline.config.tasks import PipelineTask
 from datapipeline.execution.settings import (
     LogOutputTarget,
     ObservabilitySettings,
@@ -33,31 +35,30 @@ class ResolvedRuntimeProfile:
     throttle_ms: float | None
     observability: ObservabilitySettings
     output: OutputTarget
-    splits: tuple[str, ...]
+    output_splits: tuple[str, ...]
 
 
-def _dataset_split_labels(definition: PipelineDefinition) -> set[str] | None:
+def _dataset_output_splits(definition: PipelineDefinition) -> tuple[str, ...]:
     split = definition.dataset.split
     if split is None:
-        return None
-    if isinstance(split, TimeSplitConfig):
-        return set(split.labels)
-    return set(split.ratios)
+        return ()
+    return split_output_labels(split)
 
 
 def _validate_split_output_filenames(
-    profile_name: str, splits: tuple[str, ...]
+    profile_name: str, output_splits: tuple[str, ...]
 ) -> None:
     filenames: dict[str, str] = {}
-    for label in splits:
+    for label in output_splits:
         filename = sanitize_path_segment(label)
-        existing = filenames.get(filename)
+        collision_key = normalize("NFC", filename).casefold()
+        existing = filenames.get(collision_key)
         if existing is not None:
             raise ValueError(
                 f"Serve profile '{profile_name}' split labels {existing!r} and "
                 f"{label!r} resolve to the same output filename."
             )
-        filenames[filename] = label
+        filenames[collision_key] = label
 
 
 def resolve_runtime_profiles(
@@ -73,6 +74,10 @@ def resolve_runtime_profiles(
     cli_heartbeat_interval_seconds: float | None = None,
 ) -> list[ResolvedRuntimeProfile]:
     project_path = definition.project.path
+    runtime_operations = {
+        operation.id: operation for operation in definition.runtime_operations
+    }
+    dataset_output_splits = _dataset_output_splits(definition)
     shared_profile_counts: dict[Path, int] = {}
     shared_runs: dict[Path, RunPaths] = {}
     serve_roots: dict[str, Path | None] = {}
@@ -94,16 +99,20 @@ def resolve_runtime_profiles(
     for profile in profiles:
         if isinstance(profile, ServeProfile):
             is_serve = True
+            is_pipeline = isinstance(
+                runtime_operations.get(profile.target), PipelineTask
+            )
             configured_preview = profile.preview
             configured_limit = profile.limit
             throttle_ms = profile.throttle_ms
-            splits = tuple(profile.splits or ())
+            include_splits = tuple(profile.include_splits or ())
         else:
             is_serve = False
+            is_pipeline = False
             configured_preview = None
             configured_limit = None
             throttle_ms = None
-            splits = ()
+            include_splits = ()
         resolved_preview = preview if preview is not None else configured_preview
         if resolved_preview is not None and not is_serve:
             raise ValueError(
@@ -111,28 +120,41 @@ def resolve_runtime_profiles(
             )
         resolved_limit = limit if limit is not None else configured_limit
 
-        if splits and resolved_preview is not None:
+        if include_splits and resolved_preview is not None:
             raise ValueError(
-                f"Serve profile '{profile.name}' cannot combine preview with splits."
+                f"Serve profile '{profile.name}' cannot combine preview with "
+                "include_splits."
             )
-        if splits:
-            _validate_split_output_filenames(profile.name, splits)
-            dataset_labels = _dataset_split_labels(definition)
-            if dataset_labels is None:
+        if include_splits:
+            if definition.dataset.split is None:
                 raise ValueError(
-                    f"Serve profile '{profile.name}' defines splits but dataset split is not configured."
+                    f"Serve profile '{profile.name}' defines include_splits but "
+                    "dataset split is not configured."
                 )
-            unknown_labels = [label for label in splits if label not in dataset_labels]
+            unknown_labels = [
+                label for label in include_splits if label not in dataset_output_splits
+            ]
             if unknown_labels:
                 unknown = ", ".join(repr(label) for label in unknown_labels)
                 raise ValueError(
-                    f"Serve profile '{profile.name}' references unknown split labels: {unknown}"
+                    f"Serve profile '{profile.name}' includes splits not published "
+                    f"by the dataset: {unknown}"
                 )
+        output_splits = include_splits
+        if is_pipeline and resolved_preview is None and not output_splits:
+            output_splits = dataset_output_splits
+        if output_splits:
+            _validate_split_output_filenames(profile.name, output_splits)
 
         effective_output = cli_output or profile.output
-        if splits and effective_output is not None and effective_output.filename:
+        if (
+            output_splits
+            and effective_output is not None
+            and effective_output.filename
+        ):
             raise ValueError(
-                f"Serve profile '{profile.name}' cannot set output.filename with splits."
+                f"Serve profile '{profile.name}' cannot set output.filename for "
+                "split dataset output."
             )
 
         serve_root = serve_roots[profile.name]
@@ -160,9 +182,10 @@ def resolve_runtime_profiles(
                 else None
             ),
         )
-        if splits and target.transport != "fs":
+        if output_splits and target.transport != "fs":
             raise ValueError(
-                f"Serve profile '{profile.name}' defines splits but output transport is not fs."
+                f"Serve profile '{profile.name}' requires fs output for split "
+                "dataset output."
             )
 
         observability = resolve_observability_settings(
@@ -183,7 +206,7 @@ def resolve_runtime_profiles(
                 throttle_ms=throttle_ms,
                 observability=observability,
                 output=target,
-                splits=splits,
+                output_splits=output_splits,
             )
         )
 
@@ -194,9 +217,9 @@ def resolve_runtime_profiles(
         destinations = (
             [
                 (label, resolved_profile.output.for_split(label).destination)
-                for label in resolved_profile.splits
+                for label in resolved_profile.output_splits
             ]
-            if resolved_profile.splits
+            if resolved_profile.output_splits
             else [(None, resolved_profile.output.destination)]
         )
         for split_label, destination in destinations:

@@ -572,6 +572,33 @@ split:
     assert first.artifact_hashes == second.artifact_hashes
 
 
+def test_split_output_labels_only_change_definition_hash(tmp_path: Path) -> None:
+    project_yaml = _write_pipeline(tmp_path)
+    dataset = tmp_path / "dataset.yaml"
+    dataset.write_text(
+        """\
+sample: {cadence: 1h}
+features: []
+targets: []
+split:
+  mode: hash
+  ratios: {train: 0.8, test: 0.2}
+  output_labels: [train]
+""",
+        encoding="utf-8",
+    )
+    first = load_pipeline(project_yaml)
+
+    dataset.write_text(
+        dataset.read_text(encoding="utf-8").replace("[train]", "[test]"),
+        encoding="utf-8",
+    )
+    second = load_pipeline(project_yaml)
+
+    assert second.definition_hash != first.definition_hash
+    assert second.artifact_hashes == first.artifact_hashes
+
+
 def test_artifact_cache_version_only_changes_artifact_hash(
     tmp_path: Path,
     monkeypatch,

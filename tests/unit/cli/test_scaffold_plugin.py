@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from datapipeline.profiles.loader import profile_specs
 from datapipeline.services.project import load_project
 from datapipeline.services.scaffold.plugin import scaffold_plugin
 from datapipeline.services.scaffold.templates import render
@@ -68,16 +69,30 @@ def test_template_profiles_separate_builds_from_runtime_actions() -> None:
         "inspect.defaults.yaml",
         "inspect.matrix.yaml",
         "serve.defaults.yaml",
-        "serve.splits.yaml",
+        "serve.dataset.yaml",
     }
     dataset_profiles = _PLUGIN_SKELETON_ROOT / "your-dataset" / "profiles"
     demo_profiles = _TEMPLATES_ROOT / "demo_skeleton" / "demo" / "profiles"
 
     assert {path.name for path in dataset_profiles.glob("*.yaml")} == {
+        "build.schema.yaml",
+        "inspect.coverage.yaml",
+        "inspect.matrix.yaml",
+        "serve.dataset.yaml",
         "serve.defaults.yaml",
-        "serve.splits.yaml",
     }
     assert {path.name for path in demo_profiles.glob("*.yaml")} == demo_expected
+
+    project = load_project(_PLUGIN_SKELETON_ROOT / "your-dataset" / "project.yaml")
+    assert [
+        (profile.cmd, profile.name, profile.target)
+        for profile in profile_specs(project)
+    ] == [
+        ("serve", "dataset", "pipeline"),
+        ("build", "schema", "schema"),
+        ("inspect", "coverage", "coverage"),
+        ("inspect", "matrix", "matrix"),
+    ]
 
 
 def test_scaffold_plugin_normalizes_hyphenated_name(
@@ -94,7 +109,10 @@ def test_scaffold_plugin_normalizes_hyphenated_name(
     assert not (plugin_root / "reference").exists()
     assert not (plugin_root / "your-interim-data-builder").exists()
     assert not (dataset_root / "operations").exists()
-    assert (dataset_root / "profiles" / "serve.splits.yaml").is_file()
+    assert (dataset_root / "profiles" / "build.schema.yaml").is_file()
+    assert (dataset_root / "profiles" / "inspect.coverage.yaml").is_file()
+    assert (dataset_root / "profiles" / "inspect.matrix.yaml").is_file()
+    assert (dataset_root / "profiles" / "serve.dataset.yaml").is_file()
     assert (dataset_root / "profiles" / "serve.defaults.yaml").is_file()
 
     pyproject = (plugin_root / "pyproject.toml").read_text()

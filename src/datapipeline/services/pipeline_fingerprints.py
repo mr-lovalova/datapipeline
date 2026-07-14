@@ -231,7 +231,9 @@ def _artifact_inputs(
                     "split": (
                         None
                         if dataset.split is None
-                        else dataset.split.model_dump(mode="json")
+                        else dataset.split.model_dump(
+                            mode="json", exclude={"output_labels"}
+                        )
                     ),
                     "scaled_vectors": [
                         config.model_dump(mode="json", exclude={"sequence"})

@@ -99,9 +99,10 @@ Build profiles remain explicit roots for `jerry build` and retain their own
 - `mode: hash` – deterministic entity hash using either the group key or a
   specified feature ID.
 - `mode: time` – boundary-based slicing using timestamp labels.
-- `splits` on a serve profile applies those labels and writes one filesystem
-  output per selected label in one pipeline run. Without `splits`, serve emits
-  the full stream.
+- `output_labels` defines the partitions published by a full pipeline serve and
+  defaults to every configured label. Profile `include_splits` can narrow that
+  set. Without a dataset split, serve emits one combined stream.
+- Preview bypasses split fanout and emits one combined stage output.
 - Scaler filtering supports time splits and hash splits keyed by `group`. A hash
   `feature:<id>` key requires the scaler operation to use `split_label: all`.
 

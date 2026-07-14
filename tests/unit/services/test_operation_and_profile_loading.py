@@ -358,17 +358,43 @@ def test_serve_tasks_respect_name_and_enabled(tmp_path):
     assert [task.name for task in tasks if task.enabled] == ["train"]
 
 
-def test_serve_profiles_load_splits(tmp_path):
+def test_serve_profiles_load_include_splits(tmp_path):
     project_yaml = _write_project(tmp_path, operations_ref="operations")
     config_dir = _profile_kind_dir(project_yaml)
-    (config_dir / "serve.splits.yaml").write_text(
-        "target: pipeline\nsplits: [train, val]\n",
+    (config_dir / "serve.dataset.yaml").write_text(
+        "target: pipeline\ninclude_splits: [train, val]\n",
         encoding="utf-8",
     )
 
     tasks = _serve_profiles(project_yaml)
 
-    assert tasks[0].splits == ["train", "val"]
+    assert tasks[0].include_splits == ["train", "val"]
+
+
+def test_serve_defaults_supply_include_splits_unless_profile_overrides(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    profiles_dir = _profile_kind_dir(project_yaml)
+    (profiles_dir / "serve.defaults.yaml").write_text(
+        "include_splits: [train, val]\n",
+        encoding="utf-8",
+    )
+    (profiles_dir / "serve.all.yaml").write_text(
+        "target: pipeline\n",
+        encoding="utf-8",
+    )
+    (profiles_dir / "serve.test.yaml").write_text(
+        "target: pipeline\ninclude_splits: [test]\n",
+        encoding="utf-8",
+    )
+
+    profiles = _serve_profiles(project_yaml)
+    defaults = _serve_defaults(project_yaml)
+    merged = [apply_profile_defaults(profile, defaults) for profile in profiles]
+
+    assert [profile.include_splits for profile in merged] == [
+        ["train", "val"],
+        ["test"],
+    ]
 
 
 def test_serve_profiles_interpolate_project_globals(tmp_path):

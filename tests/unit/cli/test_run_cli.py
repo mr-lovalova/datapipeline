@@ -5,7 +5,7 @@ from pydantic import ValidationError
 
 from datapipeline.cli.workspace import WorkspaceContext
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
-from datapipeline.config.dataset.split import HashSplitConfig
+from datapipeline.config.dataset.split import HashSplitConfig, TimeSplitConfig
 from datapipeline.config.profiles import (
     BuildProfile,
     InspectProfile,
@@ -13,6 +13,7 @@ from datapipeline.config.profiles import (
     ServeProfile,
 )
 from datapipeline.config.preview import PreviewStage
+from datapipeline.config.tasks import OperationTask, PipelineTask
 from datapipeline.execution.settings import LogOutputTarget
 from datapipeline.profiles.runtime_profiles import resolve_runtime_profiles
 from datapipeline.config.workspace import WorkspaceConfig
@@ -27,7 +28,8 @@ def _resolve(
     cli_output: ServeOutputConfig | None = None,
     cli_log_outputs: list[LogOutputTarget] | None = None,
     cli_heartbeat_interval_seconds: float | None = None,
-    split: HashSplitConfig | None = None,
+    split: HashSplitConfig | TimeSplitConfig | None = None,
+    runtime_operations: tuple[OperationTask, ...] = (),
 ):
     definition = pipeline_definition(
         project_path,
@@ -35,6 +37,7 @@ def _resolve(
             sample=SampleConfig(cadence="1h"),
             split=split,
         ),
+        runtime_operations=runtime_operations,
     )
     return resolve_runtime_profiles(
         definition=definition,
@@ -50,27 +53,52 @@ def _resolve(
     )
 
 
-def test_serve_profile_accepts_splits_list():
+def test_serve_profile_accepts_include_splits_list():
     profile = ServeProfile.model_validate(
         {
             "cmd": "serve",
-            "name": "splits",
+            "name": "dataset",
             "target": "serve",
-            "splits": ["train", "val"],
+            "include_splits": ["train", "val"],
         }
     )
 
-    assert profile.splits == ["train", "val"]
+    assert profile.include_splits == ["train", "val"]
 
 
-def test_serve_profile_rejects_splits_string():
-    with pytest.raises(ValidationError, match="splits must be a list"):
+def test_serve_profile_rejects_include_splits_string():
+    with pytest.raises(ValidationError, match="include_splits must be a list"):
         ServeProfile.model_validate(
             {
                 "cmd": "serve",
-                "name": "splits",
+                "name": "dataset",
                 "target": "serve",
-                "splits": "train",
+                "include_splits": "train",
+            }
+        )
+
+
+@pytest.mark.parametrize("label", [42, " train"])
+def test_serve_profile_rejects_invalid_include_split_label(label):
+    with pytest.raises(ValidationError, match="include_splits labels must"):
+        ServeProfile.model_validate(
+            {
+                "cmd": "serve",
+                "name": "dataset",
+                "target": "serve",
+                "include_splits": [label],
+            }
+        )
+
+
+def test_serve_profile_rejects_removed_splits_field():
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        ServeProfile.model_validate(
+            {
+                "cmd": "serve",
+                "name": "dataset",
+                "target": "serve",
+                "splits": ["train"],
             }
         )
 
@@ -140,13 +168,126 @@ def test_runtime_profiles_resolve_heartbeat_setting(tmp_path):
     assert cli_override.observability.heartbeat_interval_seconds == 0
 
 
-def test_run_profiles_resolve_splits_for_fs_output(tmp_path):
+def test_pipeline_serve_defaults_to_dataset_output_splits(tmp_path):
     profile = ServeProfile.model_validate(
         {
             "cmd": "serve",
-            "name": "splits",
+            "name": "dataset",
+            "target": "pipeline",
+            "output": {
+                "transport": "fs",
+                "format": "jsonl",
+                "directory": "runs",
+            },
+        }
+    )
+    split = TimeSplitConfig(
+        boundaries=["2024-01-01T00:00:00Z", "2024-02-01T00:00:00Z"],
+        labels=["train", "purge", "val"],
+        output_labels=["train", "val"],
+    )
+
+    resolved = _resolve(
+        tmp_path / "project.yaml",
+        [profile],
+        split=split,
+        runtime_operations=(PipelineTask(id="pipeline"),),
+    )[0]
+
+    assert resolved.output_splits == ("train", "val")
+
+
+def test_pipeline_serve_without_dataset_split_emits_combined_output(tmp_path):
+    profile = ServeProfile.model_validate(
+        {"cmd": "serve", "name": "dataset", "target": "pipeline"}
+    )
+
+    resolved = _resolve(
+        tmp_path / "project.yaml",
+        [profile],
+        runtime_operations=(PipelineTask(id="pipeline"),),
+    )[0]
+
+    assert resolved.output_splits == ()
+
+
+def test_pipeline_preview_bypasses_default_split_outputs(tmp_path):
+    profile = ServeProfile.model_validate(
+        {
+            "cmd": "serve",
+            "name": "dataset",
+            "target": "pipeline",
+            "output": {
+                "transport": "fs",
+                "format": "jsonl",
+                "directory": "runs",
+            },
+        }
+    )
+
+    resolved = _resolve(
+        tmp_path / "project.yaml",
+        [profile],
+        preview="postprocess",
+        split=HashSplitConfig(ratios={"train": 0.8, "test": 0.2}),
+        runtime_operations=(PipelineTask(id="pipeline"),),
+    )[0]
+
+    assert resolved.preview == "postprocess"
+    assert resolved.output_splits == ()
+
+
+def test_pipeline_preview_rejects_explicit_include_splits(tmp_path):
+    profile = ServeProfile.model_validate(
+        {
+            "cmd": "serve",
+            "name": "dataset",
+            "target": "pipeline",
+            "include_splits": ["train"],
+        }
+    )
+
+    with pytest.raises(ValueError, match="cannot combine preview with include_splits"):
+        _resolve(
+            tmp_path / "project.yaml",
+            [profile],
+            preview="postprocess",
+            split=HashSplitConfig(ratios={"train": 1.0}),
+            runtime_operations=(PipelineTask(id="pipeline"),),
+        )
+
+
+def test_non_dataset_runtime_profiles_do_not_inherit_split_outputs(tmp_path):
+    profiles = [
+        ServeProfile.model_validate(
+            {"cmd": "serve", "name": "custom", "target": "custom"}
+        ),
+        InspectProfile.model_validate(
+            {"cmd": "inspect", "name": "pipeline", "target": "pipeline"}
+        ),
+    ]
+    operations = (
+        OperationTask(id="custom", entrypoint="plugin.runtime.custom"),
+        PipelineTask(id="pipeline"),
+    )
+
+    resolved = _resolve(
+        tmp_path / "project.yaml",
+        profiles,
+        split=HashSplitConfig(ratios={"train": 1.0}),
+        runtime_operations=operations,
+    )
+
+    assert [profile.output_splits for profile in resolved] == [(), ()]
+
+
+def test_run_profiles_resolve_include_splits_for_fs_output(tmp_path):
+    profile = ServeProfile.model_validate(
+        {
+            "cmd": "serve",
+            "name": "dataset",
             "target": "serve",
-            "splits": ["train", "val"],
+            "include_splits": ["train", "val"],
             "output": {
                 "transport": "fs",
                 "format": "jsonl",
@@ -160,20 +301,20 @@ def test_run_profiles_resolve_splits_for_fs_output(tmp_path):
         split=HashSplitConfig(ratios={"train": 0.8, "val": 0.2}),
     )[0]
 
-    assert resolved.name == "splits"
+    assert resolved.name == "dataset"
     assert resolved.target_id == "serve"
-    assert resolved.splits == ("train", "val")
+    assert resolved.output_splits == ("train", "val")
     assert not hasattr(resolved, "runtime")
     assert resolved.output.transport == "fs"
 
 
-def test_run_profiles_reject_splits_without_dataset_split(tmp_path):
+def test_run_profiles_reject_include_splits_without_dataset_split(tmp_path):
     profile = ServeProfile.model_validate(
         {
             "cmd": "serve",
-            "name": "splits",
+            "name": "dataset",
             "target": "serve",
-            "splits": ["train"],
+            "include_splits": ["train"],
             "output": {
                 "transport": "fs",
                 "format": "jsonl",
@@ -186,13 +327,13 @@ def test_run_profiles_reject_splits_without_dataset_split(tmp_path):
         _resolve(tmp_path / "project.yaml", [profile])
 
 
-def test_run_profiles_reject_unknown_splits(tmp_path):
+def test_run_profiles_reject_unknown_include_splits(tmp_path):
     profile = ServeProfile.model_validate(
         {
             "cmd": "serve",
-            "name": "splits",
+            "name": "dataset",
             "target": "serve",
-            "splits": ["train", "test"],
+            "include_splits": ["train", "test"],
             "output": {
                 "transport": "fs",
                 "format": "jsonl",
@@ -200,7 +341,7 @@ def test_run_profiles_reject_unknown_splits(tmp_path):
             },
         }
     )
-    with pytest.raises(ValueError, match="unknown split labels: 'test'"):
+    with pytest.raises(ValueError, match="not published by the dataset: 'test'"):
         _resolve(
             tmp_path / "project.yaml",
             [profile],
@@ -208,16 +349,45 @@ def test_run_profiles_reject_unknown_splits(tmp_path):
         )
 
 
-def test_run_profiles_reject_splits_for_stdout(tmp_path):
+def test_include_splits_cannot_publish_internal_dataset_label(tmp_path):
     profile = ServeProfile.model_validate(
         {
             "cmd": "serve",
-            "name": "splits",
-            "target": "serve",
-            "splits": ["train"],
+            "name": "dataset",
+            "target": "pipeline",
+            "include_splits": ["purge"],
+            "output": {
+                "transport": "fs",
+                "format": "jsonl",
+                "directory": "runs",
+            },
         }
     )
-    with pytest.raises(ValueError, match="output transport is not fs"):
+    split = TimeSplitConfig(
+        boundaries=["2024-01-01T00:00:00Z", "2024-02-01T00:00:00Z"],
+        labels=["train", "purge", "val"],
+        output_labels=["train", "val"],
+    )
+
+    with pytest.raises(ValueError, match="not published by the dataset: 'purge'"):
+        _resolve(
+            tmp_path / "project.yaml",
+            [profile],
+            split=split,
+            runtime_operations=(PipelineTask(id="pipeline"),),
+        )
+
+
+def test_run_profiles_reject_include_splits_for_stdout(tmp_path):
+    profile = ServeProfile.model_validate(
+        {
+            "cmd": "serve",
+            "name": "dataset",
+            "target": "serve",
+            "include_splits": ["train"],
+        }
+    )
+    with pytest.raises(ValueError, match="requires fs output"):
         _resolve(
             tmp_path / "project.yaml",
             [profile],
@@ -225,13 +395,27 @@ def test_run_profiles_reject_splits_for_stdout(tmp_path):
         )
 
 
-def test_run_profiles_reject_splits_with_explicit_filename(tmp_path):
+def test_default_split_output_rejects_stdout(tmp_path):
+    profile = ServeProfile.model_validate(
+        {"cmd": "serve", "name": "dataset", "target": "pipeline"}
+    )
+
+    with pytest.raises(ValueError, match="requires fs output"):
+        _resolve(
+            tmp_path / "project.yaml",
+            [profile],
+            split=HashSplitConfig(ratios={"train": 1.0}),
+            runtime_operations=(PipelineTask(id="pipeline"),),
+        )
+
+
+def test_run_profiles_reject_include_splits_with_explicit_filename(tmp_path):
     profile = ServeProfile.model_validate(
         {
             "cmd": "serve",
-            "name": "splits",
+            "name": "dataset",
             "target": "serve",
-            "splits": ["train"],
+            "include_splits": ["train"],
             "output": {
                 "transport": "fs",
                 "format": "jsonl",
@@ -240,7 +424,9 @@ def test_run_profiles_reject_splits_with_explicit_filename(tmp_path):
             },
         }
     )
-    with pytest.raises(ValueError, match="cannot set output.filename with splits"):
+    with pytest.raises(
+        ValueError, match="cannot set output.filename for split dataset output"
+    ):
         _resolve(
             tmp_path / "project.yaml",
             [profile],
@@ -248,15 +434,43 @@ def test_run_profiles_reject_splits_with_explicit_filename(tmp_path):
         )
 
 
-def test_run_profiles_reject_splits_with_colliding_output_filenames(
-    tmp_path,
+def test_default_split_output_rejects_explicit_filename(tmp_path):
+    profile = ServeProfile.model_validate(
+        {
+            "cmd": "serve",
+            "name": "dataset",
+            "target": "pipeline",
+            "output": {
+                "transport": "fs",
+                "format": "jsonl",
+                "directory": "runs",
+                "filename": "vectors",
+            },
+        }
+    )
+
+    with pytest.raises(ValueError, match="cannot set output.filename"):
+        _resolve(
+            tmp_path / "project.yaml",
+            [profile],
+            split=HashSplitConfig(ratios={"train": 1.0}),
+            runtime_operations=(PipelineTask(id="pipeline"),),
+        )
+
+
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [("north/west", "north_west"), ("train", "TRAIN")],
+)
+def test_run_profiles_reject_include_splits_with_colliding_output_filenames(
+    tmp_path, first, second
 ):
     profile = ServeProfile.model_validate(
         {
             "cmd": "serve",
-            "name": "splits",
+            "name": "dataset",
             "target": "serve",
-            "splits": ["north/west", "north_west"],
+            "include_splits": [first, second],
             "output": {
                 "transport": "fs",
                 "format": "jsonl",
@@ -268,7 +482,7 @@ def test_run_profiles_reject_splits_with_colliding_output_filenames(
         _resolve(
             tmp_path / "project.yaml",
             [profile],
-            split=HashSplitConfig(ratios={"north/west": 0.5, "north_west": 0.5}),
+            split=HashSplitConfig(ratios={first: 0.5, second: 0.5}),
         )
 
 
@@ -443,10 +657,10 @@ def test_serve_runtime_profiles_share_run_and_namespace_splits(tmp_path):
                 "cmd": "serve",
                 "name": name,
                 "target": "serve",
-                "splits": splits,
+                "include_splits": include_splits,
             }
         )
-        for name, splits in (
+        for name, include_splits in (
             ("first", ["train"]),
             ("second", ["train"]),
             ("train", None),

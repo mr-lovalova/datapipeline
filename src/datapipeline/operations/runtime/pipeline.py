@@ -210,16 +210,16 @@ def _serve_split_outputs(
     target_cfgs: list[FeatureRecordConfig],
     cadence: str,
     sample_keys: list[str],
-    split_labels: list[str],
+    output_splits: tuple[str, ...],
     limit: int | None,
     target: OutputTarget,
     throttle_ms: float | None,
 ) -> RuntimeOutputBatch:
     if target.transport != "fs":
-        raise ValueError("serve splits require fs output")
+        raise ValueError("split outputs require fs output")
     split_cfg = runtime.dataset.split
     if split_cfg is None:
-        raise ValueError("serve splits require dataset split configuration")
+        raise ValueError("split outputs require dataset split configuration")
 
     runtime.window_bounds = resolve_window_bounds(runtime, True)
     vectors = run_full_pipeline(
@@ -232,7 +232,7 @@ def _serve_split_outputs(
     )
     labeler = build_labeler(split_cfg)
     rows = throttle_vectors(_managed_items(vectors), throttle_ms)
-    targets = {label: target.for_split(label) for label in split_labels}
+    targets = {label: target.for_split(label) for label in output_splits}
 
     return RuntimeOutputBatch(
         outputs=(
@@ -263,10 +263,10 @@ def run_pipeline_operation(
         return None
     cadence = dataset.sample.cadence
 
-    split_labels = list(runtime.split_labels)
-    if split_labels:
+    output_splits = runtime.output_splits
+    if output_splits:
         if preview is not None:
-            raise ValueError("serve splits do not support previews")
+            raise ValueError("split outputs do not support previews")
         return _serve_split_outputs(
             context=context,
             runtime=runtime,
@@ -274,7 +274,7 @@ def run_pipeline_operation(
             target_cfgs=target_cfgs,
             cadence=cadence,
             sample_keys=dataset.sample.keys,
-            split_labels=split_labels,
+            output_splits=output_splits,
             limit=limit,
             target=target,
             throttle_ms=throttle_ms,

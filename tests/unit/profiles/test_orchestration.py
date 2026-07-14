@@ -105,7 +105,7 @@ def _runtime(tmp_path: Path, marker: str = "runtime") -> SimpleNamespace:
         dataset=_dataset(),
         execution=ExecutionConfig(),
         heartbeat_interval_seconds=None,
-        split_labels=(),
+        output_splits=(),
     )
 
 
@@ -127,7 +127,7 @@ def _runtime_job(
     limit: int | None = None,
     preview: PreviewStage | None = None,
     heartbeat_interval_seconds: float | None = None,
-    splits: tuple[str, ...] = (),
+    output_splits: tuple[str, ...] = (),
 ) -> RuntimeJob:
     return RuntimeJob(
         name=name,
@@ -138,7 +138,7 @@ def _runtime_job(
         limit=limit,
         throttle_ms=None,
         preview=preview,
-        splits=splits,
+        output_splits=output_splits,
     )
 
 
@@ -554,9 +554,9 @@ def test_runtime_jobs_keep_order_and_apply_execution_settings(
             task,
             _runtime(tmp_path, name),
             heartbeat_interval_seconds=heartbeat,
-            splits=splits,
+            output_splits=output_splits,
         )
-        for name, heartbeat, splits in (
+        for name, heartbeat, output_splits in (
             ("first", 10, ("train",)),
             ("second", 20, ("val",)),
             ("third", None, ()),
@@ -586,7 +586,7 @@ def test_runtime_jobs_keep_order_and_apply_execution_settings(
             (
                 plan.job.name,
                 runtime.heartbeat_interval_seconds,
-                runtime.split_labels,
+                runtime.output_splits,
                 runtime.execution,
             )
         )

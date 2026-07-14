@@ -92,17 +92,17 @@ globals:
 ### Serve Profiles (`profiles/serve.<name>.yaml`)
 
 ```yaml
-# profiles/serve.splits.yaml
+# profiles/serve.dataset.yaml
 target: pipeline # core runtime operation
 artifact_mode: AUTO # AUTO | FORCE | "OFF"; prepares runtime prerequisites once
-splits: [train, val, test] # optional; write one fs output per dataset split label
+# include_splits: [train, test] # optional subset of dataset split output_labels
 output:
-  transport: fs # stdout | fs; splits require fs
+  transport: fs # stdout | fs; configured split output requires fs
   format: jsonl
   directory: runs
   # view: raw # optional; flat | raw (default: jsonl->raw, csv/pickle->flat)
   # encoding: utf-8 # fs jsonl/csv only
-limit: 100 # cap vectors per output; with splits, the cap applies per label
+limit: 100 # cap vectors per output; with split output, applies per label
 throttle_ms: null # milliseconds to sleep between emitted vectors
 # Optional overrides:
 # observability:
@@ -118,12 +118,21 @@ throttle_ms: null # milliseconds to sleep between emitted vectors
 ```
 
 - Each serve profile is a flat file under `profiles/` with the `serve.` prefix.
-- `artifact_mode`, `output`, `limit`, `throttle_ms`, and `observability` provide defaults for `jerry serve`; CLI flags still win per invocation (see _Configuration & Resolution Order_). Filesystem runs write under `<directory>/runs/<run_id>/dataset/`; normal outputs use `<profile>.<ext>` and split outputs use `<profile>.<label>.<ext>`.
+- `artifact_mode`, `include_splits`, `output`, `limit`, `throttle_ms`, and
+  `observability` may also be set in `serve.defaults.yaml`. Profile values
+  override those defaults, and CLI flags still win where available (see
+  _Configuration & Resolution Order_). Filesystem runs write under
+  `<directory>/runs/<run_id>/dataset/`; normal outputs use `<profile>.<ext>` and
+  split outputs use `<profile>.<label>.<ext>`.
 - `output.encoding` is supported for fs `jsonl`/`csv` outputs (default `utf-8`); it is invalid for `stdout` and `pickle`.
-- `splits` consumes the pipeline once and writes one output file per label, using
-  profile-qualified filenames (for example `splits.train.jsonl` and
-  `splits.val.jsonl`).
-  Split fanout requires filesystem output and does not allow `output.filename`.
+- A full pipeline serve with `dataset.yaml:split` consumes the pipeline once and
+  writes one output file per dataset `output_labels` entry, using
+  profile-qualified filenames such as `dataset.train.jsonl`. When
+  `output_labels` is omitted, every configured label is published.
+  `include_splits` optionally narrows that set. Split fanout requires filesystem
+  output and does not allow `output.filename`.
+- Preview bypasses automatic split fanout and emits one combined stage output.
+  A profile cannot combine explicit `include_splits` with preview.
 - Before any selected serve profile runs, Jerry unions their artifact
   requirements and prepares the union once according to `artifact_mode`.
   `AUTO` builds missing or stale artifacts, `FORCE` rebuilds the required
@@ -503,6 +512,7 @@ split:
   key: group # group | feature:<id>
   seed: 42
   ratios: { train: 0.8, val: 0.1, test: 0.1 }
+  # output_labels: [train, test] # optional published subset; defaults to all
 
 postprocess:
   columns:
@@ -548,11 +558,13 @@ postprocess:
   ordered group.
 - Feature configuration exposes only `scale` and `sequence`; it does not accept
   arbitrary feature transform entry-point clauses.
-- `split` defines how samples receive labels; a serve profile's `splits`
-  selects which labels receive filesystem outputs. Labels must be nonempty and
-  unique. Hash-ratio mappings are canonicalized by label, so YAML key order does
-  not change sample assignment. Time boundaries must be valid ISO-8601
-  datetimes in strictly increasing order.
+- `split` defines how samples receive labels. `output_labels` defines the labels
+  published by a normal pipeline serve and defaults to every configured label;
+  profile `include_splits` can only narrow that set. This lets time splits retain
+  named purge intervals for scaler selection without publishing them. Labels
+  must be nonempty and unique. Hash-ratio mappings are canonicalized by label,
+  so YAML key order does not change sample assignment. Time boundaries must be
+  valid ISO-8601 datetimes in strictly increasing order.
 - `postprocess.columns` and `postprocess.samples` are structural policies that
   run after assembly and before serving.
 

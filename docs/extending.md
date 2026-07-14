@@ -49,8 +49,9 @@ def run_report(
 `runtime` is the compiled `Runtime`, `task` is the configured `OperationTask`,
 and `limit` is the CLI cap or `None`. Return `RuntimeOutput`,
 `SplitRuntimeOutput`, `RuntimeOutputBatch`, or `None`. Jerry persists the result
-using the profile output. Preview, throttle, and split settings belong to the
-built-in pipeline operation and are not passed to plugins.
+using the profile output. Dataset split routing, preview, throttle, and
+`include_splits` belong to the built-in pipeline operation and are not passed to
+plugins.
 
 Record and stream transforms are validated built-in operations rather than
 plugin entry points. Feature shaping and postprocess policies are fixed pipeline

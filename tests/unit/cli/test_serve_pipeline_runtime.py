@@ -22,7 +22,7 @@ def _runtime(streams=None):
         window_bounds=None,
         pipeline_observer=None,
         heartbeat_interval_seconds=None,
-        split_labels=(),
+        output_splits=(),
         streams=streams or {},
     )
     runtime.dataset = _dataset()
@@ -165,7 +165,7 @@ def test_pipeline_operation_returns_split_fanout_output(monkeypatch, tmp_path):
         window_bounds=None,
         pipeline_observer=None,
         heartbeat_interval_seconds=None,
-        split_labels=("train", "val"),
+        output_splits=("train", "val"),
     )
     dataset = _dataset()
     dataset.split = TimeSplitConfig(

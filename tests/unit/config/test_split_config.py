@@ -5,6 +5,7 @@ from datapipeline.config.dataset.split import (
     HashSplitConfig,
     SplitConfig,
     TimeSplitConfig,
+    split_output_labels,
 )
 
 
@@ -28,6 +29,36 @@ def test_hash_split_canonicalizes_ratio_order() -> None:
     assert first.ratios == second.ratios
 
 
+def test_split_output_labels_default_to_all_defined_labels() -> None:
+    hash_split = HashSplitConfig(ratios={"train": 0.8, "test": 0.2})
+    time_split = TimeSplitConfig(
+        boundaries=["2024-01-01T00:00:00Z"],
+        labels=["train", "test"],
+    )
+
+    assert split_output_labels(hash_split) == ("test", "train")
+    assert split_output_labels(time_split) == ("train", "test")
+
+
+def test_split_output_labels_preserve_configured_subset_order() -> None:
+    config = HashSplitConfig(
+        ratios={"train": 0.8, "val": 0.1, "test": 0.1},
+        output_labels=["train", "val"],
+    )
+
+    assert split_output_labels(config) == ("train", "val")
+
+
+def test_time_split_output_labels_can_omit_internal_intervals() -> None:
+    config = TimeSplitConfig(
+        boundaries=["2024-01-01T00:00:00Z", "2024-02-01T00:00:00Z"],
+        labels=["train", "purge", "val"],
+        output_labels=["train", "val"],
+    )
+
+    assert split_output_labels(config) == ("train", "val")
+
+
 @pytest.mark.parametrize(
     ("payload", "message"),
     [
@@ -40,6 +71,14 @@ def test_hash_split_canonicalizes_ratio_order() -> None:
         ({"ratios": {"": 1.0}}, "labels must not be empty"),
         ({"ratios": {" train ": 1.0}}, "outer whitespace"),
         ({"ratios": {"train": 1.0}, "seed": "42"}, "valid integer"),
+        (
+            {"ratios": {"train": 1.0}, "output_labels": ["test"]},
+            "not defined by ratios",
+        ),
+        (
+            {"ratios": {"train": 1.0}, "output_labels": ["train", "train"]},
+            "must be unique",
+        ),
         ({"ratios": {"train": 1.0}, "unknown": True}, "Extra inputs"),
     ],
 )
@@ -94,6 +133,24 @@ def test_hash_split_rejects_invalid_config(payload, message) -> None:
                 "labels": ["train", " "],
             },
             "labels must not be empty",
+        ),
+        (
+            {
+                "mode": "time",
+                "boundaries": ["2024-01-01T00:00:00Z"],
+                "labels": ["train", "test"],
+                "output_labels": ["val"],
+            },
+            "output labels are not defined by labels",
+        ),
+        (
+            {
+                "mode": "time",
+                "boundaries": ["2024-01-01T00:00:00Z"],
+                "labels": ["train", "test"],
+                "output_labels": ["train", "train"],
+            },
+            "output labels must be unique",
         ),
     ],
 )

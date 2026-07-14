@@ -1,2 +1,0 @@
-target: pipeline
-splits: [train, val, test]

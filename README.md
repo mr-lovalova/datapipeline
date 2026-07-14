@@ -105,9 +105,12 @@ then performs normal output persistence.
 
 Split timing (leakage note)
 
-- A serve profile with `splits:` routes the postprocessed sample stream to one fs output per requested label. Split filenames retain the profile name, such as `splits.train.jsonl`. Profiles without `splits:` emit the combined stream.
-- Split fan-out cannot be combined with `--preview`; use `samples` or
-  `postprocess` to inspect the combined stream before running the fan-out profile.
+- A full pipeline serve uses `dataset.yaml:split.output_labels` and writes one fs
+  output per label, such as `dataset.train.jsonl`. When `output_labels` is
+  omitted, every configured split label is published. A profile's
+  `include_splits` can narrow that dataset-defined set.
+- Preview bypasses split fan-out and emits the selected combined stage.
+  Explicit `include_splits` cannot be combined with `--preview`.
 - Feature engineering runs before split; keep it causal (no look-ahead, no future leakage).
 - Scaler statistics are fit by the core `scaler` build operation and are typically restricted to the `train` split (configurable via `split_label`). Scaler filtering supports time splits and hash splits keyed by `group`; a hash `feature:<id>` key requires `split_label: all`. Temporal folds can fit multiple internal scalers in the same scaler artifact.
 

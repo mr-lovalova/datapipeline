@@ -387,7 +387,7 @@ def build_profile_run_request(
                     limit=profile.limit,
                     throttle_ms=profile.throttle_ms,
                     preview=profile.preview,
-                    splits=profile.splits,
+                    output_splits=profile.output_splits,
                 )
                 for profile in resolved_runtime_profiles
             ]

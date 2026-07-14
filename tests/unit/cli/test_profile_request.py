@@ -126,6 +126,35 @@ def test_disabled_profiles_do_not_create_execution_directory(tmp_path: Path):
     assert not (tmp_path / "artifacts" / "_system" / "executions").exists()
 
 
+def test_serve_request_uses_dataset_output_splits_by_default(tmp_path: Path):
+    project_yaml = _write_project(tmp_path)
+    (tmp_path / "dataset.yaml").write_text(
+        """\
+sample: {cadence: 1h}
+split:
+  mode: hash
+  ratios: {train: 0.8, test: 0.2}
+  output_labels: [train, test]
+""",
+        encoding="utf-8",
+    )
+    profiles = tmp_path / "profiles"
+    profiles.mkdir()
+    (profiles / "serve.defaults.yaml").write_text(
+        "output: {transport: fs, format: jsonl, directory: output}\n",
+        encoding="utf-8",
+    )
+    (profiles / "serve.dataset.yaml").write_text(
+        "target: pipeline\n",
+        encoding="utf-8",
+    )
+
+    request = build_profile_run_request(kind="serve", project=str(project_yaml))
+
+    assert request is not None
+    assert request.jobs[0].output_splits == ("train", "test")
+
+
 def test_materialize_request_uses_shared_resolution_snapshot(
     monkeypatch,
     tmp_path: Path,

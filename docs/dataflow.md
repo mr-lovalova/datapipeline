@@ -15,7 +15,7 @@ jerry.yaml: default_dataset
           -> dataset.yaml: stream: <streams.id>, field: <record_field>
             -> jerry serve
               -> runs/<run_id>/dataset/<profile>.jsonl|csv|...
-              -> runs/<run_id>/dataset/<profile>.<split>.jsonl|csv|... when the profile sets splits
+              -> runs/<run_id>/dataset/<profile>.<split>.jsonl|csv|... when dataset.split is configured
 ```
 
 ## 1) Workspace selects dataset project
@@ -152,9 +152,9 @@ Output layout:
 vectors/
   runs/<run_id>/
     dataset/
-      splits.test.jsonl
-      splits.train.jsonl
-      splits.val.jsonl
+      dataset.test.jsonl
+      dataset.train.jsonl
+      dataset.val.jsonl
 ```
 
 Expected behavior:

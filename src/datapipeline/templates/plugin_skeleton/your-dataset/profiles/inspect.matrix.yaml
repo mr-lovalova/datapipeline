@@ -1,0 +1,5 @@
+target: matrix
+output:
+  transport: fs
+  format: html
+  directory: ../artifacts/inspect
