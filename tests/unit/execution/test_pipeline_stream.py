@@ -210,26 +210,37 @@ def test_stages_emit_ordered_results_and_counts(tmp_path: Path) -> None:
     assert observer.pipeline_events[-1].status == "success"
 
 
-def test_custom_progress_belongs_to_the_reporting_stage(tmp_path: Path) -> None:
+def test_custom_progress_belongs_to_the_reporting_stage(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(pipeline_runner, "_LIVE_PROGRESS_INTERVAL_SECONDS", 0.001)
     observer = _CollectingObserver()
 
     def annotate(records: Iterable[int]) -> Iterator[int]:
         for value in records:
-            pipeline_runner.report_node_progress(
-                ProgressSnapshot(
-                    completed=value,
-                    total=2,
-                    phase="mapping",
-                    detail="after input read",
+            yield value
+            assert observer.wait_for_progress(
+                lambda event: (
+                    event.node_name == "annotate"
+                    and event.progress.completed == value
+                    and event.progress.detail == "after input read"
                 )
             )
-            yield value
+
+    def progress(completed: int) -> ProgressSnapshot:
+        return ProgressSnapshot(
+            completed=completed,
+            total=2,
+            phase="mapping",
+            detail="after input read",
+        )
 
     pipeline = Pipeline(
         name="progress",
         nodes=(
             SourceNode("source", lambda: [1, 2]),
-            PipelineNode("annotate", annotate),
+            PipelineNode("annotate", annotate, progress=progress),
         ),
     )
 
@@ -244,6 +255,111 @@ def test_custom_progress_belongs_to_the_reporting_stage(tmp_path: Path) -> None:
     assert all(event.node_name == "annotate" for event in custom)
     assert all(event.node_index == 1 for event in custom)
     assert all(not event.persistent for event in custom)
+
+
+def test_unobserved_pipeline_does_not_read_progress(tmp_path: Path) -> None:
+    def fail_progress(_completed: int) -> ProgressSnapshot:
+        raise AssertionError("unobserved pipeline sampled progress")
+
+    pipeline = Pipeline(
+        name="unobserved",
+        nodes=(SourceNode("source", lambda: [1, 2], progress=fail_progress),),
+    )
+
+    assert list(run_pipeline(_context(tmp_path), pipeline)) == [1, 2]
+
+
+def test_progress_reader_is_sampled_while_another_node_is_active(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(pipeline_runner, "_LIVE_PROGRESS_INTERVAL_SECONDS", 0.001)
+    observer = _CollectingObserver()
+
+    def source_progress(completed: int) -> ProgressSnapshot:
+        return ProgressSnapshot(completed=completed, detail="source resource")
+
+    def slow_stage(records: Iterable[int]) -> Iterator[int]:
+        for value in records:
+            assert observer.wait_for_progress(
+                lambda event: (
+                    event.node_name == "source"
+                    and event.progress.completed == value
+                    and event.progress.detail == "source resource"
+                )
+            )
+            yield value
+
+    pipeline = Pipeline(
+        name="nested-progress",
+        nodes=(
+            SourceNode("source", lambda: [1, 2], progress=source_progress),
+            PipelineNode("slow", slow_stage),
+        ),
+    )
+
+    assert list(run_pipeline(_context(tmp_path), pipeline, observer=observer)) == [1, 2]
+    source_events = [
+        event for event in observer.progress_events if event.node_name == "source"
+    ]
+    assert source_events
+    assert all(not event.persistent for event in source_events)
+
+
+def test_progress_failure_still_finishes_pipeline_lifecycle(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(pipeline_runner, "_LIVE_PROGRESS_INTERVAL_SECONDS", 0.001)
+    observer = _CollectingObserver()
+    failed = threading.Event()
+
+    def fail_progress(_completed: int) -> ProgressSnapshot:
+        failed.set()
+        raise ValueError("broken progress")
+
+    def source() -> Iterator[int]:
+        assert failed.wait(1.0)
+        yield 1
+
+    pipeline = Pipeline(
+        name="progress-failure",
+        nodes=(SourceNode("source", source, progress=fail_progress),),
+    )
+
+    with pytest.raises(RuntimeError, match="Pipeline progress failed"):
+        list(run_pipeline(_context(tmp_path), pipeline, observer=observer))
+
+    assert observer.pipeline_events[-1].status == "error"
+    assert observer.pipeline_events[-1].error_type == "RuntimeError"
+
+
+def test_progress_failure_does_not_mask_pipeline_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(pipeline_runner, "_LIVE_PROGRESS_INTERVAL_SECONDS", 0.001)
+    observer = _CollectingObserver()
+    progress_failed = threading.Event()
+
+    def fail_progress(_completed: int) -> ProgressSnapshot:
+        progress_failed.set()
+        raise RuntimeError("progress failed")
+
+    def fail_pipeline() -> Iterator[int]:
+        assert progress_failed.wait(1.0)
+        raise ValueError("pipeline failed")
+        yield 1
+
+    pipeline = Pipeline(
+        name="two-failures",
+        nodes=(SourceNode("source", fail_pipeline, progress=fail_progress),),
+    )
+
+    with pytest.raises(ValueError, match="pipeline failed"):
+        list(run_pipeline(_context(tmp_path), pipeline, observer=observer))
+
+    assert observer.pipeline_events[-1].error_type == "ValueError"
 
 
 def test_live_progress_samples_emitted_items(

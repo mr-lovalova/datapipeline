@@ -130,10 +130,16 @@ combine:
     runtime = compile_runtime(load_pipeline(project_yaml))
     context = PipelineContext(runtime)
     pipeline = build_stream_pipeline(context, "combined")
+    assert pipeline.name == "stream:combined"
     assert [node.name for node in pipeline.nodes] == [
         "align_inputs",
         "combine_records",
         "order_records",
+    ]
+    assert [node.progress is not None for node in pipeline.nodes] == [
+        False,
+        False,
+        True,
     ]
     preview = list(_record_preview_stream(context, "combined", "mapped"))
     assert [record.value for record in preview] == [115, 225]

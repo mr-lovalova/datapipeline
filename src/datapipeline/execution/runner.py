@@ -3,7 +3,7 @@ import threading
 import time
 from collections.abc import Generator, Iterable, Iterator
 from contextvars import copy_context
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import Any
 
 from datapipeline.execution.context import PipelineContext
@@ -14,7 +14,7 @@ from datapipeline.execution.events import (
     ProgressSnapshot,
     RunStatus,
 )
-from datapipeline.execution.node import Node, SourceNode
+from datapipeline.execution.node import Node, NodeProgressReader, SourceNode
 from datapipeline.execution.observer import PipelineObserver, NoopPipelineObserver
 from datapipeline.execution.pipeline import Pipeline
 
@@ -22,7 +22,6 @@ from datapipeline.execution.pipeline import Pipeline
 DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 60.0
 _LIVE_PROGRESS_INTERVAL_SECONDS = 0.1
 _NOOP_OBSERVER = NoopPipelineObserver()
-_THREAD_STATE = threading.local()
 
 
 @dataclass(frozen=True)
@@ -37,7 +36,7 @@ class _NodeProgressState:
     started_at: float
     last_persistent_at: float
     completed: int
-    progress: ProgressSnapshot
+    reader: NodeProgressReader | None
     last_live_signature: tuple[object, ...] | None = None
 
 
@@ -71,36 +70,23 @@ class _RunProgress:
             if self._thread.is_alive():
                 raise RuntimeError("Pipeline progress thread did not stop")
         if self._thread_error is not None:
-            raise RuntimeError(
-                "Pipeline progress observer failed"
-            ) from self._thread_error
+            raise RuntimeError("Pipeline progress failed") from self._thread_error
 
-    def start_node(self, node: _NodeProgressContext) -> _NodeProgressState:
+    def start_node(
+        self,
+        node: _NodeProgressContext,
+        reader: NodeProgressReader | None,
+    ) -> _NodeProgressState:
         now = time.perf_counter()
         state = _NodeProgressState(
             started_at=now,
             last_persistent_at=now,
             completed=0,
-            progress=ProgressSnapshot(completed=0, unit="out"),
+            reader=reader,
         )
         with self._state_lock:
             self._states[node] = state
         return state
-
-    def report_active(self, progress: ProgressSnapshot) -> None:
-        node = self.active_node
-        if node is None:
-            return
-        with self._delivery_lock:
-            with self._state_lock:
-                state = self._states.get(node)
-                if state is None:
-                    return
-                state.completed = progress.completed
-                state.progress = progress
-                state.last_live_signature = self._signature(progress)
-                elapsed = time.perf_counter() - state.started_at
-            self._emit(node, progress, elapsed, persistent=False)
 
     def clear(self, node: _NodeProgressContext) -> None:
         with self._delivery_lock:
@@ -118,37 +104,38 @@ class _RunProgress:
             self._stop.set()
 
     def _emit_due_progress(self) -> None:
-        node = self.active_node
-        if node is None:
-            return
+        active_node = self.active_node
         now = time.perf_counter()
         with self._delivery_lock:
+            due = []
             with self._state_lock:
-                state = self._states.get(node)
-                if state is None:
-                    return
-                progress = self._snapshot(state)
-                signature = self._signature(progress)
-                persistent = (
-                    self._heartbeat_interval_seconds > 0
-                    and now - state.last_persistent_at
-                    >= self._heartbeat_interval_seconds
-                )
-                if persistent:
-                    state.last_persistent_at = now
-                    state.last_live_signature = signature
-                elif signature != state.last_live_signature:
-                    state.last_live_signature = signature
-                else:
-                    return
-                elapsed = now - state.started_at
-            self._emit(node, progress, elapsed, persistent=persistent)
+                for node, state in self._states.items():
+                    if node != active_node and state.reader is None:
+                        continue
+                    progress = self._snapshot(state)
+                    signature = self._signature(progress)
+                    persistent = (
+                        node == active_node
+                        and self._heartbeat_interval_seconds > 0
+                        and now - state.last_persistent_at
+                        >= self._heartbeat_interval_seconds
+                    )
+                    if persistent:
+                        state.last_persistent_at = now
+                        state.last_live_signature = signature
+                    elif signature != state.last_live_signature:
+                        state.last_live_signature = signature
+                    else:
+                        continue
+                    due.append((node, progress, now - state.started_at, persistent))
+            for node, progress, elapsed, persistent in due:
+                self._emit(node, progress, elapsed, persistent=persistent)
 
     @staticmethod
     def _snapshot(state: _NodeProgressState) -> ProgressSnapshot:
-        if state.progress.completed == state.completed:
-            return state.progress
-        return replace(state.progress, completed=state.completed)
+        if state.reader is None:
+            return ProgressSnapshot(completed=state.completed, unit="out")
+        return state.reader(state.completed)
 
     @staticmethod
     def _signature(progress: ProgressSnapshot) -> tuple[object, ...]:
@@ -178,12 +165,6 @@ class _RunProgress:
                 persistent=persistent,
             )
         )
-
-
-def report_node_progress(progress: ProgressSnapshot) -> None:
-    active = getattr(_THREAD_STATE, "progress", None)
-    if active is not None:
-        active.report_active(progress)
 
 
 def _close_iterator(iterator: Iterable[Any]) -> None:
@@ -281,14 +262,10 @@ def _run_observed(
         stream = _build_stream(pipeline, seed, observer=observer, progress=progress)
         iterator = iter(stream)
         while True:
-            previous = getattr(_THREAD_STATE, "progress", None)
-            _THREAD_STATE.progress = progress
             try:
                 item = next(iterator)
             except StopIteration:
                 break
-            finally:
-                _THREAD_STATE.progress = previous
             output_items += 1
             yield item
     except KeyboardInterrupt as exc:
@@ -302,12 +279,29 @@ def _run_observed(
         error_message = _error_message(exc)
         raise
     finally:
+        pipeline_failed = status == "error"
+        close_error: BaseException | None = None
         try:
             _close_iterator(iterator)
             if iterator is not stream:
                 _close_iterator(stream)
-        finally:
+        except BaseException as exc:
+            close_error = exc
+            if not pipeline_failed:
+                status = "error"
+                error_type = type(exc).__name__
+                error_message = _error_message(exc)
+
+        progress_error: RuntimeError | None = None
+        try:
             progress.stop()
+        except RuntimeError as exc:
+            progress_error = exc
+            if not pipeline_failed and close_error is None:
+                status = "error"
+                error_type = type(exc).__name__
+                error_message = _error_message(exc)
+
         if started:
             observer.on_pipeline_end(
                 PipelineRunEvent(
@@ -320,6 +314,10 @@ def _run_observed(
                     error_message=error_message,
                 )
             )
+        if not pipeline_failed and close_error is not None:
+            raise close_error
+        if not pipeline_failed and progress_error is not None:
+            raise progress_error
 
 
 def _build_stream(
@@ -441,7 +439,7 @@ def _observed_node(
     started = False
 
     try:
-        progress_state = progress.start_node(context)
+        progress_state = progress.start_node(context, node.progress)
         observer.on_node_start(pipeline_name, node.name, node_index)
         started = True
 

@@ -10,7 +10,7 @@ from datapipeline.execution.runner import resolve_heartbeat_interval_seconds
 from datapipeline.io.sinks import AtomicTextFileSink
 from datapipeline.operations.persistence import ArtifactOutput
 from datapipeline.pipelines.stream.pipeline import run_stream_pipeline
-from datapipeline.pipelines.shared.sort import batch_sort
+from datapipeline.pipelines.sort import batch_sort
 from datapipeline.runtime import Runtime
 from datapipeline.transforms.utils import get_field
 

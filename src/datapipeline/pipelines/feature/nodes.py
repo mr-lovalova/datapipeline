@@ -7,7 +7,7 @@ from datapipeline.utils.time import floor_time_to_cadence
 from datapipeline.domain.feature import FeatureRecord, FeatureSequence
 from datapipeline.execution.context import PipelineContext
 from datapipeline.pipelines.feature.projector import FeatureProjector
-from datapipeline.pipelines.shared.sort import batch_sort
+from datapipeline.pipelines.sort import SortProgress, batch_sort
 from datapipeline.services.artifacts import SCALER_SPEC
 from datapipeline.transforms.feature.scaler import FeatureScaler
 from datapipeline.utils.time import parse_cadence
@@ -74,9 +74,10 @@ class FeatureSequencer:
 
 
 def order_feature_records(
-    context: PipelineContext,
+    buffer_bytes: int,
     group_by_cadence: str | None,
     sample_keys: Sequence[str],
+    progress: SortProgress,
     features: Iterator[FeatureRecord | FeatureSequence],
 ) -> Iterable[FeatureRecord | FeatureSequence]:
     key = _time_then_id
@@ -84,8 +85,9 @@ def order_feature_records(
         key = _sample_group_then_time_and_id(group_by_cadence)
     return batch_sort(
         features,
-        buffer_bytes=context.runtime.execution.sort_buffer_bytes,
+        buffer_bytes=buffer_bytes,
         key=key,
+        progress=progress,
     )
 
 

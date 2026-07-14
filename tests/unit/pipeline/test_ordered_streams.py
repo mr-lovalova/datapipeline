@@ -1,13 +1,13 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-import datapipeline.pipelines.shared.record_nodes as record_nodes
 import pytest
-from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
-from datapipeline.config.execution import ExecutionConfig
-from datapipeline.execution.context import PipelineContext
-from datapipeline.pipelines.shared.record_nodes import order_records
-from datapipeline.runtime import Runtime
+from datapipeline.pipelines.stream.order import (
+    build_record_order_node,
+    sort_records,
+    validate_record_order,
+)
+from datapipeline.pipelines.sort import SortProgress
 
 
 @dataclass
@@ -20,31 +20,7 @@ def _ts(day: int) -> datetime:
     return datetime(2024, 1, day, tzinfo=timezone.utc)
 
 
-def _context(tmp_path):
-    project_yaml = tmp_path / "project.yaml"
-    project_yaml.write_text("version: 1\nartifact_revision: 1\n", encoding="utf-8")
-    return PipelineContext(
-        Runtime(
-            project_yaml=project_yaml,
-            artifacts_root=tmp_path / "artifacts",
-            dataset=FeatureDatasetConfig(sample=SampleConfig(cadence="1h")),
-            execution=ExecutionConfig(),
-        )
-    )
-
-
-def test_order_records_skips_sort_for_presorted_records(
-    monkeypatch,
-    tmp_path,
-) -> None:
-    called = False
-
-    def _batch_sort(*args, **kwargs):
-        nonlocal called
-        called = True
-        return ()
-
-    monkeypatch.setattr(record_nodes, "batch_sort", _batch_sort)
+def test_validate_record_order_preserves_records() -> None:
     records = [
         _Record(time=_ts(1), security_id="AAPL"),
         _Record(time=_ts(1), security_id="AAPL"),
@@ -52,17 +28,14 @@ def test_order_records_skips_sort_for_presorted_records(
     ]
 
     ordered = list(
-        order_records(
-            _context(tmp_path),
+        validate_record_order(
             ("security_id",),
-            True,
-            records,
+            iter(records),
         )
     )
 
     assert ordered == records
     assert all(actual is expected for actual, expected in zip(ordered, records))
-    assert called is False
 
 
 @pytest.mark.parametrize(
@@ -75,22 +48,20 @@ def test_order_records_skips_sort_for_presorted_records(
         ),
     ],
 )
-def test_order_records_rejects_false_presorted_declaration(tmp_path, rows) -> None:
+def test_validate_record_order_rejects_false_presorted_declaration(rows) -> None:
     records = [
         _Record(time=_ts(day), security_id=security_id) for day, security_id in rows
     ]
     with pytest.raises(ValueError, match="violates declared ordered_by|finite floats"):
         list(
-            order_records(
-                _context(tmp_path),
+            validate_record_order(
                 ("security_id",),
-                True,
-                records,
+                iter(records),
             )
         )
 
 
-def test_order_records_error_uses_config_list_syntax(tmp_path) -> None:
+def test_validate_record_order_error_uses_config_list_syntax() -> None:
     records = [
         _Record(time=_ts(2), security_id="AAPL"),
         _Record(time=_ts(1), security_id="AAPL"),
@@ -101,27 +72,25 @@ def test_order_records_error_uses_config_list_syntax(tmp_path) -> None:
         match=r"declared ordered_by \['security_id', 'time'\]",
     ):
         list(
-            order_records(
-                _context(tmp_path),
+            validate_record_order(
                 ("security_id",),
-                True,
-                records,
+                iter(records),
             )
         )
 
 
-def test_order_records_sorts_without_presorted_declaration(tmp_path) -> None:
+def test_sort_records_orders_by_partition_then_time() -> None:
     records = [
         _Record(time=_ts(2), security_id="MSFT"),
         _Record(time=_ts(1), security_id="AAPL"),
     ]
 
     ordered = list(
-        order_records(
-            _context(tmp_path),
+        sort_records(
             ("security_id",),
-            False,
-            records,
+            1_000_000,
+            SortProgress(),
+            iter(records),
         )
     )
 
@@ -129,3 +98,11 @@ def test_order_records_sorts_without_presorted_declaration(tmp_path) -> None:
         ("AAPL", 1),
         ("MSFT", 2),
     ]
+
+
+def test_only_real_sort_nodes_expose_sort_progress() -> None:
+    validate = build_record_order_node(("security_id",), True, 1_000_000)
+    sort = build_record_order_node(("security_id",), False, 1_000_000)
+
+    assert validate.progress is None
+    assert sort.progress is not None

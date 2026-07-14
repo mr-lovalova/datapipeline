@@ -15,6 +15,7 @@ from datapipeline.pipelines.feature.nodes import (
     sequence_features,
 )
 from datapipeline.pipelines.feature.projector import FeatureProjector
+from datapipeline.pipelines.sort import SortProgress
 from datapipeline.execution.context import PipelineContext
 from datapipeline.pipelines.stream.pipeline import build_stream_pipeline
 from datapipeline.runtime import require_runtime_stream
@@ -98,15 +99,18 @@ def build_feature_nodes(
                 apply=partial(sequence_features, config.sequence),
             )
         )
+    sort_progress = SortProgress()
     nodes.append(
         PipelineNode(
             name="order_feature_records",
             apply=partial(
                 order_feature_records,
-                context,
+                context.runtime.execution.sort_buffer_bytes,
                 group_by_cadence,
                 sample_keys,
+                sort_progress,
             ),
+            progress=sort_progress.snapshot,
         ),
     )
     return tuple(nodes)

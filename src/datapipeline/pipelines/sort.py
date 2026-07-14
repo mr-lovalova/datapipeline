@@ -1,17 +1,66 @@
 import heapq
 import pickle
 from collections.abc import Callable, Generator, Iterable, Iterator, Sequence
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, TypeVar
 
 from datapipeline.execution.events import ProgressSnapshot
-from datapipeline.execution.runner import report_node_progress
 from datapipeline.services.temp_cleanup import sort_spill_directory
 
 T = TypeVar("T")
 _BufferedItem = tuple[Any, bytes]
 _MAX_OPEN_RUNS = 64
 _MERGE_PROGRESS_INTERVAL = 100_000
+
+
+@dataclass(frozen=True)
+class _SortProgressState:
+    progress: ProgressSnapshot
+    uses_output_items: bool = False
+
+
+class SortProgress:
+    def __init__(self) -> None:
+        self._state = _SortProgressState(ProgressSnapshot(completed=0, phase="reading"))
+
+    def reading(self, completed: int) -> None:
+        self._state = _SortProgressState(
+            ProgressSnapshot(completed=completed, phase="reading")
+        )
+
+    def spilling(self, completed: int, runs: int) -> None:
+        self._state = _SortProgressState(
+            ProgressSnapshot(
+                completed=completed,
+                phase="spilling",
+                detail=f"{runs} spill runs",
+            )
+        )
+
+    def merging(self, completed: int, total: int, pass_id: int) -> None:
+        self._state = _SortProgressState(
+            ProgressSnapshot(
+                completed=completed,
+                total=total,
+                phase="merging",
+                detail=f"pass {pass_id}",
+            )
+        )
+
+    def emitting(self, total: int) -> None:
+        self._state = _SortProgressState(
+            ProgressSnapshot(completed=0, total=total, phase="emitting"),
+            uses_output_items=True,
+        )
+
+    def snapshot(self, output_items: int) -> ProgressSnapshot:
+        state = self._state
+        return (
+            replace(state.progress, completed=output_items)
+            if state.uses_output_items
+            else state.progress
+        )
 
 
 def _sorted_runs(
@@ -45,27 +94,24 @@ def batch_sort(
     buffer_bytes: int,
     key: Callable[[T], Any],
     spill_dir: Path | None = None,
+    progress: SortProgress | None = None,
 ) -> Generator[T, None, None]:
     """Stably sort serialized values, spilling runs when the buffer is exceeded."""
     if buffer_bytes < 1:
         raise ValueError("buffer_bytes must be at least 1")
-    report_node_progress(ProgressSnapshot(completed=0, phase="reading"))
+    if progress is None:
+        progress = SortProgress()
+    progress.reading(0)
     runs = _sorted_runs(iterable, buffer_bytes, key)
 
     try:
         first_run, final = next(runs)
     except StopIteration:
         return
-    report_node_progress(ProgressSnapshot(completed=len(first_run), phase="reading"))
+    progress.reading(len(first_run))
 
     if final:
-        report_node_progress(
-            ProgressSnapshot(
-                completed=0,
-                total=len(first_run),
-                phase="emitting",
-            )
-        )
+        progress.emitting(len(first_run))
         for _, payload in first_run:
             yield pickle.loads(payload)
         return
@@ -74,25 +120,13 @@ def batch_sort(
         run_paths = [_write_serialized_run(temp_dir, 0, first_run)]
         input_items = len(first_run)
         first_run.clear()
-        report_node_progress(
-            ProgressSnapshot(
-                completed=input_items,
-                phase="spilling",
-                detail=f"{len(run_paths)} spill runs",
-            )
-        )
+        progress.spilling(input_items, len(run_paths))
 
         for run, _ in runs:
             run_paths.append(_write_serialized_run(temp_dir, len(run_paths), run))
             input_items += len(run)
             run.clear()
-            report_node_progress(
-                ProgressSnapshot(
-                    completed=input_items,
-                    phase="spilling",
-                    detail=f"{len(run_paths)} spill runs",
-                )
-            )
+            progress.spilling(input_items, len(run_paths))
 
         pass_id = 0
         while len(run_paths) > _MAX_OPEN_RUNS:
@@ -103,15 +137,10 @@ def batch_sort(
                 run_paths,
                 key,
                 input_items,
+                progress,
             )
 
-        report_node_progress(
-            ProgressSnapshot(
-                completed=0,
-                total=input_items,
-                phase="emitting",
-            )
-        )
+        progress.emitting(input_items)
         yield from _merge_runs(run_paths, key)
 
 
@@ -133,18 +162,12 @@ def _merge_pass(
     run_paths: Sequence[Path],
     key: Callable[[T], Any],
     input_items: int,
+    progress: SortProgress,
 ) -> list[Path]:
     merged_paths: list[Path] = []
     merged_items = 0
     pending_progress = 0
-    report_node_progress(
-        ProgressSnapshot(
-            completed=0,
-            total=input_items,
-            phase="merging",
-            detail=f"pass {pass_id}",
-        )
-    )
+    progress.merging(0, input_items, pass_id)
     for start in range(0, len(run_paths), _MAX_OPEN_RUNS):
         group = run_paths[start : start + _MAX_OPEN_RUNS]
         merged_path = temp_dir / f"merged-{pass_id}-{len(merged_paths)}.pickle"
@@ -154,27 +177,13 @@ def _merge_pass(
                 merged_items += 1
                 pending_progress += 1
                 if pending_progress == _MERGE_PROGRESS_INTERVAL:
-                    report_node_progress(
-                        ProgressSnapshot(
-                            completed=merged_items,
-                            total=input_items,
-                            phase="merging",
-                            detail=f"pass {pass_id}",
-                        )
-                    )
+                    progress.merging(merged_items, input_items, pass_id)
                     pending_progress = 0
         merged_paths.append(merged_path)
         for path in group:
             path.unlink()
     if pending_progress:
-        report_node_progress(
-            ProgressSnapshot(
-                completed=merged_items,
-                total=input_items,
-                phase="merging",
-                detail=f"pass {pass_id}",
-            )
-        )
+        progress.merging(merged_items, input_items, pass_id)
     return merged_paths
 
 

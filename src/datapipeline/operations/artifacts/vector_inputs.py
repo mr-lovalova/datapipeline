@@ -24,7 +24,7 @@ from datapipeline.execution.runner import run_pipeline
 from datapipeline.operations.persistence import ArtifactOutput
 from datapipeline.pipelines.feature.nodes import FeatureSequencer
 from datapipeline.pipelines.feature.projector import FeatureProjector
-from datapipeline.pipelines.shared.sort import batch_sort
+from datapipeline.pipelines.sort import SortProgress, batch_sort
 from datapipeline.pipelines.stream.pipeline import build_stream_pipeline
 from datapipeline.runtime import Runtime, require_runtime_stream
 from datapipeline.services.artifacts import SCALER_SPEC
@@ -357,6 +357,7 @@ def _materialize_stream_group(
         return ordinal, item.time, item.id
 
     record_pipeline = build_stream_pipeline(context, stream_id)
+    sort_progress = SortProgress()
     pipeline = Pipeline(
         name=f"vector_inputs:{stream_id}",
         nodes=(
@@ -371,7 +372,9 @@ def _materialize_stream_group(
                     batch_sort,
                     buffer_bytes=context.runtime.execution.sort_buffer_bytes,
                     key=order_key,
+                    progress=sort_progress,
                 ),
+                progress=sort_progress.snapshot,
             ),
         ),
         summary=record_pipeline.summary,

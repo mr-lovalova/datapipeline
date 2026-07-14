@@ -40,7 +40,6 @@ from datapipeline.pipelines.feature.pipeline import (
     run_feature_pipeline,
 )
 from datapipeline.pipelines.full.pipeline import run_full_pipeline
-from datapipeline.pipelines.ingest.pipeline import build_ingest_pipeline
 from datapipeline.pipelines.stream.pipeline import (
     build_stream_pipeline,
     run_stream_pipeline,
@@ -49,7 +48,12 @@ from datapipeline.pipelines.vector.nodes import sample_domain_window_keys, windo
 from datapipeline.pipelines.vector import pipeline as vector_pipeline
 from datapipeline.pipelines.vector.pipeline import build_vector_pipeline
 from datapipeline.pipelines.full.nodes import apply_postprocess
-from datapipeline.runtime import DerivedRuntimeStream, IngestRuntimeStream, Runtime
+from datapipeline.runtime import (
+    AlignedRuntimeStream,
+    DerivedRuntimeStream,
+    IngestRuntimeStream,
+    Runtime,
+)
 from datapipeline.services.constants import (
     SCALER_STATISTICS,
     VECTOR_INPUTS,
@@ -262,9 +266,20 @@ def test_ingest_pipeline_carries_source_summary(tmp_path: Path) -> None:
         ),
     )
 
-    pipeline = build_ingest_pipeline(PipelineContext(runtime), "prices")
+    pipeline = build_stream_pipeline(PipelineContext(runtime), "prices")
 
+    assert pipeline.name == "ingest:prices"
     assert pipeline.summary == "transport=fs.file file=prices.jsonl"
+    assert [node.name for node in pipeline.nodes] == [
+        "open_source",
+        "map_records",
+        "order_records",
+    ]
+    assert [node.progress is not None for node in pipeline.nodes] == [
+        True,
+        False,
+        True,
+    ]
 
 
 def test_stream_pipeline_carries_source_summary(tmp_path: Path) -> None:
@@ -287,6 +302,7 @@ def test_stream_pipeline_carries_source_summary(tmp_path: Path) -> None:
 
     pipeline = build_stream_pipeline(PipelineContext(runtime), "derived")
 
+    assert pipeline.name == "stream:derived"
     assert pipeline.summary == (
         "transport=fs.glob count=2 first=AAPL.jsonl last=MSFT.jsonl"
     )
@@ -297,6 +313,54 @@ def test_stream_pipeline_carries_source_summary(tmp_path: Path) -> None:
         "map_records",
         "order_records",
     ]
+    assert [node.progress is not None for node in pipeline.nodes] == [
+        True,
+        False,
+        True,
+        False,
+        True,
+    ]
+
+
+def test_aligned_pipeline_closes_inputs_after_partial_read(tmp_path: Path) -> None:
+    runtime = _runtime_with_rows(tmp_path, [])
+    left = _StubSource([{"time": _ts(0)}, {"time": _ts(1)}])
+    right = _StubSource([{"time": _ts(0)}, {"time": _ts(1)}])
+
+    def take_left(rows):
+        for left_record, _ in rows:
+            yield left_record
+
+    runtime.streams = {
+        "left": IngestRuntimeStream(
+            source=left,
+            mapper=_mapper,
+            transforms=(),
+            partition_by=(),
+            presorted=True,
+        ),
+        "right": IngestRuntimeStream(
+            source=right,
+            mapper=_mapper,
+            transforms=(),
+            partition_by=(),
+            presorted=True,
+        ),
+        "combined": AlignedRuntimeStream(
+            input_streams=("left", "right"),
+            combine=take_left,
+            transforms=(),
+            partition_by=(),
+            presorted=True,
+        ),
+    }
+
+    records = run_stream_pipeline(PipelineContext(runtime), "combined")
+    assert next(records).time == _ts(0)
+    records.close()
+
+    assert left.closes == 1
+    assert right.closes == 1
 
 
 def test_ingest_pipeline_exposes_source_mapping_and_record_transforms(
@@ -313,7 +377,7 @@ def test_ingest_pipeline_exposes_source_mapping_and_record_transforms(
     )
     ctx = PipelineContext(runtime)
 
-    pipeline = build_ingest_pipeline(ctx, "stream")
+    pipeline = build_stream_pipeline(ctx, "stream")
     stage0 = list(run_pipeline(ctx, pipeline.through_node(0)))
     assert stage0 == rows
 
@@ -358,7 +422,7 @@ def test_ingest_pipeline_orders_by_partition_and_time(tmp_path: Path) -> None:
     runtime = _runtime_with_rows(tmp_path, rows, partition_by=("symbol",))
     ctx = PipelineContext(runtime)
 
-    ordered = list(run_pipeline(ctx, build_ingest_pipeline(ctx, "stream")))
+    ordered = list(run_pipeline(ctx, build_stream_pipeline(ctx, "stream")))
     assert [(rec.symbol, rec.time.hour) for rec in ordered] == [
         ("A", 0),
         ("A", 2),
@@ -737,8 +801,13 @@ def test_vector_inputs_shared_stream_matches_independent_feature_pipelines(
     source.closes = 0
     normal_batch_sort = vector_inputs_operation.batch_sort
 
-    def spilling_batch_sort(items, buffer_bytes, key):
-        return normal_batch_sort(items, buffer_bytes=1, key=key)
+    def spilling_batch_sort(items, buffer_bytes, key, progress=None):
+        return normal_batch_sort(
+            items,
+            buffer_bytes=1,
+            key=key,
+            progress=progress,
+        )
 
     monkeypatch.setattr(
         vector_inputs_operation,

@@ -1,46 +1,63 @@
 import os
-from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
 
 from datapipeline.domain.stream import RecordStream
+from datapipeline.execution.events import ProgressResource, ProgressSnapshot
+from datapipeline.execution.node import NodeProgressReader
 from datapipeline.sources.adapters.fs import FsFileTransport, FsGlobTransport
 from datapipeline.sources.adapters.http import HttpTransport
 from datapipeline.sources.data_loader import DataLoader
-from datapipeline.sources.models.loader import BaseDataLoader, SourceProgressUnit
 from datapipeline.sources.models.source import Source
 from datapipeline.sources.ports import SourceTransport
 
 
-@dataclass(frozen=True)
-class SourceProgressEntry:
-    source_resource_id: int | str
-    label: str
+def source_progress(
+    stream_source: RecordStream[object],
+) -> NodeProgressReader | None:
+    if not isinstance(stream_source, Source):
+        return None
 
+    loader = stream_source.loader
+    transport = loader.transport if isinstance(loader, DataLoader) else None
+    resources_by_id: dict[str, ProgressResource] = {}
+    resource: ProgressResource | None = None
+    if isinstance(transport, FsGlobTransport):
+        files = transport.files
+        total = len(files)
+        root = _glob_root(files)
+        resources_by_id = {
+            path: ProgressResource(
+                index,
+                total,
+                f'"{_relative_label(path, root)}"',
+            )
+            for index, path in enumerate(files, start=1)
+        }
+        if files:
+            resource = resources_by_id[files[0]]
+    elif isinstance(transport, FsFileTransport):
+        name = Path(transport.path).name or transport.path
+        resource = ProgressResource(1, 1, f'"{name}"')
+    elif isinstance(transport, HttpTransport):
+        host = urlparse(transport.url).netloc or "http"
+        resource = ProgressResource(1, 1, f"@{host}")
+    initial_resource = resource
 
-@dataclass(frozen=True)
-class LoaderObservability:
-    loader: BaseDataLoader
-    transport: SourceTransport | None
-    glob_root: Path | None
-    progress_sequence: tuple[SourceProgressEntry, ...] | None
+    def read_progress(completed: int) -> ProgressSnapshot:
+        nonlocal resource
+        current_resource_id = loader.current_resource_uri
+        if completed == 0 and current_resource_id is None:
+            resource = initial_resource
+        elif current_resource_id is not None and resources_by_id:
+            resource = resources_by_id.get(current_resource_id)
+        return ProgressSnapshot(
+            completed=completed,
+            unit=loader.progress_unit,
+            resource=resource,
+        )
 
-    @property
-    def unit(self) -> SourceProgressUnit:
-        return self.loader.progress_unit
-
-    @property
-    def current_resource_id(self) -> str | None:
-        return self.loader.current_resource_uri
-
-    @property
-    def current_label(self) -> str | None:
-        uri = self.current_resource_id
-        if uri is None and isinstance(self.transport, FsFileTransport):
-            uri = self.transport.path
-        elif uri is None and isinstance(self.transport, HttpTransport):
-            uri = self.transport.url
-        return _transport_resource_label(self.transport, uri, self.glob_root)
+    return read_progress
 
 
 def source_summary(stream_source: RecordStream[object]) -> str | None:
@@ -83,39 +100,6 @@ def _transport_source_summary(transport: SourceTransport) -> str | None:
     return None
 
 
-def describe_loader(loader: BaseDataLoader) -> LoaderObservability:
-    transport = loader.transport if isinstance(loader, DataLoader) else None
-    glob_root = None
-    progress_sequence = None
-    if isinstance(transport, FsGlobTransport):
-        glob_root = _glob_root(transport.files)
-        progress_sequence = _glob_progress_sequence(transport, glob_root)
-    return LoaderObservability(
-        loader=loader,
-        transport=transport,
-        glob_root=glob_root,
-        progress_sequence=progress_sequence,
-    )
-
-
-def _transport_resource_label(
-    transport: SourceTransport | None,
-    uri: str | None,
-    glob_root: Path | None = None,
-) -> str | None:
-    if not uri:
-        return None
-    if isinstance(transport, FsGlobTransport):
-        return f'"{_relative_label(uri, glob_root)}"'
-    if isinstance(transport, FsFileTransport):
-        name = Path(uri).name or str(uri)
-        return f'"{name}"'
-    if isinstance(transport, HttpTransport):
-        parts = urlparse(uri)
-        return f"@{parts.netloc or 'http'}"
-    return None
-
-
 def _glob_root(files: list[str]) -> Path | None:
     if not files:
         return None
@@ -142,19 +126,3 @@ def _relative_label(path: str, root: Path | None) -> str:
         except ValueError:
             return Path(path).name or path
     return Path(path).name or path
-
-
-def _glob_progress_sequence(
-    transport: FsGlobTransport,
-    glob_root: Path | None,
-) -> tuple[SourceProgressEntry, ...] | None:
-    files = transport.files
-    if not files:
-        return None
-    return tuple(
-        SourceProgressEntry(
-            source_resource_id=path,
-            label=f'"{_relative_label(path, glob_root)}"',
-        )
-        for path in files
-    )

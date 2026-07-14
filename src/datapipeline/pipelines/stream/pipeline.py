@@ -6,18 +6,22 @@ from typing import Any
 
 from datapipeline.alignment.engine import align_streams
 from datapipeline.execution.context import PipelineContext
-from datapipeline.execution.node import SourceNode
+from datapipeline.execution.node import Node, PipelineNode, SourceNode
 from datapipeline.execution.observer import NoopPipelineObserver
 from datapipeline.execution.pipeline import Pipeline
 from datapipeline.execution.runner import run_pipeline
-from datapipeline.pipelines.ingest.pipeline import build_ingest_pipeline
-from datapipeline.pipelines.stream.nodes import build_stream_nodes
+from datapipeline.pipelines.stream.order import build_record_order_node
+from datapipeline.pipelines.stream.transform_nodes import (
+    build_record_transform_nodes,
+    build_stream_transform_nodes,
+)
 from datapipeline.runtime import (
     AlignedRuntimeStream,
     DerivedRuntimeStream,
     IngestRuntimeStream,
     require_runtime_stream,
 )
+from datapipeline.sources.observability import source_progress, source_summary
 
 
 _INTERNAL_INPUT_OBSERVER = NoopPipelineObserver()
@@ -36,7 +40,11 @@ def build_stream_pipeline(
 ) -> Pipeline:
     stream = require_runtime_stream(context.runtime, stream_id)
     if isinstance(stream, IngestRuntimeStream):
-        return build_ingest_pipeline(context, stream_id)
+        return Pipeline(
+            name=f"ingest:{stream_id}",
+            nodes=_ingest_nodes(context, stream),
+            summary=source_summary(stream.source),
+        )
     if isinstance(stream, DerivedRuntimeStream):
         upstream = build_stream_pipeline(context, stream.input_stream)
         upstream_nodes = tuple(
@@ -45,7 +53,7 @@ def build_stream_pipeline(
         )
         return Pipeline(
             name=f"stream:{stream_id}",
-            nodes=(*upstream_nodes, *build_stream_nodes(context, stream_id)),
+            nodes=(*upstream_nodes, *_stream_nodes(context, stream)),
             summary=upstream.summary,
         )
     if isinstance(stream, AlignedRuntimeStream):
@@ -61,11 +69,54 @@ def build_stream_pipeline(
                         stream.partition_by,
                     ),
                 ),
-                *build_stream_nodes(context, stream_id),
+                *_stream_nodes(context, stream),
             ),
             summary="inputs=" + ",".join(stream.input_streams),
         )
     raise TypeError(f"Unsupported runtime stream: {type(stream).__name__}")
+
+
+def _ingest_nodes(
+    context: PipelineContext,
+    stream: IngestRuntimeStream,
+) -> tuple[Node, ...]:
+    return (
+        SourceNode(
+            name="open_source",
+            open=stream.source.stream,
+            progress=source_progress(stream.source),
+        ),
+        PipelineNode(name="map_records", apply=stream.mapper),
+        *build_record_transform_nodes(stream.transforms),
+        build_record_order_node(
+            stream.partition_by,
+            stream.presorted,
+            context.runtime.execution.sort_buffer_bytes,
+        ),
+    )
+
+
+def _stream_nodes(
+    context: PipelineContext,
+    stream: DerivedRuntimeStream | AlignedRuntimeStream,
+) -> tuple[PipelineNode, ...]:
+    if isinstance(stream, DerivedRuntimeStream):
+        first = PipelineNode(name="map_records", apply=stream.mapper)
+    else:
+        first = PipelineNode(name="combine_records", apply=stream.combine)
+    return (
+        first,
+        build_record_order_node(
+            stream.partition_by,
+            stream.presorted,
+            context.runtime.execution.sort_buffer_bytes,
+        ),
+        *build_stream_transform_nodes(
+            context,
+            stream.transforms,
+            stream.partition_by,
+        ),
+    )
 
 
 def _align_inputs(

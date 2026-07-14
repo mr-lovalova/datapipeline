@@ -87,6 +87,7 @@ def test_feature_nodes_make_scaling_and_sequence_explicit(tmp_path) -> None:
         "sequence_features",
         "order_feature_records",
     ]
+    assert nodes[-1].progress is not None
 
 
 def test_feature_nodes_omit_disabled_stages(tmp_path) -> None:
