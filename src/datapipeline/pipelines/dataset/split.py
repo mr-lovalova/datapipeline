@@ -70,7 +70,7 @@ class TimeLabeler:
         return self._labels[bisect_right(self._boundaries, timestamp)]
 
 
-def build_labeler(cfg: SplitConfig) -> HashLabeler | TimeLabeler:
-    if isinstance(cfg, TimeSplitConfig):
-        return TimeLabeler(cfg)
-    return HashLabeler(cfg)
+def build_labeler(config: SplitConfig) -> HashLabeler | TimeLabeler:
+    if isinstance(config, TimeSplitConfig):
+        return TimeLabeler(config)
+    return HashLabeler(config)

@@ -6,14 +6,14 @@ from datapipeline.execution.context import PipelineContext
 from datapipeline.execution.node import SourceNode
 from datapipeline.execution.pipeline import Pipeline
 from datapipeline.execution.runner import run_pipeline
-from datapipeline.pipelines.full.nodes import build_postprocess_plan
+from datapipeline.pipelines.dataset.nodes import build_postprocess_plan
 from datapipeline.pipelines.vector.pipeline import build_vector_pipeline
 from datapipeline.domain.sample import Sample
 
 
-def run_full_pipeline(
+def run_dataset_pipeline(
     context: PipelineContext,
-    configs: Sequence[FeatureRecordConfig],
+    feature_configs: Sequence[FeatureRecordConfig],
     group_by_cadence: str,
     target_configs: Sequence[FeatureRecordConfig] | None = None,
     rectangular: bool = True,
@@ -21,9 +21,9 @@ def run_full_pipeline(
 ) -> Iterator[Sample]:
     return run_pipeline(
         context,
-        build_full_pipeline(
+        build_dataset_pipeline(
             context,
-            configs,
+            feature_configs,
             group_by_cadence,
             target_configs=target_configs,
             rectangular=rectangular,
@@ -32,9 +32,9 @@ def run_full_pipeline(
     )
 
 
-def build_full_pipeline(
+def build_dataset_pipeline(
     context: PipelineContext,
-    configs: Sequence[FeatureRecordConfig],
+    feature_configs: Sequence[FeatureRecordConfig],
     group_by_cadence: str,
     target_configs: Sequence[FeatureRecordConfig] | None = None,
     rectangular: bool = True,
@@ -42,14 +42,14 @@ def build_full_pipeline(
 ) -> Pipeline:
     postprocess = build_postprocess_plan(context)
     return Pipeline(
-        name="pipeline:serve",
+        name="dataset",
         nodes=(
             SourceNode(
                 name="vector_assemble",
                 open=partial(
                     build_vector_pipeline,
                     context,
-                    configs,
+                    feature_configs,
                     group_by_cadence,
                     target_configs,
                     rectangular,

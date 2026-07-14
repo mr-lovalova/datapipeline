@@ -14,7 +14,6 @@ from datapipeline.execution.settings import (
 )
 from datapipeline.profiles import materialize
 from datapipeline.profiles.models import MaterializeJob
-from datapipeline.services.materialize import MaterializeResult
 
 
 def _observability() -> ObservabilitySettings:
@@ -177,11 +176,7 @@ def test_execute_materialize_job_emits_config_and_files(
 
     def materialize_stream(**kwargs):
         calls.append(kwargs)
-        return MaterializeResult(
-            count=10,
-            output=job.output,
-            metadata=job.output.with_suffix(".metadata.json"),
-        )
+        return job.output
 
     monkeypatch.setattr(
         materialize,
@@ -202,7 +197,4 @@ def test_execute_materialize_job_emits_config_and_files(
     config = json.loads(messages[0][0].removeprefix("Config:\n"))
     assert messages[0][1] == logging.DEBUG
     assert config["stream"] == "adv.20"
-    assert files == [
-        ("Output", job.output),
-        ("Metadata", job.output.with_suffix(".metadata.json")),
-    ]
+    assert files == [("Output", job.output)]

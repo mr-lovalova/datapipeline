@@ -1,9 +1,5 @@
 import logging
-import gzip
-import hashlib
-import json
 import shutil
-import zlib
 from collections import defaultdict
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
@@ -15,7 +11,6 @@ from uuid import uuid4
 
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.config.tasks import VectorInputsTask
-from datapipeline.domain.feature import FeatureRecord, FeatureSequence
 from datapipeline.domain.sample_key import SampleKeyContract
 from datapipeline.execution.context import PipelineContext
 from datapipeline.execution.node import PipelineNode
@@ -52,6 +47,13 @@ class _ShardPlan:
     path: Path
 
 
+@dataclass(frozen=True)
+class _VectorInputRow:
+    ordinal: int
+    order: tuple[Any, ...]
+    payload: dict[str, Any]
+
+
 def materialize_vector_inputs(
     runtime: Runtime,
     task_cfg: VectorInputsTask,
@@ -63,14 +65,14 @@ def materialize_vector_inputs(
     cache_root = destination.parent / f"{destination.stem}.shards"
     if cache_root.is_symlink():
         raise ValueError("Vector inputs shard directory must not be a symlink.")
-    staging_root = cache_root / f".staging-{uuid4().hex}"
+    generation = uuid4().hex
+    staging_root = cache_root / f".staging-{generation}"
+    generation_root = cache_root / generation
 
     context = PipelineContext(runtime)
     sample_key_contract = SampleKeyContract(dataset.sample.keys)
     feature_dir = staging_root / "features"
     target_dir = staging_root / "targets"
-    feature_dir.mkdir(parents=True, exist_ok=True)
-    target_dir.mkdir(parents=True, exist_ok=True)
 
     feature_plans = tuple(
         _ShardPlan(
@@ -91,25 +93,13 @@ def materialize_vector_inputs(
     )
 
     try:
+        feature_dir.mkdir(parents=True)
+        target_dir.mkdir()
         written_shards = _materialize_stream_groups(
             context,
             (*feature_plans, *target_plans),
             sample_key_contract,
             dataset.sample.cadence,
-        )
-        generation = _generation_name(
-            dataset.sample.cadence,
-            sample_key_contract,
-            feature_plans,
-            target_plans,
-            written_shards,
-        )
-        generation_root = cache_root / generation
-        _publish_generation(
-            staging_root,
-            generation_root,
-            (*feature_plans, *target_plans),
-            written_shards,
         )
         relative_generation_root = Path(cache_root.name) / generation
 
@@ -142,9 +132,15 @@ def materialize_vector_inputs(
             features=feature_shards,
             targets=target_shards,
         )
-        write_json_artifact(destination, manifest.model_dump(mode="json"))
+        staging_root.rename(generation_root)
     except BaseException:
         _remove_failed_generation(staging_root)
+        raise
+
+    try:
+        write_json_artifact(destination, manifest.model_dump(mode="json"))
+    except BaseException:
+        _remove_failed_generation(generation_root)
         raise
 
     feature_rows = sum(shard.rows for shard in feature_shards)
@@ -176,102 +172,6 @@ def _remove_failed_generation(generation_root: Path) -> None:
             generation_root,
             exc_info=True,
         )
-
-
-def _generation_name(
-    cadence: str,
-    sample_keys: SampleKeyContract,
-    feature_plans: Sequence[_ShardPlan],
-    target_plans: Sequence[_ShardPlan],
-    written: dict[int, WrittenVectorInputShard],
-) -> str:
-    def entries(plans: Sequence[_ShardPlan]) -> list[dict[str, object]]:
-        return [
-            {
-                "id": plan.config.id,
-                "rows": written[plan.ordinal].rows,
-                "content_hash": written[plan.ordinal].content_hash,
-            }
-            for plan in plans
-        ]
-
-    contract = {
-        "version": VECTOR_INPUTS_MANIFEST_VERSION,
-        "format": "jsonl.gz",
-        "cadence": cadence,
-        "sample_keys": sample_keys.fields,
-        "sample_key_types": sample_keys.types,
-        "features": entries(feature_plans),
-        "targets": entries(target_plans),
-    }
-    payload = json.dumps(
-        contract,
-        ensure_ascii=False,
-        separators=(",", ":"),
-        sort_keys=True,
-    ).encode("utf-8")
-    return hashlib.sha256(payload).hexdigest()
-
-
-def _publish_generation(
-    staging_root: Path,
-    generation_root: Path,
-    plans: Sequence[_ShardPlan],
-    written: dict[int, WrittenVectorInputShard],
-) -> None:
-    try:
-        staging_root.rename(generation_root)
-        return
-    except OSError:
-        if not generation_root.exists():
-            raise
-
-    if _generation_matches(staging_root, generation_root, plans, written):
-        _remove_failed_generation(staging_root)
-        return
-
-    quarantine = generation_root.with_name(
-        f".corrupt-{generation_root.name}-{uuid4().hex}"
-    )
-    generation_root.rename(quarantine)
-    try:
-        staging_root.rename(generation_root)
-    except BaseException:
-        if not generation_root.exists():
-            quarantine.rename(generation_root)
-        raise
-
-
-def _generation_matches(
-    staging_root: Path,
-    generation_root: Path,
-    plans: Sequence[_ShardPlan],
-    written: dict[int, WrittenVectorInputShard],
-) -> bool:
-    if generation_root.is_symlink() or not generation_root.is_dir():
-        return False
-    expected_paths = {plan.path.relative_to(staging_root) for plan in plans}
-    actual_paths = {
-        path.relative_to(generation_root)
-        for path in generation_root.rglob("*")
-        if path.is_file() or path.is_symlink()
-    }
-    if actual_paths != expected_paths:
-        return False
-    for plan in plans:
-        published_path = generation_root / plan.path.relative_to(staging_root)
-        if published_path.is_symlink() or not published_path.is_file():
-            return False
-        digest = hashlib.sha256()
-        try:
-            with gzip.open(published_path, "rb") as stream:
-                for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-                    digest.update(chunk)
-        except (EOFError, gzip.BadGzipFile, zlib.error):
-            return False
-        if digest.hexdigest() != written[plan.ordinal].content_hash:
-            return False
-    return True
 
 
 def _materialize_stream_groups(
@@ -319,9 +219,11 @@ def _materialize_stream_group(
         if plan.config.sequence is not None
     }
 
-    def build_tagged_features(
+    cadence_step = parse_cadence(cadence)
+
+    def build_vector_inputs(
         records: Iterator[Any],
-    ) -> Iterator[tuple[int, FeatureRecord | FeatureSequence]]:
+    ) -> Iterator[_VectorInputRow]:
         for record in records:
             for plan, feature in zip(
                 plans,
@@ -338,23 +240,21 @@ def _materialize_stream_group(
                 sequencer = sequencers.get(plan.ordinal)
                 result = feature if sequencer is None else sequencer.append(feature)
                 if result is not None:
-                    yield plan.ordinal, result
-
-    cadence_step = parse_cadence(cadence)
-
-    def order_key(
-        tagged: tuple[int, FeatureRecord | FeatureSequence],
-    ) -> tuple[Any, ...]:
-        ordinal, item = tagged
-        if sample_key_contract.fields:
-            return (
-                ordinal,
-                floor_time_to_cadence(item.time, cadence_step),
-                *item.entity_key,
-                item.time,
-                item.id,
-            )
-        return ordinal, item.time, item.id
+                    if sample_key_contract.fields:
+                        order = (
+                            plan.ordinal,
+                            floor_time_to_cadence(result.time, cadence_step),
+                            *result.entity_key,
+                            result.time,
+                            result.id,
+                        )
+                    else:
+                        order = plan.ordinal, result.time, result.id
+                    yield _VectorInputRow(
+                        ordinal=plan.ordinal,
+                        order=order,
+                        payload=feature_record_to_vector_input_row(result),
+                    )
 
     record_pipeline = build_stream_pipeline(context, stream_id)
     sort_progress = SortProgress()
@@ -364,14 +264,14 @@ def _materialize_stream_group(
             *record_pipeline.nodes,
             PipelineNode(
                 name="build_vector_inputs",
-                apply=build_tagged_features,
+                apply=build_vector_inputs,
             ),
             PipelineNode(
                 name="order_vector_inputs",
                 apply=partial(
                     batch_sort,
                     buffer_bytes=context.runtime.execution.sort_buffer_bytes,
-                    key=order_key,
+                    key=lambda row: row.order,
                     progress=sort_progress,
                 ),
                 progress=sort_progress.snapshot,
@@ -383,11 +283,11 @@ def _materialize_stream_group(
     plans_by_ordinal = {plan.ordinal: plan for plan in plans}
     row_counts: dict[int, WrittenVectorInputShard] = {}
     try:
-        for ordinal, tagged_group in groupby(ordered, key=lambda tagged: tagged[0]):
+        for ordinal, rows in groupby(ordered, key=lambda row: row.ordinal):
             plan = plans_by_ordinal[ordinal]
             row_counts[ordinal] = write_vector_input_rows(
                 plan.path,
-                (feature_record_to_vector_input_row(item) for _, item in tagged_group),
+                (row.payload for row in rows),
             )
     finally:
         _close_iterator(ordered)

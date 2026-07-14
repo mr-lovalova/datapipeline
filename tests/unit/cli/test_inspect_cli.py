@@ -15,7 +15,7 @@ from datapipeline.io.output import OutputTarget
 from datapipeline.operations.persistence import persist_runtime_result
 from datapipeline.operations.runtime import coverage as coverage_ops
 from datapipeline.operations.runtime import matrix as matrix_ops
-from datapipeline.pipelines.full.nodes import PostprocessPlan
+from datapipeline.pipelines.dataset.nodes import PostprocessPlan
 from datapipeline.services.constants import VECTOR_METADATA, VECTOR_STATS
 
 

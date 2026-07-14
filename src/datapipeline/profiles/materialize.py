@@ -15,8 +15,8 @@ from datapipeline.execution.observability import emit_file_result, operation_sco
 from datapipeline.profiles.models import MaterializeJob
 from datapipeline.runtime import Runtime
 from datapipeline.services.materialize import (
-    check_materialize_destinations,
-    materialize_destination_paths,
+    check_materialize_destination,
+    materialize_destination_path,
     materialize_stream_to_path,
 )
 from datapipeline.services.path_policy import sanitize_path_segment
@@ -78,7 +78,7 @@ def preflight_materialize_jobs(
     runtime: Runtime,
     jobs: Sequence[MaterializeJob],
 ) -> None:
-    destinations: list[tuple[MaterializeJob, tuple[Path, Path]]] = []
+    destinations: list[tuple[MaterializeJob, Path]] = []
     owners: dict[Path, str] = {}
     available_streams = set(runtime.streams)
     artifacts_root = runtime.artifacts_root.resolve()
@@ -88,24 +88,23 @@ def preflight_materialize_jobs(
                 f"Materialize profile '{job.name}' references unknown "
                 f"stream '{job.stream}'."
             )
-        paths = materialize_destination_paths(job.output)
-        destinations.append((job, paths))
-        for path in paths:
-            if path.is_relative_to(artifacts_root):
-                raise ValueError(
-                    f"Materialize profile '{job.name}' writes inside the managed "
-                    f"artifacts root: {path}"
-                )
-            owner = owners.get(path)
-            if owner is not None:
-                raise ValueError(
-                    f"Materialize profiles '{owner}' and '{job.name}' "
-                    f"write the same path: {path}"
-                )
-            owners[path] = job.name
+        path = materialize_destination_path(job.output)
+        destinations.append((job, path))
+        if path.is_relative_to(artifacts_root):
+            raise ValueError(
+                f"Materialize profile '{job.name}' writes inside the managed "
+                f"artifacts root: {path}"
+            )
+        owner = owners.get(path)
+        if owner is not None:
+            raise ValueError(
+                f"Materialize profiles '{owner}' and '{job.name}' "
+                f"write the same path: {path}"
+            )
+        owners[path] = job.name
 
-    for job, paths in destinations:
-        check_materialize_destinations(paths, job.overwrite)
+    for job, path in destinations:
+        check_materialize_destination(path, job.overwrite)
 
 
 def execute_materialize_job(
@@ -127,11 +126,10 @@ def execute_materialize_job(
             ),
             level=logging.DEBUG,
         )
-        result = materialize_stream_to_path(
+        output = materialize_stream_to_path(
             runtime=runtime,
             stream_id=job.stream,
             output=job.output,
             overwrite=job.overwrite,
         )
-        emit_file_result("Output", result.output)
-        emit_file_result("Metadata", result.metadata)
+        emit_file_result("Output", output)

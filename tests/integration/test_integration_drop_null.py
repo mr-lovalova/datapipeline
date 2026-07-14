@@ -5,7 +5,7 @@ from datapipeline.config.tasks import MetadataTask, SchemaTask
 from datapipeline.execution.context import PipelineContext
 from datapipeline.operations.artifacts.metadata import materialize_metadata
 from datapipeline.operations.artifacts.schema import materialize_vector_schema
-from datapipeline.pipelines.full.nodes import apply_postprocess
+from datapipeline.pipelines.dataset.nodes import apply_postprocess
 from datapipeline.pipelines.vector.pipeline import build_vector_pipeline
 from datapipeline.services.constants import VECTOR_METADATA, VECTOR_SCHEMA
 from datapipeline.services.pipeline import load_pipeline

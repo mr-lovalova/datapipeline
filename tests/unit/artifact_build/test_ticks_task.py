@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 import pytest
 
+import datapipeline.operations.artifacts.ticks as ticks_module
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
 from datapipeline.config.execution import ExecutionConfig
 from datapipeline.config.tasks import TicksTask
@@ -40,7 +41,7 @@ def _identity(records):
     yield from records
 
 
-def _runtime(tmp_path, rows=None) -> Runtime:
+def _runtime(tmp_path, rows=None, partition_by=()) -> Runtime:
     project_yaml = tmp_path / "project.yaml"
     project_yaml.write_text("version: 1\nartifact_revision: 1\n", encoding="utf-8")
     artifacts_root = tmp_path / "artifacts"
@@ -55,7 +56,7 @@ def _runtime(tmp_path, rows=None) -> Runtime:
         source=_Source([_record(2), _record(0), _record(2)] if rows is None else rows),
         mapper=_identity,
         transforms=(),
-        partition_by=(),
+        partition_by=partition_by,
         presorted=False,
     )
     return runtime
@@ -133,6 +134,42 @@ def test_materialize_ticks_writes_keyed_grid_rows(tmp_path) -> None:
     }
 
 
+def test_materialize_ticks_reuses_matching_stream_order(monkeypatch, tmp_path) -> None:
+    runtime = _runtime(
+        tmp_path,
+        [
+            _record(1, "MSFT"),
+            _record(0, "AAPL"),
+            _record(1, "AAPL"),
+        ],
+        partition_by=("security_id",),
+    )
+    monkeypatch.setattr(
+        ticks_module,
+        "batch_sort",
+        lambda *_args, **_kwargs: pytest.fail("ordered ticks were sorted again"),
+    )
+
+    result = materialize_ticks(
+        runtime,
+        TicksTask(
+            id="model_grid",
+            entrypoint="core.artifact.ticks",
+            stream="source.stream",
+            grid_by=["security_id"],
+            output="build/model_grid.jsonl",
+        ),
+    )
+
+    path = runtime.artifacts_root / result.relative_path
+    rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    assert rows == [
+        {"time": "2024-01-01T00:00:00Z", "security_id": "AAPL"},
+        {"time": "2024-01-01T01:00:00Z", "security_id": "AAPL"},
+        {"time": "2024-01-01T01:00:00Z", "security_id": "MSFT"},
+    ]
+
+
 def test_materialize_ticks_rejects_missing_key_field(tmp_path) -> None:
     runtime = _runtime(tmp_path, [_record(0)])
     destination = runtime.artifacts_root / "build/model_grid.jsonl"
@@ -156,11 +193,17 @@ def test_materialize_ticks_rejects_missing_key_field(tmp_path) -> None:
 
 
 def test_materialize_ticks_uses_stream_transforms(
+    monkeypatch,
     tmp_path,
 ) -> None:
     runtime = _stream_runtime(
         tmp_path,
         [_record(2, minute=30), _record(0, minute=30)],
+    )
+    monkeypatch.setattr(
+        ticks_module,
+        "batch_sort",
+        lambda *_args, **_kwargs: pytest.fail("ordered ticks were sorted again"),
     )
 
     result = materialize_ticks(

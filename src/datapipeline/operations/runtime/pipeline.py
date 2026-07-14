@@ -15,12 +15,12 @@ from datapipeline.operations.persistence import (
     RuntimeOutputBatch,
     SplitRuntimeOutput,
 )
-from datapipeline.pipelines.feature.pipeline import run_feature_pipeline
-from datapipeline.pipelines.full.pipeline import (
-    build_full_pipeline,
-    run_full_pipeline,
+from datapipeline.pipelines.dataset.pipeline import (
+    build_dataset_pipeline,
+    run_dataset_pipeline,
 )
-from datapipeline.pipelines.full.split import build_labeler
+from datapipeline.pipelines.dataset.split import build_labeler
+from datapipeline.pipelines.feature.pipeline import run_feature_pipeline
 from datapipeline.pipelines.stream.pipeline import build_stream_pipeline
 from datapipeline.runtime import AlignedRuntimeStream, Runtime, require_runtime_stream
 from datapipeline.utils.window import resolve_window_bounds
@@ -138,7 +138,7 @@ def _serve_preview(
 ) -> RuntimeOutputBatch:
     if preview in {"samples", "postprocess"}:
         runtime.window_bounds = resolve_window_bounds(runtime, True)
-        full_pipeline = build_full_pipeline(
+        dataset_pipeline = build_dataset_pipeline(
             context,
             feature_cfgs,
             cadence,
@@ -147,7 +147,9 @@ def _serve_preview(
             sample_keys=sample_keys,
         )
         selected_pipeline = (
-            full_pipeline.through_node(0) if preview == "samples" else full_pipeline
+            dataset_pipeline.through_node(0)
+            if preview == "samples"
+            else dataset_pipeline
         )
         sample_stream = run_pipeline(context, selected_pipeline)
         return RuntimeOutputBatch(
@@ -176,7 +178,7 @@ def _serve_preview(
     return RuntimeOutputBatch(outputs=tuple(outputs))
 
 
-def _serve_full(
+def _serve_dataset(
     *,
     context: PipelineContext,
     runtime: Runtime,
@@ -189,7 +191,7 @@ def _serve_full(
     throttle_ms: float | None,
 ) -> RuntimeOutputBatch:
     runtime.window_bounds = resolve_window_bounds(runtime, True)
-    vectors = run_full_pipeline(
+    vectors = run_dataset_pipeline(
         context,
         feature_cfgs,
         cadence,
@@ -222,7 +224,7 @@ def _serve_split_outputs(
         raise ValueError("split outputs require dataset split configuration")
 
     runtime.window_bounds = resolve_window_bounds(runtime, True)
-    vectors = run_full_pipeline(
+    vectors = run_dataset_pipeline(
         context,
         feature_cfgs,
         cadence,
@@ -293,7 +295,7 @@ def run_pipeline_operation(
             throttle_ms=throttle_ms,
             preview=preview,
         )
-    return _serve_full(
+    return _serve_dataset(
         context=context,
         runtime=runtime,
         feature_cfgs=feature_cfgs,

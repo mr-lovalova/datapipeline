@@ -9,7 +9,7 @@ from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
 from datapipeline.execution.node import PipelineNode
 from datapipeline.operations.artifacts.stats import materialize_vector_stats
-from datapipeline.pipelines.full.nodes import PostprocessPlan
+from datapipeline.pipelines.dataset.nodes import PostprocessPlan
 from datapipeline.runtime import Runtime
 from datapipeline.services.constants import VECTOR_METADATA
 

@@ -11,7 +11,7 @@ from datapipeline.io.sinks import AtomicTextFileSink
 from datapipeline.operations.persistence import ArtifactOutput
 from datapipeline.pipelines.stream.pipeline import run_stream_pipeline
 from datapipeline.pipelines.sort import batch_sort
-from datapipeline.runtime import Runtime
+from datapipeline.runtime import Runtime, require_runtime_stream
 from datapipeline.transforms.utils import get_field
 
 
@@ -64,17 +64,21 @@ def materialize_ticks(
         runtime.heartbeat_interval_seconds
     )
     context = PipelineContext(runtime)
+    runtime_stream = require_runtime_stream(runtime, task_cfg.stream)
     stream = run_stream_pipeline(context, task_cfg.stream)
     project_progress = OperationProgressTracker(
         "project_ticks",
         heartbeat_interval,
     )
     tick_rows = _project_tick_rows(stream, task_cfg.grid_by, project_progress)
-    sorted_ticks = batch_sort(
-        tick_rows,
-        buffer_bytes=runtime.execution.sort_buffer_bytes,
-        key=_tick_sort_key,
-    )
+    if tuple(task_cfg.grid_by) == runtime_stream.partition_by:
+        ordered_ticks = tick_rows
+    else:
+        ordered_ticks = batch_sort(
+            tick_rows,
+            buffer_bytes=runtime.execution.sort_buffer_bytes,
+            key=_tick_sort_key,
+        )
     rows = 0
     try:
         relative_path = Path(task_cfg.output)
@@ -85,7 +89,7 @@ def materialize_ticks(
         )
         sink = AtomicTextFileSink(destination)
         try:
-            for tick in _unique_ticks(sorted_ticks):
+            for tick in _unique_ticks(ordered_ticks):
                 rows += 1
                 sink.write_text(json.dumps(_json_tick_row(tick, task_cfg.grid_by)))
                 sink.write_text("\n")
@@ -95,7 +99,7 @@ def materialize_ticks(
             sink.abort()
             raise
     finally:
-        _close_iterator(sorted_ticks)
+        _close_iterator(ordered_ticks)
         _close_iterator(stream)
 
     return ArtifactOutput(

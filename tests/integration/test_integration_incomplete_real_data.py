@@ -18,7 +18,7 @@ from datapipeline.services.constants import (
     VECTOR_METADATA,
     VECTOR_SCHEMA,
 )
-from datapipeline.pipelines.full.nodes import apply_postprocess
+from datapipeline.pipelines.dataset.nodes import apply_postprocess
 from datapipeline.pipelines.vector.pipeline import build_vector_pipeline
 from datapipeline.services.pipeline import load_pipeline
 from datapipeline.services.runtime_compiler import compile_runtime

@@ -23,7 +23,7 @@ from datapipeline.execution.context import PipelineContext
 from datapipeline.domain.vector import Vector
 from datapipeline.operations.persistence import ArtifactOutput
 from datapipeline.pipelines.feature.projector import FeatureProjector
-from datapipeline.pipelines.full.split import HashLabeler, TimeLabeler, build_labeler
+from datapipeline.pipelines.dataset.split import HashLabeler, TimeLabeler, build_labeler
 from datapipeline.pipelines.stream.pipeline import run_stream_pipeline
 from datapipeline.runtime import Runtime, require_runtime_stream
 from datapipeline.transforms.feature.scaler import (

@@ -248,7 +248,7 @@ def test_observer_includes_error_details_on_failure(caplog) -> None:
     with caplog.at_level(logging.INFO, logger=logger.name):
         observer.on_pipeline_end(
             PipelineRunEvent(
-                pipeline_name="pipeline:serve",
+                pipeline_name="dataset",
                 node_count=3,
                 output_items=0,
                 elapsed_seconds=0.5,
@@ -262,7 +262,7 @@ def test_observer_includes_error_details_on_failure(caplog) -> None:
         caplog.records[0]
         .getMessage()
         .startswith(
-            "[pipeline:serve] finished status=error "
+            "[dataset] finished status=error "
             "error=ValueError: No entry point 'target_mapper'"
         )
     )
@@ -275,10 +275,8 @@ def test_make_pipeline_observer_routes_to_logger_and_context_handler(caplog) -> 
     try:
         observer = make_pipeline_observer(logger=logger)
         with caplog.at_level(logging.INFO, logger=logger.name):
-            observer.on_pipeline_start("pipeline:serve", 3)
-            observer.on_pipeline_end(
-                PipelineRunEvent("pipeline:serve", 3, 1, 0.5, "success")
-            )
+            observer.on_pipeline_start("dataset", 3)
+            observer.on_pipeline_end(PipelineRunEvent("dataset", 3, 1, 0.5, "success"))
     finally:
         reset_current_execution_event_handler(token)
 
@@ -287,8 +285,8 @@ def test_make_pipeline_observer_routes_to_logger_and_context_handler(caplog) -> 
         PipelineFinished,
     ]
     assert [record.getMessage() for record in caplog.records] == [
-        "[pipeline:serve] started nodes=3",
-        "[pipeline:serve] finished status=success items=1 elapsed=0.500000s",
+        "[dataset] started nodes=3",
+        "[dataset] finished status=success items=1 elapsed=0.500000s",
     ]
 
 
@@ -298,17 +296,15 @@ def test_context_handler_is_resolved_when_each_event_is_emitted(caplog) -> None:
     token = set_current_execution_event_handler(capture)
     try:
         observer = make_pipeline_observer(logger=logger)
-        observer.on_pipeline_start("pipeline:serve", 3)
+        observer.on_pipeline_start("dataset", 3)
     finally:
         reset_current_execution_event_handler(token)
 
     with caplog.at_level(logging.INFO, logger=logger.name):
-        observer.on_pipeline_end(
-            PipelineRunEvent("pipeline:serve", 3, 1, 0.5, "success")
-        )
+        observer.on_pipeline_end(PipelineRunEvent("dataset", 3, 1, 0.5, "success"))
 
     assert [type(event) for event in capture.events] == [PipelineStarted]
-    assert caplog.records[-1].getMessage().startswith("[pipeline:serve] finished")
+    assert caplog.records[-1].getMessage().startswith("[dataset] finished")
 
 
 def test_emit_execution_message_uses_context_and_logger(caplog) -> None:

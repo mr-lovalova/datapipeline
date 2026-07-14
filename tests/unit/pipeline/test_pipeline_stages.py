@@ -39,7 +39,8 @@ from datapipeline.pipelines.feature.pipeline import (
     build_feature_pipeline,
     run_feature_pipeline,
 )
-from datapipeline.pipelines.full.pipeline import run_full_pipeline
+from datapipeline.pipelines.dataset.nodes import apply_postprocess
+from datapipeline.pipelines.dataset.pipeline import run_dataset_pipeline
 from datapipeline.pipelines.stream.pipeline import (
     build_stream_pipeline,
     run_stream_pipeline,
@@ -47,7 +48,6 @@ from datapipeline.pipelines.stream.pipeline import (
 from datapipeline.pipelines.vector.nodes import sample_domain_window_keys, window_keys
 from datapipeline.pipelines.vector import pipeline as vector_pipeline
 from datapipeline.pipelines.vector.pipeline import build_vector_pipeline
-from datapipeline.pipelines.full.nodes import apply_postprocess
 from datapipeline.runtime import (
     AlignedRuntimeStream,
     DerivedRuntimeStream,
@@ -587,7 +587,7 @@ def test_postprocess_rejects_targets_absent_from_schema(tmp_path: Path) -> None:
         list(apply_postprocess(PipelineContext(runtime), iter(samples)))
 
 
-def test_full_pipeline_matches_vector_and_postprocess_chain(tmp_path: Path) -> None:
+def test_dataset_pipeline_matches_vector_and_postprocess_chain(tmp_path: Path) -> None:
     rows = [
         {"time": _ts(0), "value": None},
         {"time": _ts(1), "value": 2.0},
@@ -598,12 +598,12 @@ def test_full_pipeline_matches_vector_and_postprocess_chain(tmp_path: Path) -> N
     cfg = FeatureRecordConfig(stream="stream", id="price", field="value")
     register_vector_inputs(runtime, [cfg], "1h")
 
-    full_out = list(run_full_pipeline(ctx, [cfg], "1h", rectangular=False))
+    dataset_out = list(run_dataset_pipeline(ctx, [cfg], "1h", rectangular=False))
 
     manual = build_vector_pipeline(ctx, [cfg], "1h", rectangular=False)
     manual_out = list(apply_postprocess(ctx, manual))
 
-    assert full_out == manual_out
+    assert dataset_out == manual_out
 
 
 def test_vector_inputs_artifact_feeds_serve_pipeline(tmp_path: Path) -> None:
@@ -704,18 +704,18 @@ def test_vector_inputs_shared_stream_matches_independent_feature_pipelines(
 ) -> None:
     rows = [
         {
-            "time": _ts(1),
-            "exchange": "X",
-            "symbol": "B",
-            "value": 14.0,
-            "volume": 140.0,
-        },
-        {
             "time": _ts(0),
             "exchange": "X",
             "symbol": "A",
             "value": 1.0,
             "volume": 10.0,
+        },
+        {
+            "time": _ts(1),
+            "exchange": "X",
+            "symbol": "A",
+            "value": 3.0,
+            "volume": 30.0,
         },
         {
             "time": _ts(0),
@@ -727,9 +727,9 @@ def test_vector_inputs_shared_stream_matches_independent_feature_pipelines(
         {
             "time": _ts(1),
             "exchange": "X",
-            "symbol": "A",
-            "value": 3.0,
-            "volume": 30.0,
+            "symbol": "B",
+            "value": 14.0,
+            "volume": 140.0,
         },
     ]
     runtime = _runtime_with_rows(
@@ -737,6 +737,7 @@ def test_vector_inputs_shared_stream_matches_independent_feature_pipelines(
         rows,
         partition_by=("exchange", "symbol"),
     )
+    runtime.streams["stream"] = replace(runtime.streams["stream"], presorted=True)
     price = FeatureRecordConfig(
         stream="stream",
         id="price",
@@ -794,6 +795,9 @@ def test_vector_inputs_shared_stream_matches_independent_feature_pipelines(
             group_by_cadence="1h",
         )
     )
+
+    for row in rows:
+        row["unpickleable"] = lambda: None
 
     source = runtime.streams["stream"].source
     assert isinstance(source, _StubSource)
@@ -975,7 +979,43 @@ def test_failed_vector_inputs_rebuild_preserves_previous_generation(
     assert [path.name for path in cache_root.iterdir()] == [previous_generation]
 
 
-def test_identical_vector_inputs_rebuild_reuses_deterministic_generation(
+def test_failed_vector_inputs_manifest_commit_removes_new_generation(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    runtime = _runtime_with_rows(
+        tmp_path,
+        [{"time": _ts(0), "value": 1.0}],
+    )
+    runtime.dataset = FeatureDatasetConfig(
+        sample=SampleConfig(cadence="1h"),
+        features=[FeatureRecordConfig(stream="stream", id="value", field="value")],
+    )
+    task = VectorInputsTask()
+    first = materialize_vector_inputs(runtime, task)
+    manifest_path = runtime.artifacts_root / first.relative_path
+    previous_manifest = manifest_path.read_bytes()
+    previous = load_vector_inputs_manifest(manifest_path)
+    previous_path = manifest_path.parent / previous.features[0].path
+
+    def fail_manifest(*_args, **_kwargs):
+        raise OSError("manifest commit failed")
+
+    monkeypatch.setattr(
+        vector_inputs_operation,
+        "write_json_artifact",
+        fail_manifest,
+    )
+
+    with pytest.raises(OSError, match="manifest commit failed"):
+        materialize_vector_inputs(runtime, task)
+
+    assert manifest_path.read_bytes() == previous_manifest
+    previous_generation = previous_path.parent.parent
+    assert set(previous_generation.parent.iterdir()) == {previous_generation}
+
+
+def test_identical_vector_inputs_rebuild_publishes_a_new_generation(
     tmp_path: Path,
 ) -> None:
     runtime = _runtime_with_rows(
@@ -990,18 +1030,16 @@ def test_identical_vector_inputs_rebuild_reuses_deterministic_generation(
 
     first = materialize_vector_inputs(runtime, task)
     manifest_path = runtime.artifacts_root / first.relative_path
-    first_bytes = manifest_path.read_bytes()
-    first_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    first_generation = Path(first_manifest["features"][0]["path"]).parts[1]
+    first_manifest = load_vector_inputs_manifest(manifest_path)
+    first_path = manifest_path.parent / first_manifest.features[0].path
 
     materialize_vector_inputs(runtime, task)
-    assert manifest_path.read_bytes() == first_bytes
-    second_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    second_generation = Path(second_manifest["features"][0]["path"]).parts[1]
-    cache_root = manifest_path.parent / "manifest.shards"
+    second_manifest = load_vector_inputs_manifest(manifest_path)
+    second_path = manifest_path.parent / second_manifest.features[0].path
 
-    assert second_generation == first_generation
-    assert [path.name for path in cache_root.iterdir()] == [first_generation]
+    assert second_path != first_path
+    assert first_path.is_file()
+    assert len(list(open_vector_input_records(second_path))) == 1
 
 
 def test_changed_vector_inputs_rebuild_retains_previous_generation(
@@ -1040,7 +1078,7 @@ def test_changed_vector_inputs_rebuild_retains_previous_generation(
     assert second_path.is_file()
 
 
-def test_vector_inputs_rebuild_repairs_a_corrupt_content_generation(
+def test_vector_inputs_rebuild_replaces_a_corrupt_generation(
     tmp_path: Path,
 ) -> None:
     runtime = _runtime_with_rows(
@@ -1055,18 +1093,18 @@ def test_vector_inputs_rebuild_repairs_a_corrupt_content_generation(
 
     first = materialize_vector_inputs(runtime, task)
     manifest_path = runtime.artifacts_root / first.relative_path
-    manifest_bytes = manifest_path.read_bytes()
     manifest = load_vector_inputs_manifest(manifest_path)
     shard_path = manifest_path.parent / manifest.features[0].path
     shard_path.write_bytes(b"corrupt")
 
     materialize_vector_inputs(runtime, task)
 
-    assert manifest_path.read_bytes() == manifest_bytes
-    assert len(list(open_vector_input_records(shard_path))) == 1
+    rebuilt = load_vector_inputs_manifest(manifest_path)
+    rebuilt_path = manifest_path.parent / rebuilt.features[0].path
+    assert rebuilt_path != shard_path
+    assert len(list(open_vector_input_records(rebuilt_path))) == 1
     removed = prune_vector_input_cache(manifest_path)
-    assert len(removed) == 1
-    assert removed[0].name.startswith(".corrupt-")
+    assert removed == (shard_path.parent.parent,)
 
 
 def test_vector_inputs_rejects_symlinked_output_before_mutation(tmp_path: Path) -> None:

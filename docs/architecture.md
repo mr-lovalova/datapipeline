@@ -112,10 +112,10 @@ dataset shaping.
 `dataset.yaml:postprocess` is validated into `PostprocessConfig`, with separate
 typed policies for feature selection, target selection, and sample filtering.
 
-The serve pipeline has one fixed postprocess order:
+The dataset pipeline has one fixed postprocess order:
 
 ```text
-pipeline:serve
+dataset
   vector_assemble
   optional select_features
   optional select_targets

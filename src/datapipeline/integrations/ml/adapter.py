@@ -7,7 +7,7 @@ from typing import Any, Literal
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.domain.vector import Vector
-from datapipeline.pipelines.full.nodes import apply_postprocess
+from datapipeline.pipelines.dataset.nodes import apply_postprocess
 from datapipeline.execution.context import PipelineContext
 from datapipeline.pipelines.vector.pipeline import build_vector_pipeline
 from datapipeline.runtime import Runtime

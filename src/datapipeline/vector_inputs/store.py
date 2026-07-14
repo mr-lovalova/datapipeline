@@ -1,5 +1,4 @@
 import gzip
-import hashlib
 import json
 import shutil
 from collections.abc import Iterable, Iterator, Mapping
@@ -38,7 +37,6 @@ _NonEmptyString = Annotated[
 @dataclass(frozen=True)
 class WrittenVectorInputShard:
     rows: int
-    content_hash: str
 
 
 class CachedVectorInputShard(BaseModel):
@@ -145,7 +143,6 @@ def write_vector_input_rows(
 ) -> WrittenVectorInputShard:
     sink = GzipBinarySink(path)
     count = 0
-    digest = hashlib.sha256()
     try:
         for row in rows:
             payload = row if type(row) is dict else dict(row)
@@ -167,17 +164,13 @@ def write_vector_input_rows(
             _require_json_value(payload)
             line = json.dumps(payload, separators=(",", ":")) + "\n"
             encoded = line.encode("utf-8")
-            digest.update(encoded)
             sink.write_bytes(encoded)
             count += 1
         sink.close()
     except BaseException:
         sink.abort()
         raise
-    return WrittenVectorInputShard(
-        rows=count,
-        content_hash=digest.hexdigest(),
-    )
+    return WrittenVectorInputShard(rows=count)
 
 
 def load_vector_inputs_manifest(path: Path) -> CachedVectorInputsManifest:

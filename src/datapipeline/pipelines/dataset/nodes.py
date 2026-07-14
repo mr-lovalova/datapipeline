@@ -192,7 +192,7 @@ def apply_postprocess(
     context: PipelineContext,
     samples: Iterator[Sample],
 ) -> Iterator[Sample]:
-    """Apply the same ordered postprocess stages used by the full pipeline."""
+    """Apply the same ordered postprocess stages used by the dataset pipeline."""
 
     return build_postprocess_plan(context).apply(samples)
 

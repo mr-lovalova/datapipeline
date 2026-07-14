@@ -132,12 +132,12 @@ class ArtifactGraph:
             vector_streams = {
                 config.stream for config in (*dataset.features, *dataset.targets)
             }
-            scaler_ticks = _required_tick_tasks(
+            scaler_ticks = required_tick_artifacts(
                 scaler_streams,
                 streams,
                 tasks_by_id,
             )
-            vector_ticks = _required_tick_tasks(
+            vector_ticks = required_tick_artifacts(
                 vector_streams,
                 streams,
                 tasks_by_id,
@@ -455,8 +455,8 @@ def stream_tick_artifacts(
     return artifacts
 
 
-def _required_tick_tasks(
-    stream_ids: set[str],
+def required_tick_artifacts(
+    stream_ids: Iterable[str],
     streams: StreamsConfig,
     tasks_by_id: Mapping[str, ArtifactTask],
 ) -> tuple[str, ...]:
@@ -465,7 +465,7 @@ def _required_tick_tasks(
         for stream_id in stream_ids
         for artifact_id in stream_tick_artifacts(stream_id, streams)
     }
-    for artifact_id in artifact_ids:
+    for artifact_id in sorted(artifact_ids):
         task = tasks_by_id.get(artifact_id)
         if task is None:
             raise ValueError(

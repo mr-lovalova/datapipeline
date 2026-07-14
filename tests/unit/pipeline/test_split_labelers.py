@@ -4,7 +4,7 @@ import pytest
 
 from datapipeline.config.dataset.split import HashSplitConfig, TimeSplitConfig
 from datapipeline.domain.vector import Vector
-from datapipeline.pipelines.full.split import HashLabeler, TimeLabeler
+from datapipeline.pipelines.dataset.split import HashLabeler, TimeLabeler
 
 
 def test_hash_split_feature_key_errors_when_feature_is_missing():

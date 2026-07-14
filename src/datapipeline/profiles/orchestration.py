@@ -1,9 +1,12 @@
 import logging
 
 from datapipeline.artifacts.executor import run_build_if_needed
-from datapipeline.artifacts.planning import ArtifactGraph, build_artifact_graph
-from datapipeline.artifacts.validation import stream_tick_artifacts
-from datapipeline.config.tasks import TicksTask, VectorInputsTask
+from datapipeline.artifacts.planning import (
+    ArtifactGraph,
+    build_artifact_graph,
+    required_tick_artifacts,
+)
+from datapipeline.config.tasks import VectorInputsTask
 from datapipeline.profiles.executor import ExecutionSpec, run_execution
 from datapipeline.profiles.materialize import (
     execute_materialize_job,
@@ -162,25 +165,13 @@ def _run_materialize_profiles(request: MaterializeRunRequest) -> None:
             request.definition.dataset,
             request.definition.streams,
         )
-        required_artifacts = {
-            artifact
-            for job in jobs
-            for artifact in stream_tick_artifacts(
-                job.stream, request.definition.streams
+        required_artifacts = set(
+            required_tick_artifacts(
+                (job.stream for job in jobs),
+                request.definition.streams,
+                graph.tasks_by_id,
             )
-        }
-        for artifact in sorted(required_artifacts):
-            task = graph.tasks_by_id.get(artifact)
-            if task is None:
-                raise ValueError(
-                    f"Tick artifact '{artifact}' requires a declared ticks "
-                    "operation with the same id."
-                )
-            if not isinstance(task, TicksTask):
-                raise ValueError(
-                    f"Tick artifact '{artifact}' references operation "
-                    f"entrypoint '{task.entrypoint}', not a ticks operation."
-                )
+        )
     except (FileExistsError, OSError, RuntimeError, ValueError) as exc:
         logger.error("%s", exc)
         raise SystemExit(2) from exc

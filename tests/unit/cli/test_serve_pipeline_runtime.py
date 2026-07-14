@@ -85,7 +85,7 @@ def _serve(
 
 def _sample_preview_pipeline():
     return Pipeline(
-        name="pipeline:serve",
+        name="dataset",
         nodes=(
             SourceNode(
                 name="vector_assemble",
@@ -136,7 +136,7 @@ def test_pipeline_operation_reraises_keyboard_interrupt_and_marks_run_failed(
         lambda runtime_obj, rectangular_required: (None, None),
     )
     monkeypatch.setattr(
-        "datapipeline.operations.runtime.pipeline.run_full_pipeline",
+        "datapipeline.operations.runtime.pipeline.run_dataset_pipeline",
         lambda *args, **kwargs: _vectors(),
     )
 
@@ -184,7 +184,7 @@ def test_pipeline_operation_returns_split_fanout_output(monkeypatch, tmp_path):
         lambda runtime_obj, rectangular_required: ("start", "end"),
     )
     monkeypatch.setattr(
-        "datapipeline.operations.runtime.pipeline.run_full_pipeline",
+        "datapipeline.operations.runtime.pipeline.run_dataset_pipeline",
         lambda *args, **kwargs: iter(samples),
     )
 
@@ -209,7 +209,7 @@ def test_samples_preview_stops_before_postprocess(monkeypatch):
         lambda runtime_obj, rectangular_required: ("start", "end"),
     )
     monkeypatch.setattr(
-        "datapipeline.operations.runtime.pipeline.build_full_pipeline",
+        "datapipeline.operations.runtime.pipeline.build_dataset_pipeline",
         lambda *args, **kwargs: _sample_preview_pipeline(),
     )
 
@@ -277,7 +277,7 @@ def test_postprocess_preview_runs_postprocess(monkeypatch):
         lambda runtime_obj, rectangular_required: (None, None),
     )
     monkeypatch.setattr(
-        "datapipeline.operations.runtime.pipeline.build_full_pipeline",
+        "datapipeline.operations.runtime.pipeline.build_dataset_pipeline",
         lambda *args, **kwargs: _sample_preview_pipeline(),
     )
 

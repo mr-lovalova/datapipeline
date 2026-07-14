@@ -957,7 +957,7 @@ def test_materialize_uses_shared_artifact_and_execution_lifecycle(
         execution,
     )
     monkeypatch.setattr(
-        "datapipeline.profiles.orchestration.stream_tick_artifacts",
+        "datapipeline.artifacts.planning.stream_tick_artifacts",
         lambda stream, streams: {"market_ticks"},
     )
     build_calls: list[dict] = []
@@ -1038,7 +1038,7 @@ def test_materialize_hydrates_current_tick_artifact_when_build_skips(
         runtime=runtime,
     )
     monkeypatch.setattr(
-        "datapipeline.profiles.orchestration.stream_tick_artifacts",
+        "datapipeline.artifacts.planning.stream_tick_artifacts",
         lambda stream, streams: {"market_ticks"},
     )
     monkeypatch.setattr(
@@ -1092,7 +1092,7 @@ def test_materialize_rejects_invalid_tick_artifact_producer(
     )
     request = _materialize_request(tmp_path, artifact_tasks, [job], runtime)
     monkeypatch.setattr(
-        "datapipeline.profiles.orchestration.stream_tick_artifacts",
+        "datapipeline.artifacts.planning.stream_tick_artifacts",
         lambda stream, streams: {"market_ticks"},
     )
 

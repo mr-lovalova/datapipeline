@@ -52,7 +52,6 @@ def test_vector_input_rows_round_trip_json_native_values(tmp_path: Path) -> None
     )
 
     assert written.rows == 3
-    assert len(written.content_hash) == 64
     assert list(open_vector_input_records(destination)) == [
         record,
         null_record,

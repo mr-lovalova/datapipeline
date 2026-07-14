@@ -7,11 +7,11 @@ from datapipeline.config.dataset.postprocess import PostprocessConfig
 from datapipeline.execution.context import PipelineContext
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
-from datapipeline.pipelines.full.pipeline import build_full_pipeline
-from datapipeline.pipelines.full.nodes import (
+from datapipeline.pipelines.dataset.nodes import (
     apply_postprocess,
     build_postprocess_plan,
 )
+from datapipeline.pipelines.dataset.pipeline import build_dataset_pipeline
 from datapipeline.runtime import Runtime
 from datapipeline.services.constants import VECTOR_METADATA, VECTOR_SCHEMA
 
@@ -47,7 +47,7 @@ def _runtime(
     return runtime
 
 
-def test_full_pipeline_assembles_before_postprocess(tmp_path) -> None:
+def test_dataset_pipeline_assembles_before_postprocess(tmp_path) -> None:
     runtime = _runtime(
         tmp_path,
         schema={
@@ -57,8 +57,9 @@ def test_full_pipeline_assembles_before_postprocess(tmp_path) -> None:
         },
     )
 
-    pipeline = build_full_pipeline(PipelineContext(runtime), [], "1h")
+    pipeline = build_dataset_pipeline(PipelineContext(runtime), [], "1h")
 
+    assert pipeline.name == "dataset"
     assert [node.name for node in pipeline.nodes] == [
         "vector_assemble",
         "normalize_features",

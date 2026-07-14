@@ -5,7 +5,7 @@ from datapipeline.artifacts.models import VectorStatsArtifact
 from datapipeline.config.tasks import StatsTask
 from datapipeline.execution.context import PipelineContext
 from datapipeline.operations.persistence import ArtifactOutput
-from datapipeline.pipelines.full.nodes import build_postprocess_plan
+from datapipeline.pipelines.dataset.nodes import build_postprocess_plan
 from datapipeline.pipelines.vector.pipeline import build_vector_pipeline
 from datapipeline.runtime import Runtime
 from datapipeline.services.artifacts import VECTOR_METADATA_SPEC
