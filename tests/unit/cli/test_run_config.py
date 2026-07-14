@@ -2,7 +2,10 @@ from pathlib import Path
 
 import pytest
 
-from datapipeline.profiles.request_builder import build_profile_run_request
+from datapipeline.profiles.request_builder import (
+    build_build_run_request,
+    build_runtime_run_request,
+)
 
 
 def _write_project(tmp_path: Path) -> Path:
@@ -41,10 +44,10 @@ def test_serve_request_resolves_named_profile(tmp_path: Path):
         encoding="utf-8",
     )
 
-    request = build_profile_run_request(
-        kind="serve",
+    request = build_runtime_run_request(
+        command="serve",
         project=str(project_yaml),
-        run_name="coverage",
+        profile_name="coverage",
     )
     assert request is not None
     assert request.command == "serve"
@@ -69,8 +72,8 @@ def test_inspect_request_defaults_to_enabled_profiles(tmp_path: Path):
         encoding="utf-8",
     )
 
-    request = build_profile_run_request(
-        kind="inspect",
+    request = build_runtime_run_request(
+        command="inspect",
         project=str(project_yaml),
     )
     assert request is not None
@@ -91,10 +94,10 @@ def test_serve_profile_rejects_artifact_operation(tmp_path: Path, caplog):
     )
 
     with pytest.raises(SystemExit) as exc:
-        build_profile_run_request(
-            kind="serve",
+        build_runtime_run_request(
+            command="serve",
             project=str(project_yaml),
-            run_name="schema",
+            profile_name="schema",
         )
 
     assert exc.value.code == 2
@@ -114,7 +117,7 @@ def test_inspect_profile_rejects_artifact_operation(tmp_path: Path, caplog):
     )
 
     with pytest.raises(SystemExit) as exc:
-        build_profile_run_request(kind="inspect", project=str(project_yaml))
+        build_runtime_run_request(command="inspect", project=str(project_yaml))
 
     assert exc.value.code == 2
     assert (
@@ -133,7 +136,7 @@ def test_build_profile_rejects_runtime_operation(tmp_path: Path, caplog):
     )
 
     with pytest.raises(SystemExit) as exc:
-        build_profile_run_request(kind="build", project=str(project_yaml))
+        build_build_run_request(project=str(project_yaml))
 
     assert exc.value.code == 2
     assert (
@@ -152,7 +155,7 @@ def test_build_profile_rejects_unknown_operation(tmp_path: Path, caplog):
     )
 
     with pytest.raises(SystemExit) as exc:
-        build_profile_run_request(kind="build", project=str(project_yaml))
+        build_build_run_request(project=str(project_yaml))
 
     assert exc.value.code == 2
     assert "references unknown operation 'scheam'" in caplog.text
@@ -168,7 +171,7 @@ def test_serve_profile_rejects_removed_pipeline_operation_id(tmp_path: Path, cap
     )
 
     with pytest.raises(SystemExit) as exc:
-        build_profile_run_request(kind="serve", project=str(project_yaml))
+        build_runtime_run_request(command="serve", project=str(project_yaml))
 
     assert exc.value.code == 2
     assert "references unknown operation 'pipeline'" in caplog.text
@@ -189,8 +192,8 @@ def test_serve_request_orders_enabled_profiles_and_run_selects_named_profile(
         encoding="utf-8",
     )
 
-    request_all = build_profile_run_request(
-        kind="serve",
+    request_all = build_runtime_run_request(
+        command="serve",
         project=str(project_yaml),
     )
     assert request_all is not None
@@ -201,17 +204,17 @@ def test_serve_request_orders_enabled_profiles_and_run_selects_named_profile(
     ]
     assert request_all.jobs[0].runtime is not request_all.jobs[1].runtime
 
-    request_train = build_profile_run_request(
-        kind="serve",
+    request_train = build_runtime_run_request(
+        command="serve",
         project=str(project_yaml),
-        run_name="train",
+        profile_name="train",
     )
     assert request_train is not None
     assert [job.name for job in request_train.jobs] == ["train"]
     assert [job.task.id for job in request_train.jobs] == ["dataset"]
 
 
-def test_cli_artifact_mode_overrides_selected_profiles(tmp_path: Path):
+def test_cli_artifact_mode_overrides_serve_defaults(tmp_path: Path):
     project_yaml = _write_project(tmp_path)
     profiles = tmp_path / "profiles"
     profiles.mkdir(parents=True, exist_ok=True)
@@ -231,16 +234,16 @@ def test_cli_artifact_mode_overrides_selected_profiles(tmp_path: Path):
         encoding="utf-8",
     )
     (profiles / "serve.first.yaml").write_text(
-        'operation: dataset\nartifact_mode: "OFF"\n',
+        "operation: dataset\n",
         encoding="utf-8",
     )
     (profiles / "serve.second.yaml").write_text(
-        "operation: dataset\nartifact_mode: AUTO\n",
+        "operation: dataset\n",
         encoding="utf-8",
     )
 
-    request = build_profile_run_request(
-        kind="serve",
+    request = build_runtime_run_request(
+        command="serve",
         project=str(project_yaml),
         artifact_mode="force",
         cli_heartbeat_interval_seconds=0,
@@ -280,30 +283,29 @@ def test_cli_artifact_mode_overrides_selected_profiles(tmp_path: Path):
     }
 
 
-def test_selected_profiles_reject_conflicting_artifact_modes(
-    tmp_path: Path,
-    caplog,
-):
+def test_serve_defaults_control_artifact_mode_for_all_profiles(tmp_path: Path):
     project_yaml = _write_project(tmp_path)
     profiles = tmp_path / "profiles"
     profiles.mkdir(parents=True, exist_ok=True)
+    (profiles / "serve.defaults.yaml").write_text(
+        'artifact_mode: "OFF"\n',
+        encoding="utf-8",
+    )
     (profiles / "serve.first.yaml").write_text(
-        'operation: dataset\nartifact_mode: "OFF"\n',
+        "operation: dataset\n",
         encoding="utf-8",
     )
     (profiles / "serve.second.yaml").write_text(
-        "operation: dataset\nartifact_mode: AUTO\n",
+        "operation: dataset\n",
         encoding="utf-8",
     )
 
-    with pytest.raises(SystemExit) as exc:
-        build_profile_run_request(kind="serve", project=str(project_yaml))
-
-    assert exc.value.code == 2
-    assert (
-        "Selected serve profiles disagree on artifact_mode: first=OFF, second=AUTO."
-        in caplog.text
+    request = build_runtime_run_request(
+        command="serve",
+        project=str(project_yaml),
     )
+    assert request is not None
+    assert request.artifact_settings.mode == "OFF"
 
 
 def test_serve_defaults_apply_when_profile_omits_fields(tmp_path: Path):
@@ -329,10 +331,10 @@ def test_serve_defaults_apply_when_profile_omits_fields(tmp_path: Path):
         encoding="utf-8",
     )
 
-    request = build_profile_run_request(
-        kind="serve",
+    request = build_runtime_run_request(
+        command="serve",
         project=str(project_yaml),
-        run_name="train",
+        profile_name="train",
     )
     assert request is not None
     job = request.jobs[0]
@@ -362,10 +364,10 @@ def test_serve_profile_fields_override_serve_defaults(tmp_path: Path):
         encoding="utf-8",
     )
 
-    request = build_profile_run_request(
-        kind="serve",
+    request = build_runtime_run_request(
+        command="serve",
         project=str(project_yaml),
-        run_name="train",
+        profile_name="train",
     )
     assert request is not None
     job = request.jobs[0]
@@ -388,10 +390,10 @@ def test_serve_profile_nested_observability_deep_merges_defaults(
         encoding="utf-8",
     )
 
-    request = build_profile_run_request(
-        kind="serve",
+    request = build_runtime_run_request(
+        command="serve",
         project=str(project_yaml),
-        run_name="train",
+        profile_name="train",
     )
     assert request is not None
     job = request.jobs[0]
@@ -420,10 +422,9 @@ def test_build_defaults_apply_to_build_profiles(tmp_path: Path):
         encoding="utf-8",
     )
 
-    request = build_profile_run_request(
-        kind="build",
+    request = build_build_run_request(
         project=str(project_yaml),
-        run_name="schema",
+        profile_name="schema",
     )
     assert request is not None
     assert request.definition.definition_hash

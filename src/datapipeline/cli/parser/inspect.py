@@ -9,8 +9,9 @@ from datapipeline.config.options import (
 from .common import (
     add_artifact_mode_flag,
     add_dataset_flag,
+    add_execution_observability_flags,
     add_project_flag,
-    add_visual_flags,
+    positive_integer,
 )
 
 
@@ -23,13 +24,13 @@ def add_inspect_command(sub, common: argparse.ArgumentParser) -> None:
     add_dataset_flag(parser)
     add_project_flag(parser)
     parser.add_argument(
-        "--run",
-        help="select an inspect profile by name (project must declare inspect profiles under profiles/)",
+        "--profile",
+        help="select an inspect profile by name; explicitly selected disabled profiles still run",
     )
     parser.add_argument(
         "--limit",
         "-n",
-        type=int,
+        type=positive_integer,
         default=None,
         help="sample cap for matrix and custom runtime operations; coverage does not support it",
     )
@@ -57,4 +58,4 @@ def add_inspect_command(sub, common: argparse.ArgumentParser) -> None:
         help="output representation view (jsonl: raw|flat, csv: flat, pickle: raw)",
     )
     add_artifact_mode_flag(parser)
-    add_visual_flags(parser)
+    add_execution_observability_flags(parser)

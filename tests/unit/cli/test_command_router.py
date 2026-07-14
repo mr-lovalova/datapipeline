@@ -11,8 +11,8 @@ from datapipeline.config.preview import PREVIEW_STAGES
 from datapipeline.config.workspace import WorkspaceConfig
 
 
-def _execute(args, *, plugin_root=None, workspace=None) -> bool:
-    return execute_command(
+def _execute(args, *, plugin_root=None, workspace=None) -> None:
+    execute_command(
         args=args,
         plugin_root=plugin_root,
         workspace_context=workspace,
@@ -37,7 +37,7 @@ def test_plugin_name_forms_dispatch_the_same_value(monkeypatch, argv) -> None:
         lambda **kwargs: captured.update(kwargs),
     )
 
-    assert _execute(build_parser().parse_args(argv)) is True
+    _execute(build_parser().parse_args(argv))
 
     assert captured["subcmd"] == "init"
     assert captured["name"] == "weather-plugin"
@@ -58,7 +58,7 @@ def test_domain_name_forms_dispatch_the_same_value(monkeypatch, argv) -> None:
         lambda **kwargs: captured.update(kwargs),
     )
 
-    assert _execute(build_parser().parse_args(argv)) is True
+    _execute(build_parser().parse_args(argv))
 
     assert captured["subcmd"] == "create"
     assert captured["domain"] == "weather"
@@ -103,13 +103,10 @@ def test_list_routes_forward_plugin_and_workspace(
         lambda **kwargs: captured.update(kwargs),
     )
 
-    assert (
-        _execute(
-            build_parser().parse_args(argv),
-            plugin_root=plugin_root,
-            workspace=workspace,
-        )
-        is True
+    _execute(
+        build_parser().parse_args(argv),
+        plugin_root=plugin_root,
+        workspace=workspace,
     )
 
     assert captured == {
@@ -127,8 +124,6 @@ def test_list_routes_forward_plugin_and_workspace(
             "DEBUG",
             "--log-output",
             "stdout",
-            "--heartbeat-interval",
-            "5",
             "serve",
             "--project",
             "project.yaml",
@@ -151,7 +146,78 @@ def test_common_options_survive_before_or_after_command(argv) -> None:
 
     assert args.log_level == "DEBUG"
     assert args.log_output == ["stdout"]
+
+
+@pytest.mark.parametrize("command", ["serve", "build", "inspect", "materialize"])
+def test_execution_commands_accept_observability_flags(command) -> None:
+    args = build_parser().parse_args(
+        [command, "--visuals", "off", "--heartbeat-interval", "5"]
+    )
+
+    assert args.visuals == "off"
     assert args.heartbeat_interval_seconds == 5
+
+
+def test_heartbeat_is_an_execution_command_option() -> None:
+    with pytest.raises(SystemExit) as exc:
+        build_parser().parse_args(["--heartbeat-interval", "5", "serve"])
+
+    assert exc.value.code == 2
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["clean"],
+        ["demo", "init"],
+        ["list", "domains"],
+        ["source", "list"],
+    ],
+)
+def test_non_execution_commands_reject_heartbeat(argv) -> None:
+    with pytest.raises(SystemExit) as exc:
+        build_parser().parse_args([*argv, "--heartbeat-interval", "5"])
+
+    assert exc.value.code == 2
+
+
+@pytest.mark.parametrize("value", ["-1", "nan", "inf", "-inf"])
+def test_heartbeat_rejects_invalid_values(value) -> None:
+    with pytest.raises(SystemExit) as exc:
+        build_parser().parse_args(["serve", "--heartbeat-interval", value])
+
+    assert exc.value.code == 2
+
+
+@pytest.mark.parametrize("command", ["serve", "inspect"])
+@pytest.mark.parametrize("value", ["0", "-1", "1.5", "many"])
+def test_runtime_limit_must_be_a_positive_integer(command, value) -> None:
+    with pytest.raises(SystemExit) as exc:
+        build_parser().parse_args([command, "--limit", value])
+
+    assert exc.value.code == 2
+
+
+def test_runtime_limit_accepts_a_positive_integer() -> None:
+    args = build_parser().parse_args(["serve", "--limit", "1"])
+
+    assert args.limit == 1
+
+
+@pytest.mark.parametrize("command", ["serve", "build", "inspect", "materialize"])
+def test_profile_flag_selects_a_profile(command) -> None:
+    args = build_parser().parse_args([command, "--profile", "disabled-profile"])
+
+    assert args.profile == "disabled-profile"
+
+
+def test_profile_help_explains_explicit_disabled_selection(capsys) -> None:
+    with pytest.raises(SystemExit) as exc:
+        build_parser().parse_args(["serve", "--help"])
+
+    assert exc.value.code == 0
+    help_text = " ".join(capsys.readouterr().out.split())
+    assert "explicitly selected disabled profiles still run" in help_text
 
 
 @pytest.mark.parametrize("preview", PREVIEW_STAGES)

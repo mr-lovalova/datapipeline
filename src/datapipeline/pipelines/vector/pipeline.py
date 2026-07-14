@@ -48,7 +48,7 @@ def build_vector_pipeline(
     if artifact is None:
         raise RuntimeError(
             "Vector inputs artifact is required before vector assembly. "
-            "Run `jerry build --run vector_inputs` or use "
+            "Run `jerry build --profile vector_inputs` or use "
             "`--artifact-mode AUTO|FORCE`."
         )
 

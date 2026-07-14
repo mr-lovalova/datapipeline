@@ -118,13 +118,16 @@ Split timing (leakage note)
 
 ## CLI Cheat Sheet
 
+Profile commands run enabled profiles by default. `--profile <name>` selects
+that profile explicitly, including one configured with `enabled: false`.
+
 - `jerry demo init`: scaffolds a standalone demo plugin at `./demo/` and wires a `demo` dataset.
 - `jerry plugin init <name> --out lib/`: scaffolds `lib/<name>/` (writes workspace `jerry.yaml` when missing).
 - `jerry.yaml`: sets `plugin_root` for scaffolding commands and `datasets/default_dataset` so you can omit `--project`/`--dataset`.
-- `jerry serve [--dataset <alias>|--project <path>] [--limit N] [--preview <stage>] [--artifact-mode AUTO|FORCE|OFF]`: prepares the combined artifact requirements once, then streams enabled `serve.*` runtime profiles in their configured order.
-- `jerry build [--dataset <alias>|--project <path>] [--force]`: materializes artifacts (schema, scaler, etc.).
-- `jerry inspect [--dataset <alias>|--project <path>] [--run <inspect-profile>] [--artifact-mode AUTO|FORCE|OFF]`: prepares the combined artifact requirements once, then runs enabled inspect profiles (or one selected profile).
-- `jerry materialize [--run <profile>] [--output <path.jsonl>] [--overwrite|--no-overwrite] [--artifact-mode AUTO|FORCE|OFF]`: prepares the selected streams' artifact requirements once, then runs all enabled `materialize.*` profiles or one selected profile. `--output` overrides a selected profile and therefore requires `--run`.
+- `jerry serve [--dataset <alias>|--project <path>] [--profile <name>] [--limit N] [--preview <stage>] [--artifact-mode AUTO|FORCE|OFF]`: prepares the combined artifact requirements once, then streams enabled `serve.*` runtime profiles in their configured order.
+- `jerry build [--dataset <alias>|--project <path>] [--profile <name>] [--force]`: materializes artifacts (schema, scaler, etc.).
+- `jerry inspect [--dataset <alias>|--project <path>] [--profile <name>] [--artifact-mode AUTO|FORCE|OFF]`: prepares the combined artifact requirements once, then runs enabled inspect profiles (or one selected profile).
+- `jerry materialize [--profile <name>] [--output <path.jsonl>] [--overwrite|--no-overwrite] [--artifact-mode AUTO|FORCE|OFF]`: prepares the selected streams' artifact requirements once, then runs all enabled `materialize.*` profiles or one selected profile. `--output` overrides a selected profile and therefore requires `--profile`.
 - `jerry clean [--yes] [--older-than <age>]`: lists or removes stale sort spill directories. It does not delete materialized outputs.
 - `jerry inflow create`: interactive wizard to scaffold an end-to-end ingest (source + parser/DTO + mapper + ingest).
 - `jerry source create <provider>.<dataset> ...`: scaffolds a source YAML (no Python code).

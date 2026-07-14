@@ -6,8 +6,9 @@ import pytest
 from datapipeline.config.execution import ExecutionConfig
 from datapipeline.execution.settings import LogOutputTarget
 from datapipeline.profiles.request_builder import (
+    build_build_run_request,
     build_materialize_run_request,
-    build_profile_run_request,
+    build_runtime_run_request,
 )
 
 
@@ -45,8 +46,7 @@ def test_build_request_requires_declared_build_profiles(tmp_path: Path):
     (tmp_path / "profiles").mkdir(parents=True, exist_ok=True)
 
     with pytest.raises(SystemExit) as exc:
-        build_profile_run_request(
-            kind="build",
+        build_build_run_request(
             project=str(project_yaml),
         )
     assert exc.value.code == 2
@@ -58,8 +58,8 @@ def test_inspect_request_requires_declared_inspect_profiles(tmp_path: Path):
     (tmp_path / "profiles").mkdir(parents=True, exist_ok=True)
 
     with pytest.raises(SystemExit) as exc:
-        build_profile_run_request(
-            kind="inspect",
+        build_runtime_run_request(
+            command="inspect",
             project=str(project_yaml),
         )
     assert exc.value.code == 2
@@ -83,13 +83,13 @@ def test_inspect_request_materializes_execution_scoped_log_output(
         encoding="utf-8",
     )
     (profiles / "inspect.coverage.yaml").write_text(
-        ("operation: coverage\nenabled: true\nartifact_mode: AUTO\n"),
+        ("operation: coverage\nenabled: true\n"),
         encoding="utf-8",
     )
     (tmp_path / "sources").mkdir(parents=True, exist_ok=True)
 
-    request = build_profile_run_request(
-        kind="inspect",
+    request = build_runtime_run_request(
+        command="inspect",
         project=str(project_yaml),
         cli_log_outputs=[LogOutputTarget(transport="fs", scope="execution")],
     )
@@ -117,8 +117,8 @@ def test_disabled_profiles_do_not_create_execution_directory(tmp_path: Path):
         encoding="utf-8",
     )
 
-    request = build_profile_run_request(
-        kind="inspect",
+    request = build_runtime_run_request(
+        command="inspect",
         project=str(project_yaml),
     )
 
@@ -149,7 +149,10 @@ split:
         encoding="utf-8",
     )
 
-    request = build_profile_run_request(kind="serve", project=str(project_yaml))
+    request = build_runtime_run_request(
+        command="serve",
+        project=str(project_yaml),
+    )
 
     assert request is not None
     assert request.jobs[0].output_splits == ("train", "test")
@@ -195,7 +198,7 @@ def test_materialize_request_uses_shared_resolution_snapshot(
     )
     request = build_materialize_run_request(
         project=str(project_yaml),
-        run_name=None,
+        profile_name=None,
         overwrite=None,
         output=None,
         artifact_mode=None,

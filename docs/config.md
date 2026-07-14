@@ -85,7 +85,9 @@ globals:
   `profiles/inspect.defaults.yaml`, and `profiles/materialize.defaults.yaml`.
   Each concrete file contains one mapping. Its `<kind>.<name>.yaml` filename is
   the profile identity; `cmd` and `name` are not repeated in the YAML body.
-  When multiple profiles exist, `--run <name>` selects one by filename.
+  When multiple profiles exist, `--profile <name>` selects one by filename.
+  `enabled: false` excludes a profile from the default batch, but an explicit
+  `--profile <name>` still selects it.
 - Dataset split label names are free-form: match the keys declared in
   `dataset.yaml:split.ratios` (hash) or `dataset.yaml:split.labels` (time).
 
@@ -94,7 +96,6 @@ globals:
 ```yaml
 # profiles/serve.dataset.yaml
 operation: dataset # core runtime operation
-artifact_mode: AUTO # AUTO | FORCE | "OFF"; prepares runtime prerequisites once
 # include_splits: [train, test] # optional subset of dataset split output_labels
 output:
   transport: fs # stdout | fs; configured split output requires fs
@@ -118,9 +119,9 @@ throttle_ms: null # milliseconds to sleep between emitted vectors
 ```
 
 - Each serve profile is a flat file under `profiles/` with the `serve.` prefix.
-- `artifact_mode`, `include_splits`, `output`, `limit`, `throttle_ms`, and
-  `observability` may also be set in `serve.defaults.yaml`. Profile values
-  override those defaults, and CLI flags still win where available (see
+- `include_splits`, `output`, `limit`, `throttle_ms`, and `observability` may
+  also be set in `serve.defaults.yaml`. Profile values override those defaults,
+  and CLI flags still win where available (see
   _Configuration & Resolution Order_). Filesystem runs write under
   `<directory>/runs/<run_id>/dataset/`; normal outputs use `<profile>.<ext>` and
   split outputs use `<profile>.<label>.<ext>`.
@@ -136,9 +137,10 @@ throttle_ms: null # milliseconds to sleep between emitted vectors
 - Before any selected serve profile runs, Jerry unions their artifact
   requirements and prepares the union once according to `artifact_mode`.
   `AUTO` builds missing or stale artifacts, `FORCE` rebuilds the required
-  closure, and `OFF` requires every artifact to be current. Without a CLI
-  override, selected profiles must resolve to the same mode. Quote `"OFF"` in
-  YAML so it is read as text rather than a boolean.
+  closure, and `OFF` requires every artifact to be current. The mode is
+  command-wide and belongs in `serve.defaults.yaml`, not an individual profile.
+  Its precedence is CLI `--artifact-mode`, then `serve.defaults.yaml`, then
+  `AUTO`. Quote `"OFF"` in YAML so it is read as text rather than a boolean.
 - Visuals: set `observability.visuals: ON|OFF` in the profile or use `--visuals on|off`.
 - Node heartbeat: set `observability.heartbeat_interval_seconds` or use
   `--heartbeat-interval`; `0` disables persistent heartbeat records, not live
@@ -149,8 +151,10 @@ throttle_ms: null # milliseconds to sleep between emitted vectors
   shared prerequisite work.
 - Add additional `serve.<name>.yaml` files under `profiles/`
   for distinct serve policies; `jerry serve` runs each enabled profile unless
-  you pass `--run <name>`.
-- Use `profiles/serve.defaults.yaml` for common serve defaults shared across all serve profiles in a project. CLI flags and concrete profiles still take precedence.
+  you pass `--profile <name>`.
+- Use `profiles/serve.defaults.yaml` for common serve defaults shared across all
+  serve profiles in a project. CLI flags and concrete profiles still take
+  precedence for profile-level settings.
 
 ### Materialize Profiles (`profiles/materialize.<name>.yaml`)
 
@@ -165,10 +169,10 @@ overwrite: true
 #   heartbeat_interval_seconds: 60
 ```
 
-- `jerry materialize` runs all enabled materialize profiles in `order`; `--run`
-  selects one. Unlike serve and inspect profiles, these profiles identify a
-  stream directly and do not reference an operation.
-- CLI `--output` overrides the selected profile and requires `--run`; the
+- `jerry materialize` runs all enabled materialize profiles in `order`;
+  `--profile` selects one. Unlike serve and inspect profiles, these profiles
+  identify a stream directly and do not reference an operation.
+- CLI `--output` overrides the selected profile and requires `--profile`; the
   profile remains the source of the stream identity.
 - Relative profile outputs resolve from `project.yaml`; relative CLI `--output`
   values resolve from the workspace root, or the current directory without a
@@ -210,8 +214,8 @@ mode: AUTO # AUTO | FORCE | "OFF"
   `scaler`, `metadata`, ...). Selected build profiles must reference distinct
   operations.
 - Build profile `observability.logging.outputs[].path` values are resolved relative to the dataset project root (`project.yaml` directory).
-- `jerry build` runs enabled build profiles when they exist; `jerry build --run
-  <name>` selects one profile.
+- `jerry build` runs enabled build profiles when they exist;
+  `jerry build --profile <name>` selects one profile.
 - Build profile `order` controls only the order of selected build profiles. The
   dependency graph orders the internal artifact jobs required by each operation
   and never reorders profiles. If selected profiles include both a dependency
@@ -226,11 +230,13 @@ mode: AUTO # AUTO | FORCE | "OFF"
 - They must not include execution identity fields such as `name`, `operation`,
   `enabled`, or `order`.
 - `execution` is command-wide and is not accepted in concrete profiles.
-  Materialize `artifact_mode` is likewise defaults-only.
+  Serve, inspect, and materialize `artifact_mode` is likewise defaults-only.
 - Defaults-level `observability` configures the shared prerequisite phase as
   well as providing profile defaults. Concrete observability overrides apply
   only to that profile.
-- Profile setting precedence is CLI > concrete profile > `<kind>.defaults.yaml` > built-ins.
+- Profile-level setting precedence is CLI > concrete profile >
+  `<kind>.defaults.yaml` > built-ins. Command-wide `artifact_mode` precedence is
+  CLI > `<command>.defaults.yaml` > `AUTO`.
 
 Sorting is an execution policy, not part of an ingest or stream definition.
 Configure its buffer once in each command's defaults file:

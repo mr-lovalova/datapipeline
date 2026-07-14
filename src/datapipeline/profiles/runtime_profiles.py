@@ -171,7 +171,7 @@ def resolve_runtime_profiles(
             config_output=profile.output,
             default=None,
             base_path=project_path.parent,
-            run_name=profile.name,
+            profile_name=profile.name,
             run_paths=(
                 shared_runs.get(serve_root)
                 if is_serve and serve_root is not None

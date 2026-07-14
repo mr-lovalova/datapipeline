@@ -6,8 +6,8 @@ from datapipeline.cli.command_router import execute_command
 from datapipeline.cli.parser_builder import build_parser
 
 
-def _execute(args, workspace=None) -> bool:
-    return execute_command(
+def _execute(args, workspace=None) -> None:
+    execute_command(
         args=args,
         plugin_root=None,
         workspace_context=workspace,
@@ -23,7 +23,7 @@ def test_materialize_parser_accepts_profile_overrides() -> None:
             "materialize",
             "--project",
             "project.yaml",
-            "--run",
+            "--profile",
             "adv-20",
             "--output",
             "adv-20.jsonl",
@@ -38,7 +38,7 @@ def test_materialize_parser_accepts_profile_overrides() -> None:
     )
 
     assert args.cmd == "materialize"
-    assert args.run == "adv-20"
+    assert args.profile == "adv-20"
     assert args.output == "adv-20.jsonl"
     assert args.overwrite is True
     assert args.artifact_mode == "FORCE"
@@ -57,7 +57,7 @@ def test_materialize_dispatches_one_profile_execution_path(monkeypatch) -> None:
             "materialize",
             "--project",
             "project.yaml",
-            "--run",
+            "--profile",
             "adv-20",
             "--output",
             "adv-20.jsonl",
@@ -67,10 +67,10 @@ def test_materialize_dispatches_one_profile_execution_path(monkeypatch) -> None:
         ]
     )
 
-    assert _execute(args) is True
+    _execute(args)
     assert captured == {
         "project": "project.yaml",
-        "run_name": "adv-20",
+        "profile_name": "adv-20",
         "output": "adv-20.jsonl",
         "overwrite": False,
         "artifact_mode": "AUTO",
@@ -83,7 +83,7 @@ def test_materialize_dispatches_one_profile_execution_path(monkeypatch) -> None:
     }
 
 
-def test_materialize_output_override_requires_run(monkeypatch) -> None:
+def test_materialize_output_override_requires_profile(monkeypatch) -> None:
     monkeypatch.setattr(
         "datapipeline.cli.commands.materialize.build_materialize_run_request",
         lambda **kwargs: pytest.fail("profiles should not run"),
@@ -118,7 +118,7 @@ def test_materialize_resolves_profile_output_from_workspace(
             "materialize",
             "--project",
             "project.yaml",
-            "--run",
+            "--profile",
             "adv-20",
             "--output",
             "outputs/adv-20.jsonl",
@@ -127,9 +127,9 @@ def test_materialize_resolves_profile_output_from_workspace(
         ]
     )
 
-    assert _execute(args, workspace) is True
+    _execute(args, workspace)
     assert captured["output"] == (tmp_path / "outputs/adv-20.jsonl").resolve()
-    assert captured["run_name"] == "adv-20"
+    assert captured["profile_name"] == "adv-20"
     assert captured["artifact_mode"] == "OFF"
     assert executed == [request]
 
@@ -144,7 +144,7 @@ def test_materialize_rejects_non_jsonl_output(monkeypatch) -> None:
             "materialize",
             "--project",
             "project.yaml",
-            "--run",
+            "--profile",
             "adv-20",
             "--output",
             "adv-20.csv",
@@ -157,7 +157,7 @@ def test_materialize_rejects_non_jsonl_output(monkeypatch) -> None:
     assert exc_info.value.code == 2
 
 
-def test_materialize_allows_global_overrides_without_run(monkeypatch) -> None:
+def test_materialize_allows_global_overrides_without_profile(monkeypatch) -> None:
     captured = {}
     request = object()
     monkeypatch.setattr(
@@ -179,8 +179,8 @@ def test_materialize_allows_global_overrides_without_run(monkeypatch) -> None:
         ]
     )
 
-    assert _execute(args) is True
-    assert captured["run_name"] is None
+    _execute(args)
+    assert captured["profile_name"] is None
     assert captured["output"] is None
     assert captured["overwrite"] is True
     assert captured["cli_visuals"] == "off"
@@ -199,7 +199,7 @@ def test_materialize_profile_validation_error_exits_cleanly(monkeypatch) -> None
             "materialize",
             "--project",
             "project.yaml",
-            "--run",
+            "--profile",
             "missing",
         ]
     )

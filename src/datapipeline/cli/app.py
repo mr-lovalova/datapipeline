@@ -53,23 +53,21 @@ def _resolve_project_from_args(
     project: str | None,
     dataset: str | None,
     workspace: WorkspaceContext | None,
-) -> tuple[str | None, str | None]:
+) -> str:
     """Resolve final project path from --project / --dataset / jerry.yaml defaults."""
     if project is not None and dataset is not None:
         raise SystemExit("Cannot use both --project and --dataset; pick one.")
 
     if dataset is not None:
-        resolved = _dataset_to_project_path(dataset, workspace)
-        return resolved, dataset
+        return _dataset_to_project_path(dataset, workspace)
 
     if project is None and workspace is not None:
         default_ds = workspace.config.default_dataset
         if default_ds:
-            resolved = _dataset_to_project_path(default_ds, workspace)
-            return resolved, default_ds
+            return _dataset_to_project_path(default_ds, workspace)
 
     if project is not None:
-        return project, dataset
+        return project
 
     raise SystemExit(
         "No dataset/project selected. Use --dataset <name|path>, --project <path>, "
@@ -83,13 +81,11 @@ def _resolve_project_arguments(
 ) -> None:
     if args.cmd not in {"serve", "build", "inspect", "materialize"}:
         return
-    resolved_project, resolved_dataset = _resolve_project_from_args(
+    args.project = _resolve_project_from_args(
         args.project,
         args.dataset,
         workspace_context,
     )
-    args.project = resolved_project
-    args.dataset = resolved_dataset
 
 
 def _configure_cli_logging(
@@ -125,8 +121,13 @@ def _configure_cli_logging(
 
 def main() -> None:
     parser = build_parser()
-    workspace_context = load_workspace_context(workspace_cwd())
     args = parser.parse_args()
+    workspace_context = None
+    if args.cmd not in {"version", "env", "clean"}:
+        try:
+            workspace_context = load_workspace_context(workspace_cwd())
+        except (OSError, TypeError, ValueError) as exc:
+            parser.error(f"Failed to load workspace: {exc}")
     _resolve_project_arguments(args=args, workspace_context=workspace_context)
     (
         cli_level_arg,
@@ -140,7 +141,7 @@ def main() -> None:
     plugin_root = workspace_context.resolve_plugin_root() if workspace_context else None
 
     try:
-        handled = execute_command(
+        execute_command(
             args=args,
             plugin_root=plugin_root,
             workspace_context=workspace_context,
@@ -148,8 +149,6 @@ def main() -> None:
             base_level_name=base_level_name,
             cli_log_outputs=cli_log_outputs,
         )
-        if handled:
-            return
     except KeyboardInterrupt:
         message = (
             "Serve interrupted by user"

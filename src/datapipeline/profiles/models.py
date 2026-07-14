@@ -14,8 +14,6 @@ from datapipeline.runtime import Runtime
 from datapipeline.services.definitions import PipelineDefinition
 from datapipeline.services.runs import RunPaths
 
-TaskProfileKind = Literal["serve", "build", "inspect"]
-
 
 @dataclass(frozen=True)
 class ServeRunPlan:

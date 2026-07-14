@@ -1,6 +1,5 @@
 operation: matrix
 enabled: true
-artifact_mode: AUTO
 output:
   transport: fs
   format: html

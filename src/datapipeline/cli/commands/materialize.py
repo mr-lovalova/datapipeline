@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 def handle(
     project: str,
-    run_name: str | None,
+    profile_name: str | None,
     output: str | None,
     overwrite: bool | None,
     artifact_mode: str | None,
@@ -23,8 +23,8 @@ def handle(
     base_log_level: str,
     workspace: WorkspaceContext | None,
 ) -> None:
-    if run_name is None and output is not None:
-        logger.error("--output requires --run")
+    if profile_name is None and output is not None:
+        logger.error("--output requires --profile")
         raise SystemExit(2)
 
     output_path = None
@@ -41,7 +41,7 @@ def handle(
 
     request = build_materialize_run_request(
         project=project,
-        run_name=run_name,
+        profile_name=profile_name,
         overwrite=overwrite,
         artifact_mode=artifact_mode,
         output=output_path,

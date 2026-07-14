@@ -1,3 +1,2 @@
 operation: coverage
 enabled: true
-artifact_mode: AUTO

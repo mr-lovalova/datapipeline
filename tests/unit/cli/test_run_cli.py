@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from datapipeline.cli.workspace import WorkspaceContext
+from datapipeline.cli.output_options import build_cli_output_config
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
 from datapipeline.config.dataset.split import HashSplitConfig, TimeSplitConfig
 from datapipeline.config.profiles import (
@@ -16,8 +16,6 @@ from datapipeline.config.preview import PreviewStage
 from datapipeline.config.tasks import OperationTask, PipelineTask
 from datapipeline.execution.settings import LogOutputTarget
 from datapipeline.profiles.runtime_profiles import resolve_runtime_profiles
-from datapipeline.config.workspace import WorkspaceConfig
-from datapipeline.profiles.request_builder import build_cli_output_config
 from tests.unit.profiles.helpers import pipeline_definition
 
 
@@ -142,17 +140,16 @@ def test_serve_profile_rejects_numeric_preview() -> None:
     ("profile_type", "command"),
     [(ServeProfile, "serve"), (InspectProfile, "inspect")],
 )
-def test_runtime_profiles_use_flat_artifact_mode(profile_type, command):
-    profile = profile_type.model_validate(
-        {
-            "cmd": command,
-            "name": "example",
-            "operation": "serve",
-            "artifact_mode": "force",
-        }
-    )
-
-    assert profile.artifact_mode == "FORCE"
+def test_runtime_profiles_reject_command_wide_artifact_mode(profile_type, command):
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        profile_type.model_validate(
+            {
+                "cmd": command,
+                "name": "example",
+                "operation": "serve",
+                "artifact_mode": "force",
+            }
+        )
 
 
 @pytest.mark.parametrize(
@@ -515,7 +512,6 @@ def test_operation_options_rejects_preview_when_unsupported(tmp_path):
             "cmd": "inspect",
             "name": "coverage",
             "operation": "coverage",
-            "artifact_mode": "AUTO",
         }
     )
 
@@ -817,16 +813,11 @@ def test_shared_serve_runs_reject_explicit_output_filename(tmp_path):
 
 
 def test_cli_output_directory_resolves_relative_to_workspace(tmp_path):
-    workspace = WorkspaceContext(
-        file_path=tmp_path / "jerry.yaml",
-        config=WorkspaceConfig.model_validate({}),
-    )
-
     config = build_cli_output_config(
         "fs",
         "jsonl",
         ".",
-        workspace=workspace,
+        workspace_root=tmp_path,
     )
 
     assert config is not None
@@ -839,7 +830,6 @@ def test_inspect_profiles_accept_html_output_for_matrix(tmp_path):
             "cmd": "inspect",
             "name": "matrix",
             "operation": "matrix",
-            "artifact_mode": "AUTO",
             "output": {
                 "transport": "fs",
                 "format": "html",
@@ -860,7 +850,6 @@ def test_inspect_profile_model_allows_html_output_for_any_operation(tmp_path):
             "cmd": "inspect",
             "name": "coverage",
             "operation": "coverage",
-            "artifact_mode": "AUTO",
             "output": {
                 "transport": "fs",
                 "format": "html",
@@ -879,7 +868,6 @@ def test_inspect_profiles_accept_cli_html_override_for_non_matrix(tmp_path):
             "cmd": "inspect",
             "name": "coverage",
             "operation": "coverage",
-            "artifact_mode": "AUTO",
         }
     )
 
@@ -920,7 +908,6 @@ def test_serve_profiles_accept_cli_txt_override(tmp_path):
             "cmd": "serve",
             "name": "serve",
             "operation": "serve",
-            "artifact_mode": "AUTO",
         }
     )
 

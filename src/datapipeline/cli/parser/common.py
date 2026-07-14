@@ -1,4 +1,5 @@
 import argparse
+import math
 
 from datapipeline.config.options import VISUAL_CHOICES
 from datapipeline.config.profiles import ARTIFACT_MODES
@@ -11,11 +12,21 @@ def _heartbeat_interval_seconds(value: str) -> float:
         raise argparse.ArgumentTypeError(
             "--heartbeat-interval must be a non-negative number of seconds"
         ) from exc
-    if interval < 0:
+    if not math.isfinite(interval) or interval < 0:
         raise argparse.ArgumentTypeError(
-            "--heartbeat-interval must be a non-negative number of seconds"
+            "--heartbeat-interval must be a finite, non-negative number of seconds"
         )
     return interval
+
+
+def positive_integer(value: str) -> int:
+    try:
+        number = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("value must be a positive integer") from exc
+    if number < 1:
+        raise argparse.ArgumentTypeError("value must be a positive integer")
+    return number
 
 
 def add_dataset_flag(parser: argparse.ArgumentParser) -> None:
@@ -45,32 +56,14 @@ def add_artifact_mode_flag(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def add_visual_flags(parser: argparse.ArgumentParser) -> None:
+def add_execution_observability_flags(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--visuals",
         choices=VISUAL_CHOICES,
         default=None,
         help="visuals mode: on (default) or off",
     )
-
-
-def build_common_parent() -> argparse.ArgumentParser:
-    common = argparse.ArgumentParser(add_help=False)
-    common.add_argument(
-        "--log-level",
-        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
-        type=str.upper,
-        default=None,
-        help="set logging level (default: INFO)",
-    )
-    common.add_argument(
-        "--log-output",
-        action="append",
-        metavar="TARGET",
-        default=None,
-        help="repeatable log output target: stderr | stdout | fs:<path> | execution[:<relative-path>]",
-    )
-    common.add_argument(
+    parser.add_argument(
         "--heartbeat-interval",
         dest="heartbeat_interval_seconds",
         type=_heartbeat_interval_seconds,
@@ -78,31 +71,23 @@ def build_common_parent() -> argparse.ArgumentParser:
         metavar="SECONDS",
         help="node heartbeat interval in seconds; set to 0 to disable",
     )
-    return common
 
 
-def build_command_common_parent() -> argparse.ArgumentParser:
+def build_logging_parent(suppress_defaults: bool = False) -> argparse.ArgumentParser:
+    default = argparse.SUPPRESS if suppress_defaults else None
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument(
         "--log-level",
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
         type=str.upper,
-        default=argparse.SUPPRESS,
+        default=default,
         help="set logging level (default: INFO)",
     )
     common.add_argument(
         "--log-output",
         action="append",
         metavar="TARGET",
-        default=argparse.SUPPRESS,
+        default=default,
         help="repeatable log output target: stderr | stdout | fs:<path> | execution[:<relative-path>]",
-    )
-    common.add_argument(
-        "--heartbeat-interval",
-        dest="heartbeat_interval_seconds",
-        type=_heartbeat_interval_seconds,
-        default=argparse.SUPPRESS,
-        metavar="SECONDS",
-        help="node heartbeat interval in seconds; set to 0 to disable",
     )
     return common

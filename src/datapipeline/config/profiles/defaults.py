@@ -26,7 +26,7 @@ class ServeProfileDefaults(ProfileDefaults):
     include_splits: list[str] | None = Field(default=None, min_length=1)
     limit: int | None = Field(default=None, ge=1)
     preview: PreviewStage | None = None
-    throttle_ms: float | None = Field(default=None, ge=0.0)
+    throttle_ms: float | None = Field(default=None, ge=0.0, allow_inf_nan=False)
 
     @field_validator("artifact_mode", mode="before")
     @classmethod

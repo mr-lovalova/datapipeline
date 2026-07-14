@@ -114,7 +114,7 @@ def resolve_output_target(
     config_output: ServeOutputConfig | None,
     default: ServeOutputConfig | None = None,
     base_path: Path | None = None,
-    run_name: str | None = None,
+    profile_name: str | None = None,
     run_paths: RunPaths | None = None,
 ) -> OutputTarget:
     """
@@ -146,14 +146,12 @@ def resolve_output_target(
         base_dest_dir = run_paths.dataset_dir
     else:
         run_paths = None
-        # When not creating a managed run, nest outputs under an optional
-        # run_name subdirectory to keep layouts consistent with tests/CLI.
         base_dest_dir = directory
-        if run_name:
-            base_dest_dir = base_dest_dir / sanitize_path_segment(run_name)
+        if profile_name:
+            base_dest_dir = base_dest_dir / sanitize_path_segment(profile_name)
     suffix = _format_suffix(config.format)
     filename_stem = config.filename or (
-        sanitize_path_segment(run_name) if run_name else None
+        sanitize_path_segment(profile_name) if profile_name else None
     )
     if filename_stem:
         if Path(filename_stem).suffix == suffix:

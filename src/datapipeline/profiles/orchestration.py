@@ -50,8 +50,12 @@ def run_profiles(request: ProfileRunRequest) -> None:
                 _run_build_profiles(request)
             elif isinstance(request, RuntimeRunRequest):
                 _run_runtime_profiles(request)
-            else:
+            elif isinstance(request, MaterializeRunRequest):
                 _run_materialize_profiles(request)
+            else:
+                raise TypeError(
+                    f"Unsupported profile request: {type(request).__name__}"
+                )
             _prune_vector_input_caches(request)
     except ProjectExecutionBusyError as exc:
         logger.error("%s", exc)
@@ -91,7 +95,7 @@ def _run_build_profiles(request: BuildRunRequest) -> None:
             runtime=runtime,
         )
 
-        def build(job=job, runtime=runtime) -> None:
+        def build() -> None:
             run_build_if_needed(
                 request.definition,
                 graph=graph,
@@ -139,7 +143,7 @@ def _run_runtime_profiles(request: RuntimeRunRequest) -> None:
                 runtime=job.runtime,
             )
 
-            def execute(plan=plan) -> None:
+            def execute() -> None:
                 execute_runtime_job(
                     request.command,
                     request.definition,
@@ -186,7 +190,7 @@ def _run_materialize_profiles(request: MaterializeRunRequest) -> None:
             runtime=request.runtime,
         )
 
-        def execute(job=job) -> None:
+        def execute() -> None:
             execute_materialize_job(job, request.runtime)
 
         run_execution(spec, execute)

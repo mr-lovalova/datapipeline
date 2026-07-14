@@ -199,13 +199,10 @@ def apply_profile_defaults(
             f"Cannot apply {defaults.cmd} defaults to {profile.cmd} profile '{profile.name}'."
         )
 
-    excluded_defaults = {"execution"}
-    if isinstance(defaults, MaterializeProfileDefaults):
-        excluded_defaults.add("artifact_mode")
     defaults_payload = defaults.model_dump(
         exclude_unset=True,
         exclude_none=True,
-        exclude=excluded_defaults,
+        exclude={"execution", "artifact_mode"},
     )
     profile_payload = profile.model_dump(exclude_unset=True)
     merged_payload = {**defaults_payload, **profile_payload}

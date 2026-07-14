@@ -53,9 +53,9 @@ orphaned, missing, altered, stale, and incomplete chains are left unavailable.
 Commands targeting the same artifacts root cannot overlap; a second command
 fails before reading or mutating managed artifacts.
 
-Serve and inspect profiles use a flat `artifact_mode` for their prerequisite
-phase. Materialize uses the same command-wide policy from
-`materialize.defaults.yaml` or `--artifact-mode`:
+Serve, inspect, and materialize use one command-wide `artifact_mode` for their
+prerequisite phase. Its precedence is CLI `--artifact-mode`, then the matching
+`<command>.defaults.yaml`, then the built-in `AUTO`:
 
 - `AUTO`: build missing/stale requirements and reuse current dependencies.
 - `FORCE`: rebuild the selected dependency closure.
@@ -64,9 +64,9 @@ phase. Materialize uses the same command-wide policy from
 Before any selected serve or inspect profile runs, Jerry unions their artifact
 requirements and prepares that union once. The graph orders internal artifact
 jobs; profile `order` remains authoritative for the subsequent runtime actions.
-Without a command-line override, selected serve or inspect profiles must resolve
-to the same mode. Custom artifact dependencies must have a configured producer;
-core artifact producers are always available.
+Concrete profiles do not carry individual artifact modes. Custom artifact
+dependencies must have a configured producer; core artifact producers are
+always available.
 
 Before any selected materialize profile runs, Jerry similarly unions the
 artifact requirements of its selected streams and prepares them once.

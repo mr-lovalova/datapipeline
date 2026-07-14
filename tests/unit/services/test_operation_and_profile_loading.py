@@ -399,6 +399,102 @@ def test_serve_defaults_supply_include_splits_unless_profile_overrides(tmp_path)
     ]
 
 
+def test_serve_artifact_mode_is_defaults_only(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    profiles_dir = _profile_kind_dir(project_yaml)
+    (profiles_dir / "serve.dataset.yaml").write_text(
+        "operation: dataset\nartifact_mode: AUTO\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        _serve_profiles(project_yaml)
+
+
+def test_inspect_artifact_mode_is_defaults_only(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    profiles_dir = _profile_kind_dir(project_yaml)
+    (profiles_dir / "inspect.coverage.yaml").write_text(
+        "operation: coverage\nartifact_mode: AUTO\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        _inspect_profiles(project_yaml)
+
+
+def test_serve_defaults_keep_command_wide_artifact_mode_out_of_profile(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    profiles_dir = _profile_kind_dir(project_yaml)
+    (profiles_dir / "serve.defaults.yaml").write_text(
+        "artifact_mode: FORCE\n",
+        encoding="utf-8",
+    )
+    (profiles_dir / "serve.dataset.yaml").write_text(
+        "operation: dataset\n",
+        encoding="utf-8",
+    )
+
+    profile = _serve_profiles(project_yaml)[0]
+    defaults = _serve_defaults(project_yaml)
+    merged = apply_profile_defaults(profile, defaults)
+
+    assert defaults.artifact_mode == "FORCE"
+    assert not hasattr(merged, "artifact_mode")
+
+
+@pytest.mark.parametrize("value", [".inf", ".nan"])
+def test_serve_profile_rejects_non_finite_throttle(tmp_path, value):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    profiles_dir = _profile_kind_dir(project_yaml)
+    (profiles_dir / "serve.dataset.yaml").write_text(
+        f"operation: dataset\nthrottle_ms: {value}\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="finite number"):
+        _serve_profiles(project_yaml)
+
+
+@pytest.mark.parametrize("value", [".inf", ".nan"])
+def test_serve_defaults_reject_non_finite_throttle(tmp_path, value):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    profiles_dir = _profile_kind_dir(project_yaml)
+    (profiles_dir / "serve.defaults.yaml").write_text(
+        f"throttle_ms: {value}\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="finite number"):
+        _serve_defaults(project_yaml)
+
+
+@pytest.mark.parametrize("value", [".inf", ".nan"])
+def test_profile_rejects_non_finite_heartbeat(tmp_path, value):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    profiles_dir = _profile_kind_dir(project_yaml)
+    (profiles_dir / "serve.dataset.yaml").write_text(
+        f"operation: dataset\nobservability:\n  heartbeat_interval_seconds: {value}\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="finite number"):
+        _serve_profiles(project_yaml)
+
+
+@pytest.mark.parametrize("value", [".inf", ".nan"])
+def test_profile_defaults_reject_non_finite_heartbeat(tmp_path, value):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    profiles_dir = _profile_kind_dir(project_yaml)
+    (profiles_dir / "serve.defaults.yaml").write_text(
+        f"observability:\n  heartbeat_interval_seconds: {value}\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="finite number"):
+        _serve_defaults(project_yaml)
+
+
 def test_serve_profiles_interpolate_project_globals(tmp_path):
     project_yaml = _write_project(tmp_path, operations_ref="operations")
     project_yaml.write_text(

@@ -106,6 +106,7 @@ class ObservabilityConfig(BaseModel):
     heartbeat_interval_seconds: float | None = Field(
         default=None,
         ge=0,
+        allow_inf_nan=False,
         description="Node heartbeat interval in seconds. Set to 0 to disable.",
     )
     logging: LoggingConfig | None = Field(

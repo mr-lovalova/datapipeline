@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from datapipeline.cli.command_router import execute_command
-from datapipeline.profiles.request_builder import build_cli_output_config
+from datapipeline.cli.output_options import build_cli_output_config
 
 
 def _serve_args() -> SimpleNamespace:
@@ -13,7 +13,7 @@ def _serve_args() -> SimpleNamespace:
         cmd="serve",
         project="project.yaml",
         limit=None,
-        run=None,
+        profile=None,
         preview=None,
         output_transport=None,
         output_format=None,
@@ -30,7 +30,7 @@ def _inspect_args() -> SimpleNamespace:
     return SimpleNamespace(
         cmd="inspect",
         project="project.yaml",
-        run=None,
+        profile=None,
         limit=None,
         output_transport=None,
         output_format=None,
@@ -168,7 +168,7 @@ def test_build_cli_output_config_rejects_unknown_encoding() -> None:
 
 def test_execute_serve_propagates_keyboard_interrupt(monkeypatch) -> None:
     monkeypatch.setattr(
-        "datapipeline.cli.commands.profile_runner.build_profile_run_request",
+        "datapipeline.cli.commands.profile_runner.build_runtime_run_request",
         lambda **kwargs: object(),
     )
 
@@ -205,7 +205,7 @@ def test_execute_serve_runs_request_from_builder(monkeypatch) -> None:
         return sentinel_request
 
     monkeypatch.setattr(
-        "datapipeline.cli.commands.profile_runner.build_profile_run_request",
+        "datapipeline.cli.commands.profile_runner.build_runtime_run_request",
         _build_request,
     )
 
@@ -220,7 +220,7 @@ def test_execute_serve_runs_request_from_builder(monkeypatch) -> None:
 
     args = _serve_args()
     args.artifact_mode = "FORCE"
-    handled = execute_command(
+    result = execute_command(
         args=args,
         plugin_root=None,
         workspace_context=None,
@@ -229,21 +229,22 @@ def test_execute_serve_runs_request_from_builder(monkeypatch) -> None:
         cli_log_outputs=[],
     )
 
-    assert handled is True
+    assert result is None
     assert seen["request"] is sentinel_request
+    assert captured["command"] == "serve"
     assert captured["artifact_mode"] == "FORCE"
 
 
 def test_execute_serve_skips_when_no_enabled_profiles(monkeypatch, caplog) -> None:
     monkeypatch.setattr(
-        "datapipeline.cli.commands.profile_runner.build_profile_run_request",
+        "datapipeline.cli.commands.profile_runner.build_runtime_run_request",
         lambda **kwargs: None,
     )
 
     with caplog.at_level(
         logging.INFO, logger="datapipeline.cli.commands.profile_runner"
     ):
-        handled = execute_command(
+        result = execute_command(
             args=_serve_args(),
             plugin_root=None,
             workspace_context=None,
@@ -252,11 +253,11 @@ def test_execute_serve_skips_when_no_enabled_profiles(monkeypatch, caplog) -> No
             cli_log_outputs=[],
         )
 
-    assert handled is True
+    assert result is None
     assert "No enabled serve profiles; skipping serve." in caplog.text
 
 
-def test_execute_build_passes_build_kind(monkeypatch) -> None:
+def test_execute_build_passes_profile_and_force(monkeypatch) -> None:
     captured: dict[str, object] = {}
 
     def _capture_request(**kwargs):
@@ -264,7 +265,7 @@ def test_execute_build_passes_build_kind(monkeypatch) -> None:
         return object()
 
     monkeypatch.setattr(
-        "datapipeline.cli.commands.profile_runner.build_profile_run_request",
+        "datapipeline.cli.commands.profile_runner.build_build_run_request",
         _capture_request,
     )
     monkeypatch.setattr(
@@ -275,12 +276,12 @@ def test_execute_build_passes_build_kind(monkeypatch) -> None:
     args = SimpleNamespace(
         cmd="build",
         project="project.yaml",
-        run="nightly",
+        profile="nightly",
         force=True,
         visuals="off",
         heartbeat_interval_seconds=None,
     )
-    handled = execute_command(
+    result = execute_command(
         args=args,
         plugin_root=None,
         workspace_context=None,
@@ -289,13 +290,12 @@ def test_execute_build_passes_build_kind(monkeypatch) -> None:
         cli_log_outputs=[],
     )
 
-    assert handled is True
-    assert captured["kind"] == "build"
-    assert captured["run_name"] == "nightly"
+    assert result is None
+    assert captured["profile_name"] == "nightly"
     assert captured["force"] is True
 
 
-def test_execute_inspect_passes_inspect_kind(monkeypatch) -> None:
+def test_execute_inspect_passes_command_and_profile(monkeypatch) -> None:
     captured: dict[str, object] = {}
 
     def _capture_request(**kwargs):
@@ -303,7 +303,7 @@ def test_execute_inspect_passes_inspect_kind(monkeypatch) -> None:
         return object()
 
     monkeypatch.setattr(
-        "datapipeline.cli.commands.profile_runner.build_profile_run_request",
+        "datapipeline.cli.commands.profile_runner.build_runtime_run_request",
         _capture_request,
     )
     monkeypatch.setattr(
@@ -312,8 +312,8 @@ def test_execute_inspect_passes_inspect_kind(monkeypatch) -> None:
     )
 
     args = _inspect_args()
-    args.run = "report"
-    handled = execute_command(
+    args.profile = "report"
+    result = execute_command(
         args=args,
         plugin_root=None,
         workspace_context=None,
@@ -322,21 +322,21 @@ def test_execute_inspect_passes_inspect_kind(monkeypatch) -> None:
         cli_log_outputs=[],
     )
 
-    assert handled is True
-    assert captured["kind"] == "inspect"
-    assert captured["run_name"] == "report"
+    assert result is None
+    assert captured["command"] == "inspect"
+    assert captured["profile_name"] == "report"
 
 
 def test_execute_inspect_skips_when_no_enabled_profiles(monkeypatch, caplog) -> None:
     monkeypatch.setattr(
-        "datapipeline.cli.commands.profile_runner.build_profile_run_request",
+        "datapipeline.cli.commands.profile_runner.build_runtime_run_request",
         lambda **kwargs: None,
     )
 
     with caplog.at_level(
         logging.INFO, logger="datapipeline.cli.commands.profile_runner"
     ):
-        handled = execute_command(
+        result = execute_command(
             args=_inspect_args(),
             plugin_root=None,
             workspace_context=None,
@@ -345,5 +345,5 @@ def test_execute_inspect_skips_when_no_enabled_profiles(monkeypatch, caplog) -> 
             cli_log_outputs=[],
         )
 
-    assert handled is True
+    assert result is None
     assert "No enabled inspect profiles; skipping inspect." in caplog.text
