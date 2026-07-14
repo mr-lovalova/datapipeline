@@ -109,7 +109,7 @@ Split timing (leakage note)
 - Split fan-out cannot be combined with `--preview`; use `samples` or
   `postprocess` to inspect the combined stream before running the fan-out profile.
 - Feature engineering runs before split; keep it causal (no look-ahead, no future leakage).
-- Scaler statistics are fit by the build task `scaler.yaml` and are typically restricted to the `train` split (configurable via `split_label`). Scaler filtering supports time splits and hash splits keyed by `group`; a hash `feature:<id>` key requires `split_label: all`. Temporal folds can fit multiple internal scalers in the same scaler artifact.
+- Scaler statistics are fit by the core `scaler` build operation and are typically restricted to the `train` split (configurable via `split_label`). Scaler filtering supports time splits and hash splits keyed by `group`; a hash `feature:<id>` key requires `split_label: all`. Temporal folds can fit multiple internal scalers in the same scaler artifact.
 
 ---
 
@@ -186,7 +186,7 @@ These live under `lib/<plugin>/src/<package>/`:
 - **Record transforms** run on mapped domain records before ordering. Each transform operates on one record at a time. Configure in `ingests/*.yaml` under `record:`.
 - **Stream transforms** run on ordered records (dedupe, cadence enforcement, lag/lead, rolling, derive, fills). These operate across a sequence of records for a partition because they depend on sorted partition/time order and cadence. Configure in `streams/*.yaml` under `stream:`.
 - **Feature transforms** run after stream regularization and shape the per-feature payload for vectorization. The explicit `scale` and `sequence` fields in `dataset.yaml` configure this stage; it is not an arbitrary transform list.
-- **Postprocess policies** select assembled vector columns and filter samples by coverage. Configure in `postprocess.yaml`.
+- **Postprocess policies** select assembled vector columns and filter samples by coverage. Configure them under `postprocess:` in `dataset.yaml`.
 - Transform lists contain flat, validated built-in operations. Each item has an
   `operation` discriminator and that operation's fields. See the
   [transform guide](docs/transforms/index.md) for the supported operations.

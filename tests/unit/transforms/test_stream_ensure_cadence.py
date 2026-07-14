@@ -172,13 +172,12 @@ def test_ensure_ticks_does_not_slice_the_grid() -> None:
     ]
 
 
-def test_read_tick_grid_sorts_and_deduplicates_rows(tmp_path) -> None:
+def test_read_tick_grid_keeps_canonical_rows(tmp_path) -> None:
     path = tmp_path / "ticks.jsonl"
     rows = [
-        {"time": _time(2).isoformat()},
         {"time": _time(0).isoformat()},
         {"time": _time(1).isoformat()},
-        {"time": _time(1).isoformat()},
+        {"time": _time(2).isoformat()},
     ]
     path.write_text(
         "".join(json.dumps(row) + "\n" for row in rows),
@@ -188,6 +187,40 @@ def test_read_tick_grid_sorts_and_deduplicates_rows(tmp_path) -> None:
     ticks = read_tick_grid(path, ())
 
     assert ticks.ticks_for(()) == [_time(0), _time(1), _time(2)]
+
+
+@pytest.mark.parametrize(
+    "hours",
+    [
+        (0, 0),
+        (1, 0),
+    ],
+)
+def test_read_tick_grid_rejects_noncanonical_order(tmp_path, hours) -> None:
+    path = tmp_path / "ticks.jsonl"
+    path.write_text(
+        "".join(json.dumps({"time": _time(hour).isoformat()}) + "\n" for hour in hours),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="strictly ordered"):
+        read_tick_grid(path, ())
+
+
+def test_read_tick_grid_rejects_partition_that_reappears(tmp_path) -> None:
+    path = tmp_path / "ticks.jsonl"
+    rows = [
+        {"time": _time(0).isoformat(), "security_id": "AAPL"},
+        {"time": _time(0).isoformat(), "security_id": "MSFT"},
+        {"time": _time(1).isoformat(), "security_id": "AAPL"},
+    ]
+    path.write_text(
+        "".join(json.dumps(row) + "\n" for row in rows),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="strictly ordered"):
+        read_tick_grid(path, ("security_id",))
 
 
 def test_read_tick_grid_rejects_unexpected_fields(tmp_path) -> None:

@@ -1,10 +1,16 @@
 from io import StringIO
 import logging
 from pathlib import Path
+import subprocess
+import sys
+from textwrap import dedent
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from rich.console import Console
 from rich.progress import BarColumn, Progress
 
+import datapipeline.cli.visuals.rich.progress as rich_progress
 from datapipeline.cli.visuals.execution import (
     PipelineFinished,
     PipelineStarted,
@@ -14,17 +20,18 @@ from datapipeline.cli.visuals.execution import (
     NodeStarted,
 )
 from datapipeline.cli.visuals.execution_context import (
-    current_execution_event_sink,
-    current_terminal_log_proxy_sink,
-    reset_current_execution_event_sink,
-    reset_current_terminal_log_proxy_sink,
-    set_current_execution_event_sink,
-    set_current_terminal_log_proxy_sink,
+    current_execution_event_handler,
+    current_terminal_log_handler,
+    reset_current_execution_event_handler,
+    reset_current_terminal_log_handler,
+    set_current_execution_event_handler,
+    set_current_terminal_log_handler,
 )
-from datapipeline.cli.visuals.rich.event_sink import _RichConsoleExecutionSink
 from datapipeline.cli.visuals.rich.progress import (
     _ExecutionProgress,
     _LiveElapsedColumn,
+    _RichExecutionRenderer,
+    rich_visuals_supported,
     visual_execution,
 )
 from datapipeline.execution.events import ProgressResource, ProgressSnapshot
@@ -155,7 +162,9 @@ def test_info_progress_shows_node_and_local_detail() -> None:
         'stream:adv.20/open_source · 2/17 "2011.jsonl" · 20,000 records'
     )
 
-    _finish_node(renderer, 1, "open_source")
+    with patch.object(progress, "refresh", wraps=progress.refresh) as refresh:
+        _finish_node(renderer, 1, "open_source")
+    refresh.assert_called_once_with()
 
     task = progress.tasks[0]
     assert task.description == "stream:adv.20"
@@ -326,35 +335,37 @@ def test_root_pipeline_finish_clears_progress_and_remains_a_static_event() -> No
     renderer = _ExecutionProgress(progress, debug=False)
     renderer.handle(PipelineStarted(pipeline_name="stream:adv.20", node_count=4))
 
-    renderer.handle(
-        PipelineFinished(
-            pipeline_name="stream:adv.20",
-            node_count=4,
-            status="success",
-            output_items=100,
-            elapsed_seconds=1,
+    with patch.object(progress, "refresh", wraps=progress.refresh) as refresh:
+        renderer.handle(
+            PipelineFinished(
+                pipeline_name="stream:adv.20",
+                node_count=4,
+                status="success",
+                output_items=100,
+                elapsed_seconds=1,
+            )
         )
-    )
+    refresh.assert_called_once_with()
 
     assert progress.tasks == []
 
 
-def test_rich_sink_routes_node_progress_to_renderer_without_printing() -> None:
+def test_rich_renderer_routes_node_progress_without_printing() -> None:
     console, output = _console()
-    renderer = _CaptureRenderer()
-    sink = _RichConsoleExecutionSink(logging.INFO, console, renderer)
+    progress_renderer = _CaptureRenderer()
+    renderer = _RichExecutionRenderer(logging.INFO, console, progress_renderer)
     event = _node_progress(0, "open_source", ProgressSnapshot(completed=10))
 
-    sink.emit(event)
+    renderer.render(event)
 
-    assert renderer.events == [event]
+    assert progress_renderer.events == [event]
     assert output.getvalue() == ""
 
 
-def test_rich_sink_persists_node_finish_at_debug() -> None:
+def test_rich_renderer_persists_node_finish_at_debug() -> None:
     console, output = _console(width=120)
-    renderer = _CaptureRenderer()
-    sink = _RichConsoleExecutionSink(logging.DEBUG, console, renderer)
+    progress_renderer = _CaptureRenderer()
+    renderer = _RichExecutionRenderer(logging.DEBUG, console, progress_renderer)
     event = NodeFinished(
         pipeline_name="stream:adv.20",
         node_name="rolling",
@@ -364,18 +375,18 @@ def test_rich_sink_persists_node_finish_at_debug() -> None:
         elapsed_seconds=1,
     )
 
-    sink.emit(event)
+    renderer.render(event)
 
-    assert renderer.events == [event]
+    assert progress_renderer.events == [event]
     assert output.getvalue().strip() == (
         "[stream:adv.20/rolling] finished status=success out=100 elapsed=1.000000s"
     )
 
 
-def test_rich_sink_hides_successful_node_finish_at_info() -> None:
+def test_rich_renderer_hides_successful_node_finish_at_info() -> None:
     console, output = _console()
-    renderer = _CaptureRenderer()
-    sink = _RichConsoleExecutionSink(logging.INFO, console, renderer)
+    progress_renderer = _CaptureRenderer()
+    renderer = _RichExecutionRenderer(logging.INFO, console, progress_renderer)
     event = NodeFinished(
         pipeline_name="stream:adv.20",
         node_name="rolling",
@@ -385,16 +396,16 @@ def test_rich_sink_hides_successful_node_finish_at_info() -> None:
         elapsed_seconds=1,
     )
 
-    sink.emit(event)
+    renderer.render(event)
 
-    assert renderer.events == [event]
+    assert progress_renderer.events == [event]
     assert output.getvalue() == ""
 
 
-def test_rich_sink_persists_failed_node_finish_at_info() -> None:
+def test_rich_renderer_persists_failed_node_finish_at_info() -> None:
     console, output = _console(width=140)
-    renderer = _CaptureRenderer()
-    sink = _RichConsoleExecutionSink(logging.INFO, console, renderer)
+    progress_renderer = _CaptureRenderer()
+    renderer = _RichExecutionRenderer(logging.INFO, console, progress_renderer)
     event = NodeFinished(
         pipeline_name="stream:adv.20",
         node_name="rolling",
@@ -406,19 +417,19 @@ def test_rich_sink_persists_failed_node_finish_at_info() -> None:
         elapsed_seconds=1,
     )
 
-    sink.emit(event)
+    renderer.render(event)
 
-    assert renderer.events == [event]
+    assert progress_renderer.events == [event]
     assert output.getvalue().strip() == (
         "[stream:adv.20/rolling] finished "
         "status=error error=ValueError: invalid record out=0 elapsed=1.000000s"
     )
 
 
-def test_rich_sink_persists_root_pipeline_lifecycle() -> None:
+def test_rich_renderer_persists_root_pipeline_lifecycle() -> None:
     console, output = _console()
-    renderer = _CaptureRenderer()
-    sink = _RichConsoleExecutionSink(logging.INFO, console, renderer)
+    progress_renderer = _CaptureRenderer()
+    renderer = _RichExecutionRenderer(logging.INFO, console, progress_renderer)
     root = PipelineStarted(pipeline_name="stream:adv.20", node_count=4)
     root_finished = PipelineFinished(
         pipeline_name="stream:adv.20",
@@ -430,29 +441,29 @@ def test_rich_sink_persists_root_pipeline_lifecycle() -> None:
     events = [root, root_finished]
 
     for event in events:
-        sink.emit(event)
+        renderer.render(event)
 
-    assert renderer.events == events
+    assert progress_renderer.events == events
     assert output.getvalue().splitlines() == [
         "[stream:adv.20] started nodes=4",
         "[stream:adv.20] finished status=success items=100 elapsed=1.000000s",
     ]
 
 
-def test_rich_sink_static_events_are_flat() -> None:
+def test_rich_renderer_static_events_are_flat() -> None:
     console, output = _console()
-    sink = _RichConsoleExecutionSink(logging.INFO, console)
+    renderer = _RichExecutionRenderer(logging.INFO, console)
 
-    sink.emit(ExecutionMessage(message="Saved 10 records"))
+    renderer.render(ExecutionMessage(message="Saved 10 records"))
 
     assert output.getvalue().splitlines() == ["Saved 10 records"]
 
 
-def test_rich_sink_hides_debug_config_at_info() -> None:
+def test_rich_renderer_hides_debug_config_at_info() -> None:
     console, output = _console()
-    sink = _RichConsoleExecutionSink(logging.INFO, console)
+    renderer = _RichExecutionRenderer(logging.INFO, console)
 
-    sink.emit(
+    renderer.render(
         ExecutionMessage(
             message="Config:\n{}",
             log_level=logging.DEBUG,
@@ -462,9 +473,9 @@ def test_rich_sink_hides_debug_config_at_info() -> None:
     assert output.getvalue() == ""
 
 
-def test_rich_sink_renders_operation_sequence_once_and_in_order() -> None:
+def test_rich_renderer_renders_operation_sequence_once_and_in_order() -> None:
     console, output = _console()
-    sink = _RichConsoleExecutionSink(logging.DEBUG, console)
+    renderer = _RichExecutionRenderer(logging.DEBUG, console)
 
     events = (
         OperationStarted("materialize:adv.20"),
@@ -483,7 +494,7 @@ def test_rich_sink_renders_operation_sequence_once_and_in_order() -> None:
         OperationFinished("materialize:adv.20", "success", 1),
     )
     for event in events:
-        sink.emit(event)
+        renderer.render(event)
 
     rendered = output.getvalue()
     markers = [
@@ -500,13 +511,13 @@ def test_rich_sink_renders_operation_sequence_once_and_in_order() -> None:
     assert "Operation materialize:adv.20 started" not in rendered
 
 
-def test_rich_sink_renders_minimal_operation_header_at_info(monkeypatch) -> None:
+def test_rich_renderer_renders_minimal_operation_header_at_info(monkeypatch) -> None:
     console, _ = _console()
-    sink = _RichConsoleExecutionSink(logging.INFO, console)
+    renderer = _RichExecutionRenderer(logging.INFO, console)
     renderables = []
     monkeypatch.setattr(console, "print", renderables.append)
 
-    sink.emit(OperationStarted("materialize:adv.20"))
+    renderer.render(OperationStarted("materialize:adv.20"))
 
     assert len(renderables) == 1
     segments = list(console.render(renderables[0], console.options))
@@ -519,19 +530,19 @@ def test_rich_sink_renders_minimal_operation_header_at_info(monkeypatch) -> None
     )
 
 
-def test_rich_sink_hides_operation_header_at_warning() -> None:
+def test_rich_renderer_hides_operation_header_at_warning() -> None:
     console, output = _console()
-    sink = _RichConsoleExecutionSink(logging.WARNING, console)
+    renderer = _RichExecutionRenderer(logging.WARNING, console)
 
-    sink.emit(OperationStarted("materialize:adv.20"))
+    renderer.render(OperationStarted("materialize:adv.20"))
 
     assert output.getvalue() == ""
 
 
-def test_rich_sink_styles_only_final_status() -> None:
+def test_rich_renderer_styles_only_final_status() -> None:
     console, _ = _console()
-    sink = _RichConsoleExecutionSink(logging.INFO, console)
-    success = sink._render_event(
+    renderer = _RichExecutionRenderer(logging.INFO, console)
+    success = renderer._render_event(
         PipelineFinished(
             pipeline_name="stream:adv.20",
             node_count=4,
@@ -540,7 +551,7 @@ def test_rich_sink_styles_only_final_status() -> None:
             elapsed_seconds=1,
         )
     )
-    operation_error = sink._render_event(
+    operation_error = renderer._render_event(
         OperationFinished(
             name="materialize:adv.20",
             status="error",
@@ -560,33 +571,33 @@ def test_rich_sink_styles_only_final_status() -> None:
     ] == [("status=error", "red")]
 
 
-def test_rich_sink_renders_debug_config_as_regular_text() -> None:
+def test_rich_renderer_renders_debug_config_as_regular_text() -> None:
     console, _ = _console()
-    sink = _RichConsoleExecutionSink(logging.DEBUG, console)
+    renderer = _RichExecutionRenderer(logging.DEBUG, console)
 
-    text = sink._render_event(
+    text = renderer._render_event(
         ExecutionMessage(message="Config:\n{}", log_level=logging.DEBUG)
     )
 
     assert text.style == ""
 
 
-def test_rich_sink_renders_file_result_as_aligned_link() -> None:
+def test_rich_renderer_renders_file_result_as_aligned_link() -> None:
     console, output = _console(width=60)
     path = Path(
         "/Users/anders/project/artifacts/smoke/processed/very-long/"
         "dataset/dataset.train_0.jsonl"
     )
     event = FileResult(label="train_0", path=path)
-    sink = _RichConsoleExecutionSink(logging.INFO, console)
+    renderer = _RichExecutionRenderer(logging.INFO, console)
 
-    sink.emit(event)
+    renderer.render(event)
 
     lines = output.getvalue().splitlines()
     assert lines[0].startswith("train_0: ")
     assert lines[1].startswith(" " * 9)
 
-    table = sink._render_file_result(event)
+    table = renderer._render_file_result(event)
     segments = list(console.render(table, console.options))
     label = next(segment for segment in segments if segment.text == "train_0:")
     assert label.style is None or not label.style.bold
@@ -608,17 +619,102 @@ def test_visual_execution_restores_existing_context(monkeypatch) -> None:
         "datapipeline.cli.visuals.rich.progress.Console",
         lambda **kwargs: console,
     )
-    event_token = set_current_execution_event_sink("previous-event-sink")
-    proxy_token = set_current_terminal_log_proxy_sink("previous-proxy-sink")
+
+    def previous_event_handler(_event) -> None:
+        pass
+
+    def previous_log_handler(_event) -> None:
+        pass
+
+    event_token = set_current_execution_event_handler(previous_event_handler)
+    log_token = set_current_terminal_log_handler(previous_log_handler)
     try:
         with visual_execution(logging.INFO):
-            assert current_execution_event_sink() != "previous-event-sink"
-            assert current_terminal_log_proxy_sink() != "previous-proxy-sink"
-        assert current_execution_event_sink() == "previous-event-sink"
-        assert current_terminal_log_proxy_sink() == "previous-proxy-sink"
+            assert current_execution_event_handler() is not previous_event_handler
+            assert current_terminal_log_handler() is not previous_log_handler
+        assert current_execution_event_handler() is previous_event_handler
+        assert current_terminal_log_handler() is previous_log_handler
     finally:
-        reset_current_terminal_log_proxy_sink(proxy_token)
-        reset_current_execution_event_sink(event_token)
+        reset_current_terminal_log_handler(log_token)
+        reset_current_execution_event_handler(event_token)
+
+
+def test_visual_execution_releases_file_proxies_before_process_shutdown() -> None:
+    script = dedent(
+        """
+        import gc
+        import logging
+        import sys
+        import weakref
+
+        from rich.console import Console
+        from rich.file_proxy import FileProxy
+
+        import datapipeline.cli.visuals.rich.progress as progress
+
+        progress.Console = lambda **kwargs: Console(
+            file=kwargs["file"],
+            markup=False,
+            highlight=False,
+            force_terminal=True,
+        )
+        stdout = sys.stdout
+        stderr = sys.stderr
+        with progress.visual_execution(logging.INFO):
+            assert isinstance(sys.stderr, FileProxy)
+            proxy = weakref.ref(sys.stderr)
+            sys.stderr.write("buffered without newline")
+
+        assert sys.stdout is stdout
+        assert sys.stderr is stderr
+        gc.collect()
+        assert proxy() is None
+        """
+    )
+
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_rich_visuals_require_a_supported_tty(monkeypatch) -> None:
+    monkeypatch.setattr(
+        rich_progress.sys,
+        "stderr",
+        SimpleNamespace(isatty=lambda: True),
+    )
+    monkeypatch.setattr(
+        rich_progress,
+        "Console",
+        lambda **_kwargs: SimpleNamespace(
+            is_terminal=True,
+            is_interactive=True,
+            is_dumb_terminal=False,
+            color_system="truecolor",
+        ),
+    )
+
+    assert rich_visuals_supported() is True
+
+
+def test_rich_visuals_are_disabled_without_a_tty(monkeypatch) -> None:
+    monkeypatch.setattr(
+        rich_progress.sys,
+        "stderr",
+        SimpleNamespace(isatty=lambda: False),
+    )
+
+    def fail_console(**_kwargs):
+        raise AssertionError("Console must not be inspected without a TTY")
+
+    monkeypatch.setattr(rich_progress, "Console", fail_console)
+
+    assert rich_visuals_supported() is False
 
 
 def test_visual_execution_uses_minimal_progress_styles(monkeypatch) -> None:

@@ -7,7 +7,7 @@ import pytest
 
 from datapipeline.config.execution import ExecutionConfig
 from datapipeline.config.profiles import MaterializeProfile
-from datapipeline.config.resolution import (
+from datapipeline.execution.settings import (
     LogLevelDecision,
     LogOutputSettings,
     ObservabilitySettings,
@@ -46,29 +46,24 @@ def _job(name: str, stream: str, output: Path, overwrite: bool = False):
 
 
 def test_resolve_materialize_jobs_applies_command_overrides(
-    monkeypatch,
     tmp_path,
 ) -> None:
-    monkeypatch.setattr(
-        materialize,
-        "execution_root",
-        lambda project_path: tmp_path / "execution",
-    )
     profiles = [
         _profile("adv-20", "adv.20", "adv-20.jsonl"),
         _profile("adv-63", "adv.63", "adv-63.jsonl"),
     ]
 
     jobs = materialize.resolve_materialize_jobs(
-        profiles,
-        tmp_path / "project.yaml",
-        True,
-        None,
-        None,
-        None,
-        None,
-        [],
-        "INFO",
+        profiles=profiles,
+        project_path=tmp_path / "project.yaml",
+        execution_dir=tmp_path / "execution",
+        overwrite=True,
+        cli_output=None,
+        cli_visuals=None,
+        cli_heartbeat_interval_seconds=None,
+        cli_log_level=None,
+        cli_log_outputs=[],
+        base_log_level="INFO",
     )
 
     assert [job.name for job in jobs] == ["adv-20", "adv-63"]
@@ -88,15 +83,16 @@ def test_output_override_requires_one_selected_profile(tmp_path) -> None:
 
     with pytest.raises(ValueError, match="one selected profile"):
         materialize.resolve_materialize_jobs(
-            profiles,
-            tmp_path / "project.yaml",
-            None,
-            tmp_path / "override.jsonl",
-            None,
-            None,
-            None,
-            [],
-            "INFO",
+            profiles=profiles,
+            project_path=tmp_path / "project.yaml",
+            execution_dir=tmp_path / "execution",
+            overwrite=None,
+            cli_output=tmp_path / "override.jsonl",
+            cli_visuals=None,
+            cli_heartbeat_interval_seconds=None,
+            cli_log_level=None,
+            cli_log_outputs=[],
+            base_log_level="INFO",
         )
 
 

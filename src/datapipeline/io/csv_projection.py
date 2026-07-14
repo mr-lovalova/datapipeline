@@ -3,8 +3,7 @@ from typing import Any, Protocol
 
 
 class CsvRowProjector(Protocol):
-    def __call__(self, item: Any) -> dict[str, Any]:
-        ...
+    def __call__(self, item: Any) -> dict[str, Any]: ...
 
 
 @dataclass(frozen=True)

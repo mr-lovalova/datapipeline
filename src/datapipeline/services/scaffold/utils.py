@@ -2,8 +2,6 @@ import logging
 from pathlib import Path
 from typing import NoReturn
 
-from datapipeline.services.scaffold.layout import to_snake, slugify, ep_key_from_name
-
 _LOGGER = logging.getLogger("datapipeline.cli")
 
 
@@ -12,25 +10,6 @@ def ensure_pkg_dir(base: Path, name: str) -> Path:
     path.mkdir(parents=True, exist_ok=True)
     (path / "__init__.py").touch(exist_ok=True)
     return path
-
-
-__all__ = [
-    "ensure_pkg_dir",
-    "to_snake",
-    "slugify",
-    "ep_key_from_name",
-    "validate_identifier",
-    "write_if_missing",
-    "prompt_required",
-    "prompt_optional",
-    "choose_name",
-    "status",
-    "info",
-    "error_exit",
-    "pick_from_list",
-    "pick_from_menu",
-    "choose_existing_or_create",
-]
 
 
 def validate_identifier(name: str, label: str) -> None:

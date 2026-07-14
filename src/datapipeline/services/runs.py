@@ -1,11 +1,11 @@
 import json
-import shutil
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
 from datapipeline.config.preview import PreviewStage
+from datapipeline.utils.json_artifact import write_json_artifact
 
 RunStatus = Literal["running", "success", "failed"]
 
@@ -24,7 +24,7 @@ class RunPaths:
             <run_id>/
               dataset/        # main output for this run
               run.json        # metadata for this run
-          latest/             # symlink or copy pointing at the current live run
+          latest/             # symlink pointing at the current live run
     """
 
     serve_root: Path
@@ -56,11 +56,6 @@ def make_run_id() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%S-%fZ")
 
 
-def get_serve_root(directory: str | Path) -> Path:
-    """Resolve the user-configured serve directory to an absolute path."""
-    return Path(directory).expanduser().resolve()
-
-
 def get_run_paths(serve_root: Path, run_id: str | None = None) -> RunPaths:
     """Build RunPaths for a run rooted at the given serve directory."""
     if run_id is None:
@@ -82,30 +77,13 @@ def get_run_paths(serve_root: Path, run_id: str | None = None) -> RunPaths:
 
 
 def _write_run_metadata(meta: RunMetadata, path: Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as f:
-        json.dump(asdict(meta), f, indent=2, sort_keys=True)
+    write_json_artifact(path, asdict(meta))
 
 
 def _load_run_metadata(path: Path) -> RunMetadata:
     with path.open("r", encoding="utf-8") as f:
         data: dict[str, Any] = json.load(f)
     return RunMetadata(**data)
-
-
-def start_run_for_directory(
-    directory: str | Path,
-    run_id: str | None = None,
-    *,
-    preview: PreviewStage | None = None,
-) -> tuple[RunPaths, RunMetadata]:
-    """Initialise a new run rooted at the given directory.
-
-    This will create the run's dataset directory and an initial metadata file
-    with status set to "running".
-    """
-    paths = get_run_paths(get_serve_root(directory), run_id)
-    return paths, start_run(paths, preview=preview)
 
 
 def start_run(
@@ -163,42 +141,17 @@ def finish_run_failed(paths: RunPaths, notes: str | None = None) -> RunMetadata:
 
 
 def set_latest_run(paths: RunPaths) -> None:
-    """Mark the given run as the latest/live run for its serve directory.
+    """Point ``latest`` at a completed run without copying its output."""
+    latest_root = paths.serve_root / "latest"
+    pending_root = paths.serve_root / f".latest-{paths.run_id}"
+    paths.serve_root.mkdir(parents=True, exist_ok=True)
 
-    This updates `latest/` under the serve root. It is a symlink (or copied
-    directory as a fallback) pointing to this run's root directory, so consumers
-    can read current outputs and metadata from `<directory>/latest/dataset` and
-    `<directory>/latest/run.json`.
-    """
-    serve_root = paths.serve_root
-    latest_root = serve_root / "latest"
+    if latest_root.exists() and not latest_root.is_symlink():
+        raise FileExistsError(f"{latest_root} exists and is not a symbolic link")
 
-    # Ensure serve_root exists so that the layout is predictable
-    serve_root.mkdir(parents=True, exist_ok=True)
-
-    # Remove any existing "latest" pointer
-    if latest_root.is_symlink() or latest_root.is_file():
-        latest_root.unlink()
-    elif latest_root.is_dir():
-        shutil.rmtree(latest_root)
-
-    # Prefer a symlink for efficiency; fall back to copying if symlinks fail
+    pending_root.symlink_to(paths.run_root, target_is_directory=True)
     try:
-        latest_root.symlink_to(paths.run_root, target_is_directory=True)
-    except OSError:
-        shutil.copytree(paths.run_root, latest_root)
-
-
-__all__ = [
-    "RunPaths",
-    "RunMetadata",
-    "make_run_id",
-    "get_serve_root",
-    "get_run_paths",
-    "start_run",
-    "start_run_for_directory",
-    "finish_run",
-    "finish_run_success",
-    "finish_run_failed",
-    "set_latest_run",
-]
+        pending_root.replace(latest_root)
+    finally:
+        if pending_root.is_symlink():
+            pending_root.unlink()

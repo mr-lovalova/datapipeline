@@ -8,13 +8,13 @@ from datapipeline.services.config_refs import project_vars_from_data
 def _project_data(**overrides):
     data = {
         "version": 1,
+        "artifact_revision": 1,
         "name": "momentum",
         "paths": {
             "ingests": "ingests",
             "streams": "streams",
             "sources": "sources",
             "dataset": "dataset.yaml",
-            "postprocess": "postprocess.yaml",
             "artifacts": "artifacts",
         },
     }
@@ -28,35 +28,24 @@ def test_project_config_accepts_variant() -> None:
     assert cfg.variant == "long"
 
 
-def test_project_config_accepts_top_level_split() -> None:
-    cfg = ProjectConfig.model_validate(
-        _project_data(
-            split={
-                "mode": "hash",
-                "key": "group",
-                "seed": 42,
-                "ratios": {"train": 0.8, "val": 0.1, "test": 0.1},
-            }
-        )
-    )
+def test_project_config_requires_artifact_revision() -> None:
+    data = _project_data()
+    del data["artifact_revision"]
 
-    assert cfg.split is not None
+    with pytest.raises(ValidationError, match="artifact_revision"):
+        ProjectConfig.model_validate(data)
 
 
-def test_project_config_rejects_globals_split() -> None:
-    with pytest.raises(ValidationError, match="define top-level project.split"):
-        ProjectConfig.model_validate(
-            _project_data(
-                globals={
-                    "split": {
-                        "mode": "hash",
-                        "key": "group",
-                        "seed": 42,
-                        "ratios": {"train": 0.8, "val": 0.1, "test": 0.1},
-                    }
-                },
-            )
-        )
+def test_project_config_accepts_positive_artifact_revision() -> None:
+    cfg = ProjectConfig.model_validate(_project_data(artifact_revision=3))
+
+    assert cfg.artifact_revision == 3
+
+
+@pytest.mark.parametrize("value", [0, -1, "2", 2.0, True])
+def test_project_config_rejects_invalid_artifact_revision(value: object) -> None:
+    with pytest.raises(ValidationError):
+        ProjectConfig.model_validate(_project_data(artifact_revision=value))
 
 
 def test_project_config_accepts_multiple_discovery_roots() -> None:
@@ -67,7 +56,6 @@ def test_project_config_accepts_multiple_discovery_roots() -> None:
                 "streams": ["streams", "../common/streams"],
                 "sources": ["sources", "../common/sources"],
                 "dataset": "dataset.yaml",
-                "postprocess": "postprocess.yaml",
                 "artifacts": "artifacts",
             }
         )
@@ -87,11 +75,31 @@ def test_project_config_rejects_empty_discovery_roots() -> None:
                     "streams": "streams",
                     "sources": "sources",
                     "dataset": "dataset.yaml",
-                    "postprocess": "postprocess.yaml",
                     "artifacts": "artifacts",
                 }
             )
         )
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["ingests", "streams", "sources", "dataset", "artifacts", "operations", "profiles"],
+)
+def test_project_config_rejects_blank_paths(field: str) -> None:
+    data = _project_data()
+    data["paths"][field] = "   "
+
+    with pytest.raises(ValidationError, match="at least 1 character"):
+        ProjectConfig.model_validate(data)
+
+
+@pytest.mark.parametrize("field", ["ingests", "streams", "sources"])
+def test_project_config_rejects_blank_discovery_root(field: str) -> None:
+    data = _project_data()
+    data["paths"][field] = ["valid", "   "]
+
+    with pytest.raises(ValidationError, match="at least 1 character"):
+        ProjectConfig.model_validate(data)
 
 
 def test_project_variant_is_available_for_interpolation() -> None:
@@ -104,6 +112,27 @@ def test_project_variant_is_available_for_interpolation() -> None:
 def test_project_config_rejects_unknown_top_level_fields() -> None:
     with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
         ProjectConfig.model_validate(_project_data(varaint="long"))
+
+
+def test_project_config_rejects_split_outside_dataset() -> None:
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        ProjectConfig.model_validate(_project_data(split={"mode": "hash"}))
+
+
+def test_project_config_rejects_postprocess_path() -> None:
+    data = _project_data()
+    data["paths"]["postprocess"] = "postprocess.yaml"
+
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        ProjectConfig.model_validate(data)
+
+
+def test_project_config_rejects_unknown_path_fields() -> None:
+    data = _project_data()
+    data["paths"]["profiels"] = "profiles"
+
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        ProjectConfig.model_validate(data)
 
 
 def test_project_version_is_schema_version_one() -> None:

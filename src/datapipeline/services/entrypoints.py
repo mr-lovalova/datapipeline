@@ -21,9 +21,9 @@ def inject_ep(toml: str, comp: str, key: str, target: str) -> str:
         entries: dict[str, str] = {}
         for line in body.splitlines():
             s = line.strip()
-            if not s or s.startswith('#'):
+            if not s or s.startswith("#"):
                 continue
-            m = re.match(r'^(?:\"([^\"]+)\"|([^\s=]+))\s*=\s*\"([^\"]+)\"\s*$', s)
+            m = re.match(r"^(?:\"([^\"]+)\"|([^\s=]+))\s*=\s*\"([^\"]+)\"\s*$", s)
             if m:
                 k = m.group(1) or m.group(2)
                 v = m.group(3)
@@ -44,7 +44,9 @@ def inject_ep(toml: str, comp: str, key: str, target: str) -> str:
         new_block = render_block(entries)
         # Replace the entire block (header + body) with normalized block
         full_block_re = rf"{re.escape(header)}\n[\s\S]*?(?=\n\[|$)"
-        return re.sub(full_block_re, new_block.rstrip(), toml) + ("\n" if not toml.endswith("\n") else "")
+        return re.sub(full_block_re, new_block.rstrip(), toml) + (
+            "\n" if not toml.endswith("\n") else ""
+        )
     else:
         # Create new block
         return toml.rstrip() + "\n\n" + render_block({key: target})
@@ -52,8 +54,7 @@ def inject_ep(toml: str, comp: str, key: str, target: str) -> str:
 
 def read_group_entries(pyproject: Path, comp: str) -> dict[str, str]:
     header = f'[project.entry-points."{EP_PREFIX}.{comp}"]'
-    m = re.search(
-        rf"{re.escape(header)}\n([\s\S]*?)(?=\n\[|$)", pyproject.read_text())
+    m = re.search(rf"{re.escape(header)}\n([\s\S]*?)(?=\n\[|$)", pyproject.read_text())
     if not m:
         return {}
     block = m.group(1)
@@ -63,7 +64,9 @@ def read_group_entries(pyproject: Path, comp: str) -> dict[str, str]:
         if not line or line.startswith("#"):
             continue
         m2 = re.match(
-            r'(?:(?:\"(?P<qkey>[^\"]+)\")|(?P<ukey>[A-Za-z0-9_.-]+))\s*=\s*\"(?P<target>[^\"]+)\"', line)
+            r"(?:(?:\"(?P<qkey>[^\"]+)\")|(?P<ukey>[A-Za-z0-9_.-]+))\s*=\s*\"(?P<target>[^\"]+)\"",
+            line,
+        )
         if m2:
-            out[m2.group('qkey') or m2.group('ukey')] = m2.group('target')
+            out[m2.group("qkey") or m2.group("ukey")] = m2.group("target")
     return out

@@ -1,23 +1,24 @@
 # Sample Postprocessing
 
-Postprocessing runs after vector assembly. Configure its structural policies in
-`postprocess.yaml`:
+Postprocessing runs after vector assembly. Configure its structural policies
+under `postprocess:` in `dataset.yaml`:
 
 ```yaml
-columns:
-  features:
-    threshold: 0.8
-    ids: [price, volume]       # optional; defaults to every feature
-  targets:
-    threshold: 0.9
-    ids: [return]
+postprocess:
+  columns:
+    features:
+      threshold: 0.8
+      ids: [price, volume]       # optional; defaults to every feature
+    targets:
+      threshold: 0.9
+      ids: [return]
 
-samples:
-  features:
-    threshold: 0.5
-  targets:
-    threshold: 1.0
-    ids: [return]
+  samples:
+    features:
+      threshold: 0.5
+    targets:
+      threshold: 1.0
+      ids: [return]
 ```
 
 The pipeline has one fixed order:

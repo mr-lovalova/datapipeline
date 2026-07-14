@@ -47,7 +47,9 @@ def test_csv_writer_raises_on_new_columns_after_header(tmp_path) -> None:
     writer = CsvFileWriter(dest, serializer=_Serializer())
     writer.write(object())
 
-    with pytest.raises(ValueError, match="CSV row contains fields not present in header"):
+    with pytest.raises(
+        ValueError, match="CSV row contains fields not present in header"
+    ):
         writer.write(object())
     writer.close()
 

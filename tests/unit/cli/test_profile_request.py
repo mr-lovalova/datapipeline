@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 from datapipeline.config.execution import ExecutionConfig
-from datapipeline.config.resolution import LogOutputTarget
+from datapipeline.execution.settings import LogOutputTarget
 from datapipeline.profiles.request_builder import (
     build_materialize_run_request,
     build_profile_run_request,
@@ -17,27 +17,31 @@ def _write_project(tmp_path: Path) -> Path:
         "\n".join(
             [
                 "version: 1",
+                "artifact_revision: 1",
                 "paths:",
                 "  ingests: ./ingests",
                 "  streams: streams",
                 "  sources: sources",
                 "  dataset: dataset.yaml",
-                "  postprocess: postprocess.yaml",
                 "  artifacts: artifacts",
-                "  tasks: tasks",
+                "  operations: operations",
                 "  profiles: profiles",
             ]
         ),
         encoding="utf-8",
     )
-    (tmp_path / "dataset.yaml").write_text("{}\n", encoding="utf-8")
-    (tmp_path / "postprocess.yaml").write_text("{}\n", encoding="utf-8")
+    (tmp_path / "dataset.yaml").write_text(
+        "sample:\n  cadence: 1h\n",
+        encoding="utf-8",
+    )
+    for directory in ("ingests", "streams", "sources", "operations"):
+        (tmp_path / directory).mkdir(parents=True, exist_ok=True)
     return project_yaml
 
 
 def test_build_request_requires_declared_build_profiles(tmp_path: Path):
     project_yaml = _write_project(tmp_path)
-    (tmp_path / "tasks" / "operations").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "operations").mkdir(parents=True, exist_ok=True)
     (tmp_path / "profiles").mkdir(parents=True, exist_ok=True)
 
     with pytest.raises(SystemExit) as exc:
@@ -50,7 +54,7 @@ def test_build_request_requires_declared_build_profiles(tmp_path: Path):
 
 def test_inspect_request_requires_declared_inspect_profiles(tmp_path: Path):
     project_yaml = _write_project(tmp_path)
-    (tmp_path / "tasks" / "operations").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "operations").mkdir(parents=True, exist_ok=True)
     (tmp_path / "profiles").mkdir(parents=True, exist_ok=True)
 
     with pytest.raises(SystemExit) as exc:
@@ -70,12 +74,12 @@ def test_inspect_request_materializes_execution_scoped_log_output(
         lambda _project: execution_dir,
     )
     project_yaml = _write_project(tmp_path)
-    ops = tmp_path / "tasks" / "operations"
+    ops = tmp_path / "operations"
     profiles = tmp_path / "profiles"
     ops.mkdir(parents=True, exist_ok=True)
     profiles.mkdir(parents=True, exist_ok=True)
     (ops / "coverage.yaml").write_text(
-        "id: coverage\nkind: runtime\nentrypoint: core.runtime.coverage\n",
+        "{}\n",
         encoding="utf-8",
     )
     (profiles / "inspect.coverage.yaml").write_text(
@@ -83,15 +87,6 @@ def test_inspect_request_materializes_execution_scoped_log_output(
         encoding="utf-8",
     )
     (tmp_path / "sources").mkdir(parents=True, exist_ok=True)
-
-    monkeypatch.setattr(
-        "datapipeline.config.serve_resolution.bootstrap_build_runtime",
-        lambda _project_path: SimpleNamespace(split=None, execution=None),
-    )
-    monkeypatch.setattr(
-        "datapipeline.profiles.request_builder.load_dataset",
-        lambda project_path: SimpleNamespace(),
-    )
 
     request = build_profile_run_request(
         kind="inspect",
@@ -109,12 +104,12 @@ def test_inspect_request_materializes_execution_scoped_log_output(
 
 def test_disabled_profiles_do_not_create_execution_directory(tmp_path: Path):
     project_yaml = _write_project(tmp_path)
-    ops = tmp_path / "tasks" / "operations"
+    ops = tmp_path / "operations"
     profiles = tmp_path / "profiles"
     ops.mkdir(parents=True, exist_ok=True)
     profiles.mkdir(parents=True, exist_ok=True)
     (ops / "coverage.yaml").write_text(
-        "id: coverage\nkind: runtime\nentrypoint: core.runtime.coverage\n",
+        "{}\n",
         encoding="utf-8",
     )
     (profiles / "inspect.coverage.yaml").write_text(
@@ -136,7 +131,7 @@ def test_materialize_request_uses_shared_resolution_snapshot(
     tmp_path: Path,
 ) -> None:
     project_yaml = _write_project(tmp_path)
-    (tmp_path / "tasks" / "operations").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "operations").mkdir(parents=True, exist_ok=True)
     profiles = tmp_path / "profiles"
     profiles.mkdir(parents=True, exist_ok=True)
     (profiles / "materialize.defaults.yaml").write_text(
@@ -148,21 +143,27 @@ def test_materialize_request_uses_shared_resolution_snapshot(
         encoding="utf-8",
     )
     runtime = SimpleNamespace(execution=ExecutionConfig())
-    monkeypatch.setattr(
-        "datapipeline.profiles.request_builder.bootstrap",
-        lambda path: runtime,
-    )
-    hashes: list[tuple[Path, Path]] = []
+    compiled_definitions = []
 
-    def config_hash(project_path, task_path):
-        hashes.append((project_path, task_path))
-        return "stable"
+    def compile_runtime(definition):
+        compiled_definitions.append(definition)
+        return runtime
 
     monkeypatch.setattr(
-        "datapipeline.profiles.request_builder.compute_config_hash",
-        config_hash,
+        "datapipeline.profiles.request_builder.compile_runtime",
+        compile_runtime,
     )
+    execution_dir = tmp_path / "execution"
+    execution_root_calls: list[Path] = []
 
+    def shared_execution_root(path: Path) -> Path:
+        execution_root_calls.append(path)
+        return execution_dir
+
+    monkeypatch.setattr(
+        "datapipeline.profiles.request_builder.execution_root",
+        shared_execution_root,
+    )
     request = build_materialize_run_request(
         project=str(project_yaml),
         run_name=None,
@@ -170,18 +171,27 @@ def test_materialize_request_uses_shared_resolution_snapshot(
         output=None,
         artifact_mode=None,
         cli_log_level=None,
-        cli_log_outputs=[],
+        cli_log_outputs=[LogOutputTarget(transport="fs", scope="execution")],
         base_log_level="INFO",
         cli_visuals=None,
         cli_heartbeat_interval_seconds=None,
     )
 
     assert request is not None
-    assert request.config_hash == "stable"
+    assert request.definition.definition_hash
+    assert request.definition.artifact_hashes.values
+    assert compiled_definitions == [request.definition]
     assert request.execution.sort_buffer_mb == 32
     assert request.artifact_settings.mode == "FORCE"
     assert request.runtime is runtime
     assert request.jobs[0].name == "adv-20"
     assert request.jobs[0].stream == "adv.20"
     assert request.jobs[0].output == tmp_path / "outputs" / "adv-20.jsonl"
-    assert len(hashes) == 2
+    assert request.jobs[0].observability.log_output.outputs[0].destination == (
+        execution_dir / "logs" / "materialize.adv-20.log"
+    )
+    assert (
+        request.artifact_settings.observability.log_output.outputs[0].destination
+        == execution_dir / "logs" / "materialize.artifacts.log"
+    )
+    assert execution_root_calls == [tmp_path / "artifacts"]

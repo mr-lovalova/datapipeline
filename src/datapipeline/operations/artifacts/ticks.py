@@ -7,12 +7,12 @@ from datapipeline.execution.observability import OperationProgressTracker
 from datapipeline.config.tasks import TicksTask
 from datapipeline.execution.context import PipelineContext
 from datapipeline.execution.runner import resolve_heartbeat_interval_seconds
+from datapipeline.io.sinks import AtomicTextFileSink
 from datapipeline.operations.persistence import ArtifactOutput
 from datapipeline.pipelines.stream.pipeline import run_stream_pipeline
 from datapipeline.pipelines.shared.sort import batch_sort
 from datapipeline.runtime import Runtime
 from datapipeline.transforms.utils import get_field
-from datapipeline.utils.paths import ensure_parent
 
 
 def _close_iterator(iterator: Any) -> None:
@@ -29,12 +29,10 @@ def _to_iso(ts: datetime) -> str:
 
 
 def _tick_row(record, grid_by: list[str]) -> tuple:
-    values = []
-    for field in grid_by:
-        value = get_field(record, field)
+    values = tuple(get_field(record, field) for field in grid_by)
+    for field, value in zip(grid_by, values):
         if value is None:
             raise ValueError(f"Tick stream row is missing grid_by field '{field}'.")
-        values.append(value)
     return (record.time, *values)
 
 
@@ -81,17 +79,21 @@ def materialize_ticks(
     try:
         relative_path = Path(task_cfg.output)
         destination = (runtime.artifacts_root / relative_path).resolve()
-        ensure_parent(destination)
         write_progress = OperationProgressTracker(
             "write_artifact",
             heartbeat_interval,
         )
-        with destination.open("w", encoding="utf-8") as handle:
+        sink = AtomicTextFileSink(destination)
+        try:
             for tick in _unique_ticks(sorted_ticks):
                 rows += 1
-                handle.write(json.dumps(_json_tick_row(tick, task_cfg.grid_by)))
-                handle.write("\n")
+                sink.write_text(json.dumps(_json_tick_row(tick, task_cfg.grid_by)))
+                sink.write_text("\n")
                 write_progress.advance()
+            sink.close()
+        except BaseException:
+            sink.abort()
+            raise
     finally:
         _close_iterator(sorted_ticks)
         _close_iterator(stream)

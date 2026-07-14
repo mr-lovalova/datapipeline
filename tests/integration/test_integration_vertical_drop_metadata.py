@@ -1,6 +1,7 @@
 import json
 
-from datapipeline.config.postprocess import PostprocessConfig
+from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
+from datapipeline.config.dataset.postprocess import PostprocessConfig
 from datapipeline.execution.context import PipelineContext
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
@@ -16,9 +17,15 @@ def test_column_selection_uses_metadata_vector_count_without_mutating_schema(
     artifacts_root.mkdir()
     project = tmp_path / "project.yaml"
     project.write_text("version: 1\n", encoding="utf-8")
-    runtime = Runtime(project_yaml=project, artifacts_root=artifacts_root)
-    runtime.postprocess = PostprocessConfig.model_validate(
-        {"columns": {"features": {"threshold": 0.5}}}
+    runtime = Runtime(
+        project_yaml=project,
+        artifacts_root=artifacts_root,
+        dataset=FeatureDatasetConfig(
+            sample=SampleConfig(cadence="1h"),
+            postprocess=PostprocessConfig.model_validate(
+                {"columns": {"features": {"threshold": 0.5}}}
+            ),
+        ),
     )
 
     schema_path = artifacts_root / "schema.json"

@@ -14,7 +14,7 @@ def add_build_command(sub, common: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--force",
         action="store_true",
-        help="rebuild even when the configuration hash matches the last run",
+        help="rebuild even when the artifact hash matches the last run",
     )
     parser.add_argument(
         "--run",

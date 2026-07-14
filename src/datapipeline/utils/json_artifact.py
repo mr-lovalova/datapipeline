@@ -1,6 +1,9 @@
-from pathlib import Path
-from typing import Any, Mapping
 import json
+from collections.abc import Mapping
+from pathlib import Path
+from typing import Any
+
+from datapipeline.io.sinks import AtomicTextFileSink
 
 
 def read_json_artifact(path: Path) -> dict[str, Any]:
@@ -12,6 +15,10 @@ def read_json_artifact(path: Path) -> dict[str, Any]:
 
 
 def write_json_artifact(path: Path, payload: Mapping[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as fh:
-        json.dump(payload, fh, indent=2, sort_keys=True)
+    sink = AtomicTextFileSink(path)
+    try:
+        json.dump(payload, sink.fh, indent=2, sort_keys=True)
+        sink.close()
+    except BaseException:
+        sink.abort()
+        raise

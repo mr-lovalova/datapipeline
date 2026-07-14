@@ -1,43 +1,58 @@
+from itertools import islice
 from pathlib import Path
-from typing import Optional
 
-from datapipeline.analysis.vector.matrix import export_matrix_data
-from datapipeline.config.dataset.dataset import FeatureDatasetConfig
-from datapipeline.config.preview import PreviewStage
+from datapipeline.analysis.vector.matrix import MatrixBuilder, write_matrix_html
 from datapipeline.config.tasks import MatrixTask
-from datapipeline.io.output import OutputTarget
+from datapipeline.execution.context import PipelineContext
 from datapipeline.operations.persistence import RuntimeOutput
+from datapipeline.pipelines.full.nodes import build_postprocess_plan
+from datapipeline.pipelines.vector.pipeline import build_vector_pipeline
 from datapipeline.runtime import Runtime
-
-from .vector_stats_common import (
-    load_collector,
-    matrix_status_rows,
-)
+from datapipeline.services.artifacts import VECTOR_METADATA_SPEC
 
 
-def inspect_matrix_with_runtime(
+def run_matrix_operation(
     runtime: Runtime,
-    dataset: FeatureDatasetConfig,
-    limit: Optional[int] = None,
-    target: OutputTarget | None = None,
-    throttle_ms: Optional[float] = None,
-    preview: PreviewStage | None = None,
-    visuals: Optional[str] = None,
-    operation_task: MatrixTask | None = None,
+    task: MatrixTask,
+    limit: int | None = None,
 ) -> RuntimeOutput:
-    _ = dataset, limit, target, throttle_ms, preview, visuals, operation_task
-    collector = load_collector(runtime)
-    rows = matrix_status_rows(collector)
+    options = task.options
+    dataset = runtime.dataset
+    context = PipelineContext(runtime)
+    metadata = context.require_artifact(VECTOR_METADATA_SPEC)
+    context.window_bounds(rectangular_required=True)
 
-    def _render_html(destination: Path) -> Path:
-        collector.matrix_format = "html"
-        collector.matrix_output = destination
-        written = export_matrix_data(collector)
-        if written is None:
-            raise RuntimeError("Matrix output path was not configured.")
-        return written
+    samples = build_vector_pipeline(
+        context,
+        dataset.features,
+        dataset.sample.cadence,
+        target_configs=dataset.targets,
+        rectangular=True,
+        sample_keys=dataset.sample.keys,
+    )
+    feature_entries = metadata.features
+    target_entries = metadata.targets
+    if options.stage == "postprocessed":
+        plan = build_postprocess_plan(context)
+        feature_entries, target_entries = plan.select_metadata(metadata)
+        samples = plan.apply(samples)
+
+    builder = MatrixBuilder(feature_entries, target_entries, options.max_cells)
+    limited_samples = islice(samples, limit) if limit is not None else samples
+    try:
+        for sample in limited_samples:
+            targets = sample.targets.values if sample.targets is not None else {}
+            builder.add(sample.key, sample.features.values, targets)
+    finally:
+        close = getattr(samples, "close", None)
+        if callable(close):
+            close()
+    matrix = builder.finish()
+
+    def render_html(destination: Path) -> Path:
+        return write_matrix_html(matrix, destination)
 
     return RuntimeOutput(
-        rows=rows,
-        html_renderer=_render_html,
+        rows=matrix.output_rows(),
+        html_renderer=render_html,
     )

@@ -6,7 +6,7 @@ from datapipeline.execution.context import PipelineContext
 from datapipeline.execution.node import SourceNode
 from datapipeline.execution.pipeline import Pipeline
 from datapipeline.execution.runner import run_pipeline
-from datapipeline.pipelines.full.nodes import build_postprocess_nodes
+from datapipeline.pipelines.full.nodes import build_postprocess_plan
 from datapipeline.pipelines.vector.pipeline import build_vector_pipeline
 from datapipeline.domain.sample import Sample
 
@@ -40,6 +40,7 @@ def build_full_pipeline(
     rectangular: bool = True,
     sample_keys: Sequence[str] = (),
 ) -> Pipeline:
+    postprocess = build_postprocess_plan(context)
     return Pipeline(
         name="pipeline:serve",
         nodes=(
@@ -55,6 +56,6 @@ def build_full_pipeline(
                     sample_keys,
                 ),
             ),
-            *build_postprocess_nodes(context),
+            *postprocess.nodes,
         ),
     )

@@ -1,11 +1,67 @@
 import logging
 import sys
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from datapipeline.cli.visuals.execution import ExecutionMessage
-from datapipeline.cli.visuals.execution_context import current_execution_event_sink
-from datapipeline.cli.visuals.execution_context import current_terminal_log_proxy_sink
-from datapipeline.config.resolution import LogOutputSettings
+from datapipeline.cli.visuals.execution_context import current_execution_event_handler
+from datapipeline.cli.visuals.execution_context import current_terminal_log_handler
+from datapipeline.execution.settings import LogOutputSettings, LogOutputTarget
+
+
+def parse_log_output_specs(
+    specs: Sequence[str] | None,
+    resolve_global_path: Callable[[str], Path],
+) -> list[LogOutputTarget]:
+    if not specs:
+        return []
+
+    outputs: list[LogOutputTarget] = []
+    for raw_spec in specs:
+        spec = raw_spec.strip()
+        if not spec:
+            raise ValueError("--log-output value cannot be empty")
+
+        lower = spec.lower()
+        if lower in {"stderr", "stdout"}:
+            outputs.append(LogOutputTarget(transport=lower))
+            continue
+        if lower in {"execution", "fs:execution", "fs=execution"}:
+            outputs.append(LogOutputTarget(transport="fs", scope="execution"))
+            continue
+        if lower.startswith("execution:") or lower.startswith("execution="):
+            path = spec[10:].strip()
+            if not path:
+                raise ValueError(
+                    "--log-output execution target requires a relative path"
+                )
+            outputs.append(
+                LogOutputTarget(
+                    transport="fs",
+                    destination=Path(path),
+                    scope="execution",
+                )
+            )
+            continue
+
+        if lower.startswith("fs:"):
+            path = spec.split(":", 1)[1].strip()
+        elif lower.startswith("fs="):
+            path = spec.split("=", 1)[1].strip()
+        else:
+            raise ValueError(
+                "invalid --log-output value. Use 'stderr', 'stdout', "
+                "'fs:<path>', or 'execution[:<relative-path>]'"
+            )
+        if not path:
+            raise ValueError("--log-output fs target requires a path")
+        outputs.append(
+            LogOutputTarget(
+                transport="fs",
+                destination=resolve_global_path(path),
+            )
+        )
+    return outputs
 
 
 class _TerminalExecutionEventDedupeFilter(logging.Filter):
@@ -14,18 +70,18 @@ class _TerminalExecutionEventDedupeFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         if getattr(record, "dp_event_kind", None) is None:
             return True
-        return current_execution_event_sink() is None
+        return current_execution_event_handler() is None
 
 
 class _TerminalVisualProxyHandler(logging.StreamHandler):
-    """Route plain logger records into active rich visuals sink when available."""
+    """Route plain logger records through active Rich visuals when available."""
 
     def emit(self, record: logging.LogRecord) -> None:
-        # Execution-event records are already routed via the context sink.
+        # Execution-event records are already routed through the active visuals.
         if getattr(record, "dp_event_kind", None) is None:
-            sink = current_terminal_log_proxy_sink()
-            if sink is not None:
-                sink.emit(
+            handler = current_terminal_log_handler()
+            if handler is not None:
+                handler(
                     ExecutionMessage(
                         message=self.format(record),
                         log_level=int(record.levelno),

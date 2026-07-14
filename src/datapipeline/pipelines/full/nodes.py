@@ -1,7 +1,9 @@
 from collections.abc import Iterator, Sequence
+from dataclasses import dataclass
 
 from datapipeline.artifacts.models import (
     ListVectorMetadataEntry,
+    VectorMetadata,
     VectorMetadataEntry,
     VectorSchemaEntry,
 )
@@ -24,12 +26,56 @@ from datapipeline.transforms.vector.ensure_schema import (
 )
 
 
-def build_postprocess_nodes(context: PipelineContext) -> tuple[PipelineNode, ...]:
+@dataclass(frozen=True)
+class PostprocessPlan:
+    feature_ids: tuple[str, ...]
+    target_ids: tuple[str, ...]
+    nodes: tuple[PipelineNode, ...]
+
+    def apply(self, samples: Iterator[Sample]) -> Iterator[Sample]:
+        stream = samples
+        for node in self.nodes:
+            stream = iter(node.apply(stream))
+        return stream
+
+    def select_metadata(
+        self,
+        metadata: VectorMetadata,
+    ) -> tuple[tuple[VectorMetadataEntry, ...], tuple[VectorMetadataEntry, ...]]:
+        feature_by_id = {entry.id: entry for entry in metadata.features}
+        missing_features = [
+            identifier
+            for identifier in self.feature_ids
+            if identifier not in feature_by_id
+        ]
+        if missing_features:
+            raise ValueError(
+                f"Postprocess feature IDs are missing from metadata: {missing_features!r}."
+            )
+
+        target_by_id = {entry.id: entry for entry in metadata.targets}
+        missing_targets = [
+            identifier
+            for identifier in self.target_ids
+            if identifier not in target_by_id
+        ]
+        if missing_targets:
+            raise ValueError(
+                f"Postprocess target IDs are missing from metadata: {missing_targets!r}."
+            )
+
+        return (
+            tuple(feature_by_id[identifier] for identifier in self.feature_ids),
+            tuple(target_by_id[identifier] for identifier in self.target_ids),
+        )
+
+
+def build_postprocess_plan(context: PipelineContext) -> PostprocessPlan:
     schema = context.load_schema()
     if not schema.features:
         raise RuntimeError("Schema has no feature entries. Rebuild build/schema.json.")
 
-    config = context.runtime.postprocess
+    config = context.runtime.dataset.postprocess
     feature_entries = schema.features
     target_entries = schema.targets
     nodes: list[PipelineNode] = []
@@ -135,7 +181,11 @@ def build_postprocess_nodes(context: PipelineContext) -> tuple[PipelineNode, ...
             )
         )
 
-    return tuple(nodes)
+    return PostprocessPlan(
+        feature_ids=tuple(entry.id for entry in feature_entries),
+        target_ids=tuple(entry.id for entry in target_entries),
+        nodes=tuple(nodes),
+    )
 
 
 def apply_postprocess(
@@ -144,10 +194,7 @@ def apply_postprocess(
 ) -> Iterator[Sample]:
     """Apply the same ordered postprocess stages used by the full pipeline."""
 
-    stream = samples
-    for node in build_postprocess_nodes(context):
-        stream = iter(node.apply(stream))
-    return stream
+    return build_postprocess_plan(context).apply(samples)
 
 
 def _column_coverage(

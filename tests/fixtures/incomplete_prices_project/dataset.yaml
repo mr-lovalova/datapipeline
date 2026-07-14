@@ -14,3 +14,8 @@ features:
       stride: 2
 
 targets: []
+
+postprocess:
+  samples:
+    features:
+      threshold: 0.4

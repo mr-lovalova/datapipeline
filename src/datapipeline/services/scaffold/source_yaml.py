@@ -2,10 +2,10 @@ from pathlib import Path
 
 from datapipeline.services.paths import pkg_root
 from datapipeline.services.project_paths import (
-    sources_dir as resolve_sources_dir,
     ensure_project_scaffold,
     resolve_project_yaml_path,
 )
+from datapipeline.services.project import load_project
 from datapipeline.services.scaffold.templates import render
 from datapipeline.services.constants import (
     DEFAULT_IO_LOADER_EP,
@@ -75,7 +75,7 @@ def create_source_yaml(
         else resolve_project_yaml_path(root_dir)
     )
     ensure_project_scaffold(proj_yaml)
-    sources_dir = resolve_sources_dir(proj_yaml).resolve()
+    sources_dir = load_project(proj_yaml).source_dirs[0]
     sources_dir.mkdir(parents=True, exist_ok=True)
 
     src_cfg_path = sources_dir / f"{source_id}.yaml"

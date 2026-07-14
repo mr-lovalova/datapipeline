@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 
 from datapipeline.artifacts.models import (
@@ -12,7 +11,7 @@ from datapipeline.execution.context import PipelineContext
 from datapipeline.operations.persistence import ArtifactOutput
 from datapipeline.runtime import Runtime
 from datapipeline.services.artifacts import VECTOR_METADATA_SPEC
-from datapipeline.utils.paths import ensure_parent
+from datapipeline.utils.json_artifact import write_json_artifact
 
 
 def _schema_entries(
@@ -46,9 +45,10 @@ def materialize_vector_schema(
 
     relative_path = Path(task_cfg.output)
     destination = (runtime.artifacts_root / relative_path).resolve()
-    ensure_parent(destination)
-    with destination.open("w", encoding="utf-8") as fh:
-        json.dump(doc.model_dump(mode="json", exclude_none=True), fh, indent=2)
+    write_json_artifact(
+        destination,
+        doc.model_dump(mode="json", exclude_none=True),
+    )
 
     meta: dict[str, object] = {
         "features": len(feature_entries),

@@ -6,9 +6,16 @@ from types import SimpleNamespace
 
 import pytest
 
+import datapipeline.operations.artifacts.vector_inputs as vector_inputs_operation
 from datapipeline.artifacts.models import SampleDomainEntry
+from datapipeline.artifacts.scaler import (
+    ScalerStatistics,
+    StandardScalerArtifact,
+    save_scaler_artifact,
+)
+from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
 from datapipeline.config.execution import ExecutionConfig
-from datapipeline.config.dataset.feature import FeatureRecordConfig
+from datapipeline.config.dataset.feature import FeatureRecordConfig, SequenceConfig
 from datapipeline.config.tasks import VectorInputsTask
 from datapipeline.config.transforms import (
     EnsureCadenceConfig,
@@ -17,16 +24,21 @@ from datapipeline.config.transforms import (
     RecordTransformConfig,
     StreamTransformConfig,
 )
-from datapipeline.domain.feature import FeatureRecord, FeatureRecordSequence
+from datapipeline.domain.feature import FeatureRecord, FeatureSequence
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.sample_key import SampleKeyContract
 from datapipeline.domain.vector import Vector
 from datapipeline.execution.context import PipelineContext
 from datapipeline.execution.node import SourceNode
+from datapipeline.execution.observer import NoopPipelineObserver
 from datapipeline.execution.runner import run_pipeline
 from datapipeline.operations.artifacts.vector_inputs import materialize_vector_inputs
-from datapipeline.pipelines.feature.pipeline import build_feature_pipeline
+from datapipeline.parsers.identity import IdentityParser
+from datapipeline.pipelines.feature.pipeline import (
+    build_feature_pipeline,
+    run_feature_pipeline,
+)
 from datapipeline.pipelines.full.pipeline import run_full_pipeline
 from datapipeline.pipelines.ingest.pipeline import build_ingest_pipeline
 from datapipeline.pipelines.stream.pipeline import (
@@ -39,13 +51,21 @@ from datapipeline.pipelines.vector.pipeline import build_vector_pipeline
 from datapipeline.pipelines.full.nodes import apply_postprocess
 from datapipeline.runtime import DerivedRuntimeStream, IngestRuntimeStream, Runtime
 from datapipeline.services.constants import (
+    SCALER_STATISTICS,
     VECTOR_INPUTS,
     VECTOR_SCHEMA,
 )
 from datapipeline.sources.adapters.fs import FsFileTransport, FsGlobTransport
 from datapipeline.sources.data_loader import DataLoader
 from datapipeline.sources.decoders import JsonLinesDecoder
-from datapipeline.vector_inputs.store import CachedVectorInputShard
+from datapipeline.sources.models.source import Source
+from datapipeline.vector_inputs.store import (
+    CachedVectorInputShard,
+    feature_record_to_vector_input_row,
+    load_vector_inputs_manifest,
+    open_vector_input_records,
+    prune_vector_input_cache,
+)
 from datapipeline.utils.time import parse_cadence
 from tests.vector_input_helpers import register_vector_inputs
 
@@ -107,17 +127,37 @@ def test_sample_domain_window_keys_rejects_mismatched_key_width() -> None:
 class _StubSource:
     def __init__(self, rows: list[dict]) -> None:
         self._rows = rows
+        self.opens = 0
+        self.closes = 0
 
     def stream(self):
-        return iter(self._rows)
+        self.opens += 1
+        try:
+            yield from self._rows
+        finally:
+            self.closes += 1
 
 
-class _LoaderSource:
-    def __init__(self, loader) -> None:
-        self.loader = loader
+class _PipelineStarts(NoopPipelineObserver):
+    def __init__(self) -> None:
+        self.starts: list[tuple[str, int]] = []
+        self.nodes: list[str] = []
 
-    def stream(self):
-        return iter(())
+    def on_pipeline_start(
+        self,
+        pipeline_name: str,
+        node_count: int,
+        summary: str | None = None,
+    ) -> None:
+        self.starts.append((pipeline_name, node_count))
+
+    def on_node_start(
+        self,
+        pipeline_name: str,
+        node_name: str,
+        node_index: int,
+    ) -> None:
+        self.nodes.append(node_name)
 
 
 def _mapper(rows):
@@ -158,10 +198,11 @@ def _runtime_with_rows(
     artifacts_root = tmp_path / "artifacts"
     artifacts_root.mkdir(parents=True, exist_ok=True)
     project_yaml = tmp_path / "project.yaml"
-    project_yaml.write_text("version: 1\n", encoding="utf-8")
+    project_yaml.write_text("version: 1\nartifact_revision: 1\n", encoding="utf-8")
     runtime = Runtime(
         project_yaml=project_yaml,
         artifacts_root=artifacts_root,
+        dataset=FeatureDatasetConfig(sample=SampleConfig(cadence="1h")),
         execution=ExecutionConfig(),
     )
 
@@ -216,11 +257,12 @@ def test_ingest_pipeline_carries_source_summary(tmp_path: Path) -> None:
     runtime = _runtime_with_rows(tmp_path, [], stream_id="prices")
     runtime.streams["prices"] = replace(
         runtime.streams["prices"],
-        source=_LoaderSource(
+        source=Source(
             DataLoader(
                 FsFileTransport("/tmp/prices.jsonl"),
                 JsonLinesDecoder(),
-            )
+            ),
+            IdentityParser(),
         ),
     )
 
@@ -231,11 +273,12 @@ def test_ingest_pipeline_carries_source_summary(tmp_path: Path) -> None:
 
 def test_stream_pipeline_carries_source_summary(tmp_path: Path) -> None:
     runtime = _runtime_with_rows(tmp_path, [], stream_id="derived", stream_ops=[])
-    source = _LoaderSource(
+    source = Source(
         DataLoader(
             FsGlobTransport("/definitely/not/real/*.jsonl"),
             JsonLinesDecoder(),
-        )
+        ),
+        IdentityParser(),
     )
     source.loader.transport._files = [  # type: ignore[attr-defined]
         "/tmp/AAPL.jsonl",
@@ -462,8 +505,10 @@ def test_feature_pipeline_builds_sequences(tmp_path: Path) -> None:
         )
     )
     assert len(sequences) == 2
-    assert isinstance(sequences[0], FeatureRecordSequence)
+    assert isinstance(sequences[0], FeatureSequence)
+    assert sequences[0].time == _ts(1)
     assert sequences[0].values == [1.0, 2.0]
+    assert sequences[1].time == _ts(3)
     assert sequences[1].values == [3.0, 4.0]
 
 
@@ -515,44 +560,6 @@ def test_vector_inputs_artifact_feeds_serve_pipeline(tmp_path: Path) -> None:
         partition_by=("id_",),
         feature_id_by=(),
     )
-    for name in ("ingests", "streams", "sources", "tasks", "profiles"):
-        (tmp_path / name).mkdir(parents=True, exist_ok=True)
-    (tmp_path / "dataset.yaml").write_text(
-        "\n".join(
-            [
-                "sample:",
-                "  cadence: 1h",
-                "  keys: [id_]",
-                "features:",
-                "  - id: value_feature",
-                "    stream: prices",
-                "    field: value",
-                "  - id: other_feature",
-                "    stream: prices",
-                "    field: other",
-                "targets: []",
-            ]
-        ),
-        encoding="utf-8",
-    )
-    (tmp_path / "postprocess.yaml").write_text("{}\n", encoding="utf-8")
-    runtime.project_yaml.write_text(
-        "\n".join(
-            [
-                "version: 1",
-                "paths:",
-                "  ingests: ingests",
-                "  streams: streams",
-                "  sources: sources",
-                "  dataset: dataset.yaml",
-                "  postprocess: postprocess.yaml",
-                "  artifacts: artifacts",
-                "  tasks: tasks",
-                "  profiles: profiles",
-            ]
-        ),
-        encoding="utf-8",
-    )
     configs = [
         FeatureRecordConfig(
             stream="prices",
@@ -565,6 +572,12 @@ def test_vector_inputs_artifact_feeds_serve_pipeline(tmp_path: Path) -> None:
             field="other",
         ),
     ]
+    runtime.dataset = FeatureDatasetConfig(
+        sample=SampleConfig(cadence="1h", keys=["id_"]),
+        features=configs,
+    )
+    source = runtime.streams["prices"].source
+    assert isinstance(source, _StubSource)
 
     unrelated = runtime.artifacts_root / "build/vector_inputs/features/keep.txt"
     unrelated.parent.mkdir(parents=True)
@@ -593,9 +606,17 @@ def test_vector_inputs_artifact_feeds_serve_pipeline(tmp_path: Path) -> None:
         "target_rows": 0,
         "format": "jsonl.gz",
     }
-    assert result.companion_paths == (
-        "build/vector_inputs/manifest.shards/features/000000.jsonl.gz",
-        "build/vector_inputs/manifest.shards/features/000001.jsonl.gz",
+    manifest_path = runtime.artifacts_root / result.relative_path
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    shard_paths = [Path(shard["path"]) for shard in manifest["features"]]
+    assert shard_paths[0].parts[:1] == ("manifest.shards",)
+    assert shard_paths[0].parts[1] == shard_paths[1].parts[1]
+    assert [path.parts[2:] for path in shard_paths] == [
+        ("features", "000000.jsonl.gz"),
+        ("features", "000001.jsonl.gz"),
+    ]
+    assert result.companion_paths == tuple(
+        str(Path("build/vector_inputs") / path) for path in shard_paths
     )
     assert unrelated.read_text(encoding="utf-8") == "keep"
     assert cached == [
@@ -615,12 +636,378 @@ def test_vector_inputs_artifact_feeds_serve_pipeline(tmp_path: Path) -> None:
             None,
         ),
     ]
+    assert source.opens == 1
+    assert source.closes == 1
 
 
-def test_vector_inputs_rejects_symlinked_output_before_mutation(
+def test_vector_inputs_shared_stream_matches_independent_feature_pipelines(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
+    rows = [
+        {
+            "time": _ts(1),
+            "exchange": "X",
+            "symbol": "B",
+            "value": 14.0,
+            "volume": 140.0,
+        },
+        {
+            "time": _ts(0),
+            "exchange": "X",
+            "symbol": "A",
+            "value": 1.0,
+            "volume": 10.0,
+        },
+        {
+            "time": _ts(0),
+            "exchange": "X",
+            "symbol": "B",
+            "value": 10.0,
+            "volume": 100.0,
+        },
+        {
+            "time": _ts(1),
+            "exchange": "X",
+            "symbol": "A",
+            "value": 3.0,
+            "volume": 30.0,
+        },
+    ]
+    runtime = _runtime_with_rows(
+        tmp_path,
+        rows,
+        partition_by=("exchange", "symbol"),
+        feature_id_by=("symbol",),
+    )
+    price = FeatureRecordConfig(
+        stream="stream",
+        id="price",
+        field="value",
+        scale=True,
+        sequence=SequenceConfig(size=2),
+    )
+    volume = FeatureRecordConfig(
+        stream="stream",
+        id="volume",
+        field="volume",
+    )
+    runtime.dataset = FeatureDatasetConfig(
+        sample=SampleConfig(cadence="1h", keys=["exchange"]),
+        features=[price],
+        targets=[volume],
+    )
+    scaler_path = runtime.artifacts_root / "scaler.json"
+    save_scaler_artifact(
+        scaler_path,
+        StandardScalerArtifact(
+            with_mean=True,
+            with_std=True,
+            epsilon=1e-12,
+            observations=4,
+            statistics={
+                "price__@symbol:A": ScalerStatistics(
+                    mean=2.0,
+                    std=1.0,
+                    count=2,
+                ),
+                "price__@symbol:B": ScalerStatistics(
+                    mean=12.0,
+                    std=2.0,
+                    count=2,
+                ),
+            },
+        ),
+    )
+    runtime.artifacts.register(SCALER_STATISTICS, scaler_path.name)
+    context = PipelineContext(runtime)
+    expected_price = list(
+        run_feature_pipeline(
+            context,
+            price,
+            sample_keys=["exchange"],
+            group_by_cadence="1h",
+        )
+    )
+    expected_volume = list(
+        run_feature_pipeline(
+            context,
+            volume,
+            sample_keys=["exchange"],
+            group_by_cadence="1h",
+        )
+    )
+
+    source = runtime.streams["stream"].source
+    assert isinstance(source, _StubSource)
+    source.opens = 0
+    source.closes = 0
+    normal_batch_sort = vector_inputs_operation.batch_sort
+
+    def spilling_batch_sort(items, buffer_bytes, key):
+        return normal_batch_sort(items, buffer_bytes=1, key=key)
+
+    monkeypatch.setattr(
+        vector_inputs_operation,
+        "batch_sort",
+        spilling_batch_sort,
+    )
+
+    result = materialize_vector_inputs(runtime, VectorInputsTask())
+    manifest_path = runtime.artifacts_root / result.relative_path
+    manifest = load_vector_inputs_manifest(manifest_path)
+    actual_price = list(
+        open_vector_input_records(manifest_path.parent / manifest.features[0].path)
+    )
+    actual_volume = list(
+        open_vector_input_records(manifest_path.parent / manifest.targets[0].path)
+    )
+
+    assert [feature_record_to_vector_input_row(item) for item in actual_price] == [
+        feature_record_to_vector_input_row(item) for item in expected_price
+    ]
+    assert [feature_record_to_vector_input_row(item) for item in actual_volume] == [
+        feature_record_to_vector_input_row(item) for item in expected_volume
+    ]
+    assert source.opens == 1
+    assert source.closes == 1
+
+
+def test_vector_inputs_writes_empty_shards_from_a_shared_stream(
+    tmp_path: Path,
+) -> None:
+    runtime = _runtime_with_rows(
+        tmp_path,
+        [
+            {"time": _ts(0), "value": 1.0},
+            {"time": _ts(1), "value": 2.0},
+        ],
+    )
+    runtime.dataset = FeatureDatasetConfig(
+        sample=SampleConfig(cadence="1h"),
+        features=[
+            FeatureRecordConfig(
+                stream="stream",
+                id="window",
+                field="value",
+                sequence=SequenceConfig(size=3),
+            ),
+            FeatureRecordConfig(
+                stream="stream",
+                id="value",
+                field="value",
+            ),
+        ],
+    )
+
+    result = materialize_vector_inputs(runtime, VectorInputsTask())
+    manifest_path = runtime.artifacts_root / result.relative_path
+    manifest = load_vector_inputs_manifest(manifest_path)
+
+    assert [shard.rows for shard in manifest.features] == [0, 2]
+    assert (
+        list(
+            open_vector_input_records(manifest_path.parent / manifest.features[0].path)
+        )
+        == []
+    )
+
+
+def test_vector_input_sort_is_part_of_the_observed_stream_pipeline(
+    tmp_path: Path,
+) -> None:
+    runtime = _runtime_with_rows(
+        tmp_path,
+        [{"time": _ts(0), "value": 1.0}],
+    )
+    runtime.dataset = FeatureDatasetConfig(
+        sample=SampleConfig(cadence="1h"),
+        features=[FeatureRecordConfig(stream="stream", id="value", field="value")],
+    )
+    observer = _PipelineStarts()
+    runtime.pipeline_observer = observer
+
+    materialize_vector_inputs(runtime, VectorInputsTask())
+
+    assert observer.starts == [("vector_inputs:stream", 5)]
+    assert "build_vector_inputs" in observer.nodes
+    assert "order_vector_inputs" in observer.nodes
+
+
+def test_vector_inputs_closes_shared_stream_after_feature_error(
+    tmp_path: Path,
+) -> None:
+    runtime = _runtime_with_rows(
+        tmp_path,
+        [{"time": _ts(0), "value": 1.0}],
+    )
+    runtime.dataset = FeatureDatasetConfig(
+        sample=SampleConfig(cadence="1h"),
+        features=[
+            FeatureRecordConfig(stream="stream", id="value", field="value"),
+            FeatureRecordConfig(stream="stream", id="missing", field="missing"),
+        ],
+    )
+    source = runtime.streams["stream"].source
+    assert isinstance(source, _StubSource)
+
+    with pytest.raises(KeyError, match="Record field 'missing'"):
+        materialize_vector_inputs(runtime, VectorInputsTask())
+
+    assert source.opens == 1
+    assert source.closes == 1
+    assert not (runtime.artifacts_root / "build/vector_inputs/manifest.json").exists()
+
+
+def test_failed_vector_inputs_rebuild_preserves_previous_generation(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    runtime = _runtime_with_rows(
+        tmp_path,
+        [
+            {"time": _ts(0), "value": 1.0, "other": 10.0},
+            {"time": _ts(1), "value": 2.0, "other": 20.0},
+        ],
+        stream_id="prices",
+    )
+    runtime.dataset = FeatureDatasetConfig(
+        sample=SampleConfig(cadence="1h"),
+        features=[
+            FeatureRecordConfig(stream="prices", id="value", field="value"),
+            FeatureRecordConfig(stream="prices", id="other", field="other"),
+        ],
+    )
+    task = VectorInputsTask()
+    first = materialize_vector_inputs(runtime, task)
+    manifest_path = runtime.artifacts_root / first.relative_path
+    previous_manifest = manifest_path.read_bytes()
+    previous = json.loads(previous_manifest)
+    previous_shards = [
+        manifest_path.parent / shard["path"] for shard in previous["features"]
+    ]
+    previous_generation = Path(previous["features"][0]["path"]).parts[1]
+
+    write_rows = vector_inputs_operation.write_vector_input_rows
+    writes = 0
+
+    def fail_second_shard(path, rows):
+        nonlocal writes
+        writes += 1
+        if writes == 2:
+            raise RuntimeError("second shard failed")
+        return write_rows(path, rows)
+
+    monkeypatch.setattr(
+        vector_inputs_operation,
+        "write_vector_input_rows",
+        fail_second_shard,
+    )
+
+    with pytest.raises(RuntimeError, match="second shard failed"):
+        materialize_vector_inputs(runtime, task)
+
+    assert manifest_path.read_bytes() == previous_manifest
+    assert all(path.is_file() for path in previous_shards)
+    cache_root = manifest_path.parent / "manifest.shards"
+    assert [path.name for path in cache_root.iterdir()] == [previous_generation]
+
+
+def test_identical_vector_inputs_rebuild_reuses_deterministic_generation(
+    tmp_path: Path,
+) -> None:
+    runtime = _runtime_with_rows(
+        tmp_path,
+        [{"time": _ts(0), "value": 1.0}],
+    )
+    runtime.dataset = FeatureDatasetConfig(
+        sample=SampleConfig(cadence="1h"),
+        features=[FeatureRecordConfig(stream="stream", id="value", field="value")],
+    )
+    task = VectorInputsTask()
+
+    first = materialize_vector_inputs(runtime, task)
+    manifest_path = runtime.artifacts_root / first.relative_path
+    first_bytes = manifest_path.read_bytes()
+    first_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    first_generation = Path(first_manifest["features"][0]["path"]).parts[1]
+
+    materialize_vector_inputs(runtime, task)
+    assert manifest_path.read_bytes() == first_bytes
+    second_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    second_generation = Path(second_manifest["features"][0]["path"]).parts[1]
+    cache_root = manifest_path.parent / "manifest.shards"
+
+    assert second_generation == first_generation
+    assert [path.name for path in cache_root.iterdir()] == [first_generation]
+
+
+def test_changed_vector_inputs_rebuild_retains_previous_generation(
+    tmp_path: Path,
+) -> None:
+    runtime = _runtime_with_rows(
+        tmp_path,
+        [{"time": _ts(0), "value": 1.0}],
+    )
+    runtime.dataset = FeatureDatasetConfig(
+        sample=SampleConfig(cadence="1h"),
+        features=[FeatureRecordConfig(stream="stream", id="value", field="value")],
+    )
+    task = VectorInputsTask()
+
+    first = materialize_vector_inputs(runtime, task)
+    manifest_path = runtime.artifacts_root / first.relative_path
+    first_manifest = load_vector_inputs_manifest(manifest_path)
+    first_path = manifest_path.parent / first_manifest.features[0].path
+    first_rows = list(open_vector_input_records(first_path))
+
+    source = runtime.streams["stream"].source
+    assert isinstance(source, _StubSource)
+    source._rows.append({"time": _ts(1), "value": 2.0})
+    materialize_vector_inputs(runtime, task)
+
+    second_manifest = load_vector_inputs_manifest(manifest_path)
+    second_path = manifest_path.parent / second_manifest.features[0].path
+    assert second_path != first_path
+    assert first_path.is_file()
+    assert list(open_vector_input_records(first_path)) == first_rows
+    assert len(list(open_vector_input_records(second_path))) == 2
+
+    assert prune_vector_input_cache(manifest_path) == (first_path.parent.parent,)
+    assert not first_path.exists()
+    assert second_path.is_file()
+
+
+def test_vector_inputs_rebuild_repairs_a_corrupt_content_generation(
+    tmp_path: Path,
+) -> None:
+    runtime = _runtime_with_rows(
+        tmp_path,
+        [{"time": _ts(0), "value": 1.0}],
+    )
+    runtime.dataset = FeatureDatasetConfig(
+        sample=SampleConfig(cadence="1h"),
+        features=[FeatureRecordConfig(stream="stream", id="value", field="value")],
+    )
+    task = VectorInputsTask()
+
+    first = materialize_vector_inputs(runtime, task)
+    manifest_path = runtime.artifacts_root / first.relative_path
+    manifest_bytes = manifest_path.read_bytes()
+    manifest = load_vector_inputs_manifest(manifest_path)
+    shard_path = manifest_path.parent / manifest.features[0].path
+    shard_path.write_bytes(b"corrupt")
+
+    materialize_vector_inputs(runtime, task)
+
+    assert manifest_path.read_bytes() == manifest_bytes
+    assert len(list(open_vector_input_records(shard_path))) == 1
+    removed = prune_vector_input_cache(manifest_path)
+    assert len(removed) == 1
+    assert removed[0].name.startswith(".corrupt-")
+
+
+def test_vector_inputs_rejects_symlinked_output_before_mutation(tmp_path: Path) -> None:
     artifacts_root = tmp_path / "artifacts"
     redirected = artifacts_root / "redirected"
     redirected.mkdir(parents=True)
@@ -630,14 +1017,8 @@ def test_vector_inputs_rejects_symlinked_output_before_mutation(
     runtime = SimpleNamespace(
         project_yaml=tmp_path / "project.yaml",
         artifacts_root=artifacts_root,
-    )
-    monkeypatch.setattr(
-        "datapipeline.operations.artifacts.vector_inputs.load_dataset",
-        lambda _path: object(),
-    )
-    monkeypatch.setattr(
-        "datapipeline.operations.artifacts.vector_inputs.validate_dataset_feature_identity",
-        lambda *_args: None,
+        dataset=FeatureDatasetConfig(sample=SampleConfig(cadence="1h")),
+        streams={},
     )
 
     with pytest.raises(ValueError, match="must not resolve through a symlink"):

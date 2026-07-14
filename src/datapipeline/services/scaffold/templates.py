@@ -21,6 +21,7 @@ def to_yaml(value, indent: int = 0) -> str:
         return "\n".join(pad + line for line in text.splitlines())
     return text
 
+
 ENV.filters["to_yaml"] = to_yaml
 
 

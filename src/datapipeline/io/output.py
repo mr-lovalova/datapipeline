@@ -1,8 +1,7 @@
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
-from datapipeline.config.profiles import ServeOutputConfig
+from datapipeline.config.profiles import Format, ServeOutputConfig, Transport, View
 from datapipeline.services.path_policy import (
     resolve_relative_to_base,
     sanitize_path_segment,
@@ -11,7 +10,7 @@ from datapipeline.services.path_policy import (
 from datapipeline.services.runs import RunPaths
 
 
-def _format_suffix(fmt: str) -> str:
+def _format_suffix(fmt: Format) -> str:
     suffix_map = {
         "jsonl": ".jsonl",
         "csv": ".csv",
@@ -19,20 +18,20 @@ def _format_suffix(fmt: str) -> str:
         "txt": ".txt",
         "html": ".html",
     }
-    return suffix_map.get(fmt, ".out")
+    return suffix_map[fmt]
 
 
-def _default_view_for_format(fmt: str) -> str:
+def _default_view_for_format(fmt: Format) -> View:
     if fmt == "csv":
         return "flat"
     return "raw"
 
 
-def _resolve_view(fmt: str, configured_view: str | None) -> str:
+def _resolve_view(fmt: Format, configured_view: View | None) -> View:
     return configured_view or _default_view_for_format(fmt)
 
 
-def _default_filename_for_format(fmt: str) -> str:
+def _default_filename_for_format(fmt: Format) -> str:
     suffix = _format_suffix(fmt)
     return f"vectors{suffix}"
 
@@ -41,11 +40,11 @@ def _default_filename_for_format(fmt: str) -> str:
 class OutputTarget:
     """Resolved writer target describing how and where to emit records."""
 
-    transport: str  # stdout | fs
-    format: str  # jsonl | csv | pickle | html
-    view: str  # flat | raw
+    transport: Transport
+    format: Format
+    view: View
     encoding: str | None
-    destination: Optional[Path]
+    destination: Path | None
     run: RunPaths | None = None
     overwrite: bool = True
 

@@ -1,8 +1,13 @@
 # Pipeline Architecture
 
-Project configuration is validated and compiled into a small runtime model.
-Execution consumes that prepared model; it does not repeatedly interpret YAML
-or coordinate parallel registries.
+Each command reads and validates the project, dataset, source, ingest, stream,
+and operation YAML once into a `PipelineDefinition`. That definition is the
+command's configuration snapshot. Planning, validation, artifact hydration,
+and execution do not re-read configuration or environment values. Changes are
+picked up by the next command. Its per-artifact hashes cover each producer's
+typed dependency and source closure plus the project's artifact revision.
+Mutable `Runtime`
+instances are compiled from the definition without reading configuration files.
 
 ## Runtime streams
 
@@ -21,14 +26,14 @@ Single-input streams inherit partition and feature identity when those fields
 are omitted; explicit lists replace the inherited values.
 
 Configured loader, parser, map, and combine entry points are resolved while
-bootstrapping the project. The resulting callables are stored on the runtime stream. There are
+compiling a runtime from the definition. The resulting callables are stored on the runtime stream. There are
 no parallel `stream_sources`, `mappers`, record-operation,
 stream-operation, or debug-transform registries to keep synchronized.
 
 ```mermaid
 flowchart LR
-  config["project configuration"] --> bootstrap["validate and prepare"]
-  bootstrap --> runtime["Runtime.streams<br/>id -> typed stream"]
+  config["project configuration"] --> definition["PipelineDefinition<br/>validated snapshot"]
+  definition --> runtime["Runtime.streams<br/>id -> compiled stream"]
   runtime --> records["linear record pipeline"]
   records --> feature["feature processing"] --> inputs["vector inputs"]
   inputs --> vectors["vector assembly"] --> postprocess["postprocess stages"]
@@ -62,11 +67,12 @@ stream:<id>
 ```
 
 Aligned streams are the one real fan-in boundary. Their root source node is
-`align_inputs`; it owns opening, ordering, and closing the configured inputs.
+`align_inputs`; it owns opening, validating, merging, and closing the configured
+ordered inputs.
 Those input pipelines run internally without starting competing visual pipelines.
 The aligned root remains the single observable pipeline: `align_inputs` reports
 its current progress, then `combine_records` applies the configured combine
-function before ordering and stream transforms.
+function before canonical ordering and stream transforms.
 
 The runner accepts only a source followed by stream stages. It owns lazy
 iteration, closing, output counts, timings, and sampled progress. It has no
@@ -99,8 +105,8 @@ dataset shaping.
 
 ## Vector postprocess
 
-`postprocess.yaml` is validated into `PostprocessConfig`, with separate typed
-policies for feature selection, target selection, and sample filtering.
+`dataset.yaml:postprocess` is validated into `PostprocessConfig`, with separate
+typed policies for feature selection, target selection, and sample filtering.
 
 The serve pipeline has one fixed postprocess order:
 

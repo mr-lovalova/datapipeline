@@ -1,12 +1,19 @@
 import shutil
 import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
 from time import time
+from uuid import uuid4
 
+from datapipeline.services.execution_lock import (
+    release_file_lock,
+    try_acquire_file_lock,
+)
 
-TEMP_DIR_PREFIXES = ("datapipeline-sort-",)
+SORT_DIR_PREFIX = "datapipeline-sort-"
 
 
 @dataclass(frozen=True)
@@ -38,7 +45,9 @@ def parse_age(value: str | None) -> timedelta:
     try:
         amount = float(number_text)
     except ValueError as exc:
-        raise ValueError("age must be a number with optional m, h, or d suffix") from exc
+        raise ValueError(
+            "age must be a number with optional m, h, or d suffix"
+        ) from exc
     if amount < 0:
         raise ValueError("age must not be negative")
     if unit == "m":
@@ -60,7 +69,11 @@ def find_temp_dirs(
     now = time()
     candidates: list[TempDirCandidate] = []
     for path in temp_root.iterdir():
-        if not _is_jerry_temp_dir(path):
+        if not _is_sort_spill_dir(path):
+            continue
+        if _is_active_sort_spill(path):
+            continue
+        if path.is_symlink() or not path.is_dir():
             continue
         age_seconds = max(0.0, now - path.stat().st_mtime)
         if age_seconds < cutoff_seconds:
@@ -87,8 +100,34 @@ def clean_temp_dirs(
     removed: list[Path] = []
     for item in candidates:
         shutil.rmtree(item.path)
+        _sort_lock_path(item.path).unlink(missing_ok=True)
         removed.append(item.path)
     return CleanResult(candidates=candidates, removed=tuple(removed), dry_run=False)
+
+
+@contextmanager
+def sort_spill_directory(root: Path | None = None) -> Iterator[Path]:
+    temp_root = _temp_root(root)
+    temp_root.mkdir(parents=True, exist_ok=True)
+    path = temp_root / f"{SORT_DIR_PREFIX}{uuid4().hex}"
+    lock_path = _sort_lock_path(path)
+    created = False
+    try:
+        with lock_path.open("a+b") as lock_file:
+            if not try_acquire_file_lock(lock_file):
+                raise RuntimeError(f"Failed to acquire sort spill lock '{lock_path}'.")
+            try:
+                path.mkdir()
+                created = True
+                yield path
+            finally:
+                try:
+                    if created:
+                        shutil.rmtree(path)
+                finally:
+                    release_file_lock(lock_file)
+    finally:
+        lock_path.unlink(missing_ok=True)
 
 
 def format_bytes(value: int) -> str:
@@ -115,12 +154,30 @@ def _temp_root(root: Path | None) -> Path:
     return (root or Path(tempfile.gettempdir())).resolve()
 
 
-def _is_jerry_temp_dir(path: Path) -> bool:
+def _is_sort_spill_dir(path: Path) -> bool:
     return (
         path.is_dir()
         and not path.is_symlink()
-        and any(path.name.startswith(prefix) for prefix in TEMP_DIR_PREFIXES)
+        and path.name.startswith(SORT_DIR_PREFIX)
     )
+
+
+def _sort_lock_path(path: Path) -> Path:
+    return path.with_name(f".{path.name}.lock")
+
+
+def _is_active_sort_spill(path: Path) -> bool:
+    lock_path = _sort_lock_path(path)
+    if not lock_path.is_file():
+        return False
+    try:
+        with lock_path.open("r+b") as lock_file:
+            if not try_acquire_file_lock(lock_file):
+                return True
+            release_file_lock(lock_file)
+    except FileNotFoundError:
+        return False
+    return False
 
 
 def _directory_size(path: Path) -> int:
@@ -129,14 +186,3 @@ def _directory_size(path: Path) -> int:
         if child.is_file() and not child.is_symlink():
             total += child.stat().st_size
     return total
-
-
-__all__ = [
-    "CleanResult",
-    "TempDirCandidate",
-    "clean_temp_dirs",
-    "find_temp_dirs",
-    "format_age",
-    "format_bytes",
-    "parse_age",
-]

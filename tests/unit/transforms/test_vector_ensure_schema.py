@@ -36,6 +36,17 @@ def test_normalize_features_fills_missing_values_and_orders_schema() -> None:
     }
 
 
+def test_normalize_features_reuses_validated_sequence() -> None:
+    history = [1.0, 2.0]
+    sample = make_vector(0, {"history": history})
+
+    [output] = NormalizeFeaturesTransform([_sequence("history", 2)]).apply(
+        iter([sample])
+    )
+
+    assert output.features.values["history"] is history
+
+
 def test_normalize_features_rejects_unknown_ids() -> None:
     transform = NormalizeFeaturesTransform([_scalar("known")])
 
@@ -54,12 +65,13 @@ def test_normalize_features_rejects_wrong_sequence_shape(value: object) -> None:
         list(transform.apply(iter([make_vector(0, {"history": value})])))
 
 
-@pytest.mark.parametrize("value", ["bad", float("inf")])
-def test_normalize_features_rejects_corrupt_scalar_values(value: object) -> None:
+@pytest.mark.parametrize("value", ["category", float("inf")])
+def test_normalize_features_preserves_scalar_values(value: object) -> None:
     transform = NormalizeFeaturesTransform([_scalar("value")])
 
-    with pytest.raises((TypeError, ValueError)):
-        list(transform.apply(iter([make_vector(0, {"value": value})])))
+    [output] = transform.apply(iter([make_vector(0, {"value": value})]))
+
+    assert output.features.values == {"value": value}
 
 
 def test_normalize_targets_creates_missing_target_vector() -> None:

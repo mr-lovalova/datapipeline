@@ -1,5 +1,3 @@
-# See ../reference/reference/dataset.yaml for full options.
-
 sample:
   cadence: ${group_by}
   keys: []
@@ -19,3 +17,17 @@ features:
 #   - id: target_feature
 #     stream: your.target.stream
 #     field: some_field
+
+split:
+  mode: hash
+  key: group
+  seed: 42
+  ratios: { train: 0.8, val: 0.1, test: 0.1 }
+
+postprocess:
+  columns:
+    features:
+      threshold: 0.9
+  samples:
+    features:
+      threshold: 1.0

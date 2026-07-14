@@ -6,8 +6,9 @@ import pytest
 from datapipeline.cli.command_router import execute_command
 from datapipeline.cli.commands import list_ as list_command
 from datapipeline.cli.parser_builder import build_parser
+from datapipeline.cli.workspace import WorkspaceContext
 from datapipeline.config.preview import PREVIEW_STAGES
-from datapipeline.config.workspace import WorkspaceConfig, WorkspaceContext
+from datapipeline.config.workspace import WorkspaceConfig
 
 
 def _execute(args, *, plugin_root=None, workspace=None) -> bool:
@@ -180,8 +181,13 @@ def test_source_listing_uses_workspace_project_without_python_package(
     )
     monkeypatch.setattr(
         list_command,
+        "load_project",
+        lambda path: path,
+    )
+    monkeypatch.setattr(
+        list_command,
         "load_streams",
-        lambda path: SimpleNamespace(sources={"nasa.weather": object()}),
+        lambda project: SimpleNamespace(sources={"nasa.weather": object()}),
     )
     monkeypatch.setattr(
         list_command,

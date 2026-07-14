@@ -8,7 +8,7 @@ The goal is to make the reference chain explicit and easy to debug.
 ```text
 jerry.yaml: default_dataset
   -> datasets.<alias> = <path/to/project.yaml>
-    -> project.yaml: paths.sources / paths.ingests / paths.streams / paths.dataset / paths.tasks
+    -> project.yaml: paths.sources / paths.ingests / paths.streams / paths.dataset
       -> sources/*.yaml: id
         -> ingests/*.yaml: from.source: <sources.id>, id: <stream_id>
           -> streams/*.yaml: from.stream|from.align, id: <stream_id>
@@ -43,8 +43,6 @@ paths:
   sources: ./sources
   streams: ./streams
   dataset: dataset.yaml
-  postprocess: postprocess.yaml
-  tasks: ./tasks
   artifacts: ../artifacts/${project_name}/v${version}
 ```
 

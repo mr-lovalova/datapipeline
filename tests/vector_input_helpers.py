@@ -86,10 +86,10 @@ def _write_shards(
                     sample_key_contract.validate(item.entity_key)
                     yield feature_record_to_vector_input_row(item)
 
-            count = write_vector_input_rows(root / relative_path, rows())
+            written = write_vector_input_rows(root / relative_path, rows())
         finally:
             closer = getattr(stream, "close", None)
             if callable(closer):
                 closer()
-        shards.append({"id": cfg.id, "path": relative_path, "rows": count})
+        shards.append({"id": cfg.id, "path": relative_path, "rows": written.rows})
     return shards

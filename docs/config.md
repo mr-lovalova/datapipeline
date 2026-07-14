@@ -8,13 +8,12 @@ These live under the dataset “project root” directory (the folder containing
 - `sources/*.yaml`: raw sources (loader + parser wiring).
 - `ingests/*.yaml`: raw source DTOs mapped, record-cleaned, and time-ordered into domain streams.
 - `streams/*.yaml`: derived or aligned streams built from existing stream ids.
-- `dataset.yaml`: feature/target declarations.
-- `postprocess.yaml`: column selection and sample filtering policies.
+- `dataset.yaml`: sample, feature/target, split, and postprocess policy.
 - `profiles/serve.<name>.yaml`: serve profiles.
 - `profiles/build.<name>.yaml`: build profiles.
 - `profiles/inspect.<name>.yaml`: inspect profiles.
 - `profiles/materialize.<name>.yaml`: durable stream-output profiles.
-- `tasks/operations/*.yaml`: declared artifact and runtime operations.
+- `operations/*.yaml`: optional core-operation overrides and custom operations.
 
 ### Configuration & Resolution Order
 
@@ -38,21 +37,16 @@ All dataset configuration is rooted at a single `project.yaml` file. Other YAML 
 
 ```yaml
 version: 1
+artifact_revision: 1
 name: default
 paths:
   ingests: ./ingests
   streams: ./streams
   sources: ./sources
   dataset: dataset.yaml
-  postprocess: postprocess.yaml
   artifacts: ../artifacts/${project_name}/v${version}
-  tasks: ./tasks
+  # operations: ./operations # optional; core operations need no declarations
   profiles: ./profiles
-split:
-  mode: hash # hash | time
-  key: group # group | feature:<id>
-  seed: 42
-  ratios: { train: 0.8, val: 0.1, test: 0.1 }
 globals:
   start_time: 2021-01-01T00:00:00Z
   end_time: 2023-01-03T23:00:00Z
@@ -61,23 +55,28 @@ globals:
 ```
 
 - `name` provides a stable identifier you can reuse inside config files via `${project_name}`.
+- `artifact_revision` is a positive integer that versions the semantics of
+  generated artifacts. Increment it whenever parser, mapper, combine,
+  transform, or custom artifact code changes what an artifact means without a
+  corresponding config change. It is required so every project explicitly owns
+  this cache contract.
 - `paths.*` are resolved relative to the project file unless absolute; they also support `${var}` interpolation.
 - `paths.sources`, `paths.ingests`, and `paths.streams` may be either one path
   or a list of paths. When a list is used, discovery scans every directory in
   order and rejects duplicate source or stream ids.
+- Project, dataset, config-root, and YAML-file aliases are resolved to their
+  canonical paths. Recursive discovery rejects linked directories inside a
+  config root instead of silently skipping or following them.
 - `globals` provide values for `${var}` interpolation across YAML files. Datetime
   values are normalized to strict UTC `YYYY-MM-DDTHH:MM:SSZ`.
 - External references use `${env:NAME}`. Resolution checks the process
   environment first and then an optional project-root `.env` file.
 - New scaffolded dataset projects include a `.env.example` next to `project.yaml`.
-- `split` config defines how labels are assigned; a serve profile's `splits`
-  selects which labels receive filesystem outputs. Labels must be nonempty and
-  unique. Time boundaries must be valid ISO-8601 datetimes in strictly
-  increasing order.
-- `paths.tasks` points to operation task specs under `tasks/operations/*.yaml`.
-  Artifact operations (`vector_inputs`, `schema`, `scaler`, `metadata`, `stats`,
-  and optional tick artifacts) define what can be materialized. Runtime operations
-  (`pipeline`, `coverage`, `matrix`, `thresholds`, ...) define executable steps.
+- `paths.operations` optionally points to `operations/*.yaml`. Omit it when the
+  built-in operations are sufficient. When configured, the directory must exist.
+  Core artifact operations are `scaler`, `vector_inputs`, `metadata`, `schema`,
+  and `stats`; core runtime operations are `pipeline`, `coverage`, and `matrix`.
+  Files override core settings or declare custom operations.
 - `paths.profiles` points to profile specs grouped by type:
   `profiles/serve.<name>.yaml`, `profiles/build.<name>.yaml`,
   `profiles/inspect.<name>.yaml`, and `profiles/materialize.<name>.yaml`.
@@ -87,15 +86,16 @@ globals:
   Each concrete file contains one mapping. Its `<kind>.<name>.yaml` filename is
   the profile identity; `cmd` and `name` are not repeated in the YAML body.
   When multiple profiles exist, `--run <name>` selects one by filename.
-- Label names are free-form: match whatever keys you declare in `split.ratios` (hash) or `split.labels` (time).
+- Dataset split label names are free-form: match the keys declared in
+  `dataset.yaml:split.ratios` (hash) or `dataset.yaml:split.labels` (time).
 
 ### Serve Profiles (`profiles/serve.<name>.yaml`)
 
 ```yaml
 # profiles/serve.splits.yaml
-target: pipeline # serve operation name from tasks/operations
+target: pipeline # core runtime operation
 artifact_mode: AUTO # AUTO | FORCE | "OFF"; prepares runtime prerequisites once
-splits: [train, val, test] # optional; write one fs output per project split label
+splits: [train, val, test] # optional; write one fs output per dataset split label
 output:
   transport: fs # stdout | fs; splits require fs
   format: jsonl
@@ -114,7 +114,7 @@ throttle_ms: null # milliseconds to sleep between emitted vectors
 #       - transport: STDERR # STDERR | STDOUT | FS
 #       - transport: FS
 #         scope: EXECUTION  # GLOBAL | EXECUTION
-#         path: logs/serve.log # optional; default logs/serve.<task>.log
+#         path: logs/serve.log # optional; default logs/serve.<profile>.log
 ```
 
 - Each serve profile is a flat file under `profiles/` with the `serve.` prefix.
@@ -130,7 +130,7 @@ throttle_ms: null # milliseconds to sleep between emitted vectors
   closure, and `OFF` requires every artifact to be current. Without a CLI
   override, selected profiles must resolve to the same mode. Quote `"OFF"` in
   YAML so it is read as text rather than a boolean.
-- Visuals backend: set `observability.visuals: ON|OFF` in the profile or use `--visuals on|off`.
+- Visuals: set `observability.visuals: ON|OFF` in the profile or use `--visuals on|off`.
 - Node heartbeat: set `observability.heartbeat_interval_seconds` or use
   `--heartbeat-interval`; `0` disables persistent heartbeat records, not live
   progress when visuals are enabled.
@@ -158,7 +158,7 @@ overwrite: true
 
 - `jerry materialize` runs all enabled materialize profiles in `order`; `--run`
   selects one. Unlike serve and inspect profiles, these profiles identify a
-  stream directly and do not target a runtime task.
+  stream directly and do not target an operation.
 - CLI `--output` overrides the selected profile and requires `--run`; the
   profile remains the source of the stream identity.
 - Relative profile outputs resolve from `project.yaml`; relative CLI `--output`
@@ -181,7 +181,7 @@ overwrite: true
 
 ```yaml
 # profiles/build.schema.yaml
-target: schema # required; artifact task ID to execute
+target: schema # required; artifact operation ID to execute
 mode: AUTO # AUTO | FORCE | "OFF"
 # enabled: true # optional; profile-level switch
 # Optional overrides:
@@ -196,8 +196,8 @@ mode: AUTO # AUTO | FORCE | "OFF"
 #         path: ./logs/build.log
 ```
 
-- Build profiles are orchestration profiles; they do not replace artifact task definitions.
-- `target` selects the artifact task ID for that profile (`schema`, `scaler`, `metadata`, ...). Selected build profiles must have distinct targets.
+- Build profiles are orchestration profiles; they do not replace operation definitions.
+- `target` selects the artifact operation ID for that profile (`schema`, `scaler`, `metadata`, ...). Selected build profiles must have distinct targets.
 - Build profile `observability.logging.outputs[].path` values are resolved relative to the dataset project root (`project.yaml` directory).
 - `jerry build` runs enabled build profiles when they exist; `jerry build --run <name>` targets one profile.
 - Build profile `order` controls only the order of selected build profiles. The
@@ -237,33 +237,57 @@ are additional, so this is not a process memory limit. Sorted items must be
 pickle-serializable. The built-in default is `128`. Build, materialize, serve,
 and inspect resolve their execution settings independently.
 
-### Runtime Operations (`tasks/operations/*.yaml`)
+### Operations (`operations/*.yaml`)
 
 ```yaml
-id: pipeline
+# operations/coverage.yaml — optional core override
+options:
+  threshold: 0.8
+
+# operations/matrix.yaml — optional bounded matrix override
+options:
+  stage: assembled
+  max_cells: 250000
+
+# operations/stats.yaml — optional summary-stage override
+stage: assembled
+
+# operations/custom_report.yaml — custom operation
 kind: runtime
-entrypoint: core.runtime.pipeline
-# requires: [custom_artifact] # optional additional artifact task IDs
+entrypoint: my_plugin.report
+requires: [custom_artifact]
+options: {}
 ```
 
+- Stable core operations are registered by Jerry and need no YAML declarations.
+- Each file contains one mapping, and its filename supplies the operation ID.
+  Do not repeat `id`. Core overrides also omit `kind` and `entrypoint`.
+- Custom operations declare `kind: artifact|runtime` and an `entrypoint`.
 - Runtime operations are executable units; profiles reference them via `target`.
-- `entrypoint` must resolve in the `datapipeline.operations.runtime` entry-point
-  group. Built-ins use `core.runtime.*`; plugins may register their own names.
-- `requires` declares additional prerequisite artifact task IDs for custom or
+- Core operations use reserved `core.runtime.*` identifiers and call their typed
+  implementations directly. A custom runtime operation's `entrypoint` must
+  resolve in the `datapipeline.operations.runtime` entry-point group.
+- `requires` declares additional prerequisite artifact operation IDs for custom or
   built-in operations. Each referenced artifact and its dependency chain must
-  have declared, active producer tasks.
-- Built-in runtime task options are entrypoint-specific:
-  - `core.runtime.pipeline`: no task options. Limit, preview, throttle, output,
+  have available producer operations.
+- Built-in runtime operation options are entrypoint-specific:
+  - `core.runtime.pipeline`: no operation options. Limit, preview, throttle, output,
     and visuals can be set by the serve profile or CLI; split selection belongs
-    to the profile.
-  - `core.runtime.coverage`: optional `sort: missing|nulls` and `threshold`
-    between `0` and `1` (defaults: `missing`, `0.95`).
-  - `core.runtime.thresholds`: optional `sort: missing|nulls` and `threshold`
-    between `0` and `1` (defaults: `missing`, `0.95`).
-  - `core.runtime.matrix`: no task options. Its output format and destination
-    come from the inspect profile or CLI.
+    to the profile. Preview, throttle, and split selection are not accepted by
+    other runtime operations.
+  - `core.runtime.coverage`: optional `threshold` between `0` and `1`
+    (default: `0.95`). Results are ordered from lowest to highest coverage.
+    Coverage reads a completed stats artifact, so it does not accept `--limit`.
+  - `core.runtime.matrix`: optional `stage: assembled|postprocessed` (default:
+    `postprocessed`) and positive `max_cells` (default: `1000000`). The bound
+    counts scalar cells and individual list elements. `jerry inspect --limit N`
+    caps the samples inspected after the selected stage. Its output format and
+    destination come from the inspect profile or CLI.
 - Unknown keys on built-in runtime operations are rejected. Custom plugin
   runtime operations retain their plugin-defined `options` mapping.
+- A custom runtime entry point has one positional contract: `(runtime, task,
+  limit)`. It returns `RuntimeOutput`, `SplitRuntimeOutput`,
+  `RuntimeOutputBatch`, or `None`; shared persistence applies the profile output.
 
 ### Workspace Routing (`jerry.yaml`)
 
@@ -310,12 +334,16 @@ loader:
 - `loader.entrypoint`: which loader to use; `core.io` is the default for fs/http and is configured via `loader.args`.
 - `inputs.files`: optional project-relative regular files or glob patterns used
   to track custom-loader inputs for artifact freshness. Local `core.io`
-  filesystem paths are tracked automatically.
+  filesystem paths are tracked automatically. The list is order-insensitive;
+  duplicate entries are rejected.
 - A filesystem `path` containing standard glob characters (`*`, `?`, `[`) loads
   every matching file in sorted order; a path without them loads one file.
 - Local freshness snapshots include glob membership, file paths, sizes, and
-  filesystem modification metadata. Use `--force` after metadata-preserving,
-  opaque, or remote source changes that cannot be declared as files.
+  filesystem modification metadata. HTTP response bodies and headers are not
+  fingerprinted: use `--artifact-mode FORCE` when a stable URL can return new
+  data, and increment `artifact_revision` when that change must invalidate
+  other workspaces. The same rule applies to other opaque source changes that
+  cannot be declared through `inputs.files`.
 - Keep secrets and machine-local paths out of source files. Prefer `${env:...}`
   directly or route them through `project.yaml.globals` aliases like `${raw_root}`.
 
@@ -370,6 +398,9 @@ stream:
 - Each item is a flat mapping with an `operation` discriminator and that
   operation's fields. Missing or unknown operations, unknown fields, and
   invalid values are rejected. See [Transforms](transforms/index.md).
+- Stream transforms cannot write `time` or a `partition_by` field. Custom maps
+  and combines run before canonical ordering; the fixed built-in transforms
+  preserve that order afterward.
 - `partition_by`, `feature_id_by`, and `ordered_by` must be YAML lists when
   present; scalar shorthand is not accepted. Blank and duplicate fields are
   rejected.
@@ -435,10 +466,13 @@ Notes:
   positional combine arguments.
 - `combine` is required and cannot be replaced by the iterator-level `map`.
 - Inputs must use the same `partition_by`; the aligned stream inherits it.
-- Alignment externally orders the combined inputs within
-  `execution.sort_buffer_mb`; inputs do not need to arrive ordered.
+- Alignment validates and merges the already ordered inputs in one pass. Each
+  upstream stream establishes canonical `[*partition_by, time]` order before
+  its stream transforms, which preserve that order. `execution.sort_buffer_mb`
+  applies to that upstream ordering stage, not to alignment.
 - Each input must contain at most one record per `(partition, time)` key. Only
-  keys present in every input are combined.
+  keys present in every input are combined. Alignment stops when any input is
+  exhausted and does not scan irrelevant tails of the remaining inputs.
 - Combine signature is `combine(first_record, second_record, ..., **args)` and it
   returns one record or `None` to skip that key.
 - The derived stream outputs records; its own `stream` transforms apply afterward.
@@ -463,6 +497,22 @@ targets:
   - id: returns_1d
     stream: equity.ohlcv
     field: returns_1d
+
+split:
+  mode: hash # hash | time
+  key: group # group | feature:<id>
+  seed: 42
+  ratios: { train: 0.8, val: 0.1, test: 0.1 }
+
+postprocess:
+  columns:
+    features:
+      threshold: 0.8
+    targets:
+      threshold: 0.9
+  samples:
+    features:
+      threshold: 0.95
 ```
 
 - `sample.cadence` controls the time bucket for vector samples (must match
@@ -484,34 +534,31 @@ targets:
   `close__@security_id:AAPL`.
 - `field` selects the record attribute used as the feature/target value.
 - Every `id` must be unique across both `features` and `targets`. Scaler,
-  schema, metadata, and postprocess artifacts use this shared vector-ID space.
+  schema, and metadata operations plus postprocess policies use this shared
+  vector-ID space.
 - `scale: true` scales scalar feature values with the managed
-  `build/scaler.json` artifact. Fitting options belong to the scaler task and
+  `build/scaler.json` artifact. Fitting options belong to the scaler operation and
   cannot be overridden per feature. `None` remains `None`; other nonnumeric or
   non-finite values fail.
-- `sequence` emits `FeatureRecordSequence` windows and accepts `size` plus
+- `sequence` emits `FeatureSequence` windows and accepts `size` plus
   optional `stride` (default `1`). Regularize cadence with stream transforms
-  before feature extraction when contiguous ticks are required.
+  before feature extraction when contiguous ticks are required. For sequenced
+  vectors, `sample.keys` and stream `feature_id_by` must together match the
+  stream's `partition_by` fields exactly, so every entity is one contiguous
+  ordered group.
 - Feature configuration exposes only `scale` and `sequence`; it does not accept
   arbitrary feature transform entry-point clauses.
+- `split` defines how samples receive labels; a serve profile's `splits`
+  selects which labels receive filesystem outputs. Labels must be nonempty and
+  unique. Hash-ratio mappings are canonicalized by label, so YAML key order does
+  not change sample assignment. Time boundaries must be valid ISO-8601
+  datetimes in strictly increasing order.
+- `postprocess.columns` and `postprocess.samples` are structural policies that
+  run after assembly and before serving.
 
-### `postprocess.yaml`
-
-Project-scoped structural policies that run after assembly and before serving.
-
-```yaml
-columns:
-  features:
-    threshold: 0.8
-  targets:
-    threshold: 0.9
-samples:
-  features:
-    threshold: 0.95
-```
-
-- `columns.features` and `columns.targets` have separate selection policies.
-- `samples.features` and `samples.targets` filter complete rows after schema
+- `postprocess.columns.features` and `postprocess.columns.targets` have separate
+  selection policies.
+- `postprocess.samples.features` and `postprocess.samples.targets` filter complete rows after schema
   normalization.
 - `ids` is optional. Selection and sample filters default to every retained ID.
   Empty, duplicate, or unknown IDs are errors.
@@ -522,19 +569,12 @@ samples:
 - Postprocess does not mutate values. Configure missing-value repair on the
   ordered record stream before feature extraction.
 
-### Task Specs (`tasks/operations/*.yaml`)
+### Scaler Operation Override
 
-Declare artifact and command tasks under `project.paths.tasks` (default `tasks/`).
-Every artifact used by a selected profile must have a declared producer task.
-The built-in task models provide default entry points and output paths, but they
-do not create undeclared tasks.
-
-`tasks/operations/scaler.yaml`
+The core scaler already has the defaults below. Create
+`operations/scaler.yaml` only to change them:
 
 ```yaml
-id: scaler
-kind: artifact
-entrypoint: core.artifact.scaler
 output: build/scaler.json
 split_label: train
 with_mean: true
@@ -545,9 +585,6 @@ epsilon: 1.0e-12
 Folded temporal scaler:
 
 ```yaml
-id: scaler
-kind: artifact
-entrypoint: core.artifact.scaler
 output: build/scaler.json
 folds:
   - fit: [train_0]
@@ -561,27 +598,26 @@ folds:
 - `with_mean`, `with_std`, and positive finite `epsilon` are build-time options
   stored in the artifact and used unchanged at runtime.
 - A filtered standard scaler supports time splits and hash splits keyed by
-  `group`. When `project.split.key` is `feature:<id>`, set `split_label: all`.
-- Folded temporal scaling requires `project.split.mode: time`. `fit` and
-  `apply` labels must exist in `project.split`; `apply` labels cannot overlap
+  `group`. When `dataset.yaml:split.key` is `feature:<id>`, set `split_label: all`.
+- Folded temporal scaling requires `dataset.yaml:split.mode: time`. `fit` and
+  `apply` labels must exist in the dataset split; `apply` labels cannot overlap
   across folds, and every configured split label must appear in exactly one
   apply fold.
-- `build/schema.json` (from the `schema` task) is derived from typed metadata
+- `build/schema.json` (from the `schema` operation) is derived from typed metadata
   without rescanning vectors. It enumerates discovered feature/target
   identifiers (including partitions), scalar/list kinds, and fixed list
   lengths used during normalization. Mixed scalar/list values, empty lists,
   and varying list lengths fail metadata generation.
-- `build/metadata.json` (from the `metadata` task) captures heavier statistics—present/null counts, inferred value types, list-length histograms, per-partition timestamps, and the dataset window. Configure `metadata.window_mode` with `union|intersection|strict|relaxed` (default `intersection`) to control how start/end bounds are derived. `union` considers base features, `intersection` uses their overlap, `strict` intersects every partition, and `relaxed` unions partitions independently.
-- Artifact task execution order comes from the typed dependency graph. Runtime
+- `build/metadata.json` (from the `metadata` operation) captures heavier statistics—present/null counts, inferred value types, list-length histograms, per-partition timestamps, and the dataset window. Configure `metadata.window_mode` with `union|intersection|strict|relaxed` (default `intersection`) to control how start/end bounds are derived. `union` considers base features, `intersection` uses their overlap, `strict` intersects every partition, and `relaxed` unions partitions independently.
+- Artifact operation execution order comes from the typed dependency graph. Runtime
   commands prepare the union of all selected profiles' requirements once;
   explicit build profiles remain separate artifact roots.
 - Profile `order` is authoritative for profile execution. The dependency graph
   orders internal artifact jobs but never changes the order of serve, inspect,
   or build profiles.
-- Profiles select tasks by ID through `target`; the task kind and `entrypoint`
-  select the build or runtime runner.
-- Build profiles target artifact tasks. Serve and inspect profiles target runtime
-  tasks. The built-in pipeline runner is `core.runtime.pipeline`; custom runtime
+- Profiles select operations by ID through `target`.
+- Build profiles target artifact operations. Serve and inspect profiles target runtime
+  operations. The built-in pipeline runner is `core.runtime.pipeline`; custom runtime
   entry points are also supported.
 - Observability defaults (visuals/logging outputs) belong in profile files (`serve.<name>.yaml`, `build.<name>.yaml`, `inspect.<name>.yaml`) or per-kind defaults (`<kind>.defaults.yaml`).
 
@@ -590,7 +626,19 @@ folds:
 ### Versioning & Reproducibility
 
 - Jerry outputs are deterministic given a fixed config, plugin code, and source snapshot.
-- `jerry serve` runs are named by task/run and are reproducible when inputs + config are unchanged.
+- A command uses the validated configuration and environment snapshot loaded at
+  startup. Keep configuration and source inputs stable while it runs; edits are
+  observed by the next command rather than re-read mid-execution.
+- Core artifact hashes cover each artifact's effective typed dependency and
+  source closure. Plugin artifact operations conservatively cover the complete
+  dataset and stream catalog because they do not declare inputs. Hashing does
+  not inspect Python plugin source. Increment `project.yaml`'s
+  `artifact_revision` when parser, mapper, combine, transform, or custom
+  artifact code changes artifact semantics without changing config.
+- `--artifact-mode FORCE` rebuilds artifacts only in the current workspace. It
+  is useful for a local refresh, but it does not communicate a semantic change
+  to other workspaces; commit an incremented `artifact_revision` for that.
+- `jerry serve` selects profiles by name and is reproducible when inputs and config are unchanged.
 - A git tag on the workspace (plus the plugin repo) can represent a dataset “version” you can always rebuild.
 - This pairs well with DVC: let DVC track raw inputs, and regenerate derived datasets from the tagged Jerry config when needed.
 - Still use DVC for outputs when rebuilds are too expensive, transforms are non-deterministic, or sources are not snapshot-stable.

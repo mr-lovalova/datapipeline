@@ -1,35 +1,41 @@
+from collections.abc import Callable
 from contextvars import ContextVar
-from typing import Any
+from typing import TYPE_CHECKING
 
-_CURRENT_EXECUTION_EVENT_SINK: ContextVar[Any | None] = ContextVar(
-    "datapipeline_visual_current_execution_event_sink",
+if TYPE_CHECKING:
+    from datapipeline.cli.visuals.execution import ExecutionLogEvent
+
+ExecutionEventHandler = Callable[["ExecutionLogEvent"], None]
+
+_CURRENT_EXECUTION_EVENT_HANDLER: ContextVar[ExecutionEventHandler | None] = ContextVar(
+    "datapipeline_visual_current_execution_event_handler",
     default=None,
 )
-_CURRENT_TERMINAL_LOG_PROXY_SINK: ContextVar[Any | None] = ContextVar(
-    "datapipeline_visual_current_terminal_log_proxy_sink",
+_CURRENT_TERMINAL_LOG_HANDLER: ContextVar[ExecutionEventHandler | None] = ContextVar(
+    "datapipeline_visual_current_terminal_log_handler",
     default=None,
 )
 
 
-def set_current_execution_event_sink(sink: Any | None):
-    return _CURRENT_EXECUTION_EVENT_SINK.set(sink)
+def set_current_execution_event_handler(handler: ExecutionEventHandler | None):
+    return _CURRENT_EXECUTION_EVENT_HANDLER.set(handler)
 
 
-def reset_current_execution_event_sink(token) -> None:
-    _CURRENT_EXECUTION_EVENT_SINK.reset(token)
+def reset_current_execution_event_handler(token) -> None:
+    _CURRENT_EXECUTION_EVENT_HANDLER.reset(token)
 
 
-def current_execution_event_sink() -> Any | None:
-    return _CURRENT_EXECUTION_EVENT_SINK.get()
+def current_execution_event_handler() -> ExecutionEventHandler | None:
+    return _CURRENT_EXECUTION_EVENT_HANDLER.get()
 
 
-def set_current_terminal_log_proxy_sink(sink: Any | None):
-    return _CURRENT_TERMINAL_LOG_PROXY_SINK.set(sink)
+def set_current_terminal_log_handler(handler: ExecutionEventHandler | None):
+    return _CURRENT_TERMINAL_LOG_HANDLER.set(handler)
 
 
-def reset_current_terminal_log_proxy_sink(token) -> None:
-    _CURRENT_TERMINAL_LOG_PROXY_SINK.reset(token)
+def reset_current_terminal_log_handler(token) -> None:
+    _CURRENT_TERMINAL_LOG_HANDLER.reset(token)
 
 
-def current_terminal_log_proxy_sink() -> Any | None:
-    return _CURRENT_TERMINAL_LOG_PROXY_SINK.get()
+def current_terminal_log_handler() -> ExecutionEventHandler | None:
+    return _CURRENT_TERMINAL_LOG_HANDLER.get()

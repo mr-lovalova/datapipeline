@@ -51,7 +51,7 @@ def add_serve_command(sub, common: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--run",
-        help="select a serve profile by name when project.paths.tasks contains multiple entries",
+        help="select a serve profile by name",
     )
     parser.add_argument(
         "--preview",

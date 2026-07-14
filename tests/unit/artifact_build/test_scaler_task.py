@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from dataclasses import replace
 
 import pytest
 
@@ -9,14 +10,10 @@ from datapipeline.artifacts.scaler import (
 )
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig, SequenceConfig
-from datapipeline.config.split import HashSplitConfig, TimeSplitConfig
+from datapipeline.config.dataset.split import HashSplitConfig, TimeSplitConfig
 from datapipeline.config.tasks import ScalerTask
-from datapipeline.domain.feature import FeatureRecord
 from datapipeline.domain.record import TemporalRecord
-from datapipeline.operations.artifacts.scaler import (
-    _scaled_configs,
-    materialize_scaler_statistics,
-)
+from datapipeline.operations.artifacts.scaler import materialize_scaler_statistics
 from datapipeline.runtime import IngestRuntimeStream, Runtime
 
 
@@ -24,31 +21,49 @@ def _time(day: int) -> datetime:
     return datetime(2024, 1, day, tzinfo=timezone.utc)
 
 
-def _feature(day: int, value: object, feature_id: str = "x") -> FeatureRecord:
-    return FeatureRecord(
-        record=TemporalRecord(time=_time(day)),
-        id=feature_id,
-        value=value,
-    )
+def _record(day: int, value: object, other: object | None = None) -> TemporalRecord:
+    record = TemporalRecord(time=_time(day))
+    record.value = value
+    record.other = other
+    return record
 
 
-class _EmptySource:
+class _CountingSource:
+    def __init__(self, rows=()) -> None:
+        self.rows = tuple(rows)
+        self.opens = 0
+        self.closes = 0
+
     def stream(self):
-        return iter(())
+        self.opens += 1
+        try:
+            yield from self.rows
+        finally:
+            self.closes += 1
 
 
 def _identity(records):
     return records
 
 
-def _runtime(tmp_path) -> Runtime:
+def _runtime(
+    tmp_path,
+    dataset: FeatureDatasetConfig | None = None,
+    rows=(),
+) -> Runtime:
     artifacts_root = tmp_path / "artifacts"
     artifacts_root.mkdir()
     project_yaml = tmp_path / "project.yaml"
-    project_yaml.write_text("version: 1\n", encoding="utf-8")
-    runtime = Runtime(project_yaml=project_yaml, artifacts_root=artifacts_root)
+    project_yaml.write_text("version: 1\nartifact_revision: 1\n", encoding="utf-8")
+    if dataset is None:
+        dataset = FeatureDatasetConfig(sample=SampleConfig(cadence="1h"))
+    runtime = Runtime(
+        project_yaml=project_yaml,
+        artifacts_root=artifacts_root,
+        dataset=dataset,
+    )
     runtime.streams["stream"] = IngestRuntimeStream(
-        source=_EmptySource(),
+        source=_CountingSource(rows),
         mapper=_identity,
         transforms=(),
         partition_by=(),
@@ -58,7 +73,12 @@ def _runtime(tmp_path) -> Runtime:
     return runtime
 
 
-def _dataset(*, scale: bool = True, sequence: SequenceConfig | None = None):
+def _dataset(
+    *,
+    scale: bool = True,
+    sequence: SequenceConfig | None = None,
+    split: HashSplitConfig | TimeSplitConfig | None = None,
+) -> FeatureDatasetConfig:
     return FeatureDatasetConfig(
         sample=SampleConfig(cadence="1h"),
         features=[
@@ -70,30 +90,22 @@ def _dataset(*, scale: bool = True, sequence: SequenceConfig | None = None):
                 sequence=sequence,
             )
         ],
+        split=split,
     )
 
 
 def test_materialize_standard_scaler_uses_all_scalar_observations(
-    monkeypatch,
     tmp_path,
 ) -> None:
-    runtime = _runtime(tmp_path)
-    runtime.split = TimeSplitConfig(
-        boundaries=["2024-01-02T00:00:00Z"],
-        labels=["train", "test"],
-    )
-    dataset = _dataset()
-    features = [
-        ((_time(1),), _feature(1, 1.0)),
-        ((_time(3),), _feature(3, 3.0)),
-    ]
-    monkeypatch.setattr(
-        "datapipeline.operations.artifacts.scaler.load_dataset",
-        lambda *_args: dataset,
-    )
-    monkeypatch.setattr(
-        "datapipeline.operations.artifacts.scaler._iter_unscaled_features",
-        lambda *_args: iter(features),
+    runtime = _runtime(
+        tmp_path,
+        _dataset(
+            split=TimeSplitConfig(
+                boundaries=["2024-01-02T00:00:00Z"],
+                labels=["train", "test"],
+            )
+        ),
+        rows=[_record(1, 1.0), _record(3, 3.0)],
     )
 
     result = materialize_scaler_statistics(
@@ -116,19 +128,9 @@ def test_materialize_standard_scaler_uses_all_scalar_observations(
 
 
 def test_materialize_standard_scaler_persists_build_options(
-    monkeypatch,
     tmp_path,
 ) -> None:
-    runtime = _runtime(tmp_path)
-    dataset = _dataset()
-    monkeypatch.setattr(
-        "datapipeline.operations.artifacts.scaler.load_dataset",
-        lambda *_args: dataset,
-    )
-    monkeypatch.setattr(
-        "datapipeline.operations.artifacts.scaler._iter_unscaled_features",
-        lambda *_args: iter([((_time(1),), _feature(1, 4.0))]),
-    )
+    runtime = _runtime(tmp_path, _dataset(), rows=[_record(1, 4.0)])
 
     result = materialize_scaler_statistics(
         runtime,
@@ -150,17 +152,16 @@ def test_materialize_standard_scaler_persists_build_options(
 
 
 def test_materialize_scaler_rejects_feature_hash_split(
-    monkeypatch,
     tmp_path,
 ) -> None:
-    runtime = _runtime(tmp_path)
-    runtime.split = HashSplitConfig(
-        ratios={"train": 1.0},
-        key="feature:bucket",
-    )
-    monkeypatch.setattr(
-        "datapipeline.operations.artifacts.scaler.load_dataset",
-        lambda *_args: _dataset(),
+    runtime = _runtime(
+        tmp_path,
+        _dataset(
+            split=HashSplitConfig(
+                ratios={"train": 1.0},
+                key="feature:bucket",
+            )
+        ),
     )
 
     with pytest.raises(ValueError, match="requires hash split key 'group'"):
@@ -171,14 +172,9 @@ def test_materialize_scaler_rejects_feature_hash_split(
 
 
 def test_materialize_scaler_skips_dataset_without_scaled_features(
-    monkeypatch,
     tmp_path,
 ) -> None:
-    runtime = _runtime(tmp_path)
-    monkeypatch.setattr(
-        "datapipeline.operations.artifacts.scaler.load_dataset",
-        lambda *_args: _dataset(scale=False),
-    )
+    runtime = _runtime(tmp_path, _dataset(scale=False))
 
     assert (
         materialize_scaler_statistics(
@@ -189,45 +185,38 @@ def test_materialize_scaler_skips_dataset_without_scaled_features(
     )
 
 
-def test_scaler_fitting_disables_scale_and_sequence() -> None:
-    [config] = _scaled_configs(
-        [
-            FeatureRecordConfig(
-                id="x",
-                stream="stream",
-                field="value",
-                scale=True,
-                sequence=SequenceConfig(size=3),
-            )
-        ]
+def test_scaler_fitting_observes_scalars_before_sequence(tmp_path) -> None:
+    runtime = _runtime(
+        tmp_path,
+        _dataset(sequence=SequenceConfig(size=3)),
+        rows=[_record(1, 1.0), _record(2, 3.0)],
     )
 
-    assert config.scale is False
-    assert config.sequence is None
+    result = materialize_scaler_statistics(
+        runtime,
+        ScalerTask(split_label="all", output="scaler.json"),
+    )
+
+    assert result is not None
+    artifact = load_scaler_artifact(runtime.artifacts_root / result.relative_path)
+    assert isinstance(artifact, StandardScalerArtifact)
+    assert artifact.observations == 2
+    assert artifact.statistics["x"].mean == 2.0
 
 
 def test_materialize_temporal_scaler_assigns_scalar_records_by_record_time(
-    monkeypatch,
     tmp_path,
 ) -> None:
-    runtime = _runtime(tmp_path)
-    runtime.split = TimeSplitConfig(
-        boundaries=["2024-01-02T00:00:00Z"],
-        labels=["train", "validation"],
-    )
-    monkeypatch.setattr(
-        "datapipeline.operations.artifacts.scaler.load_dataset",
-        lambda *_args: _dataset(sequence=SequenceConfig(size=2)),
-    )
-    # The sample key deliberately points at validation. Fitting must use the scalar
-    # record time, just as runtime temporal scaling does, rather than a sequence key.
-    features = [
-        ((_time(3),), _feature(1, 1.0)),
-        ((_time(1),), _feature(3, 10.0)),
-    ]
-    monkeypatch.setattr(
-        "datapipeline.operations.artifacts.scaler._iter_unscaled_features",
-        lambda *_args: iter(features),
+    runtime = _runtime(
+        tmp_path,
+        _dataset(
+            sequence=SequenceConfig(size=2),
+            split=TimeSplitConfig(
+                boundaries=["2024-01-02T00:00:00Z"],
+                labels=["train", "validation"],
+            ),
+        ),
+        rows=[_record(1, 1.0), _record(3, 10.0)],
     )
 
     result = materialize_scaler_statistics(
@@ -257,18 +246,145 @@ def test_materialize_temporal_scaler_assigns_scalar_records_by_record_time(
     }
 
 
-def test_materialize_temporal_scaler_requires_time_split(
-    monkeypatch,
-    tmp_path,
-) -> None:
-    runtime = _runtime(tmp_path)
-    runtime.split = HashSplitConfig(ratios={"train": 1.0})
-    monkeypatch.setattr(
-        "datapipeline.operations.artifacts.scaler.load_dataset",
-        lambda *_args: _dataset(),
+def test_scaler_opens_a_shared_stream_once_for_all_scaled_fields(tmp_path) -> None:
+    dataset = FeatureDatasetConfig(
+        sample=SampleConfig(cadence="1h"),
+        features=[
+            FeatureRecordConfig(
+                id="value",
+                stream="stream",
+                field="value",
+                scale=True,
+            ),
+            FeatureRecordConfig(
+                id="other",
+                stream="stream",
+                field="other",
+                scale=True,
+            ),
+        ],
+    )
+    runtime = _runtime(
+        tmp_path,
+        dataset,
+        rows=[_record(1, 1.0, 10.0), _record(2, 3.0, 30.0)],
+    )
+    source = runtime.streams["stream"].source
+
+    result = materialize_scaler_statistics(
+        runtime,
+        ScalerTask(split_label="all", output="scaler.json"),
     )
 
-    with pytest.raises(RuntimeError, match="project split mode 'time'"):
+    assert result is not None
+    artifact = load_scaler_artifact(runtime.artifacts_root / result.relative_path)
+    assert isinstance(artifact, StandardScalerArtifact)
+    assert artifact.statistics["value"].mean == 2.0
+    assert artifact.statistics["other"].mean == 20.0
+    assert source.opens == 1
+    assert source.closes == 1
+
+
+def test_grouped_scaler_preserves_global_scalar_statistics_across_sample_keys(
+    tmp_path,
+) -> None:
+    dataset = FeatureDatasetConfig(
+        sample=SampleConfig(cadence="1h", keys=["security_id"]),
+        features=[
+            FeatureRecordConfig(
+                id="value",
+                stream="stream",
+                field="value",
+                scale=True,
+            )
+        ],
+    )
+    records = [
+        _record(2, 30.0),
+        _record(1, 1.0),
+        _record(2, 3.0),
+        _record(1, 10.0),
+    ]
+    for record, security_id in zip(records, ["B", "A", "A", "B"]):
+        record.security_id = security_id
+    runtime = _runtime(tmp_path, dataset, rows=records)
+    runtime.streams["stream"] = replace(
+        runtime.streams["stream"],
+        partition_by=("security_id",),
+        feature_id_by=(),
+    )
+
+    result = materialize_scaler_statistics(
+        runtime,
+        ScalerTask(split_label="all", output="scaler.json"),
+    )
+
+    assert result is not None
+    artifact = load_scaler_artifact(runtime.artifacts_root / result.relative_path)
+    assert isinstance(artifact, StandardScalerArtifact)
+    statistics = artifact.statistics["value"]
+    assert statistics.count == 4
+    assert statistics.mean == pytest.approx(11.0)
+    assert statistics.std == pytest.approx(131.5**0.5)
+
+
+def test_scaler_validates_excluded_split_records_before_filtering(tmp_path) -> None:
+    dataset = FeatureDatasetConfig(
+        sample=SampleConfig(cadence="1h"),
+        features=[
+            FeatureRecordConfig(
+                id="other",
+                stream="stream",
+                field="other",
+                scale=True,
+            )
+        ],
+        split=TimeSplitConfig(
+            boundaries=["2024-01-02T00:00:00Z"],
+            labels=["train", "test"],
+        ),
+    )
+    included = _record(1, 0.0, other=1.0)
+    excluded = TemporalRecord(time=_time(3))
+    excluded.value = 3.0
+    runtime = _runtime(tmp_path, dataset, rows=[included, excluded])
+    source = runtime.streams["stream"].source
+    assert isinstance(source, _CountingSource)
+
+    with pytest.raises(KeyError, match="Record field 'other'"):
+        materialize_scaler_statistics(
+            runtime,
+            ScalerTask(split_label="train", output="scaler.json"),
+        )
+
+    assert source.opens == 1
+    assert source.closes == 1
+
+
+def test_scaler_closes_shared_stream_after_invalid_value(tmp_path) -> None:
+    runtime = _runtime(tmp_path, _dataset(), rows=[_record(1, "not numeric")])
+    source = runtime.streams["stream"].source
+    assert isinstance(source, _CountingSource)
+
+    with pytest.raises(TypeError, match="numeric or None"):
+        materialize_scaler_statistics(
+            runtime,
+            ScalerTask(split_label="all", output="scaler.json"),
+        )
+
+    assert source.opens == 1
+    assert source.closes == 1
+
+
+def test_materialize_temporal_scaler_requires_time_split(
+    tmp_path,
+) -> None:
+    runtime = _runtime(
+        tmp_path,
+        _dataset(split=HashSplitConfig(ratios={"train": 1.0})),
+    )
+
+    with pytest.raises(RuntimeError, match="dataset split mode 'time'"):
         materialize_scaler_statistics(
             runtime,
             ScalerTask.model_validate(
@@ -281,17 +397,16 @@ def test_materialize_temporal_scaler_requires_time_split(
 
 
 def test_materialize_temporal_scaler_requires_apply_fold_for_every_split(
-    monkeypatch,
     tmp_path,
 ) -> None:
-    runtime = _runtime(tmp_path)
-    runtime.split = TimeSplitConfig(
-        boundaries=["2024-01-02T00:00:00Z"],
-        labels=["train", "validation"],
-    )
-    monkeypatch.setattr(
-        "datapipeline.operations.artifacts.scaler.load_dataset",
-        lambda *_args: _dataset(),
+    runtime = _runtime(
+        tmp_path,
+        _dataset(
+            split=TimeSplitConfig(
+                boundaries=["2024-01-02T00:00:00Z"],
+                labels=["train", "validation"],
+            )
+        ),
     )
 
     with pytest.raises(

@@ -8,7 +8,7 @@ from pathlib import Path
 from datapipeline.artifacts.models import SampleDomainEntry
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.execution.context import PipelineContext
-from datapipeline.domain.feature import FeatureRecord, FeatureRecordSequence
+from datapipeline.domain.feature import FeatureRecord, FeatureSequence
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.sample_key import SampleKeyContract
 from datapipeline.pipelines.vector.keygen import group_key_for
@@ -40,8 +40,8 @@ def build_vector_pipeline(
     rectangular: bool = True,
     sample_keys: Sequence[str] = (),
 ) -> Iterator[Sample]:
-    feature_cfgs = list(configs)
-    target_cfgs = [] if target_configs is None else list(target_configs)
+    feature_cfgs = configs
+    target_cfgs = () if target_configs is None else target_configs
     if not feature_cfgs and not target_cfgs:
         return iter(())
     artifact = context.runtime.artifacts.optional(VECTOR_INPUTS)
@@ -148,19 +148,19 @@ def _merged_cached_records(
     configs: Sequence[FeatureRecordConfig],
     group_by_cadence: timedelta,
     sample_key_contract: SampleKeyContract,
-) -> Iterator[FeatureRecord | FeatureRecordSequence]:
+) -> Iterator[FeatureRecord | FeatureSequence]:
     root = manifest_path.parent
     shards_by_id = {shard.id: shard for shard in shards}
 
     def validated_stream(
-        stream: Iterator[FeatureRecord | FeatureRecordSequence],
-    ) -> Iterator[FeatureRecord | FeatureRecordSequence]:
+        stream: Iterator[FeatureRecord | FeatureSequence],
+    ) -> Iterator[FeatureRecord | FeatureSequence]:
         for record in stream:
             sample_key_contract.validate(record.entity_key)
             yield record
 
     with ExitStack() as opened:
-        opened_streams: list[Iterator[FeatureRecord | FeatureRecordSequence]] = []
+        opened_streams: list[Iterator[FeatureRecord | FeatureSequence]] = []
         for cfg in configs:
             shard = shards_by_id.get(cfg.id)
             if shard is None:
@@ -175,7 +175,7 @@ def _merged_cached_records(
             opened_streams.append(validated_stream(opened_stream))
 
         def group_key(
-            feature_record: FeatureRecord | FeatureRecordSequence,
+            feature_record: FeatureRecord | FeatureSequence,
         ) -> tuple:
             return group_key_for(feature_record, group_by_cadence)
 

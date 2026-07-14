@@ -66,7 +66,7 @@ def persist_artifact_output(
     ):
         raise ValueError(
             f"Artifact '{artifact_key}' returned path '{result.relative_path}', "
-            f"but its task declares '{expected_relative_path}'."
+            f"but its operation declares '{expected_relative_path}'."
         )
     relative_paths = (result.relative_path, *result.companion_paths)
     normalized_paths = tuple(Path(relative_path) for relative_path in relative_paths)

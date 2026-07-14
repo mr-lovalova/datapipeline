@@ -4,6 +4,14 @@ from datapipeline.config.catalog import (
     SourceConfig,
     StreamConfig,
 )
+from datapipeline.config.transforms import (
+    DeriveConfig,
+    FillConfig,
+    ForwardFillConfig,
+    LagConfig,
+    LeadConfig,
+    RollingConfig,
+)
 from datapipeline.domain.stream import canonical_record_order
 
 
@@ -43,6 +51,23 @@ def validate_stream_configs(
 
     for stream_id, stream in stream_configs.items():
         partition_by = stream_partition_by(ingests, stream_configs, stream_id)
+        canonical_fields = {"time", *partition_by}
+        for operation in stream.stream:
+            if isinstance(
+                operation,
+                (LagConfig, LeadConfig, FillConfig, ForwardFillConfig, RollingConfig),
+            ):
+                output_field = operation.field if operation.to is None else operation.to
+            elif isinstance(operation, DeriveConfig):
+                output_field = operation.to
+            else:
+                continue
+            if output_field in canonical_fields:
+                raise ValueError(
+                    f"Stream '{stream_id}' transform '{operation.operation}' cannot "
+                    f"write canonical order field '{output_field}'"
+                )
+
         if stream.ordered_by is None:
             continue
         canonical_order = canonical_record_order(partition_by)

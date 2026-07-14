@@ -1,4 +1,4 @@
-from datapipeline.config.workspace import WorkspaceContext
+from datapipeline.cli.workspace import WorkspaceContext
 from datapipeline.services.path_policy import resolve_workspace_path
 from datapipeline.services.scaffold.demo import scaffold_demo
 from datapipeline.services.scaffold.plugin import scaffold_plugin

@@ -1,9 +1,8 @@
 from dataclasses import dataclass
 from pathlib import Path
 
-from datapipeline.cli.workspace_utils import resolve_default_project_yaml
-from datapipeline.config.options import SOURCE_TRANSPORTS, source_formats_for
-from datapipeline.config.workspace import WorkspaceContext
+from datapipeline.cli.workspace import WorkspaceContext, resolve_default_project_yaml
+from datapipeline.cli.source_options import SOURCE_TRANSPORTS, source_formats_for
 from datapipeline.services.constants import DEFAULT_TEMPORAL_RECORD_PARSER_EP
 from datapipeline.services.paths import pkg_root
 from datapipeline.services.project_paths import resolve_project_yaml_path

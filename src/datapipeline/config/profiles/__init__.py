@@ -1,5 +1,10 @@
 from .base import Profile, ProfileCommand
-from .build import ARTIFACT_MODES, BuildProfile, normalize_artifact_mode
+from .build import (
+    ARTIFACT_MODES,
+    ArtifactMode,
+    BuildProfile,
+    normalize_artifact_mode,
+)
 from .defaults import (
     BuildProfileDefaults,
     InspectProfileDefaults,
@@ -28,6 +33,7 @@ __all__ = [
     "BuildProfileDefaults",
     "InspectProfileDefaults",
     "MaterializeProfileDefaults",
+    "ArtifactMode",
     "ARTIFACT_MODES",
     "normalize_artifact_mode",
 ]

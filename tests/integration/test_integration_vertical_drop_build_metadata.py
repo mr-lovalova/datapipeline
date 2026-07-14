@@ -1,11 +1,11 @@
 import shutil
 
-from datapipeline.config.postprocess import PostprocessConfig
+from datapipeline.artifacts.hydration import hydrate_runtime_artifacts_for_pipeline
+from datapipeline.config.dataset.postprocess import PostprocessConfig
 from datapipeline.operations.artifacts.metadata import materialize_metadata
 from datapipeline.operations.artifacts.vector_inputs import materialize_vector_inputs
 from datapipeline.operations.artifacts.schema import materialize_vector_schema
 from datapipeline.operations.artifacts.scaler import materialize_scaler_statistics
-from datapipeline.config.context import load_dataset
 from datapipeline.config.tasks import (
     MetadataTask,
     SchemaTask,
@@ -15,13 +15,14 @@ from datapipeline.config.tasks import (
 from datapipeline.execution.context import PipelineContext
 from datapipeline.pipelines.vector.pipeline import build_vector_pipeline
 from datapipeline.pipelines.full.nodes import apply_postprocess
-from datapipeline.services.bootstrap import bootstrap
 from datapipeline.services.constants import (
     VECTOR_METADATA,
     VECTOR_SCHEMA,
     SCALER_STATISTICS,
     VECTOR_INPUTS,
 )
+from datapipeline.services.pipeline import load_pipeline
+from datapipeline.services.runtime_compiler import compile_runtime
 
 
 def test_column_selection_counts_absent_sequence_opportunities(copy_fixture):
@@ -34,7 +35,9 @@ def test_column_selection_counts_absent_sequence_opportunities(copy_fixture):
         shutil.rmtree(build_dir)
 
     # Build metadata artifact for the fixture project.
-    runtime = bootstrap(project)
+    definition = load_pipeline(project)
+    runtime = compile_runtime(definition)
+    hydrate_runtime_artifacts_for_pipeline(runtime, definition)
     scaler_rel = materialize_scaler_statistics(
         runtime,
         ScalerTask(id="scaler", split_label="all", output="scaler.json"),
@@ -65,11 +68,15 @@ def test_column_selection_counts_absent_sequence_opportunities(copy_fixture):
         SchemaTask(id="schema", output="schema.json"),
     )
     runtime.artifacts.register(VECTOR_SCHEMA, relative_path=schema_rel.relative_path)
-    runtime.postprocess = PostprocessConfig.model_validate(
-        {"columns": {"features": {"threshold": 1.0}}}
+    runtime.dataset = runtime.dataset.model_copy(
+        update={
+            "postprocess": PostprocessConfig.model_validate(
+                {"columns": {"features": {"threshold": 1.0}}}
+            )
+        }
     )
 
-    dataset = load_dataset(project)
+    dataset = runtime.dataset
     ctx = PipelineContext(runtime)
 
     vectors = build_vector_pipeline(

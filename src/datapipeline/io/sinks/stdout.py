@@ -1,12 +1,10 @@
 import sys
-from typing import Optional
-
-from .base import BaseSink
+from typing import TextIO
 
 
-class StdoutTextSink(BaseSink):
-    def __init__(self, stream: Optional[object] = None):
-        self.stream = stream or sys.stdout
+class StdoutTextSink:
+    def __init__(self, stream: TextIO | None = None):
+        self.stream = sys.stdout if stream is None else stream
 
     def write_text(self, s: str) -> None:
         self.stream.write(s)

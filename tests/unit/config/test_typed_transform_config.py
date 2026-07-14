@@ -111,6 +111,7 @@ def test_catalog_parses_builtins_into_typed_configs() -> None:
         {"operation": "fill", "field": "close", "method": "forward"},
         {"operation": "collapse", "keep": "mean"},
         {"operation": "collapse", "keep": "last", "field": "close"},
+        {"operation": "floor_time", "cadence": "1h"},
         {"operation": "granularity", "field": "close", "mode": "last"},
         {"operation": "unknown"},
     ],

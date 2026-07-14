@@ -1,10 +1,8 @@
 import logging
-from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Protocol
 
 from datapipeline.cli.visuals.execution_context import (
-    current_execution_event_sink,
+    current_execution_event_handler,
 )
 from datapipeline.execution.events import (
     PipelineRunEvent,
@@ -101,10 +99,6 @@ ExecutionLogEvent = (
 )
 
 
-class ExecutionEventSink(Protocol):
-    def emit(self, event: ExecutionLogEvent) -> None: ...
-
-
 class ExecutionEventFormatter:
     @staticmethod
     def error_suffix(
@@ -117,12 +111,6 @@ class ExecutionEventFormatter:
             message = event.error_message.replace("\n", "\\n")
             suffix = f"{suffix}: {message}"
         return suffix
-
-    @staticmethod
-    def execution_label(pipeline_name: str, node_name: str | None) -> str:
-        if node_name:
-            return f"{pipeline_name}/{node_name}"
-        return pipeline_name
 
     @staticmethod
     def progress_message(event: NodeProgress) -> str:
@@ -177,16 +165,16 @@ class ExecutionEventFormatter:
                 f"elapsed={event.elapsed_seconds:.6f}s"
             )
         if isinstance(event, NodeStarted):
-            label = cls.execution_label(event.pipeline_name, event.node_name)
+            label = f"{event.pipeline_name}/{event.node_name}"
             return f"[{label}] started"
         if isinstance(event, NodeProgress):
-            label = cls.execution_label(event.pipeline_name, event.node_name)
+            label = f"{event.pipeline_name}/{event.node_name}"
             return f"[{label}] {cls.progress_message(event)}"
         if isinstance(event, OperationProgress):
             return f"Operation {event.operation_name} · {event.step} · {event.message}"
         if isinstance(event, NodeFinished):
             error_suffix = cls.error_suffix(event)
-            label = cls.execution_label(event.pipeline_name, event.node_name)
+            label = f"{event.pipeline_name}/{event.node_name}"
             return (
                 f"[{label}] finished "
                 f"status={event.status}{error_suffix} out={event.output_items} "
@@ -195,49 +183,23 @@ class ExecutionEventFormatter:
         raise TypeError(f"Unsupported execution event: {type(event).__name__}")
 
 
-class CompositeExecutionEventSink(ExecutionEventSink):
-    def __init__(self, sinks: Sequence[ExecutionEventSink]) -> None:
-        self._sinks = tuple(sinks)
-
-    def emit(self, event: ExecutionLogEvent) -> None:
-        for sink in self._sinks:
-            sink.emit(event)
-
-
-class LoggerExecutionEventSink(ExecutionEventSink):
-    def __init__(self, logger: logging.Logger) -> None:
-        self._logger = logger
-
-    def emit(self, event: ExecutionLogEvent) -> None:
-        if isinstance(event, NodeProgress) and not event.persistent:
-            return
-        level = ExecutionEventFormatter.level(event)
-        if not self._logger.isEnabledFor(level):
-            return
-        self._logger.log(
-            level,
-            ExecutionEventFormatter.message(event),
-            extra={"dp_event_kind": "execution"},
-        )
-
-
-class ContextExecutionEventSink(ExecutionEventSink):
-    """Optional additive sink bound in execution context (used by visuals)."""
-
-    def emit(self, event: ExecutionLogEvent) -> None:
-        sink = current_execution_event_sink()
-        if sink is None or sink is self:
-            return
-        sink.emit(event)
-
-
-def _emit_event(
+def route_execution_event(
     event: ExecutionLogEvent,
     logger: logging.Logger | None = None,
 ) -> None:
-    logger_sink = LoggerExecutionEventSink(logger or logging.getLogger(__name__))
-    logger_sink.emit(event)
-    ContextExecutionEventSink().emit(event)
+    if not isinstance(event, NodeProgress) or event.persistent:
+        active_logger = logger or logging.getLogger(__name__)
+        level = ExecutionEventFormatter.level(event)
+        if active_logger.isEnabledFor(level):
+            active_logger.log(
+                level,
+                ExecutionEventFormatter.message(event),
+                extra={"dp_event_kind": "execution"},
+            )
+
+    handler = current_execution_event_handler()
+    if handler is not None:
+        handler(event)
 
 
 def emit_execution_message(
@@ -249,7 +211,7 @@ def emit_execution_message(
         message=message,
         log_level=int(level),
     )
-    _emit_event(event, logger)
+    route_execution_event(event, logger)
 
 
 class ExecutionOperationObserver:
@@ -257,13 +219,13 @@ class ExecutionOperationObserver:
         self._logger = logger
 
     def emit_file_result(self, result: FileResult) -> None:
-        _emit_event(result, self._logger)
+        route_execution_event(result, self._logger)
 
     def emit_started(self, event: OperationStarted) -> None:
-        _emit_event(event, self._logger)
+        route_execution_event(event, self._logger)
 
     def emit_finished(self, event: OperationFinished) -> None:
-        _emit_event(event, self._logger)
+        route_execution_event(event, self._logger)
 
     def emit_progress(
         self,
@@ -271,7 +233,7 @@ class ExecutionOperationObserver:
         step: str,
         message: str,
     ) -> None:
-        _emit_event(
+        route_execution_event(
             OperationProgress(
                 operation_name=name,
                 step=step,
@@ -288,8 +250,8 @@ def make_operation_observer(
 
 
 class PipelineEventObserver(PipelineObserver):
-    def __init__(self, sink: ExecutionEventSink) -> None:
-        self._sink = sink
+    def __init__(self, logger: logging.Logger) -> None:
+        self._logger = logger
 
     def on_pipeline_start(
         self,
@@ -297,18 +259,20 @@ class PipelineEventObserver(PipelineObserver):
         node_count: int,
         summary: str | None = None,
     ) -> None:
-        self._sink.emit(
+        route_execution_event(
             PipelineStarted(
                 pipeline_name=pipeline_name,
                 node_count=node_count,
-            )
+            ),
+            self._logger,
         )
         if summary:
-            self._sink.emit(
+            route_execution_event(
                 PipelineSummary(
                     pipeline_name=pipeline_name,
                     summary=summary,
-                )
+                ),
+                self._logger,
             )
 
     def on_node_start(
@@ -317,16 +281,17 @@ class PipelineEventObserver(PipelineObserver):
         node_name: str,
         node_index: int,
     ) -> None:
-        self._sink.emit(
+        route_execution_event(
             NodeStarted(
                 pipeline_name=pipeline_name,
                 node_name=node_name,
                 node_index=node_index,
-            )
+            ),
+            self._logger,
         )
 
     def on_node_end(self, event: NodeExecutionEvent) -> None:
-        self._sink.emit(
+        route_execution_event(
             NodeFinished(
                 pipeline_name=event.pipeline_name,
                 node_name=event.node_name,
@@ -336,11 +301,12 @@ class PipelineEventObserver(PipelineObserver):
                 error_message=event.error_message,
                 output_items=event.output_items,
                 elapsed_seconds=event.elapsed_seconds,
-            )
+            ),
+            self._logger,
         )
 
     def on_node_progress(self, event: PipelineNodeProgressEvent) -> None:
-        self._sink.emit(
+        route_execution_event(
             NodeProgress(
                 pipeline_name=event.pipeline_name,
                 node_name=event.node_name,
@@ -348,11 +314,12 @@ class PipelineEventObserver(PipelineObserver):
                 progress=event.progress,
                 elapsed_seconds=event.elapsed_seconds,
                 persistent=event.persistent,
-            )
+            ),
+            self._logger,
         )
 
     def on_pipeline_end(self, event: PipelineRunEvent) -> None:
-        self._sink.emit(
+        route_execution_event(
             PipelineFinished(
                 pipeline_name=event.pipeline_name,
                 node_count=event.node_count,
@@ -361,33 +328,12 @@ class PipelineEventObserver(PipelineObserver):
                 error_message=event.error_message,
                 output_items=event.output_items,
                 elapsed_seconds=event.elapsed_seconds,
-            )
+            ),
+            self._logger,
         )
 
 
 def make_pipeline_observer(
     logger: logging.Logger | None = None,
-    sink: ExecutionEventSink | None = None,
-    sinks: Sequence[ExecutionEventSink] | None = None,
 ) -> PipelineObserver:
-    if sink is not None and sinks is not None:
-        raise ValueError("Pass either 'sink' or 'sinks', not both")
-
-    sink_list: list[ExecutionEventSink]
-    if sink is not None:
-        sink_list = [sink]
-    elif sinks is not None:
-        sink_list = list(sinks)
-    else:
-        logger_sink = LoggerExecutionEventSink(logger or logging.getLogger(__name__))
-        sink_list = [logger_sink, ContextExecutionEventSink()]
-
-    if not sink_list:
-        raise ValueError("'sinks' must contain at least one sink")
-
-    active_sink: ExecutionEventSink
-    if len(sink_list) == 1:
-        active_sink = sink_list[0]
-    else:
-        active_sink = CompositeExecutionEventSink(sink_list)
-    return PipelineEventObserver(active_sink)
+    return PipelineEventObserver(logger or logging.getLogger(__name__))

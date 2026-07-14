@@ -1,18 +1,13 @@
 import logging
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from pathlib import Path
 from typing import Sequence
 
 from pydantic import ValidationError
 
-from datapipeline.build.config_hash import compute_config_hash
-from datapipeline.config.build_resolution import BuildSettings, resolve_build_settings
-from datapipeline.config.dataset.loader import load_dataset
-from datapipeline.config.loaders.operations import operation_specs
-from datapipeline.config.loaders.profiles import (
-    apply_profile_defaults,
-    profile_specs_with_defaults,
-)
+from datapipeline.artifacts.settings import BuildSettings
+from datapipeline.cli.workspace import WorkspaceContext
+from datapipeline.config.preview import PreviewStage
 from datapipeline.config.profiles import (
     BuildProfile,
     InspectProfile,
@@ -25,16 +20,18 @@ from datapipeline.config.profiles import (
     ServeProfile,
     normalize_artifact_mode,
 )
-from datapipeline.config.preview import PreviewStage
-from datapipeline.config.resolution import (
+from datapipeline.config.tasks import ArtifactTask, OperationTask
+from datapipeline.execution.settings import (
     LogOutputTarget,
     resolve_execution_log_outputs,
     resolve_observability_settings,
 )
-from datapipeline.config.serve_resolution import resolve_runtime_profiles
-from datapipeline.config.tasks import ArtifactTask, OperationTask
-from datapipeline.config.workspace import WorkspaceContext
 from datapipeline.io.output import OutputResolutionError
+from datapipeline.profiles.loader import (
+    apply_profile_defaults,
+    profile_specs_with_defaults,
+)
+from datapipeline.profiles.materialize import resolve_materialize_jobs
 from datapipeline.profiles.models import (
     BuildJob,
     BuildRunRequest,
@@ -45,12 +42,15 @@ from datapipeline.profiles.models import (
     ServeRunPlan,
     TaskProfileKind,
 )
-from datapipeline.profiles.materialize import resolve_materialize_jobs
-from datapipeline.profiles.selection import select_profiles
-from datapipeline.services.bootstrap import bootstrap
-from datapipeline.services.path_policy import resolve_workspace_path
-from datapipeline.services.project_paths import tasks_dir
+from datapipeline.profiles.runtime_profiles import resolve_runtime_profiles
+from datapipeline.services.definitions import ProjectManifest
 from datapipeline.services.executions import execution_root
+from datapipeline.services.path_policy import (
+    resolve_workspace_path,
+    sanitize_path_segment,
+)
+from datapipeline.services.pipeline import load_pipeline
+from datapipeline.services.runtime_compiler import compile_runtime
 from datapipeline.services.runs import RunPaths
 
 logger = logging.getLogger(__name__)
@@ -68,27 +68,6 @@ _OUTPUT_MATRIX_HELP = (
     "          txt/html output does not support view\n"
     "          html output support depends on the selected runtime operation\n"
 )
-
-
-@dataclass(frozen=True)
-class ProfileResolveParams:
-    command: TaskProfileKind
-    project_path: Path
-    run_name: str | None
-    force: bool
-    limit: int | None
-    preview: PreviewStage | None
-    output_transport: str | None
-    output_format: str | None
-    output_directory: str | None
-    output_encoding: str | None
-    output_view: str | None
-    cli_log_level: str | None
-    cli_log_outputs: Sequence[LogOutputTarget] | None
-    base_log_level: str
-    cli_visuals: str | None
-    cli_heartbeat_interval_seconds: float | None
-    workspace: WorkspaceContext | None
 
 
 def build_cli_output_config(
@@ -145,13 +124,13 @@ def build_cli_output_config(
 
 
 def _select_profiles(
-    project_path: Path,
+    project: ProjectManifest,
     command: ProfileCommand,
     run_name: str | None,
 ) -> tuple[list[Profile], ProfileDefaults]:
     try:
         profiles, defaults = profile_specs_with_defaults(
-            project_path,
+            project,
             cmd=command,
         )
     except (OSError, TypeError, ValueError) as exc:
@@ -160,12 +139,18 @@ def _select_profiles(
     if not profiles:
         logger.error("Project does not define %s profiles.", command)
         raise SystemExit(2)
+    if run_name is None:
+        selected = [profile for profile in profiles if profile.enabled]
+    else:
+        normalized_name = run_name.strip()
+        if not normalized_name:
+            logger.error("%s profile name must not be empty.", command.capitalize())
+            raise SystemExit(2)
+        selected = [profile for profile in profiles if profile.name == normalized_name]
+        if not selected:
+            logger.error("Unknown %s profile '%s'", command, normalized_name)
+            raise SystemExit(2)
     try:
-        selected = select_profiles(
-            profiles,
-            run_name,
-            command,
-        )
         return (
             [apply_profile_defaults(profile, defaults) for profile in selected],
             defaults,
@@ -173,125 +158,6 @@ def _select_profiles(
     except ValueError as exc:
         logger.error("%s", exc)
         raise SystemExit(2) from exc
-
-
-def _load_pipeline_config_hash(project_path: Path) -> str:
-    try:
-        return compute_config_hash(project_path, tasks_dir(project_path))
-    except (OSError, TypeError, ValueError) as exc:
-        logger.error("Failed to load pipeline inputs: %s", exc)
-        raise SystemExit(2) from exc
-
-
-def _verify_pipeline_config_hash(project_path: Path, expected: str) -> None:
-    try:
-        current = compute_config_hash(project_path, tasks_dir(project_path))
-    except (OSError, TypeError, ValueError) as exc:
-        logger.error("Failed to verify pipeline inputs: %s", exc)
-        raise SystemExit(2) from exc
-    if current != expected:
-        logger.error("Pipeline inputs changed while profiles were being resolved.")
-        raise SystemExit(2)
-
-
-def _resolve_build_jobs(
-    profiles: Sequence[BuildProfile],
-    params: ProfileResolveParams,
-    execution_dir: Path,
-    tasks_by_id: dict[str, ArtifactTask],
-) -> list[BuildJob]:
-    jobs: list[BuildJob] = []
-    for profile in profiles:
-        try:
-            settings = resolve_build_settings(
-                project_path=params.project_path,
-                cli_log_level=params.cli_log_level,
-                cli_visuals=params.cli_visuals,
-                cli_log_outputs=params.cli_log_outputs,
-                cli_heartbeat_interval_seconds=params.cli_heartbeat_interval_seconds,
-                force_flag=params.force,
-                base_log_level=params.base_log_level,
-                build_profile=profile,
-            )
-        except ValueError as exc:
-            logger.error("Invalid build configuration: %s", exc)
-            raise SystemExit(2) from exc
-        settings = replace(
-            settings,
-            observability=replace(
-                settings.observability,
-                log_output=resolve_execution_log_outputs(
-                    settings=settings.observability.log_output,
-                    execution_dir=execution_dir,
-                    command=params.command,
-                    label=profile.name,
-                ),
-            ),
-        )
-        jobs.append(BuildJob(task=tasks_by_id[profile.target], settings=settings))
-    return jobs
-
-
-def _resolve_runtime_jobs(
-    profiles: Sequence[ServeProfile | InspectProfile],
-    params: ProfileResolveParams,
-    execution_dir: Path,
-    tasks_by_id: dict[str, OperationTask],
-) -> list[RuntimeJob]:
-    cli_output_cfg = build_cli_output_config(
-        params.output_transport,
-        params.output_format,
-        params.output_directory,
-        params.output_encoding,
-        workspace=params.workspace,
-        view=params.output_view,
-    )
-    try:
-        runtime_profiles = resolve_runtime_profiles(
-            project_path=params.project_path,
-            profiles=profiles,
-            preview=params.preview,
-            limit=params.limit,
-            cli_output=cli_output_cfg,
-            cli_log_level=params.cli_log_level,
-            cli_log_outputs=params.cli_log_outputs,
-            base_log_level=params.base_log_level,
-            cli_visuals=params.cli_visuals,
-            cli_heartbeat_interval_seconds=params.cli_heartbeat_interval_seconds,
-        )
-    except ValueError as exc:
-        logger.error("%s", exc)
-        raise SystemExit(2) from exc
-    except OutputResolutionError as exc:
-        logger.error("Invalid output configuration: %s", exc)
-        raise SystemExit(2) from exc
-
-    dataset = load_dataset(params.project_path)
-    jobs: list[RuntimeJob] = []
-    for profile in runtime_profiles:
-        jobs.append(
-            RuntimeJob(
-                name=profile.name,
-                task=tasks_by_id[profile.target_id],
-                runtime=profile.runtime,
-                dataset=dataset,
-                output=profile.output,
-                observability=replace(
-                    profile.observability,
-                    log_output=resolve_execution_log_outputs(
-                        settings=profile.observability.log_output,
-                        execution_dir=execution_dir,
-                        command=params.command,
-                        label=profile.name,
-                    ),
-                ),
-                limit=profile.limit,
-                throttle_ms=profile.throttle_ms,
-                preview=profile.preview,
-                splits=profile.splits,
-            )
-        )
-    return jobs
 
 
 def _serve_run_plans(
@@ -330,27 +196,14 @@ def build_profile_run_request(
     cli_heartbeat_interval_seconds: float | None = None,
     workspace: WorkspaceContext | None = None,
 ) -> ProfileRunRequest | None:
-    project_path = Path(project).resolve()
-    params = ProfileResolveParams(
-        command=kind,
-        project_path=project_path,
-        run_name=run_name,
-        force=force,
-        limit=limit,
-        preview=preview,
-        output_transport=output_transport,
-        output_format=output_format,
-        output_directory=output_directory,
-        output_encoding=output_encoding,
-        output_view=output_view,
-        cli_log_level=cli_log_level,
-        cli_log_outputs=cli_log_outputs,
-        base_log_level=base_log_level,
-        cli_visuals=cli_visuals,
-        cli_heartbeat_interval_seconds=cli_heartbeat_interval_seconds,
-        workspace=workspace,
-    )
-    loaded_profiles, defaults = _select_profiles(project_path, kind, run_name)
+    project_path = Path(project)
+    try:
+        definition = load_pipeline(project_path)
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
+        logger.error("Failed to load pipeline inputs: %s", exc)
+        raise SystemExit(2) from exc
+    project_path = definition.project.path
+    loaded_profiles, defaults = _select_profiles(definition.project, kind, run_name)
     if not loaded_profiles:
         return None
     selected_profiles: list[BuildProfile | InspectProfile | ServeProfile] = []
@@ -359,15 +212,8 @@ def build_profile_run_request(
             raise TypeError("Profile loading returned an unsupported profile type")
         selected_profiles.append(profile)
 
-    config_hash = _load_pipeline_config_hash(project_path)
-
-    try:
-        declared_artifact_tasks, declared_operation_tasks = operation_specs(
-            project_path
-        )
-    except (OSError, TypeError, ValueError) as exc:
-        logger.error("Failed to load task definitions: %s", exc)
-        raise SystemExit(2) from exc
+    declared_artifact_tasks = definition.artifact_operations
+    declared_operation_tasks = definition.runtime_operations
     artifact_tasks_by_id = {task.id: task for task in declared_artifact_tasks}
     operation_tasks_by_id = {task.id: task for task in declared_operation_tasks}
     tasks_by_id = artifact_tasks_by_id | operation_tasks_by_id
@@ -375,7 +221,7 @@ def build_profile_run_request(
         task = tasks_by_id.get(profile.target)
         if task is None:
             logger.error(
-                "%s profile '%s' references unknown task target '%s'.",
+                "%s profile '%s' references unknown operation target '%s'.",
                 kind.capitalize(),
                 profile.name,
                 profile.target,
@@ -383,22 +229,22 @@ def build_profile_run_request(
             raise SystemExit(2)
         if kind == "build" and not isinstance(task, ArtifactTask):
             logger.error(
-                "Build profile '%s' must target an artifact task; '%s' is a "
-                "runtime task.",
+                "Build profile '%s' must target an artifact operation; '%s' is a "
+                "runtime operation.",
                 profile.name,
                 profile.target,
             )
             raise SystemExit(2)
         if kind != "build" and not isinstance(task, OperationTask):
             logger.error(
-                "%s profile '%s' must target a runtime task; '%s' is an artifact task.",
+                "%s profile '%s' must target a runtime operation; '%s' is an artifact operation.",
                 kind.capitalize(),
                 profile.name,
                 profile.target,
             )
             raise SystemExit(2)
 
-    execution_dir = execution_root(project_path)
+    execution_dir = execution_root(definition.project.artifacts_root)
     if kind == "build":
         build_profiles = [
             profile
@@ -407,28 +253,52 @@ def build_profile_run_request(
         ]
         if len(build_profiles) != len(selected_profiles):
             raise TypeError("Build profile loading returned the wrong profile type")
-        build_jobs = _resolve_build_jobs(
-            build_profiles,
-            params,
-            execution_dir,
-            artifact_tasks_by_id,
-        )
-        if not build_jobs:
-            return None
+        build_jobs: list[BuildJob] = []
+        for profile in build_profiles:
+            try:
+                observability = resolve_observability_settings(
+                    project_path,
+                    profile.observability,
+                    cli_visuals=cli_visuals,
+                    cli_heartbeat_interval_seconds=cli_heartbeat_interval_seconds,
+                    cli_log_level=cli_log_level,
+                    cli_log_outputs=cli_log_outputs,
+                    base_log_level=base_log_level,
+                )
+            except ValueError as exc:
+                logger.error("Invalid build configuration: %s", exc)
+                raise SystemExit(2) from exc
+            build_jobs.append(
+                BuildJob(
+                    task=artifact_tasks_by_id[profile.target].model_copy(deep=True),
+                    settings=BuildSettings(
+                        mode="FORCE" if force else profile.mode or "AUTO",
+                        observability=replace(
+                            observability,
+                            log_output=resolve_execution_log_outputs(
+                                observability.log_output,
+                                execution_dir,
+                                default_path=(
+                                    Path("logs")
+                                    / f"build.{sanitize_path_segment(profile.name)}.log"
+                                ),
+                            ),
+                        ),
+                    ),
+                )
+            )
         request: ProfileRunRequest = BuildRunRequest(
-            project_path=project_path,
-            artifact_task_configs=declared_artifact_tasks,
+            definition=definition,
             jobs=build_jobs,
             execution=defaults.execution,
-            config_hash=config_hash,
         )
     else:
-        runtime_profiles = [
+        selected_runtime_profiles = [
             profile
             for profile in selected_profiles
             if isinstance(profile, ServeProfile | InspectProfile)
         ]
-        if len(runtime_profiles) != len(selected_profiles):
+        if len(selected_runtime_profiles) != len(selected_profiles):
             raise TypeError("Runtime profile loading returned the wrong profile type")
         if artifact_mode is not None:
             try:
@@ -438,12 +308,12 @@ def build_profile_run_request(
                 raise SystemExit(2) from exc
         else:
             profile_modes = {
-                profile.artifact_mode or "AUTO" for profile in runtime_profiles
+                profile.artifact_mode or "AUTO" for profile in selected_runtime_profiles
             }
             if len(profile_modes) != 1:
                 configured = ", ".join(
                     f"{profile.name}={profile.artifact_mode or 'AUTO'}"
-                    for profile in runtime_profiles
+                    for profile in selected_runtime_profiles
                 )
                 logger.error(
                     "Selected %s profiles disagree on artifact_mode: %s.",
@@ -472,31 +342,70 @@ def build_profile_run_request(
                 log_output=resolve_execution_log_outputs(
                     artifact_observability.log_output,
                     execution_dir,
-                    command=kind,
-                    label="artifacts",
+                    default_path=Path("logs") / f"{kind}.artifacts.log",
                 ),
             ),
         )
-        runtime_jobs = _resolve_runtime_jobs(
-            runtime_profiles,
-            params,
-            execution_dir,
-            operation_tasks_by_id,
+        cli_output = build_cli_output_config(
+            output_transport,
+            output_format,
+            output_directory,
+            output_encoding,
+            workspace=workspace,
+            view=output_view,
         )
-        if not runtime_jobs:
-            return None
+        try:
+            resolved_runtime_profiles = resolve_runtime_profiles(
+                definition=definition,
+                profiles=selected_runtime_profiles,
+                preview=preview,
+                limit=limit,
+                cli_output=cli_output,
+                cli_log_level=cli_log_level,
+                cli_log_outputs=cli_log_outputs,
+                base_log_level=base_log_level,
+                cli_visuals=cli_visuals,
+                cli_heartbeat_interval_seconds=cli_heartbeat_interval_seconds,
+            )
+            runtime_jobs = [
+                RuntimeJob(
+                    name=profile.name,
+                    task=operation_tasks_by_id[profile.target_id].model_copy(deep=True),
+                    runtime=compile_runtime(definition),
+                    output=profile.output,
+                    observability=replace(
+                        profile.observability,
+                        log_output=resolve_execution_log_outputs(
+                            profile.observability.log_output,
+                            execution_dir,
+                            default_path=(
+                                Path("logs")
+                                / f"{kind}.{sanitize_path_segment(profile.name)}.log"
+                            ),
+                        ),
+                    ),
+                    limit=profile.limit,
+                    throttle_ms=profile.throttle_ms,
+                    preview=profile.preview,
+                    splits=profile.splits,
+                )
+                for profile in resolved_runtime_profiles
+            ]
+        except OutputResolutionError as exc:
+            logger.error("Invalid output configuration: %s", exc)
+            raise SystemExit(2) from exc
+        except ValueError as exc:
+            logger.error("%s", exc)
+            raise SystemExit(2) from exc
         request = RuntimeRunRequest(
             command=kind,
-            project_path=project_path,
-            artifact_task_configs=declared_artifact_tasks,
+            definition=definition,
             jobs=runtime_jobs,
             execution=defaults.execution,
-            config_hash=config_hash,
             artifact_settings=artifact_settings,
             serve_run_plans=(_serve_run_plans(runtime_jobs) if kind == "serve" else ()),
         )
 
-    _verify_pipeline_config_hash(project_path, config_hash)
     return request
 
 
@@ -512,9 +421,15 @@ def build_materialize_run_request(
     cli_visuals: str | None,
     cli_heartbeat_interval_seconds: float | None,
 ) -> MaterializeRunRequest | None:
-    project_path = Path(project).resolve()
+    project_path = Path(project)
+    try:
+        definition = load_pipeline(project_path)
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
+        logger.error("Failed to load pipeline inputs: %s", exc)
+        raise SystemExit(2) from exc
+    project_path = definition.project.path
     loaded_profiles, defaults = _select_profiles(
-        project_path,
+        definition.project,
         "materialize",
         run_name,
     )
@@ -530,13 +445,12 @@ def build_materialize_run_request(
     if not materialize_profiles:
         return None
 
-    config_hash = _load_pipeline_config_hash(project_path)
     try:
-        artifact_tasks, _ = operation_specs(project_path)
-        runtime = bootstrap(project_path)
+        execution_dir = execution_root(definition.project.artifacts_root)
         jobs = resolve_materialize_jobs(
             profiles=materialize_profiles,
             project_path=project_path,
+            execution_dir=execution_dir,
             overwrite=overwrite,
             cli_output=output,
             cli_visuals=cli_visuals,
@@ -557,11 +471,11 @@ def build_materialize_run_request(
             cli_log_outputs=cli_log_outputs,
             base_log_level=base_log_level,
         )
+        runtime = compile_runtime(definition)
     except (OSError, TypeError, ValueError) as exc:
         logger.error("Invalid materialize configuration: %s", exc)
         raise SystemExit(2) from exc
 
-    execution_dir = execution_root(project_path)
     artifact_settings = BuildSettings(
         mode=resolved_artifact_mode,
         observability=replace(
@@ -569,19 +483,15 @@ def build_materialize_run_request(
             log_output=resolve_execution_log_outputs(
                 artifact_observability.log_output,
                 execution_dir,
-                command="materialize",
-                label="artifacts",
+                default_path=Path("logs") / "materialize.artifacts.log",
             ),
         ),
     )
     request = MaterializeRunRequest(
-        project_path=project_path,
-        artifact_task_configs=artifact_tasks,
+        definition=definition,
         jobs=jobs,
         execution=defaults.execution,
-        config_hash=config_hash,
         artifact_settings=artifact_settings,
         runtime=runtime,
     )
-    _verify_pipeline_config_hash(project_path, config_hash)
     return request

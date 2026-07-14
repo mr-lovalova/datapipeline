@@ -5,7 +5,9 @@ from typing import Any, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-BUILD_STATE_VERSION = 5
+from datapipeline.utils.json_artifact import write_json_artifact
+
+BUILD_STATE_VERSION = 7
 
 
 class ArtifactFileFingerprint(BaseModel):
@@ -14,6 +16,7 @@ class ArtifactFileFingerprint(BaseModel):
     relative_path: str
     size: int = Field(strict=True, ge=0)
     mtime_ns: int = Field(strict=True, ge=0)
+    ctime_ns: int = Field(strict=True, ge=0)
 
     @field_validator("relative_path")
     @classmethod
@@ -30,6 +33,7 @@ class ArtifactFileFingerprint(BaseModel):
             relative_path=relative_path,
             size=stat.st_size,
             mtime_ns=stat.st_mtime_ns,
+            ctime_ns=stat.st_ctime_ns,
         )
 
 
@@ -39,7 +43,7 @@ class ArtifactInfo(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     relative_path: str
-    config_hash: str
+    artifact_hash: str
     files: tuple[ArtifactFileFingerprint, ...]
     meta: dict[str, Any] = Field(default_factory=dict)
 
@@ -65,13 +69,13 @@ class BuildState(BaseModel):
         self,
         key: str,
         relative_path: str,
-        config_hash: str,
+        artifact_hash: str,
         files: tuple[ArtifactFileFingerprint, ...],
         meta: Mapping[str, Any] | None = None,
     ) -> None:
         self.artifacts[key] = ArtifactInfo(
             relative_path=relative_path,
-            config_hash=config_hash,
+            artifact_hash=artifact_hash,
             files=files,
             meta=dict(meta or {}),
         )
@@ -88,6 +92,4 @@ def load_build_state(path: Path) -> BuildState | None:
 
 
 def save_build_state(state: BuildState, path: Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as fh:
-        json.dump(state.model_dump(), fh, indent=2, sort_keys=True)
+    write_json_artifact(path, state.model_dump())

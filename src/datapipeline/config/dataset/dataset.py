@@ -10,6 +10,8 @@ from pydantic import (
 )
 
 from datapipeline.config.dataset.feature import FeatureRecordConfig
+from datapipeline.config.dataset.postprocess import PostprocessConfig
+from datapipeline.config.dataset.split import SplitConfig
 from datapipeline.utils.time import CADENCE_PATTERN
 
 
@@ -41,6 +43,8 @@ class FeatureDatasetConfig(BaseModel):
     sample: SampleConfig
     features: list[FeatureRecordConfig] = Field(default_factory=list)
     targets: list[FeatureRecordConfig] = Field(default_factory=list)
+    split: SplitConfig | None = None
+    postprocess: PostprocessConfig = Field(default_factory=PostprocessConfig)
 
     @model_validator(mode="after")
     def validate_unique_vector_ids(self) -> Self:

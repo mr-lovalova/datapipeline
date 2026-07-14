@@ -1,21 +1,25 @@
-from collections.abc import Mapping
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
-from datapipeline.config.split import SplitConfig
+
+ProjectPath = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1),
+]
 
 
 class ProjectPaths(BaseModel):
-    ingests: str | list[str]
-    streams: str | list[str]
-    sources: str | list[str]
-    dataset: str
-    postprocess: str
-    artifacts: str
-    tasks: str | None = None
-    profiles: str | None = None
+    model_config = ConfigDict(extra="forbid")
+
+    ingests: ProjectPath | list[ProjectPath]
+    streams: ProjectPath | list[ProjectPath]
+    sources: ProjectPath | list[ProjectPath]
+    dataset: ProjectPath
+    artifacts: ProjectPath
+    operations: ProjectPath | None = None
+    profiles: ProjectPath | None = None
 
     @field_validator("ingests", "streams", "sources")
     @classmethod
@@ -35,19 +39,8 @@ class ProjectConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     version: Literal[1] = 1
+    artifact_revision: int = Field(strict=True, gt=0)
     name: str | None = None
     variant: str | None = None
-    split: SplitConfig | None = None
     paths: ProjectPaths
     globals: ProjectGlobals = Field(default_factory=ProjectGlobals)
-
-    @model_validator(mode="before")
-    @classmethod
-    def _reject_globals_split(cls, value: object) -> object:
-        if isinstance(value, Mapping):
-            globals_config = value.get("globals")
-            if isinstance(globals_config, Mapping) and "split" in globals_config:
-                raise ValueError(
-                    "globals.split is not supported; define top-level project.split"
-                )
-        return value

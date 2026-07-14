@@ -6,24 +6,18 @@ from datapipeline.execution.events import ProgressResource, ProgressSnapshot
 from datapipeline.execution.runner import report_node_progress
 from datapipeline.domain.stream import RecordStream, canonical_record_order
 from datapipeline.pipelines.shared.sort import batch_sort
-from datapipeline.sources.observability import (
-    describe_loader,
-    loader_current_label,
-    loader_current_resource_id,
-    loader_progress_sequence,
-    unit_for_loader,
-)
+from datapipeline.sources.models.source import Source
+from datapipeline.sources.observability import describe_loader
 from datapipeline.transforms.utils import partition_key
 
 
 def open_records(stream: RecordStream[Any]) -> Iterator[Any]:
-    loader = getattr(stream, "loader", None)
-    if loader is None:
+    if not isinstance(stream, Source):
         yield from stream.stream()
         return
 
-    observability = describe_loader(loader)
-    sequence = loader_progress_sequence(loader, observability)
+    observability = describe_loader(stream.loader)
+    sequence = observability.progress_sequence
     resources_by_id: dict[int | str, ProgressResource] = {}
     resource: ProgressResource | None
     if sequence:
@@ -38,28 +32,27 @@ def open_records(stream: RecordStream[Any]) -> Iterator[Any]:
         }
         resource = resources_by_id[sequence[0].source_resource_id]
     else:
-        label = loader_current_label(loader, observability)
+        label = observability.current_label
         resource = (
             ProgressResource(index=1, total=1, label=label)
             if label is not None
             else None
         )
-    unit = unit_for_loader(loader)
     emitted = 0
 
     def report_source_progress() -> None:
         report_node_progress(
             ProgressSnapshot(
                 completed=emitted,
-                unit=unit,
+                unit=observability.unit,
                 resource=resource,
             )
         )
 
     report_source_progress()
-    source_resource_id = loader_current_resource_id(loader)
+    source_resource_id = observability.current_resource_id
     for record in stream.stream():
-        current_resource_id = loader_current_resource_id(loader)
+        current_resource_id = observability.current_resource_id
         if current_resource_id != source_resource_id:
             source_resource_id = current_resource_id
             current_resource: ProgressResource | None
@@ -75,7 +68,7 @@ def open_records(stream: RecordStream[Any]) -> Iterator[Any]:
                         f"Unknown source resource {current_resource_id!r}"
                     ) from exc
             else:
-                label = loader_current_label(loader, observability)
+                label = observability.current_label
                 current_resource = (
                     ProgressResource(index=1, total=1, label=label)
                     if label is not None

@@ -1,13 +1,11 @@
 import logging
 import time
+from collections.abc import Iterator
 from itertools import islice
-from typing import Iterator, Optional, TypeVar
+from typing import TypeVar
 
-from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig
-from datapipeline.config.dataset.validation import validate_dataset_feature_identity
 from datapipeline.config.preview import PreviewStage
-from datapipeline.config.tasks import PipelineTask
 from datapipeline.execution.context import PipelineContext
 from datapipeline.execution.runner import run_pipeline
 from datapipeline.domain.sample import Sample
@@ -33,7 +31,7 @@ T = TypeVar("T")
 _RECORD_PREVIEWS = {"source", "mapped", "records"}
 
 
-def limit_items(items: Iterator[object], limit: Optional[int]) -> Iterator[object]:
+def limit_items(items: Iterator[object], limit: int | None) -> Iterator[object]:
     if limit is None:
         yield from items
     else:
@@ -42,7 +40,7 @@ def limit_items(items: Iterator[object], limit: Optional[int]) -> Iterator[objec
 
 def throttle_vectors(
     vectors: Iterator[Sample],
-    throttle_ms: Optional[float],
+    throttle_ms: float | None,
 ) -> Iterator[Sample]:
     if not throttle_ms or throttle_ms <= 0:
         yield from vectors
@@ -69,7 +67,7 @@ def _managed_items(stream: Iterator[T]) -> Iterator[T]:
 def _runtime_output(
     stream: Iterator[object],
     target: OutputTarget,
-    limit: Optional[int],
+    limit: int | None,
 ) -> RuntimeOutput:
     return RuntimeOutput(
         rows=limit_items(_managed_items(stream), limit),
@@ -80,8 +78,8 @@ def _runtime_output(
 def _sample_output(
     stream: Iterator[Sample],
     target: OutputTarget,
-    limit: Optional[int],
-    throttle_ms: Optional[float],
+    limit: int | None,
+    throttle_ms: float | None,
 ) -> RuntimeOutput:
     return _runtime_output(throttle_vectors(stream, throttle_ms), target, limit)
 
@@ -133,9 +131,9 @@ def _serve_preview(
     target_cfgs: list[FeatureRecordConfig],
     cadence: str,
     sample_keys: list[str],
-    limit: Optional[int],
+    limit: int | None,
     target: OutputTarget,
-    throttle_ms: Optional[float],
+    throttle_ms: float | None,
     preview: PreviewStage,
 ) -> RuntimeOutputBatch:
     if preview in {"samples", "postprocess"}:
@@ -186,9 +184,9 @@ def _serve_full(
     target_cfgs: list[FeatureRecordConfig],
     cadence: str,
     sample_keys: list[str],
-    limit: Optional[int],
+    limit: int | None,
     target: OutputTarget,
-    throttle_ms: Optional[float],
+    throttle_ms: float | None,
 ) -> RuntimeOutputBatch:
     runtime.window_bounds = resolve_window_bounds(runtime, True)
     vectors = run_full_pipeline(
@@ -213,15 +211,15 @@ def _serve_split_outputs(
     cadence: str,
     sample_keys: list[str],
     split_labels: list[str],
-    limit: Optional[int],
+    limit: int | None,
     target: OutputTarget,
-    throttle_ms: Optional[float],
+    throttle_ms: float | None,
 ) -> RuntimeOutputBatch:
     if target.transport != "fs":
         raise ValueError("serve splits require fs output")
-    split_cfg = runtime.split
+    split_cfg = runtime.dataset.split
     if split_cfg is None:
-        raise ValueError("serve splits require project split configuration")
+        raise ValueError("serve splits require dataset split configuration")
 
     runtime.window_bounds = resolve_window_bounds(runtime, True)
     vectors = run_full_pipeline(
@@ -248,18 +246,14 @@ def _serve_split_outputs(
     )
 
 
-def serve_with_runtime(
+def run_pipeline_operation(
     runtime: Runtime,
-    dataset: FeatureDatasetConfig,
-    limit: Optional[int],
+    limit: int | None,
     target: OutputTarget,
-    throttle_ms: Optional[float],
+    throttle_ms: float | None,
     preview: PreviewStage | None,
-    visuals: Optional[str] = None,
-    operation_task: PipelineTask | None = None,
 ) -> RuntimeOutputBatch | None:
-    _ = operation_task, visuals
-    validate_dataset_feature_identity(runtime, dataset)
+    dataset = runtime.dataset
 
     context = PipelineContext(runtime)
     feature_cfgs = list(dataset.features)

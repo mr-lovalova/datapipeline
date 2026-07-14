@@ -17,8 +17,8 @@ from datapipeline.cli.commands.source import handle as handle_source
 from datapipeline.cli.commands.stream import handle as handle_stream_create
 from datapipeline.cli.commands.version import handle as handle_version
 from datapipeline.cli.commands.version import handle_env
-from datapipeline.config.resolution import LogOutputTarget
-from datapipeline.config.workspace import WorkspaceContext
+from datapipeline.cli.workspace import WorkspaceContext
+from datapipeline.execution.settings import LogOutputTarget
 
 
 def execute_command(

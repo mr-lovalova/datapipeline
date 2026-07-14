@@ -5,7 +5,7 @@ from pydantic import Field, field_validator
 from datapipeline.config.observability import ObservabilityConfig
 
 from .base import Profile, normalize_profile_target
-from .build import normalize_artifact_mode
+from .build import ArtifactMode, normalize_artifact_mode
 from .output import ServeOutputConfig
 
 
@@ -14,7 +14,7 @@ class InspectProfile(Profile):
     target: str
     output: ServeOutputConfig | None = None
     observability: ObservabilityConfig | None = Field(default=None)
-    artifact_mode: str | None = Field(default=None)
+    artifact_mode: ArtifactMode | None = Field(default=None)
 
     @field_validator("target", mode="before")
     @classmethod
@@ -23,8 +23,5 @@ class InspectProfile(Profile):
 
     @field_validator("artifact_mode", mode="before")
     @classmethod
-    def _normalize_artifact_mode(cls, value: object) -> str | None:
+    def _normalize_artifact_mode(cls, value: object) -> ArtifactMode | None:
         return normalize_artifact_mode(value)
-
-
-__all__ = ["InspectProfile"]

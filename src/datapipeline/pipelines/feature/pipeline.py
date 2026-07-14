@@ -3,7 +3,8 @@ from dataclasses import replace
 from functools import partial
 from typing import Any
 
-from datapipeline.config.dataset.feature import FeatureRecordConfig, SequenceConfig
+from datapipeline.config.dataset.feature import FeatureRecordConfig
+from datapipeline.domain.sample_key import SampleKeyContract
 from datapipeline.execution.node import PipelineNode
 from datapipeline.execution.pipeline import Pipeline
 from datapipeline.execution.runner import run_pipeline
@@ -13,6 +14,7 @@ from datapipeline.pipelines.feature.nodes import (
     scale_features,
     sequence_features,
 )
+from datapipeline.pipelines.feature.projector import FeatureProjector
 from datapipeline.execution.context import PipelineContext
 from datapipeline.pipelines.stream.pipeline import build_stream_pipeline
 from datapipeline.runtime import require_runtime_stream
@@ -52,11 +54,7 @@ def build_feature_pipeline(
             *record_nodes,
             *build_feature_nodes(
                 context,
-                stream_id=cfg.stream,
-                feature_id=cfg.id,
-                field=cfg.field,
-                scale=cfg.scale,
-                sequence=cfg.sequence,
+                cfg,
                 sample_keys=sample_keys,
                 group_by_cadence=group_by_cadence,
             ),
@@ -67,39 +65,37 @@ def build_feature_pipeline(
 
 def build_feature_nodes(
     context: PipelineContext,
-    stream_id: str,
-    feature_id: str,
-    field: str,
-    scale: bool,
-    sequence: SequenceConfig | None,
+    config: FeatureRecordConfig,
     sample_keys: Sequence[str] = (),
     group_by_cadence: str | None = None,
 ) -> tuple[PipelineNode, ...]:
-    stream = require_runtime_stream(context.runtime, stream_id)
+    stream = require_runtime_stream(context.runtime, config.stream)
+    projector = FeatureProjector(
+        stream.feature_id_by,
+        SampleKeyContract(sample_keys),
+    )
     nodes = [
         PipelineNode(
             name="build_feature_stream",
             apply=partial(
                 build_feature_stream,
-                feature_id,
-                field,
-                stream.feature_id_by,
-                sample_keys,
+                projector,
+                config,
             ),
         ),
     ]
-    if scale:
+    if config.scale:
         nodes.append(
             PipelineNode(
                 name="scale_features",
                 apply=partial(scale_features, context),
             )
         )
-    if sequence is not None:
+    if config.sequence is not None:
         nodes.append(
             PipelineNode(
                 name="sequence_features",
-                apply=partial(sequence_features, sequence),
+                apply=partial(sequence_features, config.sequence),
             )
         )
     nodes.append(

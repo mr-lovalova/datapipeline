@@ -3,7 +3,7 @@ from bisect import bisect_right
 from datetime import datetime
 from typing import Any
 
-from datapipeline.config.split import (
+from datapipeline.config.dataset.split import (
     HASH_SPLIT_FEATURE_PREFIX,
     HashSplitConfig,
     SplitConfig,

@@ -6,7 +6,7 @@ from typing import Sequence
 
 from datapipeline.cli.visuals.execution import emit_execution_message
 from datapipeline.config.profiles import MaterializeProfile
-from datapipeline.config.resolution import (
+from datapipeline.execution.settings import (
     LogOutputTarget,
     resolve_execution_log_outputs,
     resolve_observability_settings,
@@ -14,17 +14,18 @@ from datapipeline.config.resolution import (
 from datapipeline.execution.observability import emit_file_result, operation_scope
 from datapipeline.profiles.models import MaterializeJob
 from datapipeline.runtime import Runtime
-from datapipeline.services.executions import execution_root
 from datapipeline.services.materialize import (
     check_materialize_destinations,
     materialize_destination_paths,
     materialize_stream_to_path,
 )
+from datapipeline.services.path_policy import sanitize_path_segment
 
 
 def resolve_materialize_jobs(
     profiles: Sequence[MaterializeProfile],
     project_path: Path,
+    execution_dir: Path,
     overwrite: bool | None,
     cli_output: Path | None,
     cli_visuals: str | None,
@@ -36,7 +37,6 @@ def resolve_materialize_jobs(
     if cli_output is not None and len(profiles) != 1:
         raise ValueError("A materialize output override requires one selected profile.")
 
-    execution_dir = execution_root(project_path)
     jobs: list[MaterializeJob] = []
     for profile in profiles:
         observability = resolve_observability_settings(
@@ -53,8 +53,10 @@ def resolve_materialize_jobs(
             log_output=resolve_execution_log_outputs(
                 observability.log_output,
                 execution_dir,
-                command="materialize",
-                label=profile.name,
+                default_path=(
+                    Path("logs")
+                    / f"materialize.{sanitize_path_segment(profile.name)}.log"
+                ),
             ),
         )
         output = cli_output if cli_output is not None else profile.output

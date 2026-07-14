@@ -39,9 +39,7 @@ def materialize_stream_to_path(
     stream = require_runtime_stream(runtime, stream_id)
     ordered_by = list(canonical_record_order(stream.partition_by))
     partition_by = list(stream.partition_by)
-    feature_id_by = (
-        None if stream.feature_id_by is None else list(stream.feature_id_by)
-    )
+    feature_id_by = None if stream.feature_id_by is None else list(stream.feature_id_by)
 
     rows = materialized_stream_rows(runtime, stream_id)
     target = OutputTarget(

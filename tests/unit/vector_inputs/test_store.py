@@ -9,7 +9,7 @@ from typing import Any, cast
 
 import pytest
 
-from datapipeline.domain.feature import FeatureRecord, FeatureRecordSequence
+from datapipeline.domain.feature import FeatureRecord, FeatureSequence
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.vector_inputs.store import (
     feature_record_to_vector_input_row,
@@ -35,15 +35,15 @@ def test_vector_input_rows_round_trip_json_native_values(tmp_path: Path) -> None
         id="null_record",
         value=None,
     )
-    sequence = FeatureRecordSequence(
-        records=[TemporalRecord(time=_time(2))],
+    sequence = FeatureSequence(
+        time=_time(2),
         id="sequence",
         values=[None, False, 2, 2.5, "other"],
         entity_key=("B", 8, "south"),
     )
     destination = tmp_path / "inputs.jsonl.gz"
 
-    count = write_vector_input_rows(
+    written = write_vector_input_rows(
         destination,
         (
             MappingProxyType(feature_record_to_vector_input_row(item))
@@ -51,12 +51,57 @@ def test_vector_input_rows_round_trip_json_native_values(tmp_path: Path) -> None
         ),
     )
 
-    assert count == 3
+    assert written.rows == 3
+    assert len(written.content_hash) == 64
     assert list(open_vector_input_records(destination)) == [
         record,
         null_record,
         sequence,
     ]
+
+
+def test_vector_input_gzip_is_reproducible(tmp_path: Path) -> None:
+    row = {
+        "id": "price",
+        "time": _time(0).isoformat(),
+        "kind": "record",
+        "entity_key": [],
+        "value": 1.0,
+    }
+    first = tmp_path / "first.jsonl.gz"
+    second = tmp_path / "second.jsonl.gz"
+
+    first_result = write_vector_input_rows(first, [row])
+    second_result = write_vector_input_rows(second, [row])
+
+    assert first.read_bytes() == second.read_bytes()
+    assert first_result == second_result
+
+
+def test_vector_input_writer_aborts_when_atomic_commit_fails(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    def fail_commit(*_args):
+        raise OSError("commit failed")
+
+    monkeypatch.setattr(
+        "datapipeline.io.sinks.files._commit_temp_file",
+        fail_commit,
+    )
+    destination = tmp_path / "rows.jsonl.gz"
+    row = {
+        "id": "price",
+        "time": _time(0).isoformat(),
+        "kind": "record",
+        "entity_key": [],
+        "value": 1.0,
+    }
+
+    with pytest.raises(OSError, match="commit failed"):
+        write_vector_input_rows(destination, [row])
+
+    assert list(tmp_path.iterdir()) == []
 
 
 @pytest.mark.parametrize(
@@ -127,8 +172,8 @@ def test_vector_input_row_rejects_non_tuple_entity_key() -> None:
 
 
 def test_vector_input_row_rejects_non_list_sequence_values() -> None:
-    sequence = FeatureRecordSequence(
-        records=[TemporalRecord(time=_time(0))],
+    sequence = FeatureSequence(
+        time=_time(0),
         id="prices",
         values=cast(Any, (1.0, 2.0)),
     )

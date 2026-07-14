@@ -251,3 +251,103 @@ class VectorMetadata(BaseModel):
         if self.generated_at is not None and self.generated_at.tzinfo is None:
             raise ValueError("metadata generated_at must be timezone-aware")
         return self
+
+
+class VectorBaseStats(BaseModel):
+    """Sample-level availability for one unpartitioned vector ID."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    id: str = Field(min_length=1)
+    present_samples: int = Field(strict=True, ge=0)
+    non_null_samples: int = Field(strict=True, ge=0)
+
+    @model_validator(mode="after")
+    def _validate_counts(self) -> Self:
+        if self.non_null_samples > self.present_samples:
+            raise ValueError("non_null_samples cannot exceed present_samples")
+        return self
+
+
+class _VectorColumnStats(VectorBaseStats):
+    base_id: str = Field(min_length=1)
+
+
+class ScalarVectorColumnStats(_VectorColumnStats):
+    kind: Literal["scalar"]
+
+
+class ListVectorColumnStats(_VectorColumnStats):
+    kind: Literal["list"]
+    length: int = Field(strict=True, gt=0)
+    observed_elements: int = Field(strict=True, ge=0)
+
+    @model_validator(mode="after")
+    def _validate_observed_elements(self) -> Self:
+        if self.non_null_samples > self.observed_elements:
+            raise ValueError(
+                "non_null_samples cannot exceed observed_elements for list vectors"
+            )
+        maximum = self.present_samples * self.length
+        if self.observed_elements > maximum:
+            raise ValueError("observed_elements cannot exceed present_samples * length")
+        return self
+
+
+VectorColumnStats = Annotated[
+    ScalarVectorColumnStats | ListVectorColumnStats,
+    Field(discriminator="kind"),
+]
+
+
+class VectorStatsSection(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    bases: tuple[VectorBaseStats, ...] = ()
+    columns: tuple[VectorColumnStats, ...] = ()
+
+    @model_validator(mode="after")
+    def _validate_ids(self) -> Self:
+        base_ids = [entry.id for entry in self.bases]
+        if len(base_ids) != len(set(base_ids)):
+            raise ValueError("vector stats base IDs must be unique")
+        column_ids = [entry.id for entry in self.columns]
+        if len(column_ids) != len(set(column_ids)):
+            raise ValueError("vector stats column IDs must be unique")
+        unknown_bases = {
+            entry.base_id for entry in self.columns if entry.base_id not in base_ids
+        }
+        if unknown_bases:
+            raise ValueError("vector stats columns must reference declared base IDs")
+        return self
+
+
+class VectorStatsArtifact(BaseModel):
+    """Bounded summary of assembled or postprocessed vector samples."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal[3] = 3
+    stage: Literal["assembled", "postprocessed"]
+    total_samples: int = Field(strict=True, ge=0)
+    empty_samples: int = Field(strict=True, ge=0)
+    features: VectorStatsSection
+    targets: VectorStatsSection
+
+    @model_validator(mode="after")
+    def _validate_counts_and_ids(self) -> Self:
+        if self.empty_samples > self.total_samples:
+            raise ValueError("empty_samples cannot exceed total_samples")
+        for section in (self.features, self.targets):
+            for entry in (*section.bases, *section.columns):
+                if entry.present_samples > self.total_samples:
+                    raise ValueError(
+                        "vector stats present_samples cannot exceed total_samples"
+                    )
+        feature_ids = {entry.id for entry in self.features.columns}
+        target_ids = {entry.id for entry in self.targets.columns}
+        if feature_ids & target_ids:
+            raise ValueError(
+                "vector stats column IDs must be unique across features and targets"
+            )
+        return self

@@ -1,8 +1,14 @@
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, Generic, Mapping, Optional, TypeVar
+from collections.abc import Callable, Mapping
+from types import MappingProxyType
+from typing import Any, Generic, TypeVar
 
-from datapipeline.artifacts.models import VectorMetadata, VectorSchemaArtifact
+from datapipeline.artifacts.models import (
+    VectorMetadata,
+    VectorSchemaArtifact,
+    VectorStatsArtifact,
+)
 from datapipeline.artifacts.scaler import ScalerArtifact, load_scaler_artifact
 from datapipeline.services.constants import (
     SCALER_STATISTICS,
@@ -44,19 +50,22 @@ class ArtifactManager:
 
     def __init__(self, root: Path) -> None:
         self._root = Path(root)
-        self._records: Dict[str, ArtifactRecord] = {}
+        self._records: dict[str, ArtifactRecord] = {}
 
     @property
     def root(self) -> Path:
         return self._root
 
     def register(
-        self, key: str, relative_path: str, meta: Optional[Mapping[str, Any]] = None
+        self,
+        key: str,
+        relative_path: str,
+        meta: Mapping[str, Any] | None = None,
     ) -> None:
         self._records[key] = ArtifactRecord(
             key=key,
             relative_path=relative_path,
-            meta=dict(meta or {}),
+            meta=MappingProxyType(dict(meta or {})),
         )
 
     def clear(self) -> None:
@@ -77,9 +86,6 @@ class ArtifactManager:
     def optional(self, key: str) -> ArtifactRecord | None:
         return self._records.get(key)
 
-    def metadata(self, key: str) -> Dict[str, Any]:
-        return dict(self.require(key).meta)
-
     def resolve_path(self, key: str) -> Path:
         return self.require(key).resolve(self._root)
 
@@ -95,16 +101,23 @@ class ArtifactManager:
             raise RuntimeError(message) from exc
 
 
-def _read_json(path: Path) -> dict:
-    return read_json_artifact(path)
-
-
 def _read_vector_schema(path: Path) -> VectorSchemaArtifact:
     return VectorSchemaArtifact.model_validate(read_json_artifact(path))
 
 
 def _read_vector_metadata(path: Path) -> VectorMetadata:
     return VectorMetadata.model_validate(read_json_artifact(path))
+
+
+def _read_vector_stats(path: Path) -> VectorStatsArtifact:
+    payload = read_json_artifact(path)
+    version = payload.get("schema_version")
+    if version != 3:
+        raise ValueError(
+            f"Unsupported vector stats schema version {version!r}. "
+            "Rebuild stats in FORCE mode."
+        )
+    return VectorStatsArtifact.model_validate(payload)
 
 
 VECTOR_SCHEMA_SPEC = ArtifactSpec[VectorSchemaArtifact](
@@ -122,7 +135,7 @@ SCALER_SPEC = ArtifactSpec[ScalerArtifact](
     loader=load_scaler_artifact,
 )
 
-VECTOR_STATS_SPEC = ArtifactSpec[dict](
+VECTOR_STATS_SPEC = ArtifactSpec[VectorStatsArtifact](
     key=VECTOR_STATS,
-    loader=_read_json,
+    loader=_read_vector_stats,
 )

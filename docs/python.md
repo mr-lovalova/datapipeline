@@ -3,7 +3,7 @@
 `datapipeline.integrations.ml` demonstrates how to reuse the runtime from
 application code:
 
-- `VectorAdapter.from_project(project_yaml)` – bootstrap once, then stream
+- `VectorAdapter.from_project(project_yaml)` – load one definition, then stream
   vectors or row dicts.
 - `stream_vectors(project_yaml, limit=...)` – iterator matching `jerry serve`.
 - `iter_vector_rows` / `collect_vector_rows` – handy for Pandas or custom sinks.

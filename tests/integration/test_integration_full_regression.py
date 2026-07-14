@@ -5,8 +5,9 @@ from datapipeline.artifacts.scaler import (
     StandardScalerArtifact,
     save_scaler_artifact,
 )
-from datapipeline.config.context import load_dataset_context
+from datapipeline.artifacts.hydration import hydrate_runtime_artifacts_for_pipeline
 from datapipeline.config.tasks import MetadataTask, SchemaTask
+from datapipeline.execution.context import PipelineContext
 from datapipeline.operations.artifacts.metadata import materialize_metadata
 from datapipeline.operations.artifacts.schema import materialize_vector_schema
 from datapipeline.pipelines.full.nodes import apply_postprocess
@@ -16,15 +17,20 @@ from datapipeline.services.constants import (
     VECTOR_METADATA,
     VECTOR_SCHEMA,
 )
+from datapipeline.services.pipeline import load_pipeline
+from datapipeline.services.runtime_compiler import compile_runtime
 from tests.vector_input_helpers import register_vector_inputs
 
 
 def test_full_regression_project_vectors(copy_fixture) -> None:
     project_root = copy_fixture("regression_project")
     project_path = project_root / "project.yaml"
-    ctx = load_dataset_context(project_path)
-    context = ctx.pipeline_context
-    scaler_path = ctx.runtime.artifacts_root / "scaler.json"
+    definition = load_pipeline(project_path)
+    runtime = compile_runtime(definition)
+    hydrate_runtime_artifacts_for_pipeline(runtime, definition)
+    dataset = definition.dataset
+    context = PipelineContext(runtime)
+    scaler_path = runtime.artifacts_root / "scaler.json"
     save_scaler_artifact(
         scaler_path,
         StandardScalerArtifact(
@@ -41,38 +47,38 @@ def test_full_regression_project_vectors(copy_fixture) -> None:
             },
         ),
     )
-    ctx.runtime.artifacts.register(
+    runtime.artifacts.register(
         SCALER_STATISTICS,
         relative_path="scaler.json",
     )
     register_vector_inputs(
-        ctx.runtime,
-        ctx.features,
-        ctx.dataset.sample.cadence,
-        targets=ctx.targets,
+        runtime,
+        dataset.features,
+        dataset.sample.cadence,
+        targets=dataset.targets,
     )
     metadata = materialize_metadata(
-        ctx.runtime,
+        runtime,
         MetadataTask(id="metadata", output="metadata.json"),
     )
-    ctx.runtime.artifacts.register(
+    runtime.artifacts.register(
         VECTOR_METADATA,
         relative_path=metadata.relative_path,
     )
     schema = materialize_vector_schema(
-        ctx.runtime,
+        runtime,
         SchemaTask(id="schema", output="schema.json"),
     )
-    ctx.runtime.artifacts.register(
+    runtime.artifacts.register(
         VECTOR_SCHEMA,
         relative_path=schema.relative_path,
     )
 
     base_vectors = build_vector_pipeline(
         context,
-        ctx.features,
-        ctx.dataset.sample.cadence,
-        target_configs=ctx.targets,
+        dataset.features,
+        dataset.sample.cadence,
+        target_configs=dataset.targets,
         rectangular=False,
     )
     samples = list(apply_postprocess(context, base_vectors))

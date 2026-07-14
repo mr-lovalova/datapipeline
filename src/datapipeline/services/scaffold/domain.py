@@ -7,7 +7,11 @@ from datapipeline.services.scaffold.utils import (
     validate_identifier,
     write_if_missing,
 )
-from datapipeline.services.scaffold.layout import DIR_DOMAINS, TPL_DOMAIN_RECORD, domain_record_class
+from datapipeline.services.scaffold.layout import (
+    DIR_DOMAINS,
+    TPL_DOMAIN_RECORD,
+    domain_record_class,
+)
 
 from ..paths import pkg_root, resolve_base_pkg_dir
 

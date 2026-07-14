@@ -1,19 +1,11 @@
-from datetime import datetime, timedelta
+from datetime import timedelta
 
-from datapipeline.config.dataset.normalize import floor_time_to_cadence
-from datapipeline.domain.feature import FeatureRecord, FeatureRecordSequence
-
-
-def _anchor_time(item: FeatureRecord | FeatureRecordSequence) -> datetime:
-    if isinstance(item, FeatureRecord):
-        return item.record.time
-    if not item.records:
-        raise ValueError(f"Feature sequence '{item.id}' has no records.")
-    return item.records[-1].time
+from datapipeline.domain.feature import FeatureRecord, FeatureSequence
+from datapipeline.utils.time import floor_time_to_cadence
 
 
 def group_key_for(
-    item: FeatureRecord | FeatureRecordSequence,
+    item: FeatureRecord | FeatureSequence,
     cadence: timedelta,
 ) -> tuple:
-    return (floor_time_to_cadence(_anchor_time(item), cadence), *item.entity_key)
+    return (floor_time_to_cadence(item.time, cadence), *item.entity_key)

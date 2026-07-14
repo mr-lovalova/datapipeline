@@ -2,13 +2,15 @@ from datetime import datetime, timezone
 import json
 
 from datapipeline.artifacts.models import VectorMetadata
-from datapipeline.operations.artifacts.stats import materialize_vector_stats
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.config.tasks import StatsTask
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
-from datapipeline.runtime import IngestRuntimeStream, Runtime
+from datapipeline.execution.node import PipelineNode
+from datapipeline.operations.artifacts.stats import materialize_vector_stats
+from datapipeline.pipelines.full.nodes import PostprocessPlan
+from datapipeline.runtime import Runtime
 from datapipeline.services.constants import VECTOR_METADATA
 
 
@@ -16,114 +18,180 @@ def _ts(day: int) -> datetime:
     return datetime(2024, 1, day, tzinfo=timezone.utc)
 
 
-class _EmptySource:
-    def stream(self):
-        return iter(())
-
-
-def _identity(records):
-    return records
-
-
-def test_materialize_vector_stats_reads_metadata_and_omits_schema_meta(
-    monkeypatch, tmp_path
-):
-    artifacts_root = tmp_path / "artifacts"
-    artifacts_root.mkdir()
-    project_yaml = tmp_path / "project.yaml"
-    project_yaml.write_text("version: 1\n", encoding="utf-8")
-    runtime = Runtime(project_yaml=project_yaml, artifacts_root=artifacts_root)
-    runtime.streams["stream"] = IngestRuntimeStream(
-        source=_EmptySource(),
-        mapper=_identity,
-        transforms=(),
-        partition_by=(),
-        feature_id_by=None,
-        presorted=False,
-    )
-
-    dataset = FeatureDatasetConfig(
-        sample=SampleConfig(cadence="1h"),
-        features=[
-            FeatureRecordConfig(id="speed", stream="stream", field="value")
-        ],
-        targets=[],
-    )
-    samples = [
-        Sample(key=(_ts(1),), features=Vector(values={"speed": [1.0, None]})),
-    ]
-
-    class _Ctx:
-        def __init__(self, _runtime):
-            self.runtime = _runtime
-
-        def require_artifact(self, spec):
-            assert spec.key == VECTOR_METADATA
-            return VectorMetadata.model_validate(
+def _metadata() -> VectorMetadata:
+    return VectorMetadata.model_validate(
+        {
+            "schema_version": 1,
+            "features": [
                 {
-                    "schema_version": 1,
-                    "features": [
-                        {
-                            "id": "speed",
-                            "base_id": "speed",
-                            "kind": "list",
-                            "present_count": 1,
-                            "null_count": 0,
-                            "first_observed": "2024-01-01T00:00:00Z",
-                            "last_observed": "2024-01-01T00:00:00Z",
-                            "element_types": ["float", "null"],
-                            "lengths": {"2": 1},
-                            "cadence": {"target": 2},
-                            "observed_elements": 1,
-                        }
-                    ],
-                    "targets": [],
-                    "counts": {"feature_vectors": 1, "target_vectors": 0},
+                    "id": "speed",
+                    "base_id": "speed",
+                    "kind": "list",
+                    "present_count": 1,
+                    "null_count": 0,
+                    "element_types": ["float", "null"],
+                    "lengths": {"2": 1},
+                    "cadence": {"target": 2},
+                    "observed_elements": 1,
                 }
-            )
-
-        def window_bounds(self, rectangular_required: bool):
-            assert rectangular_required is True
-
-    monkeypatch.setattr(
-        "datapipeline.operations.artifacts.stats.PipelineContext",
-        _Ctx,
+            ],
+            "targets": [
+                {
+                    "id": "return",
+                    "base_id": "return",
+                    "kind": "scalar",
+                    "present_count": 1,
+                    "null_count": 0,
+                    "value_types": ["float"],
+                }
+            ],
+            "counts": {"feature_vectors": 1, "target_vectors": 1},
+        }
     )
+
+
+def _runtime(tmp_path) -> Runtime:
+    project_yaml = tmp_path / "project.yaml"
+    project_yaml.write_text("version: 1\nartifact_revision: 1\n", encoding="utf-8")
+    return Runtime(
+        project_yaml=project_yaml,
+        artifacts_root=tmp_path / "artifacts",
+        dataset=FeatureDatasetConfig(
+            sample=SampleConfig(cadence="1h"),
+            features=[FeatureRecordConfig(id="speed", stream="stream", field="value")],
+            targets=[FeatureRecordConfig(id="return", stream="stream", field="value")],
+        ),
+    )
+
+
+class _Context:
+    def __init__(self, runtime):
+        self.runtime = runtime
+
+    def require_artifact(self, spec):
+        assert spec.key == VECTOR_METADATA
+        return _metadata()
+
+    def window_bounds(self, rectangular_required: bool):
+        assert rectangular_required is True
+        return _ts(1), _ts(2)
+
+
+def _postprocess_plan(*nodes: PipelineNode) -> PostprocessPlan:
+    return PostprocessPlan(
+        feature_ids=("speed",),
+        target_ids=("return",),
+        nodes=nodes,
+    )
+
+
+def test_materialize_vector_stats_writes_bounded_v3_summary(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    runtime = _runtime(tmp_path)
+    samples = [
+        Sample(
+            key=(_ts(1),),
+            features=Vector(values={"speed": [1.0, None]}),
+            targets=Vector(values={"return": None}),
+        ),
+        Sample(key=(_ts(2),), features=Vector(values={}), targets=Vector(values={})),
+    ]
     monkeypatch.setattr(
-        "datapipeline.operations.artifacts.stats.load_dataset",
-        lambda *_args, **_kwargs: dataset,
+        "datapipeline.operations.artifacts.stats.PipelineContext", _Context
     )
     monkeypatch.setattr(
         "datapipeline.operations.artifacts.stats.build_vector_pipeline",
         lambda *_args, **_kwargs: iter(samples),
     )
     monkeypatch.setattr(
-        "datapipeline.operations.artifacts.stats.apply_postprocess",
-        lambda _context, vectors: vectors,
+        "datapipeline.operations.artifacts.stats.build_postprocess_plan",
+        lambda _context: _postprocess_plan(),
     )
 
     result = materialize_vector_stats(
         runtime,
-        StatsTask(id="stats", mode="final", output="build/stats.json"),
+        StatsTask(stage="postprocessed", output="build/stats.json"),
     )
 
-    assert result is not None
     payload = json.loads(
-        (artifacts_root / result.relative_path).read_text(encoding="utf-8")
+        (runtime.artifacts_root / result.relative_path).read_text(encoding="utf-8")
     )
-    assert "schema_meta" not in payload
-    assert "expected_features" not in payload
-    assert "discovered_features" not in payload
-    assert "discovered_partitions" not in payload
-    assert "seen_counts" not in payload
-    assert "null_counts_features" not in payload
-    assert "seen_counts_partitions" not in payload
-    assert "null_counts_partitions" not in payload
-    assert "cadence_null_counts" not in payload
-    assert "cadence_opportunities" not in payload
-    assert "cadence_null_counts_partitions" not in payload
-    assert "cadence_opportunities_partitions" not in payload
-    assert "missing_samples" not in payload
-    assert "missing_partition_samples" not in payload
-    assert payload["group_feature_status"]["2024-01-01 00:00:00+00:00"]["speed"] == 1
-    assert payload["group_partition_status"]["2024-01-01 00:00:00+00:00"]["speed"] == 1
+    assert payload["schema_version"] == 3
+    assert payload["stage"] == "postprocessed"
+    assert payload["total_samples"] == 2
+    assert payload["empty_samples"] == 1
+    assert payload["features"]["columns"] == [
+        {
+            "id": "speed",
+            "present_samples": 1,
+            "non_null_samples": 1,
+            "base_id": "speed",
+            "kind": "list",
+            "length": 2,
+            "observed_elements": 1,
+        }
+    ]
+    assert payload["targets"]["columns"][0]["non_null_samples"] == 0
+    assert "group_feature_status" not in payload
+
+
+def test_assembled_stats_do_not_apply_postprocess(monkeypatch, tmp_path) -> None:
+    runtime = _runtime(tmp_path)
+    monkeypatch.setattr(
+        "datapipeline.operations.artifacts.stats.PipelineContext", _Context
+    )
+    monkeypatch.setattr(
+        "datapipeline.operations.artifacts.stats.build_vector_pipeline",
+        lambda *_args, **_kwargs: iter(()),
+    )
+
+    def fail_plan(*_args):
+        raise AssertionError("assembled stats must not build a postprocess plan")
+
+    monkeypatch.setattr(
+        "datapipeline.operations.artifacts.stats.build_postprocess_plan",
+        fail_plan,
+    )
+
+    materialize_vector_stats(
+        runtime,
+        StatsTask(stage="assembled", output="build/stats.json"),
+    )
+
+
+def test_postprocessed_stats_keep_planned_columns_when_every_sample_is_dropped(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    runtime = _runtime(tmp_path)
+    sample = Sample(
+        key=(_ts(1),),
+        features=Vector(values={"speed": [None, None]}),
+        targets=Vector(values={"return": None}),
+    )
+    drop_all = PipelineNode(name="drop_all", apply=lambda _samples: iter(()))
+    monkeypatch.setattr(
+        "datapipeline.operations.artifacts.stats.PipelineContext", _Context
+    )
+    monkeypatch.setattr(
+        "datapipeline.operations.artifacts.stats.build_vector_pipeline",
+        lambda *_args, **_kwargs: iter((sample,)),
+    )
+    monkeypatch.setattr(
+        "datapipeline.operations.artifacts.stats.build_postprocess_plan",
+        lambda _context: _postprocess_plan(drop_all),
+    )
+
+    result = materialize_vector_stats(
+        runtime,
+        StatsTask(stage="postprocessed", output="build/stats.json"),
+    )
+
+    payload = json.loads(
+        (runtime.artifacts_root / result.relative_path).read_text(encoding="utf-8")
+    )
+    assert payload["total_samples"] == 0
+    assert [entry["id"] for entry in payload["features"]["columns"]] == ["speed"]
+    assert [entry["id"] for entry in payload["targets"]["columns"]] == ["return"]

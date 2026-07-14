@@ -32,8 +32,7 @@ class DropSamplesTransform:
             values = sample.features.values
             reject_unknown_values(values, self.expected_id_set)
             coverage = sum(
-                cell_coverage(values.get(identifier), identifier)
-                for identifier in self.ids
+                cell_coverage(values.get(identifier)) for identifier in self.ids
             ) / len(self.ids)
             if coverage >= self.threshold:
                 yield sample
@@ -57,8 +56,7 @@ class DropTargetSamplesTransform:
             values = sample.targets.values if sample.targets is not None else {}
             reject_unknown_values(values, self.expected_id_set)
             coverage = sum(
-                cell_coverage(values.get(identifier), identifier)
-                for identifier in self.ids
+                cell_coverage(values.get(identifier)) for identifier in self.ids
             ) / len(self.ids)
             if coverage >= self.threshold:
                 yield sample

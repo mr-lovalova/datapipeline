@@ -1,7 +1,7 @@
 import logging
 
-from datapipeline.config.resolution import LogOutputTarget
-from datapipeline.config.workspace import WorkspaceContext
+from datapipeline.cli.workspace import WorkspaceContext
+from datapipeline.execution.settings import LogOutputTarget
 from datapipeline.profiles.orchestration import run_profiles
 from datapipeline.profiles.request_builder import build_materialize_run_request
 from datapipeline.services.materialize import validate_materialize_output_path

@@ -1,5 +1,4 @@
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -12,55 +11,31 @@ def _write_project(tmp_path: Path) -> Path:
         "\n".join(
             [
                 "version: 1",
+                "artifact_revision: 1",
                 "paths:",
                 "  ingests: ./ingests",
                 "  streams: streams",
                 "  sources: sources",
                 "  dataset: dataset.yaml",
-                "  postprocess: postprocess.yaml",
                 "  artifacts: artifacts",
-                "  tasks: tasks",
                 "  profiles: profiles",
             ]
         ),
         encoding="utf-8",
     )
-    (tmp_path / "dataset.yaml").write_text("{}\n", encoding="utf-8")
-    (tmp_path / "postprocess.yaml").write_text("{}\n", encoding="utf-8")
+    (tmp_path / "dataset.yaml").write_text(
+        "sample:\n  cadence: 1h\n",
+        encoding="utf-8",
+    )
+    for directory in ("ingests", "streams", "sources"):
+        (tmp_path / directory).mkdir(parents=True, exist_ok=True)
     return project_yaml
 
 
-def _write_op(path: Path, body: str) -> None:
-    path.write_text(body, encoding="utf-8")
-
-
-def _patch_runtime_resolution(monkeypatch) -> None:
-    monkeypatch.setattr(
-        "datapipeline.config.serve_resolution.bootstrap_build_runtime",
-        lambda _project_path: SimpleNamespace(split=None, execution=None),
-    )
-    monkeypatch.setattr(
-        "datapipeline.profiles.request_builder.load_dataset",
-        lambda project_path: SimpleNamespace(),
-    )
-
-
-def test_serve_request_resolves_targeted_profile(monkeypatch, tmp_path: Path):
-    _patch_runtime_resolution(monkeypatch)
+def test_serve_request_resolves_targeted_profile(tmp_path: Path):
     project_yaml = _write_project(tmp_path)
-    ops = tmp_path / "tasks" / "operations"
     profiles = tmp_path / "profiles"
-    ops.mkdir(parents=True, exist_ok=True)
     profiles.mkdir(parents=True, exist_ok=True)
-
-    _write_op(
-        ops / "pipeline.yaml",
-        "id: pipeline\nkind: runtime\nentrypoint: core.runtime.pipeline\n",
-    )
-    _write_op(
-        ops / "coverage.yaml",
-        "id: coverage\nkind: runtime\nentrypoint: core.runtime.coverage\n",
-    )
     (profiles / "serve.coverage.yaml").write_text(
         "target: coverage\n",
         encoding="utf-8",
@@ -81,22 +56,10 @@ def test_serve_request_resolves_targeted_profile(monkeypatch, tmp_path: Path):
     assert request.artifact_settings.mode == "AUTO"
 
 
-def test_inspect_request_defaults_to_enabled_profiles(monkeypatch, tmp_path: Path):
-    _patch_runtime_resolution(monkeypatch)
+def test_inspect_request_defaults_to_enabled_profiles(tmp_path: Path):
     project_yaml = _write_project(tmp_path)
-    ops = tmp_path / "tasks" / "operations"
     profiles = tmp_path / "profiles"
-    ops.mkdir(parents=True, exist_ok=True)
     profiles.mkdir(parents=True, exist_ok=True)
-
-    _write_op(
-        ops / "coverage.yaml",
-        "id: coverage\nkind: runtime\nentrypoint: core.runtime.coverage\n",
-    )
-    _write_op(
-        ops / "matrix.yaml",
-        "id: matrix\nkind: runtime\nentrypoint: core.runtime.matrix\n",
-    )
     (profiles / "inspect.coverage.yaml").write_text(
         "target: coverage\nenabled: false\n",
         encoding="utf-8",
@@ -118,18 +81,10 @@ def test_inspect_request_defaults_to_enabled_profiles(monkeypatch, tmp_path: Pat
     assert job.task.id == "matrix"
 
 
-def test_serve_profile_rejects_artifact_target(monkeypatch, tmp_path: Path, caplog):
-    _patch_runtime_resolution(monkeypatch)
+def test_serve_profile_rejects_artifact_target(tmp_path: Path, caplog):
     project_yaml = _write_project(tmp_path)
-    ops = tmp_path / "tasks" / "operations"
     profiles = tmp_path / "profiles"
-    ops.mkdir(parents=True, exist_ok=True)
     profiles.mkdir(parents=True, exist_ok=True)
-
-    _write_op(
-        ops / "schema.yaml",
-        "id: schema\nkind: artifact\noutput: schema.json\n",
-    )
     (profiles / "serve.schema.yaml").write_text(
         "target: schema\n",
         encoding="utf-8",
@@ -143,19 +98,16 @@ def test_serve_profile_rejects_artifact_target(monkeypatch, tmp_path: Path, capl
         )
 
     assert exc.value.code == 2
-    assert "must target a runtime task; 'schema' is an artifact task" in caplog.text
+    assert (
+        "must target a runtime operation; 'schema' is an artifact operation"
+        in caplog.text
+    )
 
 
 def test_inspect_profile_rejects_artifact_target(tmp_path: Path, caplog):
     project_yaml = _write_project(tmp_path)
-    ops = tmp_path / "tasks" / "operations"
     profiles = tmp_path / "profiles"
-    ops.mkdir(parents=True, exist_ok=True)
     profiles.mkdir(parents=True, exist_ok=True)
-    _write_op(
-        ops / "stats.yaml",
-        "id: stats\nkind: artifact\nmode: raw\noutput: stats.json\n",
-    )
     (profiles / "inspect.stats.yaml").write_text(
         "target: stats\n",
         encoding="utf-8",
@@ -165,19 +117,16 @@ def test_inspect_profile_rejects_artifact_target(tmp_path: Path, caplog):
         build_profile_run_request(kind="inspect", project=str(project_yaml))
 
     assert exc.value.code == 2
-    assert "must target a runtime task; 'stats' is an artifact task" in caplog.text
+    assert (
+        "must target a runtime operation; 'stats' is an artifact operation"
+        in caplog.text
+    )
 
 
 def test_build_profile_rejects_runtime_target(tmp_path: Path, caplog):
     project_yaml = _write_project(tmp_path)
-    ops = tmp_path / "tasks" / "operations"
     profiles = tmp_path / "profiles"
-    ops.mkdir(parents=True, exist_ok=True)
     profiles.mkdir(parents=True, exist_ok=True)
-    _write_op(
-        ops / "pipeline.yaml",
-        "id: pipeline\nkind: runtime\nentrypoint: core.runtime.pipeline\n",
-    )
     (profiles / "build.pipeline.yaml").write_text(
         "target: pipeline\n",
         encoding="utf-8",
@@ -187,12 +136,14 @@ def test_build_profile_rejects_runtime_target(tmp_path: Path, caplog):
         build_profile_run_request(kind="build", project=str(project_yaml))
 
     assert exc.value.code == 2
-    assert "must target an artifact task; 'pipeline' is a runtime task" in caplog.text
+    assert (
+        "must target an artifact operation; 'pipeline' is a runtime operation"
+        in caplog.text
+    )
 
 
 def test_build_profile_rejects_unknown_target(tmp_path: Path, caplog):
     project_yaml = _write_project(tmp_path)
-    (tmp_path / "tasks" / "operations").mkdir(parents=True, exist_ok=True)
     profiles = tmp_path / "profiles"
     profiles.mkdir(parents=True, exist_ok=True)
     (profiles / "build.typo.yaml").write_text(
@@ -204,24 +155,15 @@ def test_build_profile_rejects_unknown_target(tmp_path: Path, caplog):
         build_profile_run_request(kind="build", project=str(project_yaml))
 
     assert exc.value.code == 2
-    assert "references unknown task target 'scheam'" in caplog.text
+    assert "references unknown operation target 'scheam'" in caplog.text
 
 
 def test_serve_request_orders_enabled_profiles_and_run_targets_only_named_profile(
-    monkeypatch,
     tmp_path: Path,
 ):
-    _patch_runtime_resolution(monkeypatch)
     project_yaml = _write_project(tmp_path)
-    ops = tmp_path / "tasks" / "operations"
     profiles = tmp_path / "profiles"
-    ops.mkdir(parents=True, exist_ok=True)
     profiles.mkdir(parents=True, exist_ok=True)
-
-    _write_op(
-        ops / "pipeline.yaml",
-        "id: pipeline\nkind: runtime\nentrypoint: core.runtime.pipeline\n",
-    )
     (profiles / "serve.early.yaml").write_text(
         "order: 10\ntarget: pipeline\nenabled: true\n",
         encoding="utf-8",
@@ -241,6 +183,7 @@ def test_serve_request_orders_enabled_profiles_and_run_targets_only_named_profil
         "pipeline",
         "pipeline",
     ]
+    assert request_all.jobs[0].runtime is not request_all.jobs[1].runtime
 
     request_train = build_profile_run_request(
         kind="serve",
@@ -252,17 +195,10 @@ def test_serve_request_orders_enabled_profiles_and_run_targets_only_named_profil
     assert [job.task.id for job in request_train.jobs] == ["pipeline"]
 
 
-def test_cli_artifact_mode_overrides_selected_profiles(monkeypatch, tmp_path: Path):
-    _patch_runtime_resolution(monkeypatch)
+def test_cli_artifact_mode_overrides_selected_profiles(tmp_path: Path):
     project_yaml = _write_project(tmp_path)
-    ops = tmp_path / "tasks" / "operations"
     profiles = tmp_path / "profiles"
-    ops.mkdir(parents=True, exist_ok=True)
     profiles.mkdir(parents=True, exist_ok=True)
-    _write_op(
-        ops / "pipeline.yaml",
-        "id: pipeline\nkind: runtime\nentrypoint: core.runtime.pipeline\n",
-    )
     (profiles / "serve.defaults.yaml").write_text(
         (
             'artifact_mode: "OFF"\n'
@@ -329,20 +265,12 @@ def test_cli_artifact_mode_overrides_selected_profiles(monkeypatch, tmp_path: Pa
 
 
 def test_selected_profiles_reject_conflicting_artifact_modes(
-    monkeypatch,
     tmp_path: Path,
     caplog,
 ):
-    _patch_runtime_resolution(monkeypatch)
     project_yaml = _write_project(tmp_path)
-    ops = tmp_path / "tasks" / "operations"
     profiles = tmp_path / "profiles"
-    ops.mkdir(parents=True, exist_ok=True)
     profiles.mkdir(parents=True, exist_ok=True)
-    _write_op(
-        ops / "pipeline.yaml",
-        "id: pipeline\nkind: runtime\nentrypoint: core.runtime.pipeline\n",
-    )
     (profiles / "serve.first.yaml").write_text(
         'target: pipeline\nartifact_mode: "OFF"\n',
         encoding="utf-8",
@@ -362,18 +290,10 @@ def test_selected_profiles_reject_conflicting_artifact_modes(
     )
 
 
-def test_serve_defaults_apply_when_profile_omits_fields(monkeypatch, tmp_path: Path):
-    _patch_runtime_resolution(monkeypatch)
+def test_serve_defaults_apply_when_profile_omits_fields(tmp_path: Path):
     project_yaml = _write_project(tmp_path)
-    ops = tmp_path / "tasks" / "operations"
     profiles = tmp_path / "profiles"
-    ops.mkdir(parents=True, exist_ok=True)
     profiles.mkdir(parents=True, exist_ok=True)
-
-    _write_op(
-        ops / "pipeline.yaml",
-        "id: pipeline\nkind: runtime\nentrypoint: core.runtime.pipeline\n",
-    )
     (profiles / "serve.defaults.yaml").write_text(
         (
             "output:\n"
@@ -413,18 +333,10 @@ def test_serve_defaults_apply_when_profile_omits_fields(monkeypatch, tmp_path: P
     assert not job.output.run.metadata_path.exists()
 
 
-def test_serve_profile_fields_override_serve_defaults(monkeypatch, tmp_path: Path):
-    _patch_runtime_resolution(monkeypatch)
+def test_serve_profile_fields_override_serve_defaults(tmp_path: Path):
     project_yaml = _write_project(tmp_path)
-    ops = tmp_path / "tasks" / "operations"
     profiles = tmp_path / "profiles"
-    ops.mkdir(parents=True, exist_ok=True)
     profiles.mkdir(parents=True, exist_ok=True)
-
-    _write_op(
-        ops / "pipeline.yaml",
-        "id: pipeline\nkind: runtime\nentrypoint: core.runtime.pipeline\n",
-    )
     (profiles / "serve.defaults.yaml").write_text(
         ("output:\n  transport: fs\n  format: jsonl\n  directory: ./artifacts/serve\n"),
         encoding="utf-8",
@@ -446,20 +358,11 @@ def test_serve_profile_fields_override_serve_defaults(monkeypatch, tmp_path: Pat
 
 
 def test_serve_profile_nested_observability_deep_merges_defaults(
-    monkeypatch,
     tmp_path: Path,
 ):
-    _patch_runtime_resolution(monkeypatch)
     project_yaml = _write_project(tmp_path)
-    ops = tmp_path / "tasks" / "operations"
     profiles = tmp_path / "profiles"
-    ops.mkdir(parents=True, exist_ok=True)
     profiles.mkdir(parents=True, exist_ok=True)
-
-    _write_op(
-        ops / "pipeline.yaml",
-        "id: pipeline\nkind: runtime\nentrypoint: core.runtime.pipeline\n",
-    )
     (profiles / "serve.defaults.yaml").write_text(
         ("observability:\n  logging:\n    outputs:\n      - transport: stdout\n"),
         encoding="utf-8",
@@ -482,15 +385,8 @@ def test_serve_profile_nested_observability_deep_merges_defaults(
 
 def test_build_defaults_apply_to_build_profiles(tmp_path: Path):
     project_yaml = _write_project(tmp_path)
-    ops = tmp_path / "tasks" / "operations"
     profiles = tmp_path / "profiles"
-    ops.mkdir(parents=True, exist_ok=True)
     profiles.mkdir(parents=True, exist_ok=True)
-
-    _write_op(
-        ops / "schema.yaml",
-        "id: schema\nkind: artifact\noutput: schema.json\n",
-    )
     (profiles / "build.defaults.yaml").write_text(
         (
             "mode: force\n"
@@ -514,7 +410,8 @@ def test_build_defaults_apply_to_build_profiles(tmp_path: Path):
         run_name="schema",
     )
     assert request is not None
-    assert request.config_hash is not None
+    assert request.definition.definition_hash
+    assert request.definition.artifact_hashes.values
     assert request.execution.sort_buffer_mb == 256
     job = request.jobs[0]
     assert job.settings.mode == "FORCE"

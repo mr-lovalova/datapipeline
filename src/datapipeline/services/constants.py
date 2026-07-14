@@ -7,8 +7,6 @@ ENTRYPOINT_KEY = "entrypoint"
 ARGS_KEY = "args"
 STREAM_ID_KEY = "id"
 STREAM_FROM_KEY = "from"
-POSTPROCESS_PATH_KEY = "postprocess"
-
 PARSERS_GROUP = "parsers"
 LOADERS_GROUP = "loaders"
 MAPPERS_GROUP = "mappers"

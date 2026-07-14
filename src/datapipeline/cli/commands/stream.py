@@ -1,7 +1,6 @@
 from pathlib import Path
 
-from datapipeline.config.workspace import WorkspaceContext
-from datapipeline.cli.workspace_utils import resolve_default_project_yaml
+from datapipeline.cli.workspace import WorkspaceContext, resolve_default_project_yaml
 from datapipeline.services.paths import pkg_root
 from datapipeline.services.project_paths import resolve_project_yaml_path
 from datapipeline.services.scaffold.stream_yaml import (

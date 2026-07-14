@@ -104,8 +104,10 @@ class FeatureScaler:
 
     def apply(self, stream: Iterator[FeatureRecord]) -> Iterator[FeatureRecord]:
         for feature in stream:
-            scaler = self._scaler_for(feature)
-            yield _scale_feature(feature, scaler)
+            yield self.scale(feature)
+
+    def scale(self, feature: FeatureRecord) -> FeatureRecord:
+        return _scale_feature(feature, self._scaler_for(feature))
 
     def _scaler_for(self, feature: FeatureRecord) -> StandardScalerArtifact:
         if isinstance(self.artifact, StandardScalerArtifact):

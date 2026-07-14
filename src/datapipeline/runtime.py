@@ -7,8 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from datapipeline.config.execution import ExecutionConfig
-from datapipeline.config.postprocess import PostprocessConfig
-from datapipeline.config.split import SplitConfig
+from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.transforms import (
     RecordTransformConfig,
     StreamTransformConfig,
@@ -62,11 +61,10 @@ class Runtime:
 
     project_yaml: Path
     artifacts_root: Path
+    dataset: FeatureDatasetConfig
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
     streams: dict[str, RuntimeStream] = field(default_factory=dict)
-    split: SplitConfig | None = None
     split_labels: tuple[str, ...] = ()
-    postprocess: PostprocessConfig = field(default_factory=PostprocessConfig)
     window_bounds: tuple[datetime | None, datetime | None] | None = None
     heartbeat_interval_seconds: float | None = None
     pipeline_observer: PipelineObserver | None = None

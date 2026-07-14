@@ -3,6 +3,7 @@ from datetime import timedelta
 
 import pytest
 
+from datapipeline.pipelines.shared.sort import batch_sort
 from datapipeline.services.temp_cleanup import (
     clean_temp_dirs,
     find_temp_dirs,
@@ -49,6 +50,27 @@ def test_clean_temp_dirs_removes_matches_with_yes(tmp_path) -> None:
     assert result.dry_run is False
     assert result.removed == (sort_dir,)
     assert not sort_dir.exists()
+
+
+def test_clean_temp_dirs_does_not_remove_active_sort(tmp_path) -> None:
+    rows = batch_sort(
+        [3, 2, 1],
+        buffer_bytes=1,
+        key=lambda value: value,
+        spill_dir=tmp_path,
+    )
+    assert next(rows) == 1
+    spill_dirs = [path for path in tmp_path.iterdir() if path.is_dir()]
+    assert len(spill_dirs) == 1
+
+    result = clean_temp_dirs(yes=True, root=tmp_path)
+
+    assert result.candidates == ()
+    assert result.removed == ()
+    assert spill_dirs[0].is_dir()
+
+    rows.close()
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_find_temp_dirs_respects_age_filter(tmp_path) -> None:

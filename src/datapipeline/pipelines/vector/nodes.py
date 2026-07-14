@@ -1,13 +1,13 @@
-from collections import defaultdict
 from collections.abc import Iterator, Sequence
 from datetime import datetime
 from itertools import groupby
+from typing import Any
 
 from datapipeline.artifacts.models import SampleDomainEntry
-from datapipeline.config.dataset.normalize import floor_time_to_cadence
-from datapipeline.domain.feature import FeatureRecord, FeatureRecordSequence
+from datapipeline.utils.time import floor_time_to_cadence
+from datapipeline.domain.feature import FeatureRecord, FeatureSequence
 from datapipeline.domain.sample import Sample
-from datapipeline.domain.vector import Vector, vectorize_record_group
+from datapipeline.domain.vector import Vector
 from datapipeline.pipelines.vector.keygen import group_key_for
 from datapipeline.utils.time import parse_cadence
 
@@ -19,7 +19,7 @@ def _close_iterator(iterator) -> None:
 
 
 def vector_assemble_stage(
-    merged: Iterator[FeatureRecord | FeatureRecordSequence],
+    merged: Iterator[FeatureRecord | FeatureSequence],
     group_by_cadence: str,
 ) -> Iterator[tuple[tuple, Vector]]:
     cadence = parse_cadence(group_by_cadence)
@@ -27,14 +27,27 @@ def vector_assemble_stage(
         for group_key, group in groupby(
             merged, key=lambda fr: group_key_for(fr, cadence)
         ):
-            feature_map = defaultdict(list)
+            feature_map: dict[str, list[Any]] = {}
+            sequence_ids: set[str] = set()
             for fr in group:
-                if isinstance(fr, FeatureRecordSequence):
-                    feature_map[fr.id].extend(fr.values)
+                is_sequence = isinstance(fr, FeatureSequence)
+                if fr.id in feature_map and is_sequence != (fr.id in sequence_ids):
+                    raise ValueError(
+                        f"Vector {fr.id!r} contains both scalar and sequence values."
+                    )
+                items = feature_map.setdefault(fr.id, [])
+                if isinstance(fr, FeatureSequence):
+                    sequence_ids.add(fr.id)
+                    items.extend(fr.values)
                 else:
-                    feature_map[fr.id].append(fr.value)
-            vector = vectorize_record_group(feature_map)
-            yield group_key, vector
+                    items.append(fr.value)
+            values = {
+                feature_id: (
+                    items if feature_id in sequence_ids or len(items) != 1 else items[0]
+                )
+                for feature_id, items in feature_map.items()
+            }
+            yield group_key, Vector(values=values)
     finally:
         _close_iterator(merged)
 

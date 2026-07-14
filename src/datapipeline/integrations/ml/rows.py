@@ -66,10 +66,3 @@ def collect_vector_rows(
         flatten_sequences=flatten_sequences,
     )
     return list(iterator)
-
-
-__all__ = [
-    "collect_vector_rows",
-    "iter_vector_rows",
-    "stream_vectors",
-]

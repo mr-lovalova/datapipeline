@@ -1,6 +1,10 @@
+from contextlib import contextmanager
 from pathlib import Path
 
-from datapipeline.config.resolution import (
+import pytest
+
+from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
+from datapipeline.execution.settings import (
     LogLevelDecision,
     LogOutputSettings,
     LogOutputTarget,
@@ -15,10 +19,14 @@ def _log_output() -> LogOutputSettings:
 
 
 def _runtime() -> Runtime:
-    return Runtime(project_yaml=Path("."), artifacts_root=Path("."))
+    return Runtime(
+        project_yaml=Path("."),
+        artifacts_root=Path("."),
+        dataset=FeatureDatasetConfig(sample=SampleConfig(cadence="1h")),
+    )
 
 
-def test_run_execution_configures_logging_and_runs_work_inside_backend(monkeypatch):
+def test_run_execution_configures_logging_and_runs_work_inside_visuals(monkeypatch):
     runtime = _runtime()
     calls = []
     inside_visual_context = False
@@ -28,18 +36,24 @@ def test_run_execution_configures_logging_and_runs_work_inside_backend(monkeypat
         lambda level, output: calls.append(("logging", level, output)),
     )
 
-    def run_with_backend(visuals, runtime, level, work):
+    monkeypatch.setattr(
+        "datapipeline.profiles.executor.rich_visuals_supported",
+        lambda: True,
+    )
+
+    @contextmanager
+    def visual_execution(level):
         nonlocal inside_visual_context
-        calls.append(("visuals", visuals, runtime, level))
+        calls.append(("visuals", level))
         inside_visual_context = True
         try:
-            return work()
+            yield
         finally:
             inside_visual_context = False
 
     monkeypatch.setattr(
-        "datapipeline.profiles.executor.run_with_backend",
-        run_with_backend,
+        "datapipeline.profiles.executor.visual_execution",
+        visual_execution,
     )
 
     def work():
@@ -63,6 +77,76 @@ def test_run_execution_configures_logging_and_runs_work_inside_backend(monkeypat
     assert result == "ok"
     assert calls == [
         ("logging", 20, log_output),
-        ("visuals", "on", runtime, 20),
+        ("visuals", 20),
         ("work", True),
     ]
+    assert runtime.pipeline_observer is None
+
+
+@pytest.mark.parametrize(
+    ("visuals", "rich_supported"),
+    [("off", True), ("on", False)],
+)
+def test_run_execution_uses_plain_context_when_visuals_are_unavailable(
+    monkeypatch,
+    visuals,
+    rich_supported,
+) -> None:
+    runtime = _runtime()
+    monkeypatch.setattr(
+        "datapipeline.profiles.executor.configure_root_logging",
+        lambda **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.executor.rich_visuals_supported",
+        lambda: rich_supported,
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.executor.visual_execution",
+        lambda _level: pytest.fail("Rich visuals must not start"),
+    )
+
+    result = run_execution(
+        ExecutionSpec(
+            observability=ObservabilitySettings(
+                visuals=visuals,
+                heartbeat_interval_seconds=None,
+                log_decision=LogLevelDecision(name="INFO", value=20),
+                log_output=_log_output(),
+            ),
+            runtime=runtime,
+        ),
+        lambda: "plain",
+    )
+
+    assert result == "plain"
+    assert runtime.pipeline_observer is None
+
+
+def test_run_execution_preserves_existing_pipeline_observer(monkeypatch) -> None:
+    runtime = _runtime()
+    existing_observer = object()
+    runtime.pipeline_observer = existing_observer
+    monkeypatch.setattr(
+        "datapipeline.profiles.executor.configure_root_logging",
+        lambda **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.executor.rich_visuals_supported",
+        lambda: False,
+    )
+
+    run_execution(
+        ExecutionSpec(
+            observability=ObservabilitySettings(
+                visuals="on",
+                heartbeat_interval_seconds=None,
+                log_decision=LogLevelDecision(name="INFO", value=20),
+                log_output=_log_output(),
+            ),
+            runtime=runtime,
+        ),
+        lambda: None,
+    )
+
+    assert runtime.pipeline_observer is existing_observer

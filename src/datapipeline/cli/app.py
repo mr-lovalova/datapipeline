@@ -1,27 +1,25 @@
 import argparse
-import logging
 import sys
 from pathlib import Path
-from typing import Optional, Tuple
 
 from datapipeline.cli.command_router import execute_command
-from datapipeline.cli.logging_setup import configure_root_logging
-from datapipeline.cli.parser_builder import build_parser
-from datapipeline.config.resolution import (
-    LogOutputTarget,
+from datapipeline.cli.workspace import WorkspaceContext, load_workspace_context
+from datapipeline.cli.logging_setup import (
+    configure_root_logging,
     parse_log_output_specs,
+)
+from datapipeline.cli.parser_builder import build_parser
+from datapipeline.execution.settings import (
+    LogOutputTarget,
+    resolve_log_level,
     resolve_log_output,
 )
-from datapipeline.config.workspace import WorkspaceContext, load_workspace_context
 from datapipeline.services.path_policy import resolve_workspace_path, workspace_cwd
-from datapipeline.utils.rich_compat import suppress_file_proxy_shutdown_errors
-
-suppress_file_proxy_shutdown_errors()
 
 
 def _dataset_to_project_path(
     dataset: str,
-    workspace: Optional[WorkspaceContext],
+    workspace: WorkspaceContext | None,
 ) -> str:
     """Resolve a dataset selector (alias, folder, or file) into a project.yaml path."""
     if workspace is not None:
@@ -52,28 +50,25 @@ def _dataset_to_project_path(
 
 
 def _resolve_project_from_args(
-    project: Optional[str],
-    dataset: Optional[str],
-    workspace: Optional[WorkspaceContext],
-) -> Tuple[Optional[str], Optional[str]]:
+    project: str | None,
+    dataset: str | None,
+    workspace: WorkspaceContext | None,
+) -> tuple[str | None, str | None]:
     """Resolve final project path from --project / --dataset / jerry.yaml defaults."""
-    explicit_project = project is not None
-    explicit_dataset = dataset is not None
-
-    if explicit_project and explicit_dataset:
+    if project is not None and dataset is not None:
         raise SystemExit("Cannot use both --project and --dataset; pick one.")
 
-    if explicit_dataset:
+    if dataset is not None:
         resolved = _dataset_to_project_path(dataset, workspace)
         return resolved, dataset
 
-    if not explicit_project and workspace is not None:
-        default_ds = getattr(workspace.config, "default_dataset", None)
+    if project is None and workspace is not None:
+        default_ds = workspace.config.default_dataset
         if default_ds:
             resolved = _dataset_to_project_path(default_ds, workspace)
             return resolved, default_ds
 
-    if explicit_project:
+    if project is not None:
         return project, dataset
 
     raise SystemExit(
@@ -88,19 +83,13 @@ def _resolve_project_arguments(
 ) -> None:
     if args.cmd not in {"serve", "build", "inspect", "materialize"}:
         return
-    if not (hasattr(args, "project") or hasattr(args, "dataset")):
-        return
-    raw_project = getattr(args, "project", None)
-    raw_dataset = getattr(args, "dataset", None)
     resolved_project, resolved_dataset = _resolve_project_from_args(
-        raw_project,
-        raw_dataset,
+        args.project,
+        args.dataset,
         workspace_context,
     )
-    if hasattr(args, "project"):
-        args.project = resolved_project
-    if hasattr(args, "dataset"):
-        args.dataset = resolved_dataset
+    args.project = resolved_project
+    args.dataset = resolved_dataset
 
 
 def _configure_cli_logging(
@@ -108,13 +97,11 @@ def _configure_cli_logging(
     args: argparse.Namespace,
     workspace_context: WorkspaceContext | None,
 ) -> tuple[str | None, str, list[LogOutputTarget]]:
-    cli_level_arg = getattr(args, "log_level", None)
-    cli_log_output_specs = getattr(args, "log_output", None)
-
-    base_level_name = (cli_level_arg or "INFO").upper()
-    base_level = logging._nameToLevel.get(base_level_name, logging.WARNING)
+    cli_level_arg = args.log_level
+    cli_log_output_specs = args.log_output
 
     try:
+        base_level = resolve_log_level(cli_level_arg)
         cli_log_outputs = parse_log_output_specs(
             cli_log_output_specs,
             resolve_global_path=lambda value: resolve_workspace_path(
@@ -123,17 +110,17 @@ def _configure_cli_logging(
             ),
         )
         base_log_output = resolve_log_output(
-            output_candidates=(
-                [item for item in cli_log_outputs if item.scope != "execution"],
-            ),
+            cli_outputs=[
+                output for output in cli_log_outputs if output.scope != "execution"
+            ],
             allow_execution_scope=False,
         )
     except ValueError as exc:
         parser.error(str(exc))
         raise SystemExit(2) from exc
 
-    configure_root_logging(level=base_level, output=base_log_output)
-    return cli_level_arg, base_level_name, cli_log_outputs
+    configure_root_logging(level=base_level.value, output=base_log_output)
+    return cli_level_arg, base_level.name, cli_log_outputs
 
 
 def main() -> None:

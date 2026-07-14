@@ -54,22 +54,23 @@ reading the data. Visuals are independent of log filtering.
 - `jerry inspect --project <project.yaml> [--run <inspect-profile>] [--artifact-mode AUTO|FORCE|OFF] [--visuals on|off] [--heartbeat-interval SECONDS]`
   - Runs inspect profiles declared as `profiles/inspect.<name>.yaml`.
   - Without `--run`, executes all enabled inspect profiles.
-  - Use `--run coverage`, `--run matrix`, or `--run thresholds` to execute one profile.
+  - Use `--run coverage` or `--run matrix` to execute one profile.
   - Like `serve`, prepares the union of selected profiles' artifact requirements
     once, then executes the profiles in their exact configured order.
-  - Profile targets map to runtime operations in `tasks/operations/`
-    (`core.runtime.coverage`, `core.runtime.matrix`, and
-    `core.runtime.thresholds`).
+  - Profile targets map to core or custom runtime operations. Core coverage and
+    matrix operations require no YAML declarations.
+  - `--limit N` caps samples for the matrix operation and is passed to custom
+    runtime operations. Coverage is artifact-based and rejects `--limit`.
 - `jerry inspect --project <project.yaml> --run matrix`
   - Typical matrix profile run. Matrix output format/path is controlled by the
-    inspect profile and output flags; the matrix operation has no task options.
-- `jerry inspect --project <project.yaml> --run thresholds`
-  - Runs the threshold report. Behavior is controlled by the target operation
-    `options` (for example `sort` and `threshold`).
+    inspect profile and output flags. The matrix operation is bounded by its
+    `max_cells` option and can inspect assembled or postprocessed samples.
+    `--limit N` caps samples after that stage; `max_cells` remains the separate
+    bound on scalar cells and individual list elements.
 - `jerry build --project <project.yaml> [--run <profile>] [--force] [--visuals on|off] [--heartbeat-interval SECONDS]`
-  - Regenerates artifact tasks declared under `project.paths.tasks` when the configuration hash changes.
+  - Regenerates core or custom artifacts when that artifact's hash changes.
   - If build profiles are defined, enabled profiles run by default; use `--run` to target one profile.
-  - Each build profile executes one configured artifact task `target`; selected
+  - Each build profile executes one artifact operation `target`; selected
     profiles must have distinct targets.
   - Build profiles remain explicit artifact roots and execute in their configured
     profile order. The graph orders only the internal dependency jobs needed by

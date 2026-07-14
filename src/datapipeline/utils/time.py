@@ -12,6 +12,7 @@ _SECONDS_PER_UNIT = {
     "h": 60 * 60,
     "d": 24 * 60 * 60,
 }
+_UTC_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 
 def parse_timecode(value: str) -> timedelta:
@@ -35,9 +36,17 @@ def parse_cadence(value: str) -> timedelta:
     if match is None:
         raise ValueError(f"Unsupported cadence: {value}")
 
-    return timedelta(
-        seconds=int(match.group(1)) * _SECONDS_PER_UNIT[match.group(2)]
-    )
+    return timedelta(seconds=int(match.group(1)) * _SECONDS_PER_UNIT[match.group(2)])
+
+
+def floor_time_to_cadence(ts: datetime, cadence: timedelta) -> datetime:
+    if ts.tzinfo is None:
+        epoch = _UTC_EPOCH.replace(tzinfo=None)
+        return epoch + ((ts - epoch) // cadence) * cadence
+
+    utc_timestamp = ts.astimezone(timezone.utc)
+    floored = _UTC_EPOCH + ((utc_timestamp - _UTC_EPOCH) // cadence) * cadence
+    return floored.astimezone(ts.tzinfo)
 
 
 def parse_datetime(value: str) -> datetime:

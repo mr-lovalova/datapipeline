@@ -14,7 +14,7 @@ from ..constants import DEFAULT_IO_LOADER_EP
 logger = logging.getLogger(__name__)
 
 _RESERVED_PACKAGE_NAMES = {"datapipeline", "test", "tests"}
-_STDLIB_MODULE_NAMES = getattr(sys, "stdlib_module_names", set())
+_STDLIB_MODULE_NAMES = sys.stdlib_module_names
 
 
 def _normalized_package_name(dist_name: str) -> str:
@@ -47,19 +47,10 @@ def scaffold_plugin(name: str, outdir: Path) -> None:
     package_name = _normalized_package_name(name)
     skeleton_ref = files("datapipeline") / "templates" / "plugin_skeleton"
     with as_file(skeleton_ref) as skeleton_dir:
-        dataset_base = skeleton_dir / "_dataset_base"
-        target.mkdir(parents=True)
-        shutil.copytree(dataset_base, target / "your-dataset")
-        shutil.copytree(dataset_base, target / "your-interim-data-builder")
-
-        # Copy concrete files after the shared base so each dataset overlay wins.
-        # The source-only base must not appear in generated plugins.
         shutil.copytree(
             skeleton_dir,
             target,
-            dirs_exist_ok=True,
             ignore=shutil.ignore_patterns(
-                "_dataset_base",
                 "__pycache__",
                 "*.pyc",
                 "*.pyo",

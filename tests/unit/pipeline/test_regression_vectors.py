@@ -4,6 +4,7 @@ import math
 from pathlib import Path
 
 from datapipeline.artifacts.scaler import save_scaler_artifact
+from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
 from datapipeline.config.transforms import (
     FillConfig,
     RollingConfig,
@@ -67,6 +68,7 @@ def _runtime_with_streams(
     runtime = Runtime(
         project_yaml=project_yaml,
         artifacts_root=artifacts_root,
+        dataset=FeatureDatasetConfig(sample=SampleConfig(cadence="1h")),
         execution=ExecutionConfig(),
     )
 
@@ -340,6 +342,11 @@ def test_sequence_features_are_windowed_by_sample_keys(tmp_path) -> None:
         ],
     }
     runtime = _runtime_with_streams(tmp_path, streams)
+    runtime.streams["monthly_returns"] = replace(
+        runtime.streams["monthly_returns"],
+        partition_by=("security_id",),
+        feature_id_by=(),
+    )
     context = PipelineContext(runtime)
     feature_cfgs = [
         FeatureRecordConfig(

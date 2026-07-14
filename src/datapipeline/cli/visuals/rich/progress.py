@@ -13,26 +13,32 @@ from rich.progress import (
     TextColumn,
     TimeElapsedColumn,
 )
-from rich.table import Column
+from rich.rule import Rule
+from rich.table import Column, Table
 from rich.text import Text
 
 from datapipeline.cli.visuals.execution import (
+    ExecutionEventFormatter,
     PipelineFinished,
     PipelineStarted,
     ExecutionLogEvent,
     NodeFinished,
     NodeProgress,
     NodeStarted,
+    OperationProgress,
 )
 from datapipeline.cli.visuals.execution_context import (
-    reset_current_execution_event_sink,
-    reset_current_terminal_log_proxy_sink,
-    set_current_execution_event_sink,
-    set_current_terminal_log_proxy_sink,
+    reset_current_execution_event_handler,
+    reset_current_terminal_log_handler,
+    set_current_execution_event_handler,
+    set_current_terminal_log_handler,
 )
 from datapipeline.execution.events import ProgressSnapshot
-
-from .event_sink import _RichConsoleExecutionSink
+from datapipeline.execution.observability import (
+    FileResult,
+    OperationFinished,
+    OperationStarted,
+)
 
 
 @dataclass
@@ -82,6 +88,7 @@ class _ExecutionProgress:
         self._root_task = None
         self._nodes.clear()
         self._active_nodes.clear()
+        self._progress.refresh()
 
     def _start_pipeline(self, event: PipelineStarted) -> None:
         if self._root_pipeline is not None:
@@ -149,6 +156,7 @@ class _ExecutionProgress:
             self._progress.remove_task(state.task_id)
         if not self._debug:
             self._render_active_node()
+        self._progress.refresh()
 
     def _render_active_node(self) -> None:
         if self._root_task is None:
@@ -208,6 +216,81 @@ def _progress_status(snapshot: ProgressSnapshot) -> str:
     return " · ".join(parts)
 
 
+class _RichExecutionRenderer:
+    def __init__(
+        self,
+        level: int,
+        console,
+        progress: _ExecutionProgress | None = None,
+    ) -> None:
+        self._level = int(level)
+        self._console = console
+        self._progress = progress
+
+    def render(self, event: ExecutionLogEvent) -> None:
+        if self._progress is not None and isinstance(
+            event,
+            PipelineStarted
+            | NodeStarted
+            | NodeProgress
+            | NodeFinished
+            | PipelineFinished,
+        ):
+            self._progress.handle(event)
+            if isinstance(event, NodeStarted | NodeProgress):
+                return
+        if isinstance(event, NodeProgress):
+            return
+        event_level = ExecutionEventFormatter.level(event)
+        if event_level < self._level:
+            return
+        if isinstance(event, OperationStarted):
+            self._console.print(Rule(Text(f"Operation {event.name}"), style="dim"))
+            return
+        if isinstance(event, FileResult):
+            self._console.print(self._render_file_result(event))
+            return
+        text = self._render_event(event)
+        if isinstance(event, OperationProgress):
+            self._console.print(text, overflow="ellipsis", no_wrap=True)
+            return
+        self._console.print(text)
+
+    @staticmethod
+    def _render_file_result(event: FileResult) -> Table:
+        table = Table.grid(padding=(0, 1))
+        table.add_column(no_wrap=True)
+        table.add_column(ratio=1, overflow="fold")
+        result = Text(str(event.path))
+        result.stylize(f"blue link {event.path.resolve().as_uri()}")
+        table.add_row(f"{event.label}:", result)
+        return table
+
+    def _render_event(self, event: ExecutionLogEvent) -> Text:
+        level = ExecutionEventFormatter.level(event)
+        text = Text(ExecutionEventFormatter.message(event))
+        if isinstance(event, PipelineFinished | NodeFinished | OperationFinished):
+            status_style = "green" if event.status == "success" else "red"
+            text.highlight_words([f"status={event.status}"], style=status_style)
+        elif level >= logging.ERROR:
+            text.stylize("red")
+        elif level >= logging.WARNING:
+            text.stylize("yellow")
+        return text
+
+
+def rich_visuals_supported() -> bool:
+    if not sys.stderr.isatty():
+        return False
+    console = Console(file=sys.stderr, markup=False, highlight=False)
+    return bool(
+        console.is_terminal
+        and console.is_interactive
+        and not console.is_dumb_terminal
+        and console.color_system is not None
+    )
+
+
 @contextmanager
 def visual_execution(log_level: int):
     console = Console(file=sys.stderr, markup=False, highlight=False)
@@ -236,16 +319,22 @@ def visual_execution(log_level: int):
         console=console,
         refresh_per_second=10,
     )
-    renderer = _ExecutionProgress(progress, debug=debug)
-    sink = _RichConsoleExecutionSink(log_level, console, renderer)
-    event_token = set_current_execution_event_sink(sink)
-    proxy_token = set_current_terminal_log_proxy_sink(sink)
+    progress_renderer = _ExecutionProgress(progress, debug=debug)
+    event_renderer = _RichExecutionRenderer(log_level, console, progress_renderer)
+    event_token = set_current_execution_event_handler(event_renderer.render)
+    proxy_token = set_current_terminal_log_handler(event_renderer.render)
+    refresh_thread = None
     try:
         with progress:
+            # Rich clears this reference when stopping without joining the thread.
+            refresh_thread = progress.live._refresh_thread
             try:
                 yield
             finally:
-                renderer.clear()
+                progress_renderer.clear()
     finally:
-        reset_current_terminal_log_proxy_sink(proxy_token)
-        reset_current_execution_event_sink(event_token)
+        if refresh_thread is not None:
+            # Do not let its FileProxy survive into interpreter shutdown.
+            refresh_thread.join()
+        reset_current_terminal_log_handler(proxy_token)
+        reset_current_execution_event_handler(event_token)

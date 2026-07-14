@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
 from datapipeline.execution import runner as pipeline_runner
 from datapipeline.execution.context import PipelineContext
 from datapipeline.execution.pipeline import Pipeline
@@ -67,11 +68,15 @@ class _CollectingObserver:
 
 def _context(tmp_path: Path) -> PipelineContext:
     project_yaml = tmp_path / "project.yaml"
-    project_yaml.write_text("version: 1\n", encoding="utf-8")
+    project_yaml.write_text("version: 1\nartifact_revision: 1\n", encoding="utf-8")
     artifacts_root = tmp_path / "artifacts"
     artifacts_root.mkdir(parents=True, exist_ok=True)
     return PipelineContext(
-        Runtime(project_yaml=project_yaml, artifacts_root=artifacts_root)
+        Runtime(
+            project_yaml=project_yaml,
+            artifacts_root=artifacts_root,
+            dataset=FeatureDatasetConfig(sample=SampleConfig(cadence="1h")),
+        )
     )
 
 

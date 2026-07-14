@@ -8,7 +8,7 @@ vector assembly. `dataset.yaml` exposes two explicit stages: `scale` and
 
 - `scale`: standardize scalar feature values using the managed
   `build/scaler.json` artifact.
-- `sequence`: emit sliding windows as `FeatureRecordSequence` payloads.
+- `sequence`: emit sliding windows as `FeatureSequence` payloads.
 
 ```yaml
 features:
@@ -26,11 +26,14 @@ features:
 ```
 
 `scale` is a boolean. `with_mean`, `with_std`, and `epsilon` are configured once
-on the scaler build task and recorded in the managed artifact; individual
+on the scaler build operation and recorded in the managed artifact; individual
 features cannot override them. A `None` value remains `None`. Other nonnumeric
 or non-finite values are rejected.
 
 `sequence` accepts strictly positive integer `size` and optional `stride`
 (default `1`). It creates independent windows per feature ID and entity from
-the source stream's record order. Cadence regularization belongs in that
-stream's `stream:` transforms when it is required.
+the source stream's record order. For sequenced vectors, `sample.keys` and
+`feature_id_by` must together match the stream's `partition_by` fields exactly;
+this keeps each entity contiguous and sequence memory bounded to one window.
+Cadence regularization belongs in that stream's `stream:` transforms when it is
+required.

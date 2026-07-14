@@ -40,13 +40,16 @@ def test_drop_samples_honors_explicit_ids() -> None:
     assert list(transform.apply(iter([sample]))) == [sample]
 
 
-def test_drop_samples_rejects_unknown_ids_and_corrupt_values() -> None:
+def test_drop_samples_rejects_unknown_ids() -> None:
     with pytest.raises(ValueError, match="Unknown vector ids"):
         DropSamplesTransform(["a"], threshold=1.0, ids=["typo"])
 
-    transform = DropSamplesTransform(["a"], threshold=1.0)
-    with pytest.raises(TypeError, match="finite number"):
-        list(transform.apply(iter([make_vector(0, {"a": "bad"})])))
+
+def test_drop_samples_counts_categorical_values_as_present() -> None:
+    sample = make_vector(0, {"category": "healthcare"})
+    transform = DropSamplesTransform(["category"], threshold=1.0)
+
+    assert list(transform.apply(iter([sample]))) == [sample]
 
 
 def test_drop_target_samples_counts_absent_target_vector_as_missing() -> None:

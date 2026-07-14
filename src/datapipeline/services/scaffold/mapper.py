@@ -5,10 +5,8 @@ from datapipeline.services.paths import pkg_root, resolve_base_pkg_dir
 from datapipeline.services.scaffold.templates import render
 from datapipeline.services.scaffold.utils import (
     ensure_pkg_dir,
-    ep_key_from_name,
     info,
     status,
-    to_snake,
     validate_identifier,
     write_if_missing,
 )
@@ -16,8 +14,10 @@ from datapipeline.services.scaffold.layout import (
     DIR_MAPPERS,
     TPL_MAPPER_INGEST,
     domain_record_class,
+    ep_key_from_name,
     entrypoint_target,
     pyproject_path,
+    to_snake,
 )
 from datapipeline.services.entrypoints import inject_ep
 from datapipeline.services.constants import MAPPERS_GROUP

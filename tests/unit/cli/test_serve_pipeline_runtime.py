@@ -2,8 +2,9 @@ import logging
 from types import SimpleNamespace
 
 import pytest
+
 from datapipeline.config.preview import PreviewStage
-from datapipeline.config.split import TimeSplitConfig
+from datapipeline.config.dataset.split import TimeSplitConfig
 from datapipeline.execution.pipeline import Pipeline
 from datapipeline.execution.node import PipelineNode, SourceNode
 from datapipeline.domain.sample import Sample
@@ -13,25 +14,19 @@ from datapipeline.operations.persistence import (
     SplitRuntimeOutput,
     persist_runtime_result,
 )
-from datapipeline.operations.runtime.pipeline import serve_with_runtime
-
-
-@pytest.fixture(autouse=True)
-def _skip_dataset_identity_validation(monkeypatch):
-    monkeypatch.setattr(
-        "datapipeline.operations.runtime.pipeline.validate_dataset_feature_identity",
-        lambda runtime, dataset: None,
-    )
+from datapipeline.operations.runtime.pipeline import run_pipeline_operation
 
 
 def _runtime(streams=None):
-    return SimpleNamespace(
+    runtime = SimpleNamespace(
         window_bounds=None,
         pipeline_observer=None,
         heartbeat_interval_seconds=None,
         split_labels=(),
         streams=streams or {},
     )
+    runtime.dataset = _dataset()
+    return runtime
 
 
 def _dataset(*, targets=None):
@@ -78,14 +73,13 @@ def _serve(
     target,
     preview: PreviewStage | None,
 ):
-    return serve_with_runtime(
+    runtime.dataset = dataset
+    return run_pipeline_operation(
         runtime=runtime,
-        dataset=dataset,
         limit=None,
         target=target,
         throttle_ms=None,
         preview=preview,
-        visuals="on",
     )
 
 
@@ -129,11 +123,12 @@ def _record_preview_pipeline():
     )
 
 
-def test_serve_with_runtime_reraises_keyboard_interrupt_and_marks_run_failed(
+def test_pipeline_operation_reraises_keyboard_interrupt_and_marks_run_failed(
     monkeypatch,
 ):
     runtime = _runtime()
     dataset = _dataset()
+    runtime.dataset = dataset
     target = _target()
 
     monkeypatch.setattr(
@@ -149,14 +144,12 @@ def test_serve_with_runtime_reraises_keyboard_interrupt_and_marks_run_failed(
         raise KeyboardInterrupt()
         yield None
 
-    result = serve_with_runtime(
+    result = run_pipeline_operation(
         runtime=runtime,
-        dataset=dataset,
         limit=None,
         target=target,
         throttle_ms=None,
         preview=None,
-        visuals="on",
     )
 
     with pytest.raises(KeyboardInterrupt):
@@ -167,18 +160,19 @@ def test_serve_with_runtime_reraises_keyboard_interrupt_and_marks_run_failed(
         )
 
 
-def test_serve_with_runtime_returns_split_fanout_output(monkeypatch, tmp_path):
+def test_pipeline_operation_returns_split_fanout_output(monkeypatch, tmp_path):
     runtime = SimpleNamespace(
         window_bounds=None,
         pipeline_observer=None,
         heartbeat_interval_seconds=None,
         split_labels=("train", "val"),
-        split=TimeSplitConfig(
-            boundaries=["2021-01-01T00:00:00Z"],
-            labels=["train", "val"],
-        ),
     )
     dataset = _dataset()
+    dataset.split = TimeSplitConfig(
+        boundaries=["2021-01-01T00:00:00Z"],
+        labels=["train", "val"],
+    )
+    runtime.dataset = dataset
     target = _fs_target(tmp_path / "vectors.jsonl")
     samples = [
         Sample(key="2020-01-01T00:00:00Z", features=Vector(values={"x": 1})),

@@ -25,7 +25,10 @@ def test_resolve_project_path_uses_project_directory(tmp_path: Path) -> None:
     project_yaml = project_dir / "project.yaml"
     project_yaml.write_text("version: 1\nname: x\npaths: {}\n", encoding="utf-8")
 
-    assert resolve_project_path(project_yaml, "sources").resolve() == (project_dir / "sources").resolve()
+    assert (
+        resolve_project_path(project_yaml, "sources").resolve()
+        == (project_dir / "sources").resolve()
+    )
     absolute = tmp_path / "absolute" / "target"
     assert resolve_project_path(project_yaml, absolute) == absolute.resolve()
 

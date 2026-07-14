@@ -3,24 +3,29 @@ import logging
 import sys
 from pathlib import Path
 
+import pytest
+
 import datapipeline.execution.observability as observability
-from datapipeline.cli.logging_setup import configure_root_logging
+from datapipeline.cli.logging_setup import (
+    configure_root_logging,
+    parse_log_output_specs,
+)
 from datapipeline.cli.visuals.execution import (
     ExecutionMessage,
     make_operation_observer,
 )
 from datapipeline.cli.visuals.execution_context import (
-    reset_current_execution_event_sink,
-    reset_current_terminal_log_proxy_sink,
-    set_current_execution_event_sink,
-    set_current_terminal_log_proxy_sink,
+    reset_current_execution_event_handler,
+    reset_current_terminal_log_handler,
+    set_current_execution_event_handler,
+    set_current_terminal_log_handler,
 )
-from datapipeline.config.resolution import LogOutputSettings, LogOutputTarget
 from datapipeline.execution.observability import (
     emit_file_result,
     operation_observer,
     operation_scope,
 )
+from datapipeline.execution.settings import LogOutputSettings, LogOutputTarget
 
 
 def _flush_root_handlers() -> None:
@@ -59,7 +64,7 @@ def test_operation_and_output_events_render_as_flat_plain_logs_without_visuals(
     ]
 
 
-def test_operation_and_output_logs_do_not_depend_on_visual_sink(
+def test_operation_and_output_logs_do_not_depend_on_visual_handler(
     monkeypatch,
     tmp_path,
 ):
@@ -83,19 +88,19 @@ def test_operation_and_output_logs_do_not_depend_on_visual_sink(
         ),
     )
 
-    class _CaptureSink:
+    class _CaptureHandler:
         def __init__(self) -> None:
             self.events = []
 
-        def emit(self, event) -> None:
+        def __call__(self, event) -> None:
             self.events.append(event)
 
-    sink = _CaptureSink()
-    token = set_current_execution_event_sink(sink)
+    handler = _CaptureHandler()
+    token = set_current_execution_event_handler(handler)
     try:
         _emit_materialize_outputs(logger)
     finally:
-        reset_current_execution_event_sink(token)
+        reset_current_execution_event_handler(token)
         _flush_root_handlers()
 
     plain_content = without_visuals.read_text(encoding="utf-8")
@@ -108,7 +113,7 @@ def test_operation_and_output_logs_do_not_depend_on_visual_sink(
         "Operation materialize:adv.20 finished status=success elapsed=0.000000s",
     ):
         assert visual_content.count(expected) == 1
-    assert len(sink.events) == 4
+    assert len(handler.events) == 4
 
 
 def test_operation_and_output_logs_obey_warning_threshold(monkeypatch, tmp_path):
@@ -145,7 +150,7 @@ def test_configure_root_logging_creates_file_on_first_record(tmp_path) -> None:
     assert log_path.read_text(encoding="utf-8") == "first record\n"
 
 
-def test_configure_root_logging_suppresses_execution_events_on_stderr_when_visual_sink_active(
+def test_configure_root_logging_suppresses_terminal_execution_events_during_visuals(
     monkeypatch,
 ):
     stream = io.StringIO()
@@ -156,7 +161,7 @@ def test_configure_root_logging_suppresses_execution_events_on_stderr_when_visua
     )
 
     logger = logging.getLogger("datapipeline.tests.logging_setup.stderr")
-    token = set_current_execution_event_sink(object())
+    token = set_current_execution_event_handler(lambda _event: None)
     try:
         logger.info(
             "Pipeline started name=demo",
@@ -164,7 +169,7 @@ def test_configure_root_logging_suppresses_execution_events_on_stderr_when_visua
         )
         logger.info("plain log line")
     finally:
-        reset_current_execution_event_sink(token)
+        reset_current_execution_event_handler(token)
         _flush_root_handlers()
 
     rendered = stream.getvalue()
@@ -172,7 +177,7 @@ def test_configure_root_logging_suppresses_execution_events_on_stderr_when_visua
     assert "Pipeline started name=demo" not in rendered
 
 
-def test_configure_root_logging_keeps_execution_events_in_file_when_visual_sink_active(
+def test_configure_root_logging_keeps_execution_events_in_file_during_visuals(
     tmp_path,
 ):
     log_path = tmp_path / "logs" / "app.log"
@@ -184,21 +189,21 @@ def test_configure_root_logging_keeps_execution_events_in_file_when_visual_sink_
     )
 
     logger = logging.getLogger("datapipeline.tests.logging_setup.file")
-    token = set_current_execution_event_sink(object())
+    token = set_current_execution_event_handler(lambda _event: None)
     try:
         logger.info(
             "Pipeline started name=demo",
             extra={"dp_event_kind": "pipeline_start"},
         )
     finally:
-        reset_current_execution_event_sink(token)
+        reset_current_execution_event_handler(token)
         _flush_root_handlers()
 
     content = log_path.read_text(encoding="utf-8")
     assert "Pipeline started name=demo" in content
 
 
-def test_configure_root_logging_proxies_plain_terminal_logs_into_rich_visual_sink(
+def test_configure_root_logging_routes_plain_terminal_logs_through_rich_visuals(
     monkeypatch,
 ):
     stream = io.StringIO()
@@ -208,37 +213,34 @@ def test_configure_root_logging_proxies_plain_terminal_logs_into_rich_visual_sin
         output=LogOutputSettings(outputs=(LogOutputTarget(transport="stderr"),)),
     )
 
-    class _RichSink:
+    class _RichHandler:
         def __init__(self) -> None:
             self.events = []
 
-        def set_live_console(self, _console) -> None:
-            return None
-
-        def emit(self, event) -> None:
+        def __call__(self, event) -> None:
             self.events.append(event)
 
-    sink = _RichSink()
+    handler = _RichHandler()
     logger = logging.getLogger("datapipeline.tests.logging_setup.rich_proxy")
-    sink_token = set_current_execution_event_sink(sink)
-    proxy_token = set_current_terminal_log_proxy_sink(sink)
+    event_token = set_current_execution_event_handler(handler)
+    log_token = set_current_terminal_log_handler(handler)
     try:
         logger.warning("plain log line")
     finally:
-        reset_current_terminal_log_proxy_sink(proxy_token)
-        reset_current_execution_event_sink(sink_token)
+        reset_current_terminal_log_handler(log_token)
+        reset_current_execution_event_handler(event_token)
         _flush_root_handlers()
 
     rendered = stream.getvalue()
     assert "plain log line" not in rendered
-    assert len(sink.events) == 1
-    event = sink.events[0]
+    assert len(handler.events) == 1
+    event = handler.events[0]
     assert isinstance(event, ExecutionMessage)
     assert event.message == "plain log line"
     assert event.log_level == logging.WARNING
 
 
-def test_configure_root_logging_does_not_proxy_plain_logs_without_proxy_sink(
+def test_configure_root_logging_does_not_proxy_plain_logs_without_log_handler(
     monkeypatch,
 ):
     stream = io.StringIO()
@@ -249,12 +251,33 @@ def test_configure_root_logging_does_not_proxy_plain_logs_without_proxy_sink(
     )
 
     logger = logging.getLogger("datapipeline.tests.logging_setup.no_proxy")
-    token = set_current_execution_event_sink(object())
+    token = set_current_execution_event_handler(lambda _event: None)
     try:
         logger.warning("plain log line")
     finally:
-        reset_current_execution_event_sink(token)
+        reset_current_execution_event_handler(token)
         _flush_root_handlers()
 
     rendered = stream.getvalue()
     assert "plain log line" in rendered
+
+
+def test_parse_log_output_specs_parses_supported_targets(tmp_path):
+    outputs = parse_log_output_specs(
+        ["stderr", "execution:logs/serve.log", f"fs:{tmp_path / 'jerry.log'}"],
+        resolve_global_path=Path,
+    )
+
+    assert [output.transport for output in outputs] == ["stderr", "fs", "fs"]
+    assert [output.scope for output in outputs] == [
+        "global",
+        "execution",
+        "global",
+    ]
+    assert outputs[1].destination == Path("logs/serve.log")
+    assert outputs[2].destination == tmp_path / "jerry.log"
+
+
+def test_parse_log_output_specs_rejects_invalid_values():
+    with pytest.raises(ValueError, match="invalid --log-output value"):
+        parse_log_output_specs(["file:./x.log"], resolve_global_path=Path)

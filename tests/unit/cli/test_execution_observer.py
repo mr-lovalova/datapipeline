@@ -9,9 +9,7 @@ from datapipeline.cli.visuals.execution import (
     PipelineStarted,
     ExecutionEventFormatter,
     PipelineEventObserver,
-    ExecutionEventSink,
     ExecutionMessage,
-    LoggerExecutionEventSink,
     NodeFinished,
     NodeProgress,
     NodeStarted,
@@ -21,8 +19,8 @@ from datapipeline.cli.visuals.execution import (
     make_operation_observer,
 )
 from datapipeline.cli.visuals.execution_context import (
-    reset_current_execution_event_sink,
-    set_current_execution_event_sink,
+    reset_current_execution_event_handler,
+    set_current_execution_event_handler,
 )
 from datapipeline.execution.events import (
     PipelineRunEvent,
@@ -41,11 +39,11 @@ from datapipeline.execution.observability import (
 )
 
 
-class _CaptureSink(ExecutionEventSink):
+class _CaptureHandler:
     def __init__(self) -> None:
         self.events = []
 
-    def emit(self, event) -> None:
+    def __call__(self, event) -> None:
         self.events.append(event)
 
 
@@ -167,7 +165,7 @@ def test_failed_terminal_events_are_errors() -> None:
 
 def test_observer_logs_root_lifecycle_and_summary_at_info(caplog) -> None:
     logger = logging.getLogger("datapipeline.cli.visuals.execution.test.root")
-    observer = PipelineEventObserver(LoggerExecutionEventSink(logger))
+    observer = PipelineEventObserver(logger)
 
     with caplog.at_level(logging.INFO, logger=logger.name):
         observer.on_pipeline_start("ingest:prices", 2, "transport=fs.file file=prices")
@@ -190,7 +188,7 @@ def test_observer_logs_root_lifecycle_and_summary_at_info(caplog) -> None:
 
 def test_observer_logs_stages_at_debug(caplog) -> None:
     logger = logging.getLogger("datapipeline.cli.visuals.execution.test.stages")
-    observer = PipelineEventObserver(LoggerExecutionEventSink(logger))
+    observer = PipelineEventObserver(logger)
 
     with caplog.at_level(logging.DEBUG, logger=logger.name):
         observer.on_node_start("pipeline", "load", 0)
@@ -213,7 +211,7 @@ def test_observer_logs_stages_at_debug(caplog) -> None:
 
 def test_observer_logs_only_persistent_stage_progress(caplog) -> None:
     logger = logging.getLogger("datapipeline.cli.visuals.execution.test.progress")
-    observer = PipelineEventObserver(LoggerExecutionEventSink(logger))
+    observer = PipelineEventObserver(logger)
 
     with caplog.at_level(logging.INFO, logger=logger.name):
         observer.on_node_progress(
@@ -245,7 +243,7 @@ def test_observer_logs_only_persistent_stage_progress(caplog) -> None:
 
 def test_observer_includes_error_details_on_failure(caplog) -> None:
     logger = logging.getLogger("datapipeline.cli.visuals.execution.test.error")
-    observer = PipelineEventObserver(LoggerExecutionEventSink(logger))
+    observer = PipelineEventObserver(logger)
 
     with caplog.at_level(logging.INFO, logger=logger.name):
         observer.on_pipeline_end(
@@ -270,43 +268,10 @@ def test_observer_includes_error_details_on_failure(caplog) -> None:
     )
 
 
-def test_make_pipeline_observer_accepts_single_custom_sink() -> None:
-    sink = _CaptureSink()
-    observer = make_pipeline_observer(sink=sink)
-
-    observer.on_pipeline_start("pipeline:serve", 3)
-    observer.on_pipeline_end(PipelineRunEvent("pipeline:serve", 3, 1, 0.5, "success"))
-
-    assert [type(event) for event in sink.events] == [PipelineStarted, PipelineFinished]
-
-
-def test_make_pipeline_observer_fans_out_to_multiple_sinks() -> None:
-    left = _CaptureSink()
-    right = _CaptureSink()
-    observer = make_pipeline_observer(sinks=[left, right])
-
-    observer.on_pipeline_start("pipeline:serve", 3)
-    observer.on_pipeline_end(PipelineRunEvent("pipeline:serve", 3, 1, 0.5, "success"))
-
-    assert [type(event) for event in left.events] == [PipelineStarted, PipelineFinished]
-    assert [type(event) for event in right.events] == [
-        PipelineStarted,
-        PipelineFinished,
-    ]
-
-
-def test_make_pipeline_observer_rejects_ambiguous_or_empty_sinks() -> None:
-    sink = _CaptureSink()
-    with pytest.raises(ValueError, match="either 'sink' or 'sinks'"):
-        make_pipeline_observer(sink=sink, sinks=[sink])
-    with pytest.raises(ValueError, match="at least one sink"):
-        make_pipeline_observer(sinks=[])
-
-
-def test_make_pipeline_observer_uses_context_sink_when_present(caplog) -> None:
+def test_make_pipeline_observer_routes_to_logger_and_context_handler(caplog) -> None:
     logger = logging.getLogger("datapipeline.cli.visuals.execution.test.context")
-    capture = _CaptureSink()
-    token = set_current_execution_event_sink(capture)
+    capture = _CaptureHandler()
+    token = set_current_execution_event_handler(capture)
     try:
         observer = make_pipeline_observer(logger=logger)
         with caplog.at_level(logging.INFO, logger=logger.name):
@@ -315,7 +280,7 @@ def test_make_pipeline_observer_uses_context_sink_when_present(caplog) -> None:
                 PipelineRunEvent("pipeline:serve", 3, 1, 0.5, "success")
             )
     finally:
-        reset_current_execution_event_sink(token)
+        reset_current_execution_event_handler(token)
 
     assert [type(event) for event in capture.events] == [
         PipelineStarted,
@@ -327,15 +292,15 @@ def test_make_pipeline_observer_uses_context_sink_when_present(caplog) -> None:
     ]
 
 
-def test_context_sink_is_resolved_when_each_event_is_emitted(caplog) -> None:
+def test_context_handler_is_resolved_when_each_event_is_emitted(caplog) -> None:
     logger = logging.getLogger("datapipeline.cli.visuals.execution.test.reset")
-    capture = _CaptureSink()
-    token = set_current_execution_event_sink(capture)
+    capture = _CaptureHandler()
+    token = set_current_execution_event_handler(capture)
     try:
         observer = make_pipeline_observer(logger=logger)
         observer.on_pipeline_start("pipeline:serve", 3)
     finally:
-        reset_current_execution_event_sink(token)
+        reset_current_execution_event_handler(token)
 
     with caplog.at_level(logging.INFO, logger=logger.name):
         observer.on_pipeline_end(
@@ -347,21 +312,21 @@ def test_context_sink_is_resolved_when_each_event_is_emitted(caplog) -> None:
 
 
 def test_emit_execution_message_uses_context_and_logger(caplog) -> None:
-    capture = _CaptureSink()
+    capture = _CaptureHandler()
     logger = logging.getLogger("datapipeline.cli.visuals.execution.test.message")
-    token = set_current_execution_event_sink(capture)
+    token = set_current_execution_event_handler(capture)
     try:
         with caplog.at_level(logging.INFO, logger=logger.name):
             emit_execution_message("Saved 2 items", logger=logger)
     finally:
-        reset_current_execution_event_sink(token)
+        reset_current_execution_event_handler(token)
 
     assert len(capture.events) == 1
     assert capture.events[0] == ExecutionMessage(message="Saved 2 items")
     assert caplog.records[-1].getMessage() == "Saved 2 items"
 
 
-def test_emit_execution_message_logs_without_context_sink(caplog) -> None:
+def test_emit_execution_message_logs_without_context_handler(caplog) -> None:
     logger = logging.getLogger("datapipeline.cli.visuals.execution.test.default")
 
     with caplog.at_level(logging.INFO, logger=logger.name):
@@ -372,9 +337,9 @@ def test_emit_execution_message_logs_without_context_sink(caplog) -> None:
 
 
 def test_operation_scope_emits_flat_lifecycle_result_and_progress(caplog) -> None:
-    capture = _CaptureSink()
+    capture = _CaptureHandler()
     logger = logging.getLogger("datapipeline.cli.visuals.execution.test.operation")
-    token = set_current_execution_event_sink(capture)
+    token = set_current_execution_event_handler(capture)
     try:
         with caplog.at_level(logging.INFO, logger=logger.name):
             observer = make_operation_observer(logger)
@@ -385,7 +350,7 @@ def test_operation_scope_emits_flat_lifecycle_result_and_progress(caplog) -> Non
                     "running elapsed=1s items=3",
                 )
     finally:
-        reset_current_execution_event_sink(token)
+        reset_current_execution_event_handler(token)
 
     assert [type(event) for event in capture.events] == [
         OperationStarted,

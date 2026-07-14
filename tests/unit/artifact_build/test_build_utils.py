@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 import pytest
 
 from datapipeline.artifacts.models import VectorSchemaArtifact
+from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.config.tasks import MetadataTask, SchemaTask
 from datapipeline.execution.context import PipelineContext
@@ -24,6 +25,7 @@ from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
 from datapipeline.runtime import IngestRuntimeStream, Runtime
 from datapipeline.services.constants import VECTOR_METADATA, VECTOR_SCHEMA
+from datapipeline.utils.load import load_yaml
 
 
 def _hour(hour: int) -> datetime:
@@ -45,23 +47,28 @@ def _runtime_with_dataset(tmp_path, dataset_text: str) -> Runtime:
         "\n".join(
             [
                 "version: 1",
+                "artifact_revision: 1",
                 "paths:",
                 "  ingests: ingests",
                 "  streams: streams",
                 "  sources: sources",
                 "  dataset: dataset.yaml",
-                "  postprocess: postprocess.yaml",
                 "  artifacts: build",
-                "  tasks: tasks",
+                "  operations: operations",
                 "",
             ]
         ),
         encoding="utf-8",
     )
-    (tmp_path / "dataset.yaml").write_text(dataset_text, encoding="utf-8")
+    dataset_path = tmp_path / "dataset.yaml"
+    dataset_path.write_text(dataset_text, encoding="utf-8")
     artifacts_root = tmp_path / "build"
     artifacts_root.mkdir()
-    runtime = Runtime(project_yaml=project_yaml, artifacts_root=artifacts_root)
+    runtime = Runtime(
+        project_yaml=project_yaml,
+        artifacts_root=artifacts_root,
+        dataset=FeatureDatasetConfig.model_validate(load_yaml(dataset_path)),
+    )
     runtime.streams["market.prices"] = IngestRuntimeStream(
         source=_EmptySource(),
         mapper=_identity,
@@ -78,8 +85,12 @@ def test_collect_vector_metadata_counts_nan(monkeypatch, tmp_path):
     artifacts_root = tmp_path / "artifacts"
     artifacts_root.mkdir()
     project_yaml = tmp_path / "project.yaml"
-    project_yaml.write_text("version: 1\n", encoding="utf-8")
-    runtime = Runtime(project_yaml=project_yaml, artifacts_root=artifacts_root)
+    project_yaml.write_text("version: 1\nartifact_revision: 1\n", encoding="utf-8")
+    runtime = Runtime(
+        project_yaml=project_yaml,
+        artifacts_root=artifacts_root,
+        dataset=FeatureDatasetConfig(sample=SampleConfig(cadence="1h")),
+    )
     cfg = FeatureRecordConfig(
         id="wind_speed",
         stream="met.obs",
@@ -123,8 +134,12 @@ def test_collect_vector_metadata_emits_progress(monkeypatch, tmp_path):
     artifacts_root = tmp_path / "artifacts"
     artifacts_root.mkdir()
     project_yaml = tmp_path / "project.yaml"
-    project_yaml.write_text("version: 1\n", encoding="utf-8")
-    runtime = Runtime(project_yaml=project_yaml, artifacts_root=artifacts_root)
+    project_yaml.write_text("version: 1\nartifact_revision: 1\n", encoding="utf-8")
+    runtime = Runtime(
+        project_yaml=project_yaml,
+        artifacts_root=artifacts_root,
+        dataset=FeatureDatasetConfig(sample=SampleConfig(cadence="1h")),
+    )
     cfg = FeatureRecordConfig(
         id="price",
         stream="market.prices",
@@ -362,6 +377,7 @@ def test_pipeline_context_rejects_invalid_registered_schema(tmp_path) -> None:
     runtime = Runtime(
         project_yaml=tmp_path / "project.yaml",
         artifacts_root=tmp_path / "artifacts",
+        dataset=FeatureDatasetConfig(sample=SampleConfig(cadence="1h")),
     )
     runtime.artifacts_root.mkdir()
     schema_path = runtime.artifacts_root / "schema.json"
@@ -521,15 +537,20 @@ def test_metadata_materialization_preserves_one_timestamp_window(
 
     materialize_metadata(runtime, MetadataTask(output="metadata.json"))
 
-    payload = json.loads(
-        (runtime.artifacts_root / "metadata.json").read_text(encoding="utf-8")
-    )
+    path = runtime.artifacts_root / "metadata.json"
+    first = path.read_bytes()
+    payload = json.loads(first)
     assert payload["window"] == {
         "start": "2024-01-01T04:00:00Z",
         "end": "2024-01-01T04:00:00Z",
         "mode": "intersection",
         "size": 1,
     }
+    assert "generated_at" not in payload
+
+    materialize_metadata(runtime, MetadataTask(output="metadata.json"))
+
+    assert path.read_bytes() == first
 
 
 def test_metadata_entries_include_observation_bounds():

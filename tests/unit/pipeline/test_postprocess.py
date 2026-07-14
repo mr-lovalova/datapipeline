@@ -2,25 +2,40 @@ import json
 
 import pytest
 
-from datapipeline.config.postprocess import PostprocessConfig
+from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
+from datapipeline.config.dataset.postprocess import PostprocessConfig
 from datapipeline.execution.context import PipelineContext
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
 from datapipeline.pipelines.full.pipeline import build_full_pipeline
 from datapipeline.pipelines.full.nodes import (
     apply_postprocess,
-    build_postprocess_nodes,
+    build_postprocess_plan,
 )
 from datapipeline.runtime import Runtime
 from datapipeline.services.constants import VECTOR_METADATA, VECTOR_SCHEMA
 
 
-def _runtime(tmp_path, schema: dict, metadata: dict | None = None) -> Runtime:
+def _runtime(
+    tmp_path,
+    schema: dict,
+    metadata: dict | None = None,
+    postprocess: PostprocessConfig | None = None,
+) -> Runtime:
     artifacts_root = tmp_path / "artifacts"
     artifacts_root.mkdir()
     project = tmp_path / "project.yaml"
-    project.write_text("version: 1\n", encoding="utf-8")
-    runtime = Runtime(project_yaml=project, artifacts_root=artifacts_root)
+    project.write_text("version: 1\nartifact_revision: 1\n", encoding="utf-8")
+    if postprocess is None:
+        postprocess = PostprocessConfig()
+    runtime = Runtime(
+        project_yaml=project,
+        artifacts_root=artifacts_root,
+        dataset=FeatureDatasetConfig(
+            sample=SampleConfig(cadence="1h"),
+            postprocess=postprocess,
+        ),
+    )
 
     schema_path = artifacts_root / "schema.json"
     schema_path.write_text(json.dumps(schema), encoding="utf-8")
@@ -76,14 +91,14 @@ def test_postprocess_has_one_explicit_execution_order(tmp_path) -> None:
             ],
             "targets": [],
         },
-    )
-    runtime.postprocess = PostprocessConfig.model_validate(
-        {
-            "columns": {
-                "features": {"threshold": 1.0, "ids": ["sparse"]},
-            },
-            "samples": {"features": {"threshold": 1.0, "ids": ["value"]}},
-        }
+        postprocess=PostprocessConfig.model_validate(
+            {
+                "columns": {
+                    "features": {"threshold": 1.0, "ids": ["sparse"]},
+                },
+                "samples": {"features": {"threshold": 1.0, "ids": ["value"]}},
+            }
+        ),
     )
     samples = [
         Sample(key=(0,), features=Vector(values={"sparse": None})),
@@ -94,10 +109,12 @@ def test_postprocess_has_one_explicit_execution_order(tmp_path) -> None:
     ]
 
     context = PipelineContext(runtime)
-    nodes = build_postprocess_nodes(context)
+    plan = build_postprocess_plan(context)
     output = list(apply_postprocess(context, iter(samples)))
 
-    assert [node.name for node in nodes] == [
+    assert plan.feature_ids == ("value",)
+    assert plan.target_ids == ()
+    assert [node.name for node in plan.nodes] == [
         "select_features",
         "normalize_features",
         "reject_undeclared_targets",
@@ -131,14 +148,14 @@ def test_postprocess_applies_explicit_target_policies(tmp_path) -> None:
                 }
             ],
         },
-    )
-    runtime.postprocess = PostprocessConfig.model_validate(
-        {
-            "columns": {
-                "targets": {"threshold": 1.0, "ids": ["sparse"]},
-            },
-            "samples": {"targets": {"threshold": 1.0, "ids": ["target"]}},
-        }
+        postprocess=PostprocessConfig.model_validate(
+            {
+                "columns": {
+                    "targets": {"threshold": 1.0, "ids": ["sparse"]},
+                },
+                "samples": {"targets": {"threshold": 1.0, "ids": ["target"]}},
+            }
+        ),
     )
     sample = Sample(
         key=(0,),
@@ -178,9 +195,9 @@ def test_postprocess_rejects_schema_metadata_kind_drift(tmp_path) -> None:
             ],
             "targets": [],
         },
-    )
-    runtime.postprocess = PostprocessConfig.model_validate(
-        {"columns": {"features": {"threshold": 1.0}}}
+        postprocess=PostprocessConfig.model_validate(
+            {"columns": {"features": {"threshold": 1.0}}}
+        ),
     )
 
     with pytest.raises(ValueError, match="does not match the schema"):

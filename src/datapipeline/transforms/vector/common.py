@@ -1,7 +1,7 @@
 from collections.abc import Mapping, Sequence, Set
-from math import isfinite
-from numbers import Real
 from typing import Any
+
+from datapipeline.transforms.utils import is_missing
 
 
 def select_expected_ids(
@@ -35,29 +35,13 @@ def select_expected_ids(
     return expected, selected
 
 
-def require_scalar(value: Any, identifier: str) -> float | None:
-    if value is None or (isinstance(value, float) and value != value):
-        return None
-    if isinstance(value, bool) or not isinstance(value, Real):
-        raise TypeError(
-            f"Vector id {identifier!r} must contain a finite number or null; "
-            f"got {type(value).__name__}."
-        )
-    number = float(value)
-    if not isfinite(number):
-        raise ValueError(
-            f"Vector id {identifier!r} must contain a finite number or null."
-        )
-    return number
-
-
-def cell_coverage(value: Any, identifier: str) -> float:
+def cell_coverage(value: Any) -> float:
     if isinstance(value, list):
         if not value:
             return 0.0
-        present = sum(require_scalar(item, identifier) is not None for item in value)
+        present = sum(not is_missing(item) for item in value)
         return present / len(value)
-    return 0.0 if require_scalar(value, identifier) is None else 1.0
+    return 0.0 if is_missing(value) else 1.0
 
 
 def reject_unknown_values(

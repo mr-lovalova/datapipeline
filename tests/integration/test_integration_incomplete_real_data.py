@@ -1,6 +1,7 @@
 import pytest
 
-from datapipeline.config.context import load_dataset_context
+from datapipeline.artifacts.hydration import hydrate_runtime_artifacts_for_pipeline
+from datapipeline.execution.context import PipelineContext
 from datapipeline.operations.artifacts.metadata import materialize_metadata
 from datapipeline.operations.artifacts.vector_inputs import materialize_vector_inputs
 from datapipeline.operations.artifacts.schema import materialize_vector_schema
@@ -19,12 +20,16 @@ from datapipeline.services.constants import (
 )
 from datapipeline.pipelines.full.nodes import apply_postprocess
 from datapipeline.pipelines.vector.pipeline import build_vector_pipeline
+from datapipeline.services.pipeline import load_pipeline
+from datapipeline.services.runtime_compiler import compile_runtime
 
 
 def _vector_samples(project_yaml):
-    ctx = load_dataset_context(project_yaml)
-    context = ctx.pipeline_context
-    runtime = ctx.runtime
+    definition = load_pipeline(project_yaml)
+    runtime = compile_runtime(definition)
+    hydrate_runtime_artifacts_for_pipeline(runtime, definition)
+    dataset = definition.dataset
+    context = PipelineContext(runtime)
 
     # Ensure artifacts are materialized for the test run.
     scaler_rel = materialize_scaler_statistics(
@@ -57,9 +62,9 @@ def _vector_samples(project_yaml):
 
     vectors = build_vector_pipeline(
         context,
-        ctx.features,
-        ctx.dataset.sample.cadence,
-        target_configs=ctx.targets,
+        dataset.features,
+        dataset.sample.cadence,
+        target_configs=dataset.targets,
         rectangular=False,
     )
     return list(apply_postprocess(context, vectors))

@@ -39,15 +39,13 @@ def _write_project_yaml(
     content = textwrap.dedent(
         f"""
         version: 1
+        artifact_revision: 1
         paths:
           ingests: {ingests_dir}
           streams: {streams_dir}
           sources: {sources_dir}
           dataset: dataset.yaml
-          postprocess: postprocess.yaml
           artifacts: {streams_dir.parent / "build"}
-          build: builds
-          run: runs
         globals: {{}}
         """
     ).strip()

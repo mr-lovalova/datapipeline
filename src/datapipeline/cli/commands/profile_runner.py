@@ -1,8 +1,8 @@
 import argparse
 import logging
 
-from datapipeline.config.resolution import LogOutputTarget
-from datapipeline.config.workspace import WorkspaceContext
+from datapipeline.cli.workspace import WorkspaceContext
+from datapipeline.execution.settings import LogOutputTarget
 from datapipeline.profiles.orchestration import run_profiles
 from datapipeline.profiles.models import TaskProfileKind
 from datapipeline.profiles.request_builder import build_profile_run_request
@@ -19,28 +19,25 @@ def handle_profile_command(
     base_level_name: str,
     cli_log_outputs: list[LogOutputTarget],
 ) -> bool:
+    is_runtime = kind != "build"
     request = build_profile_run_request(
         kind=kind,
         project=args.project,
-        run_name=getattr(args, "run", None),
-        force=getattr(args, "force", False),
-        artifact_mode=getattr(args, "artifact_mode", None),
-        limit=getattr(args, "limit", None),
-        preview=getattr(args, "preview", None),
-        output_transport=getattr(args, "output_transport", None),
-        output_format=getattr(args, "output_format", None),
-        output_directory=getattr(args, "output_directory", None),
-        output_encoding=getattr(args, "output_encoding", None),
-        output_view=getattr(args, "output_view", None),
+        run_name=args.run,
+        force=args.force if kind == "build" else False,
+        artifact_mode=args.artifact_mode if is_runtime else None,
+        limit=args.limit if is_runtime else None,
+        preview=args.preview if kind == "serve" else None,
+        output_transport=args.output_transport if is_runtime else None,
+        output_format=args.output_format if is_runtime else None,
+        output_directory=args.output_directory if is_runtime else None,
+        output_encoding=args.output_encoding if is_runtime else None,
+        output_view=args.output_view if is_runtime else None,
         cli_log_level=cli_level_arg,
         cli_log_outputs=cli_log_outputs,
         base_log_level=base_level_name,
-        cli_visuals=getattr(args, "visuals", None),
-        cli_heartbeat_interval_seconds=getattr(
-            args,
-            "heartbeat_interval_seconds",
-            None,
-        ),
+        cli_visuals=args.visuals,
+        cli_heartbeat_interval_seconds=args.heartbeat_interval_seconds,
         workspace=workspace_context,
     )
     if request is None:

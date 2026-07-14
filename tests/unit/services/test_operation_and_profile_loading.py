@@ -1,0 +1,1210 @@
+from pathlib import Path
+
+import pytest
+
+from datapipeline.services.operations import operation_specs
+from datapipeline.profiles.loader import (
+    apply_profile_defaults,
+    profile_specs,
+    profile_specs_with_defaults,
+)
+from datapipeline.config.profiles import MaterializeProfile
+from datapipeline.config.tasks import (
+    CoverageTask,
+    MatrixOptions,
+    MatrixTask,
+    OperationTask,
+    PipelineTask,
+)
+from datapipeline.services.project import load_project
+
+
+def _artifact_tasks(project_yaml: Path):
+    artifact_specs, _ = operation_specs(load_project(project_yaml))
+    return list(artifact_specs)
+
+
+def _all_tasks(project_yaml: Path):
+    artifact_specs, operation_task_specs = operation_specs(load_project(project_yaml))
+    return list(artifact_specs) + list(operation_task_specs)
+
+
+def _serve_profiles(project_yaml: Path):
+    return list(profile_specs(load_project(project_yaml), cmd="serve"))
+
+
+def _build_profiles(project_yaml: Path):
+    return list(profile_specs(load_project(project_yaml), cmd="build"))
+
+
+def _inspect_profiles(project_yaml: Path):
+    return list(profile_specs(load_project(project_yaml), cmd="inspect"))
+
+
+def _materialize_profiles(project_yaml: Path):
+    return list(profile_specs(load_project(project_yaml), cmd="materialize"))
+
+
+def _serve_defaults(project_yaml: Path):
+    return profile_specs_with_defaults(load_project(project_yaml), cmd="serve")[1]
+
+
+def _materialize_defaults(project_yaml: Path):
+    return profile_specs_with_defaults(load_project(project_yaml), cmd="materialize")[1]
+
+
+def _write_project(tmp_path: Path, operations_ref: str | None = None) -> Path:
+    project_yaml = tmp_path / "project.yaml"
+    lines = [
+        "version: 1",
+        "artifact_revision: 1",
+        "paths:",
+        "  ingests: ./ingests",
+        "  streams: streams",
+        "  sources: sources",
+        "  dataset: dataset.yaml",
+        "  artifacts: artifacts",
+    ]
+    if operations_ref:
+        lines.append(f"  operations: {operations_ref}")
+    project_yaml.write_text("\n".join(lines), encoding="utf-8")
+    return project_yaml
+
+
+def _operations_dir(project_yaml: Path) -> Path:
+    path = project_yaml.parent / "operations"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _profiles_dir(project_yaml: Path) -> Path:
+    path = project_yaml.parent / "profiles"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _profile_kind_dir(project_yaml: Path) -> Path:
+    path = _profiles_dir(project_yaml)
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def test_operation_task_rejects_non_serializable_options() -> None:
+    with pytest.raises(ValueError, match="JSON-serializable"):
+        OperationTask(
+            id="plugin",
+            entrypoint="plugin.runtime",
+            options={"value": object()},
+        )
+
+
+def test_artifact_tasks_load_configs(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    config_dir = _operations_dir(project_yaml)
+    (config_dir / "schema.yaml").write_text("output: schema.json\n", encoding="utf-8")
+    (config_dir / "scaler.yaml").write_text(
+        "split_label: all\noutput: stats.pkl\n",
+        encoding="utf-8",
+    )
+
+    tasks = _artifact_tasks(project_yaml)
+
+    assert {task.id for task in tasks} == {
+        "scaler",
+        "vector_inputs",
+        "metadata",
+        "schema",
+        "stats",
+    }
+    schema = next(task for task in tasks if task.id == "schema")
+    assert schema.output == "schema.json"
+    scaler = next(task for task in tasks if task.id == "scaler")
+    assert scaler.split_label == "all"
+    assert scaler.output == "stats.pkl"
+
+
+def test_core_operations_load_without_configuration(tmp_path):
+    project_yaml = _write_project(tmp_path)
+
+    artifact_tasks, runtime_tasks = operation_specs(load_project(project_yaml))
+
+    assert [task.id for task in artifact_tasks] == [
+        "scaler",
+        "vector_inputs",
+        "metadata",
+        "schema",
+        "stats",
+    ]
+    assert [task.id for task in runtime_tasks] == [
+        "pipeline",
+        "coverage",
+        "matrix",
+    ]
+    task = next(task for task in artifact_tasks if task.id == "vector_inputs")
+    assert task.id == "vector_inputs"
+    assert task.entrypoint == "core.artifact.vector_inputs"
+    assert task.output == "build/vector_inputs/manifest.json"
+
+
+def test_ticks_artifact_task_loads_arbitrary_id(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    config_dir = _operations_dir(project_yaml)
+    (config_dir / "dataset_ticks.yaml").write_text(
+        (
+            "kind: artifact\n"
+            "entrypoint: core.artifact.ticks\n"
+            "stream: reference.stream\n"
+            "output: build/dataset_ticks.jsonl\n"
+        ),
+        encoding="utf-8",
+    )
+
+    tasks = _artifact_tasks(project_yaml)
+
+    task = next(task for task in tasks if task.id == "dataset_ticks")
+    assert task.id == "dataset_ticks"
+    assert task.entrypoint == "core.artifact.ticks"
+    assert task.stream == "reference.stream"
+    assert task.grid_by == []
+    assert task.output == "build/dataset_ticks.jsonl"
+
+
+def test_ticks_artifact_task_loads_grid_by(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    config_dir = _operations_dir(project_yaml)
+    (config_dir / "model_grid.yaml").write_text(
+        (
+            "kind: artifact\n"
+            "entrypoint: core.artifact.ticks\n"
+            "stream: reference.stream\n"
+            "grid_by: [security_id]\n"
+            "output: build/model_grid.jsonl\n"
+        ),
+        encoding="utf-8",
+    )
+
+    tasks = _artifact_tasks(project_yaml)
+
+    task = next(task for task in tasks if task.id == "model_grid")
+    assert task.grid_by == ["security_id"]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "stream: '   '\n",
+        "stream: reference.stream\ngrid_by: ['']\n",
+        "stream: reference.stream\ngrid_by: [security_id, security_id]\n",
+    ],
+)
+def test_ticks_artifact_rejects_invalid_identity_fields(
+    tmp_path: Path,
+    body: str,
+) -> None:
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    config_dir = _operations_dir(project_yaml)
+    (config_dir / "model_grid.yaml").write_text(
+        (
+            "kind: artifact\n"
+            "entrypoint: core.artifact.ticks\n"
+            f"{body}"
+            "output: build/model_grid.jsonl\n"
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError):
+        _artifact_tasks(project_yaml)
+
+
+@pytest.mark.parametrize("output", ["", "   ", ".", "./"])
+def test_artifact_operation_rejects_empty_output(
+    tmp_path: Path,
+    output: str,
+) -> None:
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    config_dir = _operations_dir(project_yaml)
+    (config_dir / "schema.yaml").write_text(
+        f"output: {output!r}\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="output must name a file"):
+        _artifact_tasks(project_yaml)
+
+
+def test_core_operation_rejects_entrypoint_override(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    config_dir = _operations_dir(project_yaml)
+    (config_dir / "schema.yaml").write_text(
+        (
+            "entrypoint: core.artifact.ticks\n"
+            "stream: reference.stream\n"
+            "output: build/schema_ticks.jsonl\n"
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="cannot replace its kind or entrypoint"):
+        _artifact_tasks(project_yaml)
+
+
+def test_scaler_task_loads_folds(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    config_dir = _operations_dir(project_yaml)
+    (config_dir / "scaler.yaml").write_text(
+        (
+            "output: build/scaler.json\n"
+            "folds:\n"
+            "  - fit: [train_0]\n"
+            "    apply: [train_0, val_0]\n"
+            "  - fit: [train_1]\n"
+            "    apply: [train_1, val_1]\n"
+        ),
+        encoding="utf-8",
+    )
+
+    tasks = _artifact_tasks(project_yaml)
+    scaler = next(task for task in tasks if task.id == "scaler")
+
+    assert scaler.folds is not None
+    assert scaler.folds[0].fit == ["train_0"]
+    assert scaler.folds[0].apply == ["train_0", "val_0"]
+
+
+def test_scaler_task_rejects_split_label_with_folds(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    config_dir = _operations_dir(project_yaml)
+    (config_dir / "scaler.yaml").write_text(
+        (
+            "split_label: train\n"
+            "folds:\n"
+            "  - fit: [train_0]\n"
+            "    apply: [train_0, val_0]\n"
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="split_label and folds"):
+        _artifact_tasks(project_yaml)
+
+
+def test_scaler_task_rejects_overlapping_fold_apply_labels(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    config_dir = _operations_dir(project_yaml)
+    (config_dir / "scaler.yaml").write_text(
+        (
+            "folds:\n"
+            "  - fit: [train_0]\n"
+            "    apply: [train_0, val_0]\n"
+            "  - fit: [train_1]\n"
+            "    apply: [val_0, val_1]\n"
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="applied by scaler folds"):
+        _artifact_tasks(project_yaml)
+
+
+def test_stats_task_loads_configs(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    config_dir = _operations_dir(project_yaml)
+    (config_dir / "stats.yaml").write_text(
+        "output: build/custom-stats.json\nstage: assembled\n",
+        encoding="utf-8",
+    )
+
+    tasks = _artifact_tasks(project_yaml)
+    stats = next(task for task in tasks if task.id == "stats")
+    assert stats.output == "build/custom-stats.json"
+    assert stats.stage == "assembled"
+
+
+def test_stats_task_defaults_to_postprocessed_stage(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    config_dir = _operations_dir(project_yaml)
+    (config_dir / "stats.yaml").write_text(
+        "output: build/custom-stats.json\n",
+        encoding="utf-8",
+    )
+
+    stats = next(task for task in _artifact_tasks(project_yaml) if task.id == "stats")
+
+    assert stats.stage == "postprocessed"
+
+
+def test_stats_task_rejects_removed_mode_option(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    config_dir = _operations_dir(project_yaml)
+    (config_dir / "stats.yaml").write_text("mode: raw\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        _artifact_tasks(project_yaml)
+
+
+def test_serve_tasks_respect_name_and_enabled(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    config_dir = _profile_kind_dir(project_yaml)
+    (config_dir / "serve.train.yaml").write_text("target: pipeline\n", encoding="utf-8")
+    (config_dir / "serve.val.yaml").write_text(
+        "target: pipeline\nenabled: false\n",
+        encoding="utf-8",
+    )
+
+    tasks = _serve_profiles(project_yaml)
+
+    assert [task.name for task in tasks] == ["train", "val"]
+    assert [task.name for task in tasks if task.enabled] == ["train"]
+
+
+def test_serve_profiles_load_splits(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    config_dir = _profile_kind_dir(project_yaml)
+    (config_dir / "serve.splits.yaml").write_text(
+        "target: pipeline\nsplits: [train, val]\n",
+        encoding="utf-8",
+    )
+
+    tasks = _serve_profiles(project_yaml)
+
+    assert tasks[0].splits == ["train", "val"]
+
+
+def test_serve_profiles_interpolate_project_globals(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    project_yaml.write_text(
+        "\n".join(
+            [
+                "version: 1",
+                "artifact_revision: 1",
+                "name: momentum",
+                "variant: price",
+                "paths:",
+                "  ingests: ./ingests",
+                "  streams: streams",
+                "  sources: sources",
+                "  dataset: dataset.yaml",
+                "  artifacts: artifacts",
+                "  operations: operations",
+                "  profiles: profiles",
+                "globals:",
+                "  adv_window_days: 20",
+                "  volatility_window_days: 63",
+                "  momentum_skip_days: 21",
+                "  momentum_lag_days: 189",
+                "  forward_return_horizon_days: 126",
+                "  dataset_version: ${project_name}_${project_variant}_adv${adv_window_days}_vol${volatility_window_days}_mom${momentum_lag_days}_${momentum_skip_days}_fwd${forward_return_horizon_days}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    profiles_dir = _profile_kind_dir(project_yaml)
+    (profiles_dir / "serve.processed.yaml").write_text(
+        "\n".join(
+            [
+                "target: pipeline",
+                "output:",
+                "  transport: fs",
+                "  format: jsonl",
+                "  view: raw",
+                "  directory: ../../data/processed/${dataset_version}",
+                "  filename: ${dataset_version}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    profile = _serve_profiles(project_yaml)[0]
+
+    expected = "momentum_price_adv20_vol63_mom189_21_fwd126"
+    assert profile.output.directory == Path(f"../../data/processed/{expected}")
+    assert profile.output.filename == expected
+
+
+def test_profile_defaults_interpolate_project_globals(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    project_yaml.write_text(
+        "\n".join(
+            [
+                "version: 1",
+                "artifact_revision: 1",
+                "name: momentum",
+                "variant: price",
+                "paths:",
+                "  ingests: ./ingests",
+                "  streams: streams",
+                "  sources: sources",
+                "  dataset: dataset.yaml",
+                "  artifacts: artifacts",
+                "  operations: operations",
+                "  profiles: profiles",
+                "globals:",
+                "  dataset_version: ${project_name}_${project_variant}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    profiles_dir = _profile_kind_dir(project_yaml)
+    (profiles_dir / "serve.defaults.yaml").write_text(
+        "\n".join(
+            [
+                "output:",
+                "  transport: fs",
+                "  format: jsonl",
+                "  view: raw",
+                "  directory: ../../data/processed/${dataset_version}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    defaults = _serve_defaults(project_yaml)
+
+    assert defaults.output.directory == Path("../../data/processed/momentum_price")
+
+
+def test_profile_identity_comes_from_filename(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    config_dir = _profile_kind_dir(project_yaml)
+    (config_dir / "serve.train.yaml").write_text("target: pipeline\n", encoding="utf-8")
+
+    profile = _serve_profiles(project_yaml)[0]
+
+    assert profile.cmd == "serve"
+    assert profile.name == "train"
+
+
+def test_profile_version_field_is_rejected(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    profiles_dir = _profile_kind_dir(project_yaml)
+    (profiles_dir / "serve.train.yaml").write_text(
+        "target: pipeline\nversion: 1\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        _serve_profiles(project_yaml)
+
+
+def test_profile_defaults_version_field_is_rejected(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    profiles_dir = _profile_kind_dir(project_yaml)
+    (profiles_dir / "serve.defaults.yaml").write_text(
+        "version: 1\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        _serve_profiles(project_yaml)
+
+
+def test_build_profiles_load_and_respect_enabled(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    config_dir = _profile_kind_dir(project_yaml)
+    (config_dir / "build.fast.yaml").write_text(
+        "enabled: true\nmode: auto\ntarget: schema\n",
+        encoding="utf-8",
+    )
+    (config_dir / "build.full.yaml").write_text(
+        "enabled: false\nmode: force\ntarget: metadata\n",
+        encoding="utf-8",
+    )
+
+    tasks = _build_profiles(project_yaml)
+    assert [task.name for task in tasks] == ["fast", "full"]
+    assert tasks[0].target == "schema"
+    assert tasks[0].enabled is True
+    assert tasks[1].enabled is False
+
+
+def test_inspect_profiles_load_and_respect_enabled(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    config_dir = _profile_kind_dir(project_yaml)
+    (config_dir / "inspect.default.yaml").write_text(
+        "enabled: true\ntarget: coverage\n",
+        encoding="utf-8",
+    )
+    (config_dir / "inspect.extra.yaml").write_text(
+        "enabled: false\ntarget: coverage\n",
+        encoding="utf-8",
+    )
+
+    tasks = _inspect_profiles(project_yaml)
+    assert [task.name for task in tasks] == ["default", "extra"]
+    assert tasks[0].target == "coverage"
+    assert tasks[0].enabled is True
+    assert tasks[1].enabled is False
+
+
+def test_materialize_profiles_load_and_normalize_fields(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    profiles_dir = _profile_kind_dir(project_yaml)
+    (profiles_dir / "materialize.adv-20.yaml").write_text(
+        (
+            "order: 20\n"
+            "stream: ' adv.20 '\n"
+            "output: ' data/features/adv/20.jsonl '\n"
+            "overwrite: true\n"
+            "observability:\n"
+            "  visuals: on\n"
+        ),
+        encoding="utf-8",
+    )
+
+    profiles = _materialize_profiles(project_yaml)
+
+    assert len(profiles) == 1
+    profile = profiles[0]
+    assert isinstance(profile, MaterializeProfile)
+    assert profile.stream == "adv.20"
+    assert profile.output == Path("data/features/adv/20.jsonl")
+    assert profile.overwrite is True
+    assert profile.observability is not None
+    assert profile.observability.visuals == "ON"
+
+
+@pytest.mark.parametrize("field", ["stream", "output"])
+def test_materialize_profile_requires_nonempty_paths(tmp_path, field):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    profiles_dir = _profile_kind_dir(project_yaml)
+    values = {"stream": "adv.20", "output": "adv-20.jsonl"}
+    values[field] = "   "
+    (profiles_dir / "materialize.adv-20.yaml").write_text(
+        (f"stream: '{values['stream']}'\noutput: '{values['output']}'\n"),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match=f"{field} must be set"):
+        _materialize_profiles(project_yaml)
+
+
+def test_materialize_profile_requires_jsonl_output(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    profiles_dir = _profile_kind_dir(project_yaml)
+    (profiles_dir / "materialize.adv-20.yaml").write_text(
+        ("stream: adv.20\noutput: data/features/adv/20.csv\n"),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="output must use a .jsonl path"):
+        _materialize_profiles(project_yaml)
+
+
+def test_materialize_profile_requires_boolean_overwrite(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    profiles_dir = _profile_kind_dir(project_yaml)
+    (profiles_dir / "materialize.adv-20.yaml").write_text(
+        ("stream: adv.20\noutput: data/features/adv/20.jsonl\noverwrite: 'false'\n"),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="valid boolean"):
+        _materialize_profiles(project_yaml)
+
+
+def test_materialize_defaults_apply_overwrite_and_observability(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    profiles_dir = _profile_kind_dir(project_yaml)
+    (profiles_dir / "materialize.defaults.yaml").write_text(
+        (
+            "artifact_mode: force\n"
+            "overwrite: true\n"
+            "observability:\n"
+            "  heartbeat_interval_seconds: 30\n"
+        ),
+        encoding="utf-8",
+    )
+    (profiles_dir / "materialize.adv-20.yaml").write_text(
+        (
+            "stream: adv.20\n"
+            "output: data/features/adv/20.jsonl\n"
+            "observability:\n"
+            "  visuals: off\n"
+        ),
+        encoding="utf-8",
+    )
+
+    profile = _materialize_profiles(project_yaml)[0]
+    defaults = _materialize_defaults(project_yaml)
+    merged = apply_profile_defaults(profile, defaults)
+
+    assert defaults.artifact_mode == "FORCE"
+    assert isinstance(merged, MaterializeProfile)
+    assert not hasattr(merged, "artifact_mode")
+    assert merged.overwrite is True
+    assert merged.observability is not None
+    assert merged.observability.visuals == "OFF"
+    assert merged.observability.heartbeat_interval_seconds == 30
+
+
+def test_materialize_artifact_mode_is_defaults_only(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    profiles_dir = _profile_kind_dir(project_yaml)
+    (profiles_dir / "materialize.adv-20.yaml").write_text(
+        ("stream: adv.20\noutput: data/features/adv/20.jsonl\nartifact_mode: AUTO\n"),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        _materialize_profiles(project_yaml)
+
+
+def test_materialize_defaults_reject_unknown_artifact_mode(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    profiles_dir = _profile_kind_dir(project_yaml)
+    (profiles_dir / "materialize.defaults.yaml").write_text(
+        "artifact_mode: SOMETIMES\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="artifact mode must be one of"):
+        _materialize_defaults(project_yaml)
+
+
+def test_profile_order_overrides_file_order(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    profiles_dir = _profile_kind_dir(project_yaml)
+    (profiles_dir / "serve.train.yaml").write_text(
+        "target: pipeline\n",
+        encoding="utf-8",
+    )
+    (profiles_dir / "serve.val.yaml").write_text(
+        "order: 2\ntarget: pipeline\n",
+        encoding="utf-8",
+    )
+    (profiles_dir / "serve.test.yaml").write_text(
+        "order: 1\ntarget: pipeline\n",
+        encoding="utf-8",
+    )
+
+    tasks = _serve_profiles(project_yaml)
+    assert [task.name for task in tasks] == ["test", "val", "train"]
+
+
+def test_serve_defaults_are_loaded_but_not_executable_profiles(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    profiles_dir = _profile_kind_dir(project_yaml)
+    (profiles_dir / "serve.defaults.yaml").write_text(
+        ("observability:\n  logging:\n    outputs:\n      - transport: stdout\n"),
+        encoding="utf-8",
+    )
+    (profiles_dir / "serve.train.yaml").write_text(
+        "target: pipeline\n",
+        encoding="utf-8",
+    )
+
+    tasks = _serve_profiles(project_yaml)
+    defaults = _serve_defaults(project_yaml)
+
+    assert [task.name for task in tasks] == ["train"]
+    assert defaults.cmd == "serve"
+    assert defaults.observability is not None
+
+
+def test_missing_profile_defaults_resolve_to_builtins(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+
+    defaults = _serve_defaults(project_yaml)
+
+    assert defaults.cmd == "serve"
+    assert defaults.execution.sort_buffer_mb == 128
+
+
+def test_profile_defaults_reject_executable_fields(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    profiles_dir = _profile_kind_dir(project_yaml)
+    (profiles_dir / "serve.defaults.yaml").write_text(
+        "name: should-not-exist\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        _serve_profiles(project_yaml)
+
+
+def test_profile_defaults_reject_body_command(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    profiles_dir = _profile_kind_dir(project_yaml)
+    (profiles_dir / "serve.defaults.yaml").write_text(
+        "cmd: serve\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="command comes from the defaults filename"):
+        _serve_profiles(project_yaml)
+
+
+@pytest.mark.parametrize("identity", ["cmd: serve\n", "name: train\n"])
+def test_concrete_profile_rejects_body_identity(tmp_path, identity):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    profiles_dir = _profile_kind_dir(project_yaml)
+    (profiles_dir / "serve.train.yaml").write_text(
+        identity + "target: pipeline\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="come from the filename"):
+        _serve_profiles(project_yaml)
+
+
+def test_profile_file_requires_one_mapping(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    profiles_dir = _profile_kind_dir(project_yaml)
+    (profiles_dir / "serve.train.yaml").write_text(
+        "- target: pipeline\n- target: pipeline\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(TypeError, match="one mapping profile"):
+        _serve_profiles(project_yaml)
+
+
+def test_command_load_ignores_malformed_other_profile_kinds(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    profiles_dir = _profile_kind_dir(project_yaml)
+    (profiles_dir / "serve.train.yaml").write_text(
+        "target: pipeline\n",
+        encoding="utf-8",
+    )
+    (profiles_dir / "build.broken.yaml").write_text(
+        "- not-a-profile\n",
+        encoding="utf-8",
+    )
+
+    assert [profile.name for profile in _serve_profiles(project_yaml)] == ["train"]
+    with pytest.raises(TypeError, match="one mapping profile"):
+        profile_specs(load_project(project_yaml))
+
+
+def test_execution_policy_is_not_allowed_on_concrete_profiles(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    profiles_dir = _profile_kind_dir(project_yaml)
+    (profiles_dir / "serve.train.yaml").write_text(
+        ("target: pipeline\nexecution:\n  sort_buffer_mb: 1\n"),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        _serve_profiles(project_yaml)
+
+
+def test_duplicate_profile_defaults_per_kind_raise(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    profiles_dir = _profile_kind_dir(project_yaml)
+    (profiles_dir / "serve.defaults.yaml").write_text(
+        "",
+        encoding="utf-8",
+    )
+    (profiles_dir / "serve.defaults.yml").write_text(
+        "",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Duplicate serve defaults"):
+        _serve_profiles(project_yaml)
+
+
+def test_artifact_operation_rejects_dependencies_field(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    config_dir = _operations_dir(project_yaml)
+    (config_dir / "metadata.yaml").write_text(
+        "dependencies:\n  - schema\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        _artifact_tasks(project_yaml)
+
+
+def test_serve_operation_tasks_load(tmp_path):
+    project_yaml = _write_project(tmp_path)
+
+    task = next(task for task in _all_tasks(project_yaml) if task.id == "pipeline")
+    assert isinstance(task, PipelineTask)
+    assert task.entrypoint == "core.runtime.pipeline"
+
+
+def test_coverage_operation_options_are_typed(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    config_dir = _operations_dir(project_yaml)
+    (config_dir / "coverage.yaml").write_text(
+        "options:\n  threshold: 0.8\n",
+        encoding="utf-8",
+    )
+
+    operation = next(task for task in _all_tasks(project_yaml) if task.id == "coverage")
+
+    assert isinstance(operation, CoverageTask)
+    assert operation.options.threshold == 0.8
+
+
+@pytest.mark.parametrize(
+    ("entrypoint", "model_cls"),
+    [
+        ("core.runtime.pipeline", PipelineTask),
+        ("core.runtime.matrix", MatrixTask),
+    ],
+)
+def test_runtime_tasks_without_options_accept_empty_options(
+    tmp_path: Path,
+    entrypoint: str,
+    model_cls: type[OperationTask],
+) -> None:
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    config_dir = _operations_dir(project_yaml)
+    (config_dir / "runtime.yaml").write_text(
+        (f"kind: runtime\nentrypoint: {entrypoint}\noptions: {{}}\n"),
+        encoding="utf-8",
+    )
+
+    operation = next(task for task in _all_tasks(project_yaml) if task.id == "runtime")
+
+    assert isinstance(operation, model_cls)
+    if isinstance(operation, MatrixTask):
+        assert operation.options == MatrixOptions()
+    else:
+        assert operation.options == {}
+
+
+@pytest.mark.parametrize(
+    ("entrypoint", "option", "error"),
+    [
+        (
+            "core.runtime.pipeline",
+            "  sort: missing\n",
+            "pipeline operation does not accept options",
+        ),
+        (
+            "core.runtime.matrix",
+            "  rows: 10\n",
+            "Extra inputs are not permitted",
+        ),
+        (
+            "core.runtime.coverage",
+            "  sort: typo\n",
+            "Extra inputs are not permitted",
+        ),
+        (
+            "core.runtime.coverage",
+            "  threshold: 1.1\n",
+            "less than or equal to 1",
+        ),
+        (
+            "core.runtime.coverage",
+            "  threshold: true\n",
+            "Input should be a valid number",
+        ),
+        (
+            "core.runtime.matrix",
+            "  max_cells: 0\n",
+            "greater than 0",
+        ),
+        (
+            "core.runtime.matrix",
+            "  stage: raw\n",
+            "Input should be 'assembled' or 'postprocessed'",
+        ),
+    ],
+)
+def test_builtin_runtime_tasks_reject_invalid_options(
+    tmp_path: Path,
+    entrypoint: str,
+    option: str,
+    error: str,
+) -> None:
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    config_dir = _operations_dir(project_yaml)
+    (config_dir / "runtime.yaml").write_text(
+        (f"kind: runtime\nentrypoint: {entrypoint}\noptions:\n{option}"),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match=error):
+        _all_tasks(project_yaml)
+
+
+def test_coverage_options_default_to_current_threshold(tmp_path: Path) -> None:
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    config_dir = _operations_dir(project_yaml)
+    (config_dir / "runtime.yaml").write_text(
+        "kind: runtime\nentrypoint: core.runtime.coverage\n",
+        encoding="utf-8",
+    )
+
+    operation = next(task for task in _all_tasks(project_yaml) if task.id == "runtime")
+
+    assert isinstance(operation, CoverageTask)
+    assert operation.options.threshold == 0.95
+
+
+def test_plugin_runtime_options_remain_plugin_owned(tmp_path: Path) -> None:
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    config_dir = _operations_dir(project_yaml)
+    (config_dir / "custom.yaml").write_text(
+        (
+            "kind: runtime\n"
+            "entrypoint: plugin.runtime.custom\n"
+            "requires: [ Custom_Snapshot ]\n"
+            "options:\n"
+            "  nested:\n"
+            "    value: 3\n"
+        ),
+        encoding="utf-8",
+    )
+
+    task = next(task for task in _all_tasks(project_yaml) if task.id == "custom")
+
+    assert type(task) is OperationTask
+    assert task.requires == ("custom_snapshot",)
+    assert task.options == {"nested": {"value": 3}}
+
+
+@pytest.mark.parametrize(
+    "entrypoint",
+    [
+        "core.artifact.scaler",
+        "core.artifact.vector_inputs",
+        "core.artifact.metadata",
+        "core.artifact.schema",
+        "core.artifact.stats",
+    ],
+)
+def test_custom_artifact_rejects_reserved_core_entrypoint(
+    tmp_path: Path,
+    entrypoint: str,
+) -> None:
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    config_dir = _operations_dir(project_yaml)
+    (config_dir / "custom.yaml").write_text(
+        (f"kind: artifact\nentrypoint: {entrypoint}\noutput: build/custom.json\n"),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="is reserved for core operation"):
+        _all_tasks(project_yaml)
+
+
+def test_custom_operation_rejects_entrypoint_outer_whitespace(tmp_path: Path) -> None:
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    config_dir = _operations_dir(project_yaml)
+    (config_dir / "custom.yaml").write_text(
+        (
+            "kind: runtime\n"
+            "entrypoint: ' core.runtime.coverage '\n"
+            "options:\n"
+            "  typo: true\n"
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="must not contain outer whitespace"):
+        _all_tasks(project_yaml)
+
+
+@pytest.mark.parametrize(
+    ("requires", "error"),
+    [
+        ("snapshot", "requires must be a list"),
+        ("[snapshot, SNAPSHOT]", "must not contain duplicate"),
+        ("['   ']", "requires item must be set"),
+    ],
+)
+def test_runtime_operation_rejects_invalid_requires(
+    tmp_path: Path,
+    requires: str,
+    error: str,
+) -> None:
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    config_dir = _operations_dir(project_yaml)
+    (config_dir / "custom.yaml").write_text(
+        (f"kind: runtime\nentrypoint: plugin.runtime.custom\nrequires: {requires}\n"),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match=error):
+        _all_tasks(project_yaml)
+
+
+def test_plugin_runtime_options_must_be_a_mapping(tmp_path: Path) -> None:
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    config_dir = _operations_dir(project_yaml)
+    (config_dir / "custom.yaml").write_text(
+        ("kind: runtime\nentrypoint: plugin.runtime.custom\noptions: []\n"),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="options must be a mapping"):
+        _all_tasks(project_yaml)
+
+
+def test_runtime_operation_rejects_dependencies_field(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    config_dir = _operations_dir(project_yaml)
+    (config_dir / "pipeline.yaml").write_text(
+        "dependencies:\n  - missing_artifact\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        _all_tasks(project_yaml)
+
+
+def test_runtime_operation_rejects_output_formats_field(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    config_dir = _operations_dir(project_yaml)
+    (config_dir / "pipeline.yaml").write_text(
+        "output_formats:\n  - jsonl\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        _all_tasks(project_yaml)
+
+
+def test_duplicate_operation_filenames_raise(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    config_dir = _operations_dir(project_yaml)
+    (config_dir / "schema.yaml").write_text("output: schema-a.json\n", encoding="utf-8")
+    (config_dir / "schema.yml").write_text("output: schema-b.json\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Duplicate operation ids"):
+        _artifact_tasks(project_yaml)
+
+
+def test_duplicate_serve_profile_names_raise(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    config_dir = _profile_kind_dir(project_yaml)
+    (config_dir / "serve.train.yaml").write_text("target: pipeline\n", encoding="utf-8")
+    (config_dir / "serve.train.yml").write_text("target: pipeline\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Duplicate serve profile names"):
+        _serve_profiles(project_yaml)
+
+
+def test_operation_id_comes_from_filename(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    config_dir = _operations_dir(project_yaml)
+    (config_dir / "custom.yaml").write_text(
+        "id: another\nkind: runtime\nentrypoint: plugin.runtime\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="filename supplies 'custom'"):
+        _all_tasks(project_yaml)
+
+
+def test_configured_operations_directory_must_exist(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+
+    with pytest.raises(FileNotFoundError, match="operations directory not found"):
+        _all_tasks(project_yaml)
+
+
+def test_duplicate_build_profile_names_raise(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    config_dir = _profile_kind_dir(project_yaml)
+    (config_dir / "build.nightly.yaml").write_text(
+        "target: schema\n",
+        encoding="utf-8",
+    )
+    (config_dir / "build.nightly.yml").write_text(
+        "target: metadata\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Duplicate build profile names"):
+        _build_profiles(project_yaml)
+
+
+def test_duplicate_inspect_profile_names_raise(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    config_dir = _profile_kind_dir(project_yaml)
+    (config_dir / "inspect.inspect.yaml").write_text(
+        "target: coverage\n",
+        encoding="utf-8",
+    )
+    (config_dir / "inspect.inspect.yml").write_text(
+        "target: coverage\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Duplicate inspect profile names"):
+        _inspect_profiles(project_yaml)
+
+
+def test_legacy_config_directory_is_not_loaded(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    tasks_root = project_yaml.parent / "tasks"
+    tasks_root.mkdir(parents=True, exist_ok=True)
+    (tasks_root / "pipeline.yaml").write_text(
+        "id: pipeline\nkind: runtime\nentrypoint: core.runtime.pipeline\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(FileNotFoundError, match="operations directory not found"):
+        _all_tasks(project_yaml)
+
+
+def test_nested_profile_files_are_rejected(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    profiles_root = _profiles_dir(project_yaml) / "serve"
+    profiles_root.mkdir(parents=True, exist_ok=True)
+    (profiles_root / "train.yaml").write_text(
+        "target: pipeline\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="flat under profiles/"):
+        _serve_profiles(project_yaml)
+
+
+def test_profile_command_cannot_override_filename(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    build_dir = _profile_kind_dir(project_yaml)
+    (build_dir / "build.oops.yaml").write_text(
+        "cmd: serve\ntarget: pipeline\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="command and name come from the filename"):
+        _build_profiles(project_yaml)
+
+
+def test_profile_filename_prefix_is_required(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    profiles_root = _profiles_dir(project_yaml)
+    (profiles_root / "oops.yaml").write_text(
+        "target: pipeline\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="must use \\{serve,build,inspect,materialize\\}",
+    ):
+        _serve_profiles(project_yaml)
+
+
+def test_profile_rejects_unknown_fields(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    profiles_root = _profiles_dir(project_yaml)
+    (profiles_root / "build.schema.yaml").write_text(
+        "target: schema\noutput: should-not-exist\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        _build_profiles(project_yaml)
+
+
+def test_operation_task_rejects_unknown_fields(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    config_dir = _operations_dir(project_yaml)
+    (config_dir / "pipeline.yaml").write_text(
+        ("runtime_kind: inspect\n"),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        _all_tasks(project_yaml)

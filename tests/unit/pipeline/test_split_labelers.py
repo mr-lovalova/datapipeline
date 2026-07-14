@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from datapipeline.config.split import HashSplitConfig, TimeSplitConfig
+from datapipeline.config.dataset.split import HashSplitConfig, TimeSplitConfig
 from datapipeline.domain.vector import Vector
 from datapipeline.pipelines.full.split import HashLabeler, TimeLabeler
 
@@ -18,6 +18,20 @@ def test_hash_split_feature_key_errors_when_feature_is_missing():
 
     with pytest.raises(KeyError, match="hash split feature key 'missing' not found"):
         labeler.label("group-a", Vector(values={"x": 1}))
+
+
+def test_hash_split_ratio_mapping_order_does_not_change_labels() -> None:
+    first = HashLabeler(
+        HashSplitConfig(ratios={"train": 0.7, "val": 0.2, "test": 0.1}, seed=7)
+    )
+    second = HashLabeler(
+        HashSplitConfig(ratios={"test": 0.1, "train": 0.7, "val": 0.2}, seed=7)
+    )
+    vector = Vector(values={})
+
+    assert [first.label(index, vector) for index in range(1_000)] == [
+        second.label(index, vector) for index in range(1_000)
+    ]
 
 
 def test_time_labeler_uses_boundaries():

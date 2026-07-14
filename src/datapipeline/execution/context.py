@@ -50,7 +50,7 @@ class PipelineContext:
         return self.artifacts.has(key)
 
     def artifact_metadata(self, key: str) -> Mapping[str, Any]:
-        return self.artifacts.metadata(key)
+        return self.artifacts.require(key).meta
 
     def resolve_artifact_path(self, key: str) -> Path:
         return self.artifacts.resolve_path(key)

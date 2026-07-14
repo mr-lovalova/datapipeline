@@ -19,6 +19,27 @@ def resolve_relative_to_base(
     return path.resolve() if resolve else path
 
 
+def resolve_artifact_output_path(
+    raw_path: str | Path,
+    artifacts_root: Path,
+) -> Path:
+    """Return a declared artifact output that cannot escape through a symlink."""
+    root = Path(artifacts_root).resolve()
+    output = resolve_relative_to_base(raw_path, root, resolve=False)
+    resolved_output = output.resolve()
+    try:
+        resolved_output.relative_to(root)
+    except ValueError as exc:
+        raise ValueError(
+            f"Artifact output '{raw_path}' must stay under artifacts root '{root}'."
+        ) from exc
+    if resolved_output != output:
+        raise ValueError(
+            f"Artifact output '{raw_path}' must not resolve through a symlink."
+        )
+    return output
+
+
 def resolve_workspace_path(
     raw_path: str | Path,
     workspace_root: Path | None,
@@ -27,7 +48,11 @@ def resolve_workspace_path(
     """Resolve path using workspace-root policy (workspace root, else cwd)."""
     if Path(raw_path).is_absolute():
         return Path(raw_path).resolve()
-    base = workspace_root.resolve() if workspace_root is not None else (cwd or workspace_cwd())
+    base = (
+        workspace_root.resolve()
+        if workspace_root is not None
+        else (cwd or workspace_cwd())
+    )
     return resolve_relative_to_base(raw_path, base, resolve=True)
 
 
@@ -50,7 +75,7 @@ def relative_to_workspace(target: Path, workspace_root: Path) -> Path:
         return Path(os.path.relpath(target_resolved, workspace_resolved))
 
 
-def sanitize_path_segment(value: str,  default: str = "run") -> str:
+def sanitize_path_segment(value: str, default: str = "run") -> str:
     """Return a filesystem-safe path segment for user-provided labels."""
     cleaned = "".join(
         ch if ch.isalnum() or ch in ("_", "-", ".") else "_"

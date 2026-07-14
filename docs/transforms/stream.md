@@ -12,7 +12,9 @@ controls feature-id suffixes and follows the same inheritance rule.
 ## Field-Writing Transforms
 
 Field-writing transforms accept `field` and optional `to`. If `to` is omitted,
-the transform writes back to `field`.
+the transform writes back to `field`. They cannot write `time` or a resolved
+`partition_by` field because those fields define canonical record order.
+Identity changes belong in a map or combine function, before the ordering stage.
 
 ```yaml
 stream:
@@ -24,7 +26,6 @@ stream:
 - `ensure_cadence`: insert placeholder ticks at a fixed duration within each
   partition.
 - `ensure_ticks`: reindex records against a resolved tick-grid artifact.
-- `floor_time`: snap timestamps down to a cadence.
 - `where`: filter ordered records using the record `where` operator language.
 - `lag` / `lead`: copy a prior or future field value into `to` by `periods`
   within each partition.

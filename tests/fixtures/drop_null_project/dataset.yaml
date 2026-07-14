@@ -8,3 +8,8 @@ features:
     scale: false
 
 targets: []
+
+postprocess:
+  samples:
+    features:
+      threshold: 1.0

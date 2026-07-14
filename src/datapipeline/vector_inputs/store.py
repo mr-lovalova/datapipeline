@@ -1,6 +1,9 @@
 import gzip
+import hashlib
 import json
+import shutil
 from collections.abc import Iterable, Iterator, Mapping
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any, Final, Literal, Self
@@ -15,7 +18,7 @@ from pydantic import (
     model_validator,
 )
 
-from datapipeline.domain.feature import FeatureRecord, FeatureRecordSequence
+from datapipeline.domain.feature import FeatureRecord, FeatureSequence
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.domain.sample_key import (
     SampleKeyValueType,
@@ -30,6 +33,12 @@ _NonEmptyString = Annotated[
     str,
     StringConstraints(strip_whitespace=True, min_length=1),
 ]
+
+
+@dataclass(frozen=True)
+class WrittenVectorInputShard:
+    rows: int
+    content_hash: str
 
 
 class CachedVectorInputShard(BaseModel):
@@ -87,29 +96,21 @@ def _to_iso(value: datetime) -> str:
     return text
 
 
-def _record_time(item: FeatureRecord | FeatureRecordSequence) -> datetime:
-    if isinstance(item, FeatureRecord):
-        return item.record.time
-    if not item.records:
-        raise ValueError(f"Feature record '{item.id}' has no records to anchor time.")
-    return item.records[-1].time
-
-
 def feature_record_to_vector_input_row(
-    item: FeatureRecord | FeatureRecordSequence,
+    item: FeatureRecord | FeatureSequence,
 ) -> dict[str, Any]:
     if type(item.entity_key) is not tuple:
         raise TypeError(f"Feature '{item.id}' entity key must be a tuple.")
     row: dict[str, Any] = {
         "id": item.id,
-        "time": _to_iso(_record_time(item)),
+        "time": _to_iso(item.time),
         "entity_key": list(item.entity_key),
     }
-    if isinstance(item, FeatureRecordSequence):
+    if isinstance(item, FeatureSequence):
         if type(item.values) is not list:
             raise TypeError(f"Feature sequence '{item.id}' values must be a list.")
         row["kind"] = "sequence"
-        row["values"] = list(item.values)
+        row["values"] = item.values
     else:
         row["kind"] = "record"
         row["value"] = item.value
@@ -141,9 +142,10 @@ def _require_json_value(value: Any) -> None:
 def write_vector_input_rows(
     path: Path,
     rows: Iterable[Mapping[str, Any]],
-) -> int:
+) -> WrittenVectorInputShard:
     sink = GzipBinarySink(path)
     count = 0
+    digest = hashlib.sha256()
     try:
         for row in rows:
             payload = row if type(row) is dict else dict(row)
@@ -164,13 +166,18 @@ def write_vector_input_rows(
                 raise TypeError(f"Unsupported vector input row kind {kind!r}.")
             _require_json_value(payload)
             line = json.dumps(payload, separators=(",", ":")) + "\n"
-            sink.write_bytes(line.encode("utf-8"))
+            encoded = line.encode("utf-8")
+            digest.update(encoded)
+            sink.write_bytes(encoded)
             count += 1
+        sink.close()
     except BaseException:
         sink.abort()
         raise
-    sink.close()
-    return count
+    return WrittenVectorInputShard(
+        rows=count,
+        content_hash=digest.hexdigest(),
+    )
 
 
 def load_vector_inputs_manifest(path: Path) -> CachedVectorInputsManifest:
@@ -209,9 +216,40 @@ def load_vector_inputs_manifest(path: Path) -> CachedVectorInputsManifest:
     return manifest
 
 
+def prune_vector_input_cache(manifest_path: Path) -> tuple[Path, ...]:
+    """Remove generations unreachable from the current manifest."""
+
+    if not manifest_path.is_file():
+        return ()
+    manifest = load_vector_inputs_manifest(manifest_path)
+    cache_root = manifest_path.parent / f"{manifest_path.stem}.shards"
+    if not cache_root.exists():
+        return ()
+    if cache_root.is_symlink() or not cache_root.is_dir():
+        raise RuntimeError(f"Vector inputs shard path is not a directory: {cache_root}")
+
+    retained: set[str] = set()
+    for shard in (*manifest.features, *manifest.targets):
+        parts = Path(shard.path).parts
+        if len(parts) < 3 or parts[0] != cache_root.name:
+            return ()
+        retained.add(parts[1])
+
+    removed: list[Path] = []
+    for path in cache_root.iterdir():
+        if path.name in retained:
+            continue
+        if path.is_symlink() or not path.is_dir():
+            path.unlink()
+        else:
+            shutil.rmtree(path)
+        removed.append(path)
+    return tuple(sorted(removed))
+
+
 def open_vector_input_records(
     path: Path,
-) -> Iterator[FeatureRecord | FeatureRecordSequence]:
+) -> Iterator[FeatureRecord | FeatureSequence]:
     with gzip.open(path, "rt", encoding="utf-8") as fh:
         for line in fh:
             if not line.strip():
@@ -225,11 +263,10 @@ def open_vector_input_records(
 def _row_to_feature_record(
     row: Mapping[str, Any],
     path: Path,
-) -> FeatureRecord | FeatureRecordSequence:
+) -> FeatureRecord | FeatureSequence:
     feature_id = _required_string(row, "id", path)
     time_value = parse_datetime(_required_string(row, "time", path))
     entity_key = _entity_key(row, path)
-    record = TemporalRecord(time=time_value)
     kind = _required_string(row, "kind", path)
     if kind == "record":
         if "value" not in row:
@@ -237,7 +274,7 @@ def _row_to_feature_record(
                 f"Vector input record row in '{path}' must define 'value'."
             )
         return FeatureRecord(
-            record=record,
+            record=TemporalRecord(time=time_value),
             id=feature_id,
             value=row["value"],
             entity_key=entity_key,
@@ -248,8 +285,8 @@ def _row_to_feature_record(
             raise ValueError(
                 f"Vector input sequence row in '{path}' must define values."
             )
-        return FeatureRecordSequence(
-            records=[record],
+        return FeatureSequence(
+            time=time_value,
             id=feature_id,
             values=values,
             entity_key=entity_key,

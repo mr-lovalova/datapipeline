@@ -103,8 +103,6 @@ def build_stream_transform_nodes(
                 operation.operator,
                 operation.comparand,
             ).apply
-        elif isinstance(operation, FloorTimeConfig):
-            node_op = FloorTimeTransform(operation.cadence).apply
         elif isinstance(operation, DedupeConfig):
             node_op = DedupeTransform().apply
         elif isinstance(operation, LagConfig):

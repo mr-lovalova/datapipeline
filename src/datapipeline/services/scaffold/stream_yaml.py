@@ -1,10 +1,7 @@
 from pathlib import Path
 
-from datapipeline.services.project_paths import (
-    ingests_dir as resolve_ingests_dir,
-    streams_dir as resolve_streams_dir,
-    ensure_project_scaffold,
-)
+from datapipeline.services.project import load_project
+from datapipeline.services.project_paths import ensure_project_scaffold
 from datapipeline.services.scaffold.templates import render
 from datapipeline.services.scaffold.utils import status
 
@@ -17,7 +14,7 @@ def write_ingest_stream(
     mapper_entrypoint: str,
 ) -> Path:
     ensure_project_scaffold(project_yaml)
-    ingests_path = resolve_ingests_dir(project_yaml)
+    ingests_path = load_project(project_yaml).ingest_dirs[0]
     ingests_dir = ingests_path if ingests_path.is_dir() else ingests_path.parent
     ingests_dir.mkdir(parents=True, exist_ok=True)
     cfile = ingests_dir / f"{stream_id}.yaml"
@@ -41,7 +38,7 @@ def write_aligned_stream(
     combine_entrypoint: str,
 ) -> Path:
     ensure_project_scaffold(project_yaml)
-    streams_path = resolve_streams_dir(project_yaml)
+    streams_path = load_project(project_yaml).stream_dirs[0]
     streams_dir = streams_path if streams_path.is_dir() else streams_path.parent
     streams_dir.mkdir(parents=True, exist_ok=True)
     cfile = streams_dir / f"{stream_id}.yaml"

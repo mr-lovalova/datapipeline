@@ -48,15 +48,14 @@ python -m pip install -e .
 YAML config (dataset project root):
 
 - `your-dataset/`
-  - `project.yaml` (paths, split, globals)
+  - `project.yaml` (paths and globals)
   - `sources/*.yaml` (raw source definitions)
   - `ingests/*.yaml` (source-backed canonical streams)
   - `streams/*.yaml` (derived and aligned streams)
-  - `dataset.yaml` (features/targets)
-  - `postprocess.yaml` (column selection and sample filtering)
+  - `dataset.yaml` (features, targets, split, and postprocess policy)
   - `profiles/{serve,build,inspect,materialize}.<name>.yaml` (profiles; optional overrides)
   - `profiles/{serve,build,inspect,materialize}.defaults.yaml` (optional per-kind defaults)
-  - `tasks/operations/*.yaml` (declared artifact and runtime operations)
+  - `operations/*.yaml` (optional core overrides and custom operations)
 
 Profile sequencing:
 
@@ -64,9 +63,9 @@ Profile sequencing:
   supplies both command and name. Defaults use `<command>.defaults.yaml`.
 - Profiles execute by `order` (ascending); unset falls back to filename order.
 - Materialize profiles name a stream and an exact durable JSONL output; they do
-  not target runtime tasks.
-- Build profiles target artifact tasks; serve and inspect profiles target runtime
-  tasks.
+  not target an operation.
+- Build profiles target artifact operations; serve and inspect profiles target
+  runtime operations. Core operations are available without YAML declarations.
 - Before selected serve or inspect profiles run, their artifact requirements are
   combined and prepared once according to `artifact_mode: AUTO|FORCE|OFF`.
 - The dependency graph orders only internal artifact jobs. It never changes

@@ -8,8 +8,7 @@ from .adapter import VectorAdapter
 
 
 def _resolve_columns(
-    rows: list[Mapping[str, Any]],
-    *,
+    rows: Sequence[Mapping[str, Any]],
     feature_columns: Sequence[str] | None,
     target_columns: Sequence[str] | None,
 ) -> tuple[list[str], list[str]]:
@@ -101,6 +100,3 @@ def torch_dataset(
             return features, targets
 
     return _VectorDataset()
-
-
-__all__ = ["torch_dataset"]

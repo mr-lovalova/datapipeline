@@ -1,13 +1,11 @@
 import pickle
 from pathlib import Path
-from typing import Optional
 
 from datapipeline.io.serializers import pickle_serializer
-from datapipeline.io.protocols import HasFilePath, Writer
 from datapipeline.io.sinks import AtomicBinaryFileSink
 
 
-class PickleFileWriter(Writer, HasFilePath):
+class PickleFileWriter:
     def __init__(
         self,
         dest: Path,
@@ -18,10 +16,6 @@ class PickleFileWriter(Writer, HasFilePath):
         self.sink = AtomicBinaryFileSink(dest, overwrite=overwrite)
         self.pickler = pickle.Pickler(self.sink.fh, protocol=protocol)
         self._serializer = serializer or pickle_serializer()
-
-    @property
-    def file_path(self) -> Optional[Path]:
-        return self.sink.file_path
 
     def write(self, item) -> None:
         self.pickler.dump(self._serializer(item))

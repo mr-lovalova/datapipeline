@@ -1,25 +1,26 @@
 import logging
-from pathlib import Path
 
 from datapipeline.artifacts.executor import run_build_if_needed
 from datapipeline.artifacts.planning import ArtifactGraph, build_artifact_graph
 from datapipeline.artifacts.validation import stream_tick_artifacts
-from datapipeline.build.config_hash import compute_config_hash
-from datapipeline.config.tasks import TicksTask
+from datapipeline.config.tasks import TicksTask, VectorInputsTask
 from datapipeline.profiles.executor import ExecutionSpec, run_execution
 from datapipeline.profiles.materialize import (
     execute_materialize_job,
     preflight_materialize_jobs,
 )
-from datapipeline.services.bootstrap import bootstrap_build_runtime
-from datapipeline.services.bootstrap.core import load_streams
-from datapipeline.services.project_paths import tasks_dir
+from datapipeline.services.execution_lock import (
+    ProjectExecutionBusyError,
+    project_execution_lock,
+)
 from datapipeline.services.runs import (
     finish_run_failed,
     finish_run_success,
     set_latest_run,
     start_run,
 )
+from datapipeline.services.runtime_compiler import compile_runtime
+from datapipeline.vector_inputs.store import prune_vector_input_cache
 
 from .execution import (
     RuntimeJobPlan,
@@ -40,12 +41,25 @@ logger = logging.getLogger(__name__)
 
 
 def run_profiles(request: ProfileRunRequest) -> None:
-    if isinstance(request, BuildRunRequest):
-        _run_build_profiles(request)
-    elif isinstance(request, RuntimeRunRequest):
-        _run_runtime_profiles(request)
-    else:
-        _run_materialize_profiles(request)
+    try:
+        with project_execution_lock(request.definition.project.artifacts_root):
+            if isinstance(request, BuildRunRequest):
+                _run_build_profiles(request)
+            elif isinstance(request, RuntimeRunRequest):
+                _run_runtime_profiles(request)
+            else:
+                _run_materialize_profiles(request)
+            _prune_vector_input_caches(request)
+    except ProjectExecutionBusyError as exc:
+        logger.error("%s", exc)
+        raise SystemExit(2) from exc
+
+
+def _prune_vector_input_caches(request: ProfileRunRequest) -> None:
+    root = request.definition.project.artifacts_root
+    for task in request.definition.artifact_operations:
+        if isinstance(task, VectorInputsTask):
+            prune_vector_input_cache(root / task.output)
 
 
 def _run_build_profiles(request: BuildRunRequest) -> None:
@@ -53,18 +67,21 @@ def _run_build_profiles(request: BuildRunRequest) -> None:
     if not jobs:
         return
     try:
-        _verify_config_hash(request.project_path, request.config_hash)
-        graph = build_artifact_graph(request.artifact_task_configs)
+        graph = build_artifact_graph(
+            request.definition.artifact_operations,
+            request.definition.dataset,
+            request.definition.streams,
+        )
         _validate_build_order(jobs, graph)
         for job in jobs:
-            validate_build_job(job.task, graph, request.project_path)
-    except (OSError, ValueError) as exc:
+            validate_build_job(job.task, graph, request.definition)
+    except (OSError, RuntimeError, ValueError) as exc:
         logger.error("%s", exc)
         raise SystemExit(2) from exc
 
     resolved_artifacts: set[str] = set()
     for job in jobs:
-        runtime = bootstrap_build_runtime(request.project_path)
+        runtime = compile_runtime(request.definition)
         runtime.execution = request.execution
         spec = ExecutionSpec(
             observability=job.settings.observability,
@@ -73,13 +90,12 @@ def _run_build_profiles(request: BuildRunRequest) -> None:
 
         def build(job=job, runtime=runtime) -> None:
             run_build_if_needed(
-                request.project_path,
+                request.definition,
                 graph=graph,
                 required_artifacts={job.task.id},
                 settings=job.settings,
                 runtime=runtime,
                 resolved_artifacts=resolved_artifacts,
-                expected_config_hash=request.config_hash,
             )
 
         run_execution(spec, build)
@@ -90,10 +106,13 @@ def _run_runtime_profiles(request: RuntimeRunRequest) -> None:
     if not jobs:
         return
     try:
-        _verify_config_hash(request.project_path, request.config_hash)
-        graph = build_artifact_graph(request.artifact_task_configs)
-        plans = [plan_runtime_job(job, graph, request.project_path) for job in jobs]
-    except (OSError, ValueError) as exc:
+        graph = build_artifact_graph(
+            request.definition.artifact_operations,
+            request.definition.dataset,
+            request.definition.streams,
+        )
+        plans = [plan_runtime_job(job, graph, request.definition) for job in jobs]
+    except (OSError, RuntimeError, ValueError) as exc:
         logger.error("%s", exc)
         raise SystemExit(2) from exc
 
@@ -120,7 +139,7 @@ def _run_runtime_profiles(request: RuntimeRunRequest) -> None:
             def execute(plan=plan) -> None:
                 execute_runtime_job(
                     request.command,
-                    request.project_path,
+                    request.definition,
                     graph,
                     plan,
                 )
@@ -137,28 +156,32 @@ def _run_materialize_profiles(request: MaterializeRunRequest) -> None:
         return
     request.runtime.execution = request.execution
     try:
-        _verify_config_hash(request.project_path, request.config_hash)
         preflight_materialize_jobs(request.runtime, jobs)
-        graph = build_artifact_graph(request.artifact_task_configs)
-        streams = load_streams(request.project_path)
+        graph = build_artifact_graph(
+            request.definition.artifact_operations,
+            request.definition.dataset,
+            request.definition.streams,
+        )
         required_artifacts = {
             artifact
             for job in jobs
-            for artifact in stream_tick_artifacts(job.stream, streams)
+            for artifact in stream_tick_artifacts(
+                job.stream, request.definition.streams
+            )
         }
         for artifact in sorted(required_artifacts):
             task = graph.tasks_by_id.get(artifact)
             if task is None:
                 raise ValueError(
                     f"Tick artifact '{artifact}' requires a declared ticks "
-                    "task with the same id."
+                    "operation with the same id."
                 )
             if not isinstance(task, TicksTask):
                 raise ValueError(
-                    f"Tick artifact '{artifact}' references task "
-                    f"entrypoint '{task.entrypoint}', not a ticks task."
+                    f"Tick artifact '{artifact}' references operation "
+                    f"entrypoint '{task.entrypoint}', not a ticks operation."
                 )
-    except (FileExistsError, OSError, ValueError) as exc:
+    except (FileExistsError, OSError, RuntimeError, ValueError) as exc:
         logger.error("%s", exc)
         raise SystemExit(2) from exc
 
@@ -176,13 +199,6 @@ def _run_materialize_profiles(request: MaterializeRunRequest) -> None:
             execute_materialize_job(job, request.runtime)
 
         run_execution(spec, execute)
-
-
-def _verify_config_hash(project_path: Path, expected_hash: str) -> None:
-    if compute_config_hash(project_path, tasks_dir(project_path)) != expected_hash:
-        raise ValueError(
-            "Pipeline inputs changed after profiles were resolved; rerun the command."
-        )
 
 
 def _validate_build_order(jobs: list[BuildJob], graph: ArtifactGraph) -> None:
@@ -223,7 +239,7 @@ def _prepare_runtime_artifacts(
         return
 
     settings = request.artifact_settings
-    runtime = bootstrap_build_runtime(request.project_path)
+    runtime = compile_runtime(request.definition)
     runtime.execution = request.execution
     spec = ExecutionSpec(
         observability=settings.observability,
@@ -232,12 +248,11 @@ def _prepare_runtime_artifacts(
 
     def prepare() -> None:
         run_build_if_needed(
-            request.project_path,
+            request.definition,
             graph=graph,
             required_artifacts=required_artifacts,
             settings=settings,
             runtime=runtime,
-            expected_config_hash=request.config_hash,
         )
 
     run_execution(spec, prepare)
@@ -257,12 +272,11 @@ def _prepare_materialize_artifacts(
 
     def prepare() -> None:
         run_build_if_needed(
-            request.project_path,
+            request.definition,
             graph=graph,
             required_artifacts=required_artifacts,
             settings=request.artifact_settings,
             runtime=request.runtime,
-            expected_config_hash=request.config_hash,
         )
 
     run_execution(spec, prepare)

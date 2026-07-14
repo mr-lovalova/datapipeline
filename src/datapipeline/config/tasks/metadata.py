@@ -12,6 +12,3 @@ class MetadataTask(ArtifactTask):
     window_mode: Literal["union", "intersection", "strict", "relaxed"] = Field(
         default="intersection"
     )
-
-
-__all__ = ["MetadataTask"]

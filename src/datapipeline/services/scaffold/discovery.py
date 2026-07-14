@@ -10,11 +10,7 @@ from datapipeline.services.constants import (
     MAPPERS_GROUP,
     STREAM_FROM_KEY,
 )
-from datapipeline.services.project_paths import (
-    ingests_dirs as resolve_ingests_dirs,
-    sources_dirs as resolve_sources_dirs,
-    streams_dirs as resolve_streams_dirs,
-)
+from datapipeline.services.project import load_project
 
 
 def list_dtos(*, root: Optional[Path] = None) -> dict[str, str]:
@@ -78,9 +74,7 @@ def list_domains(*, root: Optional[Path] = None) -> list[str]:
     if not dom_dir.exists():
         return []
     return sorted(
-        p.name
-        for p in dom_dir.iterdir()
-        if p.is_dir() and (p / "model.py").exists()
+        p.name for p in dom_dir.iterdir() if p.is_dir() and (p / "model.py").exists()
     )
 
 
@@ -89,7 +83,7 @@ def list_sources(project_yaml: Path) -> list[str]:
     from datapipeline.services.constants import PARSER_KEY, LOADER_KEY, SOURCE_ID_KEY
 
     out: list[str] = []
-    for sources_dir in resolve_sources_dirs(project_yaml):
+    for sources_dir in load_project(project_yaml).source_dirs:
         if not sources_dir.exists():
             continue
         for p in sorted(sources_dir.rglob("*.y*ml")):
@@ -110,7 +104,8 @@ def list_streams(project_yaml: Path) -> list[str]:
     from datapipeline.services.constants import STREAM_ID_KEY
 
     out: list[str] = []
-    roots = [*resolve_ingests_dirs(project_yaml), *resolve_streams_dirs(project_yaml)]
+    project = load_project(project_yaml)
+    roots = [*project.ingest_dirs, *project.stream_dirs]
     for root in roots:
         if not root.exists():
             continue

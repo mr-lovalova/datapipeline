@@ -14,11 +14,14 @@ class JsonLineSerializer:
         self._view = view
 
     def __call__(self, item: Any) -> str:
-        return json.dumps(
-            payload_for_view(item, self._view),
-            ensure_ascii=False,
-            default=str,
-        ) + "\n"
+        return (
+            json.dumps(
+                payload_for_view(item, self._view),
+                ensure_ascii=False,
+                default=str,
+            )
+            + "\n"
+        )
 
 
 class CsvRowSerializer:

@@ -1,9 +1,11 @@
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 from pydantic import ValidationError
 
+from datapipeline.cli.workspace import WorkspaceContext
+from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
+from datapipeline.config.dataset.split import HashSplitConfig
 from datapipeline.config.profiles import (
     BuildProfile,
     InspectProfile,
@@ -11,26 +13,11 @@ from datapipeline.config.profiles import (
     ServeProfile,
 )
 from datapipeline.config.preview import PreviewStage
-from datapipeline.config.resolution import LogOutputTarget
-from datapipeline.config.serve_resolution import resolve_runtime_profiles
-from datapipeline.config.split import HashSplitConfig
-from datapipeline.config.workspace import WorkspaceConfig, WorkspaceContext
+from datapipeline.execution.settings import LogOutputTarget
+from datapipeline.profiles.runtime_profiles import resolve_runtime_profiles
+from datapipeline.config.workspace import WorkspaceConfig
 from datapipeline.profiles.request_builder import build_cli_output_config
-
-
-@pytest.fixture(autouse=True)
-def _bootstrap_runtime(monkeypatch):
-    monkeypatch.setattr(
-        "datapipeline.config.serve_resolution.bootstrap_build_runtime",
-        lambda _project: SimpleNamespace(split=None),
-    )
-
-
-def _use_split(monkeypatch, split: HashSplitConfig) -> None:
-    monkeypatch.setattr(
-        "datapipeline.config.serve_resolution.bootstrap_build_runtime",
-        lambda _project: SimpleNamespace(split=split),
-    )
+from tests.unit.profiles.helpers import pipeline_definition
 
 
 def _resolve(
@@ -40,9 +27,17 @@ def _resolve(
     cli_output: ServeOutputConfig | None = None,
     cli_log_outputs: list[LogOutputTarget] | None = None,
     cli_heartbeat_interval_seconds: float | None = None,
+    split: HashSplitConfig | None = None,
 ):
+    definition = pipeline_definition(
+        project_path,
+        dataset=FeatureDatasetConfig(
+            sample=SampleConfig(cadence="1h"),
+            split=split,
+        ),
+    )
     return resolve_runtime_profiles(
-        project_path=project_path,
+        definition=definition,
         profiles=profiles,
         preview=preview,
         limit=None,
@@ -125,7 +120,7 @@ def test_runtime_profiles_reject_nested_build_config(profile_type, command):
         )
 
 
-def test_run_profiles_carry_heartbeat_without_mutating_runtime(monkeypatch, tmp_path):
+def test_runtime_profiles_resolve_heartbeat_setting(tmp_path):
     profile = ServeProfile.model_validate(
         {
             "cmd": "serve",
@@ -134,20 +129,7 @@ def test_run_profiles_carry_heartbeat_without_mutating_runtime(monkeypatch, tmp_
             "observability": {"heartbeat_interval_seconds": 30},
         }
     )
-    runtimes = []
-
-    def bootstrap(_project):
-        runtime = SimpleNamespace(split=None)
-        runtimes.append(runtime)
-        return runtime
-
-    monkeypatch.setattr(
-        "datapipeline.config.serve_resolution.bootstrap_build_runtime",
-        bootstrap,
-    )
-
     resolved = _resolve(tmp_path, [profile])[0]
-    assert not hasattr(runtimes[-1], "heartbeat_interval_seconds")
     assert resolved.observability.heartbeat_interval_seconds == 30
 
     cli_override = _resolve(
@@ -155,11 +137,10 @@ def test_run_profiles_carry_heartbeat_without_mutating_runtime(monkeypatch, tmp_
         [profile],
         cli_heartbeat_interval_seconds=0,
     )[0]
-    assert not hasattr(runtimes[-1], "heartbeat_interval_seconds")
     assert cli_override.observability.heartbeat_interval_seconds == 0
 
 
-def test_run_profiles_resolve_splits_for_fs_output(monkeypatch, tmp_path):
+def test_run_profiles_resolve_splits_for_fs_output(tmp_path):
     profile = ServeProfile.model_validate(
         {
             "cmd": "serve",
@@ -173,21 +154,20 @@ def test_run_profiles_resolve_splits_for_fs_output(monkeypatch, tmp_path):
             },
         }
     )
-    _use_split(
-        monkeypatch,
-        HashSplitConfig(ratios={"train": 0.8, "val": 0.2}),
-    )
-
-    resolved = _resolve(tmp_path / "project.yaml", [profile])[0]
+    resolved = _resolve(
+        tmp_path / "project.yaml",
+        [profile],
+        split=HashSplitConfig(ratios={"train": 0.8, "val": 0.2}),
+    )[0]
 
     assert resolved.name == "splits"
     assert resolved.target_id == "serve"
     assert resolved.splits == ("train", "val")
-    assert not hasattr(resolved.runtime, "run")
+    assert not hasattr(resolved, "runtime")
     assert resolved.output.transport == "fs"
 
 
-def test_run_profiles_reject_splits_without_project_split(tmp_path):
+def test_run_profiles_reject_splits_without_dataset_split(tmp_path):
     profile = ServeProfile.model_validate(
         {
             "cmd": "serve",
@@ -202,11 +182,11 @@ def test_run_profiles_reject_splits_without_project_split(tmp_path):
         }
     )
 
-    with pytest.raises(ValueError, match="project split is not configured"):
+    with pytest.raises(ValueError, match="dataset split is not configured"):
         _resolve(tmp_path / "project.yaml", [profile])
 
 
-def test_run_profiles_reject_unknown_splits(monkeypatch, tmp_path):
+def test_run_profiles_reject_unknown_splits(tmp_path):
     profile = ServeProfile.model_validate(
         {
             "cmd": "serve",
@@ -220,16 +200,15 @@ def test_run_profiles_reject_unknown_splits(monkeypatch, tmp_path):
             },
         }
     )
-    _use_split(
-        monkeypatch,
-        HashSplitConfig(ratios={"train": 0.8, "val": 0.2}),
-    )
-
     with pytest.raises(ValueError, match="unknown split labels: 'test'"):
-        _resolve(tmp_path / "project.yaml", [profile])
+        _resolve(
+            tmp_path / "project.yaml",
+            [profile],
+            split=HashSplitConfig(ratios={"train": 0.8, "val": 0.2}),
+        )
 
 
-def test_run_profiles_reject_splits_for_stdout(monkeypatch, tmp_path):
+def test_run_profiles_reject_splits_for_stdout(tmp_path):
     profile = ServeProfile.model_validate(
         {
             "cmd": "serve",
@@ -238,13 +217,15 @@ def test_run_profiles_reject_splits_for_stdout(monkeypatch, tmp_path):
             "splits": ["train"],
         }
     )
-    _use_split(monkeypatch, HashSplitConfig(ratios={"train": 1.0}))
-
     with pytest.raises(ValueError, match="output transport is not fs"):
-        _resolve(tmp_path / "project.yaml", [profile])
+        _resolve(
+            tmp_path / "project.yaml",
+            [profile],
+            split=HashSplitConfig(ratios={"train": 1.0}),
+        )
 
 
-def test_run_profiles_reject_splits_with_explicit_filename(monkeypatch, tmp_path):
+def test_run_profiles_reject_splits_with_explicit_filename(tmp_path):
     profile = ServeProfile.model_validate(
         {
             "cmd": "serve",
@@ -259,14 +240,16 @@ def test_run_profiles_reject_splits_with_explicit_filename(monkeypatch, tmp_path
             },
         }
     )
-    _use_split(monkeypatch, HashSplitConfig(ratios={"train": 1.0}))
-
     with pytest.raises(ValueError, match="cannot set output.filename with splits"):
-        _resolve(tmp_path / "project.yaml", [profile])
+        _resolve(
+            tmp_path / "project.yaml",
+            [profile],
+            split=HashSplitConfig(ratios={"train": 1.0}),
+        )
 
 
 def test_run_profiles_reject_splits_with_colliding_output_filenames(
-    monkeypatch, tmp_path
+    tmp_path,
 ):
     profile = ServeProfile.model_validate(
         {
@@ -281,13 +264,12 @@ def test_run_profiles_reject_splits_with_colliding_output_filenames(
             },
         }
     )
-    _use_split(
-        monkeypatch,
-        HashSplitConfig(ratios={"north/west": 0.5, "north_west": 0.5}),
-    )
-
     with pytest.raises(ValueError, match="same output filename"):
-        _resolve(tmp_path / "project.yaml", [profile])
+        _resolve(
+            tmp_path / "project.yaml",
+            [profile],
+            split=HashSplitConfig(ratios={"north/west": 0.5, "north_west": 0.5}),
+        )
 
 
 def test_operation_options_rejects_preview_when_unsupported(tmp_path):
@@ -454,7 +436,7 @@ def test_execution_scoped_logs_default_to_task_specific_filename(tmp_path):
     assert log_output.destination is None
 
 
-def test_serve_runtime_profiles_share_run_and_namespace_splits(monkeypatch, tmp_path):
+def test_serve_runtime_profiles_share_run_and_namespace_splits(tmp_path):
     profiles = [
         ServeProfile.model_validate(
             {
@@ -470,7 +452,6 @@ def test_serve_runtime_profiles_share_run_and_namespace_splits(monkeypatch, tmp_
             ("train", None),
         )
     ]
-    _use_split(monkeypatch, HashSplitConfig(ratios={"train": 1.0}))
     cli_output = ServeOutputConfig(
         transport="fs",
         format="jsonl",
@@ -481,6 +462,7 @@ def test_serve_runtime_profiles_share_run_and_namespace_splits(monkeypatch, tmp_
         tmp_path / "project.yaml",
         profiles,
         cli_output=cli_output,
+        split=HashSplitConfig(ratios={"train": 1.0}),
     )
 
     run_ids = {

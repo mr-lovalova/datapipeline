@@ -1,9 +1,6 @@
-from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-
-from datapipeline.config.model_utils import normalize_required_text
 
 ProfileCommand = Literal["serve", "build", "inspect", "materialize"]
 
@@ -16,7 +13,6 @@ class Profile(BaseModel):
     cmd: ProfileCommand
     name: str
     order: int | None = Field(default=None, ge=0)
-    source_path: Path | None = Field(default=None, exclude=True)
     enabled: bool = Field(default=True)
 
     @field_validator("name", mode="before")
@@ -29,11 +25,7 @@ class Profile(BaseModel):
 
 
 def normalize_profile_target(value: object) -> str:
-    return normalize_required_text(
-        value,
-        field_name="target",
-        lower=True,
-    )
-
-
-__all__ = ["Profile", "ProfileCommand", "normalize_profile_target"]
+    target = str(value).strip().lower() if value is not None else ""
+    if not target:
+        raise ValueError("target must be set")
+    return target

@@ -1,5 +1,8 @@
 from pathlib import Path
 
+import pytest
+from pydantic import ValidationError
+
 from datapipeline.services.project_paths import ensure_project_scaffold
 
 
@@ -12,3 +15,14 @@ def test_ensure_project_scaffold_creates_dotenv_example(tmp_path: Path) -> None:
     assert dotenv_example.exists()
     text = dotenv_example.read_text(encoding="utf-8")
     assert "RAW_ROOT=" in text
+
+
+def test_ensure_project_scaffold_reports_invalid_project(tmp_path: Path) -> None:
+    project_yaml = tmp_path / "project.yaml"
+    project_yaml.write_text(
+        "version: 1\npaths:\n  profiels: ./profiles\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValidationError):
+        ensure_project_scaffold(project_yaml)

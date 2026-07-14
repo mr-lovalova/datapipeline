@@ -1,5 +1,0 @@
-id: coverage
-kind: runtime
-entrypoint: core.runtime.coverage
-options:
-  sort: missing

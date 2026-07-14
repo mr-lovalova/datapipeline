@@ -22,6 +22,26 @@ def test_feature_dataset_loads_sample_cadence_and_keys() -> None:
     assert dataset.sample.keys == ["security_id"]
 
 
+def test_feature_dataset_owns_split_and_postprocess_policy() -> None:
+    dataset = FeatureDatasetConfig.model_validate(
+        {
+            "sample": {"cadence": "1d"},
+            "split": {
+                "mode": "hash",
+                "key": "group",
+                "ratios": {"train": 0.8, "test": 0.2},
+            },
+            "postprocess": {
+                "samples": {"features": {"threshold": 0.9}},
+            },
+        }
+    )
+
+    assert dataset.split is not None
+    assert dataset.postprocess.samples.features is not None
+    assert dataset.postprocess.samples.features.threshold == 0.9
+
+
 def test_feature_dataset_rejects_legacy_group_by() -> None:
     with pytest.raises(ValidationError, match="group_by"):
         FeatureDatasetConfig.model_validate(

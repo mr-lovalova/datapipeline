@@ -1,3 +1,5 @@
+import gc
+import weakref
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -7,16 +9,20 @@ from datapipeline.artifacts.scaler import (
     StandardScalerArtifact,
     save_scaler_artifact,
 )
-from datapipeline.config.dataset.feature import SequenceConfig
+from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
+from datapipeline.config.dataset.feature import FeatureRecordConfig, SequenceConfig
 from datapipeline.execution.context import PipelineContext
 from datapipeline.domain.feature import FeatureRecord
 from datapipeline.domain.record import TemporalRecord
+from datapipeline.domain.sample_key import SampleKeyContract
 from datapipeline.pipelines.feature.pipeline import build_feature_nodes
 from datapipeline.pipelines.feature.nodes import (
+    FeatureSequencer,
     build_feature_stream,
     scale_features,
     sequence_features,
 )
+from datapipeline.pipelines.feature.projector import FeatureProjector
 from datapipeline.runtime import IngestRuntimeStream, Runtime
 from datapipeline.services.artifacts import ArtifactNotRegisteredError
 from datapipeline.services.constants import SCALER_STATISTICS
@@ -35,6 +41,7 @@ def _context(tmp_path) -> PipelineContext:
     runtime = Runtime(
         project_yaml=tmp_path / "project.yaml",
         artifacts_root=tmp_path / "artifacts",
+        dataset=FeatureDatasetConfig(sample=SampleConfig(cadence="1h")),
     )
     runtime.streams["stream"] = IngestRuntimeStream(
         source=_EmptySource(),
@@ -66,11 +73,13 @@ def _feature(
 def test_feature_nodes_make_scaling_and_sequence_explicit(tmp_path) -> None:
     nodes = build_feature_nodes(
         _context(tmp_path),
-        stream_id="stream",
-        feature_id="x",
-        field="value",
-        scale=True,
-        sequence=SequenceConfig(size=3, stride=2),
+        FeatureRecordConfig(
+            stream="stream",
+            id="x",
+            field="value",
+            scale=True,
+            sequence=SequenceConfig(size=3, stride=2),
+        ),
     )
 
     assert [node.name for node in nodes] == [
@@ -84,11 +93,7 @@ def test_feature_nodes_make_scaling_and_sequence_explicit(tmp_path) -> None:
 def test_feature_nodes_omit_disabled_stages(tmp_path) -> None:
     nodes = build_feature_nodes(
         _context(tmp_path),
-        stream_id="stream",
-        feature_id="x",
-        field="value",
-        scale=False,
-        sequence=None,
+        FeatureRecordConfig(stream="stream", id="x", field="value"),
     )
 
     assert [node.name for node in nodes] == [
@@ -139,8 +144,8 @@ def test_sequence_features_tracks_each_feature_and_entity_independently() -> Non
     features = iter(
         [
             _feature(1, 0, entity_key=("A",)),
-            _feature(10, 1, entity_key=("B",)),
-            _feature(2, 2, entity_key=("A",)),
+            _feature(2, 1, entity_key=("A",)),
+            _feature(10, 2, entity_key=("B",)),
             _feature(20, 3, entity_key=("B",)),
         ]
     )
@@ -153,12 +158,36 @@ def test_sequence_features_tracks_each_feature_and_entity_independently() -> Non
     ]
 
 
+def test_feature_sequencer_retains_only_the_active_entity() -> None:
+    sequencer = FeatureSequencer(SequenceConfig(size=2))
+
+    for position in range(10_000):
+        sequencer.append(
+            _feature(position, position, entity_key=(f"entity-{position}",))
+        )
+
+    assert len(sequencer._window) == 1
+
+
 def test_sequence_features_preserves_none_values() -> None:
     features = iter([_feature(1.0, 0), _feature(None, 1)])
 
     [sequence] = sequence_features(SequenceConfig(size=2), features)
 
     assert sequence.values == [1.0, None]
+
+
+def test_feature_sequencer_does_not_retain_source_records() -> None:
+    record = TemporalRecord(time=datetime(2024, 1, 1, tzinfo=timezone.utc))
+    record_ref = weakref.ref(record)
+    feature = FeatureRecord(record=record, id="x", value=1.0)
+    sequencer = FeatureSequencer(SequenceConfig(size=2))
+
+    assert sequencer.append(feature) is None
+    del feature, record
+    gc.collect()
+
+    assert record_ref() is None
 
 
 def test_feature_stream_rejects_sample_key_type_drift() -> None:
@@ -172,10 +201,8 @@ def test_feature_stream_rejects_sample_key_type_drift() -> None:
     with pytest.raises(TypeError, match="changed type"):
         list(
             build_feature_stream(
-                "value",
-                "value",
-                None,
-                ["security_id"],
+                FeatureProjector(None, SampleKeyContract(["security_id"])),
+                FeatureRecordConfig(stream="stream", id="value", field="value"),
                 iter([first, second]),
             )
         )

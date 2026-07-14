@@ -1,11 +1,7 @@
 from dataclasses import dataclass
-from pathlib import Path
-
-from datapipeline.artifacts.planning import ArtifactGraph
+from datapipeline.artifacts.planning import ArtifactGraph, stream_tick_artifacts
 from datapipeline.config.catalog import StreamsConfig
 from datapipeline.config.tasks import TicksTask
-from datapipeline.config.transforms import EnsureTicksConfig
-from datapipeline.services.bootstrap.core import load_streams
 
 
 @dataclass(frozen=True)
@@ -15,13 +11,13 @@ class NestedTickDependency:
 
 
 def validate_artifact_plan(
-    project_path: Path,
+    streams: StreamsConfig,
     graph: ArtifactGraph,
     artifact_keys: set[str],
 ) -> None:
     graph.validate_producers(artifact_keys)
     nested_dependencies = nested_tick_dependencies(
-        project_path,
+        streams,
         graph,
         artifact_keys,
     )
@@ -37,7 +33,7 @@ def validate_artifact_plan(
 
 
 def nested_tick_dependencies(
-    project_path: Path,
+    streams: StreamsConfig,
     graph: ArtifactGraph,
     artifact_keys: set[str],
 ) -> tuple[NestedTickDependency, ...]:
@@ -49,7 +45,6 @@ def nested_tick_dependencies(
     if not tick_tasks:
         return ()
 
-    streams = load_streams(project_path)
     nested: list[NestedTickDependency] = []
     for task in tick_tasks:
         tick_artifacts = stream_tick_artifacts(task.stream, streams)
@@ -61,27 +56,3 @@ def nested_tick_dependencies(
                 )
             )
     return tuple(nested)
-
-
-def stream_tick_artifacts(
-    stream_id: str,
-    streams: StreamsConfig,
-) -> set[str]:
-    artifacts: set[str] = set()
-    visited: set[str] = set()
-
-    def visit(current_stream_id: str) -> None:
-        if current_stream_id in visited:
-            return
-        visited.add(current_stream_id)
-        stream = streams.streams.get(current_stream_id)
-        if stream is None:
-            return
-        for operation in stream.stream:
-            if isinstance(operation, EnsureTicksConfig):
-                artifacts.add(operation.artifact)
-        for input_stream_id in stream.input_streams():
-            visit(input_stream_id)
-
-    visit(stream_id)
-    return artifacts

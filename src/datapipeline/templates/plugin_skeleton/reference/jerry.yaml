@@ -1,8 +1,0 @@
-# Jerry workspace config reference (all options).
-# This file is documentation only; uncomment the keys you want to use.
-#
-# plugin_root: ./path/to/your/plugin # optional
-#
-# datasets:                        # optional
-#   default: example/project.yaml  # optional (relative to jerry.yaml)
-# default_dataset: default         # optional (must be a key in datasets)

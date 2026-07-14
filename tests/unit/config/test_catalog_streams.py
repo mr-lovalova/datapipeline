@@ -9,6 +9,29 @@ from datapipeline.config.catalog import (
 )
 
 
+def _source_with_inputs(files: list[str]) -> SourceConfig:
+    return SourceConfig.model_validate(
+        {
+            "id": "sample.source",
+            "parser": {"entrypoint": "identity"},
+            "loader": {"entrypoint": "custom.loader"},
+            "inputs": {"files": files},
+        }
+    )
+
+
+def test_source_input_files_have_canonical_order() -> None:
+    source = _source_with_inputs(["data/b.jsonl", "data/a.jsonl"])
+
+    assert source.inputs is not None
+    assert source.inputs.files == ("data/a.jsonl", "data/b.jsonl")
+
+
+def test_source_input_files_reject_duplicates() -> None:
+    with pytest.raises(ValueError, match="must not contain duplicates"):
+        _source_with_inputs(["data/a.jsonl", "data/a.jsonl"])
+
+
 def test_stream_rejects_old_kind_shape() -> None:
     with pytest.raises(ValueError, match="Extra inputs are not permitted"):
         DerivedStreamConfig.model_validate(
@@ -410,6 +433,90 @@ def test_source_rejects_unknown_loader_field() -> None:
                 "loader": {
                     "entrypoint": "load",
                     "fallback": "hidden.magic",
+                },
+            }
+        )
+
+
+def test_core_io_source_rejects_unknown_loader_argument() -> None:
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        SourceConfig.model_validate(
+            {
+                "id": "demo.source",
+                "parser": {"entrypoint": "parse"},
+                "loader": {
+                    "entrypoint": "core.io",
+                    "args": {
+                        "transport": "fs",
+                        "format": "csv",
+                        "path": "prices.csv",
+                        "delimeter": ",",
+                    },
+                },
+            }
+        )
+
+
+def test_core_io_source_rejects_options_for_another_format() -> None:
+    with pytest.raises(ValueError, match="delimiter is only valid for the csv format"):
+        SourceConfig.model_validate(
+            {
+                "id": "demo.source",
+                "parser": {"entrypoint": "parse"},
+                "loader": {
+                    "entrypoint": "core.io",
+                    "args": {
+                        "transport": "fs",
+                        "format": "jsonl",
+                        "path": "prices.jsonl",
+                        "delimiter": ",",
+                    },
+                },
+            }
+        )
+
+
+def test_custom_source_loader_keeps_plugin_arguments_explicitly_open() -> None:
+    source = SourceConfig.model_validate(
+        {
+            "id": "demo.source",
+            "parser": {"entrypoint": "parse"},
+            "loader": {
+                "entrypoint": "custom.loader",
+                "args": {"vendor_option": "value"},
+            },
+        }
+    )
+
+    assert source.loader.args == {"vendor_option": "value"}
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("count_by_fetch", "false"),
+        ("timeout_seconds", "10"),
+        ("timeout_seconds", True),
+        ("timeout_seconds", float("inf")),
+    ],
+)
+def test_core_http_source_rejects_coerced_runtime_options(
+    field: str,
+    value: object,
+) -> None:
+    with pytest.raises(ValueError):
+        SourceConfig.model_validate(
+            {
+                "id": "demo.source",
+                "parser": {"entrypoint": "parse"},
+                "loader": {
+                    "entrypoint": "core.io",
+                    "args": {
+                        "transport": "http",
+                        "format": "jsonl",
+                        "url": "https://example.test/prices.jsonl",
+                        field: value,
+                    },
                 },
             }
         )

@@ -37,6 +37,3 @@ def dataframe_from_vectors(
         open_stream=open_stream,
     )
     return pd.DataFrame(rows)
-
-
-__all__ = ["dataframe_from_vectors"]

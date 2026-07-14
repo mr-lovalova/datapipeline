@@ -5,8 +5,6 @@ from datapipeline.artifacts.models import VectorSchemaEntry
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
 
-from .common import require_scalar
-
 
 class _SchemaNormalizer:
     def __init__(self, entries: Sequence[VectorSchemaEntry]) -> None:
@@ -35,7 +33,6 @@ class _SchemaNormalizer:
                 continue
             value = values[entry.id]
             if entry.kind == "scalar":
-                require_scalar(value, entry.id)
                 normalized[entry.id] = value
                 continue
             if not isinstance(value, list):
@@ -46,9 +43,7 @@ class _SchemaNormalizer:
                     f"Vector id {entry.id!r} requires {entry.cadence.target} values; "
                     f"got {len(value)}."
                 )
-            for item in value:
-                require_scalar(item, entry.id)
-            normalized[entry.id] = list(value)
+            normalized[entry.id] = value
         return normalized
 
     @staticmethod

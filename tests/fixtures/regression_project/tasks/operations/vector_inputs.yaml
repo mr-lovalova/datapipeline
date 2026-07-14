@@ -1,5 +1,0 @@
-version: 1
-kind: artifact
-id: vector_inputs
-entrypoint: core.artifact.vector_inputs
-output: build/vector_inputs/manifest.json

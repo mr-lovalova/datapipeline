@@ -3,9 +3,10 @@ from datetime import datetime, timezone
 
 import pytest
 
+from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
 from datapipeline.config.execution import ExecutionConfig
 from datapipeline.config.tasks import TicksTask
-from datapipeline.config.transforms import FloorTimeConfig
+from datapipeline.config.transforms import WhereConfig
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.operations.artifacts.ticks import materialize_ticks
 from datapipeline.runtime import DerivedRuntimeStream, IngestRuntimeStream, Runtime
@@ -41,12 +42,13 @@ def _identity(records):
 
 def _runtime(tmp_path, rows=None) -> Runtime:
     project_yaml = tmp_path / "project.yaml"
-    project_yaml.write_text("version: 1\n", encoding="utf-8")
+    project_yaml.write_text("version: 1\nartifact_revision: 1\n", encoding="utf-8")
     artifacts_root = tmp_path / "artifacts"
     artifacts_root.mkdir()
     runtime = Runtime(
         project_yaml=project_yaml,
         artifacts_root=artifacts_root,
+        dataset=FeatureDatasetConfig(sample=SampleConfig(cadence="1h")),
         execution=ExecutionConfig(),
     )
     runtime.streams["source.stream"] = IngestRuntimeStream(
@@ -68,7 +70,7 @@ def _stream_runtime(tmp_path, rows=None) -> Runtime:
     runtime.streams["derived.stream"] = DerivedRuntimeStream(
         input_stream="source.stream",
         mapper=_identity,
-        transforms=(FloorTimeConfig(cadence="1h"),),
+        transforms=(WhereConfig(field="time", operator="lt", comparand=_ts(2)),),
         partition_by=(),
         feature_id_by=None,
         presorted=False,
@@ -135,6 +137,9 @@ def test_materialize_ticks_writes_keyed_grid_rows(tmp_path) -> None:
 
 def test_materialize_ticks_rejects_missing_key_field(tmp_path) -> None:
     runtime = _runtime(tmp_path, [_record(0)])
+    destination = runtime.artifacts_root / "build/model_grid.jsonl"
+    destination.parent.mkdir(parents=True)
+    destination.write_text("previous\n", encoding="utf-8")
 
     with pytest.raises(KeyError, match="security_id"):
         materialize_ticks(
@@ -147,6 +152,9 @@ def test_materialize_ticks_rejects_missing_key_field(tmp_path) -> None:
                 output="build/model_grid.jsonl",
             ),
         )
+
+    assert destination.read_text(encoding="utf-8") == "previous\n"
+    assert list(destination.parent.iterdir()) == [destination]
 
 
 def test_materialize_ticks_uses_stream_transforms(
@@ -170,6 +178,5 @@ def test_materialize_ticks_uses_stream_transforms(
     path = runtime.artifacts_root / result.relative_path
     rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
     assert rows == [
-        {"time": "2024-01-01T00:00:00Z"},
-        {"time": "2024-01-01T02:00:00Z"},
+        {"time": "2024-01-01T00:30:00Z"},
     ]

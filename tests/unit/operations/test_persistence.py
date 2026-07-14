@@ -6,13 +6,10 @@ from types import SimpleNamespace
 import pytest
 
 import datapipeline.operations.persistence as persistence
-from datapipeline.cli.visuals.execution import (
-    ExecutionEventSink,
-    make_operation_observer,
-)
+from datapipeline.cli.visuals.execution import make_operation_observer
 from datapipeline.cli.visuals.execution_context import (
-    reset_current_execution_event_sink,
-    set_current_execution_event_sink,
+    reset_current_execution_event_handler,
+    set_current_execution_event_handler,
 )
 from datapipeline.execution.observability import (
     FileResult,
@@ -30,11 +27,11 @@ from datapipeline.operations.persistence import (
 from datapipeline.services.artifacts import ArtifactManager
 
 
-class _CaptureSink(ExecutionEventSink):
+class _CaptureHandler:
     def __init__(self) -> None:
         self.events = []
 
-    def emit(self, event) -> None:
+    def __call__(self, event) -> None:
         self.events.append(event)
 
 
@@ -44,7 +41,7 @@ def test_persist_artifact_output_requires_declared_existing_file(tmp_path) -> No
         artifacts=ArtifactManager(tmp_path),
     )
 
-    with pytest.raises(ValueError, match="but its task declares"):
+    with pytest.raises(ValueError, match="but its operation declares"):
         persist_artifact_output(
             ArtifactOutput(relative_path="other.json"),
             artifact_key="snapshot",
@@ -164,8 +161,8 @@ def test_runtime_persistence_emits_flat_output(tmp_path) -> None:
         encoding="utf-8",
         destination=destination,
     )
-    capture = _CaptureSink()
-    token = set_current_execution_event_sink(capture)
+    capture = _CaptureHandler()
+    token = set_current_execution_event_handler(capture)
     try:
         logger = logging.getLogger(__name__)
         observer = make_operation_observer(logger)
@@ -178,7 +175,7 @@ def test_runtime_persistence_emits_flat_output(tmp_path) -> None:
                     logger=logger,
                 )
     finally:
-        reset_current_execution_event_sink(token)
+        reset_current_execution_event_handler(token)
 
     outputs = [event for event in capture.events if isinstance(event, FileResult)]
     assert len(outputs) == 1

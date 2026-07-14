@@ -1,7 +1,6 @@
-import json
 from collections import defaultdict
 from collections.abc import Sequence
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 from datapipeline.artifacts.models import (
@@ -13,13 +12,11 @@ from datapipeline.artifacts.models import (
     Window,
     WindowMode,
 )
-from datapipeline.config.dataset.normalize import floor_time_to_cadence
-from datapipeline.config.dataset.loader import load_dataset
-from datapipeline.config.dataset.validation import validate_dataset_feature_identity
+from datapipeline.utils.time import floor_time_to_cadence
 from datapipeline.config.tasks import MetadataTask
 from datapipeline.operations.persistence import ArtifactOutput
 from datapipeline.runtime import Runtime
-from datapipeline.utils.paths import ensure_parent
+from datapipeline.utils.json_artifact import write_json_artifact
 from datapipeline.utils.time import parse_cadence
 
 from .utils import (
@@ -176,8 +173,7 @@ def materialize_metadata(
     runtime: Runtime,
     task_cfg: MetadataTask,
 ) -> ArtifactOutput:
-    dataset = load_dataset(runtime.project_yaml)
-    validate_dataset_feature_identity(runtime, dataset)
+    dataset = runtime.dataset
     features_cfgs = list(dataset.features)
     (
         feature_stats,
@@ -222,7 +218,6 @@ def materialize_metadata(
         target_meta = metadata_entries_from_stats(target_stats)
     feature_meta = metadata_entries_from_stats(feature_stats)
 
-    generated_at = datetime.now(timezone.utc)
     window_obj: Window | None = None
     computed_start, computed_end = _window_bounds_from_stats(
         feature_stats,
@@ -249,7 +244,6 @@ def materialize_metadata(
 
     doc = VectorMetadata(
         schema_version=1,
-        generated_at=generated_at,
         features=feature_meta,
         targets=target_meta,
         counts=VectorMetadataCounts(
@@ -262,9 +256,10 @@ def materialize_metadata(
 
     relative_path = Path(task_cfg.output)
     destination = (runtime.artifacts_root / relative_path).resolve()
-    ensure_parent(destination)
-    with destination.open("w", encoding="utf-8") as fh:
-        json.dump(doc.model_dump(mode="json"), fh, indent=2)
+    write_json_artifact(
+        destination,
+        doc.model_dump(mode="json", exclude_none=True),
+    )
 
     meta: dict[str, object] = {
         "features": len(feature_meta),

@@ -58,10 +58,9 @@ def _update_workspace_jerry(
     demo_path = (plugin_root_rel / dataset_path).as_posix()
     datasets[_DEMO_DATASET_ALIAS] = demo_path
     # Drop skeleton placeholders that point into this demo plugin.
-    for key in ("your-dataset", "interim-builder"):
-        path = datasets.get(key)
-        if isinstance(path, str) and path.startswith(plugin_root_rel.as_posix()):
-            datasets.pop(key, None)
+    path = datasets.get("your-dataset")
+    if isinstance(path, str) and path.startswith(plugin_root_rel.as_posix()):
+        datasets.pop("your-dataset")
     data["datasets"] = datasets
     data["default_dataset"] = _DEMO_DATASET_ALIAS
     workspace_jerry.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
@@ -105,10 +104,9 @@ def scaffold_demo(root: Path | None = None) -> None:
         for item in demo_pkg.iterdir():
             _copy_tree(item, dest_pkg / item.name)
 
-    for cleanup in ("your-dataset", "your-interim-data-builder"):
-        extra = root_dir / cleanup
-        if extra.exists():
-            shutil.rmtree(extra)
+    extra = root_dir / "your-dataset"
+    if extra.exists():
+        shutil.rmtree(extra)
 
     replacements = {
         "{{PACKAGE_NAME}}": pkg_name,

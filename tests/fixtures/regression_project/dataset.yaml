@@ -20,3 +20,8 @@ targets:
   - id: power_target
     stream: targets.power
     field: value
+
+postprocess:
+  samples:
+    features:
+      threshold: 0.5

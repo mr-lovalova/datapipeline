@@ -3,8 +3,6 @@ import os
 import tempfile
 import gzip
 
-from .base import BaseSink
-
 
 def _commit_temp_file(temp: Path, dest: Path, overwrite: bool) -> None:
     if overwrite:
@@ -18,7 +16,7 @@ def _commit_temp_file(temp: Path, dest: Path, overwrite: bool) -> None:
         temp.unlink(missing_ok=True)
 
 
-class AtomicTextFileSink(BaseSink):
+class AtomicTextFileSink:
     def __init__(
         self,
         dest: Path,
@@ -32,10 +30,6 @@ class AtomicTextFileSink(BaseSink):
             tempfile.NamedTemporaryFile(dir=str(dest.parent), delete=False).name
         )
         self._fh = open(self._tmp, "w", encoding=encoding)
-
-    @property
-    def file_path(self) -> Path:
-        return self._dest
 
     @property
     def fh(self):
@@ -53,7 +47,7 @@ class AtomicTextFileSink(BaseSink):
         self._tmp.unlink(missing_ok=True)
 
 
-class AtomicBinaryFileSink(BaseSink):
+class AtomicBinaryFileSink:
     def __init__(self, dest: Path, overwrite: bool = True):
         self._dest = dest
         self._overwrite = overwrite
@@ -62,10 +56,6 @@ class AtomicBinaryFileSink(BaseSink):
             tempfile.NamedTemporaryFile(dir=str(dest.parent), delete=False).name
         )
         self._fh = open(self._tmp, "wb")
-
-    @property
-    def file_path(self) -> Path:
-        return self._dest
 
     @property
     def fh(self):
@@ -83,7 +73,7 @@ class AtomicBinaryFileSink(BaseSink):
         self._tmp.unlink(missing_ok=True)
 
 
-class GzipBinarySink(BaseSink):
+class GzipBinarySink:
     def __init__(self, dest: Path, overwrite: bool = True):
         self._dest = dest
         self._overwrite = overwrite
@@ -92,11 +82,12 @@ class GzipBinarySink(BaseSink):
             tempfile.NamedTemporaryFile(dir=str(dest.parent), delete=False).name
         )
         self._raw = open(self._tmp, "wb")
-        self._fh = gzip.GzipFile(fileobj=self._raw, mode="wb")
-
-    @property
-    def file_path(self) -> Path:
-        return self._dest
+        self._fh = gzip.GzipFile(
+            filename="",
+            fileobj=self._raw,
+            mode="wb",
+            mtime=0,
+        )
 
     def write_bytes(self, b: bytes) -> None:
         self._fh.write(b)

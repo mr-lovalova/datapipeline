@@ -1,7 +1,0 @@
-# See ../../plugin_skeleton/reference/reference/postprocess.yaml for all options.
-columns:
-  features:
-    threshold: 0.5
-samples:
-  features:
-    threshold: 1.0

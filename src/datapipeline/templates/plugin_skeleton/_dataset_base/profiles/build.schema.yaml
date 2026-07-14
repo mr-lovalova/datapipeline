@@ -1,5 +1,0 @@
-# See ../../reference/reference/tasks/profiles/build.reference.yaml for full options.
-order: 20
-target: schema
-enabled: true
-mode: AUTO

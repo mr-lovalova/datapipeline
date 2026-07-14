@@ -202,7 +202,6 @@ RecordTransformConfig = Annotated[
 ]
 StreamTransformConfig = Annotated[
     WhereConfig
-    | FloorTimeConfig
     | DedupeConfig
     | LagConfig
     | LeadConfig

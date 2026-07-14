@@ -1,5 +1,6 @@
-from pathlib import Path
+import os
 import tomllib
+from pathlib import Path
 
 import pytest
 
@@ -25,6 +26,7 @@ from datapipeline.config.preview import PreviewStage
 from datapipeline.config.tasks import (
     ArtifactTask,
     CoverageTask,
+    MatrixTask,
     MetadataTask,
     OperationTask,
     PipelineTask,
@@ -42,6 +44,13 @@ from datapipeline.services.constants import (
     VECTOR_SCHEMA,
     VECTOR_STATS,
 )
+from datapipeline.services.definitions import ArtifactHashes
+
+
+def _current_hashes(graph: ArtifactGraph) -> ArtifactHashes:
+    return ArtifactHashes(
+        {definition.key: "current" for definition in graph.definitions}
+    )
 
 
 def _declared_entrypoints(group: str) -> dict[str, str]:
@@ -76,7 +85,7 @@ def test_artifact_keys_match_task_ids():
         [
             SchemaTask(id="schema"),
             ScalerTask(id="scaler"),
-            StatsTask(id="stats", mode="raw"),
+            StatsTask(id="stats", stage="assembled"),
             VectorInputsTask(id="vector_inputs"),
         ]
     )
@@ -89,10 +98,10 @@ def test_artifact_keys_match_task_ids():
     }
 
 
-def test_raw_stats_build_selects_metadata_dependency_chain():
+def test_assembled_stats_build_selects_metadata_dependency_chain():
     graph = build_artifact_graph(
         [
-            StatsTask(id="stats", mode="raw"),
+            StatsTask(id="stats", stage="assembled"),
             MetadataTask(id="metadata"),
             VectorInputsTask(id="vector_inputs"),
             ScalerTask(id="scaler"),
@@ -109,10 +118,10 @@ def test_raw_stats_build_selects_metadata_dependency_chain():
     }
 
 
-def test_final_stats_build_also_selects_schema():
+def test_postprocessed_stats_build_also_selects_schema():
     graph = build_artifact_graph(
         [
-            StatsTask(id="stats", mode="final"),
+            StatsTask(id="stats", stage="postprocessed"),
             MetadataTask(id="metadata"),
             SchemaTask(id="schema"),
             VectorInputsTask(id="vector_inputs"),
@@ -152,12 +161,38 @@ def test_tick_artifacts_feed_scaler_and_vector_inputs() -> None:
         stream="reference.stream",
         output="build/dataset_ticks.jsonl",
     )
+    dataset = FeatureDatasetConfig(
+        sample=SampleConfig(cadence="1h"),
+        features=[
+            FeatureRecordConfig(
+                id="price",
+                stream="feature.stream",
+                field="close",
+                scale=True,
+            )
+        ],
+    )
+    streams = StreamsConfig.model_validate(
+        {
+            "streams": {
+                "feature.stream": {
+                    "id": "feature.stream",
+                    "from": {"stream": "raw"},
+                    "stream": [
+                        {"operation": "ensure_ticks", "artifact": "dataset_ticks"}
+                    ],
+                }
+            }
+        }
+    )
     graph = build_artifact_graph(
         [
             tick_task,
             ScalerTask(id="scaler"),
             VectorInputsTask(id="vector_inputs"),
-        ]
+        ],
+        dataset,
+        streams,
     )
 
     assert graph.definition(SCALER_STATISTICS).dependencies == ("dataset_ticks",)
@@ -174,10 +209,7 @@ def test_tick_artifacts_feed_scaler_and_vector_inputs() -> None:
     }
 
 
-def test_tick_artifact_rejects_nested_tick_artifact_in_any_upstream_stream(
-    monkeypatch,
-    tmp_path,
-) -> None:
+def test_tick_artifact_rejects_nested_tick_artifact_in_any_upstream_stream() -> None:
     tick_task = TicksTask(
         id="derived_ticks",
         stream="derived",
@@ -215,27 +247,23 @@ def test_tick_artifact_rejects_nested_tick_artifact_in_any_upstream_stream(
             }
         }
     )
-    monkeypatch.setattr(
-        "datapipeline.artifacts.validation.load_streams",
-        lambda _project_path: streams,
-    )
-
     assert stream_tick_artifacts("derived", streams) == {"base_ticks"}
 
     dependencies = nested_tick_dependencies(
-        tmp_path / "project.yaml",
+        streams,
         graph,
         {"derived_ticks"},
     )
     assert len(dependencies) == 1
-    assert dependencies[0].task is tick_task
+    assert dependencies[0].task == tick_task
+    assert dependencies[0].task is not tick_task
     assert dependencies[0].tick_artifacts == {"base_ticks"}
 
     with pytest.raises(ValueError, match="Nested tick artifact dependencies"):
-        validate_artifact_plan(tmp_path / "project.yaml", graph, {"derived_ticks"})
+        validate_artifact_plan(streams, graph, {"derived_ticks"})
 
 
-def test_tick_artifact_allows_duration_cadence(monkeypatch, tmp_path) -> None:
+def test_tick_artifact_allows_duration_cadence() -> None:
     tick_task = TicksTask(
         id="hourly_ticks",
         stream="hourly",
@@ -258,12 +286,7 @@ def test_tick_artifact_allows_duration_cadence(monkeypatch, tmp_path) -> None:
             }
         }
     )
-    monkeypatch.setattr(
-        "datapipeline.artifacts.validation.load_streams",
-        lambda _project_path: streams,
-    )
-
-    validate_artifact_plan(tmp_path / "project.yaml", graph, {"hourly_ticks"})
+    validate_artifact_plan(streams, graph, {"hourly_ticks"})
 
 
 def test_inactive_scaler_prunes_its_tick_dependency() -> None:
@@ -354,7 +377,7 @@ def test_artifact_graph_rejects_task_mapping_key_that_differs_from_id():
         output="snapshot.json",
     )
 
-    with pytest.raises(ValueError, match="does not match task id 'snapshot'"):
+    with pytest.raises(ValueError, match="does not match operation id 'snapshot'"):
         ArtifactGraph((ArtifactDefinition(key="wrong"),), {"wrong": task})
 
 
@@ -399,7 +422,7 @@ def test_stale_dependency_makes_current_dependent_outdated(tmp_path):
     state.register(
         "input",
         "input.json",
-        config_hash="old",
+        artifact_hash="old",
         files=(
             ArtifactFileFingerprint.from_path(
                 "input.json",
@@ -410,7 +433,7 @@ def test_stale_dependency_makes_current_dependent_outdated(tmp_path):
     state.register(
         "result",
         "result.json",
-        config_hash="current",
+        artifact_hash="current",
         files=(
             ArtifactFileFingerprint.from_path(
                 "result.json",
@@ -422,12 +445,39 @@ def test_stale_dependency_makes_current_dependent_outdated(tmp_path):
     freshness = graph.freshness(
         keys={"input", "result"},
         state=state,
-        config_hash="current",
+        artifact_hashes=_current_hashes(graph),
         artifacts_root=tmp_path,
     )
 
     assert freshness.stale == {"input"}
     assert freshness.outdated == {"input", "result"}
+
+
+def test_freshness_compares_each_artifacts_semantic_hash(tmp_path) -> None:
+    graph = ArtifactGraph(
+        (ArtifactDefinition(key="left"), ArtifactDefinition(key="right")),
+        {},
+    )
+    state = BuildState()
+    for key in ("left", "right"):
+        path = tmp_path / f"{key}.json"
+        path.write_text("{}", encoding="utf-8")
+        state.register(
+            key,
+            path.name,
+            artifact_hash="same" if key == "left" else "old",
+            files=(ArtifactFileFingerprint.from_path(path.name, path),),
+        )
+
+    freshness = graph.freshness(
+        keys={"left", "right"},
+        state=state,
+        artifact_hashes=ArtifactHashes({"left": "same", "right": "new"}),
+        artifacts_root=tmp_path,
+    )
+
+    assert freshness.stale == {"right"}
+    assert freshness.outdated == {"right"}
 
 
 def test_artifact_with_missing_file_is_not_current(tmp_path):
@@ -439,12 +489,13 @@ def test_artifact_with_missing_file_is_not_current(tmp_path):
     state.register(
         "result",
         "missing.json",
-        config_hash="current",
+        artifact_hash="current",
         files=(
             ArtifactFileFingerprint(
                 relative_path="missing.json",
                 size=0,
                 mtime_ns=0,
+                ctime_ns=0,
             ),
         ),
     )
@@ -452,7 +503,7 @@ def test_artifact_with_missing_file_is_not_current(tmp_path):
     freshness = graph.freshness(
         keys={"result"},
         state=state,
-        config_hash="current",
+        artifact_hashes=_current_hashes(graph),
         artifacts_root=tmp_path,
     )
 
@@ -472,7 +523,7 @@ def test_artifact_at_path_other_than_declared_output_is_stale(tmp_path):
     state.register(
         "snapshot",
         "legacy.json",
-        config_hash="current",
+        artifact_hash="current",
         files=(
             ArtifactFileFingerprint.from_path(
                 "legacy.json",
@@ -484,7 +535,7 @@ def test_artifact_at_path_other_than_declared_output_is_stale(tmp_path):
     freshness = graph.freshness(
         keys={"snapshot"},
         state=state,
-        config_hash="current",
+        artifact_hashes=_current_hashes(graph),
         artifacts_root=tmp_path,
     )
 
@@ -511,7 +562,7 @@ def test_artifact_companion_changes_affect_freshness(tmp_path, change):
     state.register(
         "bundle",
         "manifest.json",
-        config_hash="current",
+        artifact_hash="current",
         files=files,
     )
 
@@ -523,13 +574,41 @@ def test_artifact_companion_changes_affect_freshness(tmp_path, change):
     freshness = graph.freshness(
         keys={"bundle"},
         state=state,
-        config_hash="current",
+        artifact_hashes=_current_hashes(graph),
         artifacts_root=tmp_path,
     )
 
     expected = freshness.missing if change == "remove" else freshness.stale
     assert expected == {"bundle"}
     assert freshness.outdated == {"bundle"}
+
+
+def test_same_size_artifact_replacement_with_preserved_mtime_is_stale(tmp_path):
+    graph = ArtifactGraph((ArtifactDefinition(key="result"),), {})
+    output = tmp_path / "result.json"
+    output.write_bytes(b"first")
+    fingerprint = ArtifactFileFingerprint.from_path("result.json", output)
+    state = BuildState()
+    state.register(
+        "result",
+        "result.json",
+        artifact_hash="current",
+        files=(fingerprint,),
+    )
+
+    previous = output.stat()
+    output.write_bytes(b"other")
+    os.utime(output, ns=(previous.st_atime_ns, previous.st_mtime_ns))
+
+    freshness = graph.freshness(
+        keys={"result"},
+        state=state,
+        artifact_hashes=_current_hashes(graph),
+        artifacts_root=tmp_path,
+    )
+
+    assert freshness.stale == {"result"}
+    assert freshness.outdated == {"result"}
 
 
 @pytest.mark.parametrize(
@@ -560,6 +639,19 @@ def test_pipeline_runtime_requirements_follow_preview_stage(
     )
 
 
+@pytest.mark.parametrize(
+    "entrypoint",
+    ["core.runtime.pipeline", "core.runtime.coverage"],
+)
+def test_plugin_task_cannot_claim_core_requirements_by_entrypoint(
+    entrypoint: str,
+) -> None:
+    graph = build_artifact_graph([])
+    task = OperationTask(id="plugin", entrypoint=entrypoint, requires=("declared",))
+
+    assert graph.runtime_requirements(task, preview=None) == {"declared"}
+
+
 @pytest.mark.parametrize("preview", ["source", "mapped", "records", "features"])
 def test_record_and_feature_previews_require_declared_ticks(
     preview: PreviewStage,
@@ -569,13 +661,38 @@ def test_record_and_feature_previews_require_declared_ticks(
         stream="reference.stream",
         output="build/dataset_ticks.jsonl",
     )
-    graph = build_artifact_graph([tick_task])
+    unused_tick = TicksTask(
+        id="unused_ticks",
+        stream="unused.stream",
+        output="build/unused_ticks.jsonl",
+    )
+    dataset = FeatureDatasetConfig(
+        sample=SampleConfig(cadence="1h"),
+        features=[
+            FeatureRecordConfig(id="price", stream="feature.stream", field="close")
+        ],
+    )
+    streams = StreamsConfig.model_validate(
+        {
+            "streams": {
+                "feature.stream": {
+                    "id": "feature.stream",
+                    "from": {"stream": "raw"},
+                    "stream": [
+                        {"operation": "ensure_ticks", "artifact": "dataset_ticks"}
+                    ],
+                }
+            }
+        }
+    )
+    graph = build_artifact_graph([tick_task, unused_tick], dataset, streams)
     task = PipelineTask(id="pipeline")
 
     assert "dataset_ticks" in graph.runtime_requirements(
         task,
         preview=preview,
     )
+    assert "unused_ticks" not in graph.runtime_requirements(task, preview=preview)
 
 
 def test_invalid_pipeline_preview_is_rejected_for_empty_dataset() -> None:
@@ -591,12 +708,12 @@ def test_invalid_pipeline_preview_is_rejected_for_empty_dataset() -> None:
         )
 
 
-def test_runtime_dependency_closure_uses_stats_task_mode():
+def test_runtime_dependency_closure_uses_stats_task_stage():
     graph = build_artifact_graph(
         [
             VectorInputsTask(id="vector_inputs"),
             MetadataTask(id="metadata"),
-            StatsTask(id="stats", mode="raw"),
+            StatsTask(id="stats", stage="assembled"),
         ]
     )
     task = CoverageTask(id="coverage")
@@ -609,6 +726,33 @@ def test_runtime_dependency_closure_uses_stats_task_mode():
         preview=None,
         dataset=dataset,
     ) == (VECTOR_INPUTS, VECTOR_METADATA, VECTOR_STATS)
+
+
+@pytest.mark.parametrize(
+    ("stage", "expected"),
+    [
+        ("assembled", (VECTOR_INPUTS, VECTOR_METADATA)),
+        ("postprocessed", (VECTOR_INPUTS, VECTOR_METADATA, VECTOR_SCHEMA)),
+    ],
+)
+def test_matrix_uses_vector_artifacts_without_stats(stage, expected) -> None:
+    graph = build_artifact_graph(
+        [
+            VectorInputsTask(id="vector_inputs"),
+            MetadataTask(id="metadata"),
+            SchemaTask(id="schema"),
+        ]
+    )
+    task = MatrixTask(id="matrix", options={"stage": stage})
+
+    assert (
+        graph.runtime_dependency_closure(
+            task,
+            preview=None,
+            dataset=FeatureDatasetConfig(sample=SampleConfig(cadence="1h")),
+        )
+        == expected
+    )
 
 
 @pytest.mark.parametrize(
@@ -738,7 +882,7 @@ def test_artifact_definitions_have_runner_bound_entrypoints():
         "schema": SchemaTask(id="schema"),
         "metadata": MetadataTask(id="metadata"),
         "scaler": ScalerTask(id="scaler"),
-        "stats": StatsTask(id="stats", mode="final"),
+        "stats": StatsTask(id="stats", stage="postprocessed"),
         "vector_inputs": VectorInputsTask(id="vector_inputs"),
     }
     for definition in ARTIFACT_DEFINITIONS:

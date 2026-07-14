@@ -22,6 +22,7 @@ def _serve_args() -> SimpleNamespace:
         output_view=None,
         artifact_mode=None,
         visuals="on",
+        heartbeat_interval_seconds=None,
     )
 
 
@@ -38,6 +39,7 @@ def _inspect_args() -> SimpleNamespace:
         output_view=None,
         artifact_mode=None,
         visuals="on",
+        heartbeat_interval_seconds=None,
     )
 
 
@@ -276,6 +278,7 @@ def test_execute_build_passes_build_kind(monkeypatch) -> None:
         run="nightly",
         force=True,
         visuals="off",
+        heartbeat_interval_seconds=None,
     )
     handled = execute_command(
         args=args,

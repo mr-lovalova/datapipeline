@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 import datapipeline.pipelines.shared.record_nodes as record_nodes
 import pytest
+from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
 from datapipeline.config.execution import ExecutionConfig
 from datapipeline.execution.context import PipelineContext
 from datapipeline.pipelines.shared.record_nodes import order_records
@@ -21,11 +22,12 @@ def _ts(day: int) -> datetime:
 
 def _context(tmp_path):
     project_yaml = tmp_path / "project.yaml"
-    project_yaml.write_text("version: 1\n", encoding="utf-8")
+    project_yaml.write_text("version: 1\nartifact_revision: 1\n", encoding="utf-8")
     return PipelineContext(
         Runtime(
             project_yaml=project_yaml,
             artifacts_root=tmp_path / "artifacts",
+            dataset=FeatureDatasetConfig(sample=SampleConfig(cadence="1h")),
             execution=ExecutionConfig(),
         )
     )

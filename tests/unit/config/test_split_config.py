@@ -1,7 +1,11 @@
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
-from datapipeline.config.split import HashSplitConfig, SplitConfig, TimeSplitConfig
+from datapipeline.config.dataset.split import (
+    HashSplitConfig,
+    SplitConfig,
+    TimeSplitConfig,
+)
 
 
 def test_hash_split_accepts_group_key() -> None:
@@ -14,6 +18,14 @@ def test_hash_split_accepts_feature_key() -> None:
     cfg = HashSplitConfig(ratios={"train": 1.0}, key="feature:ticker")
 
     assert cfg.key == "feature:ticker"
+
+
+def test_hash_split_canonicalizes_ratio_order() -> None:
+    first = HashSplitConfig(ratios={"train": 0.8, "test": 0.2})
+    second = HashSplitConfig(ratios={"test": 0.2, "train": 0.8})
+
+    assert list(first.ratios.items()) == [("test", 0.2), ("train", 0.8)]
+    assert first.ratios == second.ratios
 
 
 @pytest.mark.parametrize(

@@ -53,7 +53,9 @@ class ScalerTask(ArtifactTask):
         if self.folds is None:
             return self
         if "split_label" in self.model_fields_set:
-            raise ValueError("scaler task cannot define both split_label and folds")
+            raise ValueError(
+                "scaler operation cannot define both split_label and folds"
+            )
 
         applied: dict[str, int] = {}
         for index, fold in enumerate(self.folds):

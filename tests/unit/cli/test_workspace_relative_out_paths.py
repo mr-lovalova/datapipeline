@@ -1,7 +1,8 @@
 from pathlib import Path
 
 from datapipeline.cli.commands import demo, plugin
-from datapipeline.config.workspace import WorkspaceConfig, WorkspaceContext
+from datapipeline.cli.workspace import WorkspaceContext
+from datapipeline.config.workspace import WorkspaceConfig
 
 
 def _workspace_at(root: Path) -> WorkspaceContext:
@@ -9,7 +10,9 @@ def _workspace_at(root: Path) -> WorkspaceContext:
     return WorkspaceContext(file_path=root / "jerry.yaml", config=cfg)
 
 
-def test_plugin_init_out_path_is_workspace_relative(tmp_path: Path, monkeypatch) -> None:
+def test_plugin_init_out_path_is_workspace_relative(
+    tmp_path: Path, monkeypatch
+) -> None:
     workspace = _workspace_at(tmp_path)
     (tmp_path / "subdir").mkdir(parents=True, exist_ok=True)
     monkeypatch.chdir(tmp_path / "subdir")

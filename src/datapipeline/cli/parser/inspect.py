@@ -31,7 +31,7 @@ def add_inspect_command(sub, common: argparse.ArgumentParser) -> None:
         "-n",
         type=int,
         default=None,
-        help="optional cap for inspect operations that stream records",
+        help="sample cap for matrix and custom runtime operations; coverage does not support it",
     )
     parser.add_argument(
         "--output-transport",

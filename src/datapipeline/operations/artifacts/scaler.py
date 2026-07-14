@@ -1,5 +1,6 @@
 from collections import defaultdict
 from collections.abc import Iterator
+from dataclasses import dataclass
 from pathlib import Path
 
 from datapipeline.artifacts.scaler import (
@@ -10,39 +11,45 @@ from datapipeline.artifacts.scaler import (
 )
 from datapipeline.artifacts.specs import dataset_requires_scaler
 from datapipeline.config.dataset.feature import FeatureRecordConfig
-from datapipeline.config.dataset.loader import load_dataset
-from datapipeline.config.dataset.validation import validate_dataset_feature_identity
-from datapipeline.config.split import (
+from datapipeline.config.dataset.split import (
     HASH_SPLIT_GROUP_KEY,
     HashSplitConfig,
     TimeSplitConfig,
 )
 from datapipeline.config.tasks import ScalerTask
-from datapipeline.execution.context import PipelineContext
 from datapipeline.domain.feature import FeatureRecord
+from datapipeline.domain.sample_key import SampleKeyContract
+from datapipeline.execution.context import PipelineContext
 from datapipeline.domain.vector import Vector
 from datapipeline.operations.persistence import ArtifactOutput
-from datapipeline.pipelines.feature.pipeline import run_feature_pipeline
+from datapipeline.pipelines.feature.projector import FeatureProjector
 from datapipeline.pipelines.full.split import HashLabeler, TimeLabeler, build_labeler
-from datapipeline.pipelines.vector.keygen import group_key_for
-from datapipeline.runtime import Runtime
+from datapipeline.pipelines.stream.pipeline import run_stream_pipeline
+from datapipeline.runtime import Runtime, require_runtime_stream
 from datapipeline.transforms.feature.scaler import (
     ScalerAccumulator,
 )
-from datapipeline.utils.time import parse_cadence
+from datapipeline.utils.time import floor_time_to_cadence, parse_cadence
+
+
+@dataclass(frozen=True)
+class _ScalerInput:
+    group_key: tuple
+    features: tuple[FeatureRecord, ...]
 
 
 def materialize_scaler_statistics(
     runtime: Runtime,
     task_cfg: ScalerTask,
 ) -> ArtifactOutput | None:
-    dataset = load_dataset(runtime.project_yaml)
-    validate_dataset_feature_identity(runtime, dataset)
+    dataset = runtime.dataset
     if not dataset_requires_scaler(dataset):
         return None
 
     cadence = dataset.sample.cadence
-    scaled_configs = _scaled_configs([*dataset.features, *dataset.targets])
+    scaled_configs = [
+        config for config in (*dataset.features, *dataset.targets) if config.scale
+    ]
     if task_cfg.folds is not None:
         return _materialize_temporal_scaler_statistics(
             runtime,
@@ -52,12 +59,12 @@ def materialize_scaler_statistics(
             dataset.sample.keys,
         )
 
-    split_config = runtime.split
+    split_config = dataset.split
     labeler = build_labeler(split_config) if split_config is not None else None
     if labeler is None and task_cfg.split_label != "all":
         raise RuntimeError(
             f"Cannot compute scaler statistics for split {task_cfg.split_label!r} "
-            "when no split configuration is defined in the project."
+            "when no split configuration is defined in dataset.yaml."
         )
     if (
         task_cfg.split_label != "all"
@@ -96,45 +103,44 @@ def materialize_scaler_statistics(
     )
 
 
-def _scaled_configs(configs: list[FeatureRecordConfig]) -> list[FeatureRecordConfig]:
-    return [
-        config.model_copy(update={"scale": False, "sequence": None})
-        for config in configs
-        if config.scale
-    ]
-
-
 def _close_iterator(items: Iterator[object]) -> None:
     closer = getattr(items, "close", None)
     if callable(closer):
         closer()
 
 
-def _iter_unscaled_features(
+def _iter_scaler_inputs(
     runtime: Runtime,
     configs: list[FeatureRecordConfig],
     cadence: str,
     sample_keys: list[str],
-) -> Iterator[tuple[tuple, FeatureRecord]]:
+) -> Iterator[_ScalerInput]:
     context = PipelineContext(runtime)
     cadence_step = parse_cadence(cadence)
+    sample_key_contract = SampleKeyContract(sample_keys)
+    configs_by_stream: dict[str, list[FeatureRecordConfig]] = defaultdict(list)
     for config in configs:
-        stream = run_feature_pipeline(
-            context,
-            config,
-            sample_keys=sample_keys,
-            group_by_cadence=cadence,
+        configs_by_stream[config.stream].append(config)
+
+    for stream_id, stream_configs in configs_by_stream.items():
+        runtime_stream = require_runtime_stream(runtime, stream_id)
+        projector = FeatureProjector(
+            runtime_stream.feature_id_by,
+            sample_key_contract,
         )
+        records = run_stream_pipeline(context, stream_id)
         try:
-            for feature in stream:
-                if not isinstance(feature, FeatureRecord):
-                    raise TypeError(
-                        "Scaler fitting requires scalar feature records before "
-                        "sequence construction."
-                    )
-                yield group_key_for(feature, cadence_step), feature
+            for record in records:
+                features = tuple(projector.project(record, stream_configs))
+                yield _ScalerInput(
+                    group_key=(
+                        floor_time_to_cadence(record.time, cadence_step),
+                        *features[0].entity_key,
+                    ),
+                    features=features,
+                )
         finally:
-            _close_iterator(stream)
+            _close_iterator(records)
 
 
 def _fit_standard_scaler(
@@ -148,19 +154,24 @@ def _fit_standard_scaler(
     accumulator = ScalerAccumulator(task.with_mean, task.with_std, task.epsilon)
     include_all = task.split_label == "all"
     empty_vector = Vector(values={})
-    for key, feature in _iter_unscaled_features(
+    inputs = _iter_scaler_inputs(
         runtime,
         configs,
         cadence,
         sample_keys,
-    ):
-        if (
-            not include_all
-            and labeler is not None
-            and labeler.label(key, empty_vector) != task.split_label
-        ):
-            continue
-        accumulator.observe(feature.id, feature.value)
+    )
+    try:
+        for item in inputs:
+            if (
+                not include_all
+                and labeler is not None
+                and labeler.label(item.group_key, empty_vector) != task.split_label
+            ):
+                continue
+            for feature in item.features:
+                accumulator.observe(feature.id, feature.value)
+    finally:
+        _close_iterator(inputs)
     return accumulator
 
 
@@ -171,9 +182,9 @@ def _materialize_temporal_scaler_statistics(
     cadence: str,
     sample_keys: list[str],
 ) -> ArtifactOutput:
-    split_config = runtime.split
+    split_config = runtime.dataset.split
     if not isinstance(split_config, TimeSplitConfig):
-        raise RuntimeError("Scaler folds require project split mode 'time'.")
+        raise RuntimeError("Scaler folds require dataset split mode 'time'.")
     folds = task_cfg.folds
     if folds is None:
         raise RuntimeError("Temporal scaler fitting requires scaler folds.")
@@ -204,15 +215,21 @@ def _materialize_temporal_scaler_statistics(
     ]
     labeler = TimeLabeler(split_config)
     empty_vector = Vector(values={})
-    for _key, feature in _iter_unscaled_features(
+    inputs = _iter_scaler_inputs(
         runtime,
         configs,
         cadence,
         sample_keys,
-    ):
-        label = labeler.label(feature.record.time, empty_vector)
-        for fold_index in fit_indexes_by_label.get(label, ()):
-            accumulators[fold_index].observe(feature.id, feature.value)
+    )
+    try:
+        for item in inputs:
+            label = labeler.label(item.features[0].time, empty_vector)
+            for fold_index in fit_indexes_by_label.get(label, ()):
+                accumulator = accumulators[fold_index]
+                for feature in item.features:
+                    accumulator.observe(feature.id, feature.value)
+    finally:
+        _close_iterator(inputs)
 
     artifact_folds: list[TemporalScalerFold] = []
     for fold_index, (fold, accumulator) in enumerate(zip(folds, accumulators)):

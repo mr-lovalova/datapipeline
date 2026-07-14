@@ -1,18 +1,15 @@
-from typing import Callable, TypeVar
+from collections.abc import Callable
 
 from datapipeline.config.tasks import Task
 from datapipeline.utils.load import load_ep
 
-TReturn = TypeVar("TReturn")
-TPersisted = TypeVar("TPersisted")
-OperationRunner = Callable[..., TReturn]
+OperationRunner = Callable[..., object]
 
 
-def dispatch_operation(
+def load_operation_runner(
     operation: Task,
     operation_group: str,
-    **kwargs,
-) -> TReturn:
+) -> OperationRunner:
     try:
         runner = load_ep(operation_group, operation.entrypoint)
     except ValueError as exc:
@@ -25,19 +22,4 @@ def dispatch_operation(
             f"Entrypoint '{operation.entrypoint}' for operation '{operation.id}' "
             f"must resolve to a callable."
         )
-    return runner(**kwargs)
-
-
-def execute_operation(
-    operation: Task,
-    operation_group: str,
-    *,
-    persist: Callable[[TReturn], TPersisted],
-    **kwargs,
-) -> TPersisted:
-    result = dispatch_operation(
-        operation=operation,
-        operation_group=operation_group,
-        **kwargs,
-    )
-    return persist(result)
+    return runner

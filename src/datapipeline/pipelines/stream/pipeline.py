@@ -86,7 +86,6 @@ def _align_inputs(
         aligned = align_streams(
             inputs,
             partition_by=partition_by,
-            buffer_bytes=context.runtime.execution.sort_buffer_bytes,
         )
         opened.callback(aligned.close)
         yield from aligned

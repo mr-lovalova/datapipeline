@@ -1,5 +1,5 @@
 import json
-from dataclasses import asdict, is_dataclass
+from dataclasses import fields, is_dataclass
 from datetime import date, datetime
 from typing import Any, Literal
 
@@ -32,14 +32,14 @@ def flat_payload(item: Any) -> dict[str, Any]:
         return payload
 
     raw = raw_payload(item)
-    payload: dict[str, Any] = {}
+    flattened: dict[str, Any] = {}
     if isinstance(raw, dict):
         for key, value in sorted(raw.items(), key=lambda kv: str(kv[0])):
-            flatten_fields(str(key), value, payload)
-        return payload
+            flatten_fields(str(key), value, flattened)
+        return flattened
 
-    flatten_fields("value", raw, payload)
-    return payload
+    flatten_fields("value", raw, flattened)
+    return flattened
 
 
 def flatten_fields(prefix: str, value: Any, out: dict[str, Any]) -> None:
@@ -69,11 +69,19 @@ def _normalize_key_struct(key: Any) -> Any:
 def _jsonable(value: Any) -> Any:
     if value is None:
         return None
-    if is_dataclass(value):
-        attrs = getattr(value, "__dict__", None)
-        if attrs is not None:
-            return {k: _jsonable(v) for k, v in attrs.items() if not k.startswith("_")}
-        return asdict(value)
+    if not isinstance(value, type) and is_dataclass(value):
+        attributes = getattr(value, "__dict__", None)
+        if attributes is not None:
+            return {
+                name: _jsonable(field_value)
+                for name, field_value in attributes.items()
+                if not name.startswith("_")
+            }
+        return {
+            field.name: _jsonable(getattr(value, field.name))
+            for field in fields(value)
+            if not field.name.startswith("_")
+        }
     if isinstance(value, dict):
         return {k: _jsonable(v) for k, v in value.items()}
     if isinstance(value, (list, tuple)):

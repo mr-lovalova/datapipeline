@@ -14,13 +14,17 @@ def pkg_root(start: Optional[Path] = None) -> tuple[Path, str, Path]:
             src_dir = d / "src"
             if src_dir.exists():
                 candidates = [
-                    p for p in src_dir.iterdir()
+                    p
+                    for p in src_dir.iterdir()
                     if p.is_dir() and (p / "__init__.py").exists()
                 ]
                 if len(candidates) == 1:
                     pkg_name = candidates[0].name
             return d, pkg_name, pyproject
-    print("[error] pyproject.toml not found (searched current and parent dirs)", file=sys.stderr)
+    print(
+        "[error] pyproject.toml not found (searched current and parent dirs)",
+        file=sys.stderr,
+    )
     raise SystemExit(1)
 
 
@@ -30,8 +34,9 @@ def resolve_base_pkg_dir(root_dir: Path, pkg_name: str) -> Path:
         return preferred
     src_dir = root_dir / "src"
     if src_dir.exists():
-        candidates = [p for p in src_dir.iterdir() if p.is_dir()
-                      and (p / "__init__.py").exists()]
+        candidates = [
+            p for p in src_dir.iterdir() if p.is_dir() and (p / "__init__.py").exists()
+        ]
         if len(candidates) == 1:
             return candidates[0]
     preferred.mkdir(parents=True, exist_ok=True)

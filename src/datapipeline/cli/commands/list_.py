@@ -1,9 +1,9 @@
 from pathlib import Path
 
-from datapipeline.config.workspace import WorkspaceContext
-from datapipeline.cli.workspace_utils import resolve_default_project_yaml
+from datapipeline.cli.workspace import WorkspaceContext, resolve_default_project_yaml
 from datapipeline.services.paths import pkg_root
-from datapipeline.services.bootstrap.core import load_streams
+from datapipeline.services.project import load_project
+from datapipeline.services.streams.loader import load_streams
 from datapipeline.services.scaffold.discovery import (
     list_domains,
     list_dtos,
@@ -43,7 +43,7 @@ def handle(
         if proj_path is None:
             error_exit("No project.yaml found under config/.")
         try:
-            streams = load_streams(proj_path)
+            streams = load_streams(load_project(proj_path))
         except FileNotFoundError as exc:
             error_exit(str(exc))
         aliases = sorted(streams.sources)

@@ -6,14 +6,14 @@ from typing import Any, Literal
 
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig
-from datapipeline.config.dataset.loader import load_dataset
-from datapipeline.config.dataset.validation import validate_dataset_feature_identity
 from datapipeline.domain.vector import Vector
 from datapipeline.pipelines.full.nodes import apply_postprocess
 from datapipeline.execution.context import PipelineContext
 from datapipeline.pipelines.vector.pipeline import build_vector_pipeline
 from datapipeline.runtime import Runtime
-from datapipeline.services.bootstrap import bootstrap
+from datapipeline.artifacts.hydration import hydrate_runtime_artifacts_for_pipeline
+from datapipeline.services.pipeline import load_pipeline
+from datapipeline.services.runtime_compiler import compile_runtime
 
 GroupFormat = Literal["mapping", "tuple", "list", "flat"]
 
@@ -54,7 +54,7 @@ def _ensure_features(dataset: FeatureDatasetConfig) -> list[FeatureRecordConfig]
 
 @dataclass
 class VectorAdapter:
-    """Bootstrap a project once and provide ML-friendly iterators."""
+    """Load a project once and provide ML-friendly iterators."""
 
     dataset: FeatureDatasetConfig
     runtime: Runtime
@@ -65,10 +65,10 @@ class VectorAdapter:
         project_yaml: str | Path,
     ) -> "VectorAdapter":
         project_path = Path(project_yaml)
-        dataset = load_dataset(project_path)
-        runtime = bootstrap(project_path)
-        validate_dataset_feature_identity(runtime, dataset)
-        return cls(dataset=dataset, runtime=runtime)
+        definition = load_pipeline(project_path)
+        runtime = compile_runtime(definition)
+        hydrate_runtime_artifacts_for_pipeline(runtime, definition)
+        return cls(dataset=definition.dataset, runtime=runtime)
 
     def stream(
         self,

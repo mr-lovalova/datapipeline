@@ -1,4 +1,3 @@
-# See ../../../plugin_skeleton/reference/reference/ingests/ingest.reference.yaml for full options.
 id: equity.msft.ingest
 from:
   source: sandbox.ohlcv

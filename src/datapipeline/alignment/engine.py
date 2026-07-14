@@ -1,11 +1,7 @@
 from collections.abc import Generator, Iterator, Sequence
 from datetime import datetime
-from itertools import chain, groupby
 
-from datapipeline.execution.events import ProgressSnapshot
-from datapipeline.execution.runner import report_node_progress
 from datapipeline.domain.record import TemporalRecord
-from datapipeline.pipelines.shared.sort import batch_sort
 from datapipeline.transforms.utils import partition_key
 
 
@@ -15,56 +11,67 @@ _CanonicalKey = tuple[tuple[object, ...], datetime]
 def align_streams(
     inputs: Sequence[tuple[str, Iterator[TemporalRecord]]],
     partition_by: tuple[str, ...],
-    buffer_bytes: int,
 ) -> Generator[tuple[TemporalRecord, ...], None, None]:
-    if len(inputs) < 2:
-        raise ValueError("Alignment requires at least two input streams")
-
-    populated_inputs: list[tuple[str, Iterator[TemporalRecord]]] = []
-    for stream_id, records in inputs:
-        try:
-            first = next(records)
-        except StopIteration:
-            return
-        populated_inputs.append((stream_id, chain((first,), records)))
-
-    indexed_records = (
-        (input_index, record)
-        for input_index, (_, records) in enumerate(populated_inputs)
-        for record in records
-    )
-    ordered_records = batch_sort(
-        indexed_records,
-        buffer_bytes=buffer_bytes,
-        key=lambda item: (_canonical_key(item[1], partition_by), item[0]),
-    )
-
+    stream_ids = [stream_id for stream_id, _ in inputs]
+    streams = [records for _, records in inputs]
+    current_records: list[TemporalRecord] = []
+    current_keys: list[_CanonicalKey] = []
     try:
-        groups = groupby(
-            ordered_records,
-            key=lambda item: _canonical_key(item[1], partition_by),
-        )
-        sorting_complete = False
-        for (partition, time), group in groups:
-            if not sorting_complete:
-                report_node_progress(ProgressSnapshot(completed=0, phase="aligning"))
-                sorting_complete = True
-            records_by_input: dict[int, TemporalRecord] = {}
-            for input_index, record in group:
-                if input_index in records_by_input:
-                    stream_id = populated_inputs[input_index][0]
-                    raise ValueError(
-                        f"Alignment input {stream_id!r} has duplicate canonical key "
-                        f"partition={partition!r}, time={time.isoformat()}"
-                    )
-                records_by_input[input_index] = record
+        if len(streams) < 2:
+            raise ValueError("Alignment requires at least two input streams")
 
-            if len(records_by_input) == len(populated_inputs):
-                yield tuple(
-                    records_by_input[index] for index in range(len(populated_inputs))
+        for records in streams:
+            try:
+                first = next(records)
+            except StopIteration:
+                return
+            current_records.append(first)
+            current_keys.append(_canonical_key(first, partition_by))
+
+        def advance(index: int) -> bool:
+            try:
+                record = next(streams[index])
+            except StopIteration:
+                return False
+
+            previous = current_keys[index]
+            key = _canonical_key(record, partition_by)
+            if key == previous:
+                partition, time = key
+                raise ValueError(
+                    f"Alignment input {stream_ids[index]!r} has duplicate canonical key "
+                    f"partition={partition!r}, time={time.isoformat()}"
                 )
+            if key < previous:
+                raise ValueError(
+                    f"Alignment input {stream_ids[index]!r} is not ordered: "
+                    f"key {key!r} follows {previous!r}"
+                )
+            current_records[index] = record
+            current_keys[index] = key
+            return True
+
+        while True:
+            target = max(current_keys)
+            for index in range(len(streams)):
+                while current_keys[index] < target:
+                    if not advance(index):
+                        return
+                    if current_keys[index] > target:
+                        target = current_keys[index]
+
+            if any(key != target for key in current_keys):
+                continue
+
+            yield tuple(current_records)
+            for index in range(len(streams)):
+                if not advance(index):
+                    return
     finally:
-        ordered_records.close()
+        for records in streams:
+            close = getattr(records, "close", None)
+            if callable(close):
+                close()
 
 
 def _canonical_key(

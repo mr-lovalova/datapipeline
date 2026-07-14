@@ -5,11 +5,10 @@ from datapipeline.services.scaffold.templates import render
 from datapipeline.services.paths import pkg_root, resolve_base_pkg_dir
 from datapipeline.services.scaffold.utils import (
     ensure_pkg_dir,
-    to_snake,
     validate_identifier,
     write_if_missing,
 )
-from datapipeline.services.scaffold.layout import DIR_DTOS, TPL_DTO
+from datapipeline.services.scaffold.layout import DIR_DTOS, TPL_DTO, to_snake
 
 
 def create_dto(*, name: str, root: Optional[Path]) -> None:

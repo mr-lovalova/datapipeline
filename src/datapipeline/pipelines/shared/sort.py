@@ -1,12 +1,12 @@
 import heapq
 import pickle
-import tempfile
 from collections.abc import Callable, Generator, Iterable, Iterator, Sequence
 from pathlib import Path
 from typing import Any, TypeVar
 
 from datapipeline.execution.events import ProgressSnapshot
 from datapipeline.execution.runner import report_node_progress
+from datapipeline.services.temp_cleanup import sort_spill_directory
 
 T = TypeVar("T")
 _BufferedItem = tuple[Any, bytes]
@@ -70,14 +70,7 @@ def batch_sort(
             yield pickle.loads(payload)
         return
 
-    if spill_dir is not None:
-        spill_dir.mkdir(parents=True, exist_ok=True)
-
-    with tempfile.TemporaryDirectory(
-        prefix="datapipeline-sort-",
-        dir=spill_dir,
-    ) as tmp:
-        temp_dir = Path(tmp)
+    with sort_spill_directory(spill_dir) as temp_dir:
         run_paths = [_write_serialized_run(temp_dir, 0, first_run)]
         input_items = len(first_run)
         first_run.clear()

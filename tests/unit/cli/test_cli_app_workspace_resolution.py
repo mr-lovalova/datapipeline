@@ -3,7 +3,8 @@ from pathlib import Path
 
 import pytest
 from datapipeline.cli import app
-from datapipeline.config.workspace import WorkspaceConfig, WorkspaceContext
+from datapipeline.cli.workspace import WorkspaceContext
+from datapipeline.config.workspace import WorkspaceConfig
 
 
 def test_source_add_skips_dataset_resolution(monkeypatch, tmp_path):
@@ -73,7 +74,10 @@ def test_dataset_path_resolves_relative_to_workspace_root(monkeypatch, tmp_path)
     nested.mkdir(parents=True)
     project_file = workspace_root / "projects" / "weather" / "project.yaml"
     project_file.parent.mkdir(parents=True)
-    project_file.write_text("version: 1\nname: weather\npaths: {}\n", encoding="utf-8")
+    project_file.write_text(
+        "version: 1\nartifact_revision: 1\nname: weather\npaths: {}\n",
+        encoding="utf-8",
+    )
 
     workspace = WorkspaceContext(
         file_path=workspace_root / "jerry.yaml",
@@ -99,7 +103,10 @@ def test_resolve_project_from_args_rejects_project_and_dataset():
 def test_resolve_project_from_args_uses_workspace_default_dataset(tmp_path):
     project_file = tmp_path / "datasets" / "demo" / "project.yaml"
     project_file.parent.mkdir(parents=True)
-    project_file.write_text("version: 1\nname: demo\npaths: {}\n", encoding="utf-8")
+    project_file.write_text(
+        "version: 1\nartifact_revision: 1\nname: demo\npaths: {}\n",
+        encoding="utf-8",
+    )
 
     workspace = WorkspaceContext(
         file_path=tmp_path / "jerry.yaml",
@@ -175,7 +182,10 @@ def test_main_handles_keyboard_interrupt_at_top_level(monkeypatch, capsys):
 def test_main_resolves_project_for_serve_with_workspace_default(monkeypatch, tmp_path):
     project_file = tmp_path / "datasets" / "demo" / "project.yaml"
     project_file.parent.mkdir(parents=True)
-    project_file.write_text("version: 1\nname: demo\npaths: {}\n", encoding="utf-8")
+    project_file.write_text(
+        "version: 1\nartifact_revision: 1\nname: demo\npaths: {}\n",
+        encoding="utf-8",
+    )
     workspace = WorkspaceContext(
         file_path=tmp_path / "jerry.yaml",
         config=WorkspaceConfig.model_validate(

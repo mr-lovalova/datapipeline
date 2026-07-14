@@ -1,4 +1,3 @@
-# See ../../../plugin_skeleton/reference/reference/ingests/ingest.reference.yaml for full options.
 id: time.ticks.linear.ingest
 from:
   source: synthetic.ticks
