@@ -38,8 +38,9 @@ reading the data. Visuals are independent of log filtering.
   - `--output-view` controls payload shape:
     - `flat`: key + kind + flattened fields
     - `raw`: key + kind + raw object
-  - If `--output-view` is omitted: `jsonl -> raw`, `csv/pickle -> flat`.
-  - `csv` supports `flat` view.
+  - If `--output-view` is omitted: `csv -> flat`; `jsonl` and `pickle` use
+    `raw`.
+  - `csv` supports only `flat`; `pickle` supports only `raw`.
   - `--output-encoding` applies to fs `jsonl`/`csv` outputs (default `utf-8`).
   - Set `--log-level DEBUG` (or set `observability.logging.level: DEBUG` in the serve profile) to increase log detail while previewing a stage.
   - Set `--heartbeat-interval 0` to disable persistent node heartbeat records. Live progress remains enabled when visuals are on. The CLI value also controls the shared artifact prerequisite phase; profile `observability.heartbeat_interval_seconds` begins applying only when that profile runs.

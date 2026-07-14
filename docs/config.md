@@ -99,7 +99,7 @@ output:
   transport: fs # stdout | fs; configured split output requires fs
   format: jsonl
   directory: runs
-  # view: raw # optional; flat | raw (default: jsonl->raw, csv/pickle->flat)
+  # view: raw # optional; csv defaults to flat; jsonl/pickle default to raw
   # encoding: utf-8 # fs jsonl/csv only
 limit: 100 # cap vectors per output; with split output, applies per label
 throttle_ms: null # milliseconds to sleep between emitted vectors

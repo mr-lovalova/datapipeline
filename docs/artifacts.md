@@ -12,10 +12,10 @@ filenames, such as `operations/model_grid.yaml`.
   durable inputs consumed by vector assembly. Values may contain only `None`,
   `bool`, `int`, `float`, `str`, lists, and string-keyed dictionaries;
   sample-key components may use only those scalar types. Other Python objects
-  fail the build instead of being converted to strings. Shard generations are
-  immutable and content-addressed. Identical rebuilds reuse the same
-  generation. Project commands hold one artifact-workspace lock; unreachable
-  generations are pruned only after the locked command finishes.
+  fail the build instead of being converted to strings. Each successful build
+  publishes a new immutable shard generation. Project commands hold one
+  artifact-workspace lock; generations no longer referenced by the manifest
+  are pruned only after the locked command finishes.
 - `build/scaler.json`: managed scaler statistics fitted on the configured split,
   either as one standard scaler or a folded temporal scaler container.
 - `build/schema.json`: discovered feature/target identifiers, value shapes, and
@@ -23,8 +23,8 @@ filenames, such as `operations/model_grid.yaml`.
 - `build/metadata.json`: counts, sample domain, and resolved dataset window.
 - `build/stats.json`: bounded assembled or postprocessed availability counters
   used by coverage inspection. It never stores per-sample status maps.
-- Tick operation outputs: named timestamp grids used by artifact-backed
-  `ensure_cadence` transforms. Their output paths are operation-defined.
+- Tick operation outputs: named timestamp grids used by `ensure_ticks`
+  transforms. Their output paths are operation-defined.
 
 The dependency graph is explicit: tick artifacts referenced by configured
 dataset streams feed scaler/vector inputs;
@@ -70,8 +70,8 @@ always available.
 
 Before any selected materialize profile runs, Jerry similarly unions the
 artifact requirements of its selected streams and prepares them once.
-For built-in transforms, these are tick IDs referenced by artifact-backed
-`ensure_cadence` operations on the selected or upstream streams. Dependencies
+For built-in transforms, these are tick IDs referenced by `ensure_ticks`
+operations on the selected or upstream streams. Dependencies
 hidden inside plugin code are not inferred. Materialize profiles do not carry
 individual artifact modes.
 

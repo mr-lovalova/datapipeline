@@ -5,7 +5,10 @@ application code:
 
 - `VectorAdapter.from_project(project_yaml)` – load one definition, then stream
   vectors or row dicts.
-- `stream_vectors(project_yaml, limit=...)` – iterator matching `jerry serve`.
+- `stream_vectors(project_yaml, limit=...)` – yield `(sample_key,
+  feature_vector)` pairs from already-current artifacts. Unlike `jerry serve`,
+  it does not prepare stale artifacts, route splits, persist output, or include
+  target vectors in each returned pair.
 - `iter_vector_rows` / `collect_vector_rows` – handy for Pandas or custom sinks.
 - `dataframe_from_vectors` – eager helper that returns a Pandas DataFrame
   (requires `pandas`).
