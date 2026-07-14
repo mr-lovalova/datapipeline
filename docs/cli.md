@@ -38,7 +38,7 @@ reading the data. Visuals are independent of log filtering.
   - `--output-encoding` applies to fs `jsonl`/`csv` outputs (default `utf-8`).
   - Set `--log-level DEBUG` (or set `observability.logging.level: DEBUG` in the serve profile) to increase log detail while previewing a stage.
   - Set `--heartbeat-interval 0` to disable persistent node heartbeat records. Live progress remains enabled when visuals are on. The CLI value also controls the shared artifact prerequisite phase; profile `observability.heartbeat_interval_seconds` begins applying only when that profile runs.
-  - When multiple serve profiles exist, add `--run <profile-name>` to target a
+  - When multiple serve profiles exist, add `--run <profile-name>` to select a
     single profile; otherwise every enabled profile is executed in its exact
     configured order.
   - `artifact_mode` controls the command-level prerequisite phase: `AUTO`
@@ -57,7 +57,7 @@ reading the data. Visuals are independent of log filtering.
   - Use `--run coverage` or `--run matrix` to execute one profile.
   - Like `serve`, prepares the union of selected profiles' artifact requirements
     once, then executes the profiles in their exact configured order.
-  - Profile targets map to core or custom runtime operations. Core coverage and
+  - Profile `operation` values map to core or custom runtime operations. Core coverage and
     matrix operations require no YAML declarations.
   - `--limit N` caps samples for the matrix operation and is passed to custom
     runtime operations. Coverage is artifact-based and rejects `--limit`.
@@ -69,9 +69,9 @@ reading the data. Visuals are independent of log filtering.
     bound on scalar cells and individual list elements.
 - `jerry build --project <project.yaml> [--run <profile>] [--force] [--visuals on|off] [--heartbeat-interval SECONDS]`
   - Regenerates core or custom artifacts when that artifact's hash changes.
-  - If build profiles are defined, enabled profiles run by default; use `--run` to target one profile.
-  - Each build profile executes one artifact operation `target`; selected
-    profiles must have distinct targets.
+  - If build profiles are defined, enabled profiles run by default; use `--run` to select one profile.
+  - Each build profile executes its configured artifact `operation`; selected
+    profiles must reference distinct operations.
   - Build profiles remain explicit artifact roots and execute in their configured
     profile order. The graph orders only the internal dependency jobs needed by
     each root; it never reorders the profiles. A selected dependency profile

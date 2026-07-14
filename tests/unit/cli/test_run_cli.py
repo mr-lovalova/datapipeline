@@ -58,7 +58,7 @@ def test_serve_profile_accepts_include_splits_list():
         {
             "cmd": "serve",
             "name": "dataset",
-            "target": "serve",
+            "operation": "serve",
             "include_splits": ["train", "val"],
         }
     )
@@ -72,7 +72,7 @@ def test_serve_profile_rejects_include_splits_string():
             {
                 "cmd": "serve",
                 "name": "dataset",
-                "target": "serve",
+                "operation": "serve",
                 "include_splits": "train",
             }
         )
@@ -85,7 +85,7 @@ def test_serve_profile_rejects_invalid_include_split_label(label):
             {
                 "cmd": "serve",
                 "name": "dataset",
-                "target": "serve",
+                "operation": "serve",
                 "include_splits": [label],
             }
         )
@@ -97,8 +97,31 @@ def test_serve_profile_rejects_removed_splits_field():
             {
                 "cmd": "serve",
                 "name": "dataset",
-                "target": "serve",
+                "operation": "serve",
                 "splits": ["train"],
+            }
+        )
+
+
+def test_serve_profile_rejects_removed_target_field():
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        ServeProfile.model_validate(
+            {
+                "cmd": "serve",
+                "name": "dataset",
+                "operation": "dataset",
+                "target": "dataset",
+            }
+        )
+
+
+def test_serve_profile_rejects_numeric_operation():
+    with pytest.raises(ValidationError, match="operation must be a string"):
+        ServeProfile.model_validate(
+            {
+                "cmd": "serve",
+                "name": "dataset",
+                "operation": 42,
             }
         )
 
@@ -109,7 +132,7 @@ def test_serve_profile_rejects_numeric_preview() -> None:
             {
                 "cmd": "serve",
                 "name": "preview",
-                "target": "serve",
+                "operation": "serve",
                 "preview": 3,
             }
         )
@@ -124,7 +147,7 @@ def test_runtime_profiles_use_flat_artifact_mode(profile_type, command):
         {
             "cmd": command,
             "name": "example",
-            "target": "serve",
+            "operation": "serve",
             "artifact_mode": "force",
         }
     )
@@ -142,7 +165,7 @@ def test_runtime_profiles_reject_nested_build_config(profile_type, command):
             {
                 "cmd": command,
                 "name": "example",
-                "target": "serve",
+                "operation": "serve",
                 "build": {"mode": "AUTO"},
             }
         )
@@ -153,7 +176,7 @@ def test_runtime_profiles_resolve_heartbeat_setting(tmp_path):
         {
             "cmd": "serve",
             "name": "demo",
-            "target": "serve",
+            "operation": "serve",
             "observability": {"heartbeat_interval_seconds": 30},
         }
     )
@@ -173,7 +196,7 @@ def test_pipeline_serve_defaults_to_dataset_output_splits(tmp_path):
         {
             "cmd": "serve",
             "name": "dataset",
-            "target": "pipeline",
+            "operation": "dataset",
             "output": {
                 "transport": "fs",
                 "format": "jsonl",
@@ -191,7 +214,7 @@ def test_pipeline_serve_defaults_to_dataset_output_splits(tmp_path):
         tmp_path / "project.yaml",
         [profile],
         split=split,
-        runtime_operations=(PipelineTask(id="pipeline"),),
+        runtime_operations=(PipelineTask(id="dataset"),),
     )[0]
 
     assert resolved.output_splits == ("train", "val")
@@ -199,13 +222,13 @@ def test_pipeline_serve_defaults_to_dataset_output_splits(tmp_path):
 
 def test_pipeline_serve_without_dataset_split_emits_combined_output(tmp_path):
     profile = ServeProfile.model_validate(
-        {"cmd": "serve", "name": "dataset", "target": "pipeline"}
+        {"cmd": "serve", "name": "dataset", "operation": "dataset"}
     )
 
     resolved = _resolve(
         tmp_path / "project.yaml",
         [profile],
-        runtime_operations=(PipelineTask(id="pipeline"),),
+        runtime_operations=(PipelineTask(id="dataset"),),
     )[0]
 
     assert resolved.output_splits == ()
@@ -216,7 +239,7 @@ def test_pipeline_preview_bypasses_default_split_outputs(tmp_path):
         {
             "cmd": "serve",
             "name": "dataset",
-            "target": "pipeline",
+            "operation": "dataset",
             "output": {
                 "transport": "fs",
                 "format": "jsonl",
@@ -230,7 +253,7 @@ def test_pipeline_preview_bypasses_default_split_outputs(tmp_path):
         [profile],
         preview="postprocess",
         split=HashSplitConfig(ratios={"train": 0.8, "test": 0.2}),
-        runtime_operations=(PipelineTask(id="pipeline"),),
+        runtime_operations=(PipelineTask(id="dataset"),),
     )[0]
 
     assert resolved.preview == "postprocess"
@@ -242,7 +265,7 @@ def test_pipeline_preview_rejects_explicit_include_splits(tmp_path):
         {
             "cmd": "serve",
             "name": "dataset",
-            "target": "pipeline",
+            "operation": "dataset",
             "include_splits": ["train"],
         }
     )
@@ -253,22 +276,22 @@ def test_pipeline_preview_rejects_explicit_include_splits(tmp_path):
             [profile],
             preview="postprocess",
             split=HashSplitConfig(ratios={"train": 1.0}),
-            runtime_operations=(PipelineTask(id="pipeline"),),
+            runtime_operations=(PipelineTask(id="dataset"),),
         )
 
 
 def test_non_dataset_runtime_profiles_do_not_inherit_split_outputs(tmp_path):
     profiles = [
         ServeProfile.model_validate(
-            {"cmd": "serve", "name": "custom", "target": "custom"}
+            {"cmd": "serve", "name": "custom", "operation": "custom"}
         ),
         InspectProfile.model_validate(
-            {"cmd": "inspect", "name": "pipeline", "target": "pipeline"}
+            {"cmd": "inspect", "name": "inspection", "operation": "dataset"}
         ),
     ]
     operations = (
         OperationTask(id="custom", entrypoint="plugin.runtime.custom"),
-        PipelineTask(id="pipeline"),
+        PipelineTask(id="dataset"),
     )
 
     resolved = _resolve(
@@ -286,7 +309,7 @@ def test_run_profiles_resolve_include_splits_for_fs_output(tmp_path):
         {
             "cmd": "serve",
             "name": "dataset",
-            "target": "serve",
+            "operation": "serve",
             "include_splits": ["train", "val"],
             "output": {
                 "transport": "fs",
@@ -302,7 +325,7 @@ def test_run_profiles_resolve_include_splits_for_fs_output(tmp_path):
     )[0]
 
     assert resolved.name == "dataset"
-    assert resolved.target_id == "serve"
+    assert resolved.operation_id == "serve"
     assert resolved.output_splits == ("train", "val")
     assert not hasattr(resolved, "runtime")
     assert resolved.output.transport == "fs"
@@ -313,7 +336,7 @@ def test_run_profiles_reject_include_splits_without_dataset_split(tmp_path):
         {
             "cmd": "serve",
             "name": "dataset",
-            "target": "serve",
+            "operation": "serve",
             "include_splits": ["train"],
             "output": {
                 "transport": "fs",
@@ -332,7 +355,7 @@ def test_run_profiles_reject_unknown_include_splits(tmp_path):
         {
             "cmd": "serve",
             "name": "dataset",
-            "target": "serve",
+            "operation": "serve",
             "include_splits": ["train", "test"],
             "output": {
                 "transport": "fs",
@@ -354,7 +377,7 @@ def test_include_splits_cannot_publish_internal_dataset_label(tmp_path):
         {
             "cmd": "serve",
             "name": "dataset",
-            "target": "pipeline",
+            "operation": "dataset",
             "include_splits": ["purge"],
             "output": {
                 "transport": "fs",
@@ -374,7 +397,7 @@ def test_include_splits_cannot_publish_internal_dataset_label(tmp_path):
             tmp_path / "project.yaml",
             [profile],
             split=split,
-            runtime_operations=(PipelineTask(id="pipeline"),),
+            runtime_operations=(PipelineTask(id="dataset"),),
         )
 
 
@@ -383,7 +406,7 @@ def test_run_profiles_reject_include_splits_for_stdout(tmp_path):
         {
             "cmd": "serve",
             "name": "dataset",
-            "target": "serve",
+            "operation": "serve",
             "include_splits": ["train"],
         }
     )
@@ -397,7 +420,7 @@ def test_run_profiles_reject_include_splits_for_stdout(tmp_path):
 
 def test_default_split_output_rejects_stdout(tmp_path):
     profile = ServeProfile.model_validate(
-        {"cmd": "serve", "name": "dataset", "target": "pipeline"}
+        {"cmd": "serve", "name": "dataset", "operation": "dataset"}
     )
 
     with pytest.raises(ValueError, match="requires fs output"):
@@ -405,7 +428,7 @@ def test_default_split_output_rejects_stdout(tmp_path):
             tmp_path / "project.yaml",
             [profile],
             split=HashSplitConfig(ratios={"train": 1.0}),
-            runtime_operations=(PipelineTask(id="pipeline"),),
+            runtime_operations=(PipelineTask(id="dataset"),),
         )
 
 
@@ -414,7 +437,7 @@ def test_run_profiles_reject_include_splits_with_explicit_filename(tmp_path):
         {
             "cmd": "serve",
             "name": "dataset",
-            "target": "serve",
+            "operation": "serve",
             "include_splits": ["train"],
             "output": {
                 "transport": "fs",
@@ -439,7 +462,7 @@ def test_default_split_output_rejects_explicit_filename(tmp_path):
         {
             "cmd": "serve",
             "name": "dataset",
-            "target": "pipeline",
+            "operation": "dataset",
             "output": {
                 "transport": "fs",
                 "format": "jsonl",
@@ -454,7 +477,7 @@ def test_default_split_output_rejects_explicit_filename(tmp_path):
             tmp_path / "project.yaml",
             [profile],
             split=HashSplitConfig(ratios={"train": 1.0}),
-            runtime_operations=(PipelineTask(id="pipeline"),),
+            runtime_operations=(PipelineTask(id="dataset"),),
         )
 
 
@@ -469,7 +492,7 @@ def test_run_profiles_reject_include_splits_with_colliding_output_filenames(
         {
             "cmd": "serve",
             "name": "dataset",
-            "target": "serve",
+            "operation": "serve",
             "include_splits": [first, second],
             "output": {
                 "transport": "fs",
@@ -491,7 +514,7 @@ def test_operation_options_rejects_preview_when_unsupported(tmp_path):
         {
             "cmd": "inspect",
             "name": "coverage",
-            "target": "coverage",
+            "operation": "coverage",
             "artifact_mode": "AUTO",
         }
     )
@@ -502,7 +525,7 @@ def test_operation_options_rejects_preview_when_unsupported(tmp_path):
 
 def test_run_profiles_leave_unconfigured_throttle_unset(tmp_path):
     profile = ServeProfile.model_validate(
-        {"cmd": "serve", "name": "demo", "target": "serve"}
+        {"cmd": "serve", "name": "demo", "operation": "serve"}
     )
 
     resolved = _resolve(tmp_path, [profile])[0]
@@ -512,7 +535,7 @@ def test_run_profiles_leave_unconfigured_throttle_unset(tmp_path):
 
 def test_run_profiles_use_builtin_visuals_defaults(tmp_path):
     profile = ServeProfile.model_validate(
-        {"cmd": "serve", "name": "demo", "target": "serve"}
+        {"cmd": "serve", "name": "demo", "operation": "serve"}
     )
 
     resolved = _resolve(tmp_path, [profile])[0]
@@ -525,7 +548,7 @@ def test_run_profiles_run_visuals_override_defaults(tmp_path):
         {
             "cmd": "serve",
             "name": "demo",
-            "target": "serve",
+            "operation": "serve",
             "observability": {"visuals": "ON"},
         }
     )
@@ -540,7 +563,7 @@ def test_run_profiles_resolve_log_output_precedence(tmp_path):
         {
             "cmd": "serve",
             "name": "demo",
-            "target": "serve",
+            "operation": "serve",
             "observability": {"logging": {"outputs": [{"transport": "stdout"}]}},
         }
     )
@@ -564,7 +587,7 @@ def test_execution_scoped_logs_can_be_resolved_for_inspect_profiles(tmp_path):
         {
             "cmd": "inspect",
             "name": "demo",
-            "target": "coverage",
+            "operation": "coverage",
             "observability": {
                 "logging": {
                     "outputs": [
@@ -597,7 +620,7 @@ def test_execution_scoped_logs_can_be_resolved_for_inspect_profiles(tmp_path):
         {
             "cmd": "serve",
             "name": "demo",
-            "target": "serve",
+            "operation": "serve",
             "observability": {
                 "logging": {
                     "outputs": [
@@ -626,7 +649,7 @@ def test_execution_scoped_logs_default_to_task_specific_filename(tmp_path):
     profile = ServeProfile.model_validate(
         {
             "cmd": "serve",
-            "target": "serve",
+            "operation": "serve",
             "name": "val",
             "observability": {
                 "logging": {"outputs": [{"transport": "fs", "scope": "execution"}]}
@@ -656,7 +679,7 @@ def test_serve_runtime_profiles_share_run_and_namespace_splits(tmp_path):
             {
                 "cmd": "serve",
                 "name": name,
-                "target": "serve",
+                "operation": "serve",
                 "include_splits": include_splits,
             }
         )
@@ -716,7 +739,7 @@ def test_serve_runtime_profiles_share_run_and_namespace_splits(tmp_path):
 
 def test_runtime_profiles_reject_sanitized_output_collision(tmp_path):
     profiles = [
-        ServeProfile.model_validate({"cmd": "serve", "name": name, "target": "serve"})
+        ServeProfile.model_validate({"cmd": "serve", "name": name, "operation": "serve"})
         for name in ("daily/eu", "daily_eu")
     ]
     output_root = tmp_path / "out"
@@ -741,7 +764,7 @@ def test_shared_serve_run_rejects_mixed_preview_stages_without_writes(tmp_path):
             {
                 "cmd": "serve",
                 "name": name,
-                "target": "serve",
+                "operation": "serve",
                 "preview": preview,
             }
         )
@@ -769,7 +792,7 @@ def test_shared_serve_runs_reject_explicit_output_filename(tmp_path):
             {
                 "cmd": "serve",
                 "name": name,
-                "target": "serve",
+                "operation": "serve",
                 "output": {
                     "transport": "fs",
                     "format": "jsonl",
@@ -809,7 +832,7 @@ def test_inspect_profiles_accept_html_output_for_matrix(tmp_path):
         {
             "cmd": "inspect",
             "name": "matrix",
-            "target": "matrix",
+            "operation": "matrix",
             "artifact_mode": "AUTO",
             "output": {
                 "transport": "fs",
@@ -825,12 +848,12 @@ def test_inspect_profiles_accept_html_output_for_matrix(tmp_path):
     assert resolved.output.transport == "fs"
 
 
-def test_inspect_profile_model_allows_html_output_for_any_target(tmp_path):
+def test_inspect_profile_model_allows_html_output_for_any_operation(tmp_path):
     profile = InspectProfile.model_validate(
         {
             "cmd": "inspect",
             "name": "coverage",
-            "target": "coverage",
+            "operation": "coverage",
             "artifact_mode": "AUTO",
             "output": {
                 "transport": "fs",
@@ -849,7 +872,7 @@ def test_inspect_profiles_accept_cli_html_override_for_non_matrix(tmp_path):
         {
             "cmd": "inspect",
             "name": "coverage",
-            "target": "coverage",
+            "operation": "coverage",
             "artifact_mode": "AUTO",
         }
     )
@@ -872,7 +895,7 @@ def test_serve_profile_model_allows_html_output(tmp_path):
         {
             "cmd": "serve",
             "name": "serve",
-            "target": "serve",
+            "operation": "serve",
             "output": {
                 "transport": "fs",
                 "format": "html",
@@ -890,7 +913,7 @@ def test_serve_profiles_accept_cli_txt_override(tmp_path):
         {
             "cmd": "serve",
             "name": "serve",
-            "target": "serve",
+            "operation": "serve",
             "artifact_mode": "AUTO",
         }
     )
@@ -914,7 +937,7 @@ def test_build_profile_rejects_runtime_output_fields():
             {
                 "cmd": "build",
                 "name": "schema",
-                "target": "schema",
+                "operation": "schema",
                 "output": {
                     "transport": "fs",
                     "format": "jsonl",

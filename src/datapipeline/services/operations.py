@@ -29,7 +29,7 @@ CORE_OPERATION_MODELS: dict[str, type[Task]] = {
     "metadata": MetadataTask,
     "schema": SchemaTask,
     "stats": StatsTask,
-    "pipeline": PipelineTask,
+    "dataset": PipelineTask,
     "coverage": CoverageTask,
     "matrix": MatrixTask,
 }

@@ -32,12 +32,12 @@ def _write_project(tmp_path: Path) -> Path:
     return project_yaml
 
 
-def test_serve_request_resolves_targeted_profile(tmp_path: Path):
+def test_serve_request_resolves_named_profile(tmp_path: Path):
     project_yaml = _write_project(tmp_path)
     profiles = tmp_path / "profiles"
     profiles.mkdir(parents=True, exist_ok=True)
     (profiles / "serve.coverage.yaml").write_text(
-        "target: coverage\n",
+        "operation: coverage\n",
         encoding="utf-8",
     )
 
@@ -61,11 +61,11 @@ def test_inspect_request_defaults_to_enabled_profiles(tmp_path: Path):
     profiles = tmp_path / "profiles"
     profiles.mkdir(parents=True, exist_ok=True)
     (profiles / "inspect.coverage.yaml").write_text(
-        "target: coverage\nenabled: false\n",
+        "operation: coverage\nenabled: false\n",
         encoding="utf-8",
     )
     (profiles / "inspect.matrix.yaml").write_text(
-        "target: matrix\nenabled: true\n",
+        "operation: matrix\nenabled: true\n",
         encoding="utf-8",
     )
 
@@ -81,12 +81,12 @@ def test_inspect_request_defaults_to_enabled_profiles(tmp_path: Path):
     assert job.task.id == "matrix"
 
 
-def test_serve_profile_rejects_artifact_target(tmp_path: Path, caplog):
+def test_serve_profile_rejects_artifact_operation(tmp_path: Path, caplog):
     project_yaml = _write_project(tmp_path)
     profiles = tmp_path / "profiles"
     profiles.mkdir(parents=True, exist_ok=True)
     (profiles / "serve.schema.yaml").write_text(
-        "target: schema\n",
+        "operation: schema\n",
         encoding="utf-8",
     )
 
@@ -99,17 +99,17 @@ def test_serve_profile_rejects_artifact_target(tmp_path: Path, caplog):
 
     assert exc.value.code == 2
     assert (
-        "must target a runtime operation; 'schema' is an artifact operation"
+        "must reference a runtime operation; 'schema' is an artifact operation"
         in caplog.text
     )
 
 
-def test_inspect_profile_rejects_artifact_target(tmp_path: Path, caplog):
+def test_inspect_profile_rejects_artifact_operation(tmp_path: Path, caplog):
     project_yaml = _write_project(tmp_path)
     profiles = tmp_path / "profiles"
     profiles.mkdir(parents=True, exist_ok=True)
     (profiles / "inspect.stats.yaml").write_text(
-        "target: stats\n",
+        "operation: stats\n",
         encoding="utf-8",
     )
 
@@ -118,17 +118,17 @@ def test_inspect_profile_rejects_artifact_target(tmp_path: Path, caplog):
 
     assert exc.value.code == 2
     assert (
-        "must target a runtime operation; 'stats' is an artifact operation"
+        "must reference a runtime operation; 'stats' is an artifact operation"
         in caplog.text
     )
 
 
-def test_build_profile_rejects_runtime_target(tmp_path: Path, caplog):
+def test_build_profile_rejects_runtime_operation(tmp_path: Path, caplog):
     project_yaml = _write_project(tmp_path)
     profiles = tmp_path / "profiles"
     profiles.mkdir(parents=True, exist_ok=True)
-    (profiles / "build.pipeline.yaml").write_text(
-        "target: pipeline\n",
+    (profiles / "build.dataset.yaml").write_text(
+        "operation: dataset\n",
         encoding="utf-8",
     )
 
@@ -137,17 +137,17 @@ def test_build_profile_rejects_runtime_target(tmp_path: Path, caplog):
 
     assert exc.value.code == 2
     assert (
-        "must target an artifact operation; 'pipeline' is a runtime operation"
+        "must reference an artifact operation; 'dataset' is a runtime operation"
         in caplog.text
     )
 
 
-def test_build_profile_rejects_unknown_target(tmp_path: Path, caplog):
+def test_build_profile_rejects_unknown_operation(tmp_path: Path, caplog):
     project_yaml = _write_project(tmp_path)
     profiles = tmp_path / "profiles"
     profiles.mkdir(parents=True, exist_ok=True)
     (profiles / "build.typo.yaml").write_text(
-        "target: scheam\n",
+        "operation: scheam\n",
         encoding="utf-8",
     )
 
@@ -155,21 +155,37 @@ def test_build_profile_rejects_unknown_target(tmp_path: Path, caplog):
         build_profile_run_request(kind="build", project=str(project_yaml))
 
     assert exc.value.code == 2
-    assert "references unknown operation target 'scheam'" in caplog.text
+    assert "references unknown operation 'scheam'" in caplog.text
 
 
-def test_serve_request_orders_enabled_profiles_and_run_targets_only_named_profile(
+def test_serve_profile_rejects_removed_pipeline_operation_id(tmp_path: Path, caplog):
+    project_yaml = _write_project(tmp_path)
+    profiles = tmp_path / "profiles"
+    profiles.mkdir(parents=True, exist_ok=True)
+    (profiles / "serve.legacy.yaml").write_text(
+        "operation: pipeline\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        build_profile_run_request(kind="serve", project=str(project_yaml))
+
+    assert exc.value.code == 2
+    assert "references unknown operation 'pipeline'" in caplog.text
+
+
+def test_serve_request_orders_enabled_profiles_and_run_selects_named_profile(
     tmp_path: Path,
 ):
     project_yaml = _write_project(tmp_path)
     profiles = tmp_path / "profiles"
     profiles.mkdir(parents=True, exist_ok=True)
     (profiles / "serve.early.yaml").write_text(
-        "order: 10\ntarget: pipeline\nenabled: true\n",
+        "order: 10\noperation: dataset\nenabled: true\n",
         encoding="utf-8",
     )
     (profiles / "serve.train.yaml").write_text(
-        "order: 40\ntarget: pipeline\nenabled: true\n",
+        "order: 40\noperation: dataset\nenabled: true\n",
         encoding="utf-8",
     )
 
@@ -180,8 +196,8 @@ def test_serve_request_orders_enabled_profiles_and_run_targets_only_named_profil
     assert request_all is not None
     assert [job.name for job in request_all.jobs] == ["early", "train"]
     assert [job.task.id for job in request_all.jobs] == [
-        "pipeline",
-        "pipeline",
+        "dataset",
+        "dataset",
     ]
     assert request_all.jobs[0].runtime is not request_all.jobs[1].runtime
 
@@ -192,7 +208,7 @@ def test_serve_request_orders_enabled_profiles_and_run_targets_only_named_profil
     )
     assert request_train is not None
     assert [job.name for job in request_train.jobs] == ["train"]
-    assert [job.task.id for job in request_train.jobs] == ["pipeline"]
+    assert [job.task.id for job in request_train.jobs] == ["dataset"]
 
 
 def test_cli_artifact_mode_overrides_selected_profiles(tmp_path: Path):
@@ -215,11 +231,11 @@ def test_cli_artifact_mode_overrides_selected_profiles(tmp_path: Path):
         encoding="utf-8",
     )
     (profiles / "serve.first.yaml").write_text(
-        'target: pipeline\nartifact_mode: "OFF"\n',
+        'operation: dataset\nartifact_mode: "OFF"\n',
         encoding="utf-8",
     )
     (profiles / "serve.second.yaml").write_text(
-        "target: pipeline\nartifact_mode: AUTO\n",
+        "operation: dataset\nartifact_mode: AUTO\n",
         encoding="utf-8",
     )
 
@@ -272,11 +288,11 @@ def test_selected_profiles_reject_conflicting_artifact_modes(
     profiles = tmp_path / "profiles"
     profiles.mkdir(parents=True, exist_ok=True)
     (profiles / "serve.first.yaml").write_text(
-        'target: pipeline\nartifact_mode: "OFF"\n',
+        'operation: dataset\nartifact_mode: "OFF"\n',
         encoding="utf-8",
     )
     (profiles / "serve.second.yaml").write_text(
-        "target: pipeline\nartifact_mode: AUTO\n",
+        "operation: dataset\nartifact_mode: AUTO\n",
         encoding="utf-8",
     )
 
@@ -309,7 +325,7 @@ def test_serve_defaults_apply_when_profile_omits_fields(tmp_path: Path):
         encoding="utf-8",
     )
     (profiles / "serve.train.yaml").write_text(
-        "target: pipeline\n",
+        "operation: dataset\n",
         encoding="utf-8",
     )
 
@@ -342,7 +358,7 @@ def test_serve_profile_fields_override_serve_defaults(tmp_path: Path):
         encoding="utf-8",
     )
     (profiles / "serve.train.yaml").write_text(
-        ("target: pipeline\noutput:\n  transport: stdout\n  format: jsonl\n"),
+        ("operation: dataset\noutput:\n  transport: stdout\n  format: jsonl\n"),
         encoding="utf-8",
     )
 
@@ -368,7 +384,7 @@ def test_serve_profile_nested_observability_deep_merges_defaults(
         encoding="utf-8",
     )
     (profiles / "serve.train.yaml").write_text(
-        ("target: pipeline\nobservability:\n  logging:\n    level: debug\n"),
+        ("operation: dataset\nobservability:\n  logging:\n    level: debug\n"),
         encoding="utf-8",
     )
 
@@ -400,7 +416,7 @@ def test_build_defaults_apply_to_build_profiles(tmp_path: Path):
         encoding="utf-8",
     )
     (profiles / "build.schema.yaml").write_text(
-        "target: schema\n",
+        "operation: schema\n",
         encoding="utf-8",
     )
 

@@ -253,10 +253,10 @@ def test_build_order_rejects_dependency_after_dependent() -> None:
         )
 
 
-def test_build_order_rejects_duplicate_targets() -> None:
+def test_build_order_rejects_duplicate_operations() -> None:
     schema = SchemaTask(id="schema")
 
-    with pytest.raises(ValueError, match="unique artifact targets"):
+    with pytest.raises(ValueError, match="unique artifact operations"):
         _validate_build_order(
             [
                 BuildJob(schema, _artifact_settings()),
@@ -348,7 +348,7 @@ def test_runtime_artifact_union_is_prepared_once_before_jobs(
     vector_inputs = VectorInputsTask(id="vector_inputs")
     schema = SchemaTask(id="schema")
     metadata = MetadataTask(id="metadata")
-    pipeline = PipelineTask(id="pipeline")
+    pipeline = PipelineTask(id="dataset")
     first_runtime = _runtime(tmp_path, "first-job")
     second_runtime = _runtime(tmp_path, "second-job")
     canonical_runtime = _runtime(tmp_path, "canonical-build")
@@ -507,7 +507,7 @@ def test_missing_runtime_artifact_producer_is_rejected_before_execution(
 ) -> None:
     schema = SchemaTask(id="schema")
     metadata = MetadataTask(id="metadata")
-    pipeline = PipelineTask(id="pipeline")
+    pipeline = PipelineTask(id="dataset")
     request = _runtime_request(
         tmp_path,
         command="serve",
@@ -519,7 +519,7 @@ def test_missing_runtime_artifact_producer_is_rejected_before_execution(
 
 
 def test_invalid_preview_is_rejected_before_starting_run(tmp_path: Path) -> None:
-    pipeline = PipelineTask(id="pipeline")
+    pipeline = PipelineTask(id="dataset")
     run_paths = _run_paths(tmp_path)
     request = _runtime_request(
         tmp_path,
@@ -546,7 +546,7 @@ def test_runtime_jobs_keep_order_and_apply_execution_settings(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    task = PipelineTask(id="pipeline")
+    task = PipelineTask(id="dataset")
     execution = ExecutionConfig(sort_buffer_mb=16)
     jobs = [
         _runtime_job(
@@ -648,7 +648,8 @@ def test_runtime_job_emits_resolved_config_at_debug(
     assert level == logging.DEBUG
     assert message.startswith("Config:\n")
     config = json.loads(message.removeprefix("Config:\n"))
-    assert config["target"] == "report"
+    assert config["operation"]["id"] == "report"
+    assert config["operation"]["entrypoint"] == "plugin.runtime.report"
     assert "dataset" not in config
     assert config["execution"]["sort_buffer_mb"] == 24
     assert config["observability"]["log_level"] == "INFO"
@@ -830,7 +831,7 @@ def test_preview_run_exists_at_job_boundary_and_is_not_latest(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    pipeline = PipelineTask(id="pipeline")
+    pipeline = PipelineTask(id="dataset")
     run_paths = _run_paths(tmp_path)
     runtime = _runtime(tmp_path)
     request = _runtime_request(

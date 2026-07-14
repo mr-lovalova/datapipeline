@@ -24,8 +24,10 @@ class Profile(BaseModel):
         return text
 
 
-def normalize_profile_target(value: object) -> str:
-    target = str(value).strip().lower() if value is not None else ""
-    if not target:
-        raise ValueError("target must be set")
-    return target
+def normalize_profile_operation(value: object) -> str:
+    if not isinstance(value, str):
+        raise ValueError("operation must be a string")
+    operation = value.strip().lower()
+    if not operation:
+        raise ValueError("operation must be set")
+    return operation

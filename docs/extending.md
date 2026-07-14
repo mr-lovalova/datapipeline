@@ -50,7 +50,7 @@ def run_report(
 and `limit` is the CLI cap or `None`. Return `RuntimeOutput`,
 `SplitRuntimeOutput`, `RuntimeOutputBatch`, or `None`. Jerry persists the result
 using the profile output. Dataset split routing, preview, throttle, and
-`include_splits` belong to the built-in pipeline operation and are not passed to
+`include_splits` belong to the built-in dataset operation and are not passed to
 plugins.
 
 Record and stream transforms are validated built-in operations rather than

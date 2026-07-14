@@ -1,4 +1,4 @@
-target: matrix
+operation: matrix
 output:
   transport: fs
   format: html

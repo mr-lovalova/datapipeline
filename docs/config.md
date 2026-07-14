@@ -75,7 +75,7 @@ globals:
 - `paths.operations` optionally points to `operations/*.yaml`. Omit it when the
   built-in operations are sufficient. When configured, the directory must exist.
   Core artifact operations are `scaler`, `vector_inputs`, `metadata`, `schema`,
-  and `stats`; core runtime operations are `pipeline`, `coverage`, and `matrix`.
+  and `stats`; core runtime operations are `dataset`, `coverage`, and `matrix`.
   Files override core settings or declare custom operations.
 - `paths.profiles` points to profile specs grouped by type:
   `profiles/serve.<name>.yaml`, `profiles/build.<name>.yaml`,
@@ -93,7 +93,7 @@ globals:
 
 ```yaml
 # profiles/serve.dataset.yaml
-target: pipeline # core runtime operation
+operation: dataset # core runtime operation
 artifact_mode: AUTO # AUTO | FORCE | "OFF"; prepares runtime prerequisites once
 # include_splits: [train, test] # optional subset of dataset split output_labels
 output:
@@ -167,7 +167,7 @@ overwrite: true
 
 - `jerry materialize` runs all enabled materialize profiles in `order`; `--run`
   selects one. Unlike serve and inspect profiles, these profiles identify a
-  stream directly and do not target an operation.
+  stream directly and do not reference an operation.
 - CLI `--output` overrides the selected profile and requires `--run`; the
   profile remains the source of the stream identity.
 - Relative profile outputs resolve from `project.yaml`; relative CLI `--output`
@@ -190,7 +190,7 @@ overwrite: true
 
 ```yaml
 # profiles/build.schema.yaml
-target: schema # required; artifact operation ID to execute
+operation: schema # required; artifact operation ID to execute
 mode: AUTO # AUTO | FORCE | "OFF"
 # enabled: true # optional; profile-level switch
 # Optional overrides:
@@ -206,11 +206,14 @@ mode: AUTO # AUTO | FORCE | "OFF"
 ```
 
 - Build profiles are orchestration profiles; they do not replace operation definitions.
-- `target` selects the artifact operation ID for that profile (`schema`, `scaler`, `metadata`, ...). Selected build profiles must have distinct targets.
+- `operation` selects the artifact operation ID for that profile (`schema`,
+  `scaler`, `metadata`, ...). Selected build profiles must reference distinct
+  operations.
 - Build profile `observability.logging.outputs[].path` values are resolved relative to the dataset project root (`project.yaml` directory).
-- `jerry build` runs enabled build profiles when they exist; `jerry build --run <name>` targets one profile.
+- `jerry build` runs enabled build profiles when they exist; `jerry build --run
+  <name>` selects one profile.
 - Build profile `order` controls only the order of selected build profiles. The
-  dependency graph orders the internal artifact jobs required by each target
+  dependency graph orders the internal artifact jobs required by each operation
   and never reorders profiles. If selected profiles include both a dependency
   and its dependent, the dependency profile must come first.
 - Precedence for build settings: CLI > `build.<name>.yaml` > `build.defaults.yaml` > built-ins.
@@ -220,7 +223,8 @@ mode: AUTO # AUTO | FORCE | "OFF"
 - Defaults files are optional and non-executable.
 - Their `<kind>.defaults.yaml` filename determines the command. The YAML body
   contains only non-routing defaults for that kind.
-- They must not include execution identity fields such as `name`, `target`, `enabled`, or `order`.
+- They must not include execution identity fields such as `name`, `operation`,
+  `enabled`, or `order`.
 - `execution` is command-wide and is not accepted in concrete profiles.
   Materialize `artifact_mode` is likewise defaults-only.
 - Defaults-level `observability` configures the shared prerequisite phase as
@@ -272,7 +276,8 @@ options: {}
 - Each file contains one mapping, and its filename supplies the operation ID.
   Do not repeat `id`. Core overrides also omit `kind` and `entrypoint`.
 - Custom operations declare `kind: artifact|runtime` and an `entrypoint`.
-- Runtime operations are executable units; profiles reference them via `target`.
+- Runtime operations are executable units; profiles reference them via
+  `operation`.
 - Core operations use reserved `core.runtime.*` identifiers and call their typed
   implementations directly. A custom runtime operation's `entrypoint` must
   resolve in the `datapipeline.operations.runtime` entry-point group.
@@ -280,10 +285,11 @@ options: {}
   built-in operations. Each referenced artifact and its dependency chain must
   have available producer operations.
 - Built-in runtime operation options are entrypoint-specific:
-  - `core.runtime.pipeline`: no operation options. Limit, preview, throttle, output,
-    and visuals can be set by the serve profile or CLI; split selection belongs
-    to the profile. Preview, throttle, and split selection are not accepted by
-    other runtime operations.
+  - The `dataset` operation uses `core.runtime.pipeline` internally and accepts
+    no operation options. Limit, preview, throttle, output, and visuals can be
+    set by the serve profile or CLI. Dataset split output comes from
+    `dataset.yaml`; `include_splits` can narrow it. Preview, throttle, and split
+    output are not accepted by other runtime operations.
   - `core.runtime.coverage`: optional `threshold` between `0` and `1`
     (default: `0.95`). Results are ordered from lowest to highest coverage.
     Coverage reads a completed stats artifact, so it does not accept `--limit`.
@@ -627,10 +633,10 @@ folds:
 - Profile `order` is authoritative for profile execution. The dependency graph
   orders internal artifact jobs but never changes the order of serve, inspect,
   or build profiles.
-- Profiles select operations by ID through `target`.
-- Build profiles target artifact operations. Serve and inspect profiles target runtime
-  operations. The built-in pipeline runner is `core.runtime.pipeline`; custom runtime
-  entry points are also supported.
+- Profiles select operations by ID through `operation`.
+- Build profiles reference artifact operations. Serve and inspect profiles
+  reference runtime operations. The built-in `dataset` operation uses
+  `core.runtime.pipeline`; custom runtime entry points are also supported.
 - Observability defaults (visuals/logging outputs) belong in profile files (`serve.<name>.yaml`, `build.<name>.yaml`, `inspect.<name>.yaml`) or per-kind defaults (`<kind>.defaults.yaml`).
 
 ---

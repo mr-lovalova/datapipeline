@@ -53,11 +53,11 @@ def plan_runtime_job(
     if isinstance(job.task, CoverageTask) and job.limit is not None:
         raise ValueError("The coverage operation does not support a record limit.")
     if not isinstance(job.task, PipelineTask) and job.preview is not None:
-        raise ValueError("Only the pipeline operation supports preview.")
+        raise ValueError("Only the dataset operation supports preview.")
     if not isinstance(job.task, PipelineTask) and job.throttle_ms is not None:
-        raise ValueError("Only the pipeline operation supports throttle_ms.")
+        raise ValueError("Only the dataset operation supports throttle_ms.")
     if not isinstance(job.task, PipelineTask) and job.output_splits:
-        raise ValueError("Only the pipeline operation supports split outputs.")
+        raise ValueError("Only the dataset operation supports split outputs.")
     required_artifacts = graph.runtime_dependency_closure(
         job.task,
         preview=job.preview,
@@ -116,10 +116,9 @@ def execute_runtime_job(
             "Config:\n"
             + json.dumps(
                 {
-                    "target": job.task.id,
                     "operation": job.task.model_dump(
                         mode="json",
-                        exclude={"kind", "id"},
+                        exclude={"kind"},
                         exclude_none=True,
                     ),
                     "limit": job.limit,

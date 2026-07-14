@@ -218,29 +218,29 @@ def build_profile_run_request(
     operation_tasks_by_id = {task.id: task for task in declared_operation_tasks}
     tasks_by_id = artifact_tasks_by_id | operation_tasks_by_id
     for profile in selected_profiles:
-        task = tasks_by_id.get(profile.target)
+        task = tasks_by_id.get(profile.operation)
         if task is None:
             logger.error(
-                "%s profile '%s' references unknown operation target '%s'.",
+                "%s profile '%s' references unknown operation '%s'.",
                 kind.capitalize(),
                 profile.name,
-                profile.target,
+                profile.operation,
             )
             raise SystemExit(2)
         if kind == "build" and not isinstance(task, ArtifactTask):
             logger.error(
-                "Build profile '%s' must target an artifact operation; '%s' is a "
+                "Build profile '%s' must reference an artifact operation; '%s' is a "
                 "runtime operation.",
                 profile.name,
-                profile.target,
+                profile.operation,
             )
             raise SystemExit(2)
         if kind != "build" and not isinstance(task, OperationTask):
             logger.error(
-                "%s profile '%s' must target a runtime operation; '%s' is an artifact operation.",
+                "%s profile '%s' must reference a runtime operation; '%s' is an artifact operation.",
                 kind.capitalize(),
                 profile.name,
-                profile.target,
+                profile.operation,
             )
             raise SystemExit(2)
 
@@ -270,7 +270,7 @@ def build_profile_run_request(
                 raise SystemExit(2) from exc
             build_jobs.append(
                 BuildJob(
-                    task=artifact_tasks_by_id[profile.target].model_copy(deep=True),
+                    task=artifact_tasks_by_id[profile.operation].model_copy(deep=True),
                     settings=BuildSettings(
                         mode="FORCE" if force else profile.mode or "AUTO",
                         observability=replace(
@@ -370,7 +370,9 @@ def build_profile_run_request(
             runtime_jobs = [
                 RuntimeJob(
                     name=profile.name,
-                    task=operation_tasks_by_id[profile.target_id].model_copy(deep=True),
+                    task=operation_tasks_by_id[profile.operation_id].model_copy(
+                        deep=True
+                    ),
                     runtime=compile_runtime(definition),
                     output=profile.output,
                     observability=replace(

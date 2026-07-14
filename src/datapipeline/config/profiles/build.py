@@ -4,7 +4,7 @@ from pydantic import Field, field_validator
 
 from datapipeline.config.observability import ObservabilityConfig
 
-from .base import Profile, normalize_profile_target
+from .base import Profile, normalize_profile_operation
 
 ArtifactMode = Literal["AUTO", "FORCE", "OFF"]
 ARTIFACT_MODES: tuple[ArtifactMode, ...] = ("AUTO", "FORCE", "OFF")
@@ -29,14 +29,14 @@ class BuildProfile(Profile):
     cmd: Literal["build"]
     observability: ObservabilityConfig | None = Field(default=None)
     mode: ArtifactMode | None = Field(default=None)
-    target: str
+    operation: str
 
     @field_validator("mode", mode="before")
     @classmethod
     def _normalize_mode(cls, value: object) -> ArtifactMode | None:
         return normalize_artifact_mode(value)
 
-    @field_validator("target", mode="before")
+    @field_validator("operation", mode="before")
     @classmethod
-    def _normalize_target(cls, value: object) -> str:
-        return normalize_profile_target(value)
+    def _normalize_operation(cls, value: object) -> str:
+        return normalize_profile_operation(value)

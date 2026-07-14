@@ -136,7 +136,7 @@ def test_core_operations_load_without_configuration(tmp_path):
         "stats",
     ]
     assert [task.id for task in runtime_tasks] == [
-        "pipeline",
+        "dataset",
         "coverage",
         "matrix",
     ]
@@ -346,9 +346,9 @@ def test_stats_task_rejects_removed_mode_option(tmp_path):
 def test_serve_tasks_respect_name_and_enabled(tmp_path):
     project_yaml = _write_project(tmp_path, operations_ref="operations")
     config_dir = _profile_kind_dir(project_yaml)
-    (config_dir / "serve.train.yaml").write_text("target: pipeline\n", encoding="utf-8")
+    (config_dir / "serve.train.yaml").write_text("operation: dataset\n", encoding="utf-8")
     (config_dir / "serve.val.yaml").write_text(
-        "target: pipeline\nenabled: false\n",
+        "operation: dataset\nenabled: false\n",
         encoding="utf-8",
     )
 
@@ -362,7 +362,7 @@ def test_serve_profiles_load_include_splits(tmp_path):
     project_yaml = _write_project(tmp_path, operations_ref="operations")
     config_dir = _profile_kind_dir(project_yaml)
     (config_dir / "serve.dataset.yaml").write_text(
-        "target: pipeline\ninclude_splits: [train, val]\n",
+        "operation: dataset\ninclude_splits: [train, val]\n",
         encoding="utf-8",
     )
 
@@ -379,11 +379,11 @@ def test_serve_defaults_supply_include_splits_unless_profile_overrides(tmp_path)
         encoding="utf-8",
     )
     (profiles_dir / "serve.all.yaml").write_text(
-        "target: pipeline\n",
+        "operation: dataset\n",
         encoding="utf-8",
     )
     (profiles_dir / "serve.test.yaml").write_text(
-        "target: pipeline\ninclude_splits: [test]\n",
+        "operation: dataset\ninclude_splits: [test]\n",
         encoding="utf-8",
     )
 
@@ -429,7 +429,7 @@ def test_serve_profiles_interpolate_project_globals(tmp_path):
     (profiles_dir / "serve.processed.yaml").write_text(
         "\n".join(
             [
-                "target: pipeline",
+                "operation: dataset",
                 "output:",
                 "  transport: fs",
                 "  format: jsonl",
@@ -493,7 +493,7 @@ def test_profile_defaults_interpolate_project_globals(tmp_path):
 def test_profile_identity_comes_from_filename(tmp_path):
     project_yaml = _write_project(tmp_path, operations_ref="operations")
     config_dir = _profile_kind_dir(project_yaml)
-    (config_dir / "serve.train.yaml").write_text("target: pipeline\n", encoding="utf-8")
+    (config_dir / "serve.train.yaml").write_text("operation: dataset\n", encoding="utf-8")
 
     profile = _serve_profiles(project_yaml)[0]
 
@@ -505,7 +505,7 @@ def test_profile_version_field_is_rejected(tmp_path):
     project_yaml = _write_project(tmp_path, operations_ref="operations")
     profiles_dir = _profile_kind_dir(project_yaml)
     (profiles_dir / "serve.train.yaml").write_text(
-        "target: pipeline\nversion: 1\n",
+        "operation: dataset\nversion: 1\n",
         encoding="utf-8",
     )
 
@@ -529,17 +529,17 @@ def test_build_profiles_load_and_respect_enabled(tmp_path):
     project_yaml = _write_project(tmp_path, operations_ref="operations")
     config_dir = _profile_kind_dir(project_yaml)
     (config_dir / "build.fast.yaml").write_text(
-        "enabled: true\nmode: auto\ntarget: schema\n",
+        "enabled: true\nmode: auto\noperation: schema\n",
         encoding="utf-8",
     )
     (config_dir / "build.full.yaml").write_text(
-        "enabled: false\nmode: force\ntarget: metadata\n",
+        "enabled: false\nmode: force\noperation: metadata\n",
         encoding="utf-8",
     )
 
     tasks = _build_profiles(project_yaml)
     assert [task.name for task in tasks] == ["fast", "full"]
-    assert tasks[0].target == "schema"
+    assert tasks[0].operation == "schema"
     assert tasks[0].enabled is True
     assert tasks[1].enabled is False
 
@@ -548,17 +548,17 @@ def test_inspect_profiles_load_and_respect_enabled(tmp_path):
     project_yaml = _write_project(tmp_path, operations_ref="operations")
     config_dir = _profile_kind_dir(project_yaml)
     (config_dir / "inspect.default.yaml").write_text(
-        "enabled: true\ntarget: coverage\n",
+        "enabled: true\noperation: coverage\n",
         encoding="utf-8",
     )
     (config_dir / "inspect.extra.yaml").write_text(
-        "enabled: false\ntarget: coverage\n",
+        "enabled: false\noperation: coverage\n",
         encoding="utf-8",
     )
 
     tasks = _inspect_profiles(project_yaml)
     assert [task.name for task in tasks] == ["default", "extra"]
-    assert tasks[0].target == "coverage"
+    assert tasks[0].operation == "coverage"
     assert tasks[0].enabled is True
     assert tasks[1].enabled is False
 
@@ -692,15 +692,15 @@ def test_profile_order_overrides_file_order(tmp_path):
     project_yaml = _write_project(tmp_path, operations_ref="operations")
     profiles_dir = _profile_kind_dir(project_yaml)
     (profiles_dir / "serve.train.yaml").write_text(
-        "target: pipeline\n",
+        "operation: dataset\n",
         encoding="utf-8",
     )
     (profiles_dir / "serve.val.yaml").write_text(
-        "order: 2\ntarget: pipeline\n",
+        "order: 2\noperation: dataset\n",
         encoding="utf-8",
     )
     (profiles_dir / "serve.test.yaml").write_text(
-        "order: 1\ntarget: pipeline\n",
+        "order: 1\noperation: dataset\n",
         encoding="utf-8",
     )
 
@@ -716,7 +716,7 @@ def test_serve_defaults_are_loaded_but_not_executable_profiles(tmp_path):
         encoding="utf-8",
     )
     (profiles_dir / "serve.train.yaml").write_text(
-        "target: pipeline\n",
+        "operation: dataset\n",
         encoding="utf-8",
     )
 
@@ -766,7 +766,7 @@ def test_concrete_profile_rejects_body_identity(tmp_path, identity):
     project_yaml = _write_project(tmp_path, operations_ref="operations")
     profiles_dir = _profile_kind_dir(project_yaml)
     (profiles_dir / "serve.train.yaml").write_text(
-        identity + "target: pipeline\n",
+        identity + "operation: dataset\n",
         encoding="utf-8",
     )
 
@@ -778,7 +778,7 @@ def test_profile_file_requires_one_mapping(tmp_path):
     project_yaml = _write_project(tmp_path, operations_ref="operations")
     profiles_dir = _profile_kind_dir(project_yaml)
     (profiles_dir / "serve.train.yaml").write_text(
-        "- target: pipeline\n- target: pipeline\n",
+        "- operation: dataset\n- operation: dataset\n",
         encoding="utf-8",
     )
 
@@ -790,7 +790,7 @@ def test_command_load_ignores_malformed_other_profile_kinds(tmp_path):
     project_yaml = _write_project(tmp_path, operations_ref="operations")
     profiles_dir = _profile_kind_dir(project_yaml)
     (profiles_dir / "serve.train.yaml").write_text(
-        "target: pipeline\n",
+        "operation: dataset\n",
         encoding="utf-8",
     )
     (profiles_dir / "build.broken.yaml").write_text(
@@ -807,7 +807,7 @@ def test_execution_policy_is_not_allowed_on_concrete_profiles(tmp_path):
     project_yaml = _write_project(tmp_path, operations_ref="operations")
     profiles_dir = _profile_kind_dir(project_yaml)
     (profiles_dir / "serve.train.yaml").write_text(
-        ("target: pipeline\nexecution:\n  sort_buffer_mb: 1\n"),
+        ("operation: dataset\nexecution:\n  sort_buffer_mb: 1\n"),
         encoding="utf-8",
     )
 
@@ -843,10 +843,10 @@ def test_artifact_operation_rejects_dependencies_field(tmp_path):
         _artifact_tasks(project_yaml)
 
 
-def test_serve_operation_tasks_load(tmp_path):
+def test_dataset_operation_loads(tmp_path):
     project_yaml = _write_project(tmp_path)
 
-    task = next(task for task in _all_tasks(project_yaml) if task.id == "pipeline")
+    task = next(task for task in _all_tasks(project_yaml) if task.id == "dataset")
     assert isinstance(task, PipelineTask)
     assert task.entrypoint == "core.runtime.pipeline"
 
@@ -899,7 +899,7 @@ def test_runtime_tasks_without_options_accept_empty_options(
         (
             "core.runtime.pipeline",
             "  sort: missing\n",
-            "pipeline operation does not accept options",
+            "dataset operation does not accept options",
         ),
         (
             "core.runtime.matrix",
@@ -1067,7 +1067,7 @@ def test_plugin_runtime_options_must_be_a_mapping(tmp_path: Path) -> None:
 def test_runtime_operation_rejects_dependencies_field(tmp_path):
     project_yaml = _write_project(tmp_path, operations_ref="operations")
     config_dir = _operations_dir(project_yaml)
-    (config_dir / "pipeline.yaml").write_text(
+    (config_dir / "dataset.yaml").write_text(
         "dependencies:\n  - missing_artifact\n",
         encoding="utf-8",
     )
@@ -1079,7 +1079,7 @@ def test_runtime_operation_rejects_dependencies_field(tmp_path):
 def test_runtime_operation_rejects_output_formats_field(tmp_path):
     project_yaml = _write_project(tmp_path, operations_ref="operations")
     config_dir = _operations_dir(project_yaml)
-    (config_dir / "pipeline.yaml").write_text(
+    (config_dir / "dataset.yaml").write_text(
         "output_formats:\n  - jsonl\n",
         encoding="utf-8",
     )
@@ -1101,8 +1101,8 @@ def test_duplicate_operation_filenames_raise(tmp_path):
 def test_duplicate_serve_profile_names_raise(tmp_path):
     project_yaml = _write_project(tmp_path, operations_ref="operations")
     config_dir = _profile_kind_dir(project_yaml)
-    (config_dir / "serve.train.yaml").write_text("target: pipeline\n", encoding="utf-8")
-    (config_dir / "serve.train.yml").write_text("target: pipeline\n", encoding="utf-8")
+    (config_dir / "serve.train.yaml").write_text("operation: dataset\n", encoding="utf-8")
+    (config_dir / "serve.train.yml").write_text("operation: dataset\n", encoding="utf-8")
 
     with pytest.raises(ValueError, match="Duplicate serve profile names"):
         _serve_profiles(project_yaml)
@@ -1131,11 +1131,11 @@ def test_duplicate_build_profile_names_raise(tmp_path):
     project_yaml = _write_project(tmp_path, operations_ref="operations")
     config_dir = _profile_kind_dir(project_yaml)
     (config_dir / "build.nightly.yaml").write_text(
-        "target: schema\n",
+        "operation: schema\n",
         encoding="utf-8",
     )
     (config_dir / "build.nightly.yml").write_text(
-        "target: metadata\n",
+        "operation: metadata\n",
         encoding="utf-8",
     )
 
@@ -1147,11 +1147,11 @@ def test_duplicate_inspect_profile_names_raise(tmp_path):
     project_yaml = _write_project(tmp_path, operations_ref="operations")
     config_dir = _profile_kind_dir(project_yaml)
     (config_dir / "inspect.inspect.yaml").write_text(
-        "target: coverage\n",
+        "operation: coverage\n",
         encoding="utf-8",
     )
     (config_dir / "inspect.inspect.yml").write_text(
-        "target: coverage\n",
+        "operation: coverage\n",
         encoding="utf-8",
     )
 
@@ -1177,7 +1177,7 @@ def test_nested_profile_files_are_rejected(tmp_path):
     profiles_root = _profiles_dir(project_yaml) / "serve"
     profiles_root.mkdir(parents=True, exist_ok=True)
     (profiles_root / "train.yaml").write_text(
-        "target: pipeline\n",
+        "operation: dataset\n",
         encoding="utf-8",
     )
 
@@ -1189,7 +1189,7 @@ def test_profile_command_cannot_override_filename(tmp_path):
     project_yaml = _write_project(tmp_path, operations_ref="operations")
     build_dir = _profile_kind_dir(project_yaml)
     (build_dir / "build.oops.yaml").write_text(
-        "cmd: serve\ntarget: pipeline\n",
+        "cmd: serve\noperation: dataset\n",
         encoding="utf-8",
     )
 
@@ -1201,7 +1201,7 @@ def test_profile_filename_prefix_is_required(tmp_path):
     project_yaml = _write_project(tmp_path, operations_ref="operations")
     profiles_root = _profiles_dir(project_yaml)
     (profiles_root / "oops.yaml").write_text(
-        "target: pipeline\n",
+        "operation: dataset\n",
         encoding="utf-8",
     )
 
@@ -1216,7 +1216,7 @@ def test_profile_rejects_unknown_fields(tmp_path):
     project_yaml = _write_project(tmp_path, operations_ref="operations")
     profiles_root = _profiles_dir(project_yaml)
     (profiles_root / "build.schema.yaml").write_text(
-        "target: schema\noutput: should-not-exist\n",
+        "operation: schema\noutput: should-not-exist\n",
         encoding="utf-8",
     )
 
@@ -1227,7 +1227,7 @@ def test_profile_rejects_unknown_fields(tmp_path):
 def test_operation_task_rejects_unknown_fields(tmp_path):
     project_yaml = _write_project(tmp_path, operations_ref="operations")
     config_dir = _operations_dir(project_yaml)
-    (config_dir / "pipeline.yaml").write_text(
+    (config_dir / "dataset.yaml").write_text(
         ("runtime_kind: inspect\n"),
         encoding="utf-8",
     )

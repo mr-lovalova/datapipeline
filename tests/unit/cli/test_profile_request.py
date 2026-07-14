@@ -83,7 +83,7 @@ def test_inspect_request_materializes_execution_scoped_log_output(
         encoding="utf-8",
     )
     (profiles / "inspect.coverage.yaml").write_text(
-        ("target: coverage\nenabled: true\nartifact_mode: AUTO\n"),
+        ("operation: coverage\nenabled: true\nartifact_mode: AUTO\n"),
         encoding="utf-8",
     )
     (tmp_path / "sources").mkdir(parents=True, exist_ok=True)
@@ -113,7 +113,7 @@ def test_disabled_profiles_do_not_create_execution_directory(tmp_path: Path):
         encoding="utf-8",
     )
     (profiles / "inspect.coverage.yaml").write_text(
-        ("target: coverage\nenabled: false\n"),
+        ("operation: coverage\nenabled: false\n"),
         encoding="utf-8",
     )
 
@@ -145,7 +145,7 @@ split:
         encoding="utf-8",
     )
     (profiles / "serve.dataset.yaml").write_text(
-        "target: pipeline\n",
+        "operation: dataset\n",
         encoding="utf-8",
     )
 

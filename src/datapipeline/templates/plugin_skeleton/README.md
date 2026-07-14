@@ -63,14 +63,15 @@ Profile sequencing:
   supplies both command and name. Defaults use `<command>.defaults.yaml`.
 - Profiles execute by `order` (ascending); unset falls back to filename order.
 - Materialize profiles name a stream and an exact durable JSONL output; they do
-  not target an operation.
-- Build profiles target artifact operations; serve and inspect profiles target
-  runtime operations. Core operations are available without YAML declarations.
+  not reference an operation.
+- Build profiles reference artifact operations; serve and inspect profiles
+  reference runtime operations through `operation`. Core operations are
+  available without YAML declarations.
 - Before selected serve or inspect profiles run, their artifact requirements are
   combined and prepared once according to `artifact_mode: AUTO|FORCE|OFF`.
 - The dependency graph orders only internal artifact jobs. It never changes
   profile order; build profiles remain explicit artifact roots.
-- Selected build profiles must have distinct targets.
+- Selected build profiles must reference distinct operations.
 - A selected dependency build profile must precede a selected dependent profile.
 - Use multiple ordered profiles only when you want separate named build/runtime
   steps or different per-profile output and observability settings.

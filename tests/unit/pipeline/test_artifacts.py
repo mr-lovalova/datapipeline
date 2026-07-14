@@ -628,7 +628,7 @@ def test_pipeline_runtime_requirements_follow_preview_stage(
     expected,
 ):
     graph = build_artifact_graph([])
-    task = PipelineTask(id="pipeline")
+    task = PipelineTask(id="dataset")
 
     assert (
         graph.runtime_requirements(
@@ -686,7 +686,7 @@ def test_record_and_feature_previews_require_declared_ticks(
         }
     )
     graph = build_artifact_graph([tick_task, unused_tick], dataset, streams)
-    task = PipelineTask(id="pipeline")
+    task = PipelineTask(id="dataset")
 
     assert "dataset_ticks" in graph.runtime_requirements(
         task,
@@ -697,7 +697,7 @@ def test_record_and_feature_previews_require_declared_ticks(
 
 def test_invalid_pipeline_preview_is_rejected_for_empty_dataset() -> None:
     graph = build_artifact_graph([])
-    task = PipelineTask(id="pipeline")
+    task = PipelineTask(id="dataset")
     dataset = FeatureDatasetConfig(sample=SampleConfig(cadence="1h"))
 
     with pytest.raises(ValueError, match="preview must be one of"):
@@ -780,7 +780,7 @@ def test_dataset_scaler_requirement_matches_feature_config(scale, expected):
 
 def test_empty_pipeline_dataset_has_no_runtime_artifact_requirements():
     graph = build_artifact_graph([])
-    task = PipelineTask(id="pipeline")
+    task = PipelineTask(id="dataset")
     dataset = FeatureDatasetConfig(sample=SampleConfig(cadence="1h"))
 
     assert (
@@ -835,7 +835,7 @@ def test_empty_pipeline_dataset_keeps_explicit_artifact_dependencies():
         output="build/custom.json",
     )
     graph = build_artifact_graph([snapshot])
-    task = PipelineTask(id="pipeline", requires=("custom_snapshot",))
+    task = PipelineTask(id="dataset", requires=("custom_snapshot",))
 
     assert graph.runtime_dependency_closure(
         task,

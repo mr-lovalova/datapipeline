@@ -85,10 +85,10 @@ def test_template_profiles_separate_builds_from_runtime_actions() -> None:
 
     project = load_project(_PLUGIN_SKELETON_ROOT / "your-dataset" / "project.yaml")
     assert [
-        (profile.cmd, profile.name, profile.target)
+        (profile.cmd, profile.name, profile.operation)
         for profile in profile_specs(project)
     ] == [
-        ("serve", "dataset", "pipeline"),
+        ("serve", "dataset", "dataset"),
         ("build", "schema", "schema"),
         ("inspect", "coverage", "coverage"),
         ("inspect", "matrix", "matrix"),

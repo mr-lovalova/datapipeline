@@ -5,7 +5,7 @@ from pydantic import Field, field_validator
 from datapipeline.config.observability import ObservabilityConfig
 from datapipeline.config.preview import PreviewStage
 
-from .base import Profile, normalize_profile_target
+from .base import Profile, normalize_profile_operation
 from .build import ArtifactMode, normalize_artifact_mode
 from .output import ServeOutputConfig
 
@@ -33,7 +33,7 @@ def normalize_include_splits(value: object) -> list[str] | None:
 
 class ServeProfile(Profile):
     cmd: Literal["serve"]
-    target: str
+    operation: str
     output: ServeOutputConfig | None = None
     observability: ObservabilityConfig | None = Field(default=None)
     artifact_mode: ArtifactMode | None = Field(default=None)
@@ -42,10 +42,10 @@ class ServeProfile(Profile):
     preview: PreviewStage | None = None
     throttle_ms: float | None = Field(default=None, ge=0.0)
 
-    @field_validator("target", mode="before")
+    @field_validator("operation", mode="before")
     @classmethod
-    def _normalize_target(cls, value: object) -> str:
-        return normalize_profile_target(value)
+    def _normalize_operation(cls, value: object) -> str:
+        return normalize_profile_operation(value)
 
     @field_validator("artifact_mode", mode="before")
     @classmethod

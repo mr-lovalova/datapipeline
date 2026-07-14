@@ -15,5 +15,5 @@ class PipelineTask(OperationTask[dict[str, object]]):
     @classmethod
     def _reject_options(cls, value: dict[str, object]) -> dict[str, object]:
         if value:
-            raise ValueError("pipeline operation does not accept options")
+            raise ValueError("dataset operation does not accept options")
         return value

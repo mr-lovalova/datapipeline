@@ -29,7 +29,7 @@ from datapipeline.services.runs import RunPaths, get_run_paths
 @dataclass(frozen=True)
 class ResolvedRuntimeProfile:
     name: str
-    target_id: str
+    operation_id: str
     preview: PreviewStage | None
     limit: int | None
     throttle_ms: float | None
@@ -99,8 +99,8 @@ def resolve_runtime_profiles(
     for profile in profiles:
         if isinstance(profile, ServeProfile):
             is_serve = True
-            is_pipeline = isinstance(
-                runtime_operations.get(profile.target), PipelineTask
+            is_dataset_operation = isinstance(
+                runtime_operations.get(profile.operation), PipelineTask
             )
             configured_preview = profile.preview
             configured_limit = profile.limit
@@ -108,7 +108,7 @@ def resolve_runtime_profiles(
             include_splits = tuple(profile.include_splits or ())
         else:
             is_serve = False
-            is_pipeline = False
+            is_dataset_operation = False
             configured_preview = None
             configured_limit = None
             throttle_ms = None
@@ -141,7 +141,7 @@ def resolve_runtime_profiles(
                     f"by the dataset: {unknown}"
                 )
         output_splits = include_splits
-        if is_pipeline and resolved_preview is None and not output_splits:
+        if is_dataset_operation and resolved_preview is None and not output_splits:
             output_splits = dataset_output_splits
         if output_splits:
             _validate_split_output_filenames(profile.name, output_splits)
@@ -200,7 +200,7 @@ def resolve_runtime_profiles(
         resolved.append(
             ResolvedRuntimeProfile(
                 name=profile.name,
-                target_id=profile.target,
+                operation_id=profile.operation,
                 preview=resolved_preview if is_serve else None,
                 limit=resolved_limit,
                 throttle_ms=throttle_ms,

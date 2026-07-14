@@ -202,18 +202,18 @@ def _run_materialize_profiles(request: MaterializeRunRequest) -> None:
 
 
 def _validate_build_order(jobs: list[BuildJob], graph: ArtifactGraph) -> None:
-    targets = [job.task.id for job in jobs]
-    if len(targets) != len(set(targets)):
-        raise ValueError("Build profiles must have unique artifact targets.")
+    operations = [job.task.id for job in jobs]
+    if len(operations) != len(set(operations)):
+        raise ValueError("Build profiles must reference unique artifact operations.")
 
-    positions = {target: index for index, target in enumerate(targets)}
-    for target, position in positions.items():
-        for dependency in graph.dependency_closure({target}):
+    positions = {operation: index for index, operation in enumerate(operations)}
+    for operation, position in positions.items():
+        for dependency in graph.dependency_closure({operation}):
             dependency_position = positions.get(dependency)
             if dependency_position is not None and dependency_position > position:
                 raise ValueError(
-                    f"Build profile target '{dependency}' must be ordered before "
-                    f"dependent target '{target}'."
+                    f"Build profile operation '{dependency}' must be ordered before "
+                    f"dependent operation '{operation}'."
                 )
 
 
