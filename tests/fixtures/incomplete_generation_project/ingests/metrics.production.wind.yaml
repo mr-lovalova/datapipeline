@@ -2,7 +2,6 @@ id: metrics.production.wind.ingest
 from:
   source: incomplete.production
 partition_by: [municipality]
-feature_id_by: [municipality]
 
 map:
   entrypoint: identity

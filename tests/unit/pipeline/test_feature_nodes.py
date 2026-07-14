@@ -48,7 +48,6 @@ def _context(tmp_path) -> PipelineContext:
         mapper=_identity,
         transforms=(),
         partition_by=(),
-        feature_id_by=None,
         presorted=False,
     )
     return PipelineContext(runtime)
@@ -201,7 +200,10 @@ def test_feature_stream_rejects_sample_key_type_drift() -> None:
     with pytest.raises(TypeError, match="changed type"):
         list(
             build_feature_stream(
-                FeatureProjector(None, SampleKeyContract(["security_id"])),
+                FeatureProjector(
+                    ("security_id",),
+                    SampleKeyContract(["security_id"]),
+                ),
                 FeatureRecordConfig(stream="stream", id="value", field="value"),
                 iter([first, second]),
             )

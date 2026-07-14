@@ -32,8 +32,8 @@ or non-finite values are rejected.
 
 `sequence` accepts strictly positive integer `size` and optional `stride`
 (default `1`). It creates independent windows per feature ID and entity from
-the source stream's record order. For sequenced vectors, `sample.keys` and
-`feature_id_by` must together match the stream's `partition_by` fields exactly;
-this keeps each entity contiguous and sequence memory bounded to one window.
-Cadence regularization belongs in that stream's `stream:` transforms when it is
-required.
+the source stream's record order. The stream's complete `partition_by` identity
+keeps each series contiguous and sequence memory bounded to one window. Dataset
+`sample.keys` select the partition fields represented in each row; remaining
+partition fields are appended to the feature ID. Cadence regularization belongs
+in that stream's `stream:` transforms when it is required.

@@ -162,7 +162,6 @@ class IngestConfig(BaseModel):
     from_: IngestFromConfig = Field(alias="from")
     map: EntryPointConfig
     partition_by: tuple[_FieldName, ...] = ()
-    feature_id_by: tuple[_FieldName, ...] | None = None
     ordered_by: tuple[_FieldName, ...] | None = None
     record: list[RecordTransformConfig] = Field(default_factory=list)
 
@@ -173,16 +172,6 @@ class IngestConfig(BaseModel):
             raise ValueError("partition_by must not contain duplicate fields")
         if "time" in fields:
             raise ValueError("partition_by must not contain the reserved field 'time'")
-        return fields
-
-    @field_validator("feature_id_by")
-    @classmethod
-    def validate_feature_id_by(
-        cls,
-        fields: tuple[str, ...] | None,
-    ) -> tuple[str, ...] | None:
-        if fields is not None and len(fields) != len(set(fields)):
-            raise ValueError("feature_id_by must not contain duplicate fields")
         return fields
 
 
@@ -209,19 +198,8 @@ class _StreamConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: _CanonicalId
-    feature_id_by: tuple[_FieldName, ...] | None = None
     ordered_by: tuple[_FieldName, ...] | None = None
     stream: list[StreamTransformConfig] = Field(default_factory=list)
-
-    @field_validator("feature_id_by")
-    @classmethod
-    def validate_feature_id_by(
-        cls,
-        fields: tuple[str, ...] | None,
-    ) -> tuple[str, ...] | None:
-        if fields is not None and len(fields) != len(set(fields)):
-            raise ValueError("feature_id_by must not contain duplicate fields")
-        return fields
 
 
 class DerivedStreamConfig(_StreamConfig):
@@ -244,13 +222,9 @@ class DerivedStreamConfig(_StreamConfig):
         return fields
 
     @model_validator(mode="after")
-    def validate_identity_overrides(self) -> Self:
+    def validate_partition_override(self) -> Self:
         if "partition_by" in self.model_fields_set and self.partition_by is None:
             raise ValueError("partition_by must be a list when set; omit it to inherit")
-        if "feature_id_by" in self.model_fields_set and self.feature_id_by is None:
-            raise ValueError(
-                "feature_id_by must be a list when set; omit it to inherit"
-            )
         return self
 
     def input_streams(self) -> tuple[str, ...]:

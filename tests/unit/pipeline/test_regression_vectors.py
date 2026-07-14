@@ -82,7 +82,6 @@ def _runtime_with_streams(
             mapper=_identity,
             transforms=(),
             partition_by=(),
-            feature_id_by=None,
             presorted=False,
         )
         runtime.streams[alias] = DerivedRuntimeStream(
@@ -90,7 +89,6 @@ def _runtime_with_streams(
             mapper=_identity,
             transforms=tuple(stream_transforms.get(alias, ())),
             partition_by=(),
-            feature_id_by=None,
             presorted=False,
         )
         for rec in rows:
@@ -157,12 +155,10 @@ def test_vector_targets_respect_partitioned_ids(tmp_path) -> None:
     runtime.streams["wind_speed_stream"] = replace(
         runtime.streams["wind_speed_stream"],
         partition_by=("municipality",),
-        feature_id_by=("municipality",),
     )
     runtime.streams["wind_production_stream"] = replace(
         runtime.streams["wind_production_stream"],
         partition_by=("municipality",),
-        feature_id_by=("municipality",),
     )
 
     context = PipelineContext(runtime)
@@ -345,7 +341,6 @@ def test_sequence_features_are_windowed_by_sample_keys(tmp_path) -> None:
     runtime.streams["monthly_returns"] = replace(
         runtime.streams["monthly_returns"],
         partition_by=("security_id",),
-        feature_id_by=(),
     )
     context = PipelineContext(runtime)
     feature_cfgs = [
@@ -383,7 +378,9 @@ def test_sequence_features_are_windowed_by_sample_keys(tmp_path) -> None:
     ]
 
 
-def test_feature_id_by_controls_partitioned_feature_identity(tmp_path) -> None:
+def test_partition_fields_outside_sample_keys_form_wide_feature_identity(
+    tmp_path,
+) -> None:
     def _equity_record(hour: int, security_id: str, value: float) -> TemporalRecord:
         rec = _record(_ts(hour), value)
         setattr(rec, "security_id", security_id)
@@ -399,7 +396,6 @@ def test_feature_id_by_controls_partitioned_feature_identity(tmp_path) -> None:
     runtime.streams["monthly_returns"] = replace(
         runtime.streams["monthly_returns"],
         partition_by=("security_id",),
-        feature_id_by=("security_id",),
     )
     context = PipelineContext(runtime)
     feature_cfgs = [
@@ -414,7 +410,6 @@ def test_feature_id_by_controls_partitioned_feature_identity(tmp_path) -> None:
         runtime,
         feature_cfgs,
         "1h",
-        sample_keys=["security_id"],
     )
 
     samples = list(
@@ -423,11 +418,10 @@ def test_feature_id_by_controls_partitioned_feature_identity(tmp_path) -> None:
             feature_cfgs,
             "1h",
             rectangular=False,
-            sample_keys=["security_id"],
         )
     )
 
-    assert samples[0].key == (_ts(1), "AAPL")
+    assert samples[0].key == (_ts(1),)
     assert samples[0].features.values == {
         "monthly_return__@security_id:AAPL": [1.0, 2.0],
     }
@@ -464,7 +458,6 @@ def test_stream_transforms_use_explicit_stream_partition(tmp_path) -> None:
     runtime.streams["daily_prices"] = replace(
         runtime.streams["daily_prices"],
         partition_by=("security_id",),
-        feature_id_by=(),
     )
     context = PipelineContext(runtime)
     feature_cfgs = [

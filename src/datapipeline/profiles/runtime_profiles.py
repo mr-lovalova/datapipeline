@@ -147,11 +147,7 @@ def resolve_runtime_profiles(
             _validate_split_output_filenames(profile.name, output_splits)
 
         effective_output = cli_output or profile.output
-        if (
-            output_splits
-            and effective_output is not None
-            and effective_output.filename
-        ):
+        if output_splits and effective_output is not None and effective_output.filename:
             raise ValueError(
                 f"Serve profile '{profile.name}' cannot set output.filename for "
                 "split dataset output."

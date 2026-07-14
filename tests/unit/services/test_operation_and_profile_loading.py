@@ -346,7 +346,9 @@ def test_stats_task_rejects_removed_mode_option(tmp_path):
 def test_serve_tasks_respect_name_and_enabled(tmp_path):
     project_yaml = _write_project(tmp_path, operations_ref="operations")
     config_dir = _profile_kind_dir(project_yaml)
-    (config_dir / "serve.train.yaml").write_text("operation: dataset\n", encoding="utf-8")
+    (config_dir / "serve.train.yaml").write_text(
+        "operation: dataset\n", encoding="utf-8"
+    )
     (config_dir / "serve.val.yaml").write_text(
         "operation: dataset\nenabled: false\n",
         encoding="utf-8",
@@ -493,7 +495,9 @@ def test_profile_defaults_interpolate_project_globals(tmp_path):
 def test_profile_identity_comes_from_filename(tmp_path):
     project_yaml = _write_project(tmp_path, operations_ref="operations")
     config_dir = _profile_kind_dir(project_yaml)
-    (config_dir / "serve.train.yaml").write_text("operation: dataset\n", encoding="utf-8")
+    (config_dir / "serve.train.yaml").write_text(
+        "operation: dataset\n", encoding="utf-8"
+    )
 
     profile = _serve_profiles(project_yaml)[0]
 
@@ -1101,8 +1105,12 @@ def test_duplicate_operation_filenames_raise(tmp_path):
 def test_duplicate_serve_profile_names_raise(tmp_path):
     project_yaml = _write_project(tmp_path, operations_ref="operations")
     config_dir = _profile_kind_dir(project_yaml)
-    (config_dir / "serve.train.yaml").write_text("operation: dataset\n", encoding="utf-8")
-    (config_dir / "serve.train.yml").write_text("operation: dataset\n", encoding="utf-8")
+    (config_dir / "serve.train.yaml").write_text(
+        "operation: dataset\n", encoding="utf-8"
+    )
+    (config_dir / "serve.train.yml").write_text(
+        "operation: dataset\n", encoding="utf-8"
+    )
 
     with pytest.raises(ValueError, match="Duplicate serve profile names"):
         _serve_profiles(project_yaml)

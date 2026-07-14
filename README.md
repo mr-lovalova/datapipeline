@@ -16,9 +16,9 @@ Contributing: PRs welcome on [GitHub](https://github.com/mr-lovalova/datapipelin
 >   is a quality gate for correct vector assembly.
 > - Samples are grouped by `sample.cadence`, plus optional
 >   `sample.keys` such as `security_id`.
-> - Stream state is partitioned with `partition_by` when transforms need
->   per-entity history. Feature-id suffixing is configured separately with
->   `feature_id_by`.
+> - `partition_by` is the complete identity of an independent record series.
+>   Dataset `sample.keys` select which of those fields identify rows; remaining
+>   partition fields are appended to feature IDs.
 
 ---
 
@@ -199,8 +199,11 @@ These live under `lib/<plugin>/src/<package>/`:
 - **Source alias**: `sources/*.yaml:id` (referenced by ingests under `from.source`).
 - **Stream id**: `ingests/*.yaml:id` or `streams/*.yaml:id` (referenced by `dataset.yaml` under `stream:`).
 - **Sample key**: vector identity: floored time plus optional `dataset.sample.keys`.
-- **Partition**: stream state boundary for history-based transforms, driven by `stream.partition_by`.
-- **Feature id fields**: optional stream `feature_id_by` fields appended to feature ids for wide feature schemas.
+- **Partition**: complete identity of an independent record series, declared by
+  stream `partition_by` and used as the state boundary for history-based
+  transforms.
+- **Feature ID fields**: partition fields not present in `dataset.sample.keys`;
+  these are appended to feature IDs in partition order.
 - **Group**: sample cadence set by `dataset.sample.cadence`.
 - **Preview stage**: stable semantic boundary selected with
   `jerry serve --preview <stage>`.

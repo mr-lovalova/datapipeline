@@ -67,7 +67,6 @@ def _runtime(
         mapper=_identity,
         transforms=(),
         partition_by=(),
-        feature_id_by=None,
         presorted=False,
     )
     return runtime
@@ -311,7 +310,6 @@ def test_grouped_scaler_preserves_global_scalar_statistics_across_sample_keys(
     runtime.streams["stream"] = replace(
         runtime.streams["stream"],
         partition_by=("security_id",),
-        feature_id_by=(),
     )
 
     result = materialize_scaler_statistics(

@@ -39,7 +39,7 @@ def make_partition_id(base: str, suffix: str) -> str:
 
 def encode_feature_id_component(field: str, value: object) -> str:
     if not field:
-        raise ValueError("feature_id_by fields must not be empty")
+        raise ValueError("feature identity fields must not be empty")
     encoded_field = quote(field, safe="")
     if value is None:
         encoded_value = "!n"

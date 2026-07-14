@@ -56,7 +56,6 @@ def _runtime(tmp_path, rows=None) -> Runtime:
         mapper=_identity,
         transforms=(),
         partition_by=(),
-        feature_id_by=None,
         presorted=False,
     )
     return runtime
@@ -72,7 +71,6 @@ def _stream_runtime(tmp_path, rows=None) -> Runtime:
         mapper=_identity,
         transforms=(WhereConfig(field="time", operator="lt", comparand=_ts(2)),),
         partition_by=(),
-        feature_id_by=None,
         presorted=False,
     )
     return runtime

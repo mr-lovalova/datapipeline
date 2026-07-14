@@ -378,7 +378,6 @@ map:
   args: {}
 
 partition_by: [station]
-feature_id_by: [] # requires dataset sample.keys: [station]
 
 record:
   - { operation: where, field: time, operator: ge, comparand: "${start_time}" }
@@ -416,26 +415,27 @@ stream:
 - Stream transforms cannot write `time` or a `partition_by` field. Custom maps
   and combines run before canonical ordering; the fixed built-in transforms
   preserve that order afterward.
-- `partition_by`, `feature_id_by`, and `ordered_by` must be YAML lists when
-  present; scalar shorthand is not accepted. Blank and duplicate fields are
-  rejected.
-- `partition_by`: stream state keys used by ordering and history-based
-  transforms. A single-input stream inherits its upstream fields when this key
-  is omitted; an explicit list replaces them, and `[]` clears them. The runtime
-  appends the reserved `time` field to the canonical sort key, so it must not
-  appear here. Aligned streams always inherit matching fields from their inputs.
+- `partition_by` and `ordered_by` must be YAML lists when present; scalar
+  shorthand is not accepted. Blank and duplicate fields are rejected.
+- `partition_by`: complete identity of an independent record series, used by
+  ordering and history-based transforms. A single-input stream inherits its
+  upstream fields when this key is omitted; an explicit list replaces them,
+  and `[]` clears them. The runtime appends the reserved `time` field to the
+  canonical sort key, so it must not appear here. Aligned streams always
+  inherit matching fields from their inputs.
 - `ordered_by`: optional assertion that records entering the ordering stage use
   `[*partition_by, time]` order. When present, it must equal that canonical
   order and is validated while streaming. When absent, records are externally
   sorted.
-- `feature_id_by`: fields used to suffix feature IDs (e.g.,
-  `temp__@station_id:XYZ`). A single-input stream inherits its upstream fields
-  when this key is omitted; an explicit list replaces them, and `[]` clears
-  them. Every `partition_by` field must appear in either `dataset.sample.keys`
-  or `feature_id_by`; use `[]` only when sample keys carry the full partition
-  identity. Dataset feature and target IDs cannot contain the reserved `__`
-  separator. Generated suffixes escape strings and tag non-string scalar values
-  so different component tuples cannot produce the same feature ID.
+- Feature identity is derived at the dataset boundary. Every `sample.keys`
+  field must occur in the resolved `partition_by` of every referenced stream.
+  Partition fields absent from `sample.keys` suffix the configured feature or
+  target ID in partition order (for example, `temp__@station_id:XYZ`). Putting
+  every partition field in `sample.keys` produces long/entity-keyed output;
+  putting none there produces wide output; using a subset produces a hybrid.
+  Dataset feature and target IDs cannot contain the reserved `__` separator.
+  Generated suffixes escape strings and tag non-string scalar values so
+  different component tuples cannot produce the same feature ID.
 
 ### Aligned Streams (Engineered Domains)
 
@@ -451,7 +451,6 @@ from:
   align:
     - pressure.processed
     - temp_dry.processed
-feature_id_by: []
 ordered_by: [station_id, time]
 
 combine:
@@ -534,7 +533,8 @@ postprocess:
 - `sample.cadence` controls the time bucket for vector samples (must match
   `^\\d+(m|min|h|d)$`, e.g. `10m`, `60min`, `1h`, `1d`).
 - `sample.keys` optionally adds record fields to the sample key. For example,
-  `keys: [security_id]` emits one sample per `(time, security_id)`.
+  `keys: [security_id]` emits one sample per `(time, security_id)`. Every sample
+  key must belong to the resolved `partition_by` of every referenced stream.
 - `stream` references the canonical ingest or derived stream that supplies the
   feature or target records.
 - Each sample-key field must contain non-null JSON scalar values of one stable
@@ -544,10 +544,10 @@ postprocess:
   `ensure_cadence` use stream `partition_by` as their entity partition. Define
   `partition_by: [security_id]` on the ingest when transform state must stay per
   security; single-input streams inherit it unless they explicitly replace it.
-- `sample.keys`, stream `partition_by`, and stream `feature_id_by` are separate:
-  `sample.keys` controls output row identity, `partition_by` controls stream
-  transform state, and `feature_id_by` controls feature-id suffixes such as
-  `close__@security_id:AAPL`.
+- `partition_by` is the complete series identity. `sample.keys` select which
+  partition fields identify output rows; remaining partition fields suffix
+  feature IDs such as `close__@security_id:AAPL`. This supports long, wide, and
+  hybrid layouts without a separate format or feature-identity setting.
 - `field` selects the record attribute used as the feature/target value.
 - Every `id` must be unique across both `features` and `targets`. Scaler,
   schema, and metadata operations plus postprocess policies use this shared
@@ -558,10 +558,9 @@ postprocess:
   non-finite values fail.
 - `sequence` emits `FeatureSequence` windows and accepts `size` plus
   optional `stride` (default `1`). Regularize cadence with stream transforms
-  before feature extraction when contiguous ticks are required. For sequenced
-  vectors, `sample.keys` and stream `feature_id_by` must together match the
-  stream's `partition_by` fields exactly, so every entity is one contiguous
-  ordered group.
+  before feature extraction when contiguous ticks are required. The resolved
+  stream partition keeps every independent series in one contiguous ordered
+  group.
 - Feature configuration exposes only `scale` and `sequence`; it does not accept
   arbitrary feature transform entry-point clauses.
 - `split` defines how samples receive labels. `output_labels` defines the labels

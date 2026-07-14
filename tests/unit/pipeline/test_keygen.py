@@ -15,18 +15,25 @@ class _Record:
     sensor: object = None
 
 
-def _projected_id(record: _Record, feature_id_by: tuple[str, ...] | None) -> str:
-    projector = FeatureProjector(feature_id_by, SampleKeyContract(()))
+def _projected_id(
+    record: _Record,
+    partition_by: tuple[str, ...],
+    sample_keys: tuple[str, ...] = (),
+) -> str:
+    projector = FeatureProjector(partition_by, SampleKeyContract(sample_keys))
     config = FeatureRecordConfig(stream="stream", id="temp", field="sensor")
     return next(projector.project(record, (config,))).id
 
 
 def test_feature_projector_without_id_components() -> None:
-    assert _projected_id(_Record(), None) == "temp"
+    assert _projected_id(_Record(), ()) == "temp"
 
 
-def test_feature_projector_projects_multiple_configs_with_one_entity_key() -> None:
-    projector = FeatureProjector(None, SampleKeyContract(("station_id",)))
+def test_feature_projector_projects_long_identity_as_entity_key() -> None:
+    projector = FeatureProjector(
+        ("station_id",),
+        SampleKeyContract(("station_id",)),
+    )
     configs = (
         FeatureRecordConfig(stream="stream", id="station", field="station_id"),
         FeatureRecordConfig(stream="stream", id="sensor", field="sensor"),
@@ -39,6 +46,25 @@ def test_feature_projector_projects_multiple_configs_with_one_entity_key() -> No
         ("sensor", 7),
     ]
     assert [feature.entity_key for feature in features] == [("north",), ("north",)]
+
+
+def test_feature_projector_derives_wide_feature_identity() -> None:
+    identifier = _projected_id(
+        _Record(station_id="north"),
+        ("station_id",),
+    )
+
+    assert identifier == "temp__@station_id:north"
+
+
+def test_feature_projector_derives_hybrid_feature_identity() -> None:
+    identifier = _projected_id(
+        _Record(station_id="north", sensor="temperature"),
+        ("station_id", "sensor"),
+        ("station_id",),
+    )
+
+    assert identifier == "temp__@sensor:temperature"
 
 
 def test_feature_projector_encodes_id_components_once_per_record(monkeypatch) -> None:

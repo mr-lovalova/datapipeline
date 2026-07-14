@@ -7,7 +7,6 @@ map:
   args: {}
 
 partition_by: [ticker]
-feature_id_by: [ticker]
 
 record: # record-level transforms
   - { operation: where, field: time, operator: ge, comparand: "${start_time}" }

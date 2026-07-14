@@ -99,9 +99,8 @@ stream:
   - operation: dedupe
 ```
 
-The derived stream inherits `partition_by` and `feature_id_by` from
-`equity.ohlcv`. Set either field to an explicit list to replace it; `[]` clears
-it.
+The derived stream inherits `partition_by` from `equity.ohlcv`. Set it to an
+explicit list to replace it; `[]` clears it.
 
 Aligned streams intersect their inputs by partition and time. Input order is
 also combine argument order:
@@ -137,6 +136,11 @@ features:
 Expected behavior:
 - `stream` must match a stream `id`.
 - `field` must exist on emitted records.
+- Every `sample.keys` field must belong to each referenced stream's resolved
+  `partition_by`.
+- Partition fields in `sample.keys` identify rows. Remaining partition fields
+  suffix feature IDs in partition order, producing long, wide, or hybrid output
+  without a separate format setting.
 
 ## 6) Serve writes run-scoped outputs
 

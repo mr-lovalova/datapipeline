@@ -92,37 +92,37 @@ def test_stream_configs_reject_execution_sort_policy(config_type) -> None:
         config_type.model_validate(config)
 
 
-def test_ingest_accepts_feature_id_by() -> None:
+def test_ingest_accepts_partition_identity() -> None:
     spec = IngestConfig.model_validate(
         {
             "id": "sample",
             "from": {"source": "demo.source"},
             "map": {"entrypoint": "identity", "args": {}},
             "partition_by": ["ticker"],
-            "feature_id_by": ["ticker"],
             "ordered_by": ["ticker", "time"],
         }
     )
 
     assert spec.partition_by == ("ticker",)
-    assert spec.feature_id_by == ("ticker",)
     assert spec.ordered_by == ("ticker", "time")
 
 
-@pytest.mark.parametrize("feature_id_by", [["ticker", "ticker"], [""]])
-def test_ingest_rejects_invalid_feature_id_fields(feature_id_by) -> None:
-    with pytest.raises(ValueError, match="duplicate|at least 1 character"):
-        IngestConfig.model_validate(
-            {
-                "id": "sample",
-                "from": {"source": "demo.source"},
-                "map": {"entrypoint": "identity", "args": {}},
-                "feature_id_by": feature_id_by,
-            }
-        )
+@pytest.mark.parametrize("config_type", [IngestConfig, DerivedStreamConfig])
+def test_stream_configs_reject_removed_feature_id_by(config_type) -> None:
+    config = {
+        "id": "sample",
+        "from": {"source": "demo.source"},
+        "map": {"entrypoint": "identity", "args": {}},
+        "feature_id_by": ["ticker"],
+    }
+    if config_type is DerivedStreamConfig:
+        config["from"] = {"stream": "demo.ingest"}
+
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        config_type.model_validate(config)
 
 
-def test_ingest_rejects_scalar_identity_fields() -> None:
+def test_ingest_rejects_scalar_partition_fields() -> None:
     with pytest.raises(ValueError, match="partition_by|tuple"):
         IngestConfig.model_validate(
             {
@@ -130,16 +130,6 @@ def test_ingest_rejects_scalar_identity_fields() -> None:
                 "from": {"source": "demo.source"},
                 "map": {"entrypoint": "identity"},
                 "partition_by": "ticker",
-            }
-        )
-
-    with pytest.raises(ValueError, match="feature_id_by|tuple"):
-        IngestConfig.model_validate(
-            {
-                "id": "sample",
-                "from": {"source": "demo.source"},
-                "map": {"entrypoint": "identity"},
-                "feature_id_by": "ticker",
             }
         )
 
@@ -175,34 +165,21 @@ def test_derived_stream_rejects_invalid_partition_fields(partition_by) -> None:
         )
 
 
-def test_stream_rejects_duplicate_feature_id_fields() -> None:
-    with pytest.raises(ValueError, match="duplicate"):
-        DerivedStreamConfig.model_validate(
-            {
-                "id": "sample",
-                "from": {"stream": "demo.ingest"},
-                "feature_id_by": ["ticker", "ticker"],
-            }
-        )
-
-
 def test_stream_accepts_upstream_stream_shape() -> None:
     spec = DerivedStreamConfig.model_validate(
         {
             "id": "sample",
             "from": {"stream": " sample.ingest "},
             "partition_by": ["ticker"],
-            "feature_id_by": [],
             "stream": [{"operation": "dedupe"}],
         }
     )
 
     assert spec.input_streams() == ("sample.ingest",)
     assert spec.partition_by == ("ticker",)
-    assert spec.feature_id_by == ()
 
 
-def test_derived_identity_distinguishes_inheritance_from_explicit_empty() -> None:
+def test_derived_partition_distinguishes_inheritance_from_explicit_empty() -> None:
     missing = DerivedStreamConfig.model_validate(
         {"id": "missing", "from": {"stream": "source"}}
     )
@@ -211,24 +188,20 @@ def test_derived_identity_distinguishes_inheritance_from_explicit_empty() -> Non
             "id": "empty",
             "from": {"stream": "source"},
             "partition_by": [],
-            "feature_id_by": [],
         }
     )
 
     assert missing.partition_by is None
-    assert missing.feature_id_by is None
     assert empty.partition_by == ()
-    assert empty.feature_id_by == ()
 
 
-@pytest.mark.parametrize("field", ["partition_by", "feature_id_by"])
-def test_derived_identity_rejects_null_override(field: str) -> None:
-    with pytest.raises(ValueError, match=rf"{field} must be a list.*omit it"):
+def test_derived_partition_rejects_null_override() -> None:
+    with pytest.raises(ValueError, match=r"partition_by must be a list.*omit it"):
         DerivedStreamConfig.model_validate(
             {
                 "id": "sample",
                 "from": {"stream": "source"},
-                field: None,
+                "partition_by": None,
             }
         )
 

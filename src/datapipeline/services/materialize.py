@@ -39,7 +39,6 @@ def materialize_stream_to_path(
     stream = require_runtime_stream(runtime, stream_id)
     ordered_by = list(canonical_record_order(stream.partition_by))
     partition_by = list(stream.partition_by)
-    feature_id_by = None if stream.feature_id_by is None else list(stream.feature_id_by)
 
     rows = materialized_stream_rows(runtime, stream_id)
     target = OutputTarget(
@@ -55,7 +54,6 @@ def materialize_stream_to_path(
         output=output_path,
         rows=count,
         partition_by=partition_by,
-        feature_id_by=feature_id_by,
         ordered_by=ordered_by,
         overwrite=overwrite,
     )
@@ -103,7 +101,6 @@ def write_materialized_stream_metadata(
     output: Path,
     rows: int,
     partition_by: list[str],
-    feature_id_by: list[str] | None,
     ordered_by: list[str],
     overwrite: bool,
 ) -> Path:
@@ -113,7 +110,6 @@ def write_materialized_stream_metadata(
         "format": "jsonl",
         "encoding": "utf-8",
         "partition_by": partition_by,
-        "feature_id_by": feature_id_by,
         "ordered_by": ordered_by,
     }
     _write_text_atomically(

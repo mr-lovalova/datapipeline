@@ -193,7 +193,6 @@ def _runtime_with_rows(
     record_ops: list[RecordTransformConfig] | None = None,
     stream_ops: list[StreamTransformConfig] | None = None,
     partition_by: tuple[str, ...] = (),
-    feature_id_by: tuple[str, ...] | None = None,
 ) -> Runtime:
     artifacts_root = tmp_path / "artifacts"
     artifacts_root.mkdir(parents=True, exist_ok=True)
@@ -212,7 +211,6 @@ def _runtime_with_rows(
             mapper=_mapper,
             transforms=tuple(record_ops or ()),
             partition_by=partition_by,
-            feature_id_by=feature_id_by,
             presorted=False,
         )
         return runtime
@@ -223,7 +221,6 @@ def _runtime_with_rows(
         mapper=_mapper,
         transforms=tuple(record_ops or ()),
         partition_by=partition_by,
-        feature_id_by=feature_id_by,
         presorted=False,
     )
     runtime.streams[stream_id] = DerivedRuntimeStream(
@@ -231,7 +228,6 @@ def _runtime_with_rows(
         mapper=_identity,
         transforms=tuple(stream_ops),
         partition_by=partition_by,
-        feature_id_by=feature_id_by,
         presorted=False,
     )
     return runtime
@@ -459,7 +455,6 @@ def test_feature_pipeline_wraps_record_values(tmp_path: Path) -> None:
         tmp_path,
         rows,
         partition_by=("symbol",),
-        feature_id_by=("symbol",),
     )
     ctx = PipelineContext(runtime)
     cfg = FeatureRecordConfig(
@@ -558,7 +553,6 @@ def test_vector_inputs_artifact_feeds_serve_pipeline(tmp_path: Path) -> None:
         rows,
         stream_id="prices",
         partition_by=("id_",),
-        feature_id_by=(),
     )
     configs = [
         FeatureRecordConfig(
@@ -678,7 +672,6 @@ def test_vector_inputs_shared_stream_matches_independent_feature_pipelines(
         tmp_path,
         rows,
         partition_by=("exchange", "symbol"),
-        feature_id_by=("symbol",),
     )
     price = FeatureRecordConfig(
         stream="stream",

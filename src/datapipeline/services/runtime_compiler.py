@@ -16,10 +16,7 @@ from datapipeline.services.streams.ingest import (
     build_mapper_from_spec,
     build_source_from_spec,
 )
-from datapipeline.services.streams.validation import (
-    stream_feature_id_by,
-    stream_partition_by,
-)
+from datapipeline.services.streams.validation import stream_partition_by
 from datapipeline.sources.models.source import Source
 
 
@@ -32,7 +29,6 @@ def _compile_ingest(
         mapper=build_mapper_from_spec(spec.map),
         transforms=tuple(spec.record),
         partition_by=spec.partition_by,
-        feature_id_by=spec.feature_id_by,
         presorted=spec.ordered_by is not None,
     )
 
@@ -43,14 +39,12 @@ def _compile_stream(
     streams: dict[str, StreamConfig],
 ) -> DerivedRuntimeStream | AlignedRuntimeStream:
     partition_by = stream_partition_by(ingests, streams, spec.id)
-    feature_id_by = stream_feature_id_by(ingests, streams, spec.id)
     if isinstance(spec, AlignedStreamConfig):
         return AlignedRuntimeStream(
             input_streams=spec.input_streams(),
             combine=build_combine_stage(spec),
             transforms=tuple(spec.stream),
             partition_by=partition_by,
-            feature_id_by=feature_id_by,
             presorted=spec.ordered_by is not None,
         )
     return DerivedRuntimeStream(
@@ -58,7 +52,6 @@ def _compile_stream(
         mapper=build_mapper_from_spec(spec.map),
         transforms=tuple(spec.stream),
         partition_by=partition_by,
-        feature_id_by=feature_id_by,
         presorted=spec.ordered_by is not None,
     )
 

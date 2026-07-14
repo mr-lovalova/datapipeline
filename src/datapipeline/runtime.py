@@ -28,7 +28,6 @@ class IngestRuntimeStream:
     mapper: RecordStage
     transforms: tuple[RecordTransformConfig, ...]
     partition_by: tuple[str, ...]
-    feature_id_by: tuple[str, ...] | None
     presorted: bool
 
 
@@ -38,7 +37,6 @@ class DerivedRuntimeStream:
     mapper: RecordStage
     transforms: tuple[StreamTransformConfig, ...]
     partition_by: tuple[str, ...]
-    feature_id_by: tuple[str, ...] | None
     presorted: bool
 
 
@@ -48,7 +46,6 @@ class AlignedRuntimeStream:
     combine: RecordStage
     transforms: tuple[StreamTransformConfig, ...]
     partition_by: tuple[str, ...]
-    feature_id_by: tuple[str, ...] | None
     presorted: bool
 
 

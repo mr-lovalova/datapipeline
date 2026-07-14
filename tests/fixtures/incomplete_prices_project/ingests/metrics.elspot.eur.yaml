@@ -2,7 +2,6 @@ id: metrics.elspot.eur.ingest
 from:
   source: incomplete.elspot
 partition_by: [area]
-feature_id_by: [area]
 
 map:
   entrypoint: identity

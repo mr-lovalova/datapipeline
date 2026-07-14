@@ -71,7 +71,7 @@ def build_feature_nodes(
 ) -> tuple[PipelineNode, ...]:
     stream = require_runtime_stream(context.runtime, config.stream)
     projector = FeatureProjector(
-        stream.feature_id_by,
+        stream.partition_by,
         SampleKeyContract(sample_keys),
     )
     nodes = [

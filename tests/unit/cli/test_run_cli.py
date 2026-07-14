@@ -739,7 +739,9 @@ def test_serve_runtime_profiles_share_run_and_namespace_splits(tmp_path):
 
 def test_runtime_profiles_reject_sanitized_output_collision(tmp_path):
     profiles = [
-        ServeProfile.model_validate({"cmd": "serve", "name": name, "operation": "serve"})
+        ServeProfile.model_validate(
+            {"cmd": "serve", "name": name, "operation": "serve"}
+        )
         for name in ("daily/eu", "daily_eu")
     ]
     output_root = tmp_path / "out"

@@ -312,7 +312,7 @@ def _materialize_stream_group(
     stream_id = plans[0].config.stream
     stream = require_runtime_stream(context.runtime, stream_id)
     configs = tuple(plan.config for plan in plans)
-    projector = FeatureProjector(stream.feature_id_by, sample_key_contract)
+    projector = FeatureProjector(stream.partition_by, sample_key_contract)
     sequencers = {
         plan.ordinal: FeatureSequencer(plan.config.sequence)
         for plan in plans

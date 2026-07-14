@@ -17,13 +17,17 @@ Every canonical stream ID has exactly one entry in `Runtime.streams`:
 An ingest owns an external source. A derived stream names one upstream stream;
 an aligned stream names two or more inputs. Ingests and derived streams keep a
 prepared iterator mapper; aligned streams keep their prepared combine stage. All
-three keep typed transforms, partition identity (`partition_by`), feature identity
-(`feature_id_by`), and ordering policy (`presorted`) together. There is no
-generic source adapter that hides another pipeline. Single-input streams are
-flattened; aligned streams use the explicit fan-in boundary described below.
-Their strict config models make `map` and `combine` mutually exclusive.
-Single-input streams inherit partition and feature identity when those fields
-are omitted; explicit lists replace the inherited values.
+three keep typed transforms, complete series identity (`partition_by`), and
+ordering policy (`presorted`) together. There is no generic source adapter that
+hides another pipeline. Single-input streams are flattened; aligned streams use
+the explicit fan-in boundary described below. Their strict config models make
+`map` and `combine` mutually exclusive. Single-input streams inherit partition
+identity when it is omitted; an explicit list replaces the inherited value.
+
+Dataset `sample.keys` select the partition fields represented in row identity.
+The remaining partition fields deterministically suffix feature IDs in declared
+order. This derives long, wide, and hybrid layouts without a separate stream
+feature-identity setting.
 
 Configured loader, parser, map, and combine entry points are resolved while
 compiling a runtime from the definition. The resulting callables are stored on the runtime stream. There are

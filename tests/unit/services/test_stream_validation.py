@@ -10,7 +10,6 @@ from datapipeline.services.project import load_project
 from datapipeline.services.runtime_compiler import _compile_stream
 from datapipeline.services.streams.loader import load_streams
 from datapipeline.services.streams.validation import (
-    stream_feature_id_by,
     stream_partition_by,
     validate_ingest_sources,
     validate_stream_configs,
@@ -65,7 +64,6 @@ def test_validate_ingest_sources_rejects_unknown_source() -> None:
 def _ingest(
     stream_id: str,
     partition_by: list[str] | None = None,
-    feature_id_by: list[str] | None = None,
     ordered_by: list[str] | None = None,
 ) -> IngestConfig:
     config = {
@@ -75,8 +73,6 @@ def _ingest(
         "partition_by": [] if partition_by is None else partition_by,
         "ordered_by": ordered_by,
     }
-    if feature_id_by is not None:
-        config["feature_id_by"] = feature_id_by
     return IngestConfig.model_validate(config)
 
 
@@ -84,7 +80,6 @@ def _stream(
     stream_id: str,
     upstream: str,
     partition_by: list[str] | None = None,
-    feature_id_by: list[str] | None = None,
     ordered_by: list[str] | None = None,
 ) -> DerivedStreamConfig:
     config = {
@@ -94,8 +89,6 @@ def _stream(
     }
     if partition_by is not None:
         config["partition_by"] = partition_by
-    if feature_id_by is not None:
-        config["feature_id_by"] = feature_id_by
     return DerivedStreamConfig.model_validate(config)
 
 
@@ -167,12 +160,11 @@ def test_aligned_partition_inheritance_is_transitive() -> None:
     assert stream_partition_by(ingests, stream_configs, "second") == ("ticker",)
 
 
-def test_single_input_identity_inheritance_is_transitive() -> None:
+def test_single_input_partition_inheritance_is_transitive() -> None:
     ingests = {
         "prices": _ingest(
             "prices",
             partition_by=["ticker"],
-            feature_id_by=["ticker"],
         )
     }
     stream_configs = {
@@ -183,7 +175,6 @@ def test_single_input_identity_inheritance_is_transitive() -> None:
     validate_stream_configs(ingests, stream_configs)
 
     assert stream_partition_by(ingests, stream_configs, "returns") == ("ticker",)
-    assert stream_feature_id_by(ingests, stream_configs, "returns") == ("ticker",)
     runtime_stream = _compile_stream(
         stream_configs["returns"],
         ingests,
@@ -191,15 +182,13 @@ def test_single_input_identity_inheritance_is_transitive() -> None:
     )
     assert isinstance(runtime_stream, DerivedRuntimeStream)
     assert runtime_stream.partition_by == ("ticker",)
-    assert runtime_stream.feature_id_by == ("ticker",)
 
 
-def test_single_input_identity_can_be_replaced_with_empty_lists() -> None:
+def test_single_input_partition_can_be_replaced_with_empty_list() -> None:
     ingests = {
         "prices": _ingest(
             "prices",
             partition_by=["ticker"],
-            feature_id_by=["ticker"],
         )
     }
     stream_configs = {
@@ -207,7 +196,6 @@ def test_single_input_identity_can_be_replaced_with_empty_lists() -> None:
             "cleared",
             "prices",
             partition_by=[],
-            feature_id_by=[],
         ),
         "downstream": _stream("downstream", "cleared"),
     }
@@ -215,7 +203,6 @@ def test_single_input_identity_can_be_replaced_with_empty_lists() -> None:
     validate_stream_configs(ingests, stream_configs)
 
     assert stream_partition_by(ingests, stream_configs, "downstream") == ()
-    assert stream_feature_id_by(ingests, stream_configs, "downstream") == ()
     runtime_stream = _compile_stream(
         stream_configs["downstream"],
         ingests,
@@ -223,7 +210,6 @@ def test_single_input_identity_can_be_replaced_with_empty_lists() -> None:
     )
     assert isinstance(runtime_stream, DerivedRuntimeStream)
     assert runtime_stream.partition_by == ()
-    assert runtime_stream.feature_id_by == ()
 
 
 def test_validate_stream_configs_rejects_noncanonical_ingest_order() -> None:

@@ -125,7 +125,7 @@ def _iter_scaler_inputs(
     for stream_id, stream_configs in configs_by_stream.items():
         runtime_stream = require_runtime_stream(runtime, stream_id)
         projector = FeatureProjector(
-            runtime_stream.feature_id_by,
+            runtime_stream.partition_by,
             sample_key_contract,
         )
         records = run_stream_pipeline(context, stream_id)

@@ -35,7 +35,6 @@ def _runtime(
     tmp_path: Path,
     rows: list[dict],
     partition_by: tuple[str, ...] = (),
-    feature_id_by: tuple[str, ...] | None = None,
 ) -> Runtime:
     runtime = Runtime(
         project_yaml=tmp_path / "project.yaml",
@@ -48,7 +47,6 @@ def _runtime(
         mapper=_mapper,
         transforms=(),
         partition_by=partition_by,
-        feature_id_by=feature_id_by,
         presorted=False,
     )
     return runtime
@@ -93,12 +91,11 @@ def test_materialize_stream_writes_jsonl_and_metadata(tmp_path: Path) -> None:
         "format": "jsonl",
         "encoding": "utf-8",
         "partition_by": [],
-        "feature_id_by": None,
         "ordered_by": ["time"],
     }
 
 
-def test_materialize_stream_preserves_explicit_partition_and_feature_id_by(
+def test_materialize_stream_preserves_partition_identity(
     tmp_path: Path,
 ) -> None:
     rows = [
@@ -109,7 +106,6 @@ def test_materialize_stream_preserves_explicit_partition_and_feature_id_by(
         tmp_path,
         rows,
         partition_by=("security_id",),
-        feature_id_by=(),
     )
     output = tmp_path / "interim" / "prices.materialized.jsonl"
 
@@ -124,7 +120,6 @@ def test_materialize_stream_preserves_explicit_partition_and_feature_id_by(
         "format": "jsonl",
         "encoding": "utf-8",
         "partition_by": ["security_id"],
-        "feature_id_by": [],
         "ordered_by": ["security_id", "time"],
     }
 

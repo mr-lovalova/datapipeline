@@ -1,5 +1,5 @@
 from collections.abc import Iterator, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from datapipeline.config.dataset.feature import FeatureRecordConfig
@@ -15,8 +15,17 @@ from datapipeline.transforms.utils import get_field, partition_key
 
 @dataclass
 class FeatureProjector:
-    feature_id_by: tuple[str, ...] | None
+    partition_by: tuple[str, ...]
     sample_keys: SampleKeyContract
+    feature_id_fields: tuple[str, ...] = field(init=False)
+
+    def __post_init__(self) -> None:
+        sample_keys = set(self.sample_keys.fields)
+        self.feature_id_fields = tuple(
+            partition_field
+            for partition_field in self.partition_by
+            if partition_field not in sample_keys
+        )
 
     def project(
         self,
@@ -26,10 +35,10 @@ class FeatureProjector:
         entity_key = partition_key(record, self.sample_keys.fields)
         self.sample_keys.validate(entity_key)
         suffix = None
-        if self.feature_id_by:
+        if self.feature_id_fields:
             suffix = FEATURE_ID_COMPONENT_SEP.join(
                 encode_feature_id_component(field, getattr(record, field))
-                for field in self.feature_id_by
+                for field in self.feature_id_fields
             )
 
         for config in configs:

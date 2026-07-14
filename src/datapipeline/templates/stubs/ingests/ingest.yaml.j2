@@ -7,8 +7,8 @@ map:
   entrypoint: {{ mapper_entrypoint }}
   args: {}
 
-# partition_by: [field]  # list only; time is reserved
-# feature_id_by: []  # list only; requires partition fields in dataset sample.keys
+# partition_by: [field]  # complete series identity; time is reserved
+# Dataset sample.keys select row identity; remaining partition fields suffix feature IDs.
 
 record:                              # record-level transforms
   - { operation: where, field: time, operator: ge, comparand: "${start_time}" }

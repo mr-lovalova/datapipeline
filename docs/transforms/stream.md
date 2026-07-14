@@ -4,10 +4,11 @@ Stream transforms run on ordered records. Configure them in `streams/*.yaml`
 under `stream:`.
 
 Transforms that depend on history operate within a partition. Set
-`partition_by` on the ingest when state must be isolated by an entity such as
-`security_id`; single-input streams inherit it unless they provide an explicit
-replacement. `partition_by` does not control feature names; `feature_id_by`
-controls feature-id suffixes and follows the same inheritance rule.
+`partition_by` to the complete identity of an independent series, such as
+`[security_id]` or `[security_id, metric]`; single-input streams inherit it
+unless they provide an explicit replacement. Dataset `sample.keys` select which
+partition fields identify output rows. Remaining partition fields suffix feature
+IDs in their declared order.
 
 ## Field-Writing Transforms
 

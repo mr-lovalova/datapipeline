@@ -74,7 +74,6 @@ def _runtime_with_dataset(tmp_path, dataset_text: str) -> Runtime:
         mapper=_identity,
         transforms=(),
         partition_by=(),
-        feature_id_by=None,
         presorted=False,
     )
     return runtime
