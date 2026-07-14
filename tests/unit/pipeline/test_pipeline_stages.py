@@ -34,6 +34,7 @@ from datapipeline.execution.node import SourceNode
 from datapipeline.execution.observer import NoopPipelineObserver
 from datapipeline.execution.runner import run_pipeline
 from datapipeline.operations.artifacts.vector_inputs import materialize_vector_inputs
+from datapipeline.operations.runtime.pipeline import _record_preview_stream
 from datapipeline.parsers.identity import IdentityParser
 from datapipeline.pipelines.feature.pipeline import (
     build_feature_pipeline,
@@ -318,6 +319,100 @@ def test_stream_pipeline_carries_source_summary(tmp_path: Path) -> None:
         False,
         True,
     ]
+
+
+def test_derived_stream_reuses_upstream_order_without_a_mapper(
+    tmp_path: Path,
+) -> None:
+    runtime = _runtime_with_rows(
+        tmp_path,
+        [
+            {"time": _ts(1), "symbol": "B"},
+            {"time": _ts(2), "symbol": "A"},
+            {"time": _ts(0), "symbol": "A"},
+        ],
+        partition_by=("symbol",),
+    )
+    runtime.streams["derived"] = DerivedRuntimeStream(
+        input_stream="stream",
+        mapper=None,
+        transforms=(),
+        partition_by=("symbol",),
+        presorted=False,
+    )
+    context = PipelineContext(runtime)
+
+    pipeline = build_stream_pipeline(context, "derived")
+
+    assert [node.name for node in pipeline.nodes] == [
+        "ingest:stream/open_source",
+        "ingest:stream/map_records",
+        "ingest:stream/order_records",
+    ]
+    records = list(run_pipeline(context, pipeline))
+    assert [(record.symbol, record.time.hour) for record in records] == [
+        ("A", 0),
+        ("A", 2),
+        ("B", 1),
+    ]
+
+
+def test_derived_stream_reorders_an_inherited_stream_after_partition_change(
+    tmp_path: Path,
+) -> None:
+    runtime = _runtime_with_rows(
+        tmp_path,
+        [
+            {"time": _ts(1), "symbol": "A"},
+            {"time": _ts(0), "symbol": "B"},
+        ],
+        partition_by=("symbol",),
+    )
+    runtime.streams["derived"] = DerivedRuntimeStream(
+        input_stream="stream",
+        mapper=None,
+        transforms=(),
+        partition_by=(),
+        presorted=False,
+    )
+    context = PipelineContext(runtime)
+
+    pipeline = build_stream_pipeline(context, "derived")
+
+    assert [node.name for node in pipeline.nodes] == [
+        "ingest:stream/open_source",
+        "ingest:stream/map_records",
+        "ingest:stream/order_records",
+        "order_records",
+    ]
+    assert [record.time.hour for record in run_pipeline(context, pipeline)] == [0, 1]
+
+
+def test_mapped_preview_uses_upstream_records_when_derived_map_is_omitted(
+    tmp_path: Path,
+) -> None:
+    runtime = _runtime_with_rows(
+        tmp_path,
+        [
+            {"time": _ts(0), "value": 1.0},
+            {"time": _ts(2), "value": 2.0},
+        ],
+    )
+    runtime.streams["derived"] = DerivedRuntimeStream(
+        input_stream="stream",
+        mapper=None,
+        transforms=(EnsureCadenceConfig(cadence="1h"),),
+        partition_by=(),
+        presorted=False,
+    )
+
+    records = _record_preview_stream(
+        PipelineContext(runtime),
+        "derived",
+        "mapped",
+    )
+
+    assert [record.time.hour for record in records] == [0, 2]
 
 
 def test_aligned_pipeline_closes_inputs_after_partial_read(tmp_path: Path) -> None:
@@ -1241,7 +1336,7 @@ def test_cached_vector_records_close_streams_when_stopped_early(
         _open_records,
     )
 
-    records = vector_pipeline._merged_cached_records(
+    keyed_records = vector_pipeline._merged_keyed_records(
         manifest_path=tmp_path / "manifest.json",
         shards=(
             CachedVectorInputShard(id="a", path="a.jsonl.gz", rows=2),
@@ -1251,9 +1346,10 @@ def test_cached_vector_records_close_streams_when_stopped_early(
         group_by_cadence=parse_cadence("1h"),
         sample_key_contract=SampleKeyContract(()),
     )
-    first = next(records)
-    assert first.id == "a"
+    first = next(keyed_records)
+    assert first[0] == (_ts(0),)
+    assert first[1].id == "a"
     assert closed_streams == []
 
-    records.close()
+    keyed_records.close()
     assert set(closed_streams) == {"a", "b"}

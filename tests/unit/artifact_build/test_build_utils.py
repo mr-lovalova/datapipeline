@@ -24,6 +24,7 @@ from datapipeline.operations.artifacts.utils import (
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
 from datapipeline.runtime import IngestRuntimeStream, Runtime
+from datapipeline.services.artifacts import VECTOR_SCHEMA_SPEC
 from datapipeline.services.constants import VECTOR_METADATA, VECTOR_SCHEMA
 from datapipeline.utils.load import load_yaml
 
@@ -393,7 +394,7 @@ def test_pipeline_context_rejects_invalid_registered_schema(tmp_path) -> None:
     runtime.artifacts.register(VECTOR_SCHEMA, "schema.json")
 
     with pytest.raises(ValueError, match="kind"):
-        PipelineContext(runtime).load_schema()
+        PipelineContext(runtime).require_artifact(VECTOR_SCHEMA_SPEC)
 
 
 def test_metadata_materialization_rejects_configured_empty_features(

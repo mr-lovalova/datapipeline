@@ -51,7 +51,6 @@ class _UniqueKeyLoader(yaml.SafeLoader):
 @dataclass(frozen=True, slots=True)
 class YamlDocument:
     path: Path
-    content: bytes
     data: Any
 
 
@@ -89,7 +88,7 @@ def read_yaml_document(path: Path, require_mapping: bool = True) -> YamlDocument
         raise TypeError(
             f"Top-level YAML in {path} must be a mapping, got {type(data).__name__}"
         )
-    return YamlDocument(path=path.resolve(), content=content, data=data)
+    return YamlDocument(path=path.resolve(), data=data)
 
 
 def load_yaml(path: Path, require_mapping: bool = True) -> Any:

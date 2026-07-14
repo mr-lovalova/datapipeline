@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from datapipeline.execution.context import PipelineContext
+from datapipeline.services.artifacts import VECTOR_SCHEMA_SPEC
 
 from .adapter import VectorAdapter
 
@@ -25,7 +26,7 @@ def _resolve_columns(
 
 def _schema_columns(adapter: VectorAdapter) -> tuple[list[str], list[str]]:
     context = PipelineContext(adapter.runtime)
-    schema = context.load_schema()
+    schema = context.require_artifact(VECTOR_SCHEMA_SPEC)
     return (
         [entry.id for entry in schema.features],
         [entry.id for entry in schema.targets],

@@ -303,7 +303,6 @@ def test_project_hydration_uses_semantic_artifact_hash(tmp_path) -> None:
 
     whitespace_definition = load_pipeline(project_path)
     whitespace_runtime = compile_runtime(whitespace_definition)
-    assert whitespace_definition.definition_hash != definition.definition_hash
     assert whitespace_definition.artifact_hashes == definition.artifact_hashes
     assert hydrate_runtime_artifacts_for_pipeline(
         whitespace_runtime,

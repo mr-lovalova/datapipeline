@@ -193,19 +193,6 @@ def resolve_config_refs(
     return _resolve_config_refs(obj, context=context, providers=registry)
 
 
-def collect_config_ref_keys(
-    obj: Any,
-    *,
-    scheme: str | None = None,
-) -> set[tuple[str, str]]:
-    out: set[tuple[str, str]] = set()
-    _collect_config_ref_keys(obj, out=out)
-    if scheme is None:
-        return out
-    normalized_scheme = scheme.strip().lower()
-    return {item for item in out if item[0] == normalized_scheme}
-
-
 def default_config_ref_providers() -> Mapping[str, ConfigRefProvider]:
     return {"env": EnvConfigRefProvider()}
 
@@ -268,21 +255,6 @@ def _resolve_match(
             f"Unsupported config reference scheme '{scheme}' in '{match.group(0)}'."
         )
     return provider.resolve(key, context=context)
-
-
-def _collect_config_ref_keys(obj: Any, *, out: set[tuple[str, str]]) -> None:
-    if isinstance(obj, Mapping):
-        for value in obj.values():
-            _collect_config_ref_keys(value, out=out)
-        return
-    if isinstance(obj, list):
-        for value in obj:
-            _collect_config_ref_keys(value, out=out)
-        return
-    if not isinstance(obj, str):
-        return
-    for match in _CONFIG_REF_RE.finditer(obj):
-        out.add((match.group(1).strip().lower(), match.group(2).strip()))
 
 
 def _load_dotenv(path: Path) -> dict[str, str]:

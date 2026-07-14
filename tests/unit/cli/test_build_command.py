@@ -416,7 +416,7 @@ def test_runtime_operation_change_keeps_artifact_plan_current(
         mode="AUTO",
     )
 
-    assert second.definition_hash != first.definition_hash
+    assert second.runtime_operations != first.runtime_operations
     assert second.artifact_hashes == first.artifact_hashes
     assert plan == build_exec.SkippedBuild(
         reason="up_to_date",
@@ -847,6 +847,8 @@ def test_execute_build_job_invalidates_only_graph_descendants(
     )
 
     assert set(state.artifacts) == {SCALER_STATISTICS, custom.id}
+    assert runtime.artifacts.has(SCALER_STATISTICS)
+    assert not runtime.artifacts.has(VECTOR_INPUTS)
     assert len(messages) == 1
     message, level = messages[0]
     assert level == logging.DEBUG

@@ -7,6 +7,7 @@ from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
 from datapipeline.pipelines.dataset.nodes import apply_postprocess
 from datapipeline.runtime import Runtime
+from datapipeline.services.artifacts import VECTOR_SCHEMA_SPEC
 from datapipeline.services.constants import VECTOR_METADATA, VECTOR_SCHEMA
 
 
@@ -86,7 +87,9 @@ def test_column_selection_uses_metadata_vector_count_without_mutating_schema(
     output = list(apply_postprocess(context, iter([sample])))
 
     assert output[0].features.values == {"complete": 2.0}
-    assert [entry.id for entry in context.load_schema().features] == [
+    assert [
+        entry.id for entry in context.require_artifact(VECTOR_SCHEMA_SPEC).features
+    ] == [
         "sparse",
         "complete",
     ]

@@ -182,6 +182,7 @@ def test_single_input_partition_inheritance_is_transitive() -> None:
     )
     assert isinstance(runtime_stream, DerivedRuntimeStream)
     assert runtime_stream.partition_by == ("ticker",)
+    assert runtime_stream.mapper is None
 
 
 def test_single_input_partition_can_be_replaced_with_empty_list() -> None:
@@ -210,6 +211,7 @@ def test_single_input_partition_can_be_replaced_with_empty_list() -> None:
     )
     assert isinstance(runtime_stream, DerivedRuntimeStream)
     assert runtime_stream.partition_by == ()
+    assert runtime_stream.mapper is None
 
 
 def test_validate_stream_configs_rejects_noncanonical_ingest_order() -> None:

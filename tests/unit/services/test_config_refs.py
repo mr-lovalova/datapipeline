@@ -580,7 +580,7 @@ def test_artifact_hash_ignores_source_document_order(tmp_path: Path) -> None:
     temporary_path.rename(zeta_path)
     second = load_pipeline(project_yaml)
 
-    assert second.definition_hash != first.definition_hash
+    assert second.streams == first.streams
     assert second.artifact_hashes == first.artifact_hashes
 
 

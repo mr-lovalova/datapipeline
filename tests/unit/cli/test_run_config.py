@@ -427,7 +427,6 @@ def test_build_defaults_apply_to_build_profiles(tmp_path: Path):
         profile_name="schema",
     )
     assert request is not None
-    assert request.definition.definition_hash
     assert request.definition.artifact_hashes.values
     assert request.execution.sort_buffer_mb == 256
     job = request.jobs[0]

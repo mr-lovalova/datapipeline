@@ -40,13 +40,13 @@ class LeadTransform:
             future.append(record)
 
         for record in records:
-            get_field(record, self.field)
+            value = get_field(record, self.field)
             lead_record = future.popleft()
             future.append(record)
             yield clone_record_with_field(
                 lead_record,
                 self.to,
-                get_field(record, self.field),
+                value,
             )
 
         while future:

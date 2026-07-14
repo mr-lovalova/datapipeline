@@ -7,8 +7,10 @@ from datapipeline.pipelines.stream.pipeline import (
     run_stream_pipeline,
 )
 from datapipeline.plugins import MAPPERS_EP
+from datapipeline.runtime import IngestRuntimeStream
 from datapipeline.services.pipeline import load_pipeline
 from datapipeline.services.runtime_compiler import compile_runtime
+from datapipeline.sources.models.source import Source
 
 
 class _PipelineObserver(NoopPipelineObserver):
@@ -24,10 +26,7 @@ class _PipelineObserver(NoopPipelineObserver):
         self.started.append(pipeline_name)
 
 
-def test_yaml_aligned_stream_runs_with_inherited_partition_and_combiner(
-    tmp_path,
-    monkeypatch,
-) -> None:
+def _write_test_project(tmp_path):
     sources_dir = tmp_path / "sources"
     ingests_dir = tmp_path / "ingests"
     streams_dir = tmp_path / "streams"
@@ -40,7 +39,7 @@ def test_yaml_aligned_stream_runs_with_inherited_partition_and_combiner(
         """\
 version: 1
 artifact_revision: 1
-name: aligned-test
+name: runtime-compiler-test
 paths:
   sources: sources
   ingests: ingests
@@ -53,6 +52,57 @@ paths:
     (tmp_path / "dataset.yaml").write_text(
         "sample:\n  cadence: 1h\nfeatures: []\ntargets: []\n",
         encoding="utf-8",
+    )
+    return project_yaml, sources_dir, ingests_dir, streams_dir, data_dir
+
+
+def test_ingests_sharing_a_source_compile_distinct_runtime_objects(tmp_path) -> None:
+    project_yaml, sources_dir, ingests_dir, _, _ = _write_test_project(tmp_path)
+    (sources_dir / "shared.yaml").write_text(
+        """\
+id: shared
+parser:
+  entrypoint: core.temporal_record
+loader:
+  entrypoint: core.io
+  args:
+    transport: fs
+    format: jsonl
+    path: data.jsonl
+""",
+        encoding="utf-8",
+    )
+    for ingest_id in ("left", "right"):
+        (ingests_dir / f"{ingest_id}.yaml").write_text(
+            f"""\
+id: {ingest_id}
+from:
+  source: shared
+map:
+  entrypoint: identity
+""",
+            encoding="utf-8",
+        )
+
+    runtime = compile_runtime(load_pipeline(project_yaml))
+    left = runtime.streams["left"]
+    right = runtime.streams["right"]
+
+    assert isinstance(left, IngestRuntimeStream)
+    assert isinstance(right, IngestRuntimeStream)
+    assert isinstance(left.source, Source)
+    assert isinstance(right.source, Source)
+    assert left.source is not right.source
+    assert left.source.loader is not right.source.loader
+    assert left.source.parser is not right.source.parser
+
+
+def test_yaml_aligned_stream_runs_with_inherited_partition_and_combiner(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    project_yaml, sources_dir, ingests_dir, streams_dir, data_dir = _write_test_project(
+        tmp_path
     )
 
     records_by_input = {

@@ -5,13 +5,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Mapping
 
-from datapipeline.artifacts.models import VectorSchemaArtifact
 from datapipeline.runtime import Runtime
 from datapipeline.services.artifacts import (
     ArtifactManager,
     ArtifactSpec,
     ArtifactValue,
-    VECTOR_SCHEMA_SPEC,
 )
 from datapipeline.utils.window import resolve_window_bounds
 
@@ -26,11 +24,6 @@ class PipelineContext:
     runtime: Runtime
     pipeline_observer: PipelineObserver | None = None
     heartbeat_interval_seconds: float | None = None
-    _schema: VectorSchemaArtifact | None = field(
-        default=None,
-        init=False,
-        repr=False,
-    )
     _window_bounds_cache: dict[
         bool,
         tuple[datetime | None, datetime | None],
@@ -57,11 +50,6 @@ class PipelineContext:
 
     def require_artifact(self, spec: ArtifactSpec[ArtifactValue]) -> ArtifactValue:
         return self.artifacts.load(spec)
-
-    def load_schema(self) -> VectorSchemaArtifact:
-        if self._schema is None:
-            self._schema = self.artifacts.load(VECTOR_SCHEMA_SPEC)
-        return self._schema
 
     def window_bounds(
         self,

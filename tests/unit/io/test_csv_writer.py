@@ -54,6 +54,34 @@ def test_csv_writer_raises_on_new_columns_after_header(tmp_path) -> None:
     writer.close()
 
 
+def test_csv_writer_preserves_header_order_when_rows_reorder_fields(tmp_path) -> None:
+    rows = iter(
+        [
+            {"second": 2, "first": 1},
+            {"first": 3, "second": 4},
+        ]
+    )
+
+    class _Serializer:
+        def __call__(self, _item):
+            return next(rows)
+
+    dest = tmp_path / "out.csv"
+    writer = CsvFileWriter(dest, serializer=_Serializer())
+    writer.write(object())
+    writer.write(object())
+    writer.close()
+
+    with open(dest, newline="", encoding="utf-8") as fh:
+        parsed = list(csv.reader(fh))
+
+    assert parsed == [
+        ["second", "first"],
+        ["2", "1"],
+        ["4", "3"],
+    ]
+
+
 def test_csv_writer_honors_configured_encoding(tmp_path) -> None:
     rows = iter([{"key": "k1", "feature.temp": 1.0}])
 

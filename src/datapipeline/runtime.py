@@ -34,7 +34,7 @@ class IngestRuntimeStream:
 @dataclass(frozen=True)
 class DerivedRuntimeStream:
     input_stream: str
-    mapper: RecordStage
+    mapper: RecordStage | None
     transforms: tuple[StreamTransformConfig, ...]
     partition_by: tuple[str, ...]
     presorted: bool

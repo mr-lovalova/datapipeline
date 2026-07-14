@@ -20,18 +20,9 @@ from datapipeline.config.tasks import (
     StatsTask,
     TicksTask,
     VectorInputsTask,
-    OperationTask,
 )
 from datapipeline.artifacts.planning import build_artifact_graph
-from datapipeline.services.config_refs import (
-    collect_config_ref_keys,
-)
-from datapipeline.services.definitions import (
-    ArtifactHashes,
-    PipelineDocuments,
-    ProjectManifest,
-)
-from datapipeline.utils.load import YamlDocument
+from datapipeline.services.definitions import ArtifactHashes, ProjectManifest
 
 
 # Increment when Jerry's core artifact semantics change without a config change.
@@ -43,50 +34,6 @@ def _normalized_label(path: Path, base_dir: Path) -> str:
         return str(path.resolve().relative_to(base_dir))
     except ValueError:
         return str(path.resolve())
-
-
-def _hash_document(
-    hasher,
-    document: YamlDocument,
-    base_dir: Path,
-) -> None:
-    hasher.update(_normalized_label(document.path, base_dir).encode("utf-8"))
-    hasher.update(b"\0")
-    hasher.update(document.content)
-    hasher.update(b"\0")
-
-
-def _all_documents(
-    project: ProjectManifest,
-    documents: PipelineDocuments,
-) -> tuple[YamlDocument, ...]:
-    return (
-        project.document,
-        documents.dataset,
-        *documents.operations,
-        *documents.ingests,
-        *documents.sources,
-        *documents.streams,
-    )
-
-
-def _hash_env_refs(
-    hasher,
-    project: ProjectManifest,
-    documents: PipelineDocuments,
-) -> None:
-    env_ref_names: set[str] = set()
-    for document in _all_documents(project, documents):
-        env_ref_names.update(
-            key for _scheme, key in collect_config_ref_keys(document.data, scheme="env")
-        )
-
-    for name in sorted(env_ref_names):
-        hasher.update(f"[env]{name}".encode("utf-8"))
-        hasher.update(b"\0")
-        value = project.environment.get(name)
-        hasher.update(b"[missing]" if value is None else value.encode("utf-8"))
-        hasher.update(b"\0")
 
 
 def _source_label(path: Path, base_dir: Path) -> str:
@@ -356,59 +303,3 @@ def calculate_artifact_hashes(
             snapshots,
         )
     return ArtifactHashes(hashes)
-
-
-def calculate_definition_hash(
-    project: ProjectManifest,
-    documents: PipelineDocuments,
-    dataset: FeatureDatasetConfig,
-    streams: StreamsConfig,
-    artifact_operations: tuple[ArtifactTask, ...],
-    runtime_operations: tuple[OperationTask, ...],
-) -> str:
-    hasher = hashlib.sha256()
-    base_dir = project.path.parent
-
-    effective_definition = {
-        "project": project.config.model_dump(mode="json"),
-        "dataset": dataset.model_dump(mode="json"),
-        "streams": streams.model_dump(mode="json"),
-        "artifact_operations": [
-            operation.model_dump(mode="json") for operation in artifact_operations
-        ],
-        "runtime_operations": [
-            operation.model_dump(mode="json") for operation in runtime_operations
-        ],
-    }
-    hasher.update(
-        json.dumps(
-            effective_definition,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-    )
-    hasher.update(b"\0")
-
-    _hash_document(hasher, project.document, base_dir)
-    _hash_document(hasher, documents.dataset, base_dir)
-
-    if project.operations_dir is not None:
-        hasher.update(
-            f"[dir]{_normalized_label(project.operations_dir, base_dir)}".encode(
-                "utf-8"
-            )
-        )
-    for document in documents.operations:
-        _hash_document(hasher, document, base_dir)
-
-    for directory in (*project.ingest_dirs, *project.source_dirs, *project.stream_dirs):
-        hasher.update(f"[dir]{_normalized_label(directory, base_dir)}".encode("utf-8"))
-    for document in (
-        *documents.ingests,
-        *documents.sources,
-        *documents.streams,
-    ):
-        _hash_document(hasher, document, base_dir)
-
-    _hash_env_refs(hasher, project, documents)
-    return hasher.hexdigest()

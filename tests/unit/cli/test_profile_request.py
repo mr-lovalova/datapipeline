@@ -210,7 +210,6 @@ def test_materialize_request_uses_shared_resolution_snapshot(
     )
 
     assert request is not None
-    assert request.definition.definition_hash
     assert request.definition.artifact_hashes.values
     assert compiled_definitions == [request.definition]
     assert request.execution.sort_buffer_mb == 32

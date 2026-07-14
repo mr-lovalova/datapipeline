@@ -43,7 +43,6 @@ def load_project(project_yaml: Path) -> ProjectManifest:
     )
     return ProjectManifest(
         path=path,
-        document=document,
         config=config,
         variables=MappingProxyType(variables),
         environment=MappingProxyType(environment),

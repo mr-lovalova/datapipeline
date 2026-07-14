@@ -1,6 +1,7 @@
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+from stat import S_ISREG
 from types import MappingProxyType
 
 from datapipeline.artifacts.specs import ARTIFACT_DEFINITIONS, ArtifactDefinition
@@ -405,14 +406,18 @@ class ArtifactGraph:
                 except ValueError:
                     stale.add(key)
                     break
-                if not artifact_path.is_file():
+                try:
+                    file_stat = artifact_path.stat()
+                except FileNotFoundError:
                     missing.add(key)
                     break
-                stat = artifact_path.stat()
+                if not S_ISREG(file_stat.st_mode):
+                    missing.add(key)
+                    break
                 if (
-                    stat.st_size != fingerprint.size
-                    or stat.st_mtime_ns != fingerprint.mtime_ns
-                    or stat.st_ctime_ns != fingerprint.ctime_ns
+                    file_stat.st_size != fingerprint.size
+                    or file_stat.st_mtime_ns != fingerprint.mtime_ns
+                    or file_stat.st_ctime_ns != fingerprint.ctime_ns
                 ):
                     stale.add(key)
                     break

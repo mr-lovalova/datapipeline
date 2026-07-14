@@ -4,12 +4,10 @@ from itertools import groupby
 from typing import Any
 
 from datapipeline.artifacts.models import SampleDomainEntry
-from datapipeline.utils.time import floor_time_to_cadence
 from datapipeline.domain.feature import FeatureRecord, FeatureSequence
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
-from datapipeline.pipelines.vector.keygen import group_key_for
-from datapipeline.utils.time import parse_cadence
+from datapipeline.utils.time import floor_time_to_cadence, parse_cadence
 
 
 def _close_iterator(iterator) -> None:
@@ -19,17 +17,13 @@ def _close_iterator(iterator) -> None:
 
 
 def vector_assemble_stage(
-    merged: Iterator[FeatureRecord | FeatureSequence],
-    group_by_cadence: str,
+    merged: Iterator[tuple[tuple, FeatureRecord | FeatureSequence]],
 ) -> Iterator[tuple[tuple, Vector]]:
-    cadence = parse_cadence(group_by_cadence)
     try:
-        for group_key, group in groupby(
-            merged, key=lambda fr: group_key_for(fr, cadence)
-        ):
+        for group_key, group in groupby(merged, key=lambda item: item[0]):
             feature_map: dict[str, list[Any]] = {}
             sequence_ids: set[str] = set()
-            for fr in group:
+            for _, fr in group:
                 is_sequence = isinstance(fr, FeatureSequence)
                 if fr.id in feature_map and is_sequence != (fr.id in sequence_ids):
                     raise ValueError(

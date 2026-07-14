@@ -10,7 +10,7 @@ from datapipeline.artifacts.models import (
 from datapipeline.execution.context import PipelineContext
 from datapipeline.execution.node import PipelineNode
 from datapipeline.domain.sample import Sample
-from datapipeline.services.artifacts import VECTOR_METADATA_SPEC
+from datapipeline.services.artifacts import VECTOR_METADATA_SPEC, VECTOR_SCHEMA_SPEC
 from datapipeline.transforms.vector.drop.horizontal import (
     DropSamplesTransform,
     DropTargetSamplesTransform,
@@ -71,7 +71,7 @@ class PostprocessPlan:
 
 
 def build_postprocess_plan(context: PipelineContext) -> PostprocessPlan:
-    schema = context.load_schema()
+    schema = context.require_artifact(VECTOR_SCHEMA_SPEC)
     if not schema.features:
         raise RuntimeError("Schema has no feature entries. Rebuild build/schema.json.")
 

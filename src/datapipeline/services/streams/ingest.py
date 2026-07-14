@@ -6,7 +6,6 @@ from datapipeline.config.catalog import (
     FsSourceArgs,
     SourceConfig,
 )
-from datapipeline.mappers.noop import identity
 from datapipeline.plugins import LOADERS_EP, MAPPERS_EP, PARSERS_EP
 from datapipeline.services.path_policy import resolve_relative_fs_loader_path
 from datapipeline.sources.models.source import Source
@@ -37,10 +36,8 @@ def build_source_from_spec(
     return Source(loader=loader_cls(**loader_args), parser=parser_cls(**parser_args))
 
 
-def build_mapper_from_spec(spec: EntryPointConfig | None):
+def build_mapper_from_spec(spec: EntryPointConfig):
     """Return a callable(raw_iter) -> iter with args bound if present."""
-    if spec is None:
-        return identity
     fn = load_ep(MAPPERS_EP, spec.entrypoint)
     args = normalize_args(spec.args)
     if args:

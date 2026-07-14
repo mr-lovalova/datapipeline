@@ -51,6 +51,7 @@ class ArtifactManager:
     def __init__(self, root: Path) -> None:
         self._root = Path(root)
         self._records: dict[str, ArtifactRecord] = {}
+        self._loaded: dict[str, Any] = {}
 
     @property
     def root(self) -> Path:
@@ -62,6 +63,7 @@ class ArtifactManager:
         relative_path: str,
         meta: Mapping[str, Any] | None = None,
     ) -> None:
+        self._loaded.pop(key, None)
         self._records[key] = ArtifactRecord(
             key=key,
             relative_path=relative_path,
@@ -70,6 +72,7 @@ class ArtifactManager:
 
     def clear(self) -> None:
         self._records.clear()
+        self._loaded.clear()
 
     def has(self, key: str) -> bool:
         return key in self._records
@@ -90,15 +93,19 @@ class ArtifactManager:
         return self.require(key).resolve(self._root)
 
     def load(self, spec: ArtifactSpec[ArtifactValue]) -> ArtifactValue:
+        if spec.key in self._loaded:
+            return self._loaded[spec.key]
         path = self.resolve_path(spec.key)
         try:
-            return spec.loader(path)
+            value = spec.loader(path)
         except FileNotFoundError as exc:
             message = (
                 f"Artifact file not found: {path}. "
                 "Run `jerry build --project <project.yaml>` to regenerate it."
             )
             raise RuntimeError(message) from exc
+        self._loaded[spec.key] = value
+        return value
 
 
 def _read_vector_schema(path: Path) -> VectorSchemaArtifact:

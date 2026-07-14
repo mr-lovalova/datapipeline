@@ -18,13 +18,17 @@ class CsvTableProjector:
     def __init__(self, row_projector: CsvRowProjector) -> None:
         self._row_projector = row_projector
         self._header: list[str] | None = None
+        self._header_fields: frozenset[str] = frozenset()
 
     def project(self, item: Any) -> CsvProjectedRow:
         row = self._row_projector(item)
         if self._header is None:
             self._header = list(row.keys())
+            self._header_fields = frozenset(self._header)
         else:
-            unexpected = [name for name in row.keys() if name not in self._header]
+            unexpected = [
+                name for name in row.keys() if name not in self._header_fields
+            ]
             if unexpected:
                 raise ValueError(
                     "CSV row contains fields not present in header: "

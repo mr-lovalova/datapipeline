@@ -274,12 +274,10 @@ def _execute_build_jobs(
                 meta=result.meta,
             )
             save_build_state(current_state, plan.state_path)
-            hydrate_runtime_artifacts(
-                runtime=runtime,
-                graph=plan.graph,
-                state=current_state,
-                artifact_hashes=plan.artifact_hashes,
-                artifact_keys=plan.artifacts,
+            runtime.artifacts.register(
+                job.task.id,
+                relative_path=result.relative_path,
+                meta=result.meta,
             )
             label = job.task.id.replace("_", " ").capitalize()
             path = (Path(runtime.artifacts_root) / result.relative_path).resolve()

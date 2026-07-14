@@ -7,13 +7,11 @@ from datapipeline.config.catalog import StreamsConfig
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.project import ProjectConfig
 from datapipeline.config.tasks import ArtifactTask, OperationTask
-from datapipeline.utils.load import YamlDocument
 
 
 @dataclass(frozen=True, slots=True)
 class ProjectManifest:
     path: Path
-    document: YamlDocument
     config: ProjectConfig
     variables: Mapping[str, Any]
     environment: Mapping[str, str]
@@ -24,15 +22,6 @@ class ProjectManifest:
     artifacts_root: Path
     operations_dir: Path | None
     profiles_dir: Path
-
-
-@dataclass(frozen=True, slots=True)
-class PipelineDocuments:
-    dataset: YamlDocument
-    sources: tuple[YamlDocument, ...]
-    ingests: tuple[YamlDocument, ...]
-    streams: tuple[YamlDocument, ...]
-    operations: tuple[YamlDocument, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +42,4 @@ class PipelineDefinition:
     streams: StreamsConfig
     artifact_operations: tuple[ArtifactTask, ...]
     runtime_operations: tuple[OperationTask, ...]
-    documents: PipelineDocuments
-    definition_hash: str
     artifact_hashes: ArtifactHashes

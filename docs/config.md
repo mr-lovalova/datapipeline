@@ -432,7 +432,9 @@ stream:
 - `ordered_by`: optional assertion that records entering the ordering stage use
   `[*partition_by, time]` order. When present, it must equal that canonical
   order and is validated while streaming. When absent, records are externally
-  sorted.
+  sorted whenever a configured map or partition change requires a new ordering
+  stage. A single-input stream with no map and unchanged partition fields reuses
+  its upstream canonical order without another ordering stage.
 - Feature identity is derived at the dataset boundary. Every `sample.keys`
   field must occur in the resolved `partition_by` of every referenced stream.
   Partition fields absent from `sample.keys` suffix the configured feature or

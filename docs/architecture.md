@@ -15,14 +15,15 @@ Every canonical stream ID has exactly one entry in `Runtime.streams`:
 `IngestRuntimeStream`, `DerivedRuntimeStream`, or `AlignedRuntimeStream`.
 
 An ingest owns an external source. A derived stream names one upstream stream;
-an aligned stream names two or more inputs. Ingests and derived streams keep a
-prepared iterator mapper; aligned streams keep their prepared combine stage. All
-three keep typed transforms, complete series identity (`partition_by`), and
-ordering policy (`presorted`) together. There is no generic source adapter that
-hides another pipeline. Single-input streams are flattened; aligned streams use
-the explicit fan-in boundary described below. Their strict config models make
-`map` and `combine` mutually exclusive. Single-input streams inherit partition
-identity when it is omitted; an explicit list replaces the inherited value.
+an aligned stream names two or more inputs. Ingests keep a prepared iterator
+mapper, derived streams keep one only when `map` is configured, and aligned
+streams keep their prepared combine stage. All three keep typed transforms,
+complete series identity (`partition_by`), and ordering policy (`presorted`)
+together. There is no generic source adapter that hides another pipeline.
+Single-input streams are flattened; aligned streams use the explicit fan-in
+boundary described below. Their strict config models make `map` and `combine`
+mutually exclusive. Single-input streams inherit partition identity when it is
+omitted; an explicit list replaces the inherited value.
 
 Dataset `sample.keys` select the partition fields represented in row identity.
 The remaining partition fields deterministically suffix feature IDs in declared
@@ -65,10 +66,14 @@ stream:<id>
   ingest:<upstream>/open_source
   ingest:<upstream>/map_records
   ingest:<upstream>/...
-  map_records
-  order_records
+  <map_records when map is configured>
+  <order_records after map or a partition change>
   <one node per configured stream transform>
 ```
+
+With no mapper and unchanged partition fields, the derived stream reuses the
+upstream canonical order directly. It does not add identity mapping or sorting
+stages.
 
 Aligned streams are the one real fan-in boundary. Their root source node is
 `align_inputs`; it owns opening, validating, merging, and closing the configured

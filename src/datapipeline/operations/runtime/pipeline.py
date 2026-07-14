@@ -22,7 +22,12 @@ from datapipeline.pipelines.dataset.pipeline import (
 from datapipeline.pipelines.dataset.split import build_labeler
 from datapipeline.pipelines.feature.pipeline import run_feature_pipeline
 from datapipeline.pipelines.stream.pipeline import build_stream_pipeline
-from datapipeline.runtime import AlignedRuntimeStream, Runtime, require_runtime_stream
+from datapipeline.runtime import (
+    AlignedRuntimeStream,
+    DerivedRuntimeStream,
+    Runtime,
+    require_runtime_stream,
+)
 from datapipeline.utils.window import resolve_window_bounds
 
 logger = logging.getLogger(__name__)
@@ -112,6 +117,12 @@ def _record_preview_stream(
         return run_pipeline(context, pipeline.through_node(0))
     if preview == "mapped":
         stream = require_runtime_stream(context.runtime, stream_id)
+        if isinstance(stream, DerivedRuntimeStream) and stream.mapper is None:
+            upstream = build_stream_pipeline(context, stream.input_stream)
+            return run_pipeline(
+                context,
+                pipeline.through_node(upstream.node_count - 1),
+            )
         node_name = (
             "combine_records"
             if isinstance(stream, AlignedRuntimeStream)

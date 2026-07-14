@@ -86,7 +86,7 @@ def build_vector_pipeline(
             else:
                 keys_feature = keys
 
-    feature_records = _merged_cached_records(
+    keyed_feature_records = _merged_keyed_records(
         manifest_path=manifest_path,
         shards=_shards_for_configs(
             manifest.features,
@@ -97,15 +97,12 @@ def build_vector_pipeline(
         group_by_cadence=cadence,
         sample_key_contract=sample_key_contract,
     )
-    feature_vectors = vector_assemble_stage(
-        feature_records,
-        group_by_cadence,
-    )
+    feature_vectors = vector_assemble_stage(keyed_feature_records)
     aligned_feature_vectors = align_stream(feature_vectors, keys_feature)
 
     target_vectors = None
     if target_cfgs:
-        target_records = _merged_cached_records(
+        keyed_target_records = _merged_keyed_records(
             manifest_path=manifest_path,
             shards=manifest.targets,
             configs=target_cfgs,
@@ -113,10 +110,7 @@ def build_vector_pipeline(
             sample_key_contract=sample_key_contract,
         )
         target_vectors = align_stream(
-            vector_assemble_stage(
-                target_records,
-                group_by_cadence,
-            ),
+            vector_assemble_stage(keyed_target_records),
             keys_target,
         )
     return sample_assemble_stage(aligned_feature_vectors, target_vectors)
@@ -141,26 +135,28 @@ def _shards_for_configs(
     )
 
 
-def _merged_cached_records(
+def _merged_keyed_records(
     *,
     manifest_path: Path,
     shards: Sequence[CachedVectorInputShard],
     configs: Sequence[FeatureRecordConfig],
     group_by_cadence: timedelta,
     sample_key_contract: SampleKeyContract,
-) -> Iterator[FeatureRecord | FeatureSequence]:
+) -> Iterator[tuple[tuple, FeatureRecord | FeatureSequence]]:
     root = manifest_path.parent
     shards_by_id = {shard.id: shard for shard in shards}
 
-    def validated_stream(
+    def keyed_stream(
         stream: Iterator[FeatureRecord | FeatureSequence],
-    ) -> Iterator[FeatureRecord | FeatureSequence]:
+    ) -> Iterator[tuple[tuple, FeatureRecord | FeatureSequence]]:
         for record in stream:
             sample_key_contract.validate(record.entity_key)
-            yield record
+            yield group_key_for(record, group_by_cadence), record
 
     with ExitStack() as opened:
-        opened_streams: list[Iterator[FeatureRecord | FeatureSequence]] = []
+        opened_streams: list[
+            Iterator[tuple[tuple, FeatureRecord | FeatureSequence]]
+        ] = []
         for cfg in configs:
             shard = shards_by_id.get(cfg.id)
             if shard is None:
@@ -172,14 +168,9 @@ def _merged_cached_records(
             if callable(closer):
                 opened.callback(closer)
 
-            opened_streams.append(validated_stream(opened_stream))
+            opened_streams.append(keyed_stream(opened_stream))
 
-        def group_key(
-            feature_record: FeatureRecord | FeatureSequence,
-        ) -> tuple:
-            return group_key_for(feature_record, group_by_cadence)
-
-        merged_stream = heapq.merge(*opened_streams, key=group_key)
+        merged_stream = heapq.merge(*opened_streams, key=lambda item: item[0])
         opened.callback(merged_stream.close)
         yield from merged_stream
 

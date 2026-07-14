@@ -29,9 +29,12 @@ def finite_number(value: Any, field: str) -> float:
 
 
 def get_field(record: object, field: str) -> Any:
-    if not hasattr(record, field):
-        raise KeyError(f"Record field '{field}' not found on {type(record).__name__}")
-    return getattr(record, field)
+    try:
+        return getattr(record, field)
+    except AttributeError as exc:
+        raise KeyError(
+            f"Record field '{field}' not found on {type(record).__name__}"
+        ) from exc
 
 
 def partition_key(
@@ -40,11 +43,12 @@ def partition_key(
 ) -> tuple:
     values: list[Any] = []
     for field in partition_by:
-        if not hasattr(record, field):
+        try:
+            value = getattr(record, field)
+        except AttributeError as exc:
             raise KeyError(
                 f"Partition field '{field}' not found on {type(record).__name__}"
-            )
-        value = getattr(record, field)
+            ) from exc
         if type(value) is float and not math.isfinite(value):
             raise ValueError(f"Partition field {field!r} must contain finite floats")
         values.append(value)

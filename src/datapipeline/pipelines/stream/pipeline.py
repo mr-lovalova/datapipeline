@@ -1,5 +1,4 @@
 from collections.abc import Iterator
-from contextlib import ExitStack
 from dataclasses import replace
 from functools import partial
 from typing import Any
@@ -47,13 +46,21 @@ def build_stream_pipeline(
         )
     if isinstance(stream, DerivedRuntimeStream):
         upstream = build_stream_pipeline(context, stream.input_stream)
+        input_stream = require_runtime_stream(context.runtime, stream.input_stream)
         upstream_nodes = tuple(
             replace(node, name=f"{upstream.name}/{node.name}")
             for node in upstream.nodes
         )
         return Pipeline(
             name=f"stream:{stream_id}",
-            nodes=(*upstream_nodes, *_stream_nodes(context, stream)),
+            nodes=(
+                *upstream_nodes,
+                *_derived_nodes(
+                    context,
+                    stream,
+                    input_partition_by=input_stream.partition_by,
+                ),
+            ),
             summary=upstream.summary,
         )
     if isinstance(stream, AlignedRuntimeStream):
@@ -69,7 +76,7 @@ def build_stream_pipeline(
                         stream.partition_by,
                     ),
                 ),
-                *_stream_nodes(context, stream),
+                *_aligned_nodes(context, stream),
             ),
             summary="inputs=" + ",".join(stream.input_streams),
         )
@@ -96,16 +103,38 @@ def _ingest_nodes(
     )
 
 
-def _stream_nodes(
+def _derived_nodes(
     context: PipelineContext,
-    stream: DerivedRuntimeStream | AlignedRuntimeStream,
+    stream: DerivedRuntimeStream,
+    input_partition_by: tuple[str, ...],
 ) -> tuple[PipelineNode, ...]:
-    if isinstance(stream, DerivedRuntimeStream):
-        first = PipelineNode(name="map_records", apply=stream.mapper)
-    else:
-        first = PipelineNode(name="combine_records", apply=stream.combine)
+    nodes: list[PipelineNode] = []
+    if stream.mapper is not None:
+        nodes.append(PipelineNode(name="map_records", apply=stream.mapper))
+    if stream.mapper is not None or stream.partition_by != input_partition_by:
+        nodes.append(
+            build_record_order_node(
+                stream.partition_by,
+                stream.presorted,
+                context.runtime.execution.sort_buffer_bytes,
+            )
+        )
+    nodes.extend(
+        build_stream_transform_nodes(
+            context,
+            stream.transforms,
+            stream.partition_by,
+        )
+    )
+    return tuple(nodes)
+
+
+def _aligned_nodes(
+    context: PipelineContext,
+    stream: AlignedRuntimeStream,
+) -> tuple[PipelineNode, ...]:
     return (
-        first,
+        PipelineNode(name="combine_records", apply=stream.combine),
         build_record_order_node(
             stream.partition_by,
             stream.presorted,
@@ -124,19 +153,15 @@ def _align_inputs(
     input_streams: tuple[str, ...],
     partition_by: tuple[str, ...],
 ) -> Iterator[tuple[Any, ...]]:
-    with ExitStack() as opened:
-        inputs = []
-        for stream_id in input_streams:
-            records = run_pipeline(
+    inputs = [
+        (
+            stream_id,
+            run_pipeline(
                 context,
                 build_stream_pipeline(context, stream_id),
                 observer=_INTERNAL_INPUT_OBSERVER,
-            )
-            opened.callback(records.close)
-            inputs.append((stream_id, records))
-        aligned = align_streams(
-            inputs,
-            partition_by=partition_by,
+            ),
         )
-        opened.callback(aligned.close)
-        yield from aligned
+        for stream_id in input_streams
+    ]
+    yield from align_streams(inputs, partition_by=partition_by)

@@ -4,10 +4,7 @@ from pathlib import Path
 import pytest
 
 from datapipeline.services import pipeline_fingerprints
-from datapipeline.services.pipeline_fingerprints import (
-    calculate_artifact_hashes,
-    calculate_definition_hash,
-)
+from datapipeline.services.pipeline_fingerprints import calculate_artifact_hashes
 from datapipeline.config.catalog import StreamsConfig
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig
@@ -146,7 +143,7 @@ def test_load_pipeline_canonicalizes_symlinked_dataset_path(tmp_path: Path) -> N
 
     definition = load_pipeline(project_yaml)
 
-    assert definition.documents.dataset.path == target.resolve()
+    assert definition.project.dataset_path == target.resolve()
 
 
 def test_load_pipeline_canonicalizes_symlinked_config_root(
@@ -201,14 +198,14 @@ def test_pipeline_definition_keeps_retargeted_yaml_symlink_snapshot(
     linked.symlink_to(first)
 
     definition = load_pipeline(project_yaml)
-    assert definition.documents.sources[0].path == first.resolve()
+    assert definition.streams.sources["linked"].loader.entrypoint == "custom.loader"
 
     linked.unlink()
     linked.symlink_to(second)
     reloaded = load_pipeline(project_yaml)
 
-    assert definition.documents.sources[0].path == first.resolve()
-    assert reloaded.documents.sources[0].path == second.resolve()
+    assert definition.streams.sources["linked"].loader.entrypoint == "custom.loader"
+    assert reloaded.streams.sources["linked"].loader.entrypoint == "other.loader"
 
 
 def test_pipeline_yaml_inventory_surfaces_scan_errors(
@@ -316,7 +313,7 @@ def test_empty_project_variables_still_validate_operation_interpolation(
         load_pipeline(project_yaml)
 
 
-def test_runtime_operation_change_only_changes_definition_hash(
+def test_runtime_operation_change_does_not_change_artifact_hashes(
     tmp_path: Path,
 ) -> None:
     project_yaml = _write_pipeline(tmp_path)
@@ -333,11 +330,11 @@ def test_runtime_operation_change_only_changes_definition_hash(
     )
     second = load_pipeline(project_yaml)
 
-    assert second.definition_hash != first.definition_hash
+    assert second.runtime_operations != first.runtime_operations
     assert second.artifact_hashes == first.artifact_hashes
 
 
-def test_artifact_operation_change_changes_both_hashes(tmp_path: Path) -> None:
+def test_artifact_operation_change_changes_artifact_hashes(tmp_path: Path) -> None:
     project_yaml = _write_pipeline(tmp_path)
     operation = tmp_path / "operations" / "custom.yaml"
     operation.write_text(
@@ -356,7 +353,6 @@ def test_artifact_operation_change_changes_both_hashes(tmp_path: Path) -> None:
     )
     second = load_pipeline(project_yaml)
 
-    assert second.definition_hash != first.definition_hash
     assert second.artifact_hashes != first.artifact_hashes
 
 
@@ -500,7 +496,7 @@ def test_core_artifact_hashes_track_only_referenced_source_closure(
         assert after_used_change.for_artifact(key) != baseline.for_artifact(key)
 
 
-def test_artifact_operation_comment_only_changes_definition_hash(
+def test_artifact_operation_comment_does_not_change_artifact_hashes(
     tmp_path: Path,
 ) -> None:
     project_yaml = _write_pipeline(tmp_path)
@@ -519,11 +515,10 @@ def test_artifact_operation_comment_only_changes_definition_hash(
     )
     second = load_pipeline(project_yaml)
 
-    assert second.definition_hash != first.definition_hash
     assert second.artifact_hashes == first.artifact_hashes
 
 
-def test_artifact_revision_change_changes_both_hashes(tmp_path: Path) -> None:
+def test_artifact_revision_change_changes_artifact_hashes(tmp_path: Path) -> None:
     project_yaml = _write_pipeline(tmp_path)
     first = load_pipeline(project_yaml)
 
@@ -536,7 +531,6 @@ def test_artifact_revision_change_changes_both_hashes(tmp_path: Path) -> None:
     )
     second = load_pipeline(project_yaml)
 
-    assert second.definition_hash != first.definition_hash
     assert second.artifact_hashes != first.artifact_hashes
 
 
@@ -572,7 +566,7 @@ split:
     assert first.artifact_hashes == second.artifact_hashes
 
 
-def test_split_output_labels_only_change_definition_hash(tmp_path: Path) -> None:
+def test_split_output_labels_do_not_change_artifact_hashes(tmp_path: Path) -> None:
     project_yaml = _write_pipeline(tmp_path)
     dataset = tmp_path / "dataset.yaml"
     dataset.write_text(
@@ -595,23 +589,17 @@ split:
     )
     second = load_pipeline(project_yaml)
 
-    assert second.definition_hash != first.definition_hash
+    assert first.dataset.split is not None
+    assert second.dataset.split is not None
+    assert first.dataset.split.output_labels != second.dataset.split.output_labels
     assert second.artifact_hashes == first.artifact_hashes
 
 
-def test_artifact_cache_version_only_changes_artifact_hash(
+def test_artifact_cache_version_changes_artifact_hash(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
     definition = load_pipeline(_write_pipeline(tmp_path))
-    original_definition_hash = calculate_definition_hash(
-        definition.project,
-        definition.documents,
-        definition.dataset,
-        definition.streams,
-        definition.artifact_operations,
-        definition.runtime_operations,
-    )
     monkeypatch.setattr(
         pipeline_fingerprints,
         "ARTIFACT_CACHE_VERSION",
@@ -623,15 +611,5 @@ def test_artifact_cache_version_only_changes_artifact_hash(
         definition.streams,
         definition.artifact_operations,
     )
-    unchanged_definition_hash = calculate_definition_hash(
-        definition.project,
-        definition.documents,
-        definition.dataset,
-        definition.streams,
-        definition.artifact_operations,
-        definition.runtime_operations,
-    )
 
-    assert original_definition_hash == definition.definition_hash
-    assert unchanged_definition_hash == definition.definition_hash
     assert changed_artifact_hashes != definition.artifact_hashes
