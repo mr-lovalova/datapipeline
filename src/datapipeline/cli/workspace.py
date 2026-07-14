@@ -33,14 +33,6 @@ class WorkspaceContext:
         return self.resolve_path(self.config.plugin_root)
 
 
-def resolve_with_workspace(
-    raw_path: str | Path,
-    workspace: WorkspaceContext | None,
-) -> Path:
-    root = workspace.root if workspace is not None else None
-    return resolve_workspace_path(raw_path, root)
-
-
 def load_workspace_context(start_dir: Path | None = None) -> WorkspaceContext | None:
     directory = (start_dir or workspace_cwd()).resolve()
     for path in (directory, *directory.parents):

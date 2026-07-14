@@ -3,7 +3,6 @@ from typing import Any
 
 from .models.loader import BaseDataLoader, SourceProgressUnit
 from .ports import SourceTransport
-from .adapters.http import HttpTransport
 from .decoders import (
     CsvDecoder,
     Decoder,
@@ -20,11 +19,9 @@ class DataLoader(BaseDataLoader):
         self,
         transport: SourceTransport,
         decoder: Decoder,
-        allow_network_count: bool = False,
     ):
         self.transport = transport
         self.decoder = decoder
-        self._allow_net_count = bool(allow_network_count)
         self._current_resource_uri: str | None = None
 
     @property
@@ -56,28 +53,3 @@ class DataLoader(BaseDataLoader):
             if callable(close):
                 close()
             self._current_resource_uri = None
-
-    def count(self) -> int | None:
-        if isinstance(self.transport, HttpTransport) and not self._allow_net_count:
-            return None
-        resources = iter(self.transport.resources())
-        total = 0
-        any_stream = False
-        try:
-            for resource in resources:
-                any_stream = True
-                stream = iter(resource.stream)
-                try:
-                    count = self.decoder.count(stream)
-                finally:
-                    close = getattr(stream, "close", None)
-                    if callable(close):
-                        close()
-                if count is None:
-                    return None
-                total += count
-            return total if any_stream else 0
-        finally:
-            close = getattr(resources, "close", None)
-            if callable(close):
-                close()

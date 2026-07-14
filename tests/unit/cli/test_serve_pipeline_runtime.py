@@ -267,6 +267,39 @@ def test_features_preview_returns_processed_feature_records(monkeypatch):
     assert list(result.outputs[0].rows) == ["feature"]
 
 
+def test_feature_preview_rejects_duplicate_resolved_destinations(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    dataset = SimpleNamespace(
+        features=[
+            SimpleNamespace(id="a/b", stream="first"),
+            SimpleNamespace(id="a?b", stream="second"),
+        ],
+        targets=[],
+        sample=SimpleNamespace(cadence="1d", keys=[]),
+    )
+    monkeypatch.setattr(
+        "datapipeline.operations.runtime.pipeline.run_feature_pipeline",
+        lambda *args, **kwargs: pytest.fail(
+            "preview streams must not be opened before destinations are validated"
+        ),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"Preview outputs 'a/b' and 'a\?b' resolve to the same destination",
+    ):
+        _serve(
+            _runtime(),
+            dataset,
+            _fs_target(tmp_path / "preview.jsonl"),
+            preview="features",
+        )
+
+    assert not list(tmp_path.iterdir())
+
+
 def test_postprocess_preview_runs_postprocess(monkeypatch):
     runtime = _runtime()
     dataset = _dataset()

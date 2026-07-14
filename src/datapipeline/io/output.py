@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
+from unicodedata import normalize
 
 from datapipeline.config.profiles import Format, ServeOutputConfig, Transport, View
 from datapipeline.services.path_policy import (
@@ -51,10 +52,7 @@ class OutputTarget:
     def for_feature(self, feature_id: str) -> "OutputTarget":
         if self.transport != "fs" or self.destination is None:
             return self
-        safe_feature = "".join(
-            ch if ch.isalnum() or ch in ("_", "-", ".") else "_"
-            for ch in str(feature_id)
-        )
+        safe_feature = sanitize_path_segment(str(feature_id), default="feature")
         dest = self.destination
         suffix = "".join(dest.suffixes)
         stem = dest.name[: -len(suffix)] if suffix else dest.name
@@ -90,6 +88,11 @@ class OutputTarget:
         )
 
 
+def output_destination_key(path: Path) -> str:
+    """Return the portable identity used to reject colliding output paths."""
+    return normalize("NFC", str(path)).casefold()
+
+
 class OutputResolutionError(ValueError):
     """Raised when CLI/config output options cannot be resolved."""
 
@@ -104,17 +107,6 @@ def resolve_output_directory(
         return None
     base = base_path or workspace_cwd()
     return resolve_relative_to_base(config.directory, base, resolve=True)
-
-
-def resolve_destination(
-    target: OutputTarget | None,
-    *,
-    base_dir: Path,
-    default_filename: str,
-) -> Path:
-    if target is not None and target.destination is not None:
-        return target.destination.resolve()
-    return (base_dir / default_filename).resolve()
 
 
 def resolve_output_target(

@@ -33,11 +33,6 @@ def prompt_required(prompt: str) -> str:
     return value
 
 
-def prompt_optional(prompt: str) -> str | None:
-    value = input(f"{prompt}: ").strip()
-    return value or None
-
-
 def choose_name(label: str, *, default: str | None = None) -> str:
     if not default:
         return prompt_required(label)

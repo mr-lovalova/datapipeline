@@ -61,7 +61,7 @@ def build_common_parent() -> argparse.ArgumentParser:
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
         type=str.upper,
         default=None,
-        help="set logging level (default: WARNING)",
+        help="set logging level (default: INFO)",
     )
     common.add_argument(
         "--log-output",
@@ -88,7 +88,7 @@ def build_command_common_parent() -> argparse.ArgumentParser:
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
         type=str.upper,
         default=argparse.SUPPRESS,
-        help="set logging level (default: WARNING)",
+        help="set logging level (default: INFO)",
     )
     common.add_argument(
         "--log-output",

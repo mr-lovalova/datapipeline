@@ -109,6 +109,9 @@ def test_load_sources_resolves_fs_path_relative_to_project_root_only(
     project_root = tmp_path / "workspace" / "demo" / "demo"
     (project_root / "data").mkdir(parents=True)
     (project_root / "data" / "rows.jsonl").write_text("{}", encoding="utf-8")
+    resolved_data = project_root / "demo" / "demo" / "data"
+    resolved_data.mkdir(parents=True)
+    (resolved_data / "rows.jsonl").write_text("{}", encoding="utf-8")
     (project_root / "streams").mkdir()
     (project_root / "tasks").mkdir()
     (project_root / "build").mkdir()

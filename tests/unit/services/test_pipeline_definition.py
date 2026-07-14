@@ -58,15 +58,15 @@ def test_load_pipeline_parses_each_pipeline_document_once(
         "this profile is intentionally: [invalid",
         encoding="utf-8",
     )
-    original_safe_load = yaml_loader.yaml.safe_load
+    original_load = yaml_loader.yaml.load
     parsed_documents = 0
 
-    def count_parse(content):
+    def count_parse(content, *, Loader):
         nonlocal parsed_documents
         parsed_documents += 1
-        return original_safe_load(content)
+        return original_load(content, Loader=Loader)
 
-    monkeypatch.setattr(yaml_loader.yaml, "safe_load", count_parse)
+    monkeypatch.setattr(yaml_loader.yaml, "load", count_parse)
 
     definition = load_pipeline(project_yaml)
 

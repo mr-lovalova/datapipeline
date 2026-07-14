@@ -1,7 +1,8 @@
-from pathlib import Path
+import codecs
+import gzip
 import os
 import tempfile
-import gzip
+from pathlib import Path
 
 
 def _commit_temp_file(temp: Path, dest: Path, overwrite: bool) -> None:
@@ -26,10 +27,10 @@ class AtomicTextFileSink:
         self._dest = dest
         self._overwrite = overwrite
         dest.parent.mkdir(parents=True, exist_ok=True)
-        self._tmp = Path(
-            tempfile.NamedTemporaryFile(dir=str(dest.parent), delete=False).name
-        )
-        self._fh = open(self._tmp, "w", encoding=encoding)
+        codecs.lookup(encoding)
+        fd, temp_path = tempfile.mkstemp(dir=dest.parent)
+        self._tmp = Path(temp_path)
+        self._fh = os.fdopen(fd, "w", encoding=encoding)
 
     @property
     def fh(self):
@@ -52,10 +53,9 @@ class AtomicBinaryFileSink:
         self._dest = dest
         self._overwrite = overwrite
         dest.parent.mkdir(parents=True, exist_ok=True)
-        self._tmp = Path(
-            tempfile.NamedTemporaryFile(dir=str(dest.parent), delete=False).name
-        )
-        self._fh = open(self._tmp, "wb")
+        fd, temp_path = tempfile.mkstemp(dir=dest.parent)
+        self._tmp = Path(temp_path)
+        self._fh = os.fdopen(fd, "wb")
 
     @property
     def fh(self):
@@ -78,10 +78,9 @@ class GzipBinarySink:
         self._dest = dest
         self._overwrite = overwrite
         dest.parent.mkdir(parents=True, exist_ok=True)
-        self._tmp = Path(
-            tempfile.NamedTemporaryFile(dir=str(dest.parent), delete=False).name
-        )
-        self._raw = open(self._tmp, "wb")
+        fd, temp_path = tempfile.mkstemp(dir=dest.parent)
+        self._tmp = Path(temp_path)
+        self._raw = os.fdopen(fd, "wb")
         self._fh = gzip.GzipFile(
             filename="",
             fileobj=self._raw,

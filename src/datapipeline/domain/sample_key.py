@@ -21,7 +21,7 @@ def sample_key_value_type(field: str, value: object) -> SampleKeyValueType:
         return "float"
     raise TypeError(
         f"Sample key field {field!r} must contain a string, integer, float, "
-        f"boolean, or null; got {type(value).__name__}."
+        f"or boolean; got {type(value).__name__}."
     )
 
 

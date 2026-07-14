@@ -23,10 +23,6 @@ class TimeTicksGenerator(DataGenerator):
             yield {"time": current}
             current += self.frequency
 
-    def count(self) -> int:
-        seconds = self.frequency.total_seconds()
-        return int((self.end - self.start).total_seconds() // seconds) + 1
-
 
 def make_time_loader(
     start: str,

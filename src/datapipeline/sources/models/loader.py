@@ -12,9 +12,6 @@ class BaseDataLoader(ABC):
     @abstractmethod
     def load(self) -> Iterator[Any]: ...
 
-    def count(self) -> int | None:
-        return None
-
     @property
     def current_resource_uri(self) -> str | None:
         return None
@@ -35,9 +32,6 @@ class SyntheticLoader(BaseDataLoader):
 
     def load(self) -> Iterator[Any]:
         return self.generator.generate()
-
-    def count(self) -> int | None:
-        return self.generator.count()
 
     @property
     def progress_unit(self) -> SourceProgressUnit:

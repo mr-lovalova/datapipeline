@@ -6,17 +6,25 @@ import datapipeline.sources.adapters.http as http_adapter
 from datapipeline.sources.adapters.fs import FsFileTransport, FsGlobTransport
 from datapipeline.sources.adapters.http import HttpTransport
 from datapipeline.sources.data_loader import DataLoader
-from datapipeline.sources.decoders import Decoder, JsonLinesDecoder
+from datapipeline.sources.decoders import JsonLinesDecoder
 from datapipeline.sources.factory import build_loader
 from datapipeline.sources.ports import SourceResource, SourceTransport
 
 
 def test_fs_path_selects_file_or_glob_transport(tmp_path) -> None:
+    (tmp_path / "rows.jsonl").write_text("", encoding="utf-8")
     file_loader = build_loader("fs", "jsonl", path=str(tmp_path / "rows.jsonl"))
     glob_loader = build_loader("fs", "jsonl", path=str(tmp_path / "*.jsonl"))
 
     assert isinstance(file_loader.transport, FsFileTransport)
     assert isinstance(glob_loader.transport, FsGlobTransport)
+
+
+def test_fs_glob_requires_at_least_one_file(tmp_path) -> None:
+    pattern = str(tmp_path / "*.jsonl")
+
+    with pytest.raises(FileNotFoundError, match="Source glob matched no files"):
+        build_loader("fs", "jsonl", path=pattern)
 
 
 def test_fs_loader_rejects_removed_glob_option(tmp_path) -> None:
@@ -100,24 +108,6 @@ def test_data_loader_tracks_current_resource_uri(tmp_path):
     assert loader.current_resource_uri == str(msft)
     assert list(rows) == []
     assert loader.current_resource_uri is None
-
-
-def test_data_loader_count_propagates_decoder_errors() -> None:
-    class BrokenDecoder(Decoder):
-        def decode(self, chunks):
-            yield from ()
-
-        def count(self, chunks):
-            raise ValueError("invalid payload")
-
-    class Transport(SourceTransport):
-        def resources(self):
-            yield SourceResource(uri="broken", stream=iter((b"bad",)))
-
-    loader = DataLoader(Transport(), BrokenDecoder())
-
-    with pytest.raises(ValueError, match="invalid payload"):
-        loader.count()
 
 
 def test_data_loader_closes_resource_after_partial_read() -> None:

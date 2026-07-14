@@ -1,9 +1,9 @@
-import json
 from typing import Any
 
 from datapipeline.io.normalization import (
     View,
     flat_payload,
+    json_text,
     payload_for_view,
     raw_payload,
 )
@@ -14,14 +14,7 @@ class JsonLineSerializer:
         self._view = view
 
     def __call__(self, item: Any) -> str:
-        return (
-            json.dumps(
-                payload_for_view(item, self._view),
-                ensure_ascii=False,
-                default=str,
-            )
-            + "\n"
-        )
+        return json_text(payload_for_view(item, self._view)) + "\n"
 
 
 class CsvRowSerializer:
@@ -51,7 +44,7 @@ class TextLineSerializer:
         elif isinstance(raw, dict) and isinstance(raw.get("text"), str):
             text = raw["text"]
         else:
-            text = json.dumps(raw, ensure_ascii=False, default=str)
+            text = json_text(raw)
         return text if text.endswith("\n") else f"{text}\n"
 
 

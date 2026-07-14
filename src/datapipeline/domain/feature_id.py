@@ -24,10 +24,6 @@ def partition_suffix(feature_id: str) -> str:
     return suffix
 
 
-def is_partitioned(feature_id: str) -> bool:
-    return FEATURE_ID_SEPARATOR in feature_id
-
-
 def make_partition_id(base: str, suffix: str) -> str:
     if FEATURE_ID_SEPARATOR in base:
         raise ValueError(

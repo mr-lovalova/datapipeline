@@ -32,6 +32,21 @@ def test_source_input_files_reject_duplicates() -> None:
         _source_with_inputs(["data/a.jsonl", "data/a.jsonl"])
 
 
+@pytest.mark.parametrize(
+    "source_id",
+    ["bad/id", "bad id", "bad@id", "bad:id", ".bad", "bad.", "bad..id"],
+)
+def test_source_rejects_noncanonical_id(source_id: str) -> None:
+    with pytest.raises(ValueError, match="String should match pattern"):
+        SourceConfig.model_validate(
+            {
+                "id": source_id,
+                "parser": {"entrypoint": "parse"},
+                "loader": {"entrypoint": "load"},
+            }
+        )
+
+
 def test_stream_rejects_old_kind_shape() -> None:
     with pytest.raises(ValueError, match="Extra inputs are not permitted"):
         DerivedStreamConfig.model_validate(
@@ -465,16 +480,10 @@ def test_custom_source_loader_keeps_plugin_arguments_explicitly_open() -> None:
 
 
 @pytest.mark.parametrize(
-    ("field", "value"),
-    [
-        ("count_by_fetch", "false"),
-        ("timeout_seconds", "10"),
-        ("timeout_seconds", True),
-        ("timeout_seconds", float("inf")),
-    ],
+    "value",
+    ["10", True, float("inf")],
 )
-def test_core_http_source_rejects_coerced_runtime_options(
-    field: str,
+def test_core_http_source_rejects_invalid_timeout(
     value: object,
 ) -> None:
     with pytest.raises(ValueError):
@@ -488,7 +497,7 @@ def test_core_http_source_rejects_coerced_runtime_options(
                         "transport": "http",
                         "format": "jsonl",
                         "url": "https://example.test/prices.jsonl",
-                        field: value,
+                        "timeout_seconds": value,
                     },
                 },
             }

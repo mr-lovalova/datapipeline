@@ -17,9 +17,4 @@ def load_operation_runner(
             f"Unknown entrypoint '{operation.entrypoint}' "
             f"for operation '{operation.id}'."
         ) from exc
-    if not callable(runner):
-        raise TypeError(
-            f"Entrypoint '{operation.entrypoint}' for operation '{operation.id}' "
-            f"must resolve to a callable."
-        )
     return runner

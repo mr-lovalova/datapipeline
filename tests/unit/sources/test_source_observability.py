@@ -45,7 +45,6 @@ def test_source_summary_describes_http_transport() -> None:
 
 def test_glob_progress_tracks_current_file_and_resource_sequence(
     tmp_path,
-    monkeypatch,
 ) -> None:
     (tmp_path / "APPL.jsonl").write_text('{"n":1}\n', encoding="utf-8")
     (tmp_path / "MSFT.jsonl").write_text('{"n":2}\n', encoding="utf-8")
@@ -55,10 +54,6 @@ def test_glob_progress_tracks_current_file_and_resource_sequence(
     )
     source = Source(loader, IdentityParser())
 
-    def fail_count() -> None:
-        raise AssertionError("source progress must not count the input")
-
-    monkeypatch.setattr(loader, "count", fail_count)
     progress = source_progress(source)
     assert progress is not None
 

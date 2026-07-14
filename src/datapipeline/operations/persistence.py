@@ -1,4 +1,3 @@
-import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -11,7 +10,8 @@ from datapipeline.execution.observability import (
     emit_file_result,
 )
 from datapipeline.io.factory import writer_factory
-from datapipeline.io.output import OutputTarget
+from datapipeline.io.normalization import json_text, raw_payload
+from datapipeline.io.output import OutputTarget, output_destination_key
 
 
 @dataclass(frozen=True)
@@ -70,7 +70,8 @@ def persist_artifact_output(
         )
     relative_paths = (result.relative_path, *result.companion_paths)
     normalized_paths = tuple(Path(relative_path) for relative_path in relative_paths)
-    if len(normalized_paths) != len(set(normalized_paths)):
+    path_keys = {output_destination_key(path) for path in normalized_paths}
+    if len(normalized_paths) != len(path_keys):
         raise ValueError(f"Artifact '{artifact_key}' output paths must be unique.")
 
     artifacts_root = Path(runtime.artifacts_root).resolve()
@@ -129,14 +130,7 @@ def _persist_runtime_output(
         if result.payload is None:
             rows = ()
         elif effective_target.format == "txt":
-            rows = (
-                json.dumps(
-                    dict(result.payload),
-                    indent=2,
-                    ensure_ascii=False,
-                    default=str,
-                ),
-            )
+            rows = (json_text(raw_payload(result.payload), indent=2),)
         else:
             rows = (dict(result.payload),)
 
@@ -174,6 +168,22 @@ def _persist_split_runtime_output(
     if not result.targets:
         raise ValueError("Split runtime output requires at least one target.")
 
+    planned_targets: list[tuple[str, OutputTarget, Path]] = []
+    destination_owners: dict[str, str] = {}
+    for label, target in result.targets.items():
+        destination = target.destination
+        if target.transport != "fs" or destination is None:
+            raise ValueError("Split runtime output requires fs destinations.")
+        destination_key = output_destination_key(destination)
+        previous = destination_owners.get(destination_key)
+        if previous is not None:
+            raise ValueError(
+                f"Split outputs {previous!r} and {label!r} resolve to the same "
+                f"destination: {destination}"
+            )
+        destination_owners[destination_key] = label
+        planned_targets.append((label, target, destination))
+
     writers = {}
     counts: dict[str, int] = {}
     destinations: dict[str, Path] = {}
@@ -184,10 +194,7 @@ def _persist_split_runtime_output(
     )
     success = False
     try:
-        for label, target in result.targets.items():
-            destination = target.destination
-            if target.transport != "fs" or destination is None:
-                raise ValueError("Split runtime output requires fs destinations.")
+        for label, target, destination in planned_targets:
             writers[label] = writer_factory(target)
             counts[label] = 0
             destinations[label] = destination

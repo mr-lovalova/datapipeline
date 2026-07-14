@@ -46,10 +46,9 @@ class EnvConfigRefProvider:
 def serialize_project_value(value: Any) -> Any:
     """Normalize project global values for interpolation."""
     if isinstance(value, datetime):
-        try:
-            return value.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        except ValueError:
-            return value.isoformat()
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ConfigRefError("Project datetime globals must be timezone-aware.")
+        return value.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     if value is None:
         return None
     return value
@@ -59,21 +58,23 @@ def project_vars_from_data(data: Mapping[str, Any]) -> dict[str, Any]:
     vars_: dict[str, Any] = {}
     name = data.get("name")
     if name:
-        vars_["project"] = str(name)
         vars_["project_name"] = str(name)
 
     variant = data.get("variant")
     if variant:
-        vars_["variant"] = str(variant)
         vars_["project_variant"] = str(variant)
 
     version = data.get("version")
     if version is not None:
         vars_["version"] = str(version)
-        vars_["project_version"] = str(version)
 
     globals_ = data.get("globals") or {}
     if isinstance(globals_, Mapping):
+        for key in ("project_name", "project_variant", "version"):
+            if key in globals_:
+                raise ConfigRefError(
+                    f"Project globals must not redefine reserved variable '{key}'."
+                )
         vars_.update(_resolve_project_globals(globals_, vars_))
     return vars_
 
@@ -114,7 +115,10 @@ def _resolve_project_globals(
                     f"Unknown interpolation variable '{key}' in project globals."
                 )
             if value is None or is_missing(value):
-                return match.group(0)
+                raise ConfigRefError(
+                    f"Interpolation variable '{key}' has no value and cannot be embedded "
+                    "in project globals."
+                )
             return str(value)
 
         return _INTERPOLATION_RE.sub(repl, text)
@@ -163,7 +167,10 @@ def interpolate_config_vars(obj: Any, vars_: Mapping[str, Any]) -> Any:
                 raise ConfigRefError(f"Unknown interpolation variable '{key}'.")
             value = vars_[key]
             if value is None or is_missing(value):
-                return match.group(0)
+                raise ConfigRefError(
+                    f"Interpolation variable '{key}' has no value and cannot be embedded "
+                    "in text."
+                )
             return str(value)
 
         return _INTERPOLATION_RE.sub(repl, obj)

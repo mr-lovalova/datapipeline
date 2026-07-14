@@ -1,7 +1,14 @@
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
 
 ProjectPath = Annotated[
@@ -33,6 +40,24 @@ class ProjectGlobals(BaseModel):
     model_config = ConfigDict(extra="allow")
     start_time: datetime | None = None
     end_time: datetime | None = None
+
+    @model_validator(mode="after")
+    def validate_time_range(self) -> Self:
+        if self.start_time is not None and (
+            self.start_time.tzinfo is None or self.start_time.utcoffset() is None
+        ):
+            raise ValueError("globals.start_time must be timezone-aware")
+        if self.end_time is not None and (
+            self.end_time.tzinfo is None or self.end_time.utcoffset() is None
+        ):
+            raise ValueError("globals.end_time must be timezone-aware")
+        if (
+            self.start_time is not None
+            and self.end_time is not None
+            and self.start_time > self.end_time
+        ):
+            raise ValueError("globals.start_time must not be after globals.end_time")
+        return self
 
 
 class ProjectConfig(BaseModel):

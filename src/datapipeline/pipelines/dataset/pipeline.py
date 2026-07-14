@@ -1,4 +1,4 @@
-from collections.abc import Iterator, Sequence
+from collections.abc import Generator, Sequence
 from functools import partial
 
 from datapipeline.config.dataset.feature import FeatureRecordConfig
@@ -18,7 +18,7 @@ def run_dataset_pipeline(
     target_configs: Sequence[FeatureRecordConfig] | None = None,
     rectangular: bool = True,
     sample_keys: Sequence[str] = (),
-) -> Iterator[Sample]:
+) -> Generator[Sample, None, None]:
     return run_pipeline(
         context,
         build_dataset_pipeline(

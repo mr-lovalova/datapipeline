@@ -284,17 +284,15 @@ def test_ingest_pipeline_carries_source_summary(tmp_path: Path) -> None:
 
 def test_stream_pipeline_carries_source_summary(tmp_path: Path) -> None:
     runtime = _runtime_with_rows(tmp_path, [], stream_id="derived", stream_ops=[])
+    (tmp_path / "AAPL.jsonl").write_text("", encoding="utf-8")
+    (tmp_path / "MSFT.jsonl").write_text("", encoding="utf-8")
     source = Source(
         DataLoader(
-            FsGlobTransport("/definitely/not/real/*.jsonl"),
+            FsGlobTransport(str(tmp_path / "*.jsonl")),
             JsonLinesDecoder(),
         ),
         IdentityParser(),
     )
-    source.loader.transport._files = [  # type: ignore[attr-defined]
-        "/tmp/AAPL.jsonl",
-        "/tmp/MSFT.jsonl",
-    ]
     runtime.streams["derived.ingest"] = replace(
         runtime.streams["derived.ingest"],
         source=source,

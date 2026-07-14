@@ -113,13 +113,7 @@ def finish_run(
     notes: str | None = None,
 ) -> RunMetadata:
     """Mark an existing run as finished with the given status."""
-    if paths.metadata_path.exists():
-        meta = _load_run_metadata(paths.metadata_path)
-    else:
-        meta = RunMetadata(
-            run_id=paths.run_id,
-            started_at=_now_utc_iso(),
-        )
+    meta = _load_run_metadata(paths.metadata_path)
 
     meta.finished_at = _now_utc_iso()
     meta.status = status

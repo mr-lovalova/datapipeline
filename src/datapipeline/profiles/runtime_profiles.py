@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
-from unicodedata import normalize
 
 from datapipeline.config.dataset.split import split_output_labels
 from datapipeline.config.profiles import (
@@ -18,6 +17,7 @@ from datapipeline.execution.settings import (
 )
 from datapipeline.io.output import (
     OutputTarget,
+    output_destination_key,
     resolve_output_directory,
     resolve_output_target,
 )
@@ -51,7 +51,7 @@ def _validate_split_output_filenames(
     filenames: dict[str, str] = {}
     for label in output_splits:
         filename = sanitize_path_segment(label)
-        collision_key = normalize("NFC", filename).casefold()
+        collision_key = output_destination_key(Path(filename))
         existing = filenames.get(collision_key)
         if existing is not None:
             raise ValueError(
@@ -206,7 +206,7 @@ def resolve_runtime_profiles(
             )
         )
 
-    output_owners: dict[Path, str] = {}
+    output_owners: dict[str, str] = {}
     for resolved_profile in resolved:
         if resolved_profile.output.destination is None:
             continue
@@ -224,13 +224,14 @@ def resolve_runtime_profiles(
             owner = f"profile '{resolved_profile.name}'"
             if split_label is not None:
                 owner = f"{owner} split {split_label!r}"
-            previous = output_owners.get(destination)
+            destination_key = output_destination_key(destination)
+            previous = output_owners.get(destination_key)
             if previous is not None:
                 raise ValueError(
                     f"Runtime outputs for {previous} and {owner} resolve to the "
                     f"same path '{destination}'."
                 )
-            output_owners[destination] = owner
+            output_owners[destination_key] = owner
 
     previews_by_run: dict[RunPaths, set[PreviewStage | None]] = {}
     for resolved_profile in resolved:

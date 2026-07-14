@@ -328,19 +328,26 @@ def test_generic_artifact_task_is_a_dependency_free_leaf():
     assert graph.definition("custom_snapshot").dependencies == ()
 
 
-def test_artifact_graph_rejects_duplicate_output_paths():
-    with pytest.raises(ValueError, match="write the same output 'build/shared.json'"):
+@pytest.mark.parametrize(
+    "outputs",
+    [
+        ("build/shared.json", "build/shared.json"),
+        ("build/Shared.json", "build/shared.json"),
+    ],
+)
+def test_artifact_graph_rejects_duplicate_output_paths(outputs):
+    with pytest.raises(ValueError, match="write the same output"):
         build_artifact_graph(
             [
                 ArtifactTask(
                     id="first",
                     entrypoint="plugin.first",
-                    output="build/shared.json",
+                    output=outputs[0],
                 ),
                 ArtifactTask(
                     id="second",
                     entrypoint="plugin.second",
-                    output="build/shared.json",
+                    output=outputs[1],
                 ),
             ]
         )

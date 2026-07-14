@@ -13,10 +13,6 @@ class Decoder(ABC):
     @abstractmethod
     def decode(self, chunks: Iterable[bytes]) -> Iterator[Any]: ...
 
-    def count(self, chunks: Iterable[bytes]) -> int | None:
-        """Return the row count when the decoder can determine it."""
-        return None
-
 
 def _iter_text_lines(chunks: Iterable[bytes], encoding: str) -> Iterator[str]:
     """Yield LF/CRLF physical lines without rewriting their terminators."""
@@ -85,10 +81,6 @@ class CsvDecoder(Decoder):
         for row in reader:
             yield row
 
-    def count(self, chunks: Iterable[bytes]) -> int:
-        reader = csv.DictReader(self._iter_lines(chunks), delimiter=self.delimiter)
-        return sum(1 for _ in reader)
-
 
 class JsonDecoder(Decoder):
     def __init__(
@@ -119,12 +111,6 @@ class JsonDecoder(Decoder):
             return
         yield data
 
-    def count(self, chunks: Iterable[bytes]) -> int:
-        data = self._load_payload(chunks)
-        if data is None and self.array_field is not None:
-            return 0
-        return len(data) if isinstance(data, list) else 1
-
 
 class JsonLinesDecoder(Decoder):
     def __init__(self, encoding: str = "utf-8") -> None:
@@ -136,9 +122,6 @@ class JsonLinesDecoder(Decoder):
             if not s:
                 continue
             yield json.loads(s)
-
-    def count(self, chunks: Iterable[bytes]) -> int:
-        return sum(1 for s in _iter_text_lines(chunks, self.encoding) if s.strip())
 
 
 class PickleDecoder(Decoder):
@@ -153,17 +136,3 @@ class PickleDecoder(Decoder):
                 yield unpickler.load()
         except EOFError:
             return
-
-    def count(self, chunks: Iterable[bytes]) -> int:
-        buffer = io.BytesIO()
-        for chunk in chunks:
-            buffer.write(chunk)
-        buffer.seek(0)
-        unpickler = pickle.Unpickler(buffer)
-        total = 0
-        try:
-            while True:
-                unpickler.load()
-                total += 1
-        except EOFError:
-            return total

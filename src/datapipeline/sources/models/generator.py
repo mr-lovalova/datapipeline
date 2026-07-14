@@ -9,8 +9,5 @@ class DataGenerator(ABC):
     @abstractmethod
     def generate(self) -> Iterator[Any]: ...
 
-    def count(self) -> int | None:
-        return None
-
     def __iter__(self) -> Iterator[Any]:
         return self.generate()

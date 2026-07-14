@@ -26,11 +26,6 @@ class {{ CLASS_NAME }}Generator(DataGenerator):
         # Example: yield time ticks, random samples, or derived sequences.
         yield {"example": True}
 
-    def count(self) -> int | None:
-        # Optional: return number of items if cheaply known; else None
-        return None
-
-
 class {{ CLASS_NAME }}(SyntheticLoader):
     """Adapter that exposes the generator to the pipeline as a loader."""
 

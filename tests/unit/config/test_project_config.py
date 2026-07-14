@@ -102,11 +102,46 @@ def test_project_config_rejects_blank_discovery_root(field: str) -> None:
         ProjectConfig.model_validate(data)
 
 
-def test_project_variant_is_available_for_interpolation() -> None:
+def test_project_fields_have_one_interpolation_name() -> None:
     vars_ = project_vars_from_data(_project_data(variant="long"))
 
-    assert vars_["variant"] == "long"
+    assert vars_["project_name"] == "momentum"
     assert vars_["project_variant"] == "long"
+    assert vars_["version"] == "1"
+    assert "project" not in vars_
+    assert "variant" not in vars_
+    assert "project_version" not in vars_
+
+
+@pytest.mark.parametrize("field", ["project_name", "project_variant", "version"])
+def test_project_globals_cannot_override_project_variables(field: str) -> None:
+    with pytest.raises(ValueError, match=f"reserved variable '{field}'"):
+        project_vars_from_data(_project_data(globals={field: "override"}))
+
+
+@pytest.mark.parametrize("field", ["start_time", "end_time"])
+def test_project_globals_require_timezone_aware_bounds(field: str) -> None:
+    with pytest.raises(
+        ValidationError, match=f"globals.{field} must be timezone-aware"
+    ):
+        ProjectConfig.model_validate(
+            _project_data(globals={field: "2024-01-01T00:00:00"})
+        )
+
+
+def test_project_globals_reject_reversed_time_range() -> None:
+    with pytest.raises(
+        ValidationError,
+        match="globals.start_time must not be after globals.end_time",
+    ):
+        ProjectConfig.model_validate(
+            _project_data(
+                globals={
+                    "start_time": "2024-01-02T00:00:00Z",
+                    "end_time": "2024-01-01T00:00:00Z",
+                }
+            )
+        )
 
 
 def test_project_config_rejects_unknown_top_level_fields() -> None:

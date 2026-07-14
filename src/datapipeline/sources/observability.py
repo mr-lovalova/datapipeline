@@ -34,8 +34,7 @@ def source_progress(
             )
             for index, path in enumerate(files, start=1)
         }
-        if files:
-            resource = resources_by_id[files[0]]
+        resource = resources_by_id[files[0]]
     elif isinstance(transport, FsFileTransport):
         name = Path(transport.path).name or transport.path
         resource = ProgressResource(1, 1, f'"{name}"')
@@ -79,10 +78,7 @@ def _transport_source_summary(transport: SourceTransport) -> str | None:
         total = len(files)
         parts = ["transport=fs.glob", f"count={total}"]
         root = _glob_root(files)
-        if total == 0:
-            pattern = transport.pattern
-            parts.append(f"root={_compact_root(root) if root else pattern or 'fs'}")
-        elif total == 1:
+        if total == 1:
             parts.append(f"file={_relative_label(files[0], root)}")
         else:
             parts.append(f"first={_relative_label(files[0], root)}")
@@ -100,29 +96,15 @@ def _transport_source_summary(transport: SourceTransport) -> str | None:
     return None
 
 
-def _glob_root(files: list[str]) -> Path | None:
-    if not files:
-        return None
+def _glob_root(files: list[str]) -> Path:
     if len(files) == 1:
         return Path(files[0]).parent
     return Path(os.path.commonpath(files))
 
 
-def _compact_root(path: Path, segments: int = 3) -> str:
-    parts = [part for part in path.as_posix().split("/") if part]
-    if len(parts) > segments:
-        parts = ["...", *parts[-segments:]]
-    return "/".join(parts) if parts else "/"
-
-
-def _relative_label(path: str, root: Path | None) -> str:
-    if root is not None:
-        try:
-            rel = Path(path).relative_to(root)
-            rel_str = rel.as_posix()
-            if rel_str:
-                return rel_str
-            return rel.name or path
-        except ValueError:
-            return Path(path).name or path
-    return Path(path).name or path
+def _relative_label(path: str, root: Path) -> str:
+    try:
+        relative = Path(path).relative_to(root)
+    except ValueError:
+        return Path(path).name or path
+    return relative.as_posix() or relative.name or path

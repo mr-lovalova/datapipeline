@@ -15,10 +15,7 @@ def stream_vectors(
     """Yield ``(group_key, Vector)`` pairs for the configured project."""
 
     adapter = VectorAdapter.from_project(project_yaml)
-    try:
-        return adapter.stream(limit=limit)
-    except ValueError:
-        return iter(())
+    return adapter.stream(limit=limit)
 
 
 def iter_vector_rows(
@@ -33,16 +30,13 @@ def iter_vector_rows(
     """Return an iterator of row dictionaries derived from vectors."""
 
     adapter = VectorAdapter.from_project(project_yaml)
-    try:
-        return adapter.iter_rows(
-            limit=limit,
-            include_group=include_group,
-            group_format=group_format,
-            group_column=group_column,
-            flatten_sequences=flatten_sequences,
-        )
-    except ValueError:
-        return iter(())
+    return adapter.iter_rows(
+        limit=limit,
+        include_group=include_group,
+        group_format=group_format,
+        group_column=group_column,
+        flatten_sequences=flatten_sequences,
+    )
 
 
 def collect_vector_rows(
@@ -53,7 +47,6 @@ def collect_vector_rows(
     group_format: GroupFormat = "mapping",
     group_column: str = "group",
     flatten_sequences: bool = False,
-    open_stream=None,
 ) -> list[dict[str, Any]]:
     """Materialize :func:`iter_vector_rows` into a list for eager workflows."""
 

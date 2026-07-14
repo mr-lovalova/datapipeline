@@ -1,4 +1,4 @@
-from typing import Iterator, List
+from typing import Iterator
 
 from datapipeline.sources.ports import SourceResource, SourceTransport
 
@@ -26,10 +26,12 @@ class FsGlobTransport(SourceTransport):
 
         self.pattern = pattern
         self.chunk_size = chunk_size
-        self._files: List[str] = sorted(_glob.glob(pattern))
+        self._files = sorted(_glob.glob(pattern))
+        if not self._files:
+            raise FileNotFoundError(f"Source glob matched no files: {pattern}")
 
     @property
-    def files(self) -> List[str]:
+    def files(self) -> list[str]:
         return list(self._files)
 
     def resources(self) -> Iterator[SourceResource]:

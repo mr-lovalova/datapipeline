@@ -31,7 +31,7 @@ _CanonicalId = Annotated[
     StringConstraints(
         strip_whitespace=True,
         min_length=1,
-        pattern=r"^[^@:]+$",
+        pattern=r"^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*$",
     ),
 ]
 
@@ -94,7 +94,6 @@ class HttpSourceArgs(_DecodedSourceArgs):
         ]
         | None
     ) = None
-    count_by_fetch: bool = Field(default=False, strict=True)
 
 
 CoreIoSourceArgs: TypeAlias = Annotated[

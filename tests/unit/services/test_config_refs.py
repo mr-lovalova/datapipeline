@@ -290,6 +290,37 @@ def test_global_reference_to_null_stays_missing(tmp_path: Path) -> None:
     assert is_missing(globals_["derived_root"])
 
 
+def test_missing_global_cannot_be_embedded_in_another_global(tmp_path: Path) -> None:
+    project_root = tmp_path / "project"
+    project_root.mkdir(parents=True)
+    _write_project_files(project_root)
+    project_yaml = _write_project_yaml(
+        project_root,
+        globals_lines=[
+            "optional_root:",
+            "missing_root: ${optional_root}",
+            "derived_root: data/${missing_root}",
+        ],
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Interpolation variable 'missing_root' has no value and cannot be embedded",
+    ):
+        load_project(project_yaml)
+
+
+def test_null_config_value_cannot_be_embedded_in_text() -> None:
+    with pytest.raises(
+        ValueError,
+        match="Interpolation variable 'optional_root' has no value and cannot be embedded",
+    ):
+        interpolate_config_vars(
+            {"path": "data/${optional_root}/prices.jsonl"},
+            {"optional_root": None},
+        )
+
+
 def test_full_placeholder_interpolation_preserves_global_value_type(
     tmp_path: Path,
 ) -> None:

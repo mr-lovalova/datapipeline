@@ -9,7 +9,7 @@ from datapipeline.config.preview import PreviewStage
 from datapipeline.execution.context import PipelineContext
 from datapipeline.execution.runner import run_pipeline
 from datapipeline.domain.sample import Sample
-from datapipeline.io.output import OutputTarget
+from datapipeline.io.output import OutputTarget, output_destination_key
 from datapipeline.operations.persistence import (
     RuntimeOutput,
     RuntimeOutputBatch,
@@ -158,7 +158,23 @@ def _serve_preview(
 
     outputs: list[RuntimeOutput] = []
     preview_plan = _preview_plan(feature_cfgs + target_cfgs, preview)
+    resolved_outputs: list[tuple[str, FeatureRecordConfig, OutputTarget]] = []
+    destinations: dict[str, str] = {}
     for output_id, cfg in preview_plan:
+        output_target = target.for_feature(output_id)
+        destination = output_target.destination
+        if destination is not None:
+            collision_key = output_destination_key(destination)
+            if collision_key in destinations:
+                first_id = destinations[collision_key]
+                raise ValueError(
+                    f"Preview outputs {first_id!r} and {output_id!r} resolve to "
+                    f"the same destination: {destination}"
+                )
+            destinations[collision_key] = output_id
+        resolved_outputs.append((output_id, cfg, output_target))
+
+    for output_id, cfg, output_target in resolved_outputs:
         if preview in _RECORD_PREVIEWS:
             stream = _record_preview_stream(
                 context,
@@ -174,7 +190,7 @@ def _serve_preview(
             )
         else:
             raise ValueError(f"Unsupported preview stage: {preview!r}")
-        outputs.append(_runtime_output(stream, target.for_feature(output_id), limit))
+        outputs.append(_runtime_output(stream, output_target, limit))
     return RuntimeOutputBatch(outputs=tuple(outputs))
 
 

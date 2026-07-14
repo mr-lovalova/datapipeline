@@ -105,19 +105,21 @@ def test_preflight_rejects_unknown_stream(tmp_path) -> None:
         )
 
 
-def test_preflight_rejects_duplicate_destinations(tmp_path) -> None:
+@pytest.mark.parametrize(
+    "filenames",
+    [("adv.jsonl", "adv.jsonl"), ("ADV.jsonl", "adv.jsonl")],
+)
+def test_preflight_rejects_duplicate_destinations(tmp_path, filenames) -> None:
     runtime = SimpleNamespace(
         streams={"adv.20": object(), "adv.63": object()},
         artifacts_root=tmp_path / "artifacts",
     )
-    output = tmp_path / "adv.jsonl"
-
     with pytest.raises(ValueError, match="write the same path"):
         materialize.preflight_materialize_jobs(
             runtime,
             [
-                _job("adv-20", "adv.20", output),
-                _job("adv-63", "adv.63", output),
+                _job("adv-20", "adv.20", tmp_path / filenames[0]),
+                _job("adv-63", "adv.63", tmp_path / filenames[1]),
             ],
         )
 

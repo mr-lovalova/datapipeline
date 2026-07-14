@@ -18,6 +18,7 @@ from datapipeline.config.tasks import (
     TicksTask,
 )
 from datapipeline.config.transforms import EnsureTicksConfig
+from datapipeline.io.output import output_destination_key
 from datapipeline.services.constants import (
     SCALER_STATISTICS,
     VECTOR_INPUTS,
@@ -98,16 +99,17 @@ class ArtifactGraph:
                 raise ValueError(f"Duplicate artifact operation id '{task.id}'.")
             tasks_by_id[task.id] = task
 
-        tasks_by_output: dict[Path, str] = {}
+        tasks_by_output: dict[str, str] = {}
         for task in tasks:
             output = Path(task.output)
-            previous_task_id = tasks_by_output.get(output)
+            destination_key = output_destination_key(output)
+            previous_task_id = tasks_by_output.get(destination_key)
             if previous_task_id is not None:
                 raise ValueError(
                     f"Artifact operations '{previous_task_id}' and '{task.id}' write "
                     f"the same output '{task.output}'."
                 )
-            tasks_by_output[output] = task.id
+            tasks_by_output[destination_key] = task.id
 
         definitions = list(ARTIFACT_DEFINITIONS)
         stats_task = tasks_by_id.get("stats")

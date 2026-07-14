@@ -737,12 +737,16 @@ def test_serve_runtime_profiles_share_run_and_namespace_splits(tmp_path):
     assert not planned_run.metadata_path.exists()
 
 
-def test_runtime_profiles_reject_sanitized_output_collision(tmp_path):
+@pytest.mark.parametrize(
+    "names",
+    [("daily/eu", "daily_eu"), ("Daily", "daily")],
+)
+def test_runtime_profiles_reject_sanitized_output_collision(tmp_path, names):
     profiles = [
         ServeProfile.model_validate(
             {"cmd": "serve", "name": name, "operation": "serve"}
         )
-        for name in ("daily/eu", "daily_eu")
+        for name in names
     ]
     output_root = tmp_path / "out"
 

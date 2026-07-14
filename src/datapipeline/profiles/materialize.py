@@ -12,6 +12,7 @@ from datapipeline.execution.settings import (
     resolve_observability_settings,
 )
 from datapipeline.execution.observability import emit_file_result, operation_scope
+from datapipeline.io.output import output_destination_key
 from datapipeline.profiles.models import MaterializeJob
 from datapipeline.runtime import Runtime
 from datapipeline.services.materialize import (
@@ -79,7 +80,7 @@ def preflight_materialize_jobs(
     jobs: Sequence[MaterializeJob],
 ) -> None:
     destinations: list[tuple[MaterializeJob, Path]] = []
-    owners: dict[Path, str] = {}
+    owners: dict[str, str] = {}
     available_streams = set(runtime.streams)
     artifacts_root = runtime.artifacts_root.resolve()
     for job in jobs:
@@ -95,13 +96,14 @@ def preflight_materialize_jobs(
                 f"Materialize profile '{job.name}' writes inside the managed "
                 f"artifacts root: {path}"
             )
-        owner = owners.get(path)
+        destination_key = output_destination_key(path)
+        owner = owners.get(destination_key)
         if owner is not None:
             raise ValueError(
                 f"Materialize profiles '{owner}' and '{job.name}' "
                 f"write the same path: {path}"
             )
-        owners[path] = job.name
+        owners[destination_key] = job.name
 
     for job, path in destinations:
         check_materialize_destination(path, job.overwrite)

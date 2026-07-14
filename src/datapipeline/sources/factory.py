@@ -38,7 +38,6 @@ def build_loader(
     error_prefixes: Sequence[str] | None = None,
     array_field: str | None = None,
     timeout_seconds: float | None = None,
-    count_by_fetch: bool = False,
 ) -> DataLoader:
     transport = transport.lower()
     format = format.lower()
@@ -80,4 +79,4 @@ def build_loader(
     else:
         raise ValueError(f"unsupported format for IO loader: {format}")
 
-    return DataLoader(source, decoder, allow_network_count=count_by_fetch)
+    return DataLoader(source, decoder)

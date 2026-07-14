@@ -13,7 +13,7 @@ from datapipeline.pipelines.sort import SortProgress
 @dataclass
 class _Record:
     time: datetime
-    security_id: str
+    security_id: object
 
 
 def _ts(day: int) -> datetime:
@@ -98,6 +98,47 @@ def test_sort_records_orders_by_partition_then_time() -> None:
         ("AAPL", 1),
         ("MSFT", 2),
     ]
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        [False, 0],
+        [1, 1.0],
+    ],
+)
+def test_presorted_records_reject_mixed_exact_partition_types(values) -> None:
+    records = [
+        _Record(time=_ts(position), security_id=value)
+        for position, value in enumerate(values, start=1)
+    ]
+
+    with pytest.raises(
+        TypeError,
+        match="partition field 'security_id'.*one exact type",
+    ):
+        list(validate_record_order(("security_id",), iter(records)))
+
+
+@pytest.mark.parametrize("values", [[False, 0], [1, 1.0]])
+def test_sorted_records_reject_mixed_exact_partition_types(values) -> None:
+    records = [
+        _Record(time=_ts(position), security_id=value)
+        for position, value in enumerate(values, start=1)
+    ]
+
+    with pytest.raises(
+        TypeError,
+        match="partition field 'security_id'.*one exact type",
+    ):
+        list(
+            sort_records(
+                ("security_id",),
+                1_000_000,
+                SortProgress(),
+                iter(records),
+            )
+        )
 
 
 def test_only_real_sort_nodes_expose_sort_progress() -> None:

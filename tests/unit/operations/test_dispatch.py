@@ -28,10 +28,3 @@ def test_load_operation_runner_names_unknown_operation(monkeypatch) -> None:
         match="Unknown entrypoint 'plugin.runtime.report' for operation 'report'",
     ):
         dispatch.load_operation_runner(_operation(), "runtime")
-
-
-def test_load_operation_runner_rejects_noncallable_entrypoint(monkeypatch) -> None:
-    monkeypatch.setattr(dispatch, "load_ep", lambda _group, _entrypoint: object())
-
-    with pytest.raises(TypeError, match="must resolve to a callable"):
-        dispatch.load_operation_runner(_operation(), "runtime")

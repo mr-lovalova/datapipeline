@@ -26,6 +26,13 @@ def test_run_ids_include_subsecond_precision(monkeypatch) -> None:
     assert runs.make_run_id() == "2026-01-01T12-00-00-000002Z"
 
 
+def test_finish_run_requires_started_run_metadata(tmp_path: Path) -> None:
+    paths = runs.get_run_paths(tmp_path / "serve", "missing")
+
+    with pytest.raises(FileNotFoundError):
+        runs.finish_run_success(paths)
+
+
 def test_latest_run_is_a_replaceable_symlink(
     tmp_path: Path,
     monkeypatch,

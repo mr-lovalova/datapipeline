@@ -126,6 +126,22 @@ def test_persist_artifact_output_rejects_escaping_companion(tmp_path) -> None:
         )
 
 
+def test_persist_artifact_output_rejects_case_colliding_companion(tmp_path) -> None:
+    (tmp_path / "manifest.json").write_text("{}", encoding="utf-8")
+    runtime = SimpleNamespace(artifacts_root=tmp_path)
+
+    with pytest.raises(ValueError, match="output paths must be unique"):
+        persist_artifact_output(
+            ArtifactOutput(
+                relative_path="manifest.json",
+                companion_paths=("MANIFEST.json",),
+            ),
+            artifact_key="vector_inputs",
+            expected_relative_path="manifest.json",
+            runtime=runtime,
+        )
+
+
 def test_failed_runtime_write_preserves_existing_file(tmp_path) -> None:
     destination = tmp_path / "out.jsonl"
     destination.write_text("previous\n", encoding="utf-8")
@@ -150,6 +166,32 @@ def test_failed_runtime_write_preserves_existing_file(tmp_path) -> None:
         )
 
     assert destination.read_text(encoding="utf-8") == "previous\n"
+
+
+def test_split_runtime_output_rejects_colliding_destinations(tmp_path) -> None:
+    targets = {
+        label: OutputTarget(
+            transport="fs",
+            format="jsonl",
+            view="raw",
+            encoding="utf-8",
+            destination=tmp_path / filename,
+        )
+        for label, filename in (("train", "SPLIT.jsonl"), ("test", "split.jsonl"))
+    }
+
+    with pytest.raises(ValueError, match="resolve to the same destination"):
+        persist_runtime_result(
+            SplitRuntimeOutput(
+                rows=iter(()),
+                targets=targets,
+                label_for_row=lambda row: row["split"],
+            ),
+            target=None,
+            logger=logging.getLogger(__name__),
+        )
+
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_runtime_persistence_emits_flat_output(tmp_path) -> None:
