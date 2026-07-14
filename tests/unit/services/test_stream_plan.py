@@ -31,17 +31,17 @@ def _patch_project(monkeypatch, tmp_path: Path) -> Path:
     return pyproject
 
 
-def test_custom_source_id_is_used_for_source_and_ingest(monkeypatch, tmp_path) -> None:
+def test_custom_source_id_is_used_for_source_and_stream(monkeypatch, tmp_path) -> None:
     _patch_project(monkeypatch, tmp_path)
     created_source: dict[str, object] = {}
-    created_ingest: dict[str, object] = {}
+    created_stream: dict[str, object] = {}
     monkeypatch.setattr(
         "datapipeline.services.scaffold.stream_plan.create_source_yaml",
         lambda **kwargs: created_source.update(kwargs),
     )
     monkeypatch.setattr(
-        "datapipeline.services.scaffold.stream_plan.write_ingest_stream",
-        lambda **kwargs: created_ingest.update(kwargs),
+        "datapipeline.services.scaffold.stream_plan.write_source_stream",
+        lambda **kwargs: created_stream.update(kwargs),
     )
     plan = StreamPlan(
         project_yaml=tmp_path / "project.yaml",
@@ -61,7 +61,7 @@ def test_custom_source_id_is_used_for_source_and_ingest(monkeypatch, tmp_path) -
     execute_stream_plan(plan)
 
     assert created_source["source_id"] == "nasa.weather.hourly"
-    assert created_ingest["source"] == "nasa.weather.hourly"
+    assert created_stream["source"] == "nasa.weather.hourly"
 
 
 def test_invalid_source_id_fails_before_project_mutation(monkeypatch, tmp_path) -> None:
@@ -146,7 +146,7 @@ def test_creation_plan_executes_exact_declared_components(
         create_mapper,
     )
     monkeypatch.setattr(
-        "datapipeline.services.scaffold.stream_plan.write_ingest_stream",
+        "datapipeline.services.scaffold.stream_plan.write_source_stream",
         create_stream,
     )
     dto = PythonType("WeatherDTO", "example.dtos.weather_dto")
@@ -184,7 +184,7 @@ def test_creation_plan_executes_exact_declared_components(
     assert stream_call["mapper_entrypoint"] == "weather_mapper"
 
 
-def test_reference_plan_only_writes_ingest(monkeypatch, tmp_path) -> None:
+def test_reference_plan_only_writes_stream(monkeypatch, tmp_path) -> None:
     _patch_project(monkeypatch, tmp_path)
 
     def fail_source_creation(**kwargs):
@@ -196,7 +196,7 @@ def test_reference_plan_only_writes_ingest(monkeypatch, tmp_path) -> None:
     )
     captured: dict[str, object] = {}
     monkeypatch.setattr(
-        "datapipeline.services.scaffold.stream_plan.write_ingest_stream",
+        "datapipeline.services.scaffold.stream_plan.write_source_stream",
         lambda **kwargs: captured.update(kwargs),
     )
     plan = StreamPlan(
@@ -233,7 +233,7 @@ def test_dto_creation_is_a_single_explicit_plan_action(monkeypatch, tmp_path) ->
         create_mapper,
     )
     monkeypatch.setattr(
-        "datapipeline.services.scaffold.stream_plan.write_ingest_stream",
+        "datapipeline.services.scaffold.stream_plan.write_source_stream",
         lambda **kwargs: None,
     )
     plan = StreamPlan(

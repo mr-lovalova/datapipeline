@@ -23,7 +23,7 @@ from datapipeline.pipelines.feature.nodes import (
     sequence_features,
 )
 from datapipeline.pipelines.feature.projector import FeatureProjector
-from datapipeline.runtime import IngestRuntimeStream, Runtime
+from datapipeline.runtime import Runtime, SourceRuntimeStream
 from datapipeline.services.artifacts import ArtifactNotRegisteredError
 from datapipeline.services.constants import SCALER_STATISTICS
 
@@ -43,9 +43,10 @@ def _context(tmp_path) -> PipelineContext:
         artifacts_root=tmp_path / "artifacts",
         dataset=FeatureDatasetConfig(sample=SampleConfig(cadence="1h")),
     )
-    runtime.streams["stream"] = IngestRuntimeStream(
+    runtime.streams["stream"] = SourceRuntimeStream(
         source=_EmptySource(),
         mapper=_identity,
+        preprocess=(),
         transforms=(),
         partition_by=(),
         presorted=False,

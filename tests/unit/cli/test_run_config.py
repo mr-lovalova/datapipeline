@@ -13,10 +13,9 @@ def _write_project(tmp_path: Path) -> Path:
     project_yaml.write_text(
         "\n".join(
             [
-                "version: 1",
+                "version: 2",
                 "artifact_revision: 1",
                 "paths:",
-                "  ingests: ./ingests",
                 "  streams: streams",
                 "  sources: sources",
                 "  dataset: dataset.yaml",
@@ -30,7 +29,7 @@ def _write_project(tmp_path: Path) -> Path:
         "sample:\n  cadence: 1h\n",
         encoding="utf-8",
     )
-    for directory in ("ingests", "streams", "sources"):
+    for directory in ("streams", "sources"):
         (tmp_path / directory).mkdir(parents=True, exist_ok=True)
     return project_yaml
 

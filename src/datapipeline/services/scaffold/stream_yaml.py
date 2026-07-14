@@ -6,28 +6,26 @@ from datapipeline.services.scaffold.templates import render
 from datapipeline.services.scaffold.utils import status
 
 
-def write_ingest_stream(
-    *,
+def write_source_stream(
     project_yaml: Path,
     stream_id: str,
     source: str,
     mapper_entrypoint: str,
 ) -> Path:
     ensure_project_scaffold(project_yaml)
-    ingests_path = load_project(project_yaml).ingest_dirs[0]
-    ingests_dir = ingests_path if ingests_path.is_dir() else ingests_path.parent
-    ingests_dir.mkdir(parents=True, exist_ok=True)
-    cfile = ingests_dir / f"{stream_id}.yaml"
+    streams_dir = load_project(project_yaml).stream_dirs[0]
+    streams_dir.mkdir(parents=True, exist_ok=True)
+    cfile = streams_dir / f"{stream_id}.yaml"
     cfile.write_text(
         render(
-            "ingests/ingest.yaml.j2",
+            "streams/source.yaml.j2",
             source=source,
             stream_id=stream_id,
             mapper_entrypoint=mapper_entrypoint,
         ),
         encoding="utf-8",
     )
-    status("new", f"ingest spec: {cfile}")
+    status("new", f"source stream spec: {cfile}")
     return cfile
 
 
@@ -38,8 +36,7 @@ def write_aligned_stream(
     combine_entrypoint: str,
 ) -> Path:
     ensure_project_scaffold(project_yaml)
-    streams_path = load_project(project_yaml).stream_dirs[0]
-    streams_dir = streams_path if streams_path.is_dir() else streams_path.parent
+    streams_dir = load_project(project_yaml).stream_dirs[0]
     streams_dir.mkdir(parents=True, exist_ok=True)
     cfile = streams_dir / f"{stream_id}.yaml"
     cfile.write_text(

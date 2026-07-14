@@ -81,7 +81,7 @@ def test_workspace_resolve_dataset_alias(tmp_path: Path):
     )
     (tmp_path / "example").mkdir(parents=True, exist_ok=True)
     (tmp_path / "example" / "project.yaml").write_text(
-        "version: 1\nartifact_revision: 1\nname: x\npaths:\n  ingests: ./ingests\n  streams: ./streams\n  sources: ./sources\n  dataset: dataset.yaml\n  artifacts: ./artifacts\n  operations: ./operations\n",
+        "version: 2\nartifact_revision: 1\nname: x\npaths:\n  streams: ./streams\n  sources: ./sources\n  dataset: dataset.yaml\n  artifacts: ./artifacts\n  operations: ./operations\n",
         encoding="utf-8",
     )
 

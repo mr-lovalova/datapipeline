@@ -5,9 +5,10 @@ from datapipeline.services.paths import pkg_root
 from datapipeline.services.project_paths import resolve_project_yaml_path
 from datapipeline.services.scaffold.stream_yaml import (
     write_aligned_stream,
-    write_ingest_stream,
+    write_source_stream,
 )
 from datapipeline.services.scaffold.discovery import (
+    list_combiners,
     list_domains,
     list_mappers,
     list_sources,
@@ -31,7 +32,7 @@ from datapipeline.cli.commands.mapper import handle as handle_mapper
 from datapipeline.services.scaffold.domain import create_domain
 
 
-def _select_ingest_mapper(root: Path | None) -> str:
+def _select_source_mapper(root: Path | None) -> str:
     mappers = list_mappers(root=root)
     options = [("create", "Create new mapper (default)")]
     if mappers:
@@ -55,6 +56,28 @@ def _select_ingest_mapper(root: Path | None) -> str:
     return ep
 
 
+def _select_combiner(root: Path | None) -> str:
+    combiners = list_combiners(root=root)
+    if combiners:
+        choice = pick_from_menu(
+            "Combiner:",
+            [
+                ("existing", "Select existing combiner"),
+                ("custom", "Custom combiner"),
+            ],
+        )
+        if choice == "existing":
+            return pick_from_menu(
+                "Select combiner entrypoint:",
+                [(key, key) for key in sorted(combiners)],
+            )
+
+    entrypoint = input("Combine entrypoint: ").strip()
+    if not entrypoint:
+        error_exit("Combine entrypoint is required")
+    return entrypoint
+
+
 def handle(
     *,
     plugin_root: Path | None = None,
@@ -66,21 +89,19 @@ def handle(
     stream_type = pick_from_menu(
         "Stream type:",
         [
-            ("ingest", "Ingest (source → ordered stream)"),
+            ("source", "Source-backed (source → ordered stream)"),
             ("aligned", "Aligned (streams → ordered stream)"),
         ],
     )
     if stream_type == "aligned":
         if use_identity:
-            error_exit("--identity is only supported for ingests.")
+            error_exit("--identity is only supported for source-backed streams.")
         _scaffold_aligned_stream(
             plugin_root=plugin_root,
             project_yaml=default_project,
         )
         return
 
-    # Discover sources by scanning sources_dir YAMLs
-    # Default to dataset-scoped project config
     proj_path = default_project or resolve_project_yaml_path(root_dir)
     source_options = list_sources(proj_path)
     if not source_options:
@@ -107,7 +128,7 @@ def handle(
         mapper_ep = "identity"
         status("ok", "Using built-in mapper entry point 'identity'.")
     else:
-        mapper_ep = _select_ingest_mapper(plugin_root)
+        mapper_ep = _select_source_mapper(plugin_root)
 
     # Derive canonical stream id as domain.dataset[.variant]
     variant_default = f" (default: {source_variant})" if source_variant else ""
@@ -118,7 +139,7 @@ def handle(
         default=default_stream_id_for_source(dom_name, src_key, variant or None),
     )
 
-    write_ingest_stream(
+    write_source_stream(
         project_yaml=proj_path,
         stream_id=stream_id,
         source=src_key,
@@ -143,9 +164,7 @@ def _scaffold_aligned_stream(
         error_exit("Aligned streams require at least two distinct input streams.")
 
     stream_id = choose_name("Stream id")
-    combine_entrypoint = input("Combine entrypoint: ").strip()
-    if not combine_entrypoint:
-        error_exit("Combine entrypoint is required")
+    combine_entrypoint = _select_combiner(plugin_root)
 
     write_aligned_stream(
         project_yaml=proj_path,

@@ -6,9 +6,9 @@ from types import MappingProxyType
 
 from datapipeline.artifacts.specs import ARTIFACT_DEFINITIONS, ArtifactDefinition
 from datapipeline.build.state import BuildState
-from datapipeline.config.catalog import StreamsConfig
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.preview import PREVIEW_STAGES, PreviewStage
+from datapipeline.config.streams import StreamsConfig
 from datapipeline.config.tasks import (
     ArtifactTask,
     CoverageTask,
@@ -213,7 +213,7 @@ class ArtifactGraph:
             if preview not in PREVIEW_STAGES:
                 expected = ", ".join(PREVIEW_STAGES)
                 raise ValueError(f"preview must be one of: {expected}")
-            if preview in {"source", "mapped", "records"}:
+            if preview in {"input", "canonical", "records"}:
                 return declared | dataset_tick_artifacts
             if preview == "features":
                 return declared | {SCALER_STATISTICS, *dataset_tick_artifacts}
@@ -449,10 +449,13 @@ def stream_tick_artifacts(
         if current_stream_id in visited:
             return
         visited.add(current_stream_id)
-        stream = streams.streams.get(current_stream_id)
-        if stream is None:
-            return
-        for operation in stream.stream:
+        try:
+            stream = streams.streams[current_stream_id]
+        except KeyError as exc:
+            raise ValueError(
+                f"Unknown stream '{current_stream_id}' in artifact dependency graph."
+            ) from exc
+        for operation in stream.transforms:
             if isinstance(operation, EnsureTicksConfig):
                 artifacts.add(operation.artifact)
         for input_stream_id in stream.input_streams():

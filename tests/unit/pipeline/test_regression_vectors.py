@@ -8,7 +8,7 @@ from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConf
 from datapipeline.config.transforms import (
     FillConfig,
     RollingConfig,
-    StreamTransformConfig,
+    TransformConfig,
 )
 from datapipeline.config.execution import ExecutionConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig
@@ -17,7 +17,7 @@ from datapipeline.domain.record import TemporalRecord
 from datapipeline.execution.context import PipelineContext
 from datapipeline.pipelines.feature.pipeline import run_feature_pipeline
 from datapipeline.pipelines.vector.pipeline import build_vector_pipeline
-from datapipeline.runtime import DerivedRuntimeStream, IngestRuntimeStream, Runtime
+from datapipeline.runtime import Runtime, SourceRuntimeStream
 from datapipeline.services.constants import SCALER_STATISTICS
 from datapipeline.transforms.feature.scaler import ScalerAccumulator
 from tests.vector_input_helpers import register_vector_inputs
@@ -60,7 +60,7 @@ class _StubSource:
 def _runtime_with_streams(
     tmp_path: Path,
     streams: dict[str, list[TemporalRecord]],
-    stream_transforms: dict[str, list[StreamTransformConfig]] | None = None,
+    stream_transforms: dict[str, list[TransformConfig]] | None = None,
 ) -> Runtime:
     project_yaml = tmp_path / "project.yaml"
     artifacts_root = tmp_path / "artifacts"
@@ -76,20 +76,13 @@ def _runtime_with_streams(
     start_time: datetime | None = None
     end_time: datetime | None = None
     for alias, rows in streams.items():
-        ingest_id = f"{alias}.raw"
-        runtime.streams[ingest_id] = IngestRuntimeStream(
+        runtime.streams[alias] = SourceRuntimeStream(
             source=_StubSource(rows),
             mapper=_identity,
-            transforms=(),
+            preprocess=(),
             partition_by=(),
             presorted=False,
-        )
-        runtime.streams[alias] = DerivedRuntimeStream(
-            input_stream=ingest_id,
-            mapper=_identity,
             transforms=tuple(stream_transforms.get(alias, ())),
-            partition_by=(),
-            presorted=False,
         )
         for rec in rows:
             ts = getattr(rec, "time", None)

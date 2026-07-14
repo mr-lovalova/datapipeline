@@ -1,14 +1,14 @@
-# Stream Transforms
+# Ordered Transforms
 
-Stream transforms run on ordered records. Configure them in `streams/*.yaml`
-under `stream:`.
+Ordered transforms run after canonical ordering. Configure them under
+`transforms:` in a stream file.
 
-Transforms that depend on history operate within a partition. Set
-`partition_by` to the complete identity of an independent series, such as
-`[security_id]` or `[security_id, metric]`; single-input streams inherit it
-unless they provide an explicit replacement. Dataset `sample.keys` select which
-partition fields identify output rows. Remaining partition fields suffix feature
-IDs in their declared order.
+Transforms that depend on history operate within a partition. A source-backed
+stream declares `partition_by` as the complete identity of an independent
+series, such as `[security_id]` or `[security_id, metric]`. Derived and aligned
+streams inherit that identity. Dataset `sample.keys` select which partition
+fields identify output rows. Remaining partition fields suffix feature IDs in
+their declared order.
 
 ## Field-Writing Transforms
 
@@ -18,7 +18,7 @@ the transform writes back to `field`. They cannot write `time` or a resolved
 Identity changes belong in a map or combine function, before the ordering stage.
 
 ```yaml
-stream:
+transforms:
   - { operation: rolling, field: dollar_volume, to: adv20, window: 20, statistic: mean }
 ```
 
@@ -44,7 +44,7 @@ stream:
   `None` and `NaN` are treated as missing.
 
 ```yaml
-stream:
+transforms:
   - { operation: lag, field: close, to: close_lag_21, periods: 21 }
   - { operation: lag, field: close, to: close_lag_189, periods: 189 }
   - { operation: derive, left: close_lag_21, operator: div, right_field: close_lag_189, to: close_ratio }
@@ -52,7 +52,7 @@ stream:
 ```
 
 ```yaml
-stream:
+transforms:
   - { operation: ensure_ticks, artifact: model_grid }
   - { operation: forward_fill, field: gross_margin }
 ```

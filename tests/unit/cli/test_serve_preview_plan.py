@@ -16,7 +16,7 @@ def test_record_preview_plan_dedupes_shared_streams() -> None:
 
     plan = _preview_plan(
         preview_cfgs,
-        "source",
+        "input",
     )
 
     assert plan == [

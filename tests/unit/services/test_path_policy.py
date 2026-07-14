@@ -23,7 +23,7 @@ def test_resolve_project_path_uses_project_directory(tmp_path: Path) -> None:
     project_dir = tmp_path / "plugin" / "dataset"
     project_dir.mkdir(parents=True)
     project_yaml = project_dir / "project.yaml"
-    project_yaml.write_text("version: 1\nname: x\npaths: {}\n", encoding="utf-8")
+    project_yaml.write_text("version: 2\nname: x\npaths: {}\n", encoding="utf-8")
 
     assert (
         resolve_project_path(project_yaml, "sources").resolve()

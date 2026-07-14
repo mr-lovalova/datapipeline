@@ -1,7 +1,9 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from datapipeline.config.catalog import AlignedStreamConfig
+import pytest
+
+from datapipeline.config.streams import AlignedStreamConfig
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.services.streams.aligned import build_combine_stage
 
@@ -38,7 +40,7 @@ def test_combiner_calls_function_with_positional_records(monkeypatch) -> None:
         "datapipeline.services.streams.aligned.load_ep",
         lambda _group, _entrypoint: calculate,
     )
-    combine = build_combine_stage(_config())
+    combine = build_combine_stage(_config(), ("id_",))
 
     records = list(combine(iter([(_record(1, 1), _record(1, 10))])))
 
@@ -50,6 +52,36 @@ def test_combiner_drops_none(monkeypatch) -> None:
         "datapipeline.services.streams.aligned.load_ep",
         lambda _group, _entrypoint: lambda _left, _right, offset: None,
     )
-    combine = build_combine_stage(_config())
+    combine = build_combine_stage(_config(), ("id_",))
 
     assert list(combine(iter([(_record(1, 1), _record(1, 10))]))) == []
+
+
+def test_combiner_rejects_changed_time(monkeypatch) -> None:
+    def change_time(left, _right, offset):
+        left.time = datetime(2025, 1, 2, tzinfo=UTC)
+        return left
+
+    monkeypatch.setattr(
+        "datapipeline.services.streams.aligned.load_ep",
+        lambda _group, _entrypoint: change_time,
+    )
+    combine = build_combine_stage(_config(), ("id_",))
+
+    with pytest.raises(ValueError, match="must preserve input time"):
+        list(combine(iter([(_record(1, 1), _record(1, 10))])))
+
+
+def test_combiner_rejects_changed_partition(monkeypatch) -> None:
+    def change_partition(left, _right, offset):
+        left.id_ = "B"
+        return left
+
+    monkeypatch.setattr(
+        "datapipeline.services.streams.aligned.load_ep",
+        lambda _group, _entrypoint: change_partition,
+    )
+    combine = build_combine_stage(_config(), ("id_",))
+
+    with pytest.raises(ValueError, match="must preserve partition field 'id_'"):
+        list(combine(iter([(_record(1, 1), _record(1, 10))])))

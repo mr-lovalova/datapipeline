@@ -1,7 +1,7 @@
 # Inflow Walkthrough
 
-`jerry inflow create` is an interactive wizard that scaffolds an end‑to‑end ingest flow:
-source YAML + DTO/parser + domain + mapper + ingest.
+`jerry inflow create` is an interactive wizard that scaffolds an end-to-end
+source-backed stream: source YAML + DTO/parser + domain + mapper + stream.
 
 ## Quick Example
 
@@ -33,7 +33,7 @@ This produces (paths may vary):
 - `src/<package>/domains/weather/model.py`
 - `src/<package>/mappers/map_weather_noaa_dto_to_weather.py`
 - `config/<dataset>/sources/noaa.weather.yaml`
-- `config/<dataset>/ingests/weather.weather.yaml`
+- `config/<dataset>/streams/weather.weather.yaml`
 
 ## Identity vs Custom
 

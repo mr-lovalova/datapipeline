@@ -6,7 +6,7 @@ feature vectors for analysis or model training.
 
 The runtime is iterator-first: streams are processed on demand, with explicit
 sorting, artifacts, observability, built-in transforms, and plugin entry points
-for custom loaders, parsers, and mappers.
+for custom loaders, parsers, mappers, and aligned-stream combiners.
 
 Contributing: PRs welcome on [GitHub](https://github.com/mr-lovalova/datapipeline).
 
@@ -65,7 +65,7 @@ Note: `jerry demo init` creates a workspace `jerry.yaml`. If you later run
 `jerry.yaml` (or pass `--project`) to point at your new plugin.
 For example: `jerry serve --project lib/my-datapipeline/project.yaml`.
 
-### Create Your Own Plugin + First Ingest
+### Create Your Own Plugin + First Stream
 
 ```bash
 jerry plugin init my-datapipeline --out lib/
@@ -90,8 +90,10 @@ jerry serve --limit 3
 
 `--preview` stops serve at a stable semantic boundary. Choose one of:
 
-- `source`: opened source values before mapping.
-- `mapped`: records immediately after mapping.
+- `input`: values entering the selected stream: parsed source values, completed
+  upstream records, or aligned input tuples.
+- `canonical`: domain records after source mapping or aligned combining; derived
+  streams pass their input records through unchanged at this boundary.
 - `records`: records after configured transforms and ordering.
 - `features`: fully processed and ordered feature/target records, including
   scaling and sequence construction.
@@ -129,12 +131,12 @@ that profile explicitly, including one configured with `enabled: false`.
 - `jerry inspect [--dataset <alias>|--project <path>] [--profile <name>] [--artifact-mode AUTO|FORCE|OFF]`: prepares the combined artifact requirements once, then runs enabled inspect profiles (or one selected profile).
 - `jerry materialize [--profile <name>] [--output <path.jsonl>] [--overwrite|--no-overwrite] [--artifact-mode AUTO|FORCE|OFF]`: prepares the selected streams' artifact requirements once, then runs all enabled `materialize.*` profiles or one selected profile. `--output` overrides a selected profile and therefore requires `--profile`.
 - `jerry clean [--yes] [--older-than <age>]`: lists or removes stale sort spill directories. It does not delete materialized outputs.
-- `jerry inflow create`: interactive wizard to scaffold an end-to-end ingest (source + parser/DTO + mapper + ingest).
+- `jerry inflow create`: interactive wizard to scaffold a source-backed stream (source + parser/DTO + mapper + stream).
 - `jerry source create <provider>.<dataset> ...`: scaffolds a source YAML (no Python code).
 - `jerry domain create <domain>`: scaffolds a domain record stub.
 - `jerry dto create`, `jerry parser create`, `jerry mapper create`, `jerry loader create`: scaffold Python code + register entry points (reinstall after).
-- `jerry stream create [--identity]`: interactive scaffolder for source-backed ingests or aligned streams.
-- `jerry list sources|domains|parsers|mappers|loaders|dtos`: introspection helpers.
+- `jerry stream create [--identity]`: interactive scaffolder for source-backed or aligned streams.
+- `jerry list sources|domains|parsers|mappers|combiners|loaders|dtos`: introspection helpers.
 - `pip install -e lib/<name>`: rerun after commands that update `lib/<name>/pyproject.toml` (entry points), or after manual edits to it.
 
 ---
@@ -168,9 +170,11 @@ These live under `lib/<plugin>/src/<package>/`:
 - `dtos/*.py`: DTO models (raw source shapes).
 - `parsers/*.py`: raw -> DTO parsers (referenced by source YAML via entry point).
 - `domains/<domain>/model.py`: domain record models.
-- `mappers/*.py`: iterator mapping and aligned combine functions (registered in the mapper entry-point group).
+- `mappers/*.py`: iterator mappings from parsed values to domain records.
+- `combiners/*.py`: functions combining aligned domain records.
 - `loaders/*.py`: optional custom loaders (fs/http usually use the built-in core loader).
-- `pyproject.toml`: entry points for loaders/parsers/mappers (rerun `pip install -e lib/<plugin>` after changes).
+- `pyproject.toml`: entry points for loaders, parsers, mappers, and combiners
+  (rerun `pip install -e lib/<plugin>` after changes).
 
 ### Loaders & Parsers
 
@@ -187,10 +191,10 @@ These live under `lib/<plugin>/src/<package>/`:
 - The base time-series type is `TemporalRecord` (`time` + metadata fields). Domains add identity fields (e.g. `symbol`, `station_id`) that make filtering/partitioning meaningful.
 - `time` must be timezone-aware (normalized to UTC); feature values are selected from record fields in `dataset.yaml` (see `field:`); remaining fields act as the record’s “identity” (used by equality/deduping and commonly by `partition_by`).
 
-### Transforms (Record -> Stream -> Feature -> Vector)
+### Transforms (Preprocess -> Ordered Stream -> Feature -> Vector)
 
-- **Record transforms** run on mapped domain records before ordering. Each transform operates on one record at a time. Configure in `ingests/*.yaml` under `record:`.
-- **Stream transforms** run on ordered records (dedupe, cadence enforcement, lag/lead, rolling, derive, fills). These operate across a sequence of records for a partition because they depend on sorted partition/time order and cadence. Configure in `streams/*.yaml` under `stream:`.
+- **Preprocess transforms** run on mapped domain records before ordering. Each transform operates on one record at a time. Configure source-backed streams under `preprocess:`.
+- **Ordered transforms** run after ordering (dedupe, cadence enforcement, lag/lead, rolling, derive, fills). These operate across a sequence of records for a partition because they depend on sorted partition/time order and cadence. Configure streams under `transforms:`.
 - **Feature transforms** run after stream regularization and shape the per-feature payload for vectorization. The explicit `scale` and `sequence` fields in `dataset.yaml` configure this stage; it is not an arbitrary transform list.
 - **Postprocess policies** select assembled vector columns and filter samples by coverage. Configure them under `postprocess:` in `dataset.yaml`.
 - Transform lists contain flat, validated built-in operations. Each item has an
@@ -199,8 +203,8 @@ These live under `lib/<plugin>/src/<package>/`:
 
 ### Glossary
 
-- **Source alias**: `sources/*.yaml:id` (referenced by ingests under `from.source`).
-- **Stream id**: `ingests/*.yaml:id` or `streams/*.yaml:id` (referenced by `dataset.yaml` under `stream:`).
+- **Source alias**: `sources/*.yaml:id` (referenced by source-backed streams under `from.source`).
+- **Stream id**: `streams/*.yaml:id` (referenced by `dataset.yaml` under `stream:`).
 - **Sample key**: vector identity: floored time plus optional `dataset.sample.keys`.
 - **Partition**: complete identity of an independent record series, declared by
   stream `partition_by` and used as the state boundary for history-based
@@ -219,7 +223,7 @@ These live under `lib/<plugin>/src/<package>/`:
 - `docs/config.md`: config layout, resolution order, and YAML reference.
 - `docs/dataflow.md`: end-to-end YAML reference chain (`jerry.yaml -> project -> source -> stream -> dataset -> outputs`).
 - `docs/cli.md`: CLI reference (beyond the cheat sheet).
-- `docs/transforms/`: record and stream transforms, feature shaping, and postprocess policies.
+- `docs/transforms/`: preprocess and ordered transforms, feature shaping, and postprocess policies.
 - `docs/artifacts.md`: build artifacts and split timing.
 - `docs/python.md`: Python API usage patterns.
 - `docs/extending.md`: entry points and writing plugins.

@@ -16,8 +16,10 @@ reading the data. Visuals are independent of log filtering.
 ### Preview Stages
 
 - `jerry serve --project <project.yaml> --preview <stage> --limit N [--log-level LEVEL] [--visuals on|off] [--heartbeat-interval SECONDS]`
-  - `source`: opened source values before mapping.
-  - `mapped`: records immediately after the stream's map or combine stage.
+  - `input`: values entering the selected stream: parsed source values,
+    completed upstream records, or aligned input tuples.
+  - `canonical`: domain records after source mapping or aligned combining;
+    derived streams pass their input through unchanged at this boundary.
   - `records`: records after configured transforms and ordering.
   - `features`: fully processed and ordered feature/target records, including
     configured scaling and sequence construction.
@@ -109,14 +111,14 @@ reading the data. Visuals are independent of log filtering.
 - `jerry demo init`
   - Generates a standalone demo plugin at `./demo/` and wires a `demo` dataset alias.
 - `jerry inflow create`
-  - Wizard to scaffold a complete ingest flow (source YAML + parser/DTO + mapper + stream).
+  - Wizard to scaffold a complete source-backed stream (source YAML + parser/DTO + mapper + stream).
 - `jerry stream create [--identity]`
-  - Scaffolds either a source-backed ingest or an aligned stream.
+  - Scaffolds either a source-backed stream or an aligned stream.
   - Aligned streams require at least two existing input streams and the name of
-    a combine entry point already registered in `datapipeline.mappers`. The
+    a combine entry point already registered in `datapipeline.combiners`. The
     combine function receives one matching record from each input in the
     selected order and returns one record or `None`.
-  - `--identity` applies only to source-backed ingests.
+  - `--identity` applies only to source-backed streams.
 - `jerry source create <provider>.<dataset> --transport fs|http|synthetic --format csv|json|jsonl|pickle`
   - Also supports positional `<provider> <dataset>` and `--alias <provider>.<dataset>`.
   - Creates a source YAML only (no Python code).

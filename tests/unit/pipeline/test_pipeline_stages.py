@@ -21,8 +21,8 @@ from datapipeline.config.transforms import (
     EnsureCadenceConfig,
     EnsureTicksConfig,
     FloorTimeConfig,
-    RecordTransformConfig,
-    StreamTransformConfig,
+    PreprocessConfig,
+    TransformConfig,
 )
 from datapipeline.domain.feature import FeatureRecord, FeatureSequence
 from datapipeline.domain.record import TemporalRecord
@@ -52,8 +52,8 @@ from datapipeline.pipelines.vector.pipeline import build_vector_pipeline
 from datapipeline.runtime import (
     AlignedRuntimeStream,
     DerivedRuntimeStream,
-    IngestRuntimeStream,
     Runtime,
+    SourceRuntimeStream,
 )
 from datapipeline.services.constants import (
     SCALER_STATISTICS,
@@ -175,10 +175,6 @@ def _mapper(rows):
         yield rec
 
 
-def _identity(rows):
-    yield from rows
-
-
 def _sample_payload(samples):
     return [
         (
@@ -195,14 +191,14 @@ def _runtime_with_rows(
     rows: list[dict],
     *,
     stream_id: str = "stream",
-    record_ops: list[RecordTransformConfig] | None = None,
-    stream_ops: list[StreamTransformConfig] | None = None,
+    preprocess: list[PreprocessConfig] | None = None,
+    transforms: list[TransformConfig] | None = None,
     partition_by: tuple[str, ...] = (),
 ) -> Runtime:
     artifacts_root = tmp_path / "artifacts"
     artifacts_root.mkdir(parents=True, exist_ok=True)
     project_yaml = tmp_path / "project.yaml"
-    project_yaml.write_text("version: 1\nartifact_revision: 1\n", encoding="utf-8")
+    project_yaml.write_text("version: 2\nartifact_revision: 1\n", encoding="utf-8")
     runtime = Runtime(
         project_yaml=project_yaml,
         artifacts_root=artifacts_root,
@@ -210,30 +206,13 @@ def _runtime_with_rows(
         execution=ExecutionConfig(),
     )
 
-    if stream_ops is None:
-        runtime.streams[stream_id] = IngestRuntimeStream(
-            source=_StubSource(rows),
-            mapper=_mapper,
-            transforms=tuple(record_ops or ()),
-            partition_by=partition_by,
-            presorted=False,
-        )
-        return runtime
-
-    ingest_id = f"{stream_id}.ingest"
-    runtime.streams[ingest_id] = IngestRuntimeStream(
+    runtime.streams[stream_id] = SourceRuntimeStream(
         source=_StubSource(rows),
         mapper=_mapper,
-        transforms=tuple(record_ops or ()),
+        preprocess=tuple(preprocess or ()),
         partition_by=partition_by,
         presorted=False,
-    )
-    runtime.streams[stream_id] = DerivedRuntimeStream(
-        input_stream=ingest_id,
-        mapper=_identity,
-        transforms=tuple(stream_ops),
-        partition_by=partition_by,
-        presorted=False,
+        transforms=tuple(transforms or ()),
     )
     return runtime
 
@@ -254,7 +233,7 @@ def _register_price_schema(runtime: Runtime) -> None:
     runtime.artifacts.register(VECTOR_SCHEMA, "schema.json")
 
 
-def test_ingest_pipeline_carries_source_summary(tmp_path: Path) -> None:
+def test_source_pipeline_carries_source_summary(tmp_path: Path) -> None:
     runtime = _runtime_with_rows(tmp_path, [], stream_id="prices")
     runtime.streams["prices"] = replace(
         runtime.streams["prices"],
@@ -269,7 +248,7 @@ def test_ingest_pipeline_carries_source_summary(tmp_path: Path) -> None:
 
     pipeline = build_stream_pipeline(PipelineContext(runtime), "prices")
 
-    assert pipeline.name == "ingest:prices"
+    assert pipeline.name == "stream:prices"
     assert pipeline.summary == "transport=fs.file file=prices.jsonl"
     assert [node.name for node in pipeline.nodes] == [
         "open_source",
@@ -284,7 +263,7 @@ def test_ingest_pipeline_carries_source_summary(tmp_path: Path) -> None:
 
 
 def test_stream_pipeline_carries_source_summary(tmp_path: Path) -> None:
-    runtime = _runtime_with_rows(tmp_path, [], stream_id="derived", stream_ops=[])
+    runtime = _runtime_with_rows(tmp_path, [], stream_id="source")
     (tmp_path / "AAPL.jsonl").write_text("", encoding="utf-8")
     (tmp_path / "MSFT.jsonl").write_text("", encoding="utf-8")
     source = Source(
@@ -294,9 +273,14 @@ def test_stream_pipeline_carries_source_summary(tmp_path: Path) -> None:
         ),
         IdentityParser(),
     )
-    runtime.streams["derived.ingest"] = replace(
-        runtime.streams["derived.ingest"],
+    runtime.streams["source"] = replace(
+        runtime.streams["source"],
         source=source,
+    )
+    runtime.streams["derived"] = DerivedRuntimeStream(
+        input_stream="source",
+        partition_by=(),
+        transforms=(),
     )
 
     pipeline = build_stream_pipeline(PipelineContext(runtime), "derived")
@@ -306,15 +290,11 @@ def test_stream_pipeline_carries_source_summary(tmp_path: Path) -> None:
         "transport=fs.glob count=2 first=AAPL.jsonl last=MSFT.jsonl"
     )
     assert [node.name for node in pipeline.nodes] == [
-        "ingest:derived.ingest/open_source",
-        "ingest:derived.ingest/map_records",
-        "ingest:derived.ingest/order_records",
-        "map_records",
-        "order_records",
+        "stream:source/open_source",
+        "stream:source/map_records",
+        "stream:source/order_records",
     ]
     assert [node.progress is not None for node in pipeline.nodes] == [
-        True,
-        False,
         True,
         False,
         True,
@@ -335,19 +315,17 @@ def test_derived_stream_reuses_upstream_order_without_a_mapper(
     )
     runtime.streams["derived"] = DerivedRuntimeStream(
         input_stream="stream",
-        mapper=None,
-        transforms=(),
         partition_by=("symbol",),
-        presorted=False,
+        transforms=(),
     )
     context = PipelineContext(runtime)
 
     pipeline = build_stream_pipeline(context, "derived")
 
     assert [node.name for node in pipeline.nodes] == [
-        "ingest:stream/open_source",
-        "ingest:stream/map_records",
-        "ingest:stream/order_records",
+        "stream:stream/open_source",
+        "stream:stream/map_records",
+        "stream:stream/order_records",
     ]
     records = list(run_pipeline(context, pipeline))
     assert [(record.symbol, record.time.hour) for record in records] == [
@@ -357,39 +335,10 @@ def test_derived_stream_reuses_upstream_order_without_a_mapper(
     ]
 
 
-def test_derived_stream_reorders_an_inherited_stream_after_partition_change(
+@pytest.mark.parametrize("preview", ["input", "canonical"])
+def test_derived_record_previews_use_records_before_derived_transforms(
     tmp_path: Path,
-) -> None:
-    runtime = _runtime_with_rows(
-        tmp_path,
-        [
-            {"time": _ts(1), "symbol": "A"},
-            {"time": _ts(0), "symbol": "B"},
-        ],
-        partition_by=("symbol",),
-    )
-    runtime.streams["derived"] = DerivedRuntimeStream(
-        input_stream="stream",
-        mapper=None,
-        transforms=(),
-        partition_by=(),
-        presorted=False,
-    )
-    context = PipelineContext(runtime)
-
-    pipeline = build_stream_pipeline(context, "derived")
-
-    assert [node.name for node in pipeline.nodes] == [
-        "ingest:stream/open_source",
-        "ingest:stream/map_records",
-        "ingest:stream/order_records",
-        "order_records",
-    ]
-    assert [record.time.hour for record in run_pipeline(context, pipeline)] == [0, 1]
-
-
-def test_mapped_preview_uses_upstream_records_when_derived_map_is_omitted(
-    tmp_path: Path,
+    preview,
 ) -> None:
     runtime = _runtime_with_rows(
         tmp_path,
@@ -400,16 +349,22 @@ def test_mapped_preview_uses_upstream_records_when_derived_map_is_omitted(
     )
     runtime.streams["derived"] = DerivedRuntimeStream(
         input_stream="stream",
-        mapper=None,
-        transforms=(EnsureCadenceConfig(cadence="1h"),),
         partition_by=(),
-        presorted=False,
+        transforms=(EnsureCadenceConfig(cadence="1h"),),
     )
+
+    pipeline = build_stream_pipeline(PipelineContext(runtime), "derived")
+    assert [node.name for node in pipeline.nodes] == [
+        "stream:stream/open_source",
+        "stream:stream/map_records",
+        "stream:stream/order_records",
+        "ensure_cadence",
+    ]
 
     records = _record_preview_stream(
         PipelineContext(runtime),
         "derived",
-        "mapped",
+        preview,
     )
 
     assert [record.time.hour for record in records] == [0, 2]
@@ -425,26 +380,27 @@ def test_aligned_pipeline_closes_inputs_after_partial_read(tmp_path: Path) -> No
             yield left_record
 
     runtime.streams = {
-        "left": IngestRuntimeStream(
+        "left": SourceRuntimeStream(
             source=left,
             mapper=_mapper,
-            transforms=(),
+            preprocess=(),
             partition_by=(),
             presorted=True,
+            transforms=(),
         ),
-        "right": IngestRuntimeStream(
+        "right": SourceRuntimeStream(
             source=right,
             mapper=_mapper,
-            transforms=(),
+            preprocess=(),
             partition_by=(),
             presorted=True,
+            transforms=(),
         ),
         "combined": AlignedRuntimeStream(
-            input_streams=("left", "right"),
+            inputs=("left", "right"),
             combine=take_left,
-            transforms=(),
             partition_by=(),
-            presorted=True,
+            transforms=(),
         ),
     }
 
@@ -456,7 +412,7 @@ def test_aligned_pipeline_closes_inputs_after_partial_read(tmp_path: Path) -> No
     assert right.closes == 1
 
 
-def test_ingest_pipeline_exposes_source_mapping_and_record_transforms(
+def test_source_pipeline_runs_map_then_preprocess(
     tmp_path: Path,
 ) -> None:
     rows = [
@@ -466,7 +422,7 @@ def test_ingest_pipeline_exposes_source_mapping_and_record_transforms(
     runtime = _runtime_with_rows(
         tmp_path,
         rows,
-        record_ops=[FloorTimeConfig(cadence="1h")],
+        preprocess=[FloorTimeConfig(cadence="1h")],
     )
     ctx = PipelineContext(runtime)
 
@@ -478,7 +434,9 @@ def test_ingest_pipeline_exposes_source_mapping_and_record_transforms(
     assert all(isinstance(rec, TemporalRecord) for rec in stage1)
     assert [rec.time for rec in stage1] == [rows[0]["time"], rows[1]["time"]]
 
-    stage2 = list(run_pipeline(ctx, pipeline.through_node_named("floor_time")))
+    stage2 = list(
+        run_pipeline(ctx, pipeline.through_node_named("preprocess_floor_time"))
+    )
     assert all(rec.time.minute == 0 for rec in stage2)
 
 
@@ -496,9 +454,9 @@ def test_pipeline_builders_expose_structure(tmp_path: Path) -> None:
         "map_records",
     ]
     assert [node.name for node in feature_pipeline.nodes] == [
-        "ingest:stream/open_source",
-        "ingest:stream/map_records",
-        "ingest:stream/order_records",
+        "stream:stream/open_source",
+        "stream:stream/map_records",
+        "stream:stream/order_records",
         "build_feature_stream",
         "order_feature_records",
     ]
@@ -506,7 +464,7 @@ def test_pipeline_builders_expose_structure(tmp_path: Path) -> None:
     assert isinstance(feature_pipeline.nodes[0], SourceNode)
 
 
-def test_ingest_pipeline_orders_by_partition_and_time(tmp_path: Path) -> None:
+def test_source_pipeline_orders_by_partition_and_time(tmp_path: Path) -> None:
     rows = [
         {"time": _ts(1), "value": 10.0, "symbol": "B"},
         {"time": _ts(0), "value": 5.0, "symbol": "A"},
@@ -531,7 +489,7 @@ def test_stream_pipeline_applies_stream_transforms(tmp_path: Path) -> None:
     runtime = _runtime_with_rows(
         tmp_path,
         rows,
-        stream_ops=[EnsureCadenceConfig(cadence="1h")],
+        transforms=[EnsureCadenceConfig(cadence="1h")],
     )
     ctx = PipelineContext(runtime)
 
@@ -554,7 +512,7 @@ def test_ensure_cadence_placeholders_do_not_copy_payload_fields(
         tmp_path,
         rows,
         partition_by=("symbol",),
-        stream_ops=[EnsureCadenceConfig(cadence="1h")],
+        transforms=[EnsureCadenceConfig(cadence="1h")],
     )
     ctx = PipelineContext(runtime)
 
@@ -576,7 +534,7 @@ def test_ensure_ticks_uses_stream_partition_for_tick_artifact(
         tmp_path,
         rows,
         partition_by=("symbol",),
-        stream_ops=[EnsureTicksConfig(artifact="model_grid")],
+        transforms=[EnsureTicksConfig(artifact="model_grid")],
     )
     artifact_path = runtime.artifacts_root / "model_grid.jsonl"
     artifact_path.write_text(

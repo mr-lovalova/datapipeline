@@ -33,7 +33,7 @@ from datapipeline.utils.window import resolve_window_bounds
 logger = logging.getLogger(__name__)
 T = TypeVar("T")
 
-_RECORD_PREVIEWS = {"source", "mapped", "records"}
+_RECORD_PREVIEWS = {"input", "canonical", "records"}
 
 
 def limit_items(items: Iterator[object], limit: int | None) -> Iterator[object]:
@@ -113,21 +113,26 @@ def _record_preview_stream(
     preview: PreviewStage,
 ) -> Iterator[object]:
     pipeline = build_stream_pipeline(context, stream_id)
-    if preview == "source":
-        return run_pipeline(context, pipeline.through_node(0))
-    if preview == "mapped":
-        stream = require_runtime_stream(context.runtime, stream_id)
-        if isinstance(stream, DerivedRuntimeStream) and stream.mapper is None:
+    stream = require_runtime_stream(context.runtime, stream_id)
+    if preview == "input":
+        if isinstance(stream, DerivedRuntimeStream):
             upstream = build_stream_pipeline(context, stream.input_stream)
             return run_pipeline(
                 context,
                 pipeline.through_node(upstream.node_count - 1),
             )
-        node_name = (
-            "combine_records"
-            if isinstance(stream, AlignedRuntimeStream)
-            else "map_records"
-        )
+        return run_pipeline(context, pipeline.through_node(0))
+    if preview == "canonical":
+        if isinstance(stream, DerivedRuntimeStream):
+            upstream = build_stream_pipeline(context, stream.input_stream)
+            return run_pipeline(
+                context,
+                pipeline.through_node(upstream.node_count - 1),
+            )
+        if isinstance(stream, AlignedRuntimeStream):
+            node_name = "combine_records"
+        else:
+            node_name = "map_records"
         return run_pipeline(context, pipeline.through_node_named(node_name))
     if preview == "records":
         return run_pipeline(context, pipeline)

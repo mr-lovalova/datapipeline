@@ -1,7 +1,7 @@
-# Record Transforms
+# Preprocess Transforms
 
-Record transforms run on mapped domain records before ordering. Configure them
-in `ingests/*.yaml` under `record:`.
+Preprocess transforms run on mapped domain records before ordering. Configure
+them under `preprocess:` on a source-backed stream.
 
 ## `where`
 
@@ -10,7 +10,7 @@ in `ingests/*.yaml` under `record:`.
 - ISO or datetime literals are compared with timezone awareness.
 
 ```yaml
-record:
+preprocess:
   - { operation: where, field: time, operator: ge, comparand: "${start_time}" }
   - { operation: where, field: station, operator: in, comparand: [a, b, c] }
 ```

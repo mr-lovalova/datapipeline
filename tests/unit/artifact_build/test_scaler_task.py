@@ -14,7 +14,7 @@ from datapipeline.config.dataset.split import HashSplitConfig, TimeSplitConfig
 from datapipeline.config.tasks import ScalerTask
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.operations.artifacts.scaler import materialize_scaler_statistics
-from datapipeline.runtime import IngestRuntimeStream, Runtime
+from datapipeline.runtime import Runtime, SourceRuntimeStream
 
 
 def _time(day: int) -> datetime:
@@ -54,7 +54,7 @@ def _runtime(
     artifacts_root = tmp_path / "artifacts"
     artifacts_root.mkdir()
     project_yaml = tmp_path / "project.yaml"
-    project_yaml.write_text("version: 1\nartifact_revision: 1\n", encoding="utf-8")
+    project_yaml.write_text("version: 2\nartifact_revision: 1\n", encoding="utf-8")
     if dataset is None:
         dataset = FeatureDatasetConfig(sample=SampleConfig(cadence="1h"))
     runtime = Runtime(
@@ -62,9 +62,10 @@ def _runtime(
         artifacts_root=artifacts_root,
         dataset=dataset,
     )
-    runtime.streams["stream"] = IngestRuntimeStream(
+    runtime.streams["stream"] = SourceRuntimeStream(
         source=_CountingSource(rows),
         mapper=_identity,
+        preprocess=(),
         transforms=(),
         partition_by=(),
         presorted=False,

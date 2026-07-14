@@ -7,7 +7,7 @@ import pytest
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
 from datapipeline.config.execution import ExecutionConfig
 from datapipeline.domain.record import TemporalRecord
-from datapipeline.runtime import IngestRuntimeStream, Runtime
+from datapipeline.runtime import Runtime, SourceRuntimeStream
 from datapipeline.services.materialize import materialize_stream_to_path
 
 
@@ -41,9 +41,10 @@ def _runtime(
         dataset=FeatureDatasetConfig(sample=SampleConfig(cadence="1h")),
         execution=ExecutionConfig(),
     )
-    runtime.streams["prices.raw"] = IngestRuntimeStream(
+    runtime.streams["prices.raw"] = SourceRuntimeStream(
         source=_Source(rows),
         mapper=_mapper,
+        preprocess=(),
         transforms=(),
         partition_by=(),
         presorted=False,

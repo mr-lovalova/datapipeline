@@ -71,7 +71,7 @@ def _runtime(artifacts_root: Path) -> SimpleNamespace:
 
 
 def _write_project(tmp_path: Path) -> Path:
-    for name in ("ingests", "streams", "sources", "operations", "profiles"):
+    for name in ("streams", "sources", "operations", "profiles"):
         (tmp_path / name).mkdir(parents=True, exist_ok=True)
     (tmp_path / "dataset.yaml").write_text(
         "sample:\n  cadence: 1h\nfeatures: []\ntargets: []\n",
@@ -81,10 +81,9 @@ def _write_project(tmp_path: Path) -> Path:
     project_path.write_text(
         "\n".join(
             [
-                "version: 1",
+                "version: 2",
                 "artifact_revision: 1",
                 "paths:",
-                "  ingests: ./ingests",
                 "  streams: ./streams",
                 "  sources: ./sources",
                 "  dataset: ./dataset.yaml",

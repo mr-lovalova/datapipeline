@@ -1,8 +1,7 @@
-version: 1
+version: 2
 artifact_revision: 1
 name: incomplete_prices_project
 paths:
-  ingests: ./ingests
   streams: streams
   sources: sources
   dataset: dataset.yaml

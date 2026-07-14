@@ -1,7 +1,16 @@
 id: targets.price.dk1
 from:
-  stream: targets.price.dk1.ingest
+  source: incomplete.elspot
 
-stream:
+map:
+  entrypoint: identity
+  args: {}
+
+preprocess:
+  - { operation: where, operator: ge, field: time, comparand: "${start_time}" }
+  - { operation: where, operator: le, field: time, comparand: "${end_time}" }
+  - { operation: where, operator: eq, field: area, comparand: DK1 }
+
+transforms:
   - { operation: ensure_cadence, cadence: 1h }
   - { operation: fill, statistic: mean, window: 2, min_samples: 1, field: value }

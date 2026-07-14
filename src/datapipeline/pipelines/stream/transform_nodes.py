@@ -18,10 +18,10 @@ from datapipeline.config.transforms import (
     ForwardFillConfig,
     LagConfig,
     LeadConfig,
-    RecordTransformConfig,
+    PreprocessConfig,
     RollingConfig,
     ShiftTimeConfig,
-    StreamTransformConfig,
+    TransformConfig,
     WhereConfig,
 )
 from datapipeline.execution.context import PipelineContext
@@ -44,8 +44,8 @@ from datapipeline.transforms.time import FloorTimeTransform, ShiftTimeTransform
 from datapipeline.transforms.where import WhereTransform
 
 
-def build_record_transform_nodes(
-    operations: Sequence[RecordTransformConfig],
+def build_preprocess_nodes(
+    operations: Sequence[PreprocessConfig],
 ) -> tuple[PipelineNode, ...]:
     configured = tuple(operations)
     totals = Counter(operation.operation for operation in configured)
@@ -53,9 +53,9 @@ def build_record_transform_nodes(
     nodes: list[PipelineNode] = []
     for operation in configured:
         occurrences[operation.operation] += 1
-        node_name: str = operation.operation
+        node_name = f"preprocess_{operation.operation}"
         if totals[operation.operation] > 1:
-            node_name = f"{node_name}_{occurrences[operation.operation]}"
+            node_name += f"_{occurrences[operation.operation]}"
 
         if isinstance(operation, WhereConfig):
             node_op: StageOp = WhereTransform(
@@ -69,7 +69,7 @@ def build_record_transform_nodes(
             node_op = ShiftTimeTransform(operation.by).apply
         else:
             raise TypeError(
-                f"Unsupported record transform config: {type(operation).__name__}"
+                f"Unsupported preprocess config: {type(operation).__name__}"
             )
 
         nodes.append(
@@ -81,9 +81,9 @@ def build_record_transform_nodes(
     return tuple(nodes)
 
 
-def build_stream_transform_nodes(
+def build_transform_nodes(
     context: PipelineContext,
-    operations: Sequence[StreamTransformConfig],
+    operations: Sequence[TransformConfig],
     partition_by: tuple[str, ...],
 ) -> tuple[PipelineNode, ...]:
     configured = tuple(operations)
@@ -177,9 +177,7 @@ def build_stream_transform_nodes(
                 )
             node_op = transform.apply
         else:
-            raise TypeError(
-                f"Unsupported stream transform config: {type(operation).__name__}"
-            )
+            raise TypeError(f"Unsupported transform config: {type(operation).__name__}")
 
         nodes.append(
             PipelineNode(

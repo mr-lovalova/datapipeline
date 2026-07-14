@@ -1,1 +1,1 @@
-"""Iterator mappers and aligned-stream combine functions."""
+"""Iterator mappers from parsed values to domain records."""

@@ -6,8 +6,7 @@ These live under the dataset “project root” directory (the folder containing
 
 - `project.yaml`: paths + globals (single source of truth).
 - `sources/*.yaml`: raw sources (loader + parser wiring).
-- `ingests/*.yaml`: raw source DTOs mapped, record-cleaned, and time-ordered into domain streams.
-- `streams/*.yaml`: derived or aligned streams built from existing stream ids.
+- `streams/*.yaml`: source-backed, derived, or aligned canonical streams.
 - `dataset.yaml`: sample, feature/target, split, and postprocess policy.
 - `profiles/serve.<name>.yaml`: serve profiles.
 - `profiles/build.<name>.yaml`: build profiles.
@@ -36,11 +35,10 @@ All dataset configuration is rooted at a single `project.yaml` file. Other YAML 
 ### `project.yaml`
 
 ```yaml
-version: 1
+version: 2
 artifact_revision: 1
 name: default
 paths:
-  ingests: ./ingests
   streams: ./streams
   sources: ./sources
   dataset: dataset.yaml
@@ -61,7 +59,7 @@ globals:
   corresponding config change. It is required so every project explicitly owns
   this cache contract.
 - `paths.*` are resolved relative to the project file unless absolute; they also support `${var}` interpolation.
-- `paths.sources`, `paths.ingests`, and `paths.streams` may be either one path
+- `paths.sources` and `paths.streams` may be either one path
   or a list of paths. When a list is used, discovery scans every directory in
   order and rejects duplicate source or stream ids.
 - Project, dataset, config-root, and YAML-file aliases are resolved to their
@@ -238,7 +236,7 @@ mode: AUTO # AUTO | FORCE | "OFF"
   `<kind>.defaults.yaml` > built-ins. Command-wide `artifact_mode` precedence is
   CLI > `<command>.defaults.yaml` > `AUTO`.
 
-Sorting is an execution policy, not part of an ingest or stream definition.
+Sorting is an execution policy, not part of a stream definition.
 Configure its buffer once in each command's defaults file:
 
 ```yaml
@@ -334,7 +332,7 @@ Each file defines a loader/parser pair exposed under `<alias>`. Files may live i
 subdirectories under `<project_root>/sources/`; discovery is recursive.
 
 ```yaml
-# Source identifier (commonly `provider.dataset`). Ingests reference this under `from.source`.
+# Source identifier (commonly `provider.dataset`). Streams reference this under `from.source`.
 id: stooq.ohlcv
 parser:
   # Parser entry point name (registered in your plugin’s pyproject.toml).
@@ -350,7 +348,7 @@ loader:
       Authorization: "Bearer ${env:STOOQ_API_KEY}"
 ```
 
-- `id`: the source alias; referenced by ingests under `from.source`.
+- `id`: the source alias; referenced by source-backed streams under `from.source`.
 - `parser.entrypoint`: which parser to use; `parser.args` are optional.
 - `loader.entrypoint`: which loader to use; `core.io` is the default for fs/http and is configured via `loader.args`.
 - `inputs.files`: optional project-relative regular files or glob patterns used
@@ -368,13 +366,15 @@ loader:
 - Keep secrets and machine-local paths out of source files. Prefer `${env:...}`
   directly or route them through `project.yaml.globals` aliases like `${raw_root}`.
 
-### `<project_root>/ingests/<stream_id>.yaml`
+### Source-backed Streams
 
-Ingest configs describe how the runtime should load raw DTOs, map them to
-domain records, apply record-level cleanup, and normalize record order. Use
-folders to organize by domain if you like.
+A source-backed stream loads parsed source values, maps them to domain records,
+preprocesses individual records, establishes canonical order, and then applies
+ordered transforms. It is the only stream kind that declares `map`,
+`preprocess`, `partition_by`, or `ordered_by`.
 
 ```yaml
+# <project_root>/streams/equity.ohlcv.yaml
 id: equity.ohlcv # stream identifier (domain.dataset[.variant])
 from:
   source: stooq.ohlcv # references sources/<alias>.yaml:id
@@ -383,58 +383,58 @@ map:
   entrypoint: equity.ohlcv
   args: {}
 
-partition_by: [station]
+partition_by: [security_id]
 
-record:
+preprocess:
   - { operation: where, field: time, operator: ge, comparand: "${start_time}" }
   - { operation: where, field: time, operator: lt, comparand: "${end_time}" }
   - { operation: floor_time, cadence: 10m }
+
+transforms:
+  - { operation: collapse, keep: last }
 ```
 
-An ingest must define `map`. Its callable receives the parsed source iterator
-and returns an iterable of canonical domain records.
+The mapper receives the parsed source iterator and returns canonical domain
+records. `preprocess` contains only per-record operations and runs before
+ordering. `transforms` runs after ordering and may use partition history.
 
-### `<project_root>/streams/<stream_id>.yaml`
+### Derived Streams
 
-Stream configs consume existing stream ids and run partition-aware stream
-transforms. They cannot reference raw sources and cannot define `record:`.
+A derived stream adds ordered transforms to one existing stream. It inherits
+the upstream partition identity and canonical order; it does not repeat or
+override source mapping and ordering policy.
 
 ```yaml
 id: equity.ohlcv.liquid
 from:
   stream: equity.ohlcv
-stream:
+transforms:
   - { operation: ensure_cadence, cadence: 10m }
   - { operation: collapse, keep: last }
   - { operation: fill, field: close, statistic: median, window: 6, min_samples: 2 }
   - { operation: forward_fill, field: close, to: close_asof }
 ```
 
-- `record`: built-in per-record transforms applied before ordering. Ingest-only.
-- `stream`: transforms applied after ingest ordering; operate on record fields before feature selection.
-- `map`: optional only on a single-input derived stream; the callable receives
-  the upstream iterator and returns an iterable. Aligned streams use `combine`
-  instead.
+- `preprocess`: built-in per-record transforms applied before ordering on a
+  source-backed stream.
+- `transforms`: built-in operations applied after canonical ordering on every
+  stream kind.
 - Each item is a flat mapping with an `operation` discriminator and that
   operation's fields. Missing or unknown operations, unknown fields, and
   invalid values are rejected. See [Transforms](transforms/index.md).
-- Stream transforms cannot write `time` or a `partition_by` field. Custom maps
-  and combines run before canonical ordering; the fixed built-in transforms
-  preserve that order afterward.
-- `partition_by` and `ordered_by` must be YAML lists when present; scalar
-  shorthand is not accepted. Blank and duplicate fields are rejected.
+- Ordered transforms cannot write `time` or a `partition_by` field. Mapping
+  runs before canonical ordering; combines and ordered transforms preserve it.
+- `partition_by` and `ordered_by` are source-backed stream fields and must be
+  YAML lists when present. Scalar shorthand is not accepted; blank and
+  duplicate fields are rejected.
 - `partition_by`: complete identity of an independent record series, used by
-  ordering and history-based transforms. A single-input stream inherits its
-  upstream fields when this key is omitted; an explicit list replaces them,
-  and `[]` clears them. The runtime appends the reserved `time` field to the
-  canonical sort key, so it must not appear here. Aligned streams always
-  inherit matching fields from their inputs.
+  ordering and history-based transforms. The runtime appends the reserved
+  `time` field to the canonical sort key, so it must not appear here. Derived
+  and aligned streams inherit it.
 - `ordered_by`: optional assertion that records entering the ordering stage use
   `[*partition_by, time]` order. When present, it must equal that canonical
-  order and is validated while streaming. When absent, records are externally
-  sorted whenever a configured map or partition change requires a new ordering
-  stage. A single-input stream with no map and unchanged partition fields reuses
-  its upstream canonical order without another ordering stage.
+  order and is validated while streaming. When absent, mapped records are
+  externally sorted. Derived streams reuse upstream canonical order.
 - Feature identity is derived at the dataset boundary. Every `sample.keys`
   field must occur in the resolved `partition_by` of every referenced stream.
   Partition fields absent from `sample.keys` suffix the configured feature or
@@ -459,17 +459,15 @@ from:
   align:
     - pressure.processed
     - temp_dry.processed
-ordered_by: [station_id, time]
-
 combine:
   entrypoint: combine_air_density
   args: {}
 
 # Optional policies run after combining like any stream.
-# stream: [...]
+# transforms: [...]
 ```
 
-Dataset stays minimal — features only reference the derived stream:
+Dataset stays minimal — features only reference the aligned stream:
 
 ```yaml
 # dataset.yaml
@@ -487,17 +485,18 @@ Notes:
 - `from.align` contains at least two canonical stream ids. List order defines
   positional combine arguments.
 - `combine` is required and cannot be replaced by the iterator-level `map`.
+- `combine.entrypoint` resolves from the `datapipeline.combiners` plugin group.
 - Inputs must use the same `partition_by`; the aligned stream inherits it.
 - Alignment validates and merges the already ordered inputs in one pass. Each
-  upstream stream establishes canonical `[*partition_by, time]` order before
-  its stream transforms, which preserve that order. `execution.sort_buffer_mb`
+  source-backed stream establishes canonical `[*partition_by, time]` order
+  before its ordered transforms, which preserve that order. `execution.sort_buffer_mb`
   applies to that upstream ordering stage, not to alignment.
 - Each input must contain at most one record per `(partition, time)` key. Only
   keys present in every input are combined. Alignment stops when any input is
   exhausted and does not scan irrelevant tails of the remaining inputs.
 - Combine signature is `combine(first_record, second_record, ..., **args)` and it
   returns one record or `None` to skip that key.
-- The derived stream outputs records; its own `stream` transforms apply afterward.
+- The aligned stream outputs records; its own `transforms` apply afterward.
 
 ### `dataset.yaml`
 
@@ -543,15 +542,15 @@ postprocess:
 - `sample.keys` optionally adds record fields to the sample key. For example,
   `keys: [security_id]` emits one sample per `(time, security_id)`. Every sample
   key must belong to the resolved `partition_by` of every referenced stream.
-- `stream` references the canonical ingest or derived stream that supplies the
+- `stream` references the canonical stream that supplies the
   feature or target records.
 - Each sample-key field must contain non-null JSON scalar values of one stable
   type. Floating-point keys must be finite; booleans, integers, and floats are
   distinct key types and cannot be mixed within one field.
-- Stateful stream transforms such as `lag`, `lead`, `rolling`, `fill`, and
+- Stateful ordered transforms such as `lag`, `lead`, `rolling`, `fill`, and
   `ensure_cadence` use stream `partition_by` as their entity partition. Define
-  `partition_by: [security_id]` on the ingest when transform state must stay per
-  security; single-input streams inherit it unless they explicitly replace it.
+  `partition_by: [security_id]` on the source-backed stream when transform state
+  must stay per security; downstream streams inherit it.
 - `partition_by` is the complete series identity. `sample.keys` select which
   partition fields identify output rows; remaining partition fields suffix
   feature IDs such as `close__@security_id:AAPL`. This supports long, wide, and
@@ -565,7 +564,7 @@ postprocess:
   cannot be overridden per feature. `None` remains `None`; other nonnumeric or
   non-finite values fail.
 - `sequence` emits `FeatureSequence` windows and accepts `size` plus
-  optional `stride` (default `1`). Regularize cadence with stream transforms
+  optional `stride` (default `1`). Regularize cadence with ordered transforms
   before feature extraction when contiguous ticks are required. The resolved
   stream partition keeps every independent series in one contiguous ordered
   group.

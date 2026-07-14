@@ -1,9 +1,9 @@
 from collections.abc import Sequence
 from pathlib import Path
 
-from datapipeline.config.catalog import StreamsConfig
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
 from datapipeline.config.project import ProjectConfig
+from datapipeline.config.streams import StreamsConfig
 from datapipeline.config.tasks import ArtifactTask, OperationTask
 from datapipeline.services.definitions import (
     ArtifactHashes,
@@ -27,10 +27,9 @@ def pipeline_definition(
         path=project_path,
         config=ProjectConfig.model_validate(
             {
-                "version": 1,
+                "version": 2,
                 "artifact_revision": 1,
                 "paths": {
-                    "ingests": "ingests",
                     "streams": "streams",
                     "sources": "sources",
                     "dataset": "dataset.yaml",
@@ -42,7 +41,6 @@ def pipeline_definition(
         ),
         variables={},
         environment={},
-        ingest_dirs=(root / "ingests",),
         stream_dirs=(root / "streams",),
         source_dirs=(root / "sources",),
         dataset_path=root / "dataset.yaml",

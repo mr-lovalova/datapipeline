@@ -52,7 +52,7 @@ def _metadata() -> VectorMetadata:
 
 def _runtime(tmp_path) -> Runtime:
     project_yaml = tmp_path / "project.yaml"
-    project_yaml.write_text("version: 1\nartifact_revision: 1\n", encoding="utf-8")
+    project_yaml.write_text("version: 2\nartifact_revision: 1\n", encoding="utf-8")
     return Runtime(
         project_yaml=project_yaml,
         artifacts_root=tmp_path / "artifacts",

@@ -2,9 +2,14 @@ from pathlib import Path
 
 import pytest
 
+from datapipeline.config.streams import (
+    AlignedStreamConfig,
+    DerivedStreamConfig,
+    SourceStreamConfig,
+)
 from datapipeline.services.project import load_project
-from datapipeline.services.streams.ingest import build_source_from_spec
 from datapipeline.services.streams.loader import load_streams
+from datapipeline.services.streams.source import build_source
 
 
 def _sources(project_yaml: Path):
@@ -12,17 +17,15 @@ def _sources(project_yaml: Path):
 
 
 def _write_project_yaml(project_root: Path) -> Path:
-    (project_root / "ingests").mkdir(parents=True, exist_ok=True)
     (project_root / "streams").mkdir(parents=True, exist_ok=True)
     project_yaml = project_root / "project.yaml"
     project_yaml.write_text(
         "\n".join(
             [
-                "version: 1",
+                "version: 2",
                 "artifact_revision: 1",
                 "name: sample",
                 "paths:",
-                "  ingests: ./ingests",
                 "  streams: streams",
                 "  sources: sources",
                 "  dataset: dataset.yaml",
@@ -95,7 +98,7 @@ def test_load_sources_resolves_fs_path_from_project_root(tmp_path: Path) -> None
     project_yaml = _write_project_yaml(project_root)
 
     loaded = _sources(project_yaml)
-    source = build_source_from_spec(
+    source = build_source(
         loaded["sample.fs"],
         project_yaml=project_yaml,
     )
@@ -122,7 +125,7 @@ def test_load_sources_resolves_fs_path_relative_to_project_root_only(
     project_yaml = _write_project_yaml(project_root)
 
     loaded = _sources(project_yaml)
-    source = build_source_from_spec(
+    source = build_source(
         loaded["sample.fs"],
         project_yaml=project_yaml,
     )
@@ -137,7 +140,6 @@ def test_load_sources_reads_multiple_source_roots(tmp_path: Path) -> None:
     project_root = workspace / "project"
     common_root = workspace / "common"
     (project_root / "streams").mkdir(parents=True)
-    (project_root / "ingests").mkdir()
     (project_root / "tasks").mkdir()
     (project_root / "build").mkdir()
     (project_root / "data").mkdir()
@@ -152,11 +154,10 @@ def test_load_sources_reads_multiple_source_roots(tmp_path: Path) -> None:
     project_yaml.write_text(
         "\n".join(
             [
-                "version: 1",
+                "version: 2",
                 "artifact_revision: 1",
                 "name: sample",
                 "paths:",
-                "  ingests: ./ingests",
                 "  streams: streams",
                 "  sources:",
                 "    - sources",
@@ -180,7 +181,6 @@ def test_load_sources_rejects_duplicate_source_ids_across_roots(tmp_path: Path) 
     project_root = workspace / "project"
     common_root = workspace / "common"
     (project_root / "streams").mkdir(parents=True)
-    (project_root / "ingests").mkdir()
     (project_root / "tasks").mkdir()
     (project_root / "build").mkdir()
     (project_root / "data").mkdir()
@@ -199,11 +199,10 @@ def test_load_sources_rejects_duplicate_source_ids_across_roots(tmp_path: Path) 
     project_yaml.write_text(
         "\n".join(
             [
-                "version: 1",
+                "version: 2",
                 "artifact_revision: 1",
                 "name: sample",
                 "paths:",
-                "  ingests: ./ingests",
                 "  streams: streams",
                 "  sources:",
                 "    - sources",
@@ -267,3 +266,98 @@ def test_load_sources_rejects_missing_id(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="Missing 'id' in source file"):
         _sources(project_yaml)
+
+
+def test_load_streams_reads_all_stream_variants_from_one_catalog(
+    tmp_path: Path,
+) -> None:
+    project_root = tmp_path / "project"
+    _write_source_yaml(project_root / "sources", "data/*.jsonl")
+    streams = project_root / "streams"
+    streams.mkdir(parents=True)
+    (streams / "prices.yaml").write_text(
+        "\n".join(
+            [
+                "id: prices",
+                "from: {source: sample.fs}",
+                "map: {entrypoint: map_price}",
+                "partition_by: [ticker]",
+                "transforms:",
+                "  - {operation: dedupe}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (streams / "returns.yaml").write_text(
+        "\n".join(
+            [
+                "id: returns",
+                "from: {stream: prices}",
+                "transforms:",
+                "  - {operation: lag, field: close, periods: 1}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (streams / "aligned.yaml").write_text(
+        "\n".join(
+            [
+                "id: aligned",
+                "from: {align: [prices, returns]}",
+                "combine: {entrypoint: combine_records}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_streams(load_project(_write_project_yaml(project_root))).streams
+
+    assert isinstance(loaded["prices"], SourceStreamConfig)
+    assert isinstance(loaded["returns"], DerivedStreamConfig)
+    assert isinstance(loaded["aligned"], AlignedStreamConfig)
+
+
+def test_load_streams_rejects_duplicate_ids_across_roots(tmp_path: Path) -> None:
+    project_root = tmp_path / "project"
+    common_root = tmp_path / "common"
+    _write_source_yaml(project_root / "sources", "data/*.jsonl")
+    for root, configured_id in (
+        (project_root / "streams", "prices"),
+        (common_root / "streams", '" prices "'),
+    ):
+        root.mkdir(parents=True)
+        (root / "prices.yaml").write_text(
+            "\n".join(
+                [
+                    f"id: {configured_id}",
+                    "from: {source: sample.fs}",
+                    "map: {entrypoint: map_price}",
+                ]
+            ),
+            encoding="utf-8",
+        )
+    project_yaml = _write_project_yaml(project_root)
+    project_yaml.write_text(
+        project_yaml.read_text(encoding="utf-8").replace(
+            "  streams: streams",
+            "  streams: [streams, ../common/streams]",
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Duplicate stream id 'prices'"):
+        load_streams(load_project(project_yaml))
+
+
+def test_load_streams_rejects_missing_id(tmp_path: Path) -> None:
+    project_root = tmp_path / "project"
+    _write_source_yaml(project_root / "sources", "data/*.jsonl")
+    streams = project_root / "streams"
+    streams.mkdir(parents=True)
+    (streams / "bad.yaml").write_text(
+        "from: {source: sample.fs}\nmap: {entrypoint: map_price}\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Missing 'id' in stream file"):
+        load_streams(load_project(_write_project_yaml(project_root)))

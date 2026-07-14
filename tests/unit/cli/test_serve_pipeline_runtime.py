@@ -224,8 +224,8 @@ def test_samples_preview_stops_before_postprocess(monkeypatch):
 @pytest.mark.parametrize(
     ("preview", "expected"),
     [
-        ("source", "source"),
-        ("mapped", "mapped:source"),
+        ("input", "source"),
+        ("canonical", "mapped:source"),
         ("records", "records:transformed:mapped:source"),
     ],
 )

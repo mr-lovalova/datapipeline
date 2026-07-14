@@ -13,8 +13,8 @@ from datapipeline.operations.artifacts.ticks import materialize_ticks
 from datapipeline.runtime import (
     AlignedRuntimeStream,
     DerivedRuntimeStream,
-    IngestRuntimeStream,
     Runtime,
+    SourceRuntimeStream,
 )
 
 
@@ -53,7 +53,7 @@ def _left_records(pairs):
 
 def _runtime(tmp_path, rows=None, partition_by=()) -> Runtime:
     project_yaml = tmp_path / "project.yaml"
-    project_yaml.write_text("version: 1\nartifact_revision: 1\n", encoding="utf-8")
+    project_yaml.write_text("version: 2\nartifact_revision: 1\n", encoding="utf-8")
     artifacts_root = tmp_path / "artifacts"
     artifacts_root.mkdir()
     runtime = Runtime(
@@ -62,9 +62,10 @@ def _runtime(tmp_path, rows=None, partition_by=()) -> Runtime:
         dataset=FeatureDatasetConfig(sample=SampleConfig(cadence="1h")),
         execution=ExecutionConfig(),
     )
-    runtime.streams["source.stream"] = IngestRuntimeStream(
+    runtime.streams["source.stream"] = SourceRuntimeStream(
         source=_Source([_record(2), _record(0), _record(2)] if rows is None else rows),
         mapper=_identity,
+        preprocess=(),
         transforms=(),
         partition_by=partition_by,
         presorted=False,
@@ -79,10 +80,8 @@ def _stream_runtime(tmp_path, rows=None) -> Runtime:
     )
     runtime.streams["derived.stream"] = DerivedRuntimeStream(
         input_stream="source.stream",
-        mapper=_identity,
         transforms=(WhereConfig(field="time", operator="lt", comparand=_ts(2)),),
         partition_by=(),
-        presorted=False,
     )
     return runtime
 
@@ -188,19 +187,19 @@ def test_materialize_ticks_reuses_aligned_stream_order(monkeypatch, tmp_path) ->
         [_record(1, "MSFT"), _record(0, "AAPL")],
         partition_by=("security_id",),
     )
-    runtime.streams["right.stream"] = IngestRuntimeStream(
+    runtime.streams["right.stream"] = SourceRuntimeStream(
         source=_Source([_record(0, "AAPL"), _record(1, "MSFT")]),
         mapper=_identity,
+        preprocess=(),
         transforms=(),
         partition_by=("security_id",),
         presorted=False,
     )
     runtime.streams["aligned.stream"] = AlignedRuntimeStream(
-        input_streams=("source.stream", "right.stream"),
+        inputs=("source.stream", "right.stream"),
         combine=_left_records,
         transforms=(),
         partition_by=("security_id",),
-        presorted=False,
     )
     monkeypatch.setattr(
         ticks_module,

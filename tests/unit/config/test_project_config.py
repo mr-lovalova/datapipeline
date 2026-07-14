@@ -7,11 +7,10 @@ from datapipeline.services.config_refs import project_vars_from_data
 
 def _project_data(**overrides):
     data = {
-        "version": 1,
+        "version": 2,
         "artifact_revision": 1,
         "name": "momentum",
         "paths": {
-            "ingests": "ingests",
             "streams": "streams",
             "sources": "sources",
             "dataset": "dataset.yaml",
@@ -36,6 +35,14 @@ def test_project_config_requires_artifact_revision() -> None:
         ProjectConfig.model_validate(data)
 
 
+def test_project_config_requires_schema_version() -> None:
+    data = _project_data()
+    del data["version"]
+
+    with pytest.raises(ValidationError, match="version"):
+        ProjectConfig.model_validate(data)
+
+
 def test_project_config_accepts_positive_artifact_revision() -> None:
     cfg = ProjectConfig.model_validate(_project_data(artifact_revision=3))
 
@@ -52,7 +59,6 @@ def test_project_config_accepts_multiple_discovery_roots() -> None:
     cfg = ProjectConfig.model_validate(
         _project_data(
             paths={
-                "ingests": ["ingests", "../common/ingests"],
                 "streams": ["streams", "../common/streams"],
                 "sources": ["sources", "../common/sources"],
                 "dataset": "dataset.yaml",
@@ -61,7 +67,6 @@ def test_project_config_accepts_multiple_discovery_roots() -> None:
         )
     )
 
-    assert cfg.paths.ingests == ["ingests", "../common/ingests"]
     assert cfg.paths.streams == ["streams", "../common/streams"]
     assert cfg.paths.sources == ["sources", "../common/sources"]
 
@@ -71,8 +76,7 @@ def test_project_config_rejects_empty_discovery_roots() -> None:
         ProjectConfig.model_validate(
             _project_data(
                 paths={
-                    "ingests": [],
-                    "streams": "streams",
+                    "streams": [],
                     "sources": "sources",
                     "dataset": "dataset.yaml",
                     "artifacts": "artifacts",
@@ -83,7 +87,7 @@ def test_project_config_rejects_empty_discovery_roots() -> None:
 
 @pytest.mark.parametrize(
     "field",
-    ["ingests", "streams", "sources", "dataset", "artifacts", "operations", "profiles"],
+    ["streams", "sources", "dataset", "artifacts", "operations", "profiles"],
 )
 def test_project_config_rejects_blank_paths(field: str) -> None:
     data = _project_data()
@@ -93,7 +97,7 @@ def test_project_config_rejects_blank_paths(field: str) -> None:
         ProjectConfig.model_validate(data)
 
 
-@pytest.mark.parametrize("field", ["ingests", "streams", "sources"])
+@pytest.mark.parametrize("field", ["streams", "sources"])
 def test_project_config_rejects_blank_discovery_root(field: str) -> None:
     data = _project_data()
     data["paths"][field] = ["valid", "   "]
@@ -107,7 +111,7 @@ def test_project_fields_have_one_interpolation_name() -> None:
 
     assert vars_["project_name"] == "momentum"
     assert vars_["project_variant"] == "long"
-    assert vars_["version"] == "1"
+    assert vars_["version"] == "2"
     assert "project" not in vars_
     assert "variant" not in vars_
     assert "project_version" not in vars_
@@ -170,6 +174,14 @@ def test_project_config_rejects_unknown_path_fields() -> None:
         ProjectConfig.model_validate(data)
 
 
-def test_project_version_is_schema_version_one() -> None:
-    with pytest.raises(ValidationError, match="Input should be 1"):
-        ProjectConfig.model_validate(_project_data(version="v1-champion"))
+def test_project_config_rejects_removed_ingest_path() -> None:
+    data = _project_data()
+    data["paths"]["ingests"] = "ingests"
+
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        ProjectConfig.model_validate(data)
+
+
+def test_project_version_is_schema_version_two() -> None:
+    with pytest.raises(ValidationError, match="Input should be 2"):
+        ProjectConfig.model_validate(_project_data(version=1))

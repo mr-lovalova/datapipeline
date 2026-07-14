@@ -20,7 +20,6 @@ ProjectPath = Annotated[
 class ProjectPaths(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    ingests: ProjectPath | list[ProjectPath]
     streams: ProjectPath | list[ProjectPath]
     sources: ProjectPath | list[ProjectPath]
     dataset: ProjectPath
@@ -28,7 +27,7 @@ class ProjectPaths(BaseModel):
     operations: ProjectPath | None = None
     profiles: ProjectPath | None = None
 
-    @field_validator("ingests", "streams", "sources")
+    @field_validator("streams", "sources")
     @classmethod
     def require_config_roots(cls, value: str | list[str]) -> str | list[str]:
         if isinstance(value, list) and not value:
@@ -63,7 +62,7 @@ class ProjectGlobals(BaseModel):
 class ProjectConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    version: Literal[1] = 1
+    version: Literal[2]
     artifact_revision: int = Field(strict=True, gt=0)
     name: str | None = None
     variant: str | None = None

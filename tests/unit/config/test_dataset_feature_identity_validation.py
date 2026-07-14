@@ -1,13 +1,13 @@
 import pytest
 
-from datapipeline.config.catalog import IngestConfig, StreamsConfig
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig, SequenceConfig
+from datapipeline.config.streams import SourceStreamConfig, StreamsConfig
 from datapipeline.services.dataset import validate_dataset_streams
 
 
 def _streams(partition_by: list[str]) -> StreamsConfig:
-    ingest = IngestConfig.model_validate(
+    stream = SourceStreamConfig.model_validate(
         {
             "id": "prices",
             "from": {"source": "raw"},
@@ -15,7 +15,7 @@ def _streams(partition_by: list[str]) -> StreamsConfig:
             "partition_by": partition_by,
         }
     )
-    return StreamsConfig(ingests={"prices": ingest})
+    return StreamsConfig(streams={"prices": stream})
 
 
 def _dataset(

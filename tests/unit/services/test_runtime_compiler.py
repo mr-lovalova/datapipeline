@@ -6,8 +6,8 @@ from datapipeline.pipelines.stream.pipeline import (
     build_stream_pipeline,
     run_stream_pipeline,
 )
-from datapipeline.plugins import MAPPERS_EP
-from datapipeline.runtime import IngestRuntimeStream
+from datapipeline.plugins import COMBINERS_EP
+from datapipeline.runtime import DerivedRuntimeStream, SourceRuntimeStream
 from datapipeline.services.pipeline import load_pipeline
 from datapipeline.services.runtime_compiler import compile_runtime
 from datapipeline.sources.models.source import Source
@@ -28,21 +28,19 @@ class _PipelineObserver(NoopPipelineObserver):
 
 def _write_test_project(tmp_path):
     sources_dir = tmp_path / "sources"
-    ingests_dir = tmp_path / "ingests"
     streams_dir = tmp_path / "streams"
     data_dir = tmp_path / "data"
-    for directory in (sources_dir, ingests_dir, streams_dir, data_dir):
+    for directory in (sources_dir, streams_dir, data_dir):
         directory.mkdir()
 
     project_yaml = tmp_path / "project.yaml"
     project_yaml.write_text(
         """\
-version: 1
+version: 2
 artifact_revision: 1
 name: runtime-compiler-test
 paths:
   sources: sources
-  ingests: ingests
   streams: streams
   dataset: dataset.yaml
   artifacts: artifacts
@@ -53,11 +51,11 @@ paths:
         "sample:\n  cadence: 1h\nfeatures: []\ntargets: []\n",
         encoding="utf-8",
     )
-    return project_yaml, sources_dir, ingests_dir, streams_dir, data_dir
+    return project_yaml, sources_dir, streams_dir, data_dir
 
 
-def test_ingests_sharing_a_source_compile_distinct_runtime_objects(tmp_path) -> None:
-    project_yaml, sources_dir, ingests_dir, _, _ = _write_test_project(tmp_path)
+def test_streams_sharing_a_source_compile_distinct_runtime_objects(tmp_path) -> None:
+    project_yaml, sources_dir, streams_dir, _ = _write_test_project(tmp_path)
     (sources_dir / "shared.yaml").write_text(
         """\
 id: shared
@@ -72,10 +70,10 @@ loader:
 """,
         encoding="utf-8",
     )
-    for ingest_id in ("left", "right"):
-        (ingests_dir / f"{ingest_id}.yaml").write_text(
+    for stream_id in ("left", "right"):
+        (streams_dir / f"{stream_id}.yaml").write_text(
             f"""\
-id: {ingest_id}
+id: {stream_id}
 from:
   source: shared
 map:
@@ -88,8 +86,8 @@ map:
     left = runtime.streams["left"]
     right = runtime.streams["right"]
 
-    assert isinstance(left, IngestRuntimeStream)
-    assert isinstance(right, IngestRuntimeStream)
+    assert isinstance(left, SourceRuntimeStream)
+    assert isinstance(right, SourceRuntimeStream)
     assert isinstance(left.source, Source)
     assert isinstance(right.source, Source)
     assert left.source is not right.source
@@ -97,13 +95,70 @@ map:
     assert left.source.parser is not right.source.parser
 
 
+def test_yaml_derived_stream_runs_with_inherited_partition(tmp_path) -> None:
+    project_yaml, sources_dir, streams_dir, data_dir = _write_test_project(tmp_path)
+    (data_dir / "prices.jsonl").write_text(
+        "\n".join(
+            [
+                '{"time":"2025-01-02T00:00:00Z","ticker":"A","value":2}',
+                '{"time":"2025-01-01T00:00:00Z","ticker":"A","value":1}',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (sources_dir / "prices.yaml").write_text(
+        """\
+id: prices.source
+parser:
+  entrypoint: core.temporal_record
+loader:
+  entrypoint: core.io
+  args:
+    transport: fs
+    format: jsonl
+    path: data/prices.jsonl
+""",
+        encoding="utf-8",
+    )
+    (streams_dir / "prices.yaml").write_text(
+        """\
+id: prices
+from:
+  source: prices.source
+partition_by: [ticker]
+map:
+  entrypoint: identity
+""",
+        encoding="utf-8",
+    )
+    (streams_dir / "filtered.yaml").write_text(
+        """\
+id: filtered
+from:
+  stream: prices
+transforms:
+  - {operation: where, field: value, operator: gt, comparand: 1}
+""",
+        encoding="utf-8",
+    )
+
+    runtime = compile_runtime(load_pipeline(project_yaml))
+    derived = runtime.streams["filtered"]
+
+    assert isinstance(derived, DerivedRuntimeStream)
+    assert derived.partition_by == ("ticker",)
+    records = list(run_stream_pipeline(PipelineContext(runtime), "filtered"))
+    assert [(record.time.day, record.ticker, record.value) for record in records] == [
+        (2, "A", 2)
+    ]
+
+
 def test_yaml_aligned_stream_runs_with_inherited_partition_and_combiner(
     tmp_path,
     monkeypatch,
 ) -> None:
-    project_yaml, sources_dir, ingests_dir, streams_dir, data_dir = _write_test_project(
-        tmp_path
-    )
+    project_yaml, sources_dir, streams_dir, data_dir = _write_test_project(tmp_path)
 
     records_by_input = {
         "left": [
@@ -134,7 +189,7 @@ loader:
 """,
             encoding="utf-8",
         )
-        (ingests_dir / f"{input_name}.yaml").write_text(
+        (streams_dir / f"{input_name}.yaml").write_text(
             f"""\
 id: {input_name}
 from:
@@ -168,7 +223,7 @@ combine:
         return record
 
     def load_mapper(group, entrypoint):
-        assert group == MAPPERS_EP
+        assert group == COMBINERS_EP
         assert entrypoint == "combine"
         return combine
 
@@ -184,15 +239,18 @@ combine:
     assert [node.name for node in pipeline.nodes] == [
         "align_inputs",
         "combine_records",
-        "order_records",
     ]
     assert [node.progress is not None for node in pipeline.nodes] == [
         False,
         False,
-        True,
     ]
-    preview = list(_record_preview_stream(context, "combined", "mapped"))
-    assert [record.value for record in preview] == [115, 225]
+    input_rows = list(_record_preview_stream(context, "combined", "input"))
+    assert [[record.value for record in row] for row in input_rows] == [
+        [1, 10],
+        [2, 20],
+    ]
+    canonical = list(_record_preview_stream(context, "combined", "canonical"))
+    assert [record.value for record in canonical] == [115, 225]
 
     observer = _PipelineObserver()
     runtime.pipeline_observer = observer

@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from datapipeline.artifacts.planning import ArtifactGraph, stream_tick_artifacts
-from datapipeline.config.catalog import StreamsConfig
+from datapipeline.config.streams import StreamsConfig
 from datapipeline.config.tasks import TicksTask
 
 

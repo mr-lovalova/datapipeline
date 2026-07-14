@@ -25,7 +25,7 @@ def _runtime(
     artifacts_root = tmp_path / "artifacts"
     artifacts_root.mkdir()
     project = tmp_path / "project.yaml"
-    project.write_text("version: 1\nartifact_revision: 1\n", encoding="utf-8")
+    project.write_text("version: 2\nartifact_revision: 1\n", encoding="utf-8")
     if postprocess is None:
         postprocess = PostprocessConfig()
     runtime = Runtime(

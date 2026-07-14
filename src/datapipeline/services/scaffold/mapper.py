@@ -1,5 +1,4 @@
 from pathlib import Path
-from typing import Optional
 
 from datapipeline.services.paths import pkg_root, resolve_base_pkg_dir
 from datapipeline.services.scaffold.templates import render
@@ -12,7 +11,7 @@ from datapipeline.services.scaffold.utils import (
 )
 from datapipeline.services.scaffold.layout import (
     DIR_MAPPERS,
-    TPL_MAPPER_INGEST,
+    TPL_MAPPER_SOURCE,
     domain_record_class,
     ep_key_from_name,
     entrypoint_target,
@@ -26,12 +25,10 @@ from datapipeline.services.constants import MAPPERS_GROUP
 def create_mapper(
     *,
     name: str,
-    dto_class: str | None = None,
-    dto_module: str | None = None,
-    input_class: str | None = None,
-    input_module: str | None = None,
+    input_class: str,
+    input_module: str,
     domain: str,
-    root: Optional[Path],
+    root: Path | None,
 ) -> str:
     validate_identifier(name, "Mapper name")
 
@@ -46,18 +43,13 @@ def create_mapper(
     domain_module = f"{package_name}.domains.{domain}.model"
     domain_record = domain_record_class(domain)
 
-    resolved_class = input_class or dto_class
-    resolved_module = input_module or dto_module
-    if not resolved_class or not resolved_module:
-        raise ValueError("Mapper input class/module is required")
-
     write_if_missing(
         path,
         render(
-            TPL_MAPPER_INGEST,
+            TPL_MAPPER_SOURCE,
             FUNCTION_NAME=module_name,
-            INPUT_CLASS=resolved_class,
-            INPUT_IMPORT=resolved_module,
+            INPUT_CLASS=input_class,
+            INPUT_IMPORT=input_module,
             DOMAIN_MODULE=domain_module,
             DOMAIN_RECORD=domain_record,
         ),

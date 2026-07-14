@@ -5,12 +5,8 @@ import stat
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 
-from datapipeline.config.catalog import (
-    CoreIoLoaderConfig,
-    FsSourceArgs,
-    SourceConfig,
-    StreamsConfig,
-)
+from datapipeline.config.sources import CoreIoLoaderConfig, FsSourceArgs, SourceConfig
+from datapipeline.config.streams import SourceStreamConfig, StreamsConfig
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.tasks import (
     ArtifactTask,
@@ -116,21 +112,17 @@ def _stream_config_closure(
     streams: StreamsConfig,
 ) -> tuple[dict[str, object], set[str]]:
     source_ids: set[str] = set()
-    ingest_ids: set[str] = set()
     stream_ids: set[str] = set()
 
     def visit(stream_id: str) -> None:
-        if stream_id in ingest_ids or stream_id in stream_ids:
-            return
-        ingest = streams.ingests.get(stream_id)
-        if ingest is not None:
-            ingest_ids.add(stream_id)
-            source_ids.add(ingest.from_.source)
+        if stream_id in stream_ids:
             return
         stream = streams.streams.get(stream_id)
         if stream is None:
             raise ValueError(f"Unknown stream '{stream_id}' in artifact input closure.")
         stream_ids.add(stream_id)
+        if isinstance(stream, SourceStreamConfig):
+            source_ids.add(stream.from_.source)
         for input_stream_id in stream.input_streams():
             visit(input_stream_id)
 
@@ -141,10 +133,6 @@ def _stream_config_closure(
         "sources": {
             source_id: streams.sources[source_id].model_dump(mode="json")
             for source_id in sorted(source_ids)
-        },
-        "ingests": {
-            ingest_id: streams.ingests[ingest_id].model_dump(mode="json")
-            for ingest_id in sorted(ingest_ids)
         },
         "streams": {
             stream_id: streams.streams[stream_id].model_dump(mode="json")

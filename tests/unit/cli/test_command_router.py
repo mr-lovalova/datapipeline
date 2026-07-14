@@ -275,6 +275,7 @@ def test_source_listing_uses_workspace_project_without_python_package(
         ("dtos", "list_dtos"),
         ("parsers", "list_parsers"),
         ("mappers", "list_mappers"),
+        ("combiners", "list_combiners"),
         ("loaders", "list_loaders"),
     ],
 )

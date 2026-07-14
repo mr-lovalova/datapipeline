@@ -1,19 +1,19 @@
 from pathlib import Path
 import ast
-from typing import Optional
 
-from datapipeline.services.paths import pkg_root, resolve_base_pkg_dir
-from datapipeline.services.entrypoints import read_group_entries
 from datapipeline.services.constants import (
-    PARSERS_GROUP,
+    COMBINERS_GROUP,
     LOADERS_GROUP,
     MAPPERS_GROUP,
-    STREAM_FROM_KEY,
+    PARSERS_GROUP,
 )
+from datapipeline.services.entrypoints import read_group_entries
+from datapipeline.services.paths import pkg_root, resolve_base_pkg_dir
 from datapipeline.services.project import load_project
+from datapipeline.services.streams.loader import load_streams
 
 
-def list_dtos(*, root: Optional[Path] = None) -> dict[str, str]:
+def list_dtos(root: Path | None = None) -> dict[str, str]:
     """Return mapping of DTO class name -> module path."""
     root_dir, pkg_name, _ = pkg_root(root)
     base = resolve_base_pkg_dir(root_dir, pkg_name)
@@ -46,28 +46,35 @@ def _is_dataclass(node: ast.ClassDef) -> bool:
     return False
 
 
-def list_parsers(*, root: Optional[Path] = None) -> dict[str, str]:
-    root_dir, _, pyproject = pkg_root(root)
+def list_parsers(root: Path | None = None) -> dict[str, str]:
+    _, _, pyproject = pkg_root(root)
     if not pyproject.exists():
         return {}
     return read_group_entries(pyproject, PARSERS_GROUP)
 
 
-def list_loaders(*, root: Optional[Path] = None) -> dict[str, str]:
-    root_dir, _, pyproject = pkg_root(root)
+def list_loaders(root: Path | None = None) -> dict[str, str]:
+    _, _, pyproject = pkg_root(root)
     if not pyproject.exists():
         return {}
     return read_group_entries(pyproject, LOADERS_GROUP)
 
 
-def list_mappers(*, root: Optional[Path] = None) -> dict[str, str]:
-    root_dir, _, pyproject = pkg_root(root)
+def list_mappers(root: Path | None = None) -> dict[str, str]:
+    _, _, pyproject = pkg_root(root)
     if not pyproject.exists():
         return {}
     return read_group_entries(pyproject, MAPPERS_GROUP)
 
 
-def list_domains(*, root: Optional[Path] = None) -> list[str]:
+def list_combiners(root: Path | None = None) -> dict[str, str]:
+    _, _, pyproject = pkg_root(root)
+    if not pyproject.exists():
+        return {}
+    return read_group_entries(pyproject, COMBINERS_GROUP)
+
+
+def list_domains(root: Path | None = None) -> list[str]:
     root_dir, pkg_name, _ = pkg_root(root)
     base = resolve_base_pkg_dir(root_dir, pkg_name)
     dom_dir = base / "domains"
@@ -79,40 +86,10 @@ def list_domains(*, root: Optional[Path] = None) -> list[str]:
 
 
 def list_sources(project_yaml: Path) -> list[str]:
-    from datapipeline.utils.load import load_yaml
-    from datapipeline.services.constants import PARSER_KEY, LOADER_KEY, SOURCE_ID_KEY
-
-    out: list[str] = []
-    for sources_dir in load_project(project_yaml).source_dirs:
-        if not sources_dir.exists():
-            continue
-        for p in sorted(sources_dir.rglob("*.y*ml")):
-            data = load_yaml(p)
-            if (
-                isinstance(data, dict)
-                and isinstance(data.get(PARSER_KEY), dict)
-                and isinstance(data.get(LOADER_KEY), dict)
-            ):
-                alias = data.get(SOURCE_ID_KEY)
-                if isinstance(alias, str):
-                    out.append(alias)
-    return sorted(set(out))
+    streams = load_streams(load_project(project_yaml))
+    return sorted(streams.sources)
 
 
 def list_streams(project_yaml: Path) -> list[str]:
-    from datapipeline.utils.load import load_yaml
-    from datapipeline.services.constants import STREAM_ID_KEY
-
-    out: list[str] = []
-    project = load_project(project_yaml)
-    roots = [*project.ingest_dirs, *project.stream_dirs]
-    for root in roots:
-        if not root.exists():
-            continue
-        for p in sorted(root.rglob("*.y*ml")):
-            data = load_yaml(p)
-            if isinstance(data, dict) and isinstance(data.get(STREAM_FROM_KEY), dict):
-                sid = data.get(STREAM_ID_KEY)
-                if isinstance(sid, str) and sid:
-                    out.append(sid)
-    return sorted(set(out))
+    streams = load_streams(load_project(project_yaml))
+    return sorted(streams.streams)

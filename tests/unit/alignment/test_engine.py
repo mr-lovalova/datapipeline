@@ -9,11 +9,11 @@ from datapipeline.domain.record import TemporalRecord
 
 @dataclass
 class _Record(TemporalRecord):
-    id_: str
+    id_: object
     value: str
 
 
-def _record(id_: str, day: int, value: str) -> _Record:
+def _record(id_: object, day: int, value: str) -> _Record:
     return _Record(
         time=datetime(2025, 1, day, tzinfo=UTC),
         id_=id_,
@@ -105,6 +105,25 @@ def test_align_streams_skips_keys_without_a_complete_match() -> None:
     )
 
     assert rows == []
+
+
+def test_align_streams_requires_matching_partition_types() -> None:
+    with pytest.raises(
+        TypeError,
+        match=(
+            "Alignment input 'right' partition field 'id_' uses bool; "
+            "input 'left' uses int"
+        ),
+    ):
+        list(
+            align_streams(
+                [
+                    ("left", iter([_record(1, 1, "left")])),
+                    ("right", iter([_record(True, 1, "right")])),
+                ],
+                partition_by=("id_",),
+            )
+        )
 
 
 @pytest.mark.parametrize("duplicate_input", [0, 1, 2])

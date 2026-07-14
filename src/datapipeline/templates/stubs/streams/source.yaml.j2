@@ -1,0 +1,18 @@
+id: {{ stream_id }}  # format: domain.dataset.(variant)
+
+from:
+  source: {{ source }}
+
+map:
+  entrypoint: {{ mapper_entrypoint }}
+  args: {}
+
+# partition_by: [field]  # complete series identity; time is reserved
+# Dataset sample.keys select row identity; remaining partition fields suffix feature IDs.
+
+# preprocess:
+#   - { operation: where, field: time, operator: ge, comparand: "2020-01-01T00:00:00Z" }
+#   - { operation: floor_time, cadence: 1h }
+
+# transforms:
+#   - { operation: rolling, field: value, window: 24, statistic: mean }

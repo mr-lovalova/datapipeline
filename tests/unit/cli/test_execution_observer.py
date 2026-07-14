@@ -168,10 +168,10 @@ def test_observer_logs_root_lifecycle_and_summary_at_info(caplog) -> None:
     observer = PipelineEventObserver(logger)
 
     with caplog.at_level(logging.INFO, logger=logger.name):
-        observer.on_pipeline_start("ingest:prices", 2, "transport=fs.file file=prices")
+        observer.on_pipeline_start("stream:prices", 2, "transport=fs.file file=prices")
         observer.on_pipeline_end(
             PipelineRunEvent(
-                pipeline_name="ingest:prices",
+                pipeline_name="stream:prices",
                 node_count=2,
                 output_items=3,
                 elapsed_seconds=0.02,
@@ -180,9 +180,9 @@ def test_observer_logs_root_lifecycle_and_summary_at_info(caplog) -> None:
         )
 
     assert [record.getMessage() for record in caplog.records] == [
-        "[ingest:prices] started nodes=2",
-        "[ingest:prices] transport=fs.file file=prices",
-        "[ingest:prices] finished status=success items=3 elapsed=0.020000s",
+        "[stream:prices] started nodes=2",
+        "[stream:prices] transport=fs.file file=prices",
+        "[stream:prices] finished status=success items=3 elapsed=0.020000s",
     ]
 
 

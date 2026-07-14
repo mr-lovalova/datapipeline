@@ -16,6 +16,7 @@ from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConf
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.config.execution import ExecutionConfig
 from datapipeline.config.preview import PreviewStage
+from datapipeline.config.streams import StreamsConfig
 from datapipeline.execution.settings import (
     LogLevelDecision,
     LogOutputSettings,
@@ -98,6 +99,28 @@ def _dataset(*, scale: bool = False) -> FeatureDatasetConfig:
     )
 
 
+def _stream_catalog() -> StreamsConfig:
+    return StreamsConfig.model_validate(
+        {
+            "sources": {
+                "test.source": {
+                    "id": "test.source",
+                    "parser": {"entrypoint": "identity"},
+                    "loader": {"entrypoint": "identity"},
+                }
+            },
+            "streams": {
+                stream_id: {
+                    "id": stream_id,
+                    "from": {"source": "test.source"},
+                    "map": {"entrypoint": "identity"},
+                }
+                for stream_id in ("stream", "prices")
+            },
+        }
+    )
+
+
 def _runtime(tmp_path: Path, marker: str = "runtime") -> SimpleNamespace:
     return SimpleNamespace(
         marker=marker,
@@ -152,6 +175,7 @@ def _build_request(
         definition=pipeline_definition(
             tmp_path / "project.yaml",
             dataset=_dataset(),
+            streams=_stream_catalog(),
             artifact_operations=artifact_tasks,
         ),
         jobs=jobs,
@@ -174,6 +198,7 @@ def _runtime_request(
         definition=pipeline_definition(
             tmp_path / "project.yaml",
             dataset=_dataset(),
+            streams=_stream_catalog(),
             artifact_operations=artifact_tasks,
         ),
         jobs=jobs,
@@ -194,6 +219,7 @@ def _materialize_request(
         definition=pipeline_definition(
             tmp_path / "project.yaml",
             dataset=_dataset(),
+            streams=_stream_catalog(),
             artifact_operations=artifact_tasks,
         ),
         jobs=jobs,
@@ -1006,6 +1032,7 @@ def test_materialize_hydrates_current_tick_artifact_when_build_skips(
     definition = pipeline_definition(
         tmp_path / "project.yaml",
         dataset=_dataset(),
+        streams=_stream_catalog(),
         artifact_operations=[ticks],
     )
     artifacts_root = definition.project.artifacts_root

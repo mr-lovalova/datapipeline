@@ -1,6 +1,6 @@
 # Pipeline Architecture
 
-Each command reads and validates the project, dataset, source, ingest, stream,
+Each command reads and validates the project, dataset, source, stream,
 and operation YAML once into a `PipelineDefinition`. That definition is the
 command's configuration snapshot. Planning, validation, artifact hydration,
 and execution do not re-read configuration or environment values. Changes are
@@ -12,18 +12,15 @@ instances are compiled from the definition without reading configuration files.
 ## Runtime streams
 
 Every canonical stream ID has exactly one entry in `Runtime.streams`:
-`IngestRuntimeStream`, `DerivedRuntimeStream`, or `AlignedRuntimeStream`.
+`SourceRuntimeStream`, `DerivedRuntimeStream`, or `AlignedRuntimeStream`.
 
-An ingest owns an external source. A derived stream names one upstream stream;
-an aligned stream names two or more inputs. Ingests keep a prepared iterator
-mapper, derived streams keep one only when `map` is configured, and aligned
-streams keep their prepared combine stage. All three keep typed transforms,
-complete series identity (`partition_by`), and ordering policy (`presorted`)
-together. There is no generic source adapter that hides another pipeline.
-Single-input streams are flattened; aligned streams use the explicit fan-in
-boundary described below. Their strict config models make `map` and `combine`
-mutually exclusive. Single-input streams inherit partition identity when it is
-omitted; an explicit list replaces the inherited value.
+A source-backed stream owns an external source, mapper, preprocess operations,
+partition identity, and ordering policy. A derived stream names one upstream
+stream and adds ordered transforms. An aligned stream names two or more inputs
+and owns a prepared combine stage. Derived and aligned streams inherit their
+partition identity; only source-backed streams declare it. Single-input streams
+are flattened, while aligned streams use the explicit fan-in boundary described
+below. The strict config models keep source mapping and alignment separate.
 
 Dataset `sample.keys` select the partition fields represented in row identity.
 The remaining partition fields deterministically suffix feature IDs in declared
@@ -32,8 +29,7 @@ feature-identity setting.
 
 Configured loader, parser, map, and combine entry points are resolved while
 compiling a runtime from the definition. The resulting callables are stored on the runtime stream. There are
-no parallel `stream_sources`, `mappers`, record-operation,
-stream-operation, or debug-transform registries to keep synchronized.
+no parallel source, mapper, transform, or debug registries to keep synchronized.
 
 ```mermaid
 flowchart LR
@@ -45,16 +41,17 @@ flowchart LR
   postprocess --> output["samples / output"]
 ```
 
-## Record and stream pipelines
+## Stream pipelines
 
-An ingest is one source followed by ordered stages:
+A source-backed stream is one source followed by explicit stages:
 
 ```text
-ingest:<id>
+stream:<id>
   open_source
   map_records
-  <one node per configured record transform>
+  <one node per configured preprocess transform>
   order_records
+  <one node per configured ordered transform>
 ```
 
 A single-input derived stream flattens its upstream pipeline into the same run. The
@@ -63,17 +60,14 @@ and the stage that produced a record:
 
 ```text
 stream:<id>
-  ingest:<upstream>/open_source
-  ingest:<upstream>/map_records
-  ingest:<upstream>/...
-  <map_records when map is configured>
-  <order_records after map or a partition change>
-  <one node per configured stream transform>
+  stream:<upstream>/open_source
+  stream:<upstream>/map_records
+  stream:<upstream>/...
+  <one node per configured ordered transform>
 ```
 
-With no mapper and unchanged partition fields, the derived stream reuses the
-upstream canonical order directly. It does not add identity mapping or sorting
-stages.
+The derived stream reuses upstream canonical order directly. It does not add
+identity mapping or sorting stages.
 
 Aligned streams are the one real fan-in boundary. Their root source node is
 `align_inputs`; it owns opening, validating, merging, and closing the configured
@@ -81,22 +75,22 @@ ordered inputs.
 Those input pipelines run internally without starting competing visual pipelines.
 The aligned root remains the single observable pipeline: `align_inputs` reports
 its current progress, then `combine_records` applies the configured combine
-function before canonical ordering and stream transforms.
+function before ordered transforms.
 
 The runner accepts only a source followed by stream stages. It owns lazy
 iteration, closing, output counts, timings, and sampled progress. It has no
 generic fan-out, keyword-input, node-kind, nested-parent, or nested-pipeline
 machinery.
 
-Record and stream transform configuration is a strict discriminated union. Each
+Preprocess and ordered transform configuration is a strict discriminated union. Each
 entry names its built-in operation directly:
 
 ```yaml
-record:
+preprocess:
   - operation: floor_time
     cadence: 1d
 
-stream:
+transforms:
   - operation: rolling
     field: close
     window: 20
@@ -109,7 +103,7 @@ There is no generic transform engine, signature inspection, arbitrary keyword
 injection, transform plugin lookup, or debug transform registry.
 
 Feature scaling and sequence construction remain feature-pipeline stages rather
-than record or stream transforms. This keeps stream normalization separate from
+than preprocess or ordered transforms. This keeps stream normalization separate from
 dataset shaping.
 
 ## Vector postprocess
@@ -137,6 +131,6 @@ the boundary where their validated contracts are needed.
 ## Preview boundaries
 
 `jerry serve --preview` selects a semantic boundary rather than a numeric node
-position: `source`, `mapped`, `records`, `features`, `samples`, or `postprocess`.
+position: `input`, `canonical`, `records`, `features`, `samples`, or `postprocess`.
 The meaning stays stable when optional pipeline nodes are added or removed. See the
 README's **Preview stages** section for the output behavior of each boundary.

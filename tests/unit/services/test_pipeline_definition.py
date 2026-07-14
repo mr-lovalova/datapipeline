@@ -5,9 +5,9 @@ import pytest
 
 from datapipeline.services import pipeline_fingerprints
 from datapipeline.services.pipeline_fingerprints import calculate_artifact_hashes
-from datapipeline.config.catalog import StreamsConfig
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig
+from datapipeline.config.streams import StreamsConfig
 from datapipeline.config.tasks import ArtifactTask, SchemaTask, VectorInputsTask
 from datapipeline.services.constants import (
     VECTOR_INPUTS,
@@ -21,16 +21,15 @@ from datapipeline.utils import load as yaml_loader
 
 
 def _write_pipeline(root: Path) -> Path:
-    for name in ("sources", "ingests", "streams", "operations", "profiles"):
+    for name in ("sources", "streams", "operations", "profiles"):
         (root / name).mkdir(parents=True)
     project_yaml = root / "project.yaml"
     project_yaml.write_text(
-        """version: 1
+        """version: 2
 artifact_revision: 1
 name: snapshot
 paths:
   sources: sources
-  ingests: ingests
   streams: streams
   operations: operations
   profiles: profiles
@@ -267,14 +266,14 @@ loader:
     assert second.streams.sources["prices"].loader.args.path == "data/second.jsonl"
 
 
-def test_empty_project_variables_still_validate_dataset_interpolation(
+def test_project_without_name_still_validates_dataset_interpolation(
     tmp_path: Path,
 ) -> None:
     project_yaml = _write_pipeline(tmp_path)
     project_yaml.write_text(
         project_yaml.read_text(encoding="utf-8").replace(
-            "version: 1\nartifact_revision: 1\nname: snapshot\n",
-            "artifact_revision: 1\n",
+            "name: snapshot\n",
+            "",
         ),
         encoding="utf-8",
     )
@@ -290,14 +289,14 @@ def test_empty_project_variables_still_validate_dataset_interpolation(
         load_pipeline(project_yaml)
 
 
-def test_empty_project_variables_still_validate_operation_interpolation(
+def test_project_without_name_still_validates_operation_interpolation(
     tmp_path: Path,
 ) -> None:
     project_yaml = _write_pipeline(tmp_path)
     project_yaml.write_text(
         project_yaml.read_text(encoding="utf-8").replace(
-            "version: 1\nartifact_revision: 1\nname: snapshot\n",
-            "artifact_revision: 1\n",
+            "name: snapshot\n",
+            "",
         ),
         encoding="utf-8",
     )
@@ -401,7 +400,18 @@ def test_artifact_hashing_rejects_missing_schema_dependencies(tmp_path: Path) ->
 
 
 def test_artifact_hashing_rejects_missing_active_scaler(tmp_path: Path) -> None:
-    definition = load_pipeline(_write_pipeline(tmp_path))
+    project_yaml = _write_pipeline(tmp_path)
+    (tmp_path / "sources" / "prices.yaml").write_text(
+        "id: prices\n"
+        "parser: {entrypoint: identity}\n"
+        "loader: {entrypoint: custom.loader}\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "streams" / "prices.yaml").write_text(
+        "id: prices\nfrom: {source: prices}\nmap: {entrypoint: identity}\n",
+        encoding="utf-8",
+    )
+    definition = load_pipeline(project_yaml)
     dataset = FeatureDatasetConfig(
         sample=SampleConfig(cadence="1h"),
         features=[
@@ -457,7 +467,7 @@ def test_core_artifact_hashes_track_only_referenced_source_closure(
                 }
                 for source_id in ("used", "unused")
             },
-            "ingests": {
+            "streams": {
                 source_id: {
                     "id": source_id,
                     "from": {"source": source_id},

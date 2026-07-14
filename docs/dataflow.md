@@ -8,14 +8,13 @@ The goal is to make the reference chain explicit and easy to debug.
 ```text
 jerry.yaml: default_dataset
   -> datasets.<alias> = <path/to/project.yaml>
-    -> project.yaml: paths.sources / paths.ingests / paths.streams / paths.dataset
+    -> project.yaml: paths.sources / paths.streams / paths.dataset
       -> sources/*.yaml: id
-        -> ingests/*.yaml: from.source: <sources.id>, id: <stream_id>
-          -> streams/*.yaml: from.stream|from.align, id: <stream_id>
-          -> dataset.yaml: stream: <streams.id>, field: <record_field>
-            -> jerry serve
-              -> runs/<run_id>/dataset/<profile>.jsonl|csv|...
-              -> runs/<run_id>/dataset/<profile>.<split>.jsonl|csv|... when dataset.split is configured
+        -> streams/*.yaml: from.source|from.stream|from.align, id
+        -> dataset.yaml: stream: <streams.id>, field: <record_field>
+          -> jerry serve
+            -> runs/<run_id>/dataset/<profile>.jsonl|csv|...
+            -> runs/<run_id>/dataset/<profile>.<split>.jsonl|csv|... when dataset.split is configured
 ```
 
 ## 1) Workspace selects dataset project
@@ -38,8 +37,9 @@ Expected behavior:
 `project.yaml` is the root map for all dataset config.
 
 ```yaml
+version: 2
+artifact_revision: 1
 paths:
-  ingests: ./ingests
   sources: ./sources
   streams: ./streams
   dataset: dataset.yaml
@@ -49,7 +49,7 @@ paths:
 Expected behavior:
 - All relative `paths.*` values are resolved relative to this `project.yaml`.
 
-## 3) Source id links source YAML to ingest
+## 3) Source id links source YAML to a stream
 
 A source file declares the raw source id plus loader/parser wiring.
 
@@ -67,21 +67,26 @@ loader:
 ```
 
 Expected behavior:
-- Ingest `from.source: sandbox.ohlcv` resolves to this source spec.
+- Stream `from.source: sandbox.ohlcv` resolves to this source spec.
 - For fs loaders, relative `args.path` is normalized via runtime path policy.
 - Standard glob characters in an fs `args.path` select matching files.
 
-## 4) Ingest or stream id links canonical records to dataset
+## 4) Stream id links canonical records to dataset
 
-Ingests define source-backed stream ids.
+Source-backed streams load and map raw source records before applying validated
+preprocess and ordered transforms.
 
 ```yaml
-# ingests/equity.ohlcv.yaml
+# streams/equity.ohlcv.yaml
 id: equity.ohlcv
 from:
   source: sandbox.ohlcv
 map:
   entrypoint: map_sandbox_ohlcv_dto_to_equity
+preprocess:
+  - { operation: floor_time, cadence: 1d }
+transforms:
+  - operation: dedupe
 ```
 
 Expected behavior:
@@ -95,12 +100,12 @@ Derived streams consume existing stream ids:
 id: equity.daily_liquid
 from:
   stream: equity.ohlcv
-stream:
+transforms:
   - operation: dedupe
 ```
 
-The derived stream inherits `partition_by` from `equity.ohlcv`. Set it to an
-explicit list to replace it; `[]` clears it.
+The derived stream inherits `partition_by` and canonical ordering from
+`equity.ohlcv`.
 
 Aligned streams intersect their inputs by partition and time. Input order is
 also combine argument order:
@@ -171,13 +176,13 @@ Expected behavior:
 - Verify `jerry.yaml` `default_dataset` and `datasets.<alias>`.
 
 2. Unknown stream/source ids:
-- Verify `ingests/*.yaml:from.source` matches `sources/*.yaml:id`.
-- Verify `dataset.yaml:stream` matches an id in `ingests/` or `streams/`.
+- Verify `streams/*.yaml:from.source` matches `sources/*.yaml:id`.
+- Verify `dataset.yaml:stream` matches an id in `streams/`.
 
 3. Empty output:
 - Check source loader `path/url`.
 - Check parser and map/combine output with
-  `jerry serve --preview source|mapped|records`.
+  `jerry serve --preview input|canonical|records`.
 
 4. Wrong output location:
 - Check workspace root and `--output-directory` value.

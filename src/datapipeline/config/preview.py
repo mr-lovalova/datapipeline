@@ -2,8 +2,8 @@ from typing import Literal
 
 
 PreviewStage = Literal[
-    "source",
-    "mapped",
+    "input",
+    "canonical",
     "records",
     "features",
     "samples",
@@ -11,8 +11,8 @@ PreviewStage = Literal[
 ]
 
 PREVIEW_STAGES: tuple[PreviewStage, ...] = (
-    "source",
-    "mapped",
+    "input",
+    "canonical",
     "records",
     "features",
     "samples",

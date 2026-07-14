@@ -19,10 +19,10 @@ from datapipeline.artifacts.validation import (
     validate_artifact_plan,
 )
 from datapipeline.build.state import ArtifactFileFingerprint, BuildState
-from datapipeline.config.catalog import StreamsConfig
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.config.preview import PreviewStage
+from datapipeline.config.streams import StreamsConfig
 from datapipeline.config.tasks import (
     ArtifactTask,
     CoverageTask,
@@ -177,8 +177,9 @@ def test_tick_artifacts_feed_scaler_and_vector_inputs() -> None:
             "streams": {
                 "feature.stream": {
                     "id": "feature.stream",
-                    "from": {"stream": "raw"},
-                    "stream": [
+                    "from": {"source": "raw"},
+                    "map": {"entrypoint": "identity"},
+                    "transforms": [
                         {"operation": "ensure_ticks", "artifact": "dataset_ticks"}
                     ],
                 }
@@ -221,8 +222,9 @@ def test_tick_artifact_rejects_nested_tick_artifact_in_any_upstream_stream() -> 
             "streams": {
                 "base": {
                     "id": "base",
-                    "from": {"stream": "raw"},
-                    "stream": [
+                    "from": {"source": "raw"},
+                    "map": {"entrypoint": "identity"},
+                    "transforms": [
                         {
                             "operation": "ensure_ticks",
                             "artifact": "base_ticks",
@@ -236,8 +238,9 @@ def test_tick_artifact_rejects_nested_tick_artifact_in_any_upstream_stream() -> 
                 },
                 "duration": {
                     "id": "duration",
-                    "from": {"stream": "raw"},
-                    "stream": [
+                    "from": {"source": "raw"},
+                    "map": {"entrypoint": "identity"},
+                    "transforms": [
                         {
                             "operation": "ensure_cadence",
                             "cadence": "1d",
@@ -275,8 +278,9 @@ def test_tick_artifact_allows_duration_cadence() -> None:
             "streams": {
                 "hourly": {
                     "id": "hourly",
-                    "from": {"stream": "raw"},
-                    "stream": [
+                    "from": {"source": "raw"},
+                    "map": {"entrypoint": "identity"},
+                    "transforms": [
                         {
                             "operation": "ensure_cadence",
                             "cadence": "1h",
@@ -622,8 +626,8 @@ def test_same_size_artifact_replacement_with_preserved_mtime_is_stale(tmp_path):
     ("preview", "expected"),
     [
         (None, {VECTOR_METADATA, VECTOR_SCHEMA}),
-        ("source", set()),
-        ("mapped", set()),
+        ("input", set()),
+        ("canonical", set()),
         ("records", set()),
         ("features", {SCALER_STATISTICS}),
         ("samples", {VECTOR_METADATA}),
@@ -659,7 +663,7 @@ def test_plugin_task_cannot_claim_core_requirements_by_entrypoint(
     assert graph.runtime_requirements(task, preview=None) == {"declared"}
 
 
-@pytest.mark.parametrize("preview", ["source", "mapped", "records", "features"])
+@pytest.mark.parametrize("preview", ["input", "canonical", "records", "features"])
 def test_record_and_feature_previews_require_declared_ticks(
     preview: PreviewStage,
 ) -> None:
@@ -684,8 +688,9 @@ def test_record_and_feature_previews_require_declared_ticks(
             "streams": {
                 "feature.stream": {
                     "id": "feature.stream",
-                    "from": {"stream": "raw"},
-                    "stream": [
+                    "from": {"source": "raw"},
+                    "map": {"entrypoint": "identity"},
+                    "transforms": [
                         {"operation": "ensure_ticks", "artifact": "dataset_ticks"}
                     ],
                 }

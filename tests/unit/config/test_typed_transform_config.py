@@ -1,8 +1,8 @@
 import pytest
 from pydantic import ValidationError
 
-from datapipeline.config.catalog import DerivedStreamConfig, IngestConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig, SequenceConfig
+from datapipeline.config.streams import DerivedStreamConfig, SourceStreamConfig
 from datapipeline.config.tasks import ScalerTask
 from datapipeline.config.transforms import (
     CollapseConfig,
@@ -16,8 +16,8 @@ from datapipeline.config.transforms import (
 )
 
 
-def _ingest(**values: object) -> IngestConfig:
-    return IngestConfig.model_validate(
+def _source_stream(**values: object) -> SourceStreamConfig:
+    return SourceStreamConfig.model_validate(
         {
             "id": "prices.raw",
             "from": {"source": "prices"},
@@ -37,10 +37,10 @@ def _stream(**values: object) -> DerivedStreamConfig:
     )
 
 
-def test_catalog_parses_builtins_into_typed_configs() -> None:
-    ingest = _ingest(record=[{"operation": "shift_time", "by": "1d"}])
+def test_streams_parse_builtins_into_typed_configs() -> None:
+    source_stream = _source_stream(preprocess=[{"operation": "shift_time", "by": "1d"}])
     stream = _stream(
-        stream=[
+        transforms=[
             {"operation": "dedupe"},
             {
                 "operation": "rolling",
@@ -60,8 +60,8 @@ def test_catalog_parses_builtins_into_typed_configs() -> None:
         ]
     )
 
-    assert ingest.record == [ShiftTimeConfig(by="1d")]
-    assert stream.stream == [
+    assert source_stream.preprocess == [ShiftTimeConfig(by="1d")]
+    assert stream.transforms == [
         DedupeConfig(),
         RollingConfig(field="close", window=20, statistic="mean"),
         FillConfig(field="close", window=5, statistic="median"),
@@ -69,7 +69,7 @@ def test_catalog_parses_builtins_into_typed_configs() -> None:
         CollapseConfig(keep="last"),
         EnsureTicksConfig(artifact="model_grid"),
     ]
-    assert stream.model_dump()["stream"] == [
+    assert stream.model_dump()["transforms"] == [
         {"operation": "dedupe"},
         {
             "operation": "rolling",
@@ -118,18 +118,18 @@ def test_catalog_parses_builtins_into_typed_configs() -> None:
 )
 def test_stream_config_rejects_invalid_builtin_parameters(clause: object) -> None:
     with pytest.raises(ValidationError):
-        _stream(stream=[clause])
+        _stream(transforms=[clause])
 
 
 def test_stream_config_rejects_a_record_only_transform_model() -> None:
     with pytest.raises(ValidationError, match="shift_time"):
-        _stream(stream=[ShiftTimeConfig(by="1h")])
+        _stream(transforms=[ShiftTimeConfig(by="1h")])
 
 
 @pytest.mark.parametrize("cadence", [None, "", "ticks", "0m", "-1h"])
 def test_ensure_cadence_requires_a_positive_duration(cadence: object) -> None:
     with pytest.raises(ValidationError):
-        _stream(stream=[{"operation": "ensure_cadence", "cadence": cadence}])
+        _stream(transforms=[{"operation": "ensure_cadence", "cadence": cadence}])
 
     assert EnsureCadenceConfig(cadence="1h").cadence == "1h"
 

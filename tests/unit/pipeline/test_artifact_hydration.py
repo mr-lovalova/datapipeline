@@ -11,9 +11,9 @@ from datapipeline.build.state import (
     BuildState,
     save_build_state,
 )
-from datapipeline.config.catalog import StreamsConfig
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig
+from datapipeline.config.streams import StreamsConfig
 from datapipeline.config.tasks import (
     ArtifactTask,
     MetadataTask,
@@ -184,8 +184,9 @@ def test_project_hydration_excludes_nested_tick_and_dependents(
             "streams": {
                 "feature": {
                     "id": "feature",
-                    "from": {"stream": "raw"},
-                    "stream": [
+                    "from": {"source": "raw"},
+                    "map": {"entrypoint": "identity"},
+                    "transforms": [
                         {"operation": "ensure_ticks", "artifact": "derived_ticks"}
                     ],
                 }
@@ -251,10 +252,9 @@ def test_project_hydration_uses_semantic_artifact_hash(tmp_path) -> None:
     project_path.write_text(
         "\n".join(
             [
-                "version: 1",
+                "version: 2",
                 "artifact_revision: 1",
                 "paths:",
-                "  ingests: ./ingests",
                 "  streams: ./streams",
                 "  sources: ./sources",
                 "  dataset: ./dataset.yaml",
@@ -266,7 +266,7 @@ def test_project_hydration_uses_semantic_artifact_hash(tmp_path) -> None:
         encoding="utf-8",
     )
     (tmp_path / "dataset.yaml").write_text("sample:\n  cadence: 1h\n", encoding="utf-8")
-    for directory in ("ingests", "streams", "sources"):
+    for directory in ("streams", "sources"):
         (tmp_path / directory).mkdir()
     operations = tmp_path / "operations"
     operations.mkdir(parents=True)

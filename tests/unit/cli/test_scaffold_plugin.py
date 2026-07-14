@@ -33,12 +33,28 @@ def test_loader_stubs_render_valid_python(template: str) -> None:
     compile(source, template, "exec")
 
 
-def test_demo_stream_templates_do_not_define_record_transforms() -> None:
+def test_source_mapper_stub_renders_valid_explicit_python() -> None:
+    source = render(
+        "mappers/source.py.j2",
+        FUNCTION_NAME="map_weather",
+        INPUT_CLASS="WeatherDTO",
+        INPUT_IMPORT="example.dtos",
+        DOMAIN_MODULE="example.domains.weather",
+        DOMAIN_RECORD="WeatherRecord",
+    )
+
+    compile(source, "mappers/source.py.j2", "exec")
+    assert "**params" not in source
+    assert "yield" not in source
+
+
+def test_demo_stream_templates_use_v2_transform_fields() -> None:
     streams_root = _TEMPLATES_ROOT / "demo_skeleton" / "demo" / "streams"
 
     for path in streams_root.glob("*.yaml"):
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
         assert "record" not in data, path
+        assert "stream" not in data, path
 
 
 def test_demo_stream_catalog_matches_config_models() -> None:
@@ -47,7 +63,6 @@ def test_demo_stream_catalog_matches_config_models() -> None:
     config = load_streams(load_project(project))
 
     assert len(config.sources) == 2
-    assert len(config.ingests) == 5
     assert len(config.streams) == 5
 
 
@@ -114,9 +129,11 @@ def test_scaffold_plugin_normalizes_hyphenated_name(
     assert (dataset_root / "profiles" / "inspect.matrix.yaml").is_file()
     assert (dataset_root / "profiles" / "serve.dataset.yaml").is_file()
     assert (dataset_root / "profiles" / "serve.defaults.yaml").is_file()
+    assert (plugin_root / "src" / "test_datapipeline" / "combiners").is_dir()
 
     pyproject = (plugin_root / "pyproject.toml").read_text()
     assert 'name = "test-datapipeline"' in pyproject
+    assert '[project.entry-points."datapipeline.combiners"]' in pyproject
 
     readme = (plugin_root / "README.md").read_text()
     assert "jerry plugin init test-datapipeline" in readme

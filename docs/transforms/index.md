@@ -2,25 +2,25 @@
 
 Transforms are split by the stage where they run:
 
-- [Record transforms](record.md): one record at a time, before ordering.
-- [Stream transforms](stream.md): ordered record streams, usually with
+- [Preprocess transforms](preprocess.md): one record at a time, before ordering.
+- [Ordered transforms](stream.md): ordered record streams, usually with
   per-partition history.
 - [Feature transforms](feature.md): feature payload shaping before vector
   assembly.
 - [Postprocess policies](postprocess.md): column selection and sample filtering
   before split and output persistence.
 
-Record and stream transforms are explicit built-in operations. Their config is
+Preprocess and ordered transforms are explicit built-in operations. Their config is
 validated before pipeline execution; arbitrary transform entry points are not
 loaded at runtime.
 
 ## Configuration Shape
 
-Each record or stream transform is one flat mapping. `operation` identifies the
+Each transform is one flat mapping. `operation` identifies the
 built-in operation and its configuration fields are siblings:
 
 ```yaml
-stream:
+transforms:
   - operation: dedupe
   - operation: rolling
     field: close

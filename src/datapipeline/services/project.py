@@ -46,7 +46,6 @@ def load_project(project_yaml: Path) -> ProjectManifest:
         config=config,
         variables=MappingProxyType(variables),
         environment=MappingProxyType(environment),
-        ingest_dirs=_config_roots(path, config.paths.ingests),
         stream_dirs=_config_roots(path, config.paths.streams),
         source_dirs=_config_roots(path, config.paths.sources),
         dataset_path=_pipeline_config_path(path, config.paths.dataset),

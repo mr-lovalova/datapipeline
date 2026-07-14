@@ -516,7 +516,7 @@ def test_operation_options_rejects_preview_when_unsupported(tmp_path):
     )
 
     with pytest.raises(ValueError, match="does not support previews"):
-        _resolve(tmp_path, [profile], preview="source")
+        _resolve(tmp_path, [profile], preview="input")
 
 
 def test_run_profiles_leave_unconfigured_throttle_unset(tmp_path):
@@ -770,7 +770,7 @@ def test_shared_serve_run_rejects_mixed_preview_stages_without_writes(tmp_path):
                 "preview": preview,
             }
         )
-        for name, preview in (("first", "source"), ("second", "mapped"))
+        for name, preview in (("first", "input"), ("second", "canonical"))
     ]
     output_root = tmp_path / "out"
 

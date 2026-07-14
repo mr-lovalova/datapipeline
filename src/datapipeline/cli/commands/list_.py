@@ -5,6 +5,7 @@ from datapipeline.services.paths import pkg_root
 from datapipeline.services.project import load_project
 from datapipeline.services.streams.loader import load_streams
 from datapipeline.services.scaffold.discovery import (
+    list_combiners,
     list_domains,
     list_dtos,
     list_loaders,
@@ -57,6 +58,9 @@ def handle(
             print(k)
     elif subcmd == "mappers":
         for k in sorted(list_mappers(root=plugin_root).keys()):
+            print(k)
+    elif subcmd == "combiners":
+        for k in sorted(list_combiners(root=plugin_root).keys()):
             print(k)
     elif subcmd == "loaders":
         for k in sorted(list_loaders(root=plugin_root).keys()):

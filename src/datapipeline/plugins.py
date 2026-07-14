@@ -1,5 +1,6 @@
 PARSERS_EP = "datapipeline.parsers"
 LOADERS_EP = "datapipeline.loaders"
 MAPPERS_EP = "datapipeline.mappers"
+COMBINERS_EP = "datapipeline.combiners"
 BUILD_OPERATIONS_EP = "datapipeline.operations.build"
 RUNTIME_OPERATIONS_EP = "datapipeline.operations.runtime"

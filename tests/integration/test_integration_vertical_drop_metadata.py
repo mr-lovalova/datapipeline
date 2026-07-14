@@ -17,7 +17,7 @@ def test_column_selection_uses_metadata_vector_count_without_mutating_schema(
     artifacts_root = tmp_path / "artifacts"
     artifacts_root.mkdir()
     project = tmp_path / "project.yaml"
-    project.write_text("version: 1\n", encoding="utf-8")
+    project.write_text("version: 2\n", encoding="utf-8")
     runtime = Runtime(
         project_yaml=project,
         artifacts_root=artifacts_root,

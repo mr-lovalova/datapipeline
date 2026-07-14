@@ -22,11 +22,11 @@ NonEmptyString = Annotated[
 PositiveInt = Annotated[int, Field(strict=True, gt=0)]
 
 
-class TransformConfig(BaseModel):
+class _TransformConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
 
-class WhereConfig(TransformConfig):
+class WhereConfig(_TransformConfig):
     operation: Literal["where"] = "where"
 
     field: NonEmptyString
@@ -55,7 +55,7 @@ class WhereConfig(TransformConfig):
         return self
 
 
-class FloorTimeConfig(TransformConfig):
+class FloorTimeConfig(_TransformConfig):
     operation: Literal["floor_time"] = "floor_time"
 
     cadence: NonEmptyString
@@ -67,7 +67,7 @@ class FloorTimeConfig(TransformConfig):
         return cadence
 
 
-class ShiftTimeConfig(TransformConfig):
+class ShiftTimeConfig(_TransformConfig):
     operation: Literal["shift_time"] = "shift_time"
 
     by: NonEmptyString
@@ -80,11 +80,11 @@ class ShiftTimeConfig(TransformConfig):
         return by
 
 
-class DedupeConfig(TransformConfig):
+class DedupeConfig(_TransformConfig):
     operation: Literal["dedupe"] = "dedupe"
 
 
-class LagConfig(TransformConfig):
+class LagConfig(_TransformConfig):
     operation: Literal["lag"] = "lag"
 
     field: NonEmptyString
@@ -92,7 +92,7 @@ class LagConfig(TransformConfig):
     to: NonEmptyString | None = None
 
 
-class LeadConfig(TransformConfig):
+class LeadConfig(_TransformConfig):
     operation: Literal["lead"] = "lead"
 
     field: NonEmptyString
@@ -100,7 +100,7 @@ class LeadConfig(TransformConfig):
     to: NonEmptyString | None = None
 
 
-class EnsureCadenceConfig(TransformConfig):
+class EnsureCadenceConfig(_TransformConfig):
     operation: Literal["ensure_cadence"] = "ensure_cadence"
 
     cadence: NonEmptyString
@@ -113,13 +113,13 @@ class EnsureCadenceConfig(TransformConfig):
         return cadence
 
 
-class EnsureTicksConfig(TransformConfig):
+class EnsureTicksConfig(_TransformConfig):
     operation: Literal["ensure_ticks"] = "ensure_ticks"
 
     artifact: NonEmptyString
 
 
-class FillConfig(TransformConfig):
+class FillConfig(_TransformConfig):
     operation: Literal["fill"] = "fill"
 
     field: NonEmptyString
@@ -135,20 +135,20 @@ class FillConfig(TransformConfig):
         return self
 
 
-class ForwardFillConfig(TransformConfig):
+class ForwardFillConfig(_TransformConfig):
     operation: Literal["forward_fill"] = "forward_fill"
 
     field: NonEmptyString
     to: NonEmptyString | None = None
 
 
-class CollapseConfig(TransformConfig):
+class CollapseConfig(_TransformConfig):
     operation: Literal["collapse"] = "collapse"
 
     keep: Literal["first", "last"]
 
 
-class RollingConfig(TransformConfig):
+class RollingConfig(_TransformConfig):
     operation: Literal["rolling"] = "rolling"
 
     field: NonEmptyString
@@ -169,7 +169,7 @@ class RollingConfig(TransformConfig):
         return self
 
 
-class DeriveConfig(TransformConfig):
+class DeriveConfig(_TransformConfig):
     operation: Literal["derive"] = "derive"
 
     left: NonEmptyString
@@ -196,11 +196,11 @@ class DeriveConfig(TransformConfig):
         return self
 
 
-RecordTransformConfig = Annotated[
+PreprocessConfig = Annotated[
     WhereConfig | FloorTimeConfig | ShiftTimeConfig,
     Field(discriminator="operation"),
 ]
-StreamTransformConfig = Annotated[
+TransformConfig = Annotated[
     WhereConfig
     | DedupeConfig
     | LagConfig

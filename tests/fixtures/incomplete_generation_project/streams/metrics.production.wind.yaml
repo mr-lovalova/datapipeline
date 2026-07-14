@@ -1,9 +1,18 @@
 id: metrics.production.wind
 from:
-  stream: metrics.production.wind.ingest
+  source: incomplete.production
 
 partition_by: [municipality]
 
-stream:
+map:
+  entrypoint: identity
+  args: {}
+
+preprocess:
+  - { operation: where, operator: ge, field: time, comparand: "${start_time}" }
+  - { operation: where, operator: le, field: time, comparand: "${end_time}" }
+  - { operation: where, operator: in, field: municipality, comparand: ["849", "550", "400"] }
+
+transforms:
   - { operation: ensure_cadence, cadence: 1h }
   - { operation: fill, statistic: median, window: 3, min_samples: 1, field: value }

@@ -23,7 +23,7 @@ from datapipeline.operations.artifacts.utils import (
 )
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
-from datapipeline.runtime import IngestRuntimeStream, Runtime
+from datapipeline.runtime import Runtime, SourceRuntimeStream
 from datapipeline.services.artifacts import VECTOR_SCHEMA_SPEC
 from datapipeline.services.constants import VECTOR_METADATA, VECTOR_SCHEMA
 from datapipeline.utils.load import load_yaml
@@ -47,10 +47,9 @@ def _runtime_with_dataset(tmp_path, dataset_text: str) -> Runtime:
     project_yaml.write_text(
         "\n".join(
             [
-                "version: 1",
+                "version: 2",
                 "artifact_revision: 1",
                 "paths:",
-                "  ingests: ingests",
                 "  streams: streams",
                 "  sources: sources",
                 "  dataset: dataset.yaml",
@@ -70,9 +69,10 @@ def _runtime_with_dataset(tmp_path, dataset_text: str) -> Runtime:
         artifacts_root=artifacts_root,
         dataset=FeatureDatasetConfig.model_validate(load_yaml(dataset_path)),
     )
-    runtime.streams["market.prices"] = IngestRuntimeStream(
+    runtime.streams["market.prices"] = SourceRuntimeStream(
         source=_EmptySource(),
         mapper=_identity,
+        preprocess=(),
         transforms=(),
         partition_by=(),
         presorted=False,
@@ -85,7 +85,7 @@ def test_collect_vector_metadata_counts_nan(monkeypatch, tmp_path):
     artifacts_root = tmp_path / "artifacts"
     artifacts_root.mkdir()
     project_yaml = tmp_path / "project.yaml"
-    project_yaml.write_text("version: 1\nartifact_revision: 1\n", encoding="utf-8")
+    project_yaml.write_text("version: 2\nartifact_revision: 1\n", encoding="utf-8")
     runtime = Runtime(
         project_yaml=project_yaml,
         artifacts_root=artifacts_root,
@@ -134,7 +134,7 @@ def test_collect_vector_metadata_emits_progress(monkeypatch, tmp_path):
     artifacts_root = tmp_path / "artifacts"
     artifacts_root.mkdir()
     project_yaml = tmp_path / "project.yaml"
-    project_yaml.write_text("version: 1\nartifact_revision: 1\n", encoding="utf-8")
+    project_yaml.write_text("version: 2\nartifact_revision: 1\n", encoding="utf-8")
     runtime = Runtime(
         project_yaml=project_yaml,
         artifacts_root=artifacts_root,

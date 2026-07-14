@@ -3,12 +3,12 @@ from pathlib import Path
 
 import pytest
 
-from datapipeline.config.catalog import SourceConfig
+from datapipeline.config.sources import SourceConfig
 from datapipeline.services.config_refs import interpolate_config_vars
 from datapipeline.services.pipeline import load_pipeline
 from datapipeline.services.project import load_project
-from datapipeline.services.streams.ingest import build_source_from_spec
 from datapipeline.services.streams.loader import load_streams
+from datapipeline.services.streams.source import build_source
 from datapipeline.utils.placeholders import is_missing
 
 
@@ -33,7 +33,7 @@ def _write_project_yaml(
 ) -> Path:
     project_yaml = project_root / "project.yaml"
     lines = [
-        "version: 1",
+        "version: 2",
         "artifact_revision: 1",
         "name: sample",
     ]
@@ -42,7 +42,6 @@ def _write_project_yaml(
     lines.extend(
         [
             "paths:",
-            "  ingests: ./ingests",
             "  streams: streams",
             "  sources: sources",
             "  dataset: dataset.yaml",
@@ -63,7 +62,6 @@ def _write_project_yaml(
 def _write_project_files(project_root: Path) -> None:
     (project_root / "streams").mkdir(parents=True, exist_ok=True)
     (project_root / "sources").mkdir(parents=True, exist_ok=True)
-    (project_root / "ingests").mkdir(parents=True, exist_ok=True)
     (project_root / "operations").mkdir(parents=True, exist_ok=True)
     (project_root / "dataset.yaml").write_text(
         "sample:\n  cadence: 1h\nfeatures: []\ntargets: []\n",
@@ -72,7 +70,7 @@ def _write_project_files(project_root: Path) -> None:
 
 
 def _use_source(project_root: Path, source_id: str) -> None:
-    (project_root / "ingests" / "tracked.yaml").write_text(
+    (project_root / "streams" / "tracked.yaml").write_text(
         f"id: tracked\nfrom: {{source: {source_id}}}\nmap: {{entrypoint: map}}\n",
         encoding="utf-8",
     )
@@ -191,7 +189,7 @@ def test_load_sources_resolve_nested_globals_before_fs_path_normalization(
     )
 
     loaded = _sources(project_yaml)
-    source = build_source_from_spec(
+    source = build_source(
         SourceConfig.model_validate(loaded["equity.prices"]),
         project_yaml=project_yaml,
     )
@@ -239,7 +237,6 @@ def test_project_paths_validate_interpolation_without_declared_variables(
     project_yaml.write_text(
         """artifact_revision: 1
 paths:
-  ingests: ingests
   streams: streams
   sources: sources
   dataset: dataset.yaml
@@ -400,7 +397,7 @@ def test_load_sources_resolve_env_backed_globals_before_fs_path_normalization(
     )
 
     loaded = _sources(project_yaml)
-    source = build_source_from_spec(
+    source = build_source(
         SourceConfig.model_validate(loaded["sample.fs"]),
         project_yaml=project_yaml,
     )

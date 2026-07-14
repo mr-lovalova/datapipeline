@@ -4,7 +4,7 @@ import argparse
 def add_stream_command(sub, common: argparse.ArgumentParser) -> None:
     parser = sub.add_parser(
         "stream",
-        help="manage ingests and aligned streams",
+        help="manage source-backed and aligned streams",
         parents=[common],
     )
     stream_sub = parser.add_subparsers(dest="stream_cmd", required=True)

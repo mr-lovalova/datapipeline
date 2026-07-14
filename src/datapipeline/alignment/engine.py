@@ -28,6 +28,21 @@ def align_streams(
             current_records.append(first)
             current_keys.append(_canonical_key(first, partition_by))
 
+        expected_partition = current_keys[0][0]
+        for index, (partition, _) in enumerate(current_keys[1:], start=1):
+            for field, expected, value in zip(
+                partition_by,
+                expected_partition,
+                partition,
+                strict=True,
+            ):
+                if type(value) is not type(expected):
+                    raise TypeError(
+                        f"Alignment input {stream_ids[index]!r} partition field "
+                        f"{field!r} uses {type(value).__name__}; input "
+                        f"{stream_ids[0]!r} uses {type(expected).__name__}."
+                    )
+
         def advance(index: int) -> bool:
             try:
                 record = next(streams[index])

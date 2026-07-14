@@ -36,4 +36,4 @@ the source stream's record order. The stream's complete `partition_by` identity
 keeps each series contiguous and sequence memory bounded to one window. Dataset
 `sample.keys` select the partition fields represented in each row; remaining
 partition fields are appended to the feature ID. Cadence regularization belongs
-in that stream's `stream:` transforms when it is required.
+in that stream's `transforms:` when it is required.

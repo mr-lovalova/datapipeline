@@ -56,10 +56,9 @@ def _materialize_defaults(project_yaml: Path):
 def _write_project(tmp_path: Path, operations_ref: str | None = None) -> Path:
     project_yaml = tmp_path / "project.yaml"
     lines = [
-        "version: 1",
+        "version: 2",
         "artifact_revision: 1",
         "paths:",
-        "  ingests: ./ingests",
         "  streams: streams",
         "  sources: sources",
         "  dataset: dataset.yaml",
@@ -500,12 +499,11 @@ def test_serve_profiles_interpolate_project_globals(tmp_path):
     project_yaml.write_text(
         "\n".join(
             [
-                "version: 1",
+                "version: 2",
                 "artifact_revision: 1",
                 "name: momentum",
                 "variant: price",
                 "paths:",
-                "  ingests: ./ingests",
                 "  streams: streams",
                 "  sources: sources",
                 "  dataset: dataset.yaml",
@@ -551,12 +549,11 @@ def test_profile_defaults_interpolate_project_globals(tmp_path):
     project_yaml.write_text(
         "\n".join(
             [
-                "version: 1",
+                "version: 2",
                 "artifact_revision: 1",
                 "name: momentum",
                 "variant: price",
                 "paths:",
-                "  ingests: ./ingests",
                 "  streams: streams",
                 "  sources: sources",
                 "  dataset: dataset.yaml",

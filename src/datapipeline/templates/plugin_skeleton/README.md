@@ -10,7 +10,7 @@ python -m pip install -U jerry-thomas
 jerry plugin init {{DIST_NAME}} --out .
 python -m pip install -e {{DIST_NAME}}
 
-# One-stop wizard: source YAML + DTO/parser + domain + mapper + ingest.
+# One-stop wizard: source YAML + DTO/parser + domain + mapper + stream.
 jerry inflow create
 
 # If a workspace-level `jerry.yaml` was created (fresh workspace), you can use the dataset alias:
@@ -26,10 +26,8 @@ jerry serve --dataset your-dataset --limit 3
 - `your-dataset/sources/*.yaml`
   - Replace placeholders (`path`/`url`, headers/params, delimiter, etc.)
   - Prefer `${env:NAME}` for secrets or machine-local paths instead of literal values
-- `your-dataset/ingests/*.yaml`
-  - Map raw source records into canonical domain records.
 - `your-dataset/streams/*.yaml`
-  - Add single-input transforms or align multiple streams with a combine function.
+  - Map sources into canonical records, derive streams, or align multiple streams.
 - `your-dataset/.env.example`
   - Copy to `.env` next to `project.yaml` for local dataset-specific secrets and paths
 - `your-dataset/dataset.yaml`
@@ -50,8 +48,7 @@ YAML config (dataset project root):
 - `your-dataset/`
   - `project.yaml` (paths and globals)
   - `sources/*.yaml` (raw source definitions)
-  - `ingests/*.yaml` (source-backed canonical streams)
-  - `streams/*.yaml` (derived and aligned streams)
+  - `streams/*.yaml` (source-backed, derived, and aligned streams)
   - `dataset.yaml` (features, targets, split, and postprocess policy)
   - `profiles/{serve,build,inspect,materialize}.<name>.yaml` (profiles; optional overrides)
   - `profiles/{serve,build,inspect,materialize}.defaults.yaml` (optional per-kind defaults)
@@ -82,7 +79,8 @@ Python plugin code:
   - `dtos/` (DTO models)
   - `parsers/` (raw -> DTO)
   - `domains/<domain>/model.py` (domain record models)
-  - `mappers/` (iterator mappers and aligned combine functions)
+  - `mappers/` (iterator mappings from parsed values to domain records)
+  - `combiners/` (aligned-record combine functions)
   - `loaders/` (optional custom loaders)
 
 ## Learn more

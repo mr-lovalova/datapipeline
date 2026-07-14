@@ -8,10 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from datapipeline.config.execution import ExecutionConfig
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
-from datapipeline.config.transforms import (
-    RecordTransformConfig,
-    StreamTransformConfig,
-)
+from datapipeline.config.transforms import PreprocessConfig, TransformConfig
 from datapipeline.domain.stream import RecordStream
 
 from datapipeline.services.artifacts import ArtifactManager
@@ -23,33 +20,31 @@ RecordStage = Callable[[Iterator[Any]], Iterable[Any]]
 
 
 @dataclass(frozen=True)
-class IngestRuntimeStream:
+class SourceRuntimeStream:
     source: RecordStream[Any]
     mapper: RecordStage
-    transforms: tuple[RecordTransformConfig, ...]
+    preprocess: tuple[PreprocessConfig, ...]
     partition_by: tuple[str, ...]
     presorted: bool
+    transforms: tuple[TransformConfig, ...]
 
 
 @dataclass(frozen=True)
 class DerivedRuntimeStream:
     input_stream: str
-    mapper: RecordStage | None
-    transforms: tuple[StreamTransformConfig, ...]
     partition_by: tuple[str, ...]
-    presorted: bool
+    transforms: tuple[TransformConfig, ...]
 
 
 @dataclass(frozen=True)
 class AlignedRuntimeStream:
-    input_streams: tuple[str, ...]
+    inputs: tuple[str, ...]
     combine: RecordStage
-    transforms: tuple[StreamTransformConfig, ...]
     partition_by: tuple[str, ...]
-    presorted: bool
+    transforms: tuple[TransformConfig, ...]
 
 
-RuntimeStream = IngestRuntimeStream | DerivedRuntimeStream | AlignedRuntimeStream
+RuntimeStream = SourceRuntimeStream | DerivedRuntimeStream | AlignedRuntimeStream
 
 
 @dataclass

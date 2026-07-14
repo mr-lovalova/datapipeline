@@ -1,87 +1,87 @@
 from pathlib import Path
 
-from datapipeline.config.catalog import (
+from datapipeline.config.sources import SourceConfig
+from datapipeline.config.streams import (
     AlignedStreamConfig,
-    IngestConfig,
-    SourceConfig,
+    DerivedStreamConfig,
+    SourceStreamConfig,
     StreamConfig,
 )
 from datapipeline.runtime import (
     AlignedRuntimeStream,
     DerivedRuntimeStream,
-    IngestRuntimeStream,
     Runtime,
     RuntimeStream,
+    SourceRuntimeStream,
 )
 from datapipeline.services.definitions import PipelineDefinition
 from datapipeline.services.streams.aligned import build_combine_stage
-from datapipeline.services.streams.ingest import (
-    build_mapper_from_spec,
-    build_source_from_spec,
-)
+from datapipeline.services.streams.source import build_mapper, build_source
 from datapipeline.services.streams.validation import stream_partition_by
 
 
-def _compile_ingest(
-    spec: IngestConfig,
-    source: SourceConfig,
+def _compile_source_stream(
+    config: SourceStreamConfig,
+    source_config: SourceConfig,
     project_yaml: Path,
-) -> IngestRuntimeStream:
-    return IngestRuntimeStream(
-        source=build_source_from_spec(
-            source,
-            project_yaml=project_yaml,
-        ),
-        mapper=build_mapper_from_spec(spec.map),
-        transforms=tuple(spec.record),
-        partition_by=spec.partition_by,
-        presorted=spec.ordered_by is not None,
+) -> SourceRuntimeStream:
+    return SourceRuntimeStream(
+        source=build_source(source_config, project_yaml),
+        mapper=build_mapper(config.map),
+        preprocess=tuple(config.preprocess),
+        partition_by=config.partition_by,
+        presorted=config.ordered_by is not None,
+        transforms=tuple(config.transforms),
     )
 
 
-def _compile_stream(
-    spec: StreamConfig,
-    ingests: dict[str, IngestConfig],
-    streams: dict[str, StreamConfig],
-) -> DerivedRuntimeStream | AlignedRuntimeStream:
-    partition_by = stream_partition_by(ingests, streams, spec.id)
-    if isinstance(spec, AlignedStreamConfig):
-        return AlignedRuntimeStream(
-            input_streams=spec.input_streams(),
-            combine=build_combine_stage(spec),
-            transforms=tuple(spec.stream),
-            partition_by=partition_by,
-            presorted=spec.ordered_by is not None,
-        )
+def _compile_derived_stream(
+    config: DerivedStreamConfig,
+    stream_configs: dict[str, StreamConfig],
+) -> DerivedRuntimeStream:
     return DerivedRuntimeStream(
-        input_stream=spec.from_.stream,
-        mapper=(build_mapper_from_spec(spec.map) if spec.map is not None else None),
-        transforms=tuple(spec.stream),
+        input_stream=config.from_.stream,
+        partition_by=stream_partition_by(stream_configs, config.id),
+        transforms=tuple(config.transforms),
+    )
+
+
+def _compile_aligned_stream(
+    config: AlignedStreamConfig,
+    stream_configs: dict[str, StreamConfig],
+) -> AlignedRuntimeStream:
+    partition_by = stream_partition_by(stream_configs, config.id)
+    return AlignedRuntimeStream(
+        inputs=config.from_.align,
+        combine=build_combine_stage(config, partition_by),
         partition_by=partition_by,
-        presorted=spec.ordered_by is not None,
+        transforms=tuple(config.transforms),
     )
 
 
 def compile_runtime(definition: PipelineDefinition) -> Runtime:
-    streams = definition.streams
-    runtime_streams: dict[str, RuntimeStream] = {
-        stream_id: _compile_ingest(
-            ingest.model_copy(deep=True),
-            streams.sources[ingest.from_.source],
-            definition.project.path,
-        )
-        for stream_id, ingest in streams.ingests.items()
-    }
-    runtime_streams.update(
-        {
-            stream_id: _compile_stream(
-                stream.model_copy(deep=True),
-                streams.ingests,
-                streams.streams,
+    stream_configs = definition.streams.streams
+    runtime_streams: dict[str, RuntimeStream] = {}
+    for stream_id, config in stream_configs.items():
+        if isinstance(config, SourceStreamConfig):
+            runtime_streams[stream_id] = _compile_source_stream(
+                config,
+                definition.streams.sources[config.from_.source],
+                definition.project.path,
             )
-            for stream_id, stream in streams.streams.items()
-        }
-    )
+        elif isinstance(config, DerivedStreamConfig):
+            runtime_streams[stream_id] = _compile_derived_stream(
+                config,
+                stream_configs,
+            )
+        elif isinstance(config, AlignedStreamConfig):
+            runtime_streams[stream_id] = _compile_aligned_stream(
+                config,
+                stream_configs,
+            )
+        else:
+            raise TypeError(f"Unsupported stream config: {type(config).__name__}")
+
     return Runtime(
         project_yaml=definition.project.path,
         artifacts_root=definition.project.artifacts_root,

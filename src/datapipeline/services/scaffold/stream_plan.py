@@ -10,7 +10,7 @@ from datapipeline.services.scaffold.source_yaml import (
     create_source_yaml,
     validate_source_id,
 )
-from datapipeline.services.scaffold.stream_yaml import write_ingest_stream
+from datapipeline.services.scaffold.stream_yaml import write_source_stream
 from datapipeline.services.scaffold.utils import status
 
 
@@ -132,7 +132,7 @@ def execute_stream_plan(plan: StreamPlan) -> None:
             project_yaml=plan.project_yaml,
         )
 
-    write_ingest_stream(
+    write_source_stream(
         project_yaml=plan.project_yaml,
         stream_id=plan.stream_id,
         source=plan.source.source_id,

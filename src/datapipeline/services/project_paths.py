@@ -13,18 +13,17 @@ def ensure_project_scaffold(project_yaml: Path) -> None:
     """Ensure a minimal project scaffold exists.
 
     - Creates parent directories and a default project.yaml if missing.
-    - Ensures configured ingest, stream, source, operation, and profile directories exist.
+    - Ensures configured stream, source, operation, and profile directories exist.
     - Never overwrites existing files.
     """
     # Create default project.yaml if missing
     if not project_yaml.exists():
         project_yaml.parent.mkdir(parents=True, exist_ok=True)
         default = (
-            "version: 1\n"
+            "version: 2\n"
             "artifact_revision: 1\n"
             "name: default\n"
             "paths:\n"
-            "  ingests: ./ingests\n"
             "  streams: ./streams\n"
             "  sources: ./sources\n"
             "  dataset: dataset.yaml\n"
@@ -37,9 +36,6 @@ def ensure_project_scaffold(project_yaml: Path) -> None:
         project_yaml.write_text(default, encoding="utf-8")
 
     project = load_project(project_yaml)
-    for ingests in project.ingest_dirs:
-        ingests.mkdir(parents=True, exist_ok=True)
-
     for streams in project.stream_dirs:
         streams.mkdir(parents=True, exist_ok=True)
 
