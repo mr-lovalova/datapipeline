@@ -49,11 +49,18 @@ def _tick_sort_key(row: tuple) -> tuple:
 
 def _unique_ticks(rows) -> Iterator[tuple]:
     previous = None
-    for row in rows:
-        if row == previous:
-            continue
-        yield row
+    previous_key = None
+    for position, row in enumerate(rows, start=1):
+        current_key = _tick_sort_key(row)
+        if previous_key is not None and not previous_key <= current_key:
+            raise ValueError(
+                f"Tick row {position} violates canonical grid order: "
+                f"key {current_key!r} follows {previous_key!r}."
+            )
+        if row != previous:
+            yield row
         previous = row
+        previous_key = current_key
 
 
 def materialize_ticks(
