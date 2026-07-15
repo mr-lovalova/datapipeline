@@ -37,7 +37,10 @@ def _identity(records):
     return records
 
 
-def _context(tmp_path) -> PipelineContext:
+def _context(
+    tmp_path,
+    partition_by: tuple[str, ...] = (),
+) -> PipelineContext:
     runtime = Runtime(
         project_yaml=tmp_path / "project.yaml",
         artifacts_root=tmp_path / "artifacts",
@@ -48,7 +51,7 @@ def _context(tmp_path) -> PipelineContext:
         mapper=_identity,
         preprocess=(),
         transforms=(),
-        partition_by=(),
+        partition_by=partition_by,
         presorted=False,
     )
     return PipelineContext(runtime)
@@ -86,9 +89,7 @@ def test_feature_nodes_make_scaling_and_sequence_explicit(tmp_path) -> None:
         "build_feature_stream",
         "scale_features",
         "sequence_features",
-        "order_feature_records",
     ]
-    assert nodes[-1].progress is not None
 
 
 def test_feature_nodes_omit_disabled_stages(tmp_path) -> None:
@@ -97,10 +98,22 @@ def test_feature_nodes_omit_disabled_stages(tmp_path) -> None:
         FeatureRecordConfig(stream="stream", id="x", field="value"),
     )
 
+    assert [node.name for node in nodes] == ["build_feature_stream"]
+
+
+def test_partitioned_feature_nodes_include_ordering(tmp_path) -> None:
+    nodes = build_feature_nodes(
+        _context(tmp_path, partition_by=("symbol",)),
+        FeatureRecordConfig(stream="stream", id="x", field="value"),
+        sample_keys=("symbol",),
+        group_by_cadence="1h",
+    )
+
     assert [node.name for node in nodes] == [
         "build_feature_stream",
         "order_feature_records",
     ]
+    assert nodes[-1].progress is not None
 
 
 def test_scale_features_loads_the_managed_typed_artifact(tmp_path) -> None:

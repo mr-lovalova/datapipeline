@@ -450,7 +450,6 @@ def test_pipeline_builders_expose_structure(tmp_path: Path) -> None:
         "stream:stream/map_records",
         "stream:stream/order_records",
         "build_feature_stream",
-        "order_feature_records",
     ]
     assert feature_pipeline.summary is None
     assert isinstance(feature_pipeline.nodes[0], SourceNode)
@@ -581,6 +580,55 @@ def test_feature_pipeline_wraps_record_values(tmp_path: Path) -> None:
     feature = features[0]
     assert feature.value == 3.0
     assert feature.id == "price__@symbol:X"
+
+
+def test_unpartitioned_feature_pipeline_preserves_time_order(tmp_path: Path) -> None:
+    rows = [
+        {"time": _ts(2), "value": 3.0},
+        {"time": _ts(0), "value": 1.0},
+        {"time": _ts(1), "value": 2.0},
+    ]
+    runtime = _runtime_with_rows(tmp_path, rows)
+
+    features = list(
+        run_feature_pipeline(
+            PipelineContext(runtime),
+            FeatureRecordConfig(stream="stream", id="price", field="value"),
+        )
+    )
+
+    assert [(feature.time.hour, feature.value) for feature in features] == [
+        (0, 1.0),
+        (1, 2.0),
+        (2, 3.0),
+    ]
+
+
+def test_partitioned_feature_pipeline_orders_across_partitions(tmp_path: Path) -> None:
+    rows = [
+        {"time": _ts(0), "value": 1.0, "symbol": "A"},
+        {"time": _ts(2), "value": 3.0, "symbol": "A"},
+        {"time": _ts(1), "value": 2.0, "symbol": "B"},
+    ]
+    runtime = _runtime_with_rows(
+        tmp_path,
+        rows,
+        partition_by=("symbol",),
+    )
+    context = PipelineContext(runtime)
+
+    features = list(
+        run_feature_pipeline(
+            context,
+            FeatureRecordConfig(stream="stream", id="price", field="value"),
+        )
+    )
+
+    assert [(feature.time.hour, feature.id) for feature in features] == [
+        (0, "price__@symbol:A"),
+        (1, "price__@symbol:B"),
+        (2, "price__@symbol:A"),
+    ]
 
 
 def test_feature_pipeline_builds_sequences(tmp_path: Path) -> None:

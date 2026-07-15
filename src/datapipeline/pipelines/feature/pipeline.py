@@ -99,18 +99,19 @@ def build_feature_nodes(
                 apply=partial(sequence_features, config.sequence),
             )
         )
-    sort_progress = SortProgress()
-    nodes.append(
-        PipelineNode(
-            name="order_feature_records",
-            apply=partial(
-                order_feature_records,
-                context.runtime.execution.sort_buffer_bytes,
-                group_by_cadence,
-                sample_keys,
-                sort_progress,
+    if stream.partition_by or sample_keys:
+        sort_progress = SortProgress()
+        nodes.append(
+            PipelineNode(
+                name="order_feature_records",
+                apply=partial(
+                    order_feature_records,
+                    context.runtime.execution.sort_buffer_bytes,
+                    group_by_cadence,
+                    sample_keys,
+                    sort_progress,
+                ),
+                progress=sort_progress.snapshot,
             ),
-            progress=sort_progress.snapshot,
-        ),
-    )
+        )
     return tuple(nodes)
