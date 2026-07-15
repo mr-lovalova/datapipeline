@@ -15,21 +15,19 @@ from datapipeline.config.profiles import (
 from datapipeline.config.preview import PreviewStage
 from datapipeline.config.tasks import OperationTask, PipelineTask
 from datapipeline.execution.settings import LogOutputTarget
-from datapipeline.profiles.runtime_profiles import resolve_runtime_profiles
+from datapipeline.profiles.runtime_profiles import (
+    resolve_inspect_profiles,
+    resolve_serve_profiles,
+)
 from tests.unit.profiles.helpers import pipeline_definition
 
 
-def _resolve(
+def _definition(
     project_path: Path,
-    profiles: list[ServeProfile | InspectProfile],
-    preview: PreviewStage | None = None,
-    cli_output: ServeOutputConfig | None = None,
-    cli_log_outputs: list[LogOutputTarget] | None = None,
-    cli_heartbeat_interval_seconds: float | None = None,
     split: HashSplitConfig | TimeSplitConfig | None = None,
     runtime_operations: tuple[OperationTask, ...] = (),
 ):
-    definition = pipeline_definition(
+    return pipeline_definition(
         project_path,
         dataset=FeatureDatasetConfig(
             sample=SampleConfig(cadence="1h"),
@@ -37,17 +35,45 @@ def _resolve(
         ),
         runtime_operations=runtime_operations,
     )
-    return resolve_runtime_profiles(
-        definition=definition,
+
+
+def _resolve_serve(
+    project_path: Path,
+    profiles: list[ServeProfile],
+    preview: PreviewStage | None = None,
+    limit: int | None = None,
+    cli_output: ServeOutputConfig | None = None,
+    cli_log_outputs: list[LogOutputTarget] | None = None,
+    cli_heartbeat_interval_seconds: float | None = None,
+    split: HashSplitConfig | TimeSplitConfig | None = None,
+    runtime_operations: tuple[OperationTask, ...] = (),
+):
+    return resolve_serve_profiles(
+        definition=_definition(project_path, split, runtime_operations),
         profiles=profiles,
         preview=preview,
-        limit=None,
+        limit=limit,
         cli_output=cli_output,
         cli_log_level=None,
         cli_log_outputs=cli_log_outputs,
         base_log_level="INFO",
         cli_visuals=None,
         cli_heartbeat_interval_seconds=cli_heartbeat_interval_seconds,
+    )
+
+
+def _resolve_inspect(
+    project_path: Path,
+    profiles: list[InspectProfile],
+    limit: int | None = None,
+    cli_output: ServeOutputConfig | None = None,
+    split: HashSplitConfig | TimeSplitConfig | None = None,
+):
+    return resolve_inspect_profiles(
+        definition=_definition(project_path, split),
+        profiles=profiles,
+        limit=limit,
+        cli_output=cli_output,
     )
 
 
@@ -177,10 +203,10 @@ def test_runtime_profiles_resolve_heartbeat_setting(tmp_path):
             "observability": {"heartbeat_interval_seconds": 30},
         }
     )
-    resolved = _resolve(tmp_path, [profile])[0]
+    resolved = _resolve_serve(tmp_path, [profile])[0]
     assert resolved.observability.heartbeat_interval_seconds == 30
 
-    cli_override = _resolve(
+    cli_override = _resolve_serve(
         tmp_path,
         [profile],
         cli_heartbeat_interval_seconds=0,
@@ -207,7 +233,7 @@ def test_pipeline_serve_defaults_to_dataset_output_splits(tmp_path):
         output_labels=["train", "val"],
     )
 
-    resolved = _resolve(
+    resolved = _resolve_serve(
         tmp_path / "project.yaml",
         [profile],
         split=split,
@@ -222,7 +248,7 @@ def test_pipeline_serve_without_dataset_split_emits_combined_output(tmp_path):
         {"cmd": "serve", "name": "dataset", "operation": "dataset"}
     )
 
-    resolved = _resolve(
+    resolved = _resolve_serve(
         tmp_path / "project.yaml",
         [profile],
         runtime_operations=(PipelineTask(id="dataset"),),
@@ -245,7 +271,7 @@ def test_pipeline_preview_bypasses_default_split_outputs(tmp_path):
         }
     )
 
-    resolved = _resolve(
+    resolved = _resolve_serve(
         tmp_path / "project.yaml",
         [profile],
         preview="postprocess",
@@ -268,7 +294,7 @@ def test_pipeline_preview_rejects_explicit_include_splits(tmp_path):
     )
 
     with pytest.raises(ValueError, match="cannot combine preview with include_splits"):
-        _resolve(
+        _resolve_serve(
             tmp_path / "project.yaml",
             [profile],
             preview="postprocess",
@@ -277,28 +303,35 @@ def test_pipeline_preview_rejects_explicit_include_splits(tmp_path):
         )
 
 
-def test_non_dataset_runtime_profiles_do_not_inherit_split_outputs(tmp_path):
-    profiles = [
-        ServeProfile.model_validate(
-            {"cmd": "serve", "name": "custom", "operation": "custom"}
-        ),
-        InspectProfile.model_validate(
-            {"cmd": "inspect", "name": "inspection", "operation": "dataset"}
-        ),
-    ]
-    operations = (
-        OperationTask(id="custom", entrypoint="plugin.runtime.custom"),
-        PipelineTask(id="dataset"),
+def test_non_dataset_serve_profile_does_not_inherit_split_outputs(tmp_path):
+    profile = ServeProfile.model_validate(
+        {"cmd": "serve", "name": "custom", "operation": "custom"}
     )
 
-    resolved = _resolve(
+    resolved = _resolve_serve(
         tmp_path / "project.yaml",
-        profiles,
+        [profile],
         split=HashSplitConfig(ratios={"train": 1.0}),
-        runtime_operations=operations,
+        runtime_operations=(
+            OperationTask(id="custom", entrypoint="plugin.runtime.custom"),
+        ),
     )
 
-    assert [profile.output_splits for profile in resolved] == [(), ()]
+    assert resolved[0].output_splits == ()
+
+
+def test_inspect_profile_does_not_inherit_split_outputs(tmp_path):
+    profile = InspectProfile.model_validate(
+        {"cmd": "inspect", "name": "inspection", "operation": "dataset"}
+    )
+
+    resolved = _resolve_inspect(
+        tmp_path / "project.yaml",
+        [profile],
+        split=HashSplitConfig(ratios={"train": 1.0}),
+    )
+
+    assert resolved[0].output_splits == ()
 
 
 def test_run_profiles_resolve_include_splits_for_fs_output(tmp_path):
@@ -315,7 +348,7 @@ def test_run_profiles_resolve_include_splits_for_fs_output(tmp_path):
             },
         }
     )
-    resolved = _resolve(
+    resolved = _resolve_serve(
         tmp_path / "project.yaml",
         [profile],
         split=HashSplitConfig(ratios={"train": 0.8, "val": 0.2}),
@@ -344,7 +377,7 @@ def test_run_profiles_reject_include_splits_without_dataset_split(tmp_path):
     )
 
     with pytest.raises(ValueError, match="dataset split is not configured"):
-        _resolve(tmp_path / "project.yaml", [profile])
+        _resolve_serve(tmp_path / "project.yaml", [profile])
 
 
 def test_run_profiles_reject_unknown_include_splits(tmp_path):
@@ -362,7 +395,7 @@ def test_run_profiles_reject_unknown_include_splits(tmp_path):
         }
     )
     with pytest.raises(ValueError, match="not published by the dataset: 'test'"):
-        _resolve(
+        _resolve_serve(
             tmp_path / "project.yaml",
             [profile],
             split=HashSplitConfig(ratios={"train": 0.8, "val": 0.2}),
@@ -390,7 +423,7 @@ def test_include_splits_cannot_publish_internal_dataset_label(tmp_path):
     )
 
     with pytest.raises(ValueError, match="not published by the dataset: 'purge'"):
-        _resolve(
+        _resolve_serve(
             tmp_path / "project.yaml",
             [profile],
             split=split,
@@ -408,7 +441,7 @@ def test_run_profiles_reject_include_splits_for_stdout(tmp_path):
         }
     )
     with pytest.raises(ValueError, match="requires fs output"):
-        _resolve(
+        _resolve_serve(
             tmp_path / "project.yaml",
             [profile],
             split=HashSplitConfig(ratios={"train": 1.0}),
@@ -421,7 +454,7 @@ def test_default_split_output_rejects_stdout(tmp_path):
     )
 
     with pytest.raises(ValueError, match="requires fs output"):
-        _resolve(
+        _resolve_serve(
             tmp_path / "project.yaml",
             [profile],
             split=HashSplitConfig(ratios={"train": 1.0}),
@@ -429,7 +462,7 @@ def test_default_split_output_rejects_stdout(tmp_path):
         )
 
 
-def test_run_profiles_reject_include_splits_with_explicit_filename(tmp_path):
+def test_include_splits_use_explicit_filename_as_base(tmp_path):
     profile = ServeProfile.model_validate(
         {
             "cmd": "serve",
@@ -444,17 +477,16 @@ def test_run_profiles_reject_include_splits_with_explicit_filename(tmp_path):
             },
         }
     )
-    with pytest.raises(
-        ValueError, match="cannot set output.filename for split dataset output"
-    ):
-        _resolve(
-            tmp_path / "project.yaml",
-            [profile],
-            split=HashSplitConfig(ratios={"train": 1.0}),
-        )
+    resolved = _resolve_serve(
+        tmp_path / "project.yaml",
+        [profile],
+        split=HashSplitConfig(ratios={"train": 1.0}),
+    )[0]
+
+    assert resolved.output.for_split("train").destination.name == "vectors.train.jsonl"
 
 
-def test_default_split_output_rejects_explicit_filename(tmp_path):
+def test_default_split_output_uses_explicit_filename_as_base(tmp_path):
     profile = ServeProfile.model_validate(
         {
             "cmd": "serve",
@@ -469,13 +501,14 @@ def test_default_split_output_rejects_explicit_filename(tmp_path):
         }
     )
 
-    with pytest.raises(ValueError, match="cannot set output.filename"):
-        _resolve(
-            tmp_path / "project.yaml",
-            [profile],
-            split=HashSplitConfig(ratios={"train": 1.0}),
-            runtime_operations=(PipelineTask(id="dataset"),),
-        )
+    resolved = _resolve_serve(
+        tmp_path / "project.yaml",
+        [profile],
+        split=HashSplitConfig(ratios={"train": 1.0}),
+        runtime_operations=(PipelineTask(id="dataset"),),
+    )[0]
+
+    assert resolved.output.for_split("train").destination.name == "vectors.train.jsonl"
 
 
 @pytest.mark.parametrize(
@@ -498,25 +531,12 @@ def test_run_profiles_reject_include_splits_with_colliding_output_filenames(
             },
         }
     )
-    with pytest.raises(ValueError, match="same output filename"):
-        _resolve(
+    with pytest.raises(ValueError, match="resolve to the same path"):
+        _resolve_serve(
             tmp_path / "project.yaml",
             [profile],
             split=HashSplitConfig(ratios={first: 0.5, second: 0.5}),
         )
-
-
-def test_operation_options_rejects_preview_when_unsupported(tmp_path):
-    profile = InspectProfile.model_validate(
-        {
-            "cmd": "inspect",
-            "name": "coverage",
-            "operation": "coverage",
-        }
-    )
-
-    with pytest.raises(ValueError, match="does not support previews"):
-        _resolve(tmp_path, [profile], preview="input")
 
 
 def test_run_profiles_leave_unconfigured_throttle_unset(tmp_path):
@@ -524,9 +544,31 @@ def test_run_profiles_leave_unconfigured_throttle_unset(tmp_path):
         {"cmd": "serve", "name": "demo", "operation": "serve"}
     )
 
-    resolved = _resolve(tmp_path, [profile])[0]
+    resolved = _resolve_serve(tmp_path, [profile])[0]
 
     assert resolved.throttle_ms is None
+
+
+def test_serve_profile_resolves_configured_and_cli_limits(tmp_path):
+    profile = ServeProfile.model_validate(
+        {
+            "cmd": "serve",
+            "name": "demo",
+            "operation": "serve",
+            "limit": 3,
+        }
+    )
+
+    assert _resolve_serve(tmp_path, [profile])[0].limit == 3
+    assert _resolve_serve(tmp_path, [profile], limit=7)[0].limit == 7
+
+
+def test_inspect_profile_uses_cli_limit(tmp_path):
+    profile = InspectProfile.model_validate(
+        {"cmd": "inspect", "name": "coverage", "operation": "coverage"}
+    )
+
+    assert _resolve_inspect(tmp_path, [profile], limit=7)[0].limit == 7
 
 
 def test_run_profiles_use_builtin_visuals_defaults(tmp_path):
@@ -534,7 +576,7 @@ def test_run_profiles_use_builtin_visuals_defaults(tmp_path):
         {"cmd": "serve", "name": "demo", "operation": "serve"}
     )
 
-    resolved = _resolve(tmp_path, [profile])[0]
+    resolved = _resolve_serve(tmp_path, [profile])[0]
 
     assert resolved.observability.visuals == "on"
 
@@ -549,7 +591,7 @@ def test_run_profiles_run_visuals_override_defaults(tmp_path):
         }
     )
 
-    resolved = _resolve(tmp_path, [profile])[0]
+    resolved = _resolve_serve(tmp_path, [profile])[0]
 
     assert resolved.observability.visuals == "on"
 
@@ -564,12 +606,12 @@ def test_run_profiles_resolve_log_output_precedence(tmp_path):
         }
     )
 
-    resolved = _resolve(tmp_path / "project.yaml", [profile])[0]
+    resolved = _resolve_serve(tmp_path / "project.yaml", [profile])[0]
     assert resolved.observability.log_output.outputs[0].transport == "stdout"
     assert resolved.observability.log_output.outputs[0].destination is None
 
     cli_log = tmp_path / "logs" / "cli.log"
-    cli_override = _resolve(
+    cli_override = _resolve_serve(
         tmp_path / "project.yaml",
         [profile],
         cli_log_outputs=[LogOutputTarget(transport="fs", destination=cli_log)],
@@ -603,7 +645,7 @@ def test_execution_scoped_logs_can_be_resolved_for_inspect_profiles(tmp_path):
         directory=tmp_path / "out",
     )
 
-    resolved_inspect = _resolve(
+    resolved_inspect = _resolve_inspect(
         tmp_path / "project.yaml",
         [inspect_profile],
         cli_output=cli_output,
@@ -630,7 +672,7 @@ def test_execution_scoped_logs_can_be_resolved_for_inspect_profiles(tmp_path):
             },
         }
     )
-    resolved_serve = _resolve(
+    resolved_serve = _resolve_serve(
         tmp_path / "project.yaml",
         [serve_profile],
         cli_output=cli_output,
@@ -658,7 +700,7 @@ def test_execution_scoped_logs_default_to_task_specific_filename(tmp_path):
         directory=tmp_path / "out",
     )
 
-    resolved = _resolve(
+    resolved = _resolve_serve(
         tmp_path / "project.yaml",
         [profile],
         cli_output=cli_output,
@@ -691,7 +733,7 @@ def test_serve_runtime_profiles_share_run_and_namespace_splits(tmp_path):
         directory=tmp_path / "out",
     )
 
-    resolved = _resolve(
+    resolved = _resolve_serve(
         tmp_path / "project.yaml",
         profiles,
         cli_output=cli_output,
@@ -747,7 +789,7 @@ def test_runtime_profiles_reject_sanitized_output_collision(tmp_path, names):
     output_root = tmp_path / "out"
 
     with pytest.raises(ValueError, match="resolve to the same path"):
-        _resolve(
+        _resolve_serve(
             tmp_path / "project.yaml",
             profiles,
             cli_output=ServeOutputConfig(
@@ -775,7 +817,7 @@ def test_shared_serve_run_rejects_mixed_preview_stages_without_writes(tmp_path):
     output_root = tmp_path / "out"
 
     with pytest.raises(ValueError, match="must use the same preview"):
-        _resolve(
+        _resolve_serve(
             tmp_path / "project.yaml",
             profiles,
             cli_output=ServeOutputConfig(
@@ -788,7 +830,7 @@ def test_shared_serve_run_rejects_mixed_preview_stages_without_writes(tmp_path):
     assert not output_root.exists()
 
 
-def test_shared_serve_runs_reject_explicit_output_filename(tmp_path):
+def test_shared_serve_runs_reject_colliding_explicit_output_filenames(tmp_path):
     profiles = [
         ServeProfile.model_validate(
             {
@@ -806,10 +848,36 @@ def test_shared_serve_runs_reject_explicit_output_filename(tmp_path):
         for name in ("train", "val")
     ]
 
-    with pytest.raises(ValueError, match="cannot set output.filename"):
-        _resolve(tmp_path / "project.yaml", profiles)
+    with pytest.raises(ValueError, match="resolve to the same path"):
+        _resolve_serve(tmp_path / "project.yaml", profiles)
 
     assert not (tmp_path / "out").exists()
+
+
+def test_shared_serve_runs_allow_distinct_explicit_output_filenames(tmp_path):
+    profiles = [
+        ServeProfile.model_validate(
+            {
+                "cmd": "serve",
+                "name": name,
+                "operation": "serve",
+                "output": {
+                    "transport": "fs",
+                    "format": "jsonl",
+                    "directory": str(tmp_path / "out"),
+                    "filename": name,
+                },
+            }
+        )
+        for name in ("train", "val")
+    ]
+
+    resolved = _resolve_serve(tmp_path / "project.yaml", profiles)
+
+    assert [profile.output.destination.name for profile in resolved] == [
+        "train.jsonl",
+        "val.jsonl",
+    ]
 
 
 def test_cli_output_directory_resolves_relative_to_workspace(tmp_path):
@@ -838,7 +906,7 @@ def test_inspect_profiles_accept_html_output_for_matrix(tmp_path):
         }
     )
 
-    resolved = _resolve(tmp_path, [profile])[0]
+    resolved = _resolve_inspect(tmp_path, [profile])[0]
 
     assert resolved.output.format == "html"
     assert resolved.output.transport == "fs"
@@ -871,7 +939,7 @@ def test_inspect_profiles_accept_cli_html_override_for_non_matrix(tmp_path):
         }
     )
 
-    resolved = _resolve(
+    resolved = _resolve_inspect(
         tmp_path,
         [profile],
         cli_output=ServeOutputConfig(
@@ -911,7 +979,7 @@ def test_serve_profiles_accept_cli_txt_override(tmp_path):
         }
     )
 
-    resolved = _resolve(
+    resolved = _resolve_serve(
         tmp_path,
         [profile],
         cli_output=ServeOutputConfig(

@@ -131,7 +131,8 @@ throttle_ms: null # milliseconds to sleep between emitted vectors
   profile-qualified filenames such as `dataset.train.jsonl`. When
   `output_labels` is omitted, every configured label is published.
   `include_splits` optionally narrows that set. Split fanout requires filesystem
-  output and does not allow `output.filename`.
+  output. When set, `output.filename` becomes the base name, producing files
+  such as `vectors.train.jsonl`.
 - Preview bypasses automatic split fanout and emits one combined stage output.
   A profile cannot combine explicit `include_splits` with preview.
 - Before any selected serve profile runs, Jerry unions their artifact

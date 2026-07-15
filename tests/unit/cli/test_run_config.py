@@ -47,6 +47,7 @@ def test_serve_request_resolves_named_profile(tmp_path: Path):
         command="serve",
         project=str(project_yaml),
         profile_name="coverage",
+        limit=5,
     )
     assert request is not None
     assert request.command == "serve"
@@ -54,6 +55,7 @@ def test_serve_request_resolves_named_profile(tmp_path: Path):
     job = request.jobs[0]
     assert job.name == "coverage"
     assert job.task.id == "coverage"
+    assert job.limit == 5
     assert request.artifact_settings is not None
     assert request.artifact_settings.mode == "AUTO"
 
@@ -74,6 +76,7 @@ def test_inspect_request_defaults_to_enabled_profiles(tmp_path: Path):
     request = build_runtime_run_request(
         command="inspect",
         project=str(project_yaml),
+        limit=7,
     )
     assert request is not None
     assert request.command == "inspect"
@@ -81,6 +84,27 @@ def test_inspect_request_defaults_to_enabled_profiles(tmp_path: Path):
     job = request.jobs[0]
     assert job.name == "matrix"
     assert job.task.id == "matrix"
+    assert job.limit == 7
+
+
+def test_inspect_request_rejects_preview(tmp_path: Path, caplog) -> None:
+    project_yaml = _write_project(tmp_path)
+    profiles = tmp_path / "profiles"
+    profiles.mkdir(parents=True, exist_ok=True)
+    (profiles / "inspect.coverage.yaml").write_text(
+        "operation: coverage\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        build_runtime_run_request(
+            command="inspect",
+            project=str(project_yaml),
+            preview="input",
+        )
+
+    assert exc.value.code == 2
+    assert "Inspect profiles do not support previews" in caplog.text
 
 
 def test_serve_profile_rejects_artifact_operation(tmp_path: Path, caplog):

@@ -33,7 +33,7 @@ reading the data. Visuals are independent of log filtering.
     selected profiles and prepares that union once. The artifact graph orders
     those internal jobs; it never changes profile order.
 - `jerry serve --project <project.yaml> --output-transport stdout --output-format jsonl --output-view flat|raw --output-encoding <codec> --limit N [--artifact-mode AUTO|FORCE|OFF] [--log-level LEVEL] [--visuals on|off] [--heartbeat-interval SECONDS] [--profile name]`
-  - Applies postprocess selection and filtering before emitting. A configured dataset split routes a full pipeline serve to one fs output per `output_labels` entry, named `<profile>.<label>.<ext>`; profile `include_splits` can narrow the set. Preview emits one combined stage and cannot be combined with explicit `include_splits`. `--limit` applies separately to each split output.
+  - Applies postprocess selection and filtering before emitting. A configured dataset split routes a full pipeline serve to one fs output per `output_labels` entry, named `<profile-or-filename>.<label>.<ext>`; profile `include_splits` can narrow the set. Preview emits one combined stage and cannot be combined with explicit `include_splits`. `--limit` applies separately to each split output.
   - Use `--output-transport fs --output-format jsonl --output-directory build/serve` (or `csv`, `pickle`) to write outputs under `<output-directory>/runs/<run_id>/dataset/`.
   - `--output-view` controls payload shape:
     - `flat`: key + kind + flattened fields

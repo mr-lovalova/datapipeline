@@ -41,7 +41,10 @@ from datapipeline.profiles.models import (
     RuntimeRunRequest,
     ServeRunPlan,
 )
-from datapipeline.profiles.runtime_profiles import resolve_runtime_profiles
+from datapipeline.profiles.runtime_profiles import (
+    resolve_inspect_profiles,
+    resolve_serve_profiles,
+)
 from datapipeline.services.definitions import PipelineDefinition, ProjectManifest
 from datapipeline.services.path_policy import sanitize_path_segment
 from datapipeline.services.pipeline import load_pipeline
@@ -228,14 +231,30 @@ def build_runtime_run_request(
     if not loaded_profiles:
         return None
 
-    if not isinstance(defaults, ServeProfileDefaults | InspectProfileDefaults):
-        raise TypeError("Runtime profile loading returned the wrong defaults type")
-    runtime_profiles: list[ServeProfile | InspectProfile] = []
+    if command == "serve":
+        if not isinstance(defaults, ServeProfileDefaults):
+            raise TypeError("Serve profile loading returned the wrong defaults type")
+        serve_profiles = [
+            profile for profile in loaded_profiles if isinstance(profile, ServeProfile)
+        ]
+        if len(serve_profiles) != len(loaded_profiles):
+            raise TypeError("Serve profile loading returned the wrong profile type")
+        runtime_profiles: Sequence[ServeProfile | InspectProfile] = serve_profiles
+    else:
+        if not isinstance(defaults, InspectProfileDefaults):
+            raise TypeError("Inspect profile loading returned the wrong defaults type")
+        inspect_profiles = [
+            profile
+            for profile in loaded_profiles
+            if isinstance(profile, InspectProfile)
+        ]
+        if len(inspect_profiles) != len(loaded_profiles):
+            raise TypeError("Inspect profile loading returned the wrong profile type")
+        runtime_profiles = inspect_profiles
+
     runtime_tasks_by_id = {task.id: task for task in definition.runtime_operations}
     artifact_task_ids = {task.id for task in definition.artifact_operations}
-    for profile in loaded_profiles:
-        if not isinstance(profile, ServeProfile | InspectProfile):
-            raise TypeError("Runtime profile loading returned the wrong profile type")
+    for profile in runtime_profiles:
         task = runtime_tasks_by_id.get(profile.operation)
         if task is None:
             if profile.operation in artifact_task_ids:
@@ -254,7 +273,6 @@ def build_runtime_run_request(
                 profile.operation,
             )
             raise SystemExit(2)
-        runtime_profiles.append(profile)
 
     try:
         resolved_artifact_mode = (
@@ -291,18 +309,33 @@ def build_runtime_run_request(
     )
 
     try:
-        resolved_profiles = resolve_runtime_profiles(
-            definition=definition,
-            profiles=runtime_profiles,
-            preview=preview,
-            limit=limit,
-            cli_output=cli_output,
-            cli_log_level=cli_log_level,
-            cli_log_outputs=cli_log_outputs,
-            base_log_level=base_log_level,
-            cli_visuals=cli_visuals,
-            cli_heartbeat_interval_seconds=cli_heartbeat_interval_seconds,
-        )
+        if command == "serve":
+            resolved_profiles = resolve_serve_profiles(
+                definition,
+                serve_profiles,
+                preview,
+                limit,
+                cli_output,
+                cli_log_level=cli_log_level,
+                cli_log_outputs=cli_log_outputs,
+                base_log_level=base_log_level,
+                cli_visuals=cli_visuals,
+                cli_heartbeat_interval_seconds=cli_heartbeat_interval_seconds,
+            )
+        else:
+            if preview is not None:
+                raise ValueError("Inspect profiles do not support previews.")
+            resolved_profiles = resolve_inspect_profiles(
+                definition,
+                inspect_profiles,
+                limit,
+                cli_output,
+                cli_log_level=cli_log_level,
+                cli_log_outputs=cli_log_outputs,
+                base_log_level=base_log_level,
+                cli_visuals=cli_visuals,
+                cli_heartbeat_interval_seconds=cli_heartbeat_interval_seconds,
+            )
         jobs = [
             RuntimeJob(
                 name=profile.name,
