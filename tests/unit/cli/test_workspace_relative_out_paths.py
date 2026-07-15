@@ -25,7 +25,7 @@ def test_plugin_init_out_path_is_workspace_relative(
 
     monkeypatch.setattr(plugin, "scaffold_plugin", fake_scaffold_plugin)
 
-    plugin.bar("init", "my-plugin", "plugins", workspace=workspace)
+    plugin.handle("init", "my-plugin", "plugins", workspace=workspace)
 
     assert calls["name"] == "my-plugin"
     assert calls["outdir"] == (tmp_path / "plugins").resolve()
@@ -38,19 +38,12 @@ def test_demo_init_out_path_is_workspace_relative(tmp_path: Path, monkeypatch) -
 
     calls: dict[str, Path] = {}
 
-    def fake_scaffold_plugin(name: str, outdir: Path) -> None:
-        calls["plugin_name"] = name
-        calls["plugin_outdir"] = outdir
+    def fake_scaffold_demo(outdir: Path) -> None:
+        calls["demo_outdir"] = outdir
 
-    def fake_scaffold_demo(root: Path) -> None:
-        calls["demo_root"] = root
-
-    monkeypatch.setattr(demo, "scaffold_plugin", fake_scaffold_plugin)
     monkeypatch.setattr(demo, "scaffold_demo", fake_scaffold_demo)
 
     demo.handle("init", out="plugins", workspace=workspace)
 
     expected_out = (tmp_path / "plugins").resolve()
-    assert calls["plugin_name"] == "demo"
-    assert calls["plugin_outdir"] == expected_out
-    assert calls["demo_root"] == (expected_out / "demo")
+    assert calls["demo_outdir"] == expected_out

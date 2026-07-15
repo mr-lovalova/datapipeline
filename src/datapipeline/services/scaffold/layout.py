@@ -1,4 +1,3 @@
-from pathlib import Path
 import re
 
 from datapipeline.services.scaffold.templates import camel
@@ -28,31 +27,20 @@ DIR_DOMAINS = "domains"
 TPL_DTO = "dto.py.j2"
 TPL_PARSER = "parser.py.j2"
 TPL_LOADER_BASIC = "loaders/basic.py.j2"
-TPL_LOADER_SYNTHETIC = "loader_synthetic.py.j2"
 TPL_MAPPER_SOURCE = "mappers/source.py.j2"
 TPL_DOMAIN_RECORD = "record.py.j2"
 
 
-def class_name_with_suffix(name: str, suffix: str) -> str:
-    return f"{camel(name)}{suffix}"
-
-
 def loader_class_name(name: str) -> str:
-    return class_name_with_suffix(name, "Loader")
+    return f"{camel(name)}Loader"
 
 
 def domain_record_class(domain: str) -> str:
-    return class_name_with_suffix(domain, "Record")
-
-
-def loader_template_name(template: str) -> str:
-    if template == "synthetic":
-        return TPL_LOADER_SYNTHETIC
-    return TPL_LOADER_BASIC
+    return f"{camel(domain)}Record"
 
 
 def dto_class_name(base: str) -> str:
-    return class_name_with_suffix(base, "DTO")
+    return f"{camel(base)}DTO"
 
 
 def dto_module_path(package: str, dto_class: str) -> str:
@@ -104,15 +92,3 @@ LABEL_MAPPER_INPUT = "Mapper input"
 
 def default_mapper_name_for_identity(domain: str) -> str:
     return f"map_identity_to_{slugify(domain)}"
-
-
-def pyproject_path(root_dir: Path) -> Path:
-    return root_dir / "pyproject.toml"
-
-
-def module_path(package: str, group: str, module: str) -> str:
-    return f"{package}.{group}.{module}"
-
-
-def entrypoint_target(package: str, group: str, module: str, attr: str) -> str:
-    return f"{module_path(package, group, module)}:{attr}"

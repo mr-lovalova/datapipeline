@@ -16,6 +16,7 @@ dependencies = [
   "PyYAML>=5.4",
   "jinja2>=3.0",
   "rich>=13",
+  "tomlkit>=0.13",
 ]
 
 [project.optional-dependencies]
@@ -46,7 +47,8 @@ exclude = ["datapipeline.templates*"]
 [tool.setuptools.package-data]
 datapipeline = [
   "templates/plugin_skeleton/**",
-  "templates/plugin_skeleton/your-dataset/.env.example",
+  "templates/dataset_skeleton/**",
+  "templates/dataset_skeleton/your-dataset/.env.example",
   "templates/demo_skeleton/**",
   "templates/demo_skeleton/demo/.env.example",
   "templates/stubs/**"

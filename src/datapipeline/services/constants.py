@@ -1,8 +1,4 @@
 SOURCE_KEY = "source"
-PARSERS_GROUP = "parsers"
-LOADERS_GROUP = "loaders"
-MAPPERS_GROUP = "mappers"
-COMBINERS_GROUP = "combiners"
 DEFAULT_IO_LOADER_EP = "core.io"
 DEFAULT_SYNTHETIC_LOADER_EP = "core.synthetic.ticks"
 DEFAULT_TEMPORAL_RECORD_PARSER_EP = "core.temporal_record"

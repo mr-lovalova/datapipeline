@@ -1,4 +1,5 @@
 import logging
+import keyword
 from pathlib import Path
 from typing import NoReturn
 
@@ -13,15 +14,17 @@ def ensure_pkg_dir(base: Path, name: str) -> Path:
 
 
 def validate_identifier(name: str, label: str) -> None:
-    if not name or not name.isidentifier():
+    if not name or not name.isidentifier() or keyword.iskeyword(name):
         error_exit(f"{label} must be a valid Python identifier")
 
 
 def write_if_missing(path: Path, text: str, *, label: str | None = None) -> bool:
-    if path.exists():
+    try:
+        with path.open("x", encoding="utf-8") as file:
+            file.write(text)
+    except FileExistsError:
         status("skip", f"{label or 'File'} already exists: {path}")
         return False
-    path.write_text(text)
     status("new", str(path))
     return True
 

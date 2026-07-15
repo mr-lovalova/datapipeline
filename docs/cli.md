@@ -108,9 +108,11 @@ reading the data. Visuals are independent of log filtering.
 ### Scaffolding & Reference
 
 - `jerry plugin init <package> --out <dir>` (also supports `-n/--name`)
-  - Generates a plugin project (pyproject, package skeleton, config templates).
+  - Generates a self-contained plugin workspace (pyproject, package skeleton,
+    local `jerry.yaml`, and config templates).
 - `jerry demo init`
-  - Generates a standalone demo plugin at `./demo/` and wires a `demo` dataset alias.
+  - Generates a standalone demo workspace at `./demo/`. Run it from that
+    directory; the command does not modify a parent `jerry.yaml`.
 - `jerry inflow create`
   - Wizard to scaffold a complete source-backed stream (source YAML + parser/DTO + mapper + stream).
 - `jerry stream create [--identity]`

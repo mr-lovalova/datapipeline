@@ -5,9 +5,7 @@ from datapipeline.domain.record import TemporalRecord
 
 @dataclass
 class EquityRecord(TemporalRecord):
-    """
-    Domain record for 'equity'.
-    """
+    """One equity OHLCV observation."""
 
     open: float
     high: float
@@ -16,4 +14,4 @@ class EquityRecord(TemporalRecord):
     volume: float
     dollar_volume: float
     hl_range: float
-    ticker: str  # equity ticker symbol
+    ticker: str

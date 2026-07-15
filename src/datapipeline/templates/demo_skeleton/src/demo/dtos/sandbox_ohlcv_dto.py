@@ -5,6 +5,7 @@ from datetime import datetime
 @dataclass
 class SandboxOhlcvDTO:
     """Data Transfer Object (DTO) for sandbox OHLCV records."""
+
     time: datetime
     open: float
     high: float

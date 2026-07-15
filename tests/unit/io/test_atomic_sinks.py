@@ -1,4 +1,5 @@
 import gzip
+import stat
 
 import pytest
 
@@ -20,6 +21,30 @@ def test_atomic_text_sink_commits_and_removes_temporary_file(tmp_path) -> None:
 
     assert destination.read_text(encoding="utf-8") == "hello"
     assert list(tmp_path.iterdir()) == [destination]
+
+
+def test_atomic_text_sink_preserves_existing_permissions(tmp_path) -> None:
+    destination = tmp_path / "output.txt"
+    destination.write_text("old", encoding="utf-8")
+    destination.chmod(0o640)
+    sink = AtomicTextFileSink(destination)
+
+    sink.write_text("new")
+    sink.close()
+
+    assert destination.read_text(encoding="utf-8") == "new"
+    assert stat.S_IMODE(destination.stat().st_mode) == 0o640
+
+
+def test_atomic_text_sink_abort_preserves_existing_file(tmp_path) -> None:
+    destination = tmp_path / "output.txt"
+    destination.write_text("old", encoding="utf-8")
+    sink = AtomicTextFileSink(destination)
+
+    sink.write_text("new")
+    sink.abort()
+
+    assert destination.read_text(encoding="utf-8") == "old"
 
 
 def test_atomic_text_sink_rejects_invalid_encoding_before_creating_temp_file(

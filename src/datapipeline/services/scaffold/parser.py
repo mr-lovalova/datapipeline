@@ -1,23 +1,24 @@
 from pathlib import Path
 from typing import Optional
 
-from datapipeline.services.scaffold.templates import render
+from datapipeline.plugins import PARSERS_EP
 from datapipeline.services.paths import pkg_root, resolve_base_pkg_dir
+from datapipeline.services.scaffold.entrypoints import (
+    read_entry_points,
+    register_entry_point,
+)
+from datapipeline.services.scaffold.layout import (
+    DIR_PARSERS,
+    TPL_PARSER,
+    ep_key_from_name,
+    to_snake,
+)
+from datapipeline.services.scaffold.templates import render
 from datapipeline.services.scaffold.utils import (
     ensure_pkg_dir,
     validate_identifier,
     write_if_missing,
 )
-from datapipeline.services.scaffold.layout import (
-    DIR_PARSERS,
-    TPL_PARSER,
-    entrypoint_target,
-    ep_key_from_name,
-    pyproject_path,
-    to_snake,
-)
-from datapipeline.services.entrypoints import inject_ep
-from datapipeline.services.constants import PARSERS_GROUP
 
 
 def create_parser(
@@ -29,7 +30,8 @@ def create_parser(
 ) -> str:
     validate_identifier(name, "Parser name")
 
-    root_dir, pkg_name, _ = pkg_root(root)
+    root_dir, pkg_name, pyproject = pkg_root(root)
+    read_entry_points(pyproject, PARSERS_EP)
     base = resolve_base_pkg_dir(root_dir, pkg_name)
     package_name = base.name
 
@@ -49,12 +51,10 @@ def create_parser(
     )
 
     ep_key = ep_key_from_name(name)
-    pyproject = pyproject_path(root_dir)
-    toml = inject_ep(
-        pyproject.read_text(),
-        PARSERS_GROUP,
+    register_entry_point(
+        pyproject,
+        PARSERS_EP,
         ep_key,
-        entrypoint_target(package_name, "parsers", module_name, name),
+        f"{package_name}.parsers.{module_name}:{name}",
     )
-    pyproject.write_text(toml)
     return ep_key

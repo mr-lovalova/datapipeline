@@ -1,35 +1,36 @@
 from pathlib import Path
 from typing import Optional
 
+from datapipeline.plugins import LOADERS_EP
 from datapipeline.services.paths import pkg_root, resolve_base_pkg_dir
+from datapipeline.services.scaffold.entrypoints import (
+    read_entry_points,
+    register_entry_point,
+)
+from datapipeline.services.scaffold.layout import (
+    DIR_LOADERS,
+    TPL_LOADER_BASIC,
+    ep_key_from_name,
+    loader_class_name,
+    to_snake,
+)
 from datapipeline.services.scaffold.templates import render
 from datapipeline.services.scaffold.utils import (
     ensure_pkg_dir,
     validate_identifier,
     write_if_missing,
 )
-from datapipeline.services.scaffold.layout import (
-    DIR_LOADERS,
-    ep_key_from_name,
-    entrypoint_target,
-    loader_class_name,
-    loader_template_name,
-    pyproject_path,
-    to_snake,
-)
-from datapipeline.services.entrypoints import inject_ep
-from datapipeline.services.constants import LOADERS_GROUP
 
 
 def create_loader(
     *,
     name: str,
     root: Optional[Path],
-    template: str = "basic",
 ) -> str:
     validate_identifier(name, "Loader name")
 
-    root_dir, pkg_name, _ = pkg_root(root)
+    root_dir, pkg_name, pyproject = pkg_root(root)
+    read_entry_points(pyproject, LOADERS_EP)
     base = resolve_base_pkg_dir(root_dir, pkg_name)
     package_name = base.name
 
@@ -38,24 +39,21 @@ def create_loader(
     path = loaders_dir / f"{module_name}.py"
 
     class_name = loader_class_name(name)
-    template_name = loader_template_name(template)
 
     write_if_missing(
         path,
         render(
-            template_name,
+            TPL_LOADER_BASIC,
             CLASS_NAME=class_name,
         ),
         label="Loader",
     )
 
     ep_key = ep_key_from_name(name)
-    pyproject = pyproject_path(root_dir)
-    toml = inject_ep(
-        pyproject.read_text(),
-        LOADERS_GROUP,
+    register_entry_point(
+        pyproject,
+        LOADERS_EP,
         ep_key,
-        entrypoint_target(package_name, "loaders", module_name, class_name),
+        f"{package_name}.loaders.{module_name}:{class_name}",
     )
-    pyproject.write_text(toml)
     return ep_key

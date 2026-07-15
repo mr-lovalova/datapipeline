@@ -3,7 +3,7 @@ from typing import Any
 
 from datapipeline.sources.models.parser import DataParser
 
-from {{PACKAGE_NAME}}.dtos.sandbox_ohlcv_dto import SandboxOhlcvDTO
+from demo.dtos.sandbox_ohlcv_dto import SandboxOhlcvDTO
 
 
 def _parse_time(value: Any) -> datetime | None:
@@ -24,12 +24,7 @@ def _parse_time(value: Any) -> datetime | None:
 
 class SandboxOhlcvDTOParser(DataParser[SandboxOhlcvDTO]):
     def parse(self, raw: Any) -> SandboxOhlcvDTO | None:
-        """
-        Convert one raw item (row/dict/tuple/record) into a SandboxOhlcvDTO.
-
-        - Return a DTO instance to keep the item, or None to drop it.
-        - Keep this logic thin and mirror your source data.
-        """
+        """Convert one raw mapping into a sandbox OHLCV DTO."""
         if not isinstance(raw, dict):
             return None
         parsed_time = _parse_time(raw.get("time"))

@@ -1,15 +1,10 @@
-from pathlib import Path
 import ast
+from pathlib import Path
 
-from datapipeline.services.constants import (
-    COMBINERS_GROUP,
-    LOADERS_GROUP,
-    MAPPERS_GROUP,
-    PARSERS_GROUP,
-)
-from datapipeline.services.entrypoints import read_group_entries
+from datapipeline.plugins import COMBINERS_EP, LOADERS_EP, MAPPERS_EP, PARSERS_EP
 from datapipeline.services.paths import pkg_root, resolve_base_pkg_dir
 from datapipeline.services.project import load_project
+from datapipeline.services.scaffold.entrypoints import read_entry_points
 from datapipeline.services.streams.loader import load_streams
 
 
@@ -50,28 +45,28 @@ def list_parsers(root: Path | None = None) -> dict[str, str]:
     _, _, pyproject = pkg_root(root)
     if not pyproject.exists():
         return {}
-    return read_group_entries(pyproject, PARSERS_GROUP)
+    return read_entry_points(pyproject, PARSERS_EP)
 
 
 def list_loaders(root: Path | None = None) -> dict[str, str]:
     _, _, pyproject = pkg_root(root)
     if not pyproject.exists():
         return {}
-    return read_group_entries(pyproject, LOADERS_GROUP)
+    return read_entry_points(pyproject, LOADERS_EP)
 
 
 def list_mappers(root: Path | None = None) -> dict[str, str]:
     _, _, pyproject = pkg_root(root)
     if not pyproject.exists():
         return {}
-    return read_group_entries(pyproject, MAPPERS_GROUP)
+    return read_entry_points(pyproject, MAPPERS_EP)
 
 
 def list_combiners(root: Path | None = None) -> dict[str, str]:
     _, _, pyproject = pkg_root(root)
     if not pyproject.exists():
         return {}
-    return read_group_entries(pyproject, COMBINERS_GROUP)
+    return read_entry_points(pyproject, COMBINERS_EP)
 
 
 def list_domains(root: Path | None = None) -> list[str]:

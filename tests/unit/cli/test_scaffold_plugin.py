@@ -11,6 +11,7 @@ from datapipeline.services.streams.loader import load_streams
 
 _TEMPLATES_ROOT = Path(__file__).parents[3] / "src" / "datapipeline" / "templates"
 _PLUGIN_SKELETON_ROOT = _TEMPLATES_ROOT / "plugin_skeleton"
+_DATASET_SKELETON_ROOT = _TEMPLATES_ROOT / "dataset_skeleton"
 
 
 def test_template_sources_do_not_contain_generated_files() -> None:
@@ -23,11 +24,25 @@ def test_template_sources_do_not_contain_generated_files() -> None:
     assert generated == []
 
 
-@pytest.mark.parametrize(
-    "template",
-    ["loaders/basic.py.j2", "loader_synthetic.py.j2"],
-)
-def test_loader_stubs_render_valid_python(template: str) -> None:
+def test_demo_package_overlay_does_not_replace_plugin_files() -> None:
+    plugin_package = _PLUGIN_SKELETON_ROOT / "src" / "{{PACKAGE_NAME}}"
+    demo_package = _TEMPLATES_ROOT / "demo_skeleton" / "src" / "demo"
+    plugin_files = {
+        path.relative_to(plugin_package)
+        for path in plugin_package.rglob("*")
+        if path.is_file()
+    }
+    demo_files = {
+        path.relative_to(demo_package)
+        for path in demo_package.rglob("*")
+        if path.is_file()
+    }
+
+    assert plugin_files.isdisjoint(demo_files)
+
+
+def test_loader_stub_renders_valid_python() -> None:
+    template = "loaders/basic.py.j2"
     source = render(template, CLASS_NAME="ExampleLoader")
 
     compile(source, template, "exec")
@@ -66,11 +81,24 @@ def test_demo_stream_catalog_matches_config_models() -> None:
     assert len(config.streams) == 5
 
 
+def test_demo_liquidity_filter_has_a_value_from_the_first_record() -> None:
+    stream_path = (
+        _TEMPLATES_ROOT / "demo_skeleton" / "demo" / "streams" / "equity.ohlcv.yaml"
+    )
+    transforms = yaml.safe_load(stream_path.read_text(encoding="utf-8"))["transforms"]
+
+    assert transforms[0]["operation"] == "rolling"
+    assert transforms[0]["to"] == "adv5"
+    assert transforms[0]["min_samples"] == 1
+    assert transforms[1]["operation"] == "where"
+    assert transforms[1]["field"] == "adv5"
+
+
 def test_plugin_template_has_one_minimal_dataset() -> None:
-    assert (_PLUGIN_SKELETON_ROOT / "your-dataset").is_dir()
-    assert not (_PLUGIN_SKELETON_ROOT / "your-interim-data-builder").exists()
-    assert not (_PLUGIN_SKELETON_ROOT / "_dataset_base").exists()
-    assert not (_PLUGIN_SKELETON_ROOT / "reference").exists()
+    assert (_DATASET_SKELETON_ROOT / "your-dataset").is_dir()
+    assert not (_DATASET_SKELETON_ROOT / "your-interim-data-builder").exists()
+    assert not (_DATASET_SKELETON_ROOT / "_dataset_base").exists()
+    assert not (_DATASET_SKELETON_ROOT / "reference").exists()
 
 
 def test_template_profiles_separate_builds_from_runtime_actions() -> None:
@@ -86,7 +114,7 @@ def test_template_profiles_separate_builds_from_runtime_actions() -> None:
         "serve.defaults.yaml",
         "serve.dataset.yaml",
     }
-    dataset_profiles = _PLUGIN_SKELETON_ROOT / "your-dataset" / "profiles"
+    dataset_profiles = _DATASET_SKELETON_ROOT / "your-dataset" / "profiles"
     demo_profiles = _TEMPLATES_ROOT / "demo_skeleton" / "demo" / "profiles"
 
     assert {path.name for path in dataset_profiles.glob("*.yaml")} == {
@@ -98,7 +126,7 @@ def test_template_profiles_separate_builds_from_runtime_actions() -> None:
     }
     assert {path.name for path in demo_profiles.glob("*.yaml")} == demo_expected
 
-    project = load_project(_PLUGIN_SKELETON_ROOT / "your-dataset" / "project.yaml")
+    project = load_project(_DATASET_SKELETON_ROOT / "your-dataset" / "project.yaml")
     assert [
         (profile.cmd, profile.name, profile.operation)
         for profile in profile_specs(project)
@@ -110,10 +138,7 @@ def test_template_profiles_separate_builds_from_runtime_actions() -> None:
     ]
 
 
-def test_scaffold_plugin_normalizes_hyphenated_name(
-    tmp_path: Path, monkeypatch
-) -> None:
-    monkeypatch.chdir(tmp_path)
+def test_scaffold_plugin_normalizes_hyphenated_name(tmp_path: Path) -> None:
     scaffold_plugin("test-datapipeline", tmp_path)
 
     plugin_root = tmp_path / "test-datapipeline"
@@ -136,50 +161,86 @@ def test_scaffold_plugin_normalizes_hyphenated_name(
     assert '[project.entry-points."datapipeline.combiners"]' in pyproject
 
     readme = (plugin_root / "README.md").read_text()
-    assert "jerry plugin init test-datapipeline" in readme
+    assert "python -m pip install -e ." in readme
+    assert "{{" not in readme
 
 
-def test_scaffold_plugin_moves_jerry_to_workspace(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.chdir(tmp_path)
+def test_scaffold_plugin_normalizes_dotted_name(tmp_path: Path) -> None:
+    scaffold_plugin("weather.data-plugin", tmp_path)
+
+    assert (tmp_path / "weather.data-plugin" / "src" / "weather_data_plugin").is_dir()
+
+
+def test_scaffold_plugin_creates_local_workspace(tmp_path: Path) -> None:
     scaffold_plugin("test-datapipeline", tmp_path)
 
-    workspace_jerry = tmp_path / "jerry.yaml"
     plugin_jerry = tmp_path / "test-datapipeline" / "jerry.yaml"
 
-    assert workspace_jerry.is_file()
-    assert not plugin_jerry.exists()
+    assert plugin_jerry.is_file()
+    assert not (tmp_path / "jerry.yaml").exists()
 
-    cfg = yaml.safe_load(workspace_jerry.read_text())
-    assert cfg["plugin_root"] == "test-datapipeline"
-    assert (
-        cfg["datasets"]["your-dataset"] == "test-datapipeline/your-dataset/project.yaml"
-    )
+    cfg = yaml.safe_load(plugin_jerry.read_text())
+    assert cfg["plugin_root"] == "."
+    assert cfg["datasets"]["your-dataset"] == "your-dataset/project.yaml"
     assert set(cfg["datasets"]) == {"your-dataset"}
 
 
-def test_scaffold_plugin_respects_outdir(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.chdir(tmp_path)
+def test_scaffold_plugin_respects_outdir(tmp_path: Path) -> None:
     outdir = tmp_path / "plugins"
     outdir.mkdir()
 
     scaffold_plugin("myplugin", outdir)
 
-    workspace_jerry = tmp_path / "jerry.yaml"
     plugin_root = outdir / "myplugin"
 
-    assert workspace_jerry.is_file()
-    assert not (plugin_root / "jerry.yaml").exists()
-    cfg = yaml.safe_load(workspace_jerry.read_text())
-    assert cfg["plugin_root"] == "plugins/myplugin"
-    assert (
-        cfg["datasets"]["your-dataset"] == "plugins/myplugin/your-dataset/project.yaml"
-    )
+    assert not (tmp_path / "jerry.yaml").exists()
+    cfg = yaml.safe_load((plugin_root / "jerry.yaml").read_text())
+    assert cfg["plugin_root"] == "."
+    assert cfg["datasets"]["your-dataset"] == "your-dataset/project.yaml"
     assert set(cfg["datasets"]) == {"your-dataset"}
 
 
-@pytest.mark.parametrize("name", ["data pipeline", "datapipeline"])
-def test_scaffold_plugin_rejects_disallowed_names(name: str, tmp_path: Path) -> None:
-    with pytest.raises(SystemExit) as exc:
-        scaffold_plugin(name, tmp_path)
+def test_scaffold_plugin_does_not_modify_parent_workspace(tmp_path: Path) -> None:
+    workspace = tmp_path / "jerry.yaml"
+    original = b"# keep formatting\ndatasets: {research: research/project.yaml}\n"
+    workspace.write_bytes(original)
 
-    assert exc.value.code == 1
+    scaffold_plugin("myplugin", tmp_path)
+
+    assert workspace.read_bytes() == original
+    assert (tmp_path / "myplugin" / "jerry.yaml").is_file()
+
+
+def test_scaffold_plugin_does_not_remove_existing_target(tmp_path: Path) -> None:
+    plugin_root = tmp_path / "myplugin"
+    plugin_root.mkdir()
+    sentinel = plugin_root / "keep.txt"
+    sentinel.write_text("keep\n", encoding="utf-8")
+
+    with pytest.raises(FileExistsError, match="already exists"):
+        scaffold_plugin("myplugin", tmp_path)
+
+    assert sentinel.read_text(encoding="utf-8") == "keep\n"
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "",
+        "data pipeline",
+        "datapipeline",
+        "DataPipeline",
+        "jerry-thomas",
+        "Jerry.Thomas",
+        "jerry_thomas",
+        "class",
+        "café",
+        "_plugin",
+        "plugin_",
+        ".plugin",
+        "plugin.",
+    ],
+)
+def test_scaffold_plugin_rejects_disallowed_names(name: str, tmp_path: Path) -> None:
+    with pytest.raises(ValueError):
+        scaffold_plugin(name, tmp_path)

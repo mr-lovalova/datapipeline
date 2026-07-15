@@ -22,7 +22,7 @@ transforms: # ordered transforms (input sorted by partition,time)
     to: adv5
     window: 5
     statistic: mean
-    min_samples: 3
+    min_samples: 1
   - { operation: where, field: adv5, operator: ge, comparand: 1_000_000 } # keep liquid stocks
 #   - { operation: fill, field: close, statistic: median, window: 6, min_samples: 1 }
 #   - { operation: forward_fill, field: close, to: close_asof }

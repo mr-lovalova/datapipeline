@@ -40,23 +40,26 @@ From zero to served vectors:
 ```bash
 python -m pip install -U jerry-thomas
 jerry demo init
-python -m pip install -e demo
+cd demo
+python -m pip install -e .
 jerry serve --dataset demo --limit 3
 ```
 
-`jerry demo init` creates a workspace `jerry.yaml`. A later `jerry plugin init`
-does not overwrite it; edit its dataset routing or pass `--project` explicitly.
+The generated demo is a self-contained workspace. Scaffold commands do not
+modify a parent `jerry.yaml`; add a dataset alias explicitly when you want to
+integrate a generated project into another workspace.
 
 ### Create Your Own Plugin + First Stream
 
 ```bash
 jerry plugin init my-datapipeline --out lib/
+cd lib/my-datapipeline
 
 # Scaffold source YAML, DTO/parser, domain, mapper, and stream.
 jerry inflow create
 
 # Reinstall after commands that update entry points (pyproject.toml).
-python -m pip install -e lib/my-datapipeline
+python -m pip install -e .
 
 # Fill in the generated source and mapping templates, then serve.
 jerry serve --limit 3

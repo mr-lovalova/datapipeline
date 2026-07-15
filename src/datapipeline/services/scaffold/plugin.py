@@ -1,106 +1,97 @@
-from importlib.resources import as_file, files
-from pathlib import Path
 import logging
+import keyword
+import re
 import shutil
 import sys
-
-import yaml
-
-from datapipeline.utils.load import load_yaml
-from datapipeline.services.path_policy import relative_to_workspace, workspace_cwd
-
-from ..constants import DEFAULT_IO_LOADER_EP
+from importlib.resources import as_file, files
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+_RESERVED_DISTRIBUTION_NAMES = {"jerry-thomas"}
 _RESERVED_PACKAGE_NAMES = {"datapipeline", "test", "tests"}
-_STDLIB_MODULE_NAMES = sys.stdlib_module_names
+_STDLIB_MODULE_NAMES = {name.casefold() for name in sys.stdlib_module_names}
+_DISTRIBUTION_NAME = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?\Z")
 
 
 def _normalized_package_name(dist_name: str) -> str:
-    package_name = dist_name.replace("-", "_")
-    if package_name in _RESERVED_PACKAGE_NAMES:
-        logger.error(
-            "`datapipeline` is reserved for the core package. Choose a different plugin name."
+    if _DISTRIBUTION_NAME.fullmatch(dist_name) is None:
+        raise ValueError(f"'{dist_name}' is not a valid Python distribution name")
+    normalized_dist_name = re.sub(r"[-_.]+", "-", dist_name).casefold()
+    if normalized_dist_name in _RESERVED_DISTRIBUTION_NAMES:
+        raise ValueError(f"'{dist_name}' conflicts with the Jerry Thomas distribution")
+
+    package_name = dist_name.replace("-", "_").replace(".", "_")
+    normalized_package_name = package_name.casefold()
+    if normalized_package_name in _RESERVED_PACKAGE_NAMES:
+        raise ValueError(f"'{package_name}' is reserved; choose another plugin name")
+    if normalized_package_name in _STDLIB_MODULE_NAMES:
+        raise ValueError(
+            f"Plugin name '{dist_name}' conflicts with the Python standard library"
         )
-        raise SystemExit(1)
-    if package_name in _STDLIB_MODULE_NAMES:
-        logger.error(
-            "Plugin name '%s' conflicts with a Python standard library module. Choose a different name.",
-            package_name,
+    if not package_name.isidentifier() or keyword.iskeyword(package_name):
+        raise ValueError(
+            "Plugin names must form valid Python package names after replacing "
+            "'-' and '.' with '_'"
         )
-        raise SystemExit(1)
-    if not package_name.isidentifier():
-        logger.error(
-            "Plugin names must be valid Python identifiers once hyphens are replaced with underscores."
-        )
-        raise SystemExit(1)
     return package_name
 
 
-def scaffold_plugin(name: str, outdir: Path) -> None:
-    target = (outdir / name).absolute()
-    if target.exists():
-        logger.error("`%s` already exists", target)
-        raise SystemExit(1)
-
+def create_plugin_base(name: str, outdir: Path) -> Path:
     package_name = _normalized_package_name(name)
-    skeleton_ref = files("datapipeline") / "templates" / "plugin_skeleton"
-    with as_file(skeleton_ref) as skeleton_dir:
-        shutil.copytree(
-            skeleton_dir,
-            target,
-            ignore=shutil.ignore_patterns(
-                "__pycache__",
-                "*.pyc",
-                "*.pyo",
-                ".DS_Store",
-            ),
-        )
-    pkg_dir = target / "src" / "{{PACKAGE_NAME}}"
-    pkg_dir.rename(target / "src" / package_name)
-    replacements = {
-        "{{PACKAGE_NAME}}": package_name,
-        "{{DIST_NAME}}": name,
-        "{{DEFAULT_IO_LOADER_EP}}": DEFAULT_IO_LOADER_EP,
-    }
-    for p in target.rglob("*"):
-        if not p.is_file():
-            continue
-        if p.suffix not in {".py", ".toml", ".md", ".yaml", ".yml"}:
-            continue
-        text = p.read_text()
-        for placeholder, value in replacements.items():
-            text = text.replace(placeholder, value)
-        p.write_text(text)
+    outdir = outdir.resolve()
+    outdir.mkdir(parents=True, exist_ok=True)
+    target = outdir / name
+    try:
+        target.mkdir()
+    except FileExistsError as exc:
+        raise FileExistsError(f"{target} already exists") from exc
 
-    # Move jerry.yaml up to the workspace root (current working directory) so
-    # users can run the CLI from the workspace without cd'ing into the plugin.
-    # We adjust plugin_root and dataset paths to point at the plugin directory
-    # relative to the workspace. Do not overwrite an existing workspace
-    # jerry.yaml.
-    plugin_jerry = target / "jerry.yaml"
-    workspace_root = workspace_cwd()
-    workspace_jerry = workspace_root / "jerry.yaml"
-    if plugin_jerry.exists() and not workspace_jerry.exists():
-        plugin_root_rel = relative_to_workspace(target, workspace_root)
+    try:
+        skeleton_ref = files("datapipeline") / "templates" / "plugin_skeleton"
+        with as_file(skeleton_ref) as skeleton_dir:
+            shutil.copytree(
+                skeleton_dir,
+                target,
+                dirs_exist_ok=True,
+                ignore=shutil.ignore_patterns(
+                    "__pycache__",
+                    "*.pyc",
+                    "*.pyo",
+                    ".DS_Store",
+                ),
+            )
 
-        data = load_yaml(plugin_jerry)
-        data["plugin_root"] = plugin_root_rel.as_posix()
-        datasets = data.get("datasets") or {}
-        updated_datasets = {}
-        for alias, path in datasets.items():
-            p = Path(path)
-            if p.is_absolute():
-                updated_datasets[alias] = p.as_posix()
-            else:
-                updated_datasets[alias] = (plugin_root_rel / p).as_posix()
-        data["datasets"] = updated_datasets
+        package_dir = target / "src" / "{{PACKAGE_NAME}}"
+        package_dir.rename(target / "src" / package_name)
 
-        workspace_jerry.write_text(
-            yaml.safe_dump(data, sort_keys=False), encoding="utf-8"
-        )
-        plugin_jerry.unlink()
-        logger.info("workspace jerry.yaml created at %s", workspace_jerry)
+        pyproject = target / "pyproject.toml"
+        text = pyproject.read_text(encoding="utf-8")
+        pyproject.write_text(text.replace("{{DIST_NAME}}", name), encoding="utf-8")
+    except BaseException:
+        shutil.rmtree(target)
+        raise
+    return target
+
+
+def _install_dataset_files(plugin_root: Path, template_root: Path) -> None:
+    shutil.copy2(template_root / "README.md", plugin_root / "README.md")
+    shutil.copy2(template_root / "jerry.yaml", plugin_root / "jerry.yaml")
+    shutil.copytree(
+        template_root / "your-dataset",
+        plugin_root / "your-dataset",
+    )
+
+
+def scaffold_plugin(name: str, outdir: Path) -> Path:
+    target = create_plugin_base(name, outdir)
+    try:
+        template_ref = files("datapipeline") / "templates" / "dataset_skeleton"
+        with as_file(template_ref) as template_root:
+            _install_dataset_files(target, template_root)
+    except BaseException:
+        shutil.rmtree(target)
+        raise
 
     logger.info("plugin skeleton created at %s", target)
+    return target

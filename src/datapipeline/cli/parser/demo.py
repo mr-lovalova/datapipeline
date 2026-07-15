@@ -4,7 +4,7 @@ import argparse
 def add_demo_command(sub, common: argparse.ArgumentParser) -> None:
     parser = sub.add_parser(
         "demo",
-        help="create an optional demo dataset inside a plugin",
+        help="create a self-contained demo workspace",
         parents=[common],
     )
     demo_sub = parser.add_subparsers(dest="demo_cmd", required=True)

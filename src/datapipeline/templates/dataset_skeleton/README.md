@@ -1,24 +1,19 @@
-# {{DIST_NAME}}
+# Jerry Thomas plugin
 
 Minimal plugin skeleton for the Jerry Thomas (datapipeline) runtime.
 
 ## Quick start
 
 ```bash
-python -m pip install -U jerry-thomas
-
-jerry plugin init {{DIST_NAME}} --out .
-python -m pip install -e {{DIST_NAME}}
+python -m pip install -e .
 
 # One-stop wizard: source YAML + DTO/parser + domain + mapper + stream.
 jerry inflow create
 
-# If a workspace-level `jerry.yaml` was created (fresh workspace), you can use the dataset alias:
+# Complete the generated files described below, then register the new entry points.
+python -m pip install -e .
+
 jerry serve --dataset your-dataset --limit 3
-#
-# If you already had a workspace `jerry.yaml`, `jerry plugin init` will not overwrite it.
-# In that case, either add a dataset alias to your existing `jerry.yaml` or pass `--project`:
-# jerry serve --project your-dataset/project.yaml --limit 3
 ```
 
 ## After scaffolding: what you must edit
@@ -35,7 +30,7 @@ jerry serve --dataset your-dataset --limit 3
   - Select a `field:` for each feature/target (record attribute to use as value).
   - Ensure `sample.cadence` matches `^\d+(m|min|h|d)$` (e.g. `10m`, `1h`, `1d`). The scaffold fills it from the `${group_by}` project global.
 
-If you add/edit entry points in `pyproject.toml`, reinstall the plugin:
+Reinstall the plugin after adding or editing entry points in `pyproject.toml`:
 
 ```bash
 python -m pip install -e .
@@ -75,7 +70,7 @@ Profile sequencing:
 
 Python plugin code:
 
-- `src/{{PACKAGE_NAME}}/`
+- `src/<package>/`
   - `dtos/` (DTO models)
   - `parsers/` (raw -> DTO)
   - `domains/<domain>/model.py` (domain record models)

@@ -40,4 +40,4 @@ Key entrypoints:
 
 Entry points are injected/updated in plugin `pyproject.toml` via:
 
-- `datapipeline.services.entrypoints.inject_ep`
+- `datapipeline.services.scaffold.entrypoints.register_entry_point`
