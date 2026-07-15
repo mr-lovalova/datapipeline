@@ -341,6 +341,32 @@ def test_pipeline_only_observation_keeps_pipeline_heartbeats(tmp_path: Path) -> 
     assert observer.progress_events == []
 
 
+def test_pipeline_only_observation_without_heartbeats_skips_progress_thread(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observer = _CollectingObserver()
+    context = _context(tmp_path)
+    context.pipeline_observer = observer
+    context.observe_node_events = False
+    context.heartbeat_interval_seconds = 0
+    monkeypatch.setattr(
+        pipeline_runner._RunProgress,
+        "start",
+        lambda _self: pytest.fail("progress thread started"),
+    )
+    pipeline = Pipeline(
+        name="pipeline-only",
+        nodes=(SourceNode("source", lambda: [1, 2]),),
+    )
+
+    assert list(run_pipeline(context, pipeline)) == [1, 2]
+    assert observer.pipeline_events[-1].output_items == 2
+    assert observer.node_started == []
+    assert observer.progress_events == []
+    assert observer.pipeline_progress_events == []
+
+
 def test_explicit_observer_includes_nodes_in_pipeline_only_context(
     tmp_path: Path,
 ) -> None:
@@ -552,6 +578,21 @@ def test_heartbeat_interval_is_shared_across_pipeline_nodes(
         event.node_name for event in observer.progress_events if event.heartbeat
     ] == ["source", "output"]
     assert [event.output_items for event in observer.pipeline_progress_events] == [7, 8]
+
+
+def test_live_progress_suppresses_unchanged_snapshots() -> None:
+    observer = _CollectingObserver()
+    progress = pipeline_runner._RunProgress(observer, "pipeline", 0)
+    node = pipeline_runner._NodeProgressContext("pipeline", "source", 0)
+    state = progress.start_node(node, None)
+    progress.active_node = node
+
+    progress._emit_due_progress()
+    progress._emit_due_progress()
+    state.completed = 1
+    progress._emit_due_progress()
+
+    assert [event.progress.completed for event in observer.progress_events] == [0, 1]
 
 
 def test_partial_close_closes_stages_in_reverse_order(tmp_path: Path) -> None:

@@ -85,7 +85,7 @@ class _ExecutionProgress:
             raise TypeError(f"Unsupported progress event: {type(event).__name__}")
 
     def clear(self) -> None:
-        for task in list(self._progress.tasks):
+        for task in self._progress.tasks:
             self._progress.remove_task(task.id)
         self._root_pipeline = None
         self._root_task = None
@@ -101,7 +101,6 @@ class _ExecutionProgress:
             event.pipeline_name,
             total=None,
             status="",
-            indent="",
             show_elapsed=True,
         )
 
@@ -122,7 +121,6 @@ class _ExecutionProgress:
                 label,
                 total=None,
                 status="0 out",
-                indent="",
                 show_elapsed=False,
             )
         self._nodes[event.node_index] = state
@@ -302,7 +300,7 @@ def visual_execution(log_level: int):
     debug = log_level <= logging.DEBUG
     progress = Progress(
         TextColumn(
-            "{task.fields[indent]}[{task.description}]",
+            "[{task.description}]",
             markup=False,
             table_column=Column(no_wrap=True, overflow="ellipsis"),
         ),

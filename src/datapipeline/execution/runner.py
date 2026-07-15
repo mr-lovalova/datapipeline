@@ -40,7 +40,7 @@ class _NodeProgressState:
     started_at: float
     completed: int
     reader: NodeProgressReader | None
-    last_live_signature: tuple[object, ...] | None = None
+    last_live_progress: ProgressSnapshot | None = None
 
 
 class _RunProgress:
@@ -131,18 +131,26 @@ class _RunProgress:
                     if node != active_node and state.reader is None:
                         continue
                     progress = self._snapshot(state)
-                    signature = self._signature(progress)
                     heartbeat = heartbeat_due and node == active_node
                     if heartbeat:
-                        state.last_live_signature = signature
-                    elif signature != state.last_live_signature:
-                        state.last_live_signature = signature
+                        state.last_live_progress = progress
+                    elif progress != state.last_live_progress:
+                        state.last_live_progress = progress
                     else:
                         continue
                     due.append((node, progress, now - state.started_at, heartbeat))
                 output_items = self.output_items if heartbeat_due else 0
             for node, progress, elapsed, heartbeat in due:
-                self._emit(node, progress, elapsed, heartbeat=heartbeat)
+                self._observer(
+                    NodeProgress(
+                        pipeline_name=node.pipeline_name,
+                        node_name=node.node_name,
+                        node_index=node.node_index,
+                        progress=progress,
+                        elapsed_seconds=elapsed,
+                        heartbeat=heartbeat,
+                    )
+                )
             if heartbeat_due:
                 self._observer(
                     PipelineProgress(
@@ -157,35 +165,6 @@ class _RunProgress:
         if state.reader is None:
             return ProgressSnapshot(completed=state.completed, unit="out")
         return state.reader(state.completed)
-
-    @staticmethod
-    def _signature(progress: ProgressSnapshot) -> tuple[object, ...]:
-        return (
-            progress.completed,
-            progress.total,
-            progress.unit,
-            progress.phase,
-            progress.detail,
-            progress.resource,
-        )
-
-    def _emit(
-        self,
-        node: _NodeProgressContext,
-        progress: ProgressSnapshot,
-        elapsed: float,
-        heartbeat: bool,
-    ) -> None:
-        self._observer(
-            NodeProgress(
-                pipeline_name=node.pipeline_name,
-                node_name=node.node_name,
-                node_index=node.node_index,
-                progress=progress,
-                elapsed_seconds=elapsed,
-                heartbeat=heartbeat,
-            )
-        )
 
 
 def _close_iterator(iterator: Iterable[Any]) -> None:
@@ -262,10 +241,13 @@ def _run_observed(
     stream: Iterable[Any] = ()
     iterator: Iterator[Any] = iter(())
     started = False
+    heartbeat_interval = resolve_heartbeat_interval_seconds(
+        context.heartbeat_interval_seconds
+    )
     progress = _RunProgress(
         observer,
         pipeline.name,
-        resolve_heartbeat_interval_seconds(context.heartbeat_interval_seconds),
+        heartbeat_interval,
     )
 
     try:
@@ -283,7 +265,8 @@ def _run_observed(
                 )
             )
         started = True
-        progress.start()
+        if observe_nodes or heartbeat_interval > 0:
+            progress.start()
         stream = _build_stream(
             pipeline,
             seed,

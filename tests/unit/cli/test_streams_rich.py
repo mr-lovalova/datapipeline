@@ -158,7 +158,6 @@ def test_info_progress_shows_node_and_local_detail() -> None:
     assert len(progress.tasks) == 1
     task = progress.tasks[0]
     assert task.description == "stream:adv.20"
-    assert task.fields["indent"] == ""
     assert task.fields["show_elapsed"] is True
     assert task.total is None
     assert task.completed == 20_000
@@ -172,7 +171,6 @@ def test_info_progress_shows_node_and_local_detail() -> None:
 
     task = progress.tasks[0]
     assert task.description == "stream:adv.20"
-    assert task.fields["indent"] == ""
     assert task.total is None
     assert task.fields["status"] == (
         "stream:adv.20/order_records · reading · 100 records"
@@ -264,7 +262,6 @@ def test_info_pipeline_elapsed_continues_after_completed_local_phase() -> None:
     assert elapsed.plain == "PIPELINE 0:00:10"
     assert str(elapsed.style) == "dim"
     assert task.description == "stream:adv.20"
-    assert task.fields["indent"] == ""
 
     now = 20.0
     renderer.handle(
@@ -278,7 +275,6 @@ def test_info_pipeline_elapsed_continues_after_completed_local_phase() -> None:
     task = progress.tasks[0]
     assert _LiveElapsedColumn().render(task).plain == "PIPELINE 0:00:20"
     assert task.description == "stream:adv.20"
-    assert task.fields["indent"] == ""
 
 
 def test_debug_progress_shows_root_and_active_nodes() -> None:
@@ -305,16 +301,15 @@ def test_debug_progress_shows_root_and_active_nodes() -> None:
     assert [
         (
             task.description,
-            task.fields["indent"],
             task.fields["show_elapsed"],
             task.fields["status"],
         )
         for task in tasks
     ] == [
-        ("stream:adv.20", "", True, ""),
-        ("stream:adv.20/order_records", "", False, "0 out"),
-        ("stream:adv.20/open_source", "", False, "25/100 records"),
-        ("stream:adv.20/decode_records", "", False, "0 out"),
+        ("stream:adv.20", True, ""),
+        ("stream:adv.20/order_records", False, "0 out"),
+        ("stream:adv.20/open_source", False, "25/100 records"),
+        ("stream:adv.20/decode_records", False, "0 out"),
     ]
     root_task, _, source_task, _ = tasks
     elapsed = _LiveElapsedColumn()
