@@ -1,3 +1,0 @@
-id: matrix
-kind: runtime
-entrypoint: core.runtime.matrix

@@ -1,7 +1,15 @@
 id: metrics.sine
 from:
-  stream: metrics.sine.ingest
+  source: regression.sine
 
-stream:
-  - ensure_cadence: { cadence: 30m, field: value }
-  - granularity: { mode: last, field: value }
+map:
+  entrypoint: identity
+  args: {}
+
+preprocess:
+  - { operation: where, operator: ge, field: time, comparand: "${start_time}" }
+  - { operation: where, operator: le, field: time, comparand: "${end_time}" }
+
+transforms:
+  - { operation: ensure_cadence, cadence: 30m }
+  - { operation: collapse, keep: last }

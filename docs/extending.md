@@ -14,42 +14,48 @@ demo.weather_parser = "my_datapipeline.parsers.weather:WeatherParser"
 [project.entry-points."datapipeline.mappers"]
 time.ticks = "my_datapipeline.mappers.synthetic.ticks:map"
 
-[project.entry-points."datapipeline.transforms.stream"]
-weather.fill = "my_datapipeline.transforms.weather:CustomFill"
+[project.entry-points."datapipeline.combiners"]
+air_density = "my_datapipeline.combiners.air_density:combine_air_density"
+
+[project.entry-points."datapipeline.operations.runtime"]
+demo.report = "my_datapipeline.operations:run_report"
 ```
 
-Loader, parser, and mapper extensions must follow the contract of their
-respective entry-point group. Refer to the built-in implementations in
-`src/datapipeline/sources/`, `src/datapipeline/mappers/`, and
-`src/datapipeline/parsers/`.
+Each extension follows the contract of its entry-point group. A stream `map`
+receives an iterator and returns an iterable. An aligned stream `combine`
+receives one matching record from each input and returns one record or `None`.
+Combiners belong to `datapipeline.combiners`, not the iterator-oriented
+`datapipeline.mappers` group.
 
-Transform entry points follow one explicit contract. YAML parameters must be a
-mapping or `null`; mapping entries are passed as configured keyword arguments.
-A transform function is called as `fn(stream, **configured_params)`. A
-transform class is constructed as `Class(**configured_params)`, then its
-instance is called with the stream. Entry points must declare each supported
-keyword parameter; `**kwargs` catch-alls are rejected.
+A custom runtime operation receives exactly three positional arguments:
 
-Class-based transforms may implement `bind_context(context)` when they need
-runtime services and `bind_partition_by(partition_by)` when they maintain
-partitioned state. The runtime calls implemented hooks after construction and
-before the instance receives the stream. It does not inject context,
-partitioning, or other undeclared arguments into functions or constructors.
-See [Transforms](transforms/index.md) for the accepted clause shape and full
-contract.
+```python
+from datapipeline.config.tasks import OperationTask
+from datapipeline.operations.persistence import (
+    RuntimeOutput,
+    RuntimeOutputBatch,
+    SplitRuntimeOutput,
+)
+from datapipeline.runtime import Runtime
 
-### Transform migration to 4.0
 
-Earlier versions inspected transform signatures and implicitly injected
-`context`, `partition_by`, and `stream_partition_by`; they also activated an
-ambient pipeline context while invoking the entry point. Version 4.0 removes
-those implicit paths. Move context and partition access to the class hooks
-above, and replace scalar or list transform parameters with a named mapping.
+def run_report(
+    runtime: Runtime,
+    task: OperationTask,
+    limit: int | None,
+) -> RuntimeOutput | SplitRuntimeOutput | RuntimeOutputBatch | None:
+    ...
+```
 
-When a legacy signature still declares one of the injected parameters, the
-runtime raises a migration error instead of allowing a partition-aware
-transform to run without its state key. Code that reads the ambient context
-without declaring it cannot be detected automatically and must migrate to
-`bind_context(context)`.
+`runtime` is the compiled `Runtime`, `task` is the configured `OperationTask`,
+and `limit` is the CLI cap or `None`. Return `RuntimeOutput`,
+`SplitRuntimeOutput`, `RuntimeOutputBatch`, or `None`. Jerry persists the result
+using the profile output. Dataset split routing, preview, throttle, and
+`include_splits` belong to the built-in dataset operation and are not passed to
+plugins.
+
+Preprocess and ordered transforms are validated built-in operations rather than
+plugin entry points. Feature shaping and postprocess policies are fixed pipeline
+stages. See [Transforms](transforms/index.md) for their explicit configuration.
 
 ---

@@ -1,18 +1,25 @@
-from datetime import datetime, timezone
 import math
+from dataclasses import replace
+from datetime import datetime, timezone
 from pathlib import Path
 
-from datapipeline.config.execution import ExecutionConfig
+from datapipeline.artifacts.scaler import save_scaler_artifact
+from datapipeline.artifacts.specs import SCALER_STATISTICS
+from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig
-from datapipeline.domain.feature import FeatureRecordSequence
+from datapipeline.config.execution import ExecutionConfig
+from datapipeline.config.transforms import (
+    FillConfig,
+    RollingConfig,
+    TransformConfig,
+)
+from datapipeline.domain.feature import FeatureRecord
 from datapipeline.domain.record import TemporalRecord
-from datapipeline.dag.context import PipelineContext
-from datapipeline.pipelines.feature.dag import build_feature_pipeline
-from datapipeline.pipelines import build_vector_pipeline
-from datapipeline.runtime import Runtime, StreamRuntimeSpec
-from datapipeline.services.constants import SCALER_STATISTICS
-from datapipeline.transforms.feature.scaler import StandardScalerAccumulator
-from datapipeline.transforms.spec import TransformSpec
+from datapipeline.execution.context import PipelineContext
+from datapipeline.pipelines.feature.pipeline import run_feature_pipeline
+from datapipeline.pipelines.vector.pipeline import build_vector_pipeline
+from datapipeline.runtime import Runtime, SourceRuntimeStream
+from datapipeline.transforms.feature.scaler import ScalerAccumulator
 from tests.vector_input_helpers import register_vector_inputs
 
 
@@ -53,7 +60,7 @@ class _StubSource:
 def _runtime_with_streams(
     tmp_path: Path,
     streams: dict[str, list[TemporalRecord]],
-    stream_transforms: dict[str, list[TransformSpec]] | None = None,
+    stream_transforms: dict[str, list[TransformConfig]] | None = None,
 ) -> Runtime:
     project_yaml = tmp_path / "project.yaml"
     artifacts_root = tmp_path / "artifacts"
@@ -61,23 +68,22 @@ def _runtime_with_streams(
     runtime = Runtime(
         project_yaml=project_yaml,
         artifacts_root=artifacts_root,
+        dataset=FeatureDatasetConfig(sample=SampleConfig(cadence="1h")),
         execution=ExecutionConfig(),
     )
 
-    regs = runtime.registries
     stream_transforms = stream_transforms or {}
     start_time: datetime | None = None
     end_time: datetime | None = None
     for alias, rows in streams.items():
-        regs.stream_sources.register(alias, _StubSource(rows))
-        regs.stream_specs.register(alias, StreamRuntimeSpec(pipeline="stream"))
-        regs.mappers.register(alias, _identity)
-        regs.record_operations.register(alias, [])
-        regs.stream_operations.register(alias, stream_transforms.get(alias, []))
-        regs.debug_operations.register(alias, [])
-        regs.partition_by.register(alias, None)
-        regs.feature_id_by.register(alias, None)
-        regs.presorted.register(alias, False)
+        runtime.streams[alias] = SourceRuntimeStream(
+            source=_StubSource(rows),
+            mapper=_identity,
+            preprocess=(),
+            partition_by=(),
+            presorted=False,
+            transforms=tuple(stream_transforms.get(alias, ())),
+        )
         for rec in rows:
             ts = getattr(rec, "time", None)
             if isinstance(ts, datetime):
@@ -91,34 +97,31 @@ def _runtime_with_streams(
 def _register_scaler(
     runtime: Runtime, configs: list[FeatureRecordConfig], group_by: str
 ) -> None:
-    sanitized = [cfg.model_copy(update={"scale": False}) for cfg in configs]
+    sanitized = [
+        cfg.model_copy(update={"scale": False, "sequence": None}) for cfg in configs
+    ]
     context = PipelineContext(runtime)
-    accumulator = StandardScalerAccumulator()
-    total = 0
+    accumulator = ScalerAccumulator()
     for cfg in sanitized:
-        stream = build_feature_pipeline(
+        stream = run_feature_pipeline(
             context,
             cfg,
             group_by_cadence=group_by,
         )
         try:
-            for item in stream:
-                value = (
-                    list(item.values)
-                    if isinstance(item, FeatureRecordSequence)
-                    else item.value
-                )
-                total += accumulator.observe({item.id: value})
+            for feature in stream:
+                if not isinstance(feature, FeatureRecord):
+                    raise TypeError("Scaler tests require scalar feature records")
+                accumulator.observe(feature.id, feature.value)
         finally:
             closer = getattr(stream, "close", None)
             if callable(closer):
                 closer()
-    if not total:
+    if not accumulator.observations:
         raise RuntimeError("Unable to compute scaler statistics for test runtime.")
-    scaler = accumulator.to_scaler()
 
     destination = runtime.artifacts_root / "scaler.json"
-    scaler.save(destination)
+    save_scaler_artifact(destination, accumulator.artifact())
     runtime.artifacts.register(
         SCALER_STATISTICS,
         relative_path=destination.relative_to(runtime.artifacts_root).as_posix(),
@@ -142,22 +145,26 @@ def test_vector_targets_respect_partitioned_ids(tmp_path) -> None:
         ],
     }
     runtime = _runtime_with_streams(tmp_path, streams)
-    runtime.registries.partition_by.register("wind_speed_stream", "municipality")
-    runtime.registries.partition_by.register("wind_production_stream", "municipality")
-    runtime.registries.feature_id_by.register("wind_speed_stream", "municipality")
-    runtime.registries.feature_id_by.register("wind_production_stream", "municipality")
+    runtime.streams["wind_speed_stream"] = replace(
+        runtime.streams["wind_speed_stream"],
+        partition_by=("municipality",),
+    )
+    runtime.streams["wind_production_stream"] = replace(
+        runtime.streams["wind_production_stream"],
+        partition_by=("municipality",),
+    )
 
     context = PipelineContext(runtime)
     feature_cfgs = [
         FeatureRecordConfig(
-            record_stream="wind_speed_stream",
+            stream="wind_speed_stream",
             id="wind_speed",
             field="value",
         ),
     ]
     target_cfgs = [
         FeatureRecordConfig(
-            record_stream="wind_production_stream",
+            stream="wind_production_stream",
             id="wind_production",
             field="value",
         ),
@@ -200,14 +207,14 @@ def test_vector_samples_can_group_by_record_key_fields(tmp_path) -> None:
     context = PipelineContext(runtime)
     feature_cfgs = [
         FeatureRecordConfig(
-            record_stream="momentum_stream",
+            stream="momentum_stream",
             id="momentum",
             field="value",
         ),
     ]
     target_cfgs = [
         FeatureRecordConfig(
-            record_stream="return_stream",
+            stream="return_stream",
             id="forward_return",
             field="value",
         ),
@@ -272,12 +279,12 @@ def test_vector_samples_keep_entity_buckets_contiguous(tmp_path) -> None:
     context = PipelineContext(runtime)
     feature_cfgs = [
         FeatureRecordConfig(
-            record_stream="momentum_stream",
+            stream="momentum_stream",
             id="momentum",
             field="value",
         ),
         FeatureRecordConfig(
-            record_stream="volume_stream",
+            stream="volume_stream",
             id="volume",
             field="value",
         ),
@@ -324,10 +331,14 @@ def test_sequence_features_are_windowed_by_sample_keys(tmp_path) -> None:
         ],
     }
     runtime = _runtime_with_streams(tmp_path, streams)
+    runtime.streams["monthly_returns"] = replace(
+        runtime.streams["monthly_returns"],
+        partition_by=("security_id",),
+    )
     context = PipelineContext(runtime)
     feature_cfgs = [
         FeatureRecordConfig(
-            record_stream="monthly_returns",
+            stream="monthly_returns",
             id="monthly_return",
             field="value",
             sequence={"size": 2, "stride": 1},
@@ -360,7 +371,9 @@ def test_sequence_features_are_windowed_by_sample_keys(tmp_path) -> None:
     ]
 
 
-def test_feature_id_by_controls_partitioned_feature_identity(tmp_path) -> None:
+def test_partition_fields_outside_sample_keys_form_wide_feature_identity(
+    tmp_path,
+) -> None:
     def _equity_record(hour: int, security_id: str, value: float) -> TemporalRecord:
         rec = _record(_ts(hour), value)
         setattr(rec, "security_id", security_id)
@@ -373,12 +386,14 @@ def test_feature_id_by_controls_partitioned_feature_identity(tmp_path) -> None:
         ],
     }
     runtime = _runtime_with_streams(tmp_path, streams)
-    runtime.registries.partition_by.register("monthly_returns", "security_id")
-    runtime.registries.feature_id_by.register("monthly_returns", "security_id")
+    runtime.streams["monthly_returns"] = replace(
+        runtime.streams["monthly_returns"],
+        partition_by=("security_id",),
+    )
     context = PipelineContext(runtime)
     feature_cfgs = [
         FeatureRecordConfig(
-            record_stream="monthly_returns",
+            stream="monthly_returns",
             id="monthly_return",
             field="value",
             sequence={"size": 2, "stride": 1},
@@ -388,7 +403,6 @@ def test_feature_id_by_controls_partitioned_feature_identity(tmp_path) -> None:
         runtime,
         feature_cfgs,
         "1h",
-        sample_keys=["security_id"],
     )
 
     samples = list(
@@ -397,11 +411,10 @@ def test_feature_id_by_controls_partitioned_feature_identity(tmp_path) -> None:
             feature_cfgs,
             "1h",
             rectangular=False,
-            sample_keys=["security_id"],
         )
     )
 
-    assert samples[0].key == (_ts(1), "AAPL")
+    assert samples[0].key == (_ts(1),)
     assert samples[0].features.values == {
         "monthly_return__@security_id:AAPL": [1.0, 2.0],
     }
@@ -426,24 +439,23 @@ def test_stream_transforms_use_explicit_stream_partition(tmp_path) -> None:
         streams,
         stream_transforms={
             "daily_prices": [
-                TransformSpec(
-                    name="rolling",
-                    params={
-                        "field": "value",
-                        "to": "value_mean_2",
-                        "window": 2,
-                        "min_samples": 2,
-                    },
+                RollingConfig(
+                    field="value",
+                    to="value_mean_2",
+                    window=2,
+                    min_samples=2,
                 )
             ]
         },
     )
-    runtime.registries.partition_by.register("daily_prices", "security_id")
-    runtime.registries.feature_id_by.register("daily_prices", [])
+    runtime.streams["daily_prices"] = replace(
+        runtime.streams["daily_prices"],
+        partition_by=("security_id",),
+    )
     context = PipelineContext(runtime)
     feature_cfgs = [
         FeatureRecordConfig(
-            record_stream="daily_prices",
+            stream="daily_prices",
             id="value_mean_2",
             field="value_mean_2",
         ),
@@ -506,13 +518,13 @@ def test_regression_scaled_shapes_airpressure_high_freq_and_windspeed_hourly(
 
     configs = [
         FeatureRecordConfig(
-            record_stream="air_pressure",
+            stream="air_pressure",
             id="air_pressure",
             field="value",
             scale=True,
         ),
         FeatureRecordConfig(
-            record_stream="wind_speed",
+            stream="wind_speed",
             id="wind_speed",
             field="value",
             scale=True,
@@ -567,25 +579,19 @@ def test_regression_fill_then_scale_with_missing_values(tmp_path) -> None:
     # Fill then scale for both features
     stream_transforms = {
         "ap": [
-            TransformSpec(
-                name="fill",
-                params={
-                    "field": "value",
-                    "method": "median",
-                    "window": 10,
-                    "min_samples": 1,
-                },
+            FillConfig(
+                field="value",
+                statistic="median",
+                window=10,
+                min_samples=1,
             ),
         ],
         "ws": [
-            TransformSpec(
-                name="fill",
-                params={
-                    "field": "value",
-                    "method": "mean",
-                    "window": 10,
-                    "min_samples": 1,
-                },
+            FillConfig(
+                field="value",
+                statistic="mean",
+                window=10,
+                min_samples=1,
             ),
         ],
     }
@@ -596,13 +602,13 @@ def test_regression_fill_then_scale_with_missing_values(tmp_path) -> None:
 
     configs = [
         FeatureRecordConfig(
-            record_stream="ap",
+            stream="ap",
             id="air_pressure",
             field="value",
             scale=True,
         ),
         FeatureRecordConfig(
-            record_stream="ws",
+            stream="ws",
             id="wind_speed",
             field="value",
             scale=True,

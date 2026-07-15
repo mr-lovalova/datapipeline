@@ -11,4 +11,3 @@ class IdentityParser(DataParser[Any]):
 
     def parse(self, raw: Any) -> Any:
         return raw
-

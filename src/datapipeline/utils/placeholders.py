@@ -24,10 +24,9 @@ def coalesce_missing(value: Any, default: Any = None) -> Any:
     return default if is_missing(value) else value
 
 
-def normalize_args(args: dict[str, Any] | None, *, default: Any = None) -> dict[str, Any]:
+def normalize_args(
+    args: dict[str, Any] | None, *, default: Any = None
+) -> dict[str, Any]:
     if not args:
         return {}
-    return {
-        key: coalesce_missing(val, default=default)
-        for key, val in args.items()
-    }
+    return {key: coalesce_missing(val, default=default) for key, val in args.items()}

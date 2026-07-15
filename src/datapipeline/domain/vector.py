@@ -1,11 +1,10 @@
-from typing import Dict, Union, Any
-
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass
 class Vector:
-    values: Dict[str, Union[float, list[float]]]
+    values: dict[str, Any]
 
     def __len__(self) -> int:
         return len(self.values)
@@ -19,17 +18,5 @@ class Vector:
     def keys(self):
         return self.values.keys()
 
-    def __getitem__(self, key: str) -> Union[float, list[float]]:
+    def __getitem__(self, key: str) -> Any:
         return self.values[key]
-
-
-def vectorize_record_group(values: Dict[str, list[Any]]) -> Vector:
-    structured: Dict[str, Union[float, list[float]]] = {}
-
-    for key, items in values.items():
-        if len(items) == 1:
-            structured[key] = items[0]
-        else:
-            structured[key] = list(items)
-
-    return Vector(values=structured)

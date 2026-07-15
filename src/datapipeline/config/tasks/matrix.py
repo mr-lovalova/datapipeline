@@ -1,20 +1,17 @@
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 from .base import OperationTask
 
 
-class MatrixTask(OperationTask[dict[str, object]]):
+class MatrixOptions(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    stage: Literal["assembled", "postprocessed"] = "postprocessed"
+    max_cells: StrictInt = Field(default=1_000_000, gt=0)
+
+
+class MatrixTask(OperationTask[MatrixOptions]):
     entrypoint: Literal["core.runtime.matrix"] = Field(default="core.runtime.matrix")
-    options: dict[str, object] = Field(default_factory=dict)
-
-    @field_validator("options")
-    @classmethod
-    def _reject_options(cls, value: dict[str, object]) -> dict[str, object]:
-        if value:
-            raise ValueError("matrix task does not accept options")
-        return value
-
-
-__all__ = ["MatrixTask"]
+    options: MatrixOptions = Field(default_factory=MatrixOptions)

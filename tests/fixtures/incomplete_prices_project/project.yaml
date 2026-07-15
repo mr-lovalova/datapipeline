@@ -1,13 +1,11 @@
-version: 1
+schema_version: 2
+artifact_revision: 1
 name: incomplete_prices_project
 paths:
-  ingests: ./ingests
   streams: streams
   sources: sources
   dataset: dataset.yaml
-  postprocess: postprocess.yaml
   artifacts: build
-  tasks: tasks
 globals:
   start_time: 2022-01-01T03:00:00Z
   end_time: 2022-01-01T10:00:00Z

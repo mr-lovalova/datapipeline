@@ -1,9 +1,5 @@
-# See ../../../plugin_skeleton/reference/reference/tasks/profiles/inspect.reference.yaml for full options.
-cmd: inspect
-name: matrix
 order: 60
-target: matrix
-enabled: true
+operation: matrix
 output:
   transport: fs
   format: html

@@ -1,8 +1,9 @@
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 from datapipeline.utils.time import parse_datetime
 
@@ -17,27 +18,45 @@ class TickGrid:
 
 
 def read_tick_grid(path: Path, grid_by: tuple[str, ...]) -> TickGrid:
-    ticks: dict[tuple, set[datetime]] = {}
+    ticks: dict[tuple, list[datetime]] = {}
+    previous_key: tuple | None = None
+    expected_fields = set(grid_by)
     with path.open("r", encoding="utf-8") as handle:
         for line in handle:
             if not line.strip():
                 continue
             row = json.loads(line)
-            _validate_tick_grid_fields(path, row, grid_by)
+            row_fields = {field for field in row if field != "time"}
+            if row_fields != expected_fields:
+                raise ValueError(
+                    f"Tick artifact '{path}' row grid fields "
+                    f"{sorted(row_fields)!r} do not match expected grid_by "
+                    f"{list(grid_by)!r}."
+                )
             value = row.get("time")
             if value is None:
-                raise ValueError(
-                    f"Tick artifact '{path}' contains a row without time."
-                )
+                raise ValueError(f"Tick artifact '{path}' contains a row without time.")
             key = tuple(row[field] for field in grid_by)
-            ticks.setdefault(key, set()).add(parse_datetime(str(value)))
+            time = parse_datetime(str(value))
+            values = ticks.setdefault(key, [])
+            if (
+                previous_key is not None and key != previous_key and key <= previous_key
+            ) or (values and time <= values[-1]):
+                raise ValueError(
+                    f"Tick artifact '{path}' rows must be strictly ordered by "
+                    f"{[*grid_by, 'time']!r}."
+                )
+            values.append(time)
+            previous_key = key
     return TickGrid(
         grid_by=grid_by,
-        ticks={key: sorted(values) for key, values in ticks.items()},
+        ticks=ticks,
     )
 
 
-def tick_grid_by_from_metadata(artifact_id: str, meta: Mapping[str, Any]) -> tuple[str, ...]:
+def tick_grid_by_from_metadata(
+    artifact_id: str, meta: Mapping[str, Any]
+) -> tuple[str, ...]:
     grid_by = meta.get("grid_by")
     if grid_by is None:
         raise RuntimeError(
@@ -51,16 +70,3 @@ def tick_grid_by_from_metadata(artifact_id: str, meta: Mapping[str, Any]) -> tup
             "a list of strings."
         )
     return tuple(grid_by)
-
-
-def _validate_tick_grid_fields(
-    path: Path,
-    row: dict,
-    grid_by: tuple[str, ...],
-) -> None:
-    row_fields = {key for key in row if key != "time"}
-    if row_fields != set(grid_by):
-        raise ValueError(
-            f"Tick artifact '{path}' row grid fields {sorted(row_fields)!r} "
-            f"do not match expected grid_by {list(grid_by)!r}."
-        )

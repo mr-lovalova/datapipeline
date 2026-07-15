@@ -8,14 +8,13 @@ The goal is to make the reference chain explicit and easy to debug.
 ```text
 jerry.yaml: default_dataset
   -> datasets.<alias> = <path/to/project.yaml>
-    -> project.yaml: paths.sources / paths.ingests / paths.streams / paths.dataset / paths.tasks
+    -> project.yaml: paths.sources / paths.streams / paths.dataset
       -> sources/*.yaml: id
-        -> ingests/*.yaml: from.source: <sources.id>, id: <stream_id>
-          -> streams/*.yaml: from.stream|from.align, id: <stream_id>
-          -> dataset.yaml: record_stream: <streams.id>, field: <record_field>
-            -> jerry serve
-              -> runs/<run_id>/dataset/<profile>.jsonl|csv|...
-              -> runs/<run_id>/dataset/<profile>.<split>.jsonl|csv|... when the profile sets splits
+        -> streams/*.yaml: from.source|from.stream|from.align, id
+        -> dataset.yaml: stream: <streams.id>, field: <record_field>
+          -> jerry serve
+            -> runs/<run_id>/dataset/<profile>.jsonl|csv|...
+            -> runs/<run_id>/dataset/<profile>.<split>.jsonl|csv|... when dataset.split is configured
 ```
 
 ## 1) Workspace selects dataset project
@@ -38,20 +37,22 @@ Expected behavior:
 `project.yaml` is the root map for all dataset config.
 
 ```yaml
+schema_version: 2
+artifact_revision: 1
 paths:
-  ingests: ./ingests
   sources: ./sources
   streams: ./streams
   dataset: dataset.yaml
-  postprocess: postprocess.yaml
-  tasks: ./tasks
-  artifacts: ../artifacts/${project_name}/v${version}
+  artifacts: ../artifacts/${project_name}
 ```
 
 Expected behavior:
+- `schema_version` declares the `project.yaml` format Jerry must support.
+- `artifact_revision` controls artifact cache invalidation independently of the
+  project format.
 - All relative `paths.*` values are resolved relative to this `project.yaml`.
 
-## 3) Source id links source YAML to ingest
+## 3) Source id links source YAML to a stream
 
 A source file declares the raw source id plus loader/parser wiring.
 
@@ -69,26 +70,31 @@ loader:
 ```
 
 Expected behavior:
-- Ingest `from.source: sandbox.ohlcv` resolves to this source spec.
+- Stream `from.source: sandbox.ohlcv` resolves to this source spec.
 - For fs loaders, relative `args.path` is normalized via runtime path policy.
 - Standard glob characters in an fs `args.path` select matching files.
 
-## 4) Ingest or stream id links canonical records to dataset
+## 4) Stream id links canonical records to dataset
 
-Ingests define source-backed stream ids.
+Source-backed streams load and map raw source records before applying validated
+preprocess and ordered transforms.
 
 ```yaml
-# ingests/equity.ohlcv.yaml
+# streams/equity.ohlcv.yaml
 id: equity.ohlcv
 from:
   source: sandbox.ohlcv
 map:
   entrypoint: map_sandbox_ohlcv_dto_to_equity
+preprocess:
+  - { operation: floor_time, cadence: 1d }
+transforms:
+  - operation: dedupe
 ```
 
 Expected behavior:
 - `from.source` must match a `sources/*.yaml:id`.
-- `id` is what `dataset.yaml` references under `record_stream`.
+- `id` is what `dataset.yaml` references under `stream`.
 
 Derived streams consume existing stream ids:
 
@@ -97,14 +103,15 @@ Derived streams consume existing stream ids:
 id: equity.daily_liquid
 from:
   stream: equity.ohlcv
-partition_by: ticker
-feature_id_by: []
-stream:
-  - dedupe: {}
+transforms:
+  - operation: dedupe
 ```
 
-Aligned streams intersect prepared inputs by partition and time. Input order is
-also mapper argument order:
+The derived stream inherits `partition_by` and canonical ordering from
+`equity.ohlcv`.
+
+Aligned streams intersect their inputs by partition and time. Input order is
+also combine argument order:
 
 ```yaml
 # streams/equity.price_to_earnings.yaml
@@ -113,8 +120,8 @@ from:
   align:
     - equity.price.daily
     - equity.earnings.daily
-map:
-  entrypoint: map_price_to_earnings
+combine:
+  entrypoint: combine_price_to_earnings
   args: {}
 ```
 
@@ -123,19 +130,25 @@ map:
 Dataset config chooses which streams become features/targets and which record field is used as value.
 
 ```yaml
-group_by: ${group_by}
+sample:
+  cadence: ${group_by}
 features:
   - id: closing_price
-    record_stream: equity.ohlcv
+    stream: equity.ohlcv
     field: close
   - id: opening_price
-    record_stream: equity.ohlcv
+    stream: equity.ohlcv
     field: open
 ```
 
 Expected behavior:
-- `record_stream` must match a stream `id`.
+- `stream` must match a stream `id`.
 - `field` must exist on emitted records.
+- Every `sample.keys` field must belong to each referenced stream's resolved
+  `partition_by`.
+- Partition fields in `sample.keys` identify rows. Remaining partition fields
+  suffix feature IDs in partition order, producing long, wide, or hybrid output
+  without a separate format setting.
 
 ## 6) Serve writes run-scoped outputs
 
@@ -151,9 +164,9 @@ Output layout:
 vectors/
   runs/<run_id>/
     dataset/
-      splits.test.jsonl
-      splits.train.jsonl
-      splits.val.jsonl
+      dataset.test.jsonl
+      dataset.train.jsonl
+      dataset.val.jsonl
 ```
 
 Expected behavior:
@@ -166,12 +179,13 @@ Expected behavior:
 - Verify `jerry.yaml` `default_dataset` and `datasets.<alias>`.
 
 2. Unknown stream/source ids:
-- Verify `ingests/*.yaml:from.source` matches `sources/*.yaml:id`.
-- Verify `dataset.yaml:record_stream` matches an id in `ingests/` or `streams/`.
+- Verify `streams/*.yaml:from.source` matches `sources/*.yaml:id`.
+- Verify `dataset.yaml:stream` matches an id in `streams/`.
 
 3. Empty output:
 - Check source loader `path/url`.
-- Check parser/mapper output and preview indices (`jerry serve --preview-index 0..13`).
+- Check parser and map/combine output with
+  `jerry serve --preview input|canonical|records`.
 
 4. Wrong output location:
 - Check workspace root and `--output-directory` value.

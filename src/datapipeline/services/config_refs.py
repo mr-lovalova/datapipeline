@@ -1,10 +1,8 @@
 import os
 import re
-from dataclasses import dataclass
 from datetime import datetime, timezone
-from functools import lru_cache
 from pathlib import Path
-from typing import Any, Mapping, Protocol
+from typing import Any, Mapping
 
 from datapipeline.utils.placeholders import MissingInterpolation, is_missing
 
@@ -14,41 +12,16 @@ _INTERPOLATION_RE = re.compile(r"\$\{([^}]+)\}")
 _PROJECT_VAR_MISSING = object()
 
 
-class ConfigRefProvider(Protocol):
-    def resolve(self, key: str, *, context: "ConfigRefContext") -> Any: ...
-
-
-@dataclass(frozen=True, slots=True)
-class ConfigRefContext:
-    project_yaml: Path
-    env: Mapping[str, str]
-
-
 class ConfigRefError(ValueError):
     """Raised when an external config reference cannot be resolved."""
-
-
-class EnvConfigRefProvider:
-    def resolve(self, key: str, *, context: ConfigRefContext) -> str:
-        name = key.strip()
-        if not name:
-            raise ConfigRefError("Config reference '${env:...}' must include a variable name.")
-        value = context.env.get(name)
-        if value is None:
-            raise ConfigRefError(
-                f"Missing environment variable '{name}' referenced from "
-                f"{context.project_yaml.parent / '.env'} or process environment."
-            )
-        return value
 
 
 def serialize_project_value(value: Any) -> Any:
     """Normalize project global values for interpolation."""
     if isinstance(value, datetime):
-        try:
-            return value.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        except ValueError:
-            return value.isoformat()
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ConfigRefError("Project datetime globals must be timezone-aware.")
+        return value.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     if value is None:
         return None
     return value
@@ -58,21 +31,19 @@ def project_vars_from_data(data: Mapping[str, Any]) -> dict[str, Any]:
     vars_: dict[str, Any] = {}
     name = data.get("name")
     if name:
-        vars_["project"] = str(name)
         vars_["project_name"] = str(name)
 
     variant = data.get("variant")
     if variant:
-        vars_["variant"] = str(variant)
         vars_["project_variant"] = str(variant)
-
-    version = data.get("version")
-    if version is not None:
-        vars_["version"] = str(version)
-        vars_["project_version"] = str(version)
 
     globals_ = data.get("globals") or {}
     if isinstance(globals_, Mapping):
+        for key in ("project_name", "project_variant"):
+            if key in globals_:
+                raise ConfigRefError(
+                    f"Project globals must not redefine reserved variable '{key}'."
+                )
         vars_.update(_resolve_project_globals(globals_, vars_))
     return vars_
 
@@ -81,10 +52,7 @@ def _resolve_project_globals(
     globals_: Mapping[str, Any],
     base_vars: Mapping[str, Any],
 ) -> dict[str, Any]:
-    raw = {
-        str(key): serialize_project_value(value)
-        for key, value in globals_.items()
-    }
+    raw = {str(key): serialize_project_value(value) for key, value in globals_.items()}
     resolved: dict[str, Any] = {}
     resolving: list[str] = []
 
@@ -101,7 +69,9 @@ def _resolve_project_globals(
             key = match.group(1)
             value = value_for(key)
             if value is _PROJECT_VAR_MISSING:
-                return text
+                raise ConfigRefError(
+                    f"Unknown interpolation variable '{key}' in project globals."
+                )
             if value is None or is_missing(value):
                 return MissingInterpolation(key)
             return value
@@ -109,8 +79,15 @@ def _resolve_project_globals(
         def repl(match: re.Match[str]) -> str:
             key = match.group(1)
             value = value_for(key)
-            if value is _PROJECT_VAR_MISSING or value is None or is_missing(value):
-                return match.group(0)
+            if value is _PROJECT_VAR_MISSING:
+                raise ConfigRefError(
+                    f"Unknown interpolation variable '{key}' in project globals."
+                )
+            if value is None or is_missing(value):
+                raise ConfigRefError(
+                    f"Interpolation variable '{key}' has no value and cannot be embedded "
+                    "in project globals."
+                )
             return str(value)
 
         return _INTERPOLATION_RE.sub(repl, text)
@@ -137,7 +114,9 @@ def _resolve_project_globals(
 def interpolate_config_vars(obj: Any, vars_: Mapping[str, Any]) -> Any:
     """Recursively substitute ${var} in strings using vars_ map."""
     if isinstance(obj, dict):
-        return {key: interpolate_config_vars(value, vars_) for key, value in obj.items()}
+        return {
+            key: interpolate_config_vars(value, vars_) for key, value in obj.items()
+        }
     if isinstance(obj, list):
         return [interpolate_config_vars(value, vars_) for value in obj]
     if isinstance(obj, str):
@@ -149,13 +128,18 @@ def interpolate_config_vars(obj: Any, vars_: Mapping[str, Any]) -> Any:
                 if value is None or is_missing(value):
                     return MissingInterpolation(key)
                 return value
-            return obj
+            raise ConfigRefError(f"Unknown interpolation variable '{key}'.")
 
         def repl(match: re.Match[str]) -> str:
             key = match.group(1)
-            value = vars_.get(key, match.group(0))
+            if key not in vars_:
+                raise ConfigRefError(f"Unknown interpolation variable '{key}'.")
+            value = vars_[key]
             if value is None or is_missing(value):
-                return match.group(0)
+                raise ConfigRefError(
+                    f"Interpolation variable '{key}' has no value and cannot be embedded "
+                    "in text."
+                )
             return str(value)
 
         return _INTERPOLATION_RE.sub(repl, obj)
@@ -166,32 +150,11 @@ def resolve_config_refs(
     obj: Any,
     *,
     project_yaml: Path,
-    providers: Mapping[str, ConfigRefProvider] | None = None,
+    env: Mapping[str, str] | None = None,
 ) -> Any:
     resolved_project_yaml = project_yaml.resolve()
-    context = ConfigRefContext(
-        project_yaml=resolved_project_yaml,
-        env=merged_project_env(resolved_project_yaml),
-    )
-    registry = dict(providers or default_config_ref_providers())
-    return _resolve_config_refs(obj, context=context, providers=registry)
-
-
-def collect_config_ref_keys(
-    obj: Any,
-    *,
-    scheme: str | None = None,
-) -> set[tuple[str, str]]:
-    out: set[tuple[str, str]] = set()
-    _collect_config_ref_keys(obj, out=out)
-    if scheme is None:
-        return out
-    normalized_scheme = scheme.strip().lower()
-    return {item for item in out if item[0] == normalized_scheme}
-
-
-def default_config_ref_providers() -> Mapping[str, ConfigRefProvider]:
-    return {"env": EnvConfigRefProvider()}
+    environment = merged_project_env(resolved_project_yaml) if env is None else env
+    return _resolve_config_refs(obj, resolved_project_yaml, environment)
 
 
 def merged_project_env(project_yaml: Path) -> dict[str, str]:
@@ -202,74 +165,60 @@ def merged_project_env(project_yaml: Path) -> dict[str, str]:
 
 def _resolve_config_refs(
     obj: Any,
-    *,
-    context: ConfigRefContext,
-    providers: Mapping[str, ConfigRefProvider],
+    project_yaml: Path,
+    env: Mapping[str, str],
 ) -> Any:
     if isinstance(obj, dict):
         return {
-            key: _resolve_config_refs(value, context=context, providers=providers)
+            key: _resolve_config_refs(value, project_yaml, env)
             for key, value in obj.items()
         }
     if isinstance(obj, list):
-        return [
-            _resolve_config_refs(value, context=context, providers=providers)
-            for value in obj
-        ]
+        return [_resolve_config_refs(value, project_yaml, env) for value in obj]
     if isinstance(obj, str):
-        return _resolve_string_refs(obj, context=context, providers=providers)
+        return _resolve_string_refs(obj, project_yaml, env)
     return obj
 
 
 def _resolve_string_refs(
     text: str,
-    *,
-    context: ConfigRefContext,
-    providers: Mapping[str, ConfigRefProvider],
-) -> Any:
+    project_yaml: Path,
+    env: Mapping[str, str],
+) -> str:
     match = _CONFIG_REF_RE.fullmatch(text)
     if match:
-        return _resolve_match(match, context=context, providers=providers)
+        return _resolve_env_ref(match, project_yaml, env)
 
     def repl(match: re.Match[str]) -> str:
-        value = _resolve_match(match, context=context, providers=providers)
-        return str(value)
+        return _resolve_env_ref(match, project_yaml, env)
 
     return _CONFIG_REF_RE.sub(repl, text)
 
 
-def _resolve_match(
+def _resolve_env_ref(
     match: re.Match[str],
-    *,
-    context: ConfigRefContext,
-    providers: Mapping[str, ConfigRefProvider],
-) -> Any:
+    project_yaml: Path,
+    env: Mapping[str, str],
+) -> str:
     scheme = match.group(1).strip().lower()
-    key = match.group(2).strip()
-    provider = providers.get(scheme)
-    if provider is None:
+    if scheme != "env":
         raise ConfigRefError(
             f"Unsupported config reference scheme '{scheme}' in '{match.group(0)}'."
         )
-    return provider.resolve(key, context=context)
+    name = match.group(2).strip()
+    if not name:
+        raise ConfigRefError(
+            "Config reference '${env:...}' must include a variable name."
+        )
+    value = env.get(name)
+    if value is None:
+        raise ConfigRefError(
+            f"Missing environment variable '{name}' referenced from "
+            f"{project_yaml.parent / '.env'} or process environment."
+        )
+    return value
 
 
-def _collect_config_ref_keys(obj: Any, *, out: set[tuple[str, str]]) -> None:
-    if isinstance(obj, Mapping):
-        for value in obj.values():
-            _collect_config_ref_keys(value, out=out)
-        return
-    if isinstance(obj, list):
-        for value in obj:
-            _collect_config_ref_keys(value, out=out)
-        return
-    if not isinstance(obj, str):
-        return
-    for match in _CONFIG_REF_RE.finditer(obj):
-        out.add((match.group(1).strip().lower(), match.group(2).strip()))
-
-
-@lru_cache(maxsize=None)
 def _load_dotenv(path: Path) -> dict[str, str]:
     if not path.exists():
         return {}
@@ -317,18 +266,3 @@ def _parse_dotenv_line(line: str) -> tuple[str, str] | None:
     if comment_index != -1:
         value = value[:comment_index].rstrip()
     return key, value
-
-
-__all__ = [
-    "ConfigRefContext",
-    "ConfigRefError",
-    "ConfigRefProvider",
-    "EnvConfigRefProvider",
-    "collect_config_ref_keys",
-    "default_config_ref_providers",
-    "interpolate_config_vars",
-    "merged_project_env",
-    "project_vars_from_data",
-    "resolve_config_refs",
-    "serialize_project_value",
-]

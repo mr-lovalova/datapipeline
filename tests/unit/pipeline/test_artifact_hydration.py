@@ -1,12 +1,24 @@
+from types import SimpleNamespace
+
 from datapipeline.artifacts.hydration import (
     hydrate_runtime_artifacts,
-    hydrate_runtime_artifacts_for_project,
+    hydrate_runtime_artifacts_for_pipeline,
 )
 from datapipeline.artifacts.planning import build_artifact_graph
+from datapipeline.artifacts.specs import (
+    VECTOR_INPUTS,
+    VECTOR_METADATA,
+    VECTOR_SCHEMA,
+)
 from datapipeline.artifacts.validation import NestedTickDependency
-from datapipeline.build.config_hash import compute_config_hash
-from datapipeline.build.state import BuildState, save_build_state
-from datapipeline.config.dataset.dataset import FeatureDatasetConfig
+from datapipeline.build.state import (
+    ArtifactFileFingerprint,
+    BuildState,
+    save_build_state,
+)
+from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
+from datapipeline.config.dataset.feature import FeatureRecordConfig
+from datapipeline.config.streams import StreamsConfig
 from datapipeline.config.tasks import (
     ArtifactTask,
     MetadataTask,
@@ -15,13 +27,13 @@ from datapipeline.config.tasks import (
     VectorInputsTask,
 )
 from datapipeline.runtime import Runtime
-from datapipeline.services.bootstrap import bootstrap, build_state_path
-from datapipeline.services.constants import (
-    VECTOR_INPUTS,
-    VECTOR_METADATA,
-    VECTOR_SCHEMA,
-)
-from datapipeline.services.project_paths import tasks_dir
+from datapipeline.services.definitions import ArtifactHashes
+from datapipeline.services.pipeline import load_pipeline
+from datapipeline.services.runtime_compiler import compile_runtime
+
+
+def _current_hashes(*keys: str) -> ArtifactHashes:
+    return ArtifactHashes({key: "current" for key in keys})
 
 
 def test_hydration_replaces_registry_with_dependency_current_artifacts(
@@ -43,6 +55,7 @@ def test_hydration_replaces_registry_with_dependency_current_artifacts(
     runtime = Runtime(
         project_yaml=tmp_path / "project.yaml",
         artifacts_root=tmp_path / "artifacts",
+        dataset=FeatureDatasetConfig(sample=SampleConfig(cadence="1h")),
     )
     state = BuildState()
     paths = {
@@ -51,14 +64,6 @@ def test_hydration_replaces_registry_with_dependency_current_artifacts(
         VECTOR_METADATA: "build/missing-metadata.json",
         "custom_snapshot": "build/custom.json",
     }
-    for key, relative_path in paths.items():
-        state.register(
-            key,
-            relative_path,
-            config_hash="current",
-        )
-    state.artifacts[VECTOR_INPUTS].config_hash = "old"
-
     for relative_path in (
         paths[VECTOR_INPUTS],
         paths[VECTOR_SCHEMA],
@@ -68,6 +73,34 @@ def test_hydration_replaces_registry_with_dependency_current_artifacts(
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_text("{}", encoding="utf-8")
 
+    for key in (VECTOR_INPUTS, VECTOR_SCHEMA, "custom_snapshot"):
+        relative_path = paths[key]
+        state.register(
+            key,
+            relative_path,
+            artifact_hash="current",
+            files=(
+                ArtifactFileFingerprint.from_path(
+                    relative_path,
+                    runtime.artifacts_root / relative_path,
+                ),
+            ),
+        )
+    state.register(
+        VECTOR_METADATA,
+        paths[VECTOR_METADATA],
+        artifact_hash="current",
+        files=(
+            ArtifactFileFingerprint(
+                relative_path=paths[VECTOR_METADATA],
+                size=0,
+                mtime_ns=0,
+                ctime_ns=0,
+            ),
+        ),
+    )
+    state.artifacts[VECTOR_INPUTS].artifact_hash = "old"
+
     for key, relative_path in paths.items():
         runtime.artifacts.register(key, relative_path)
     runtime.artifacts.register("orphan", "build/orphan.json")
@@ -76,8 +109,8 @@ def test_hydration_replaces_registry_with_dependency_current_artifacts(
         runtime=runtime,
         graph=graph,
         state=state,
-        config_hash="current",
-        artifact_keys=paths,
+        artifact_hashes=_current_hashes(*paths),
+        artifact_keys=graph.dependency_closure(paths),
     )
 
     assert hydrated == ("custom_snapshot",)
@@ -99,6 +132,7 @@ def test_hydration_skips_incomplete_unrelated_artifact_chain(tmp_path) -> None:
     runtime = Runtime(
         project_yaml=tmp_path / "project.yaml",
         artifacts_root=tmp_path / "artifacts",
+        dataset=FeatureDatasetConfig(sample=SampleConfig(cadence="1h")),
     )
     state = BuildState()
     paths = {
@@ -110,14 +144,19 @@ def test_hydration_skips_incomplete_unrelated_artifact_chain(tmp_path) -> None:
         destination = runtime.artifacts_root / relative_path
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_text("{}", encoding="utf-8")
-        state.register(key, relative_path, config_hash="current")
+        state.register(
+            key,
+            relative_path,
+            artifact_hash="current",
+            files=(ArtifactFileFingerprint.from_path(relative_path, destination),),
+        )
 
     hydrated = hydrate_runtime_artifacts(
         runtime=runtime,
         graph=graph,
         state=state,
-        config_hash="current",
-        artifact_keys=paths,
+        artifact_hashes=_current_hashes(*paths),
+        artifact_keys=graph.dependency_closure(paths),
     )
 
     assert hydrated == ("custom_snapshot",)
@@ -136,10 +175,29 @@ def test_project_hydration_excludes_nested_tick_and_dependents(
         output="build/derived-ticks.jsonl",
     )
     vector_inputs = VectorInputsTask(id="vector_inputs")
-    graph = build_artifact_graph([tick, vector_inputs])
+    dataset = FeatureDatasetConfig(
+        sample=SampleConfig(cadence="1h"),
+        features=[FeatureRecordConfig(id="price", stream="feature", field="close")],
+    )
+    streams = StreamsConfig.model_validate(
+        {
+            "streams": {
+                "feature": {
+                    "id": "feature",
+                    "from": {"source": "raw"},
+                    "map": {"entrypoint": "identity"},
+                    "transforms": [
+                        {"operation": "ensure_ticks", "artifact": "derived_ticks"}
+                    ],
+                }
+            }
+        }
+    )
+    graph = build_artifact_graph([tick, vector_inputs], dataset, streams)
     runtime = Runtime(
         project_yaml=tmp_path / "project.yaml",
         artifacts_root=tmp_path / "artifacts",
+        dataset=dataset,
     )
     state = BuildState()
     for key, relative_path in (
@@ -149,7 +207,12 @@ def test_project_hydration_excludes_nested_tick_and_dependents(
         destination = runtime.artifacts_root / relative_path
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_text("{}", encoding="utf-8")
-        state.register(key, relative_path, config_hash="current")
+        state.register(
+            key,
+            relative_path,
+            artifact_hash="current",
+            files=(ArtifactFileFingerprint.from_path(relative_path, destination),),
+        )
     runtime.artifacts.register("derived_ticks", tick.output)
     runtime.artifacts.register(VECTOR_INPUTS, vector_inputs.output)
     monkeypatch.setattr(
@@ -157,32 +220,26 @@ def test_project_hydration_excludes_nested_tick_and_dependents(
         lambda _state_path: state,
     )
     monkeypatch.setattr(
-        "datapipeline.artifacts.hydration.build_state_path",
-        lambda _project_path: tmp_path / "state.json",
-    )
-    monkeypatch.setattr(
-        "datapipeline.artifacts.hydration.tasks_dir",
-        lambda _project_path: tmp_path,
-    )
-    monkeypatch.setattr(
-        "datapipeline.artifacts.hydration.compute_config_hash",
-        lambda *_args: "current",
-    )
-    monkeypatch.setattr(
         "datapipeline.artifacts.hydration.nested_tick_dependencies",
         lambda *_args: (
             NestedTickDependency(
                 task=tick,
-                cadence_artifacts=frozenset({"base_ticks"}),
+                tick_artifacts=frozenset({"base_ticks"}),
             ),
         ),
     )
 
-    hydrated = hydrate_runtime_artifacts_for_project(
+    definition = SimpleNamespace(
+        project=SimpleNamespace(artifacts_root=runtime.artifacts_root),
+        artifact_operations=(),
+        artifact_hashes=_current_hashes("derived_ticks", VECTOR_INPUTS),
+        dataset=runtime.dataset,
+        streams=streams,
+    )
+    hydrated = hydrate_runtime_artifacts_for_pipeline(
         runtime,
-        runtime.project_yaml,
+        definition,
         graph=graph,
-        dataset=FeatureDatasetConfig(group_by="1h"),
     )
 
     assert hydrated == ()
@@ -190,36 +247,33 @@ def test_project_hydration_excludes_nested_tick_and_dependents(
     assert not runtime.artifacts.has(VECTOR_INPUTS)
 
 
-def test_project_hydration_rejects_artifact_after_config_changes(tmp_path) -> None:
+def test_project_hydration_uses_semantic_artifact_hash(tmp_path) -> None:
     project_path = tmp_path / "project.yaml"
     project_path.write_text(
         "\n".join(
             [
-                "version: 1",
+                "schema_version: 2",
+                "artifact_revision: 1",
                 "paths:",
-                "  ingests: ./ingests",
                 "  streams: ./streams",
                 "  sources: ./sources",
                 "  dataset: ./dataset.yaml",
-                "  postprocess: ./postprocess.yaml",
                 "  artifacts: ./artifacts",
-                "  tasks: ./tasks",
+                "  operations: ./operations",
                 "  profiles: ./profiles",
             ]
         ),
         encoding="utf-8",
     )
-    (tmp_path / "dataset.yaml").write_text("{}\n", encoding="utf-8")
-    (tmp_path / "postprocess.yaml").write_text("[]\n", encoding="utf-8")
-    for directory in ("ingests", "streams", "sources"):
+    (tmp_path / "dataset.yaml").write_text("sample:\n  cadence: 1h\n", encoding="utf-8")
+    for directory in ("streams", "sources"):
         (tmp_path / directory).mkdir()
-    operations = tmp_path / "tasks/operations"
+    operations = tmp_path / "operations"
     operations.mkdir(parents=True)
-    task_path = operations / "custom.yaml"
+    task_path = operations / "custom_snapshot.yaml"
     task_path.write_text(
         "\n".join(
             [
-                "id: custom_snapshot",
                 "kind: artifact",
                 "entrypoint: plugin.snapshot",
                 "output: build/custom.json",
@@ -227,26 +281,51 @@ def test_project_hydration_rejects_artifact_after_config_changes(tmp_path) -> No
         ),
         encoding="utf-8",
     )
-    runtime = Runtime(
-        project_yaml=project_path,
-        artifacts_root=tmp_path / "artifacts",
-    )
+    definition = load_pipeline(project_path)
+    runtime = compile_runtime(definition)
     output = runtime.artifacts_root / "build/custom.json"
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text("{}", encoding="utf-8")
-    config_hash = compute_config_hash(project_path, tasks_dir(project_path))
     state = BuildState()
     state.register(
         "custom_snapshot",
         "build/custom.json",
-        config_hash=config_hash,
+        artifact_hash=definition.artifact_hashes.for_artifact("custom_snapshot"),
+        files=(ArtifactFileFingerprint.from_path("build/custom.json", output),),
     )
-    save_build_state(state, build_state_path(project_path))
+    state_path = runtime.artifacts_root / "_system" / "build" / "state.json"
+    save_build_state(state, state_path)
 
-    runtime = bootstrap(project_path)
+    hydrate_runtime_artifacts_for_pipeline(runtime, definition)
     assert runtime.artifacts.has("custom_snapshot")
 
     task_path.write_text(task_path.read_text(encoding="utf-8") + "\n", encoding="utf-8")
 
-    assert hydrate_runtime_artifacts_for_project(runtime, project_path) == ()
-    assert not runtime.artifacts.has("custom_snapshot")
+    whitespace_definition = load_pipeline(project_path)
+    whitespace_runtime = compile_runtime(whitespace_definition)
+    assert whitespace_definition.artifact_hashes == definition.artifact_hashes
+    assert hydrate_runtime_artifacts_for_pipeline(
+        whitespace_runtime,
+        whitespace_definition,
+    ) == ("custom_snapshot",)
+    assert whitespace_runtime.artifacts.has("custom_snapshot")
+
+    task_path.write_text(
+        task_path.read_text(encoding="utf-8").replace(
+            "entrypoint: plugin.snapshot",
+            "entrypoint: plugin.snapshot_v2",
+        ),
+        encoding="utf-8",
+    )
+
+    changed_definition = load_pipeline(project_path)
+    changed_runtime = compile_runtime(changed_definition)
+    assert changed_definition.artifact_hashes != definition.artifact_hashes
+    assert (
+        hydrate_runtime_artifacts_for_pipeline(
+            changed_runtime,
+            changed_definition,
+        )
+        == ()
+    )
+    assert not changed_runtime.artifacts.has("custom_snapshot")

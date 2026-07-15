@@ -3,7 +3,8 @@ from pathlib import Path
 
 import pytest
 from datapipeline.cli import app
-from datapipeline.config.workspace import WorkspaceConfig, WorkspaceContext
+from datapipeline.cli.workspace import WorkspaceContext
+from datapipeline.config.workspace import WorkspaceConfig
 
 
 def test_source_add_skips_dataset_resolution(monkeypatch, tmp_path):
@@ -73,7 +74,10 @@ def test_dataset_path_resolves_relative_to_workspace_root(monkeypatch, tmp_path)
     nested.mkdir(parents=True)
     project_file = workspace_root / "projects" / "weather" / "project.yaml"
     project_file.parent.mkdir(parents=True)
-    project_file.write_text("version: 1\nname: weather\npaths: {}\n", encoding="utf-8")
+    project_file.write_text(
+        "schema_version: 2\nartifact_revision: 1\nname: weather\npaths: {}\n",
+        encoding="utf-8",
+    )
 
     workspace = WorkspaceContext(
         file_path=workspace_root / "jerry.yaml",
@@ -99,7 +103,10 @@ def test_resolve_project_from_args_rejects_project_and_dataset():
 def test_resolve_project_from_args_uses_workspace_default_dataset(tmp_path):
     project_file = tmp_path / "datasets" / "demo" / "project.yaml"
     project_file.parent.mkdir(parents=True)
-    project_file.write_text("version: 1\nname: demo\npaths: {}\n", encoding="utf-8")
+    project_file.write_text(
+        "schema_version: 2\nartifact_revision: 1\nname: demo\npaths: {}\n",
+        encoding="utf-8",
+    )
 
     workspace = WorkspaceContext(
         file_path=tmp_path / "jerry.yaml",
@@ -111,9 +118,8 @@ def test_resolve_project_from_args_uses_workspace_default_dataset(tmp_path):
         ),
     )
 
-    project, dataset = app._resolve_project_from_args(None, None, workspace)
+    project = app._resolve_project_from_args(None, None, workspace)
     assert Path(project) == project_file.resolve()
-    assert dataset == "demo"
 
 
 def test_resolve_project_from_args_prefers_explicit_project_over_workspace_default(
@@ -129,11 +135,8 @@ def test_resolve_project_from_args_prefers_explicit_project_over_workspace_defau
         ),
     )
 
-    project, dataset = app._resolve_project_from_args(
-        "custom/project.yaml", None, workspace
-    )
+    project = app._resolve_project_from_args("custom/project.yaml", None, workspace)
     assert project == "custom/project.yaml"
-    assert dataset is None
 
 
 def test_resolve_project_from_args_requires_selection_without_workspace_default():
@@ -172,10 +175,56 @@ def test_main_handles_keyboard_interrupt_at_top_level(monkeypatch, capsys):
     assert "Serve interrupted by user" in captured.err
 
 
+def test_main_parses_help_before_loading_workspace(monkeypatch, capsys):
+    def fail_workspace_load(_cwd):
+        raise AssertionError("help must not load the workspace")
+
+    monkeypatch.setattr(app, "load_workspace_context", fail_workspace_load)
+    monkeypatch.setattr(sys, "argv", ["jerry", "--help"])
+
+    with pytest.raises(SystemExit) as exc:
+        app.main()
+
+    assert exc.value.code == 0
+    assert "usage: jerry" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("command", ["version", "env", "clean"])
+def test_workspace_independent_commands_do_not_load_workspace(
+    monkeypatch,
+    command,
+):
+    def fail_workspace_load(_cwd):
+        raise AssertionError(f"{command} must not load the workspace")
+
+    monkeypatch.setattr(app, "load_workspace_context", fail_workspace_load)
+    monkeypatch.setattr(app, "execute_command", lambda **_kwargs: True)
+    monkeypatch.setattr(sys, "argv", ["jerry", command])
+
+    app.main()
+
+
+def test_main_reports_invalid_workspace_as_cli_error(monkeypatch, capsys):
+    def load_invalid_workspace(_cwd):
+        raise ValueError("invalid jerry.yaml")
+
+    monkeypatch.setattr(app, "load_workspace_context", load_invalid_workspace)
+    monkeypatch.setattr(sys, "argv", ["jerry", "source", "list"])
+
+    with pytest.raises(SystemExit) as exc:
+        app.main()
+
+    assert exc.value.code == 2
+    assert "Failed to load workspace: invalid jerry.yaml" in capsys.readouterr().err
+
+
 def test_main_resolves_project_for_serve_with_workspace_default(monkeypatch, tmp_path):
     project_file = tmp_path / "datasets" / "demo" / "project.yaml"
     project_file.parent.mkdir(parents=True)
-    project_file.write_text("version: 1\nname: demo\npaths: {}\n", encoding="utf-8")
+    project_file.write_text(
+        "schema_version: 2\nartifact_revision: 1\nname: demo\npaths: {}\n",
+        encoding="utf-8",
+    )
     workspace = WorkspaceContext(
         file_path=tmp_path / "jerry.yaml",
         config=WorkspaceConfig.model_validate(

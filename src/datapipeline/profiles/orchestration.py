@@ -1,18 +1,30 @@
 import logging
-from pathlib import Path
 
+from datapipeline.artifacts.errors import ArtifactResolutionError
 from datapipeline.artifacts.executor import run_build_if_needed
-from datapipeline.artifacts.planning import ArtifactGraph, build_artifact_graph
-from datapipeline.build.config_hash import compute_config_hash
-from datapipeline.profiles.executor import ExecutionSpec, run_execution
-from datapipeline.services.bootstrap import bootstrap_build_runtime
-from datapipeline.services.project_paths import tasks_dir
-from datapipeline.services.runs import (
+from datapipeline.artifacts.planning import (
+    ArtifactGraph,
+    build_artifact_graph,
+    required_tick_artifacts,
+)
+from datapipeline.config.tasks import VectorInputsTask
+from datapipeline.io.runs import (
     finish_run_failed,
     finish_run_success,
     set_latest_run,
     start_run,
 )
+from datapipeline.profiles.executor import ExecutionSpec, run_execution
+from datapipeline.profiles.materialize import (
+    execute_materialize_job,
+    preflight_materialize_jobs,
+)
+from datapipeline.services.execution_lock import (
+    ProjectExecutionBusyError,
+    project_execution_lock,
+)
+from datapipeline.services.runtime_compiler import compile_runtime
+from datapipeline.vector_inputs.store import prune_vector_input_cache
 
 from .execution import (
     RuntimeJobPlan,
@@ -23,6 +35,7 @@ from .execution import (
 from .models import (
     BuildJob,
     BuildRunRequest,
+    MaterializeRunRequest,
     ProfileRunRequest,
     RuntimeRunRequest,
     ServeRunPlan,
@@ -32,10 +45,29 @@ logger = logging.getLogger(__name__)
 
 
 def run_profiles(request: ProfileRunRequest) -> None:
-    if isinstance(request, BuildRunRequest):
-        _run_build_profiles(request)
-    else:
-        _run_runtime_profiles(request)
+    try:
+        with project_execution_lock(request.definition.project.artifacts_root):
+            if isinstance(request, BuildRunRequest):
+                _run_build_profiles(request)
+            elif isinstance(request, RuntimeRunRequest):
+                _run_runtime_profiles(request)
+            elif isinstance(request, MaterializeRunRequest):
+                _run_materialize_profiles(request)
+            else:
+                raise TypeError(
+                    f"Unsupported profile request: {type(request).__name__}"
+                )
+            _prune_vector_input_caches(request)
+    except (ArtifactResolutionError, ProjectExecutionBusyError) as exc:
+        logger.error("%s", exc)
+        raise SystemExit(2) from exc
+
+
+def _prune_vector_input_caches(request: ProfileRunRequest) -> None:
+    root = request.definition.project.artifacts_root
+    for task in request.definition.artifact_operations:
+        if isinstance(task, VectorInputsTask):
+            prune_vector_input_cache(root / task.output)
 
 
 def _run_build_profiles(request: BuildRunRequest) -> None:
@@ -43,33 +75,35 @@ def _run_build_profiles(request: BuildRunRequest) -> None:
     if not jobs:
         return
     try:
-        _verify_config_hash(request.project_path, request.config_hash)
-        graph = build_artifact_graph(request.artifact_task_configs)
+        graph = build_artifact_graph(
+            request.definition.artifact_operations,
+            request.definition.dataset,
+            request.definition.streams,
+        )
         _validate_build_order(jobs, graph)
         for job in jobs:
-            validate_build_job(job.task, graph, request.project_path)
-    except (OSError, ValueError) as exc:
+            validate_build_job(job.task, graph, request.definition)
+    except (OSError, RuntimeError, ValueError) as exc:
         logger.error("%s", exc)
         raise SystemExit(2) from exc
 
     resolved_artifacts: set[str] = set()
     for job in jobs:
-        runtime = bootstrap_build_runtime(request.project_path)
+        runtime = compile_runtime(request.definition)
         runtime.execution = request.execution
         spec = ExecutionSpec(
             observability=job.settings.observability,
             runtime=runtime,
         )
 
-        def build(job=job, runtime=runtime) -> None:
+        def build() -> None:
             run_build_if_needed(
-                request.project_path,
+                request.definition,
                 graph=graph,
                 required_artifacts={job.task.id},
                 settings=job.settings,
                 runtime=runtime,
                 resolved_artifacts=resolved_artifacts,
-                expected_config_hash=request.config_hash,
             )
 
         run_execution(spec, build)
@@ -80,10 +114,13 @@ def _run_runtime_profiles(request: RuntimeRunRequest) -> None:
     if not jobs:
         return
     try:
-        _verify_config_hash(request.project_path, request.config_hash)
-        graph = build_artifact_graph(request.artifact_task_configs)
-        plans = [plan_runtime_job(job, graph, request.project_path) for job in jobs]
-    except (OSError, ValueError) as exc:
+        graph = build_artifact_graph(
+            request.definition.artifact_operations,
+            request.definition.dataset,
+            request.definition.streams,
+        )
+        plans = [plan_runtime_job(job, graph, request.definition) for job in jobs]
+    except (OSError, RuntimeError, ValueError) as exc:
         logger.error("%s", exc)
         raise SystemExit(2) from exc
 
@@ -92,7 +129,7 @@ def _run_runtime_profiles(request: RuntimeRunRequest) -> None:
     try:
         _prepare_runtime_artifacts(request, graph, plans)
         for run_plan in request.serve_run_plans:
-            start_run(run_plan.paths, preview_index=run_plan.preview_index)
+            start_run(run_plan.paths, preview=run_plan.preview)
             started_runs.append(run_plan)
 
         for plan in plans:
@@ -101,16 +138,16 @@ def _run_runtime_profiles(request: RuntimeRunRequest) -> None:
             job.runtime.heartbeat_interval_seconds = (
                 job.observability.heartbeat_interval_seconds
             )
-            job.runtime.split_labels = job.splits
+            job.runtime.output_splits = job.output_splits
             spec = ExecutionSpec(
                 observability=job.observability,
                 runtime=job.runtime,
             )
 
-            def execute(plan=plan) -> None:
+            def execute() -> None:
                 execute_runtime_job(
                     request.command,
-                    request.project_path,
+                    request.definition,
                     graph,
                     plan,
                 )
@@ -121,26 +158,58 @@ def _run_runtime_profiles(request: RuntimeRunRequest) -> None:
         _finalize_serve_runs(started_runs, succeeded)
 
 
-def _verify_config_hash(project_path: Path, expected_hash: str) -> None:
-    if compute_config_hash(project_path, tasks_dir(project_path)) != expected_hash:
-        raise ValueError(
-            "Pipeline inputs changed after profiles were resolved; rerun the command."
+def _run_materialize_profiles(request: MaterializeRunRequest) -> None:
+    jobs = list(request.jobs)
+    if not jobs:
+        return
+    request.runtime.execution = request.execution
+    try:
+        preflight_materialize_jobs(request.runtime, jobs)
+        graph = build_artifact_graph(
+            request.definition.artifact_operations,
+            request.definition.dataset,
+            request.definition.streams,
         )
+        required_artifacts = set(
+            required_tick_artifacts(
+                (job.stream for job in jobs),
+                request.definition.streams,
+                graph.tasks_by_id,
+            )
+        )
+    except (FileExistsError, OSError, RuntimeError, ValueError) as exc:
+        logger.error("%s", exc)
+        raise SystemExit(2) from exc
+
+    _prepare_materialize_artifacts(request, graph, required_artifacts)
+    for job in jobs:
+        request.runtime.heartbeat_interval_seconds = (
+            job.observability.heartbeat_interval_seconds
+        )
+        spec = ExecutionSpec(
+            observability=job.observability,
+            runtime=request.runtime,
+        )
+
+        def execute() -> None:
+            execute_materialize_job(job, request.runtime)
+
+        run_execution(spec, execute)
 
 
 def _validate_build_order(jobs: list[BuildJob], graph: ArtifactGraph) -> None:
-    targets = [job.task.id for job in jobs]
-    if len(targets) != len(set(targets)):
-        raise ValueError("Build profiles must have unique artifact targets.")
+    operations = [job.task.id for job in jobs]
+    if len(operations) != len(set(operations)):
+        raise ValueError("Build profiles must reference unique artifact operations.")
 
-    positions = {target: index for index, target in enumerate(targets)}
-    for target, position in positions.items():
-        for dependency in graph.dependency_closure({target}):
+    positions = {operation: index for index, operation in enumerate(operations)}
+    for operation, position in positions.items():
+        for dependency in graph.dependency_closure({operation}):
             dependency_position = positions.get(dependency)
             if dependency_position is not None and dependency_position > position:
                 raise ValueError(
-                    f"Build profile target '{dependency}' must be ordered before "
-                    f"dependent target '{target}'."
+                    f"Build profile operation '{dependency}' must be ordered before "
+                    f"dependent operation '{operation}'."
                 )
 
 
@@ -150,7 +219,7 @@ def _finalize_serve_runs(plans: list[ServeRunPlan], succeeded: bool) -> None:
             finish_run_failed(plan.paths)
             continue
         finish_run_success(plan.paths)
-        if plan.preview_index is None:
+        if plan.preview is None:
             set_latest_run(plan.paths)
 
 
@@ -166,7 +235,7 @@ def _prepare_runtime_artifacts(
         return
 
     settings = request.artifact_settings
-    runtime = bootstrap_build_runtime(request.project_path)
+    runtime = compile_runtime(request.definition)
     runtime.execution = request.execution
     spec = ExecutionSpec(
         observability=settings.observability,
@@ -175,12 +244,35 @@ def _prepare_runtime_artifacts(
 
     def prepare() -> None:
         run_build_if_needed(
-            request.project_path,
+            request.definition,
             graph=graph,
             required_artifacts=required_artifacts,
             settings=settings,
             runtime=runtime,
-            expected_config_hash=request.config_hash,
+        )
+
+    run_execution(spec, prepare)
+
+
+def _prepare_materialize_artifacts(
+    request: MaterializeRunRequest,
+    graph: ArtifactGraph,
+    required_artifacts: set[str],
+) -> None:
+    if not required_artifacts:
+        return
+    spec = ExecutionSpec(
+        observability=request.artifact_settings.observability,
+        runtime=request.runtime,
+    )
+
+    def prepare() -> None:
+        run_build_if_needed(
+            request.definition,
+            graph=graph,
+            required_artifacts=required_artifacts,
+            settings=request.artifact_settings,
+            runtime=request.runtime,
         )
 
     run_execution(spec, prepare)

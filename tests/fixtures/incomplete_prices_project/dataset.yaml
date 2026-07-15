@@ -1,15 +1,21 @@
-group_by: 1h
+sample:
+  cadence: 1h
 
 features:
   - id: spot_eur_scaled
-    record_stream: metrics.elspot.eur
+    stream: metrics.elspot.eur
     field: value
     scale: true
   - id: spot_eur_sequence
-    record_stream: metrics.elspot.eur
+    stream: metrics.elspot.eur
     field: value
     sequence:
       size: 3
       stride: 2
 
 targets: []
+
+postprocess:
+  samples:
+    features:
+      threshold: 0.4

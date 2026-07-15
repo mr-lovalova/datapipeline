@@ -1,7 +1,2 @@
-# See ../../../plugin_skeleton/reference/reference/tasks/profiles/build.reference.yaml for full options.
-cmd: build
-name: schema
-order: 10
-target: schema
-enabled: true
-mode: AUTO
+order: 20
+operation: schema

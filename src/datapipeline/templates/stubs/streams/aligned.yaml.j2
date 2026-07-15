@@ -4,11 +4,9 @@ from:
   align:
 {{ input_streams | to_yaml(indent=4) }}
 
-map:
-  entrypoint: {{ mapper_entrypoint }}
+combine:
+  entrypoint: {{ combine_entrypoint }}
   args: {}
 
-# feature_id_by: []
-# ordered_by: [partition_field, time]  # must equal inherited partition order + time
-# stream: []
-# debug: []
+# Dataset sample.keys select row identity; remaining partition fields suffix feature IDs.
+# transforms: []

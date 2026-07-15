@@ -1,6 +1,3 @@
-from collections.abc import Callable, Iterable
-from typing import Any
-
 from .adapter import GroupFormat
 from .rows import collect_vector_rows
 
@@ -13,7 +10,6 @@ def dataframe_from_vectors(
     group_format: GroupFormat = "mapping",
     group_column: str = "group",
     flatten_sequences: bool = False,
-    open_stream: Callable[[str], Iterable[Any]] | None = None,
 ):
     """Return a Pandas DataFrame built from project vectors.
 
@@ -34,9 +30,5 @@ def dataframe_from_vectors(
         group_format=group_format,
         group_column=group_column,
         flatten_sequences=flatten_sequences,
-        open_stream=open_stream,
     )
     return pd.DataFrame(rows)
-
-
-__all__ = ["dataframe_from_vectors"]

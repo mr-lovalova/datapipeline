@@ -2,28 +2,23 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Sequence
 
-from datapipeline.config.build_resolution import BuildSettings
+from datapipeline.artifacts.settings import BuildSettings
 from datapipeline.config.execution import ExecutionConfig
-from datapipeline.config.dataset.dataset import (
-    FeatureDatasetConfig,
-    RecordDatasetConfig,
-)
-from datapipeline.config.resolution import (
+from datapipeline.config.preview import PreviewStage
+from datapipeline.config.tasks import ArtifactTask, OperationTask
+from datapipeline.execution.settings import (
     ObservabilitySettings,
 )
-from datapipeline.config.tasks import ArtifactTask, OperationTask
 from datapipeline.io.output import OutputTarget
+from datapipeline.io.runs import RunPaths
 from datapipeline.runtime import Runtime
-from datapipeline.services.runs import RunPaths
-
-ProfileKind = Literal["serve", "build", "inspect"]
-ProfileDataset = FeatureDatasetConfig | RecordDatasetConfig
+from datapipeline.services.definitions import PipelineDefinition
 
 
 @dataclass(frozen=True)
 class ServeRunPlan:
     paths: RunPaths
-    preview_index: int | None
+    preview: PreviewStage | None
 
 
 @dataclass(frozen=True)
@@ -37,35 +32,47 @@ class RuntimeJob:
     name: str
     task: OperationTask
     runtime: Runtime
-    dataset_name: Literal["vectors", "features"]
-    dataset: ProfileDataset
     output: OutputTarget
     observability: ObservabilitySettings
     limit: int | None
     throttle_ms: float | None
-    preview_index: int | None
-    splits: tuple[str, ...]
+    preview: PreviewStage | None
+    output_splits: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class MaterializeJob:
+    name: str
+    stream: str
+    output: Path
+    overwrite: bool
+    observability: ObservabilitySettings
 
 
 @dataclass(frozen=True, kw_only=True)
 class BuildRunRequest:
-    project_path: Path
-    artifact_task_configs: Sequence[ArtifactTask]
+    definition: PipelineDefinition
     jobs: Sequence[BuildJob]
     execution: ExecutionConfig
-    config_hash: str
 
 
 @dataclass(frozen=True, kw_only=True)
 class RuntimeRunRequest:
     command: Literal["serve", "inspect"]
-    project_path: Path
-    artifact_task_configs: Sequence[ArtifactTask]
+    definition: PipelineDefinition
     jobs: Sequence[RuntimeJob]
     execution: ExecutionConfig
-    config_hash: str
     artifact_settings: BuildSettings
     serve_run_plans: tuple[ServeRunPlan, ...] = ()
 
 
-ProfileRunRequest = BuildRunRequest | RuntimeRunRequest
+@dataclass(frozen=True, kw_only=True)
+class MaterializeRunRequest:
+    definition: PipelineDefinition
+    jobs: Sequence[MaterializeJob]
+    execution: ExecutionConfig
+    artifact_settings: BuildSettings
+    runtime: Runtime
+
+
+ProfileRunRequest = BuildRunRequest | RuntimeRunRequest | MaterializeRunRequest

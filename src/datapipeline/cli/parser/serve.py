@@ -1,12 +1,14 @@
 import argparse
 
 from datapipeline.config.options import OUTPUT_FORMATS, OUTPUT_TRANSPORTS, OUTPUT_VIEWS
+from datapipeline.config.preview import PREVIEW_STAGES
 
 from .common import (
     add_artifact_mode_flag,
     add_dataset_flag,
+    add_execution_observability_flags,
     add_project_flag,
-    add_visual_flags,
+    positive_integer,
 )
 
 
@@ -21,7 +23,7 @@ def add_serve_command(sub, common: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--limit",
         "-n",
-        type=int,
+        type=positive_integer,
         default=None,
         help="optional cap on the number of vectors to emit",
     )
@@ -49,14 +51,14 @@ def add_serve_command(sub, common: argparse.ArgumentParser) -> None:
         help="output representation view (jsonl: raw|flat, csv: flat, pickle: raw)",
     )
     parser.add_argument(
-        "--run",
-        help="select a serve profile by name when project.paths.tasks contains multiple entries",
+        "--profile",
+        help="select a serve profile by name; explicitly selected disabled profiles still run",
     )
     parser.add_argument(
-        "--preview-index",
-        type=int,
+        "--preview",
+        choices=PREVIEW_STAGES,
         default=None,
-        help="preview a 0-based serve preview index",
+        help="stop serve after a semantic pipeline stage",
     )
-    add_visual_flags(parser)
+    add_execution_observability_flags(parser)
     add_artifact_mode_flag(parser)

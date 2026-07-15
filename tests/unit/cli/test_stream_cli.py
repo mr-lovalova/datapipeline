@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+from datapipeline.cli.prompts import pick_from_menu, pick_multiple_from_list
 from datapipeline.cli.commands.inflow import (
     MapperSelection,
     ParserSelection,
@@ -22,7 +23,6 @@ from datapipeline.services.scaffold.stream_plan import (
     SourceCreation,
     SourceReference,
 )
-from datapipeline.services.scaffold.utils import pick_from_menu
 
 
 def test_parser_menu_options_include_existing_when_available() -> None:
@@ -53,6 +53,13 @@ def test_pick_from_menu_blank_input_keeps_first_option_as_default(monkeypatch) -
     )
 
     assert choice == "identity"
+
+
+def test_pick_multiple_rejects_partially_invalid_selection(monkeypatch) -> None:
+    monkeypatch.setattr("builtins.input", lambda _: "1,999")
+
+    with pytest.raises(SystemExit, match="Invalid selection"):
+        pick_multiple_from_list("Streams:", ["first", "second"])
 
 
 def test_select_new_source_loader_uses_builtin_transport(monkeypatch) -> None:
@@ -154,8 +161,8 @@ def test_select_parser_plan_creates_parser_and_dto(monkeypatch) -> None:
         lambda root=None: {},
     )
     monkeypatch.setattr(
-        "datapipeline.cli.commands.inflow.choose_existing_or_create_name",
-        lambda **kwargs: ("WeatherDTO", True),
+        "datapipeline.cli.commands.inflow.choose_dto",
+        lambda existing, default=None: ("WeatherDTO", True),
     )
     monkeypatch.setattr(
         "datapipeline.cli.commands.inflow.choose_name",
@@ -187,8 +194,8 @@ def test_existing_parser_dto_keeps_discovered_module(monkeypatch) -> None:
         lambda root=None: {"WeatherDTO": "example_pkg.dtos.records"},
     )
     monkeypatch.setattr(
-        "datapipeline.cli.commands.inflow.choose_existing_or_create_name",
-        lambda **kwargs: ("WeatherDTO", False),
+        "datapipeline.cli.commands.inflow.choose_dto",
+        lambda existing, default=None: ("WeatherDTO", False),
     )
     monkeypatch.setattr(
         "datapipeline.cli.commands.inflow.choose_name",
@@ -221,8 +228,8 @@ def test_existing_mapper_dto_keeps_discovered_module(monkeypatch) -> None:
         lambda root=None: {"WeatherDTO": "example_pkg.dtos.records"},
     )
     monkeypatch.setattr(
-        "datapipeline.cli.commands.inflow.choose_existing_or_create_name",
-        lambda **kwargs: ("WeatherDTO", False),
+        "datapipeline.cli.commands.inflow.choose_dto",
+        lambda existing, default=None: ("WeatherDTO", False),
     )
     monkeypatch.setattr(
         "datapipeline.cli.commands.inflow.choose_name",
@@ -319,8 +326,8 @@ def test_collect_stream_plan_preserves_custom_source_id(monkeypatch) -> None:
         lambda *args: ParserSelection(parser_plan, "WeatherDTO"),
     )
     monkeypatch.setattr(
-        "datapipeline.cli.commands.inflow.choose_existing_or_create_name",
-        lambda **kwargs: ("weather", False),
+        "datapipeline.cli.commands.inflow.choose_domain",
+        lambda existing, default=None: ("weather", False),
     )
     monkeypatch.setattr(
         "datapipeline.cli.commands.inflow.list_domains",
@@ -362,11 +369,9 @@ def test_collect_stream_plan_rejects_invalid_custom_source_before_loader(
         lambda label, default: "weather",
     )
 
-    with pytest.raises(SystemExit) as exc:
+    with pytest.raises(SystemExit, match="source_id"):
         _collect_stream_plan(
             Path("/tmp/plugin"),
             "example_pkg",
             Path("/tmp/project.yaml"),
         )
-
-    assert exc.value.code == 2

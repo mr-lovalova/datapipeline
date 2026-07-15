@@ -1,23 +1,14 @@
-from pathlib import Path
 import ast
-from typing import Optional
+from pathlib import Path
 
-from datapipeline.services.paths import pkg_root, resolve_base_pkg_dir
-from datapipeline.services.entrypoints import read_group_entries
-from datapipeline.services.constants import (
-    PARSERS_GROUP,
-    LOADERS_GROUP,
-    MAPPERS_GROUP,
-    STREAM_FROM_KEY,
-)
-from datapipeline.services.project_paths import (
-    ingests_dirs as resolve_ingests_dirs,
-    sources_dirs as resolve_sources_dirs,
-    streams_dirs as resolve_streams_dirs,
-)
+from datapipeline.plugins import COMBINERS_EP, LOADERS_EP, MAPPERS_EP, PARSERS_EP
+from datapipeline.services.project import load_project
+from datapipeline.services.scaffold.entrypoints import read_entry_points
+from datapipeline.services.scaffold.paths import pkg_root, resolve_base_pkg_dir
+from datapipeline.services.streams.loader import load_streams
 
 
-def list_dtos(*, root: Optional[Path] = None) -> dict[str, str]:
+def list_dtos(root: Path | None = None) -> dict[str, str]:
     """Return mapping of DTO class name -> module path."""
     root_dir, pkg_name, _ = pkg_root(root)
     base = resolve_base_pkg_dir(root_dir, pkg_name)
@@ -50,74 +41,50 @@ def _is_dataclass(node: ast.ClassDef) -> bool:
     return False
 
 
-def list_parsers(*, root: Optional[Path] = None) -> dict[str, str]:
-    root_dir, _, pyproject = pkg_root(root)
+def list_parsers(root: Path | None = None) -> dict[str, str]:
+    _, _, pyproject = pkg_root(root)
     if not pyproject.exists():
         return {}
-    return read_group_entries(pyproject, PARSERS_GROUP)
+    return read_entry_points(pyproject, PARSERS_EP)
 
 
-def list_loaders(*, root: Optional[Path] = None) -> dict[str, str]:
-    root_dir, _, pyproject = pkg_root(root)
+def list_loaders(root: Path | None = None) -> dict[str, str]:
+    _, _, pyproject = pkg_root(root)
     if not pyproject.exists():
         return {}
-    return read_group_entries(pyproject, LOADERS_GROUP)
+    return read_entry_points(pyproject, LOADERS_EP)
 
 
-def list_mappers(*, root: Optional[Path] = None) -> dict[str, str]:
-    root_dir, _, pyproject = pkg_root(root)
+def list_mappers(root: Path | None = None) -> dict[str, str]:
+    _, _, pyproject = pkg_root(root)
     if not pyproject.exists():
         return {}
-    return read_group_entries(pyproject, MAPPERS_GROUP)
+    return read_entry_points(pyproject, MAPPERS_EP)
 
 
-def list_domains(*, root: Optional[Path] = None) -> list[str]:
+def list_combiners(root: Path | None = None) -> dict[str, str]:
+    _, _, pyproject = pkg_root(root)
+    if not pyproject.exists():
+        return {}
+    return read_entry_points(pyproject, COMBINERS_EP)
+
+
+def list_domains(root: Path | None = None) -> list[str]:
     root_dir, pkg_name, _ = pkg_root(root)
     base = resolve_base_pkg_dir(root_dir, pkg_name)
     dom_dir = base / "domains"
     if not dom_dir.exists():
         return []
     return sorted(
-        p.name
-        for p in dom_dir.iterdir()
-        if p.is_dir() and (p / "model.py").exists()
+        p.name for p in dom_dir.iterdir() if p.is_dir() and (p / "model.py").exists()
     )
 
 
 def list_sources(project_yaml: Path) -> list[str]:
-    from datapipeline.utils.load import load_yaml
-    from datapipeline.services.constants import PARSER_KEY, LOADER_KEY, SOURCE_ID_KEY
-
-    out: list[str] = []
-    for sources_dir in resolve_sources_dirs(project_yaml):
-        if not sources_dir.exists():
-            continue
-        for p in sorted(sources_dir.rglob("*.y*ml")):
-            data = load_yaml(p)
-            if (
-                isinstance(data, dict)
-                and isinstance(data.get(PARSER_KEY), dict)
-                and isinstance(data.get(LOADER_KEY), dict)
-            ):
-                alias = data.get(SOURCE_ID_KEY)
-                if isinstance(alias, str):
-                    out.append(alias)
-    return sorted(set(out))
+    streams = load_streams(load_project(project_yaml))
+    return sorted(streams.sources)
 
 
 def list_streams(project_yaml: Path) -> list[str]:
-    from datapipeline.utils.load import load_yaml
-    from datapipeline.services.constants import STREAM_ID_KEY
-
-    out: list[str] = []
-    roots = [*resolve_ingests_dirs(project_yaml), *resolve_streams_dirs(project_yaml)]
-    for root in roots:
-        if not root.exists():
-            continue
-        for p in sorted(root.rglob("*.y*ml")):
-            data = load_yaml(p)
-            if isinstance(data, dict) and isinstance(data.get(STREAM_FROM_KEY), dict):
-                sid = data.get(STREAM_ID_KEY)
-                if isinstance(sid, str) and sid:
-                    out.append(sid)
-    return sorted(set(out))
+    streams = load_streams(load_project(project_yaml))
+    return sorted(streams.streams)

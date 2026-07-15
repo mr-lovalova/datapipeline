@@ -1,9 +1,12 @@
 import json
-from datetime import datetime, timezone
+from dataclasses import dataclass
+from datetime import date, datetime, timezone
 
 import pytest
 
 from datapipeline.domain.sample import Sample
+from datapipeline.domain.feature import FeatureRecord
+from datapipeline.domain.record import TemporalRecord
 from datapipeline.domain.vector import Vector
 from datapipeline.io.serializers import (
     csv_row_serializer,
@@ -14,10 +17,10 @@ from datapipeline.io.serializers import (
 
 
 def test_record_json_serializer_emits_plain_payload() -> None:
+    @dataclass
     class Record:
-        def __init__(self, time, value):
-            self.time = time
-            self.value = value
+        time: datetime
+        value: float
 
     rec = Record(datetime(2024, 1, 1, tzinfo=timezone.utc), 42.5)
     serializer = json_line_serializer()
@@ -31,16 +34,6 @@ def test_record_json_serializer_emits_plain_payload() -> None:
 
 
 def test_record_csv_serializer_flattens_nested_payload() -> None:
-    class TemporalRecord:
-        def __init__(self, time):
-            self.time = time
-
-    class FeatureRecord:
-        def __init__(self, id, record, value):
-            self.id = id
-            self.record = record
-            self.value = value
-
     record = TemporalRecord(datetime(2024, 7, 4, tzinfo=timezone.utc))
     feature = FeatureRecord("feature_a", record, 7.0)
     serializer = csv_row_serializer()
@@ -51,6 +44,20 @@ def test_record_csv_serializer_flattens_nested_payload() -> None:
     assert row["record.time"] == datetime(2024, 7, 4, tzinfo=timezone.utc)
     assert row["value"] == 7.0
     assert "kind" not in row
+
+
+def test_temporal_record_serializer_includes_mapped_fields() -> None:
+    record = TemporalRecord(datetime(2024, 7, 4, tzinfo=timezone.utc))
+    record.security_id = "AAPL"
+    record.close = 42.5
+
+    payload = json.loads(json_line_serializer()(record))
+
+    assert payload == {
+        "time": "2024-07-04 00:00:00+00:00",
+        "security_id": "AAPL",
+        "close": 42.5,
+    }
 
 
 def test_vector_csv_serializer_flattens_feature_and_target_values() -> None:
@@ -126,3 +133,40 @@ def test_pickle_serializer_rejects_non_raw_view() -> None:
 def test_text_serializer_writes_text_payload() -> None:
     serializer = text_line_serializer()
     assert serializer({"text": "hello world"}) == "hello world\n"
+
+
+def test_json_serializer_supports_dataclasses_sequences_and_dates() -> None:
+    @dataclass
+    class Payload:
+        day: date
+        values: tuple[int, ...]
+
+    payload = json.loads(json_line_serializer()(Payload(date(2024, 7, 4), (1, 2))))
+
+    assert payload == {"day": "2024-07-04", "values": [1, 2]}
+
+
+def test_serializers_reject_arbitrary_objects() -> None:
+    class Unsupported:
+        def __init__(self) -> None:
+            self.value = 1
+
+    with pytest.raises(TypeError, match="Unsupported output value type: Unsupported"):
+        json_line_serializer()(Unsupported())
+
+    with pytest.raises(TypeError, match="Unsupported output value type: Unsupported"):
+        csv_row_serializer()(Unsupported())
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_json_serializer_rejects_non_finite_numbers(value: float) -> None:
+    with pytest.raises(ValueError, match="Out of range float values"):
+        json_line_serializer()(value)
+
+
+def test_json_serializer_rejects_non_string_mapping_keys() -> None:
+    with pytest.raises(
+        TypeError,
+        match="Unsupported output mapping key type: int",
+    ):
+        json_line_serializer()({1: "value"})

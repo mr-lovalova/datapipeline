@@ -1,10 +1,14 @@
 import copy
 import math
-from dataclasses import is_dataclass
-from typing import Any
+from typing import Any, TypeVar
+
+from datapipeline.domain.record import TemporalRecord
 
 
-def is_missing(value) -> bool:
+TRecord = TypeVar("TRecord", bound=TemporalRecord)
+
+
+def is_missing(value: object) -> bool:
     if value is None:
         return True
     if isinstance(value, float) and math.isnan(value):
@@ -12,58 +16,55 @@ def is_missing(value) -> bool:
     return False
 
 
-def get_field(record: Any, field: str) -> Any:
-    if isinstance(record, dict):
-        return record.get(field)
-    return getattr(record, field, None)
+def finite_number(value: Any, field: str) -> float:
+    if isinstance(value, (bool, str, bytes)):
+        raise TypeError(f"Field {field!r} must contain numeric values")
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as exc:
+        raise TypeError(f"Field {field!r} must contain numeric values") from exc
+    if not math.isfinite(number):
+        raise ValueError(f"Field {field!r} must contain finite numeric values")
+    return number
 
 
-def partition_key(record: Any, partition_by: str | list[str] | None) -> tuple:
-    if partition_by is None or partition_by == []:
-        return ()
-    fields = [partition_by] if isinstance(partition_by, str) else partition_by
+def get_field(record: object, field: str) -> Any:
+    try:
+        return getattr(record, field)
+    except AttributeError as exc:
+        raise KeyError(
+            f"Record field '{field}' not found on {type(record).__name__}"
+        ) from exc
+
+
+def partition_key(
+    record: object,
+    partition_by: tuple[str, ...],
+) -> tuple:
     values: list[Any] = []
-    for field in fields:
-        if isinstance(record, dict):
-            if field not in record:
-                raise KeyError(f"Partition field '{field}' not found in record mapping")
-            values.append(record[field])
-            continue
-        if not hasattr(record, field):
+    for field in partition_by:
+        try:
+            value = getattr(record, field)
+        except AttributeError as exc:
             raise KeyError(
                 f"Partition field '{field}' not found on {type(record).__name__}"
-            )
-        values.append(getattr(record, field))
+            ) from exc
+        if type(value) is float and not math.isfinite(value):
+            raise ValueError(f"Partition field {field!r} must contain finite floats")
+        values.append(value)
     return tuple(values)
 
 
-def clone_record(record: Any, **updates: Any) -> Any:
+def clone_record(record: TRecord, **updates: Any) -> TRecord:
     """Return a shallow clone of record with updated fields."""
-    if is_dataclass(record):
-        cloned = copy.copy(record)
-        for key, value in updates.items():
-            setattr(cloned, key, value)
-        post_init = getattr(cloned, "__post_init__", None)
-        if callable(post_init) and "time" in updates:
-            post_init()
-        return cloned
-    if isinstance(record, dict):
-        cloned = dict(record)
-        cloned.update(updates)
-        return cloned
-    cloned = type(record)(**record.__dict__)
+    cloned = copy.copy(record)
     for key, value in updates.items():
         setattr(cloned, key, value)
+    if "time" in updates:
+        TemporalRecord.__post_init__(cloned)
     return cloned
 
 
-def clone_record_with_field(record: Any, field: str, value: Any) -> Any:
+def clone_record_with_field(record: TRecord, field: str, value: Any) -> TRecord:
     """Return a shallow clone of record with a specific field updated."""
     return clone_record(record, **{field: value})
-
-
-def floor_record_time(record: Any, cadence: str) -> Any:
-    """Return a cloned record with time floored to cadence."""
-    from datapipeline.config.dataset.normalize import floor_time_to_bucket
-
-    return clone_record(record, time=floor_time_to_bucket(record.time, cadence))

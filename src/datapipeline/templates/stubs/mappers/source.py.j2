@@ -1,0 +1,13 @@
+from collections.abc import Iterator
+
+from {{DOMAIN_MODULE}} import {{DOMAIN_RECORD}}
+from {{INPUT_IMPORT}} import {{INPUT_CLASS}}
+
+
+def {{FUNCTION_NAME}}(
+    stream: Iterator[{{INPUT_CLASS}}],
+) -> Iterator[{{DOMAIN_RECORD}}]:
+    """Map {{INPUT_CLASS}} records to domain-level {{DOMAIN_RECORD}} records."""
+    raise NotImplementedError(
+        "Implement mapper logic for {{INPUT_CLASS}} -> {{DOMAIN_RECORD}}"
+    )

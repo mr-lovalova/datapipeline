@@ -1,6 +1,10 @@
 import argparse
 
-from .common import add_dataset_flag, add_project_flag, add_visual_flags
+from .common import (
+    add_dataset_flag,
+    add_execution_observability_flags,
+    add_project_flag,
+)
 
 
 def add_build_command(sub, common: argparse.ArgumentParser) -> None:
@@ -14,10 +18,10 @@ def add_build_command(sub, common: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--force",
         action="store_true",
-        help="rebuild even when the configuration hash matches the last run",
+        help="rebuild even when the artifact hash matches the last run",
     )
     parser.add_argument(
-        "--run",
-        help="select a build profile by name (project must declare build profiles under profiles/)",
+        "--profile",
+        help="select a build profile by name; explicitly selected disabled profiles still run",
     )
-    add_visual_flags(parser)
+    add_execution_observability_flags(parser)

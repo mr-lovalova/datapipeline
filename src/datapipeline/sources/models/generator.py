@@ -1,26 +1,13 @@
 from abc import ABC, abstractmethod
-from typing import Iterator, Any, Optional
+from collections.abc import Iterator
+from typing import Any
 
 
 class DataGenerator(ABC):
-    """Base class for in-process data generators.
-
-    Implements a uniform `generate()` iterator and optional `count()`.
-    This intentionally separates generation from loading (I/O).
-    """
+    """Generate in-process source rows."""
 
     @abstractmethod
-    def generate(self) -> Iterator[Any]:
-        pass
-
-    def count(self) -> Optional[int]:
-        return None
-
-    def info_lines(self) -> list[str]:
-        return []
-
-    def debug_lines(self) -> list[str]:
-        return []
+    def generate(self) -> Iterator[Any]: ...
 
     def __iter__(self) -> Iterator[Any]:
         return self.generate()

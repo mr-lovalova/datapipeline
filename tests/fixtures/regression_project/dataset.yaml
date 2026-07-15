@@ -1,21 +1,27 @@
-group_by: 1h
+sample:
+  cadence: 1h
 
 features:
   - id: linear_scaled
-    record_stream: metrics.linear
+    stream: metrics.linear
     field: value
     scale: true
   - id: sine_window
-    record_stream: metrics.sine
+    stream: metrics.sine
     field: value
     sequence:
       size: 2
       stride: 2
   - id: humidity_partitioned
-    record_stream: metrics.humidity
+    stream: metrics.humidity
     field: value
 
 targets:
   - id: power_target
-    record_stream: targets.power
+    stream: targets.power
     field: value
+
+postprocess:
+  samples:
+    features:
+      threshold: 0.5

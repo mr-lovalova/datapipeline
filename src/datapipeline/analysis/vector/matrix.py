@@ -1,487 +1,324 @@
 import base64
-import csv
 import html
 import json
-from pathlib import Path
+from collections.abc import Iterator, Mapping, Sequence
+from dataclasses import dataclass
+from typing import Any, Literal
 
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from .collector import VectorStatsCollector
-
-def export_matrix_data(collector: "VectorStatsCollector") -> Path | None:
-    output = collector.matrix_output
-    if not output:
-        return None
-
-    path = Path(output)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if collector.matrix_format == "html":
-        _write_matrix_html(collector, path)
-    else:
-        _write_matrix_csv(collector, path)
-    return path
+from datapipeline.artifacts.models import (
+    ListVectorMetadataEntry,
+    VectorMetadataEntry,
+)
+from datapipeline.transforms.utils import is_missing
 
 
-def _write_matrix_csv(collector: "VectorStatsCollector", path: Path) -> None:
-    rows: list[tuple[str, str, str, str]] = []
-    for group, statuses in collector.group_feature_status.items():
-        group_key = collector._format_group_key(group)
-        for fid, status in statuses.items():
-            rows.append(("feature", fid, group_key, status))
-
-    for group, statuses in collector.group_partition_status.items():
-        group_key = collector._format_group_key(group)
-        for pid, status in statuses.items():
-            rows.append(("partition", pid, group_key, status))
-
-    with path.open("w", newline="", encoding="utf-8") as csvfile:
-        writer = csv.writer(csvfile)
-        writer.writerow(["kind", "identifier", "group_key", "status"])
-        writer.writerows(rows)
+Status = Literal["absent", "present", "null"]
+_ABSENT = object()
+_STATUS_CODE = {"absent": 0, "present": 1, "null": 2}
 
 
-def _write_matrix_html(collector: "VectorStatsCollector", path: Path) -> None:
-    feature_ids = collector._collect_feature_ids()
-    partition_ids = collector._collect_partition_ids()
-    group_keys = collector._collect_group_keys()
+@dataclass(frozen=True)
+class MatrixCell:
+    status: Status
+    elements: tuple[Status, ...] = ()
 
-    sections: list[str] = []
-    scripts: list[str] = []
-    legend_entries: dict[str, tuple[str, str]] = {}
 
-    def render_table(
-        title: str,
-        identifiers: list[str],
-        status_map: dict,
-        sub_map: dict,
-        table_id: str,
+@dataclass(frozen=True)
+class MatrixRow:
+    group: str
+    features: tuple[MatrixCell, ...]
+    targets: tuple[MatrixCell, ...]
+
+
+@dataclass(frozen=True)
+class AvailabilityMatrix:
+    feature_ids: tuple[str, ...]
+    target_ids: tuple[str, ...]
+    rows: tuple[MatrixRow, ...]
+
+    def output_rows(self) -> Iterator[dict[str, Any]]:
+        for row in self.rows:
+            for identifier, cell in zip(self.feature_ids, row.features):
+                output: dict[str, Any] = {
+                    "vector": "feature",
+                    "identifier": identifier,
+                    "group": row.group,
+                    "status": cell.status,
+                }
+                if cell.elements:
+                    output["elements"] = list(cell.elements)
+                yield output
+            for identifier, cell in zip(self.target_ids, row.targets):
+                output = {
+                    "vector": "target",
+                    "identifier": identifier,
+                    "group": row.group,
+                    "status": cell.status,
+                }
+                if cell.elements:
+                    output["elements"] = list(cell.elements)
+                yield output
+
+
+class MatrixBuilder:
+    """Build one explicitly bounded availability matrix."""
+
+    def __init__(
+        self,
+        feature_entries: Sequence[VectorMetadataEntry],
+        target_entries: Sequence[VectorMetadataEntry],
+        max_cells: int,
     ) -> None:
-        if not identifiers:
-            sections.append(
-                "<section class='matrix-section'>"
-                f"<h2>{html.escape(title)}</h2>"
-                "<p>No data.</p>"
-                "</section>"
+        self._feature_entries = tuple(feature_entries)
+        self._target_entries = tuple(target_entries)
+        self._feature_ids = {entry.id for entry in feature_entries}
+        self._target_ids = {entry.id for entry in target_entries}
+        self._max_cells = max_cells
+        self._row_width = sum(
+            _entry_width(entry)
+            for entry in (*self._feature_entries, *self._target_entries)
+        )
+        self._rows: list[MatrixRow] = []
+
+    def add(
+        self,
+        group_key: object,
+        features: Mapping[str, Any],
+        targets: Mapping[str, Any],
+    ) -> None:
+        unknown_features = set(features) - self._feature_ids
+        if unknown_features:
+            identifier = min(unknown_features)
+            raise ValueError(
+                f"Feature vector contains ID {identifier!r} missing from metadata. "
+                "Rebuild vector metadata."
             )
+        unknown_targets = set(targets) - self._target_ids
+        if unknown_targets:
+            identifier = min(unknown_targets)
+            raise ValueError(
+                f"Target vector contains ID {identifier!r} missing from metadata. "
+                "Rebuild vector metadata."
+            )
+        if not self._row_width:
             return
 
-        base_class = {
-            "present": "status-present",
-            "null": "status-null",
-            "absent": "status-absent",
-        }
-
-        statuses_found: set[str] = {"absent"}
-        for statuses in status_map.values():
-            statuses_found.update(statuses.values())
-        for group_sub in sub_map.values():
-            for sub_statuses in group_sub.values():
-                statuses_found.update(sub_statuses)
-
-        preferred_order = {"present": 0, "null": 1, "absent": 2}
-        ordered_statuses = sorted(
-            statuses_found,
-            key=lambda s: (preferred_order.get(s, len(preferred_order)), s),
-        )
-        status_to_index = {
-            status: idx for idx, status in enumerate(ordered_statuses)
-        }
-        default_index = status_to_index["absent"]
-
-        row_labels = [collector._format_group_key(
-            group) for group in group_keys]
-        row_count = len(row_labels)
-        col_count = len(identifiers)
-        total_cells = row_count * col_count
-        codes = bytearray(total_cells)
-        sub_indices: dict[int, list[int]] = {}
-
-        for row_idx, group in enumerate(group_keys):
-            statuses = status_map.get(group, {})
-            sub_cells = sub_map.get(group, {})
-            for col_idx, identifier in enumerate(identifiers):
-                cell_idx = row_idx * col_count + col_idx
-                status = statuses.get(identifier, "absent")
-                codes[cell_idx] = status_to_index.get(status, default_index)
-                sub_statuses = sub_cells.get(identifier)
-                if sub_statuses:
-                    sub_indices[cell_idx] = [
-                        status_to_index.get(sub_status, default_index)
-                        for sub_status in sub_statuses
-                    ]
-
-        status_class_map = {
-            status: base_class.get(status, "status-missing")
-            for status in ordered_statuses
-        }
-        status_class_map["__default__"] = "status-missing"
-
-        symbol_map = {
-            status: collector._symbol_for(status) for status in ordered_statuses
-        }
-        symbol_map["__default__"] = "."
-
-        payload = {
-            "rows": row_labels,
-            "cols": identifiers,
-            "statuses": ordered_statuses,
-            "encoded": base64.b64encode(bytes(codes)).decode("ascii"),
-            "sub": sub_indices,
-            "statusClass": status_class_map,
-            "symbols": symbol_map,
-        }
-
-        header_cells = "".join(
-            f"<th scope='col'>{html.escape(identifier)}</th>"
-            for identifier in identifiers
-        )
-
-        sections.append(
-            "<section class='matrix-section'>"
-            f"<h2>{html.escape(title)}</h2>"
-            "<div class='matrix-info'>Scroll horizontally and vertically to explore.</div>"
-            f"<div class='table-container' id='{table_id}-container'>"
-            "<table class='heatmap'>"
-            "<thead>"
-            "<tr>"
-            "<th scope='col' class='group-col'>Group</th>"
-            f"{header_cells}"
-            "</tr>"
-            "</thead>"
-            f"<tbody id='{table_id}-body' data-colspan='{col_count + 1}'></tbody>"
-            "</table>"
-            "</div>"
-            "</section>"
-        )
-
-        scripts.append(f"setupMatrix('{table_id}', {json.dumps(payload)});")
-
-        for status, css_class in status_class_map.items():
-            if status.startswith("__"):
-                continue
-            legend_entries.setdefault(
-                status, (css_class, status.replace("_", " ").title())
+        next_cells = (len(self._rows) + 1) * self._row_width
+        if next_cells > self._max_cells:
+            raise ValueError(
+                f"Availability matrix exceeds max_cells={self._max_cells} at "
+                f"sample {len(self._rows) + 1}. Increase matrix options.max_cells "
+                "or inspect a smaller dataset window."
             )
 
-    render_table(
-        "Feature Availability",
-        feature_ids,
-        collector.group_feature_status,
-        collector.group_feature_sub,
-        "feature",
-    )
-    render_table(
-        "Partition Availability",
-        partition_ids,
-        collector.group_partition_status,
-        collector.group_partition_sub,
-        "partition",
-    )
-
-    for base_status, css in (
-        ("present", "status-present"),
-        ("null", "status-null"),
-        ("absent", "status-absent"),
-    ):
-        legend_entries.setdefault(
-            base_status, (css, base_status.replace("_", " ").title())
+        self._rows.append(
+            MatrixRow(
+                group=_format_group_key(group_key),
+                features=_cells(self._feature_entries, features),
+                targets=_cells(self._target_entries, targets),
+            )
         )
 
-    ordered_legend = sorted(
-        legend_entries.items(),
-        key=lambda item: (
-            {"present": 0, "null": 1, "absent": 2}.get(item[0], 99),
-            item[0],
+    def finish(self) -> AvailabilityMatrix:
+        return AvailabilityMatrix(
+            feature_ids=tuple(entry.id for entry in self._feature_entries),
+            target_ids=tuple(entry.id for entry in self._target_entries),
+            rows=tuple(self._rows),
+        )
+
+
+def _entry_width(entry: VectorMetadataEntry) -> int:
+    if isinstance(entry, ListVectorMetadataEntry):
+        return entry.cadence.target
+    return 1
+
+
+def _cells(
+    entries: Sequence[VectorMetadataEntry],
+    values: Mapping[str, Any],
+) -> tuple[MatrixCell, ...]:
+    return tuple(_cell(entry, values.get(entry.id, _ABSENT)) for entry in entries)
+
+
+def _cell(entry: VectorMetadataEntry, value: object) -> MatrixCell:
+    if value is _ABSENT:
+        return MatrixCell("absent")
+    if isinstance(entry, ListVectorMetadataEntry):
+        if is_missing(value):
+            null: Status = "null"
+            elements = (null,) * entry.cadence.target
+            return MatrixCell("null", elements)
+        if not isinstance(value, list):
+            raise ValueError(f"List vector {entry.id!r} contains a scalar value.")
+        expected = entry.cadence.target
+        if len(value) != expected:
+            raise ValueError(
+                f"List vector {entry.id!r} has length {len(value)}; expected {expected}."
+            )
+        elements = tuple(
+            "null" if is_missing(element) else "present" for element in value
+        )
+        status: Status = "present" if "present" in elements else "null"
+        return MatrixCell(status, elements)
+    if isinstance(value, list):
+        raise ValueError(f"Scalar vector {entry.id!r} contains a list value.")
+    return MatrixCell("null" if is_missing(value) else "present")
+
+
+def _format_group_key(group_key: object) -> str:
+    if isinstance(group_key, tuple):
+        return ", ".join(str(part) for part in group_key)
+    return str(group_key)
+
+
+def render_matrix_html(matrix: AvailabilityMatrix) -> str:
+    row_labels = tuple(row.group for row in matrix.rows)
+    sections = [
+        _html_table(
+            "Feature Availability",
+            "features",
+            matrix.feature_ids,
+            row_labels,
+            tuple(row.features for row in matrix.rows),
         ),
-    )
-    legend_html = "".join(
-        f"<span><span class='swatch {css}'></span>{label}</span>"
-        for _, (css, label) in ordered_legend
-    )
-
-    style = """
-        :root { color-scheme: light; }
-        * { box-sizing: border-box; }
-        body {
-            font-family: Arial, sans-serif;
-            margin: 24px;
-            background: #f9f9fa;
-            color: #222;
-        }
-        h1 { margin: 0; }
-        .matrix-wrapper {
-            border: 1px solid #d0d0d0;
-            border-radius: 8px;
-            background: #fff;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
-            overflow: hidden;
-        }
-        .matrix-header {
-            padding: 16px 20px;
-            border-bottom: 1px solid #e2e2e8;
-            display: flex;
-            flex-wrap: wrap;
-            align-items: center;
-            gap: 16px;
-        }
-        .matrix-header h1 {
-            font-size: 22px;
-        }
-        .legend {
-            display: inline-flex;
-            flex-wrap: wrap;
-            gap: 12px;
-            font-size: 13px;
-            color: #444;
-        }
-        .legend span {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .legend .swatch {
-            width: 14px;
-            height: 14px;
-            border-radius: 3px;
-            border: 1px solid rgba(0,0,0,0.08);
-            background: #bdc3c7;
-        }
-        .matrix-section {
-            padding: 18px 20px 24px;
-            border-top: 1px solid #f0f0f4;
-        }
-        .matrix-section:first-of-type {
-            border-top: none;
-        }
-        .matrix-section h2 {
-            margin: 0 0 10px;
-            font-size: 18px;
-        }
-        .matrix-info {
-            font-size: 12px;
-            color: #666;
-            margin-bottom: 10px;
-        }
-        .table-container {
-            border: 1px solid #d0d0d0;
-            border-radius: 6px;
-            overflow: auto;
-            max-height: 55vh;
-        }
-        table.heatmap {
-            border-collapse: collapse;
-            min-width: 100%;
-        }
-        .heatmap th,
-        .heatmap td {
-            border: 1px solid #d0d0d0;
-            padding: 0 5px;
-            text-align: center;
-            font-size: 13px;
-            line-height: 1.2;
-            vertical-align: middle;
-        }
-        .heatmap thead th {
-            position: sticky;
-            top: 0;
-            background: #f3f3f6;
-            z-index: 2;
-        }
-        .heatmap thead th.group-col,
-        .heatmap tbody th.group-col {
-            min-width: 160px;
-        }
-        .heatmap tbody th {
-            position: sticky;
-            left: 0;
-            background: #fff;
-            text-align: left;
-            font-weight: normal;
-            color: #333;
-            z-index: 1;
-        }
-        .status-present { background: #2ecc71; color: #fff; font-weight: bold; }
-        .status-null { background: #f1c40f; color: #000; font-weight: bold; }
-        .status-absent { background: #e74c3c; color: #fff; font-weight: bold; }
-        .status-missing { background: #bdc3c7; color: #000; font-weight: bold; }
-        .sub {
-            display: flex;
-            gap: 5px;
-            height: calc(100% - 2px);
-            min-height: 24px;
-            padding: 0 2px;
-            margin: 1px 0;
-            align-items: stretch;
-            justify-content: center;
-        }
-        .sub span {
-            flex: 1;
-            display: block;
-            position: relative;
-            border-radius: 4px;
-            overflow: hidden;
-            border: 1px solid rgba(0,0,0,0.15);
-            background: #fff;
-            min-width: 12px;
-        }
-        .sub span::after {
-            content: "";
-            position: absolute;
-            inset: 0;
-            display: block;
-            border-radius: 4px;
-        }
-        .sub .status-present::after { background: #2ecc71; }
-        .sub .status-null::after { background: #f1c40f; }
-        .sub .status-absent::after { background: #e74c3c; }
-        .sub .status-missing::after { background: #bdc3c7; }
-    """
-
-    script = """
-        function setupMatrix(rootId, payload) {
-            const container = document.getElementById(rootId + "-container");
-            const tbody = document.getElementById(rootId + "-body");
-            if (!container || !tbody) {
-                return;
-            }
-
-            const rows = payload.rows;
-            const cols = payload.cols;
-            const statuses = payload.statuses;
-            const encoded = payload.encoded;
-            const sub = payload.sub || {};
-            const statusClass = payload.statusClass || {};
-            const symbols = payload.symbols || {};
-            const colCount = cols.length;
-            const totalRows = rows.length;
-            const data = decode(encoded);
-
-            const defaultClass = statusClass["__default__"] || "status-missing";
-            const defaultSymbol = symbols["__default__"] || ".";
-
-            const rowHeightEstimate = 28;
-            let rowHeight = rowHeightEstimate;
-            let previousStart = -1;
-
-            renderInitial();
-
-            container.addEventListener("scroll", () => {
-                window.requestAnimationFrame(renderVisibleRows);
-            });
-
-            function renderInitial() {
-                renderVisibleRows();
-                const sampleRow = tbody.querySelector("tr.data-row");
-                if (sampleRow) {
-                    rowHeight = sampleRow.getBoundingClientRect().height || rowHeightEstimate;
-                    previousStart = -1;
-                    renderVisibleRows();
-                }
-            }
-
-            function renderVisibleRows() {
-                const visibleHeight = container.clientHeight;
-                const scrollTop = container.scrollTop;
-                const buffer = 20;
-
-                const start = Math.max(0, Math.floor(scrollTop / rowHeight) - buffer);
-                const visibleCount = Math.ceil(visibleHeight / rowHeight) + buffer * 2;
-                const end = Math.min(totalRows, start + visibleCount);
-
-                if (start === previousStart) {
-                    return;
-                }
-                previousStart = start;
-
-                const topSpacer = start * rowHeight;
-                const bottomSpacer = Math.max(0, (totalRows - end) * rowHeight);
-                const colspan = Number(tbody.dataset.colspan) || (colCount + 1);
-
-                let html = "";
-
-                if (topSpacer > 0) {
-                    html += `<tr class="virtual-spacer"><td colspan="${colspan}" style="height:${topSpacer}px;border:none;padding:0;"></td></tr>`;
-                }
-
-                for (let rowIdx = start; rowIdx < end; rowIdx++) {
-                    html += buildRow(rowIdx);
-                }
-
-                if (bottomSpacer > 0) {
-                    html += `<tr class="virtual-spacer"><td colspan="${colspan}" style="height:${bottomSpacer}px;border:none;padding:0;"></td></tr>`;
-                }
-
-                tbody.innerHTML = html;
-            }
-
-            function buildRow(rowIdx) {
-                const group = rows[rowIdx];
-                const rowLabel = escapeHtml(group);
-                const startOffset = rowIdx * colCount;
-                let cells = "";
-
-                for (let colIdx = 0; colIdx < colCount; colIdx++) {
-                    const cellIndex = startOffset + colIdx;
-                    const code = data[cellIndex];
-                    const status = statuses[code] || "absent";
-                    const cssClass = statusClass[status] || defaultClass;
-                    const title = escapeHtml(status);
-                    const symbol = symbols[status] !== undefined ? symbols[status] : defaultSymbol;
-                    const subEntry = sub[cellIndex];
-
-                    if (subEntry && subEntry.length) {
-                        const spans = subEntry.map((subCode) => {
-                            const subStatus = statuses[subCode] || "absent";
-                            const subClass = statusClass[subStatus] || defaultClass;
-                            return `<span class="${subClass}" title="${escapeHtml(subStatus)}"></span>`;
-                        }).join("");
-                        cells += `<td title="${title}"><div class="sub">${spans}</div></td>`;
-                    } else {
-                        cells += `<td class="${cssClass}" title="${title}">${escapeHtml(symbol)}</td>`;
-                    }
-                }
-
-                return `<tr class="data-row"><th scope="row" class="group-col">${rowLabel}</th>${cells}</tr>`;
-            }
-        }
-
-        function decode(data) {
-            const binary = atob(data);
-            const arr = new Uint8Array(binary.length);
-            for (let i = 0; i < binary.length; i++) {
-                arr[i] = binary.charCodeAt(i);
-            }
-            return arr;
-        }
-
-        function escapeHtml(value) {
-            return String(value)
-                .replace(/&/g, "&amp;")
-                .replace(/</g, "&lt;")
-                .replace(/>/g, "&gt;")
-                .replace(/"/g, "&quot;")
-                .replace(/'/g, "&#039;");
-        }
-    """
-
-    script_calls = "\n".join(scripts)
-
-    html_output = (
+        _html_table(
+            "Target Availability",
+            "targets",
+            matrix.target_ids,
+            row_labels,
+            tuple(row.targets for row in matrix.rows),
+        ),
+    ]
+    return (
         "<html><head><meta charset='utf-8'>"
-        f"<style>{style}</style>"
-        "<title>Feature Availability</title></head><body>"
-        "<div class='matrix-wrapper'>"
-        "<div class='matrix-header'>"
-        "<h1>Availability Matrix</h1>"
-        f"<div class='legend'>{legend_html}</div>"
-        "<div style='margin-left:auto;font-size:12px;color:#666;'>Scroll to inspect large matrices.</div>"
-        "</div>"
+        f"<style>{_STYLE}</style>"
+        "<title>Vector Availability</title></head><body>"
+        "<main><header><h1>Availability Matrix</h1>"
+        "<div class='legend'><span class='present'>Present</span>"
+        "<span class='null'>Null</span><span class='absent'>Absent</span></div>"
+        "</header>"
+        f"<script>{_SCRIPT}</script>"
         f"{''.join(sections)}"
-        f"<script>{script}{script_calls}</script>"
-        "</div>"
-        "</body></html>"
+        "</main></body></html>"
     )
 
-    with path.open("w", encoding="utf-8") as fh:
-        fh.write(html_output)
+
+def _html_table(
+    title: str,
+    table_id: str,
+    identifiers: tuple[str, ...],
+    row_labels: tuple[str, ...],
+    rows: tuple[tuple[MatrixCell, ...], ...],
+) -> str:
+    if not identifiers:
+        return f"<section><h2>{html.escape(title)}</h2><p>No data.</p></section>"
+
+    codes = bytearray()
+    sub: dict[int, list[int]] = {}
+    for row_cells in rows:
+        for cell in row_cells:
+            cell_index = len(codes)
+            codes.append(_STATUS_CODE[cell.status])
+            if cell.elements:
+                sub[cell_index] = [_STATUS_CODE[status] for status in cell.elements]
+
+    payload = {
+        "rows": row_labels,
+        "encoded": base64.b64encode(bytes(codes)).decode("ascii"),
+        "sub": sub,
+        "columns": len(identifiers),
+    }
+    encoded_payload = json.dumps(payload).replace("<", "\\u003c")
+    headers = "".join(
+        f"<th scope='col'>{html.escape(identifier)}</th>" for identifier in identifiers
+    )
+    return (
+        f"<section><h2>{html.escape(title)}</h2>"
+        f"<div class='table' id='{table_id}-container'><table><thead><tr>"
+        f"<th scope='col' class='group'>Group</th>{headers}</tr></thead>"
+        f"<tbody id='{table_id}-body' data-colspan='{len(identifiers) + 1}'></tbody>"
+        "</table></div></section>"
+        f"<script>setupMatrix('{table_id}', {encoded_payload});</script>"
+    )
+
+
+_STYLE = """
+* { box-sizing: border-box; }
+body { margin: 24px; background: #f7f7f8; color: #222; font-family: sans-serif; }
+main { overflow: hidden; border: 1px solid #ccc; border-radius: 8px; background: white; }
+header { display: flex; align-items: center; gap: 24px; padding: 16px 20px; }
+h1, h2 { margin: 0; }
+h1 { font-size: 22px; }
+h2 { padding: 16px 20px 10px; font-size: 18px; }
+.legend { display: flex; gap: 16px; font-size: 13px; }
+.legend span::before { content: ''; display: inline-block; width: 12px; height: 12px;
+  margin-right: 6px; border-radius: 2px; vertical-align: -1px; background: #bbb; }
+.legend .present::before, td.present, .sub .present { background: #2ecc71; }
+.legend .null::before, td.null, .sub .null { background: #f1c40f; }
+.legend .absent::before, td.absent, .sub .absent { background: #e74c3c; }
+section { border-top: 1px solid #eee; }
+.table { overflow: auto; max-height: 55vh; margin: 0 20px 20px; border: 1px solid #ccc; }
+table { min-width: 100%; border-collapse: collapse; }
+th, td { min-width: 28px; height: 28px; border: 1px solid #ddd; text-align: center; }
+thead th { position: sticky; top: 0; z-index: 2; background: #f2f2f4; }
+th.group { position: sticky; left: 0; z-index: 3; min-width: 160px; padding: 0 6px; text-align: left; }
+tbody th.group { z-index: 1; background: white; font-weight: normal; }
+.sub { display: flex; gap: 2px; height: 24px; padding: 2px; }
+.sub span { flex: 1; min-width: 8px; border-radius: 2px; }
+"""
+
+
+_SCRIPT = """
+function setupMatrix(id, payload) {
+  const container = document.getElementById(id + '-container');
+  const body = document.getElementById(id + '-body');
+  const raw = atob(payload.encoded);
+  const data = Uint8Array.from(raw, c => c.charCodeAt(0));
+  const classes = ['absent', 'present', 'null'];
+  const rowHeight = 28;
+  let previousStart = -1;
+
+  function render() {
+    const buffer = 20;
+    const start = Math.max(0, Math.floor(container.scrollTop / rowHeight) - buffer);
+    const count = Math.ceil(container.clientHeight / rowHeight) + buffer * 2;
+    const end = Math.min(payload.rows.length, start + count);
+    if (start === previousStart) return;
+    previousStart = start;
+    let output = '';
+    if (start) output += spacer(start * rowHeight);
+    for (let row = start; row < end; row++) output += matrixRow(row);
+    if (end < payload.rows.length) output += spacer((payload.rows.length - end) * rowHeight);
+    body.innerHTML = output;
+  }
+
+  function spacer(height) {
+    return `<tr><td colspan="${body.dataset.colspan}" style="height:${height}px;border:0"></td></tr>`;
+  }
+
+  function matrixRow(row) {
+    let cells = '';
+    for (let column = 0; column < payload.columns; column++) {
+      const index = row * payload.columns + column;
+      const status = classes[data[index]] || 'absent';
+      const elements = payload.sub[index];
+      if (elements && elements.length) {
+        const spans = elements.map(code => `<span class="${classes[code] || 'absent'}"></span>`).join('');
+        cells += `<td title="${status}"><div class="sub">${spans}</div></td>`;
+      } else {
+        cells += `<td class="${status}" title="${status}"></td>`;
+      }
+    }
+    return `<tr><th scope="row" class="group">${escapeHtml(payload.rows[row])}</th>${cells}</tr>`;
+  }
+
+  function escapeHtml(value) {
+    return String(value).replace(/[&<>"']/g, character => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'
+    })[character]);
+  }
+
+  container.addEventListener('scroll', () => requestAnimationFrame(render));
+  render();
+}
+"""

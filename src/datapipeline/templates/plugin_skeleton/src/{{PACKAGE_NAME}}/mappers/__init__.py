@@ -1,1 +1,1 @@
-"""Stream mappers (DTO -> domain records)."""
+"""Iterator mappers from parsed values to domain records."""

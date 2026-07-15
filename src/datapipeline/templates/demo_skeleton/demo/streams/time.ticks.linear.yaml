@@ -1,13 +1,16 @@
 id: time.ticks.linear
 from:
-  stream: time.ticks.linear.ingest
+  source: synthetic.ticks
+map:
+  entrypoint: encode_time
+  args: { mode: linear }
 
-cadence: ${group_by}
+preprocess:
+  - { operation: where, field: time, operator: ge, comparand: "${start_time}" }
+  - { operation: where, field: time, operator: le, comparand: "${end_time}" }
+  - { operation: floor_time, cadence: "${group_by}" }
 
-stream:
-  - dedupe: {}
-  - granularity: { field: value, mode: first }
-  - ensure_cadence: { field: value, cadence: "${cadence}" }
-
-debug:
-  - lint: { mode: error, tick: "${cadence}" }
+transforms:
+  - operation: dedupe
+  - { operation: collapse, keep: first }
+  - { operation: ensure_cadence, cadence: "${group_by}" }

@@ -1,44 +1,39 @@
 from dataclasses import dataclass
-from pathlib import Path
-
-from datapipeline.artifacts.planning import ArtifactGraph
-from datapipeline.config.catalog import StreamsConfig
+from datapipeline.artifacts.planning import ArtifactGraph, stream_tick_artifacts
+from datapipeline.config.streams import StreamsConfig
 from datapipeline.config.tasks import TicksTask
-from datapipeline.services.bootstrap.core import load_streams
-from datapipeline.transforms.spec import TransformSpec
-from datapipeline.utils.time import parse_timecode
 
 
 @dataclass(frozen=True)
 class NestedTickDependency:
     task: TicksTask
-    cadence_artifacts: frozenset[str]
+    tick_artifacts: frozenset[str]
 
 
 def validate_artifact_plan(
-    project_path: Path,
+    streams: StreamsConfig,
     graph: ArtifactGraph,
     artifact_keys: set[str],
 ) -> None:
     graph.validate_producers(artifact_keys)
     nested_dependencies = nested_tick_dependencies(
-        project_path,
+        streams,
         graph,
         artifact_keys,
     )
     if nested_dependencies:
         dependency = nested_dependencies[0]
-        artifacts = ", ".join(sorted(dependency.cadence_artifacts))
+        artifacts = ", ".join(sorted(dependency.tick_artifacts))
         raise ValueError(
             f"Tick artifact '{dependency.task.id}' source stream "
-            f"'{dependency.task.stream}' uses "
-            f"artifact-backed cadence(s): {artifacts}. Nested tick artifact "
+            f"'{dependency.task.stream}' uses tick artifact(s): {artifacts}. "
+            "Nested tick artifact "
             "dependencies are not supported."
         )
 
 
 def nested_tick_dependencies(
-    project_path: Path,
+    streams: StreamsConfig,
     graph: ArtifactGraph,
     artifact_keys: set[str],
 ) -> tuple[NestedTickDependency, ...]:
@@ -50,55 +45,14 @@ def nested_tick_dependencies(
     if not tick_tasks:
         return ()
 
-    streams = load_streams(project_path)
     nested: list[NestedTickDependency] = []
     for task in tick_tasks:
-        cadence_artifacts = stream_cadence_artifacts(task.stream, streams)
-        if cadence_artifacts:
+        tick_artifacts = stream_tick_artifacts(task.stream, streams)
+        if tick_artifacts:
             nested.append(
                 NestedTickDependency(
                     task=task,
-                    cadence_artifacts=frozenset(cadence_artifacts),
+                    tick_artifacts=frozenset(tick_artifacts),
                 )
             )
     return tuple(nested)
-
-
-def stream_cadence_artifacts(
-    stream_id: str,
-    streams: StreamsConfig,
-) -> set[str]:
-    artifacts: set[str] = set()
-    visited: set[str] = set()
-
-    def visit(current_stream_id: str) -> None:
-        if current_stream_id in visited:
-            return
-        visited.add(current_stream_id)
-        stream = streams.streams.get(current_stream_id)
-        if stream is None:
-            return
-        for operation in stream.stream or ():
-            cadence = _artifact_cadence(operation)
-            if cadence is not None:
-                artifacts.add(cadence)
-        for input_stream_id in stream.input_streams():
-            visit(input_stream_id)
-
-    visit(stream_id)
-    return artifacts
-
-
-def _artifact_cadence(operation: TransformSpec) -> str | None:
-    if operation.name != "ensure_cadence":
-        return None
-    cadence = operation.params.get("cadence")
-    if not isinstance(cadence, str) or not cadence.strip():
-        raise ValueError("ensure_cadence requires a non-empty string cadence")
-    try:
-        duration = parse_timecode(cadence)
-    except ValueError:
-        return cadence
-    if duration.total_seconds() <= 0:
-        raise ValueError("ensure_cadence duration must be positive")
-    return None

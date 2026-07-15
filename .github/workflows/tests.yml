@@ -25,7 +25,12 @@ jobs:
           python -m pip install -e ".[dev]"
 
       - name: Run Ruff
-        run: ruff check .
+        run: |
+          ruff check .
+          ruff format --check .
+
+      - name: Run mypy
+        run: python -m mypy
 
   pytest:
     runs-on: ubuntu-latest
@@ -120,16 +125,23 @@ jobs:
           smoke_root="$(mktemp -d)"
           cd "$smoke_root"
           jerry plugin init smoke-plugin --out .
+          test -f smoke-plugin/jerry.yaml
           test -f smoke-plugin/your-dataset/.env.example
-          test -f smoke-plugin/your-interim-data-builder/.env.example
-          test -f smoke-plugin/your-dataset/profiles/build.defaults.yaml
-          test -f smoke-plugin/your-interim-data-builder/profiles/build.defaults.yaml
-          test -f smoke-plugin/your-dataset/tasks/operations/pipeline.yaml
-          test -f smoke-plugin/your-interim-data-builder/tasks/operations/pipeline.yaml
+          test -f smoke-plugin/your-dataset/project.yaml
+          test -f smoke-plugin/your-dataset/dataset.yaml
+          test -f smoke-plugin/your-dataset/profiles/build.schema.yaml
+          test -f smoke-plugin/your-dataset/profiles/serve.defaults.yaml
+          test -f smoke-plugin/your-dataset/profiles/serve.dataset.yaml
+          test ! -e smoke-plugin/your-interim-data-builder
+          test ! -e smoke-plugin/your-dataset/tasks
           test ! -e smoke-plugin/_dataset_base
           jerry demo init --out .
+          test -f demo/jerry.yaml
           test -f demo/demo/.env.example
+          test -f demo/demo/scripts/run_dataframe.py
+          test -f demo/demo/scripts/run_torch.py
           test ! -e demo/_dataset_base
+          test ! -e jerry.yaml
           if find smoke-plugin demo \( -name __pycache__ -o -name '*.pyc' -o -name '.DS_Store' \) | grep -q .; then
             echo "Scaffolded output contains generated files"
             exit 1

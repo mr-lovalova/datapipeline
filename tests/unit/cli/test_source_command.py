@@ -3,7 +3,9 @@ from types import SimpleNamespace
 import pytest
 
 from datapipeline.cli.commands import source
-from datapipeline.services.constants import DEFAULT_TEMPORAL_RECORD_PARSER_EP
+from datapipeline.services.scaffold.source_yaml import (
+    DEFAULT_TEMPORAL_RECORD_PARSER_EP,
+)
 
 
 def test_source_create_resolves_alias_and_builtin_loader(monkeypatch) -> None:

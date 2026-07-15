@@ -1,12 +1,17 @@
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 
-from datapipeline.cli.workspace_utils import resolve_default_project_yaml
-from datapipeline.config.options import SOURCE_TRANSPORTS, source_formats_for
-from datapipeline.config.workspace import WorkspaceContext
-from datapipeline.services.constants import DEFAULT_TEMPORAL_RECORD_PARSER_EP
-from datapipeline.services.paths import pkg_root
-from datapipeline.services.project_paths import resolve_project_yaml_path
+from datapipeline.cli.prompts import (
+    choose_domain,
+    choose_dto,
+    choose_name,
+    pick_from_list,
+    pick_from_menu,
+    prompt_required,
+)
+from datapipeline.cli.source_options import SOURCE_TRANSPORTS, source_formats_for
+from datapipeline.cli.workspace import WorkspaceContext, resolve_default_project_yaml
 from datapipeline.services.scaffold.discovery import (
     list_domains,
     list_dtos,
@@ -15,10 +20,6 @@ from datapipeline.services.scaffold.discovery import (
     list_sources,
 )
 from datapipeline.services.scaffold.layout import (
-    LABEL_DOMAIN_TO_MAP,
-    LABEL_DTO_FOR_MAPPER,
-    LABEL_DTO_FOR_PARSER,
-    LABEL_MAPPER_INPUT,
     default_mapper_name,
     default_mapper_name_for_identity,
     default_parser_name,
@@ -27,7 +28,9 @@ from datapipeline.services.scaffold.layout import (
     dto_module_path,
     source_id_parts,
 )
+from datapipeline.services.scaffold.paths import default_project_yaml_path, pkg_root
 from datapipeline.services.scaffold.source_yaml import (
+    DEFAULT_TEMPORAL_RECORD_PARSER_EP,
     default_loader_config,
     validate_source_id,
 )
@@ -48,15 +51,8 @@ from datapipeline.services.scaffold.stream_plan import (
     StreamPlan,
     execute_stream_plan,
 )
-from datapipeline.services.scaffold.utils import (
-    choose_existing_or_create_name,
-    choose_name,
-    error_exit,
-    info,
-    pick_from_list,
-    pick_from_menu,
-    prompt_required,
-)
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -145,21 +141,12 @@ def _select_parser_plan(
 
     dto_map = list_dtos(root=plugin_root)
     default_dto = dto_class_name(f"{provider}_{dataset}")
-    dto_class, dto_is_new = choose_existing_or_create_name(
-        label=LABEL_DTO_FOR_PARSER,
-        existing=sorted(dto_map),
-        create_label="Create new DTO",
-        prompt_new="DTO class name",
-        default_new=default_dto,
-    )
+    dto_class, dto_is_new = choose_dto(sorted(dto_map), default_dto)
     if dto_is_new:
         dto = PythonType(dto_class, dto_module_path(package_name, dto_class))
         dto_to_create = dto_class
     else:
-        dto_module = dto_map.get(dto_class)
-        if dto_module is None:
-            error_exit(f"Failed to resolve module for DTO '{dto_class}'.")
-        dto = PythonType(dto_class, dto_module)
+        dto = PythonType(dto_class, dto_map[dto_class])
         dto_to_create = None
     parser_name = choose_name(
         "Parser class name",
@@ -193,13 +180,13 @@ def _select_mapper_plan(
         raise ValueError(f"Unknown mapper choice: {mapper_choice}")
 
     input_choice = pick_from_menu(
-        f"{LABEL_MAPPER_INPUT}:",
+        "Mapper input:",
         [
             ("dto", "DTO (default)"),
             ("identity", "Any"),
         ],
     )
-    info("Domain output: Domain record")
+    logger.info("Domain output: Domain record")
     if input_choice == "identity":
         input_type = PythonType("Any", "typing")
         mapper_name = choose_name(
@@ -218,12 +205,9 @@ def _select_mapper_plan(
         dto_to_create = None
     else:
         dto_map = list_dtos(root=plugin_root)
-        dto_class, dto_is_new = choose_existing_or_create_name(
-            label=LABEL_DTO_FOR_MAPPER,
-            existing=sorted(dto_map),
-            create_label="Create new DTO",
-            prompt_new="DTO class name",
-            default_new=dto_class_name(f"{provider}_{dataset}"),
+        dto_class, dto_is_new = choose_dto(
+            sorted(dto_map),
+            dto_class_name(f"{provider}_{dataset}"),
         )
         if dto_is_new:
             input_type = PythonType(
@@ -232,10 +216,7 @@ def _select_mapper_plan(
             )
             dto_to_create = dto_class
         else:
-            dto_module = dto_map.get(dto_class)
-            if dto_module is None:
-                error_exit(f"Failed to resolve module for DTO '{dto_class}'.")
-            input_type = PythonType(dto_class, dto_module)
+            input_type = PythonType(dto_class, dto_map[dto_class])
             dto_to_create = None
     mapper_name = choose_name(
         "Mapper name",
@@ -252,8 +233,6 @@ def _collect_stream_plan(
     package_name: str,
     project_yaml: Path,
 ) -> StreamPlan:
-    provider = prompt_required("Provider name (e.g. nasa)")
-    dataset = prompt_required("Dataset name (e.g. weather)")
     dto_to_create = None
 
     source_choice = pick_from_menu(
@@ -266,18 +245,22 @@ def _collect_stream_plan(
     if source_choice == "existing":
         sources = list_sources(project_yaml)
         if not sources:
-            error_exit("No sources found. Create one first.")
+            raise SystemExit("No sources found. Create one first.")
         source_id = pick_from_list("Select source:", sources)
         source_provider, source_dataset, _ = source_id_parts(source_id)
-        provider = source_provider or provider
-        dataset = source_dataset or dataset
+        if source_provider is None or source_dataset is None:
+            raise ValueError(f"Invalid source id: {source_id}")
+        provider = source_provider
+        dataset = source_dataset
         source: SourcePlan = SourceReference(source_id)
     elif source_choice == "create":
+        provider = prompt_required("Provider name (e.g. nasa)")
+        dataset = prompt_required("Dataset name (e.g. weather)")
         source_id = choose_name("Source id", default=f"{provider}.{dataset}")
         try:
             validate_source_id(source_id)
         except ValueError as exc:
-            error_exit(str(exc))
+            raise SystemExit(str(exc)) from None
         loader_entrypoint, loader_args = _select_new_source_loader()
         parser_selection = _select_parser_plan(
             plugin_root,
@@ -295,12 +278,9 @@ def _collect_stream_plan(
     else:
         raise ValueError(f"Unknown source choice: {source_choice}")
 
-    domain_name, domain_is_new = choose_existing_or_create_name(
-        label=LABEL_DOMAIN_TO_MAP,
-        existing=list_domains(root=plugin_root),
-        create_label="Create new domain",
-        prompt_new="Domain name",
-        default_new=dataset,
+    domain_name, domain_is_new = choose_domain(
+        list_domains(root=plugin_root),
+        dataset,
     )
     domain: DomainPlan
     if domain_is_new:
@@ -341,8 +321,14 @@ def handle(
     workspace: WorkspaceContext | None = None,
 ) -> None:
     root_dir, package_name, _ = pkg_root(plugin_root)
-    project_yaml = resolve_default_project_yaml(workspace) or resolve_project_yaml_path(
+    project_yaml = resolve_default_project_yaml(workspace) or default_project_yaml_path(
         root_dir
     )
     plan = _collect_stream_plan(plugin_root, package_name, project_yaml)
-    execute_stream_plan(plan)
+    try:
+        result = execute_stream_plan(plan)
+    except (FileExistsError, ValueError) as exc:
+        raise SystemExit(str(exc)) from None
+    logger.info("Stream: %s", result.path)
+    if result.entry_points_changed:
+        logger.info("Reinstall plugin: pip install -e %s", root_dir)
