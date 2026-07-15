@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from datapipeline.artifacts.errors import ArtifactResolutionError
 from datapipeline.artifacts.planning import build_artifact_graph
 from datapipeline.artifacts.registry import ArtifactRegistry
 from datapipeline.artifacts.settings import BuildSettings
@@ -708,6 +709,28 @@ def test_runtime_job_does_not_hide_plugin_value_errors(
         )
 
 
+def test_runtime_job_reports_unavailable_artifacts(monkeypatch, tmp_path: Path) -> None:
+    task = OperationTask(id="report", entrypoint="plugin.runtime.report")
+    job = _runtime_job("report", task, _runtime(tmp_path))
+    monkeypatch.setattr(
+        "datapipeline.profiles.execution.hydrate_runtime_artifacts_for_pipeline",
+        lambda *_args, **_kwargs: (),
+    )
+
+    with pytest.raises(
+        ArtifactResolutionError,
+        match=(
+            "Runtime operation 'report' requires missing or stale artifacts: schema"
+        ),
+    ):
+        execute_runtime_job(
+            "inspect",
+            pipeline_definition(tmp_path / "project.yaml"),
+            build_artifact_graph([]),
+            RuntimeJobPlan(job, ("schema",)),
+        )
+
+
 def test_runtime_plugin_receives_the_documented_contract(
     monkeypatch, tmp_path: Path
 ) -> None:
@@ -851,6 +874,33 @@ def test_job_failure_marks_shared_run_failed(monkeypatch, tmp_path: Path) -> Non
         run_profiles(request)
 
     assert failed == [run_paths]
+
+
+def test_artifact_resolution_failure_exits_at_profile_boundary(
+    monkeypatch,
+    tmp_path: Path,
+    caplog,
+) -> None:
+    request = _runtime_request(
+        tmp_path,
+        command="inspect",
+        artifact_tasks=[],
+        jobs=[],
+    )
+
+    def fail(_request) -> None:
+        raise ArtifactResolutionError("required artifact is unavailable")
+
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration._run_runtime_profiles",
+        fail,
+    )
+
+    with caplog.at_level(logging.ERROR), pytest.raises(SystemExit) as exc:
+        run_profiles(request)
+
+    assert exc.value.code == 2
+    assert "required artifact is unavailable" in caplog.text
 
 
 def test_preview_run_exists_at_job_boundary_and_is_not_latest(

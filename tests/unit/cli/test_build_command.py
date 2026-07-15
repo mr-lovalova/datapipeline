@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from datapipeline.artifacts import executor as build_exec
+from datapipeline.artifacts.errors import ArtifactResolutionError
 from datapipeline.artifacts.planning import build_artifact_graph
 from datapipeline.artifacts.registry import ArtifactRegistry
 from datapipeline.artifacts.settings import BuildSettings
@@ -469,7 +470,10 @@ def test_plan_rejects_missing_dependency_producer(
     definition = _definition(tmp_path, _dataset_with_feature(scale=False))
     graph = build_artifact_graph([SchemaTask(id="schema")])
 
-    with pytest.raises(SystemExit) as exc:
+    with pytest.raises(
+        ArtifactResolutionError,
+        match="Required artifact operation 'vector_inputs' is not declared",
+    ):
         build_exec._plan_build(
             definition=definition,
             graph=graph,
@@ -477,7 +481,20 @@ def test_plan_rejects_missing_dependency_producer(
             mode="AUTO",
         )
 
-    assert exc.value.code == 2
+
+def test_plan_rejects_unknown_artifact(tmp_path: Path) -> None:
+    definition = _definition(tmp_path)
+
+    with pytest.raises(
+        ArtifactResolutionError,
+        match="Unknown artifact 'unknown'",
+    ):
+        build_exec._plan_build(
+            definition=definition,
+            graph=build_artifact_graph([]),
+            required_artifacts={"unknown"},
+            mode="AUTO",
+        )
 
 
 def test_stale_dependency_rebuilds_current_dependent(
@@ -533,15 +550,19 @@ def test_mode_off_rejects_missing_artifact(tmp_path: Path) -> None:
     )
     graph = build_artifact_graph([task])
 
-    with pytest.raises(SystemExit) as exc:
+    with pytest.raises(
+        ArtifactResolutionError,
+        match=(
+            "Artifact mode is OFF, but required artifacts are missing or stale: "
+            "snapshot"
+        ),
+    ):
         build_exec._plan_build(
             definition=definition,
             graph=graph,
             required_artifacts={task.id},
             mode="OFF",
         )
-
-    assert exc.value.code == 2
 
 
 def test_execute_build_jobs_persists_completed_job_before_failure(

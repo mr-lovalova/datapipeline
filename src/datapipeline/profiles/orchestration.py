@@ -1,5 +1,6 @@
 import logging
 
+from datapipeline.artifacts.errors import ArtifactResolutionError
 from datapipeline.artifacts.executor import run_build_if_needed
 from datapipeline.artifacts.planning import (
     ArtifactGraph,
@@ -57,7 +58,7 @@ def run_profiles(request: ProfileRunRequest) -> None:
                     f"Unsupported profile request: {type(request).__name__}"
                 )
             _prune_vector_input_caches(request)
-    except ProjectExecutionBusyError as exc:
+    except (ArtifactResolutionError, ProjectExecutionBusyError) as exc:
         logger.error("%s", exc)
         raise SystemExit(2) from exc
 

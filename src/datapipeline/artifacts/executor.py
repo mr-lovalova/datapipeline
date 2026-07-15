@@ -4,8 +4,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+from datapipeline.artifacts.errors import ArtifactResolutionError
 from datapipeline.artifacts.hydration import hydrate_runtime_artifacts
 from datapipeline.artifacts.planning import ArtifactGraph
+from datapipeline.artifacts.settings import BuildSettings
 from datapipeline.artifacts.validation import validate_artifact_plan
 from datapipeline.build.state import (
     BuildState,
@@ -13,7 +15,6 @@ from datapipeline.build.state import (
     save_build_state,
 )
 from datapipeline.cli.visuals.execution import emit_execution_message
-from datapipeline.artifacts.settings import BuildSettings
 from datapipeline.config.profiles import ArtifactMode
 from datapipeline.config.tasks import ArtifactTask
 from datapipeline.execution.observability import emit_file_result, operation_scope
@@ -103,8 +104,7 @@ def _plan_build(
         selected_roots = set(required_artifacts)
         selected_keys = set(graph.dependency_closure(selected_roots))
     except ValueError as exc:
-        logger.error("%s", exc)
-        raise SystemExit(2) from exc
+        raise ArtifactResolutionError(str(exc)) from exc
 
     if not selected_keys:
         return SkippedBuild(reason="no_artifacts_selected", artifacts=())
@@ -122,8 +122,7 @@ def _plan_build(
     try:
         validate_artifact_plan(definition.streams, graph, selected_keys)
     except ValueError as exc:
-        logger.error("%s", exc)
-        raise SystemExit(2) from exc
+        raise ArtifactResolutionError(str(exc)) from exc
 
     state_path = (
         definition.project.artifacts_root / "_system" / "build" / "state.json"
@@ -147,11 +146,10 @@ def _plan_build(
     if mode == "OFF":
         if selected_outdated:
             artifacts = ", ".join(graph.topological_order(selected_outdated))
-            logger.error(
-                "Artifact mode is OFF, but required artifacts are missing or stale: %s.",
-                artifacts,
+            raise ArtifactResolutionError(
+                "Artifact mode is OFF, but required artifacts are missing or stale: "
+                f"{artifacts}."
             )
-            raise SystemExit(2)
         return SkippedBuild(
             reason="mode_off",
             artifacts=expanded_artifacts,

@@ -3,6 +3,7 @@ import logging
 from dataclasses import dataclass
 from typing import Literal
 
+from datapipeline.artifacts.errors import ArtifactResolutionError
 from datapipeline.artifacts.hydration import hydrate_runtime_artifacts_for_pipeline
 from datapipeline.artifacts.planning import ArtifactGraph
 from datapipeline.artifacts.validation import validate_artifact_plan
@@ -104,12 +105,10 @@ def execute_runtime_job(
         key for key in plan.required_artifacts if key not in current_artifacts
     ]
     if unavailable:
-        logger.error(
-            "Runtime operation '%s' requires missing or stale artifacts: %s.",
-            job.task.id,
-            ", ".join(unavailable),
+        raise ArtifactResolutionError(
+            f"Runtime operation '{job.task.id}' requires missing or stale artifacts: "
+            f"{', '.join(unavailable)}."
         )
-        raise SystemExit(2)
 
     with operation_scope(f"{command}:{job.name}"):
         emit_execution_message(
