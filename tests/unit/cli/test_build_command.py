@@ -140,14 +140,16 @@ def _build_artifact(runtime, task: ArtifactTask) -> ArtifactOutput:
 
 
 def _patch_artifact_build(monkeypatch, build) -> None:
-    def load_operation_runner(operation, _operation_group):
+    def load_ep(operation_group, entrypoint):
+        assert operation_group == "datapipeline.operations.build"
+
         def run(*, runtime, task_cfg):
-            assert task_cfg is operation
+            assert task_cfg.entrypoint == entrypoint
             return build(runtime, task_cfg)
 
         return run
 
-    monkeypatch.setattr(build_exec, "load_operation_runner", load_operation_runner)
+    monkeypatch.setattr(build_exec, "load_ep", load_ep)
 
 
 def _build_settings(mode: str = "AUTO") -> BuildSettings:

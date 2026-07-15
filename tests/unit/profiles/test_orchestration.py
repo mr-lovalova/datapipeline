@@ -658,7 +658,7 @@ def test_runtime_job_emits_resolved_config_at_debug(
         lambda message, level, logger: messages.append((message, level)),
     )
     monkeypatch.setattr(
-        "datapipeline.profiles.execution.load_operation_runner",
+        "datapipeline.profiles.execution.load_ep",
         lambda *_args: lambda *_runner_args: None,
     )
 
@@ -697,7 +697,7 @@ def test_runtime_job_does_not_hide_plugin_value_errors(
 
         return run
 
-    monkeypatch.setattr("datapipeline.profiles.execution.load_operation_runner", fail)
+    monkeypatch.setattr("datapipeline.profiles.execution.load_ep", fail)
 
     with pytest.raises(ValueError, match="plugin bug"):
         execute_runtime_job(
@@ -715,9 +715,9 @@ def test_runtime_plugin_receives_the_documented_contract(
     job = _runtime_job("report", task, _runtime(tmp_path), limit=7)
     received = None
 
-    def load_runner(operation, group):
-        assert operation is task
+    def load_runner(group, entrypoint):
         assert group == "datapipeline.operations.runtime"
+        assert entrypoint == task.entrypoint
 
         def run(runtime, operation_task, limit):
             nonlocal received
@@ -727,7 +727,7 @@ def test_runtime_plugin_receives_the_documented_contract(
         return run
 
     monkeypatch.setattr(
-        "datapipeline.profiles.execution.load_operation_runner",
+        "datapipeline.profiles.execution.load_ep",
         load_runner,
     )
 
@@ -750,7 +750,7 @@ def test_matrix_operation_uses_its_core_runner(monkeypatch, tmp_path: Path) -> N
         run_matrix,
     )
     monkeypatch.setattr(
-        "datapipeline.profiles.execution.load_operation_runner",
+        "datapipeline.profiles.execution.load_ep",
         lambda *_args: pytest.fail("core operations must not load plugin entry points"),
     )
 

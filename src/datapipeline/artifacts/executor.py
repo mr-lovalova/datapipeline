@@ -17,12 +17,12 @@ from datapipeline.artifacts.settings import BuildSettings
 from datapipeline.config.profiles import ArtifactMode
 from datapipeline.config.tasks import ArtifactTask
 from datapipeline.execution.observability import emit_file_result, operation_scope
-from datapipeline.operations.dispatch import load_operation_runner
 from datapipeline.operations.persistence import persist_artifact_output
 from datapipeline.plugins import BUILD_OPERATIONS_EP
 from datapipeline.runtime import Runtime
 from datapipeline.services.definitions import ArtifactHashes, PipelineDefinition
 from datapipeline.services.path_policy import resolve_artifact_output_path
+from datapipeline.utils.load import load_ep
 
 logger = logging.getLogger(__name__)
 
@@ -251,7 +251,7 @@ def _execute_build_jobs(
                 artifact_keys=plan.artifacts,
             )
 
-            runner = load_operation_runner(job.task, BUILD_OPERATIONS_EP)
+            runner = load_ep(BUILD_OPERATIONS_EP, job.task.entrypoint)
             output = runner(
                 runtime=runtime,
                 task_cfg=job.task,
