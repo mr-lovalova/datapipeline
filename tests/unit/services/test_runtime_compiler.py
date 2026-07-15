@@ -1,5 +1,5 @@
 from datapipeline.execution.context import PipelineContext
-from datapipeline.execution.observer import NoopPipelineObserver
+from datapipeline.execution.events import PipelineEvent, PipelineStarted
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.operations.runtime.pipeline import _record_preview_stream
 from datapipeline.pipelines.stream.pipeline import (
@@ -13,17 +13,13 @@ from datapipeline.services.runtime_compiler import compile_runtime
 from datapipeline.sources.models.source import Source
 
 
-class _PipelineObserver(NoopPipelineObserver):
+class _PipelineObserver:
     def __init__(self) -> None:
         self.started: list[str] = []
 
-    def on_pipeline_start(
-        self,
-        pipeline_name: str,
-        node_count: int,
-        summary: str | None = None,
-    ) -> None:
-        self.started.append(pipeline_name)
+    def __call__(self, event: PipelineEvent) -> None:
+        if isinstance(event, PipelineStarted):
+            self.started.append(event.pipeline_name)
 
 
 def _write_test_project(tmp_path):

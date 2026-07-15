@@ -8,20 +8,24 @@ from typing import Any
 
 from datapipeline.execution.context import PipelineContext
 from datapipeline.execution.events import (
-    NodeExecutionEvent,
-    NodeProgressEvent,
-    PipelineRunEvent,
+    NodeFinished,
+    NodeProgress,
+    NodeStarted,
+    PipelineFinished,
+    PipelineProgress,
+    PipelineStarted,
+    PipelineSummary,
     ProgressSnapshot,
     RunStatus,
 )
 from datapipeline.execution.node import Node, NodeProgressReader, SourceNode
-from datapipeline.execution.observer import PipelineObserver, NoopPipelineObserver
+from datapipeline.execution.observer import PipelineObserver, ignore_pipeline_event
 from datapipeline.execution.pipeline import Pipeline
 
 
 DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 60.0
 _LIVE_PROGRESS_INTERVAL_SECONDS = 0.1
-_NOOP_OBSERVER = NoopPipelineObserver()
+_NOOP_OBSERVER = ignore_pipeline_event
 
 
 @dataclass(frozen=True)
@@ -34,7 +38,6 @@ class _NodeProgressContext:
 @dataclass
 class _NodeProgressState:
     started_at: float
-    last_persistent_at: float
     completed: int
     reader: NodeProgressReader | None
     last_live_signature: tuple[object, ...] | None = None
@@ -43,9 +46,17 @@ class _NodeProgressState:
 class _RunProgress:
     """Publish sampled progress without synchronizing every emitted item."""
 
-    def __init__(self, observer: PipelineObserver, interval_seconds: float) -> None:
+    def __init__(
+        self,
+        observer: PipelineObserver,
+        pipeline_name: str,
+        interval_seconds: float,
+    ) -> None:
         self._observer = observer
+        self._pipeline_name = pipeline_name
         self._heartbeat_interval_seconds = interval_seconds
+        self._started_at = time.perf_counter()
+        self._last_heartbeat_at = self._started_at
         self._delivery_lock = threading.RLock()
         self._state_lock = threading.Lock()
         self._stop = threading.Event()
@@ -53,6 +64,7 @@ class _RunProgress:
         self._thread_error: Exception | None = None
         self._states: dict[_NodeProgressContext, _NodeProgressState] = {}
         self.active_node: _NodeProgressContext | None = None
+        self.output_items = 0
 
     def start(self) -> None:
         context = copy_context()
@@ -80,7 +92,6 @@ class _RunProgress:
         now = time.perf_counter()
         state = _NodeProgressState(
             started_at=now,
-            last_persistent_at=now,
             completed=0,
             reader=reader,
         )
@@ -109,27 +120,37 @@ class _RunProgress:
         with self._delivery_lock:
             due = []
             with self._state_lock:
+                heartbeat_due = (
+                    self._heartbeat_interval_seconds > 0
+                    and now - self._last_heartbeat_at
+                    >= self._heartbeat_interval_seconds
+                )
+                if heartbeat_due:
+                    self._last_heartbeat_at = now
                 for node, state in self._states.items():
                     if node != active_node and state.reader is None:
                         continue
                     progress = self._snapshot(state)
                     signature = self._signature(progress)
-                    persistent = (
-                        node == active_node
-                        and self._heartbeat_interval_seconds > 0
-                        and now - state.last_persistent_at
-                        >= self._heartbeat_interval_seconds
-                    )
-                    if persistent:
-                        state.last_persistent_at = now
+                    heartbeat = heartbeat_due and node == active_node
+                    if heartbeat:
                         state.last_live_signature = signature
                     elif signature != state.last_live_signature:
                         state.last_live_signature = signature
                     else:
                         continue
-                    due.append((node, progress, now - state.started_at, persistent))
-            for node, progress, elapsed, persistent in due:
-                self._emit(node, progress, elapsed, persistent=persistent)
+                    due.append((node, progress, now - state.started_at, heartbeat))
+                output_items = self.output_items if heartbeat_due else 0
+            for node, progress, elapsed, heartbeat in due:
+                self._emit(node, progress, elapsed, heartbeat=heartbeat)
+            if heartbeat_due:
+                self._observer(
+                    PipelineProgress(
+                        pipeline_name=self._pipeline_name,
+                        output_items=output_items,
+                        elapsed_seconds=now - self._started_at,
+                    )
+                )
 
     @staticmethod
     def _snapshot(state: _NodeProgressState) -> ProgressSnapshot:
@@ -153,16 +174,16 @@ class _RunProgress:
         node: _NodeProgressContext,
         progress: ProgressSnapshot,
         elapsed: float,
-        persistent: bool,
+        heartbeat: bool,
     ) -> None:
-        self._observer.on_node_progress(
-            NodeProgressEvent(
+        self._observer(
+            NodeProgress(
                 pipeline_name=node.pipeline_name,
                 node_name=node.node_name,
                 node_index=node.node_index,
                 progress=progress,
                 elapsed_seconds=elapsed,
-                persistent=persistent,
+                heartbeat=heartbeat,
             )
         )
 
@@ -203,7 +224,7 @@ def run_pipeline(
     """Run a source followed by ordered stream stages."""
 
     active_observer = _resolve_observer(context, observer)
-    if type(active_observer) is NoopPipelineObserver:
+    if active_observer is _NOOP_OBSERVER:
         yield from _run_unobserved(pipeline, seed)
         return
 
@@ -239,7 +260,6 @@ def _run_observed(
     observer: PipelineObserver,
 ) -> Iterator[Any]:
     start_time = time.perf_counter()
-    output_items = 0
     status: RunStatus = "success"
     error_type: str | None = None
     error_message: str | None = None
@@ -248,15 +268,24 @@ def _run_observed(
     started = False
     progress = _RunProgress(
         observer,
+        pipeline.name,
         resolve_heartbeat_interval_seconds(context.heartbeat_interval_seconds),
     )
 
     try:
-        observer.on_pipeline_start(
-            pipeline.name,
-            pipeline.node_count,
-            pipeline.summary,
+        observer(
+            PipelineStarted(
+                pipeline_name=pipeline.name,
+                node_count=pipeline.node_count,
+            )
         )
+        if pipeline.summary:
+            observer(
+                PipelineSummary(
+                    pipeline_name=pipeline.name,
+                    summary=pipeline.summary,
+                )
+            )
         started = True
         progress.start()
         stream = _build_stream(pipeline, seed, observer=observer, progress=progress)
@@ -266,7 +295,7 @@ def _run_observed(
                 item = next(iterator)
             except StopIteration:
                 break
-            output_items += 1
+            progress.output_items += 1
             yield item
     except KeyboardInterrupt as exc:
         status = "error"
@@ -303,11 +332,11 @@ def _run_observed(
                 error_message = _error_message(exc)
 
         if started:
-            observer.on_pipeline_end(
-                PipelineRunEvent(
+            observer(
+                PipelineFinished(
                     pipeline_name=pipeline.name,
                     node_count=pipeline.node_count,
-                    output_items=output_items,
+                    output_items=progress.output_items,
                     elapsed_seconds=time.perf_counter() - start_time,
                     status=status,
                     error_type=error_type,
@@ -440,7 +469,13 @@ def _observed_node(
 
     try:
         progress_state = progress.start_node(context, node.progress)
-        observer.on_node_start(pipeline_name, node.name, node_index)
+        observer(
+            NodeStarted(
+                pipeline_name=pipeline_name,
+                node_name=node.name,
+                node_index=node_index,
+            )
+        )
         started = True
 
         previous = progress.active_node
@@ -487,8 +522,8 @@ def _observed_node(
         finally:
             progress.clear(context)
         if started:
-            observer.on_node_end(
-                NodeExecutionEvent(
+            observer(
+                NodeFinished(
                     pipeline_name=pipeline_name,
                     node_name=node.name,
                     node_index=node_index,

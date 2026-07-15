@@ -31,7 +31,7 @@ from datapipeline.domain.sample_key import SampleKeyContract
 from datapipeline.domain.vector import Vector
 from datapipeline.execution.context import PipelineContext
 from datapipeline.execution.node import SourceNode
-from datapipeline.execution.observer import NoopPipelineObserver
+from datapipeline.execution.events import NodeStarted, PipelineEvent, PipelineStarted
 from datapipeline.execution.runner import run_pipeline
 from datapipeline.operations.artifacts.vector_inputs import materialize_vector_inputs
 from datapipeline.operations.runtime.pipeline import _record_preview_stream
@@ -143,26 +143,16 @@ class _StubSource:
             self.closes += 1
 
 
-class _PipelineStarts(NoopPipelineObserver):
+class _PipelineStarts:
     def __init__(self) -> None:
         self.starts: list[tuple[str, int]] = []
         self.nodes: list[str] = []
 
-    def on_pipeline_start(
-        self,
-        pipeline_name: str,
-        node_count: int,
-        summary: str | None = None,
-    ) -> None:
-        self.starts.append((pipeline_name, node_count))
-
-    def on_node_start(
-        self,
-        pipeline_name: str,
-        node_name: str,
-        node_index: int,
-    ) -> None:
-        self.nodes.append(node_name)
+    def __call__(self, event: PipelineEvent) -> None:
+        if isinstance(event, PipelineStarted):
+            self.starts.append((event.pipeline_name, event.node_count))
+        elif isinstance(event, NodeStarted):
+            self.nodes.append(event.node_name)
 
 
 def _mapper(rows):

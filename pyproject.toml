@@ -64,6 +64,12 @@ datapipeline = [
 target-version = "py311"
 extend-exclude = ["src/datapipeline/templates"]
 
+[tool.mypy]
+python_version = "3.11"
+files = ["src/datapipeline"]
+exclude = ["^src/datapipeline/templates/"]
+check_untyped_defs = true
+
 [project.entry-points."datapipeline.mappers"]
 "time.synthetic" = "datapipeline.mappers.noop:identity"
 encode_time = "datapipeline.mappers.synthetic.time:encode"

@@ -1,16 +1,20 @@
 import logging
 from dataclasses import dataclass
+from functools import partial
 
 from datapipeline.cli.visuals.execution_context import (
     current_execution_event_handler,
 )
 from datapipeline.execution.events import (
-    PipelineRunEvent,
+    NodeFinished,
+    NodeProgress,
+    NodeStarted,
+    PipelineEvent,
+    PipelineFinished,
+    PipelineProgress,
+    PipelineStarted,
+    PipelineSummary,
     format_node_progress,
-    NodeExecutionEvent,
-    NodeProgressEvent as PipelineNodeProgressEvent,
-    ProgressSnapshot,
-    RunStatus,
 )
 from datapipeline.execution.observer import PipelineObserver
 from datapipeline.execution.observability import (
@@ -27,57 +31,6 @@ class ExecutionMessage:
 
 
 @dataclass(frozen=True, kw_only=True)
-class PipelineStarted:
-    pipeline_name: str
-    node_count: int
-
-
-@dataclass(frozen=True, kw_only=True)
-class PipelineSummary:
-    pipeline_name: str
-    summary: str
-
-
-@dataclass(frozen=True, kw_only=True)
-class PipelineFinished:
-    pipeline_name: str
-    node_count: int
-    status: RunStatus
-    output_items: int
-    elapsed_seconds: float
-    error_type: str | None = None
-    error_message: str | None = None
-
-
-@dataclass(frozen=True, kw_only=True)
-class _NodeEvent:
-    pipeline_name: str
-    node_name: str
-    node_index: int
-
-
-@dataclass(frozen=True, kw_only=True)
-class NodeStarted(_NodeEvent):
-    pass
-
-
-@dataclass(frozen=True, kw_only=True)
-class NodeProgress(_NodeEvent):
-    progress: ProgressSnapshot
-    elapsed_seconds: float
-    persistent: bool = False
-
-
-@dataclass(frozen=True, kw_only=True)
-class NodeFinished(_NodeEvent):
-    status: RunStatus
-    output_items: int
-    elapsed_seconds: float
-    error_type: str | None = None
-    error_message: str | None = None
-
-
-@dataclass(frozen=True, kw_only=True)
 class OperationProgress:
     operation_name: str
     step: str
@@ -87,12 +40,7 @@ class OperationProgress:
 ExecutionLogEvent = (
     ExecutionMessage
     | FileResult
-    | PipelineStarted
-    | PipelineSummary
-    | PipelineFinished
-    | NodeStarted
-    | NodeProgress
-    | NodeFinished
+    | PipelineEvent
     | OperationStarted
     | OperationFinished
     | OperationProgress
@@ -128,14 +76,14 @@ class ExecutionEventFormatter:
             FileResult
             | PipelineStarted
             | PipelineSummary
+            | PipelineProgress
             | PipelineFinished
-            | NodeProgress
             | OperationStarted
             | OperationFinished
             | OperationProgress,
         ):
             return logging.INFO
-        if isinstance(event, NodeStarted | NodeFinished):
+        if isinstance(event, NodeStarted | NodeProgress | NodeFinished):
             return logging.DEBUG
         raise TypeError(f"Unsupported execution event: {type(event).__name__}")
 
@@ -157,6 +105,11 @@ class ExecutionEventFormatter:
             return f"[{event.pipeline_name}] {event.summary}"
         if isinstance(event, PipelineStarted):
             return f"[{event.pipeline_name}] started nodes={event.node_count}"
+        if isinstance(event, PipelineProgress):
+            return (
+                f"[{event.pipeline_name}] running "
+                f"elapsed={event.elapsed_seconds:.0f}s items={event.output_items}"
+            )
         if isinstance(event, PipelineFinished):
             error_suffix = cls.error_suffix(event)
             return (
@@ -187,7 +140,7 @@ def route_execution_event(
     event: ExecutionLogEvent,
     logger: logging.Logger | None = None,
 ) -> None:
-    if not isinstance(event, NodeProgress) or event.persistent:
+    if not isinstance(event, NodeProgress) or event.heartbeat:
         active_logger = logger or logging.getLogger(__name__)
         level = ExecutionEventFormatter.level(event)
         if active_logger.isEnabledFor(level):
@@ -249,91 +202,10 @@ def make_operation_observer(
     return ExecutionOperationObserver(logger or logging.getLogger(__name__))
 
 
-class PipelineEventObserver(PipelineObserver):
-    def __init__(self, logger: logging.Logger) -> None:
-        self._logger = logger
-
-    def on_pipeline_start(
-        self,
-        pipeline_name: str,
-        node_count: int,
-        summary: str | None = None,
-    ) -> None:
-        route_execution_event(
-            PipelineStarted(
-                pipeline_name=pipeline_name,
-                node_count=node_count,
-            ),
-            self._logger,
-        )
-        if summary:
-            route_execution_event(
-                PipelineSummary(
-                    pipeline_name=pipeline_name,
-                    summary=summary,
-                ),
-                self._logger,
-            )
-
-    def on_node_start(
-        self,
-        pipeline_name: str,
-        node_name: str,
-        node_index: int,
-    ) -> None:
-        route_execution_event(
-            NodeStarted(
-                pipeline_name=pipeline_name,
-                node_name=node_name,
-                node_index=node_index,
-            ),
-            self._logger,
-        )
-
-    def on_node_end(self, event: NodeExecutionEvent) -> None:
-        route_execution_event(
-            NodeFinished(
-                pipeline_name=event.pipeline_name,
-                node_name=event.node_name,
-                node_index=event.node_index,
-                status=event.status,
-                error_type=event.error_type,
-                error_message=event.error_message,
-                output_items=event.output_items,
-                elapsed_seconds=event.elapsed_seconds,
-            ),
-            self._logger,
-        )
-
-    def on_node_progress(self, event: PipelineNodeProgressEvent) -> None:
-        route_execution_event(
-            NodeProgress(
-                pipeline_name=event.pipeline_name,
-                node_name=event.node_name,
-                node_index=event.node_index,
-                progress=event.progress,
-                elapsed_seconds=event.elapsed_seconds,
-                persistent=event.persistent,
-            ),
-            self._logger,
-        )
-
-    def on_pipeline_end(self, event: PipelineRunEvent) -> None:
-        route_execution_event(
-            PipelineFinished(
-                pipeline_name=event.pipeline_name,
-                node_count=event.node_count,
-                status=event.status,
-                error_type=event.error_type,
-                error_message=event.error_message,
-                output_items=event.output_items,
-                elapsed_seconds=event.elapsed_seconds,
-            ),
-            self._logger,
-        )
-
-
 def make_pipeline_observer(
     logger: logging.Logger | None = None,
 ) -> PipelineObserver:
-    return PipelineEventObserver(logger or logging.getLogger(__name__))
+    return partial(
+        route_execution_event,
+        logger=logger or logging.getLogger(__name__),
+    )

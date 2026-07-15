@@ -46,8 +46,8 @@ def torch_dataset(
     """Build a torch.utils.data.Dataset that yields tensors from vectors."""
 
     try:
-        import torch
-        from torch.utils.data import Dataset
+        import torch  # type: ignore[import-not-found]
+        from torch.utils.data import Dataset  # type: ignore[import-not-found]
     except ImportError as exc:  # pragma: no cover - exercised by runtime users
         raise RuntimeError(
             "torch is required for torch_dataset(); install torch in your project.",

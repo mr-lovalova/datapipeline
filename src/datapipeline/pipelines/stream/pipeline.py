@@ -6,7 +6,7 @@ from typing import Any
 from datapipeline.alignment.engine import align_streams
 from datapipeline.execution.context import PipelineContext
 from datapipeline.execution.node import Node, PipelineNode, SourceNode
-from datapipeline.execution.observer import NoopPipelineObserver
+from datapipeline.execution.observer import ignore_pipeline_event
 from datapipeline.execution.pipeline import Pipeline
 from datapipeline.execution.runner import run_pipeline
 from datapipeline.pipelines.stream.order import build_record_order_node
@@ -21,9 +21,6 @@ from datapipeline.runtime import (
     require_runtime_stream,
 )
 from datapipeline.sources.observability import source_progress, source_summary
-
-
-_INTERNAL_INPUT_OBSERVER = NoopPipelineObserver()
 
 
 def run_stream_pipeline(
@@ -123,7 +120,7 @@ def _align_inputs(
             run_pipeline(
                 context,
                 build_stream_pipeline(context, stream_id),
-                observer=_INTERNAL_INPUT_OBSERVER,
+                observer=ignore_pipeline_event,
             ),
         )
         for stream_id in input_streams

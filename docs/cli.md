@@ -43,7 +43,7 @@ reading the data. Visuals are independent of log filtering.
   - `csv` supports only `flat`; `pickle` supports only `raw`.
   - `--output-encoding` applies to fs `jsonl`/`csv` outputs (default `utf-8`).
   - Set `--log-level DEBUG` (or set `observability.logging.level: DEBUG` in the serve profile) to increase log detail while previewing a stage.
-  - Set `--heartbeat-interval 0` to disable persistent node heartbeat records. Live progress remains enabled when visuals are on. The CLI value also controls the shared artifact prerequisite phase; profile `observability.heartbeat_interval_seconds` begins applying only when that profile runs.
+  - Set `--heartbeat-interval 0` to disable logged pipeline heartbeats. Live progress remains enabled when visuals are on. The CLI value also controls the shared artifact prerequisite phase; profile `observability.heartbeat_interval_seconds` begins applying only when that profile runs.
   - When multiple serve profiles exist, add `--profile <name>` to select a
     single profile; otherwise every enabled profile is executed in its exact
     configured order.

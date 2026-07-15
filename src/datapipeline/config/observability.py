@@ -107,7 +107,7 @@ class ObservabilityConfig(BaseModel):
         default=None,
         ge=0,
         allow_inf_nan=False,
-        description="Node heartbeat interval in seconds. Set to 0 to disable.",
+        description="Pipeline heartbeat interval in seconds. Set to 0 to disable.",
     )
     logging: LoggingConfig | None = Field(
         default=None,

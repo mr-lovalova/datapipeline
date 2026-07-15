@@ -12,12 +12,7 @@ from rich.progress import BarColumn, Progress
 
 import datapipeline.cli.visuals.rich.progress as rich_progress
 from datapipeline.cli.visuals.execution import (
-    PipelineFinished,
-    PipelineStarted,
     ExecutionMessage,
-    NodeFinished,
-    NodeProgress,
-    NodeStarted,
 )
 from datapipeline.cli.visuals.execution_context import (
     current_execution_event_handler,
@@ -34,7 +29,16 @@ from datapipeline.cli.visuals.rich.progress import (
     rich_visuals_supported,
     visual_execution,
 )
-from datapipeline.execution.events import ProgressResource, ProgressSnapshot
+from datapipeline.execution.events import (
+    NodeFinished,
+    NodeProgress,
+    NodeStarted,
+    PipelineFinished,
+    PipelineProgress,
+    PipelineStarted,
+    ProgressResource,
+    ProgressSnapshot,
+)
 from datapipeline.execution.observability import (
     FileResult,
     OperationFinished,
@@ -104,7 +108,7 @@ def _node_progress(
     node_index: int,
     node_name: str,
     snapshot: ProgressSnapshot,
-    persistent: bool = False,
+    heartbeat: bool = False,
 ) -> NodeProgress:
     return NodeProgress(
         pipeline_name="stream:adv.20",
@@ -112,7 +116,7 @@ def _node_progress(
         node_index=node_index,
         progress=snapshot,
         elapsed_seconds=1,
-        persistent=persistent,
+        heartbeat=heartbeat,
     )
 
 
@@ -226,7 +230,7 @@ def test_info_progress_selects_meaningful_event_owner() -> None:
             1,
             "map_records",
             ProgressSnapshot(completed=20_000),
-            persistent=True,
+            heartbeat=True,
         )
     )
 
@@ -359,6 +363,23 @@ def test_rich_renderer_routes_node_progress_without_printing() -> None:
     renderer.render(event)
 
     assert progress_renderer.events == [event]
+    assert output.getvalue() == ""
+
+
+def test_rich_renderer_does_not_print_pipeline_heartbeat_over_live_progress() -> None:
+    console, output = _console()
+    progress_renderer = _CaptureRenderer()
+    renderer = _RichExecutionRenderer(logging.INFO, console, progress_renderer)
+
+    renderer.render(
+        PipelineProgress(
+            pipeline_name="stream:adv.20",
+            output_items=100,
+            elapsed_seconds=60,
+        )
+    )
+
+    assert progress_renderer.events == []
     assert output.getvalue() == ""
 
 

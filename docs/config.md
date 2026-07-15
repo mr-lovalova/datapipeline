@@ -140,8 +140,8 @@ throttle_ms: null # milliseconds to sleep between emitted vectors
   Its precedence is CLI `--artifact-mode`, then `serve.defaults.yaml`, then
   `AUTO`. Quote `"OFF"` in YAML so it is read as text rather than a boolean.
 - Visuals: set `observability.visuals: ON|OFF` in the profile or use `--visuals on|off`.
-- Node heartbeat: set `observability.heartbeat_interval_seconds` or use
-  `--heartbeat-interval`; `0` disables persistent heartbeat records, not live
+- Pipeline heartbeat: set `observability.heartbeat_interval_seconds` or use
+  `--heartbeat-interval`; `0` disables logged heartbeats, not live
   progress when visuals are enabled.
 - The shared artifact prerequisite phase uses only the CLI
   `--heartbeat-interval` override. A profile heartbeat setting starts applying

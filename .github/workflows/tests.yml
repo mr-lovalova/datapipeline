@@ -29,6 +29,9 @@ jobs:
           ruff check .
           ruff format --check .
 
+      - name: Run mypy
+        run: python -m mypy
+
   pytest:
     runs-on: ubuntu-latest
     strategy:

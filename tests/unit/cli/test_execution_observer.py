@@ -4,15 +4,8 @@ from pathlib import Path
 import pytest
 
 from datapipeline.cli.visuals.execution import (
-    PipelineFinished,
-    PipelineSummary,
-    PipelineStarted,
     ExecutionEventFormatter,
-    PipelineEventObserver,
     ExecutionMessage,
-    NodeFinished,
-    NodeProgress,
-    NodeStarted,
     OperationProgress,
     emit_execution_message,
     make_pipeline_observer,
@@ -23,9 +16,13 @@ from datapipeline.cli.visuals.execution_context import (
     set_current_execution_event_handler,
 )
 from datapipeline.execution.events import (
-    PipelineRunEvent,
-    NodeExecutionEvent,
-    NodeProgressEvent,
+    NodeFinished,
+    NodeProgress,
+    NodeStarted,
+    PipelineFinished,
+    PipelineProgress,
+    PipelineStarted,
+    PipelineSummary,
     ProgressSnapshot,
 )
 from datapipeline.execution.observability import (
@@ -74,6 +71,15 @@ class _CaptureHandler:
             "[pipeline] transport=fs.file file=prices.jsonl",
         ),
         (
+            PipelineProgress(
+                pipeline_name="pipeline",
+                output_items=10,
+                elapsed_seconds=60,
+            ),
+            logging.INFO,
+            "[pipeline] running elapsed=60s items=10",
+        ),
+        (
             PipelineFinished(
                 pipeline_name="pipeline",
                 node_count=2,
@@ -97,7 +103,7 @@ class _CaptureHandler:
                 progress=ProgressSnapshot(completed=0),
                 elapsed_seconds=0,
             ),
-            logging.INFO,
+            logging.DEBUG,
             "[pipeline/load] running elapsed=0s items=0",
         ),
         (
@@ -165,12 +171,18 @@ def test_failed_terminal_events_are_errors() -> None:
 
 def test_observer_logs_root_lifecycle_and_summary_at_info(caplog) -> None:
     logger = logging.getLogger("datapipeline.cli.visuals.execution.test.root")
-    observer = PipelineEventObserver(logger)
+    observer = make_pipeline_observer(logger)
 
     with caplog.at_level(logging.INFO, logger=logger.name):
-        observer.on_pipeline_start("stream:prices", 2, "transport=fs.file file=prices")
-        observer.on_pipeline_end(
-            PipelineRunEvent(
+        observer(PipelineStarted(pipeline_name="stream:prices", node_count=2))
+        observer(
+            PipelineSummary(
+                pipeline_name="stream:prices",
+                summary="transport=fs.file file=prices",
+            )
+        )
+        observer(
+            PipelineFinished(
                 pipeline_name="stream:prices",
                 node_count=2,
                 output_items=3,
@@ -188,12 +200,18 @@ def test_observer_logs_root_lifecycle_and_summary_at_info(caplog) -> None:
 
 def test_observer_logs_stages_at_debug(caplog) -> None:
     logger = logging.getLogger("datapipeline.cli.visuals.execution.test.stages")
-    observer = PipelineEventObserver(logger)
+    observer = make_pipeline_observer(logger)
 
     with caplog.at_level(logging.DEBUG, logger=logger.name):
-        observer.on_node_start("pipeline", "load", 0)
-        observer.on_node_end(
-            NodeExecutionEvent(
+        observer(
+            NodeStarted(
+                pipeline_name="pipeline",
+                node_name="load",
+                node_index=0,
+            )
+        )
+        observer(
+            NodeFinished(
                 pipeline_name="pipeline",
                 node_name="load",
                 node_index=0,
@@ -209,13 +227,43 @@ def test_observer_logs_stages_at_debug(caplog) -> None:
     ]
 
 
-def test_observer_logs_only_persistent_stage_progress(caplog) -> None:
+def test_observer_logs_pipeline_heartbeat_at_info(caplog) -> None:
     logger = logging.getLogger("datapipeline.cli.visuals.execution.test.progress")
-    observer = PipelineEventObserver(logger)
+    observer = make_pipeline_observer(logger)
 
     with caplog.at_level(logging.INFO, logger=logger.name):
-        observer.on_node_progress(
-            NodeProgressEvent(
+        observer(
+            NodeProgress(
+                pipeline_name="feature:close",
+                node_name="order_records",
+                node_index=2,
+                progress=ProgressSnapshot(completed=20),
+                elapsed_seconds=60,
+                heartbeat=True,
+            )
+        )
+        observer(
+            PipelineProgress(
+                pipeline_name="feature:close",
+                output_items=15,
+                elapsed_seconds=60,
+            )
+        )
+
+    assert len(caplog.records) == 1
+    assert caplog.records[0].getMessage() == (
+        "[feature:close] running elapsed=60s items=15"
+    )
+    assert getattr(caplog.records[0], "dp_event_kind", None) == "execution"
+
+
+def test_observer_logs_only_heartbeat_node_progress_at_debug(caplog) -> None:
+    logger = logging.getLogger("datapipeline.cli.visuals.execution.test.node-progress")
+    observer = make_pipeline_observer(logger)
+
+    with caplog.at_level(logging.DEBUG, logger=logger.name):
+        observer(
+            NodeProgress(
                 pipeline_name="feature:close",
                 node_name="order_records",
                 node_index=2,
@@ -223,31 +271,29 @@ def test_observer_logs_only_persistent_stage_progress(caplog) -> None:
                 elapsed_seconds=1,
             )
         )
-        observer.on_node_progress(
-            NodeProgressEvent(
+        observer(
+            NodeProgress(
                 pipeline_name="feature:close",
                 node_name="order_records",
                 node_index=2,
                 progress=ProgressSnapshot(completed=20),
                 elapsed_seconds=60,
-                persistent=True,
+                heartbeat=True,
             )
         )
 
-    assert len(caplog.records) == 1
-    assert caplog.records[0].getMessage() == (
+    assert [record.getMessage() for record in caplog.records] == [
         "[feature:close/order_records] running elapsed=60s items=20"
-    )
-    assert getattr(caplog.records[0], "dp_event_kind", None) == "execution"
+    ]
 
 
 def test_observer_includes_error_details_on_failure(caplog) -> None:
     logger = logging.getLogger("datapipeline.cli.visuals.execution.test.error")
-    observer = PipelineEventObserver(logger)
+    observer = make_pipeline_observer(logger)
 
     with caplog.at_level(logging.INFO, logger=logger.name):
-        observer.on_pipeline_end(
-            PipelineRunEvent(
+        observer(
+            PipelineFinished(
                 pipeline_name="dataset",
                 node_count=3,
                 output_items=0,
@@ -275,8 +321,16 @@ def test_make_pipeline_observer_routes_to_logger_and_context_handler(caplog) -> 
     try:
         observer = make_pipeline_observer(logger=logger)
         with caplog.at_level(logging.INFO, logger=logger.name):
-            observer.on_pipeline_start("dataset", 3)
-            observer.on_pipeline_end(PipelineRunEvent("dataset", 3, 1, 0.5, "success"))
+            observer(PipelineStarted(pipeline_name="dataset", node_count=3))
+            observer(
+                PipelineFinished(
+                    pipeline_name="dataset",
+                    node_count=3,
+                    output_items=1,
+                    elapsed_seconds=0.5,
+                    status="success",
+                )
+            )
     finally:
         reset_current_execution_event_handler(token)
 
@@ -296,12 +350,20 @@ def test_context_handler_is_resolved_when_each_event_is_emitted(caplog) -> None:
     token = set_current_execution_event_handler(capture)
     try:
         observer = make_pipeline_observer(logger=logger)
-        observer.on_pipeline_start("dataset", 3)
+        observer(PipelineStarted(pipeline_name="dataset", node_count=3))
     finally:
         reset_current_execution_event_handler(token)
 
     with caplog.at_level(logging.INFO, logger=logger.name):
-        observer.on_pipeline_end(PipelineRunEvent("dataset", 3, 1, 0.5, "success"))
+        observer(
+            PipelineFinished(
+                pipeline_name="dataset",
+                node_count=3,
+                output_items=1,
+                elapsed_seconds=0.5,
+                status="success",
+            )
+        )
 
     assert [type(event) for event in capture.events] == [PipelineStarted]
     assert caplog.records[-1].getMessage().startswith("[dataset] finished")

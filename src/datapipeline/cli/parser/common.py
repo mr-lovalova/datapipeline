@@ -69,7 +69,7 @@ def add_execution_observability_flags(parser: argparse.ArgumentParser) -> None:
         type=_heartbeat_interval_seconds,
         default=None,
         metavar="SECONDS",
-        help="node heartbeat interval in seconds; set to 0 to disable",
+        help="pipeline heartbeat interval in seconds; set to 0 to disable",
     )
 
 

@@ -5,16 +5,23 @@ from typing import Literal
 RunStatus = Literal["success", "error"]
 
 
-@dataclass(frozen=True)
-class NodeExecutionEvent:
+@dataclass(frozen=True, kw_only=True)
+class PipelineStarted:
+    pipeline_name: str
+    node_count: int
+
+
+@dataclass(frozen=True, kw_only=True)
+class PipelineSummary:
+    pipeline_name: str
+    summary: str
+
+
+@dataclass(frozen=True, kw_only=True)
+class NodeStarted:
     pipeline_name: str
     node_name: str
     node_index: int
-    output_items: int
-    elapsed_seconds: float
-    status: RunStatus
-    error_type: str | None = None
-    error_message: str | None = None
 
 
 @dataclass(frozen=True)
@@ -55,18 +62,37 @@ def format_node_progress(
     return " ".join(parts)
 
 
-@dataclass(frozen=True)
-class NodeProgressEvent:
+@dataclass(frozen=True, kw_only=True)
+class NodeProgress:
     pipeline_name: str
     node_name: str
     node_index: int
     progress: ProgressSnapshot
     elapsed_seconds: float
-    persistent: bool = False
+    heartbeat: bool = False
 
 
-@dataclass(frozen=True)
-class PipelineRunEvent:
+@dataclass(frozen=True, kw_only=True)
+class PipelineProgress:
+    pipeline_name: str
+    output_items: int
+    elapsed_seconds: float
+
+
+@dataclass(frozen=True, kw_only=True)
+class NodeFinished:
+    pipeline_name: str
+    node_name: str
+    node_index: int
+    output_items: int
+    elapsed_seconds: float
+    status: RunStatus
+    error_type: str | None = None
+    error_message: str | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class PipelineFinished:
     pipeline_name: str
     node_count: int
     output_items: int
@@ -74,3 +100,14 @@ class PipelineRunEvent:
     status: RunStatus
     error_type: str | None = None
     error_message: str | None = None
+
+
+PipelineEvent = (
+    PipelineStarted
+    | PipelineSummary
+    | PipelineProgress
+    | PipelineFinished
+    | NodeStarted
+    | NodeProgress
+    | NodeFinished
+)

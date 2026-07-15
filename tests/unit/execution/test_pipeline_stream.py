@@ -9,9 +9,14 @@ from datapipeline.execution import runner as pipeline_runner
 from datapipeline.execution.context import PipelineContext
 from datapipeline.execution.pipeline import Pipeline
 from datapipeline.execution.events import (
-    PipelineRunEvent,
-    NodeExecutionEvent,
-    NodeProgressEvent,
+    NodeFinished,
+    NodeProgress,
+    NodeStarted,
+    PipelineEvent,
+    PipelineFinished,
+    PipelineProgress,
+    PipelineStarted,
+    PipelineSummary,
     ProgressSnapshot,
 )
 from datapipeline.execution.node import PipelineNode, SourceNode
@@ -21,43 +26,38 @@ from datapipeline.runtime import Runtime
 
 class _CollectingObserver:
     def __init__(self) -> None:
-        self.pipeline_started: list[tuple[str, int, str | None]] = []
-        self.node_started: list[tuple[str, str, int]] = []
-        self.node_events: list[NodeExecutionEvent] = []
-        self.progress_events: list[NodeProgressEvent] = []
-        self.pipeline_events: list[PipelineRunEvent] = []
+        self.pipeline_started: list[PipelineStarted] = []
+        self.pipeline_summaries: list[PipelineSummary] = []
+        self.node_started: list[NodeStarted] = []
+        self.node_events: list[NodeFinished] = []
+        self.progress_events: list[NodeProgress] = []
+        self.pipeline_progress_events: list[PipelineProgress] = []
+        self.pipeline_events: list[PipelineFinished] = []
         self._progress_condition = threading.Condition()
 
-    def on_pipeline_start(
-        self,
-        pipeline_name: str,
-        node_count: int,
-        summary: str | None = None,
-    ) -> None:
-        self.pipeline_started.append((pipeline_name, node_count, summary))
-
-    def on_node_start(
-        self,
-        pipeline_name: str,
-        node_name: str,
-        node_index: int,
-    ) -> None:
-        self.node_started.append((pipeline_name, node_name, node_index))
-
-    def on_node_end(self, event: NodeExecutionEvent) -> None:
-        self.node_events.append(event)
-
-    def on_node_progress(self, event: NodeProgressEvent) -> None:
-        with self._progress_condition:
-            self.progress_events.append(event)
-            self._progress_condition.notify_all()
-
-    def on_pipeline_end(self, event: PipelineRunEvent) -> None:
-        self.pipeline_events.append(event)
+    def __call__(self, event: PipelineEvent) -> None:
+        if isinstance(event, PipelineStarted):
+            self.pipeline_started.append(event)
+        elif isinstance(event, PipelineSummary):
+            self.pipeline_summaries.append(event)
+        elif isinstance(event, NodeStarted):
+            self.node_started.append(event)
+        elif isinstance(event, NodeFinished):
+            self.node_events.append(event)
+        elif isinstance(event, PipelineFinished):
+            self.pipeline_events.append(event)
+        elif isinstance(event, NodeProgress):
+            with self._progress_condition:
+                self.progress_events.append(event)
+                self._progress_condition.notify_all()
+        elif isinstance(event, PipelineProgress):
+            with self._progress_condition:
+                self.pipeline_progress_events.append(event)
+                self._progress_condition.notify_all()
 
     def wait_for_progress(
         self,
-        predicate: Callable[[NodeProgressEvent], bool],
+        predicate: Callable[[NodeProgress], bool],
     ) -> bool:
         with self._progress_condition:
             return self._progress_condition.wait_for(
@@ -82,7 +82,7 @@ def _context(tmp_path: Path) -> PipelineContext:
 
 def _events_by_name(
     observer: _CollectingObserver,
-) -> dict[str, NodeExecutionEvent]:
+) -> dict[str, NodeFinished]:
     return {event.node_name: event for event in observer.node_events}
 
 
@@ -148,7 +148,9 @@ def test_run_starts_lazily(tmp_path: Path) -> None:
     assert observer.pipeline_started == []
     assert next(stream) == 1
     assert opened == ["source"]
-    assert observer.pipeline_started == [("lazy", 1, None)]
+    assert observer.pipeline_started == [
+        PipelineStarted(pipeline_name="lazy", node_count=1)
+    ]
     stream.close()
 
 
@@ -205,7 +207,12 @@ def test_stages_emit_ordered_results_and_counts(tmp_path: Path) -> None:
         "odd": (1, 2, "success"),
         "scale": (2, 2, "success"),
     }
-    assert observer.pipeline_started == [("numbers", 3, "filter then scale")]
+    assert observer.pipeline_started == [
+        PipelineStarted(pipeline_name="numbers", node_count=3)
+    ]
+    assert observer.pipeline_summaries == [
+        PipelineSummary(pipeline_name="numbers", summary="filter then scale")
+    ]
     assert observer.pipeline_events[-1].output_items == 2
     assert observer.pipeline_events[-1].status == "success"
 
@@ -254,7 +261,7 @@ def test_custom_progress_belongs_to_the_reporting_stage(
     assert [event.progress.completed for event in custom] == [1, 2]
     assert all(event.node_name == "annotate" for event in custom)
     assert all(event.node_index == 1 for event in custom)
-    assert all(not event.persistent for event in custom)
+    assert all(not event.heartbeat for event in custom)
 
 
 def test_unobserved_pipeline_does_not_read_progress(tmp_path: Path) -> None:
@@ -303,7 +310,7 @@ def test_progress_reader_is_sampled_while_another_node_is_active(
         event for event in observer.progress_events if event.node_name == "source"
     ]
     assert source_events
-    assert all(not event.persistent for event in source_events)
+    assert all(not event.heartbeat for event in source_events)
 
 
 def test_progress_failure_still_finishes_pipeline_lifecycle(
@@ -377,7 +384,7 @@ def test_live_progress_samples_emitted_items(
             lambda event: (
                 event.node_name == "source"
                 and event.progress.completed >= 1
-                and not event.persistent
+                and not event.heartbeat
             )
         )
         yield 2
@@ -394,21 +401,62 @@ def test_heartbeat_reports_current_item_count(tmp_path: Path) -> None:
 
     def source() -> Iterator[int]:
         assert observer.wait_for_progress(
-            lambda event: event.persistent and event.progress.completed == 0
+            lambda event: event.heartbeat and event.progress.completed == 0
         )
         yield 1
         assert observer.wait_for_progress(
-            lambda event: event.persistent and event.progress.completed >= 1
+            lambda event: event.heartbeat and event.progress.completed >= 1
         )
         yield 2
 
     pipeline = Pipeline(name="heartbeat", nodes=(SourceNode("source", source),))
 
     assert list(run_pipeline(context, pipeline, observer=observer)) == [1, 2]
-    heartbeats = [event for event in observer.progress_events if event.persistent]
+    heartbeats = [event for event in observer.progress_events if event.heartbeat]
     assert heartbeats[0].node_name == "source"
     assert heartbeats[0].progress.completed == 0
     assert heartbeats[-1].progress.completed == 1
+    assert [event.output_items for event in observer.pipeline_progress_events] == [0, 1]
+
+
+def test_heartbeat_interval_is_shared_across_pipeline_nodes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    now = 0.0
+    monkeypatch.setattr(pipeline_runner.time, "perf_counter", lambda: now)
+    observer = _CollectingObserver()
+    progress = pipeline_runner._RunProgress(observer, "pipeline", 10)
+    source = pipeline_runner._NodeProgressContext("pipeline", "source", 0)
+    output = pipeline_runner._NodeProgressContext("pipeline", "output", 1)
+    source_state = progress.start_node(source, None)
+    progress.start_node(output, None)
+    progress.output_items = 7
+
+    progress.active_node = source
+    now = 10
+    progress._emit_due_progress()
+
+    progress.active_node = output
+    now = 15
+    progress._emit_due_progress()
+
+    assert [
+        event.node_name for event in observer.progress_events if event.heartbeat
+    ] == ["source"]
+    assert [
+        (event.pipeline_name, event.output_items, event.elapsed_seconds)
+        for event in observer.pipeline_progress_events
+    ] == [("pipeline", 7, 10)]
+
+    source_state.completed = 8
+    progress.output_items = 8
+    now = 20
+    progress._emit_due_progress()
+
+    assert [
+        event.node_name for event in observer.progress_events if event.heartbeat
+    ] == ["source", "output"]
+    assert [event.output_items for event in observer.pipeline_progress_events] == [7, 8]
 
 
 def test_partial_close_closes_stages_in_reverse_order(tmp_path: Path) -> None:

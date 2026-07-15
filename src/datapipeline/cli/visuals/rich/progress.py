@@ -19,12 +19,7 @@ from rich.text import Text
 
 from datapipeline.cli.visuals.execution import (
     ExecutionEventFormatter,
-    PipelineFinished,
-    PipelineStarted,
     ExecutionLogEvent,
-    NodeFinished,
-    NodeProgress,
-    NodeStarted,
     OperationProgress,
 )
 from datapipeline.cli.visuals.execution_context import (
@@ -33,7 +28,15 @@ from datapipeline.cli.visuals.execution_context import (
     set_current_execution_event_handler,
     set_current_terminal_log_handler,
 )
-from datapipeline.execution.events import ProgressSnapshot
+from datapipeline.execution.events import (
+    NodeFinished,
+    NodeProgress,
+    NodeStarted,
+    PipelineFinished,
+    PipelineProgress,
+    PipelineStarted,
+    ProgressSnapshot,
+)
 from datapipeline.execution.observability import (
     FileResult,
     OperationFinished,
@@ -139,7 +142,7 @@ class _ExecutionProgress:
                     status=_progress_status(event.progress),
                 )
         elif (
-            event.persistent
+            event.heartbeat
             or event.progress.total is not None
             or event.progress.phase is not None
             or event.progress.detail is not None
@@ -228,6 +231,8 @@ class _RichExecutionRenderer:
         self._progress = progress
 
     def render(self, event: ExecutionLogEvent) -> None:
+        if self._progress is not None and isinstance(event, PipelineProgress):
+            return
         if self._progress is not None and isinstance(
             event,
             PipelineStarted
