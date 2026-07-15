@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from datapipeline.analysis.vector.matrix import MatrixBuilder, write_matrix_html
+from datapipeline.analysis.vector.matrix import MatrixBuilder, render_matrix_html
 from datapipeline.analysis.vector.stats import VectorStatsAccumulator
 from datapipeline.artifacts.models import (
     ListVectorColumnStats,
@@ -197,14 +197,11 @@ def test_matrix_rows_separate_features_and_targets() -> None:
     ]
 
 
-def test_matrix_html_uses_bounded_matrix_data_and_escapes_script_text(tmp_path) -> None:
+def test_matrix_html_uses_bounded_matrix_data_and_escapes_script_text() -> None:
     builder = MatrixBuilder((_scalar("speed", "speed"),), (), max_cells=1)
     builder.add("</script>", {"speed": 1.0}, {})
-    path = tmp_path / "matrix.html"
 
-    assert write_matrix_html(builder.finish(), path) == path
-
-    document = path.read_text(encoding="utf-8")
+    document = render_matrix_html(builder.finish())
     assert "<h1>Availability Matrix</h1>" in document
     assert "Feature Availability" in document
     assert "Target Availability" in document

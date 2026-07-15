@@ -1,7 +1,6 @@
 from itertools import islice
-from pathlib import Path
 
-from datapipeline.analysis.vector.matrix import MatrixBuilder, write_matrix_html
+from datapipeline.analysis.vector.matrix import MatrixBuilder, render_matrix_html
 from datapipeline.config.tasks import MatrixTask
 from datapipeline.execution.context import PipelineContext
 from datapipeline.operations.persistence import RuntimeOutput
@@ -49,10 +48,7 @@ def run_matrix_operation(
             close()
     matrix = builder.finish()
 
-    def render_html(destination: Path) -> Path:
-        return write_matrix_html(matrix, destination)
-
     return RuntimeOutput(
         rows=matrix.output_rows(),
-        html_renderer=render_html,
+        render_html=lambda: render_matrix_html(matrix),
     )

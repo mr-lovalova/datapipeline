@@ -277,12 +277,8 @@ def test_runtime_persistence_reports_html_path(monkeypatch, tmp_path) -> None:
         lambda label, path: results.append((label, path)),
     )
 
-    def render(path):
-        path.write_text("<html></html>", encoding="utf-8")
-        return path
-
     persist_runtime_result(
-        RuntimeOutput(html_renderer=render),
+        RuntimeOutput(render_html=lambda: "<html></html>"),
         target=OutputTarget(
             transport="fs",
             format="html",
@@ -293,7 +289,37 @@ def test_runtime_persistence_reports_html_path(monkeypatch, tmp_path) -> None:
         logger=logging.getLogger(__name__),
     )
 
+    assert destination.read_text(encoding="utf-8") == "<html></html>"
     assert results == [("Output", destination)]
+
+
+def test_failed_html_commit_preserves_existing_file(monkeypatch, tmp_path) -> None:
+    destination = tmp_path / "matrix.html"
+    destination.write_text("previous", encoding="utf-8")
+
+    def fail_commit(*_args):
+        raise OSError("commit failed")
+
+    monkeypatch.setattr(
+        "datapipeline.io.sinks.files._commit_temp_file",
+        fail_commit,
+    )
+
+    with pytest.raises(OSError, match="commit failed"):
+        persist_runtime_result(
+            RuntimeOutput(render_html=lambda: "replacement"),
+            target=OutputTarget(
+                transport="fs",
+                format="html",
+                view="flat",
+                encoding="utf-8",
+                destination=destination,
+            ),
+            logger=logging.getLogger(__name__),
+        )
+
+    assert destination.read_text(encoding="utf-8") == "previous"
+    assert list(tmp_path.iterdir()) == [destination]
 
 
 def test_split_runtime_output_routes_rows_to_label_targets(

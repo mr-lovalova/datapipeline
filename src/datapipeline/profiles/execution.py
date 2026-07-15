@@ -135,7 +135,6 @@ def execute_runtime_job(
                             if job.output.destination is not None
                             else None
                         ),
-                        "overwrite": job.output.overwrite,
                     },
                     "execution": job.runtime.execution.model_dump(mode="json"),
                     "observability": job.observability.effective_config(),

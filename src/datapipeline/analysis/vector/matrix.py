@@ -3,7 +3,6 @@ import html
 import json
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, Literal
 
 from datapipeline.artifacts.models import (
@@ -172,8 +171,7 @@ def _format_group_key(group_key: object) -> str:
     return str(group_key)
 
 
-def write_matrix_html(matrix: AvailabilityMatrix, path: Path) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
+def render_matrix_html(matrix: AvailabilityMatrix) -> str:
     row_labels = tuple(row.group for row in matrix.rows)
     sections = [
         _html_table(
@@ -191,7 +189,7 @@ def write_matrix_html(matrix: AvailabilityMatrix, path: Path) -> Path:
             tuple(row.targets for row in matrix.rows),
         ),
     ]
-    document = (
+    return (
         "<html><head><meta charset='utf-8'>"
         f"<style>{_STYLE}</style>"
         "<title>Vector Availability</title></head><body>"
@@ -203,8 +201,6 @@ def write_matrix_html(matrix: AvailabilityMatrix, path: Path) -> Path:
         f"{''.join(sections)}"
         "</main></body></html>"
     )
-    path.write_text(document, encoding="utf-8")
-    return path
 
 
 def _html_table(

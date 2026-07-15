@@ -12,6 +12,7 @@ from datapipeline.execution.observability import (
 from datapipeline.io.factory import writer_factory
 from datapipeline.io.normalization import json_text, raw_payload
 from datapipeline.io.output import OutputTarget, output_destination_key
+from datapipeline.io.sinks import AtomicTextFileSink
 
 
 @dataclass(frozen=True)
@@ -32,7 +33,7 @@ class PersistedArtifact:
 class RuntimeOutput:
     rows: Iterable[Any] | None = None
     payload: Mapping[str, Any] | None = None
-    html_renderer: Callable[[Path], Path] | None = None
+    render_html: Callable[[], str] | None = None
     target: OutputTarget | None = None
 
 
@@ -116,13 +117,23 @@ def _persist_runtime_output(
         raise ValueError("Runtime operation requires profile output target.")
 
     if effective_target.format == "html":
-        if result.html_renderer is None:
+        if result.render_html is None:
             raise ValueError("html output is not supported for this operation.")
         destination = effective_target.destination
         if destination is None:
             raise ValueError("html output requires fs destination.")
-        written = result.html_renderer(destination)
-        emit_file_result("Output", written)
+        document = result.render_html()
+        sink = AtomicTextFileSink(
+            destination,
+            encoding=effective_target.encoding or "utf-8",
+        )
+        try:
+            sink.write_text(document)
+            sink.close()
+        except BaseException:
+            sink.abort()
+            raise
+        emit_file_result("Output", destination)
         return
 
     rows = result.rows

@@ -47,7 +47,6 @@ class OutputTarget:
     encoding: str | None
     destination: Path | None
     run: RunPaths | None = None
-    overwrite: bool = True
 
     def for_feature(self, feature_id: str) -> "OutputTarget":
         if self.transport != "fs" or self.destination is None:
@@ -65,7 +64,6 @@ class OutputTarget:
             encoding=self.encoding,
             destination=new_path,
             run=self.run,
-            overwrite=self.overwrite,
         )
 
     def for_split(self, label: str) -> "OutputTarget":
@@ -84,7 +82,6 @@ class OutputTarget:
             encoding=self.encoding,
             destination=new_path,
             run=self.run,
-            overwrite=self.overwrite,
         )
 
 
@@ -139,13 +136,14 @@ def resolve_output_target(
 
     if config.directory is None:
         raise OutputResolutionError("fs output requires a directory")
-    directory = resolve_output_directory(config, base_path=base_path)
-    if directory is None:
-        raise OutputResolutionError("fs output requires a directory")
+    directory = resolve_relative_to_base(
+        config.directory,
+        base_path,
+        resolve=True,
+    )
     if run_paths is not None:
         base_dest_dir = run_paths.dataset_dir
     else:
-        run_paths = None
         base_dest_dir = directory
         if profile_name:
             base_dest_dir = base_dest_dir / sanitize_path_segment(profile_name)
