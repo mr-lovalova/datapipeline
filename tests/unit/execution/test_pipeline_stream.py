@@ -706,6 +706,34 @@ def test_stage_failures_reach_node_and_pipeline_events(
     assert pipeline_event.error_message == message
 
 
+def test_node_cleanup_failure_emits_failed_finish_event(tmp_path: Path) -> None:
+    observer = _CollectingObserver()
+
+    def source() -> Iterator[int]:
+        try:
+            yield 1
+            yield 2
+        finally:
+            raise RuntimeError("close failed")
+
+    pipeline = Pipeline(
+        name="cleanup-failure",
+        nodes=(SourceNode("source", source),),
+    )
+
+    execution = run_pipeline(_context(tmp_path), pipeline, observer=observer)
+    assert next(execution) == 1
+    with pytest.raises(RuntimeError, match="close failed"):
+        execution.close()
+
+    node_event = _events_by_name(observer)["source"]
+    assert node_event.output_items == 1
+    assert node_event.status == "error"
+    assert node_event.error_type == "RuntimeError"
+    assert node_event.error_message == "close failed"
+    assert observer.pipeline_events[-1].status == "error"
+
+
 def test_unobserved_run_uses_the_fast_path(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

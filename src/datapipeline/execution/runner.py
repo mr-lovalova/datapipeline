@@ -514,14 +514,21 @@ def _observed_node(
         error_message = _error_message(exc)
         raise
     finally:
+        close_error: BaseException | None = None
         try:
             _close_iterator(iterator)
             if iterator is not produced:
                 _close_iterator(produced)
             if upstream is not None and produced is not upstream:
                 _close_iterator(upstream)
+        except BaseException as exc:
+            close_error = exc
+            status = "error"
+            error_type = type(exc).__name__
+            error_message = _error_message(exc)
         finally:
             progress.clear(context)
+
         if started:
             observer(
                 NodeFinished(
@@ -535,3 +542,5 @@ def _observed_node(
                     error_message=error_message,
                 )
             )
+        if close_error is not None:
+            raise close_error
