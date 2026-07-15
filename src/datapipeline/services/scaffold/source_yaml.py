@@ -5,7 +5,6 @@ from datapipeline.services.project_paths import (
     ensure_project_scaffold,
     resolve_project_yaml_path,
 )
-from datapipeline.services.project import load_project
 from datapipeline.services.scaffold.templates import render
 from datapipeline.services.constants import (
     DEFAULT_IO_LOADER_EP,
@@ -74,9 +73,8 @@ def create_source_yaml(
         if project_yaml is not None
         else resolve_project_yaml_path(root_dir)
     )
-    ensure_project_scaffold(proj_yaml)
-    sources_dir = load_project(proj_yaml).source_dirs[0]
-    sources_dir.mkdir(parents=True, exist_ok=True)
+    project = ensure_project_scaffold(proj_yaml)
+    sources_dir = project.source_dirs[0]
 
     src_cfg_path = sources_dir / f"{source_id}.yaml"
     if src_cfg_path.exists():

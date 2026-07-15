@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from datapipeline.services.definitions import ProjectManifest
 from datapipeline.services.project import load_project
 
 
@@ -9,7 +10,7 @@ _DEFAULT_DOTENV_EXAMPLE = (
 )
 
 
-def ensure_project_scaffold(project_yaml: Path) -> None:
+def ensure_project_scaffold(project_yaml: Path) -> ProjectManifest:
     """Ensure a minimal project scaffold exists.
 
     - Creates parent directories and a default project.yaml if missing.
@@ -48,6 +49,7 @@ def ensure_project_scaffold(project_yaml: Path) -> None:
     dotenv_example = project_yaml.parent / ".env.example"
     if not dotenv_example.exists():
         dotenv_example.write_text(_DEFAULT_DOTENV_EXAMPLE, encoding="utf-8")
+    return project
 
 
 def resolve_project_yaml_path(plugin_root: Path) -> Path:
