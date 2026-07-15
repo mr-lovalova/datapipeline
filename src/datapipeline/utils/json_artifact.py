@@ -3,7 +3,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from datapipeline.io.sinks import AtomicTextFileSink
+from datapipeline.io.sinks.files import AtomicTextFileSink
 
 
 def read_json_artifact(path: Path) -> dict[str, Any]:

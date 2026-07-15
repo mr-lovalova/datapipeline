@@ -1,6 +1,7 @@
 from collections.abc import Callable
 
-from datapipeline.io.sinks import StdoutTextSink, AtomicTextFileSink
+from datapipeline.io.sinks.files import AtomicTextFileSink
+from datapipeline.io.sinks.stdout import StdoutTextSink
 
 
 class LineWriter:

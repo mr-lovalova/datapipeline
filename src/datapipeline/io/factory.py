@@ -1,18 +1,15 @@
 from datapipeline.io.protocols import Writer
 from datapipeline.io.output import OutputTarget
 from datapipeline.io.serializers import (
-    csv_row_serializer,
     json_line_serializer,
-    pickle_serializer,
     text_line_serializer,
 )
-from datapipeline.io.sinks import AtomicTextFileSink, StdoutTextSink
-from datapipeline.io.writers import (
-    CsvFileWriter,
-    JsonLinesFileWriter,
-    LineWriter,
-    PickleFileWriter,
-)
+from datapipeline.io.sinks.files import AtomicTextFileSink
+from datapipeline.io.sinks.stdout import StdoutTextSink
+from datapipeline.io.writers.base import LineWriter
+from datapipeline.io.writers.csv_writer import CsvFileWriter
+from datapipeline.io.writers.jsonl import JsonLinesFileWriter
+from datapipeline.io.writers.pickle_writer import PickleFileWriter
 
 
 def writer_factory(target: OutputTarget) -> Writer:
@@ -31,20 +28,17 @@ def writer_factory(target: OutputTarget) -> Writer:
     if target.format == "jsonl":
         return JsonLinesFileWriter(
             destination,
-            serializer=json_line_serializer(target.view),
+            view=target.view,
             encoding=text_encoding,
         )
     if target.format == "csv":
-        return CsvFileWriter(
-            destination,
-            serializer=csv_row_serializer(target.view),
-            encoding=text_encoding,
-        )
+        if target.view != "flat":
+            raise ValueError("csv output supports only view='flat'")
+        return CsvFileWriter(destination, encoding=text_encoding)
     if target.format == "pickle":
-        return PickleFileWriter(
-            destination,
-            serializer=pickle_serializer(target.view),
-        )
+        if target.view != "raw":
+            raise ValueError("pickle output supports only view='raw'")
+        return PickleFileWriter(destination)
     if target.format == "txt":
         return LineWriter(
             AtomicTextFileSink(

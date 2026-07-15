@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from typing import Any
 
 from datapipeline.io.normalization import (
@@ -9,35 +10,27 @@ from datapipeline.io.normalization import (
 )
 
 
-class JsonLineSerializer:
-    def __init__(self, view: View) -> None:
-        self._view = view
+def json_line_serializer(view: View = "raw") -> Callable[[Any], str]:
+    def serialize(item: Any) -> str:
+        return json_text(payload_for_view(item, view)) + "\n"
 
-    def __call__(self, item: Any) -> str:
-        return json_text(payload_for_view(item, self._view)) + "\n"
-
-
-class CsvRowSerializer:
-    def __init__(self, view: View) -> None:
-        if view != "flat":
-            raise ValueError("csv output supports only view='flat'")
-
-    def __call__(self, item: Any) -> dict[str, Any]:
-        return flat_payload(item)
+    return serialize
 
 
-class PickleSerializer:
-    def __init__(self, view: View) -> None:
-        if view != "raw":
-            raise ValueError("pickle output supports only view='raw'")
-        self._view = view
-
-    def __call__(self, item: Any) -> Any:
-        return raw_payload(item)
+def csv_row_serializer(view: View = "flat") -> Callable[[Any], dict[str, Any]]:
+    if view != "flat":
+        raise ValueError("csv output supports only view='flat'")
+    return flat_payload
 
 
-class TextLineSerializer:
-    def __call__(self, item: Any) -> str:
+def pickle_serializer(view: View = "raw") -> Callable[[Any], Any]:
+    if view != "raw":
+        raise ValueError("pickle output supports only view='raw'")
+    return raw_payload
+
+
+def text_line_serializer() -> Callable[[Any], str]:
+    def serialize(item: Any) -> str:
         raw = raw_payload(item)
         if isinstance(raw, str):
             text = raw
@@ -47,24 +40,4 @@ class TextLineSerializer:
             text = json_text(raw)
         return text if text.endswith("\n") else f"{text}\n"
 
-
-def json_line_serializer(
-    view: View = "raw",
-) -> JsonLineSerializer:
-    return JsonLineSerializer(view)
-
-
-def csv_row_serializer(
-    view: View = "flat",
-) -> CsvRowSerializer:
-    return CsvRowSerializer(view)
-
-
-def pickle_serializer(
-    view: View = "raw",
-) -> PickleSerializer:
-    return PickleSerializer(view)
-
-
-def text_line_serializer() -> TextLineSerializer:
-    return TextLineSerializer()
+    return serialize

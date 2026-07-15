@@ -12,7 +12,7 @@ from datapipeline.execution.observability import (
 from datapipeline.io.factory import writer_factory
 from datapipeline.io.normalization import json_text, raw_payload
 from datapipeline.io.output import OutputTarget, output_destination_key
-from datapipeline.io.sinks import AtomicTextFileSink
+from datapipeline.io.sinks.files import AtomicTextFileSink
 
 
 @dataclass(frozen=True)

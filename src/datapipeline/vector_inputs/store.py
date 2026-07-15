@@ -23,7 +23,7 @@ from datapipeline.domain.sample_key import (
     SampleKeyValueType,
     sample_key_value_type,
 )
-from datapipeline.io.sinks import GzipBinarySink
+from datapipeline.io.sinks.files import GzipBinarySink
 from datapipeline.utils.time import CADENCE_PATTERN, parse_datetime
 
 VECTOR_INPUTS_MANIFEST_VERSION: Final = 4

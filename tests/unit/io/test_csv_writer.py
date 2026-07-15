@@ -1,26 +1,13 @@
 import csv
 
-import pytest
-
 from datapipeline.io.writers.csv_writer import CsvFileWriter
 
 
-def test_csv_writer_uses_projected_header(tmp_path) -> None:
-    rows = iter(
-        [
-            {"key": "k1", "feature.temp": 1.0, "feature.wind.0": 2.0},
-            {"key": "k2", "feature.temp": 3.0, "feature.wind.0": 4.0},
-        ]
-    )
-
-    class _Serializer:
-        def __call__(self, _item):
-            return next(rows)
-
+def test_csv_writer_writes_flattened_rows(tmp_path) -> None:
     dest = tmp_path / "out.csv"
-    writer = CsvFileWriter(dest, serializer=_Serializer())
-    writer.write(object())
-    writer.write(object())
+    writer = CsvFileWriter(dest)
+    writer.write({"key": "k1", "feature": {"temp": 1.0, "wind": [2.0]}})
+    writer.write({"key": "k2", "feature": {"temp": 3.0, "wind": [4.0]}})
     writer.close()
 
     with open(dest, newline="", encoding="utf-8") as fh:
@@ -31,67 +18,10 @@ def test_csv_writer_uses_projected_header(tmp_path) -> None:
     assert parsed[1]["key"] == "k2"
 
 
-def test_csv_writer_raises_on_new_columns_after_header(tmp_path) -> None:
-    rows = iter(
-        [
-            {"key": "k1", "feature.temp": 1.0},
-            {"key": "k2", "feature.temp": 2.0, "feature.new": 9.0},
-        ]
-    )
-
-    class _Serializer:
-        def __call__(self, _item):
-            return next(rows)
-
-    dest = tmp_path / "out.csv"
-    writer = CsvFileWriter(dest, serializer=_Serializer())
-    writer.write(object())
-
-    with pytest.raises(
-        ValueError, match="CSV row contains fields not present in header"
-    ):
-        writer.write(object())
-    writer.close()
-
-
-def test_csv_writer_preserves_header_order_when_rows_reorder_fields(tmp_path) -> None:
-    rows = iter(
-        [
-            {"second": 2, "first": 1},
-            {"first": 3, "second": 4},
-        ]
-    )
-
-    class _Serializer:
-        def __call__(self, _item):
-            return next(rows)
-
-    dest = tmp_path / "out.csv"
-    writer = CsvFileWriter(dest, serializer=_Serializer())
-    writer.write(object())
-    writer.write(object())
-    writer.close()
-
-    with open(dest, newline="", encoding="utf-8") as fh:
-        parsed = list(csv.reader(fh))
-
-    assert parsed == [
-        ["second", "first"],
-        ["2", "1"],
-        ["4", "3"],
-    ]
-
-
 def test_csv_writer_honors_configured_encoding(tmp_path) -> None:
-    rows = iter([{"key": "k1", "feature.temp": 1.0}])
-
-    class _Serializer:
-        def __call__(self, _item):
-            return next(rows)
-
     dest = tmp_path / "out.csv"
-    writer = CsvFileWriter(dest, serializer=_Serializer(), encoding="utf-8-sig")
-    writer.write(object())
+    writer = CsvFileWriter(dest, encoding="utf-8-sig")
+    writer.write({"key": "k1", "feature": {"temp": 1.0}})
     writer.close()
 
     raw = dest.read_bytes()

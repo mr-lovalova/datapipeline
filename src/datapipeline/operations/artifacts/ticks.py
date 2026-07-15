@@ -7,7 +7,7 @@ from datapipeline.execution.observability import OperationProgressTracker
 from datapipeline.config.tasks import TicksTask
 from datapipeline.execution.context import PipelineContext
 from datapipeline.execution.runner import resolve_heartbeat_interval_seconds
-from datapipeline.io.sinks import AtomicTextFileSink
+from datapipeline.io.sinks.files import AtomicTextFileSink
 from datapipeline.operations.persistence import ArtifactOutput
 from datapipeline.pipelines.stream.pipeline import run_stream_pipeline
 from datapipeline.pipelines.sort import batch_sort

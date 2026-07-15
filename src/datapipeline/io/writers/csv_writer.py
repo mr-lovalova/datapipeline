@@ -2,29 +2,18 @@ import csv
 from pathlib import Path
 
 from datapipeline.io.csv_projection import CsvTableProjector
-from datapipeline.io.serializers import csv_row_serializer
-from datapipeline.io.sinks import AtomicTextFileSink
+from datapipeline.io.normalization import flat_payload
+from datapipeline.io.sinks.files import AtomicTextFileSink
 
 
 class CsvFileWriter:
-    def __init__(
-        self,
-        dest: Path,
-        serializer=None,
-        encoding: str = "utf-8",
-        overwrite: bool = True,
-    ):
-        self.sink = AtomicTextFileSink(
-            dest,
-            encoding=encoding,
-            overwrite=overwrite,
-        )
+    def __init__(self, dest: Path, encoding: str = "utf-8") -> None:
+        self.sink = AtomicTextFileSink(dest, encoding=encoding)
         self.writer = csv.writer(self.sink.fh)
         self._header_written = False
-        row_projector = serializer or csv_row_serializer()
-        self._projector = CsvTableProjector(row_projector)
+        self._projector = CsvTableProjector(flat_payload)
 
-    def write(self, item) -> None:
+    def write(self, item: object) -> None:
         projected = self._projector.project(item)
         if not self._header_written:
             self.writer.writerow(projected.header)

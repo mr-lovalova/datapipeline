@@ -1,7 +1,8 @@
 from pathlib import Path
 
+from datapipeline.io.normalization import View
 from datapipeline.io.serializers import json_line_serializer
-from datapipeline.io.sinks import AtomicTextFileSink
+from datapipeline.io.sinks.files import AtomicTextFileSink
 
 from .base import LineWriter
 
@@ -10,13 +11,13 @@ class JsonLinesFileWriter(LineWriter):
     def __init__(
         self,
         dest: Path,
-        serializer=None,
+        view: View = "raw",
         encoding: str = "utf-8",
         overwrite: bool = True,
-    ):
-        self._sink = AtomicTextFileSink(
+    ) -> None:
+        sink = AtomicTextFileSink(
             dest,
             encoding=encoding,
             overwrite=overwrite,
         )
-        super().__init__(self._sink, serializer or json_line_serializer())
+        super().__init__(sink, json_line_serializer(view))
