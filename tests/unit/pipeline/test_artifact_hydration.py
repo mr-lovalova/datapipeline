@@ -252,7 +252,7 @@ def test_project_hydration_uses_semantic_artifact_hash(tmp_path) -> None:
     project_path.write_text(
         "\n".join(
             [
-                "version: 2",
+                "schema_version: 2",
                 "artifact_revision: 1",
                 "paths:",
                 "  streams: ./streams",

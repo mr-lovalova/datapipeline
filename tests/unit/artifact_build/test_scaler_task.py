@@ -54,7 +54,9 @@ def _runtime(
     artifacts_root = tmp_path / "artifacts"
     artifacts_root.mkdir()
     project_yaml = tmp_path / "project.yaml"
-    project_yaml.write_text("version: 2\nartifact_revision: 1\n", encoding="utf-8")
+    project_yaml.write_text(
+        "schema_version: 2\nartifact_revision: 1\n", encoding="utf-8"
+    )
     if dataset is None:
         dataset = FeatureDatasetConfig(sample=SampleConfig(cadence="1h"))
     runtime = Runtime(

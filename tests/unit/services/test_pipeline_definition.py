@@ -25,7 +25,7 @@ def _write_pipeline(root: Path) -> Path:
         (root / name).mkdir(parents=True)
     project_yaml = root / "project.yaml"
     project_yaml.write_text(
-        """version: 2
+        """schema_version: 2
 artifact_revision: 1
 name: snapshot
 paths:

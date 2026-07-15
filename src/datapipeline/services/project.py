@@ -28,6 +28,17 @@ def _pipeline_config_path(project_yaml: Path, value: str) -> Path:
 def load_project(project_yaml: Path) -> ProjectManifest:
     path = project_yaml.resolve()
     document = read_yaml_document(path)
+    if "schema_version" not in document.data:
+        raise ValueError("Project config requires schema_version: 2.")
+    schema_version = document.data["schema_version"]
+    if type(schema_version) is not int:
+        raise TypeError(
+            f"Project schema_version must be the integer 2, got {schema_version!r}."
+        )
+    if schema_version != 2:
+        raise ValueError(
+            f"Unsupported project schema version {schema_version!r}; expected 2."
+        )
     environment = merged_project_env(path)
     data = resolve_config_refs(document.data, project_yaml=path, env=environment)
     variables = project_vars_from_data(data)

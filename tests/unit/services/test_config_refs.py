@@ -33,7 +33,7 @@ def _write_project_yaml(
 ) -> Path:
     project_yaml = project_root / "project.yaml"
     lines = [
-        "version: 2",
+        "schema_version: 2",
         "artifact_revision: 1",
         "name: sample",
     ]
@@ -80,6 +80,44 @@ def _use_source(project_root: Path, source_id: str) -> None:
         "targets: []\n",
         encoding="utf-8",
     )
+
+
+def test_project_requires_schema_version(tmp_path: Path) -> None:
+    project_yaml = tmp_path / "project.yaml"
+    project_yaml.write_text("version: 2\n", encoding="utf-8")
+
+    with pytest.raises(
+        ValueError,
+        match="Project config requires schema_version: 2",
+    ):
+        load_project(project_yaml)
+
+
+@pytest.mark.parametrize("value", ["1", "3"])
+def test_project_rejects_unsupported_schema_version(
+    tmp_path: Path,
+    value: str,
+) -> None:
+    project_yaml = tmp_path / "project.yaml"
+    project_yaml.write_text(f"schema_version: {value}\n", encoding="utf-8")
+
+    with pytest.raises(
+        ValueError,
+        match=rf"Unsupported project schema version {value}; expected 2",
+    ):
+        load_project(project_yaml)
+
+
+@pytest.mark.parametrize("value", ["'2'", "2.0", "true", "null"])
+def test_project_schema_version_must_be_integer(
+    tmp_path: Path,
+    value: str,
+) -> None:
+    project_yaml = tmp_path / "project.yaml"
+    project_yaml.write_text(f"schema_version: {value}\n", encoding="utf-8")
+
+    with pytest.raises(TypeError, match="schema_version must be the integer 2"):
+        load_project(project_yaml)
 
 
 def test_globals_resolve_env_refs_from_project_dotenv(
@@ -235,7 +273,8 @@ def test_project_paths_validate_interpolation_without_declared_variables(
     _write_project_files(tmp_path)
     project_yaml = tmp_path / "project.yaml"
     project_yaml.write_text(
-        """artifact_revision: 1
+        """schema_version: 2
+artifact_revision: 1
 paths:
   streams: streams
   sources: sources

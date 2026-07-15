@@ -1,11 +1,11 @@
-version: 2
+schema_version: 2
 artifact_revision: 1
 name: <your-dataset>
 paths:
   streams: ./streams
   sources: ./sources
   dataset: dataset.yaml
-  artifacts: ../artifacts/${project_name}/v${version}
+  artifacts: ../artifacts/${project_name}
   profiles: ./profiles
 globals:
   # TODO: Set your grouping cadence (must match ^\d+(m|min|h|d)$).

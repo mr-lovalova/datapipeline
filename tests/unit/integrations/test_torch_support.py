@@ -9,7 +9,9 @@ from datapipeline.services.constants import VECTOR_SCHEMA
 
 def test_schema_columns_include_partitioned_target_ids(tmp_path) -> None:
     project_yaml = tmp_path / "project.yaml"
-    project_yaml.write_text("version: 2\nartifact_revision: 1\n", encoding="utf-8")
+    project_yaml.write_text(
+        "schema_version: 2\nartifact_revision: 1\n", encoding="utf-8"
+    )
     artifacts_root = tmp_path / "artifacts"
     artifacts_root.mkdir()
     runtime = Runtime(

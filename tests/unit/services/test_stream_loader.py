@@ -22,7 +22,7 @@ def _write_project_yaml(project_root: Path) -> Path:
     project_yaml.write_text(
         "\n".join(
             [
-                "version: 2",
+                "schema_version: 2",
                 "artifact_revision: 1",
                 "name: sample",
                 "paths:",
@@ -154,7 +154,7 @@ def test_load_sources_reads_multiple_source_roots(tmp_path: Path) -> None:
     project_yaml.write_text(
         "\n".join(
             [
-                "version: 2",
+                "schema_version: 2",
                 "artifact_revision: 1",
                 "name: sample",
                 "paths:",
@@ -199,7 +199,7 @@ def test_load_sources_rejects_duplicate_source_ids_across_roots(tmp_path: Path) 
     project_yaml.write_text(
         "\n".join(
             [
-                "version: 2",
+                "schema_version: 2",
                 "artifact_revision: 1",
                 "name: sample",
                 "paths:",

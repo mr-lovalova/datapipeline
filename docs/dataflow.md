@@ -37,16 +37,19 @@ Expected behavior:
 `project.yaml` is the root map for all dataset config.
 
 ```yaml
-version: 2
+schema_version: 2
 artifact_revision: 1
 paths:
   sources: ./sources
   streams: ./streams
   dataset: dataset.yaml
-  artifacts: ../artifacts/${project_name}/v${version}
+  artifacts: ../artifacts/${project_name}
 ```
 
 Expected behavior:
+- `schema_version` declares the `project.yaml` format Jerry must support.
+- `artifact_revision` controls artifact cache invalidation independently of the
+  project format.
 - All relative `paths.*` values are resolved relative to this `project.yaml`.
 
 ## 3) Source id links source YAML to a stream

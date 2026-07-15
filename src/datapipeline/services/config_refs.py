@@ -64,13 +64,9 @@ def project_vars_from_data(data: Mapping[str, Any]) -> dict[str, Any]:
     if variant:
         vars_["project_variant"] = str(variant)
 
-    version = data.get("version")
-    if version is not None:
-        vars_["version"] = str(version)
-
     globals_ = data.get("globals") or {}
     if isinstance(globals_, Mapping):
-        for key in ("project_name", "project_variant", "version"):
+        for key in ("project_name", "project_variant"):
             if key in globals_:
                 raise ConfigRefError(
                     f"Project globals must not redefine reserved variable '{key}'."

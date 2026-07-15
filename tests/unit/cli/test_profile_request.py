@@ -17,7 +17,7 @@ def _write_project(tmp_path: Path) -> Path:
     project_yaml.write_text(
         "\n".join(
             [
-                "version: 2",
+                "schema_version: 2",
                 "artifact_revision: 1",
                 "paths:",
                 "  streams: streams",

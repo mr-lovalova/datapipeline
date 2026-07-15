@@ -7,7 +7,7 @@ from datapipeline.services.config_refs import project_vars_from_data
 
 def _project_data(**overrides):
     data = {
-        "version": 2,
+        "schema_version": 2,
         "artifact_revision": 1,
         "name": "momentum",
         "paths": {
@@ -37,9 +37,9 @@ def test_project_config_requires_artifact_revision() -> None:
 
 def test_project_config_requires_schema_version() -> None:
     data = _project_data()
-    del data["version"]
+    del data["schema_version"]
 
-    with pytest.raises(ValidationError, match="version"):
+    with pytest.raises(ValidationError, match="schema_version"):
         ProjectConfig.model_validate(data)
 
 
@@ -111,13 +111,12 @@ def test_project_fields_have_one_interpolation_name() -> None:
 
     assert vars_["project_name"] == "momentum"
     assert vars_["project_variant"] == "long"
-    assert vars_["version"] == "2"
     assert "project" not in vars_
     assert "variant" not in vars_
-    assert "project_version" not in vars_
+    assert "schema_version" not in vars_
 
 
-@pytest.mark.parametrize("field", ["project_name", "project_variant", "version"])
+@pytest.mark.parametrize("field", ["project_name", "project_variant"])
 def test_project_globals_cannot_override_project_variables(field: str) -> None:
     with pytest.raises(ValueError, match=f"reserved variable '{field}'"):
         project_vars_from_data(_project_data(globals={field: "override"}))
@@ -182,6 +181,6 @@ def test_project_config_rejects_removed_ingest_path() -> None:
         ProjectConfig.model_validate(data)
 
 
-def test_project_version_is_schema_version_two() -> None:
+def test_project_schema_version_is_two() -> None:
     with pytest.raises(ValidationError, match="Input should be 2"):
-        ProjectConfig.model_validate(_project_data(version=1))
+        ProjectConfig.model_validate(_project_data(schema_version=1))

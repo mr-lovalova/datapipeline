@@ -20,7 +20,7 @@ def ensure_project_scaffold(project_yaml: Path) -> None:
     if not project_yaml.exists():
         project_yaml.parent.mkdir(parents=True, exist_ok=True)
         default = (
-            "version: 2\n"
+            "schema_version: 2\n"
             "artifact_revision: 1\n"
             "name: default\n"
             "paths:\n"

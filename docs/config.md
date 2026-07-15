@@ -35,14 +35,14 @@ All dataset configuration is rooted at a single `project.yaml` file. Other YAML 
 ### `project.yaml`
 
 ```yaml
-version: 2
+schema_version: 2
 artifact_revision: 1
 name: default
 paths:
   streams: ./streams
   sources: ./sources
   dataset: dataset.yaml
-  artifacts: ../artifacts/${project_name}/v${version}
+  artifacts: ../artifacts/${project_name}
   # operations: ./operations # optional; core operations need no declarations
   profiles: ./profiles
 globals:
@@ -52,6 +52,8 @@ globals:
   raw_root: ${env:RAW_ROOT}
 ```
 
+- `schema_version` identifies the `project.yaml` format. Jerry validates this
+  compatibility marker before loading the rest of the project configuration.
 - `name` provides a stable identifier you can reuse inside config files via `${project_name}`.
 - `artifact_revision` is a positive integer that versions the semantics of
   generated artifacts. Increment it whenever parser, mapper, combine,

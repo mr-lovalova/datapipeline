@@ -1,11 +1,11 @@
-version: 2
+schema_version: 2
 artifact_revision: 1
 name: demo
 paths:
   streams: ./streams
   sources: ./sources
   dataset: dataset.yaml
-  artifacts: ../artifacts/${project_name}/v${version}
+  artifacts: ../artifacts/${project_name}
   profiles: ./profiles
 globals:
   group_by: 1d
