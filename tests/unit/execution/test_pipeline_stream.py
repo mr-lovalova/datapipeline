@@ -65,6 +65,18 @@ class _CollectingObserver:
                 timeout=1.0,
             )
 
+    def wait_for_pipeline_progress(
+        self,
+        predicate: Callable[[PipelineProgress], bool],
+    ) -> bool:
+        with self._progress_condition:
+            return self._progress_condition.wait_for(
+                lambda: any(
+                    predicate(event) for event in self.pipeline_progress_events
+                ),
+                timeout=1.0,
+            )
+
 
 def _context(tmp_path: Path) -> PipelineContext:
     project_yaml = tmp_path / "project.yaml"
@@ -276,6 +288,87 @@ def test_unobserved_pipeline_does_not_read_progress(tmp_path: Path) -> None:
     )
 
     assert list(run_pipeline(_context(tmp_path), pipeline)) == [1, 2]
+
+
+def test_pipeline_only_observation_skips_node_instrumentation(tmp_path: Path) -> None:
+    observer = _CollectingObserver()
+    context = _context(tmp_path)
+    context.pipeline_observer = observer
+    context.observe_node_events = False
+
+    def fail_progress(_completed: int) -> ProgressSnapshot:
+        raise AssertionError("pipeline-only observation sampled node progress")
+
+    pipeline = Pipeline(
+        name="pipeline-only",
+        summary="two stages",
+        nodes=(
+            SourceNode("source", lambda: [1, 2], progress=fail_progress),
+            PipelineNode("double", lambda records: (value * 2 for value in records)),
+        ),
+    )
+
+    assert list(run_pipeline(context, pipeline)) == [2, 4]
+    assert observer.pipeline_started == [
+        PipelineStarted(pipeline_name="pipeline-only", node_count=2)
+    ]
+    assert observer.pipeline_summaries == [
+        PipelineSummary(pipeline_name="pipeline-only", summary="two stages")
+    ]
+    assert observer.pipeline_events[-1].output_items == 2
+    assert observer.node_started == []
+    assert observer.node_events == []
+    assert observer.progress_events == []
+
+
+def test_pipeline_only_observation_keeps_pipeline_heartbeats(tmp_path: Path) -> None:
+    observer = _CollectingObserver()
+    context = _context(tmp_path)
+    context.pipeline_observer = observer
+    context.observe_node_events = False
+    context.heartbeat_interval_seconds = 0.01
+
+    def source() -> Iterator[int]:
+        assert observer.wait_for_pipeline_progress(
+            lambda event: event.output_items == 0
+        )
+        yield 1
+
+    pipeline = Pipeline(name="heartbeat", nodes=(SourceNode("source", source),))
+
+    assert list(run_pipeline(context, pipeline)) == [1]
+    assert observer.pipeline_progress_events
+    assert observer.progress_events == []
+
+
+def test_explicit_observer_includes_nodes_in_pipeline_only_context(
+    tmp_path: Path,
+) -> None:
+    observer = _CollectingObserver()
+    context = _context(tmp_path)
+    context.observe_node_events = False
+    pipeline = Pipeline(name="explicit", nodes=(SourceNode("source", lambda: [1]),))
+
+    assert list(run_pipeline(context, pipeline, observer=observer)) == [1]
+
+    assert [event.node_name for event in observer.node_started] == ["source"]
+    assert [event.node_name for event in observer.node_events] == ["source"]
+
+
+def test_context_snapshots_node_observation_for_lazy_execution(tmp_path: Path) -> None:
+    observer = _CollectingObserver()
+    context = _context(tmp_path)
+    context.runtime.pipeline_observer = observer
+    context.runtime.observe_node_events = False
+    context = PipelineContext(context.runtime)
+    pipeline = Pipeline(name="lazy-detail", nodes=(SourceNode("source", lambda: [1]),))
+    stream = run_pipeline(context, pipeline)
+
+    context.runtime.observe_node_events = True
+
+    assert list(stream) == [1]
+    assert observer.node_started == []
+    assert observer.node_events == []
 
 
 def test_progress_reader_is_sampled_while_another_node_is_active(

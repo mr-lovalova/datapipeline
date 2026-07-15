@@ -24,6 +24,7 @@ class PipelineContext:
     runtime: Runtime
     pipeline_observer: PipelineObserver | None = None
     heartbeat_interval_seconds: float | None = None
+    observe_node_events: bool = field(init=False)
     _window_bounds_cache: dict[
         bool,
         tuple[datetime | None, datetime | None],
@@ -32,6 +33,7 @@ class PipelineContext:
     def __post_init__(self) -> None:
         if self.pipeline_observer is None:
             self.pipeline_observer = self.runtime.pipeline_observer
+        self.observe_node_events = self.runtime.observe_node_events
         if self.heartbeat_interval_seconds is None:
             self.heartbeat_interval_seconds = self.runtime.heartbeat_interval_seconds
 

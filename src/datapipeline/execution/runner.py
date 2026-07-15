@@ -223,23 +223,18 @@ def run_pipeline(
 ) -> Generator[Any, None, None]:
     """Run a source followed by ordered stream stages."""
 
-    active_observer = _resolve_observer(context, observer)
-    if active_observer is _NOOP_OBSERVER:
+    active_observer = observer if observer is not None else context.pipeline_observer
+    if active_observer is None or active_observer is _NOOP_OBSERVER:
         yield from _run_unobserved(pipeline, seed)
         return
 
-    yield from _run_observed(context, pipeline, seed, active_observer)
-
-
-def _resolve_observer(
-    context: PipelineContext,
-    observer: PipelineObserver | None,
-) -> PipelineObserver:
-    if observer is not None:
-        return observer
-    if context.pipeline_observer is not None:
-        return context.pipeline_observer
-    return _NOOP_OBSERVER
+    yield from _run_observed(
+        context,
+        pipeline,
+        seed,
+        active_observer,
+        observe_nodes=observer is not None or context.observe_node_events,
+    )
 
 
 def _run_unobserved(
@@ -258,6 +253,7 @@ def _run_observed(
     pipeline: Pipeline,
     seed: Iterable[Any] | None,
     observer: PipelineObserver,
+    observe_nodes: bool,
 ) -> Iterator[Any]:
     start_time = time.perf_counter()
     status: RunStatus = "success"
@@ -288,7 +284,12 @@ def _run_observed(
             )
         started = True
         progress.start()
-        stream = _build_stream(pipeline, seed, observer=observer, progress=progress)
+        stream = _build_stream(
+            pipeline,
+            seed,
+            observer=observer if observe_nodes else None,
+            progress=progress if observe_nodes else None,
+        )
         iterator = iter(stream)
         while True:
             try:

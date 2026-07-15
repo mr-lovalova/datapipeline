@@ -21,6 +21,7 @@ def _runtime(streams=None):
     runtime = SimpleNamespace(
         window_bounds=None,
         pipeline_observer=None,
+        observe_node_events=True,
         heartbeat_interval_seconds=None,
         output_splits=(),
         streams=streams or {},
@@ -164,6 +165,7 @@ def test_pipeline_operation_returns_split_fanout_output(monkeypatch, tmp_path):
     runtime = SimpleNamespace(
         window_bounds=None,
         pipeline_observer=None,
+        observe_node_events=True,
         heartbeat_interval_seconds=None,
         output_splits=("train", "val"),
     )

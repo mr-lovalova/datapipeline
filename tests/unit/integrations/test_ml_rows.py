@@ -57,6 +57,7 @@ def test_vector_adapter_closes_dataset_pipeline(monkeypatch) -> None:
         ),
         runtime=SimpleNamespace(
             pipeline_observer=None,
+            observe_node_events=True,
             heartbeat_interval_seconds=None,
         ),
     )

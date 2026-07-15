@@ -28,6 +28,7 @@ def _runtime() -> Runtime:
 
 def test_run_execution_configures_logging_and_runs_work_inside_visuals(monkeypatch):
     runtime = _runtime()
+    runtime.observe_node_events = False
     calls = []
     inside_visual_context = False
 
@@ -57,6 +58,8 @@ def test_run_execution_configures_logging_and_runs_work_inside_visuals(monkeypat
     )
 
     def work():
+        assert runtime.pipeline_observer is not None
+        assert runtime.observe_node_events
         calls.append(("work", inside_visual_context))
         return "ok"
 
@@ -81,6 +84,7 @@ def test_run_execution_configures_logging_and_runs_work_inside_visuals(monkeypat
         ("work", True),
     ]
     assert runtime.pipeline_observer is None
+    assert not runtime.observe_node_events
 
 
 @pytest.mark.parametrize(
@@ -106,6 +110,11 @@ def test_run_execution_uses_plain_context_when_visuals_are_unavailable(
         lambda _level: pytest.fail("Rich visuals must not start"),
     )
 
+    def work() -> str:
+        assert runtime.pipeline_observer is not None
+        assert not runtime.observe_node_events
+        return "plain"
+
     result = run_execution(
         ExecutionSpec(
             observability=ObservabilitySettings(
@@ -116,17 +125,81 @@ def test_run_execution_uses_plain_context_when_visuals_are_unavailable(
             ),
             runtime=runtime,
         ),
-        lambda: "plain",
+        work,
     )
 
     assert result == "plain"
     assert runtime.pipeline_observer is None
+    assert runtime.observe_node_events
+
+
+def test_run_execution_observes_nodes_for_debug_logging(monkeypatch) -> None:
+    runtime = _runtime()
+    runtime.observe_node_events = False
+    monkeypatch.setattr(
+        "datapipeline.profiles.executor.configure_root_logging",
+        lambda **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.executor.rich_visuals_supported",
+        lambda: pytest.fail("visual support is irrelevant when visuals are off"),
+    )
+
+    def work() -> None:
+        assert runtime.pipeline_observer is not None
+        assert runtime.observe_node_events
+
+    run_execution(
+        ExecutionSpec(
+            observability=ObservabilitySettings(
+                visuals="off",
+                heartbeat_interval_seconds=None,
+                log_decision=LogLevelDecision(name="DEBUG", value=10),
+                log_output=_log_output(),
+            ),
+            runtime=runtime,
+        ),
+        work,
+    )
+
+    assert runtime.pipeline_observer is None
+    assert not runtime.observe_node_events
+
+
+def test_run_execution_restores_observation_after_failure(monkeypatch) -> None:
+    runtime = _runtime()
+    monkeypatch.setattr(
+        "datapipeline.profiles.executor.configure_root_logging",
+        lambda **_kwargs: None,
+    )
+
+    def fail() -> None:
+        assert not runtime.observe_node_events
+        raise RuntimeError("failed")
+
+    with pytest.raises(RuntimeError, match="failed"):
+        run_execution(
+            ExecutionSpec(
+                observability=ObservabilitySettings(
+                    visuals="off",
+                    heartbeat_interval_seconds=None,
+                    log_decision=LogLevelDecision(name="INFO", value=20),
+                    log_output=_log_output(),
+                ),
+                runtime=runtime,
+            ),
+            fail,
+        )
+
+    assert runtime.pipeline_observer is None
+    assert runtime.observe_node_events
 
 
 def test_run_execution_preserves_existing_pipeline_observer(monkeypatch) -> None:
     runtime = _runtime()
     existing_observer = object()
     runtime.pipeline_observer = existing_observer
+    runtime.observe_node_events = False
     monkeypatch.setattr(
         "datapipeline.profiles.executor.configure_root_logging",
         lambda **_kwargs: None,
@@ -150,3 +223,4 @@ def test_run_execution_preserves_existing_pipeline_observer(monkeypatch) -> None
     )
 
     assert runtime.pipeline_observer is existing_observer
+    assert not runtime.observe_node_events

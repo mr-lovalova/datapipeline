@@ -59,6 +59,7 @@ class Runtime:
     window_bounds: tuple[datetime | None, datetime | None] | None = None
     heartbeat_interval_seconds: float | None = None
     pipeline_observer: PipelineObserver | None = None
+    observe_node_events: bool = True
     artifacts: ArtifactRegistry = field(init=False)
 
     def __post_init__(self) -> None:

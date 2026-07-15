@@ -30,18 +30,21 @@ def run_execution(spec: ExecutionSpec, work: Callable[[], Any]) -> Any:
         output=spec.observability.log_output,
     )
 
+    visuals_active = spec.observability.visuals == "on" and rich_visuals_supported()
     visuals: AbstractContextManager[Any]
-    if spec.observability.visuals == "on" and rich_visuals_supported():
+    if visuals_active:
         visuals = visual_execution(level)
     else:
         visuals = nullcontext()
 
     runtime = spec.runtime
     previous_pipeline_observer = runtime.pipeline_observer
+    previous_observe_node_events = runtime.observe_node_events
     if previous_pipeline_observer is None:
         runtime.pipeline_observer = make_pipeline_observer(
             logging.getLogger("datapipeline.execution.observer")
         )
+        runtime.observe_node_events = visuals_active or level <= logging.DEBUG
 
     try:
         observer = make_operation_observer(
@@ -53,3 +56,4 @@ def run_execution(spec: ExecutionSpec, work: Callable[[], Any]) -> Any:
     finally:
         if previous_pipeline_observer is None:
             runtime.pipeline_observer = None
+            runtime.observe_node_events = previous_observe_node_events

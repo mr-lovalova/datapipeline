@@ -64,6 +64,7 @@ def _runtime(artifacts_root: Path) -> SimpleNamespace:
         artifacts_root=artifacts_root,
         artifacts=ArtifactRegistry(artifacts_root),
         pipeline_observer=None,
+        observe_node_events=True,
         heartbeat_interval_seconds=None,
         execution=ExecutionConfig(),
     )
