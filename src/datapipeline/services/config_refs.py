@@ -1,9 +1,8 @@
 import os
 import re
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping, Protocol
+from typing import Any, Mapping
 
 from datapipeline.utils.placeholders import MissingInterpolation, is_missing
 
@@ -13,34 +12,8 @@ _INTERPOLATION_RE = re.compile(r"\$\{([^}]+)\}")
 _PROJECT_VAR_MISSING = object()
 
 
-class ConfigRefProvider(Protocol):
-    def resolve(self, key: str, *, context: "ConfigRefContext") -> Any: ...
-
-
-@dataclass(frozen=True, slots=True)
-class ConfigRefContext:
-    project_yaml: Path
-    env: Mapping[str, str]
-
-
 class ConfigRefError(ValueError):
     """Raised when an external config reference cannot be resolved."""
-
-
-class EnvConfigRefProvider:
-    def resolve(self, key: str, *, context: ConfigRefContext) -> str:
-        name = key.strip()
-        if not name:
-            raise ConfigRefError(
-                "Config reference '${env:...}' must include a variable name."
-            )
-        value = context.env.get(name)
-        if value is None:
-            raise ConfigRefError(
-                f"Missing environment variable '{name}' referenced from "
-                f"{context.project_yaml.parent / '.env'} or process environment."
-            )
-        return value
 
 
 def serialize_project_value(value: Any) -> Any:
@@ -178,19 +151,10 @@ def resolve_config_refs(
     *,
     project_yaml: Path,
     env: Mapping[str, str] | None = None,
-    providers: Mapping[str, ConfigRefProvider] | None = None,
 ) -> Any:
     resolved_project_yaml = project_yaml.resolve()
-    context = ConfigRefContext(
-        project_yaml=resolved_project_yaml,
-        env=merged_project_env(resolved_project_yaml) if env is None else env,
-    )
-    registry = dict(providers or default_config_ref_providers())
-    return _resolve_config_refs(obj, context=context, providers=registry)
-
-
-def default_config_ref_providers() -> Mapping[str, ConfigRefProvider]:
-    return {"env": EnvConfigRefProvider()}
+    environment = merged_project_env(resolved_project_yaml) if env is None else env
+    return _resolve_config_refs(obj, resolved_project_yaml, environment)
 
 
 def merged_project_env(project_yaml: Path) -> dict[str, str]:
@@ -201,56 +165,58 @@ def merged_project_env(project_yaml: Path) -> dict[str, str]:
 
 def _resolve_config_refs(
     obj: Any,
-    *,
-    context: ConfigRefContext,
-    providers: Mapping[str, ConfigRefProvider],
+    project_yaml: Path,
+    env: Mapping[str, str],
 ) -> Any:
     if isinstance(obj, dict):
         return {
-            key: _resolve_config_refs(value, context=context, providers=providers)
+            key: _resolve_config_refs(value, project_yaml, env)
             for key, value in obj.items()
         }
     if isinstance(obj, list):
-        return [
-            _resolve_config_refs(value, context=context, providers=providers)
-            for value in obj
-        ]
+        return [_resolve_config_refs(value, project_yaml, env) for value in obj]
     if isinstance(obj, str):
-        return _resolve_string_refs(obj, context=context, providers=providers)
+        return _resolve_string_refs(obj, project_yaml, env)
     return obj
 
 
 def _resolve_string_refs(
     text: str,
-    *,
-    context: ConfigRefContext,
-    providers: Mapping[str, ConfigRefProvider],
-) -> Any:
+    project_yaml: Path,
+    env: Mapping[str, str],
+) -> str:
     match = _CONFIG_REF_RE.fullmatch(text)
     if match:
-        return _resolve_match(match, context=context, providers=providers)
+        return _resolve_env_ref(match, project_yaml, env)
 
     def repl(match: re.Match[str]) -> str:
-        value = _resolve_match(match, context=context, providers=providers)
-        return str(value)
+        return _resolve_env_ref(match, project_yaml, env)
 
     return _CONFIG_REF_RE.sub(repl, text)
 
 
-def _resolve_match(
+def _resolve_env_ref(
     match: re.Match[str],
-    *,
-    context: ConfigRefContext,
-    providers: Mapping[str, ConfigRefProvider],
-) -> Any:
+    project_yaml: Path,
+    env: Mapping[str, str],
+) -> str:
     scheme = match.group(1).strip().lower()
-    key = match.group(2).strip()
-    provider = providers.get(scheme)
-    if provider is None:
+    if scheme != "env":
         raise ConfigRefError(
             f"Unsupported config reference scheme '{scheme}' in '{match.group(0)}'."
         )
-    return provider.resolve(key, context=context)
+    name = match.group(2).strip()
+    if not name:
+        raise ConfigRefError(
+            "Config reference '${env:...}' must include a variable name."
+        )
+    value = env.get(name)
+    if value is None:
+        raise ConfigRefError(
+            f"Missing environment variable '{name}' referenced from "
+            f"{project_yaml.parent / '.env'} or process environment."
+        )
+    return value
 
 
 def _load_dotenv(path: Path) -> dict[str, str]:

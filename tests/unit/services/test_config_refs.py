@@ -4,7 +4,10 @@ from pathlib import Path
 import pytest
 
 from datapipeline.config.sources import SourceConfig
-from datapipeline.services.config_refs import interpolate_config_vars
+from datapipeline.services.config_refs import (
+    interpolate_config_vars,
+    resolve_config_refs,
+)
 from datapipeline.services.pipeline import load_pipeline
 from datapipeline.services.project import load_project
 from datapipeline.services.streams.loader import load_streams
@@ -156,6 +159,36 @@ def test_process_env_overrides_project_dotenv(
     monkeypatch.setenv("RAW_ROOT", "/runtime/raw")
 
     assert _project_variables(project_yaml)["raw_root"] == "/runtime/raw"
+
+
+def test_config_refs_resolve_full_and_embedded_env_values(tmp_path: Path) -> None:
+    resolved = resolve_config_refs(
+        {
+            "root": "${env:RAW_ROOT}",
+            "path": "${env:RAW_ROOT}/prices.jsonl",
+            "files": ["${env:RAW_ROOT}/prices.jsonl"],
+        },
+        project_yaml=tmp_path / "project.yaml",
+        env={"RAW_ROOT": "data/raw"},
+    )
+
+    assert resolved == {
+        "root": "data/raw",
+        "path": "data/raw/prices.jsonl",
+        "files": ["data/raw/prices.jsonl"],
+    }
+
+
+def test_config_refs_reject_unsupported_schemes(tmp_path: Path) -> None:
+    with pytest.raises(
+        ValueError,
+        match="Unsupported config reference scheme 'secret'",
+    ):
+        resolve_config_refs(
+            "${secret:RAW_ROOT}",
+            project_yaml=tmp_path / "project.yaml",
+            env={},
+        )
 
 
 def test_project_variant_can_be_used_in_project_paths(tmp_path: Path) -> None:
