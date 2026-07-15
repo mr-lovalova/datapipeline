@@ -1,8 +1,11 @@
 from pathlib import Path
-from typing import Optional
 
 from datapipeline.plugins import LOADERS_EP
-from datapipeline.services.paths import pkg_root, resolve_base_pkg_dir
+from datapipeline.services.paths import (
+    ensure_base_pkg_dir,
+    pkg_root,
+    resolve_base_pkg_dir,
+)
 from datapipeline.services.scaffold.entrypoints import (
     read_entry_points,
     register_entry_point,
@@ -17,21 +20,31 @@ from datapipeline.services.scaffold.layout import (
 from datapipeline.services.scaffold.templates import render
 from datapipeline.services.scaffold.utils import (
     ensure_pkg_dir,
-    validate_identifier,
-    write_if_missing,
+    is_python_identifier,
+    write_new_file,
 )
 
 
-def create_loader(
-    *,
-    name: str,
-    root: Optional[Path],
-) -> str:
-    validate_identifier(name, "Loader name")
-
+def validate_loader_creation(name: str, root: Path | None) -> None:
+    if not is_python_identifier(name):
+        raise ValueError("Loader name must be a valid Python identifier")
     root_dir, pkg_name, pyproject = pkg_root(root)
-    read_entry_points(pyproject, LOADERS_EP)
+    entrypoint = ep_key_from_name(name)
+    if entrypoint in read_entry_points(pyproject, LOADERS_EP):
+        raise FileExistsError(f"Loader entry point '{entrypoint}' already exists")
     base = resolve_base_pkg_dir(root_dir, pkg_name)
+    path = base / DIR_LOADERS / f"{to_snake(name)}.py"
+    if path.exists():
+        raise FileExistsError(f"{path} already exists")
+
+
+def create_loader(
+    name: str,
+    root: Path | None,
+) -> str:
+    validate_loader_creation(name, root)
+    root_dir, pkg_name, pyproject = pkg_root(root)
+    base = ensure_base_pkg_dir(root_dir, pkg_name)
     package_name = base.name
 
     loaders_dir = ensure_pkg_dir(base, DIR_LOADERS)
@@ -40,13 +53,12 @@ def create_loader(
 
     class_name = loader_class_name(name)
 
-    write_if_missing(
+    write_new_file(
         path,
         render(
             TPL_LOADER_BASIC,
             CLASS_NAME=class_name,
         ),
-        label="Loader",
     )
 
     ep_key = ep_key_from_name(name)

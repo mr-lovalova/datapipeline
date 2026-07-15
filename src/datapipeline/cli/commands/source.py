@@ -1,6 +1,8 @@
+import logging
 import sys
 from pathlib import Path
 
+from datapipeline.cli.prompts import pick_from_menu, prompt_required
 from datapipeline.cli.workspace import WorkspaceContext, resolve_default_project_yaml
 from datapipeline.cli.source_options import SOURCE_TRANSPORTS, source_formats_for
 from datapipeline.services.constants import DEFAULT_TEMPORAL_RECORD_PARSER_EP
@@ -10,11 +12,8 @@ from datapipeline.services.scaffold.source_yaml import (
     default_loader_config,
     validate_source_id,
 )
-from datapipeline.services.scaffold.utils import (
-    error_exit,
-    pick_from_menu,
-    prompt_required,
-)
+
+logger = logging.getLogger(__name__)
 
 
 def _resolve_source_parts(
@@ -29,21 +28,24 @@ def _resolve_source_parts(
         parts = alias.split(".", 1)
         if len(parts) == 2 and all(parts):
             return parts[0], parts[1]
-        error_exit("Alias must be 'provider.dataset'")
+        logger.error("Alias must be 'provider.dataset'")
+        raise SystemExit(2)
 
     if provider and "." in provider and not dataset:
         parts = provider.split(".", 1)
         if len(parts) == 2 and all(parts):
             return parts[0], parts[1]
-        error_exit(
+        logger.error(
             "Source must be specified as '<provider> <dataset>' or '<provider>.<dataset>'"
         )
+        raise SystemExit(2)
 
     source_id = prompt_required("Source id (provider.dataset)")
     parts = source_id.split(".", 1)
     if len(parts) == 2 and all(parts):
         return parts[0], parts[1]
-    error_exit("Source id must be in the form 'provider.dataset'")
+    logger.error("Source id must be in the form 'provider.dataset'")
+    raise SystemExit(2)
 
 
 def _choose_loader_transport_or_entrypoint(
@@ -98,7 +100,8 @@ def _resolve_loader_config(
             [(name, name) for name in source_formats_for(selected_transport)],
         )
     if not selected_transport:
-        error_exit("--transport is required when no --loader is provided")
+        logger.error("--transport is required when no --loader is provided")
+        raise SystemExit(2)
     return default_loader_config(selected_transport, source_format)
 
 
@@ -168,23 +171,27 @@ def handle(
     plugin_root: Path | None = None,
     workspace: WorkspaceContext | None = None,
 ) -> None:
-    if subcmd == "create":
-        provider, dataset = _resolve_source_parts(provider, dataset, alias)
-        source_id = f"{provider}.{dataset}"
-        try:
-            validate_source_id(source_id)
-        except ValueError as exc:
-            error_exit(str(exc))
-        loader_ep, loader_args = _resolve_loader_config(
-            transport,
-            format,
-            loader,
-            plugin_root,
-        )
-        parser_ep = _resolve_parser_entrypoint(identity, parser, plugin_root)
+    if subcmd != "create":
+        raise SystemExit(f"Unknown source subcommand: {subcmd}")
 
-        project_yaml = resolve_default_project_yaml(workspace)
-        create_source_yaml(
+    provider, dataset = _resolve_source_parts(provider, dataset, alias)
+    source_id = f"{provider}.{dataset}"
+    try:
+        validate_source_id(source_id)
+    except ValueError as exc:
+        logger.error("%s", exc)
+        raise SystemExit(2) from None
+    loader_ep, loader_args = _resolve_loader_config(
+        transport,
+        format,
+        loader,
+        plugin_root,
+    )
+    parser_ep = _resolve_parser_entrypoint(identity, parser, plugin_root)
+
+    project_yaml = resolve_default_project_yaml(workspace)
+    try:
+        path = create_source_yaml(
             source_id=source_id,
             loader_ep=loader_ep,
             loader_args=loader_args,
@@ -192,3 +199,6 @@ def handle(
             root=plugin_root,
             project_yaml=project_yaml,
         )
+    except (FileExistsError, ValueError) as exc:
+        raise SystemExit(str(exc)) from None
+    logger.info("Source: %s", path)

@@ -26,6 +26,7 @@ def handle(
         workspace.root if workspace is not None else None,
     )
     try:
-        scaffold_plugin(name, outdir)
+        target = scaffold_plugin(name, outdir)
     except (FileExistsError, ValueError) as exc:
         raise SystemExit(str(exc)) from None
+    logger.info("Plugin: %s", target)

@@ -1,12 +1,9 @@
-import logging
 import keyword
 import re
 import shutil
 import sys
 from importlib.resources import as_file, files
 from pathlib import Path
-
-logger = logging.getLogger(__name__)
 
 _RESERVED_DISTRIBUTION_NAMES = {"jerry-thomas"}
 _RESERVED_PACKAGE_NAMES = {"datapipeline", "test", "tests"}
@@ -93,5 +90,4 @@ def scaffold_plugin(name: str, outdir: Path) -> Path:
         shutil.rmtree(target)
         raise
 
-    logger.info("plugin skeleton created at %s", target)
     return target

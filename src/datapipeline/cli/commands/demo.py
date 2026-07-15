@@ -1,6 +1,10 @@
+import logging
+
 from datapipeline.cli.workspace import WorkspaceContext
 from datapipeline.services.path_policy import resolve_workspace_path
 from datapipeline.services.scaffold.demo import scaffold_demo
+
+logger = logging.getLogger(__name__)
 
 
 def handle(
@@ -16,6 +20,7 @@ def handle(
         workspace.root if workspace is not None else None,
     )
     try:
-        scaffold_demo(outdir)
+        target = scaffold_demo(outdir)
     except FileExistsError as exc:
         raise SystemExit(str(exc)) from None
+    logger.info("Demo: %s", target)

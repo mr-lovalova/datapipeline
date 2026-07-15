@@ -1,11 +1,17 @@
+import logging
 from pathlib import Path
 
+from datapipeline.cli.prompts import prompt_required
 from datapipeline.services.scaffold.dto import create_dto
-from datapipeline.services.scaffold.utils import status, prompt_required
+
+logger = logging.getLogger(__name__)
 
 
 def handle(name: str | None, *, plugin_root: Path | None = None) -> None:
     if not name:
         name = prompt_required("DTO class name")
-    create_dto(name=name, root=plugin_root)
-    status("ok", "DTO ready.")
+    try:
+        path = create_dto(name, plugin_root)
+    except (FileExistsError, ValueError) as exc:
+        raise SystemExit(str(exc)) from None
+    logger.info("DTO: %s", path)

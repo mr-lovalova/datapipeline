@@ -56,7 +56,33 @@ def test_create_source_preserves_custom_source_id(tmp_path: Path) -> None:
     )
 
 
-@pytest.mark.parametrize("source_id", ["weather", "demo/weather", "demo..weather"])
+def test_create_source_refuses_to_replace_existing_config(tmp_path: Path) -> None:
+    plugin_root = _create_plugin(tmp_path)
+    path = create_source_yaml(
+        source_id="demo.weather",
+        loader_ep="custom.loader",
+        loader_args={},
+        parser_ep="identity",
+        root=plugin_root,
+    )
+    original = path.read_bytes()
+
+    with pytest.raises(FileExistsError, match="demo.weather.yaml"):
+        create_source_yaml(
+            source_id="demo.weather",
+            loader_ep="different.loader",
+            loader_args={"changed": True},
+            parser_ep="custom.parser",
+            root=plugin_root,
+        )
+
+    assert path.read_bytes() == original
+
+
+@pytest.mark.parametrize(
+    "source_id",
+    ["weather", "demo/weather", "demo..weather", "demo.café"],
+)
 def test_create_source_rejects_unsafe_source_id(
     source_id: str,
     tmp_path: Path,

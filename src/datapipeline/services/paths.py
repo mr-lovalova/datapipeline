@@ -1,11 +1,10 @@
 import sys
 from pathlib import Path
-from typing import Optional
 
 from datapipeline.services.path_policy import workspace_cwd
 
 
-def pkg_root(start: Optional[Path] = None) -> tuple[Path, str, Path]:
+def pkg_root(start: Path | None = None) -> tuple[Path, str, Path]:
     here = start or workspace_cwd()
     for d in [here, *here.parents]:
         pyproject = d / "pyproject.toml"
@@ -39,6 +38,11 @@ def resolve_base_pkg_dir(root_dir: Path, pkg_name: str) -> Path:
         ]
         if len(candidates) == 1:
             return candidates[0]
-    preferred.mkdir(parents=True, exist_ok=True)
-    (preferred / "__init__.py").touch(exist_ok=True)
     return preferred
+
+
+def ensure_base_pkg_dir(root_dir: Path, pkg_name: str) -> Path:
+    path = resolve_base_pkg_dir(root_dir, pkg_name)
+    path.mkdir(parents=True, exist_ok=True)
+    (path / "__init__.py").touch(exist_ok=True)
+    return path

@@ -12,7 +12,6 @@ from datapipeline.services.scaffold.discovery import (
     list_mappers,
     list_parsers,
 )
-from datapipeline.services.scaffold.utils import error_exit
 
 
 def _default_project_path(root_dir: Path) -> Path | None:
@@ -42,11 +41,11 @@ def handle(
             root_dir, _, _ = pkg_root(plugin_root)
             proj_path = _default_project_path(root_dir)
         if proj_path is None:
-            error_exit("No project.yaml found under config/.")
+            raise SystemExit("No project.yaml found under config/.")
         try:
             streams = load_streams(load_project(proj_path))
         except FileNotFoundError as exc:
-            error_exit(str(exc))
+            raise SystemExit(str(exc)) from None
         aliases = sorted(streams.sources)
         for alias in aliases:
             print(alias)

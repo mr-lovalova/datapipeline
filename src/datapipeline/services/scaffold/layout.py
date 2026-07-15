@@ -83,12 +83,5 @@ def default_stream_id_for_source(
     )
 
 
-# Prompt labels (keep CLI wording consistent)
-LABEL_DTO_FOR_PARSER = "DTO for parser"
-LABEL_DTO_FOR_MAPPER = "DTO for mapper"
-LABEL_DOMAIN_TO_MAP = "Domain"
-LABEL_MAPPER_INPUT = "Mapper input"
-
-
 def default_mapper_name_for_identity(domain: str) -> str:
     return f"map_identity_to_{slugify(domain)}"

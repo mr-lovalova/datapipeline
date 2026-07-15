@@ -1,9 +1,9 @@
 from pathlib import Path
 
 from datapipeline.config.streams import AlignedStreamConfig, SourceStreamConfig
+from datapipeline.services.project import load_project
 from datapipeline.services.project_paths import ensure_project_scaffold
 from datapipeline.services.scaffold.templates import render
-from datapipeline.services.scaffold.utils import status
 
 
 def write_source_stream(
@@ -19,6 +19,11 @@ def write_source_stream(
             "map": {"entrypoint": mapper_entrypoint},
         }
     )
+    if project_yaml.exists():
+        project = load_project(project_yaml)
+        existing_path = project.stream_dirs[0] / f"{config.id}.yaml"
+        if existing_path.exists():
+            raise FileExistsError(f"{existing_path} already exists")
     project = ensure_project_scaffold(project_yaml)
     streams_dir = project.stream_dirs[0]
     path = streams_dir / f"{config.id}.yaml"
@@ -30,7 +35,6 @@ def write_source_stream(
     )
     with path.open("x", encoding="utf-8") as stream_file:
         stream_file.write(content)
-    status("new", f"source stream spec: {path}")
     return path
 
 
@@ -47,6 +51,11 @@ def write_aligned_stream(
             "combine": {"entrypoint": combine_entrypoint},
         }
     )
+    if project_yaml.exists():
+        project = load_project(project_yaml)
+        existing_path = project.stream_dirs[0] / f"{config.id}.yaml"
+        if existing_path.exists():
+            raise FileExistsError(f"{existing_path} already exists")
     project = ensure_project_scaffold(project_yaml)
     streams_dir = project.stream_dirs[0]
     path = streams_dir / f"{config.id}.yaml"
@@ -61,5 +70,4 @@ def write_aligned_stream(
     )
     with path.open("x", encoding="utf-8") as stream_file:
         stream_file.write(content)
-    status("new", f"aligned stream spec: {path}")
     return path

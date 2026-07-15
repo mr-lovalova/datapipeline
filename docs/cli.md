@@ -116,7 +116,10 @@ reading the data. Visuals are independent of log filtering.
 - `jerry inflow create`
   - Wizard to scaffold a complete source-backed stream (source YAML + parser/DTO + mapper + stream).
 - `jerry stream create [--identity]`
-  - Scaffolds either a source-backed stream or an aligned stream.
+  - Writes a source-backed or aligned stream configuration. It references an
+    existing, identity, or custom mapper; it does not create Python code.
+    Use `jerry inflow create` when the source, DTO, parser, domain, or mapper
+    must also be scaffolded.
   - Aligned streams require at least two existing input streams and the name of
     a combine entry point already registered in `datapipeline.combiners`. The
     combine function receives one matching record from each input in the

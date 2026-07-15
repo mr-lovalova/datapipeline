@@ -1,4 +1,3 @@
-import logging
 import shutil
 from importlib.resources import as_file, files
 from pathlib import Path
@@ -6,8 +5,6 @@ from pathlib import Path
 from datapipeline.plugins import MAPPERS_EP, PARSERS_EP
 from datapipeline.services.scaffold.entrypoints import register_entry_point
 from datapipeline.services.scaffold.plugin import create_plugin_base
-
-logger = logging.getLogger(__name__)
 
 _DEMO_NAME = "demo"
 _IGNORE_GENERATED_FILES = shutil.ignore_patterns(
@@ -61,5 +58,4 @@ def scaffold_demo(outdir: Path) -> Path:
         shutil.rmtree(plugin_root)
         raise
 
-    logger.info("demo plugin created at %s", plugin_root)
     return plugin_root

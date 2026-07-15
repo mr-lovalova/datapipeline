@@ -12,5 +12,5 @@ def add_stream_command(sub, common: argparse.ArgumentParser) -> None:
     create.add_argument(
         "--identity",
         action="store_true",
-        help="use built-in identity mapper (skip mapper scaffolding)",
+        help="use the built-in identity mapper without prompting",
     )

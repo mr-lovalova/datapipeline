@@ -65,7 +65,7 @@ def test_loader_rejects_python_keyword_name(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    with pytest.raises(SystemExit):
+    with pytest.raises(ValueError, match="valid Python identifier"):
         create_loader(name="class", root=plugin)
 
     assert not (package / "loaders").exists()
