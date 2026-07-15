@@ -3,17 +3,17 @@ from pathlib import Path
 
 import pytest
 
-from datapipeline.services import pipeline_fingerprints
-from datapipeline.services.pipeline_fingerprints import calculate_artifact_hashes
-from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
-from datapipeline.config.dataset.feature import FeatureRecordConfig
-from datapipeline.config.streams import StreamsConfig
-from datapipeline.config.tasks import ArtifactTask, SchemaTask, VectorInputsTask
-from datapipeline.services.constants import (
+from datapipeline.artifacts import fingerprints
+from datapipeline.artifacts.fingerprints import calculate_artifact_hashes
+from datapipeline.artifacts.specs import (
     VECTOR_INPUTS,
     VECTOR_METADATA,
     VECTOR_SCHEMA,
 )
+from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
+from datapipeline.config.dataset.feature import FeatureRecordConfig
+from datapipeline.config.streams import StreamsConfig
+from datapipeline.config.tasks import ArtifactTask, SchemaTask, VectorInputsTask
 from datapipeline.services import config_inventory
 from datapipeline.services.pipeline import load_pipeline
 from datapipeline.services.runtime_compiler import compile_runtime
@@ -611,9 +611,9 @@ def test_artifact_cache_version_changes_artifact_hash(
 ) -> None:
     definition = load_pipeline(_write_pipeline(tmp_path))
     monkeypatch.setattr(
-        pipeline_fingerprints,
+        fingerprints,
         "ARTIFACT_CACHE_VERSION",
-        pipeline_fingerprints.ARTIFACT_CACHE_VERSION + 1,
+        fingerprints.ARTIFACT_CACHE_VERSION + 1,
     )
     changed_artifact_hashes = calculate_artifact_hashes(
         definition.project,

@@ -6,12 +6,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from datapipeline.config.execution import ExecutionConfig
+from datapipeline.artifacts.registry import ArtifactRegistry
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
+from datapipeline.config.execution import ExecutionConfig
 from datapipeline.config.transforms import PreprocessConfig, TransformConfig
 from datapipeline.domain.stream import RecordStream
-
-from datapipeline.services.artifacts import ArtifactManager
 
 if TYPE_CHECKING:
     from datapipeline.execution.observer import PipelineObserver
@@ -60,10 +59,10 @@ class Runtime:
     window_bounds: tuple[datetime | None, datetime | None] | None = None
     heartbeat_interval_seconds: float | None = None
     pipeline_observer: PipelineObserver | None = None
-    artifacts: ArtifactManager = field(init=False)
+    artifacts: ArtifactRegistry = field(init=False)
 
     def __post_init__(self) -> None:
-        self.artifacts = ArtifactManager(self.artifacts_root)
+        self.artifacts = ArtifactRegistry(self.artifacts_root)
 
 
 def require_runtime_stream(runtime: Runtime, stream_id: str) -> RuntimeStream:

@@ -2,7 +2,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from datapipeline.config.streams import SourceStreamConfig
-from datapipeline.services.paths import pkg_root
 from datapipeline.services.project import load_project
 from datapipeline.services.scaffold.domain import (
     create_domain,
@@ -18,6 +17,7 @@ from datapipeline.services.scaffold.parser import (
     create_parser,
     validate_parser_creation,
 )
+from datapipeline.services.scaffold.paths import pkg_root
 from datapipeline.services.scaffold.source_yaml import (
     create_source_yaml,
     validate_source_id,

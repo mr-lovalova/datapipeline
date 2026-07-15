@@ -2,13 +2,13 @@ from pathlib import Path
 
 from datapipeline.analysis.vector.stats import VectorStatsAccumulator
 from datapipeline.artifacts.models import VectorStatsArtifact
+from datapipeline.artifacts.registry import VECTOR_METADATA_SPEC
 from datapipeline.config.tasks import StatsTask
 from datapipeline.execution.context import PipelineContext
 from datapipeline.operations.persistence import ArtifactOutput
 from datapipeline.pipelines.dataset.nodes import build_postprocess_plan
 from datapipeline.pipelines.vector.pipeline import build_vector_pipeline
 from datapipeline.runtime import Runtime
-from datapipeline.services.artifacts import VECTOR_METADATA_SPEC
 from datapipeline.utils.json_artifact import write_json_artifact
 
 

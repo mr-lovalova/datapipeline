@@ -1,14 +1,14 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from unicodedata import normalize
 
 from datapipeline.config.profiles import Format, ServeOutputConfig, Transport, View
+from datapipeline.io.runs import RunPaths
 from datapipeline.services.path_policy import (
     resolve_relative_to_base,
     sanitize_path_segment,
     workspace_cwd,
 )
-from datapipeline.services.runs import RunPaths
 
 
 def _format_suffix(fmt: Format) -> str:
@@ -57,14 +57,7 @@ class OutputTarget:
         stem = dest.name[: -len(suffix)] if suffix else dest.name
         new_name = f"{stem}.{safe_feature}{suffix}"
         new_path = dest.with_name(new_name)
-        return OutputTarget(
-            transport=self.transport,
-            format=self.format,
-            view=self.view,
-            encoding=self.encoding,
-            destination=new_path,
-            run=self.run,
-        )
+        return replace(self, destination=new_path)
 
     def for_split(self, label: str) -> "OutputTarget":
         if self.transport != "fs" or self.destination is None:
@@ -75,14 +68,7 @@ class OutputTarget:
         stem = dest.name[: -len(suffix)] if suffix else dest.name
         new_name = f"{stem}.{safe_label}{suffix}"
         new_path = dest.with_name(new_name)
-        return OutputTarget(
-            transport=self.transport,
-            format=self.format,
-            view=self.view,
-            encoding=self.encoding,
-            destination=new_path,
-            run=self.run,
-        )
+        return replace(self, destination=new_path)
 
 
 def output_destination_key(path: Path) -> str:
@@ -103,7 +89,7 @@ def resolve_output_directory(
     if config is None or config.transport != "fs" or config.directory is None:
         return None
     base = base_path or workspace_cwd()
-    return resolve_relative_to_base(config.directory, base, resolve=True)
+    return resolve_relative_to_base(config.directory, base)
 
 
 def resolve_output_target(
@@ -139,7 +125,6 @@ def resolve_output_target(
     directory = resolve_relative_to_base(
         config.directory,
         base_path,
-        resolve=True,
     )
     if run_paths is not None:
         base_dest_dir = run_paths.dataset_dir

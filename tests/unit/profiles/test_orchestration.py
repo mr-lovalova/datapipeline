@@ -6,7 +6,13 @@ from types import SimpleNamespace
 import pytest
 
 from datapipeline.artifacts.planning import build_artifact_graph
+from datapipeline.artifacts.registry import ArtifactRegistry
 from datapipeline.artifacts.settings import BuildSettings
+from datapipeline.artifacts.specs import (
+    VECTOR_INPUTS,
+    VECTOR_METADATA,
+    VECTOR_SCHEMA,
+)
 from datapipeline.build.state import (
     ArtifactFileFingerprint,
     BuildState,
@@ -17,11 +23,6 @@ from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.config.execution import ExecutionConfig
 from datapipeline.config.preview import PreviewStage
 from datapipeline.config.streams import StreamsConfig
-from datapipeline.execution.settings import (
-    LogLevelDecision,
-    LogOutputSettings,
-    ObservabilitySettings,
-)
 from datapipeline.config.tasks import (
     ArtifactTask,
     CoverageTask,
@@ -33,7 +34,13 @@ from datapipeline.config.tasks import (
     TicksTask,
     VectorInputsTask,
 )
+from datapipeline.execution.settings import (
+    LogLevelDecision,
+    LogOutputSettings,
+    ObservabilitySettings,
+)
 from datapipeline.io.output import OutputTarget
+from datapipeline.io.runs import RunPaths
 from datapipeline.profiles.execution import (
     RuntimeJobPlan,
     execute_runtime_job,
@@ -51,13 +58,6 @@ from datapipeline.profiles.models import (
     ServeRunPlan,
 )
 from datapipeline.profiles.orchestration import _validate_build_order, run_profiles
-from datapipeline.services.artifacts import ArtifactManager
-from datapipeline.services.constants import (
-    VECTOR_INPUTS,
-    VECTOR_METADATA,
-    VECTOR_SCHEMA,
-)
-from datapipeline.services.runs import RunPaths
 from tests.unit.profiles.helpers import pipeline_definition
 
 _LOG_DECISION = LogLevelDecision(name="INFO", value=logging.INFO)
@@ -124,7 +124,7 @@ def _stream_catalog() -> StreamsConfig:
 def _runtime(tmp_path: Path, marker: str = "runtime") -> SimpleNamespace:
     return SimpleNamespace(
         marker=marker,
-        artifacts=ArtifactManager(tmp_path / marker / "artifacts"),
+        artifacts=ArtifactRegistry(tmp_path / marker / "artifacts"),
         dataset=_dataset(),
         execution=ExecutionConfig(),
         heartbeat_interval_seconds=None,
@@ -1054,7 +1054,7 @@ def test_materialize_hydrates_current_tick_artifact_when_build_skips(
         execution=ExecutionConfig(),
         heartbeat_interval_seconds=None,
         streams={"adv.20": object()},
-        artifacts=ArtifactManager(artifacts_root),
+        artifacts=ArtifactRegistry(artifacts_root),
         artifacts_root=artifacts_root,
     )
     request = MaterializeRunRequest(

@@ -2,15 +2,14 @@ from collections import deque
 from collections.abc import Iterable, Iterator, Sequence
 from typing import Any
 
+from datapipeline.artifacts.registry import SCALER_SPEC
 from datapipeline.config.dataset.feature import FeatureRecordConfig, SequenceConfig
-from datapipeline.utils.time import floor_time_to_cadence
 from datapipeline.domain.feature import FeatureRecord, FeatureSequence
 from datapipeline.execution.context import PipelineContext
 from datapipeline.pipelines.feature.projector import FeatureProjector
 from datapipeline.pipelines.sort import SortProgress, batch_sort
-from datapipeline.services.artifacts import SCALER_SPEC
 from datapipeline.transforms.feature.scaler import FeatureScaler
-from datapipeline.utils.time import parse_cadence
+from datapipeline.utils.time import floor_time_to_cadence, parse_cadence
 
 
 def build_feature_stream(

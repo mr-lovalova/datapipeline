@@ -1,23 +1,23 @@
 import pytest
 
 from datapipeline.artifacts.hydration import hydrate_runtime_artifacts_for_pipeline
-from datapipeline.execution.context import PipelineContext
-from datapipeline.operations.artifacts.metadata import materialize_metadata
-from datapipeline.operations.artifacts.vector_inputs import materialize_vector_inputs
-from datapipeline.operations.artifacts.schema import materialize_vector_schema
-from datapipeline.operations.artifacts.scaler import materialize_scaler_statistics
-from datapipeline.config.tasks import (
-    MetadataTask,
-    SchemaTask,
-    ScalerTask,
-    VectorInputsTask,
-)
-from datapipeline.services.constants import (
+from datapipeline.artifacts.specs import (
     SCALER_STATISTICS,
     VECTOR_INPUTS,
     VECTOR_METADATA,
     VECTOR_SCHEMA,
 )
+from datapipeline.config.tasks import (
+    MetadataTask,
+    ScalerTask,
+    SchemaTask,
+    VectorInputsTask,
+)
+from datapipeline.execution.context import PipelineContext
+from datapipeline.operations.artifacts.metadata import materialize_metadata
+from datapipeline.operations.artifacts.scaler import materialize_scaler_statistics
+from datapipeline.operations.artifacts.schema import materialize_vector_schema
+from datapipeline.operations.artifacts.vector_inputs import materialize_vector_inputs
 from datapipeline.pipelines.dataset.nodes import apply_postprocess
 from datapipeline.pipelines.vector.pipeline import build_vector_pipeline
 from datapipeline.services.pipeline import load_pipeline

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from datapipeline.artifacts.registry import SCALER_SPEC
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.config.tasks import VectorInputsTask
 from datapipeline.domain.sample_key import SampleKeyContract
@@ -22,20 +23,18 @@ from datapipeline.pipelines.feature.projector import FeatureProjector
 from datapipeline.pipelines.sort import SortProgress, batch_sort
 from datapipeline.pipelines.stream.pipeline import build_stream_pipeline
 from datapipeline.runtime import Runtime, require_runtime_stream
-from datapipeline.services.artifacts import SCALER_SPEC
 from datapipeline.services.path_policy import resolve_artifact_output_path
 from datapipeline.transforms.feature.scaler import FeatureScaler
 from datapipeline.utils.json_artifact import write_json_artifact
 from datapipeline.utils.time import floor_time_to_cadence, parse_cadence
 from datapipeline.vector_inputs.store import (
+    VECTOR_INPUTS_MANIFEST_VERSION,
     CachedVectorInputShard,
     CachedVectorInputsManifest,
-    VECTOR_INPUTS_MANIFEST_VERSION,
     WrittenVectorInputShard,
     feature_record_to_vector_input_row,
     write_vector_input_rows,
 )
-
 
 logger = logging.getLogger(__name__)
 

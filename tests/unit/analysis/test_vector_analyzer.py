@@ -11,8 +11,8 @@ from datapipeline.artifacts.models import (
     VectorSchemaCadence,
     VectorStatsArtifact,
 )
+from datapipeline.artifacts.registry import VECTOR_STATS_SPEC
 from datapipeline.operations.runtime.coverage import _section_report
-from datapipeline.services.artifacts import VECTOR_STATS_SPEC
 
 
 def _scalar(identifier: str, base_id: str):

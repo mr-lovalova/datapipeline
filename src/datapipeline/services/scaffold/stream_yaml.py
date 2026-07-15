@@ -2,7 +2,7 @@ from pathlib import Path
 
 from datapipeline.config.streams import AlignedStreamConfig, SourceStreamConfig
 from datapipeline.services.project import load_project
-from datapipeline.services.project_paths import ensure_project_scaffold
+from datapipeline.services.scaffold.paths import ensure_project_scaffold
 from datapipeline.services.scaffold.templates import render
 
 

@@ -1,18 +1,18 @@
 import re
 from pathlib import Path
 
-from datapipeline.services.paths import pkg_root
 from datapipeline.services.project import load_project
-from datapipeline.services.project_paths import (
+from datapipeline.services.scaffold.paths import (
+    default_project_yaml_path,
     ensure_project_scaffold,
-    resolve_project_yaml_path,
+    pkg_root,
 )
 from datapipeline.services.scaffold.templates import render
 from datapipeline.services.scaffold.utils import write_new_file
-from datapipeline.services.constants import (
-    DEFAULT_IO_LOADER_EP,
-    DEFAULT_SYNTHETIC_LOADER_EP,
-)
+
+DEFAULT_IO_LOADER_EP = "core.io"
+DEFAULT_SYNTHETIC_LOADER_EP = "core.synthetic.ticks"
+DEFAULT_TEMPORAL_RECORD_PARSER_EP = "core.temporal_record"
 
 
 def _loader_args(transport: str, fmt: str | None) -> dict[str, object]:
@@ -40,7 +40,7 @@ def _loader_args(transport: str, fmt: str | None) -> dict[str, object]:
         return args
     if transport == "synthetic":
         return {"start": "<ISO8601>", "end": "<ISO8601>", "frequency": "1h"}
-    return {}
+    raise ValueError(f"Unsupported source transport: {transport!r}")
 
 
 def validate_source_id(source_id: str) -> None:
@@ -75,7 +75,7 @@ def create_source_yaml(
     proj_yaml = (
         project_yaml.resolve()
         if project_yaml is not None
-        else resolve_project_yaml_path(root_dir)
+        else default_project_yaml_path(root_dir)
     )
     if proj_yaml.exists():
         project = load_project(proj_yaml)
@@ -109,4 +109,4 @@ def default_loader_config(
         return DEFAULT_IO_LOADER_EP, _loader_args(transport, fmt)
     if transport == "synthetic":
         return DEFAULT_SYNTHETIC_LOADER_EP, _loader_args(transport, fmt)
-    return DEFAULT_IO_LOADER_EP, {}
+    raise ValueError(f"Unsupported source transport: {transport!r}")

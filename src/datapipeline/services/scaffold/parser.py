@@ -1,11 +1,6 @@
 from pathlib import Path
 
 from datapipeline.plugins import PARSERS_EP
-from datapipeline.services.paths import (
-    ensure_base_pkg_dir,
-    pkg_root,
-    resolve_base_pkg_dir,
-)
 from datapipeline.services.scaffold.entrypoints import (
     read_entry_points,
     register_entry_point,
@@ -15,6 +10,11 @@ from datapipeline.services.scaffold.layout import (
     TPL_PARSER,
     ep_key_from_name,
     to_snake,
+)
+from datapipeline.services.scaffold.paths import (
+    ensure_base_pkg_dir,
+    pkg_root,
+    resolve_base_pkg_dir,
 )
 from datapipeline.services.scaffold.templates import render
 from datapipeline.services.scaffold.utils import (

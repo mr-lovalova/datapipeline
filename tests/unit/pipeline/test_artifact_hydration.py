@@ -5,6 +5,11 @@ from datapipeline.artifacts.hydration import (
     hydrate_runtime_artifacts_for_pipeline,
 )
 from datapipeline.artifacts.planning import build_artifact_graph
+from datapipeline.artifacts.specs import (
+    VECTOR_INPUTS,
+    VECTOR_METADATA,
+    VECTOR_SCHEMA,
+)
 from datapipeline.artifacts.validation import NestedTickDependency
 from datapipeline.build.state import (
     ArtifactFileFingerprint,
@@ -22,11 +27,6 @@ from datapipeline.config.tasks import (
     VectorInputsTask,
 )
 from datapipeline.runtime import Runtime
-from datapipeline.services.constants import (
-    VECTOR_INPUTS,
-    VECTOR_METADATA,
-    VECTOR_SCHEMA,
-)
 from datapipeline.services.definitions import ArtifactHashes
 from datapipeline.services.pipeline import load_pipeline
 from datapipeline.services.runtime_compiler import compile_runtime

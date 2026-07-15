@@ -3,11 +3,11 @@ import sys
 from pathlib import Path
 
 from datapipeline.cli.prompts import pick_from_menu, prompt_required
-from datapipeline.cli.workspace import WorkspaceContext, resolve_default_project_yaml
 from datapipeline.cli.source_options import SOURCE_TRANSPORTS, source_formats_for
-from datapipeline.services.constants import DEFAULT_TEMPORAL_RECORD_PARSER_EP
+from datapipeline.cli.workspace import WorkspaceContext, resolve_default_project_yaml
 from datapipeline.services.scaffold.discovery import list_loaders, list_parsers
 from datapipeline.services.scaffold.source_yaml import (
+    DEFAULT_TEMPORAL_RECORD_PARSER_EP,
     create_source_yaml,
     default_loader_config,
     validate_source_id,

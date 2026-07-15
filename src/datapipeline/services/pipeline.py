@@ -1,18 +1,18 @@
 from pathlib import Path
 
-from datapipeline.services.pipeline_fingerprints import calculate_artifact_hashes
-from datapipeline.services.operations import (
-    operation_documents,
-    operations_from_documents,
-)
+from datapipeline.artifacts.fingerprints import calculate_artifact_hashes
 from datapipeline.config.tasks import ArtifactTask, OperationTask
-from datapipeline.services.streams.loader import load_streams
 from datapipeline.services.dataset import (
     dataset_from_document,
     validate_dataset_streams,
 )
 from datapipeline.services.definitions import PipelineDefinition
+from datapipeline.services.operations import (
+    operation_documents,
+    operations_from_documents,
+)
 from datapipeline.services.project import load_project
+from datapipeline.services.streams.loader import load_streams
 from datapipeline.utils.load import read_yaml_document
 
 

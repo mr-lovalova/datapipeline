@@ -5,27 +5,27 @@ from datetime import datetime, timezone
 import pytest
 
 from datapipeline.artifacts.models import VectorSchemaArtifact
+from datapipeline.artifacts.registry import VECTOR_SCHEMA_SPEC
+from datapipeline.artifacts.specs import VECTOR_METADATA, VECTOR_SCHEMA
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.config.tasks import MetadataTask, SchemaTask
+from datapipeline.domain.sample import Sample
+from datapipeline.domain.vector import Vector
 from datapipeline.execution.context import PipelineContext
+from datapipeline.operations.artifacts import utils as artifact_utils
 from datapipeline.operations.artifacts.metadata import (
     _window_bounds_from_stats,
     _window_size,
+    materialize_metadata,
 )
-from datapipeline.operations.artifacts.metadata import materialize_metadata
 from datapipeline.operations.artifacts.schema import materialize_vector_schema
-from datapipeline.operations.artifacts import utils as artifact_utils
 from datapipeline.operations.artifacts.utils import (
+    VectorMetadataStats,
     collect_vector_metadata,
     metadata_entries_from_stats,
-    VectorMetadataStats,
 )
-from datapipeline.domain.sample import Sample
-from datapipeline.domain.vector import Vector
 from datapipeline.runtime import Runtime, SourceRuntimeStream
-from datapipeline.services.artifacts import VECTOR_SCHEMA_SPEC
-from datapipeline.services.constants import VECTOR_METADATA, VECTOR_SCHEMA
 from datapipeline.utils.load import load_yaml
 
 

@@ -13,9 +13,14 @@ from datapipeline.artifacts.scaler import (
     StandardScalerArtifact,
     save_scaler_artifact,
 )
+from datapipeline.artifacts.specs import (
+    SCALER_STATISTICS,
+    VECTOR_INPUTS,
+    VECTOR_SCHEMA,
+)
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
-from datapipeline.config.execution import ExecutionConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig, SequenceConfig
+from datapipeline.config.execution import ExecutionConfig
 from datapipeline.config.tasks import VectorInputsTask
 from datapipeline.config.transforms import (
     EnsureCadenceConfig,
@@ -30,24 +35,24 @@ from datapipeline.domain.sample import Sample
 from datapipeline.domain.sample_key import SampleKeyContract
 from datapipeline.domain.vector import Vector
 from datapipeline.execution.context import PipelineContext
-from datapipeline.execution.node import SourceNode
 from datapipeline.execution.events import NodeStarted, PipelineEvent, PipelineStarted
+from datapipeline.execution.node import SourceNode
 from datapipeline.execution.runner import run_pipeline
 from datapipeline.operations.artifacts.vector_inputs import materialize_vector_inputs
 from datapipeline.operations.runtime.pipeline import _record_preview_stream
 from datapipeline.parsers.identity import IdentityParser
+from datapipeline.pipelines.dataset.nodes import apply_postprocess
+from datapipeline.pipelines.dataset.pipeline import run_dataset_pipeline
 from datapipeline.pipelines.feature.pipeline import (
     build_feature_pipeline,
     run_feature_pipeline,
 )
-from datapipeline.pipelines.dataset.nodes import apply_postprocess
-from datapipeline.pipelines.dataset.pipeline import run_dataset_pipeline
 from datapipeline.pipelines.stream.pipeline import (
     build_stream_pipeline,
     run_stream_pipeline,
 )
-from datapipeline.pipelines.vector.nodes import sample_domain_window_keys, window_keys
 from datapipeline.pipelines.vector import pipeline as vector_pipeline
+from datapipeline.pipelines.vector.nodes import sample_domain_window_keys, window_keys
 from datapipeline.pipelines.vector.pipeline import build_vector_pipeline
 from datapipeline.runtime import (
     AlignedRuntimeStream,
@@ -55,15 +60,11 @@ from datapipeline.runtime import (
     Runtime,
     SourceRuntimeStream,
 )
-from datapipeline.services.constants import (
-    SCALER_STATISTICS,
-    VECTOR_INPUTS,
-    VECTOR_SCHEMA,
-)
 from datapipeline.sources.adapters.fs import FsFileTransport, FsGlobTransport
 from datapipeline.sources.data_loader import DataLoader
 from datapipeline.sources.decoders import JsonLinesDecoder
 from datapipeline.sources.models.source import Source
+from datapipeline.utils.time import parse_cadence
 from datapipeline.vector_inputs.store import (
     CachedVectorInputShard,
     feature_record_to_vector_input_row,
@@ -71,7 +72,6 @@ from datapipeline.vector_inputs.store import (
     open_vector_input_records,
     prune_vector_input_cache,
 )
-from datapipeline.utils.time import parse_cadence
 from tests.vector_input_helpers import register_vector_inputs
 
 

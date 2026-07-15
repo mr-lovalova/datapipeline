@@ -1,5 +1,6 @@
 import logging
 from dataclasses import replace
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal, Sequence
 
@@ -26,6 +27,7 @@ from datapipeline.execution.settings import (
     resolve_observability_settings,
 )
 from datapipeline.io.output import OutputResolutionError
+from datapipeline.io.runs import RunPaths
 from datapipeline.profiles.loader import (
     apply_profile_defaults,
     profile_specs_with_defaults,
@@ -41,13 +43,16 @@ from datapipeline.profiles.models import (
 )
 from datapipeline.profiles.runtime_profiles import resolve_runtime_profiles
 from datapipeline.services.definitions import PipelineDefinition, ProjectManifest
-from datapipeline.services.executions import execution_root
 from datapipeline.services.path_policy import sanitize_path_segment
 from datapipeline.services.pipeline import load_pipeline
 from datapipeline.services.runtime_compiler import compile_runtime
-from datapipeline.services.runs import RunPaths
 
 logger = logging.getLogger(__name__)
+
+
+def _execution_root(artifacts_root: Path) -> Path:
+    execution_id = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%S-%fZ")
+    return (artifacts_root / "_system" / "executions" / execution_id).resolve()
 
 
 def _load_definition(project: str) -> PipelineDefinition:
@@ -156,7 +161,7 @@ def build_build_run_request(
             raise SystemExit(2)
         build_profiles.append(profile)
 
-    execution_dir = execution_root(definition.project.artifacts_root)
+    execution_dir = _execution_root(definition.project.artifacts_root)
     build_jobs: list[BuildJob] = []
     for profile in build_profiles:
         try:
@@ -259,7 +264,7 @@ def build_runtime_run_request(
         logger.error("Invalid artifact mode: %s", exc)
         raise SystemExit(2) from exc
 
-    execution_dir = execution_root(definition.project.artifacts_root)
+    execution_dir = _execution_root(definition.project.artifacts_root)
     try:
         artifact_observability = resolve_observability_settings(
             project_path,
@@ -371,7 +376,7 @@ def build_materialize_run_request(
         return None
 
     try:
-        execution_dir = execution_root(definition.project.artifacts_root)
+        execution_dir = _execution_root(definition.project.artifacts_root)
         jobs = resolve_materialize_jobs(
             profiles=materialize_profiles,
             project_path=project_path,

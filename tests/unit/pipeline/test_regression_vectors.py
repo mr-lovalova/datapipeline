@@ -1,24 +1,24 @@
-from datetime import datetime, timezone
-from dataclasses import replace
 import math
+from dataclasses import replace
+from datetime import datetime, timezone
 from pathlib import Path
 
 from datapipeline.artifacts.scaler import save_scaler_artifact
+from datapipeline.artifacts.specs import SCALER_STATISTICS
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
+from datapipeline.config.dataset.feature import FeatureRecordConfig
+from datapipeline.config.execution import ExecutionConfig
 from datapipeline.config.transforms import (
     FillConfig,
     RollingConfig,
     TransformConfig,
 )
-from datapipeline.config.execution import ExecutionConfig
-from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.domain.feature import FeatureRecord
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.execution.context import PipelineContext
 from datapipeline.pipelines.feature.pipeline import run_feature_pipeline
 from datapipeline.pipelines.vector.pipeline import build_vector_pipeline
 from datapipeline.runtime import Runtime, SourceRuntimeStream
-from datapipeline.services.constants import SCALER_STATISTICS
 from datapipeline.transforms.feature.scaler import ScalerAccumulator
 from tests.vector_input_helpers import register_vector_inputs
 

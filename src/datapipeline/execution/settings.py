@@ -1,5 +1,5 @@
 import logging
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -120,9 +120,9 @@ class ObservabilitySettings:
         }
 
 
-def log_output_targets_from_config(
+def resolve_project_log_outputs(
     outputs: Sequence[LogOutputConfig] | None,
-    resolve_global_path: Callable[[str], Path],
+    project_path: Path,
 ) -> list[LogOutputTarget]:
     if not outputs:
         return []
@@ -134,7 +134,7 @@ def log_output_targets_from_config(
         destination: Path | None = None
         if transport == "fs" and output.path is not None:
             destination = (
-                resolve_global_path(output.path)
+                (project_path.parent / output.path).resolve()
                 if scope == "global"
                 else Path(output.path)
             )
@@ -146,16 +146,6 @@ def log_output_targets_from_config(
             )
         )
     return resolved
-
-
-def resolve_project_log_outputs(
-    outputs: Sequence[LogOutputConfig] | None,
-    project_path: Path,
-) -> list[LogOutputTarget]:
-    return log_output_targets_from_config(
-        outputs,
-        resolve_global_path=lambda value: (project_path.parent / value).resolve(),
-    )
 
 
 def _normalize_log_outputs(

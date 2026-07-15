@@ -7,10 +7,10 @@ from datapipeline.artifacts.models import (
     VectorMetadataEntry,
     VectorSchemaEntry,
 )
+from datapipeline.artifacts.registry import VECTOR_METADATA_SPEC, VECTOR_SCHEMA_SPEC
+from datapipeline.domain.sample import Sample
 from datapipeline.execution.context import PipelineContext
 from datapipeline.execution.node import PipelineNode
-from datapipeline.domain.sample import Sample
-from datapipeline.services.artifacts import VECTOR_METADATA_SPEC, VECTOR_SCHEMA_SPEC
 from datapipeline.transforms.vector.drop.horizontal import (
     DropSamplesTransform,
     DropTargetSamplesTransform,

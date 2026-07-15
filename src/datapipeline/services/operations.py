@@ -14,14 +14,13 @@ from datapipeline.config.tasks import (
     TicksTask,
     VectorInputsTask,
 )
+from datapipeline.services.config_inventory import pipeline_yaml_files
 from datapipeline.services.config_refs import (
     interpolate_config_vars,
     resolve_config_refs,
 )
-from datapipeline.services.config_inventory import pipeline_yaml_files
 from datapipeline.services.definitions import ProjectManifest
 from datapipeline.utils.load import YamlDocument, read_yaml_document
-
 
 CORE_OPERATION_MODELS: dict[str, type[Task]] = {
     "scaler": ScalerTask,
@@ -156,13 +155,3 @@ def operations_from_documents(
     ]
     specs.extend(overrides_by_id.values())
     return specs
-
-
-def operation_specs(
-    project: ProjectManifest,
-) -> tuple[list[ArtifactTask], list[OperationTask]]:
-    specs = operations_from_documents(project, operation_documents(project))
-    return (
-        [spec for spec in specs if isinstance(spec, ArtifactTask)],
-        [spec for spec in specs if isinstance(spec, OperationTask)],
-    )

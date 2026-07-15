@@ -1,7 +1,8 @@
-from datetime import datetime, timezone
 import json
+from datetime import datetime, timezone
 
 from datapipeline.artifacts.models import VectorMetadata
+from datapipeline.artifacts.specs import VECTOR_METADATA
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.config.tasks import StatsTask
@@ -11,7 +12,6 @@ from datapipeline.execution.node import PipelineNode
 from datapipeline.operations.artifacts.stats import materialize_vector_stats
 from datapipeline.pipelines.dataset.nodes import PostprocessPlan
 from datapipeline.runtime import Runtime
-from datapipeline.services.constants import VECTOR_METADATA
 
 
 def _ts(day: int) -> datetime:

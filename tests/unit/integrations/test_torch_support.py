@@ -1,10 +1,10 @@
 import json
 from types import SimpleNamespace
 
+from datapipeline.artifacts.specs import VECTOR_SCHEMA
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
 from datapipeline.integrations.ml.torch_support import _resolve_columns, _schema_columns
 from datapipeline.runtime import Runtime
-from datapipeline.services.constants import VECTOR_SCHEMA
 
 
 def test_schema_columns_include_partitioned_target_ids(tmp_path) -> None:

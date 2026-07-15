@@ -1,13 +1,13 @@
 from datetime import datetime, timezone
 
 from datapipeline.artifacts.hydration import hydrate_runtime_artifacts_for_pipeline
+from datapipeline.artifacts.specs import VECTOR_METADATA, VECTOR_SCHEMA
 from datapipeline.config.tasks import MetadataTask, SchemaTask
 from datapipeline.execution.context import PipelineContext
 from datapipeline.operations.artifacts.metadata import materialize_metadata
 from datapipeline.operations.artifacts.schema import materialize_vector_schema
 from datapipeline.pipelines.dataset.nodes import apply_postprocess
 from datapipeline.pipelines.vector.pipeline import build_vector_pipeline
-from datapipeline.services.constants import VECTOR_METADATA, VECTOR_SCHEMA
 from datapipeline.services.pipeline import load_pipeline
 from datapipeline.services.runtime_compiler import compile_runtime
 from tests.vector_input_helpers import register_vector_inputs

@@ -2,9 +2,9 @@ import ast
 from pathlib import Path
 
 from datapipeline.plugins import COMBINERS_EP, LOADERS_EP, MAPPERS_EP, PARSERS_EP
-from datapipeline.services.paths import pkg_root, resolve_base_pkg_dir
 from datapipeline.services.project import load_project
 from datapipeline.services.scaffold.entrypoints import read_entry_points
+from datapipeline.services.scaffold.paths import pkg_root, resolve_base_pkg_dir
 from datapipeline.services.streams.loader import load_streams
 
 

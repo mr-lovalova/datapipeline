@@ -21,8 +21,7 @@ def _create_plugin(tmp_path: Path) -> Path:
     return root
 
 
-def test_create_source_scaffolds_into_example_dataset(tmp_path: Path) -> None:
-    """create_source_yaml should resolve project.yaml within the plugin and scaffold into its sources path."""
+def test_create_source_scaffolds_into_default_dataset(tmp_path: Path) -> None:
     plugin_root = _create_plugin(tmp_path)
 
     loader_ep, loader_args = default_loader_config("fs", "csv")
@@ -35,7 +34,7 @@ def test_create_source_scaffolds_into_example_dataset(tmp_path: Path) -> None:
         root=plugin_root,
     )
 
-    expected = plugin_root / "example" / "sources" / "demo.weather.yaml"
+    expected = plugin_root / "your-dataset" / "sources" / "demo.weather.yaml"
     assert expected.exists(), f"expected scaffolded source at {expected}"
 
 
@@ -50,10 +49,15 @@ def test_create_source_preserves_custom_source_id(tmp_path: Path) -> None:
         root=plugin_root,
     )
 
-    path = plugin_root / "example" / "sources" / "demo.weather.hourly.yaml"
+    path = plugin_root / "your-dataset" / "sources" / "demo.weather.hourly.yaml"
     assert yaml.safe_load(path.read_text(encoding="utf-8"))["id"] == (
         "demo.weather.hourly"
     )
+
+
+def test_default_loader_config_rejects_unknown_transport() -> None:
+    with pytest.raises(ValueError, match="Unsupported source transport"):
+        default_loader_config("unknown", None)
 
 
 def test_create_source_refuses_to_replace_existing_config(tmp_path: Path) -> None:

@@ -2,13 +2,12 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
-from datapipeline.services.constants import (
-    SCALER_STATISTICS,
-    VECTOR_INPUTS,
-    VECTOR_METADATA,
-    VECTOR_SCHEMA,
-    VECTOR_STATS,
-)
+
+SCALER_STATISTICS = "scaler"
+VECTOR_SCHEMA = "schema"
+VECTOR_METADATA = "metadata"
+VECTOR_STATS = "stats"
+VECTOR_INPUTS = "vector_inputs"
 
 
 @dataclass(frozen=True)

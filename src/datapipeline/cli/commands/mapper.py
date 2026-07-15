@@ -7,13 +7,12 @@ from datapipeline.cli.prompts import (
     choose_name,
     pick_from_menu,
 )
-from datapipeline.services.paths import pkg_root
 from datapipeline.services.scaffold.discovery import list_domains, list_dtos
-from datapipeline.services.scaffold.dto import create_dto, validate_dto_creation
 from datapipeline.services.scaffold.domain import (
     create_domain,
     validate_domain_creation,
 )
+from datapipeline.services.scaffold.dto import create_dto, validate_dto_creation
 from datapipeline.services.scaffold.layout import (
     default_mapper_name,
     default_mapper_name_for_identity,
@@ -23,6 +22,7 @@ from datapipeline.services.scaffold.mapper import (
     create_mapper,
     validate_mapper_creation,
 )
+from datapipeline.services.scaffold.paths import pkg_root
 
 logger = logging.getLogger(__name__)
 

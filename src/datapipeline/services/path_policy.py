@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 
 
@@ -10,13 +9,12 @@ def workspace_cwd() -> Path:
 def resolve_relative_to_base(
     raw_path: str | Path,
     base: Path,
-    resolve: bool = True,
 ) -> Path:
     """Resolve `raw_path` against `base` when relative."""
     path = Path(raw_path)
     if not path.is_absolute():
         path = base / path
-    return path.resolve() if resolve else path
+    return path.resolve()
 
 
 def resolve_artifact_output_path(
@@ -25,7 +23,9 @@ def resolve_artifact_output_path(
 ) -> Path:
     """Return a declared artifact output that cannot escape through a symlink."""
     root = Path(artifacts_root).resolve()
-    output = resolve_relative_to_base(raw_path, root, resolve=False)
+    output = Path(raw_path)
+    if not output.is_absolute():
+        output = root / output
     resolved_output = output.resolve()
     try:
         resolved_output.relative_to(root)
@@ -53,26 +53,15 @@ def resolve_workspace_path(
         if workspace_root is not None
         else (cwd or workspace_cwd())
     )
-    return resolve_relative_to_base(raw_path, base, resolve=True)
+    return resolve_relative_to_base(raw_path, base)
 
 
 def resolve_project_path(
     project_yaml: Path,
     raw_path: str | Path,
-    resolve: bool = True,
 ) -> Path:
     """Resolve project-relative path from the directory containing project.yaml."""
-    return resolve_relative_to_base(raw_path, project_yaml.parent, resolve=resolve)
-
-
-def relative_to_workspace(target: Path, workspace_root: Path) -> Path:
-    """Compute a stable relative path from workspace root to target path."""
-    target_resolved = target.resolve()
-    workspace_resolved = workspace_root.resolve()
-    try:
-        return target_resolved.relative_to(workspace_resolved)
-    except ValueError:
-        return Path(os.path.relpath(target_resolved, workspace_resolved))
+    return resolve_relative_to_base(raw_path, project_yaml.parent)
 
 
 def sanitize_path_segment(value: str, default: str = "run") -> str:
@@ -92,4 +81,4 @@ def resolve_relative_fs_loader_path(
     raw = Path(raw_path)
     if raw.is_absolute():
         return str(raw)
-    return str(resolve_relative_to_base(raw, project_root, resolve=True))
+    return str(resolve_relative_to_base(raw, project_root))

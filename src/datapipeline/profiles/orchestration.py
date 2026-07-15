@@ -7,6 +7,12 @@ from datapipeline.artifacts.planning import (
     required_tick_artifacts,
 )
 from datapipeline.config.tasks import VectorInputsTask
+from datapipeline.io.runs import (
+    finish_run_failed,
+    finish_run_success,
+    set_latest_run,
+    start_run,
+)
 from datapipeline.profiles.executor import ExecutionSpec, run_execution
 from datapipeline.profiles.materialize import (
     execute_materialize_job,
@@ -15,12 +21,6 @@ from datapipeline.profiles.materialize import (
 from datapipeline.services.execution_lock import (
     ProjectExecutionBusyError,
     project_execution_lock,
-)
-from datapipeline.services.runs import (
-    finish_run_failed,
-    finish_run_success,
-    set_latest_run,
-    start_run,
 )
 from datapipeline.services.runtime_compiler import compile_runtime
 from datapipeline.vector_inputs.store import prune_vector_input_cache

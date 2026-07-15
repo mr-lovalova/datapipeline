@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 import datapipeline.operations.persistence as persistence
+from datapipeline.artifacts.registry import ArtifactRegistry
 from datapipeline.cli.visuals.execution import make_operation_observer
 from datapipeline.cli.visuals.execution_context import (
     reset_current_execution_event_handler,
@@ -24,7 +25,6 @@ from datapipeline.operations.persistence import (
     persist_artifact_output,
     persist_runtime_result,
 )
-from datapipeline.services.artifacts import ArtifactManager
 
 
 class _CaptureHandler:
@@ -38,7 +38,7 @@ class _CaptureHandler:
 def test_persist_artifact_output_requires_declared_existing_file(tmp_path) -> None:
     runtime = SimpleNamespace(
         artifacts_root=tmp_path,
-        artifacts=ArtifactManager(tmp_path),
+        artifacts=ArtifactRegistry(tmp_path),
     )
 
     with pytest.raises(ValueError, match="but its operation declares"):
@@ -63,7 +63,7 @@ def test_persist_artifact_output_snapshots_declared_file(tmp_path) -> None:
     output.write_text("{}", encoding="utf-8")
     runtime = SimpleNamespace(
         artifacts_root=tmp_path,
-        artifacts=ArtifactManager(tmp_path),
+        artifacts=ArtifactRegistry(tmp_path),
     )
 
     info = persist_artifact_output(
@@ -87,7 +87,7 @@ def test_persist_artifact_output_validates_companion_files(tmp_path) -> None:
     companion.write_bytes(b"shard")
     runtime = SimpleNamespace(
         artifacts_root=tmp_path,
-        artifacts=ArtifactManager(tmp_path),
+        artifacts=ArtifactRegistry(tmp_path),
     )
 
     info = persist_artifact_output(
@@ -111,7 +111,7 @@ def test_persist_artifact_output_rejects_escaping_companion(tmp_path) -> None:
     (tmp_path / "manifest.json").write_text("{}", encoding="utf-8")
     runtime = SimpleNamespace(
         artifacts_root=tmp_path,
-        artifacts=ArtifactManager(tmp_path),
+        artifacts=ArtifactRegistry(tmp_path),
     )
 
     with pytest.raises(ValueError, match="must be relative"):

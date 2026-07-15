@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from datapipeline.plugins import PARSERS_EP
-from datapipeline.services.project_paths import ensure_project_scaffold
+from datapipeline.services.scaffold.paths import ensure_project_scaffold
 from datapipeline.services.scaffold.stream_plan import (
     DomainCreation,
     DomainReference,

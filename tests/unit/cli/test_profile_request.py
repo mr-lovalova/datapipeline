@@ -69,7 +69,7 @@ def test_inspect_request_materializes_execution_scoped_log_output(
 ):
     execution_dir = tmp_path / "execution"
     monkeypatch.setattr(
-        "datapipeline.profiles.request_builder.execution_root",
+        "datapipeline.profiles.request_builder._execution_root",
         lambda _project: execution_dir,
     )
     project_yaml = _write_project(tmp_path)
@@ -192,7 +192,7 @@ def test_materialize_request_uses_shared_resolution_snapshot(
         return execution_dir
 
     monkeypatch.setattr(
-        "datapipeline.profiles.request_builder.execution_root",
+        "datapipeline.profiles.request_builder._execution_root",
         shared_execution_root,
     )
     request = build_materialize_run_request(

@@ -4,28 +4,28 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from datapipeline.artifacts.registry import ArtifactNotRegisteredError
 from datapipeline.artifacts.scaler import (
     ScalerStatistics,
     StandardScalerArtifact,
     save_scaler_artifact,
 )
+from datapipeline.artifacts.specs import SCALER_STATISTICS
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig, SequenceConfig
-from datapipeline.execution.context import PipelineContext
 from datapipeline.domain.feature import FeatureRecord
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.domain.sample_key import SampleKeyContract
-from datapipeline.pipelines.feature.pipeline import build_feature_nodes
+from datapipeline.execution.context import PipelineContext
 from datapipeline.pipelines.feature.nodes import (
     FeatureSequencer,
     build_feature_stream,
     scale_features,
     sequence_features,
 )
+from datapipeline.pipelines.feature.pipeline import build_feature_nodes
 from datapipeline.pipelines.feature.projector import FeatureProjector
 from datapipeline.runtime import Runtime, SourceRuntimeStream
-from datapipeline.services.artifacts import ArtifactNotRegisteredError
-from datapipeline.services.constants import SCALER_STATISTICS
 
 
 class _EmptySource:

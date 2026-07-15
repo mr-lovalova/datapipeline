@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from datapipeline.artifacts.models import VectorMetadata, VectorStatsArtifact
+from datapipeline.artifacts.specs import VECTOR_METADATA, VECTOR_STATS
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.config.tasks import CoverageTask, MatrixTask
@@ -16,7 +17,6 @@ from datapipeline.operations.persistence import persist_runtime_result
 from datapipeline.operations.runtime import coverage as coverage_ops
 from datapipeline.operations.runtime import matrix as matrix_ops
 from datapipeline.pipelines.dataset.nodes import PostprocessPlan
-from datapipeline.services.constants import VECTOR_METADATA, VECTOR_STATS
 
 
 def _stats() -> VectorStatsArtifact:

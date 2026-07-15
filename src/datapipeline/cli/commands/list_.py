@@ -1,9 +1,7 @@
 from pathlib import Path
 
 from datapipeline.cli.workspace import WorkspaceContext, resolve_default_project_yaml
-from datapipeline.services.paths import pkg_root
 from datapipeline.services.project import load_project
-from datapipeline.services.streams.loader import load_streams
 from datapipeline.services.scaffold.discovery import (
     list_combiners,
     list_domains,
@@ -12,21 +10,8 @@ from datapipeline.services.scaffold.discovery import (
     list_mappers,
     list_parsers,
 )
-
-
-def _default_project_path(root_dir: Path) -> Path | None:
-    candidate = root_dir / "config" / "project.yaml"
-    if candidate.exists():
-        return candidate
-    default_proj = root_dir / "config" / "datasets" / "default" / "project.yaml"
-    if default_proj.exists():
-        return default_proj
-    datasets_dir = root_dir / "config" / "datasets"
-    if datasets_dir.exists():
-        for p in sorted(datasets_dir.rglob("project.yaml")):
-            if p.is_file():
-                return p
-    return None
+from datapipeline.services.scaffold.paths import default_project_yaml_path, pkg_root
+from datapipeline.services.streams.loader import load_streams
 
 
 def handle(
@@ -39,9 +24,7 @@ def handle(
         proj_path = resolve_default_project_yaml(workspace)
         if proj_path is None:
             root_dir, _, _ = pkg_root(plugin_root)
-            proj_path = _default_project_path(root_dir)
-        if proj_path is None:
-            raise SystemExit("No project.yaml found under config/.")
+            proj_path = default_project_yaml_path(root_dir)
         try:
             streams = load_streams(load_project(proj_path))
         except FileNotFoundError as exc:

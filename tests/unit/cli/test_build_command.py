@@ -8,7 +8,15 @@ import pytest
 
 from datapipeline.artifacts import executor as build_exec
 from datapipeline.artifacts.planning import build_artifact_graph
+from datapipeline.artifacts.registry import ArtifactRegistry
 from datapipeline.artifacts.settings import BuildSettings
+from datapipeline.artifacts.specs import (
+    SCALER_STATISTICS,
+    VECTOR_INPUTS,
+    VECTOR_METADATA,
+    VECTOR_SCHEMA,
+    VECTOR_STATS,
+)
 from datapipeline.build.state import (
     ArtifactFileFingerprint,
     BuildState,
@@ -18,12 +26,6 @@ from datapipeline.build.state import (
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.config.execution import ExecutionConfig
-from datapipeline.execution.settings import (
-    LogLevelDecision,
-    LogOutputSettings,
-    LogOutputTarget,
-    ObservabilitySettings,
-)
 from datapipeline.config.tasks import (
     ArtifactTask,
     MetadataTask,
@@ -32,18 +34,15 @@ from datapipeline.config.tasks import (
     StatsTask,
     VectorInputsTask,
 )
-from datapipeline.operations.persistence import ArtifactOutput
-from datapipeline.services.artifacts import ArtifactManager
-from datapipeline.services.constants import (
-    SCALER_STATISTICS,
-    VECTOR_INPUTS,
-    VECTOR_METADATA,
-    VECTOR_SCHEMA,
-    VECTOR_STATS,
+from datapipeline.execution.settings import (
+    LogLevelDecision,
+    LogOutputSettings,
+    LogOutputTarget,
+    ObservabilitySettings,
 )
-from datapipeline.services.definitions import PipelineDefinition
+from datapipeline.operations.persistence import ArtifactOutput
+from datapipeline.services.definitions import ArtifactHashes, PipelineDefinition
 from datapipeline.services.pipeline import load_pipeline
-from datapipeline.services.definitions import ArtifactHashes
 
 
 def _dataset_with_feature(*, scale: bool) -> FeatureDatasetConfig:
@@ -63,7 +62,7 @@ def _dataset_with_feature(*, scale: bool) -> FeatureDatasetConfig:
 def _runtime(artifacts_root: Path) -> SimpleNamespace:
     return SimpleNamespace(
         artifacts_root=artifacts_root,
-        artifacts=ArtifactManager(artifacts_root),
+        artifacts=ArtifactRegistry(artifacts_root),
         pipeline_observer=None,
         heartbeat_interval_seconds=None,
         execution=ExecutionConfig(),

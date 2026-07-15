@@ -97,11 +97,11 @@ def test_stream_scaffold_uses_project_paths(
 ) -> None:
     """Stream scaffold should use the project's streams/sources paths inside the plugin repo."""
     plugin_root = _create_plugin(tmp_path)
-    # Create a project.yaml under example/ with explicit streams/sources paths
-    example_root = plugin_root / "example"
-    sources_dir = example_root / "sources"
-    streams_dir = example_root / "streams"
-    project_yaml = example_root / "project.yaml"
+    # Create a project with explicit streams and sources paths.
+    dataset_root = plugin_root / "your-dataset"
+    sources_dir = dataset_root / "sources"
+    streams_dir = dataset_root / "streams"
+    project_yaml = dataset_root / "project.yaml"
     _write_project_yaml(project_yaml, sources_dir, streams_dir)
     _write_source_yaml(sources_dir / "demo.weather.yaml", "demo.weather")
 
@@ -126,10 +126,10 @@ def test_stream_identity_mapper_skips_scaffold(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     plugin_root = _create_plugin(tmp_path)
-    example_root = plugin_root / "example"
-    sources_dir = example_root / "sources"
-    streams_dir = example_root / "streams"
-    _write_project_yaml(example_root / "project.yaml", sources_dir, streams_dir)
+    dataset_root = plugin_root / "your-dataset"
+    sources_dir = dataset_root / "sources"
+    streams_dir = dataset_root / "streams"
+    _write_project_yaml(dataset_root / "project.yaml", sources_dir, streams_dir)
     _write_source_yaml(sources_dir / "demo.weather.yaml", "demo.weather")
 
     _input_sequence(monkeypatch, ["1", "1", ""])
@@ -151,10 +151,10 @@ def test_source_stream_name_abort_does_not_write_config(
     tmp_path: Path,
 ) -> None:
     plugin_root = _create_plugin(tmp_path)
-    example_root = plugin_root / "example"
-    sources_dir = example_root / "sources"
-    streams_dir = example_root / "streams"
-    _write_project_yaml(example_root / "project.yaml", sources_dir, streams_dir)
+    dataset_root = plugin_root / "your-dataset"
+    sources_dir = dataset_root / "sources"
+    streams_dir = dataset_root / "streams"
+    _write_project_yaml(dataset_root / "project.yaml", sources_dir, streams_dir)
     _write_source_yaml(sources_dir / "demo.weather.yaml", "demo.weather")
     pyproject = plugin_root / "pyproject.toml"
     original_pyproject = pyproject.read_bytes()
@@ -196,10 +196,10 @@ def test_source_stream_preserves_source_variant_in_default_stream_id(
     tmp_path: Path,
 ) -> None:
     plugin_root = _create_plugin(tmp_path)
-    example_root = plugin_root / "example"
-    sources_dir = example_root / "sources"
-    streams_dir = example_root / "streams"
-    _write_project_yaml(example_root / "project.yaml", sources_dir, streams_dir)
+    dataset_root = plugin_root / "your-dataset"
+    sources_dir = dataset_root / "sources"
+    streams_dir = dataset_root / "streams"
+    _write_project_yaml(dataset_root / "project.yaml", sources_dir, streams_dir)
     _write_source_yaml(
         sources_dir / "demo.weather.benchmark.yaml",
         "demo.weather.benchmark",
@@ -223,10 +223,10 @@ def test_source_stream_selects_existing_mapper_reference(
             f'\n[project.entry-points."{MAPPERS_EP}"]\n'
             'weather = "sample_plugin.mappers.weather:map_weather"\n'
         )
-    example_root = plugin_root / "example"
-    sources_dir = example_root / "sources"
-    streams_dir = example_root / "streams"
-    _write_project_yaml(example_root / "project.yaml", sources_dir, streams_dir)
+    dataset_root = plugin_root / "your-dataset"
+    sources_dir = dataset_root / "sources"
+    streams_dir = dataset_root / "streams"
+    _write_project_yaml(dataset_root / "project.yaml", sources_dir, streams_dir)
     _write_source_yaml(sources_dir / "demo.weather.yaml", "demo.weather")
 
     _input_sequence(monkeypatch, ["1", "1", "1", "1", ""])
@@ -248,10 +248,10 @@ def test_source_stream_accepts_custom_mapper_reference(
     tmp_path: Path,
 ) -> None:
     plugin_root = _create_plugin(tmp_path)
-    example_root = plugin_root / "example"
-    sources_dir = example_root / "sources"
-    streams_dir = example_root / "streams"
-    _write_project_yaml(example_root / "project.yaml", sources_dir, streams_dir)
+    dataset_root = plugin_root / "your-dataset"
+    sources_dir = dataset_root / "sources"
+    streams_dir = dataset_root / "streams"
+    _write_project_yaml(dataset_root / "project.yaml", sources_dir, streams_dir)
     _write_source_yaml(sources_dir / "demo.weather.yaml", "demo.weather")
 
     _input_sequence(monkeypatch, ["1", "1", "2", "custom.mapper", ""])
@@ -282,10 +282,10 @@ def test_aligned_stream_scaffold_writes_ordered_inputs(
     tmp_path: Path,
 ) -> None:
     plugin_root = _create_plugin(tmp_path)
-    example_root = plugin_root / "example"
-    sources_dir = example_root / "sources"
-    streams_dir = example_root / "streams"
-    _write_project_yaml(example_root / "project.yaml", sources_dir, streams_dir)
+    dataset_root = plugin_root / "your-dataset"
+    sources_dir = dataset_root / "sources"
+    streams_dir = dataset_root / "streams"
+    _write_project_yaml(dataset_root / "project.yaml", sources_dir, streams_dir)
     _write_source_yaml(sources_dir / "demo.weather.yaml", "demo.weather")
     _write_source_stream_yaml(streams_dir / "weather.pressure.yaml", "weather.pressure")
     _write_source_stream_yaml(
@@ -326,10 +326,10 @@ def test_aligned_stream_scaffold_selects_registered_combiner(
         + 'air_density = "sample_plugin.combiners:air_density"\n',
         encoding="utf-8",
     )
-    example_root = plugin_root / "example"
-    sources_dir = example_root / "sources"
-    streams_dir = example_root / "streams"
-    _write_project_yaml(example_root / "project.yaml", sources_dir, streams_dir)
+    dataset_root = plugin_root / "your-dataset"
+    sources_dir = dataset_root / "sources"
+    streams_dir = dataset_root / "streams"
+    _write_project_yaml(dataset_root / "project.yaml", sources_dir, streams_dir)
     _write_source_yaml(sources_dir / "demo.weather.yaml", "demo.weather")
     _write_source_stream_yaml(streams_dir / "weather.pressure.yaml", "weather.pressure")
     _write_source_stream_yaml(

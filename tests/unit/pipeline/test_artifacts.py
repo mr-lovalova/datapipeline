@@ -10,6 +10,11 @@ from datapipeline.artifacts.planning import (
 )
 from datapipeline.artifacts.specs import (
     ARTIFACT_DEFINITIONS,
+    SCALER_STATISTICS,
+    VECTOR_INPUTS,
+    VECTOR_METADATA,
+    VECTOR_SCHEMA,
+    VECTOR_STATS,
     ArtifactDefinition,
     dataset_requires_scaler,
 )
@@ -37,13 +42,6 @@ from datapipeline.config.tasks import (
     VectorInputsTask,
 )
 from datapipeline.plugins import BUILD_OPERATIONS_EP
-from datapipeline.services.constants import (
-    SCALER_STATISTICS,
-    VECTOR_INPUTS,
-    VECTOR_METADATA,
-    VECTOR_SCHEMA,
-    VECTOR_STATS,
-)
 from datapipeline.services.definitions import ArtifactHashes
 
 

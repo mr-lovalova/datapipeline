@@ -1,12 +1,11 @@
 from datetime import datetime
 
-from datapipeline.services.artifacts import (
-    ArtifactNotRegisteredError,
-    VECTOR_METADATA_SPEC,
-)
 from datapipeline.artifacts.models import VectorMetadata
+from datapipeline.artifacts.registry import (
+    VECTOR_METADATA_SPEC,
+    ArtifactNotRegisteredError,
+)
 from datapipeline.runtime import Runtime
-
 
 WindowBounds = tuple[datetime | None, datetime | None]
 

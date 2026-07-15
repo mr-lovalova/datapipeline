@@ -3,12 +3,12 @@ from pathlib import Path
 from typing import Sequence
 
 from datapipeline.config.dataset.split import split_output_labels
+from datapipeline.config.preview import PreviewStage
 from datapipeline.config.profiles import (
     InspectProfile,
     ServeOutputConfig,
     ServeProfile,
 )
-from datapipeline.config.preview import PreviewStage
 from datapipeline.config.tasks import PipelineTask
 from datapipeline.execution.settings import (
     LogOutputTarget,
@@ -21,9 +21,9 @@ from datapipeline.io.output import (
     resolve_output_directory,
     resolve_output_target,
 )
+from datapipeline.io.runs import RunPaths, get_run_paths
 from datapipeline.services.definitions import PipelineDefinition
 from datapipeline.services.path_policy import sanitize_path_segment
-from datapipeline.services.runs import RunPaths, get_run_paths
 
 
 @dataclass(frozen=True)

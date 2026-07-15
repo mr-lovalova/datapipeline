@@ -2,14 +2,14 @@ import logging
 from pathlib import Path
 
 from datapipeline.cli.prompts import choose_dto, choose_name
-from datapipeline.services.paths import pkg_root
-from datapipeline.services.scaffold.dto import create_dto, validate_dto_creation
 from datapipeline.services.scaffold.discovery import list_dtos
+from datapipeline.services.scaffold.dto import create_dto, validate_dto_creation
 from datapipeline.services.scaffold.layout import default_parser_name, dto_module_path
 from datapipeline.services.scaffold.parser import (
     create_parser,
     validate_parser_creation,
 )
+from datapipeline.services.scaffold.paths import pkg_root
 
 logger = logging.getLogger(__name__)
 

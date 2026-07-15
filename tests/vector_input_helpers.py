@@ -1,12 +1,12 @@
 import shutil
 from collections.abc import Sequence
 
+from datapipeline.artifacts.specs import VECTOR_INPUTS
 from datapipeline.config.dataset.feature import FeatureRecordConfig
-from datapipeline.execution.context import PipelineContext
 from datapipeline.domain.sample_key import SampleKeyContract
+from datapipeline.execution.context import PipelineContext
 from datapipeline.pipelines.feature.pipeline import run_feature_pipeline
 from datapipeline.runtime import Runtime
-from datapipeline.services.constants import VECTOR_INPUTS
 from datapipeline.services.path_policy import sanitize_path_segment
 from datapipeline.utils.json_artifact import write_json_artifact
 from datapipeline.vector_inputs.store import (

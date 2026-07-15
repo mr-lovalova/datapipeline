@@ -5,7 +5,7 @@ import yaml
 from pydantic import ValidationError
 
 from datapipeline.config.streams import AlignedStreamConfig, SourceStreamConfig
-from datapipeline.services.project_paths import ensure_project_scaffold
+from datapipeline.services.scaffold.paths import ensure_project_scaffold
 from datapipeline.services.scaffold.stream_yaml import (
     write_aligned_stream,
     write_source_stream,

@@ -5,14 +5,14 @@ from typing import Literal, Sequence
 from datapipeline.artifacts.settings import BuildSettings
 from datapipeline.config.execution import ExecutionConfig
 from datapipeline.config.preview import PreviewStage
+from datapipeline.config.tasks import ArtifactTask, OperationTask
 from datapipeline.execution.settings import (
     ObservabilitySettings,
 )
-from datapipeline.config.tasks import ArtifactTask, OperationTask
 from datapipeline.io.output import OutputTarget
+from datapipeline.io.runs import RunPaths
 from datapipeline.runtime import Runtime
 from datapipeline.services.definitions import PipelineDefinition
-from datapipeline.services.runs import RunPaths
 
 
 @dataclass(frozen=True)

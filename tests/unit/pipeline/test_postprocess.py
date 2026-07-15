@@ -2,18 +2,18 @@ import json
 
 import pytest
 
+from datapipeline.artifacts.specs import VECTOR_METADATA, VECTOR_SCHEMA
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
 from datapipeline.config.dataset.postprocess import PostprocessConfig
-from datapipeline.execution.context import PipelineContext
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
+from datapipeline.execution.context import PipelineContext
 from datapipeline.pipelines.dataset.nodes import (
     apply_postprocess,
     build_postprocess_plan,
 )
 from datapipeline.pipelines.dataset.pipeline import build_dataset_pipeline
 from datapipeline.runtime import Runtime
-from datapipeline.services.constants import VECTOR_METADATA, VECTOR_SCHEMA
 
 
 def _runtime(

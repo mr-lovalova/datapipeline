@@ -10,11 +10,8 @@ from datapipeline.cli.prompts import (
     pick_from_menu,
     prompt_required,
 )
-from datapipeline.cli.workspace import WorkspaceContext, resolve_default_project_yaml
 from datapipeline.cli.source_options import SOURCE_TRANSPORTS, source_formats_for
-from datapipeline.services.constants import DEFAULT_TEMPORAL_RECORD_PARSER_EP
-from datapipeline.services.paths import pkg_root
-from datapipeline.services.project_paths import resolve_project_yaml_path
+from datapipeline.cli.workspace import WorkspaceContext, resolve_default_project_yaml
 from datapipeline.services.scaffold.discovery import (
     list_domains,
     list_dtos,
@@ -31,7 +28,9 @@ from datapipeline.services.scaffold.layout import (
     dto_module_path,
     source_id_parts,
 )
+from datapipeline.services.scaffold.paths import default_project_yaml_path, pkg_root
 from datapipeline.services.scaffold.source_yaml import (
+    DEFAULT_TEMPORAL_RECORD_PARSER_EP,
     default_loader_config,
     validate_source_id,
 )
@@ -322,7 +321,7 @@ def handle(
     workspace: WorkspaceContext | None = None,
 ) -> None:
     root_dir, package_name, _ = pkg_root(plugin_root)
-    project_yaml = resolve_default_project_yaml(workspace) or resolve_project_yaml_path(
+    project_yaml = resolve_default_project_yaml(workspace) or default_project_yaml_path(
         root_dir
     )
     plan = _collect_stream_plan(plugin_root, package_name, project_yaml)

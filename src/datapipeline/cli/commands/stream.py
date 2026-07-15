@@ -9,12 +9,6 @@ from datapipeline.cli.prompts import (
     prompt_required,
 )
 from datapipeline.cli.workspace import WorkspaceContext, resolve_default_project_yaml
-from datapipeline.services.paths import pkg_root
-from datapipeline.services.project_paths import resolve_project_yaml_path
-from datapipeline.services.scaffold.stream_yaml import (
-    write_aligned_stream,
-    write_source_stream,
-)
 from datapipeline.services.scaffold.discovery import (
     list_combiners,
     list_mappers,
@@ -24,6 +18,11 @@ from datapipeline.services.scaffold.discovery import (
 from datapipeline.services.scaffold.layout import (
     default_stream_id_for_source,
     source_id_parts,
+)
+from datapipeline.services.scaffold.paths import default_project_yaml_path, pkg_root
+from datapipeline.services.scaffold.stream_yaml import (
+    write_aligned_stream,
+    write_source_stream,
 )
 
 logger = logging.getLogger(__name__)
@@ -97,7 +96,7 @@ def handle(
         )
         return
 
-    proj_path = default_project or resolve_project_yaml_path(root_dir)
+    proj_path = default_project or default_project_yaml_path(root_dir)
     source_options = list_sources(proj_path)
     if not source_options:
         raise SystemExit("No sources found. Create one first (jerry source create ...)")
@@ -136,7 +135,7 @@ def _scaffold_aligned_stream(
     project_yaml: Path | None,
 ) -> None:
     root_dir, _name, _ = pkg_root(plugin_root)
-    proj_path = project_yaml or resolve_project_yaml_path(root_dir)
+    proj_path = project_yaml or default_project_yaml_path(root_dir)
     streams = list_streams(proj_path)
     if len(streams) < 2:
         raise SystemExit("Aligned streams require at least two input streams.")

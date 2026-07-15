@@ -4,7 +4,15 @@ from pathlib import Path
 from stat import S_ISREG
 from types import MappingProxyType
 
-from datapipeline.artifacts.specs import ARTIFACT_DEFINITIONS, ArtifactDefinition
+from datapipeline.artifacts.specs import (
+    ARTIFACT_DEFINITIONS,
+    SCALER_STATISTICS,
+    VECTOR_INPUTS,
+    VECTOR_METADATA,
+    VECTOR_SCHEMA,
+    VECTOR_STATS,
+    ArtifactDefinition,
+)
 from datapipeline.build.state import BuildState
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.preview import PREVIEW_STAGES, PreviewStage
@@ -20,13 +28,6 @@ from datapipeline.config.tasks import (
 )
 from datapipeline.config.transforms import EnsureTicksConfig
 from datapipeline.io.output import output_destination_key
-from datapipeline.services.constants import (
-    SCALER_STATISTICS,
-    VECTOR_INPUTS,
-    VECTOR_METADATA,
-    VECTOR_SCHEMA,
-    VECTOR_STATS,
-)
 from datapipeline.services.definitions import ArtifactHashes
 
 

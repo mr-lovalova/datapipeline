@@ -4,12 +4,11 @@ from types import SimpleNamespace
 import pytest
 
 from datapipeline.artifacts.models import VectorMetadata
-from datapipeline.services.artifacts import (
-    ArtifactNotRegisteredError,
+from datapipeline.artifacts.registry import (
     VECTOR_METADATA_SPEC,
+    ArtifactNotRegisteredError,
 )
 from datapipeline.utils.window import resolve_window_bounds
-
 
 START = datetime(2024, 1, 1, tzinfo=timezone.utc)
 END = datetime(2024, 1, 2, tzinfo=timezone.utc)

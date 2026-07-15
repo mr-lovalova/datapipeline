@@ -5,9 +5,10 @@ import stat
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 
+from datapipeline.artifacts.planning import build_artifact_graph
+from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.sources import CoreIoLoaderConfig, FsSourceArgs, SourceConfig
 from datapipeline.config.streams import SourceStreamConfig, StreamsConfig
-from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.tasks import (
     ArtifactTask,
     MetadataTask,
@@ -17,9 +18,7 @@ from datapipeline.config.tasks import (
     TicksTask,
     VectorInputsTask,
 )
-from datapipeline.artifacts.planning import build_artifact_graph
 from datapipeline.services.definitions import ArtifactHashes, ProjectManifest
-
 
 # Increment when Jerry's core artifact semantics change without a config change.
 ARTIFACT_CACHE_VERSION = 2

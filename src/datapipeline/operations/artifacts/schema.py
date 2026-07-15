@@ -6,11 +6,11 @@ from datapipeline.artifacts.models import (
     VectorSchemaArtifact,
     VectorSchemaEntry,
 )
+from datapipeline.artifacts.registry import VECTOR_METADATA_SPEC
 from datapipeline.config.tasks import SchemaTask
 from datapipeline.execution.context import PipelineContext
 from datapipeline.operations.persistence import ArtifactOutput
 from datapipeline.runtime import Runtime
-from datapipeline.services.artifacts import VECTOR_METADATA_SPEC
 from datapipeline.utils.json_artifact import write_json_artifact
 
 

@@ -1,9 +1,9 @@
-from datapipeline.services.artifacts import ArtifactManager, ArtifactSpec
+from datapipeline.artifacts.registry import ArtifactRegistry, ArtifactSpec
 
 
 def test_registered_metadata_is_a_stable_read_only_mapping(tmp_path) -> None:
     source = {"rows": 1}
-    artifacts = ArtifactManager(tmp_path)
+    artifacts = ArtifactRegistry(tmp_path)
 
     artifacts.register("ticks", "ticks.jsonl", source)
     source["rows"] = 2
@@ -23,7 +23,7 @@ def test_loaded_artifact_is_reused_until_registration_changes(tmp_path) -> None:
 
     (tmp_path / "first.txt").write_text("first", encoding="utf-8")
     (tmp_path / "second.txt").write_text("second", encoding="utf-8")
-    artifacts = ArtifactManager(tmp_path)
+    artifacts = ArtifactRegistry(tmp_path)
     spec = ArtifactSpec(key="value", loader=load)
 
     artifacts.register("value", "first.txt")

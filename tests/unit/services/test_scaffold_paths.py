@@ -3,7 +3,16 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from datapipeline.services.project_paths import ensure_project_scaffold
+from datapipeline.services.scaffold.paths import (
+    default_project_yaml_path,
+    ensure_project_scaffold,
+)
+
+
+def test_default_project_path_matches_plugin_scaffold(tmp_path: Path) -> None:
+    assert default_project_yaml_path(tmp_path) == (
+        tmp_path / "your-dataset" / "project.yaml"
+    )
 
 
 def test_ensure_project_scaffold_creates_dotenv_example(tmp_path: Path) -> None:

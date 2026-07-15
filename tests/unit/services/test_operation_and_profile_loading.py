@@ -2,31 +2,38 @@ from pathlib import Path
 
 import pytest
 
-from datapipeline.services.operations import operation_specs
-from datapipeline.profiles.loader import (
-    apply_profile_defaults,
-    profile_specs,
-    profile_specs_with_defaults,
-)
 from datapipeline.config.profiles import MaterializeProfile
 from datapipeline.config.tasks import (
+    ArtifactTask,
     CoverageTask,
     MatrixOptions,
     MatrixTask,
     OperationTask,
     PipelineTask,
 )
+from datapipeline.profiles.loader import (
+    apply_profile_defaults,
+    profile_specs,
+    profile_specs_with_defaults,
+)
+from datapipeline.services.operations import (
+    operation_documents,
+    operations_from_documents,
+)
 from datapipeline.services.project import load_project
 
 
+def _tasks(project_yaml: Path):
+    project = load_project(project_yaml)
+    return operations_from_documents(project, operation_documents(project))
+
+
 def _artifact_tasks(project_yaml: Path):
-    artifact_specs, _ = operation_specs(load_project(project_yaml))
-    return list(artifact_specs)
+    return [task for task in _tasks(project_yaml) if isinstance(task, ArtifactTask)]
 
 
 def _all_tasks(project_yaml: Path):
-    artifact_specs, operation_task_specs = operation_specs(load_project(project_yaml))
-    return list(artifact_specs) + list(operation_task_specs)
+    return _tasks(project_yaml)
 
 
 def _serve_profiles(project_yaml: Path):
@@ -125,7 +132,9 @@ def test_artifact_tasks_load_configs(tmp_path):
 def test_core_operations_load_without_configuration(tmp_path):
     project_yaml = _write_project(tmp_path)
 
-    artifact_tasks, runtime_tasks = operation_specs(load_project(project_yaml))
+    tasks = _tasks(project_yaml)
+    artifact_tasks = [task for task in tasks if isinstance(task, ArtifactTask)]
+    runtime_tasks = [task for task in tasks if isinstance(task, OperationTask)]
 
     assert [task.id for task in artifact_tasks] == [
         "scaler",

@@ -6,11 +6,11 @@ from datapipeline.artifacts.models import (
     VectorColumnStats,
     VectorStatsSection,
 )
+from datapipeline.artifacts.registry import VECTOR_STATS_SPEC
 from datapipeline.config.tasks import CoverageTask
 from datapipeline.execution.context import PipelineContext
 from datapipeline.operations.persistence import RuntimeOutput
 from datapipeline.runtime import Runtime
-from datapipeline.services.artifacts import VECTOR_STATS_SPEC
 
 
 def _availability(

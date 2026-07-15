@@ -6,11 +6,16 @@ from itertools import tee
 from pathlib import Path
 
 from datapipeline.artifacts.models import SampleDomainEntry
+from datapipeline.artifacts.registry import (
+    VECTOR_METADATA_SPEC,
+    ArtifactNotRegisteredError,
+)
+from datapipeline.artifacts.specs import VECTOR_INPUTS
 from datapipeline.config.dataset.feature import FeatureRecordConfig
-from datapipeline.execution.context import PipelineContext
 from datapipeline.domain.feature import FeatureRecord, FeatureSequence
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.sample_key import SampleKeyContract
+from datapipeline.execution.context import PipelineContext
 from datapipeline.pipelines.vector.keygen import group_key_for
 from datapipeline.pipelines.vector.nodes import (
     align_stream,
@@ -19,17 +24,12 @@ from datapipeline.pipelines.vector.nodes import (
     vector_assemble_stage,
     window_keys,
 )
-from datapipeline.services.artifacts import (
-    ArtifactNotRegisteredError,
-    VECTOR_METADATA_SPEC,
-)
-from datapipeline.services.constants import VECTOR_INPUTS
+from datapipeline.utils.time import parse_cadence
 from datapipeline.vector_inputs.store import (
     CachedVectorInputShard,
     load_vector_inputs_manifest,
     open_vector_input_records,
 )
-from datapipeline.utils.time import parse_cadence
 
 
 def build_vector_pipeline(

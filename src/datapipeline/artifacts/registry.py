@@ -1,6 +1,6 @@
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from collections.abc import Callable, Mapping
 from types import MappingProxyType
 from typing import Any, Generic, TypeVar
 
@@ -10,13 +10,12 @@ from datapipeline.artifacts.models import (
     VectorStatsArtifact,
 )
 from datapipeline.artifacts.scaler import ScalerArtifact, load_scaler_artifact
-from datapipeline.services.constants import (
+from datapipeline.artifacts.specs import (
     SCALER_STATISTICS,
-    VECTOR_SCHEMA,
     VECTOR_METADATA,
+    VECTOR_SCHEMA,
     VECTOR_STATS,
 )
-from datapipeline.services.path_policy import resolve_relative_to_base
 from datapipeline.utils.json_artifact import read_json_artifact
 
 ArtifactValue = TypeVar("ArtifactValue")
@@ -33,20 +32,19 @@ class ArtifactSpec(Generic[ArtifactValue]):
 
 @dataclass(frozen=True)
 class ArtifactRecord:
-    key: str
     relative_path: str
     meta: Mapping[str, Any]
 
     def resolve(self, root: Path) -> Path:
-        return resolve_relative_to_base(self.relative_path, root, resolve=False)
+        return root / self.relative_path
 
 
 class ArtifactNotRegisteredError(RuntimeError):
     """Raised when attempting to use an artifact that is not registered."""
 
 
-class ArtifactManager:
-    """Manage materialized artifact locations and metadata."""
+class ArtifactRegistry:
+    """Registered build artifacts available to a runtime."""
 
     def __init__(self, root: Path) -> None:
         self._root = Path(root)
@@ -65,7 +63,6 @@ class ArtifactManager:
     ) -> None:
         self._loaded.pop(key, None)
         self._records[key] = ArtifactRecord(
-            key=key,
             relative_path=relative_path,
             meta=MappingProxyType(dict(meta or {})),
         )

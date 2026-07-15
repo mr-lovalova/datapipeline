@@ -1,14 +1,14 @@
 from pathlib import Path
 
-from datapipeline.services.paths import (
-    ensure_base_pkg_dir,
-    pkg_root,
-    resolve_base_pkg_dir,
-)
 from datapipeline.services.scaffold.layout import (
     DIR_DOMAINS,
     TPL_DOMAIN_RECORD,
     domain_record_class,
+)
+from datapipeline.services.scaffold.paths import (
+    ensure_base_pkg_dir,
+    pkg_root,
+    resolve_base_pkg_dir,
 )
 from datapipeline.services.scaffold.templates import render
 from datapipeline.services.scaffold.utils import (

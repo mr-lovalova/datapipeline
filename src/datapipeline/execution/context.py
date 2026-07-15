@@ -5,12 +5,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Mapping
 
-from datapipeline.runtime import Runtime
-from datapipeline.services.artifacts import (
-    ArtifactManager,
+from datapipeline.artifacts.registry import (
+    ArtifactRegistry,
     ArtifactSpec,
     ArtifactValue,
 )
+from datapipeline.runtime import Runtime
 from datapipeline.utils.window import resolve_window_bounds
 
 if TYPE_CHECKING:
@@ -36,11 +36,8 @@ class PipelineContext:
             self.heartbeat_interval_seconds = self.runtime.heartbeat_interval_seconds
 
     @property
-    def artifacts(self) -> ArtifactManager:
+    def artifacts(self) -> ArtifactRegistry:
         return self.runtime.artifacts
-
-    def has_artifact(self, key: str) -> bool:
-        return self.artifacts.has(key)
 
     def artifact_metadata(self, key: str) -> Mapping[str, Any]:
         return self.artifacts.require(key).meta

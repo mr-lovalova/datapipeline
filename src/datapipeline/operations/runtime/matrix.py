@@ -1,13 +1,13 @@
 from itertools import islice
 
 from datapipeline.analysis.vector.matrix import MatrixBuilder, render_matrix_html
+from datapipeline.artifacts.registry import VECTOR_METADATA_SPEC
 from datapipeline.config.tasks import MatrixTask
 from datapipeline.execution.context import PipelineContext
 from datapipeline.operations.persistence import RuntimeOutput
 from datapipeline.pipelines.dataset.nodes import build_postprocess_plan
 from datapipeline.pipelines.vector.pipeline import build_vector_pipeline
 from datapipeline.runtime import Runtime
-from datapipeline.services.artifacts import VECTOR_METADATA_SPEC
 
 
 def run_matrix_operation(

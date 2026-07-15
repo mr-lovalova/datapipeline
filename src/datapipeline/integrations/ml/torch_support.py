@@ -2,8 +2,8 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Mapping
 
+from datapipeline.artifacts.registry import VECTOR_SCHEMA_SPEC
 from datapipeline.execution.context import PipelineContext
-from datapipeline.services.artifacts import VECTOR_SCHEMA_SPEC
 
 from .adapter import VectorAdapter
 
