@@ -4,13 +4,6 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from datapipeline.artifacts.registry import ArtifactNotRegisteredError
-from datapipeline.artifacts.scaler import (
-    ScalerStatistics,
-    StandardScalerArtifact,
-    save_scaler_artifact,
-)
-from datapipeline.artifacts.specs import SCALER_STATISTICS
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig, SequenceConfig
 from datapipeline.domain.feature import FeatureRecord
@@ -20,7 +13,6 @@ from datapipeline.execution.context import PipelineContext
 from datapipeline.pipelines.feature.nodes import (
     FeatureSequencer,
     build_feature_stream,
-    scale_features,
     sequence_features,
 )
 from datapipeline.pipelines.feature.pipeline import build_feature_nodes
@@ -73,7 +65,7 @@ def _feature(
     )
 
 
-def test_feature_nodes_make_scaling_and_sequence_explicit(tmp_path) -> None:
+def test_feature_nodes_sequence_without_scaling(tmp_path) -> None:
     nodes = build_feature_nodes(
         _context(tmp_path),
         FeatureRecordConfig(
@@ -89,7 +81,6 @@ def test_feature_nodes_make_scaling_and_sequence_explicit(tmp_path) -> None:
     assert [node.name for node in nodes] == [
         "build_feature_stream",
         "sequence_features",
-        "scale_features",
     ]
 
 
@@ -115,43 +106,6 @@ def test_partitioned_feature_nodes_include_ordering(tmp_path) -> None:
         "order_feature_records",
     ]
     assert nodes[-1].progress is not None
-
-
-def test_scale_features_loads_the_managed_typed_artifact(tmp_path) -> None:
-    context = _context(tmp_path)
-    path = context.runtime.artifacts_root / "scaler.json"
-    save_scaler_artifact(
-        path,
-        StandardScalerArtifact(
-            with_mean=True,
-            with_std=True,
-            epsilon=1e-12,
-            observations=2,
-            statistics={
-                "x": ScalerStatistics(mean=2.0, std=2.0, count=2),
-            },
-        ),
-    )
-    context.artifacts.register(SCALER_STATISTICS, path.name)
-
-    [scaled] = scale_features(
-        context,
-        timedelta(hours=1),
-        iter([_feature(4.0, 0)]),
-    )
-
-    assert scaled.value == 1.0
-
-
-def test_scale_features_uses_the_shared_missing_artifact_error(tmp_path) -> None:
-    with pytest.raises(ArtifactNotRegisteredError):
-        list(
-            scale_features(
-                _context(tmp_path),
-                timedelta(hours=1),
-                iter([_feature(4.0, 0)]),
-            )
-        )
 
 
 def test_sequence_features_builds_strided_windows() -> None:

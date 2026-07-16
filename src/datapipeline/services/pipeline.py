@@ -1,12 +1,7 @@
 from pathlib import Path
 
 from datapipeline.artifacts.fingerprints import calculate_artifact_hashes
-from datapipeline.artifacts.specs import dataset_requires_scaler
 from datapipeline.config.tasks import ArtifactTask, OperationTask
-from datapipeline.config.tasks.scaler import (
-    ScalerTask,
-    validate_scaler_task_for_dataset,
-)
 from datapipeline.services.dataset import (
     dataset_from_document,
     validate_dataset_streams,
@@ -32,11 +27,6 @@ def load_pipeline(project_yaml: Path) -> PipelineDefinition:
     artifact_operations = tuple(
         operation for operation in operations if isinstance(operation, ArtifactTask)
     )
-    if dataset_requires_scaler(dataset):
-        scaler_task = next(
-            task for task in artifact_operations if isinstance(task, ScalerTask)
-        )
-        validate_scaler_task_for_dataset(dataset, scaler_task)
     runtime_operations = tuple(
         operation for operation in operations if isinstance(operation, OperationTask)
     )

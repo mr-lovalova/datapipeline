@@ -59,14 +59,14 @@ class OutputTarget:
         new_path = dest.with_name(new_name)
         return replace(self, destination=new_path)
 
-    def for_split(self, label: str) -> "OutputTarget":
+    def for_output(self, output_id: str) -> "OutputTarget":
         if self.transport != "fs" or self.destination is None:
             return self
-        safe_label = sanitize_path_segment(str(label))
+        safe_output_id = sanitize_path_segment(output_id)
         dest = self.destination
         suffix = "".join(dest.suffixes)
         stem = dest.name[: -len(suffix)] if suffix else dest.name
-        new_name = f"{stem}.{safe_label}{suffix}"
+        new_name = f"{stem}.{safe_output_id}{suffix}"
         new_path = dest.with_name(new_name)
         return replace(self, destination=new_path)
 

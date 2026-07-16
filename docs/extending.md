@@ -32,9 +32,9 @@ A custom runtime operation receives exactly three positional arguments:
 ```python
 from datapipeline.config.tasks import OperationTask
 from datapipeline.operations.persistence import (
+    RoutedRuntimeOutput,
     RuntimeOutput,
     RuntimeOutputBatch,
-    SplitRuntimeOutput,
 )
 from datapipeline.runtime import Runtime
 
@@ -43,15 +43,15 @@ def run_report(
     runtime: Runtime,
     task: OperationTask,
     limit: int | None,
-) -> RuntimeOutput | SplitRuntimeOutput | RuntimeOutputBatch | None:
+) -> RuntimeOutput | RoutedRuntimeOutput | RuntimeOutputBatch | None:
     ...
 ```
 
 `runtime` is the compiled `Runtime`, `task` is the configured `OperationTask`,
 and `limit` is the CLI cap or `None`. Return `RuntimeOutput`,
-`SplitRuntimeOutput`, `RuntimeOutputBatch`, or `None`. Jerry persists the result
+`RoutedRuntimeOutput`, `RuntimeOutputBatch`, or `None`. Jerry persists the result
 using the profile output. Dataset split routing, preview, throttle, and
-`include_splits` belong to the built-in dataset operation and are not passed to
+`include_outputs` belong to the built-in dataset operation and are not passed to
 plugins.
 
 Preprocess and ordered transforms are validated built-in operations rather than

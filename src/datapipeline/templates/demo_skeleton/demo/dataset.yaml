@@ -20,10 +20,14 @@ features:
     scale: true
 
 split:
-  mode: hash
-  key: group
-  seed: 42
-  ratios: { train: 0.8, val: 0.1, test: 0.1 }
+  mode: time
+  boundaries: ["2021-01-20T00:00:00Z", "2021-01-26T00:00:00Z"]
+  labels: [train, val, test]
+  folds:
+    - id: holdout
+      train: [train]
+      validation: [val]
+      test: [test]
 
 postprocess:
   columns:

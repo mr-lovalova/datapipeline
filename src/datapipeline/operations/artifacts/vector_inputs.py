@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from datapipeline.artifacts.registry import SCALER_SPEC
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.config.tasks import VectorInputsTask
 from datapipeline.domain.sample_key import SampleKeyContract
@@ -25,7 +24,6 @@ from datapipeline.pipelines.sort import SortProgress, batch_sort
 from datapipeline.pipelines.stream.pipeline import build_stream_pipeline
 from datapipeline.runtime import Runtime, require_runtime_stream
 from datapipeline.services.path_policy import resolve_artifact_output_path
-from datapipeline.transforms.feature.scaler import FeatureScaler
 from datapipeline.utils.json_artifact import write_json_artifact
 from datapipeline.utils.time import floor_time_to_cadence, parse_cadence
 from datapipeline.vector_inputs.store import (
@@ -185,13 +183,6 @@ def _materialize_stream_groups(
         plans_by_stream[plan.config.stream].append(plan)
 
     cadence_step = parse_cadence(cadence)
-    scaler = None
-    if any(plan.config.scale for plan in plans):
-        scaler = FeatureScaler(
-            context.require_artifact(SCALER_SPEC),
-            cadence_step,
-        )
-
     rows: dict[int, WrittenVectorInputShard] = {}
     for stream_plans in plans_by_stream.values():
         rows.update(
@@ -200,7 +191,6 @@ def _materialize_stream_groups(
                 stream_plans,
                 sample_key_contract,
                 cadence_step,
-                scaler,
             )
         )
     return rows
@@ -211,7 +201,6 @@ def _materialize_stream_group(
     plans: Sequence[_ShardPlan],
     sample_key_contract: SampleKeyContract,
     cadence_step: timedelta,
-    scaler: FeatureScaler | None,
 ) -> dict[int, WrittenVectorInputShard]:
     stream_id = plans[0].config.stream
     stream = require_runtime_stream(context.runtime, stream_id)
@@ -232,12 +221,8 @@ def _materialize_stream_group(
                 projector.project(record, configs),
                 strict=True,
             ):
-                config = plan.config
                 sequencer = sequencers.get(plan.ordinal)
                 result = feature if sequencer is None else sequencer.append(feature)
-                if result is not None and config.scale:
-                    assert scaler is not None
-                    result = scaler.scale(result)
                 if result is not None:
                     if sample_key_contract.fields:
                         order = (

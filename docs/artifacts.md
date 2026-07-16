@@ -16,8 +16,9 @@ filenames, such as `operations/model_grid.yaml`.
   publishes a new immutable shard generation. Project commands hold one
   artifact-workspace lock; generations no longer referenced by the manifest
   are pruned only after the locked command finishes.
-- `build/scaler.json`: managed scaler statistics fitted on the configured split,
-  either as one standard scaler or a folded temporal scaler container.
+- `build/scaler.json`: managed scaler statistics. Unsplit datasets store one
+  standard scaler; split datasets store one scaler fitted from each fold's
+  training labels.
 - `build/schema.json`: discovered feature/target identifiers, value shapes, and
   cadence hints used during postprocess.
 - `build/metadata.json`: counts, sample domain, and resolved dataset window.
@@ -94,18 +95,26 @@ Build profiles remain explicit roots for `jerry build` and retain their own
 
 ## Splitting & Serving
 
-`dataset.yaml:split` defines how samples receive labels:
+`dataset.yaml:split` has two explicit responsibilities:
 
-- `mode: hash` – deterministic entity hash using either the group key or a
-  specified feature ID.
+- `mode: hash` assigns one deterministic label from the complete sample key.
 - `mode: time` – boundary-based slicing using timestamp labels.
-- `output_labels` defines the partitions published by a full pipeline serve and
-  defaults to every configured label. Profile `include_splits` can narrow that
-  set. Without a dataset split, serve emits one combined stream.
+- `folds` groups those primitive labels into named train, validation, and test
+  outputs. Labels may be reused across folds, which supports expanding
+  walk-forward training windows. Labels omitted from every fold are
+  purge/embargo intervals and are not published.
+- Output IDs are `<fold-id>.<role>`, such as `fold_1.train`. A full serve
+  publishes every configured fold output; profile `include_outputs` can narrow
+  that set. Without a dataset split, serve emits one combined stream.
 - Preview bypasses split fanout and emits one combined stage output.
-- Scaler filtering supports time splits and hash splits keyed by `group`. A hash
-  `feature:<id>` key requires the scaler operation to use `split_label: all`.
+- Split datasets fit one scaler from each fold's `train` labels. Every output in
+  a fold uses that fold's scaler.
+- Hash splits cannot be combined with sequence features because overlapping
+  windows could share observations across hash partitions. Use a time split for
+  sequence datasets.
 
-The split configuration never mutates stored artifacts.
+Canonical vector-input artifacts remain unscaled and independent of fold
+selection. The scaler artifact records the fold-specific statistics needed at
+runtime.
 
 ---

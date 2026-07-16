@@ -8,7 +8,7 @@ from datapipeline.config.preview import PreviewStage
 
 from .build import ArtifactMode, normalize_artifact_mode
 from .output import ServeOutputConfig
-from .serve import normalize_include_splits
+from .serve import normalize_include_outputs
 
 
 class ProfileDefaults(BaseModel):
@@ -23,7 +23,7 @@ class ServeProfileDefaults(ProfileDefaults):
     cmd: Literal["serve"]
     output: ServeOutputConfig | None = None
     artifact_mode: ArtifactMode | None = Field(default=None)
-    include_splits: list[str] | None = Field(default=None, min_length=1)
+    include_outputs: list[str] | None = Field(default=None, min_length=1)
     limit: int | None = Field(default=None, ge=1)
     preview: PreviewStage | None = None
     throttle_ms: float | None = Field(default=None, ge=0.0, allow_inf_nan=False)
@@ -33,10 +33,10 @@ class ServeProfileDefaults(ProfileDefaults):
     def _normalize_artifact_mode(cls, value: object) -> ArtifactMode | None:
         return normalize_artifact_mode(value)
 
-    @field_validator("include_splits", mode="before")
+    @field_validator("include_outputs", mode="before")
     @classmethod
-    def _normalize_include_splits(cls, value: object) -> list[str] | None:
-        return normalize_include_splits(value)
+    def _normalize_include_outputs(cls, value: object) -> list[str] | None:
+        return normalize_include_outputs(value)
 
 
 class BuildProfileDefaults(ProfileDefaults):

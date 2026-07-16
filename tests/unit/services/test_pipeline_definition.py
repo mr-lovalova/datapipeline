@@ -6,14 +6,21 @@ import pytest
 from datapipeline.artifacts import fingerprints
 from datapipeline.artifacts.fingerprints import calculate_artifact_hashes
 from datapipeline.artifacts.specs import (
+    SCALER_STATISTICS,
     VECTOR_INPUTS,
     VECTOR_METADATA,
     VECTOR_SCHEMA,
 )
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig
+from datapipeline.config.dataset.split import DatasetFold, TimeSplitConfig
 from datapipeline.config.streams import StreamsConfig
-from datapipeline.config.tasks import ArtifactTask, SchemaTask, VectorInputsTask
+from datapipeline.config.tasks import (
+    ArtifactTask,
+    ScalerTask,
+    SchemaTask,
+    VectorInputsTask,
+)
 from datapipeline.services import config_inventory
 from datapipeline.services.pipeline import load_pipeline
 from datapipeline.services.runtime_compiler import compile_runtime
@@ -99,7 +106,7 @@ def test_compile_runtime_uses_the_loaded_definition(tmp_path: Path) -> None:
     assert second.window_bounds is None
 
 
-def test_load_pipeline_rejects_temporal_scaler_folds_for_hash_split(
+def test_load_pipeline_rejects_legacy_scaler_fold_config(
     tmp_path: Path,
 ) -> None:
     project_yaml = _write_pipeline(tmp_path)
@@ -119,7 +126,9 @@ def test_load_pipeline_rejects_temporal_scaler_folds_for_hash_split(
         "  - {id: price, stream: prices, field: value, scale: true}\n"
         "split:\n"
         "  mode: hash\n"
-        "  ratios: {train: 0.8, validation: 0.2}\n",
+        "  ratios: {train: 0.8, validation: 0.2}\n"
+        "  folds:\n"
+        "    - {id: holdout, train: [train], validation: [validation]}\n",
         encoding="utf-8",
     )
     (tmp_path / "operations" / "scaler.yaml").write_text(
@@ -127,7 +136,7 @@ def test_load_pipeline_rejects_temporal_scaler_folds_for_hash_split(
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError, match="require dataset split mode 'time'"):
+    with pytest.raises(ValueError, match="folds"):
         load_pipeline(project_yaml)
 
 
@@ -468,6 +477,138 @@ def test_artifact_hashing_rejects_missing_active_scaler(tmp_path: Path) -> None:
         )
 
 
+def test_scaling_policy_does_not_invalidate_raw_vector_inputs(tmp_path: Path) -> None:
+    definition = load_pipeline(_write_pipeline(tmp_path))
+    streams = _single_stream_catalog()
+    operations = (ScalerTask(), VectorInputsTask())
+    unscaled = FeatureDatasetConfig(
+        sample=SampleConfig(cadence="1h"),
+        features=[
+            FeatureRecordConfig(id="price", stream="prices", field="close")
+        ],
+    )
+    scaled = unscaled.model_copy(
+        update={
+            "features": [
+                unscaled.features[0].model_copy(update={"scale": True})
+            ]
+        }
+    )
+
+    unscaled_hashes = calculate_artifact_hashes(
+        definition.project,
+        unscaled,
+        streams,
+        operations,
+    )
+    scaled_hashes = calculate_artifact_hashes(
+        definition.project,
+        scaled,
+        streams,
+        operations,
+    )
+
+    assert scaled_hashes.for_artifact(VECTOR_INPUTS) == (
+        unscaled_hashes.for_artifact(VECTOR_INPUTS)
+    )
+    assert scaled_hashes.for_artifact(SCALER_STATISTICS) != (
+        unscaled_hashes.for_artifact(SCALER_STATISTICS)
+    )
+
+
+def test_scaler_hash_tracks_fold_training_population_only(tmp_path: Path) -> None:
+    definition = load_pipeline(_write_pipeline(tmp_path))
+    streams = _single_stream_catalog()
+    feature = FeatureRecordConfig(
+        id="price",
+        stream="prices",
+        field="close",
+        scale=True,
+    )
+    split = TimeSplitConfig(
+        boundaries=[
+            "2024-02-01T00:00:00Z",
+            "2024-03-01T00:00:00Z",
+        ],
+        labels=["train", "validation", "test"],
+        folds=[
+            DatasetFold(
+                id="holdout",
+                train=["train"],
+                validation=["validation"],
+                test=["test"],
+            )
+        ],
+    )
+    baseline = FeatureDatasetConfig(
+        sample=SampleConfig(cadence="1h"),
+        features=[feature],
+        split=split,
+    )
+    publication_changed = baseline.model_copy(
+        update={
+            "split": split.model_copy(
+                update={
+                    "folds": [
+                        DatasetFold(
+                            id="holdout",
+                            train=["train"],
+                            validation=["validation", "test"],
+                        )
+                    ]
+                }
+            )
+        }
+    )
+    training_changed = baseline.model_copy(
+        update={
+            "split": split.model_copy(
+                update={
+                    "folds": [
+                        DatasetFold(
+                            id="holdout",
+                            train=["train", "validation"],
+                            test=["test"],
+                        )
+                    ]
+                }
+            )
+        }
+    )
+
+    def scaler_hash(dataset: FeatureDatasetConfig) -> str:
+        return calculate_artifact_hashes(
+            definition.project,
+            dataset,
+            streams,
+            (ScalerTask(),),
+        ).for_artifact(SCALER_STATISTICS)
+
+    assert scaler_hash(publication_changed) == scaler_hash(baseline)
+    assert scaler_hash(training_changed) != scaler_hash(baseline)
+
+
+def _single_stream_catalog() -> StreamsConfig:
+    return StreamsConfig.model_validate(
+        {
+            "sources": {
+                "raw": {
+                    "id": "raw",
+                    "parser": {"entrypoint": "parse"},
+                    "loader": {"entrypoint": "custom.loader"},
+                }
+            },
+            "streams": {
+                "prices": {
+                    "id": "prices",
+                    "from": {"source": "raw"},
+                    "map": {"entrypoint": "map"},
+                }
+            },
+        }
+    )
+
+
 def test_core_artifact_hashes_track_only_referenced_source_closure(
     tmp_path: Path,
 ) -> None:
@@ -587,6 +728,8 @@ targets: []
 split:
   mode: hash
   ratios: {train: 0.8, test: 0.2}
+  folds:
+    - {id: holdout, train: [train], test: [test]}
 """,
         encoding="utf-8",
     )
@@ -600,41 +743,14 @@ targets: []
 split:
   mode: hash
   ratios: {test: 0.2, train: 0.8}
+  folds:
+    - {id: holdout, train: [train], test: [test]}
 """,
         encoding="utf-8",
     )
     second = load_pipeline(project_yaml)
 
     assert first.artifact_hashes == second.artifact_hashes
-
-
-def test_split_output_labels_do_not_change_artifact_hashes(tmp_path: Path) -> None:
-    project_yaml = _write_pipeline(tmp_path)
-    dataset = tmp_path / "dataset.yaml"
-    dataset.write_text(
-        """\
-sample: {cadence: 1h}
-features: []
-targets: []
-split:
-  mode: hash
-  ratios: {train: 0.8, test: 0.2}
-  output_labels: [train]
-""",
-        encoding="utf-8",
-    )
-    first = load_pipeline(project_yaml)
-
-    dataset.write_text(
-        dataset.read_text(encoding="utf-8").replace("[train]", "[test]"),
-        encoding="utf-8",
-    )
-    second = load_pipeline(project_yaml)
-
-    assert first.dataset.split is not None
-    assert second.dataset.split is not None
-    assert first.dataset.split.output_labels != second.dataset.split.output_labels
-    assert second.artifact_hashes == first.artifact_hashes
 
 
 def test_artifact_cache_version_changes_artifact_hash(

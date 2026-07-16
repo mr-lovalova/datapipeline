@@ -1,10 +1,13 @@
+from pathlib import Path
+
 from .adapter import GroupFormat
 from .rows import collect_vector_rows
 
 
 def dataframe_from_vectors(
-    project_yaml: str,
+    project_yaml: str | Path,
     *,
+    output_id: str | None = None,
     limit: int | None = None,
     include_group: bool = True,
     group_format: GroupFormat = "mapping",
@@ -25,6 +28,7 @@ def dataframe_from_vectors(
 
     rows = collect_vector_rows(
         project_yaml,
+        output_id=output_id,
         limit=limit,
         include_group=include_group,
         group_format=group_format,

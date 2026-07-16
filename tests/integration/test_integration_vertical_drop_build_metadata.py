@@ -40,7 +40,7 @@ def test_column_selection_counts_absent_sequence_opportunities(copy_fixture):
     hydrate_runtime_artifacts_for_pipeline(runtime, definition)
     scaler_rel = materialize_scaler_statistics(
         runtime,
-        ScalerTask(id="scaler", split_label="all", output="scaler.json"),
+        ScalerTask(id="scaler", output="scaler.json"),
     )
     if scaler_rel:
         runtime.artifacts.register(

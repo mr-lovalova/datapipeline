@@ -3,6 +3,7 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
+from datapipeline.artifacts.registry import SCALER_SPEC
 from datapipeline.artifacts.scaler import save_scaler_artifact
 from datapipeline.artifacts.specs import SCALER_STATISTICS
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
@@ -19,7 +20,7 @@ from datapipeline.execution.context import PipelineContext
 from datapipeline.pipelines.feature.pipeline import run_feature_pipeline
 from datapipeline.pipelines.vector.pipeline import build_vector_pipeline
 from datapipeline.runtime import Runtime, SourceRuntimeStream
-from datapipeline.transforms.feature.scaler import ScalerAccumulator
+from datapipeline.transforms.vector.scaler import SampleScaler, ScalerAccumulator
 from tests.vector_input_helpers import register_vector_inputs
 
 
@@ -535,7 +536,14 @@ def test_regression_scaled_shapes_airpressure_high_freq_and_windspeed_hourly(
     register_vector_inputs(runtime, configs, group_by)
     context = PipelineContext(runtime)
 
-    out = list(build_vector_pipeline(context, configs, group_by))
+    raw = build_vector_pipeline(context, configs, group_by)
+    out = list(
+        SampleScaler(
+            context.require_artifact(SCALER_SPEC),
+            scaled_feature_ids=[config.id for config in configs],
+            scaled_target_ids=(),
+        ).apply(raw)
+    )
 
     # Two hourly groups expected: 00:00 and 01:00
     assert len(out) == 2
@@ -618,7 +626,14 @@ def test_regression_fill_then_scale_with_missing_values(tmp_path) -> None:
     _register_scaler(runtime, configs, group_by)
     register_vector_inputs(runtime, configs, group_by)
     context = PipelineContext(runtime)
-    out = list(build_vector_pipeline(context, configs, group_by))
+    raw = build_vector_pipeline(context, configs, group_by)
+    out = list(
+        SampleScaler(
+            context.require_artifact(SCALER_SPEC),
+            scaled_feature_ids=[config.id for config in configs],
+            scaled_target_ids=(),
+        ).apply(raw)
+    )
 
     # Two hour groups because fill made the second hour visible
     assert len(out) == 2  # hours 00 and 01 due to wind_speed hour 1

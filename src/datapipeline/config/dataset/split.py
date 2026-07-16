@@ -1,28 +1,82 @@
 import math
 from typing import Annotated, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 from datapipeline.utils.time import parse_datetime
 
 
-HASH_SPLIT_GROUP_KEY = "group"
-HASH_SPLIT_FEATURE_PREFIX = "feature:"
-
 Ratio = Annotated[float, Field(gt=0.0, le=1.0)]
+FoldRole = Literal["train", "validation", "test"]
+FOLD_ROLES: tuple[FoldRole, ...] = ("train", "validation", "test")
 
 
-def _validate_output_labels(labels: list[str] | None) -> list[str] | None:
-    if labels is None:
-        return None
-    for label in labels:
-        if not label.strip():
-            raise ValueError("split output labels must not be empty")
-        if label != label.strip():
-            raise ValueError("split output labels must not contain outer whitespace")
-    if len(labels) != len(set(labels)):
-        raise ValueError("split output labels must be unique")
-    return labels
+class DatasetFold(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    id: str
+    train: list[str] = Field(min_length=1)
+    validation: list[str] = Field(default_factory=list)
+    test: list[str] = Field(default_factory=list)
+
+    @field_validator("id")
+    @classmethod
+    def validate_id(cls, fold_id: str) -> str:
+        if not fold_id.strip():
+            raise ValueError("dataset fold id must not be empty")
+        if fold_id != fold_id.strip():
+            raise ValueError("dataset fold id must not contain outer whitespace")
+        return fold_id
+
+    @field_validator("train", "validation", "test")
+    @classmethod
+    def validate_role_labels(
+        cls,
+        labels: list[str],
+        info: ValidationInfo,
+    ) -> list[str]:
+        for label in labels:
+            if not label.strip():
+                raise ValueError(
+                    f"dataset fold {info.field_name} labels must not be empty"
+                )
+            if label != label.strip():
+                raise ValueError(
+                    f"dataset fold {info.field_name} labels must not contain "
+                    "outer whitespace"
+                )
+        if len(labels) != len(set(labels)):
+            raise ValueError(
+                f"dataset fold {info.field_name} labels must not contain duplicates"
+            )
+        return labels
+
+    @model_validator(mode="after")
+    def validate_disjoint_roles(self) -> Self:
+        train = set(self.train)
+        validation = set(self.validation)
+        test = set(self.test)
+        shared = (train & validation) | (train & test) | (validation & test)
+        if shared:
+            raise ValueError(
+                "dataset fold labels must belong to only one role: "
+                + ", ".join(sorted(shared))
+            )
+        return self
+
+
+def _validate_fold_ids(folds: list[DatasetFold]) -> list[DatasetFold]:
+    fold_ids = [fold.id for fold in folds]
+    if len(fold_ids) != len(set(fold_ids)):
+        raise ValueError("dataset fold ids must be unique")
+    return folds
 
 
 class HashSplitConfig(BaseModel):
@@ -30,20 +84,8 @@ class HashSplitConfig(BaseModel):
 
     mode: Literal["hash"] = "hash"
     ratios: dict[str, Ratio]
-    output_labels: list[str] | None = Field(default=None, min_length=1)
+    folds: list[DatasetFold] = Field(min_length=1)
     seed: int = 42
-    key: str = HASH_SPLIT_GROUP_KEY
-
-    @field_validator("key")
-    @classmethod
-    def validate_key(cls, key: str) -> str:
-        if key == HASH_SPLIT_GROUP_KEY:
-            return key
-        if key.startswith(HASH_SPLIT_FEATURE_PREFIX):
-            if key.removeprefix(HASH_SPLIT_FEATURE_PREFIX):
-                return key
-            raise ValueError("hash split key must include a feature id")
-        raise ValueError("hash split key must be 'group' or 'feature:<id>'")
 
     @field_validator("ratios")
     @classmethod
@@ -60,21 +102,21 @@ class HashSplitConfig(BaseModel):
             raise ValueError(f"hash split ratios must sum to 1.0 (got {total})")
         return dict(sorted(ratios.items()))
 
-    @field_validator("output_labels")
+    @field_validator("folds")
     @classmethod
-    def validate_output_labels(cls, labels: list[str] | None) -> list[str] | None:
-        return _validate_output_labels(labels)
+    def validate_fold_ids(cls, folds: list[DatasetFold]) -> list[DatasetFold]:
+        return _validate_fold_ids(folds)
 
     @model_validator(mode="after")
-    def validate_output_labels_exist(self) -> Self:
-        if self.output_labels is None:
-            return self
-        unknown = set(self.output_labels) - set(self.ratios)
-        if unknown:
-            raise ValueError(
-                "split output labels are not defined by ratios: "
-                + ", ".join(sorted(unknown))
-            )
+    def validate_fold_labels(self) -> Self:
+        defined = set(self.ratios)
+        for fold in self.folds:
+            unknown = set((*fold.train, *fold.validation, *fold.test)) - defined
+            if unknown:
+                raise ValueError(
+                    f"dataset fold {fold.id!r} references unknown hash split labels: "
+                    + ", ".join(sorted(unknown))
+                )
         return self
 
 
@@ -84,7 +126,7 @@ class TimeSplitConfig(BaseModel):
     mode: Literal["time"] = "time"
     boundaries: list[str]
     labels: list[str] = Field(min_length=1)
-    output_labels: list[str] | None = Field(default=None, min_length=1)
+    folds: list[DatasetFold] = Field(min_length=1)
 
     @field_validator("boundaries")
     @classmethod
@@ -114,22 +156,45 @@ class TimeSplitConfig(BaseModel):
             raise ValueError("time split labels must be unique")
         return labels
 
-    @field_validator("output_labels")
+    @field_validator("folds")
     @classmethod
-    def validate_output_labels(cls, labels: list[str] | None) -> list[str] | None:
-        return _validate_output_labels(labels)
+    def validate_fold_ids(cls, folds: list[DatasetFold]) -> list[DatasetFold]:
+        return _validate_fold_ids(folds)
 
     @model_validator(mode="after")
-    def validate_label_count(self) -> Self:
+    def validate_label_count_and_folds(self) -> Self:
         if len(self.labels) != len(self.boundaries) + 1:
             raise ValueError("time split labels length must equal len(boundaries) + 1")
-        if self.output_labels is not None:
-            unknown = set(self.output_labels) - set(self.labels)
+
+        label_positions = {
+            label: position for position, label in enumerate(self.labels)
+        }
+        for fold in self.folds:
+            unknown = (
+                set((*fold.train, *fold.validation, *fold.test))
+                - label_positions.keys()
+            )
             if unknown:
                 raise ValueError(
-                    "split output labels are not defined by labels: "
+                    f"dataset fold {fold.id!r} references unknown time split labels: "
                     + ", ".join(sorted(unknown))
                 )
+
+            previous_positions: list[int] | None = None
+            previous_role: FoldRole | None = None
+            for role in FOLD_ROLES:
+                positions = [label_positions[label] for label in getattr(fold, role)]
+                if not positions:
+                    continue
+                if previous_positions is not None and max(previous_positions) >= min(
+                    positions
+                ):
+                    raise ValueError(
+                        f"dataset fold {fold.id!r} requires {previous_role} labels "
+                        f"before {role} labels"
+                    )
+                previous_positions = positions
+                previous_role = role
         return self
 
 
@@ -139,9 +204,26 @@ SplitConfig = Annotated[
 ]
 
 
-def split_output_labels(config: SplitConfig) -> tuple[str, ...]:
-    if config.output_labels is not None:
-        return tuple(config.output_labels)
-    if isinstance(config, TimeSplitConfig):
-        return tuple(config.labels)
-    return tuple(config.ratios)
+def fold_output_id(fold_id: str, role: FoldRole) -> str:
+    return f"{fold_id}.{role}"
+
+
+def split_output_ids(config: SplitConfig) -> tuple[str, ...]:
+    return tuple(
+        fold_output_id(fold.id, role)
+        for fold in config.folds
+        for role in FOLD_ROLES
+        if getattr(fold, role)
+    )
+
+
+def resolve_fold_output(
+    config: SplitConfig,
+    output_id: str,
+) -> tuple[DatasetFold, tuple[str, ...]]:
+    for fold in config.folds:
+        for role in FOLD_ROLES:
+            labels = getattr(fold, role)
+            if labels and output_id == fold_output_id(fold.id, role):
+                return fold, tuple(labels)
+    raise KeyError(f"dataset fold output {output_id!r} is not defined")

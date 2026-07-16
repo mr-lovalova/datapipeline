@@ -12,6 +12,7 @@ from datapipeline.artifacts.specs import (
     VECTOR_SCHEMA,
     VECTOR_STATS,
     ArtifactDefinition,
+    dataset_requires_scaler,
 )
 from datapipeline.build.state import BuildState
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
@@ -217,7 +218,7 @@ class ArtifactGraph:
             if preview in {"input", "canonical", "records"}:
                 return declared | dataset_tick_artifacts
             if preview == "features":
-                return declared | {SCALER_STATISTICS, *dataset_tick_artifacts}
+                return declared | dataset_tick_artifacts
             if preview == "samples":
                 return declared | {VECTOR_METADATA}
             return declared | {VECTOR_METADATA, VECTOR_SCHEMA}
@@ -245,6 +246,13 @@ class ArtifactGraph:
             and not dataset.targets
         ):
             roots = set(task.requires)
+        elif (
+            isinstance(task, PipelineTask)
+            and preview is None
+            and dataset is not None
+            and dataset_requires_scaler(dataset)
+        ):
+            roots.add(SCALER_STATISTICS)
         keys = set(self.dependency_closure(roots))
         if self.requires_dataset(keys):
             if dataset is None:

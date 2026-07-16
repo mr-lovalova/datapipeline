@@ -12,6 +12,7 @@ import pytest
 from datapipeline.domain.feature import FeatureRecord, FeatureSequence
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.vector_inputs.store import (
+    VECTOR_INPUTS_MANIFEST_VERSION,
     feature_record_to_vector_input_row,
     load_vector_inputs_manifest,
     open_vector_input_records,
@@ -268,7 +269,7 @@ def test_vector_input_writer_removes_temp_file_on_interrupt(tmp_path: Path) -> N
     assert list(tmp_path.iterdir()) == []
 
 
-@pytest.mark.parametrize("version", [None, 1, 2, 3, 4.0, True])
+@pytest.mark.parametrize("version", [None, 1, 2, 3, 4, 4.0, True])
 def test_vector_inputs_manifest_rejects_incompatible_version(
     tmp_path: Path,
     version: object,
@@ -283,7 +284,7 @@ def test_vector_inputs_manifest_rejects_incompatible_version(
 
 def _valid_manifest() -> dict[str, Any]:
     return {
-        "version": 4,
+        "version": VECTOR_INPUTS_MANIFEST_VERSION,
         "format": "jsonl.gz",
         "cadence": "1h",
         "sample_keys": ["security_id"],

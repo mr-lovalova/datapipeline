@@ -7,6 +7,7 @@ def main() -> None:
     project = Path(__file__).resolve().parents[1] / "project.yaml"
     df = dataframe_from_vectors(
         project,
+        output_id="holdout.train",
         limit=None,
         include_group=True,
         group_format="mapping",

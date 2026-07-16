@@ -29,6 +29,8 @@ jerry serve --dataset your-dataset --limit 3
   - Ensure `stream:` points at the stream id you created.
   - Select a `field:` for each feature/target (record attribute to use as value).
   - Ensure `sample.cadence` matches `^\d+(m|min|h|d)$` (e.g. `10m`, `1h`, `1d`). The scaffold fills it from the `${group_by}` project global.
+  - Adjust the split ratios and `folds`. Fold output IDs use
+    `<fold-id>.<role>`, such as `holdout.train`.
 
 Reinstall the plugin after adding or editing entry points in `pyproject.toml`:
 

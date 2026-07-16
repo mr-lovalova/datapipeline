@@ -3,15 +3,15 @@ from types import SimpleNamespace
 
 import pytest
 
+from datapipeline.config.dataset.split import DatasetFold, TimeSplitConfig
 from datapipeline.config.preview import PreviewStage
-from datapipeline.config.dataset.split import TimeSplitConfig
-from datapipeline.execution.pipeline import Pipeline
-from datapipeline.execution.node import PipelineNode, SourceNode
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
+from datapipeline.execution.node import PipelineNode, SourceNode
+from datapipeline.execution.pipeline import Pipeline
 from datapipeline.io.output import OutputTarget
 from datapipeline.operations.persistence import (
-    SplitRuntimeOutput,
+    RoutedRuntimeOutput,
     persist_runtime_result,
 )
 from datapipeline.operations.runtime.pipeline import run_pipeline_operation
@@ -23,7 +23,7 @@ def _runtime(streams=None):
         pipeline_observer=None,
         observe_node_events=True,
         heartbeat_interval_seconds=None,
-        output_splits=(),
+        output_ids=(),
         streams=streams or {},
     )
     runtime.dataset = _dataset()
@@ -32,17 +32,19 @@ def _runtime(streams=None):
 
 def _dataset(*, targets=None):
     return SimpleNamespace(
-        features=[object()],
+        features=[SimpleNamespace(id="price", stream="prices", scale=False)],
         targets=list(targets or []),
         sample=SimpleNamespace(cadence="1d", keys=[]),
+        split=None,
     )
 
 
 def _preview_dataset(stream):
     return SimpleNamespace(
-        features=[SimpleNamespace(id="price", stream=stream)],
+        features=[SimpleNamespace(id="price", stream=stream, scale=False)],
         targets=[],
         sample=SimpleNamespace(cadence="1d", keys=[]),
+        split=None,
     )
 
 
@@ -167,12 +169,19 @@ def test_pipeline_operation_returns_split_fanout_output(monkeypatch, tmp_path):
         pipeline_observer=None,
         observe_node_events=True,
         heartbeat_interval_seconds=None,
-        output_splits=("train", "val"),
+        output_ids=("holdout.train", "holdout.validation"),
     )
     dataset = _dataset()
     dataset.split = TimeSplitConfig(
         boundaries=["2021-01-01T00:00:00Z"],
         labels=["train", "val"],
+        folds=[
+            DatasetFold(
+                id="holdout",
+                train=["train"],
+                validation=["val"],
+            )
+        ],
     )
     runtime.dataset = dataset
     target = _fs_target(tmp_path / "vectors.jsonl")
@@ -186,7 +195,7 @@ def test_pipeline_operation_returns_split_fanout_output(monkeypatch, tmp_path):
         lambda runtime_obj, rectangular_required: ("start", "end"),
     )
     monkeypatch.setattr(
-        "datapipeline.operations.runtime.pipeline.run_dataset_pipeline",
+        "datapipeline.operations.runtime.pipeline.run_fold_dataset_pipeline",
         lambda *args, **kwargs: iter(samples),
     )
 
@@ -195,11 +204,20 @@ def test_pipeline_operation_returns_split_fanout_output(monkeypatch, tmp_path):
     assert runtime.window_bounds == ("start", "end")
     assert len(result.outputs) == 1
     output = result.outputs[0]
-    assert isinstance(output, SplitRuntimeOutput)
-    assert output.targets["train"].destination == tmp_path / "vectors.train.jsonl"
-    assert output.targets["val"].destination == tmp_path / "vectors.val.jsonl"
+    assert isinstance(output, RoutedRuntimeOutput)
+    assert (
+        output.targets["holdout.train"].destination
+        == tmp_path / "vectors.holdout.train.jsonl"
+    )
+    assert (
+        output.targets["holdout.validation"].destination
+        == tmp_path / "vectors.holdout.validation.jsonl"
+    )
     routed = list(output.rows)
-    assert [output.label_for_row(sample) for sample in routed] == ["train", "val"]
+    assert [output.output_for_row(sample) for sample in routed] == [
+        "holdout.train",
+        "holdout.validation",
+    ]
 
 
 def test_samples_preview_stops_before_postprocess(monkeypatch):
@@ -275,11 +293,12 @@ def test_feature_preview_rejects_duplicate_resolved_destinations(
 ) -> None:
     dataset = SimpleNamespace(
         features=[
-            SimpleNamespace(id="a/b", stream="first"),
-            SimpleNamespace(id="a?b", stream="second"),
+            SimpleNamespace(id="a/b", stream="first", scale=False),
+            SimpleNamespace(id="a?b", stream="second", scale=False),
         ],
         targets=[],
         sample=SimpleNamespace(cadence="1d", keys=[]),
+        split=None,
     )
     monkeypatch.setattr(
         "datapipeline.operations.runtime.pipeline.run_feature_pipeline",

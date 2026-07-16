@@ -10,17 +10,19 @@ from .adapter import GroupFormat, VectorAdapter
 def stream_vectors(
     project_yaml: str | Path,
     *,
+    output_id: str | None = None,
     limit: int | None = None,
 ) -> Iterator[tuple[Sequence[Any], Vector]]:
     """Yield ``(group_key, Vector)`` pairs for the configured project."""
 
-    adapter = VectorAdapter.from_project(project_yaml)
+    adapter = VectorAdapter.from_project(project_yaml, output_id=output_id)
     return adapter.stream(limit=limit)
 
 
 def iter_vector_rows(
     project_yaml: str | Path,
     *,
+    output_id: str | None = None,
     limit: int | None = None,
     include_group: bool = True,
     group_format: GroupFormat = "mapping",
@@ -29,7 +31,7 @@ def iter_vector_rows(
 ) -> Iterator[dict[str, Any]]:
     """Return an iterator of row dictionaries derived from vectors."""
 
-    adapter = VectorAdapter.from_project(project_yaml)
+    adapter = VectorAdapter.from_project(project_yaml, output_id=output_id)
     return adapter.iter_rows(
         limit=limit,
         include_group=include_group,
@@ -42,6 +44,7 @@ def iter_vector_rows(
 def collect_vector_rows(
     project_yaml: str | Path,
     *,
+    output_id: str | None = None,
     limit: int | None = None,
     include_group: bool = True,
     group_format: GroupFormat = "mapping",
@@ -52,6 +55,7 @@ def collect_vector_rows(
 
     iterator = iter_vector_rows(
         project_yaml,
+        output_id=output_id,
         limit=limit,
         include_group=include_group,
         group_format=group_format,

@@ -90,20 +90,22 @@ globals:
   `--profile <name>` still selects it.
 - Dataset split label names are free-form: match the keys declared in
   `dataset.yaml:split.ratios` (hash) or `dataset.yaml:split.labels` (time).
+- Dataset output IDs are `<fold-id>.<role>`, where role is `train`,
+  `validation`, or `test`.
 
 ### Serve Profiles (`profiles/serve.<name>.yaml`)
 
 ```yaml
 # profiles/serve.dataset.yaml
 operation: dataset # core runtime operation
-# include_splits: [train, test] # optional subset of dataset split output_labels
+# include_outputs: [holdout.train, holdout.test] # optional fold outputs
 output:
   transport: fs # stdout | fs; configured split output requires fs
   format: jsonl
   directory: runs
   # view: raw # optional; csv defaults to flat; jsonl/pickle default to raw
   # encoding: utf-8 # fs jsonl/csv only
-limit: 100 # cap vectors per output; with split output, applies per label
+limit: 100 # cap vectors per output
 throttle_ms: null # milliseconds to sleep between emitted vectors
 # Optional overrides:
 # observability:
@@ -119,22 +121,21 @@ throttle_ms: null # milliseconds to sleep between emitted vectors
 ```
 
 - Each serve profile is a flat file under `profiles/` with the `serve.` prefix.
-- `include_splits`, `output`, `limit`, `throttle_ms`, and `observability` may
+- `include_outputs`, `output`, `limit`, `throttle_ms`, and `observability` may
   also be set in `serve.defaults.yaml`. Profile values override those defaults,
   and CLI flags still win where available (see
   _Configuration & Resolution Order_). Filesystem runs write under
   `<directory>/runs/<run_id>/dataset/`; normal outputs use `<profile>.<ext>` and
-  split outputs use `<profile>.<label>.<ext>`.
+  split outputs use `<profile>.<fold-id>.<role>.<ext>`.
 - `output.encoding` is supported for fs `jsonl`/`csv` outputs (default `utf-8`); it is invalid for `stdout` and `pickle`.
-- A full pipeline serve with `dataset.yaml:split` consumes the pipeline once and
-  writes one output file per dataset `output_labels` entry, using
-  profile-qualified filenames such as `dataset.train.jsonl`. When
-  `output_labels` is omitted, every configured label is published.
-  `include_splits` optionally narrows that set. Split fanout requires filesystem
+- A full pipeline serve with `dataset.yaml:split` writes one output file per
+  configured fold role, using profile-qualified filenames such as
+  `dataset.holdout.train.jsonl`. `include_outputs` optionally narrows that set
+  using the same `<fold-id>.<role>` IDs. Split fanout requires filesystem
   output. When set, `output.filename` becomes the base name, producing files
-  such as `vectors.train.jsonl`.
+  such as `vectors.holdout.train.jsonl`.
 - Preview bypasses automatic split fanout and emits one combined stage output.
-  A profile cannot combine explicit `include_splits` with preview.
+  A profile cannot combine explicit `include_outputs` with preview.
 - Before any selected serve profile runs, Jerry unions their artifact
   requirements and prepares the union once according to `artifact_mode`.
   `AUTO` builds missing or stale artifacts, `FORCE` rebuilds the required
@@ -295,7 +296,7 @@ options: {}
   - The `dataset` operation uses `core.runtime.pipeline` internally and accepts
     no operation options. Limit, preview, throttle, output, and visuals can be
     set by the serve profile or CLI. Dataset split output comes from
-    `dataset.yaml`; `include_splits` can narrow it. Preview, throttle, and split
+    `dataset.yaml`; `include_outputs` can narrow it. Preview, throttle, and split
     output are not accepted by other runtime operations.
   - `core.runtime.coverage`: optional `threshold` between `0` and `1`
     (default: `0.95`). Results are ordered from lowest to highest coverage.
@@ -308,7 +309,7 @@ options: {}
 - Unknown keys on built-in runtime operations are rejected. Custom plugin
   runtime operations retain their plugin-defined `options` mapping.
 - A custom runtime entry point has one positional contract: `(runtime, task,
-  limit)`. It returns `RuntimeOutput`, `SplitRuntimeOutput`,
+  limit)`. It returns `RuntimeOutput`, `RoutedRuntimeOutput`,
   `RuntimeOutputBatch`, or `None`; shared persistence applies the profile output.
 
 ### Workspace Routing (`jerry.yaml`)
@@ -523,11 +524,14 @@ targets:
     field: returns_1d
 
 split:
-  mode: hash # hash | time
-  key: group # group | feature:<id>
-  seed: 42
-  ratios: { train: 0.8, val: 0.1, test: 0.1 }
-  # output_labels: [train, test] # optional published subset; defaults to all
+  mode: time # hash | time
+  boundaries: ["2022-01-01T00:00:00Z", "2023-01-01T00:00:00Z"]
+  labels: [train, validation, test]
+  folds:
+    - id: holdout
+      train: [train]
+      validation: [validation]
+      test: [test]
 
 postprocess:
   columns:
@@ -562,10 +566,10 @@ postprocess:
 - Every `id` must be unique across both `features` and `targets`. Scaler,
   schema, and metadata operations plus postprocess policies use this shared
   vector-ID space.
-- `scale: true` scales scalar feature values with the managed
-  `build/scaler.json` artifact. Fitting options belong to the scaler operation and
-  cannot be overridden per feature. `None` remains `None`; other nonnumeric or
-  non-finite values fail.
+- `scale: true` scales assembled scalar or sequence values with the managed
+  `build/scaler.json` artifact when a dataset output is produced. Fitting
+  options belong to the scaler operation and cannot be overridden per vector.
+  `None` remains `None`; other nonnumeric or non-finite values fail.
 - `sequence` emits `FeatureSequence` windows and accepts `size` plus
   optional `stride` (default `1`). Regularize cadence with ordered transforms
   before feature extraction when contiguous ticks are required. The resolved
@@ -573,13 +577,55 @@ postprocess:
   group.
 - Feature configuration exposes only `scale` and `sequence`; it does not accept
   arbitrary feature transform entry-point clauses.
-- `split` defines how samples receive labels. `output_labels` defines the labels
-  published by a normal pipeline serve and defaults to every configured label;
-  profile `include_splits` can only narrow that set. This lets time splits retain
-  named purge intervals for scaler selection without publishing them. Labels
-  must be nonempty and unique. Hash-ratio mappings are canonicalized by label,
-  so YAML key order does not change sample assignment. Time boundaries must be
-  valid ISO-8601 datetimes in strictly increasing order.
+- `split` first assigns each sample one primitive label. Hash splits assign from
+  the complete sample key and require `ratios`; time splits require ordered
+  `boundaries` plus one more `labels` entry than boundaries.
+- Every split defines one or more `folds`. Each fold has an `id`, at least one
+  training label, and optional validation and test labels. Its published output
+  IDs are `<fold-id>.train`, `<fold-id>.validation`, and `<fold-id>.test` for
+  the nonempty roles. Labels omitted from every fold are purge/embargo
+  intervals and are not published.
+- Fold labels must exist and cannot belong to two roles within the same fold.
+  Time-fold roles must be chronological. The same primitive label may be reused
+  in another fold, enabling expanding walk-forward plans:
+
+  ```yaml
+  split:
+    mode: time
+    boundaries:
+      - "2020-01-01T00:00:00Z"
+      - "2021-01-01T00:00:00Z"
+      - "2022-01-01T00:00:00Z"
+      - "2023-01-01T00:00:00Z"
+    labels: [train_0, validation_0, train_1, validation_1, test]
+    folds:
+      - id: fold_0
+        train: [train_0]
+        validation: [validation_0]
+      - id: fold_1
+        train: [train_0, validation_0, train_1]
+        validation: [validation_1]
+        test: [test]
+  ```
+
+- A simple hash holdout uses the same fold contract:
+
+  ```yaml
+  split:
+    mode: hash
+    seed: 42
+    ratios: { train: 0.8, validation: 0.1, test: 0.1 }
+    folds:
+      - id: holdout
+        train: [train]
+        validation: [validation]
+        test: [test]
+  ```
+
+- Hash-ratio mappings are canonicalized by label, so YAML key order does not
+  change sample assignment. Hash splits are not allowed when any feature or
+  target uses `sequence`, because overlapping windows could share observations
+  across partitions. Use a time split for sequence datasets.
 - `postprocess.columns` and `postprocess.samples` are structural policies that
   run after assembly and before serving.
 
@@ -603,37 +649,21 @@ The core scaler already has the defaults below. Create
 
 ```yaml
 output: build/scaler.json
-split_label: train
 with_mean: true
 with_std: true
 epsilon: 1.0e-12
 ```
 
-Folded temporal scaler:
-
-```yaml
-output: build/scaler.json
-folds:
-  - fit: [train_0]
-    apply: [train_0, val_0]
-  - fit: [train_1]
-    apply: [train_1, val_1]
-```
-
-- `build/scaler.json` stores either one standard scaler fitted on `split_label`
-  or a folded temporal scaler container fitted from `folds`.
+- An unsplit dataset stores one standard scaler fitted from all samples. A split
+  dataset stores one scaler per dataset fold, fitted from that fold's `train`
+  labels. Fold definitions belong only in `dataset.yaml`; the scaler operation
+  does not duplicate split policy.
 - `with_mean`, `with_std`, and positive finite `epsilon` are build-time options
   stored in the artifact and used unchanged at runtime.
-- A filtered standard scaler supports time splits and hash splits keyed by
-  `group`. When the dataset has no split, or `dataset.yaml:split.key` is
-  `feature:<id>`, set `split_label: all`.
-- Folded temporal scaling requires `dataset.yaml:split.mode: time`. `fit` and
-  `apply` labels must exist in the dataset split; `apply` labels cannot overlap
-  across folds, and every configured split label must appear in exactly one
-  apply fold.
-- Temporal fold selection uses the cadence-floored sample timestamp. A sequence
-  is built first, then every value in it is scaled with the fold selected by
-  the sequence's final sample timestamp.
+- Every train, validation, and test output in a fold uses that fold's scaler.
+  If a primitive label is reused across folds, its values are scaled separately
+  for each output. Sequence windows are constructed before scaling, so every
+  value in one output sequence uses the same fold scaler.
 - `build/schema.json` (from the `schema` operation) is derived from typed metadata
   without rescanning vectors. It enumerates discovered feature/target
   identifiers (including partitions), scalar/list kinds, and fixed list

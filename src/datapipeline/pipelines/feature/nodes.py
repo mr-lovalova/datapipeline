@@ -1,15 +1,11 @@
 from collections import deque
 from collections.abc import Iterable, Iterator, Sequence
-from datetime import timedelta
 from typing import Any
 
-from datapipeline.artifacts.registry import SCALER_SPEC
 from datapipeline.config.dataset.feature import FeatureRecordConfig, SequenceConfig
 from datapipeline.domain.feature import FeatureRecord, FeatureSequence
-from datapipeline.execution.context import PipelineContext
 from datapipeline.pipelines.feature.projector import FeatureProjector
 from datapipeline.pipelines.sort import SortProgress, batch_sort
-from datapipeline.transforms.feature.scaler import FeatureScaler
 from datapipeline.utils.time import floor_time_to_cadence, parse_cadence
 
 
@@ -21,15 +17,6 @@ def build_feature_stream(
     configs = (config,)
     for record in records:
         yield from projector.project(record, configs)
-
-
-def scale_features(
-    context: PipelineContext,
-    sample_cadence: timedelta,
-    features: Iterator[FeatureRecord | FeatureSequence],
-) -> Iterator[FeatureRecord | FeatureSequence]:
-    artifact = context.require_artifact(SCALER_SPEC)
-    yield from FeatureScaler(artifact, sample_cadence).apply(features)
 
 
 def sequence_features(

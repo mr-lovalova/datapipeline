@@ -15,8 +15,7 @@ from datapipeline.config.tasks import MetadataTask, SchemaTask
 from datapipeline.execution.context import PipelineContext
 from datapipeline.operations.artifacts.metadata import materialize_metadata
 from datapipeline.operations.artifacts.schema import materialize_vector_schema
-from datapipeline.pipelines.dataset.nodes import apply_postprocess
-from datapipeline.pipelines.vector.pipeline import build_vector_pipeline
+from datapipeline.pipelines.dataset.pipeline import run_scaled_dataset_pipeline
 from datapipeline.services.pipeline import load_pipeline
 from datapipeline.services.runtime_compiler import compile_runtime
 from tests.vector_input_helpers import register_vector_inputs
@@ -74,14 +73,15 @@ def test_full_regression_project_vectors(copy_fixture) -> None:
         relative_path=schema.relative_path,
     )
 
-    base_vectors = build_vector_pipeline(
-        context,
-        dataset.features,
-        dataset.sample.cadence,
-        target_configs=dataset.targets,
-        rectangular=False,
+    samples = list(
+        run_scaled_dataset_pipeline(
+            context,
+            dataset.features,
+            dataset.sample.cadence,
+            target_configs=dataset.targets,
+            rectangular=False,
+        )
     )
-    samples = list(apply_postprocess(context, base_vectors))
 
     assert len(samples) == 6
 

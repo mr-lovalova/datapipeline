@@ -7,7 +7,6 @@ features:
     stream: your.stream.one
     field: some_field
     scale: true
-    sequence: { size: 6, stride: 1 }
 
   - id: second_feature
     stream: your.stream.two
@@ -20,9 +19,13 @@ features:
 
 split:
   mode: hash
-  key: group
   seed: 42
   ratios: { train: 0.8, val: 0.1, test: 0.1 }
+  folds:
+    - id: holdout
+      train: [train]
+      validation: [val]
+      test: [test]
 
 postprocess:
   columns:

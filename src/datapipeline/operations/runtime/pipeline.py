@@ -1,25 +1,34 @@
 import logging
 import time
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
+from functools import partial
 from itertools import islice
 from typing import TypeVar
 
+from datapipeline.artifacts.specs import dataset_requires_scaler
 from datapipeline.config.dataset.feature import FeatureRecordConfig
+from datapipeline.config.dataset.split import (
+    DatasetFold,
+    SplitConfig,
+    resolve_fold_output,
+)
 from datapipeline.config.preview import PreviewStage
+from datapipeline.domain.sample import Sample
 from datapipeline.execution.context import PipelineContext
 from datapipeline.execution.runner import run_pipeline
-from datapipeline.domain.sample import Sample
 from datapipeline.io.output import OutputTarget, output_destination_key
 from datapipeline.operations.persistence import (
+    RoutedRuntimeOutput,
     RuntimeOutput,
     RuntimeOutputBatch,
-    SplitRuntimeOutput,
 )
 from datapipeline.pipelines.dataset.pipeline import (
     build_dataset_pipeline,
+    run_fold_dataset_pipeline,
     run_dataset_pipeline,
+    run_scaled_dataset_pipeline,
 )
-from datapipeline.pipelines.dataset.split import build_labeler
+from datapipeline.pipelines.dataset.split import HashLabeler, TimeLabeler, build_labeler
 from datapipeline.pipelines.feature.pipeline import run_feature_pipeline
 from datapipeline.pipelines.stream.pipeline import build_stream_pipeline
 from datapipeline.runtime import (
@@ -223,7 +232,12 @@ def _serve_dataset(
     throttle_ms: float | None,
 ) -> RuntimeOutputBatch:
     runtime.window_bounds = resolve_window_bounds(runtime, True)
-    vectors = run_dataset_pipeline(
+    run = (
+        run_scaled_dataset_pipeline
+        if dataset_requires_scaler(runtime.dataset)
+        else run_dataset_pipeline
+    )
+    vectors = run(
         context,
         feature_cfgs,
         cadence,
@@ -236,7 +250,7 @@ def _serve_dataset(
     )
 
 
-def _serve_split_outputs(
+def _serve_fold_outputs(
     *,
     context: PipelineContext,
     runtime: Runtime,
@@ -244,40 +258,81 @@ def _serve_split_outputs(
     target_cfgs: list[FeatureRecordConfig],
     cadence: str,
     sample_keys: list[str],
-    output_splits: tuple[str, ...],
+    output_ids: tuple[str, ...],
     limit: int | None,
     target: OutputTarget,
     throttle_ms: float | None,
 ) -> RuntimeOutputBatch:
     if target.transport != "fs":
-        raise ValueError("split outputs require fs output")
+        raise ValueError("Fold outputs require fs output.")
     split_cfg = runtime.dataset.split
     if split_cfg is None:
-        raise ValueError("split outputs require dataset split configuration")
+        raise ValueError("Fold outputs require dataset split configuration.")
 
     runtime.window_bounds = resolve_window_bounds(runtime, True)
-    vectors = run_dataset_pipeline(
-        context,
-        feature_cfgs,
-        cadence,
-        target_configs=target_cfgs,
-        rectangular=True,
-        sample_keys=sample_keys,
-    )
     labeler = build_labeler(split_cfg)
-    rows = throttle_vectors(_managed_items(vectors), throttle_ms)
-    targets = {label: target.for_split(label) for label in output_splits}
-
-    return RuntimeOutputBatch(
-        outputs=(
-            SplitRuntimeOutput(
+    outputs: list[RoutedRuntimeOutput] = []
+    for fold, labels_by_output in _selected_fold_outputs(split_cfg, output_ids):
+        outputs_by_label = {
+            label: output_id
+            for output_id, labels in labels_by_output.items()
+            for label in labels
+        }
+        samples = run_fold_dataset_pipeline(
+            context,
+            feature_cfgs,
+            cadence,
+            fold,
+            outputs_by_label,
+            target_configs=target_cfgs,
+            rectangular=True,
+            sample_keys=sample_keys,
+        )
+        rows = throttle_vectors(_managed_items(samples), throttle_ms)
+        outputs.append(
+            RoutedRuntimeOutput(
                 rows=rows,
-                targets=targets,
-                label_for_row=lambda sample: labeler.label(sample.key, sample.features),
-                limit_per_target=limit,
-            ),
-        ),
-    )
+                targets={
+                    output_id: target.for_output(output_id)
+                    for output_id in labels_by_output
+                },
+                output_for_row=partial(
+                    _fold_output_for_sample,
+                    labeler,
+                    outputs_by_label,
+                ),
+                limit_per_output=limit,
+            )
+        )
+    return RuntimeOutputBatch(outputs=tuple(outputs))
+
+
+def _fold_output_for_sample(
+    labeler: HashLabeler | TimeLabeler,
+    outputs_by_label: Mapping[str, str],
+    sample: Sample,
+) -> str | None:
+    return outputs_by_label.get(labeler.label(sample.key))
+
+
+def _selected_fold_outputs(
+    split: SplitConfig,
+    output_ids: tuple[str, ...],
+) -> list[tuple[DatasetFold, dict[str, tuple[str, ...]]]]:
+    selected: dict[
+        str,
+        tuple[DatasetFold, dict[str, tuple[str, ...]]],
+    ] = {}
+    for output_id in output_ids:
+        fold, labels = resolve_fold_output(split, output_id)
+        entry = selected.get(fold.id)
+        if entry is None:
+            outputs: dict[str, tuple[str, ...]] = {}
+            selected[fold.id] = fold, outputs
+        else:
+            _, outputs = entry
+        outputs[output_id] = labels
+    return list(selected.values())
 
 
 def run_pipeline_operation(
@@ -297,23 +352,7 @@ def run_pipeline_operation(
         return None
     cadence = dataset.sample.cadence
 
-    output_splits = runtime.output_splits
-    if output_splits:
-        if preview is not None:
-            raise ValueError("split outputs do not support previews")
-        return _serve_split_outputs(
-            context=context,
-            runtime=runtime,
-            feature_cfgs=feature_cfgs,
-            target_cfgs=target_cfgs,
-            cadence=cadence,
-            sample_keys=dataset.sample.keys,
-            output_splits=output_splits,
-            limit=limit,
-            target=target,
-            throttle_ms=throttle_ms,
-        )
-
+    output_ids = runtime.output_ids
     if preview is not None:
         return _serve_preview(
             context=context,
@@ -327,6 +366,23 @@ def run_pipeline_operation(
             throttle_ms=throttle_ms,
             preview=preview,
         )
+
+    if dataset.split is not None:
+        if not output_ids:
+            raise ValueError("A split dataset requires at least one fold output.")
+        return _serve_fold_outputs(
+            context=context,
+            runtime=runtime,
+            feature_cfgs=feature_cfgs,
+            target_cfgs=target_cfgs,
+            cadence=cadence,
+            sample_keys=dataset.sample.keys,
+            output_ids=output_ids,
+            limit=limit,
+            target=target,
+            throttle_ms=throttle_ms,
+        )
+
     return _serve_dataset(
         context=context,
         runtime=runtime,

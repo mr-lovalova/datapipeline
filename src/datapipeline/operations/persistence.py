@@ -38,16 +38,16 @@ class RuntimeOutput:
 
 
 @dataclass(frozen=True)
-class SplitRuntimeOutput:
+class RoutedRuntimeOutput:
     rows: Iterable[Any]
     targets: Mapping[str, OutputTarget]
-    label_for_row: Callable[[Any], str]
-    limit_per_target: int | None = None
+    output_for_row: Callable[[Any], str | None]
+    limit_per_output: int | None = None
 
 
 @dataclass(frozen=True)
 class RuntimeOutputBatch:
-    outputs: Sequence[RuntimeOutput | SplitRuntimeOutput]
+    outputs: Sequence[RuntimeOutput | RoutedRuntimeOutput]
     on_complete: Callable[[bool], None] | None = None
 
 
@@ -170,30 +170,30 @@ def _persist_runtime_output(
         logger.info("Output: stdout")
 
 
-def _persist_split_runtime_output(
-    result: SplitRuntimeOutput,
+def _persist_routed_runtime_output(
+    result: RoutedRuntimeOutput,
     *,
     heartbeat_interval_seconds: float | None,
     logger: logging.Logger,
 ) -> None:
     if not result.targets:
-        raise ValueError("Split runtime output requires at least one target.")
+        raise ValueError("Routed runtime output requires at least one target.")
 
     planned_targets: list[tuple[str, OutputTarget, Path]] = []
     destination_owners: dict[str, str] = {}
-    for label, target in result.targets.items():
+    for output_id, target in result.targets.items():
         destination = target.destination
         if target.transport != "fs" or destination is None:
-            raise ValueError("Split runtime output requires fs destinations.")
+            raise ValueError("Routed runtime output requires fs destinations.")
         destination_key = output_destination_key(destination)
         previous = destination_owners.get(destination_key)
         if previous is not None:
             raise ValueError(
-                f"Split outputs {previous!r} and {label!r} resolve to the same "
+                f"Routed outputs {previous!r} and {output_id!r} resolve to the same "
                 f"destination: {destination}"
             )
-        destination_owners[destination_key] = label
-        planned_targets.append((label, target, destination))
+        destination_owners[destination_key] = output_id
+        planned_targets.append((output_id, target, destination))
 
     writers = {}
     counts: dict[str, int] = {}
@@ -205,28 +205,30 @@ def _persist_split_runtime_output(
     )
     success = False
     try:
-        for label, target, destination in planned_targets:
-            writers[label] = writer_factory(target)
-            counts[label] = 0
-            destinations[label] = destination
+        for output_id, target, destination in planned_targets:
+            writers[output_id] = writer_factory(target)
+            counts[output_id] = 0
+            destinations[output_id] = destination
 
         for row in rows:
-            label = result.label_for_row(row)
-            writer = writers.get(label)
+            routed_id = result.output_for_row(row)
+            if routed_id is None:
+                continue
+            writer = writers.get(routed_id)
             if writer is None:
                 continue
             if (
-                result.limit_per_target is not None
-                and counts[label] >= result.limit_per_target
+                result.limit_per_output is not None
+                and counts[routed_id] >= result.limit_per_output
             ):
-                if all(count >= result.limit_per_target for count in counts.values()):
+                if all(count >= result.limit_per_output for count in counts.values()):
                     break
                 continue
             writer.write(row)
-            counts[label] += 1
+            counts[routed_id] += 1
             progress.advance()
-            if result.limit_per_target is not None and all(
-                count >= result.limit_per_target for count in counts.values()
+            if result.limit_per_output is not None and all(
+                count >= result.limit_per_output for count in counts.values()
             ):
                 break
 
@@ -239,19 +241,19 @@ def _persist_split_runtime_output(
             try:
                 close_rows()
             except Exception:
-                logger.debug("Failed to close split runtime rows", exc_info=True)
+                logger.debug("Failed to close routed runtime rows", exc_info=True)
         if not success:
             for writer in writers.values():
                 try:
                     writer.abort()
                 except Exception:
                     logger.debug(
-                        "Failed to abort split runtime output writer",
+                        "Failed to abort routed runtime output writer",
                         exc_info=True,
                     )
 
-    for label, destination in destinations.items():
-        emit_file_result(label, destination)
+    for output_id, destination in destinations.items():
+        emit_file_result(output_id, destination)
 
 
 def persist_runtime_result(
@@ -263,17 +265,17 @@ def persist_runtime_result(
 ) -> None:
     if result is None:
         return
-    if not isinstance(result, RuntimeOutput | SplitRuntimeOutput | RuntimeOutputBatch):
+    if not isinstance(result, RuntimeOutput | RoutedRuntimeOutput | RuntimeOutputBatch):
         raise TypeError(
-            "Runtime operation must return RuntimeOutput, SplitRuntimeOutput, "
+            "Runtime operation must return RuntimeOutput, RoutedRuntimeOutput, "
             "RuntimeOutputBatch, or None."
         )
     if isinstance(result, RuntimeOutputBatch):
         success = False
         try:
             for output in result.outputs:
-                if isinstance(output, SplitRuntimeOutput):
-                    _persist_split_runtime_output(
+                if isinstance(output, RoutedRuntimeOutput):
+                    _persist_routed_runtime_output(
                         output,
                         heartbeat_interval_seconds=heartbeat_interval_seconds,
                         logger=logger,
@@ -291,8 +293,8 @@ def persist_runtime_result(
                 result.on_complete(success)
         return
 
-    if isinstance(result, SplitRuntimeOutput):
-        _persist_split_runtime_output(
+    if isinstance(result, RoutedRuntimeOutput):
+        _persist_routed_runtime_output(
             result,
             heartbeat_interval_seconds=heartbeat_interval_seconds,
             logger=logger,

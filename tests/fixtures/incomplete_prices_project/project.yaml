@@ -4,7 +4,6 @@ name: incomplete_prices_project
 paths:
   streams: streams
   sources: sources
-  operations: operations
   dataset: dataset.yaml
   artifacts: build
 globals:

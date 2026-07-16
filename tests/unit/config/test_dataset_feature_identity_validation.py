@@ -2,6 +2,7 @@ import pytest
 
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig, SequenceConfig
+from datapipeline.config.dataset.split import DatasetFold, HashSplitConfig
 from datapipeline.config.streams import SourceStreamConfig, StreamsConfig
 from datapipeline.services.dataset import validate_dataset_streams
 
@@ -83,3 +84,22 @@ def test_dataset_accepts_hybrid_sequence_identity() -> None:
     )
 
     validate_dataset_streams(dataset, streams)
+
+
+def test_dataset_rejects_sequences_with_hash_split() -> None:
+    feature = FeatureRecordConfig(
+        stream="prices",
+        id="close",
+        field="close",
+        sequence=SequenceConfig(size=2),
+    )
+
+    with pytest.raises(ValueError, match="hash splits cannot be used.*close"):
+        FeatureDatasetConfig(
+            sample=SampleConfig(cadence="1d"),
+            features=[feature],
+            split=HashSplitConfig(
+                ratios={"train": 1.0},
+                folds=[DatasetFold(id="default", train=["train"])],
+            ),
+        )

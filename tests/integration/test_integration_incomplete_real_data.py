@@ -18,8 +18,7 @@ from datapipeline.operations.artifacts.metadata import materialize_metadata
 from datapipeline.operations.artifacts.scaler import materialize_scaler_statistics
 from datapipeline.operations.artifacts.schema import materialize_vector_schema
 from datapipeline.operations.artifacts.vector_inputs import materialize_vector_inputs
-from datapipeline.pipelines.dataset.nodes import apply_postprocess
-from datapipeline.pipelines.vector.pipeline import build_vector_pipeline
+from datapipeline.pipelines.dataset.pipeline import run_scaled_dataset_pipeline
 from datapipeline.services.pipeline import load_pipeline
 from datapipeline.services.runtime_compiler import compile_runtime
 
@@ -33,7 +32,8 @@ def _vector_samples(project_yaml):
 
     # Ensure artifacts are materialized for the test run.
     scaler_rel = materialize_scaler_statistics(
-        runtime, ScalerTask(id="scaler", split_label="all", output="scaler.json")
+        runtime,
+        ScalerTask(id="scaler", output="scaler.json"),
     )
     if scaler_rel:
         runtime.artifacts.register(
@@ -60,14 +60,15 @@ def _vector_samples(project_yaml):
     )
     runtime.artifacts.register(VECTOR_SCHEMA, relative_path=schema_rel.relative_path)
 
-    vectors = build_vector_pipeline(
-        context,
-        dataset.features,
-        dataset.sample.cadence,
-        target_configs=dataset.targets,
-        rectangular=False,
+    return list(
+        run_scaled_dataset_pipeline(
+            context,
+            dataset.features,
+            dataset.sample.cadence,
+            target_configs=dataset.targets,
+            rectangular=False,
+        )
     )
-    return list(apply_postprocess(context, vectors))
 
 
 def test_incomplete_prices_project_vectors(copy_fixture):
