@@ -47,7 +47,7 @@ class _ProgressLabelColumn(ProgressColumn):
     def render(self, task: Task) -> RenderableType:
         label = Text(f"[{task.description}]")
         elapsed = timedelta(seconds=int(task.elapsed or 0))
-        label.append(f" {elapsed}", style="dim")
+        label.append(f" {elapsed}")
         return label
 
 

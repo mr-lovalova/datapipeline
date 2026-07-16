@@ -258,7 +258,7 @@ def test_info_elapsed_continues_after_completed_local_phase() -> None:
     root, order_records = progress.tasks
     label = _ProgressLabelColumn(Column()).render(root)
     assert label.plain == "[stream:adv.20] 0:00:10"
-    assert label.spans[0].style == "dim"
+    assert label.spans == []
     assert _ProgressLabelColumn(Column()).render(order_records).plain == (
         "[stream:adv.20/order_records] 0:00:10"
     )
