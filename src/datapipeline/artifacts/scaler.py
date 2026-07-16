@@ -12,6 +12,7 @@ from pydantic import (
 )
 
 from datapipeline.utils.json_artifact import write_json_artifact
+from datapipeline.utils.time import parse_datetime
 
 
 class ScalerStatistics(BaseModel):
@@ -91,13 +92,11 @@ class TemporalScalerSplit(BaseModel):
             if not boundary.strip():
                 raise ValueError("temporal scaler boundaries must not be empty")
             try:
-                parsed = datetime.fromisoformat(boundary.replace("Z", "+00:00"))
+                parsed = parse_datetime(boundary)
             except ValueError as exc:
                 raise ValueError(
                     f"invalid temporal scaler boundary {boundary!r}"
                 ) from exc
-            if parsed.tzinfo is None:
-                raise ValueError("temporal scaler boundaries must be timezone-aware")
             parsed_boundaries.append(parsed)
         if any(
             previous >= current

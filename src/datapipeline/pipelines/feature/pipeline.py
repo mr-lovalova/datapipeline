@@ -5,6 +5,7 @@ from typing import Any
 
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.domain.sample_key import SampleKeyContract
+from datapipeline.execution.context import PipelineContext
 from datapipeline.execution.node import PipelineNode
 from datapipeline.execution.pipeline import Pipeline
 from datapipeline.execution.runner import run_pipeline
@@ -16,9 +17,9 @@ from datapipeline.pipelines.feature.nodes import (
 )
 from datapipeline.pipelines.feature.projector import FeatureProjector
 from datapipeline.pipelines.sort import SortProgress
-from datapipeline.execution.context import PipelineContext
 from datapipeline.pipelines.stream.pipeline import build_stream_pipeline
 from datapipeline.runtime import require_runtime_stream
+from datapipeline.utils.time import parse_cadence
 
 
 def run_feature_pipeline(
@@ -85,18 +86,24 @@ def build_feature_nodes(
             ),
         ),
     ]
-    if config.scale:
-        nodes.append(
-            PipelineNode(
-                name="scale_features",
-                apply=partial(scale_features, context),
-            )
-        )
     if config.sequence is not None:
         nodes.append(
             PipelineNode(
                 name="sequence_features",
                 apply=partial(sequence_features, config.sequence),
+            )
+        )
+    if config.scale:
+        if group_by_cadence is None:
+            raise ValueError("Scaled features require the dataset sample cadence.")
+        nodes.append(
+            PipelineNode(
+                name="scale_features",
+                apply=partial(
+                    scale_features,
+                    context,
+                    parse_cadence(group_by_cadence),
+                ),
             )
         )
     if stream.partition_by or sample_keys:

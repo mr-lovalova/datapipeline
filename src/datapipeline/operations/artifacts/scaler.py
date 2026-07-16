@@ -11,24 +11,22 @@ from datapipeline.artifacts.scaler import (
 )
 from datapipeline.artifacts.specs import dataset_requires_scaler
 from datapipeline.config.dataset.feature import FeatureRecordConfig
-from datapipeline.config.dataset.split import (
-    HASH_SPLIT_GROUP_KEY,
-    HashSplitConfig,
-    TimeSplitConfig,
-)
+from datapipeline.config.dataset.split import TimeSplitConfig
 from datapipeline.config.tasks import ScalerTask
+from datapipeline.config.tasks.scaler import (
+    ScalerFold,
+    validate_scaler_task_for_dataset,
+)
 from datapipeline.domain.feature import FeatureRecord
 from datapipeline.domain.sample_key import SampleKeyContract
-from datapipeline.execution.context import PipelineContext
 from datapipeline.domain.vector import Vector
+from datapipeline.execution.context import PipelineContext
 from datapipeline.operations.persistence import ArtifactOutput
-from datapipeline.pipelines.feature.projector import FeatureProjector
 from datapipeline.pipelines.dataset.split import HashLabeler, TimeLabeler, build_labeler
+from datapipeline.pipelines.feature.projector import FeatureProjector
 from datapipeline.pipelines.stream.pipeline import run_stream_pipeline
 from datapipeline.runtime import Runtime, require_runtime_stream
-from datapipeline.transforms.feature.scaler import (
-    ScalerAccumulator,
-)
+from datapipeline.transforms.feature.scaler import ScalerAccumulator
 from datapipeline.utils.time import floor_time_to_cadence, parse_cadence
 
 
@@ -45,51 +43,46 @@ def materialize_scaler_statistics(
     dataset = runtime.dataset
     if not dataset_requires_scaler(dataset):
         return None
+    validate_scaler_task_for_dataset(dataset, task_cfg)
 
     cadence = dataset.sample.cadence
     scaled_configs = [
         config for config in (*dataset.features, *dataset.targets) if config.scale
     ]
-    if task_cfg.folds is not None:
+    folds = task_cfg.folds
+    if folds is not None:
+        split_config = dataset.split
+        assert isinstance(split_config, TimeSplitConfig)
         return _materialize_temporal_scaler_statistics(
             runtime,
             task_cfg,
+            split_config,
+            folds,
             scaled_configs,
             cadence,
             dataset.sample.keys,
         )
 
+    split_label = task_cfg.split_label
+    assert split_label is not None
     split_config = dataset.split
-    labeler = build_labeler(split_config) if split_config is not None else None
-    if labeler is None and task_cfg.split_label != "all":
-        raise RuntimeError(
-            f"Cannot compute scaler statistics for split {task_cfg.split_label!r} "
-            "when no split configuration is defined in dataset.yaml."
-        )
-    if (
-        task_cfg.split_label != "all"
-        and isinstance(split_config, HashSplitConfig)
-        and split_config.key != HASH_SPLIT_GROUP_KEY
-    ):
-        raise ValueError(
-            "Scaler split fitting requires hash split key 'group'; "
-            "feature-based split keys can change during feature processing. "
-            "Use key 'group', a time split, or scaler split_label 'all'."
-        )
-
+    labeler = (
+        build_labeler(split_config)
+        if split_label != "all" and split_config is not None
+        else None
+    )
     accumulator = _fit_standard_scaler(
         runtime,
         scaled_configs,
         cadence,
         dataset.sample.keys,
         task_cfg,
+        split_label,
         labeler,
     )
     if accumulator.observations == 0:
-        raise RuntimeError(
-            f"No scaler statistics computed for split {task_cfg.split_label!r}."
-        )
-    artifact = accumulator.artifact(split=task_cfg.split_label)
+        raise RuntimeError(f"No scaler statistics computed for split {split_label!r}.")
+    artifact = accumulator.artifact(split=split_label)
     relative_path = Path(task_cfg.output)
     save_scaler_artifact(runtime.artifacts_root / relative_path, artifact)
 
@@ -97,7 +90,7 @@ def materialize_scaler_statistics(
         relative_path=str(relative_path),
         meta={
             "features": len(artifact.statistics),
-            "split": task_cfg.split_label,
+            "split": split_label,
             "observations": artifact.observations,
         },
     )
@@ -149,10 +142,10 @@ def _fit_standard_scaler(
     cadence: str,
     sample_keys: list[str],
     task: ScalerTask,
+    split_label: str,
     labeler: HashLabeler | TimeLabeler | None,
 ) -> ScalerAccumulator:
     accumulator = ScalerAccumulator(task.with_mean, task.with_std, task.epsilon)
-    include_all = task.split_label == "all"
     empty_vector = Vector(values={})
     inputs = _iter_scaler_inputs(
         runtime,
@@ -163,9 +156,8 @@ def _fit_standard_scaler(
     try:
         for item in inputs:
             if (
-                not include_all
-                and labeler is not None
-                and labeler.label(item.group_key, empty_vector) != task.split_label
+                labeler is not None
+                and labeler.label(item.group_key, empty_vector) != split_label
             ):
                 continue
             for feature in item.features:
@@ -178,32 +170,12 @@ def _fit_standard_scaler(
 def _materialize_temporal_scaler_statistics(
     runtime: Runtime,
     task_cfg: ScalerTask,
+    split_config: TimeSplitConfig,
+    folds: list[ScalerFold],
     configs: list[FeatureRecordConfig],
     cadence: str,
     sample_keys: list[str],
 ) -> ArtifactOutput:
-    split_config = runtime.dataset.split
-    if not isinstance(split_config, TimeSplitConfig):
-        raise RuntimeError("Scaler folds require dataset split mode 'time'.")
-    folds = task_cfg.folds
-    if folds is None:
-        raise RuntimeError("Temporal scaler fitting requires scaler folds.")
-
-    split_labels = set(split_config.labels)
-    for fold_index, fold in enumerate(folds):
-        for label in (*fold.fit, *fold.apply):
-            if label not in split_labels:
-                raise RuntimeError(
-                    f"Scaler fold {fold_index} references unknown split label {label!r}."
-                )
-    applied_labels = {label for fold in folds for label in fold.apply}
-    missing_apply = split_labels - applied_labels
-    if missing_apply:
-        raise RuntimeError(
-            "Scaler folds do not apply to split labels: "
-            + ", ".join(sorted(missing_apply))
-        )
-
     fit_indexes_by_label: dict[str, list[int]] = defaultdict(list)
     for fold_index, fold in enumerate(folds):
         for label in fold.fit:
@@ -223,7 +195,7 @@ def _materialize_temporal_scaler_statistics(
     )
     try:
         for item in inputs:
-            label = labeler.label(item.features[0].time, empty_vector)
+            label = labeler.label(item.group_key, empty_vector)
             for fold_index in fit_indexes_by_label.get(label, ()):
                 accumulator = accumulators[fold_index]
                 for feature in item.features:

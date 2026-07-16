@@ -1,5 +1,6 @@
 from collections import deque
 from collections.abc import Iterable, Iterator, Sequence
+from datetime import timedelta
 from typing import Any
 
 from datapipeline.artifacts.registry import SCALER_SPEC
@@ -24,10 +25,11 @@ def build_feature_stream(
 
 def scale_features(
     context: PipelineContext,
-    features: Iterator[FeatureRecord],
-) -> Iterator[FeatureRecord]:
+    sample_cadence: timedelta,
+    features: Iterator[FeatureRecord | FeatureSequence],
+) -> Iterator[FeatureRecord | FeatureSequence]:
     artifact = context.require_artifact(SCALER_SPEC)
-    yield from FeatureScaler(artifact).apply(features)
+    yield from FeatureScaler(artifact, sample_cadence).apply(features)
 
 
 def sequence_features(

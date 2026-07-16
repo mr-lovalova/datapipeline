@@ -77,12 +77,13 @@ def _runtime(
 
 def _dataset(
     *,
+    cadence: str = "1h",
     scale: bool = True,
     sequence: SequenceConfig | None = None,
     split: HashSplitConfig | TimeSplitConfig | None = None,
 ) -> FeatureDatasetConfig:
     return FeatureDatasetConfig(
-        sample=SampleConfig(cadence="1h"),
+        sample=SampleConfig(cadence=cadence),
         features=[
             FeatureRecordConfig(
                 id="x",
@@ -206,19 +207,28 @@ def test_scaler_fitting_observes_scalars_before_sequence(tmp_path) -> None:
     assert artifact.statistics["x"].mean == 2.0
 
 
-def test_materialize_temporal_scaler_assigns_scalar_records_by_record_time(
+def test_materialize_temporal_scaler_assigns_records_by_sample_time(
     tmp_path,
 ) -> None:
+    train_record = TemporalRecord(
+        time=datetime(2024, 1, 1, 13, tzinfo=timezone.utc),
+    )
+    train_record.value = 1.0
+    validation_record = TemporalRecord(
+        time=datetime(2024, 1, 2, 13, tzinfo=timezone.utc),
+    )
+    validation_record.value = 10.0
     runtime = _runtime(
         tmp_path,
         _dataset(
+            cadence="1d",
             sequence=SequenceConfig(size=2),
             split=TimeSplitConfig(
-                boundaries=["2024-01-02T00:00:00Z"],
+                boundaries=["2024-01-01T12:00:00Z"],
                 labels=["train", "validation"],
             ),
         ),
-        rows=[_record(1, 1.0), _record(3, 10.0)],
+        rows=[train_record, validation_record],
     )
 
     result = materialize_scaler_statistics(
@@ -385,7 +395,7 @@ def test_materialize_temporal_scaler_requires_time_split(
         _dataset(split=HashSplitConfig(ratios={"train": 1.0})),
     )
 
-    with pytest.raises(RuntimeError, match="dataset split mode 'time'"):
+    with pytest.raises(ValueError, match="dataset split mode 'time'"):
         materialize_scaler_statistics(
             runtime,
             ScalerTask.model_validate(
@@ -411,7 +421,7 @@ def test_materialize_temporal_scaler_requires_apply_fold_for_every_split(
     )
 
     with pytest.raises(
-        RuntimeError,
+        ValueError,
         match="do not apply to split labels: validation",
     ):
         materialize_scaler_statistics(

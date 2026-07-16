@@ -83,12 +83,13 @@ def test_feature_nodes_make_scaling_and_sequence_explicit(tmp_path) -> None:
             scale=True,
             sequence=SequenceConfig(size=3, stride=2),
         ),
+        group_by_cadence="1h",
     )
 
     assert [node.name for node in nodes] == [
         "build_feature_stream",
-        "scale_features",
         "sequence_features",
+        "scale_features",
     ]
 
 
@@ -133,14 +134,24 @@ def test_scale_features_loads_the_managed_typed_artifact(tmp_path) -> None:
     )
     context.artifacts.register(SCALER_STATISTICS, path.name)
 
-    [scaled] = scale_features(context, iter([_feature(4.0, 0)]))
+    [scaled] = scale_features(
+        context,
+        timedelta(hours=1),
+        iter([_feature(4.0, 0)]),
+    )
 
     assert scaled.value == 1.0
 
 
 def test_scale_features_uses_the_shared_missing_artifact_error(tmp_path) -> None:
     with pytest.raises(ArtifactNotRegisteredError):
-        list(scale_features(_context(tmp_path), iter([_feature(4.0, 0)])))
+        list(
+            scale_features(
+                _context(tmp_path),
+                timedelta(hours=1),
+                iter([_feature(4.0, 0)]),
+            )
+        )
 
 
 def test_sequence_features_builds_strided_windows() -> None:

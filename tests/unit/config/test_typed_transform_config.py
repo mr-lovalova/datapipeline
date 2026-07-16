@@ -1,9 +1,15 @@
 import pytest
 from pydantic import ValidationError
 
+from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig, SequenceConfig
+from datapipeline.config.dataset.split import HashSplitConfig, TimeSplitConfig
 from datapipeline.config.streams import DerivedStreamConfig, SourceStreamConfig
 from datapipeline.config.tasks import ScalerTask
+from datapipeline.config.tasks.scaler import (
+    ScalerFold,
+    validate_scaler_task_for_dataset,
+)
 from datapipeline.config.transforms import (
     CollapseConfig,
     DedupeConfig,
@@ -34,6 +40,23 @@ def _stream(**values: object) -> DerivedStreamConfig:
             "from": {"stream": "prices.raw"},
             **values,
         }
+    )
+
+
+def _scaled_dataset(
+    split: HashSplitConfig | TimeSplitConfig | None = None,
+) -> FeatureDatasetConfig:
+    return FeatureDatasetConfig(
+        sample=SampleConfig(cadence="1h"),
+        features=[
+            FeatureRecordConfig(
+                id="price",
+                stream="prices.daily",
+                field="value",
+                scale=True,
+            )
+        ],
+        split=split,
     )
 
 
@@ -206,3 +229,51 @@ def test_scaler_fold_labels_are_strict(folds: object) -> None:
 def test_scaler_split_label_must_not_be_blank() -> None:
     with pytest.raises(ValidationError):
         ScalerTask.model_validate({"id": "scaler", "split_label": "  "})
+
+
+def test_scaler_without_dataset_split_requires_all_observations() -> None:
+    with pytest.raises(ValueError, match="without a dataset split"):
+        validate_scaler_task_for_dataset(_scaled_dataset(), ScalerTask())
+
+
+def test_scaler_rejects_unknown_standard_split_label() -> None:
+    dataset = _scaled_dataset(HashSplitConfig(ratios={"train": 0.8, "validation": 0.2}))
+
+    with pytest.raises(ValueError, match="unknown split label 'typo'"):
+        validate_scaler_task_for_dataset(
+            dataset,
+            ScalerTask(split_label="typo"),
+        )
+
+
+def test_scaler_folds_must_cover_every_time_split() -> None:
+    dataset = _scaled_dataset(
+        TimeSplitConfig(
+            boundaries=["2024-01-02T00:00:00Z"],
+            labels=["train", "validation"],
+        )
+    )
+    task = ScalerTask(folds=[ScalerFold(fit=["train"], apply=["train"])])
+
+    with pytest.raises(ValueError, match="do not apply to split labels: validation"):
+        validate_scaler_task_for_dataset(dataset, task)
+
+
+def test_scaler_folds_reject_unknown_time_split_labels() -> None:
+    dataset = _scaled_dataset(
+        TimeSplitConfig(
+            boundaries=["2024-01-02T00:00:00Z"],
+            labels=["train", "validation"],
+        )
+    )
+    task = ScalerTask(
+        folds=[
+            ScalerFold(
+                fit=["typo"],
+                apply=["train", "validation"],
+            )
+        ]
+    )
+
+    with pytest.raises(ValueError, match="unknown split labels: typo"):
+        validate_scaler_task_for_dataset(dataset, task)

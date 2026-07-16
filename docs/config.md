@@ -625,11 +625,15 @@ folds:
 - `with_mean`, `with_std`, and positive finite `epsilon` are build-time options
   stored in the artifact and used unchanged at runtime.
 - A filtered standard scaler supports time splits and hash splits keyed by
-  `group`. When `dataset.yaml:split.key` is `feature:<id>`, set `split_label: all`.
+  `group`. When the dataset has no split, or `dataset.yaml:split.key` is
+  `feature:<id>`, set `split_label: all`.
 - Folded temporal scaling requires `dataset.yaml:split.mode: time`. `fit` and
   `apply` labels must exist in the dataset split; `apply` labels cannot overlap
   across folds, and every configured split label must appear in exactly one
   apply fold.
+- Temporal fold selection uses the cadence-floored sample timestamp. A sequence
+  is built first, then every value in it is scaled with the fold selected by
+  the sequence's final sample timestamp.
 - `build/schema.json` (from the `schema` operation) is derived from typed metadata
   without rescanning vectors. It enumerates discovered feature/target
   identifiers (including partitions), scalar/list kinds, and fixed list

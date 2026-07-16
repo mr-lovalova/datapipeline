@@ -99,6 +99,38 @@ def test_compile_runtime_uses_the_loaded_definition(tmp_path: Path) -> None:
     assert second.window_bounds is None
 
 
+def test_load_pipeline_rejects_temporal_scaler_folds_for_hash_split(
+    tmp_path: Path,
+) -> None:
+    project_yaml = _write_pipeline(tmp_path)
+    (tmp_path / "sources" / "prices.yaml").write_text(
+        "id: prices\n"
+        "parser: {entrypoint: identity}\n"
+        "loader: {entrypoint: custom.loader}\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "streams" / "prices.yaml").write_text(
+        "id: prices\nfrom: {source: prices}\nmap: {entrypoint: identity}\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "dataset.yaml").write_text(
+        "sample: {cadence: 1h}\n"
+        "features:\n"
+        "  - {id: price, stream: prices, field: value, scale: true}\n"
+        "split:\n"
+        "  mode: hash\n"
+        "  ratios: {train: 0.8, validation: 0.2}\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "operations" / "scaler.yaml").write_text(
+        "folds:\n  - fit: [train]\n    apply: [train, validation]\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="require dataset split mode 'time'"):
+        load_pipeline(project_yaml)
+
+
 def test_pipeline_definition_keeps_resolved_environment_snapshot(
     tmp_path: Path,
     monkeypatch,

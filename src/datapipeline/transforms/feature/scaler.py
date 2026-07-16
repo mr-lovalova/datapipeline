@@ -1,8 +1,8 @@
 import math
 from bisect import bisect_right
 from collections import defaultdict
-from dataclasses import dataclass
-from datetime import datetime
+from dataclasses import dataclass, replace
+from datetime import datetime, timedelta
 from numbers import Real
 from typing import Iterator
 
@@ -12,7 +12,11 @@ from datapipeline.artifacts.scaler import (
     StandardScalerArtifact,
     TemporalScalerArtifact,
 )
-from datapipeline.domain.feature import FeatureRecord
+from datapipeline.domain.feature import FeatureRecord, FeatureSequence
+from datapipeline.utils.time import floor_time_to_cadence, parse_datetime
+
+
+_ScalableFeature = FeatureRecord | FeatureSequence
 
 
 @dataclass(slots=True)
@@ -87,60 +91,70 @@ class ScalerAccumulator:
 
 
 class FeatureScaler:
-    def __init__(self, artifact: ScalerArtifact) -> None:
+    def __init__(self, artifact: ScalerArtifact, sample_cadence: timedelta) -> None:
         self.artifact = artifact
+        self.sample_cadence = sample_cadence
         self._boundaries: tuple[datetime, ...] = ()
         self._labels: tuple[str, ...] = ()
         self._scalers_by_label: dict[str, StandardScalerArtifact] = {}
         if isinstance(artifact, TemporalScalerArtifact):
             self._boundaries = tuple(
-                datetime.fromisoformat(boundary.replace("Z", "+00:00"))
-                for boundary in artifact.split.boundaries
+                parse_datetime(boundary) for boundary in artifact.split.boundaries
             )
             self._labels = artifact.split.labels
             self._scalers_by_label = {
                 label: fold.scaler for fold in artifact.folds for label in fold.apply
             }
 
-    def apply(self, stream: Iterator[FeatureRecord]) -> Iterator[FeatureRecord]:
+    def apply(self, stream: Iterator[_ScalableFeature]) -> Iterator[_ScalableFeature]:
         for feature in stream:
             yield self.scale(feature)
 
-    def scale(self, feature: FeatureRecord) -> FeatureRecord:
-        return _scale_feature(feature, self._scaler_for(feature))
+    def scale(self, feature: _ScalableFeature) -> _ScalableFeature:
+        scaler = self._scaler_for(feature.time)
+        if isinstance(feature, FeatureSequence):
+            return replace(
+                feature,
+                values=[
+                    _scale_value(feature.id, value, scaler) for value in feature.values
+                ],
+            )
+        if feature.value is None:
+            return feature
+        return replace(
+            feature,
+            value=_scale_value(feature.id, feature.value, scaler),
+        )
 
-    def _scaler_for(self, feature: FeatureRecord) -> StandardScalerArtifact:
+    def _scaler_for(self, time: datetime) -> StandardScalerArtifact:
         if isinstance(self.artifact, StandardScalerArtifact):
             return self.artifact
 
-        label = self._labels[bisect_right(self._boundaries, feature.record.time)]
+        sample_time = floor_time_to_cadence(time, self.sample_cadence)
+        label = self._labels[bisect_right(self._boundaries, sample_time)]
         return self._scalers_by_label[label]
 
 
-def _scale_feature(
-    feature: FeatureRecord,
+def _scale_value(
+    feature_id: str,
+    value: object,
     scaler: StandardScalerArtifact,
-) -> FeatureRecord:
-    if feature.value is None:
-        return feature
+) -> float | None:
+    if value is None:
+        return None
     try:
-        statistics = scaler.statistics[feature.id]
+        statistics = scaler.statistics[feature_id]
     except KeyError as exc:
         raise KeyError(
-            f"Missing scaler statistics for feature {feature.id!r}."
+            f"Missing scaler statistics for feature {feature_id!r}."
         ) from exc
 
-    value = _finite_number(feature.value)
+    value = _finite_number(value)
     if scaler.with_mean:
         value -= statistics.mean
     if scaler.with_std:
         value /= statistics.std
-    return FeatureRecord(
-        record=feature.record,
-        id=feature.id,
-        value=value,
-        entity_key=feature.entity_key,
-    )
+    return value
 
 
 def _finite_number(value: object) -> float:

@@ -276,8 +276,11 @@ def test_scaler_task_loads_folds(tmp_path):
     scaler = next(task for task in tasks if task.id == "scaler")
 
     assert scaler.folds is not None
+    assert scaler.split_label is None
     assert scaler.folds[0].fit == ["train_0"]
     assert scaler.folds[0].apply == ["train_0", "val_0"]
+    assert "split_label" not in scaler.model_dump(exclude_none=True)
+    assert type(scaler).model_validate(scaler.model_dump()) == scaler
 
 
 def test_scaler_task_rejects_split_label_with_folds(tmp_path):
