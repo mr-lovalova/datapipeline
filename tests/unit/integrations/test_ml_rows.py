@@ -148,12 +148,8 @@ def test_vector_adapter_runs_selected_fold_output(
         output_id="walk_1.train",
     )
 
-    assert list(adapter.stream()) == [
-        (("selected",), Vector({"value": -1.0}))
-    ]
-    assert calls == [
-        ("walk_1", ("train_0", "validation_0", "train_1"))
-    ]
+    assert list(adapter.stream()) == [(("selected",), Vector({"value": -1.0}))]
+    assert calls == [("walk_1", ("train_0", "validation_0", "train_1"))]
 
 
 def test_vector_adapter_scales_unsplit_dataset_when_configured(
@@ -173,9 +169,7 @@ def test_vector_adapter_scales_unsplit_dataset_when_configured(
         runtime=_runtime(tmp_path, dataset),
     )
 
-    assert list(adapter.stream()) == [
-        (("sample",), Vector({"value": 0.0}))
-    ]
+    assert list(adapter.stream()) == [(("sample",), Vector({"value": 0.0}))]
     assert calls == ["scaled"]
 
 

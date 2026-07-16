@@ -175,8 +175,7 @@ class TimeSplitConfig(BaseModel):
         if intervals[-1].until is not None:
             raise ValueError("the final time interval must omit until")
         if any(
-            previous >= current
-            for previous, current in zip(boundaries, boundaries[1:])
+            previous >= current for previous, current in zip(boundaries, boundaries[1:])
         ):
             raise ValueError("time interval boundaries must be strictly increasing")
         return intervals

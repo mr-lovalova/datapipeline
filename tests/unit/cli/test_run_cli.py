@@ -434,9 +434,7 @@ def test_run_profiles_resolve_include_outputs_for_fs_output(tmp_path):
         [profile],
         split=HashSplitConfig(
             ratios={"train": 0.8, "val": 0.2},
-            folds=[
-                DatasetFold(id="default", train=["train"], validation=["val"])
-            ],
+            folds=[DatasetFold(id="default", train=["train"], validation=["val"])],
         ),
     )[0]
 
@@ -489,9 +487,7 @@ def test_run_profiles_reject_unknown_include_outputs(tmp_path):
             [profile],
             split=HashSplitConfig(
                 ratios={"train": 0.8, "val": 0.2},
-                folds=[
-                    DatasetFold(id="default", train=["train"], validation=["val"])
-                ],
+                folds=[DatasetFold(id="default", train=["train"], validation=["val"])],
             ),
         )
 
@@ -887,12 +883,8 @@ def test_serve_runtime_profiles_share_run_and_namespace_outputs(tmp_path):
         "train.jsonl",
     }
     assert {
-        profiles_by_name["first"]
-        .output.for_output("default.train")
-        .destination.name,
-        profiles_by_name["second"]
-        .output.for_output("default.train")
-        .destination.name,
+        profiles_by_name["first"].output.for_output("default.train").destination.name,
+        profiles_by_name["second"].output.for_output("default.train").destination.name,
         profiles_by_name["train"].output.destination.name,
     } == {
         "first.default.train.jsonl",

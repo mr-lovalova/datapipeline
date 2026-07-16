@@ -79,7 +79,9 @@ def run_scaled_dataset_pipeline(
 ) -> Generator[Sample, None, None]:
     artifact = context.require_artifact(SCALER_SPEC)
     if not isinstance(artifact, StandardScalerArtifact):
-        raise RuntimeError("A dataset without folds requires a standard scaler artifact.")
+        raise RuntimeError(
+            "A dataset without folds requires a standard scaler artifact."
+        )
     scaler = _sample_scaler(artifact, feature_configs, target_configs)
     postprocess = build_postprocess_plan(context)
     return run_pipeline(

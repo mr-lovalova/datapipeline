@@ -148,9 +148,7 @@ def _statistics_for(
     try:
         return artifact.statistics[vector_id]
     except KeyError as exc:
-        raise KeyError(
-            f"Missing scaler statistics for vector {vector_id!r}."
-        ) from exc
+        raise KeyError(f"Missing scaler statistics for vector {vector_id!r}.") from exc
 
 
 def _scale_scalar(

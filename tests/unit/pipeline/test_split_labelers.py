@@ -51,14 +51,8 @@ def test_hash_split_uses_the_whole_group_key() -> None:
         )
     )
 
-    first = [
-        labeler.label(("A", index))
-        for index in range(100)
-    ]
-    second = [
-        labeler.label(("B", index))
-        for index in range(100)
-    ]
+    first = [labeler.label(("A", index)) for index in range(100)]
+    second = [labeler.label(("B", index)) for index in range(100)]
 
     assert first != second
 

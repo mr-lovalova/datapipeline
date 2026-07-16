@@ -167,9 +167,7 @@ def test_info_progress_shows_node_and_local_detail() -> None:
     assert order_records.visible is False
     assert open_source.visible is True
     assert open_source.completed == 20_000
-    assert open_source.fields["status"] == (
-        '2/17 "2011.jsonl" · 20,000 records'
-    )
+    assert open_source.fields["status"] == ('2/17 "2011.jsonl" · 20,000 records')
 
     with patch.object(progress, "refresh", wraps=progress.refresh) as refresh:
         _finish_node(renderer, 1, "open_source")

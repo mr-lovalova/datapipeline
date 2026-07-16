@@ -39,9 +39,7 @@ def materialize_scaler_statistics(
         return None
 
     configs = tuple(
-        config
-        for config in (*dataset.features, *dataset.targets)
-        if config.scale
+        config for config in (*dataset.features, *dataset.targets) if config.scale
     )
     if dataset.split is None:
         standard = _fit_standard_scaler(runtime, configs, task_cfg)
@@ -113,9 +111,7 @@ def _fit_folded_scaler(
         for item in inputs:
             label = labeler.label(item.group_key)
             for fold_id in output_folds_by_label.get(label, ()):
-                expected_ids[fold_id].update(
-                    feature.id for feature in item.features
-                )
+                expected_ids[fold_id].update(feature.id for feature in item.features)
             for fold_id in train_folds_by_label.get(label, ()):
                 accumulator = accumulators[fold_id]
                 for feature in item.features:

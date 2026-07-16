@@ -483,16 +483,10 @@ def test_scaling_policy_does_not_invalidate_raw_vector_inputs(tmp_path: Path) ->
     operations = (ScalerTask(), VectorInputsTask())
     unscaled = FeatureDatasetConfig(
         sample=SampleConfig(cadence="1h"),
-        features=[
-            FeatureRecordConfig(id="price", stream="prices", field="close")
-        ],
+        features=[FeatureRecordConfig(id="price", stream="prices", field="close")],
     )
     scaled = unscaled.model_copy(
-        update={
-            "features": [
-                unscaled.features[0].model_copy(update={"scale": True})
-            ]
-        }
+        update={"features": [unscaled.features[0].model_copy(update={"scale": True})]}
     )
 
     unscaled_hashes = calculate_artifact_hashes(
