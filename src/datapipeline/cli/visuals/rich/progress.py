@@ -62,7 +62,7 @@ class _ProgressActivityColumn(ProgressColumn):
 
     def render(self, task: Task) -> RenderableType:
         status = Text(task.fields["status"])
-        if not task.fields["show_bar"]:
+        if task.total is None:
             return status
         activity = Table.grid(padding=(0, 1))
         activity.add_row(self._bar.render(task), status)
@@ -117,7 +117,6 @@ class _ExecutionProgress:
             f"Operation {event.name}",
             total=None,
             status="",
-            show_bar=False,
         )
 
     def _update_operation(self, event: OperationProgress) -> None:
@@ -146,7 +145,6 @@ class _ExecutionProgress:
             f"[{event.pipeline_name}]",
             total=None,
             status="",
-            show_bar=False,
         )
 
     def _finish_pipeline(self, event: PipelineFinished) -> None:
@@ -165,7 +163,6 @@ class _ExecutionProgress:
             label,
             total=None,
             status="0 out",
-            show_bar=True,
             visible=self._debug,
         )
         self._open_nodes.append(event.node_index)

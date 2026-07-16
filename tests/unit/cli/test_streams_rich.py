@@ -160,7 +160,6 @@ def test_info_progress_shows_node_and_local_detail() -> None:
 
     root, order_records, open_source = progress.tasks
     assert root.description == "[stream:adv.20]"
-    assert root.fields["show_bar"] is False
     assert root.total is None
     assert root.completed == 0
     assert root.fields["status"] == ""
@@ -169,6 +168,9 @@ def test_info_progress_shows_node_and_local_detail() -> None:
     assert open_source.visible is True
     assert open_source.completed == 20_000
     assert open_source.fields["status"] == ('2/17 "2011.jsonl" · 20,000 records')
+    assert _ProgressActivityColumn(Column()).render(open_source).plain == (
+        '2/17 "2011.jsonl" · 20,000 records'
+    )
 
     with patch.object(progress, "refresh", wraps=progress.refresh) as refresh:
         _finish_node(renderer, 1, "open_source")
@@ -316,15 +318,14 @@ def test_debug_progress_shows_root_and_active_nodes() -> None:
     assert [
         (
             task.description,
-            task.fields["show_bar"],
             task.fields["status"],
         )
         for task in tasks
     ] == [
-        ("[stream:adv.20]", False, ""),
-        ("[stream:adv.20/order_records]", True, "0 out"),
-        ("[stream:adv.20/open_source]", True, "25/100 records"),
-        ("[stream:adv.20/decode_records]", True, "0 out"),
+        ("[stream:adv.20]", ""),
+        ("[stream:adv.20/order_records]", "0 out"),
+        ("[stream:adv.20/open_source]", "25/100 records"),
+        ("[stream:adv.20/decode_records]", "0 out"),
     ]
     root_task, _, source_task, _ = tasks
     label = _ProgressLabelColumn(Column())
@@ -389,7 +390,6 @@ def test_operation_progress_stays_live_across_sequential_pipelines() -> None:
 
     operation = progress.tasks[0]
     assert operation.description == "Operation serve:dataset"
-    assert operation.fields["show_bar"] is False
     assert operation.fields["status"] == "write_output · 2,592,885 rows"
     assert _ProgressLabelColumn(Column()).render(operation).plain == (
         "Operation serve:dataset 0:00:10"
