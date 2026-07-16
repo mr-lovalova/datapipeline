@@ -25,7 +25,8 @@ from datapipeline.cli.visuals.execution_context import (
 )
 from datapipeline.cli.visuals.rich.progress import (
     _ExecutionProgress,
-    _LiveProgressColumn,
+    _NodeBarColumn,
+    _ProgressLabelColumn,
     _RichExecutionRenderer,
     rich_visuals_supported,
     visual_execution,
@@ -158,7 +159,7 @@ def test_info_progress_shows_node_and_local_detail() -> None:
 
     root, order_records, open_source = progress.tasks
     assert root.description == "stream:adv.20"
-    assert root.fields["show_elapsed"] is True
+    assert root.fields["is_pipeline"] is True
     assert root.total is None
     assert root.completed == 0
     assert root.fields["status"] == ""
@@ -257,9 +258,10 @@ def test_info_pipeline_elapsed_continues_after_completed_local_phase() -> None:
         )
     )
     root, order_records = progress.tasks
-    elapsed = _LiveProgressColumn(Column()).render(root)
-    assert elapsed.plain == "0:00:10"
-    assert str(elapsed.style) == "dim"
+    label = _ProgressLabelColumn(Column()).render(root)
+    assert label.plain == "[stream:adv.20] 0:00:10"
+    assert label.spans[0].style == "dim"
+    assert _NodeBarColumn(Column()).render(root).plain == ""
     assert root.description == "stream:adv.20"
     assert root.total is None
     assert root.completed == 0
@@ -276,7 +278,9 @@ def test_info_pipeline_elapsed_continues_after_completed_local_phase() -> None:
     )
 
     root, order_records = progress.tasks
-    assert _LiveProgressColumn(Column()).render(root).plain == "0:00:20"
+    assert _ProgressLabelColumn(Column()).render(root).plain == (
+        "[stream:adv.20] 0:00:20"
+    )
     assert root.description == "stream:adv.20"
     assert root.total is None
     assert root.completed == 0
@@ -307,7 +311,7 @@ def test_debug_progress_shows_root_and_active_nodes() -> None:
     assert [
         (
             task.description,
-            task.fields["show_elapsed"],
+            task.fields["is_pipeline"],
             task.fields["status"],
         )
         for task in tasks
@@ -318,11 +322,13 @@ def test_debug_progress_shows_root_and_active_nodes() -> None:
         ("stream:adv.20/decode_records", False, "0 out"),
     ]
     root_task, _, source_task, _ = tasks
-    live_progress = _LiveProgressColumn(Column())
-    assert live_progress.render(root_task).plain == "0:00:00"
+    label = _ProgressLabelColumn(Column())
+    bar_column = _NodeBarColumn(Column())
+    assert label.render(root_task).plain == "[stream:adv.20] 0:00:00"
+    assert bar_column.render(root_task).plain == ""
     assert source_task.completed == 25
     assert source_task.total == 100
-    bar = live_progress.render(source_task)
+    bar = bar_column.render(source_task)
     assert bar.completed == 25
     assert bar.total == 100
 
@@ -758,7 +764,8 @@ def test_visual_execution_uses_minimal_progress_styles(monkeypatch) -> None:
     with visual_execution(logging.INFO):
         pass
 
-    label, progress = columns[:2]
-    assert label.style == "none"
-    assert progress._bar.complete_style == "cyan"
-    assert progress._bar.finished_style == "cyan"
+    label, bar = columns[:2]
+    assert isinstance(label, _ProgressLabelColumn)
+    assert isinstance(bar, _NodeBarColumn)
+    assert bar._bar.complete_style == "cyan"
+    assert bar._bar.finished_style == "cyan"

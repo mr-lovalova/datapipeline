@@ -43,11 +43,18 @@ from datapipeline.execution.observability import (
 )
 
 
-class _LiveProgressColumn(ProgressColumn):
-    """Show pipeline elapsed time or a node's local progress bar."""
+class _ProgressLabelColumn(ProgressColumn):
+    def render(self, task: Task) -> RenderableType:
+        label = Text(f"[{task.description}]")
+        if task.fields["is_pipeline"]:
+            elapsed = timedelta(seconds=int(task.elapsed or 0))
+            label.append(f" {elapsed}", style="dim")
+        return label
 
+
+class _NodeBarColumn(ProgressColumn):
     def __init__(self, table_column: Column) -> None:
-        super().__init__(table_column=table_column)
+        super().__init__(table_column)
         self._bar = BarColumn(
             bar_width=20,
             style="grey30",
@@ -57,10 +64,7 @@ class _LiveProgressColumn(ProgressColumn):
         )
 
     def render(self, task: Task) -> RenderableType:
-        if task.fields["show_elapsed"]:
-            elapsed = timedelta(seconds=max(0, int(task.elapsed or 0)))
-            return Text(str(elapsed), style="dim")
-        return self._bar.render(task)
+        return Text() if task.fields["is_pipeline"] else self._bar.render(task)
 
 
 class _ExecutionProgress:
@@ -103,7 +107,7 @@ class _ExecutionProgress:
             event.pipeline_name,
             total=None,
             status="",
-            show_elapsed=True,
+            is_pipeline=True,
         )
 
     def _finish_pipeline(self, event: PipelineFinished) -> None:
@@ -121,7 +125,7 @@ class _ExecutionProgress:
             label,
             total=None,
             status="0 out",
-            show_elapsed=False,
+            is_pipeline=False,
             visible=self._debug,
         )
         self._open_nodes.append(event.node_index)
@@ -276,14 +280,8 @@ def visual_execution(log_level: int):
     console = Console(file=sys.stderr, markup=False, highlight=False)
     debug = log_level <= logging.DEBUG
     progress = Progress(
-        TextColumn(
-            "[{task.description}]",
-            markup=False,
-            table_column=Column(no_wrap=True, overflow="ellipsis"),
-        ),
-        _LiveProgressColumn(
-            table_column=Column(no_wrap=True),
-        ),
+        _ProgressLabelColumn(Column(no_wrap=True, overflow="ellipsis")),
+        _NodeBarColumn(Column(no_wrap=True)),
         TextColumn(
             "{task.fields[status]}",
             markup=False,
