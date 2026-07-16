@@ -327,11 +327,12 @@ def test_debug_progress_shows_root_and_active_nodes() -> None:
         ("[stream:adv.20/open_source]", "25/100 records"),
         ("[stream:adv.20/decode_records]", "0 out"),
     ]
-    root_task, _, source_task, _ = tasks
+    root_task, order_task, source_task, _ = tasks
     label = _ProgressLabelColumn(Column())
     activity_column = _ProgressActivityColumn(Column())
     assert label.render(root_task).plain == "[stream:adv.20] 0:00:00"
     assert activity_column.render(root_task).plain == ""
+    assert activity_column.render(order_task).plain == "0 out"
     assert source_task.completed == 25
     assert source_task.total == 100
     bar = activity_column._bar.render(source_task)

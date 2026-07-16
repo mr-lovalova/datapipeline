@@ -10,8 +10,9 @@ that profile explicitly, including one configured with `enabled: false`.
 With `--visuals on` in an interactive terminal, runtime commands show one live
 pipeline row with the active node. `--log-level DEBUG` expands that view to one row
 per active node. File-backed sources include the current file and position
-(`2/17`); bars remain indeterminate when the record total is not known without
-reading the data. Visuals are independent of log filtering.
+(`2/17`). Determinate bars appear only when the item total is known; otherwise
+the timer and current activity remain visible. Visuals are independent of log
+filtering.
 
 ### Preview Stages
 
