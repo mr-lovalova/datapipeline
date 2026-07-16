@@ -46,9 +46,8 @@ from datapipeline.execution.observability import (
 class _ProgressLabelColumn(ProgressColumn):
     def render(self, task: Task) -> RenderableType:
         label = Text(f"[{task.description}]")
-        if task.fields["is_pipeline"]:
-            elapsed = timedelta(seconds=int(task.elapsed or 0))
-            label.append(f" {elapsed}", style="dim")
+        elapsed = timedelta(seconds=int(task.elapsed or 0))
+        label.append(f" {elapsed}", style="dim")
         return label
 
 

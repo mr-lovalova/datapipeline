@@ -237,7 +237,7 @@ def test_info_progress_selects_meaningful_event_owner() -> None:
     assert map_records.fields["status"] == "20,000 items"
 
 
-def test_info_pipeline_elapsed_continues_after_completed_local_phase() -> None:
+def test_info_elapsed_continues_after_completed_local_phase() -> None:
     now = 0.0
     console, _ = _console()
     progress = Progress(
@@ -261,6 +261,9 @@ def test_info_pipeline_elapsed_continues_after_completed_local_phase() -> None:
     label = _ProgressLabelColumn(Column()).render(root)
     assert label.plain == "[stream:adv.20] 0:00:10"
     assert label.spans[0].style == "dim"
+    assert _ProgressLabelColumn(Column()).render(order_records).plain == (
+        "[stream:adv.20/order_records] 0:00:10"
+    )
     assert _NodeBarColumn(Column()).render(root).plain == ""
     assert root.description == "stream:adv.20"
     assert root.total is None
@@ -280,6 +283,9 @@ def test_info_pipeline_elapsed_continues_after_completed_local_phase() -> None:
     root, order_records = progress.tasks
     assert _ProgressLabelColumn(Column()).render(root).plain == (
         "[stream:adv.20] 0:00:20"
+    )
+    assert _ProgressLabelColumn(Column()).render(order_records).plain == (
+        "[stream:adv.20/order_records] 0:00:20"
     )
     assert root.description == "stream:adv.20"
     assert root.total is None
