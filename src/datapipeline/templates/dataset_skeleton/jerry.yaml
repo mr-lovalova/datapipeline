@@ -1,0 +1,5 @@
+plugin_root: .
+datasets:
+  your-dataset: your-dataset/project.yaml
+
+default_dataset: your-dataset

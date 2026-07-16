@@ -1,5 +1,0 @@
-# See ../../../../plugin_skeleton/reference/reference/tasks/operations/stats.reference.yaml for full options.
-id: stats
-kind: artifact
-entrypoint: core.artifact.stats
-mode: final

@@ -1,21 +1,34 @@
-# See ../../plugin_skeleton/reference/reference/dataset.yaml for full options.
 sample:
   cadence: ${group_by}
   keys: []
 
 features:
   - id: linear_time
-    record_stream: time.ticks.linear
+    stream: time.ticks.linear
     field: value
     scale: true
     sequence: { size: 2, stride: 1 }
 
   - id: closing_price
-    record_stream: equity.ohlcv
+    stream: equity.ohlcv
     field: close
     scale: true
 
   - id: opening_price
-    record_stream: equity.ohlcv
+    stream: equity.ohlcv
     field: open
     scale: true
+
+split:
+  mode: hash
+  key: group
+  seed: 42
+  ratios: { train: 0.8, val: 0.1, test: 0.1 }
+
+postprocess:
+  columns:
+    features:
+      threshold: 0.5
+  samples:
+    features:
+      threshold: 1.0

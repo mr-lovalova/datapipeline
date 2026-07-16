@@ -1,18 +1,18 @@
-from collections.abc import Iterator, Sequence
+from collections.abc import Generator, Iterator, Sequence
 from dataclasses import dataclass
 from itertools import islice
 from pathlib import Path
 from typing import Any, Literal
 
+from datapipeline.artifacts.hydration import hydrate_runtime_artifacts_for_pipeline
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
-from datapipeline.config.dataset.loader import load_dataset
-from datapipeline.config.dataset.validation import validate_dataset_feature_identity
+from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
-from datapipeline.pipelines.full.nodes import post_process
-from datapipeline.dag.context import PipelineContext
-from datapipeline.pipelines import build_vector_pipeline
+from datapipeline.execution.context import PipelineContext
+from datapipeline.pipelines.dataset.pipeline import run_dataset_pipeline
 from datapipeline.runtime import Runtime
-from datapipeline.services.bootstrap import bootstrap
+from datapipeline.services.pipeline import load_pipeline
+from datapipeline.services.runtime_compiler import compile_runtime
 
 GroupFormat = Literal["mapping", "tuple", "list", "flat"]
 
@@ -33,22 +33,17 @@ def _normalize_group(
             )
         return group_key[0]
     fields = ["time", *sample_keys]
-    return {field: value for field, value in zip(fields, group_key)}
-
-
-def _ensure_features(dataset: FeatureDatasetConfig) -> list:
-    features = list(dataset.features or [])
-    if not features:
+    if len(group_key) != len(fields):
         raise ValueError(
-            "Dataset does not define any features. Configure at least one feature "
-            "stream before attempting to stream vectors.",
+            f"Group has {len(group_key)} values; expected {len(fields)} "
+            "for time and sample keys."
         )
-    return features
+    return {field: value for field, value in zip(fields, group_key)}
 
 
 @dataclass
 class VectorAdapter:
-    """Bootstrap a project once and provide ML-friendly iterators."""
+    """Load a project once and provide ML-friendly iterators."""
 
     dataset: FeatureDatasetConfig
     runtime: Runtime
@@ -59,31 +54,22 @@ class VectorAdapter:
         project_yaml: str | Path,
     ) -> "VectorAdapter":
         project_path = Path(project_yaml)
-        dataset = load_dataset(project_path, "vectors")
-        runtime = bootstrap(project_path)
-        validate_dataset_feature_identity(runtime, dataset)
-        return cls(dataset=dataset, runtime=runtime)
+        definition = load_pipeline(project_path)
+        runtime = compile_runtime(definition)
+        hydrate_runtime_artifacts_for_pipeline(runtime, definition)
+        return cls(dataset=definition.dataset, runtime=runtime)
 
     def stream(
         self,
         *,
         limit: int | None = None,
     ) -> Iterator[tuple[Sequence[Any], Vector]]:
-        features = list(_ensure_features(self.dataset))
-        target_cfgs = list(getattr(self.dataset, "targets", []) or [])
-        context = PipelineContext(self.runtime)
-        vectors = build_vector_pipeline(
-            context,
-            features,
-            self.dataset.group_by,
-            target_configs=target_cfgs,
-            sample_keys=self.dataset.sample_keys,
-        )
-        base_stream = post_process(context, vectors)
-        sample_iter = base_stream
-        if limit is not None:
-            sample_iter = islice(sample_iter, limit)
-        return ((sample.key, sample.features) for sample in sample_iter)
+        samples = self._samples(limit)
+        try:
+            for sample in samples:
+                yield sample.key, sample.features
+        finally:
+            samples.close()
 
     def iter_rows(
         self,
@@ -94,30 +80,17 @@ class VectorAdapter:
         group_column: str = "group",
         flatten_sequences: bool = False,
     ) -> Iterator[dict[str, Any]]:
-        features = list(_ensure_features(self.dataset))
-        target_cfgs = list(getattr(self.dataset, "targets", []) or [])
-        context = PipelineContext(self.runtime)
-        vectors = build_vector_pipeline(
-            context,
-            features,
-            self.dataset.group_by,
-            target_configs=target_cfgs,
-            sample_keys=self.dataset.sample_keys,
-        )
-        base_stream = post_process(context, vectors)
-        if limit is not None:
-            base_stream = islice(base_stream, limit)
-        sample_keys = self.dataset.sample_keys
-
-        def _rows() -> Iterator[dict[str, Any]]:
-            for sample in base_stream:
+        samples = self._samples(limit)
+        sample_keys = self.dataset.sample.keys
+        try:
+            for sample in samples:
                 row: dict[str, Any] = {}
                 if include_group:
                     row[group_column] = _normalize_group(
                         sample.key, sample_keys, group_format
                     )
                 vectors = [sample.features]
-                if sample.targets:
+                if sample.targets is not None:
                     vectors.append(sample.targets)
                 for vector in vectors:
                     for feature_id, value in vector.values.items():
@@ -127,8 +100,29 @@ class VectorAdapter:
                         else:
                             row[feature_id] = value
                 yield row
+        finally:
+            samples.close()
 
-        return _rows()
-
-
-__all__ = ["GroupFormat", "VectorAdapter", "_normalize_group"]
+    def _samples(self, limit: int | None) -> Generator[Sample, None, None]:
+        features = list(self.dataset.features)
+        if not features:
+            raise ValueError(
+                "Dataset does not define any features. Configure at least one feature "
+                "stream before attempting to stream vectors."
+            )
+        target_cfgs = list(self.dataset.targets)
+        context = PipelineContext(self.runtime)
+        samples = run_dataset_pipeline(
+            context,
+            features,
+            self.dataset.sample.cadence,
+            target_configs=target_cfgs,
+            sample_keys=self.dataset.sample.keys,
+        )
+        try:
+            if limit is None:
+                yield from samples
+            else:
+                yield from islice(samples, limit)
+        finally:
+            samples.close()

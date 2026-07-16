@@ -1,113 +1,53 @@
-from typing import Literal
+from collections.abc import Mapping, Sequence, Set
+from typing import Any
 
-from datapipeline.artifacts.models import SchemaPayload
-from datapipeline.domain.sample import Sample
-from datapipeline.domain.vector import Vector
-from datapipeline.dag.context import (
-    PipelineContext,
-    try_get_current_context,
-)
+from datapipeline.transforms.utils import is_missing
 
 
-def select_vector(sample: Sample, payload: Literal["features", "targets"]) -> Vector | None:
-    if payload == "targets":
-        return sample.targets
-    return sample.features
+def select_expected_ids(
+    expected_ids: Sequence[str],
+    ids: Sequence[str] | None,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    expected = tuple(expected_ids)
+    if not expected:
+        raise ValueError("expected_ids must not be empty")
+    if any(
+        not isinstance(identifier, str) or not identifier for identifier in expected
+    ):
+        raise ValueError("expected_ids must contain non-empty strings")
+    expected_set = set(expected)
+    if len(expected_set) != len(expected):
+        raise ValueError("expected_ids must not contain duplicates")
+
+    selected = expected if ids is None else tuple(ids)
+    if not selected:
+        raise ValueError("ids must not be empty")
+    if any(
+        not isinstance(identifier, str) or not identifier for identifier in selected
+    ):
+        raise ValueError("ids must contain non-empty strings")
+    if len(set(selected)) != len(selected):
+        raise ValueError("ids must not contain duplicates")
+
+    unknown = [identifier for identifier in selected if identifier not in expected_set]
+    if unknown:
+        raise ValueError(f"Unknown vector ids: {unknown!r}")
+    return expected, selected
 
 
-def replace_vector(sample: Sample, payload: Literal["features", "targets"], vector: Vector) -> Sample:
-    if payload == "targets":
-        return sample.with_targets(vector)
-    return sample.with_features(vector)
+def cell_coverage(value: Any) -> float:
+    if isinstance(value, list):
+        if not value:
+            return 0.0
+        present = sum(not is_missing(item) for item in value)
+        return present / len(value)
+    return 0.0 if is_missing(value) else 1.0
 
 
-def sample_time(sample: Sample):
-    if isinstance(sample.key, tuple) and sample.key:
-        return sample.key[0]
-    return sample.key
-
-
-def sample_entity_key(sample: Sample) -> tuple:
-    if not isinstance(sample.key, tuple):
-        return ()
-    return tuple(sample.key[1:])
-
-
-def vector_history_key(
-    sample: Sample,
-    payload: Literal["features", "targets"],
-    feature_id: str,
-) -> tuple:
-    return (payload, sample_entity_key(sample), str(feature_id))
-
-
-class VectorContextMixin:
-    def __init__(self, payload: Literal["features", "targets"] = "features") -> None:
-        if payload not in {"features", "targets"}:
-            raise ValueError("payload must be 'features' or 'targets'")
-        self._context: PipelineContext | None = None
-        self._payload = payload
-
-    def bind_context(self, context: PipelineContext) -> None:
-        self._context = context
-
-    def _expected_ids(self, payload: SchemaPayload | None = None) -> list[str]:
-        """Return expected feature/target ids for the given payload.
-
-        When `payload` is omitted, the instance default is used.
-        """
-        ctx = self._context or try_get_current_context()
-        if ctx is None:
-            raise RuntimeError("Vector postprocess transforms require a pipeline context.")
-        kind = payload or self._payload
-        schema = ctx.load_schema()
-        entries = schema.targets if kind == "targets" else schema.features
-        return [entry.id for entry in entries]
-
-
-class VectorPostprocessBase(VectorContextMixin):
-    """Shared envelope for vector postprocess transforms.
-
-    Provides a consistent interface for payload selection and id filtering:
-    - payload: features | targets | both
-    - only: optional allow-list of ids
-    - exclude: optional deny-list of ids
-    """
-
-    def __init__(
-        self,
-        *,
-        payload: Literal["features", "targets", "both"] = "features",
-        only: list[str] | None = None,
-        exclude: list[str] | None = None,
-    ) -> None:
-        if payload not in {"features", "targets", "both"}:
-            raise ValueError(
-                "payload must be 'features', 'targets', or 'both'")
-        base_payload = "features" if payload == "both" else payload
-        super().__init__(payload=base_payload)
-        self._payload_mode: Literal["features", "targets", "both"] = payload
-        self._only = {str(fid) for fid in (only or [])} or None
-        self._exclude = {str(fid) for fid in (exclude or [])} or None
-        self._baseline_cache: dict[str, list[str]] = {}
-
-    def _payload_kinds(self) -> list[Literal["features", "targets"]]:
-        mode = self._payload_mode
-        kinds: list[Literal["features", "targets"]] = []
-        if mode in {"features", "both"}:
-            kinds.append("features")
-        if mode in {"targets", "both"}:
-            kinds.append("targets")
-        return kinds
-
-    def _ids_for(self, payload: Literal["features", "targets"]) -> list[str]:
-        cached = self._baseline_cache.get(payload)
-        if cached is not None:
-            return list(cached)
-        ids = self._expected_ids(payload=payload)
-        if self._only is not None:
-            ids = [fid for fid in ids if fid in self._only]
-        if self._exclude is not None:
-            ids = [fid for fid in ids if fid not in self._exclude]
-        self._baseline_cache[payload] = list(ids)
-        return list(ids)
+def reject_unknown_values(
+    values: Mapping[str, Any],
+    expected_ids: Set[str],
+) -> None:
+    unknown = [identifier for identifier in values if identifier not in expected_ids]
+    if unknown:
+        raise ValueError(f"Vector contains unexpected ids: {unknown!r}")

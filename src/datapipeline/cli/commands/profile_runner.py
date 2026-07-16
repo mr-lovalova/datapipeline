@@ -1,51 +1,106 @@
 import argparse
 import logging
-from typing import Literal
 
-from datapipeline.config.resolution import LogOutputTarget
-from datapipeline.config.workspace import WorkspaceContext
+from datapipeline.cli.output_options import build_cli_output_config
+from datapipeline.cli.workspace import WorkspaceContext
+from datapipeline.execution.settings import LogOutputTarget
 from datapipeline.profiles.orchestration import run_profiles
-from datapipeline.profiles.request_builder import build_profile_run_request
+from datapipeline.profiles.request_builder import (
+    build_build_run_request,
+    build_runtime_run_request,
+)
 
 logger = logging.getLogger(__name__)
-ProfileKind = Literal["serve", "build", "inspect"]
 
 
-def handle_profile_command(
-    *,
-    kind: ProfileKind,
+def handle_build(
     args: argparse.Namespace,
-    workspace_context: WorkspaceContext | None,
-    cli_level_arg: str | None,
-    base_level_name: str,
+    cli_log_level: str | None,
+    base_log_level: str,
     cli_log_outputs: list[LogOutputTarget],
-) -> bool:
-    request = build_profile_run_request(
-        kind=kind,
+) -> None:
+    request = build_build_run_request(
         project=args.project,
-        run_name=getattr(args, "run", None),
-        force=getattr(args, "force", False),
-        artifact_mode=getattr(args, "artifact_mode", None),
-        limit=getattr(args, "limit", None),
-        preview_index=getattr(args, "preview_index", None),
-        output_transport=getattr(args, "output_transport", None),
-        output_format=getattr(args, "output_format", None),
-        output_directory=getattr(args, "output_directory", None),
-        output_encoding=getattr(args, "output_encoding", None),
-        output_view=getattr(args, "output_view", None),
-        cli_log_level=cli_level_arg,
+        profile_name=args.profile,
+        force=args.force,
+        cli_log_level=cli_log_level,
         cli_log_outputs=cli_log_outputs,
-        base_log_level=base_level_name,
-        cli_visuals=getattr(args, "visuals", None),
-        cli_heartbeat_interval_seconds=getattr(
-            args,
-            "heartbeat_interval_seconds",
-            None,
-        ),
-        workspace=workspace_context,
+        base_log_level=base_log_level,
+        cli_visuals=args.visuals,
+        cli_heartbeat_interval_seconds=args.heartbeat_interval_seconds,
     )
     if request is None:
-        logger.info("No enabled %s profiles; skipping %s.", kind, kind)
-        return True
+        logger.info("No enabled build profiles; skipping build.")
+        return
     run_profiles(request)
-    return True
+
+
+def handle_serve(
+    args: argparse.Namespace,
+    workspace: WorkspaceContext | None,
+    cli_log_level: str | None,
+    base_log_level: str,
+    cli_log_outputs: list[LogOutputTarget],
+) -> None:
+    workspace_root = workspace.root if workspace is not None else None
+    output = build_cli_output_config(
+        transport=args.output_transport,
+        fmt=args.output_format,
+        directory=args.output_directory,
+        output_encoding=args.output_encoding,
+        workspace_root=workspace_root,
+        view=args.output_view,
+    )
+    request = build_runtime_run_request(
+        command="serve",
+        project=args.project,
+        profile_name=args.profile,
+        artifact_mode=args.artifact_mode,
+        limit=args.limit,
+        preview=args.preview,
+        cli_output=output,
+        cli_log_level=cli_log_level,
+        cli_log_outputs=cli_log_outputs,
+        base_log_level=base_log_level,
+        cli_visuals=args.visuals,
+        cli_heartbeat_interval_seconds=args.heartbeat_interval_seconds,
+    )
+    if request is None:
+        logger.info("No enabled serve profiles; skipping serve.")
+        return
+    run_profiles(request)
+
+
+def handle_inspect(
+    args: argparse.Namespace,
+    workspace: WorkspaceContext | None,
+    cli_log_level: str | None,
+    base_log_level: str,
+    cli_log_outputs: list[LogOutputTarget],
+) -> None:
+    workspace_root = workspace.root if workspace is not None else None
+    output = build_cli_output_config(
+        transport=args.output_transport,
+        fmt=args.output_format,
+        directory=args.output_directory,
+        output_encoding=args.output_encoding,
+        workspace_root=workspace_root,
+        view=args.output_view,
+    )
+    request = build_runtime_run_request(
+        command="inspect",
+        project=args.project,
+        profile_name=args.profile,
+        artifact_mode=args.artifact_mode,
+        limit=args.limit,
+        cli_output=output,
+        cli_log_level=cli_log_level,
+        cli_log_outputs=cli_log_outputs,
+        base_log_level=base_log_level,
+        cli_visuals=args.visuals,
+        cli_heartbeat_interval_seconds=args.heartbeat_interval_seconds,
+    )
+    if request is None:
+        logger.info("No enabled inspect profiles; skipping inspect.")
+        return
+    run_profiles(request)

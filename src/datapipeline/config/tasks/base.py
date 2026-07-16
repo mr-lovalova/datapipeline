@@ -5,37 +5,39 @@ from typing import Generic, Literal, TypeVar
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic_core import PydanticSerializationError
 
-from datapipeline.config.model_utils import normalize_required_text
-
 
 class Task(BaseModel):
     """Concrete executable operation."""
 
     model_config = ConfigDict(extra="forbid")
 
-    version: int = Field(default=1)
     kind: Literal["artifact", "runtime"]
     id: str
-    source_path: Path | None = Field(default=None, exclude=True)
     entrypoint: str
 
     @field_validator("id", mode="before")
     @classmethod
     def _normalize_id(cls, value):
-        return normalize_required_text(value, field_name="id", lower=True)
+        operation_id = str(value).strip().lower() if value is not None else ""
+        if not operation_id:
+            raise ValueError("id must be set")
+        return operation_id
 
     @field_validator("entrypoint", mode="before")
     @classmethod
     def _normalize_entrypoint(cls, value):
-        return normalize_required_text(value, field_name="entrypoint")
+        entrypoint = str(value).strip() if value is not None else ""
+        if not entrypoint:
+            raise ValueError("entrypoint must be set")
+        return entrypoint
 
     @model_validator(mode="after")
     def _validate_serializable_config(self):
         try:
-            self.model_dump(mode="json", exclude={"source_path"})
+            self.model_dump(mode="json")
         except PydanticSerializationError as exc:
             raise ValueError(
-                "task configuration must contain only JSON-serializable values"
+                "operation configuration must contain only JSON-serializable values"
             ) from exc
         return self
 
@@ -44,14 +46,18 @@ class ArtifactTask(Task):
     kind: Literal["artifact"] = Field(default="artifact")
     output: str
 
-    @model_validator(mode="after")
-    def _validate_output(self):
-        output_path = Path(self.output)
+    @field_validator("output")
+    @classmethod
+    def _validate_output(cls, output: str) -> str:
+        output = output.strip()
+        output_path = Path(output)
+        if not output or output_path == Path("."):
+            raise ValueError("output must name a file under the artifacts root")
         if output_path.is_absolute():
             raise ValueError("output must be a relative path under artifacts root")
         if ".." in output_path.parts:
             raise ValueError("output must not traverse outside artifacts root")
-        return self
+        return output
 
 
 OperationOptionsT = TypeVar("OperationOptionsT")
@@ -70,14 +76,18 @@ class OperationTask(Task, Generic[OperationOptionsT]):
         if value is None:
             return ()
         if not isinstance(value, (list, tuple)):
-            raise ValueError("requires must be a list of artifact task ids")
-        requires = tuple(
-            normalize_required_text(item, field_name="requires item", lower=True)
-            for item in value
-        )
+            raise ValueError("requires must be a list of artifact operation ids")
+        requires: list[str] = []
+        for item in value:
+            operation_id = str(item).strip().lower() if item is not None else ""
+            if not operation_id:
+                raise ValueError("requires item must be set")
+            requires.append(operation_id)
         if len(requires) != len(set(requires)):
-            raise ValueError("requires must not contain duplicate artifact task ids")
-        return requires
+            raise ValueError(
+                "requires must not contain duplicate artifact operation ids"
+            )
+        return tuple(requires)
 
     @field_validator("options", mode="before")
     @classmethod
@@ -85,6 +95,3 @@ class OperationTask(Task, Generic[OperationOptionsT]):
         if isinstance(value, (Mapping, BaseModel)):
             return value
         raise ValueError("options must be a mapping")
-
-
-__all__ = ["Task", "ArtifactTask", "OperationTask"]

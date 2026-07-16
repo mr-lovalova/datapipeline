@@ -1,92 +1,102 @@
-from datapipeline.config.catalog import IngestConfig, StreamConfig
+from datapipeline.config.sources import SourceConfig
+from datapipeline.config.streams import (
+    DerivedStreamConfig,
+    SourceStreamConfig,
+    StreamConfig,
+)
+from datapipeline.config.transforms import (
+    DeriveConfig,
+    FillConfig,
+    ForwardFillConfig,
+    LagConfig,
+    LeadConfig,
+    RollingConfig,
+)
 from datapipeline.domain.stream import canonical_record_order
 
 
-def validate_unique_stream_ids(
-    ingests: dict[str, IngestConfig],
-    stream_configs: dict[str, StreamConfig],
-) -> None:
-    duplicates = sorted(set(ingests) & set(stream_configs))
-    if duplicates:
-        raise ValueError(
-            f"Duplicate stream id(s) across ingests and streams: {duplicates}"
-        )
-
-
 def validate_stream_configs(
-    ingests: dict[str, IngestConfig],
-    stream_configs: dict[str, StreamConfig],
+    sources: dict[str, SourceConfig],
+    streams: dict[str, StreamConfig],
 ) -> None:
-    known_streams = set(ingests) | set(stream_configs)
-    for stream_id, spec in stream_configs.items():
-        missing = [ref for ref in spec.input_streams() if ref not in known_streams]
+    for stream_id, stream in streams.items():
+        if isinstance(stream, SourceStreamConfig):
+            if stream.from_.source not in sources:
+                raise ValueError(
+                    f"Stream '{stream_id}' references unknown source "
+                    f"'{stream.from_.source}'"
+                )
+            continue
+
+        missing = [
+            input_stream
+            for input_stream in stream.input_streams()
+            if input_stream not in streams
+        ]
         if missing:
             raise ValueError(
                 f"Stream '{stream_id}' references unknown stream(s): {missing}"
             )
-    _validate_stream_cycles(stream_configs)
 
-    for ingest_id, spec in ingests.items():
-        if spec.ordered_by is None:
-            continue
-        canonical_order = canonical_record_order(spec.partition_by)
-        if spec.ordered_by != canonical_order:
-            raise ValueError(
-                f"Ingest '{ingest_id}' ordered_by must be {canonical_order!r}; "
-                f"got {spec.ordered_by!r}"
-            )
+    _validate_stream_cycles(streams)
 
-    for stream_id, spec in stream_configs.items():
-        partition_by = stream_partition_by(ingests, stream_configs, stream_id)
-        if spec.ordered_by is None:
-            continue
-        canonical_order = canonical_record_order(partition_by)
-        if spec.ordered_by != canonical_order:
-            raise ValueError(
-                f"Stream '{stream_id}' ordered_by must be {canonical_order!r}; "
-                f"got {spec.ordered_by!r}"
-            )
+    for stream_id, stream in streams.items():
+        partition_by = stream_partition_by(streams, stream_id)
+        if isinstance(stream, SourceStreamConfig) and stream.ordered_by is not None:
+            canonical_order = canonical_record_order(partition_by)
+            if stream.ordered_by != canonical_order:
+                raise ValueError(
+                    f"Stream '{stream_id}' ordered_by must be "
+                    f"{list(canonical_order)!r}; got {list(stream.ordered_by)!r}"
+                )
+
+        canonical_fields = {"time", *partition_by}
+        for operation in stream.transforms:
+            if isinstance(
+                operation,
+                (LagConfig, LeadConfig, FillConfig, ForwardFillConfig, RollingConfig),
+            ):
+                output_field = operation.field if operation.to is None else operation.to
+            elif isinstance(operation, DeriveConfig):
+                output_field = operation.to
+            else:
+                continue
+            if output_field in canonical_fields:
+                raise ValueError(
+                    f"Stream '{stream_id}' transform '{operation.operation}' cannot "
+                    f"write canonical order field '{output_field}'"
+                )
 
 
 def stream_partition_by(
-    ingests: dict[str, IngestConfig],
-    stream_configs: dict[str, StreamConfig],
+    streams: dict[str, StreamConfig],
     stream_id: str,
-) -> str | list[str] | None:
-    if stream_id in ingests:
-        return ingests[stream_id].partition_by
-
-    spec = stream_configs[stream_id]
-    if not spec.aligns_streams:
-        return spec.partition_by
+) -> tuple[str, ...]:
+    stream = streams[stream_id]
+    if isinstance(stream, SourceStreamConfig):
+        return stream.partition_by
+    if isinstance(stream, DerivedStreamConfig):
+        return stream_partition_by(streams, stream.from_.stream)
 
     input_partitions = [
-        stream_partition_by(ingests, stream_configs, input_stream)
-        for input_stream in spec.input_streams()
+        stream_partition_by(streams, input_stream)
+        for input_stream in stream.input_streams()
     ]
-    expected = _partition_fields(input_partitions[0])
+    expected = input_partitions[0]
     for input_stream, partition_by in zip(
-        spec.input_streams()[1:],
+        stream.input_streams()[1:],
         input_partitions[1:],
         strict=True,
     ):
-        if _partition_fields(partition_by) != expected:
+        if partition_by != expected:
             raise ValueError(
                 f"Aligned stream '{stream_id}' input '{input_stream}' has "
-                f"partition_by {partition_by!r}; expected {input_partitions[0]!r}"
+                f"partition_by {list(partition_by)!r}; expected {list(expected)!r}"
             )
-    return input_partitions[0]
+    return expected
 
 
-def _partition_fields(partition_by: str | list[str] | None) -> tuple[str, ...]:
-    if partition_by is None:
-        return ()
-    if isinstance(partition_by, str):
-        return (partition_by,)
-    return tuple(partition_by)
-
-
-def _validate_stream_cycles(stream_configs: dict[str, StreamConfig]) -> None:
+def _validate_stream_cycles(streams: dict[str, StreamConfig]) -> None:
     visited: set[str] = set()
     visiting: list[str] = []
 
@@ -99,11 +109,10 @@ def _validate_stream_cycles(stream_configs: dict[str, StreamConfig]) -> None:
             raise ValueError("Stream dependency cycle: " + " -> ".join(cycle))
 
         visiting.append(stream_id)
-        for input_stream in stream_configs[stream_id].input_streams():
-            if input_stream in stream_configs:
-                visit(input_stream)
+        for input_stream in streams[stream_id].input_streams():
+            visit(input_stream)
         visiting.pop()
         visited.add(stream_id)
 
-    for stream_id in stream_configs:
+    for stream_id in streams:
         visit(stream_id)

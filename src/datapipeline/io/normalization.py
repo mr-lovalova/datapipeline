@@ -1,8 +1,10 @@
 import json
-from dataclasses import asdict, is_dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import fields, is_dataclass
 from datetime import date, datetime
 from typing import Any, Literal
 
+from datapipeline.domain.record import TemporalRecord
 from datapipeline.domain.sample import Sample
 
 View = Literal["flat", "raw"]
@@ -17,8 +19,6 @@ def payload_for_view(item: Any, view: View = "raw") -> Any:
 
 
 def raw_payload(item: Any) -> Any:
-    if isinstance(item, Sample):
-        return item.as_full_payload()
     return _jsonable(item)
 
 
@@ -32,32 +32,32 @@ def flat_payload(item: Any) -> dict[str, Any]:
         return payload
 
     raw = raw_payload(item)
-    payload: dict[str, Any] = {}
+    flattened: dict[str, Any] = {}
     if isinstance(raw, dict):
         for key, value in sorted(raw.items(), key=lambda kv: str(kv[0])):
-            flatten_fields(str(key), value, payload)
-        return payload
+            flatten_fields(str(key), value, flattened)
+        return flattened
 
-    flatten_fields("value", raw, payload)
-    return payload
+    flatten_fields("value", raw, flattened)
+    return flattened
 
 
 def flatten_fields(prefix: str, value: Any, out: dict[str, Any]) -> None:
     if _is_scalar(value):
         out[prefix] = value
         return
-    if isinstance(value, dict):
+    if isinstance(value, Mapping):
         for key, nested in sorted(value.items(), key=lambda kv: str(kv[0])):
-            flatten_fields(f"{prefix}.{key}", nested, out)
+            flatten_fields(f"{prefix}.{_json_key(key)}", nested, out)
         return
-    if isinstance(value, (list, tuple)):
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
         if all(_is_scalar(item) for item in value):
             for idx, nested in enumerate(value):
                 out[f"{prefix}.{idx}"] = nested
             return
-        out[prefix] = json.dumps(value, ensure_ascii=False, default=str)
+        out[prefix] = json_text(raw_payload(value))
         return
-    out[prefix] = str(value)
+    raise TypeError(f"Unsupported output value type: {type(value).__name__}")
 
 
 def _normalize_key_struct(key: Any) -> Any:
@@ -67,21 +67,47 @@ def _normalize_key_struct(key: Any) -> Any:
 
 
 def _jsonable(value: Any) -> Any:
-    if value is None:
-        return None
-    if is_dataclass(value):
-        attrs = getattr(value, "__dict__", None)
-        if attrs is not None:
-            return {k: _jsonable(v) for k, v in attrs.items() if not k.startswith("_")}
-        return asdict(value)
-    if isinstance(value, dict):
-        return {k: _jsonable(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple)):
+    if _is_scalar(value):
+        return value
+    if isinstance(value, TemporalRecord):
+        return {
+            name: _jsonable(field_value)
+            for name, field_value in vars(value).items()
+            if not name.startswith("_")
+        }
+    if not isinstance(value, type) and is_dataclass(value):
+        return {
+            field.name: _jsonable(getattr(value, field.name))
+            for field in fields(value)
+            if not field.name.startswith("_")
+        }
+    if isinstance(value, Mapping):
+        return {_json_key(k): _jsonable(v) for k, v in value.items()}
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
         return [_jsonable(v) for v in value]
-    attrs = getattr(value, "__dict__", None)
-    if attrs:
-        return {k: _jsonable(v) for k, v in attrs.items() if not k.startswith("_")}
-    return value
+    raise TypeError(f"Unsupported output value type: {type(value).__name__}")
+
+
+def _json_key(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    raise TypeError(f"Unsupported output mapping key type: {type(value).__name__}")
+
+
+def json_text(payload: Any, indent: int | None = None) -> str:
+    return json.dumps(
+        payload,
+        ensure_ascii=False,
+        indent=indent,
+        default=_encode_temporal,
+        allow_nan=False,
+    )
+
+
+def _encode_temporal(value: Any) -> str:
+    if isinstance(value, (datetime, date)):
+        return str(value)
+    raise TypeError(f"Unsupported output value type: {type(value).__name__}")
 
 
 def _is_scalar(value: Any) -> bool:

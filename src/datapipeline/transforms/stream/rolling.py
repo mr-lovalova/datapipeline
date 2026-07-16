@@ -1,84 +1,77 @@
-from collections import deque
+from collections.abc import Iterator
 from itertools import groupby
-from statistics import mean, median, pstdev, stdev
-from typing import Iterator
+from math import isfinite
 
 from datapipeline.domain.record import TemporalRecord
-from datapipeline.transforms.interfaces import FieldValueStreamTransformBase
+from datapipeline.transforms.rolling_window import (
+    RollingMaximum,
+    RollingMean,
+    RollingMedian,
+    RollingMinimum,
+    RollingPopulationStandardDeviation,
+    RollingSampleStandardDeviation,
+    RollingWindow,
+)
 from datapipeline.transforms.utils import (
+    clone_record_with_field,
+    finite_number,
     get_field,
     is_missing,
-    clone_record_with_field,
+    partition_key,
 )
 
 
-class RollingTransformer(FieldValueStreamTransformBase):
-    """Compute a rolling statistic over record field values.
+_STATISTICS: dict[str, type[RollingWindow]] = {
+    "mean": RollingMean,
+    "median": RollingMedian,
+    "stdev": RollingSampleStandardDeviation,
+    "pstdev": RollingPopulationStandardDeviation,
+    "max": RollingMaximum,
+    "min": RollingMinimum,
+}
 
-    - window: number of recent ticks to consider (including missing ticks).
-    - min_samples: minimum number of valid samples required to emit a value.
-    - statistic: 'mean' (default), 'median', 'stdev', 'pstdev', 'max', or 'min'.
-    - field: record attribute to read.
-    - to: record attribute to write (defaults to field).
-    """
+
+class RollingTransform:
+    """Compute a rolling statistic over record field values."""
 
     def __init__(
         self,
-        *,
         field: str,
-        to: str | None = None,
         window: int,
+        partition_fields: tuple[str, ...],
+        to: str | None = None,
         min_samples: int | None = None,
         statistic: str = "mean",
-        partition_by: str | list[str] | None = None,
     ) -> None:
-        super().__init__(field=field, to=to, partition_by=partition_by)
-        if window <= 0:
-            raise ValueError("window must be a positive integer")
-        if min_samples is None:
-            min_samples = window
-        if min_samples <= 0:
-            raise ValueError("min_samples must be positive")
-        if statistic == "stdev" and min_samples < 2:
-            raise ValueError("min_samples must be at least 2 for statistic='stdev'")
-        if statistic == "mean":
-            self.statistic = mean
-        elif statistic == "median":
-            self.statistic = median
-        elif statistic == "stdev":
-            self.statistic = stdev
-        elif statistic == "pstdev":
-            self.statistic = pstdev
-        elif statistic == "max":
-            self.statistic = max
-        elif statistic == "min":
-            self.statistic = min
-        else:
-            raise ValueError(
-                f"Unsupported statistic: {statistic!r}; "
-                "expected one of: mean, median, stdev, pstdev, max, min"
-            )
-
+        self.field = field
+        self.to = field if to is None else to
+        self.partition_fields = partition_fields
+        self._window_type = _STATISTICS[statistic]
         self.window = window
-        self.min_samples = min_samples
+        self.min_samples = window if min_samples is None else min_samples
 
     def apply(self, stream: Iterator[TemporalRecord]) -> Iterator[TemporalRecord]:
-        grouped = groupby(stream, key=self.partition_key)
-
-        for _, records in grouped:
-            tick_window: deque[float | None] = deque(maxlen=self.window)
+        for _, records in groupby(
+            stream,
+            key=lambda record: partition_key(record, self.partition_fields),
+        ):
+            rolling_window = self._window_type(self.window)
 
             for record in records:
-                value = get_field(record, self.field)
-                if is_missing(value):
-                    tick_window.append(None)
+                raw_value = get_field(record, self.field)
+                if is_missing(raw_value):
+                    value = None
                 else:
-                    tick_window.append(float(value))
+                    value = finite_number(raw_value, self.field)
 
-                valid_vals = [v for v in tick_window if v is not None]
-                if len(valid_vals) >= self.min_samples:
-                    rolled = float(self.statistic(valid_vals))
+                rolling_window.append(value)
+                if rolling_window.sample_count >= self.min_samples:
+                    rolled = rolling_window.result()
+                    if not isfinite(rolled):
+                        raise OverflowError(
+                            f"Rolling field {self.field!r} exceeds the supported "
+                            "floating-point range"
+                        )
                 else:
                     rolled = None
-
                 yield clone_record_with_field(record, self.to, rolled)

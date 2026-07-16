@@ -23,7 +23,7 @@ def test_clean_command_dispatches(monkeypatch) -> None:
     )
     args = build_parser().parse_args(["clean", "--yes", "--older-than", "24h"])
 
-    handled = execute_command(
+    result = execute_command(
         args=args,
         plugin_root=None,
         workspace_context=None,
@@ -32,7 +32,7 @@ def test_clean_command_dispatches(monkeypatch) -> None:
         cli_log_outputs=[],
     )
 
-    assert handled is True
+    assert result is None
     assert calls == {"yes": True, "older_than": "24h"}
 
 

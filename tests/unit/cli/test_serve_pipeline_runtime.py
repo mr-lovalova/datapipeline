@@ -2,9 +2,11 @@ import logging
 from types import SimpleNamespace
 
 import pytest
-from datapipeline.config.split import TimeSplitConfig
-from datapipeline.dag.dag import Dag
-from datapipeline.dag.node import PipelineNode
+
+from datapipeline.config.preview import PreviewStage
+from datapipeline.config.dataset.split import TimeSplitConfig
+from datapipeline.execution.pipeline import Pipeline
+from datapipeline.execution.node import PipelineNode, SourceNode
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
 from datapipeline.io.output import OutputTarget
@@ -12,53 +14,35 @@ from datapipeline.operations.persistence import (
     SplitRuntimeOutput,
     persist_runtime_result,
 )
-from datapipeline.operations.runtime.pipeline import serve_with_runtime
+from datapipeline.operations.runtime.pipeline import run_pipeline_operation
 
 
-@pytest.fixture(autouse=True)
-def _skip_dataset_identity_validation(monkeypatch):
-    monkeypatch.setattr(
-        "datapipeline.operations.runtime.pipeline.validate_dataset_feature_identity",
-        lambda runtime, dataset: None,
-    )
-
-
-def _runtime():
-    return SimpleNamespace(
+def _runtime(streams=None):
+    runtime = SimpleNamespace(
         window_bounds=None,
-        execution_observer=None,
-        split_labels=(),
+        pipeline_observer=None,
+        observe_node_events=True,
+        heartbeat_interval_seconds=None,
+        output_splits=(),
+        streams=streams or {},
     )
-
-
-def _runtime_with_stream_kinds(kinds):
-    class _StreamSpecs:
-        def get(self, stream_id):
-            return SimpleNamespace(pipeline=kinds[stream_id])
-
-    return SimpleNamespace(
-        window_bounds=None,
-        execution_observer=None,
-        split_labels=(),
-        registries=SimpleNamespace(stream_specs=_StreamSpecs()),
-    )
+    runtime.dataset = _dataset()
+    return runtime
 
 
 def _dataset(*, targets=None):
     return SimpleNamespace(
         features=[object()],
         targets=list(targets or []),
-        group_by="1d",
-        sample_keys=[],
+        sample=SimpleNamespace(cadence="1d", keys=[]),
     )
 
 
-def _preview_dataset(record_stream):
+def _preview_dataset(stream):
     return SimpleNamespace(
-        features=[SimpleNamespace(id="price", record_stream=record_stream)],
+        features=[SimpleNamespace(id="price", stream=stream)],
         targets=[],
-        group_by="1d",
-        sample_keys=[],
+        sample=SimpleNamespace(cadence="1d", keys=[]),
     )
 
 
@@ -84,42 +68,68 @@ def _fs_target(destination):
     )
 
 
-def _serve(runtime, dataset, target, preview_index):
-    return serve_with_runtime(
+def _serve(
+    runtime,
+    dataset,
+    target,
+    preview: PreviewStage | None,
+):
+    runtime.dataset = dataset
+    return run_pipeline_operation(
         runtime=runtime,
-        dataset=dataset,
         limit=None,
         target=target,
         throttle_ms=None,
-        preview_index=preview_index,
-        visuals="on",
+        preview=preview,
     )
 
 
-def _sample_preview_dag():
-    return Dag(
-        name="pipeline:serve",
+def _sample_preview_pipeline():
+    return Pipeline(
+        name="dataset",
         nodes=(
-            PipelineNode(
+            SourceNode(
                 name="vector_assemble",
-                op=lambda: iter(["vector"]),
-                output="vectors",
+                open=lambda: iter(["vector"]),
             ),
             PipelineNode(
-                name="post_process",
-                op=lambda stream: (f"post:{item}" for item in stream),
-                input="vectors",
-                output="post_processed",
+                name="normalize_features",
+                apply=lambda stream: (f"post:{item}" for item in stream),
             ),
         ),
     )
 
 
-def test_serve_with_runtime_reraises_keyboard_interrupt_and_marks_run_failed(
+def _record_preview_pipeline():
+    return Pipeline(
+        name="stream:prices",
+        nodes=(
+            SourceNode(
+                name="open_source",
+                open=lambda: iter(["source"]),
+            ),
+            PipelineNode(
+                name="map_records",
+                apply=lambda rows: (f"mapped:{row}" for row in rows),
+            ),
+            PipelineNode(
+                name="floor_time",
+                apply=lambda rows: (f"transformed:{row}" for row in rows),
+            ),
+            PipelineNode(
+                name="order_records",
+                apply=lambda rows: (f"records:{row}" for row in rows),
+            ),
+        ),
+    )
+
+
+def test_pipeline_operation_reraises_keyboard_interrupt_and_marks_run_failed(
     monkeypatch,
 ):
     runtime = _runtime()
     dataset = _dataset()
+    runtime.dataset = dataset
     target = _target()
 
     monkeypatch.setattr(
@@ -127,7 +137,7 @@ def test_serve_with_runtime_reraises_keyboard_interrupt_and_marks_run_failed(
         lambda runtime_obj, rectangular_required: (None, None),
     )
     monkeypatch.setattr(
-        "datapipeline.operations.runtime.pipeline.build_full_pipeline",
+        "datapipeline.operations.runtime.pipeline.run_dataset_pipeline",
         lambda *args, **kwargs: _vectors(),
     )
 
@@ -135,14 +145,12 @@ def test_serve_with_runtime_reraises_keyboard_interrupt_and_marks_run_failed(
         raise KeyboardInterrupt()
         yield None
 
-    result = serve_with_runtime(
+    result = run_pipeline_operation(
         runtime=runtime,
-        dataset=dataset,
         limit=None,
         target=target,
         throttle_ms=None,
-        preview_index=None,
-        visuals="on",
+        preview=None,
     )
 
     with pytest.raises(KeyboardInterrupt):
@@ -153,17 +161,20 @@ def test_serve_with_runtime_reraises_keyboard_interrupt_and_marks_run_failed(
         )
 
 
-def test_serve_with_runtime_returns_split_fanout_output(monkeypatch, tmp_path):
+def test_pipeline_operation_returns_split_fanout_output(monkeypatch, tmp_path):
     runtime = SimpleNamespace(
         window_bounds=None,
-        execution_observer=None,
-        split_labels=("train", "val"),
-        split=TimeSplitConfig(
-            boundaries=["2021-01-01T00:00:00Z"],
-            labels=["train", "val"],
-        ),
+        pipeline_observer=None,
+        observe_node_events=True,
+        heartbeat_interval_seconds=None,
+        output_splits=("train", "val"),
     )
     dataset = _dataset()
+    dataset.split = TimeSplitConfig(
+        boundaries=["2021-01-01T00:00:00Z"],
+        labels=["train", "val"],
+    )
+    runtime.dataset = dataset
     target = _fs_target(tmp_path / "vectors.jsonl")
     samples = [
         Sample(key="2020-01-01T00:00:00Z", features=Vector(values={"x": 1})),
@@ -175,11 +186,11 @@ def test_serve_with_runtime_returns_split_fanout_output(monkeypatch, tmp_path):
         lambda runtime_obj, rectangular_required: ("start", "end"),
     )
     monkeypatch.setattr(
-        "datapipeline.operations.runtime.pipeline.build_full_pipeline",
+        "datapipeline.operations.runtime.pipeline.run_dataset_pipeline",
         lambda *args, **kwargs: iter(samples),
     )
 
-    result = _serve(runtime, dataset, target, preview_index=None)
+    result = _serve(runtime, dataset, target, preview=None)
 
     assert runtime.window_bounds == ("start", "end")
     assert len(result.outputs) == 1
@@ -191,7 +202,7 @@ def test_serve_with_runtime_returns_split_fanout_output(monkeypatch, tmp_path):
     assert [output.label_for_row(sample) for sample in routed] == ["train", "val"]
 
 
-def test_preview_index_12_previews_vector_assembly(monkeypatch):
+def test_samples_preview_stops_before_postprocess(monkeypatch):
     runtime = _runtime()
     dataset = _dataset(targets=[object()])
     target = _target()
@@ -200,11 +211,11 @@ def test_preview_index_12_previews_vector_assembly(monkeypatch):
         lambda runtime_obj, rectangular_required: ("start", "end"),
     )
     monkeypatch.setattr(
-        "datapipeline.operations.runtime.pipeline.build_full_dag",
-        lambda *args, **kwargs: _sample_preview_dag(),
+        "datapipeline.operations.runtime.pipeline.build_dataset_pipeline",
+        lambda *args, **kwargs: _sample_preview_pipeline(),
     )
 
-    result = _serve(runtime, dataset, target, preview_index=12)
+    result = _serve(runtime, dataset, target, preview="samples")
 
     assert runtime.window_bounds == ("start", "end")
     assert len(result.outputs) == 1
@@ -212,46 +223,86 @@ def test_preview_index_12_previews_vector_assembly(monkeypatch):
     assert list(result.outputs[0].rows) == ["vector"]
 
 
-def test_preview_index_4_previews_derived_stream_records(monkeypatch):
-    runtime = _runtime_with_stream_kinds({"derived.prices": "stream"})
-    dataset = _preview_dataset("derived.prices")
-    target = _target()
+@pytest.mark.parametrize(
+    ("preview", "expected"),
+    [
+        ("input", "source"),
+        ("canonical", "mapped:source"),
+        ("records", "records:transformed:mapped:source"),
+    ],
+)
+def test_record_previews_stop_at_the_named_stage(monkeypatch, preview, expected):
     captured = {}
 
-    def _stream_id_pipeline(context, stream_id, node):
+    def build_pipeline(context, stream_id):
         captured["stream_id"] = stream_id
-        captured["node"] = node
-        return iter(["record"])
+        return _record_preview_pipeline()
 
     monkeypatch.setattr(
-        "datapipeline.operations.runtime.pipeline.build_stream_id_pipeline",
-        _stream_id_pipeline,
+        "datapipeline.operations.runtime.pipeline.build_stream_pipeline",
+        build_pipeline,
+    )
+    result = _serve(
+        _runtime({"derived.prices": object()}),
+        _preview_dataset("derived.prices"),
+        _target(),
+        preview=preview,
     )
 
-    result = _serve(runtime, dataset, target, preview_index=4)
-
-    assert captured == {"stream_id": "derived.prices", "node": 0}
-    assert len(result.outputs) == 1
-    assert list(result.outputs[0].rows) == ["record"]
+    assert captured == {"stream_id": "derived.prices"}
+    assert list(result.outputs[0].rows) == [expected]
 
 
-def test_preview_index_reports_stream_shape_mismatch_before_running(monkeypatch):
-    runtime = _runtime_with_stream_kinds({"derived.prices": "stream"})
-    dataset = _preview_dataset("derived.prices")
-
-    def _stream_id_pipeline(*args, **kwargs):
-        raise AssertionError("preview should fail before building streams")
-
+def test_features_preview_returns_processed_feature_records(monkeypatch):
     monkeypatch.setattr(
-        "datapipeline.operations.runtime.pipeline.build_stream_id_pipeline",
-        _stream_id_pipeline,
+        "datapipeline.operations.runtime.pipeline.run_feature_pipeline",
+        lambda *args, **kwargs: iter(["feature"]),
     )
 
-    with pytest.raises(ValueError, match="Use preview indices 4-8"):
-        _serve(runtime, dataset, _target(), preview_index=0)
+    result = _serve(
+        _runtime(),
+        _preview_dataset("derived.prices"),
+        _target(),
+        preview="features",
+    )
+
+    assert list(result.outputs[0].rows) == ["feature"]
 
 
-def test_preview_index_13_previews_postprocess(monkeypatch):
+def test_feature_preview_rejects_duplicate_resolved_destinations(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    dataset = SimpleNamespace(
+        features=[
+            SimpleNamespace(id="a/b", stream="first"),
+            SimpleNamespace(id="a?b", stream="second"),
+        ],
+        targets=[],
+        sample=SimpleNamespace(cadence="1d", keys=[]),
+    )
+    monkeypatch.setattr(
+        "datapipeline.operations.runtime.pipeline.run_feature_pipeline",
+        lambda *args, **kwargs: pytest.fail(
+            "preview streams must not be opened before destinations are validated"
+        ),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"Preview outputs 'a/b' and 'a\?b' resolve to the same destination",
+    ):
+        _serve(
+            _runtime(),
+            dataset,
+            _fs_target(tmp_path / "preview.jsonl"),
+            preview="features",
+        )
+
+    assert not list(tmp_path.iterdir())
+
+
+def test_postprocess_preview_runs_postprocess(monkeypatch):
     runtime = _runtime()
     dataset = _dataset()
     target = _target()
@@ -261,16 +312,20 @@ def test_preview_index_13_previews_postprocess(monkeypatch):
         lambda runtime_obj, rectangular_required: (None, None),
     )
     monkeypatch.setattr(
-        "datapipeline.operations.runtime.pipeline.build_full_dag",
-        lambda *args, **kwargs: _sample_preview_dag(),
+        "datapipeline.operations.runtime.pipeline.build_dataset_pipeline",
+        lambda *args, **kwargs: _sample_preview_pipeline(),
     )
 
-    result = _serve(runtime, dataset, target, preview_index=13)
+    result = _serve(runtime, dataset, target, preview="postprocess")
 
     assert list(result.outputs[0].rows) == ["post:vector"]
 
 
-@pytest.mark.parametrize("preview_index", [-1, 14])
-def test_preview_index_rejects_out_of_range_value(preview_index):
-    with pytest.raises(ValueError, match="preview_index must be between 0 and 13"):
-        _serve(_runtime(), _dataset(), _target(), preview_index=preview_index)
+def test_preview_rejects_unknown_stage() -> None:
+    with pytest.raises(ValueError, match="Unsupported preview stage"):
+        _serve(
+            _runtime(),
+            _preview_dataset("prices"),
+            _target(),
+            preview="unknown",  # type: ignore[arg-type]
+        )

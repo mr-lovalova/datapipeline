@@ -1,10 +1,11 @@
 import pickle
 from dataclasses import dataclass
+from unittest.mock import Mock
 
 import pytest
 
-import datapipeline.pipelines.shared.sort as sort_module
-from datapipeline.pipelines.shared.sort import batch_sort
+import datapipeline.pipelines.sort as sort_module
+from datapipeline.pipelines.sort import SortProgress, batch_sort
 
 
 @dataclass
@@ -51,34 +52,47 @@ def test_batch_sort_orders_items_across_merge_passes(monkeypatch) -> None:
 def test_batch_sort_reports_buffered_and_merged_work(monkeypatch) -> None:
     monkeypatch.setattr(sort_module, "_MAX_OPEN_RUNS", 2)
     monkeypatch.setattr(sort_module, "_MERGE_PROGRESS_INTERVAL", 1)
-    snapshots = []
-    monkeypatch.setattr(sort_module, "report_node_progress", snapshots.append)
+    progress = Mock(wraps=SortProgress())
 
     ordered = list(
         batch_sort(
             [SortItem(3), SortItem(1), SortItem(2)],
             buffer_bytes=1,
             key=lambda item: item.value,
+            progress=progress,
         )
     )
 
     assert [item.value for item in ordered] == [1, 2, 3]
-    assert any(
-        snapshot.phase == "spilling"
-        and snapshot.completed == 3
-        and snapshot.detail == "3 spill runs"
-        for snapshot in snapshots
-    )
-    assert any(
-        snapshot.phase == "merging"
-        and snapshot.completed == 3
-        and snapshot.total == 3
-        and snapshot.detail == "pass 1"
-        for snapshot in snapshots
-    )
-    assert snapshots[-1].phase == "emitting"
-    assert snapshots[-1].completed == 0
-    assert snapshots[-1].total == 3
+    progress.spilling.assert_any_call(3, 3)
+    progress.merging.assert_any_call(3, 3, 1)
+    progress.emitting.assert_called_once_with(3)
+
+
+def test_sort_progress_uses_node_output_count_while_emitting() -> None:
+    progress = SortProgress()
+
+    progress.spilling(12, 3)
+    snapshot = progress.snapshot(0)
+    assert snapshot.completed == 12
+    assert snapshot.phase == "spilling"
+    assert snapshot.detail == "3 spill runs"
+
+    progress.emitting(12)
+    snapshot = progress.snapshot(5)
+    assert snapshot.completed == 5
+    assert snapshot.total == 12
+    assert snapshot.phase == "emitting"
+
+
+def test_batch_sort_resets_reused_progress() -> None:
+    progress = SortProgress()
+
+    assert list(batch_sort([2, 1], 1, lambda item: item, progress=progress)) == [1, 2]
+    assert progress.snapshot(2).phase == "emitting"
+
+    assert list(batch_sort([], 1, lambda item: item, progress=progress)) == []
+    assert progress.snapshot(0).phase == "reading"
 
 
 def test_batch_sort_preserves_input_order_across_merge_passes(monkeypatch) -> None:

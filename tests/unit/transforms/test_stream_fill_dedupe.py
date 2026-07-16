@@ -1,7 +1,12 @@
 import pytest
+from pydantic import ValidationError
 
-from datapipeline.transforms.stream.dedupe import FeatureDeduplicateTransform
-from datapipeline.transforms.stream.fill import FillTransformer as FeatureFill
+from datapipeline.config.transforms import FillConfig
+from datapipeline.transforms.stream.dedupe import DedupeTransform
+from datapipeline.transforms.stream.fill import (
+    ForwardFillTransform,
+    StatisticalFillTransform,
+)
 from tests.unit.transforms.helpers import make_time_record
 
 
@@ -16,7 +21,12 @@ def test_time_mean_fill_uses_running_average():
         ]
     )
 
-    transformer = FeatureFill(field="value", method="mean", window=2)
+    transformer = StatisticalFillTransform(
+        field="value",
+        window=2,
+        statistic="mean",
+        partition_fields=(),
+    )
 
     transformed = list(transformer.apply(stream))
     values = [rec.value for rec in transformed]
@@ -37,7 +47,12 @@ def test_time_median_fill_honours_window():
         ]
     )
 
-    transformer = FeatureFill(field="value", window=2)
+    transformer = StatisticalFillTransform(
+        field="value",
+        window=2,
+        statistic="median",
+        partition_fields=(),
+    )
 
     transformed = list(transformer.apply(stream))
     values = [rec.value for rec in transformed]
@@ -57,7 +72,7 @@ def test_forward_fill_carries_last_valid_value():
         ]
     )
 
-    transformer = FeatureFill(field="value", method="forward")
+    transformer = ForwardFillTransform(field="value", partition_fields=())
 
     transformed = list(transformer.apply(stream))
 
@@ -76,10 +91,9 @@ def test_forward_fill_respects_partitions():
     b2 = make_time_record(None, 2)
     setattr(b2, "ticker", "B")
 
-    transformer = FeatureFill(
+    transformer = ForwardFillTransform(
         field="value",
-        method="forward",
-        partition_by="ticker",
+        partition_fields=("ticker",),
     )
 
     transformed = list(transformer.apply(iter([a0, a1, b0, b1, b2])))
@@ -95,7 +109,11 @@ def test_forward_fill_can_write_to_separate_field():
         ]
     )
 
-    transformer = FeatureFill(field="value", to="value_asof", method="forward")
+    transformer = ForwardFillTransform(
+        field="value",
+        to="value_asof",
+        partition_fields=(),
+    )
 
     transformed = list(transformer.apply(stream))
 
@@ -103,18 +121,73 @@ def test_forward_fill_can_write_to_separate_field():
     assert [rec.value_asof for rec in transformed] == [10.0, 10.0]
 
 
-@pytest.mark.parametrize(
-    "kwargs",
-    [
-        {"method": "unknown"},
-        {"method": "forward", "window": 2},
-        {"method": "forward", "min_samples": 1},
-        {"method": "mean"},
-    ],
-)
-def test_fill_rejects_invalid_method_options(kwargs):
-    with pytest.raises(ValueError):
-        FeatureFill(field="value", **kwargs)
+def test_statistical_fill_rejects_unknown_statistic() -> None:
+    with pytest.raises(ValidationError, match="statistic"):
+        FillConfig(
+            field="value",
+            window=2,
+            statistic="maximum",
+        )
+
+
+def test_statistical_fill_rejects_impossible_sample_count() -> None:
+    with pytest.raises(ValidationError, match="min_samples cannot exceed window"):
+        FillConfig(
+            field="value",
+            window=2,
+            statistic="mean",
+            min_samples=3,
+        )
+
+
+def test_forward_fill_overwrites_existing_destination_without_mutating_input() -> None:
+    first = make_time_record(10.0, 0)
+    first.value_asof = -1.0
+    second = make_time_record(None, 1)
+    second.value_asof = -2.0
+
+    transformed = list(
+        ForwardFillTransform(
+            field="value",
+            to="value_asof",
+            partition_fields=(),
+        ).apply(iter([first, second]))
+    )
+
+    assert [record.value_asof for record in transformed] == [10.0, 10.0]
+    assert [first.value_asof, second.value_asof] == [-1.0, -2.0]
+
+
+def test_statistical_fill_overwrites_destination_without_mutating_input() -> None:
+    first = make_time_record(10.0, 0)
+    first.value_filled = -1.0
+    second = make_time_record(None, 1)
+    second.value_filled = -2.0
+
+    transformed = list(
+        StatisticalFillTransform(
+            field="value",
+            to="value_filled",
+            window=1,
+            statistic="mean",
+            partition_fields=(),
+        ).apply(iter([first, second]))
+    )
+
+    assert [record.value_filled for record in transformed] == [10.0, 10.0]
+    assert [first.value_filled, second.value_filled] == [-1.0, -2.0]
+
+
+def test_fill_requires_configured_field() -> None:
+    record = make_time_record(10.0, 0)
+
+    with pytest.raises(KeyError, match="missing"):
+        list(
+            ForwardFillTransform(
+                field="missing",
+                partition_fields=(),
+            ).apply(iter([record]))
+        )
 
 
 def test_stream_dedupe_removes_exact_duplicates():
@@ -127,7 +200,7 @@ def test_stream_dedupe_removes_exact_duplicates():
             make_time_record(5.0, 0),
         ]
     )
-    transform = FeatureDeduplicateTransform()
+    transform = DedupeTransform()
     out = list(transform.apply(stream))
     assert [rec.value for rec in out] == [10.0, 12.0, 5.0]
 
@@ -139,11 +212,11 @@ def test_stream_dedupe_keeps_distinct_values():
             make_time_record(11.0, 0),
         ]
     )
-    transform = FeatureDeduplicateTransform()
+    transform = DedupeTransform()
     out = list(transform.apply(stream))
     assert [rec.value for rec in out] == [10.0, 11.0]
 
 
 def test_stream_dedupe_rejects_unknown_options() -> None:
     with pytest.raises(TypeError, match="takes no arguments"):
-        FeatureDeduplicateTransform(typo=True)
+        DedupeTransform(typo=True)

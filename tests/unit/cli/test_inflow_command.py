@@ -1,4 +1,7 @@
-from datapipeline.services.scaffold.layout import default_stream_id_for_source, source_id_parts
+from datapipeline.services.scaffold.layout import (
+    default_stream_id_for_source,
+    source_id_parts,
+)
 
 
 def test_existing_source_variant_is_preserved_in_default_stream_id() -> None:

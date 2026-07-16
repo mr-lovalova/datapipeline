@@ -2,14 +2,14 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Mapping
 
-from datapipeline.dag.context import PipelineContext
+from datapipeline.artifacts.registry import VECTOR_SCHEMA_SPEC
+from datapipeline.execution.context import PipelineContext
 
 from .adapter import VectorAdapter
 
 
 def _resolve_columns(
-    rows: list[Mapping[str, Any]],
-    *,
+    rows: Sequence[Mapping[str, Any]],
     feature_columns: Sequence[str] | None,
     target_columns: Sequence[str] | None,
 ) -> tuple[list[str], list[str]]:
@@ -26,7 +26,7 @@ def _resolve_columns(
 
 def _schema_columns(adapter: VectorAdapter) -> tuple[list[str], list[str]]:
     context = PipelineContext(adapter.runtime)
-    schema = context.load_schema()
+    schema = context.require_artifact(VECTOR_SCHEMA_SPEC)
     return (
         [entry.id for entry in schema.features],
         [entry.id for entry in schema.targets],
@@ -46,8 +46,8 @@ def torch_dataset(
     """Build a torch.utils.data.Dataset that yields tensors from vectors."""
 
     try:
-        import torch
-        from torch.utils.data import Dataset
+        import torch  # type: ignore[import-not-found]
+        from torch.utils.data import Dataset  # type: ignore[import-not-found]
     except ImportError as exc:  # pragma: no cover - exercised by runtime users
         raise RuntimeError(
             "torch is required for torch_dataset(); install torch in your project.",
@@ -82,11 +82,15 @@ def torch_dataset(
 
         def __getitem__(self, idx: int):
             sample = rows[idx]
-            features = torch.as_tensor(
-                [sample[col] for col in feature_cols],
-                dtype=dtype,
-                device=device,
-            ) if feature_cols else torch.tensor([], dtype=dtype, device=device)
+            features = (
+                torch.as_tensor(
+                    [sample[col] for col in feature_cols],
+                    dtype=dtype,
+                    device=device,
+                )
+                if feature_cols
+                else torch.tensor([], dtype=dtype, device=device)
+            )
             if not target_cols:
                 return features
             targets = torch.as_tensor(
@@ -97,6 +101,3 @@ def torch_dataset(
             return features, targets
 
     return _VectorDataset()
-
-
-__all__ = ["torch_dataset"]

@@ -13,4 +13,5 @@ def add_list_command(sub, common: argparse.ArgumentParser) -> None:
     list_sub.add_parser("parsers", help="list parsers")
     list_sub.add_parser("dtos", help="list DTOs")
     list_sub.add_parser("mappers", help="list mappers")
+    list_sub.add_parser("combiners", help="list combiners")
     list_sub.add_parser("loaders", help="list loaders")

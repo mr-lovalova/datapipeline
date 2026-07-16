@@ -6,13 +6,11 @@ from types import SimpleNamespace
 import pytest
 
 import datapipeline.operations.persistence as persistence
-from datapipeline.cli.visuals.execution import (
-    ExecutionEventSink,
-    make_operation_observer,
-)
+from datapipeline.artifacts.registry import ArtifactRegistry
+from datapipeline.cli.visuals.execution import make_operation_observer
 from datapipeline.cli.visuals.execution_context import (
-    reset_current_execution_event_sink,
-    set_current_execution_event_sink,
+    reset_current_execution_event_handler,
+    set_current_execution_event_handler,
 )
 from datapipeline.execution.observability import (
     FileResult,
@@ -27,24 +25,23 @@ from datapipeline.operations.persistence import (
     persist_artifact_output,
     persist_runtime_result,
 )
-from datapipeline.services.artifacts import ArtifactManager
 
 
-class _CaptureSink(ExecutionEventSink):
+class _CaptureHandler:
     def __init__(self) -> None:
         self.events = []
 
-    def emit(self, event) -> None:
+    def __call__(self, event) -> None:
         self.events.append(event)
 
 
 def test_persist_artifact_output_requires_declared_existing_file(tmp_path) -> None:
     runtime = SimpleNamespace(
         artifacts_root=tmp_path,
-        artifacts=ArtifactManager(tmp_path),
+        artifacts=ArtifactRegistry(tmp_path),
     )
 
-    with pytest.raises(ValueError, match="but its task declares"):
+    with pytest.raises(ValueError, match="but its operation declares"):
         persist_artifact_output(
             ArtifactOutput(relative_path="other.json"),
             artifact_key="snapshot",
@@ -61,12 +58,12 @@ def test_persist_artifact_output_requires_declared_existing_file(tmp_path) -> No
         )
 
 
-def test_persist_artifact_output_registers_declared_file(tmp_path) -> None:
+def test_persist_artifact_output_snapshots_declared_file(tmp_path) -> None:
     output = tmp_path / "snapshot.json"
     output.write_text("{}", encoding="utf-8")
     runtime = SimpleNamespace(
         artifacts_root=tmp_path,
-        artifacts=ArtifactManager(tmp_path),
+        artifacts=ArtifactRegistry(tmp_path),
     )
 
     info = persist_artifact_output(
@@ -78,7 +75,71 @@ def test_persist_artifact_output_registers_declared_file(tmp_path) -> None:
 
     assert info is not None
     assert info.relative_path == "snapshot.json"
-    assert runtime.artifacts.has("snapshot")
+    assert tuple(file.relative_path for file in info.files) == ("snapshot.json",)
+    assert not runtime.artifacts.has("snapshot")
+
+
+def test_persist_artifact_output_validates_companion_files(tmp_path) -> None:
+    output = tmp_path / "manifest.json"
+    companion = tmp_path / "manifest.shards/000000.jsonl.gz"
+    output.write_text("{}", encoding="utf-8")
+    companion.parent.mkdir()
+    companion.write_bytes(b"shard")
+    runtime = SimpleNamespace(
+        artifacts_root=tmp_path,
+        artifacts=ArtifactRegistry(tmp_path),
+    )
+
+    info = persist_artifact_output(
+        ArtifactOutput(
+            relative_path="manifest.json",
+            companion_paths=("manifest.shards/000000.jsonl.gz",),
+        ),
+        artifact_key="vector_inputs",
+        expected_relative_path="manifest.json",
+        runtime=runtime,
+    )
+
+    assert info is not None
+    assert tuple(file.relative_path for file in info.files) == (
+        "manifest.json",
+        "manifest.shards/000000.jsonl.gz",
+    )
+
+
+def test_persist_artifact_output_rejects_escaping_companion(tmp_path) -> None:
+    (tmp_path / "manifest.json").write_text("{}", encoding="utf-8")
+    runtime = SimpleNamespace(
+        artifacts_root=tmp_path,
+        artifacts=ArtifactRegistry(tmp_path),
+    )
+
+    with pytest.raises(ValueError, match="must be relative"):
+        persist_artifact_output(
+            ArtifactOutput(
+                relative_path="manifest.json",
+                companion_paths=("../outside.jsonl.gz",),
+            ),
+            artifact_key="vector_inputs",
+            expected_relative_path="manifest.json",
+            runtime=runtime,
+        )
+
+
+def test_persist_artifact_output_rejects_case_colliding_companion(tmp_path) -> None:
+    (tmp_path / "manifest.json").write_text("{}", encoding="utf-8")
+    runtime = SimpleNamespace(artifacts_root=tmp_path)
+
+    with pytest.raises(ValueError, match="output paths must be unique"):
+        persist_artifact_output(
+            ArtifactOutput(
+                relative_path="manifest.json",
+                companion_paths=("MANIFEST.json",),
+            ),
+            artifact_key="vector_inputs",
+            expected_relative_path="manifest.json",
+            runtime=runtime,
+        )
 
 
 def test_failed_runtime_write_preserves_existing_file(tmp_path) -> None:
@@ -107,6 +168,32 @@ def test_failed_runtime_write_preserves_existing_file(tmp_path) -> None:
     assert destination.read_text(encoding="utf-8") == "previous\n"
 
 
+def test_split_runtime_output_rejects_colliding_destinations(tmp_path) -> None:
+    targets = {
+        label: OutputTarget(
+            transport="fs",
+            format="jsonl",
+            view="raw",
+            encoding="utf-8",
+            destination=tmp_path / filename,
+        )
+        for label, filename in (("train", "SPLIT.jsonl"), ("test", "split.jsonl"))
+    }
+
+    with pytest.raises(ValueError, match="resolve to the same destination"):
+        persist_runtime_result(
+            SplitRuntimeOutput(
+                rows=iter(()),
+                targets=targets,
+                label_for_row=lambda row: row["split"],
+            ),
+            target=None,
+            logger=logging.getLogger(__name__),
+        )
+
+    assert list(tmp_path.iterdir()) == []
+
+
 def test_runtime_persistence_emits_flat_output(tmp_path) -> None:
     destination = tmp_path / "out.jsonl"
     target = OutputTarget(
@@ -116,8 +203,8 @@ def test_runtime_persistence_emits_flat_output(tmp_path) -> None:
         encoding="utf-8",
         destination=destination,
     )
-    capture = _CaptureSink()
-    token = set_current_execution_event_sink(capture)
+    capture = _CaptureHandler()
+    token = set_current_execution_event_handler(capture)
     try:
         logger = logging.getLogger(__name__)
         observer = make_operation_observer(logger)
@@ -130,7 +217,7 @@ def test_runtime_persistence_emits_flat_output(tmp_path) -> None:
                     logger=logger,
                 )
     finally:
-        reset_current_execution_event_sink(token)
+        reset_current_execution_event_handler(token)
 
     outputs = [event for event in capture.events if isinstance(event, FileResult)]
     assert len(outputs) == 1
@@ -190,12 +277,8 @@ def test_runtime_persistence_reports_html_path(monkeypatch, tmp_path) -> None:
         lambda label, path: results.append((label, path)),
     )
 
-    def render(path):
-        path.write_text("<html></html>", encoding="utf-8")
-        return path
-
     persist_runtime_result(
-        RuntimeOutput(html_renderer=render),
+        RuntimeOutput(render_html=lambda: "<html></html>"),
         target=OutputTarget(
             transport="fs",
             format="html",
@@ -206,7 +289,37 @@ def test_runtime_persistence_reports_html_path(monkeypatch, tmp_path) -> None:
         logger=logging.getLogger(__name__),
     )
 
+    assert destination.read_text(encoding="utf-8") == "<html></html>"
     assert results == [("Output", destination)]
+
+
+def test_failed_html_commit_preserves_existing_file(monkeypatch, tmp_path) -> None:
+    destination = tmp_path / "matrix.html"
+    destination.write_text("previous", encoding="utf-8")
+
+    def fail_commit(*_args):
+        raise OSError("commit failed")
+
+    monkeypatch.setattr(
+        "datapipeline.io.sinks.files._commit_temp_file",
+        fail_commit,
+    )
+
+    with pytest.raises(OSError, match="commit failed"):
+        persist_runtime_result(
+            RuntimeOutput(render_html=lambda: "replacement"),
+            target=OutputTarget(
+                transport="fs",
+                format="html",
+                view="flat",
+                encoding="utf-8",
+                destination=destination,
+            ),
+            logger=logging.getLogger(__name__),
+        )
+
+    assert destination.read_text(encoding="utf-8") == "previous"
+    assert list(tmp_path.iterdir()) == [destination]
 
 
 def test_split_runtime_output_routes_rows_to_label_targets(

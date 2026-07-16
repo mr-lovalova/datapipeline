@@ -7,14 +7,13 @@ from datapipeline.services.config_refs import project_vars_from_data
 
 def _project_data(**overrides):
     data = {
-        "version": 1,
+        "schema_version": 2,
+        "artifact_revision": 1,
         "name": "momentum",
         "paths": {
-            "ingests": "ingests",
             "streams": "streams",
             "sources": "sources",
             "dataset": "dataset.yaml",
-            "postprocess": "postprocess.yaml",
             "artifacts": "artifacts",
         },
     }
@@ -28,52 +27,46 @@ def test_project_config_accepts_variant() -> None:
     assert cfg.variant == "long"
 
 
-def test_project_config_accepts_top_level_split() -> None:
-    cfg = ProjectConfig.model_validate(
-        _project_data(
-            split={
-                "mode": "hash",
-                "key": "group",
-                "seed": 42,
-                "ratios": {"train": 0.8, "val": 0.1, "test": 0.1},
-            }
-        )
-    )
+def test_project_config_requires_artifact_revision() -> None:
+    data = _project_data()
+    del data["artifact_revision"]
 
-    assert cfg.split is not None
+    with pytest.raises(ValidationError, match="artifact_revision"):
+        ProjectConfig.model_validate(data)
 
 
-def test_project_config_rejects_globals_split() -> None:
-    with pytest.raises(ValidationError, match="define top-level project.split"):
-        ProjectConfig.model_validate(
-            _project_data(
-                globals={
-                    "split": {
-                        "mode": "hash",
-                        "key": "group",
-                        "seed": 42,
-                        "ratios": {"train": 0.8, "val": 0.1, "test": 0.1},
-                    }
-                },
-            )
-        )
+def test_project_config_requires_schema_version() -> None:
+    data = _project_data()
+    del data["schema_version"]
+
+    with pytest.raises(ValidationError, match="schema_version"):
+        ProjectConfig.model_validate(data)
+
+
+def test_project_config_accepts_positive_artifact_revision() -> None:
+    cfg = ProjectConfig.model_validate(_project_data(artifact_revision=3))
+
+    assert cfg.artifact_revision == 3
+
+
+@pytest.mark.parametrize("value", [0, -1, "2", 2.0, True])
+def test_project_config_rejects_invalid_artifact_revision(value: object) -> None:
+    with pytest.raises(ValidationError):
+        ProjectConfig.model_validate(_project_data(artifact_revision=value))
 
 
 def test_project_config_accepts_multiple_discovery_roots() -> None:
     cfg = ProjectConfig.model_validate(
         _project_data(
             paths={
-                "ingests": ["ingests", "../common/ingests"],
                 "streams": ["streams", "../common/streams"],
                 "sources": ["sources", "../common/sources"],
                 "dataset": "dataset.yaml",
-                "postprocess": "postprocess.yaml",
                 "artifacts": "artifacts",
             }
         )
     )
 
-    assert cfg.paths.ingests == ["ingests", "../common/ingests"]
     assert cfg.paths.streams == ["streams", "../common/streams"]
     assert cfg.paths.sources == ["sources", "../common/sources"]
 
@@ -83,22 +76,75 @@ def test_project_config_rejects_empty_discovery_roots() -> None:
         ProjectConfig.model_validate(
             _project_data(
                 paths={
-                    "ingests": [],
-                    "streams": "streams",
+                    "streams": [],
                     "sources": "sources",
                     "dataset": "dataset.yaml",
-                    "postprocess": "postprocess.yaml",
                     "artifacts": "artifacts",
                 }
             )
         )
 
 
-def test_project_variant_is_available_for_interpolation() -> None:
+@pytest.mark.parametrize(
+    "field",
+    ["streams", "sources", "dataset", "artifacts", "operations", "profiles"],
+)
+def test_project_config_rejects_blank_paths(field: str) -> None:
+    data = _project_data()
+    data["paths"][field] = "   "
+
+    with pytest.raises(ValidationError, match="at least 1 character"):
+        ProjectConfig.model_validate(data)
+
+
+@pytest.mark.parametrize("field", ["streams", "sources"])
+def test_project_config_rejects_blank_discovery_root(field: str) -> None:
+    data = _project_data()
+    data["paths"][field] = ["valid", "   "]
+
+    with pytest.raises(ValidationError, match="at least 1 character"):
+        ProjectConfig.model_validate(data)
+
+
+def test_project_fields_have_one_interpolation_name() -> None:
     vars_ = project_vars_from_data(_project_data(variant="long"))
 
-    assert vars_["variant"] == "long"
+    assert vars_["project_name"] == "momentum"
     assert vars_["project_variant"] == "long"
+    assert "project" not in vars_
+    assert "variant" not in vars_
+    assert "schema_version" not in vars_
+
+
+@pytest.mark.parametrize("field", ["project_name", "project_variant"])
+def test_project_globals_cannot_override_project_variables(field: str) -> None:
+    with pytest.raises(ValueError, match=f"reserved variable '{field}'"):
+        project_vars_from_data(_project_data(globals={field: "override"}))
+
+
+@pytest.mark.parametrize("field", ["start_time", "end_time"])
+def test_project_globals_require_timezone_aware_bounds(field: str) -> None:
+    with pytest.raises(
+        ValidationError, match=f"globals.{field} must be timezone-aware"
+    ):
+        ProjectConfig.model_validate(
+            _project_data(globals={field: "2024-01-01T00:00:00"})
+        )
+
+
+def test_project_globals_reject_reversed_time_range() -> None:
+    with pytest.raises(
+        ValidationError,
+        match="globals.start_time must not be after globals.end_time",
+    ):
+        ProjectConfig.model_validate(
+            _project_data(
+                globals={
+                    "start_time": "2024-01-02T00:00:00Z",
+                    "end_time": "2024-01-01T00:00:00Z",
+                }
+            )
+        )
 
 
 def test_project_config_rejects_unknown_top_level_fields() -> None:
@@ -106,6 +152,35 @@ def test_project_config_rejects_unknown_top_level_fields() -> None:
         ProjectConfig.model_validate(_project_data(varaint="long"))
 
 
-def test_project_version_is_schema_version_one() -> None:
-    with pytest.raises(ValidationError, match="Input should be 1"):
-        ProjectConfig.model_validate(_project_data(version="v1-champion"))
+def test_project_config_rejects_split_outside_dataset() -> None:
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        ProjectConfig.model_validate(_project_data(split={"mode": "hash"}))
+
+
+def test_project_config_rejects_postprocess_path() -> None:
+    data = _project_data()
+    data["paths"]["postprocess"] = "postprocess.yaml"
+
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        ProjectConfig.model_validate(data)
+
+
+def test_project_config_rejects_unknown_path_fields() -> None:
+    data = _project_data()
+    data["paths"]["profiels"] = "profiles"
+
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        ProjectConfig.model_validate(data)
+
+
+def test_project_config_rejects_removed_ingest_path() -> None:
+    data = _project_data()
+    data["paths"]["ingests"] = "ingests"
+
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        ProjectConfig.model_validate(data)
+
+
+def test_project_schema_version_is_two() -> None:
+    with pytest.raises(ValidationError, match="Input should be 2"):
+        ProjectConfig.model_validate(_project_data(schema_version=1))

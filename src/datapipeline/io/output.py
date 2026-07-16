@@ -1,17 +1,17 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Optional
+from unicodedata import normalize
 
-from datapipeline.config.profiles import ServeOutputConfig
+from datapipeline.config.profiles import Format, ServeOutputConfig, Transport, View
+from datapipeline.io.runs import RunPaths
 from datapipeline.services.path_policy import (
     resolve_relative_to_base,
     sanitize_path_segment,
     workspace_cwd,
 )
-from datapipeline.services.runs import RunPaths
 
 
-def _format_suffix(fmt: str) -> str:
+def _format_suffix(fmt: Format) -> str:
     suffix_map = {
         "jsonl": ".jsonl",
         "csv": ".csv",
@@ -19,20 +19,20 @@ def _format_suffix(fmt: str) -> str:
         "txt": ".txt",
         "html": ".html",
     }
-    return suffix_map.get(fmt, ".out")
+    return suffix_map[fmt]
 
 
-def _default_view_for_format(fmt: str) -> str:
+def _default_view_for_format(fmt: Format) -> View:
     if fmt == "csv":
         return "flat"
     return "raw"
 
 
-def _resolve_view(fmt: str, configured_view: str | None) -> str:
+def _resolve_view(fmt: Format, configured_view: View | None) -> View:
     return configured_view or _default_view_for_format(fmt)
 
 
-def _default_filename_for_format(fmt: str) -> str:
+def _default_filename_for_format(fmt: Format) -> str:
     suffix = _format_suffix(fmt)
     return f"vectors{suffix}"
 
@@ -41,35 +41,23 @@ def _default_filename_for_format(fmt: str) -> str:
 class OutputTarget:
     """Resolved writer target describing how and where to emit records."""
 
-    transport: str  # stdout | fs
-    format: str  # jsonl | csv | pickle | html
-    view: str  # flat | raw
+    transport: Transport
+    format: Format
+    view: View
     encoding: str | None
-    destination: Optional[Path]
+    destination: Path | None
     run: RunPaths | None = None
-    overwrite: bool = True
 
     def for_feature(self, feature_id: str) -> "OutputTarget":
         if self.transport != "fs" or self.destination is None:
             return self
-        safe_feature = "".join(
-            ch if ch.isalnum() or ch in ("_", "-", ".") else "_"
-            for ch in str(feature_id)
-        )
+        safe_feature = sanitize_path_segment(str(feature_id), default="feature")
         dest = self.destination
         suffix = "".join(dest.suffixes)
         stem = dest.name[: -len(suffix)] if suffix else dest.name
         new_name = f"{stem}.{safe_feature}{suffix}"
         new_path = dest.with_name(new_name)
-        return OutputTarget(
-            transport=self.transport,
-            format=self.format,
-            view=self.view,
-            encoding=self.encoding,
-            destination=new_path,
-            run=self.run,
-            overwrite=self.overwrite,
-        )
+        return replace(self, destination=new_path)
 
     def for_split(self, label: str) -> "OutputTarget":
         if self.transport != "fs" or self.destination is None:
@@ -80,15 +68,12 @@ class OutputTarget:
         stem = dest.name[: -len(suffix)] if suffix else dest.name
         new_name = f"{stem}.{safe_label}{suffix}"
         new_path = dest.with_name(new_name)
-        return OutputTarget(
-            transport=self.transport,
-            format=self.format,
-            view=self.view,
-            encoding=self.encoding,
-            destination=new_path,
-            run=self.run,
-            overwrite=self.overwrite,
-        )
+        return replace(self, destination=new_path)
+
+
+def output_destination_key(path: Path) -> str:
+    """Return the portable identity used to reject colliding output paths."""
+    return normalize("NFC", str(path)).casefold()
 
 
 class OutputResolutionError(ValueError):
@@ -104,18 +89,7 @@ def resolve_output_directory(
     if config is None or config.transport != "fs" or config.directory is None:
         return None
     base = base_path or workspace_cwd()
-    return resolve_relative_to_base(config.directory, base, resolve=True)
-
-
-def resolve_destination(
-    target: OutputTarget | None,
-    *,
-    base_dir: Path,
-    default_filename: str,
-) -> Path:
-    if target is not None and target.destination is not None:
-        return target.destination.resolve()
-    return (base_dir / default_filename).resolve()
+    return resolve_relative_to_base(config.directory, base)
 
 
 def resolve_output_target(
@@ -123,7 +97,7 @@ def resolve_output_target(
     config_output: ServeOutputConfig | None,
     default: ServeOutputConfig | None = None,
     base_path: Path | None = None,
-    run_name: str | None = None,
+    profile_name: str | None = None,
     run_paths: RunPaths | None = None,
 ) -> OutputTarget:
     """
@@ -148,21 +122,19 @@ def resolve_output_target(
 
     if config.directory is None:
         raise OutputResolutionError("fs output requires a directory")
-    directory = resolve_output_directory(config, base_path=base_path)
-    if directory is None:
-        raise OutputResolutionError("fs output requires a directory")
+    directory = resolve_relative_to_base(
+        config.directory,
+        base_path,
+    )
     if run_paths is not None:
         base_dest_dir = run_paths.dataset_dir
     else:
-        run_paths = None
-        # When not creating a managed run, nest outputs under an optional
-        # run_name subdirectory to keep layouts consistent with tests/CLI.
         base_dest_dir = directory
-        if run_name:
-            base_dest_dir = base_dest_dir / sanitize_path_segment(run_name)
+        if profile_name:
+            base_dest_dir = base_dest_dir / sanitize_path_segment(profile_name)
     suffix = _format_suffix(config.format)
     filename_stem = config.filename or (
-        sanitize_path_segment(run_name) if run_name else None
+        sanitize_path_segment(profile_name) if profile_name else None
     )
     if filename_stem:
         if Path(filename_stem).suffix == suffix:

@@ -18,7 +18,7 @@ def test_root_version_flag_prints_short_version(capsys) -> None:
 def test_version_command_prints_short_version(capsys) -> None:
     args = build_parser().parse_args(["version"])
 
-    handled = execute_command(
+    result = execute_command(
         args,
         plugin_root=None,
         workspace_context=None,
@@ -27,14 +27,14 @@ def test_version_command_prints_short_version(capsys) -> None:
         cli_log_outputs=[],
     )
 
-    assert handled is True
+    assert result is None
     assert capsys.readouterr().out.strip() == short_version()
 
 
 def test_env_command_prints_diagnostic_report(capsys) -> None:
     args = build_parser().parse_args(["env"])
 
-    handled = execute_command(
+    result = execute_command(
         args,
         plugin_root=None,
         workspace_context=None,
@@ -43,5 +43,5 @@ def test_env_command_prints_diagnostic_report(capsys) -> None:
         cli_log_outputs=[],
     )
 
-    assert handled is True
+    assert result is None
     assert capsys.readouterr().out.strip() == version_report()

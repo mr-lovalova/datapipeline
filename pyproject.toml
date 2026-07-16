@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jerry-thomas"
-version = "4.0.0"
+version = "5.0.0"
 description = "Jerry-Thomas: a stream-first, plugin-friendly data pipeline (mixology-themed CLI)"
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.11"
@@ -16,6 +16,7 @@ dependencies = [
   "PyYAML>=5.4",
   "jinja2>=3.0",
   "rich>=13",
+  "tomlkit>=0.13",
 ]
 
 [project.optional-dependencies]
@@ -46,8 +47,8 @@ exclude = ["datapipeline.templates*"]
 [tool.setuptools.package-data]
 datapipeline = [
   "templates/plugin_skeleton/**",
-  "templates/plugin_skeleton/your-dataset/.env.example",
-  "templates/plugin_skeleton/your-interim-data-builder/.env.example",
+  "templates/dataset_skeleton/**",
+  "templates/dataset_skeleton/your-dataset/.env.example",
   "templates/demo_skeleton/**",
   "templates/demo_skeleton/demo/.env.example",
   "templates/stubs/**"
@@ -65,33 +66,11 @@ datapipeline = [
 target-version = "py311"
 extend-exclude = ["src/datapipeline/templates"]
 
-[project.entry-points."datapipeline.transforms.record"]
-floor_time = "datapipeline.transforms.record.floor_time:FloorTimeRecordTransform"
-shift_time = "datapipeline.transforms.record.shift_time:ShiftTimeRecordTransform"
-where = "datapipeline.transforms.where:where"
-
-[project.entry-points."datapipeline.transforms.stream"]
-floor_time = "datapipeline.transforms.stream.floor_time:FloorTimeTransform"
-lag = "datapipeline.transforms.stream.lag:LagTransformer"
-lead = "datapipeline.transforms.stream.lead:LeadTransformer"
-ensure_cadence = "datapipeline.transforms.stream.ensure_ticks:EnsureCadenceTransform"
-fill = "datapipeline.transforms.stream.fill:FillTransformer"
-granularity = "datapipeline.transforms.stream.granularity:FeatureGranularityTransform"
-dedupe = "datapipeline.transforms.stream.dedupe:FeatureDeduplicateTransform"
-rolling = "datapipeline.transforms.stream.rolling:RollingTransformer"
-where = "datapipeline.transforms.stream.where:WhereTransform"
-derive = "datapipeline.transforms.stream.derive:DeriveTransform"
-
-[project.entry-points."datapipeline.transforms.feature"]
-scale = "datapipeline.transforms.feature.scaler:StandardScalerTransform"
-sequence = "datapipeline.transforms.sequence:WindowTransformer"
-
-
-[project.entry-points."datapipeline.transforms.vector"]
-drop = "datapipeline.transforms.vector:VectorDropTransform"
-fill = "datapipeline.transforms.vector:VectorFillTransform"
-forward_fill = "datapipeline.transforms.vector:VectorForwardFillTransform"
-replace = "datapipeline.transforms.vector:VectorReplaceTransform"
+[tool.mypy]
+python_version = "3.11"
+files = ["src/datapipeline"]
+exclude = ["^src/datapipeline/templates/"]
+check_untyped_defs = true
 
 [project.entry-points."datapipeline.mappers"]
 "time.synthetic" = "datapipeline.mappers.noop:identity"
@@ -115,14 +94,5 @@ identity = "datapipeline.parsers.identity:IdentityParser"
 "core.artifact.stats" = "datapipeline.operations.artifacts.stats:materialize_vector_stats"
 "core.artifact.ticks" = "datapipeline.operations.artifacts.ticks:materialize_ticks"
 
-[project.entry-points."datapipeline.operations.runtime"]
-"core.runtime.pipeline" = "datapipeline.operations.runtime.pipeline:serve_with_runtime"
-"core.runtime.coverage" = "datapipeline.operations.runtime.coverage:inspect_coverage_with_runtime"
-"core.runtime.thresholds" = "datapipeline.operations.runtime.thresholds:inspect_thresholds_with_runtime"
-"core.runtime.matrix" = "datapipeline.operations.runtime.matrix:inspect_matrix_with_runtime"
-
 [tool.pytest.ini_options]
 pythonpath = ["src"]
-[project.entry-points."datapipeline.transforms.debug"]
-identity = "datapipeline.transforms.debug.identity:IdentityGuardTransform"
-lint = "datapipeline.transforms.debug.lint:StreamLint"

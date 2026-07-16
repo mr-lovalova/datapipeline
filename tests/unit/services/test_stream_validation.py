@@ -1,0 +1,256 @@
+import pytest
+
+from datapipeline.config.sources import SourceConfig
+from datapipeline.config.streams import (
+    AlignedStreamConfig,
+    DerivedStreamConfig,
+    SourceStreamConfig,
+    StreamConfig,
+)
+from datapipeline.services.streams.validation import (
+    stream_partition_by,
+    validate_stream_configs,
+)
+
+
+def _source(source_id: str = "source.alias") -> SourceConfig:
+    return SourceConfig.model_validate(
+        {
+            "id": source_id,
+            "parser": {"entrypoint": "identity"},
+            "loader": {"entrypoint": "load"},
+        }
+    )
+
+
+def _source_stream(
+    stream_id: str,
+    partition_by: list[str] | None = None,
+    ordered_by: list[str] | None = None,
+    transforms: list[dict[str, object]] | None = None,
+) -> SourceStreamConfig:
+    return SourceStreamConfig.model_validate(
+        {
+            "id": stream_id,
+            "from": {"source": "source.alias"},
+            "map": {"entrypoint": "identity"},
+            "partition_by": [] if partition_by is None else partition_by,
+            "ordered_by": ordered_by,
+            "transforms": [] if transforms is None else transforms,
+        }
+    )
+
+
+def _derived(
+    stream_id: str,
+    upstream: str,
+    transforms: list[dict[str, object]] | None = None,
+) -> DerivedStreamConfig:
+    return DerivedStreamConfig.model_validate(
+        {
+            "id": stream_id,
+            "from": {"stream": upstream},
+            "transforms": (
+                [{"operation": "dedupe"}] if transforms is None else transforms
+            ),
+        }
+    )
+
+
+def _aligned(stream_id: str, inputs: list[str]) -> AlignedStreamConfig:
+    return AlignedStreamConfig.model_validate(
+        {
+            "id": stream_id,
+            "from": {"align": inputs},
+            "combine": {"entrypoint": "calculate"},
+        }
+    )
+
+
+def test_validation_rejects_unknown_source() -> None:
+    streams: dict[str, StreamConfig] = {"prices": _source_stream("prices")}
+
+    with pytest.raises(ValueError, match="references unknown source 'source.alias'"):
+        validate_stream_configs({}, streams)
+
+
+def test_validation_rejects_unknown_stream() -> None:
+    streams: dict[str, StreamConfig] = {"returns": _derived("returns", "prices")}
+
+    with pytest.raises(ValueError, match="references unknown stream"):
+        validate_stream_configs({}, streams)
+
+
+def test_validation_rejects_dependency_cycle() -> None:
+    streams: dict[str, StreamConfig] = {
+        "first": _derived("first", "second"),
+        "second": _derived("second", "first"),
+    }
+
+    with pytest.raises(ValueError, match="first -> second -> first"):
+        validate_stream_configs({}, streams)
+
+
+def test_derived_partition_inheritance_is_transitive() -> None:
+    streams: dict[str, StreamConfig] = {
+        "prices": _source_stream("prices", partition_by=["ticker"]),
+        "daily": _derived("daily", "prices"),
+        "returns": _derived("returns", "daily"),
+    }
+
+    validate_stream_configs({"source.alias": _source()}, streams)
+
+    assert stream_partition_by(streams, "returns") == ("ticker",)
+
+
+def test_aligned_partition_inheritance_is_transitive() -> None:
+    streams: dict[str, StreamConfig] = {
+        "a": _source_stream("a", partition_by=["ticker"]),
+        "b": _source_stream("b", partition_by=["ticker"]),
+        "c": _source_stream("c", partition_by=["ticker"]),
+        "first": _aligned("first", ["a", "b"]),
+        "second": _aligned("second", ["first", "c"]),
+    }
+
+    validate_stream_configs({"source.alias": _source()}, streams)
+
+    assert stream_partition_by(streams, "second") == ("ticker",)
+
+
+def test_validation_rejects_aligned_partition_mismatch() -> None:
+    streams: dict[str, StreamConfig] = {
+        "a": _source_stream("a", partition_by=["station"]),
+        "b": _source_stream("b", partition_by=["ticker"]),
+        "aligned": _aligned("aligned", ["a", "b"]),
+    }
+
+    with pytest.raises(
+        ValueError,
+        match=r"partition_by \['ticker'\]; expected \['station'\]",
+    ):
+        validate_stream_configs({"source.alias": _source()}, streams)
+
+
+def test_validation_accepts_declared_canonical_order() -> None:
+    streams: dict[str, StreamConfig] = {
+        "prices": _source_stream(
+            "prices",
+            partition_by=["ticker"],
+            ordered_by=["ticker", "time"],
+        )
+    }
+
+    validate_stream_configs({"source.alias": _source()}, streams)
+
+
+def test_validation_rejects_noncanonical_declared_order() -> None:
+    streams: dict[str, StreamConfig] = {
+        "prices": _source_stream(
+            "prices",
+            partition_by=["ticker"],
+            ordered_by=["time"],
+        )
+    }
+
+    with pytest.raises(
+        ValueError,
+        match=r"ordered_by must be \['ticker', 'time'\]",
+    ):
+        validate_stream_configs({"source.alias": _source()}, streams)
+
+
+@pytest.mark.parametrize(
+    "operation",
+    [
+        {"operation": "lag", "field": "ticker", "periods": 1},
+        {
+            "operation": "lead",
+            "field": "close",
+            "periods": 1,
+            "to": "ticker",
+        },
+        {
+            "operation": "fill",
+            "field": "close",
+            "window": 2,
+            "statistic": "mean",
+            "to": "ticker",
+        },
+        {"operation": "forward_fill", "field": "close", "to": "ticker"},
+        {"operation": "rolling", "field": "close", "window": 2, "to": "ticker"},
+        {
+            "operation": "derive",
+            "left": "close",
+            "operator": "mul",
+            "right_value": 2,
+            "to": "ticker",
+        },
+    ],
+)
+def test_transforms_cannot_write_partition_fields(
+    operation: dict[str, object],
+) -> None:
+    streams: dict[str, StreamConfig] = {
+        "prices": _source_stream("prices", partition_by=["ticker"]),
+        "derived": _derived("derived", "prices", transforms=[operation]),
+    }
+
+    with pytest.raises(
+        ValueError,
+        match="cannot write canonical order field 'ticker'",
+    ):
+        validate_stream_configs({"source.alias": _source()}, streams)
+
+
+def test_source_stream_transforms_use_the_same_order_invariant() -> None:
+    streams: dict[str, StreamConfig] = {
+        "prices": _source_stream(
+            "prices",
+            partition_by=["ticker"],
+            transforms=[
+                {
+                    "operation": "derive",
+                    "left": "close",
+                    "operator": "mul",
+                    "right_value": 2,
+                    "to": "time",
+                }
+            ],
+        )
+    }
+
+    with pytest.raises(
+        ValueError,
+        match="cannot write canonical order field 'time'",
+    ):
+        validate_stream_configs({"source.alias": _source()}, streams)
+
+
+def test_aligned_transforms_use_the_inherited_partition() -> None:
+    aligned = AlignedStreamConfig.model_validate(
+        {
+            "id": "market_cap",
+            "from": {"align": ["prices", "shares"]},
+            "combine": {"entrypoint": "calculate"},
+            "transforms": [
+                {
+                    "operation": "derive",
+                    "left": "price",
+                    "operator": "mul",
+                    "right_field": "shares",
+                    "to": "ticker",
+                }
+            ],
+        }
+    )
+    streams: dict[str, StreamConfig] = {
+        "prices": _source_stream("prices", partition_by=["ticker"]),
+        "shares": _source_stream("shares", partition_by=["ticker"]),
+        "market_cap": aligned,
+    }
+
+    with pytest.raises(
+        ValueError,
+        match="cannot write canonical order field 'ticker'",
+    ):
+        validate_stream_configs({"source.alias": _source()}, streams)

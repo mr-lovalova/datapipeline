@@ -1,65 +1,87 @@
 import pytest
 
-from datapipeline.config.context import load_dataset_context
-from datapipeline.config.tasks import SchemaTask
+from datapipeline.artifacts.hydration import hydrate_runtime_artifacts_for_pipeline
+from datapipeline.artifacts.scaler import (
+    ScalerStatistics,
+    StandardScalerArtifact,
+    save_scaler_artifact,
+)
+from datapipeline.artifacts.specs import (
+    SCALER_STATISTICS,
+    VECTOR_METADATA,
+    VECTOR_SCHEMA,
+)
+from datapipeline.config.tasks import MetadataTask, SchemaTask
+from datapipeline.execution.context import PipelineContext
+from datapipeline.operations.artifacts.metadata import materialize_metadata
 from datapipeline.operations.artifacts.schema import materialize_vector_schema
-from datapipeline.pipelines.full.nodes import post_process
-from datapipeline.pipelines import build_vector_pipeline
-from datapipeline.services.constants import SCALER_STATISTICS, VECTOR_SCHEMA
-from datapipeline.utils.json_artifact import write_json_artifact
+from datapipeline.pipelines.dataset.nodes import apply_postprocess
+from datapipeline.pipelines.vector.pipeline import build_vector_pipeline
+from datapipeline.services.pipeline import load_pipeline
+from datapipeline.services.runtime_compiler import compile_runtime
 from tests.vector_input_helpers import register_vector_inputs
 
 
 def test_full_regression_project_vectors(copy_fixture) -> None:
     project_root = copy_fixture("regression_project")
     project_path = project_root / "project.yaml"
-    ctx = load_dataset_context(project_path)
-    context = ctx.pipeline_context
-    scaler_path = ctx.runtime.artifacts_root / "scaler.json"
-    write_json_artifact(
+    definition = load_pipeline(project_path)
+    runtime = compile_runtime(definition)
+    hydrate_runtime_artifacts_for_pipeline(runtime, definition)
+    dataset = definition.dataset
+    context = PipelineContext(runtime)
+    scaler_path = runtime.artifacts_root / "scaler.json"
+    save_scaler_artifact(
         scaler_path,
-        {
-            "version": 1,
-            "kind": "standard_scaler",
-            "with_mean": True,
-            "with_std": True,
-            "epsilon": 1e-12,
-            "statistics": {
-                "linear_scaled": {
-                    "count": 6,
-                    "mean": 15.0,
-                    "std": 3.0,
-                }
+        StandardScalerArtifact(
+            with_mean=True,
+            with_std=True,
+            epsilon=1e-12,
+            observations=6,
+            statistics={
+                "linear_scaled": ScalerStatistics(
+                    count=6,
+                    mean=15.0,
+                    std=3.0,
+                )
             },
-        },
+        ),
     )
-    ctx.runtime.artifacts.register(
+    runtime.artifacts.register(
         SCALER_STATISTICS,
         relative_path="scaler.json",
     )
     register_vector_inputs(
-        ctx.runtime,
-        ctx.features,
-        ctx.dataset.group_by,
-        targets=ctx.targets,
+        runtime,
+        dataset.features,
+        dataset.sample.cadence,
+        targets=dataset.targets,
+    )
+    metadata = materialize_metadata(
+        runtime,
+        MetadataTask(id="metadata", output="metadata.json"),
+    )
+    runtime.artifacts.register(
+        VECTOR_METADATA,
+        relative_path=metadata.relative_path,
     )
     schema = materialize_vector_schema(
-        ctx.runtime,
+        runtime,
         SchemaTask(id="schema", output="schema.json"),
     )
-    ctx.runtime.artifacts.register(
+    runtime.artifacts.register(
         VECTOR_SCHEMA,
         relative_path=schema.relative_path,
     )
 
     base_vectors = build_vector_pipeline(
         context,
-        ctx.features,
-        ctx.dataset.group_by,
-        target_configs=ctx.targets,
+        dataset.features,
+        dataset.sample.cadence,
+        target_configs=dataset.targets,
         rectangular=False,
     )
-    samples = list(post_process(context, base_vectors))
+    samples = list(apply_postprocess(context, base_vectors))
 
     assert len(samples) == 6
 
@@ -112,7 +134,7 @@ def test_full_regression_project_vectors(copy_fixture) -> None:
                 "humidity_partitioned__@location:north": 41.5,
                 "humidity_partitioned__@location:south": 39.0,
             },
-            103.0,
+            105.0,
         ),
         (
             5,

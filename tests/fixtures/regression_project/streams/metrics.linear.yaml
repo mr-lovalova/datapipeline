@@ -1,6 +1,14 @@
 id: metrics.linear
 from:
-  stream: metrics.linear.ingest
+  source: regression.linear
 
-stream:
-  - ensure_cadence: { cadence: 1h, field: value }
+map:
+  entrypoint: identity
+  args: {}
+
+preprocess:
+  - { operation: where, operator: ge, field: time, comparand: "${start_time}" }
+  - { operation: where, operator: le, field: time, comparand: "${end_time}" }
+
+transforms:
+  - { operation: ensure_cadence, cadence: 1h }

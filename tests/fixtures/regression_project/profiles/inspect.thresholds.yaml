@@ -1,5 +1,0 @@
-cmd: inspect
-name: thresholds
-target: thresholds
-enabled: true
-artifact_mode: AUTO

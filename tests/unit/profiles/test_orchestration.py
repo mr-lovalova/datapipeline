@@ -5,42 +5,61 @@ from types import SimpleNamespace
 
 import pytest
 
+from datapipeline.artifacts.errors import ArtifactResolutionError
 from datapipeline.artifacts.planning import build_artifact_graph
-from datapipeline.config.build_resolution import BuildSettings
-from datapipeline.config.dataset.dataset import FeatureDatasetConfig
+from datapipeline.artifacts.registry import ArtifactRegistry
+from datapipeline.artifacts.settings import BuildSettings
+from datapipeline.artifacts.specs import (
+    VECTOR_INPUTS,
+    VECTOR_METADATA,
+    VECTOR_SCHEMA,
+)
+from datapipeline.build.state import (
+    ArtifactFileFingerprint,
+    BuildState,
+    save_build_state,
+)
+from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.config.execution import ExecutionConfig
-from datapipeline.config.resolution import (
-    LogLevelDecision,
-    LogOutputSettings,
-    ObservabilitySettings,
-)
+from datapipeline.config.preview import PreviewStage
+from datapipeline.config.streams import StreamsConfig
 from datapipeline.config.tasks import (
     ArtifactTask,
+    CoverageTask,
+    MatrixTask,
     MetadataTask,
     OperationTask,
     PipelineTask,
     SchemaTask,
+    TicksTask,
     VectorInputsTask,
 )
+from datapipeline.execution.settings import (
+    LogLevelDecision,
+    LogOutputSettings,
+    ObservabilitySettings,
+)
 from datapipeline.io.output import OutputTarget
-from datapipeline.profiles.execution import RuntimeJobPlan, execute_runtime_job
+from datapipeline.io.runs import RunPaths
+from datapipeline.profiles.execution import (
+    RuntimeJobPlan,
+    execute_runtime_job,
+    plan_runtime_job,
+    run_runtime_operation,
+)
 from datapipeline.profiles.executor import ExecutionSpec
 from datapipeline.profiles.models import (
     BuildJob,
     BuildRunRequest,
+    MaterializeJob,
+    MaterializeRunRequest,
     RuntimeJob,
     RuntimeRunRequest,
     ServeRunPlan,
 )
 from datapipeline.profiles.orchestration import _validate_build_order, run_profiles
-from datapipeline.services.artifacts import ArtifactManager
-from datapipeline.services.constants import (
-    VECTOR_INPUTS,
-    VECTOR_METADATA,
-    VECTOR_SCHEMA,
-)
-from datapipeline.services.runs import RunPaths
+from tests.unit.profiles.helpers import pipeline_definition
 
 _LOG_DECISION = LogLevelDecision(name="INFO", value=logging.INFO)
 _LOG_OUTPUT = LogOutputSettings(outputs=())
@@ -67,25 +86,13 @@ def _observability(
     )
 
 
-@pytest.fixture(autouse=True)
-def _stable_config_hash(monkeypatch) -> None:
-    monkeypatch.setattr(
-        "datapipeline.profiles.orchestration.compute_config_hash",
-        lambda *_args: "hash-1",
-    )
-    monkeypatch.setattr(
-        "datapipeline.profiles.orchestration.tasks_dir",
-        lambda project: project.parent / "tasks",
-    )
-
-
 def _dataset(*, scale: bool = False) -> FeatureDatasetConfig:
     return FeatureDatasetConfig(
-        group_by="1h",
+        sample=SampleConfig(cadence="1h"),
         features=[
             FeatureRecordConfig(
                 id="feature",
-                record_stream="stream",
+                stream="stream",
                 field="value",
                 scale=scale,
             )
@@ -93,13 +100,36 @@ def _dataset(*, scale: bool = False) -> FeatureDatasetConfig:
     )
 
 
+def _stream_catalog() -> StreamsConfig:
+    return StreamsConfig.model_validate(
+        {
+            "sources": {
+                "test.source": {
+                    "id": "test.source",
+                    "parser": {"entrypoint": "identity"},
+                    "loader": {"entrypoint": "identity"},
+                }
+            },
+            "streams": {
+                stream_id: {
+                    "id": stream_id,
+                    "from": {"source": "test.source"},
+                    "map": {"entrypoint": "identity"},
+                }
+                for stream_id in ("stream", "prices")
+            },
+        }
+    )
+
+
 def _runtime(tmp_path: Path, marker: str = "runtime") -> SimpleNamespace:
     return SimpleNamespace(
         marker=marker,
-        artifacts=ArtifactManager(tmp_path / marker / "artifacts"),
+        artifacts=ArtifactRegistry(tmp_path / marker / "artifacts"),
+        dataset=_dataset(),
         execution=ExecutionConfig(),
         heartbeat_interval_seconds=None,
-        split_labels=(),
+        output_splits=(),
     )
 
 
@@ -117,24 +147,22 @@ def _runtime_job(
     name: str,
     task: OperationTask,
     runtime,
-    dataset,
     *,
-    preview_index: int | None = None,
+    limit: int | None = None,
+    preview: PreviewStage | None = None,
     heartbeat_interval_seconds: float | None = None,
-    splits: tuple[str, ...] = (),
+    output_splits: tuple[str, ...] = (),
 ) -> RuntimeJob:
     return RuntimeJob(
         name=name,
         task=task,
         runtime=runtime,
-        dataset_name="features" if preview_index is not None else "vectors",
-        dataset=dataset,
         output=_output(),
         observability=_observability(heartbeat_interval_seconds),
-        limit=None,
+        limit=limit,
         throttle_ms=None,
-        preview_index=preview_index,
-        splits=splits,
+        preview=preview,
+        output_splits=output_splits,
     )
 
 
@@ -145,11 +173,14 @@ def _build_request(
     execution: ExecutionConfig | None = None,
 ) -> BuildRunRequest:
     return BuildRunRequest(
-        project_path=tmp_path / "project.yaml",
-        artifact_task_configs=artifact_tasks,
+        definition=pipeline_definition(
+            tmp_path / "project.yaml",
+            dataset=_dataset(),
+            streams=_stream_catalog(),
+            artifact_operations=artifact_tasks,
+        ),
         jobs=jobs,
         execution=ExecutionConfig() if execution is None else execution,
-        config_hash="hash-1",
     )
 
 
@@ -165,13 +196,37 @@ def _runtime_request(
 ) -> RuntimeRunRequest:
     return RuntimeRunRequest(
         command=command,
-        project_path=tmp_path / "project.yaml",
-        artifact_task_configs=artifact_tasks,
+        definition=pipeline_definition(
+            tmp_path / "project.yaml",
+            dataset=_dataset(),
+            streams=_stream_catalog(),
+            artifact_operations=artifact_tasks,
+        ),
         jobs=jobs,
         execution=ExecutionConfig() if execution is None else execution,
-        config_hash="hash-1",
         artifact_settings=artifact_settings or _artifact_settings(),
         serve_run_plans=serve_run_plans,
+    )
+
+
+def _materialize_request(
+    tmp_path: Path,
+    artifact_tasks,
+    jobs,
+    runtime,
+    execution: ExecutionConfig | None = None,
+) -> MaterializeRunRequest:
+    return MaterializeRunRequest(
+        definition=pipeline_definition(
+            tmp_path / "project.yaml",
+            dataset=_dataset(),
+            streams=_stream_catalog(),
+            artifact_operations=artifact_tasks,
+        ),
+        jobs=jobs,
+        execution=ExecutionConfig() if execution is None else execution,
+        artifact_settings=_artifact_settings(),
+        runtime=runtime,
     )
 
 
@@ -202,8 +257,8 @@ def test_build_order_accepts_configured_dependency_order() -> None:
     _validate_build_order(
         [
             BuildJob(vector_inputs, _artifact_settings()),
-            BuildJob(schema, _artifact_settings()),
             BuildJob(metadata, _artifact_settings()),
+            BuildJob(schema, _artifact_settings()),
         ],
         graph,
     )
@@ -211,8 +266,9 @@ def test_build_order_accepts_configured_dependency_order() -> None:
 
 def test_build_order_rejects_dependency_after_dependent() -> None:
     vector_inputs = VectorInputsTask(id="vector_inputs")
+    metadata = MetadataTask(id="metadata")
     schema = SchemaTask(id="schema")
-    graph = build_artifact_graph([vector_inputs, schema])
+    graph = build_artifact_graph([vector_inputs, metadata, schema])
 
     with pytest.raises(ValueError, match="vector_inputs.*before.*schema"):
         _validate_build_order(
@@ -224,10 +280,10 @@ def test_build_order_rejects_dependency_after_dependent() -> None:
         )
 
 
-def test_build_order_rejects_duplicate_targets() -> None:
+def test_build_order_rejects_duplicate_operations() -> None:
     schema = SchemaTask(id="schema")
 
-    with pytest.raises(ValueError, match="unique artifact targets"):
+    with pytest.raises(ValueError, match="unique artifact operations"):
         _validate_build_order(
             [
                 BuildJob(schema, _artifact_settings()),
@@ -242,22 +298,25 @@ def test_build_jobs_keep_order_and_share_resolved_artifacts(
     tmp_path: Path,
 ) -> None:
     vector_inputs = VectorInputsTask(id="vector_inputs")
+    metadata = MetadataTask(id="metadata")
     schema = SchemaTask(id="schema")
     vector_runtime = _runtime(tmp_path, "vector-runtime")
+    metadata_runtime = _runtime(tmp_path, "metadata-runtime")
     schema_runtime = _runtime(tmp_path, "schema-runtime")
     execution = ExecutionConfig(sort_buffer_mb=32)
     request = _build_request(
         tmp_path,
-        [vector_inputs, schema],
+        [vector_inputs, metadata, schema],
         [
             BuildJob(vector_inputs, _artifact_settings()),
+            BuildJob(metadata, _artifact_settings()),
             BuildJob(schema, _artifact_settings("FORCE")),
         ],
         execution,
     )
     calls: list[dict[str, object]] = []
     execution_specs: list[ExecutionSpec] = []
-    runtimes = iter((vector_runtime, schema_runtime))
+    runtimes = iter((vector_runtime, metadata_runtime, schema_runtime))
 
     def build(_project, **kwargs):
         calls.append(dict(kwargs))
@@ -268,12 +327,8 @@ def test_build_jobs_keep_order_and_share_resolved_artifacts(
         return work()
 
     monkeypatch.setattr(
-        "datapipeline.profiles.execution.load_dataset",
-        lambda *_args: _dataset(),
-    )
-    monkeypatch.setattr(
-        "datapipeline.profiles.orchestration.bootstrap_build_runtime",
-        lambda _project: next(runtimes),
+        "datapipeline.profiles.orchestration.compile_runtime",
+        lambda _definition: next(runtimes),
     )
     monkeypatch.setattr(
         "datapipeline.profiles.orchestration.run_execution",
@@ -288,21 +343,28 @@ def test_build_jobs_keep_order_and_share_resolved_artifacts(
 
     assert [call["required_artifacts"] for call in calls] == [
         {VECTOR_INPUTS},
+        {VECTOR_METADATA},
         {VECTOR_SCHEMA},
     ]
     assert [call["runtime"].marker for call in calls] == [
         "vector-runtime",
+        "metadata-runtime",
         "schema-runtime",
     ]
-    assert [call["settings"].mode for call in calls] == ["AUTO", "FORCE"]
-    assert calls[0]["resolved_artifacts"] is calls[1]["resolved_artifacts"]
-    assert calls[1]["resolved_artifacts"] == {VECTOR_INPUTS, VECTOR_SCHEMA}
-    assert {call["expected_config_hash"] for call in calls} == {"hash-1"}
+    assert [call["settings"].mode for call in calls] == ["AUTO", "AUTO", "FORCE"]
+    assert calls[0]["resolved_artifacts"] is calls[2]["resolved_artifacts"]
+    assert calls[2]["resolved_artifacts"] == {
+        VECTOR_INPUTS,
+        VECTOR_METADATA,
+        VECTOR_SCHEMA,
+    }
     assert [spec.runtime for spec in execution_specs] == [
         vector_runtime,
+        metadata_runtime,
         schema_runtime,
     ]
     assert vector_runtime.execution == execution
+    assert metadata_runtime.execution == execution
     assert schema_runtime.execution == execution
 
 
@@ -313,7 +375,7 @@ def test_runtime_artifact_union_is_prepared_once_before_jobs(
     vector_inputs = VectorInputsTask(id="vector_inputs")
     schema = SchemaTask(id="schema")
     metadata = MetadataTask(id="metadata")
-    pipeline = PipelineTask(id="pipeline")
+    pipeline = PipelineTask(id="dataset")
     first_runtime = _runtime(tmp_path, "first-job")
     second_runtime = _runtime(tmp_path, "second-job")
     canonical_runtime = _runtime(tmp_path, "canonical-build")
@@ -325,18 +387,16 @@ def test_runtime_artifact_union_is_prepared_once_before_jobs(
         artifact_tasks=[vector_inputs, schema, metadata],
         jobs=[
             _runtime_job(
-                "metadata-preview",
+                "samples-preview",
                 pipeline,
                 first_runtime,
-                _dataset(),
-                preview_index=12,
+                preview="samples",
             ),
             _runtime_job(
-                "schema-preview",
+                "postprocess-preview",
                 pipeline,
                 second_runtime,
-                _dataset(),
-                preview_index=13,
+                preview="postprocess",
             ),
         ],
         artifact_settings=artifact_settings,
@@ -358,8 +418,8 @@ def test_runtime_artifact_union_is_prepared_once_before_jobs(
         return result
 
     monkeypatch.setattr(
-        "datapipeline.profiles.orchestration.bootstrap_build_runtime",
-        lambda _project: canonical_runtime,
+        "datapipeline.profiles.orchestration.compile_runtime",
+        lambda _definition: canonical_runtime,
     )
     monkeypatch.setattr(
         "datapipeline.profiles.orchestration.run_build_if_needed",
@@ -401,7 +461,6 @@ def test_runtime_artifact_union_is_prepared_once_before_jobs(
         VECTOR_METADATA,
     }
     assert build_calls[0]["settings"] is artifact_settings
-    assert build_calls[0]["expected_config_hash"] == "hash-1"
     assert canonical_runtime.execution == execution
     assert first_runtime.execution == execution
     assert second_runtime.execution == execution
@@ -425,13 +484,13 @@ def test_custom_runtime_artifact_requirement_is_prepared(
         tmp_path,
         command="inspect",
         artifact_tasks=[snapshot],
-        jobs=[_runtime_job("report", report, _runtime(tmp_path), _dataset())],
+        jobs=[_runtime_job("report", report, _runtime(tmp_path))],
     )
     build_calls: list[dict[str, object]] = []
 
     monkeypatch.setattr(
-        "datapipeline.profiles.orchestration.bootstrap_build_runtime",
-        lambda _project: _runtime(tmp_path, "artifact-build"),
+        "datapipeline.profiles.orchestration.compile_runtime",
+        lambda _definition: _runtime(tmp_path, "artifact-build"),
     )
     monkeypatch.setattr(
         "datapipeline.profiles.orchestration.run_build_if_needed",
@@ -464,26 +523,7 @@ def test_custom_runtime_missing_required_producer_is_rejected_before_execution(
         tmp_path,
         command="inspect",
         artifact_tasks=[],
-        jobs=[_runtime_job("report", report, _runtime(tmp_path), _dataset())],
-    )
-
-    _assert_preflight_rejected(request)
-
-
-def test_artifact_free_runtime_rejects_config_drift_before_execution(
-    monkeypatch,
-    tmp_path: Path,
-) -> None:
-    report = OperationTask(id="report", entrypoint="plugin.runtime.report")
-    request = _runtime_request(
-        tmp_path,
-        command="inspect",
-        artifact_tasks=[],
-        jobs=[_runtime_job("report", report, _runtime(tmp_path), _dataset())],
-    )
-    monkeypatch.setattr(
-        "datapipeline.profiles.orchestration.compute_config_hash",
-        lambda *_args: "changed",
+        jobs=[_runtime_job("report", report, _runtime(tmp_path))],
     )
 
     _assert_preflight_rejected(request)
@@ -494,19 +534,19 @@ def test_missing_runtime_artifact_producer_is_rejected_before_execution(
 ) -> None:
     schema = SchemaTask(id="schema")
     metadata = MetadataTask(id="metadata")
-    pipeline = PipelineTask(id="pipeline")
+    pipeline = PipelineTask(id="dataset")
     request = _runtime_request(
         tmp_path,
         command="serve",
         artifact_tasks=[schema, metadata],
-        jobs=[_runtime_job("serve", pipeline, _runtime(tmp_path), _dataset())],
+        jobs=[_runtime_job("serve", pipeline, _runtime(tmp_path))],
     )
 
     _assert_preflight_rejected(request)
 
 
 def test_invalid_preview_is_rejected_before_starting_run(tmp_path: Path) -> None:
-    pipeline = PipelineTask(id="pipeline")
+    pipeline = PipelineTask(id="dataset")
     run_paths = _run_paths(tmp_path)
     request = _runtime_request(
         tmp_path,
@@ -517,11 +557,12 @@ def test_invalid_preview_is_rejected_before_starting_run(tmp_path: Path) -> None
                 "preview",
                 pipeline,
                 _runtime(tmp_path),
-                _dataset(),
-                preview_index=14,
+                preview="unknown",  # type: ignore[arg-type]
             )
         ],
-        serve_run_plans=(ServeRunPlan(run_paths, 14),),
+        serve_run_plans=(
+            ServeRunPlan(run_paths, "unknown"),  # type: ignore[arg-type]
+        ),
     )
 
     _assert_preflight_rejected(request)
@@ -532,18 +573,17 @@ def test_runtime_jobs_keep_order_and_apply_execution_settings(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    task = OperationTask(id="pipeline", entrypoint="plugin.runtime")
+    task = PipelineTask(id="dataset")
     execution = ExecutionConfig(sort_buffer_mb=16)
     jobs = [
         _runtime_job(
             name,
             task,
             _runtime(tmp_path, name),
-            _dataset(),
             heartbeat_interval_seconds=heartbeat,
-            splits=splits,
+            output_splits=output_splits,
         )
-        for name, heartbeat, splits in (
+        for name, heartbeat, output_splits in (
             ("first", 10, ("train",)),
             ("second", 20, ("val",)),
             ("third", None, ()),
@@ -552,7 +592,11 @@ def test_runtime_jobs_keep_order_and_apply_execution_settings(
     request = _runtime_request(
         tmp_path,
         command="serve",
-        artifact_tasks=[],
+        artifact_tasks=[
+            VectorInputsTask(id="vector_inputs"),
+            MetadataTask(id="metadata"),
+            SchemaTask(id="schema"),
+        ],
         jobs=jobs,
         execution=execution,
     )
@@ -569,7 +613,7 @@ def test_runtime_jobs_keep_order_and_apply_execution_settings(
             (
                 plan.job.name,
                 runtime.heartbeat_interval_seconds,
-                runtime.split_labels,
+                runtime.output_splits,
                 runtime.execution,
             )
         )
@@ -581,6 +625,10 @@ def test_runtime_jobs_keep_order_and_apply_execution_settings(
     monkeypatch.setattr(
         "datapipeline.profiles.orchestration.execute_runtime_job",
         execute_job,
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration._prepare_runtime_artifacts",
+        lambda *_args: None,
     )
 
     run_profiles(request)
@@ -599,11 +647,11 @@ def test_runtime_job_emits_resolved_config_at_debug(
     runtime = _runtime(tmp_path)
     runtime.execution = ExecutionConfig(sort_buffer_mb=24)
     task = OperationTask(id="report", entrypoint="plugin.runtime.report")
-    job = _runtime_job("coverage", task, runtime, _dataset())
+    job = _runtime_job("coverage", task, runtime)
     messages: list[tuple[str, int]] = []
 
     monkeypatch.setattr(
-        "datapipeline.profiles.execution.hydrate_runtime_artifacts_for_project",
+        "datapipeline.profiles.execution.hydrate_runtime_artifacts_for_pipeline",
         lambda *_args, **_kwargs: (),
     )
     monkeypatch.setattr(
@@ -611,13 +659,13 @@ def test_runtime_job_emits_resolved_config_at_debug(
         lambda message, level, logger: messages.append((message, level)),
     )
     monkeypatch.setattr(
-        "datapipeline.profiles.execution.execute_operation",
-        lambda **_kwargs: None,
+        "datapipeline.profiles.execution.load_ep",
+        lambda *_args: lambda *_runner_args: None,
     )
 
     execute_runtime_job(
         "inspect",
-        tmp_path / "project.yaml",
+        pipeline_definition(tmp_path / "project.yaml", dataset=runtime.dataset),
         build_artifact_graph([]),
         RuntimeJobPlan(job, ()),
     )
@@ -627,8 +675,9 @@ def test_runtime_job_emits_resolved_config_at_debug(
     assert level == logging.DEBUG
     assert message.startswith("Config:\n")
     config = json.loads(message.removeprefix("Config:\n"))
-    assert config["target"] == "report"
-    assert config["dataset"] == "vectors"
+    assert config["operation"]["id"] == "report"
+    assert config["operation"]["entrypoint"] == "plugin.runtime.report"
+    assert "dataset" not in config
     assert config["execution"]["sort_buffer_mb"] == 24
     assert config["observability"]["log_level"] == "INFO"
 
@@ -637,24 +686,111 @@ def test_runtime_job_does_not_hide_plugin_value_errors(
     monkeypatch, tmp_path: Path
 ) -> None:
     task = OperationTask(id="report", entrypoint="plugin.runtime.report")
-    job = _runtime_job("coverage", task, _runtime(tmp_path), _dataset())
+    job = _runtime_job("coverage", task, _runtime(tmp_path))
     monkeypatch.setattr(
-        "datapipeline.profiles.execution.hydrate_runtime_artifacts_for_project",
+        "datapipeline.profiles.execution.hydrate_runtime_artifacts_for_pipeline",
         lambda *_args, **_kwargs: (),
     )
 
-    def fail(**_kwargs):
-        raise ValueError("plugin bug")
+    def fail(*_args):
+        def run(*_runner_args):
+            raise ValueError("plugin bug")
 
-    monkeypatch.setattr("datapipeline.profiles.execution.execute_operation", fail)
+        return run
+
+    monkeypatch.setattr("datapipeline.profiles.execution.load_ep", fail)
 
     with pytest.raises(ValueError, match="plugin bug"):
         execute_runtime_job(
             "inspect",
-            tmp_path / "project.yaml",
+            pipeline_definition(tmp_path / "project.yaml"),
             build_artifact_graph([]),
             RuntimeJobPlan(job, ()),
         )
+
+
+def test_runtime_job_reports_unavailable_artifacts(monkeypatch, tmp_path: Path) -> None:
+    task = OperationTask(id="report", entrypoint="plugin.runtime.report")
+    job = _runtime_job("report", task, _runtime(tmp_path))
+    monkeypatch.setattr(
+        "datapipeline.profiles.execution.hydrate_runtime_artifacts_for_pipeline",
+        lambda *_args, **_kwargs: (),
+    )
+
+    with pytest.raises(
+        ArtifactResolutionError,
+        match=(
+            "Runtime operation 'report' requires missing or stale artifacts: schema"
+        ),
+    ):
+        execute_runtime_job(
+            "inspect",
+            pipeline_definition(tmp_path / "project.yaml"),
+            build_artifact_graph([]),
+            RuntimeJobPlan(job, ("schema",)),
+        )
+
+
+def test_runtime_plugin_receives_the_documented_contract(
+    monkeypatch, tmp_path: Path
+) -> None:
+    task = OperationTask(id="report", entrypoint="plugin.runtime.report")
+    job = _runtime_job("report", task, _runtime(tmp_path), limit=7)
+    received = None
+
+    def load_runner(group, entrypoint):
+        assert group == "datapipeline.operations.runtime"
+        assert entrypoint == task.entrypoint
+
+        def run(runtime, operation_task, limit):
+            nonlocal received
+            received = runtime, operation_task, limit
+            return "result"
+
+        return run
+
+    monkeypatch.setattr(
+        "datapipeline.profiles.execution.load_ep",
+        load_runner,
+    )
+
+    assert run_runtime_operation(job) == "result"
+    assert received == (job.runtime, task, 7)
+
+
+def test_matrix_operation_uses_its_core_runner(monkeypatch, tmp_path: Path) -> None:
+    task = MatrixTask(id="matrix")
+    job = _runtime_job("matrix", task, _runtime(tmp_path), limit=5)
+    received = None
+
+    def run_matrix(runtime, operation_task, limit):
+        nonlocal received
+        received = runtime, operation_task, limit
+        return "matrix"
+
+    monkeypatch.setattr(
+        "datapipeline.profiles.execution.run_matrix_operation",
+        run_matrix,
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.execution.load_ep",
+        lambda *_args: pytest.fail("core operations must not load plugin entry points"),
+    )
+
+    assert run_runtime_operation(job) == "matrix"
+    assert received == (job.runtime, task, 5)
+
+
+def test_coverage_operation_rejects_limit_before_planning(tmp_path: Path) -> None:
+    job = _runtime_job(
+        "coverage",
+        CoverageTask(id="coverage"),
+        _runtime(tmp_path),
+        limit=1,
+    )
+
+    with pytest.raises(ValueError, match="coverage operation does not support"):
+        plan_runtime_job(job, SimpleNamespace(), SimpleNamespace())
 
 
 def test_shared_serve_run_is_finalized_once(monkeypatch, tmp_path: Path) -> None:
@@ -665,7 +801,7 @@ def test_shared_serve_run_is_finalized_once(monkeypatch, tmp_path: Path) -> None
         command="serve",
         artifact_tasks=[],
         jobs=[
-            _runtime_job(name, task, _runtime(tmp_path, name), _dataset())
+            _runtime_job(name, task, _runtime(tmp_path, name))
             for name in ("train", "val")
         ],
         serve_run_plans=(ServeRunPlan(run_paths, None),),
@@ -703,7 +839,7 @@ def test_job_failure_marks_shared_run_failed(monkeypatch, tmp_path: Path) -> Non
         command="serve",
         artifact_tasks=[],
         jobs=[
-            _runtime_job(name, task, _runtime(tmp_path, name), _dataset())
+            _runtime_job(name, task, _runtime(tmp_path, name))
             for name in ("train", "val")
         ],
         serve_run_plans=(ServeRunPlan(run_paths, None),),
@@ -740,11 +876,38 @@ def test_job_failure_marks_shared_run_failed(monkeypatch, tmp_path: Path) -> Non
     assert failed == [run_paths]
 
 
+def test_artifact_resolution_failure_exits_at_profile_boundary(
+    monkeypatch,
+    tmp_path: Path,
+    caplog,
+) -> None:
+    request = _runtime_request(
+        tmp_path,
+        command="inspect",
+        artifact_tasks=[],
+        jobs=[],
+    )
+
+    def fail(_request) -> None:
+        raise ArtifactResolutionError("required artifact is unavailable")
+
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration._run_runtime_profiles",
+        fail,
+    )
+
+    with caplog.at_level(logging.ERROR), pytest.raises(SystemExit) as exc:
+        run_profiles(request)
+
+    assert exc.value.code == 2
+    assert "required artifact is unavailable" in caplog.text
+
+
 def test_preview_run_exists_at_job_boundary_and_is_not_latest(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    pipeline = PipelineTask(id="pipeline")
+    pipeline = PipelineTask(id="dataset")
     run_paths = _run_paths(tmp_path)
     runtime = _runtime(tmp_path)
     request = _runtime_request(
@@ -756,12 +919,11 @@ def test_preview_run_exists_at_job_boundary_and_is_not_latest(
                 "preview",
                 pipeline,
                 runtime,
-                _dataset(),
-                preview_index=3,
+                preview="records",
                 heartbeat_interval_seconds=15,
             )
         ],
-        serve_run_plans=(ServeRunPlan(run_paths, 3),),
+        serve_run_plans=(ServeRunPlan(run_paths, "records"),),
     )
     observed: dict[str, object] = {}
 
@@ -769,7 +931,7 @@ def test_preview_run_exists_at_job_boundary_and_is_not_latest(
         run = json.loads(run_paths.metadata_path.read_text(encoding="utf-8"))
         observed.update(
             status=run["status"],
-            preview_index=run["preview_index"],
+            preview=run["preview"],
             heartbeat=spec.runtime.heartbeat_interval_seconds,
         )
         return work()
@@ -792,7 +954,7 @@ def test_preview_run_exists_at_job_boundary_and_is_not_latest(
 
     assert observed == {
         "status": "running",
-        "preview_index": 3,
+        "preview": "records",
         "heartbeat": 15,
     }
     finished = json.loads(run_paths.metadata_path.read_text(encoding="utf-8"))
@@ -811,13 +973,13 @@ def test_later_run_start_failure_fails_only_started_run(
         tmp_path,
         command="serve",
         artifact_tasks=[],
-        jobs=[_runtime_job("serve", task, _runtime(tmp_path), _dataset())],
+        jobs=[_runtime_job("serve", task, _runtime(tmp_path))],
         serve_run_plans=(ServeRunPlan(first, None), ServeRunPlan(second, None)),
     )
     starts: list[RunPaths] = []
     failed: list[RunPaths] = []
 
-    def start(paths, *, preview_index):
+    def start(paths, *, preview):
         starts.append(paths)
         if paths == second:
             raise RuntimeError("cannot start second run")
@@ -833,3 +995,183 @@ def test_later_run_start_failure_fails_only_started_run(
 
     assert starts == [first, second]
     assert failed == [first]
+
+
+def test_materialize_uses_shared_artifact_and_execution_lifecycle(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    ticks = TicksTask(id="market_ticks", stream="prices", output="ticks.jsonl")
+    execution = ExecutionConfig(sort_buffer_mb=32)
+    runtime = SimpleNamespace(
+        execution=ExecutionConfig(),
+        heartbeat_interval_seconds=None,
+        streams={"adv.20": object(), "adv.63": object()},
+        artifacts_root=tmp_path / "artifacts",
+    )
+    jobs = [
+        MaterializeJob(
+            name="adv-20",
+            stream="adv.20",
+            output=tmp_path / "adv-20.jsonl",
+            overwrite=False,
+            observability=_observability(10),
+        ),
+        MaterializeJob(
+            name="adv-63",
+            stream="adv.63",
+            output=tmp_path / "adv-63.jsonl",
+            overwrite=False,
+            observability=_observability(20),
+        ),
+    ]
+    request = _materialize_request(
+        tmp_path,
+        [ticks],
+        jobs,
+        runtime,
+        execution,
+    )
+    monkeypatch.setattr(
+        "datapipeline.artifacts.planning.stream_tick_artifacts",
+        lambda stream, streams: {"market_ticks"},
+    )
+    build_calls: list[dict] = []
+    materialized: list[tuple[str, float | None]] = []
+
+    def build(project_path, **kwargs):
+        assert runtime.execution == execution
+        build_calls.append(kwargs)
+
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.run_build_if_needed",
+        build,
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.run_execution",
+        lambda spec, work: work(),
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.execute_materialize_job",
+        lambda job, active_runtime: materialized.append(
+            (job.name, active_runtime.heartbeat_interval_seconds)
+        ),
+    )
+
+    run_profiles(request)
+
+    assert len(build_calls) == 1
+    assert build_calls[0]["required_artifacts"] == {"market_ticks"}
+    assert materialized == [("adv-20", 10), ("adv-63", 20)]
+
+
+@pytest.mark.parametrize("mode", ["AUTO", "OFF"])
+def test_materialize_hydrates_current_tick_artifact_when_build_skips(
+    monkeypatch,
+    tmp_path: Path,
+    mode: str,
+) -> None:
+    ticks = TicksTask(id="market_ticks", stream="prices", output="ticks.jsonl")
+    job = MaterializeJob(
+        name="adv-20",
+        stream="adv.20",
+        output=tmp_path / "adv-20.jsonl",
+        overwrite=False,
+        observability=_observability(),
+    )
+    definition = pipeline_definition(
+        tmp_path / "project.yaml",
+        dataset=_dataset(),
+        streams=_stream_catalog(),
+        artifact_operations=[ticks],
+    )
+    artifacts_root = definition.project.artifacts_root
+    artifact_path = artifacts_root / ticks.output
+    artifact_path.parent.mkdir(parents=True)
+    artifact_path.write_text("{}\n", encoding="utf-8")
+    state = BuildState()
+    state.register(
+        ticks.id,
+        ticks.output,
+        artifact_hash=definition.artifact_hashes.for_artifact(ticks.id),
+        files=(ArtifactFileFingerprint.from_path(ticks.output, artifact_path),),
+    )
+    save_build_state(
+        state,
+        artifacts_root / "_system" / "build" / "state.json",
+    )
+    runtime = SimpleNamespace(
+        execution=ExecutionConfig(),
+        heartbeat_interval_seconds=None,
+        streams={"adv.20": object()},
+        artifacts=ArtifactRegistry(artifacts_root),
+        artifacts_root=artifacts_root,
+    )
+    request = MaterializeRunRequest(
+        definition=definition,
+        jobs=[job],
+        execution=ExecutionConfig(),
+        artifact_settings=_artifact_settings(mode),
+        runtime=runtime,
+    )
+    monkeypatch.setattr(
+        "datapipeline.artifacts.planning.stream_tick_artifacts",
+        lambda stream, streams: {"market_ticks"},
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.run_execution",
+        lambda spec, work: work(),
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.execute_materialize_job",
+        lambda job, active_runtime: active_runtime.artifacts.require("market_ticks"),
+    )
+
+    run_profiles(request)
+
+    assert runtime.artifacts.has("market_ticks")
+
+
+@pytest.mark.parametrize(
+    ("artifact_tasks", "message"),
+    [
+        ([], "requires a declared ticks task"),
+        (
+            [
+                ArtifactTask(
+                    id="market_ticks",
+                    entrypoint="plugin.snapshot",
+                    output="snapshot.json",
+                )
+            ],
+            "not a ticks task",
+        ),
+    ],
+)
+def test_materialize_rejects_invalid_tick_artifact_producer(
+    monkeypatch,
+    tmp_path: Path,
+    artifact_tasks,
+    message,
+) -> None:
+    runtime = SimpleNamespace(
+        execution=ExecutionConfig(),
+        heartbeat_interval_seconds=None,
+        streams={"adv.20": object()},
+        artifacts_root=tmp_path / "artifacts",
+    )
+    job = MaterializeJob(
+        name="adv-20",
+        stream="adv.20",
+        output=tmp_path / "adv-20.jsonl",
+        overwrite=False,
+        observability=_observability(),
+    )
+    request = _materialize_request(tmp_path, artifact_tasks, [job], runtime)
+    monkeypatch.setattr(
+        "datapipeline.artifacts.planning.stream_tick_artifacts",
+        lambda stream, streams: {"market_ticks"},
+    )
+
+    with pytest.raises(SystemExit, match="2"):
+        run_profiles(request)

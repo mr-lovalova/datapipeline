@@ -1,105 +1,111 @@
+from collections import deque
 from collections.abc import Iterable, Iterator, Sequence
-from typing import Any, Mapping
+from typing import Any
 
-from datapipeline.domain.feature import FeatureRecord, FeatureRecordSequence
-from datapipeline.config.dataset.normalize import floor_time_to_bucket
-from datapipeline.dag.context import PipelineContext
-from datapipeline.pipelines.feature.keygen import FeatureIdGenerator
-from datapipeline.pipelines.shared.sort import batch_sort
-from datapipeline.transforms.engine import apply_transforms
-from datapipeline.plugins import FEATURE_TRANSFORMS_EP
-from datapipeline.services.constants import SCALER_STATISTICS
-from datapipeline.transforms.spec import TransformSpec
-from datapipeline.transforms.utils import get_field, partition_key
+from datapipeline.artifacts.registry import SCALER_SPEC
+from datapipeline.config.dataset.feature import FeatureRecordConfig, SequenceConfig
+from datapipeline.domain.feature import FeatureRecord, FeatureSequence
+from datapipeline.execution.context import PipelineContext
+from datapipeline.pipelines.feature.projector import FeatureProjector
+from datapipeline.pipelines.sort import SortProgress, batch_sort
+from datapipeline.transforms.feature.scaler import FeatureScaler
+from datapipeline.utils.time import floor_time_to_cadence, parse_cadence
 
 
 def build_feature_stream(
-    feature_id: str,
-    field: str,
-    feature_id_by: str | list[str] | None,
-    sample_keys: Sequence[str],
+    projector: FeatureProjector,
+    config: FeatureRecordConfig,
     records: Iterable[Any],
-) -> Iterable[Any]:
-    keygen = FeatureIdGenerator(feature_id_by)
-    for rec in records:
-        if not _record_has_field(rec, field):
-            raise KeyError(f"Record field '{field}' not found on {type(rec).__name__}")
-        yield FeatureRecord(
-            record=rec,
-            id=keygen.generate(feature_id, rec),
-            value=get_field(rec, field),
-            entity_key=partition_key(rec, list(sample_keys)),
-        )
+) -> Iterator[FeatureRecord]:
+    configs = (config,)
+    for record in records:
+        yield from projector.project(record, configs)
 
 
-def feature_transforms(
+def scale_features(
     context: PipelineContext,
-    scale: Mapping[str, Any] | bool | None,
-    sequence: Mapping[str, Any] | None,
-    features: Iterator[Any],
-) -> Iterable[FeatureRecord | FeatureRecordSequence]:
-    clauses: list[TransformSpec] = []
-    if scale:
-        scale_args = {} if scale is True else dict(scale)
-        if "model_path" not in scale_args:
-            if not context.artifacts.has(SCALER_STATISTICS):
-                raise RuntimeError(
-                    "Scaler artifact is missing. Run `jerry build` to generate it "
-                    "or disable scale in feature config."
-                )
-            model_path = context.artifacts.resolve_path(SCALER_STATISTICS)
-            scale_args["model_path"] = str(model_path)
-        clauses.append(TransformSpec(name="scale", params=scale_args))
+    features: Iterator[FeatureRecord],
+) -> Iterator[FeatureRecord]:
+    artifact = context.require_artifact(SCALER_SPEC)
+    yield from FeatureScaler(artifact).apply(features)
 
-    if sequence:
-        clauses.append(TransformSpec(name="sequence", params=dict(sequence)))
 
-    return apply_transforms(features, FEATURE_TRANSFORMS_EP, clauses, context)
+def sequence_features(
+    sequence: SequenceConfig,
+    features: Iterator[FeatureRecord],
+) -> Iterator[FeatureSequence]:
+    sequencer = FeatureSequencer(sequence)
+    for feature in features:
+        result = sequencer.append(feature)
+        if result is not None:
+            yield result
+
+
+class FeatureSequencer:
+    def __init__(self, config: SequenceConfig) -> None:
+        self.config = config
+        self._active_key: tuple[str, tuple] | None = None
+        self._window: deque[Any] = deque(maxlen=config.size)
+        self._position = 0
+
+    def append(self, feature: FeatureRecord) -> FeatureSequence | None:
+        key = feature.id, feature.entity_key
+        if key != self._active_key:
+            self._active_key = key
+            self._window.clear()
+            self._position = 0
+
+        position = self._position
+        self._window.append(feature.value)
+        self._position += 1
+
+        window_start = position - self.config.size + 1
+        if len(self._window) != self.config.size:
+            return None
+        if window_start % self.config.stride != 0:
+            return None
+        return FeatureSequence(
+            time=feature.time,
+            values=list(self._window),
+            id=feature.id,
+            entity_key=feature.entity_key,
+        )
 
 
 def order_feature_records(
-    context: PipelineContext,
+    buffer_bytes: int,
     group_by_cadence: str | None,
-    features: Iterator[Any],
-) -> Iterable[Any]:
+    sample_keys: Sequence[str],
+    progress: SortProgress,
+    features: Iterator[FeatureRecord | FeatureSequence],
+) -> Iterable[FeatureRecord | FeatureSequence]:
     key = _time_then_id
-    if context.runtime.sample_keys and group_by_cadence is not None:
+    if sample_keys and group_by_cadence is not None:
         key = _sample_group_then_time_and_id(group_by_cadence)
     return batch_sort(
         features,
-        buffer_bytes=context.runtime.execution.sort_buffer_bytes,
+        buffer_bytes=buffer_bytes,
         key=key,
+        progress=progress,
     )
 
 
-def _time_then_id(item: Any) -> tuple[Any, Any]:
-    return _record_time(item), getattr(item, "id", None)
+def _time_then_id(
+    item: FeatureRecord | FeatureSequence,
+) -> tuple[Any, str]:
+    return item.time, item.id
 
 
 def _sample_group_then_time_and_id(group_by_cadence: str):
-    def key(item: Any) -> tuple[Any, ...]:
-        time_value = _record_time(item)
-        entity_key = getattr(item, "entity_key", ())
+    cadence = parse_cadence(group_by_cadence)
+
+    def key(item: FeatureRecord | FeatureSequence) -> tuple[Any, ...]:
+        time_value = item.time
         return (
-            floor_time_to_bucket(time_value, group_by_cadence),
-            *entity_key,
+            floor_time_to_cadence(time_value, cadence),
+            *item.entity_key,
             time_value,
-            getattr(item, "id", None),
+            item.id,
         )
 
     return key
-
-
-def _record_time(item: Any) -> Any:
-    rec = getattr(item, "record", None)
-    if rec is not None:
-        return getattr(rec, "time", None)
-    else:
-        records = getattr(item, "records", None)
-        return getattr(records[-1], "time", None) if records else None
-
-
-def _record_has_field(record: Any, field: str) -> bool:
-    if isinstance(record, dict):
-        return field in record
-    return hasattr(record, field)

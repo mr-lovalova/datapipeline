@@ -1,8 +1,5 @@
-cmd: inspect
-name: matrix
-target: matrix
+operation: matrix
 enabled: true
-artifact_mode: AUTO
 output:
   transport: fs
   format: html

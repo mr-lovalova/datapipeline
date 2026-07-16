@@ -1,6 +1,6 @@
 import argparse
 
-from datapipeline.config.options import SOURCE_FS_FORMATS, SOURCE_TRANSPORTS
+from datapipeline.cli.source_options import SOURCE_FS_FORMATS, SOURCE_TRANSPORTS
 
 
 def add_source_command(sub, common: argparse.ArgumentParser) -> None:

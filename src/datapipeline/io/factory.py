@@ -1,85 +1,51 @@
-from datapipeline.io.writers import (
-    JsonLinesFileWriter,
-    GzipJsonLinesWriter,
-    CsvFileWriter,
-    PickleFileWriter,
-    LineWriter,
-)
 from datapipeline.io.protocols import Writer
+from datapipeline.io.output import OutputTarget
 from datapipeline.io.serializers import (
     json_line_serializer,
-    csv_row_serializer,
-    pickle_serializer,
     text_line_serializer,
 )
-from datapipeline.io.sinks import AtomicTextFileSink, StdoutTextSink
-from datapipeline.io.output import OutputTarget
-
-_JSON_LINE_FORMATS = {"jsonl"}
-
-
-def _is_json_line_format(value: str) -> bool:
-    return value in _JSON_LINE_FORMATS
+from datapipeline.io.sinks.files import AtomicTextFileSink
+from datapipeline.io.sinks.stdout import StdoutTextSink
+from datapipeline.io.writers.base import LineWriter
+from datapipeline.io.writers.csv_writer import CsvFileWriter
+from datapipeline.io.writers.jsonl import JsonLinesFileWriter
+from datapipeline.io.writers.pickle_writer import PickleFileWriter
 
 
 def writer_factory(target: OutputTarget) -> Writer:
-    transport = target.transport.lower()
-    format_ = target.format.lower()
-
-    if transport == "stdout":
-        sink = StdoutTextSink()
-        if _is_json_line_format(format_):
-            serializer = json_line_serializer(target.view)
-            return LineWriter(sink, serializer)
-        if format_ == "txt":
-            serializer = text_line_serializer()
-            return LineWriter(sink, serializer)
+    if target.transport == "stdout":
+        if target.format == "jsonl":
+            return LineWriter(StdoutTextSink(), json_line_serializer(target.view))
+        if target.format == "txt":
+            return LineWriter(StdoutTextSink(), text_line_serializer())
         raise ValueError(f"Unsupported stdout format '{target.format}'")
 
     destination = target.destination
     if destination is None:
         raise ValueError("fs output requires a destination path")
-    destination.parent.mkdir(parents=True, exist_ok=True)
     text_encoding = target.encoding or "utf-8"
 
-    suffix = "".join(destination.suffixes).lower()
-    if _is_json_line_format(format_):
-        serializer = json_line_serializer(target.view)
-        if suffix.endswith(".jsonl.gz") or suffix.endswith(".gz"):
-            return GzipJsonLinesWriter(
-                destination,
-                serializer=serializer,
-                encoding=text_encoding,
-                overwrite=target.overwrite,
-            )
+    if target.format == "jsonl":
         return JsonLinesFileWriter(
             destination,
-            serializer=serializer,
+            view=target.view,
             encoding=text_encoding,
-            overwrite=target.overwrite,
         )
-    if format_ == "csv":
-        serializer = csv_row_serializer(target.view)
-        return CsvFileWriter(
-            destination,
-            serializer=serializer,
-            encoding=text_encoding,
-            overwrite=target.overwrite,
+    if target.format == "csv":
+        if target.view != "flat":
+            raise ValueError("csv output supports only view='flat'")
+        return CsvFileWriter(destination, encoding=text_encoding)
+    if target.format == "pickle":
+        if target.view != "raw":
+            raise ValueError("pickle output supports only view='raw'")
+        return PickleFileWriter(destination)
+    if target.format == "txt":
+        return LineWriter(
+            AtomicTextFileSink(
+                destination,
+                encoding=text_encoding,
+            ),
+            text_line_serializer(),
         )
-    if format_ == "pickle":
-        serializer = pickle_serializer(target.view)
-        return PickleFileWriter(
-            destination,
-            serializer=serializer,
-            overwrite=target.overwrite,
-        )
-    if format_ == "txt":
-        serializer = text_line_serializer()
-        sink = AtomicTextFileSink(
-            destination,
-            encoding=text_encoding,
-            overwrite=target.overwrite,
-        )
-        return LineWriter(sink, serializer)
 
     raise ValueError(f"Unsupported fs format '{target.format}'")

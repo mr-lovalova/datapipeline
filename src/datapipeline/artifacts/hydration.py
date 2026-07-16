@@ -1,16 +1,10 @@
 from collections.abc import Iterable
-from pathlib import Path
 
 from datapipeline.artifacts.planning import ArtifactGraph, build_artifact_graph
 from datapipeline.artifacts.validation import nested_tick_dependencies
-from datapipeline.build.config_hash import compute_config_hash
 from datapipeline.build.state import BuildState, load_build_state
-from datapipeline.config.dataset.dataset import FeatureDatasetConfig
-from datapipeline.config.dataset.loader import load_dataset
-from datapipeline.config.loaders.operations import operation_specs
 from datapipeline.runtime import Runtime
-from datapipeline.services.bootstrap.config import build_state_path
-from datapipeline.services.project_paths import tasks_dir
+from datapipeline.services.definitions import ArtifactHashes, PipelineDefinition
 
 
 def hydrate_runtime_artifacts(
@@ -18,7 +12,7 @@ def hydrate_runtime_artifacts(
     runtime: Runtime,
     graph: ArtifactGraph,
     state: BuildState | None,
-    config_hash: str,
+    artifact_hashes: ArtifactHashes,
     artifact_keys: Iterable[str],
 ) -> tuple[str, ...]:
     keys = set(artifact_keys)
@@ -29,7 +23,7 @@ def hydrate_runtime_artifacts(
     freshness = graph.freshness(
         keys=keys,
         state=state,
-        config_hash=config_hash,
+        artifact_hashes=artifact_hashes,
         artifacts_root=runtime.artifacts.root,
     )
     keys_without_producers = {key for key in keys if key not in graph.tasks_by_id}
@@ -49,21 +43,26 @@ def hydrate_runtime_artifacts(
     return ordered_current
 
 
-def hydrate_runtime_artifacts_for_project(
+def hydrate_runtime_artifacts_for_pipeline(
     runtime: Runtime,
-    project_path: Path,
+    definition: PipelineDefinition,
     *,
     graph: ArtifactGraph | None = None,
-    dataset: FeatureDatasetConfig | None = None,
 ) -> tuple[str, ...]:
-    state = load_build_state(build_state_path(project_path))
+    state_path = (
+        definition.project.artifacts_root / "_system" / "build" / "state.json"
+    ).resolve()
+    state = load_build_state(state_path)
     if state is None:
         runtime.artifacts.clear()
         return ()
 
     if graph is None:
-        artifact_tasks, _runtime_tasks = operation_specs(project_path)
-        graph = build_artifact_graph(artifact_tasks)
+        graph = build_artifact_graph(
+            definition.artifact_operations,
+            definition.dataset,
+            definition.streams,
+        )
 
     artifact_roots = graph.declared_artifact_keys()
     artifact_keys = set(graph.dependency_closure(artifact_roots))
@@ -71,22 +70,25 @@ def hydrate_runtime_artifacts_for_project(
         runtime.artifacts.clear()
         return ()
     if graph.requires_dataset(artifact_keys):
-        if dataset is None:
-            dataset = load_dataset(project_path, "vectors")
-        artifact_keys = set(graph.active_dependency_closure(artifact_roots, dataset))
+        artifact_keys = set(
+            graph.active_dependency_closure(artifact_roots, definition.dataset)
+        )
     nested_ticks = {
         dependency.task.id
-        for dependency in nested_tick_dependencies(project_path, graph, artifact_keys)
+        for dependency in nested_tick_dependencies(
+            definition.streams,
+            graph,
+            artifact_keys,
+        )
     }
     artifact_keys -= nested_ticks | graph.dependents_of(
         nested_ticks,
         active_keys=artifact_keys,
     )
-    config_hash = compute_config_hash(project_path, tasks_dir(project_path))
     return hydrate_runtime_artifacts(
         runtime=runtime,
         graph=graph,
         state=state,
-        config_hash=config_hash,
+        artifact_hashes=definition.artifact_hashes,
         artifact_keys=artifact_keys,
     )

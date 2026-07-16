@@ -1,13 +1,11 @@
-version: 1
+schema_version: 2
+artifact_revision: 1
 name: regression_project
 paths:
-  ingests: ./ingests
   streams: streams
   sources: sources
   dataset: dataset.yaml
-  postprocess: postprocess.yaml
   artifacts: build
-  tasks: tasks
   profiles: profiles
 globals:
   start_time: 2024-03-01T00:00:00Z

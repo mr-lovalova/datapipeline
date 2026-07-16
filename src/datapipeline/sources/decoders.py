@@ -1,45 +1,44 @@
-from abc import ABC, abstractmethod
-from typing import Iterable, Iterator, Any, Optional, Sequence
 import codecs
 import csv
 import io
+import itertools
 import json
 import pickle
-import itertools
+from abc import ABC, abstractmethod
+from collections.abc import Iterable, Iterator, Sequence
+from typing import Any
 
 
 class Decoder(ABC):
     @abstractmethod
-    def decode(self, chunks: Iterable[bytes]) -> Iterator[Any]:
-        pass
-
-    def count(self, chunks: Iterable[bytes]) -> Optional[int]:
-        """Optional fast count of rows for the given stream.
-
-        Default returns None. Subclasses may override for better visuals.
-        Note: This will consume the provided iterable.
-        """
-        return None
+    def decode(self, chunks: Iterable[bytes]) -> Iterator[Any]: ...
 
 
 def _iter_text_lines(chunks: Iterable[bytes], encoding: str) -> Iterator[str]:
+    """Yield LF/CRLF physical lines without rewriting their terminators."""
+
     decoder = codecs.getincrementaldecoder(encoding)()
-    buffer = ""
+    fragments: list[str] = []
     for chunk in chunks:
-        buffer += decoder.decode(chunk)
-        while True:
-            idx = buffer.find("\n")
-            if idx == -1:
-                break
-            line, buffer = buffer[:idx], buffer[idx + 1:]
-            if line.endswith("\r"):
-                line = line[:-1]
-            yield line
-    buffer += decoder.decode(b"", final=True)
-    if buffer:
-        if buffer.endswith("\r"):
-            buffer = buffer[:-1]
-        yield buffer
+        text = decoder.decode(chunk)
+        start = 0
+        while (newline := text.find("\n", start)) >= 0:
+            line = text[start : newline + 1]
+            if fragments:
+                fragments.append(line)
+                yield "".join(fragments)
+                fragments.clear()
+            else:
+                yield line
+            start = newline + 1
+        if start < len(text):
+            fragments.append(text[start:])
+
+    tail = decoder.decode(b"", final=True)
+    if tail:
+        fragments.append(tail)
+    if fragments:
+        yield "".join(fragments)
 
 
 def _read_all_text(chunks: Iterable[bytes], encoding: str) -> str:
@@ -57,8 +56,8 @@ class CsvDecoder(Decoder):
         *,
         delimiter: str = ";",
         encoding: str = "utf-8",
-        error_prefixes: Optional[Sequence[str]] = None,
-    ):
+        error_prefixes: Sequence[str] | None = None,
+    ) -> None:
         self.delimiter = delimiter
         self.encoding = encoding
         self._error_prefixes = [p.lower() for p in (error_prefixes or [])]
@@ -73,62 +72,48 @@ class CsvDecoder(Decoder):
             lowered = first.lstrip().lower()
             if any(lowered.startswith(p) for p in self._error_prefixes):
                 raise ValueError(
-                    f"csv response looks like error text: {first[:120]}")
-        return itertools.chain([first], lines)
+                    f"csv response looks like error text: {first[:120].rstrip()}"
+                )
+        return itertools.chain((first,), lines)
 
     def decode(self, chunks: Iterable[bytes]) -> Iterator[dict]:
-        reader = csv.DictReader(self._iter_lines(
-            chunks), delimiter=self.delimiter)
+        reader = csv.DictReader(self._iter_lines(chunks), delimiter=self.delimiter)
         for row in reader:
             yield row
 
-    def count(self, chunks: Iterable[bytes]) -> Optional[int]:
-        return sum(1 for _ in csv.DictReader(self._iter_lines(chunks), delimiter=self.delimiter))
-
 
 class JsonDecoder(Decoder):
-    def __init__(self, encoding: str = "utf-8", array_field: Optional[str] = None):
+    def __init__(
+        self,
+        encoding: str = "utf-8",
+        array_field: str | None = None,
+    ) -> None:
         self.encoding = encoding
         self.array_field = array_field
 
-    def decode(self, chunks: Iterable[bytes]) -> Iterator[Any]:
+    def _load_payload(self, chunks: Iterable[bytes]) -> Any:
         text = _read_all_text(chunks, self.encoding)
         data = json.loads(text)
-        if self.array_field:
+        if self.array_field is not None:
             if not isinstance(data, dict):
-                raise ValueError(
-                    "json array_field requires a top-level object")
+                raise ValueError("json array_field requires a top-level object")
             if self.array_field not in data:
-                raise ValueError(
-                    f"json array_field missing: {self.array_field}")
+                raise ValueError(f"json array_field missing: {self.array_field}")
             data = data[self.array_field]
-            if data is None:
-                return  # TODO MAYBE we NEED DO DO SOMETHING ABOUT THIS so we dont silence it
-        if isinstance(data, list):
-            for item in data:
-                yield item
-        else:
-            # Yield a single object as one row
-            yield data
+        return data
 
-    def count(self, chunks: Iterable[bytes]) -> Optional[int]:
-        text = _read_all_text(chunks, self.encoding)
-        data = json.loads(text)
-        if self.array_field:
-            if not isinstance(data, dict):
-                raise ValueError(
-                    "json array_field requires a top-level object")
-            if self.array_field not in data:
-                raise ValueError(
-                    f"json array_field missing: {self.array_field}")
-            data = data[self.array_field]
-            if data is None:
-                return 0
-        return len(data) if isinstance(data, list) else 1
+    def decode(self, chunks: Iterable[bytes]) -> Iterator[Any]:
+        data = self._load_payload(chunks)
+        if data is None and self.array_field is not None:
+            return
+        if isinstance(data, list):
+            yield from data
+            return
+        yield data
 
 
 class JsonLinesDecoder(Decoder):
-    def __init__(self, encoding: str = "utf-8"):
+    def __init__(self, encoding: str = "utf-8") -> None:
         self.encoding = encoding
 
     def decode(self, chunks: Iterable[bytes]) -> Iterator[dict]:
@@ -137,9 +122,6 @@ class JsonLinesDecoder(Decoder):
             if not s:
                 continue
             yield json.loads(s)
-
-    def count(self, chunks: Iterable[bytes]) -> Optional[int]:
-        return sum(1 for s in _iter_text_lines(chunks, self.encoding) if s.strip())
 
 
 class PickleDecoder(Decoder):
@@ -154,17 +136,3 @@ class PickleDecoder(Decoder):
                 yield unpickler.load()
         except EOFError:
             return
-
-    def count(self, chunks: Iterable[bytes]) -> Optional[int]:
-        buffer = io.BytesIO()
-        for chunk in chunks:
-            buffer.write(chunk)
-        buffer.seek(0)
-        unpickler = pickle.Unpickler(buffer)
-        total = 0
-        try:
-            while True:
-                unpickler.load()
-                total += 1
-        except EOFError:
-            return total

@@ -1,5 +1,2 @@
-cmd: inspect
-name: coverage
-target: coverage
+operation: coverage
 enabled: true
-artifact_mode: AUTO

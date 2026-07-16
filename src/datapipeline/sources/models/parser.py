@@ -5,7 +5,5 @@ TRecord = TypeVar("TRecord")
 
 
 class DataParser(ABC, Generic[TRecord]):
-
     @abstractmethod
-    def parse(self, raw: Any) -> TRecord:
-        pass
+    def parse(self, raw: Any) -> TRecord | None: ...

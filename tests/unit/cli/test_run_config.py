@@ -1,9 +1,11 @@
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
-from datapipeline.profiles.request_builder import build_profile_run_request
+from datapipeline.profiles.request_builder import (
+    build_build_run_request,
+    build_runtime_run_request,
+)
 
 
 def _write_project(tmp_path: Path) -> Path:
@@ -11,65 +13,41 @@ def _write_project(tmp_path: Path) -> Path:
     project_yaml.write_text(
         "\n".join(
             [
-                "version: 1",
+                "schema_version: 2",
+                "artifact_revision: 1",
                 "paths:",
-                "  ingests: ./ingests",
                 "  streams: streams",
                 "  sources: sources",
                 "  dataset: dataset.yaml",
-                "  postprocess: postprocess.yaml",
                 "  artifacts: artifacts",
-                "  tasks: tasks",
                 "  profiles: profiles",
             ]
         ),
         encoding="utf-8",
     )
-    (tmp_path / "dataset.yaml").write_text("{}\n", encoding="utf-8")
-    (tmp_path / "postprocess.yaml").write_text("{}\n", encoding="utf-8")
+    (tmp_path / "dataset.yaml").write_text(
+        "sample:\n  cadence: 1h\n",
+        encoding="utf-8",
+    )
+    for directory in ("streams", "sources"):
+        (tmp_path / directory).mkdir(parents=True, exist_ok=True)
     return project_yaml
 
 
-def _write_op(path: Path, body: str) -> None:
-    path.write_text(body, encoding="utf-8")
-
-
-def _patch_runtime_resolution(monkeypatch) -> None:
-    monkeypatch.setattr(
-        "datapipeline.config.serve_resolution.bootstrap_build_runtime",
-        lambda _project_path: SimpleNamespace(split=None, execution=None),
-    )
-    monkeypatch.setattr(
-        "datapipeline.profiles.request_builder.load_dataset",
-        lambda project_path, dataset_name: SimpleNamespace(name=dataset_name),
-    )
-
-
-def test_serve_request_resolves_targeted_profile(monkeypatch, tmp_path: Path):
-    _patch_runtime_resolution(monkeypatch)
+def test_serve_request_resolves_named_profile(tmp_path: Path):
     project_yaml = _write_project(tmp_path)
-    ops = tmp_path / "tasks" / "operations"
     profiles = tmp_path / "profiles"
-    ops.mkdir(parents=True, exist_ok=True)
     profiles.mkdir(parents=True, exist_ok=True)
-
-    _write_op(
-        ops / "pipeline.yaml",
-        "id: pipeline\nkind: runtime\nentrypoint: core.runtime.pipeline\n",
-    )
-    _write_op(
-        ops / "coverage.yaml",
-        "id: coverage\nkind: runtime\nentrypoint: core.runtime.coverage\n",
-    )
     (profiles / "serve.coverage.yaml").write_text(
-        "cmd: serve\nname: coverage\ntarget: coverage\n",
+        "operation: coverage\n",
         encoding="utf-8",
     )
 
-    request = build_profile_run_request(
-        kind="serve",
+    request = build_runtime_run_request(
+        command="serve",
         project=str(project_yaml),
-        run_name="coverage",
+        profile_name="coverage",
+        limit=5,
     )
     assert request is not None
     assert request.command == "serve"
@@ -77,38 +55,28 @@ def test_serve_request_resolves_targeted_profile(monkeypatch, tmp_path: Path):
     job = request.jobs[0]
     assert job.name == "coverage"
     assert job.task.id == "coverage"
+    assert job.limit == 5
     assert request.artifact_settings is not None
     assert request.artifact_settings.mode == "AUTO"
 
 
-def test_inspect_request_defaults_to_enabled_profiles(monkeypatch, tmp_path: Path):
-    _patch_runtime_resolution(monkeypatch)
+def test_inspect_request_defaults_to_enabled_profiles(tmp_path: Path):
     project_yaml = _write_project(tmp_path)
-    ops = tmp_path / "tasks" / "operations"
     profiles = tmp_path / "profiles"
-    ops.mkdir(parents=True, exist_ok=True)
     profiles.mkdir(parents=True, exist_ok=True)
-
-    _write_op(
-        ops / "coverage.yaml",
-        "id: coverage\nkind: runtime\nentrypoint: core.runtime.coverage\n",
-    )
-    _write_op(
-        ops / "matrix.yaml",
-        "id: matrix\nkind: runtime\nentrypoint: core.runtime.matrix\n",
-    )
     (profiles / "inspect.coverage.yaml").write_text(
-        "cmd: inspect\nname: coverage\ntarget: coverage\nenabled: false\n",
+        "operation: coverage\nenabled: false\n",
         encoding="utf-8",
     )
     (profiles / "inspect.matrix.yaml").write_text(
-        "cmd: inspect\nname: matrix\ntarget: matrix\nenabled: true\n",
+        "operation: matrix\nenabled: true\n",
         encoding="utf-8",
     )
 
-    request = build_profile_run_request(
-        kind="inspect",
+    request = build_runtime_run_request(
+        command="inspect",
         project=str(project_yaml),
+        limit=7,
     )
     assert request is not None
     assert request.command == "inspect"
@@ -116,156 +84,166 @@ def test_inspect_request_defaults_to_enabled_profiles(monkeypatch, tmp_path: Pat
     job = request.jobs[0]
     assert job.name == "matrix"
     assert job.task.id == "matrix"
+    assert job.limit == 7
 
 
-def test_serve_profile_rejects_artifact_target(monkeypatch, tmp_path: Path, caplog):
-    _patch_runtime_resolution(monkeypatch)
+def test_inspect_request_rejects_preview(tmp_path: Path, caplog) -> None:
     project_yaml = _write_project(tmp_path)
-    ops = tmp_path / "tasks" / "operations"
     profiles = tmp_path / "profiles"
-    ops.mkdir(parents=True, exist_ok=True)
     profiles.mkdir(parents=True, exist_ok=True)
-
-    _write_op(
-        ops / "schema.yaml",
-        "id: schema\nkind: artifact\noutput: schema.json\n",
-    )
-    (profiles / "serve.schema.yaml").write_text(
-        "cmd: serve\nname: schema\ntarget: schema\n",
+    (profiles / "inspect.coverage.yaml").write_text(
+        "operation: coverage\n",
         encoding="utf-8",
     )
 
     with pytest.raises(SystemExit) as exc:
-        build_profile_run_request(
-            kind="serve",
+        build_runtime_run_request(
+            command="inspect",
             project=str(project_yaml),
-            run_name="schema",
+            preview="input",
         )
 
     assert exc.value.code == 2
-    assert "must target a runtime task; 'schema' is an artifact task" in caplog.text
+    assert "Inspect profiles do not support previews" in caplog.text
 
 
-def test_inspect_profile_rejects_artifact_target(tmp_path: Path, caplog):
+def test_serve_profile_rejects_artifact_operation(tmp_path: Path, caplog):
     project_yaml = _write_project(tmp_path)
-    ops = tmp_path / "tasks" / "operations"
     profiles = tmp_path / "profiles"
-    ops.mkdir(parents=True, exist_ok=True)
     profiles.mkdir(parents=True, exist_ok=True)
-    _write_op(
-        ops / "stats.yaml",
-        "id: stats\nkind: artifact\nmode: raw\noutput: stats.json\n",
+    (profiles / "serve.schema.yaml").write_text(
+        "operation: schema\n",
+        encoding="utf-8",
     )
+
+    with pytest.raises(SystemExit) as exc:
+        build_runtime_run_request(
+            command="serve",
+            project=str(project_yaml),
+            profile_name="schema",
+        )
+
+    assert exc.value.code == 2
+    assert (
+        "must reference a runtime operation; 'schema' is an artifact operation"
+        in caplog.text
+    )
+
+
+def test_inspect_profile_rejects_artifact_operation(tmp_path: Path, caplog):
+    project_yaml = _write_project(tmp_path)
+    profiles = tmp_path / "profiles"
+    profiles.mkdir(parents=True, exist_ok=True)
     (profiles / "inspect.stats.yaml").write_text(
-        "cmd: inspect\nname: stats\ntarget: stats\n",
+        "operation: stats\n",
         encoding="utf-8",
     )
 
     with pytest.raises(SystemExit) as exc:
-        build_profile_run_request(kind="inspect", project=str(project_yaml))
+        build_runtime_run_request(command="inspect", project=str(project_yaml))
 
     assert exc.value.code == 2
-    assert "must target a runtime task; 'stats' is an artifact task" in caplog.text
+    assert (
+        "must reference a runtime operation; 'stats' is an artifact operation"
+        in caplog.text
+    )
 
 
-def test_build_profile_rejects_runtime_target(tmp_path: Path, caplog):
+def test_build_profile_rejects_runtime_operation(tmp_path: Path, caplog):
     project_yaml = _write_project(tmp_path)
-    ops = tmp_path / "tasks" / "operations"
     profiles = tmp_path / "profiles"
-    ops.mkdir(parents=True, exist_ok=True)
     profiles.mkdir(parents=True, exist_ok=True)
-    _write_op(
-        ops / "pipeline.yaml",
-        "id: pipeline\nkind: runtime\nentrypoint: core.runtime.pipeline\n",
-    )
-    (profiles / "build.pipeline.yaml").write_text(
-        "cmd: build\nname: pipeline\ntarget: pipeline\n",
+    (profiles / "build.dataset.yaml").write_text(
+        "operation: dataset\n",
         encoding="utf-8",
     )
 
     with pytest.raises(SystemExit) as exc:
-        build_profile_run_request(kind="build", project=str(project_yaml))
+        build_build_run_request(project=str(project_yaml))
 
     assert exc.value.code == 2
-    assert "must target an artifact task; 'pipeline' is a runtime task" in caplog.text
+    assert (
+        "must reference an artifact operation; 'dataset' is a runtime operation"
+        in caplog.text
+    )
 
 
-def test_build_profile_rejects_unknown_target(tmp_path: Path, caplog):
+def test_build_profile_rejects_unknown_operation(tmp_path: Path, caplog):
     project_yaml = _write_project(tmp_path)
-    (tmp_path / "tasks" / "operations").mkdir(parents=True, exist_ok=True)
     profiles = tmp_path / "profiles"
     profiles.mkdir(parents=True, exist_ok=True)
     (profiles / "build.typo.yaml").write_text(
-        "cmd: build\nname: typo\ntarget: scheam\n",
+        "operation: scheam\n",
         encoding="utf-8",
     )
 
     with pytest.raises(SystemExit) as exc:
-        build_profile_run_request(kind="build", project=str(project_yaml))
+        build_build_run_request(project=str(project_yaml))
 
     assert exc.value.code == 2
-    assert "references unknown task target 'scheam'" in caplog.text
+    assert "references unknown operation 'scheam'" in caplog.text
 
 
-def test_serve_request_orders_enabled_profiles_and_run_targets_only_named_profile(
-    monkeypatch,
+def test_serve_profile_rejects_removed_pipeline_operation_id(tmp_path: Path, caplog):
+    project_yaml = _write_project(tmp_path)
+    profiles = tmp_path / "profiles"
+    profiles.mkdir(parents=True, exist_ok=True)
+    (profiles / "serve.legacy.yaml").write_text(
+        "operation: pipeline\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        build_runtime_run_request(command="serve", project=str(project_yaml))
+
+    assert exc.value.code == 2
+    assert "references unknown operation 'pipeline'" in caplog.text
+
+
+def test_serve_request_orders_enabled_profiles_and_run_selects_named_profile(
     tmp_path: Path,
 ):
-    _patch_runtime_resolution(monkeypatch)
     project_yaml = _write_project(tmp_path)
-    ops = tmp_path / "tasks" / "operations"
     profiles = tmp_path / "profiles"
-    ops.mkdir(parents=True, exist_ok=True)
     profiles.mkdir(parents=True, exist_ok=True)
-
-    _write_op(
-        ops / "pipeline.yaml",
-        "id: pipeline\nkind: runtime\nentrypoint: core.runtime.pipeline\n",
-    )
     (profiles / "serve.early.yaml").write_text(
-        "cmd: serve\nname: early\norder: 10\ntarget: pipeline\nenabled: true\n",
+        "order: 10\noperation: dataset\nenabled: true\n",
         encoding="utf-8",
     )
     (profiles / "serve.train.yaml").write_text(
-        "cmd: serve\nname: train\norder: 40\ntarget: pipeline\nenabled: true\n",
+        "order: 40\noperation: dataset\nenabled: true\n",
         encoding="utf-8",
     )
 
-    request_all = build_profile_run_request(
-        kind="serve",
+    request_all = build_runtime_run_request(
+        command="serve",
         project=str(project_yaml),
     )
     assert request_all is not None
     assert [job.name for job in request_all.jobs] == ["early", "train"]
     assert [job.task.id for job in request_all.jobs] == [
-        "pipeline",
-        "pipeline",
+        "dataset",
+        "dataset",
     ]
+    assert request_all.jobs[0].runtime is not request_all.jobs[1].runtime
 
-    request_train = build_profile_run_request(
-        kind="serve",
+    request_train = build_runtime_run_request(
+        command="serve",
         project=str(project_yaml),
-        run_name="train",
+        profile_name="train",
     )
     assert request_train is not None
     assert [job.name for job in request_train.jobs] == ["train"]
-    assert [job.task.id for job in request_train.jobs] == ["pipeline"]
+    assert [job.task.id for job in request_train.jobs] == ["dataset"]
 
 
-def test_cli_artifact_mode_overrides_selected_profiles(monkeypatch, tmp_path: Path):
-    _patch_runtime_resolution(monkeypatch)
+def test_cli_artifact_mode_overrides_serve_defaults(tmp_path: Path):
     project_yaml = _write_project(tmp_path)
-    ops = tmp_path / "tasks" / "operations"
     profiles = tmp_path / "profiles"
-    ops.mkdir(parents=True, exist_ok=True)
     profiles.mkdir(parents=True, exist_ok=True)
-    _write_op(
-        ops / "pipeline.yaml",
-        "id: pipeline\nkind: runtime\nentrypoint: core.runtime.pipeline\n",
-    )
     (profiles / "serve.defaults.yaml").write_text(
         (
-            'cmd: serve\nartifact_mode: "OFF"\n'
+            'artifact_mode: "OFF"\n'
             "observability:\n"
             "  visuals: off\n"
             "  heartbeat_interval_seconds: 30\n"
@@ -279,16 +257,16 @@ def test_cli_artifact_mode_overrides_selected_profiles(monkeypatch, tmp_path: Pa
         encoding="utf-8",
     )
     (profiles / "serve.first.yaml").write_text(
-        'cmd: serve\nname: first\ntarget: pipeline\nartifact_mode: "OFF"\n',
+        "operation: dataset\n",
         encoding="utf-8",
     )
     (profiles / "serve.second.yaml").write_text(
-        "cmd: serve\nname: second\ntarget: pipeline\nartifact_mode: AUTO\n",
+        "operation: dataset\n",
         encoding="utf-8",
     )
 
-    request = build_profile_run_request(
-        kind="serve",
+    request = build_runtime_run_request(
+        command="serve",
         project=str(project_yaml),
         artifact_mode="force",
         cli_heartbeat_interval_seconds=0,
@@ -328,55 +306,37 @@ def test_cli_artifact_mode_overrides_selected_profiles(monkeypatch, tmp_path: Pa
     }
 
 
-def test_selected_profiles_reject_conflicting_artifact_modes(
-    monkeypatch,
-    tmp_path: Path,
-    caplog,
-):
-    _patch_runtime_resolution(monkeypatch)
+def test_serve_defaults_control_artifact_mode_for_all_profiles(tmp_path: Path):
     project_yaml = _write_project(tmp_path)
-    ops = tmp_path / "tasks" / "operations"
     profiles = tmp_path / "profiles"
-    ops.mkdir(parents=True, exist_ok=True)
     profiles.mkdir(parents=True, exist_ok=True)
-    _write_op(
-        ops / "pipeline.yaml",
-        "id: pipeline\nkind: runtime\nentrypoint: core.runtime.pipeline\n",
+    (profiles / "serve.defaults.yaml").write_text(
+        'artifact_mode: "OFF"\n',
+        encoding="utf-8",
     )
     (profiles / "serve.first.yaml").write_text(
-        'cmd: serve\nname: first\ntarget: pipeline\nartifact_mode: "OFF"\n',
+        "operation: dataset\n",
         encoding="utf-8",
     )
     (profiles / "serve.second.yaml").write_text(
-        "cmd: serve\nname: second\ntarget: pipeline\nartifact_mode: AUTO\n",
+        "operation: dataset\n",
         encoding="utf-8",
     )
 
-    with pytest.raises(SystemExit) as exc:
-        build_profile_run_request(kind="serve", project=str(project_yaml))
-
-    assert exc.value.code == 2
-    assert (
-        "Selected serve profiles disagree on artifact_mode: first=OFF, second=AUTO."
-        in caplog.text
+    request = build_runtime_run_request(
+        command="serve",
+        project=str(project_yaml),
     )
+    assert request is not None
+    assert request.artifact_settings.mode == "OFF"
 
 
-def test_serve_defaults_apply_when_profile_omits_fields(monkeypatch, tmp_path: Path):
-    _patch_runtime_resolution(monkeypatch)
+def test_serve_defaults_apply_when_profile_omits_fields(tmp_path: Path):
     project_yaml = _write_project(tmp_path)
-    ops = tmp_path / "tasks" / "operations"
     profiles = tmp_path / "profiles"
-    ops.mkdir(parents=True, exist_ok=True)
     profiles.mkdir(parents=True, exist_ok=True)
-
-    _write_op(
-        ops / "pipeline.yaml",
-        "id: pipeline\nkind: runtime\nentrypoint: core.runtime.pipeline\n",
-    )
     (profiles / "serve.defaults.yaml").write_text(
         (
-            "cmd: serve\n"
             "output:\n"
             "  transport: fs\n"
             "  format: jsonl\n"
@@ -390,14 +350,14 @@ def test_serve_defaults_apply_when_profile_omits_fields(monkeypatch, tmp_path: P
         encoding="utf-8",
     )
     (profiles / "serve.train.yaml").write_text(
-        "cmd: serve\nname: train\ntarget: pipeline\n",
+        "operation: dataset\n",
         encoding="utf-8",
     )
 
-    request = build_profile_run_request(
-        kind="serve",
+    request = build_runtime_run_request(
+        command="serve",
         project=str(project_yaml),
-        run_name="train",
+        profile_name="train",
     )
     assert request is not None
     job = request.jobs[0]
@@ -414,44 +374,23 @@ def test_serve_defaults_apply_when_profile_omits_fields(monkeypatch, tmp_path: P
     assert not job.output.run.metadata_path.exists()
 
 
-def test_serve_profile_fields_override_serve_defaults(monkeypatch, tmp_path: Path):
-    _patch_runtime_resolution(monkeypatch)
+def test_serve_profile_fields_override_serve_defaults(tmp_path: Path):
     project_yaml = _write_project(tmp_path)
-    ops = tmp_path / "tasks" / "operations"
     profiles = tmp_path / "profiles"
-    ops.mkdir(parents=True, exist_ok=True)
     profiles.mkdir(parents=True, exist_ok=True)
-
-    _write_op(
-        ops / "pipeline.yaml",
-        "id: pipeline\nkind: runtime\nentrypoint: core.runtime.pipeline\n",
-    )
     (profiles / "serve.defaults.yaml").write_text(
-        (
-            "cmd: serve\n"
-            "output:\n"
-            "  transport: fs\n"
-            "  format: jsonl\n"
-            "  directory: ./artifacts/serve\n"
-        ),
+        ("output:\n  transport: fs\n  format: jsonl\n  directory: ./artifacts/serve\n"),
         encoding="utf-8",
     )
     (profiles / "serve.train.yaml").write_text(
-        (
-            "cmd: serve\n"
-            "name: train\n"
-            "target: pipeline\n"
-            "output:\n"
-            "  transport: stdout\n"
-            "  format: jsonl\n"
-        ),
+        ("operation: dataset\noutput:\n  transport: stdout\n  format: jsonl\n"),
         encoding="utf-8",
     )
 
-    request = build_profile_run_request(
-        kind="serve",
+    request = build_runtime_run_request(
+        command="serve",
         project=str(project_yaml),
-        run_name="train",
+        profile_name="train",
     )
     assert request is not None
     job = request.jobs[0]
@@ -460,46 +399,24 @@ def test_serve_profile_fields_override_serve_defaults(monkeypatch, tmp_path: Pat
 
 
 def test_serve_profile_nested_observability_deep_merges_defaults(
-    monkeypatch,
     tmp_path: Path,
 ):
-    _patch_runtime_resolution(monkeypatch)
     project_yaml = _write_project(tmp_path)
-    ops = tmp_path / "tasks" / "operations"
     profiles = tmp_path / "profiles"
-    ops.mkdir(parents=True, exist_ok=True)
     profiles.mkdir(parents=True, exist_ok=True)
-
-    _write_op(
-        ops / "pipeline.yaml",
-        "id: pipeline\nkind: runtime\nentrypoint: core.runtime.pipeline\n",
-    )
     (profiles / "serve.defaults.yaml").write_text(
-        (
-            "cmd: serve\n"
-            "observability:\n"
-            "  logging:\n"
-            "    outputs:\n"
-            "      - transport: stdout\n"
-        ),
+        ("observability:\n  logging:\n    outputs:\n      - transport: stdout\n"),
         encoding="utf-8",
     )
     (profiles / "serve.train.yaml").write_text(
-        (
-            "cmd: serve\n"
-            "name: train\n"
-            "target: pipeline\n"
-            "observability:\n"
-            "  logging:\n"
-            "    level: debug\n"
-        ),
+        ("operation: dataset\nobservability:\n  logging:\n    level: debug\n"),
         encoding="utf-8",
     )
 
-    request = build_profile_run_request(
-        kind="serve",
+    request = build_runtime_run_request(
+        command="serve",
         project=str(project_yaml),
-        run_name="train",
+        profile_name="train",
     )
     assert request is not None
     job = request.jobs[0]
@@ -509,18 +426,10 @@ def test_serve_profile_nested_observability_deep_merges_defaults(
 
 def test_build_defaults_apply_to_build_profiles(tmp_path: Path):
     project_yaml = _write_project(tmp_path)
-    ops = tmp_path / "tasks" / "operations"
     profiles = tmp_path / "profiles"
-    ops.mkdir(parents=True, exist_ok=True)
     profiles.mkdir(parents=True, exist_ok=True)
-
-    _write_op(
-        ops / "schema.yaml",
-        "id: schema\nkind: artifact\noutput: schema.json\n",
-    )
     (profiles / "build.defaults.yaml").write_text(
         (
-            "cmd: build\n"
             "mode: force\n"
             "execution:\n"
             "  sort_buffer_mb: 256\n"
@@ -532,17 +441,16 @@ def test_build_defaults_apply_to_build_profiles(tmp_path: Path):
         encoding="utf-8",
     )
     (profiles / "build.schema.yaml").write_text(
-        "cmd: build\nname: schema\ntarget: schema\n",
+        "operation: schema\n",
         encoding="utf-8",
     )
 
-    request = build_profile_run_request(
-        kind="build",
+    request = build_build_run_request(
         project=str(project_yaml),
-        run_name="schema",
+        profile_name="schema",
     )
     assert request is not None
-    assert request.config_hash is not None
+    assert request.definition.artifact_hashes.values
     assert request.execution.sort_buffer_mb == 256
     job = request.jobs[0]
     assert job.settings.mode == "FORCE"

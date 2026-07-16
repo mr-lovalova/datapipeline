@@ -5,7 +5,7 @@
 Current status:
 - Hidden session fan-out caching was removed from pipeline orchestration.
 - `vector_inputs` is now an explicit durable artifact with a manifest, compressed
-  per-feature shards, config freshness, and graph dependencies.
+  per-feature shards, file fingerprints, config freshness, and graph dependencies.
 - Vector assembly requires that artifact instead of silently switching between
   cached and uncached execution paths.
 

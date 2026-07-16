@@ -4,10 +4,10 @@ import pytest
 
 from datapipeline.config.profiles import ServeOutputConfig
 from datapipeline.io.output import resolve_output_target
-from datapipeline.services.runs import get_run_paths
+from datapipeline.io.runs import get_run_paths
 
 
-def test_resolve_output_target_uses_directory_and_run_name(tmp_path):
+def test_resolve_output_target_uses_directory_and_profile_name(tmp_path):
     default_dir = tmp_path / "outputs"
     default_dir.mkdir()
     cfg = ServeOutputConfig(transport="fs", format="jsonl", directory=default_dir)
@@ -17,7 +17,7 @@ def test_resolve_output_target_uses_directory_and_run_name(tmp_path):
         config_output=cfg,
         default=None,
         base_path=Path("."),
-        run_name="train",
+        profile_name="train",
     )
 
     assert target.transport == "fs"
@@ -39,7 +39,7 @@ def test_resolve_output_target_honors_custom_filename(tmp_path):
         config_output=cfg,
         default=None,
         base_path=Path("."),
-        run_name="train",
+        profile_name="train",
     )
 
     assert target.destination == (base_dir / "train" / "custom.jsonl").resolve()
@@ -61,7 +61,7 @@ def test_resolve_output_target_allows_dotted_filename_stem(tmp_path):
         config_output=cfg,
         default=None,
         base_path=Path("."),
-        run_name="processed",
+        profile_name="processed",
     )
 
     assert (
@@ -86,7 +86,7 @@ def test_resolve_output_target_rejects_filename_with_selected_extension(tmp_path
             config_output=cfg,
             default=None,
             base_path=Path("."),
-            run_name="processed",
+            profile_name="processed",
         )
 
 
@@ -100,7 +100,7 @@ def test_resolve_output_target_sanitizes_derived_filename_stem(tmp_path):
         config_output=cfg,
         default=None,
         base_path=Path("."),
-        run_name="train/val",
+        profile_name="train/val",
     )
 
     assert target.destination == (base_dir / "train_val" / "train_val.jsonl").resolve()
@@ -116,19 +116,19 @@ def test_split_targets_keep_profile_names_in_shared_run(tmp_path):
     first = resolve_output_target(
         cli_output=None,
         config_output=config,
-        run_name="first",
+        profile_name="first",
         run_paths=run,
     )
     second = resolve_output_target(
         cli_output=None,
         config_output=config,
-        run_name="second",
+        profile_name="second",
         run_paths=run,
     )
     normal = resolve_output_target(
         cli_output=None,
         config_output=config,
-        run_name="train",
+        profile_name="train",
         run_paths=run,
     )
 
@@ -160,7 +160,7 @@ def test_resolve_output_target_honors_view(tmp_path):
         config_output=cfg,
         default=None,
         base_path=Path("."),
-        run_name="train",
+        profile_name="train",
     )
 
     assert target.view == "flat"
@@ -181,7 +181,7 @@ def test_resolve_output_target_honors_encoding(tmp_path):
         config_output=cfg,
         default=None,
         base_path=Path("."),
-        run_name="train",
+        profile_name="train",
     )
 
     assert target.encoding == "utf-8-sig"
@@ -193,7 +193,7 @@ def test_stdout_jsonl_defaults_to_raw_view():
         config_output=None,
         default=None,
         base_path=Path("."),
-        run_name="train",
+        profile_name="train",
     )
     assert target.view == "raw"
 
@@ -204,7 +204,7 @@ def test_stdout_txt_is_supported():
         config_output=None,
         default=None,
         base_path=Path("."),
-        run_name="report",
+        profile_name="report",
     )
     assert target.transport == "stdout"
     assert target.format == "txt"
@@ -224,7 +224,7 @@ def test_resolve_output_target_html_uses_html_suffix(tmp_path):
         config_output=cfg,
         default=None,
         base_path=Path("."),
-        run_name="matrix",
+        profile_name="matrix",
     )
 
     assert target.destination == (out_dir / "matrix" / "matrix.html").resolve()
@@ -244,7 +244,7 @@ def test_resolve_output_target_txt_uses_txt_suffix(tmp_path):
         config_output=cfg,
         default=None,
         base_path=Path("."),
-        run_name="coverage",
+        profile_name="coverage",
     )
 
     assert target.destination == (out_dir / "coverage" / "coverage.txt").resolve()

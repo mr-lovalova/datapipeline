@@ -5,28 +5,41 @@ from datetime import datetime, timezone
 import pytest
 
 from datapipeline.artifacts.models import VectorSchemaArtifact
+from datapipeline.artifacts.registry import VECTOR_SCHEMA_SPEC
+from datapipeline.artifacts.specs import VECTOR_METADATA, VECTOR_SCHEMA
+from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.config.tasks import MetadataTask, SchemaTask
-from datapipeline.dag.context import PipelineContext
+from datapipeline.domain.sample import Sample
+from datapipeline.domain.vector import Vector
+from datapipeline.execution.context import PipelineContext
+from datapipeline.operations.artifacts import utils as artifact_utils
 from datapipeline.operations.artifacts.metadata import (
     _window_bounds_from_stats,
     _window_size,
+    materialize_metadata,
 )
-from datapipeline.operations.artifacts.metadata import materialize_metadata
 from datapipeline.operations.artifacts.schema import materialize_vector_schema
-from datapipeline.operations.artifacts import utils as artifact_utils
 from datapipeline.operations.artifacts.utils import (
-    collect_schema_entries,
+    VectorMetadataStats,
+    collect_vector_metadata,
     metadata_entries_from_stats,
 )
-from datapipeline.domain.sample import Sample
-from datapipeline.domain.vector import Vector
-from datapipeline.runtime import Runtime
-from datapipeline.services.constants import VECTOR_SCHEMA
+from datapipeline.runtime import Runtime, SourceRuntimeStream
+from datapipeline.utils.load import load_yaml
 
 
 def _hour(hour: int) -> datetime:
     return datetime(2024, 1, 1, hour=hour, tzinfo=timezone.utc)
+
+
+class _EmptySource:
+    def stream(self):
+        return iter(())
+
+
+def _identity(records):
+    return records
 
 
 def _runtime_with_dataset(tmp_path, dataset_text: str) -> Runtime:
@@ -34,39 +47,55 @@ def _runtime_with_dataset(tmp_path, dataset_text: str) -> Runtime:
     project_yaml.write_text(
         "\n".join(
             [
-                "version: 1",
+                "schema_version: 2",
+                "artifact_revision: 1",
                 "paths:",
-                "  ingests: ingests",
                 "  streams: streams",
                 "  sources: sources",
                 "  dataset: dataset.yaml",
-                "  postprocess: postprocess.yaml",
                 "  artifacts: build",
-                "  tasks: tasks",
+                "  operations: operations",
                 "",
             ]
         ),
         encoding="utf-8",
     )
-    (tmp_path / "dataset.yaml").write_text(dataset_text, encoding="utf-8")
+    dataset_path = tmp_path / "dataset.yaml"
+    dataset_path.write_text(dataset_text, encoding="utf-8")
     artifacts_root = tmp_path / "build"
     artifacts_root.mkdir()
-    runtime = Runtime(project_yaml=project_yaml, artifacts_root=artifacts_root)
-    runtime.registries.partition_by.register("market.prices", None)
-    runtime.registries.feature_id_by.register("market.prices", None)
+    runtime = Runtime(
+        project_yaml=project_yaml,
+        artifacts_root=artifacts_root,
+        dataset=FeatureDatasetConfig.model_validate(load_yaml(dataset_path)),
+    )
+    runtime.streams["market.prices"] = SourceRuntimeStream(
+        source=_EmptySource(),
+        mapper=_identity,
+        preprocess=(),
+        transforms=(),
+        partition_by=(),
+        presorted=False,
+    )
     return runtime
 
 
-def test_collect_schema_entries_counts_nan(monkeypatch, tmp_path):
+def test_collect_vector_metadata_counts_nan(monkeypatch, tmp_path):
     """Ensure metadata collection treats NaN values as nulls."""
     artifacts_root = tmp_path / "artifacts"
     artifacts_root.mkdir()
     project_yaml = tmp_path / "project.yaml"
-    project_yaml.write_text("version: 1\n", encoding="utf-8")
-    runtime = Runtime(project_yaml=project_yaml, artifacts_root=artifacts_root)
+    project_yaml.write_text(
+        "schema_version: 2\nartifact_revision: 1\n", encoding="utf-8"
+    )
+    runtime = Runtime(
+        project_yaml=project_yaml,
+        artifacts_root=artifacts_root,
+        dataset=FeatureDatasetConfig(sample=SampleConfig(cadence="1h")),
+    )
     cfg = FeatureRecordConfig(
         id="wind_speed",
-        record_stream="met.obs",
+        stream="met.obs",
         field="value",
     )
     sample = Sample(key=(0,), features=Vector(values={"wind_speed": math.nan}))
@@ -88,29 +117,36 @@ def test_collect_schema_entries_counts_nan(monkeypatch, tmp_path):
         fake_pipeline,
     )
 
-    stats, vector_count = collect_schema_entries(
+    stats, vector_count, domain = collect_vector_metadata(
         runtime,
         [cfg],
-        group_by="1h",
-        collect_metadata=True,
-        progress_step="scan_features",
+        "1h",
+        (),
+        "scan_features",
     )
 
     assert vector_count == 1
-    entry = next(item for item in stats if item["id"] == "wind_speed")
-    assert entry["present_count"] == 1
-    assert entry["null_count"] == 1
+    assert domain == {}
+    entry = next(item for item in stats if item.id == "wind_speed")
+    assert entry.present_count == 1
+    assert entry.null_count == 1
 
 
-def test_collect_schema_entries_emits_progress(monkeypatch, tmp_path):
+def test_collect_vector_metadata_emits_progress(monkeypatch, tmp_path):
     artifacts_root = tmp_path / "artifacts"
     artifacts_root.mkdir()
     project_yaml = tmp_path / "project.yaml"
-    project_yaml.write_text("version: 1\n", encoding="utf-8")
-    runtime = Runtime(project_yaml=project_yaml, artifacts_root=artifacts_root)
+    project_yaml.write_text(
+        "schema_version: 2\nartifact_revision: 1\n", encoding="utf-8"
+    )
+    runtime = Runtime(
+        project_yaml=project_yaml,
+        artifacts_root=artifacts_root,
+        dataset=FeatureDatasetConfig(sample=SampleConfig(cadence="1h")),
+    )
     cfg = FeatureRecordConfig(
         id="price",
-        record_stream="market.prices",
+        stream="market.prices",
         field="close",
     )
     samples = [
@@ -135,63 +171,98 @@ def test_collect_schema_entries_emits_progress(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(artifact_utils, "OperationProgressTracker", Progress)
 
-    collect_schema_entries(
+    collect_vector_metadata(
         runtime,
         [cfg],
-        group_by="1h",
-        collect_metadata=False,
-        progress_step="scan_features",
+        "1h",
+        (),
+        "scan_features",
     )
 
     assert trackers == [("scan_features", 180)]
     assert advances == [1, 1]
 
 
-def test_schema_materialization_rejects_configured_empty_features(
+@pytest.mark.parametrize(
+    "values",
+    [
+        (1.0, [2.0]),
+        ([1.0], 2.0),
+    ],
+)
+def test_collect_vector_metadata_rejects_scalar_list_mixtures(
     monkeypatch,
     tmp_path,
+    values,
 ) -> None:
-    runtime = _runtime_with_dataset(
-        tmp_path,
-        "\n".join(
-            [
-                "group_by: 1h",
-                "features:",
-                "  - id: price",
-                "    record_stream: market.prices",
-                "    field: close",
-                "targets: []",
-                "",
-            ]
-        ),
+    runtime = _runtime_with_dataset(tmp_path, "sample:\n  cadence: 1h\n")
+    config = FeatureRecordConfig(
+        id="history",
+        stream="market.prices",
+        field="close",
     )
-
-    def empty_collection(*args, **kwargs):
-        return [], 0
-
+    samples = [
+        Sample(key=(index,), features=Vector(values={"history": value}))
+        for index, value in enumerate(values)
+    ]
     monkeypatch.setattr(
-        "datapipeline.operations.artifacts.schema.collect_schema_entries",
-        empty_collection,
+        artifact_utils,
+        "build_vector_pipeline",
+        lambda *_args, **_kwargs: iter(samples),
     )
 
-    with pytest.raises(RuntimeError, match="configured features produced zero vectors"):
-        materialize_vector_schema(runtime, SchemaTask(output="schema.json"))
+    with pytest.raises(ValueError, match="both (scalar and list|list and scalar)"):
+        collect_vector_metadata(
+            runtime,
+            [config],
+            "1h",
+            (),
+            "scan_features",
+        )
 
-    assert not (runtime.artifacts_root / "schema.json").exists()
 
-
-def test_schema_materialization_omits_legacy_metadata(
+def test_collect_vector_metadata_rejects_variable_list_lengths(
     monkeypatch,
+    tmp_path,
+) -> None:
+    runtime = _runtime_with_dataset(tmp_path, "sample:\n  cadence: 1h\n")
+    config = FeatureRecordConfig(
+        id="history",
+        stream="market.prices",
+        field="close",
+    )
+    samples = [
+        Sample(key=(0,), features=Vector(values={"history": [1.0]})),
+        Sample(key=(1,), features=Vector(values={"history": [2.0, 3.0]})),
+    ]
+    monkeypatch.setattr(
+        artifact_utils,
+        "build_vector_pipeline",
+        lambda *_args, **_kwargs: iter(samples),
+    )
+
+    with pytest.raises(ValueError, match="different lengths: 1 and 2"):
+        collect_vector_metadata(
+            runtime,
+            [config],
+            "1h",
+            (),
+            "scan_features",
+        )
+
+
+def test_schema_materialization_derives_entries_from_metadata(
     tmp_path,
 ) -> None:
     runtime = _runtime_with_dataset(
         tmp_path,
         "\n".join(
             [
-                "group_by: 1h",
+                "sample:",
+                "  cadence: 1h",
                 "features:",
                 "  - id: price",
-                "    record_stream: market.prices",
+                "    stream: market.prices",
                 "    field: close",
                 "targets: []",
                 "",
@@ -199,20 +270,44 @@ def test_schema_materialization_omits_legacy_metadata(
         ),
     )
 
-    def collected_entries(*args, **kwargs):
-        return [
+    metadata_path = runtime.artifacts_root / "metadata.json"
+    metadata_path.write_text(
+        json.dumps(
             {
-                "id": "price__@area:DK1",
-                "base_id": "price",
-                "kind": "list",
-                "max_length": 3,
+                "schema_version": 1,
+                "features": [
+                    {
+                        "id": "price__@area:DK1",
+                        "base_id": "price",
+                        "kind": "list",
+                        "present_count": 1,
+                        "null_count": 0,
+                        "first_observed": "2024-01-01T00:00:00Z",
+                        "last_observed": "2024-01-01T00:00:00Z",
+                        "element_types": ["float"],
+                        "lengths": {"3": 1},
+                        "cadence": {"target": 3},
+                        "observed_elements": 3,
+                    }
+                ],
+                "targets": [
+                    {
+                        "id": "return",
+                        "base_id": "return",
+                        "kind": "scalar",
+                        "present_count": 1,
+                        "null_count": 0,
+                        "first_observed": "2024-01-01T00:00:00Z",
+                        "last_observed": "2024-01-01T00:00:00Z",
+                        "value_types": ["float"],
+                    }
+                ],
+                "counts": {"feature_vectors": 1, "target_vectors": 1},
             }
-        ], 1
-
-    monkeypatch.setattr(
-        "datapipeline.operations.artifacts.schema.collect_schema_entries",
-        collected_entries,
+        ),
+        encoding="utf-8",
     )
+    runtime.artifacts.register(VECTOR_METADATA, "metadata.json")
 
     materialize_vector_schema(runtime, SchemaTask(output="schema.json"))
 
@@ -227,6 +322,7 @@ def test_schema_materialization_omits_legacy_metadata(
             "cadence": {"target": 3},
         }
     ]
+    assert payload["targets"] == [{"id": "return", "kind": "scalar"}]
 
 
 _EMPTY_SCHEMA = {"schema_version": 2, "features": [], "targets": []}
@@ -270,22 +366,22 @@ def test_schema_artifact_rejects_invalid_documents(document: dict) -> None:
         VectorSchemaArtifact.model_validate(document)
 
 
-def test_schema_artifact_accepts_list_without_cadence() -> None:
-    schema = VectorSchemaArtifact.model_validate(
-        {
-            "schema_version": 2,
-            "features": [{"id": "sequence", "kind": "list"}],
-            "targets": [],
-        }
-    )
-
-    assert schema.features[0].id == "sequence"
+def test_schema_artifact_rejects_list_without_cadence() -> None:
+    with pytest.raises(ValueError, match="list schema entries must define cadence"):
+        VectorSchemaArtifact.model_validate(
+            {
+                "schema_version": 2,
+                "features": [{"id": "sequence", "kind": "list"}],
+                "targets": [],
+            }
+        )
 
 
 def test_pipeline_context_rejects_invalid_registered_schema(tmp_path) -> None:
     runtime = Runtime(
         project_yaml=tmp_path / "project.yaml",
         artifacts_root=tmp_path / "artifacts",
+        dataset=FeatureDatasetConfig(sample=SampleConfig(cadence="1h")),
     )
     runtime.artifacts_root.mkdir()
     schema_path = runtime.artifacts_root / "schema.json"
@@ -302,7 +398,7 @@ def test_pipeline_context_rejects_invalid_registered_schema(tmp_path) -> None:
     runtime.artifacts.register(VECTOR_SCHEMA, "schema.json")
 
     with pytest.raises(ValueError, match="kind"):
-        PipelineContext(runtime).load_schema()
+        PipelineContext(runtime).require_artifact(VECTOR_SCHEMA_SPEC)
 
 
 def test_metadata_materialization_rejects_configured_empty_features(
@@ -313,10 +409,11 @@ def test_metadata_materialization_rejects_configured_empty_features(
         tmp_path,
         "\n".join(
             [
-                "group_by: 1h",
+                "sample:",
+                "  cadence: 1h",
                 "features:",
                 "  - id: price",
-                "    record_stream: market.prices",
+                "    stream: market.prices",
                 "    field: close",
                 "targets: []",
                 "",
@@ -328,7 +425,7 @@ def test_metadata_materialization_rejects_configured_empty_features(
         return [], 0, {}
 
     monkeypatch.setattr(
-        "datapipeline.operations.artifacts.metadata.collect_schema_entries_and_sample_domain",
+        "datapipeline.operations.artifacts.metadata.collect_vector_metadata",
         empty_collection,
     )
 
@@ -351,7 +448,7 @@ def test_metadata_materialization_writes_keyed_sample_domain(
                 "  keys: [security_id]",
                 "features:",
                 "  - id: price",
-                "    record_stream: market.prices",
+                "    stream: market.prices",
                 "    field: close",
                 "targets: []",
                 "",
@@ -364,22 +461,21 @@ def test_metadata_materialization_writes_keyed_sample_domain(
     def collected_entries(*args, **kwargs):
         return (
             [
-                {
-                    "id": "price",
-                    "base_id": "price",
-                    "kind": "scalar",
-                    "present_count": 2,
-                    "null_count": 0,
-                    "first_ts": start,
-                    "last_ts": end,
-                }
+                VectorMetadataStats(
+                    id="price",
+                    base_id="price",
+                    kind="scalar",
+                    present_count=2,
+                    first_observed=start,
+                    last_observed=end,
+                )
             ],
             2,
             {("AAPL",): (start, end)},
         )
 
     monkeypatch.setattr(
-        "datapipeline.operations.artifacts.metadata.collect_schema_entries_and_sample_domain",
+        "datapipeline.operations.artifacts.metadata.collect_vector_metadata",
         collected_entries,
     )
 
@@ -401,42 +497,106 @@ def test_metadata_materialization_writes_keyed_sample_domain(
     }
 
 
+def test_metadata_materialization_preserves_one_timestamp_window(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    runtime = _runtime_with_dataset(
+        tmp_path,
+        "\n".join(
+            [
+                "sample:",
+                "  cadence: 1h",
+                "features:",
+                "  - id: price",
+                "    stream: market.prices",
+                "    field: close",
+                "targets: []",
+                "",
+            ]
+        ),
+    )
+    observed_at = _hour(4)
+
+    def collected_entries(*args, **kwargs):
+        return (
+            [
+                VectorMetadataStats(
+                    id="price",
+                    base_id="price",
+                    kind="scalar",
+                    present_count=1,
+                    first_observed=observed_at,
+                    last_observed=observed_at,
+                )
+            ],
+            1,
+            {},
+        )
+
+    monkeypatch.setattr(
+        "datapipeline.operations.artifacts.metadata.collect_vector_metadata",
+        collected_entries,
+    )
+
+    materialize_metadata(runtime, MetadataTask(output="metadata.json"))
+
+    path = runtime.artifacts_root / "metadata.json"
+    first = path.read_bytes()
+    payload = json.loads(first)
+    assert payload["window"] == {
+        "start": "2024-01-01T04:00:00Z",
+        "end": "2024-01-01T04:00:00Z",
+        "mode": "intersection",
+        "size": 1,
+    }
+    assert "generated_at" not in payload
+
+    materialize_metadata(runtime, MetadataTask(output="metadata.json"))
+
+    assert path.read_bytes() == first
+
+
 def test_metadata_entries_include_observation_bounds():
     stats = [
-        {
-            "id": "temp",
-            "base_id": "temp",
-            "kind": "scalar",
-            "present_count": 4,
-            "null_count": 0,
-            "first_ts": datetime(2024, 1, 1, tzinfo=timezone.utc),
-            "last_ts": datetime(2024, 1, 2, tzinfo=timezone.utc),
-        }
+        VectorMetadataStats(
+            id="temp",
+            base_id="temp",
+            kind="scalar",
+            present_count=4,
+            first_observed=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            last_observed=datetime(2024, 1, 2, tzinfo=timezone.utc),
+        )
     ]
 
     entries = metadata_entries_from_stats(stats)
 
-    assert entries[0]["first_observed"] == "2024-01-01T00:00:00Z"
-    assert entries[0]["last_observed"] == "2024-01-02T00:00:00Z"
+    assert entries[0].first_observed == datetime(2024, 1, 1, tzinfo=timezone.utc)
+    assert entries[0].last_observed == datetime(2024, 1, 2, tzinfo=timezone.utc)
 
 
 def test_window_bounds_modes():
     feature_stats = [
-        {
-            "id": "wind__@A",
-            "base_id": "wind",
-            "first_ts": _hour(0),
-            "last_ts": _hour(6),
-        },
-        {
-            "id": "wind__@B",
-            "base_id": "wind",
-            "first_ts": _hour(2),
-            "last_ts": _hour(5),
-        },
-        {"id": "temp", "base_id": "temp", "first_ts": _hour(1), "last_ts": _hour(7)},
+        VectorMetadataStats(
+            id="wind__@A",
+            base_id="wind",
+            first_observed=_hour(0),
+            last_observed=_hour(6),
+        ),
+        VectorMetadataStats(
+            id="wind__@B",
+            base_id="wind",
+            first_observed=_hour(2),
+            last_observed=_hour(5),
+        ),
+        VectorMetadataStats(
+            id="temp",
+            base_id="temp",
+            first_observed=_hour(1),
+            last_observed=_hour(7),
+        ),
     ]
-    target_stats: list[dict] = []
+    target_stats: list[VectorMetadataStats] = []
 
     start, end = _window_bounds_from_stats(feature_stats, target_stats, mode="union")
     assert start == _hour(0)
@@ -457,6 +617,26 @@ def test_window_bounds_modes():
     assert end == _hour(7)
 
 
+def test_window_bounds_preserve_single_timestamp() -> None:
+    stats = [
+        VectorMetadataStats(
+            id="price",
+            base_id="price",
+            first_observed=_hour(4),
+            last_observed=_hour(4),
+        )
+    ]
+
+    assert _window_bounds_from_stats(stats, [], mode="union") == (
+        _hour(4),
+        _hour(4),
+    )
+    assert _window_bounds_from_stats(stats, [], mode="intersection") == (
+        _hour(4),
+        _hour(4),
+    )
+
+
 def test_window_size_counts_cadence_buckets():
     start = _hour(4)
     end = _hour(10)
@@ -464,7 +644,6 @@ def test_window_size_counts_cadence_buckets():
     assert _window_size(start, end, "1h") == 7  # hours 4..10 inclusive
     assert _window_size(start, end, "2h") == 4  # 4,6,8,10
     assert _window_size(start, end, "15m") == 25  # 6 hours -> 360 minutes / 15 + 1
-    assert _window_size(start, end, None) is None
 
 
 def test_window_size_rejects_invalid_cadence():

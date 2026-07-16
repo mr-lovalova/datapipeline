@@ -1,167 +1,209 @@
-import csv
 import json
 
 import pytest
 
-from datapipeline.analysis.vector import matrix as matrix_module
-from datapipeline.analysis.vector.collector import VectorStatsCollector
-from datapipeline.analysis.vector.matrix import export_matrix_data
-from datapipeline.analysis.vector.snapshot import (
-    collector_from_snapshot,
-    snapshot_from_collector,
+from datapipeline.analysis.vector.matrix import MatrixBuilder, render_matrix_html
+from datapipeline.analysis.vector.stats import VectorStatsAccumulator
+from datapipeline.artifacts.models import (
+    ListVectorColumnStats,
+    ListVectorMetadataEntry,
+    ScalarVectorMetadataEntry,
+    VectorSchemaCadence,
+    VectorStatsArtifact,
 )
-from datapipeline.operations.runtime.vector_stats_common import (
-    build_metrics,
-    matrix_status_rows,
-)
+from datapipeline.artifacts.registry import VECTOR_STATS_SPEC
+from datapipeline.operations.runtime.coverage import _section_report
 
 
-def test_vector_metrics_are_serializable():
-    collector = VectorStatsCollector(
-        expected_feature_ids=["speed", "temp"],
+def _scalar(identifier: str, base_id: str):
+    return ScalarVectorMetadataEntry(
+        id=identifier,
+        base_id=base_id,
+        kind="scalar",
+        present_count=1,
+        null_count=0,
+        value_types=("float",),
     )
 
-    collector.update("g0", {"speed__station:A": None})
-    collector.update("g1", {"temp__station:B": 7.0})
 
-    summary = build_metrics(collector, sort_key="missing", threshold=0.8)
-
-    json.dumps(summary)
-
-    assert summary["total_vectors"] == 2
-    assert set(summary["below_features"]) == {"speed", "temp"}
-    assert set(summary["below_partitions"]) == {
-        "speed__station:A",
-        "temp__station:B",
-    }
-    assert set(summary["below_suffixes"]) == {"station:A", "station:B"}
-    assert set(summary["keep_suffixes"]) == {"station:A", "station:B"}
-    assert set(summary["below_partition_values"]) == {"A", "B"}
-    assert set(summary["keep_partition_values"]) == {"A", "B"}
-
-    speed_stats = next(item for item in summary["feature_stats"] if item["id"] == "speed")
-    assert speed_stats["present"] == 1  # seen once, missing once
-    assert speed_stats["missing"] == 1
-    assert speed_stats["nulls"] == 1
-    temp_stats = next(item for item in summary["feature_stats"] if item["id"] == "temp")
-    assert temp_stats["present"] == 1
-    assert temp_stats["missing"] == 1
-
-
-def test_export_matrix_data_writes_csv_rows(tmp_path):
-    path = tmp_path / "matrix.csv"
-    collector = VectorStatsCollector(
-        expected_feature_ids=["speed", "temp"],
-        matrix_output=str(path),
-        matrix_format="csv",
-    )
-    collector.update("g0", {"speed__station:A": 1.0})
-    collector.update("g1", {"temp__station:B": None})
-
-    assert export_matrix_data(collector) == path
-
-    with path.open(newline="", encoding="utf-8") as fh:
-        rows = list(csv.DictReader(fh))
-
-    assert {
-        (row["kind"], row["identifier"], row["group_key"], row["status"])
-        for row in rows
-    } == {
-        ("feature", "speed", "g0", "present"),
-        ("feature", "temp", "g0", "absent"),
-        ("feature", "temp", "g1", "null"),
-        ("feature", "speed", "g1", "absent"),
-        ("partition", "speed__station:A", "g0", "present"),
-        ("partition", "speed__station:A", "g1", "absent"),
-        ("partition", "temp__station:B", "g1", "null"),
-    }
-    assert {
-        (row["matrix_kind"], row["identifier"], row["group_key"], row["status"])
-        for row in matrix_status_rows(collector)
-    } == {
-        ("feature", "speed", "g0", "present"),
-        ("feature", "temp", "g0", "absent"),
-        ("feature", "temp", "g1", "null"),
-        ("feature", "speed", "g1", "absent"),
-        ("partition", "speed__station:A", "g0", "present"),
-        ("partition", "speed__station:A", "g1", "absent"),
-        ("partition", "temp__station:B", "g1", "null"),
-    }
-
-
-def test_export_matrix_data_writes_html_shell(tmp_path):
-    path = tmp_path / "matrix.html"
-    collector = VectorStatsCollector(
-        expected_feature_ids=["speed"],
-        matrix_output=str(path),
-        matrix_format="html",
-    )
-    collector.update("g0", {"speed__station:A": [1.0, None]})
-
-    assert export_matrix_data(collector) == path
-
-    html = path.read_text(encoding="utf-8")
-    assert "<h1>Availability Matrix</h1>" in html
-    assert "<h2>Feature Availability</h2>" in html
-    assert "<h2>Partition Availability</h2>" in html
-    assert "setupMatrix('feature'" in html
-    assert "setupMatrix('partition'" in html
-
-
-def test_export_matrix_data_propagates_write_errors(monkeypatch, tmp_path) -> None:
-    collector = VectorStatsCollector(
-        expected_feature_ids=["speed"],
-        matrix_output=str(tmp_path / "matrix.csv"),
-        matrix_format="csv",
+def _sequence(identifier: str, base_id: str, length: int):
+    return ListVectorMetadataEntry(
+        id=identifier,
+        base_id=base_id,
+        kind="list",
+        present_count=1,
+        null_count=0,
+        element_types=("float", "null"),
+        lengths={str(length): 1},
+        cadence=VectorSchemaCadence(target=length),
+        observed_elements=1,
     )
 
-    def fail_write(_collector, _path):
-        raise OSError("disk full")
 
-    monkeypatch.setattr(matrix_module, "_write_matrix_csv", fail_write)
-
-    with pytest.raises(OSError, match="disk full"):
-        export_matrix_data(collector)
-
-
-def test_vector_analyzer_snapshot_round_trip():
-    collector = VectorStatsCollector(
-        expected_feature_ids=["speed", "temp"],
-    )
-    collector.update("g0", {"speed": [1.0, None], "temp": 2.0})
-    collector.update("g1", {"speed": [None, None], "temp": None})
-
-    snapshot = snapshot_from_collector(collector)
-    assert "schema_meta" not in snapshot
-    assert "expected_features" not in snapshot
-    assert "discovered_features" not in snapshot
-    assert "discovered_partitions" not in snapshot
-    restored = collector_from_snapshot(
-        snapshot,
-        expected_feature_ids=["speed", "temp"],
-        schema_meta={},
-        matrix_output="matrix.csv",
-        matrix_format="csv",
-    )
-
-    assert restored.total_vectors == collector.total_vectors
-    assert restored.seen_counts["speed"] == collector.seen_counts["speed"]
-    assert restored.null_counts_partitions["temp"] == collector.null_counts_partitions["temp"]
-    assert "g0" in restored.group_feature_status
-    assert str(restored.matrix_output) == "matrix.csv"
-    assert restored.matrix_format == "csv"
-
-
-def test_vector_analyzer_snapshot_rejects_unknown_schema_version():
-    with pytest.raises(ValueError, match="Unsupported vector stats snapshot schema version"):
-        collector_from_snapshot(
-            {
-                "schema_version": 999,
-                "group_feature_status": {},
-                "group_partition_status": {},
-                "group_feature_sub": {},
-                "group_partition_sub": {},
-            },
-            expected_feature_ids=[],
-            schema_meta={},
+def test_stats_accumulator_keeps_only_bounded_counters() -> None:
+    accumulator = VectorStatsAccumulator(
+        (
+            _scalar("speed__@station:A", "speed"),
+            _scalar("speed__@station:B", "speed"),
+            _sequence("history", "history", 2),
         )
+    )
+
+    accumulator.update(
+        {
+            "speed__@station:A": None,
+            "speed__@station:B": 7.0,
+            "history": [1.0, None],
+        }
+    )
+    accumulator.update({})
+    section = accumulator.finish()
+
+    speed = next(entry for entry in section.bases if entry.id == "speed")
+    assert speed.present_samples == 1
+    assert speed.non_null_samples == 1
+    station_a = next(
+        entry for entry in section.columns if entry.id == "speed__@station:A"
+    )
+    assert station_a.present_samples == 1
+    assert station_a.non_null_samples == 0
+    history = next(entry for entry in section.columns if entry.id == "history")
+    assert history.present_samples == 1
+    assert history.non_null_samples == 1
+    assert history.observed_elements == 1
+
+    payload = section.model_dump(mode="json")
+    assert "groups" not in json.dumps(payload)
+    assert not hasattr(accumulator, "group_feature_status")
+
+
+def test_stats_accumulator_rejects_metadata_drift() -> None:
+    accumulator = VectorStatsAccumulator((_scalar("speed", "speed"),))
+
+    with pytest.raises(ValueError, match="missing from metadata"):
+        accumulator.update({"temperature": 4.0})
+
+
+def test_stats_accumulator_retains_declared_zero_count_columns() -> None:
+    accumulator = VectorStatsAccumulator(
+        (_scalar("kept", "kept"), _scalar("removed", "removed"))
+    )
+    accumulator.update({"kept": None})
+
+    section = accumulator.finish()
+
+    assert [entry.id for entry in section.bases] == ["kept", "removed"]
+    assert [entry.id for entry in section.columns] == ["kept", "removed"]
+    removed = section.columns[1]
+    assert removed.present_samples == 0
+    assert removed.non_null_samples == 0
+
+
+def test_stats_v3_rejects_old_snapshots_and_impossible_list_counts() -> None:
+    with pytest.raises(ValueError, match="schema_version"):
+        VectorStatsArtifact.model_validate({"schema_version": 2})
+
+    with pytest.raises(ValueError, match="cannot exceed observed_elements"):
+        ListVectorColumnStats(
+            id="history",
+            base_id="history",
+            kind="list",
+            present_samples=2,
+            non_null_samples=2,
+            length=3,
+            observed_elements=1,
+        )
+
+    with pytest.raises(ValueError, match=r"present_samples \* length"):
+        ListVectorColumnStats(
+            id="history",
+            base_id="history",
+            kind="list",
+            present_samples=1,
+            non_null_samples=1,
+            length=2,
+            observed_elements=3,
+        )
+
+
+def test_stats_artifact_loader_rejects_v2_with_rebuild_message(tmp_path) -> None:
+    path = tmp_path / "stats.json"
+    path.write_text('{"schema_version": 2}', encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Rebuild stats in FORCE mode"):
+        VECTOR_STATS_SPEC.loader(path)
+
+
+def test_coverage_counts_nulls_and_missing_elements_as_uncovered() -> None:
+    accumulator = VectorStatsAccumulator(
+        (_scalar("speed", "speed"), _sequence("history", "history", 2))
+    )
+    accumulator.update({"speed": None, "history": [1.0, None]})
+    accumulator.update({})
+
+    report = _section_report(accumulator.finish(), total_samples=2, threshold=0.8)
+    speed = next(metric for metric in report["columns"] if metric["id"] == "speed")
+    history = next(metric for metric in report["columns"] if metric["id"] == "history")
+
+    assert speed["coverage"] == 0.0
+    assert speed["absent_samples"] == 1
+    assert speed["null_samples"] == 1
+    assert history["coverage"] == 0.25
+    assert history["observed_elements"] == 1
+    assert history["element_opportunities"] == 4
+    assert report["below_threshold_columns"] == ["speed", "history"]
+
+
+def test_matrix_is_bounded_by_rendered_cells_and_preserves_duplicate_labels() -> None:
+    builder = MatrixBuilder(
+        (_scalar("speed", "speed"), _sequence("history", "history", 2)),
+        (),
+        max_cells=6,
+    )
+    builder.add("same", {"speed": 1.0, "history": [1.0, None]}, {})
+    builder.add("same", {"speed": None}, {})
+
+    with pytest.raises(ValueError, match="exceeds max_cells=6 at sample 3"):
+        builder.add("third", {}, {})
+
+    matrix = builder.finish()
+    assert [row.group for row in matrix.rows] == ["same", "same"]
+    assert matrix.rows[0].features[1].status == "present"
+    assert matrix.rows[0].features[1].elements == ("present", "null")
+    assert matrix.rows[1].features[1].status == "absent"
+
+
+def test_matrix_rows_separate_features_and_targets() -> None:
+    builder = MatrixBuilder(
+        (_scalar("speed", "speed"),),
+        (_scalar("return", "return"),),
+        max_cells=2,
+    )
+    builder.add("g0", {"speed": 1.0}, {"return": None})
+
+    assert list(builder.finish().output_rows()) == [
+        {
+            "vector": "feature",
+            "identifier": "speed",
+            "group": "g0",
+            "status": "present",
+        },
+        {
+            "vector": "target",
+            "identifier": "return",
+            "group": "g0",
+            "status": "null",
+        },
+    ]
+
+
+def test_matrix_html_uses_bounded_matrix_data_and_escapes_script_text() -> None:
+    builder = MatrixBuilder((_scalar("speed", "speed"),), (), max_cells=1)
+    builder.add("</script>", {"speed": 1.0}, {})
+
+    document = render_matrix_html(builder.finish())
+    assert "<h1>Availability Matrix</h1>" in document
+    assert "Feature Availability" in document
+    assert "Target Availability" in document
+    assert "setupMatrix('features'" in document
+    assert '"</script>"' not in document

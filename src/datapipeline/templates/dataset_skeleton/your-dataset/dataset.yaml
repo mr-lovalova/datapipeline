@@ -1,0 +1,33 @@
+sample:
+  cadence: ${group_by}
+  keys: []
+
+features:
+  - id: first_feature
+    stream: your.stream.one
+    field: some_field
+    scale: true
+    sequence: { size: 6, stride: 1 }
+
+  - id: second_feature
+    stream: your.stream.two
+    field: some_field
+
+# targets:
+#   - id: target_feature
+#     stream: your.target.stream
+#     field: some_field
+
+split:
+  mode: hash
+  key: group
+  seed: 42
+  ratios: { train: 0.8, val: 0.1, test: 0.1 }
+
+postprocess:
+  columns:
+    features:
+      threshold: 0.9
+  samples:
+    features:
+      threshold: 1.0

@@ -1,4 +1,0 @@
-- drop:
-    axis: horizontal
-    payload: features
-    threshold: 1.0

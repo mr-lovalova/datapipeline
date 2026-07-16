@@ -3,11 +3,8 @@ from collections.abc import Iterator
 from datapipeline.domain.record import TemporalRecord
 
 
-class FeatureDeduplicateTransform:
+class DedupeTransform:
     """Drop consecutive identical records (timestamp + payload)."""
-
-    def __call__(self, stream: Iterator[TemporalRecord]) -> Iterator[TemporalRecord]:
-        return self.apply(stream)
 
     def apply(self, stream: Iterator[TemporalRecord]) -> Iterator[TemporalRecord]:
         last: TemporalRecord | None = None

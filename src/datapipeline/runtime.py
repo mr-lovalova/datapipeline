@@ -1,92 +1,77 @@
-from collections.abc import Sequence
+from __future__ import annotations
+
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any
 
+from datapipeline.artifacts.registry import ArtifactRegistry
+from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.execution import ExecutionConfig
-from datapipeline.config.split import SplitConfig
+from datapipeline.config.transforms import PreprocessConfig, TransformConfig
 from datapipeline.domain.stream import RecordStream
 
-from datapipeline.registries.registry import Registry
-from datapipeline.sources.models.source import Source
-from datapipeline.services.artifacts import ArtifactManager
-from datapipeline.transforms.spec import TransformSpec
+if TYPE_CHECKING:
+    from datapipeline.execution.observer import PipelineObserver
 
-StreamPipelineKind = Literal["ingest", "stream"]
+RecordStage = Callable[[Iterator[Any]], Iterable[Any]]
 
 
 @dataclass(frozen=True)
-class StreamRuntimeSpec:
-    pipeline: StreamPipelineKind
+class SourceRuntimeStream:
+    source: RecordStream[Any]
+    mapper: RecordStage
+    preprocess: tuple[PreprocessConfig, ...]
+    partition_by: tuple[str, ...]
+    presorted: bool
+    transforms: tuple[TransformConfig, ...]
 
 
-@dataclass
-class Registries:
-    """Container for all runtime registries.
+@dataclass(frozen=True)
+class DerivedRuntimeStream:
+    input_stream: str
+    partition_by: tuple[str, ...]
+    transforms: tuple[TransformConfig, ...]
 
-    Replaces global registries with an instance-scoped collection so multiple
-    projects can run in the same process without clobbering shared state.
-    """
 
-    sources: Registry[str, Source] = field(default_factory=Registry)
-    mappers: Registry[str, Any] = field(default_factory=Registry)
-    stream_sources: Registry[str, RecordStream[Any]] = field(default_factory=Registry)
-    stream_specs: Registry[str, StreamRuntimeSpec] = field(default_factory=Registry)
-    record_operations: Registry[str, Sequence[TransformSpec] | None] = field(
-        default_factory=Registry
-    )
-    postprocesses: Registry[str, Sequence[TransformSpec] | None] = field(
-        default_factory=Registry
-    )
+@dataclass(frozen=True)
+class AlignedRuntimeStream:
+    inputs: tuple[str, ...]
+    combine: RecordStage
+    partition_by: tuple[str, ...]
+    transforms: tuple[TransformConfig, ...]
 
-    # Per-stream policies
-    stream_operations: Registry[str, Sequence[TransformSpec] | None] = field(
-        default_factory=Registry
-    )
-    debug_operations: Registry[str, Sequence[TransformSpec] | None] = field(
-        default_factory=Registry
-    )
-    partition_by: Registry[str, str | list[str] | None] = field(
-        default_factory=Registry
-    )
-    feature_id_by: Registry[str, str | list[str] | None] = field(
-        default_factory=Registry
-    )
-    presorted: Registry[str, bool] = field(default_factory=Registry)
 
-    def clear_all(self) -> None:
-        for reg in (
-            self.stream_operations,
-            self.debug_operations,
-            self.partition_by,
-            self.feature_id_by,
-            self.presorted,
-            self.record_operations,
-            self.postprocesses,
-            self.sources,
-            self.mappers,
-            self.stream_sources,
-            self.stream_specs,
-        ):
-            reg.clear()
+RuntimeStream = SourceRuntimeStream | DerivedRuntimeStream | AlignedRuntimeStream
 
 
 @dataclass
 class Runtime:
-    """Holds the active project context and runtime registries."""
+    """Holds the active project context and prepared streams."""
 
     project_yaml: Path
     artifacts_root: Path
+    dataset: FeatureDatasetConfig
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
-    registries: Registries = field(default_factory=Registries)
-    split: SplitConfig | None = None
-    split_labels: tuple[str, ...] = ()
-    sample_keys: list[str] = field(default_factory=list)
+    streams: dict[str, RuntimeStream] = field(default_factory=dict)
+    output_splits: tuple[str, ...] = ()
     window_bounds: tuple[datetime | None, datetime | None] | None = None
     heartbeat_interval_seconds: float | None = None
-    execution_observer: object | None = None
-    artifacts: ArtifactManager = field(init=False)
+    pipeline_observer: PipelineObserver | None = None
+    observe_node_events: bool = True
+    artifacts: ArtifactRegistry = field(init=False)
 
     def __post_init__(self) -> None:
-        self.artifacts = ArtifactManager(self.artifacts_root)
+        self.artifacts = ArtifactRegistry(self.artifacts_root)
+
+
+def require_runtime_stream(runtime: Runtime, stream_id: str) -> RuntimeStream:
+    try:
+        return runtime.streams[stream_id]
+    except KeyError as exc:
+        available = ", ".join(sorted(runtime.streams)) or "(none)"
+        raise KeyError(
+            f"Unknown stream '{stream_id}'. Check dataset.yaml and stream ids. "
+            f"Available streams: {available}"
+        ) from exc

@@ -1,4 +1,0 @@
-id: scaler
-kind: artifact
-entrypoint: core.artifact.scaler
-split_label: train

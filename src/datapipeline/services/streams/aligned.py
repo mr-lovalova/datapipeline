@@ -1,56 +1,56 @@
-from collections.abc import Iterator
+from collections.abc import Callable, Iterable, Iterator
 from typing import Any
 
-from datapipeline.alignment.engine import align_streams
-from datapipeline.config.catalog import StreamConfig
-from datapipeline.dag.context import PipelineContext
-from datapipeline.domain.stream import RecordStream
-from datapipeline.pipelines.record.streams import open_record_stream
-from datapipeline.plugins import MAPPERS_EP
-from datapipeline.runtime import Runtime
+from datapipeline.config.streams import AlignedStreamConfig
+from datapipeline.plugins import COMBINERS_EP
+from datapipeline.transforms.utils import partition_key
 from datapipeline.utils.load import load_ep
 from datapipeline.utils.placeholders import normalize_args
 
 
-class AlignedStream(RecordStream[tuple[Any, ...]]):
-    def __init__(
-        self,
-        runtime: Runtime,
-        input_streams: tuple[str, ...],
-        partition_by: str | list[str] | None,
-    ) -> None:
-        self._runtime = runtime
-        self._input_streams = input_streams
-        self._partition_by = partition_by
+def build_combine_stage(
+    config: AlignedStreamConfig,
+    partition_by: tuple[str, ...],
+) -> Callable[[Iterator[tuple[Any, ...]]], Iterable[Any]]:
+    combine = load_ep(COMBINERS_EP, config.combine.entrypoint)
+    args = normalize_args(config.combine.args)
 
-    def stream(self) -> Iterator[tuple[Any, ...]]:
-        context = PipelineContext(self._runtime)
-        records = [
-            open_record_stream(context, stream_id) for stream_id in self._input_streams
-        ]
-        try:
-            inputs = list(zip(self._input_streams, records, strict=True))
-            yield from align_streams(
-                inputs,
-                partition_by=self._partition_by,
-                buffer_bytes=self._runtime.execution.sort_buffer_bytes,
-            )
-        finally:
-            for stream in records:
-                stream.close()
-
-
-def build_aligned_mapper(spec: StreamConfig):
-    mapper = spec.map
-    if mapper is None:
-        raise ValueError(f"Aligned stream '{spec.id}' requires map.entrypoint")
-    function = load_ep(MAPPERS_EP, mapper.entrypoint)
-    args = normalize_args(mapper.args)
-
-    def map_records(rows: Iterator[tuple[Any, ...]]) -> Iterator[Any]:
+    def combine_records(rows: Iterator[tuple[Any, ...]]) -> Iterator[Any]:
         for records in rows:
-            record = function(*records, **args)
-            if record is not None:
-                yield record
+            expected_time = records[0].time
+            expected_partition = partition_key(records[0], partition_by)
+            record = combine(*records, **args)
+            if record is None:
+                continue
 
-    return map_records
+            try:
+                actual_time = record.time
+                actual_partition = partition_key(record, partition_by)
+            except (AttributeError, KeyError) as exc:
+                raise ValueError(
+                    f"Aligned stream '{config.id}' combine output must contain "
+                    "time and partition fields."
+                ) from exc
+
+            if (
+                type(actual_time) is not type(expected_time)
+                or actual_time != expected_time
+            ):
+                raise ValueError(
+                    f"Aligned stream '{config.id}' combine must preserve input time: "
+                    f"expected {expected_time!r}, got {actual_time!r}."
+                )
+            for field, expected, actual in zip(
+                partition_by,
+                expected_partition,
+                actual_partition,
+                strict=True,
+            ):
+                if type(actual) is not type(expected) or actual != expected:
+                    raise ValueError(
+                        f"Aligned stream '{config.id}' combine must preserve partition "
+                        f"field {field!r}: expected {expected!r}, got {actual!r}."
+                    )
+            yield record
+
+    return combine_records

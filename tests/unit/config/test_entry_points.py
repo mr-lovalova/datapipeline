@@ -8,20 +8,11 @@ def _load_entry_point(target: str):
     return getattr(module, attr_name)
 
 
-def test_transform_entry_points_import() -> None:
+def test_declared_entry_points_import() -> None:
     with open("pyproject.toml", "rb") as fh:
         pyproject = tomllib.load(fh)
 
-    transform_entries = pyproject["project"]["entry-points"]
-    for group in (
-        "datapipeline.transforms.record",
-        "datapipeline.transforms.stream",
-        "datapipeline.transforms.feature",
-        "datapipeline.transforms.vector",
-        "datapipeline.transforms.debug",
-    ):
-        entries = transform_entries[group]
-        if group != "datapipeline.transforms.debug":
-            assert "lint" not in entries
+    entry_points = pyproject["project"]["entry-points"]
+    for entries in entry_points.values():
         for target in entries.values():
             assert _load_entry_point(target) is not None
