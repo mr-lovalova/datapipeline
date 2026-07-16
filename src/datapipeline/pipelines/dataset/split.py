@@ -40,13 +40,15 @@ class HashLabeler:
 
 
 class TimeLabeler:
-    """Time-based label selection using ascending boundaries and labels."""
+    """Assign the interval containing a timestamp."""
 
     def __init__(self, config: TimeSplitConfig) -> None:
         self._boundaries = tuple(
-            parse_datetime(boundary) for boundary in config.boundaries
+            parse_datetime(interval.until)
+            for interval in config.intervals
+            if interval.until is not None
         )
-        self._labels = tuple(config.labels)
+        self._labels = tuple(interval.id for interval in config.intervals)
 
     def label(self, group_key: Any) -> str:
         key = group_key[0] if isinstance(group_key, (list, tuple)) else group_key

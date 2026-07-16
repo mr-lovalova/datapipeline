@@ -13,7 +13,7 @@ from datapipeline.artifacts.specs import (
 )
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig
-from datapipeline.config.dataset.split import DatasetFold, TimeSplitConfig
+from datapipeline.config.dataset.split import DatasetFold, TimeInterval, TimeSplitConfig
 from datapipeline.config.streams import StreamsConfig
 from datapipeline.config.tasks import (
     ArtifactTask,
@@ -526,11 +526,11 @@ def test_scaler_hash_tracks_fold_training_population_only(tmp_path: Path) -> Non
         scale=True,
     )
     split = TimeSplitConfig(
-        boundaries=[
-            "2024-02-01T00:00:00Z",
-            "2024-03-01T00:00:00Z",
+        intervals=[
+            TimeInterval(id="train", until="2024-02-01T00:00:00Z"),
+            TimeInterval(id="validation", until="2024-03-01T00:00:00Z"),
+            TimeInterval(id="test"),
         ],
-        labels=["train", "validation", "test"],
         folds=[
             DatasetFold(
                 id="holdout",

@@ -98,10 +98,10 @@ Build profiles remain explicit roots for `jerry build` and retain their own
 `dataset.yaml:split` has two explicit responsibilities:
 
 - `mode: hash` assigns one deterministic label from the complete sample key.
-- `mode: time` – boundary-based slicing using timestamp labels.
-- `folds` groups those primitive labels into named train, validation, and test
-  outputs. Labels may be reused across folds, which supports expanding
-  walk-forward training windows. Labels omitted from every fold are
+- `mode: time` assigns one interval ID from ordered, exclusive `until` timestamps.
+- `folds` groups hash labels or time-interval IDs into named train, validation,
+  and test outputs. Entries may be reused across folds, which supports expanding
+  walk-forward training windows. Entries omitted from every fold are
   purge/embargo intervals and are not published.
 - Output IDs are `<fold-id>.<role>`, such as `fold_1.train`. A full serve
   publishes every configured fold output; profile `include_outputs` can narrow

@@ -5,6 +5,7 @@ from datapipeline.config.dataset.split import (
     DatasetFold,
     HashSplitConfig,
     SplitConfig,
+    TimeInterval,
     TimeSplitConfig,
     fold_output_id,
     resolve_fold_output,
@@ -24,6 +25,10 @@ def _fold(
         validation=validation or [],
         test=test or [],
     )
+
+
+def _interval(interval_id: str, until: str | None = None) -> TimeInterval:
+    return TimeInterval(id=interval_id, until=until)
 
 
 def test_hash_split_canonicalizes_ratio_order() -> None:
@@ -85,20 +90,14 @@ def test_hash_split_allows_labels_to_be_reused_across_folds() -> None:
     assert config.folds[0].train == config.folds[1].train == ["train"]
 
 
-def test_time_split_allows_labels_to_be_reused_across_folds() -> None:
+def test_time_split_allows_intervals_to_be_reused_across_folds() -> None:
     config = TimeSplitConfig(
-        boundaries=[
-            "2024-01-01T00:00:00Z",
-            "2024-02-01T00:00:00Z",
-            "2024-03-01T00:00:00Z",
-            "2024-04-01T00:00:00Z",
-        ],
-        labels=[
-            "train_0",
-            "validation_0",
-            "unused",
-            "train_1",
-            "validation_1",
+        intervals=[
+            _interval("train_0", "2024-01-01T00:00:00Z"),
+            _interval("validation_0", "2024-02-01T00:00:00Z"),
+            _interval("unused", "2024-03-01T00:00:00Z"),
+            _interval("train_1", "2024-04-01T00:00:00Z"),
+            _interval("validation_1"),
         ],
         folds=[
             _fold("fold_0", ["train_0"], ["validation_0"]),
@@ -111,6 +110,15 @@ def test_time_split_allows_labels_to_be_reused_across_folds() -> None:
     )
 
     assert config.folds[1].train == ["train_0", "validation_0", "train_1"]
+
+
+def test_time_split_accepts_one_open_ended_interval() -> None:
+    config = TimeSplitConfig(
+        intervals=[_interval("all")],
+        folds=[_fold(train=["all"])],
+    )
+
+    assert config.intervals == [_interval("all")]
 
 
 @pytest.mark.parametrize(
@@ -199,26 +207,30 @@ def test_hash_split_rejects_invalid_config(payload, message) -> None:
     ("payload", "message"),
     [
         (
-            {"mode": "time", "labels": ["train"], "folds": [_fold().model_dump()]},
-            "boundaries",
+            {"mode": "time", "folds": [_fold().model_dump()]},
+            "intervals",
         ),
         (
-            {"mode": "time", "boundaries": [], "folds": [_fold().model_dump()]},
-            "labels",
-        ),
-        (
-            {
-                "boundaries": ["2024-01-01T00:00:00Z"],
-                "labels": ["train"],
-                "folds": [_fold().model_dump()],
-            },
-            "labels length",
+            {"mode": "time", "intervals": [], "folds": [_fold().model_dump()]},
+            "at least 1 item",
         ),
         (
             {
                 "mode": "time",
-                "boundaries": ["not-a-datetime"],
-                "labels": ["train", "test"],
+                "intervals": [{"id": "train"}],
+                "folds": [_fold().model_dump()],
+                "boundaries": [],
+                "labels": ["train"],
+            },
+            "Extra inputs",
+        ),
+        (
+            {
+                "mode": "time",
+                "intervals": [
+                    {"id": "train", "until": "not-a-datetime"},
+                    {"id": "test"},
+                ],
                 "folds": [_fold().model_dump()],
             },
             "Invalid ISO-8601 datetime",
@@ -226,11 +238,11 @@ def test_hash_split_rejects_invalid_config(payload, message) -> None:
         (
             {
                 "mode": "time",
-                "boundaries": [
-                    "2024-02-01T00:00:00Z",
-                    "2024-01-01T00:00:00Z",
+                "intervals": [
+                    {"id": "train", "until": "2024-02-01T00:00:00Z"},
+                    {"id": "validation", "until": "2024-01-01T00:00:00Z"},
+                    {"id": "test"},
                 ],
-                "labels": ["train", "validation", "test"],
                 "folds": [_fold(validation=["validation"], test=["test"]).model_dump()],
             },
             "strictly increasing",
@@ -238,26 +250,80 @@ def test_hash_split_rejects_invalid_config(payload, message) -> None:
         (
             {
                 "mode": "time",
-                "boundaries": ["2024-01-01T00:00:00Z"],
-                "labels": ["train", "train"],
+                "intervals": [
+                    {"id": "train", "until": "2024-01-01T00:00:00Z"},
+                    {"id": "train"},
+                ],
                 "folds": [_fold().model_dump()],
             },
-            "labels must be unique",
+            "ids must be unique",
         ),
         (
             {
                 "mode": "time",
-                "boundaries": ["2024-01-01T00:00:00Z"],
-                "labels": ["train", " "],
+                "intervals": [{"id": " "}],
                 "folds": [_fold().model_dump()],
             },
-            "labels must not be empty",
+            "id must not be empty",
         ),
         (
             {
                 "mode": "time",
-                "boundaries": ["2024-01-01T00:00:00Z"],
-                "labels": ["train", "test"],
+                "intervals": [{"id": " train "}],
+                "folds": [_fold().model_dump()],
+            },
+            "id must not contain outer whitespace",
+        ),
+        (
+            {
+                "mode": "time",
+                "intervals": [
+                    {"id": "train", "until": ""},
+                    {"id": "test"},
+                ],
+                "folds": [_fold().model_dump()],
+            },
+            "until must not be empty",
+        ),
+        (
+            {
+                "mode": "time",
+                "intervals": [
+                    {"id": "train", "until": " 2024-01-01T00:00:00Z "},
+                    {"id": "test"},
+                ],
+                "folds": [_fold().model_dump()],
+            },
+            "until must not contain outer whitespace",
+        ),
+        (
+            {
+                "mode": "time",
+                "intervals": [
+                    {"id": "train"},
+                    {"id": "test"},
+                ],
+                "folds": [_fold().model_dump()],
+            },
+            "except the final interval requires until",
+        ),
+        (
+            {
+                "mode": "time",
+                "intervals": [
+                    {"id": "train", "until": "2024-01-01T00:00:00Z"},
+                ],
+                "folds": [_fold().model_dump()],
+            },
+            "final time interval must omit until",
+        ),
+        (
+            {
+                "mode": "time",
+                "intervals": [
+                    {"id": "train", "until": "2024-01-01T00:00:00Z"},
+                    {"id": "test"},
+                ],
                 "folds": [
                     _fold("same").model_dump(),
                     _fold("same").model_dump(),
@@ -268,41 +334,45 @@ def test_hash_split_rejects_invalid_config(payload, message) -> None:
         (
             {
                 "mode": "time",
-                "boundaries": ["2024-01-01T00:00:00Z"],
-                "labels": ["train", "test"],
+                "intervals": [
+                    {"id": "train", "until": "2024-01-01T00:00:00Z"},
+                    {"id": "test"},
+                ],
                 "folds": [_fold(validation=["unknown"]).model_dump()],
             },
-            "unknown time split labels: unknown",
+            "unknown time intervals: unknown",
         ),
         (
             {
                 "mode": "time",
-                "boundaries": [
-                    "2024-01-01T00:00:00Z",
-                    "2024-02-01T00:00:00Z",
+                "intervals": [
+                    {"id": "validation", "until": "2024-01-01T00:00:00Z"},
+                    {"id": "unused", "until": "2024-02-01T00:00:00Z"},
+                    {"id": "train"},
                 ],
-                "labels": ["validation", "unused", "train"],
                 "folds": [_fold(validation=["validation"]).model_dump()],
             },
-            "train labels before validation labels",
+            "train intervals before validation intervals",
         ),
         (
             {
                 "mode": "time",
-                "boundaries": [
-                    "2024-01-01T00:00:00Z",
-                    "2024-02-01T00:00:00Z",
+                "intervals": [
+                    {"id": "train", "until": "2024-01-01T00:00:00Z"},
+                    {"id": "test", "until": "2024-02-01T00:00:00Z"},
+                    {"id": "validation"},
                 ],
-                "labels": ["train", "test", "validation"],
                 "folds": [_fold(validation=["validation"], test=["test"]).model_dump()],
             },
-            "validation labels before test labels",
+            "validation intervals before test intervals",
         ),
         (
             {
                 "mode": "time",
-                "boundaries": ["2024-01-01T00:00:00Z"],
-                "labels": ["train", "test"],
+                "intervals": [
+                    {"id": "train", "until": "2024-01-01T00:00:00Z"},
+                    {"id": "test"},
+                ],
                 "folds": [_fold(test=["test"]).model_dump()],
                 "output_labels": ["train"],
             },
@@ -319,12 +389,12 @@ def test_fold_output_helpers_expose_only_configured_roles() -> None:
     first = _fold("walk_0", ["train_0"], ["validation_0"])
     second = _fold("walk_1", ["train_0", "validation_0", "train_1"], test=["test"])
     config = TimeSplitConfig(
-        boundaries=[
-            "2024-01-01T00:00:00Z",
-            "2024-02-01T00:00:00Z",
-            "2024-03-01T00:00:00Z",
+        intervals=[
+            _interval("train_0", "2024-01-01T00:00:00Z"),
+            _interval("validation_0", "2024-02-01T00:00:00Z"),
+            _interval("train_1", "2024-03-01T00:00:00Z"),
+            _interval("test"),
         ],
-        labels=["train_0", "validation_0", "train_1", "test"],
         folds=[first, second],
     )
 

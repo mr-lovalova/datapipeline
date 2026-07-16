@@ -13,6 +13,7 @@ from datapipeline.config.dataset.feature import FeatureRecordConfig, SequenceCon
 from datapipeline.config.dataset.split import (
     DatasetFold,
     HashSplitConfig,
+    TimeInterval,
     TimeSplitConfig,
 )
 from datapipeline.config.tasks import ScalerTask
@@ -191,12 +192,21 @@ def test_materialize_folded_scaler_uses_dataset_owned_expanding_train_roles(
         _dataset(
             cadence="1d",
             split=TimeSplitConfig(
-                boundaries=[
-                    "2024-01-02T00:00:00Z",
-                    "2024-01-03T00:00:00Z",
-                    "2024-01-04T00:00:00Z",
+                intervals=[
+                    TimeInterval(
+                        id="train_0",
+                        until="2024-01-02T00:00:00Z",
+                    ),
+                    TimeInterval(
+                        id="validation_0",
+                        until="2024-01-03T00:00:00Z",
+                    ),
+                    TimeInterval(
+                        id="train_1",
+                        until="2024-01-04T00:00:00Z",
+                    ),
+                    TimeInterval(id="validation_1"),
                 ],
-                labels=["train_0", "validation_0", "train_1", "validation_1"],
                 folds=[
                     DatasetFold(
                         id="fold_0",
@@ -253,8 +263,13 @@ def test_folded_scaler_assigns_records_by_floored_sample_time(tmp_path) -> None:
             cadence="1d",
             sequence=SequenceConfig(size=2),
             split=TimeSplitConfig(
-                boundaries=["2024-01-01T12:00:00Z"],
-                labels=["train", "validation"],
+                intervals=[
+                    TimeInterval(
+                        id="train",
+                        until="2024-01-01T12:00:00Z",
+                    ),
+                    TimeInterval(id="validation"),
+                ],
                 folds=[
                     DatasetFold(
                         id="fold",
@@ -373,8 +388,10 @@ def test_scaler_validates_excluded_split_records_before_filtering(tmp_path) -> N
             )
         ],
         split=TimeSplitConfig(
-            boundaries=["2024-01-02T00:00:00Z"],
-            labels=["train", "test"],
+            intervals=[
+                TimeInterval(id="train", until="2024-01-02T00:00:00Z"),
+                TimeInterval(id="test"),
+            ],
             folds=[DatasetFold(id="fold", train=["train"], test=["test"])],
         ),
     )
@@ -421,8 +438,13 @@ def test_folded_scaler_requires_training_statistics_for_all_output_vectors(
         tmp_path,
         _dataset(
             split=TimeSplitConfig(
-                boundaries=["2024-01-02T00:00:00Z"],
-                labels=["train", "validation"],
+                intervals=[
+                    TimeInterval(
+                        id="train",
+                        until="2024-01-02T00:00:00Z",
+                    ),
+                    TimeInterval(id="validation"),
+                ],
                 folds=[
                     DatasetFold(
                         id="fold",

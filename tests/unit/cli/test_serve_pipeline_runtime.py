@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from datapipeline.config.dataset.split import DatasetFold, TimeSplitConfig
+from datapipeline.config.dataset.split import DatasetFold, TimeInterval, TimeSplitConfig
 from datapipeline.config.preview import PreviewStage
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
@@ -173,8 +173,10 @@ def test_pipeline_operation_returns_split_fanout_output(monkeypatch, tmp_path):
     )
     dataset = _dataset()
     dataset.split = TimeSplitConfig(
-        boundaries=["2021-01-01T00:00:00Z"],
-        labels=["train", "val"],
+        intervals=[
+            TimeInterval(id="train", until="2021-01-01T00:00:00Z"),
+            TimeInterval(id="val"),
+        ],
         folds=[
             DatasetFold(
                 id="holdout",

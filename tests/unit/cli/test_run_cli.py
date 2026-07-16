@@ -8,6 +8,7 @@ from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConf
 from datapipeline.config.dataset.split import (
     DatasetFold,
     HashSplitConfig,
+    TimeInterval,
     TimeSplitConfig,
 )
 from datapipeline.config.profiles import (
@@ -244,8 +245,11 @@ def test_pipeline_serve_defaults_to_dataset_output_ids(tmp_path):
         }
     )
     split = TimeSplitConfig(
-        boundaries=["2024-01-01T00:00:00Z", "2024-02-01T00:00:00Z"],
-        labels=["train", "purge", "val"],
+        intervals=[
+            TimeInterval(id="train", until="2024-01-01T00:00:00Z"),
+            TimeInterval(id="purge", until="2024-02-01T00:00:00Z"),
+            TimeInterval(id="val"),
+        ],
         folds=[DatasetFold(id="default", train=["train"], validation=["val"])],
     )
 
@@ -273,12 +277,12 @@ def test_pipeline_serve_defaults_to_every_walk_forward_output(tmp_path):
         }
     )
     split = TimeSplitConfig(
-        boundaries=[
-            "2024-01-01T00:00:00Z",
-            "2024-02-01T00:00:00Z",
-            "2024-03-01T00:00:00Z",
+        intervals=[
+            TimeInterval(id="train_0", until="2024-01-01T00:00:00Z"),
+            TimeInterval(id="val_0", until="2024-02-01T00:00:00Z"),
+            TimeInterval(id="train_1", until="2024-03-01T00:00:00Z"),
+            TimeInterval(id="val_1"),
         ],
-        labels=["train_0", "val_0", "train_1", "val_1"],
         folds=[
             DatasetFold(
                 id="walk_0",
@@ -507,8 +511,11 @@ def test_include_outputs_cannot_publish_internal_dataset_label(tmp_path):
         }
     )
     split = TimeSplitConfig(
-        boundaries=["2024-01-01T00:00:00Z", "2024-02-01T00:00:00Z"],
-        labels=["train", "purge", "val"],
+        intervals=[
+            TimeInterval(id="train", until="2024-01-01T00:00:00Z"),
+            TimeInterval(id="purge", until="2024-02-01T00:00:00Z"),
+            TimeInterval(id="val"),
+        ],
         folds=[DatasetFold(id="default", train=["train"], validation=["val"])],
     )
 

@@ -21,8 +21,12 @@ features:
 
 split:
   mode: time
-  boundaries: ["2021-01-20T00:00:00Z", "2021-01-26T00:00:00Z"]
-  labels: [train, val, test]
+  intervals:
+    - id: train
+      until: "2021-01-20T00:00:00Z"
+    - id: val
+      until: "2021-01-26T00:00:00Z"
+    - id: test
   folds:
     - id: holdout
       train: [train]

@@ -89,7 +89,8 @@ globals:
   `enabled: false` excludes a profile from the default batch, but an explicit
   `--profile <name>` still selects it.
 - Dataset split label names are free-form: match the keys declared in
-  `dataset.yaml:split.ratios` (hash) or `dataset.yaml:split.labels` (time).
+  `dataset.yaml:split.ratios` (hash) or the IDs declared in
+  `dataset.yaml:split.intervals` (time).
 - Dataset output IDs are `<fold-id>.<role>`, where role is `train`,
   `validation`, or `test`.
 
@@ -525,8 +526,12 @@ targets:
 
 split:
   mode: time # hash | time
-  boundaries: ["2022-01-01T00:00:00Z", "2023-01-01T00:00:00Z"]
-  labels: [train, validation, test]
+  intervals:
+    - id: train
+      until: "2022-01-01T00:00:00Z"
+    - id: validation
+      until: "2023-01-01T00:00:00Z"
+    - id: test
   folds:
     - id: holdout
       train: [train]
@@ -578,34 +583,42 @@ postprocess:
 - Feature configuration exposes only `scale` and `sequence`; it does not accept
   arbitrary feature transform entry-point clauses.
 - `split` first assigns each sample one primitive label. Hash splits assign from
-  the complete sample key and require `ratios`; time splits require ordered
-  `boundaries` plus one more `labels` entry than boundaries.
+  the complete sample key and require `ratios`. Time splits require ordered
+  `intervals` with unique IDs and strictly increasing endpoints. Every interval
+  except the last has an exclusive `until` timestamp; the last interval omits
+  `until` and is the open-ended tail.
 - Every split defines one or more `folds`. Each fold has an `id`, at least one
   training label, and optional validation and test labels. Its published output
   IDs are `<fold-id>.train`, `<fold-id>.validation`, and `<fold-id>.test` for
   the nonempty roles. Labels omitted from every fold are purge/embargo
   intervals and are not published.
-- Fold labels must exist and cannot belong to two roles within the same fold.
-  Time-fold roles must be chronological. The same primitive label may be reused
-  in another fold, enabling expanding walk-forward plans:
+- Fold labels must exist as hash-ratio labels or time-interval IDs and cannot
+  belong to two roles within the same fold. A fold ID names the output plan; it
+  does not need to match any interval ID. Time-fold roles must be chronological.
+  The same primitive label may be reused in another fold, enabling expanding
+  walk-forward plans:
 
   ```yaml
   split:
     mode: time
-    boundaries:
-      - "2020-01-01T00:00:00Z"
-      - "2021-01-01T00:00:00Z"
-      - "2022-01-01T00:00:00Z"
-      - "2023-01-01T00:00:00Z"
-    labels: [train_0, validation_0, train_1, validation_1, test]
+    intervals:
+      - id: period_0
+        until: "2020-01-01T00:00:00Z"
+      - id: period_1
+        until: "2021-01-01T00:00:00Z"
+      - id: period_2
+        until: "2022-01-01T00:00:00Z"
+      - id: period_3
+        until: "2023-01-01T00:00:00Z"
+      - id: period_4
     folds:
       - id: fold_0
-        train: [train_0]
-        validation: [validation_0]
+        train: [period_0]
+        validation: [period_1]
       - id: fold_1
-        train: [train_0, validation_0, train_1]
-        validation: [validation_1]
-        test: [test]
+        train: [period_0, period_1, period_2]
+        validation: [period_3]
+        test: [period_4]
   ```
 
 - A simple hash holdout uses the same fold contract:

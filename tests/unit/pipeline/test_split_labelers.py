@@ -5,6 +5,7 @@ import pytest
 from datapipeline.config.dataset.split import (
     DatasetFold,
     HashSplitConfig,
+    TimeInterval,
     TimeSplitConfig,
 )
 from datapipeline.pipelines.dataset.split import HashLabeler, TimeLabeler
@@ -62,11 +63,13 @@ def test_hash_split_uses_the_whole_group_key() -> None:
     assert first != second
 
 
-def test_time_labeler_uses_boundaries():
+def test_time_labeler_uses_intervals():
     labeler = TimeLabeler(
         TimeSplitConfig(
-            boundaries=["1970-01-02T00:00:00Z"],
-            labels=["train", "test"],
+            intervals=[
+                TimeInterval(id="train", until="1970-01-02T00:00:00Z"),
+                TimeInterval(id="test"),
+            ],
             folds=[DatasetFold(id="default", train=["train"], test=["test"])],
         )
     )
@@ -77,8 +80,10 @@ def test_time_labeler_uses_boundaries():
 def test_time_labeler_accepts_iso_string_keys():
     labeler = TimeLabeler(
         TimeSplitConfig(
-            boundaries=["1970-01-02T00:00:00Z"],
-            labels=["train", "test"],
+            intervals=[
+                TimeInterval(id="train", until="1970-01-02T00:00:00Z"),
+                TimeInterval(id="test"),
+            ],
             folds=[DatasetFold(id="default", train=["train"], test=["test"])],
         )
     )
@@ -89,8 +94,10 @@ def test_time_labeler_accepts_iso_string_keys():
 def test_time_labeler_rejects_ambiguous_keys():
     labeler = TimeLabeler(
         TimeSplitConfig(
-            boundaries=["1970-01-02T00:00:00Z"],
-            labels=["train", "test"],
+            intervals=[
+                TimeInterval(id="train", until="1970-01-02T00:00:00Z"),
+                TimeInterval(id="test"),
+            ],
             folds=[DatasetFold(id="default", train=["train"], test=["test"])],
         )
     )

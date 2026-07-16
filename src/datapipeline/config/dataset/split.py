@@ -72,6 +72,34 @@ class DatasetFold(BaseModel):
         return self
 
 
+class TimeInterval(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    id: str
+    until: str | None = None
+
+    @field_validator("id")
+    @classmethod
+    def validate_id(cls, interval_id: str) -> str:
+        if not interval_id.strip():
+            raise ValueError("time interval id must not be empty")
+        if interval_id != interval_id.strip():
+            raise ValueError("time interval id must not contain outer whitespace")
+        return interval_id
+
+    @field_validator("until")
+    @classmethod
+    def validate_until(cls, until: str | None) -> str | None:
+        if until is None:
+            return None
+        if not until.strip():
+            raise ValueError("time interval until must not be empty")
+        if until != until.strip():
+            raise ValueError("time interval until must not contain outer whitespace")
+        parse_datetime(until)
+        return until
+
+
 def _validate_fold_ids(folds: list[DatasetFold]) -> list[DatasetFold]:
     fold_ids = [fold.id for fold in folds]
     if len(fold_ids) != len(set(fold_ids)):
@@ -124,37 +152,34 @@ class TimeSplitConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
     mode: Literal["time"] = "time"
-    boundaries: list[str]
-    labels: list[str] = Field(min_length=1)
+    intervals: list[TimeInterval] = Field(min_length=1)
     folds: list[DatasetFold] = Field(min_length=1)
 
-    @field_validator("boundaries")
+    @field_validator("intervals")
     @classmethod
-    def validate_boundaries(cls, boundaries: list[str]) -> list[str]:
-        parsed = []
-        for boundary in boundaries:
-            if not boundary.strip():
-                raise ValueError("time split boundaries must not be empty")
-            if boundary != boundary.strip():
-                raise ValueError(
-                    "time split boundaries must not contain outer whitespace"
-                )
-            parsed.append(parse_datetime(boundary))
-        if any(previous >= current for previous, current in zip(parsed, parsed[1:])):
-            raise ValueError("time split boundaries must be strictly increasing")
-        return boundaries
+    def validate_intervals(
+        cls,
+        intervals: list[TimeInterval],
+    ) -> list[TimeInterval]:
+        interval_ids = [interval.id for interval in intervals]
+        if len(interval_ids) != len(set(interval_ids)):
+            raise ValueError("time interval ids must be unique")
 
-    @field_validator("labels")
-    @classmethod
-    def validate_labels(cls, labels: list[str]) -> list[str]:
-        for label in labels:
-            if not label.strip():
-                raise ValueError("time split labels must not be empty")
-            if label != label.strip():
-                raise ValueError("time split labels must not contain outer whitespace")
-        if len(labels) != len(set(labels)):
-            raise ValueError("time split labels must be unique")
-        return labels
+        boundaries = []
+        for interval in intervals[:-1]:
+            if interval.until is None:
+                raise ValueError(
+                    "every time interval except the final interval requires until"
+                )
+            boundaries.append(parse_datetime(interval.until))
+        if intervals[-1].until is not None:
+            raise ValueError("the final time interval must omit until")
+        if any(
+            previous >= current
+            for previous, current in zip(boundaries, boundaries[1:])
+        ):
+            raise ValueError("time interval boundaries must be strictly increasing")
+        return intervals
 
     @field_validator("folds")
     @classmethod
@@ -162,36 +187,36 @@ class TimeSplitConfig(BaseModel):
         return _validate_fold_ids(folds)
 
     @model_validator(mode="after")
-    def validate_label_count_and_folds(self) -> Self:
-        if len(self.labels) != len(self.boundaries) + 1:
-            raise ValueError("time split labels length must equal len(boundaries) + 1")
-
-        label_positions = {
-            label: position for position, label in enumerate(self.labels)
+    def validate_folds(self) -> Self:
+        interval_positions = {
+            interval.id: position for position, interval in enumerate(self.intervals)
         }
         for fold in self.folds:
             unknown = (
                 set((*fold.train, *fold.validation, *fold.test))
-                - label_positions.keys()
+                - interval_positions.keys()
             )
             if unknown:
                 raise ValueError(
-                    f"dataset fold {fold.id!r} references unknown time split labels: "
+                    f"dataset fold {fold.id!r} references unknown time intervals: "
                     + ", ".join(sorted(unknown))
                 )
 
             previous_positions: list[int] | None = None
             previous_role: FoldRole | None = None
             for role in FOLD_ROLES:
-                positions = [label_positions[label] for label in getattr(fold, role)]
+                positions = [
+                    interval_positions[interval_id]
+                    for interval_id in getattr(fold, role)
+                ]
                 if not positions:
                     continue
                 if previous_positions is not None and max(previous_positions) >= min(
                     positions
                 ):
                     raise ValueError(
-                        f"dataset fold {fold.id!r} requires {previous_role} labels "
-                        f"before {role} labels"
+                        f"dataset fold {fold.id!r} requires {previous_role} intervals "
+                        f"before {role} intervals"
                     )
                 previous_positions = positions
                 previous_role = role

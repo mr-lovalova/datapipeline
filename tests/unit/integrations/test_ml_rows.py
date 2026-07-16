@@ -9,6 +9,7 @@ from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConf
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.config.dataset.split import (
     DatasetFold,
+    TimeInterval,
     TimeSplitConfig,
 )
 from datapipeline.domain.sample import Sample
@@ -199,12 +200,21 @@ def _dataset(
 
 def _split() -> TimeSplitConfig:
     return TimeSplitConfig(
-        boundaries=[
-            "2024-01-02T00:00:00Z",
-            "2024-01-03T00:00:00Z",
-            "2024-01-04T00:00:00Z",
+        intervals=[
+            TimeInterval(
+                id="train_0",
+                until="2024-01-02T00:00:00Z",
+            ),
+            TimeInterval(
+                id="validation_0",
+                until="2024-01-03T00:00:00Z",
+            ),
+            TimeInterval(
+                id="train_1",
+                until="2024-01-04T00:00:00Z",
+            ),
+            TimeInterval(id="validation_1"),
         ],
-        labels=["train_0", "validation_0", "train_1", "validation_1"],
         folds=[
             DatasetFold(
                 id="walk_0",
