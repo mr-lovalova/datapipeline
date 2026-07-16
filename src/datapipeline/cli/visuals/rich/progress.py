@@ -10,16 +10,13 @@ from rich.progress import (
     ProgressColumn,
     Task,
     TaskID,
-    TextColumn,
 )
-from rich.rule import Rule
 from rich.table import Column, Table
 from rich.text import Text
 
 from datapipeline.cli.visuals.execution import (
     ExecutionEventFormatter,
     ExecutionLogEvent,
-    OperationProgress,
 )
 from datapipeline.cli.visuals.execution_context import (
     reset_current_execution_event_handler,
@@ -39,19 +36,20 @@ from datapipeline.execution.events import (
 from datapipeline.execution.observability import (
     FileResult,
     OperationFinished,
+    OperationProgress,
     OperationStarted,
 )
 
 
 class _ProgressLabelColumn(ProgressColumn):
     def render(self, task: Task) -> RenderableType:
-        label = Text(f"[{task.description}]")
+        label = Text(task.description)
         elapsed = timedelta(seconds=int(task.elapsed or 0))
         label.append(f" {elapsed}")
         return label
 
 
-class _NodeBarColumn(ProgressColumn):
+class _ProgressActivityColumn(ProgressColumn):
     def __init__(self, table_column: Column) -> None:
         super().__init__(table_column)
         self._bar = BarColumn(
@@ -63,20 +61,34 @@ class _NodeBarColumn(ProgressColumn):
         )
 
     def render(self, task: Task) -> RenderableType:
-        return Text() if task.fields["is_pipeline"] else self._bar.render(task)
+        status = Text(task.fields["status"])
+        if not task.fields["show_bar"]:
+            return status
+        activity = Table.grid(padding=(0, 1))
+        activity.add_row(self._bar.render(task), status)
+        return activity
 
 
 class _ExecutionProgress:
     def __init__(self, progress: Progress, debug: bool) -> None:
         self._progress = progress
         self._debug = debug
-        self._root_pipeline: str | None = None
+        self._operation_name: str | None = None
+        self._operation_task: TaskID | None = None
+        self._pipeline_name: str | None = None
+        self._pipeline_task: TaskID | None = None
         self._node_tasks: dict[int, TaskID] = {}
         self._open_nodes: list[int] = []
         self._visible_node: int | None = None
 
     def handle(self, event: ExecutionLogEvent) -> None:
-        if isinstance(event, PipelineStarted):
+        if isinstance(event, OperationStarted):
+            self._start_operation(event)
+        elif isinstance(event, OperationProgress):
+            self._update_operation(event)
+        elif isinstance(event, OperationFinished):
+            self._finish_operation(event)
+        elif isinstance(event, PipelineStarted):
             self._start_pipeline(event)
         elif isinstance(event, NodeStarted):
             self._start_node(event)
@@ -90,41 +102,70 @@ class _ExecutionProgress:
             raise TypeError(f"Unsupported progress event: {type(event).__name__}")
 
     def clear(self) -> None:
-        for task in self._progress.tasks:
-            self._progress.remove_task(task.id)
-        self._root_pipeline = None
-        self._node_tasks.clear()
-        self._open_nodes.clear()
-        self._visible_node = None
+        self._clear_pipeline()
+        if self._operation_task is not None:
+            self._progress.remove_task(self._operation_task)
+        self._operation_name = None
+        self._operation_task = None
         self._progress.refresh()
 
-    def _start_pipeline(self, event: PipelineStarted) -> None:
-        if self._root_pipeline is not None:
-            raise RuntimeError("Cannot start overlapping pipeline progress")
-        self._root_pipeline = event.pipeline_name
-        self._progress.add_task(
-            event.pipeline_name,
+    def _start_operation(self, event: OperationStarted) -> None:
+        if self._operation_name is not None:
+            raise RuntimeError("Cannot start overlapping operation progress")
+        self._operation_name = event.name
+        self._operation_task = self._progress.add_task(
+            f"Operation {event.name}",
             total=None,
             status="",
-            is_pipeline=True,
+            show_bar=False,
+        )
+
+    def _update_operation(self, event: OperationProgress) -> None:
+        if self._operation_name is None or self._operation_task is None:
+            raise RuntimeError("Cannot update operation progress before it starts")
+        if self._operation_name != event.name:
+            raise RuntimeError("Operation progress updated out of order")
+        self._progress.update(
+            self._operation_task,
+            completed=event.items,
+            status=f"{event.step} · {event.items:,} items",
+        )
+
+    def _finish_operation(self, event: OperationFinished) -> None:
+        if self._operation_name is None or self._operation_task is None:
+            raise RuntimeError("Cannot finish operation progress before it starts")
+        if self._operation_name != event.name:
+            raise RuntimeError("Operation progress finished out of order")
+        self.clear()
+
+    def _start_pipeline(self, event: PipelineStarted) -> None:
+        if self._pipeline_name is not None:
+            raise RuntimeError("Cannot start overlapping pipeline progress")
+        self._pipeline_name = event.pipeline_name
+        self._pipeline_task = self._progress.add_task(
+            f"[{event.pipeline_name}]",
+            total=None,
+            status="",
+            show_bar=False,
         )
 
     def _finish_pipeline(self, event: PipelineFinished) -> None:
-        if self._root_pipeline is None:
+        if self._pipeline_name is None:
             raise RuntimeError("Cannot finish pipeline progress before it starts")
-        if self._root_pipeline != event.pipeline_name:
+        if self._pipeline_name != event.pipeline_name:
             raise RuntimeError("Pipeline progress finished out of order")
-        self.clear()
+        self._clear_pipeline()
+        self._progress.refresh()
 
     def _start_node(self, event: NodeStarted) -> None:
-        if self._root_pipeline is None:
+        if self._pipeline_name is None:
             raise RuntimeError("Cannot start node progress before its root pipeline")
-        label = f"{event.pipeline_name}/{event.node_name}"
+        label = f"[{event.pipeline_name}/{event.node_name}]"
         self._node_tasks[event.node_index] = self._progress.add_task(
             label,
             total=None,
             status="0 out",
-            is_pipeline=False,
+            show_bar=True,
             visible=self._debug,
         )
         self._open_nodes.append(event.node_index)
@@ -182,6 +223,17 @@ class _ExecutionProgress:
         task.total = total
         self._progress.update(task_id, completed=completed, status=status)
 
+    def _clear_pipeline(self) -> None:
+        for task_id in self._node_tasks.values():
+            self._progress.remove_task(task_id)
+        if self._pipeline_task is not None:
+            self._progress.remove_task(self._pipeline_task)
+        self._pipeline_name = None
+        self._pipeline_task = None
+        self._node_tasks.clear()
+        self._open_nodes.clear()
+        self._visible_node = None
+
 
 def _progress_status(snapshot: ProgressSnapshot) -> str:
     resource = snapshot.resource
@@ -213,30 +265,30 @@ class _RichExecutionRenderer:
             return
         if self._progress is not None and isinstance(
             event,
-            PipelineStarted
+            OperationStarted
+            | OperationProgress
+            | OperationFinished
+            | PipelineStarted
             | NodeStarted
             | NodeProgress
             | NodeFinished
             | PipelineFinished,
         ):
             self._progress.handle(event)
-            if isinstance(event, NodeStarted | NodeProgress):
+            if isinstance(
+                event,
+                OperationStarted | OperationProgress | NodeStarted | NodeProgress,
+            ):
                 return
         if isinstance(event, NodeProgress):
             return
         event_level = ExecutionEventFormatter.level(event)
         if event_level < self._level:
             return
-        if isinstance(event, OperationStarted):
-            self._console.print(Rule(Text(f"Operation {event.name}"), style="dim"))
-            return
         if isinstance(event, FileResult):
             self._console.print(self._render_file_result(event))
             return
         text = self._render_event(event)
-        if isinstance(event, OperationProgress):
-            self._console.print(text, overflow="ellipsis", no_wrap=True)
-            return
         self._console.print(text)
 
     @staticmethod
@@ -280,12 +332,7 @@ def visual_execution(log_level: int):
     debug = log_level <= logging.DEBUG
     progress = Progress(
         _ProgressLabelColumn(Column(no_wrap=True, overflow="ellipsis")),
-        _NodeBarColumn(Column(no_wrap=True)),
-        TextColumn(
-            "{task.fields[status]}",
-            markup=False,
-            table_column=Column(no_wrap=True, overflow="ellipsis"),
-        ),
+        _ProgressActivityColumn(Column(no_wrap=True, overflow="ellipsis")),
         transient=True,
         console=console,
         refresh_per_second=10,

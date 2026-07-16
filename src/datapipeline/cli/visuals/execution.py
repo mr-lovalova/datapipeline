@@ -20,6 +20,7 @@ from datapipeline.execution.observer import PipelineObserver
 from datapipeline.execution.observability import (
     FileResult,
     OperationFinished,
+    OperationProgress,
     OperationStarted,
 )
 
@@ -28,13 +29,6 @@ from datapipeline.execution.observability import (
 class ExecutionMessage:
     message: str
     log_level: int = logging.INFO
-
-
-@dataclass(frozen=True, kw_only=True)
-class OperationProgress:
-    operation_name: str
-    step: str
-    message: str
 
 
 ExecutionLogEvent = (
@@ -124,7 +118,10 @@ class ExecutionEventFormatter:
             label = f"{event.pipeline_name}/{event.node_name}"
             return f"[{label}] {cls.progress_message(event)}"
         if isinstance(event, OperationProgress):
-            return f"Operation {event.operation_name} · {event.step} · {event.message}"
+            return (
+                f"Operation {event.name} · {event.step} · running "
+                f"elapsed={event.step_elapsed_seconds:.0f}s items={event.items}"
+            )
         if isinstance(event, NodeFinished):
             error_suffix = cls.error_suffix(event)
             label = f"{event.pipeline_name}/{event.node_name}"
@@ -180,20 +177,8 @@ class ExecutionOperationObserver:
     def emit_finished(self, event: OperationFinished) -> None:
         route_execution_event(event, self._logger)
 
-    def emit_progress(
-        self,
-        name: str,
-        step: str,
-        message: str,
-    ) -> None:
-        route_execution_event(
-            OperationProgress(
-                operation_name=name,
-                step=step,
-                message=message,
-            ),
-            self._logger,
-        )
+    def emit_progress(self, event: OperationProgress) -> None:
+        route_execution_event(event, self._logger)
 
 
 def make_operation_observer(

@@ -22,6 +22,7 @@ from datapipeline.cli.visuals.execution_context import (
 )
 from datapipeline.execution.observability import (
     emit_file_result,
+    emit_operation_progress,
     operation_observer,
     operation_scope,
 )
@@ -114,6 +115,41 @@ def test_operation_and_output_logs_do_not_depend_on_visual_handler(
     ):
         assert visual_content.count(expected) == 1
     assert len(handler.events) == 4
+
+
+def test_operation_heartbeat_stays_in_file_during_visuals(tmp_path) -> None:
+    log_path = tmp_path / "heartbeat.log"
+    configure_root_logging(
+        level=logging.INFO,
+        output=LogOutputSettings(
+            outputs=(LogOutputTarget(transport="fs", destination=log_path),)
+        ),
+    )
+
+    class _CaptureHandler:
+        def __init__(self) -> None:
+            self.events = []
+
+        def __call__(self, event) -> None:
+            self.events.append(event)
+
+    handler = _CaptureHandler()
+    logger = logging.getLogger("datapipeline.tests.logging_setup.heartbeat")
+    token = set_current_execution_event_handler(handler)
+    try:
+        with operation_observer(make_operation_observer(logger)):
+            with operation_scope("serve:dataset"):
+                assert emit_operation_progress("write_output", 180, 2_592_885)
+    finally:
+        reset_current_execution_event_handler(token)
+        _flush_root_handlers()
+
+    content = log_path.read_text(encoding="utf-8")
+    heartbeat = (
+        "Operation serve:dataset · write_output · running elapsed=180s items=2592885"
+    )
+    assert content.count(heartbeat) == 1
+    assert len(handler.events) == 3
 
 
 def test_operation_and_output_logs_obey_warning_threshold(monkeypatch, tmp_path):

@@ -6,6 +6,7 @@ import datapipeline.execution.observability as observability
 from datapipeline.execution.observability import (
     FileResult,
     OperationFinished,
+    OperationProgress,
     OperationProgressTracker,
     OperationStarted,
     current_operation_observer,
@@ -21,7 +22,7 @@ class _CaptureObserver:
         self.started: list[OperationStarted] = []
         self.finished: list[OperationFinished] = []
         self.file_results: list[FileResult] = []
-        self.progress: list[tuple[str, str, str]] = []
+        self.progress: list[OperationProgress] = []
 
     def emit_started(self, event: OperationStarted) -> None:
         self.started.append(event)
@@ -32,8 +33,8 @@ class _CaptureObserver:
     def emit_file_result(self, result: FileResult) -> None:
         self.file_results.append(result)
 
-    def emit_progress(self, name: str, step: str, message: str) -> None:
-        self.progress.append((name, step, message))
+    def emit_progress(self, event: OperationProgress) -> None:
+        self.progress.append(event)
 
 
 def test_observer_routes_operation_lifecycle_results_and_progress(monkeypatch) -> None:
@@ -43,7 +44,7 @@ def test_observer_routes_operation_lifecycle_results_and_progress(monkeypatch) -
 
     assert current_operation_observer() is None
     assert emit_file_result("Output", Path("/tmp/out.jsonl")) is False
-    assert emit_operation_progress("outside", "ignored") is False
+    assert emit_operation_progress("outside", 1, 1) is False
 
     with operation_observer(observer):
         assert current_operation_observer() is observer
@@ -52,7 +53,7 @@ def test_observer_routes_operation_lifecycle_results_and_progress(monkeypatch) -
             Path("/tmp/model_grid.jsonl"),
         )
         with operation_scope("build:model_grid"):
-            assert emit_operation_progress("write", "running items=3")
+            assert emit_operation_progress("write", 1, 3)
 
     assert current_operation_observer() is None
     assert observer.started == [OperationStarted("build:model_grid")]
@@ -67,7 +68,12 @@ def test_observer_routes_operation_lifecycle_results_and_progress(monkeypatch) -
         FileResult("Model grid", Path("/tmp/model_grid.jsonl"))
     ]
     assert observer.progress == [
-        ("build:model_grid", "write", "running items=3"),
+        OperationProgress(
+            name="build:model_grid",
+            step="write",
+            step_elapsed_seconds=1,
+            items=3,
+        ),
     ]
 
 
@@ -83,7 +89,7 @@ def test_operation_scope_emits_failure_and_restores_progress_context(
             with operation_scope("serve:test"):
                 raise ValueError("  bad input  ")
 
-        assert emit_operation_progress("after", "ignored") is False
+        assert emit_operation_progress("after", 1, 1) is False
 
     assert observer.started == [OperationStarted("serve:test")]
     assert observer.finished == [
@@ -104,10 +110,10 @@ def test_operation_progress_tracker_preserves_interval_and_item_counts(
 ) -> None:
     times = iter((0.0, 0.5, 1.0, 1.4, 2.1))
     monkeypatch.setattr(observability.time, "perf_counter", lambda: next(times))
-    emitted: list[tuple[str, str]] = []
+    emitted: list[tuple[str, float, int]] = []
 
-    def capture_progress(step: str, message: str) -> bool:
-        emitted.append((step, message))
+    def capture_progress(step: str, elapsed_seconds: float, items: int) -> bool:
+        emitted.append((step, elapsed_seconds, items))
         return True
 
     monkeypatch.setattr(observability, "emit_operation_progress", capture_progress)
@@ -119,8 +125,8 @@ def test_operation_progress_tracker_preserves_interval_and_item_counts(
     progress.advance()
 
     assert emitted == [
-        ("write", "running elapsed=1s items=3"),
-        ("write", "running elapsed=2s items=8"),
+        ("write", 1.0, 3),
+        ("write", 2.1, 8),
     ]
 
 

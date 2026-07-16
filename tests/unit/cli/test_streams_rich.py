@@ -25,7 +25,7 @@ from datapipeline.cli.visuals.execution_context import (
 )
 from datapipeline.cli.visuals.rich.progress import (
     _ExecutionProgress,
-    _NodeBarColumn,
+    _ProgressActivityColumn,
     _ProgressLabelColumn,
     _RichExecutionRenderer,
     rich_visuals_supported,
@@ -44,6 +44,7 @@ from datapipeline.execution.events import (
 from datapipeline.execution.observability import (
     FileResult,
     OperationFinished,
+    OperationProgress,
     OperationStarted,
 )
 
@@ -158,8 +159,8 @@ def test_info_progress_shows_node_and_local_detail() -> None:
     )
 
     root, order_records, open_source = progress.tasks
-    assert root.description == "stream:adv.20"
-    assert root.fields["is_pipeline"] is True
+    assert root.description == "[stream:adv.20]"
+    assert root.fields["show_bar"] is False
     assert root.total is None
     assert root.completed == 0
     assert root.fields["status"] == ""
@@ -174,7 +175,7 @@ def test_info_progress_shows_node_and_local_detail() -> None:
     refresh.assert_called_once_with()
 
     root, order_records = progress.tasks
-    assert root.description == "stream:adv.20"
+    assert root.description == "[stream:adv.20]"
     assert root.total is None
     assert root.fields["status"] == ""
     assert order_records.visible is True
@@ -262,8 +263,8 @@ def test_info_elapsed_continues_after_completed_local_phase() -> None:
     assert _ProgressLabelColumn(Column()).render(order_records).plain == (
         "[stream:adv.20/order_records] 0:00:10"
     )
-    assert _NodeBarColumn(Column()).render(root).plain == ""
-    assert root.description == "stream:adv.20"
+    assert _ProgressActivityColumn(Column()).render(root).plain == ""
+    assert root.description == "[stream:adv.20]"
     assert root.total is None
     assert root.completed == 0
     assert order_records.total == 100
@@ -285,7 +286,7 @@ def test_info_elapsed_continues_after_completed_local_phase() -> None:
     assert _ProgressLabelColumn(Column()).render(order_records).plain == (
         "[stream:adv.20/order_records] 0:00:20"
     )
-    assert root.description == "stream:adv.20"
+    assert root.description == "[stream:adv.20]"
     assert root.total is None
     assert root.completed == 0
     assert order_records.completed == 20
@@ -315,32 +316,32 @@ def test_debug_progress_shows_root_and_active_nodes() -> None:
     assert [
         (
             task.description,
-            task.fields["is_pipeline"],
+            task.fields["show_bar"],
             task.fields["status"],
         )
         for task in tasks
     ] == [
-        ("stream:adv.20", True, ""),
-        ("stream:adv.20/order_records", False, "0 out"),
-        ("stream:adv.20/open_source", False, "25/100 records"),
-        ("stream:adv.20/decode_records", False, "0 out"),
+        ("[stream:adv.20]", False, ""),
+        ("[stream:adv.20/order_records]", True, "0 out"),
+        ("[stream:adv.20/open_source]", True, "25/100 records"),
+        ("[stream:adv.20/decode_records]", True, "0 out"),
     ]
     root_task, _, source_task, _ = tasks
     label = _ProgressLabelColumn(Column())
-    bar_column = _NodeBarColumn(Column())
+    activity_column = _ProgressActivityColumn(Column())
     assert label.render(root_task).plain == "[stream:adv.20] 0:00:00"
-    assert bar_column.render(root_task).plain == ""
+    assert activity_column.render(root_task).plain == ""
     assert source_task.completed == 25
     assert source_task.total == 100
-    bar = bar_column.render(source_task)
+    bar = activity_column._bar.render(source_task)
     assert bar.completed == 25
     assert bar.total == 100
 
     _finish_node(renderer, 1, "open_source")
     assert [task.description for task in progress.tasks] == [
-        "stream:adv.20",
-        "stream:adv.20/order_records",
-        "stream:adv.20/decode_records",
+        "[stream:adv.20]",
+        "[stream:adv.20/order_records]",
+        "[stream:adv.20/decode_records]",
     ]
 
 
@@ -361,6 +362,63 @@ def test_root_pipeline_finish_clears_progress_and_remains_a_static_event() -> No
         )
     refresh.assert_called_once_with()
 
+    assert progress.tasks == []
+
+
+def test_operation_progress_stays_live_across_sequential_pipelines() -> None:
+    now = 0.0
+    console, _ = _console()
+    progress = Progress(
+        console=console,
+        auto_refresh=False,
+        get_time=lambda: now,
+    )
+    renderer = _ExecutionProgress(progress, debug=False)
+    renderer.handle(OperationStarted("serve:dataset"))
+
+    now = 10.0
+    renderer.handle(
+        OperationProgress(
+            name="serve:dataset",
+            step="write_output",
+            step_elapsed_seconds=5,
+            items=2_592_885,
+        )
+    )
+
+    operation = progress.tasks[0]
+    assert operation.description == "Operation serve:dataset"
+    assert operation.fields["show_bar"] is False
+    assert operation.fields["status"] == "write_output · 2,592,885 items"
+    assert _ProgressLabelColumn(Column()).render(operation).plain == (
+        "Operation serve:dataset 0:00:10"
+    )
+    assert _ProgressActivityColumn(Column()).render(operation).plain == (
+        "write_output · 2,592,885 items"
+    )
+
+    renderer.handle(PipelineStarted(pipeline_name="dataset:fold_0", node_count=5))
+    assert [task.description for task in progress.tasks] == [
+        "Operation serve:dataset",
+        "[dataset:fold_0]",
+    ]
+    renderer.handle(
+        PipelineFinished(
+            pipeline_name="dataset:fold_0",
+            node_count=5,
+            status="success",
+            output_items=100,
+            elapsed_seconds=1,
+        )
+    )
+    assert [task.description for task in progress.tasks] == ["Operation serve:dataset"]
+
+    renderer.handle(PipelineStarted(pipeline_name="dataset:fold_1", node_count=5))
+    assert [task.description for task in progress.tasks] == [
+        "Operation serve:dataset",
+        "[dataset:fold_1]",
+    ]
+    renderer.handle(OperationFinished("serve:dataset", "success", 20))
     assert progress.tasks == []
 
 
@@ -506,7 +564,8 @@ def test_rich_renderer_hides_debug_config_at_info() -> None:
 
 def test_rich_renderer_renders_operation_sequence_once_and_in_order() -> None:
     console, output = _console()
-    renderer = _RichExecutionRenderer(logging.DEBUG, console)
+    progress_renderer = _CaptureRenderer()
+    renderer = _RichExecutionRenderer(logging.DEBUG, console, progress_renderer)
 
     events = (
         OperationStarted("materialize:adv.20"),
@@ -529,7 +588,6 @@ def test_rich_renderer_renders_operation_sequence_once_and_in_order() -> None:
 
     rendered = output.getvalue()
     markers = [
-        "Operation materialize:adv.20",
         "Config:",
         "[stream:adv.20] started",
         "[stream:adv.20] finished",
@@ -540,33 +598,51 @@ def test_rich_renderer_renders_operation_sequence_once_and_in_order() -> None:
     assert positions == sorted(positions)
     assert rendered.count("Config:") == 1
     assert "Operation materialize:adv.20 started" not in rendered
+    assert progress_renderer.events == [
+        events[0],
+        events[2],
+        events[3],
+        events[5],
+    ]
 
 
-def test_rich_renderer_renders_minimal_operation_header_at_info(monkeypatch) -> None:
-    console, _ = _console()
-    renderer = _RichExecutionRenderer(logging.INFO, console)
-    renderables = []
-    monkeypatch.setattr(console, "print", renderables.append)
-
-    renderer.render(OperationStarted("materialize:adv.20"))
-
-    assert len(renderables) == 1
-    segments = list(console.render(renderables[0], console.options))
-    title = next(segment for segment in segments if "Operation" in segment.text)
-    rules = [segment for segment in segments if "─" in segment.text]
-    assert title.text == "Operation materialize:adv.20"
-    assert str(title.style) == "none"
-    assert rules and all(
-        segment.style is not None and segment.style.dim for segment in rules
+def test_rich_renderer_updates_operation_progress_without_printing() -> None:
+    console, output = _console()
+    progress_renderer = _CaptureRenderer()
+    renderer = _RichExecutionRenderer(logging.INFO, console, progress_renderer)
+    started = OperationStarted("materialize:adv.20")
+    progress = OperationProgress(
+        name="materialize:adv.20",
+        step="write_output",
+        step_elapsed_seconds=60,
+        items=100,
     )
 
+    renderer.render(started)
+    renderer.render(progress)
 
-def test_rich_renderer_hides_operation_header_at_warning() -> None:
+    assert progress_renderer.events == [started, progress]
+    assert output.getvalue() == ""
+
+
+def test_rich_renderer_hides_plain_operation_start_at_warning() -> None:
     console, output = _console()
     renderer = _RichExecutionRenderer(logging.WARNING, console)
 
     renderer.render(OperationStarted("materialize:adv.20"))
 
+    assert output.getvalue() == ""
+
+
+def test_rich_renderer_keeps_live_operation_at_warning() -> None:
+    console, output = _console()
+    progress_renderer = _CaptureRenderer()
+    renderer = _RichExecutionRenderer(logging.WARNING, console, progress_renderer)
+    event = OperationStarted("materialize:adv.20")
+
+    renderer.render(event)
+
+    assert progress_renderer.events == [event]
     assert output.getvalue() == ""
 
 
@@ -768,8 +844,8 @@ def test_visual_execution_uses_minimal_progress_styles(monkeypatch) -> None:
     with visual_execution(logging.INFO):
         pass
 
-    label, bar = columns[:2]
+    label, activity = columns[:2]
     assert isinstance(label, _ProgressLabelColumn)
-    assert isinstance(bar, _NodeBarColumn)
-    assert bar._bar.complete_style == "cyan"
-    assert bar._bar.finished_style == "cyan"
+    assert isinstance(activity, _ProgressActivityColumn)
+    assert activity._bar.complete_style == "cyan"
+    assert activity._bar.finished_style == "cyan"

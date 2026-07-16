@@ -6,7 +6,6 @@ import pytest
 from datapipeline.cli.visuals.execution import (
     ExecutionEventFormatter,
     ExecutionMessage,
-    OperationProgress,
     emit_execution_message,
     make_pipeline_observer,
     make_operation_observer,
@@ -28,6 +27,7 @@ from datapipeline.execution.events import (
 from datapipeline.execution.observability import (
     FileResult,
     OperationFinished,
+    OperationProgress,
     OperationStarted,
     emit_file_result,
     emit_operation_progress,
@@ -120,12 +120,13 @@ class _CaptureHandler:
         ),
         (
             OperationProgress(
-                operation_name="build:schema",
+                name="build:schema",
                 step="write",
-                message="running",
+                step_elapsed_seconds=1,
+                items=3,
             ),
             logging.INFO,
-            "Operation build:schema · write · running",
+            "Operation build:schema · write · running elapsed=1s items=3",
         ),
         (
             OperationStarted("serve:dataset"),
@@ -405,7 +406,8 @@ def test_operation_scope_emits_flat_lifecycle_result_and_progress(caplog) -> Non
                 assert emit_file_result("Model grid", Path("/tmp/model_grid.jsonl"))
                 assert emit_operation_progress(
                     "write_artifact",
-                    "running elapsed=1s items=3",
+                    1,
+                    3,
                 )
     finally:
         reset_current_execution_event_handler(token)

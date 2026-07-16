@@ -15,6 +15,14 @@ class OperationStarted:
 
 
 @dataclass(frozen=True)
+class OperationProgress:
+    name: str
+    step: str
+    step_elapsed_seconds: float
+    items: int
+
+
+@dataclass(frozen=True)
 class OperationFinished:
     name: str
     status: OperationStatus
@@ -36,12 +44,7 @@ class OperationObserver(Protocol):
 
     def emit_file_result(self, result: FileResult) -> None: ...
 
-    def emit_progress(
-        self,
-        name: str,
-        step: str,
-        message: str,
-    ) -> None: ...
+    def emit_progress(self, event: OperationProgress) -> None: ...
 
 
 _CURRENT_OPERATION_OBSERVER: ContextVar[OperationObserver | None] = ContextVar(
@@ -112,15 +115,22 @@ def emit_file_result(
     return True
 
 
-def emit_operation_progress(step: str, message: str) -> bool:
+def emit_operation_progress(
+    step: str,
+    step_elapsed_seconds: float,
+    items: int,
+) -> bool:
     name = _CURRENT_OPERATION_NAME.get()
     observer = current_operation_observer()
     if name is None or observer is None:
         return False
     observer.emit_progress(
-        name,
-        step,
-        message,
+        OperationProgress(
+            name=name,
+            step=step,
+            step_elapsed_seconds=step_elapsed_seconds,
+            items=items,
+        )
     )
     return True
 
@@ -145,7 +155,4 @@ class OperationProgressTracker:
             return
         self._last_emit_at = now
         elapsed = now - self._started_at
-        emit_operation_progress(
-            self._step,
-            f"running elapsed={elapsed:.0f}s items={self._items}",
-        )
+        emit_operation_progress(self._step, elapsed, self._items)
