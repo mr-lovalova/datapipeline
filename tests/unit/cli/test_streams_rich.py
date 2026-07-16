@@ -382,19 +382,20 @@ def test_operation_progress_stays_live_across_sequential_pipelines() -> None:
             name="serve:dataset",
             step="write_output",
             step_elapsed_seconds=5,
-            items=2_592_885,
+            completed=2_592_885,
+            unit="rows",
         )
     )
 
     operation = progress.tasks[0]
     assert operation.description == "Operation serve:dataset"
     assert operation.fields["show_bar"] is False
-    assert operation.fields["status"] == "write_output · 2,592,885 items"
+    assert operation.fields["status"] == "write_output · 2,592,885 rows"
     assert _ProgressLabelColumn(Column()).render(operation).plain == (
         "Operation serve:dataset 0:00:10"
     )
     assert _ProgressActivityColumn(Column()).render(operation).plain == (
-        "write_output · 2,592,885 items"
+        "write_output · 2,592,885 rows"
     )
 
     renderer.handle(PipelineStarted(pipeline_name="dataset:fold_0", node_count=5))
@@ -615,7 +616,8 @@ def test_rich_renderer_updates_operation_progress_without_printing() -> None:
         name="materialize:adv.20",
         step="write_output",
         step_elapsed_seconds=60,
-        items=100,
+        completed=100,
+        unit="rows",
     )
 
     renderer.render(started)

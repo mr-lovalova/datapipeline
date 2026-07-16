@@ -153,15 +153,15 @@ def test_collect_vector_metadata_emits_progress(monkeypatch, tmp_path):
         Sample(key=(0,), features=Vector(values={"price": 1.0})),
         Sample(key=(1,), features=Vector(values={"price": 2.0})),
     ]
-    trackers: list[tuple[str, float]] = []
+    trackers: list[tuple[str, str, float]] = []
     advances: list[int] = []
 
     class Progress:
-        def __init__(self, step: str, interval_seconds: float) -> None:
-            trackers.append((step, interval_seconds))
+        def __init__(self, step: str, unit: str, interval_seconds: float) -> None:
+            trackers.append((step, unit, interval_seconds))
 
-        def advance(self, items: int = 1) -> None:
-            advances.append(items)
+        def advance(self, count: int = 1) -> None:
+            advances.append(count)
 
     runtime.heartbeat_interval_seconds = 180
     monkeypatch.setattr(
@@ -179,7 +179,7 @@ def test_collect_vector_metadata_emits_progress(monkeypatch, tmp_path):
         "scan_features",
     )
 
-    assert trackers == [("scan_features", 180)]
+    assert trackers == [("scan_features", "vectors", 180)]
     assert advances == [1, 1]
 
 

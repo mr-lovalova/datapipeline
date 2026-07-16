@@ -127,8 +127,8 @@ class _ExecutionProgress:
             raise RuntimeError("Operation progress updated out of order")
         self._progress.update(
             self._operation_task,
-            completed=event.items,
-            status=f"{event.step} · {event.items:,} items",
+            completed=event.completed,
+            status=f"{event.step} · {event.completed:,} {event.unit}",
         )
 
     def _finish_operation(self, event: OperationFinished) -> None:

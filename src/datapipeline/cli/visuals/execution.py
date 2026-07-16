@@ -120,7 +120,8 @@ class ExecutionEventFormatter:
         if isinstance(event, OperationProgress):
             return (
                 f"Operation {event.name} · {event.step} · running "
-                f"elapsed={event.step_elapsed_seconds:.0f}s items={event.items}"
+                f"elapsed={event.step_elapsed_seconds:.0f}s "
+                f"{event.unit}={event.completed}"
             )
         if isinstance(event, NodeFinished):
             error_suffix = cls.error_suffix(event)

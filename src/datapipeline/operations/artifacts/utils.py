@@ -119,6 +119,7 @@ def collect_vector_metadata(
     vector_count = 0
     progress = OperationProgressTracker(
         progress_step,
+        "vectors",
         resolve_heartbeat_interval_seconds(runtime.heartbeat_interval_seconds),
     )
     try:

@@ -75,6 +75,7 @@ def materialize_ticks(
     stream = run_stream_pipeline(context, task_cfg.stream)
     project_progress = OperationProgressTracker(
         "project_ticks",
+        "records",
         heartbeat_interval,
     )
     tick_rows = _project_tick_rows(stream, task_cfg.grid_by, project_progress)
@@ -92,6 +93,7 @@ def materialize_ticks(
         destination = (runtime.artifacts_root / relative_path).resolve()
         write_progress = OperationProgressTracker(
             "write_artifact",
+            "rows",
             heartbeat_interval,
         )
         sink = AtomicTextFileSink(destination)

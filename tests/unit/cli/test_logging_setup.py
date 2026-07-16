@@ -139,14 +139,14 @@ def test_operation_heartbeat_stays_in_file_during_visuals(tmp_path) -> None:
     try:
         with operation_observer(make_operation_observer(logger)):
             with operation_scope("serve:dataset"):
-                assert emit_operation_progress("write_output", 180, 2_592_885)
+                assert emit_operation_progress("write_output", 180, 2_592_885, "rows")
     finally:
         reset_current_execution_event_handler(token)
         _flush_root_handlers()
 
     content = log_path.read_text(encoding="utf-8")
     heartbeat = (
-        "Operation serve:dataset · write_output · running elapsed=180s items=2592885"
+        "Operation serve:dataset · write_output · running elapsed=180s rows=2592885"
     )
     assert content.count(heartbeat) == 1
     assert len(handler.events) == 3

@@ -19,7 +19,8 @@ class OperationProgress:
     name: str
     step: str
     step_elapsed_seconds: float
-    items: int
+    completed: int
+    unit: str
 
 
 @dataclass(frozen=True)
@@ -118,7 +119,8 @@ def emit_file_result(
 def emit_operation_progress(
     step: str,
     step_elapsed_seconds: float,
-    items: int,
+    completed: int,
+    unit: str,
 ) -> bool:
     name = _CURRENT_OPERATION_NAME.get()
     observer = current_operation_observer()
@@ -129,25 +131,27 @@ def emit_operation_progress(
             name=name,
             step=step,
             step_elapsed_seconds=step_elapsed_seconds,
-            items=items,
+            completed=completed,
+            unit=unit,
         )
     )
     return True
 
 
 class OperationProgressTracker:
-    def __init__(self, step: str, interval_seconds: float) -> None:
+    def __init__(self, step: str, unit: str, interval_seconds: float) -> None:
         interval = float(interval_seconds)
         if interval < 0:
             raise ValueError("interval_seconds must be non-negative")
         self._step = step
+        self._unit = unit
         self._interval_seconds = interval
         self._started_at = time.perf_counter()
         self._last_emit_at = self._started_at
-        self._items = 0
+        self._completed = 0
 
-    def advance(self, items: int = 1) -> None:
-        self._items += int(items)
+    def advance(self, count: int = 1) -> None:
+        self._completed += int(count)
         if self._interval_seconds <= 0:
             return
         now = time.perf_counter()
@@ -155,4 +159,4 @@ class OperationProgressTracker:
             return
         self._last_emit_at = now
         elapsed = now - self._started_at
-        emit_operation_progress(self._step, elapsed, self._items)
+        emit_operation_progress(self._step, elapsed, self._completed, self._unit)
