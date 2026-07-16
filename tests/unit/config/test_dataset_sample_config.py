@@ -28,8 +28,14 @@ def test_feature_dataset_owns_split_and_postprocess_policy() -> None:
             "sample": {"cadence": "1d"},
             "split": {
                 "mode": "hash",
-                "key": "group",
                 "ratios": {"train": 0.8, "test": 0.2},
+                "folds": [
+                    {
+                        "id": "holdout",
+                        "train": ["train"],
+                        "test": ["test"],
+                    }
+                ],
             },
             "postprocess": {
                 "samples": {"features": {"threshold": 0.9}},

@@ -125,7 +125,7 @@ def test_disabled_profiles_do_not_create_execution_directory(tmp_path: Path):
     assert not (tmp_path / "artifacts" / "_system" / "executions").exists()
 
 
-def test_serve_request_uses_dataset_output_splits_by_default(tmp_path: Path):
+def test_serve_request_uses_dataset_output_ids_by_default(tmp_path: Path):
     project_yaml = _write_project(tmp_path)
     (tmp_path / "dataset.yaml").write_text(
         """\
@@ -133,7 +133,10 @@ sample: {cadence: 1h}
 split:
   mode: hash
   ratios: {train: 0.8, test: 0.2}
-  output_labels: [train, test]
+  folds:
+    - id: default
+      train: [train]
+      test: [test]
 """,
         encoding="utf-8",
     )
@@ -154,7 +157,7 @@ split:
     )
 
     assert request is not None
-    assert request.jobs[0].output_splits == ("train", "test")
+    assert request.jobs[0].output_ids == ("default.train", "default.test")
 
 
 def test_materialize_request_uses_shared_resolution_snapshot(

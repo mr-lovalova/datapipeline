@@ -36,7 +36,6 @@ ARTIFACT_DEFINITIONS: tuple[ArtifactDefinition, ...] = (
     ),
     ArtifactDefinition(
         key=VECTOR_INPUTS,
-        dependencies=(SCALER_STATISTICS,),
     ),
     ArtifactDefinition(
         key=VECTOR_METADATA,

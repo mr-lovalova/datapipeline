@@ -21,10 +21,13 @@ reading the data. Visuals are independent of log filtering.
   - `canonical`: domain records after source mapping or aligned combining;
     derived streams pass their input through unchanged at this boundary.
   - `records`: records after configured transforms and ordering.
-  - `features`: fully processed and ordered feature/target records, including
-    configured scaling and sequence construction.
+  - `features`: ordered feature/target records after sequence construction.
+    Values remain unscaled because scaling is selected by the full dataset
+    output's fold.
   - `samples`: assembled samples before postprocess.
   - `postprocess`: samples after the configured postprocess pipeline.
+    Preview stages remain unscaled; omit `--preview` to apply each selected
+    fold's scaler.
   - Record stages emit once per unique configured record stream, `features`
     emits once per feature/target, and sample stages emit one combined stream.
   - Omit `--preview` to run the full pipeline and output persistence.
@@ -33,7 +36,7 @@ reading the data. Visuals are independent of log filtering.
     selected profiles and prepares that union once. The artifact graph orders
     those internal jobs; it never changes profile order.
 - `jerry serve --project <project.yaml> --output-transport stdout --output-format jsonl --output-view flat|raw --output-encoding <codec> --limit N [--artifact-mode AUTO|FORCE|OFF] [--log-level LEVEL] [--visuals on|off] [--heartbeat-interval SECONDS] [--profile name]`
-  - Applies postprocess selection and filtering before emitting. A configured dataset split routes a full pipeline serve to one fs output per `output_labels` entry, named `<profile-or-filename>.<label>.<ext>`; profile `include_splits` can narrow the set. Preview emits one combined stage and cannot be combined with explicit `include_splits`. `--limit` applies separately to each split output.
+  - Applies postprocess selection and filtering before emitting. A configured dataset split routes a full pipeline serve to one fs output per fold role, named `<profile-or-filename>.<fold-id>.<role>.<ext>`; profile `include_outputs` can narrow the set using IDs such as `fold_0.train`. Preview emits one combined stage and cannot be combined with explicit `include_outputs`. `--limit` applies separately to each output.
   - Use `--output-transport fs --output-format jsonl --output-directory build/serve` (or `csv`, `pickle`) to write outputs under `<output-directory>/runs/<run_id>/dataset/`.
   - `--output-view` controls payload shape:
     - `flat`: key + kind + flattened fields

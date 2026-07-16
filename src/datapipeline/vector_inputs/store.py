@@ -26,7 +26,7 @@ from datapipeline.domain.sample_key import (
 from datapipeline.io.sinks.files import GzipBinarySink
 from datapipeline.utils.time import CADENCE_PATTERN, parse_datetime
 
-VECTOR_INPUTS_MANIFEST_VERSION: Final = 4
+VECTOR_INPUTS_MANIFEST_VERSION: Final = 5
 _JSON_SCALAR_TYPES = {type(None), bool, int, float, str}
 _NonEmptyString = Annotated[
     str,
@@ -58,7 +58,7 @@ class CachedVectorInputShard(BaseModel):
 class CachedVectorInputsManifest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    version: Literal[4] = VECTOR_INPUTS_MANIFEST_VERSION
+    version: Literal[5] = VECTOR_INPUTS_MANIFEST_VERSION
     format: Literal["jsonl.gz"] = "jsonl.gz"
     cadence: str = Field(pattern=CADENCE_PATTERN)
     sample_keys: tuple[_NonEmptyString, ...] = ()

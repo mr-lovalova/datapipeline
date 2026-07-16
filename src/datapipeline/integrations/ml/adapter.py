@@ -1,15 +1,26 @@
-from collections.abc import Generator, Iterator, Sequence
+from collections.abc import Generator, Sequence
 from dataclasses import dataclass
 from itertools import islice
 from pathlib import Path
 from typing import Any, Literal
 
 from datapipeline.artifacts.hydration import hydrate_runtime_artifacts_for_pipeline
+from datapipeline.artifacts.specs import dataset_requires_scaler
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
+from datapipeline.config.dataset.split import (
+    DatasetFold,
+    SplitConfig,
+    resolve_fold_output,
+    split_output_ids,
+)
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
 from datapipeline.execution.context import PipelineContext
-from datapipeline.pipelines.dataset.pipeline import run_dataset_pipeline
+from datapipeline.pipelines.dataset.pipeline import (
+    run_dataset_pipeline,
+    run_fold_dataset_pipeline,
+    run_scaled_dataset_pipeline,
+)
 from datapipeline.runtime import Runtime
 from datapipeline.services.pipeline import load_pipeline
 from datapipeline.services.runtime_compiler import compile_runtime
@@ -47,23 +58,39 @@ class VectorAdapter:
 
     dataset: FeatureDatasetConfig
     runtime: Runtime
+    output_id: str | None = None
+
+    def __post_init__(self) -> None:
+        split = self.dataset.split
+        if split is None:
+            if self.output_id is not None:
+                raise ValueError(
+                    "output_id is only valid when dataset.split is configured."
+                )
+            return
+        self._fold_output(split)
 
     @classmethod
     def from_project(
         cls,
         project_yaml: str | Path,
+        output_id: str | None = None,
     ) -> "VectorAdapter":
         project_path = Path(project_yaml)
         definition = load_pipeline(project_path)
         runtime = compile_runtime(definition)
         hydrate_runtime_artifacts_for_pipeline(runtime, definition)
-        return cls(dataset=definition.dataset, runtime=runtime)
+        return cls(
+            dataset=definition.dataset,
+            runtime=runtime,
+            output_id=output_id,
+        )
 
     def stream(
         self,
         *,
         limit: int | None = None,
-    ) -> Iterator[tuple[Sequence[Any], Vector]]:
+    ) -> Generator[tuple[Sequence[Any], Vector], None, None]:
         samples = self._samples(limit)
         try:
             for sample in samples:
@@ -79,7 +106,7 @@ class VectorAdapter:
         group_format: GroupFormat = "mapping",
         group_column: str = "group",
         flatten_sequences: bool = False,
-    ) -> Iterator[dict[str, Any]]:
+    ) -> Generator[dict[str, Any], None, None]:
         samples = self._samples(limit)
         sample_keys = self.dataset.sample.keys
         try:
@@ -112,13 +139,34 @@ class VectorAdapter:
             )
         target_cfgs = list(self.dataset.targets)
         context = PipelineContext(self.runtime)
-        samples = run_dataset_pipeline(
-            context,
-            features,
-            self.dataset.sample.cadence,
-            target_configs=target_cfgs,
-            sample_keys=self.dataset.sample.keys,
-        )
+        split = self.dataset.split
+        if split is not None:
+            fold, labels = self._fold_output(split)
+            samples = run_fold_dataset_pipeline(
+                context,
+                features,
+                self.dataset.sample.cadence,
+                fold,
+                labels,
+                target_configs=target_cfgs,
+                sample_keys=self.dataset.sample.keys,
+            )
+        elif dataset_requires_scaler(self.dataset):
+            samples = run_scaled_dataset_pipeline(
+                context,
+                features,
+                self.dataset.sample.cadence,
+                target_configs=target_cfgs,
+                sample_keys=self.dataset.sample.keys,
+            )
+        else:
+            samples = run_dataset_pipeline(
+                context,
+                features,
+                self.dataset.sample.cadence,
+                target_configs=target_cfgs,
+                sample_keys=self.dataset.sample.keys,
+            )
         try:
             if limit is None:
                 yield from samples
@@ -126,3 +174,22 @@ class VectorAdapter:
                 yield from islice(samples, limit)
         finally:
             samples.close()
+
+    def _fold_output(
+        self,
+        split: SplitConfig,
+    ) -> tuple[DatasetFold, tuple[str, ...]]:
+        output_id = self.output_id
+        available = split_output_ids(split)
+        if output_id is None:
+            raise ValueError(
+                "Dataset defines split outputs; pass output_id with one of: "
+                + ", ".join(available)
+            )
+        try:
+            return resolve_fold_output(split, output_id)
+        except KeyError as exc:
+            raise ValueError(
+                f"Dataset output {output_id!r} is not defined; choose one of: "
+                + ", ".join(available)
+            ) from exc

@@ -105,11 +105,10 @@ def collect_vector_metadata(
 ]:
     if not configs:
         return [], 0, {}
-    sanitized = [cfg.model_copy(update={"scale": False}) for cfg in configs]
     context = PipelineContext(runtime)
     vectors = build_vector_pipeline(
         context,
-        sanitized,
+        configs,
         cadence,
         rectangular=False,
         sample_keys=sample_keys,
@@ -122,20 +121,25 @@ def collect_vector_metadata(
         progress_step,
         resolve_heartbeat_interval_seconds(runtime.heartbeat_interval_seconds),
     )
-    for sample in vectors:
-        vector_count += 1
-        ts = sample.key[0] if isinstance(sample.key, tuple) and sample.key else None
-        if sample_keys and isinstance(ts, datetime):
-            _update_sample_domain(sample_domain, sample.key, ts)
-        for fid, value in sample.features.values.items():
-            entry = stats.get(fid)
-            if entry is None:
-                entry = stats[fid] = VectorMetadataStats(
-                    id=fid,
-                    base_id=_base_feature_id(fid),
-                )
-            entry.observe(value, ts if isinstance(ts, datetime) else None)
-        progress.advance()
+    try:
+        for sample in vectors:
+            vector_count += 1
+            ts = sample.key[0] if isinstance(sample.key, tuple) and sample.key else None
+            if sample_keys and isinstance(ts, datetime):
+                _update_sample_domain(sample_domain, sample.key, ts)
+            for fid, value in sample.features.values.items():
+                entry = stats.get(fid)
+                if entry is None:
+                    entry = stats[fid] = VectorMetadataStats(
+                        id=fid,
+                        base_id=_base_feature_id(fid),
+                    )
+                entry.observe(value, ts if isinstance(ts, datetime) else None)
+            progress.advance()
+    finally:
+        closer = getattr(vectors, "close", None)
+        if callable(closer):
+            closer()
 
     return list(stats.values()), vector_count, sample_domain
 

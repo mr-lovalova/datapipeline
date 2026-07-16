@@ -57,8 +57,8 @@ def plan_runtime_job(
         raise ValueError("Only the dataset operation supports preview.")
     if not isinstance(job.task, PipelineTask) and job.throttle_ms is not None:
         raise ValueError("Only the dataset operation supports throttle_ms.")
-    if not isinstance(job.task, PipelineTask) and job.output_splits:
-        raise ValueError("Only the dataset operation supports split outputs.")
+    if not isinstance(job.task, PipelineTask) and job.output_ids:
+        raise ValueError("Only the dataset operation supports routed outputs.")
     required_artifacts = graph.runtime_dependency_closure(
         job.task,
         preview=job.preview,
@@ -123,7 +123,7 @@ def execute_runtime_job(
                     "limit": job.limit,
                     "preview": job.preview,
                     "throttle_ms": job.throttle_ms,
-                    "output_splits": list(job.output_splits),
+                    "output_ids": list(job.output_ids),
                     "output": {
                         "transport": job.output.transport,
                         "format": job.output.format,

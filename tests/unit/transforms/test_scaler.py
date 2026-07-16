@@ -1,47 +1,28 @@
 import json
-from datetime import datetime, timezone
 from math import isclose
 
 import pytest
 from pydantic import ValidationError
 
 from datapipeline.artifacts.scaler import (
+    FoldedScalerArtifact,
     ScalerStatistics,
     StandardScalerArtifact,
-    TemporalScalerArtifact,
-    TemporalScalerFold,
-    TemporalScalerSplit,
     load_scaler_artifact,
     save_scaler_artifact,
 )
-from datapipeline.domain.feature import FeatureRecord
-from datapipeline.domain.record import TemporalRecord
-from datapipeline.transforms.feature.scaler import (
-    FeatureScaler,
-    ScalerAccumulator,
-)
-
-
-def _feature(value: object, day: int = 1, feature_id: str = "x") -> FeatureRecord:
-    record = TemporalRecord(
-        time=datetime(2024, 1, day, tzinfo=timezone.utc),
-    )
-    return FeatureRecord(record=record, id=feature_id, value=value)
+from datapipeline.transforms.vector.scaler import ScalerAccumulator
 
 
 def _standard_artifact(
-    *,
     mean: float = 2.0,
     std: float = 1.0,
     count: int = 2,
-    with_mean: bool = True,
-    with_std: bool = True,
-    epsilon: float = 1e-12,
 ) -> StandardScalerArtifact:
     return StandardScalerArtifact(
-        with_mean=with_mean,
-        with_std=with_std,
-        epsilon=epsilon,
+        with_mean=True,
+        with_std=True,
+        epsilon=1e-12,
         observations=count,
         statistics={
             "x": ScalerStatistics(mean=mean, std=std, count=count),
@@ -56,108 +37,50 @@ def test_accumulator_fits_population_statistics() -> None:
     accumulator.observe("x", 2.0)
     accumulator.observe("x", 3.0)
 
-    artifact = accumulator.artifact(split="train")
+    artifact = accumulator.artifact()
     statistics = artifact.statistics["x"]
     assert statistics.count == 3
     assert statistics.mean == 2.0
     assert isclose(statistics.std, 0.816496580927726)
     assert artifact.observations == 3
-    assert artifact.split == "train"
+    assert artifact.version == 3
 
 
-def test_scaler_applies_fitted_options() -> None:
-    artifact = _standard_artifact(mean=10.0, std=2.0)
-    scaled = list(
-        FeatureScaler(artifact).apply(iter([_feature(10.0), _feature(12.0, day=2)]))
-    )
-
-    assert [feature.value for feature in scaled] == [0.0, 1.0]
-
-
-def test_scaler_does_not_override_disabled_fitted_options() -> None:
-    artifact = _standard_artifact(
-        mean=10.0,
-        std=2.0,
-        with_mean=False,
-        with_std=False,
-    )
-
-    [scaled] = FeatureScaler(artifact).apply(iter([_feature(12)]))
-
-    assert scaled.value == 12.0
-
-
-def test_constant_feature_uses_fitted_epsilon() -> None:
+def test_accumulator_uses_epsilon_for_constant_values() -> None:
     accumulator = ScalerAccumulator(epsilon=0.25)
     accumulator.observe("x", 4.0)
     accumulator.observe("x", 4.0)
 
-    artifact = accumulator.artifact()
-    [scaled] = FeatureScaler(artifact).apply(iter([_feature(4.5)]))
-
-    assert artifact.statistics["x"].std == 0.25
-    assert scaled.value == 2.0
+    assert accumulator.artifact().statistics["x"].std == 0.25
 
 
-def test_none_is_not_fitted_and_passes_through_scaling() -> None:
+def test_accumulator_ignores_none() -> None:
     accumulator = ScalerAccumulator()
     accumulator.observe("x", None)
     accumulator.observe("x", 1.0)
 
     assert accumulator.observations == 1
-
-    missing = _feature(None)
-    [scaled] = FeatureScaler(accumulator.artifact()).apply(iter([missing]))
-
-    assert scaled is missing
-    assert scaled.value is None
+    assert accumulator.artifact().statistics["x"].count == 1
 
 
-def test_none_passes_through_without_fitted_statistics() -> None:
-    missing = _feature(None, feature_id="all_null")
-
-    [scaled] = FeatureScaler(_standard_artifact()).apply(iter([missing]))
-
-    assert scaled is missing
+def test_accumulator_requires_an_observation() -> None:
+    with pytest.raises(RuntimeError, match="no numeric observations"):
+        ScalerAccumulator().artifact()
 
 
 @pytest.mark.parametrize("value", [True, "1.0", [1.0]])
-def test_scaler_rejects_non_numeric_values(value: object) -> None:
+def test_accumulator_rejects_non_numeric_values(value: object) -> None:
     with pytest.raises(TypeError, match="numeric or None"):
         ScalerAccumulator().observe("x", value)
-
-    with pytest.raises(TypeError, match="numeric or None"):
-        list(FeatureScaler(_standard_artifact()).apply(iter([_feature(value)])))
 
 
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
-def test_scaler_rejects_non_finite_values(value: float) -> None:
+def test_accumulator_rejects_non_finite_values(value: float) -> None:
     with pytest.raises(ValueError, match="must be finite"):
         ScalerAccumulator().observe("x", value)
 
-    with pytest.raises(ValueError, match="must be finite"):
-        list(FeatureScaler(_standard_artifact()).apply(iter([_feature(value)])))
 
-
-def test_scaler_requires_statistics_for_every_feature() -> None:
-    with pytest.raises(KeyError, match="Missing scaler statistics"):
-        list(
-            FeatureScaler(_standard_artifact()).apply(
-                iter([_feature(1.0, feature_id="unknown")])
-            )
-        )
-
-
-def test_scaler_artifact_round_trip(tmp_path) -> None:
-    path = tmp_path / "scaler.json"
-    artifact = _standard_artifact()
-
-    save_scaler_artifact(path, artifact)
-
-    assert load_scaler_artifact(path) == artifact
-
-
-def test_scaler_artifact_rejects_inconsistent_observation_count() -> None:
+def test_standard_scaler_rejects_inconsistent_observation_count() -> None:
     with pytest.raises(ValidationError, match="observations"):
         StandardScalerArtifact(
             with_mean=True,
@@ -170,12 +93,55 @@ def test_scaler_artifact_rejects_inconsistent_observation_count() -> None:
         )
 
 
+def test_folded_scaler_is_keyed_by_fold_id() -> None:
+    train = _standard_artifact(mean=1.0, count=1)
+    validation = _standard_artifact(mean=2.0, count=1)
+
+    artifact = FoldedScalerArtifact(
+        folds={
+            "walk_0": train,
+            "walk_1": validation,
+        }
+    )
+
+    assert artifact.for_fold("walk_0") is train
+    assert artifact.for_fold("walk_1") is validation
+
+
+def test_folded_scaler_requires_a_known_fold_id() -> None:
+    artifact = FoldedScalerArtifact(folds={"walk_0": _standard_artifact()})
+
+    with pytest.raises(KeyError, match="has no fold 'walk_1'"):
+        artifact.for_fold("walk_1")
+
+
+@pytest.mark.parametrize("fold_id", ["", " ", " walk_0", "walk_0 "])
+def test_folded_scaler_rejects_invalid_fold_ids(fold_id: str) -> None:
+    with pytest.raises(ValidationError, match="fold ids"):
+        FoldedScalerArtifact(folds={fold_id: _standard_artifact()})
+
+
+@pytest.mark.parametrize(
+    "artifact",
+    [
+        _standard_artifact(),
+        FoldedScalerArtifact(folds={"walk_0": _standard_artifact()}),
+    ],
+)
+def test_scaler_artifact_round_trip(tmp_path, artifact) -> None:
+    path = tmp_path / "scaler.json"
+
+    save_scaler_artifact(path, artifact)
+
+    assert load_scaler_artifact(path) == artifact
+
+
 @pytest.mark.parametrize(
     "payload",
     [
         {
             "kind": "standard_scaler",
-            "version": 1,
+            "version": 2,
             "with_mean": True,
             "with_std": True,
             "epsilon": 1e-12,
@@ -184,7 +150,7 @@ def test_scaler_artifact_rejects_inconsistent_observation_count() -> None:
         },
         {
             "kind": "standard_scaler",
-            "version": 2,
+            "version": 3,
             "with_mean": True,
             "with_std": True,
             "epsilon": 1e-12,
@@ -193,7 +159,7 @@ def test_scaler_artifact_rejects_inconsistent_observation_count() -> None:
         },
         {
             "kind": "standard_scaler",
-            "version": 2,
+            "version": 3,
             "with_mean": "false",
             "with_std": True,
             "epsilon": 1e-12,
@@ -211,66 +177,3 @@ def test_scaler_artifact_rejects_old_incomplete_or_coerced_payloads(
 
     with pytest.raises(ValidationError):
         load_scaler_artifact(path)
-
-
-def test_temporal_scaler_selects_fold_before_scaling() -> None:
-    artifact = TemporalScalerArtifact(
-        split=TemporalScalerSplit(
-            boundaries=("2024-01-02T00:00:00Z",),
-            labels=("train", "validation"),
-        ),
-        folds=(
-            TemporalScalerFold(
-                fit=("train",),
-                apply=("train",),
-                scaler=_standard_artifact(mean=1.0, std=1.0, count=1),
-            ),
-            TemporalScalerFold(
-                fit=("validation",),
-                apply=("validation",),
-                scaler=_standard_artifact(mean=10.0, std=2.0, count=1),
-            ),
-        ),
-    )
-
-    scaled = list(
-        FeatureScaler(artifact).apply(
-            iter([_feature(2.0, day=1), _feature(12.0, day=3)])
-        )
-    )
-
-    assert [feature.value for feature in scaled] == [1.0, 1.0]
-
-
-def test_temporal_scaler_artifact_rejects_unassigned_split() -> None:
-    with pytest.raises(ValidationError, match="no apply fold: validation"):
-        TemporalScalerArtifact(
-            split=TemporalScalerSplit(
-                boundaries=("2024-01-02T00:00:00Z",),
-                labels=("train", "validation"),
-            ),
-            folds=(
-                TemporalScalerFold(
-                    fit=("train",),
-                    apply=("train",),
-                    scaler=_standard_artifact(count=1),
-                ),
-            ),
-        )
-
-
-def test_temporal_artifact_rejects_overlapping_apply_folds() -> None:
-    fold = TemporalScalerFold(
-        fit=("train",),
-        apply=("train",),
-        scaler=_standard_artifact(count=1),
-    )
-
-    with pytest.raises(ValidationError, match="multiple apply folds"):
-        TemporalScalerArtifact(
-            split=TemporalScalerSplit(
-                boundaries=(),
-                labels=("train",),
-            ),
-            folds=(fold, fold),
-        )

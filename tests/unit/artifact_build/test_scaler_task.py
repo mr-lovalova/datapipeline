@@ -1,16 +1,21 @@
-from datetime import datetime, timezone
 from dataclasses import replace
+from datetime import datetime, timezone
 
 import pytest
 
 from datapipeline.artifacts.scaler import (
+    FoldedScalerArtifact,
     StandardScalerArtifact,
-    TemporalScalerArtifact,
     load_scaler_artifact,
 )
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig, SequenceConfig
-from datapipeline.config.dataset.split import HashSplitConfig, TimeSplitConfig
+from datapipeline.config.dataset.split import (
+    DatasetFold,
+    HashSplitConfig,
+    TimeInterval,
+    TimeSplitConfig,
+)
 from datapipeline.config.tasks import ScalerTask
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.operations.artifacts.scaler import materialize_scaler_statistics
@@ -77,12 +82,13 @@ def _runtime(
 
 def _dataset(
     *,
+    cadence: str = "1h",
     scale: bool = True,
     sequence: SequenceConfig | None = None,
     split: HashSplitConfig | TimeSplitConfig | None = None,
 ) -> FeatureDatasetConfig:
     return FeatureDatasetConfig(
-        sample=SampleConfig(cadence="1h"),
+        sample=SampleConfig(cadence=cadence),
         features=[
             FeatureRecordConfig(
                 id="x",
@@ -101,30 +107,23 @@ def test_materialize_standard_scaler_uses_all_scalar_observations(
 ) -> None:
     runtime = _runtime(
         tmp_path,
-        _dataset(
-            split=TimeSplitConfig(
-                boundaries=["2024-01-02T00:00:00Z"],
-                labels=["train", "test"],
-            )
-        ),
+        _dataset(),
         rows=[_record(1, 1.0), _record(3, 3.0)],
     )
 
     result = materialize_scaler_statistics(
         runtime,
-        ScalerTask(split_label="all", output="scaler.json"),
+        ScalerTask(output="scaler.json"),
     )
 
     assert result is not None
     artifact = load_scaler_artifact(runtime.artifacts_root / result.relative_path)
     assert isinstance(artifact, StandardScalerArtifact)
-    assert artifact.version == 2
-    assert artifact.split == "all"
+    assert artifact.version == 3
     assert artifact.observations == 2
     assert artifact.statistics["x"].mean == 2.0
     assert result.meta == {
         "features": 1,
-        "split": "all",
         "observations": 2,
     }
 
@@ -137,7 +136,6 @@ def test_materialize_standard_scaler_persists_build_options(
     result = materialize_scaler_statistics(
         runtime,
         ScalerTask(
-            split_label="all",
             output="scaler.json",
             with_mean=False,
             with_std=False,
@@ -153,26 +151,6 @@ def test_materialize_standard_scaler_persists_build_options(
     assert artifact.epsilon == 0.5
 
 
-def test_materialize_scaler_rejects_feature_hash_split(
-    tmp_path,
-) -> None:
-    runtime = _runtime(
-        tmp_path,
-        _dataset(
-            split=HashSplitConfig(
-                ratios={"train": 1.0},
-                key="feature:bucket",
-            )
-        ),
-    )
-
-    with pytest.raises(ValueError, match="requires hash split key 'group'"):
-        materialize_scaler_statistics(
-            runtime,
-            ScalerTask(split_label="train", output="scaler.json"),
-        )
-
-
 def test_materialize_scaler_skips_dataset_without_scaled_features(
     tmp_path,
 ) -> None:
@@ -181,7 +159,7 @@ def test_materialize_scaler_skips_dataset_without_scaled_features(
     assert (
         materialize_scaler_statistics(
             runtime,
-            ScalerTask(split_label="all", output="scaler.json"),
+            ScalerTask(output="scaler.json"),
         )
         is None
     )
@@ -196,7 +174,7 @@ def test_scaler_fitting_observes_scalars_before_sequence(tmp_path) -> None:
 
     result = materialize_scaler_statistics(
         runtime,
-        ScalerTask(split_label="all", output="scaler.json"),
+        ScalerTask(output="scaler.json"),
     )
 
     assert result is not None
@@ -206,46 +184,115 @@ def test_scaler_fitting_observes_scalars_before_sequence(tmp_path) -> None:
     assert artifact.statistics["x"].mean == 2.0
 
 
-def test_materialize_temporal_scaler_assigns_scalar_records_by_record_time(
+def test_materialize_folded_scaler_uses_dataset_owned_expanding_train_roles(
     tmp_path,
 ) -> None:
     runtime = _runtime(
         tmp_path,
         _dataset(
-            sequence=SequenceConfig(size=2),
+            cadence="1d",
             split=TimeSplitConfig(
-                boundaries=["2024-01-02T00:00:00Z"],
-                labels=["train", "validation"],
+                intervals=[
+                    TimeInterval(
+                        id="train_0",
+                        until="2024-01-02T00:00:00Z",
+                    ),
+                    TimeInterval(
+                        id="validation_0",
+                        until="2024-01-03T00:00:00Z",
+                    ),
+                    TimeInterval(
+                        id="train_1",
+                        until="2024-01-04T00:00:00Z",
+                    ),
+                    TimeInterval(id="validation_1"),
+                ],
+                folds=[
+                    DatasetFold(
+                        id="fold_0",
+                        train=["train_0"],
+                        validation=["validation_0"],
+                    ),
+                    DatasetFold(
+                        id="fold_1",
+                        train=["train_0", "validation_0", "train_1"],
+                        validation=["validation_1"],
+                    ),
+                ],
             ),
         ),
-        rows=[_record(1, 1.0), _record(3, 10.0)],
+        rows=[
+            _record(1, 1.0),
+            _record(2, 3.0),
+            _record(3, 5.0),
+            _record(4, 100.0),
+        ],
     )
 
     result = materialize_scaler_statistics(
         runtime,
-        ScalerTask.model_validate(
-            {
-                "output": "scaler.json",
-                "folds": [
-                    {"fit": ["train"], "apply": ["train"]},
-                    {"fit": ["validation"], "apply": ["validation"]},
-                ],
-            }
-        ),
+        ScalerTask(output="scaler.json"),
     )
 
     assert result is not None
     artifact = load_scaler_artifact(runtime.artifacts_root / result.relative_path)
-    assert isinstance(artifact, TemporalScalerArtifact)
-    assert artifact.version == 2
-    assert artifact.folds[0].scaler.statistics["x"].mean == 1.0
-    assert artifact.folds[1].scaler.statistics["x"].mean == 10.0
-    assert artifact.folds[0].scaler.observations == 1
+    assert isinstance(artifact, FoldedScalerArtifact)
+    assert artifact.version == 3
+    assert artifact.for_fold("fold_0").statistics["x"].mean == 1.0
+    assert artifact.for_fold("fold_0").observations == 1
+    assert artifact.for_fold("fold_1").statistics["x"].mean == 3.0
+    assert artifact.for_fold("fold_1").observations == 3
     assert result.meta == {
-        "mode": "temporal",
         "folds": 2,
-        "observations": 2,
+        "observations": 4,
     }
+
+
+def test_folded_scaler_assigns_records_by_floored_sample_time(tmp_path) -> None:
+    train_record = TemporalRecord(
+        time=datetime(2024, 1, 1, 13, tzinfo=timezone.utc),
+    )
+    train_record.value = 1.0
+    validation_record = TemporalRecord(
+        time=datetime(2024, 1, 2, 13, tzinfo=timezone.utc),
+    )
+    validation_record.value = 10.0
+    runtime = _runtime(
+        tmp_path,
+        _dataset(
+            cadence="1d",
+            sequence=SequenceConfig(size=2),
+            split=TimeSplitConfig(
+                intervals=[
+                    TimeInterval(
+                        id="train",
+                        until="2024-01-01T12:00:00Z",
+                    ),
+                    TimeInterval(id="validation"),
+                ],
+                folds=[
+                    DatasetFold(
+                        id="fold",
+                        train=["train"],
+                        validation=["validation"],
+                    )
+                ],
+            ),
+        ),
+        rows=[train_record, validation_record],
+    )
+
+    result = materialize_scaler_statistics(
+        runtime,
+        ScalerTask(output="scaler.json"),
+    )
+
+    assert result is not None
+    artifact = load_scaler_artifact(runtime.artifacts_root / result.relative_path)
+    assert isinstance(artifact, FoldedScalerArtifact)
+    scaler = artifact.for_fold("fold")
+    assert scaler.statistics["x"].mean == 1.0
+    assert scaler.observations == 1
 
 
 def test_scaler_opens_a_shared_stream_once_for_all_scaled_fields(tmp_path) -> None:
@@ -275,7 +322,7 @@ def test_scaler_opens_a_shared_stream_once_for_all_scaled_fields(tmp_path) -> No
 
     result = materialize_scaler_statistics(
         runtime,
-        ScalerTask(split_label="all", output="scaler.json"),
+        ScalerTask(output="scaler.json"),
     )
 
     assert result is not None
@@ -317,7 +364,7 @@ def test_grouped_scaler_preserves_global_scalar_statistics_across_sample_keys(
 
     result = materialize_scaler_statistics(
         runtime,
-        ScalerTask(split_label="all", output="scaler.json"),
+        ScalerTask(output="scaler.json"),
     )
 
     assert result is not None
@@ -341,8 +388,11 @@ def test_scaler_validates_excluded_split_records_before_filtering(tmp_path) -> N
             )
         ],
         split=TimeSplitConfig(
-            boundaries=["2024-01-02T00:00:00Z"],
-            labels=["train", "test"],
+            intervals=[
+                TimeInterval(id="train", until="2024-01-02T00:00:00Z"),
+                TimeInterval(id="test"),
+            ],
+            folds=[DatasetFold(id="fold", train=["train"], test=["test"])],
         ),
     )
     included = _record(1, 0.0, other=1.0)
@@ -355,7 +405,7 @@ def test_scaler_validates_excluded_split_records_before_filtering(tmp_path) -> N
     with pytest.raises(KeyError, match="Record field 'other'"):
         materialize_scaler_statistics(
             runtime,
-            ScalerTask(split_label="train", output="scaler.json"),
+            ScalerTask(output="scaler.json"),
         )
 
     assert source.opens == 1
@@ -370,56 +420,75 @@ def test_scaler_closes_shared_stream_after_invalid_value(tmp_path) -> None:
     with pytest.raises(TypeError, match="numeric or None"):
         materialize_scaler_statistics(
             runtime,
-            ScalerTask(split_label="all", output="scaler.json"),
+            ScalerTask(output="scaler.json"),
         )
 
     assert source.opens == 1
     assert source.closes == 1
 
 
-def test_materialize_temporal_scaler_requires_time_split(
+def test_folded_scaler_requires_training_statistics_for_all_output_vectors(
     tmp_path,
 ) -> None:
-    runtime = _runtime(
-        tmp_path,
-        _dataset(split=HashSplitConfig(ratios={"train": 1.0})),
-    )
-
-    with pytest.raises(RuntimeError, match="dataset split mode 'time'"):
-        materialize_scaler_statistics(
-            runtime,
-            ScalerTask.model_validate(
-                {
-                    "output": "scaler.json",
-                    "folds": [{"fit": ["train"], "apply": ["train"]}],
-                }
-            ),
-        )
-
-
-def test_materialize_temporal_scaler_requires_apply_fold_for_every_split(
-    tmp_path,
-) -> None:
+    train = _record(1, 1.0)
+    train.bucket = "A"
+    validation = _record(3, 3.0)
+    validation.bucket = "B"
     runtime = _runtime(
         tmp_path,
         _dataset(
             split=TimeSplitConfig(
-                boundaries=["2024-01-02T00:00:00Z"],
-                labels=["train", "validation"],
+                intervals=[
+                    TimeInterval(
+                        id="train",
+                        until="2024-01-02T00:00:00Z",
+                    ),
+                    TimeInterval(id="validation"),
+                ],
+                folds=[
+                    DatasetFold(
+                        id="fold",
+                        train=["train"],
+                        validation=["validation"],
+                    )
+                ],
             )
         ),
+        rows=[train, validation],
+    )
+    runtime.streams["stream"] = replace(
+        runtime.streams["stream"],
+        partition_by=("bucket",),
     )
 
     with pytest.raises(
         RuntimeError,
-        match="do not apply to split labels: validation",
+        match=r"no training observations.*x__@bucket:B",
     ):
         materialize_scaler_statistics(
             runtime,
-            ScalerTask.model_validate(
-                {
-                    "output": "scaler.json",
-                    "folds": [{"fit": ["train"], "apply": ["train"]}],
-                }
-            ),
+            ScalerTask(output="scaler.json"),
         )
+
+
+def test_materialize_folded_scaler_supports_hash_splits(tmp_path) -> None:
+    runtime = _runtime(
+        tmp_path,
+        _dataset(
+            split=HashSplitConfig(
+                ratios={"train": 1.0},
+                folds=[DatasetFold(id="fold", train=["train"])],
+            )
+        ),
+        rows=[_record(1, 2.0), _record(2, 4.0)],
+    )
+
+    result = materialize_scaler_statistics(
+        runtime,
+        ScalerTask(output="scaler.json"),
+    )
+
+    assert result is not None
+    artifact = load_scaler_artifact(runtime.artifacts_root / result.relative_path)
+    assert isinstance(artifact, FoldedScalerArtifact)
+    assert artifact.for_fold("fold").statistics["x"].mean == 3.0

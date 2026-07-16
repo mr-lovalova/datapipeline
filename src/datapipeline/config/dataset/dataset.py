@@ -11,7 +11,7 @@ from pydantic import (
 
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.config.dataset.postprocess import PostprocessConfig
-from datapipeline.config.dataset.split import SplitConfig
+from datapipeline.config.dataset.split import HashSplitConfig, SplitConfig
 from datapipeline.utils.time import CADENCE_PATTERN
 
 
@@ -56,4 +56,20 @@ class FeatureDatasetConfig(BaseModel):
                     "features and targets"
                 )
             seen.add(config.id)
+        return self
+
+    @model_validator(mode="after")
+    def validate_hash_split_sequences(self) -> Self:
+        if not isinstance(self.split, HashSplitConfig):
+            return self
+        sequenced = [
+            config.id
+            for config in (*self.features, *self.targets)
+            if config.sequence is not None
+        ]
+        if sequenced:
+            raise ValueError(
+                "hash splits cannot be used with sequenced features or targets: "
+                + ", ".join(sequenced)
+            )
         return self

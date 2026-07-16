@@ -109,7 +109,7 @@ def test_artifact_tasks_load_configs(tmp_path):
     config_dir = _operations_dir(project_yaml)
     (config_dir / "schema.yaml").write_text("output: schema.json\n", encoding="utf-8")
     (config_dir / "scaler.yaml").write_text(
-        "split_label: all\noutput: stats.pkl\n",
+        "output: stats.pkl\n",
         encoding="utf-8",
     )
 
@@ -125,7 +125,6 @@ def test_artifact_tasks_load_configs(tmp_path):
     schema = next(task for task in tasks if task.id == "schema")
     assert schema.output == "schema.json"
     scaler = next(task for task in tasks if task.id == "scaler")
-    assert scaler.split_label == "all"
     assert scaler.output == "stats.pkl"
 
 
@@ -257,64 +256,6 @@ def test_core_operation_rejects_entrypoint_override(tmp_path):
         _artifact_tasks(project_yaml)
 
 
-def test_scaler_task_loads_folds(tmp_path):
-    project_yaml = _write_project(tmp_path, operations_ref="operations")
-    config_dir = _operations_dir(project_yaml)
-    (config_dir / "scaler.yaml").write_text(
-        (
-            "output: build/scaler.json\n"
-            "folds:\n"
-            "  - fit: [train_0]\n"
-            "    apply: [train_0, val_0]\n"
-            "  - fit: [train_1]\n"
-            "    apply: [train_1, val_1]\n"
-        ),
-        encoding="utf-8",
-    )
-
-    tasks = _artifact_tasks(project_yaml)
-    scaler = next(task for task in tasks if task.id == "scaler")
-
-    assert scaler.folds is not None
-    assert scaler.folds[0].fit == ["train_0"]
-    assert scaler.folds[0].apply == ["train_0", "val_0"]
-
-
-def test_scaler_task_rejects_split_label_with_folds(tmp_path):
-    project_yaml = _write_project(tmp_path, operations_ref="operations")
-    config_dir = _operations_dir(project_yaml)
-    (config_dir / "scaler.yaml").write_text(
-        (
-            "split_label: train\n"
-            "folds:\n"
-            "  - fit: [train_0]\n"
-            "    apply: [train_0, val_0]\n"
-        ),
-        encoding="utf-8",
-    )
-
-    with pytest.raises(ValueError, match="split_label and folds"):
-        _artifact_tasks(project_yaml)
-
-
-def test_scaler_task_rejects_overlapping_fold_apply_labels(tmp_path):
-    project_yaml = _write_project(tmp_path, operations_ref="operations")
-    config_dir = _operations_dir(project_yaml)
-    (config_dir / "scaler.yaml").write_text(
-        (
-            "folds:\n"
-            "  - fit: [train_0]\n"
-            "    apply: [train_0, val_0]\n"
-            "  - fit: [train_1]\n"
-            "    apply: [val_0, val_1]\n"
-        ),
-        encoding="utf-8",
-    )
-
-    with pytest.raises(ValueError, match="applied by scaler folds"):
-        _artifact_tasks(project_yaml)
-
-
 def test_stats_task_loads_configs(tmp_path):
     project_yaml = _write_project(tmp_path, operations_ref="operations")
     config_dir = _operations_dir(project_yaml)
@@ -368,24 +309,24 @@ def test_serve_tasks_respect_name_and_enabled(tmp_path):
     assert [task.name for task in tasks if task.enabled] == ["train"]
 
 
-def test_serve_profiles_load_include_splits(tmp_path):
+def test_serve_profiles_load_include_outputs(tmp_path):
     project_yaml = _write_project(tmp_path, operations_ref="operations")
     config_dir = _profile_kind_dir(project_yaml)
     (config_dir / "serve.dataset.yaml").write_text(
-        "operation: dataset\ninclude_splits: [train, val]\n",
+        "operation: dataset\ninclude_outputs: [train, val]\n",
         encoding="utf-8",
     )
 
     tasks = _serve_profiles(project_yaml)
 
-    assert tasks[0].include_splits == ["train", "val"]
+    assert tasks[0].include_outputs == ["train", "val"]
 
 
-def test_serve_defaults_supply_include_splits_unless_profile_overrides(tmp_path):
+def test_serve_defaults_supply_include_outputs_unless_profile_overrides(tmp_path):
     project_yaml = _write_project(tmp_path, operations_ref="operations")
     profiles_dir = _profile_kind_dir(project_yaml)
     (profiles_dir / "serve.defaults.yaml").write_text(
-        "include_splits: [train, val]\n",
+        "include_outputs: [train, val]\n",
         encoding="utf-8",
     )
     (profiles_dir / "serve.all.yaml").write_text(
@@ -393,7 +334,7 @@ def test_serve_defaults_supply_include_splits_unless_profile_overrides(tmp_path)
         encoding="utf-8",
     )
     (profiles_dir / "serve.test.yaml").write_text(
-        "operation: dataset\ninclude_splits: [test]\n",
+        "operation: dataset\ninclude_outputs: [test]\n",
         encoding="utf-8",
     )
 
@@ -401,7 +342,7 @@ def test_serve_defaults_supply_include_splits_unless_profile_overrides(tmp_path)
     defaults = _serve_defaults(project_yaml)
     merged = [apply_profile_defaults(profile, defaults) for profile in profiles]
 
-    assert [profile.include_splits for profile in merged] == [
+    assert [profile.include_outputs for profile in merged] == [
         ["train", "val"],
         ["test"],
     ]

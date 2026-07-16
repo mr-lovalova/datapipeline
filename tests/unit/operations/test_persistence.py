@@ -20,8 +20,8 @@ from datapipeline.execution.observability import (
 from datapipeline.io.output import OutputTarget
 from datapipeline.operations.persistence import (
     ArtifactOutput,
+    RoutedRuntimeOutput,
     RuntimeOutput,
-    SplitRuntimeOutput,
     persist_artifact_output,
     persist_runtime_result,
 )
@@ -168,24 +168,27 @@ def test_failed_runtime_write_preserves_existing_file(tmp_path) -> None:
     assert destination.read_text(encoding="utf-8") == "previous\n"
 
 
-def test_split_runtime_output_rejects_colliding_destinations(tmp_path) -> None:
+def test_routed_runtime_output_rejects_colliding_destinations(tmp_path) -> None:
     targets = {
-        label: OutputTarget(
+        output_id: OutputTarget(
             transport="fs",
             format="jsonl",
             view="raw",
             encoding="utf-8",
             destination=tmp_path / filename,
         )
-        for label, filename in (("train", "SPLIT.jsonl"), ("test", "split.jsonl"))
+        for output_id, filename in (
+            ("train", "SPLIT.jsonl"),
+            ("test", "split.jsonl"),
+        )
     }
 
     with pytest.raises(ValueError, match="resolve to the same destination"):
         persist_runtime_result(
-            SplitRuntimeOutput(
+            RoutedRuntimeOutput(
                 rows=iter(()),
                 targets=targets,
-                label_for_row=lambda row: row["split"],
+                output_for_row=lambda row: row["output"],
             ),
             target=None,
             logger=logging.getLogger(__name__),
@@ -322,7 +325,7 @@ def test_failed_html_commit_preserves_existing_file(monkeypatch, tmp_path) -> No
     assert list(tmp_path.iterdir()) == [destination]
 
 
-def test_split_runtime_output_routes_rows_to_label_targets(
+def test_routed_runtime_output_routes_rows_to_output_targets(
     monkeypatch,
     tmp_path,
 ) -> None:
@@ -343,9 +346,10 @@ def test_split_runtime_output_routes_rows_to_label_targets(
         destination=val_path,
     )
     rows = [
-        {"split": "train", "value": 1},
-        {"split": "val", "value": 2},
-        {"split": "test", "value": 3},
+        {"output": "train", "value": 1},
+        {"output": "val", "value": 2},
+        {"output": "test", "value": 3},
+        {"output": None, "value": 4},
     ]
     results: list[tuple[str, Path]] = []
     monkeypatch.setattr(
@@ -355,10 +359,10 @@ def test_split_runtime_output_routes_rows_to_label_targets(
     )
 
     persist_runtime_result(
-        SplitRuntimeOutput(
+        RoutedRuntimeOutput(
             rows=iter(rows),
             targets={"train": train_target, "val": val_target},
-            label_for_row=lambda row: row["split"],
+            output_for_row=lambda row: row["output"],
         ),
         target=None,
         logger=logging.getLogger(__name__),
@@ -370,15 +374,15 @@ def test_split_runtime_output_routes_rows_to_label_targets(
     val_rows = [
         json.loads(line) for line in val_path.read_text(encoding="utf-8").splitlines()
     ]
-    assert train_rows == [{"split": "train", "value": 1}]
-    assert val_rows == [{"split": "val", "value": 2}]
+    assert train_rows == [{"output": "train", "value": 1}]
+    assert val_rows == [{"output": "val", "value": 2}]
     assert results == [
         ("train", train_path),
         ("val", val_path),
     ]
 
 
-def test_split_runtime_output_limit_applies_per_target(tmp_path) -> None:
+def test_routed_runtime_output_limit_applies_per_output(tmp_path) -> None:
     train_path = tmp_path / "train.jsonl"
     val_path = tmp_path / "val.jsonl"
     train_target = OutputTarget(
@@ -404,11 +408,11 @@ def test_split_runtime_output_limit_applies_per_target(tmp_path) -> None:
     ]
 
     persist_runtime_result(
-        SplitRuntimeOutput(
+        RoutedRuntimeOutput(
             rows=iter(rows),
             targets={"train": train_target, "val": val_target},
-            label_for_row=lambda row: row["split"],
-            limit_per_target=1,
+            output_for_row=lambda row: row["split"],
+            limit_per_output=1,
         ),
         target=None,
         logger=logging.getLogger(__name__),

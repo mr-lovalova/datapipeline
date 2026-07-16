@@ -8,7 +8,8 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from rich.console import Console
-from rich.progress import BarColumn, Progress
+from rich.progress import Progress
+from rich.table import Column
 
 import datapipeline.cli.visuals.rich.progress as rich_progress
 from datapipeline.cli.visuals.execution import (
@@ -24,7 +25,8 @@ from datapipeline.cli.visuals.execution_context import (
 )
 from datapipeline.cli.visuals.rich.progress import (
     _ExecutionProgress,
-    _LiveElapsedColumn,
+    _NodeBarColumn,
+    _ProgressLabelColumn,
     _RichExecutionRenderer,
     rich_visuals_supported,
     visual_execution,
@@ -155,26 +157,28 @@ def test_info_progress_shows_node_and_local_detail() -> None:
         )
     )
 
-    assert len(progress.tasks) == 1
-    task = progress.tasks[0]
-    assert task.description == "stream:adv.20"
-    assert task.fields["show_elapsed"] is True
-    assert task.total is None
-    assert task.completed == 20_000
-    assert task.fields["status"] == (
-        'stream:adv.20/open_source · 2/17 "2011.jsonl" · 20,000 records'
-    )
+    root, order_records, open_source = progress.tasks
+    assert root.description == "stream:adv.20"
+    assert root.fields["is_pipeline"] is True
+    assert root.total is None
+    assert root.completed == 0
+    assert root.fields["status"] == ""
+    assert root.visible is True
+    assert order_records.visible is False
+    assert open_source.visible is True
+    assert open_source.completed == 20_000
+    assert open_source.fields["status"] == ('2/17 "2011.jsonl" · 20,000 records')
 
     with patch.object(progress, "refresh", wraps=progress.refresh) as refresh:
         _finish_node(renderer, 1, "open_source")
     refresh.assert_called_once_with()
 
-    task = progress.tasks[0]
-    assert task.description == "stream:adv.20"
-    assert task.total is None
-    assert task.fields["status"] == (
-        "stream:adv.20/order_records · reading · 100 records"
-    )
+    root, order_records = progress.tasks
+    assert root.description == "stream:adv.20"
+    assert root.total is None
+    assert root.fields["status"] == ""
+    assert order_records.visible is True
+    assert order_records.fields["status"] == "reading · 100 records"
 
 
 def test_info_progress_selects_meaningful_event_owner() -> None:
@@ -193,20 +197,16 @@ def test_info_progress_selects_meaningful_event_owner() -> None:
             ),
         )
     )
-    task = progress.tasks[0]
-    assert task.description == "stream:adv.20"
-    assert task.fields["status"] == (
-        'stream:adv.20/open_source · 2/17 "2011.jsonl" · 20,000 items'
-    )
+    root, order_records, map_records, open_source = progress.tasks
+    assert root.fields["status"] == ""
+    assert open_source.visible is True
+    assert open_source.fields["status"] == '2/17 "2011.jsonl" · 20,000 items'
 
     renderer.handle(
         _node_progress(1, "map_records", ProgressSnapshot(completed=20_000))
     )
-    task = progress.tasks[0]
-    assert task.description == "stream:adv.20"
-    assert task.fields["status"] == (
-        'stream:adv.20/open_source · 2/17 "2011.jsonl" · 20,000 items'
-    )
+    assert open_source.visible is True
+    assert map_records.visible is False
 
     renderer.handle(
         _node_progress(
@@ -215,13 +215,11 @@ def test_info_progress_selects_meaningful_event_owner() -> None:
             ProgressSnapshot(completed=25, total=100, phase="merging"),
         )
     )
-    task = progress.tasks[0]
-    assert task.description == "stream:adv.20"
-    assert task.completed == 25
-    assert task.total == 100
-    assert task.fields["status"] == (
-        "stream:adv.20/order_records · merging · 25/100 items"
-    )
+    assert open_source.visible is False
+    assert order_records.visible is True
+    assert order_records.completed == 25
+    assert order_records.total == 100
+    assert order_records.fields["status"] == "merging · 25/100 items"
 
     renderer.handle(
         _node_progress(
@@ -232,12 +230,12 @@ def test_info_progress_selects_meaningful_event_owner() -> None:
         )
     )
 
-    task = progress.tasks[0]
-    assert task.description == "stream:adv.20"
-    assert task.fields["status"] == "stream:adv.20/map_records · 20,000 items"
+    assert order_records.visible is False
+    assert map_records.visible is True
+    assert map_records.fields["status"] == "20,000 items"
 
 
-def test_info_pipeline_elapsed_continues_after_completed_local_phase() -> None:
+def test_info_elapsed_continues_after_completed_local_phase() -> None:
     now = 0.0
     console, _ = _console()
     progress = Progress(
@@ -257,11 +255,19 @@ def test_info_pipeline_elapsed_continues_after_completed_local_phase() -> None:
             ProgressSnapshot(completed=100, total=100, phase="merging"),
         )
     )
-    task = progress.tasks[0]
-    elapsed = _LiveElapsedColumn().render(task)
-    assert elapsed.plain == "PIPELINE 0:00:10"
-    assert str(elapsed.style) == "dim"
-    assert task.description == "stream:adv.20"
+    root, order_records = progress.tasks
+    label = _ProgressLabelColumn(Column()).render(root)
+    assert label.plain == "[stream:adv.20] 0:00:10"
+    assert label.spans[0].style == "dim"
+    assert _ProgressLabelColumn(Column()).render(order_records).plain == (
+        "[stream:adv.20/order_records] 0:00:10"
+    )
+    assert _NodeBarColumn(Column()).render(root).plain == ""
+    assert root.description == "stream:adv.20"
+    assert root.total is None
+    assert root.completed == 0
+    assert order_records.total == 100
+    assert order_records.completed == 100
 
     now = 20.0
     renderer.handle(
@@ -272,9 +278,17 @@ def test_info_pipeline_elapsed_continues_after_completed_local_phase() -> None:
         )
     )
 
-    task = progress.tasks[0]
-    assert _LiveElapsedColumn().render(task).plain == "PIPELINE 0:00:20"
-    assert task.description == "stream:adv.20"
+    root, order_records = progress.tasks
+    assert _ProgressLabelColumn(Column()).render(root).plain == (
+        "[stream:adv.20] 0:00:20"
+    )
+    assert _ProgressLabelColumn(Column()).render(order_records).plain == (
+        "[stream:adv.20/order_records] 0:00:20"
+    )
+    assert root.description == "stream:adv.20"
+    assert root.total is None
+    assert root.completed == 0
+    assert order_records.completed == 20
 
 
 def test_debug_progress_shows_root_and_active_nodes() -> None:
@@ -301,7 +315,7 @@ def test_debug_progress_shows_root_and_active_nodes() -> None:
     assert [
         (
             task.description,
-            task.fields["show_elapsed"],
+            task.fields["is_pipeline"],
             task.fields["status"],
         )
         for task in tasks
@@ -312,12 +326,13 @@ def test_debug_progress_shows_root_and_active_nodes() -> None:
         ("stream:adv.20/decode_records", False, "0 out"),
     ]
     root_task, _, source_task, _ = tasks
-    elapsed = _LiveElapsedColumn()
-    assert elapsed.render(root_task).plain == "PIPELINE 0:00:00"
-    assert elapsed.render(source_task).plain == ""
+    label = _ProgressLabelColumn(Column())
+    bar_column = _NodeBarColumn(Column())
+    assert label.render(root_task).plain == "[stream:adv.20] 0:00:00"
+    assert bar_column.render(root_task).plain == ""
     assert source_task.completed == 25
     assert source_task.total == 100
-    bar = BarColumn().render(source_task)
+    bar = bar_column.render(source_task)
     assert bar.completed == 25
     assert bar.total == 100
 
@@ -754,6 +769,7 @@ def test_visual_execution_uses_minimal_progress_styles(monkeypatch) -> None:
         pass
 
     label, bar = columns[:2]
-    assert label.style == "none"
-    assert bar.complete_style == "cyan"
-    assert bar.finished_style == "cyan"
+    assert isinstance(label, _ProgressLabelColumn)
+    assert isinstance(bar, _NodeBarColumn)
+    assert bar._bar.complete_style == "cyan"
+    assert bar._bar.finished_style == "cyan"

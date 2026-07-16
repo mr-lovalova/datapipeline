@@ -6,7 +6,9 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 
 from datapipeline.artifacts.planning import build_artifact_graph
+from datapipeline.artifacts.specs import dataset_requires_scaler
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
+from datapipeline.config.dataset.split import SplitConfig
 from datapipeline.config.sources import CoreIoLoaderConfig, FsSourceArgs, SourceConfig
 from datapipeline.config.streams import SourceStreamConfig, StreamsConfig
 from datapipeline.config.tasks import (
@@ -21,7 +23,7 @@ from datapipeline.config.tasks import (
 from datapipeline.services.definitions import ArtifactHashes, ProjectManifest
 
 # Increment when Jerry's core artifact semantics change without a config change.
-ARTIFACT_CACHE_VERSION = 2
+ARTIFACT_CACHE_VERSION = 3
 
 
 def _normalized_label(path: Path, base_dir: Path) -> str:
@@ -162,13 +164,7 @@ def _artifact_inputs(
             {
                 "dataset": {
                     "sample": dataset.sample.model_dump(mode="json"),
-                    "split": (
-                        None
-                        if dataset.split is None
-                        else dataset.split.model_dump(
-                            mode="json", exclude={"output_labels"}
-                        )
-                    ),
+                    "split": _scaler_split_inputs(dataset.split),
                     "scaled_vectors": [
                         config.model_dump(mode="json", exclude={"sequence"})
                         for config in scaled
@@ -190,10 +186,12 @@ def _artifact_inputs(
                 "dataset": {
                     "sample": dataset.sample.model_dump(mode="json"),
                     "features": [
-                        config.model_dump(mode="json") for config in dataset.features
+                        config.model_dump(mode="json", exclude={"scale"})
+                        for config in dataset.features
                     ],
                     "targets": [
-                        config.model_dump(mode="json") for config in dataset.targets
+                        config.model_dump(mode="json", exclude={"scale"})
+                        for config in dataset.targets
                     ],
                 },
                 "streams": stream_config,
@@ -216,6 +214,20 @@ def _artifact_inputs(
         },
         set(streams.sources),
     )
+
+
+def _scaler_split_inputs(split: SplitConfig | None) -> dict[str, object] | None:
+    if split is None:
+        return None
+    config = split.model_dump(mode="json", exclude={"folds"})
+    config["folds"] = [
+        {
+            "id": fold.id,
+            "train": list(fold.train),
+        }
+        for fold in split.folds
+    ]
+    return config
 
 
 def _artifact_digest(
@@ -246,6 +258,11 @@ def calculate_artifact_hashes(
     streams: StreamsConfig,
     artifact_operations: tuple[ArtifactTask, ...],
 ) -> ArtifactHashes:
+    if dataset_requires_scaler(dataset) and not any(
+        isinstance(task, ScalerTask) for task in artifact_operations
+    ):
+        raise ValueError("Required artifact operation 'scaler' is not declared.")
+
     base_dir = project.path.parent
     graph = build_artifact_graph(artifact_operations, dataset, streams)
     active_keys = graph.active_dependency_closure(

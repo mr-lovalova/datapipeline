@@ -1,17 +1,16 @@
 import logging
 import sys
 from contextlib import contextmanager
-from dataclasses import dataclass
 from datetime import timedelta
 
-from rich.console import Console
+from rich.console import Console, RenderableType
 from rich.progress import (
     BarColumn,
     Progress,
+    ProgressColumn,
     Task,
     TaskID,
     TextColumn,
-    TimeElapsedColumn,
 )
 from rich.rule import Rule
 from rich.table import Column, Table
@@ -44,21 +43,27 @@ from datapipeline.execution.observability import (
 )
 
 
-@dataclass
-class _NodeState:
-    label: str
-    task_id: TaskID | None = None
-    progress: ProgressSnapshot | None = None
+class _ProgressLabelColumn(ProgressColumn):
+    def render(self, task: Task) -> RenderableType:
+        label = Text(f"[{task.description}]")
+        elapsed = timedelta(seconds=int(task.elapsed or 0))
+        label.append(f" {elapsed}", style="dim")
+        return label
 
 
-class _LiveElapsedColumn(TimeElapsedColumn):
-    """Show root pipeline time across completed local progress phases."""
+class _NodeBarColumn(ProgressColumn):
+    def __init__(self, table_column: Column) -> None:
+        super().__init__(table_column)
+        self._bar = BarColumn(
+            bar_width=20,
+            style="grey30",
+            complete_style="cyan",
+            finished_style="cyan",
+            pulse_style="cyan",
+        )
 
-    def render(self, task: Task) -> Text:
-        if not task.fields["show_elapsed"]:
-            return Text()
-        elapsed = timedelta(seconds=max(0, int(task.elapsed or 0)))
-        return Text(f"PIPELINE {elapsed}", style="dim")
+    def render(self, task: Task) -> RenderableType:
+        return Text() if task.fields["is_pipeline"] else self._bar.render(task)
 
 
 class _ExecutionProgress:
@@ -66,9 +71,9 @@ class _ExecutionProgress:
         self._progress = progress
         self._debug = debug
         self._root_pipeline: str | None = None
-        self._root_task: TaskID | None = None
-        self._nodes: dict[int, _NodeState] = {}
-        self._active_nodes: list[int] = []
+        self._node_tasks: dict[int, TaskID] = {}
+        self._open_nodes: list[int] = []
+        self._visible_node: int | None = None
 
     def handle(self, event: ExecutionLogEvent) -> None:
         if isinstance(event, PipelineStarted):
@@ -88,20 +93,20 @@ class _ExecutionProgress:
         for task in self._progress.tasks:
             self._progress.remove_task(task.id)
         self._root_pipeline = None
-        self._root_task = None
-        self._nodes.clear()
-        self._active_nodes.clear()
+        self._node_tasks.clear()
+        self._open_nodes.clear()
+        self._visible_node = None
         self._progress.refresh()
 
     def _start_pipeline(self, event: PipelineStarted) -> None:
         if self._root_pipeline is not None:
             raise RuntimeError("Cannot start overlapping pipeline progress")
         self._root_pipeline = event.pipeline_name
-        self._root_task = self._progress.add_task(
+        self._progress.add_task(
             event.pipeline_name,
             total=None,
             status="",
-            show_elapsed=True,
+            is_pipeline=True,
         )
 
     def _finish_pipeline(self, event: PipelineFinished) -> None:
@@ -115,81 +120,56 @@ class _ExecutionProgress:
         if self._root_pipeline is None:
             raise RuntimeError("Cannot start node progress before its root pipeline")
         label = f"{event.pipeline_name}/{event.node_name}"
-        state = _NodeState(label=label)
-        if self._debug:
-            state.task_id = self._progress.add_task(
-                label,
-                total=None,
-                status="0 out",
-                show_elapsed=False,
-            )
-        self._nodes[event.node_index] = state
-        self._active_nodes.append(event.node_index)
+        self._node_tasks[event.node_index] = self._progress.add_task(
+            label,
+            total=None,
+            status="0 out",
+            is_pipeline=False,
+            visible=self._debug,
+        )
+        self._open_nodes.append(event.node_index)
         if not self._debug:
-            self._render_active_node()
+            self._show_node(event.node_index)
 
     def _update_node(self, event: NodeProgress) -> None:
-        state = self._nodes[event.node_index]
-        state.progress = event.progress
-        if self._debug:
-            if state.task_id is not None:
-                self._update_task(
-                    state.task_id,
-                    completed=event.progress.completed,
-                    total=event.progress.total,
-                    status=_progress_status(event.progress),
-                )
-        elif (
+        self._update_task(
+            self._node_tasks[event.node_index],
+            completed=event.progress.completed,
+            total=event.progress.total,
+            status=_progress_status(event.progress),
+        )
+        if not self._debug and (
             event.heartbeat
             or event.progress.total is not None
             or event.progress.phase is not None
             or event.progress.detail is not None
             or event.progress.resource is not None
             or event.progress.unit not in ("items", "out")
-            or self._active_nodes[-1] == event.node_index
+            or self._open_nodes[-1] == event.node_index
         ):
-            self._render_info_node(event.node_index)
+            self._show_node(event.node_index)
 
     def _finish_node(self, event: NodeFinished) -> None:
-        state = self._nodes.pop(event.node_index)
-        self._active_nodes.remove(event.node_index)
-        if state.task_id is not None:
-            self._progress.remove_task(state.task_id)
-        if not self._debug:
-            self._render_active_node()
+        task_id = self._node_tasks.pop(event.node_index)
+        self._open_nodes.remove(event.node_index)
+        was_visible = self._visible_node == event.node_index
+        if was_visible:
+            self._visible_node = None
+        self._progress.remove_task(task_id)
+        if not self._debug and was_visible and self._open_nodes:
+            self._show_node(self._open_nodes[-1])
         self._progress.refresh()
 
-    def _render_active_node(self) -> None:
-        if self._root_task is None:
-            raise RuntimeError("Cannot render node progress before its root pipeline")
-        if not self._active_nodes:
-            self._update_task(
-                self._root_task,
-                total=None,
-                completed=0,
-                status="finishing",
-            )
+    def _show_node(self, node_index: int) -> None:
+        if self._visible_node == node_index:
             return
-        self._render_info_node(self._active_nodes[-1])
-
-    def _render_info_node(self, node_index: int) -> None:
-        if self._root_task is None:
-            raise RuntimeError("Cannot render node progress before its root pipeline")
-        state = self._nodes[node_index]
-        if state.progress is None:
-            self._update_task(
-                self._root_task,
-                total=None,
-                completed=0,
-                status=f"{state.label} · 0 out",
+        if self._visible_node is not None:
+            self._progress.update(
+                self._node_tasks[self._visible_node],
+                visible=False,
             )
-            return
-        self._update_task(
-            self._root_task,
-            completed=state.progress.completed,
-            total=state.progress.total,
-            status=f"{state.label} · {_progress_status(state.progress)}",
-        )
+        self._progress.update(self._node_tasks[node_index], visible=True)
+        self._visible_node = node_index
 
     def _update_task(
         self,
@@ -299,20 +279,8 @@ def visual_execution(log_level: int):
     console = Console(file=sys.stderr, markup=False, highlight=False)
     debug = log_level <= logging.DEBUG
     progress = Progress(
-        TextColumn(
-            "[{task.description}]",
-            markup=False,
-            table_column=Column(no_wrap=True, overflow="ellipsis"),
-        ),
-        BarColumn(
-            bar_width=20,
-            style="grey30",
-            complete_style="cyan",
-            finished_style="cyan",
-            pulse_style="cyan",
-            table_column=Column(no_wrap=True),
-        ),
-        _LiveElapsedColumn(table_column=Column(no_wrap=True)),
+        _ProgressLabelColumn(Column(no_wrap=True, overflow="ellipsis")),
+        _NodeBarColumn(Column(no_wrap=True)),
         TextColumn(
             "{task.fields[status]}",
             markup=False,

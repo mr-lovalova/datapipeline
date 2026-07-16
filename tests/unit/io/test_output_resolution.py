@@ -106,7 +106,7 @@ def test_resolve_output_target_sanitizes_derived_filename_stem(tmp_path):
     assert target.destination == (base_dir / "train_val" / "train_val.jsonl").resolve()
 
 
-def test_split_targets_keep_profile_names_in_shared_run(tmp_path):
+def test_routed_targets_keep_profile_names_in_shared_run(tmp_path):
     config = ServeOutputConfig(
         transport="fs",
         format="jsonl",
@@ -133,8 +133,8 @@ def test_split_targets_keep_profile_names_in_shared_run(tmp_path):
     )
 
     destinations = {
-        first.for_split("train").destination,
-        second.for_split("train").destination,
+        first.for_output("train").destination,
+        second.for_output("train").destination,
         normal.destination,
     }
 

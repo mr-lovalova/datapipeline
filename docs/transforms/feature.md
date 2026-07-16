@@ -1,14 +1,14 @@
-# Feature Transforms
+# Feature Shaping
 
-Feature processing runs after records are wrapped as feature records and before
-vector assembly. `dataset.yaml` exposes two explicit stages: `scale` and
-`sequence`. Scaling always runs before sequence construction.
+`dataset.yaml` exposes two distinct policies. `sequence` shapes feature records
+before vector assembly. `scale` marks assembled vector values for output
+scaling with the selected dataset fold.
 
-## Built-In Transforms
+## Built-In Policies
 
-- `scale`: standardize scalar feature values using the managed
-  `build/scaler.json` artifact.
 - `sequence`: emit sliding windows as `FeatureSequence` payloads.
+- `scale`: standardize a feature with the scaler fitted from the selected
+  dataset fold's training labels.
 
 ```yaml
 features:
@@ -25,10 +25,12 @@ features:
       stride: 1
 ```
 
-`scale` is a boolean. `with_mean`, `with_std`, and `epsilon` are configured once
-on the scaler build operation and recorded in the managed artifact; individual
-features cannot override them. A `None` value remains `None`. Other nonnumeric
-or non-finite values are rejected.
+`scale` is a boolean. It does not alter canonical vector-input artifacts or
+preview output. During a full dataset serve, every scalar or sequence value in
+one fold output is scaled with that fold's scaler. `with_mean`, `with_std`, and
+`epsilon` are configured once on the scaler build operation and recorded in the
+managed artifact; individual features cannot override them. A `None` value
+remains `None`. Other nonnumeric or non-finite values are rejected.
 
 `sequence` accepts strictly positive integer `size` and optional `stride`
 (default `1`). It creates independent windows per feature ID and entity from

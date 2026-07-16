@@ -102,9 +102,11 @@ is built. Pipeline construction uses explicit type dispatch to create the transf
 There is no generic transform engine, signature inspection, arbitrary keyword
 injection, transform plugin lookup, or debug transform registry.
 
-Feature scaling and sequence construction remain feature-pipeline stages rather
-than preprocess or ordered transforms. This keeps stream normalization separate from
-dataset shaping.
+Sequence construction remains a feature-pipeline stage rather than preprocess
+or an ordered stream transform. Scaling is applied later, after a dataset fold
+is selected, so every train, validation, and test output uses its fold's fitted
+scaler. This keeps stream normalization separate from dataset shaping and split
+policy.
 
 ## Vector postprocess
 

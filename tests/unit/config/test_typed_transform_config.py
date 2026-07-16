@@ -3,7 +3,6 @@ from pydantic import ValidationError
 
 from datapipeline.config.dataset.feature import FeatureRecordConfig, SequenceConfig
 from datapipeline.config.streams import DerivedStreamConfig, SourceStreamConfig
-from datapipeline.config.tasks import ScalerTask
 from datapipeline.config.transforms import (
     CollapseConfig,
     DedupeConfig,
@@ -173,36 +172,3 @@ def test_feature_config_uses_explicit_scale_and_sequence_models() -> None:
 
     assert config.scale is True
     assert config.sequence == SequenceConfig(size=20, stride=5)
-
-
-@pytest.mark.parametrize(
-    ("field", "value"),
-    [
-        ("with_mean", "true"),
-        ("with_std", 1),
-        ("epsilon", 0),
-        ("epsilon", float("inf")),
-    ],
-)
-def test_scaler_build_options_are_strict(field: str, value: object) -> None:
-    with pytest.raises(ValidationError):
-        ScalerTask.model_validate({"id": "scaler", field: value})
-
-
-@pytest.mark.parametrize(
-    "folds",
-    [
-        [{"fit": "train", "apply": ["test"]}],
-        [{"fit": [1], "apply": ["test"]}],
-        [{"fit": [""], "apply": ["test"]}],
-        [{"fit": [" train"], "apply": ["test"]}],
-    ],
-)
-def test_scaler_fold_labels_are_strict(folds: object) -> None:
-    with pytest.raises(ValidationError):
-        ScalerTask.model_validate({"id": "scaler", "folds": folds})
-
-
-def test_scaler_split_label_must_not_be_blank() -> None:
-    with pytest.raises(ValidationError):
-        ScalerTask.model_validate({"id": "scaler", "split_label": "  "})

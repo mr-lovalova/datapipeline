@@ -55,7 +55,7 @@ class Runtime:
     dataset: FeatureDatasetConfig
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
     streams: dict[str, RuntimeStream] = field(default_factory=dict)
-    output_splits: tuple[str, ...] = ()
+    output_ids: tuple[str, ...] = ()
     window_bounds: tuple[datetime | None, datetime | None] | None = None
     heartbeat_interval_seconds: float | None = None
     pipeline_observer: PipelineObserver | None = None

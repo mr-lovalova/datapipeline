@@ -37,7 +37,7 @@ class RuntimeJob:
     limit: int | None
     throttle_ms: float | None
     preview: PreviewStage | None
-    output_splits: tuple[str, ...]
+    output_ids: tuple[str, ...]
 
 
 @dataclass(frozen=True)

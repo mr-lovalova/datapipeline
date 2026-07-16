@@ -4,12 +4,10 @@ from datetime import datetime
 from typing import Any
 
 from datapipeline.config.dataset.split import (
-    HASH_SPLIT_FEATURE_PREFIX,
     HashSplitConfig,
     SplitConfig,
     TimeSplitConfig,
 )
-from datapipeline.domain.vector import Vector
 from datapipeline.utils.time import parse_datetime
 
 
@@ -24,7 +22,6 @@ class HashLabeler:
             thresholds.append((total, label))
         self._thresholds = thresholds
         self._seed = config.seed
-        self._key = config.key
 
     @staticmethod
     def _hash_token(token: str, seed: int) -> float:
@@ -33,14 +30,8 @@ class HashLabeler:
         num = int.from_bytes(digest[:8], "big")
         return (num % (1 << 53)) / float(1 << 53)
 
-    def label(self, group_key: Any, vector: Vector) -> str:
+    def label(self, group_key: Any) -> str:
         token = repr(group_key)
-        if self._key.startswith(HASH_SPLIT_FEATURE_PREFIX):
-            fid = self._key.removeprefix(HASH_SPLIT_FEATURE_PREFIX)
-            if fid not in vector.values:
-                raise KeyError(f"hash split feature key {fid!r} not found")
-            token = repr(vector.values[fid])
-
         r = self._hash_token(token, self._seed)
         for thresh, label in self._thresholds:
             if r < thresh:
@@ -49,15 +40,17 @@ class HashLabeler:
 
 
 class TimeLabeler:
-    """Time-based label selection using ascending boundaries and labels."""
+    """Assign the interval containing a timestamp."""
 
     def __init__(self, config: TimeSplitConfig) -> None:
         self._boundaries = tuple(
-            parse_datetime(boundary) for boundary in config.boundaries
+            parse_datetime(interval.until)
+            for interval in config.intervals
+            if interval.until is not None
         )
-        self._labels = tuple(config.labels)
+        self._labels = tuple(interval.id for interval in config.intervals)
 
-    def label(self, group_key: Any, vector: Vector) -> str:  # noqa: ARG002 - vector not used
+    def label(self, group_key: Any) -> str:
         key = group_key[0] if isinstance(group_key, (list, tuple)) else group_key
         if isinstance(key, datetime):
             timestamp = (

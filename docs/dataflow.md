@@ -11,10 +11,10 @@ jerry.yaml: default_dataset
     -> project.yaml: paths.sources / paths.streams / paths.dataset
       -> sources/*.yaml: id
         -> streams/*.yaml: from.source|from.stream|from.align, id
-        -> dataset.yaml: stream: <streams.id>, field: <record_field>
-          -> jerry serve
-            -> runs/<run_id>/dataset/<profile>.jsonl|csv|...
-            -> runs/<run_id>/dataset/<profile>.<split>.jsonl|csv|... when dataset.split is configured
+          -> dataset.yaml: stream: <streams.id>, field: <record_field>
+            -> jerry serve
+              -> runs/<run_id>/dataset/<profile>.jsonl|csv|...
+              -> runs/<run_id>/dataset/<profile>.<fold>.<role>.jsonl|csv|... when dataset.split is configured
 ```
 
 ## 1) Workspace selects dataset project

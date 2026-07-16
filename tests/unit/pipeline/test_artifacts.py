@@ -112,7 +112,6 @@ def test_assembled_stats_build_selects_metadata_dependency_chain():
         VECTOR_STATS,
         VECTOR_METADATA,
         VECTOR_INPUTS,
-        SCALER_STATISTICS,
     }
 
 
@@ -134,7 +133,6 @@ def test_postprocessed_stats_build_also_selects_schema():
         VECTOR_METADATA,
         VECTOR_SCHEMA,
         VECTOR_INPUTS,
-        SCALER_STATISTICS,
     }
 
 
@@ -195,10 +193,7 @@ def test_tick_artifacts_feed_scaler_and_vector_inputs() -> None:
     )
 
     assert graph.definition(SCALER_STATISTICS).dependencies == ("dataset_ticks",)
-    assert graph.definition(VECTOR_INPUTS).dependencies == (
-        SCALER_STATISTICS,
-        "dataset_ticks",
-    )
+    assert graph.definition(VECTOR_INPUTS).dependencies == ("dataset_ticks",)
     assert graph.dependents_of({"dataset_ticks"}) == {
         SCALER_STATISTICS,
         VECTOR_INPUTS,
@@ -627,7 +622,7 @@ def test_same_size_artifact_replacement_with_preserved_mtime_is_stale(tmp_path):
         ("input", set()),
         ("canonical", set()),
         ("records", set()),
-        ("features", {SCALER_STATISTICS}),
+        ("features", set()),
         ("samples", {VECTOR_METADATA}),
         ("postprocess", {VECTOR_METADATA, VECTOR_SCHEMA}),
     ],
@@ -786,6 +781,39 @@ def test_dataset_scaler_requirement_matches_feature_config(scale, expected):
     )
 
     assert dataset_requires_scaler(dataset) is expected
+
+
+def test_scaled_dataset_runtime_requires_scaler_beside_vector_artifacts() -> None:
+    graph = build_artifact_graph(
+        [
+            ScalerTask(),
+            VectorInputsTask(),
+            MetadataTask(),
+            SchemaTask(),
+        ]
+    )
+    dataset = FeatureDatasetConfig(
+        sample=SampleConfig(cadence="1h"),
+        features=[
+            FeatureRecordConfig(
+                id="price",
+                stream="prices",
+                field="close",
+                scale=True,
+            )
+        ],
+    )
+
+    assert graph.runtime_dependency_closure(
+        PipelineTask(id="dataset"),
+        preview=None,
+        dataset=dataset,
+    ) == (
+        SCALER_STATISTICS,
+        VECTOR_INPUTS,
+        VECTOR_METADATA,
+        VECTOR_SCHEMA,
+    )
 
 
 def test_empty_pipeline_dataset_has_no_runtime_artifact_requirements():

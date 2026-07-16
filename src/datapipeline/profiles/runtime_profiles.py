@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
-from datapipeline.config.dataset.split import split_output_labels
+from datapipeline.config.dataset.split import split_output_ids
 from datapipeline.config.preview import PreviewStage
 from datapipeline.config.profiles import (
     InspectProfile,
@@ -34,43 +34,45 @@ class ResolvedRuntimeProfile:
     throttle_ms: float | None
     observability: ObservabilitySettings
     output: OutputTarget
-    output_splits: tuple[str, ...]
+    output_ids: tuple[str, ...]
 
 
-def _resolve_serve_output_splits(
+def _resolve_serve_output_ids(
     definition: PipelineDefinition,
     profile: ServeProfile,
     preview: PreviewStage | None,
     operation: OperationTask | None,
 ) -> tuple[str, ...]:
-    include_splits = tuple(profile.include_splits or ())
-    if include_splits and preview is not None:
+    include_outputs = tuple(profile.include_outputs or ())
+    if include_outputs and preview is not None:
         raise ValueError(
             f"Serve profile '{profile.name}' cannot combine preview with "
-            "include_splits."
+            "include_outputs."
         )
 
     split = definition.dataset.split
-    dataset_output_splits = split_output_labels(split) if split is not None else ()
-    if include_splits:
+    dataset_output_ids = split_output_ids(split) if split is not None else ()
+    if include_outputs:
         if split is None:
             raise ValueError(
-                f"Serve profile '{profile.name}' defines include_splits but "
+                f"Serve profile '{profile.name}' defines include_outputs but "
                 "dataset split is not configured."
             )
-        unknown_labels = [
-            label for label in include_splits if label not in dataset_output_splits
+        unknown_ids = [
+            output_id
+            for output_id in include_outputs
+            if output_id not in dataset_output_ids
         ]
-        if unknown_labels:
-            unknown = ", ".join(repr(label) for label in unknown_labels)
+        if unknown_ids:
+            unknown = ", ".join(repr(output_id) for output_id in unknown_ids)
             raise ValueError(
-                f"Serve profile '{profile.name}' includes splits not published "
+                f"Serve profile '{profile.name}' includes outputs not published "
                 f"by the dataset: {unknown}"
             )
 
-    if isinstance(operation, PipelineTask) and preview is None and not include_splits:
-        return dataset_output_splits
-    return include_splits
+    if isinstance(operation, PipelineTask) and preview is None and not include_outputs:
+        return dataset_output_ids
+    return include_outputs
 
 
 def _validate_output_collisions(profiles: Sequence[ResolvedRuntimeProfile]) -> None:
@@ -80,17 +82,17 @@ def _validate_output_collisions(profiles: Sequence[ResolvedRuntimeProfile]) -> N
             continue
         destinations = (
             [
-                (label, profile.output.for_split(label).destination)
-                for label in profile.output_splits
+                (output_id, profile.output.for_output(output_id).destination)
+                for output_id in profile.output_ids
             ]
-            if profile.output_splits
+            if profile.output_ids
             else [(None, profile.output.destination)]
         )
-        for split_label, destination in destinations:
+        for output_id, destination in destinations:
             assert destination is not None
             owner = f"profile '{profile.name}'"
-            if split_label is not None:
-                owner = f"{owner} split {split_label!r}"
+            if output_id is not None:
+                owner = f"{owner} output {output_id!r}"
             destination_key = output_destination_key(destination)
             previous = output_owners.get(destination_key)
             if previous is not None:
@@ -124,7 +126,7 @@ def resolve_serve_profiles(
     for profile in profiles:
         resolved_preview = preview if preview is not None else profile.preview
         resolved_limit = limit if limit is not None else profile.limit
-        output_splits = _resolve_serve_output_splits(
+        output_ids = _resolve_serve_output_ids(
             definition,
             profile,
             resolved_preview,
@@ -158,10 +160,10 @@ def resolve_serve_profiles(
             profile_name=profile.name,
             run_paths=run_paths,
         )
-        if output_splits and target.transport != "fs":
+        if output_ids and target.transport != "fs":
             raise ValueError(
-                f"Serve profile '{profile.name}' requires fs output for split "
-                "dataset output."
+                f"Serve profile '{profile.name}' requires fs output for routed "
+                "dataset outputs."
             )
 
         observability = resolve_observability_settings(
@@ -182,7 +184,7 @@ def resolve_serve_profiles(
                 throttle_ms=profile.throttle_ms,
                 observability=observability,
                 output=target,
-                output_splits=output_splits,
+                output_ids=output_ids,
             )
         )
 
@@ -229,7 +231,7 @@ def resolve_inspect_profiles(
                 throttle_ms=None,
                 observability=observability,
                 output=target,
-                output_splits=(),
+                output_ids=(),
             )
         )
 

@@ -73,8 +73,9 @@ manually changing entry points.
 
 `jerry serve --preview <stage>` stops at one stable boundary: `input`,
 `canonical`, `records`, `features`, `samples`, or `postprocess`. Preview bypasses
-split output so the selected stage can be inspected directly. Feature
-engineering still runs before dataset splitting and should remain causal.
+split output so the selected stage can be inspected directly. Sequence
+construction runs before dataset routing and should remain causal; scaling is
+applied only when a full serve selects a fold output.
 
 See the [CLI reference](docs/cli.md#preview-stages) for the exact value emitted
 at each boundary and [Artifacts](docs/artifacts.md#splitting--serving) for split
@@ -104,7 +105,8 @@ Use `jerry <command> --help` for current flags and the
   when nothing changed unless you pass `--force`.
 - Filesystem serve output is run-scoped under
   `<output-directory>/runs/<run_id>/dataset/`. Normal profiles write
-  `<profile>.<ext>`; split profiles write `<profile>.<label>.<ext>`.
+  `<profile>.<ext>`; split profiles write
+  `<profile>.<fold-id>.<role>.<ext>`.
 - Versioning: tag the project config + plugin code in Git and pair with a data
   versioning tool like DVC for raw sources. With those inputs pinned, interim
   datasets and artifacts can be regenerated instead of stored.
@@ -144,7 +146,9 @@ These live under `lib/<plugin>/src/<package>/`:
 
 - **Preprocess transforms** run on mapped domain records before ordering. Each transform operates on one record at a time. Configure source-backed streams under `preprocess:`.
 - **Ordered transforms** run after ordering (dedupe, cadence enforcement, lag/lead, rolling, derive, fills). These operate across a sequence of records for a partition because they depend on sorted partition/time order and cadence. Configure streams under `transforms:`.
-- **Feature transforms** run after stream regularization and shape the per-feature payload for vectorization. The explicit `scale` and `sequence` fields in `dataset.yaml` configure this stage; it is not an arbitrary transform list.
+- **Feature shaping** runs after stream regularization. `sequence` shapes the
+  per-feature payload for vectorization; `scale` marks feature or target
+  vectors that receive the selected dataset fold's scaler during full serving.
 - **Postprocess policies** select assembled vector columns and filter samples by coverage. Configure them under `postprocess:` in `dataset.yaml`.
 - Transform lists contain flat, validated built-in operations. Each item has an
   `operation` discriminator and that operation's fields. See the

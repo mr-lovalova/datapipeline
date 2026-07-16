@@ -10,6 +10,7 @@ def main() -> None:
     project = Path(__file__).resolve().parents[1] / "project.yaml"
     ds = torch_dataset(
         project,
+        output_id="holdout.train",
         limit=256,
         dtype=torch.float32,
         flatten_sequences=True,

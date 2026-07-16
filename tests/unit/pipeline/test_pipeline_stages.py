@@ -8,13 +8,7 @@ import pytest
 
 import datapipeline.operations.artifacts.vector_inputs as vector_inputs_operation
 from datapipeline.artifacts.models import SampleDomainEntry
-from datapipeline.artifacts.scaler import (
-    ScalerStatistics,
-    StandardScalerArtifact,
-    save_scaler_artifact,
-)
 from datapipeline.artifacts.specs import (
-    SCALER_STATISTICS,
     VECTOR_INPUTS,
     VECTOR_SCHEMA,
 )
@@ -662,6 +656,35 @@ def test_feature_pipeline_builds_sequences(tmp_path: Path) -> None:
     assert sequences[1].values == [3.0, 4.0]
 
 
+def test_feature_pipeline_keeps_scaled_sequence_inputs_raw(
+    tmp_path: Path,
+) -> None:
+    runtime = _runtime_with_rows(
+        tmp_path,
+        [
+            {"time": _ts(0), "value": 1.0},
+            {"time": _ts(1), "value": 11.0},
+        ],
+    )
+    config = FeatureRecordConfig(
+        stream="stream",
+        id="price",
+        field="value",
+        scale=True,
+        sequence=SequenceConfig(size=2),
+    )
+
+    [sequence] = run_feature_pipeline(
+        PipelineContext(runtime),
+        config,
+        group_by_cadence="1h",
+    )
+
+    assert isinstance(sequence, FeatureSequence)
+    assert sequence.time == _ts(1)
+    assert sequence.values == [1.0, 11.0]
+
+
 def test_postprocess_rejects_targets_absent_from_schema(tmp_path: Path) -> None:
     runtime = _runtime_with_rows(tmp_path, [])
     _register_price_schema(runtime)
@@ -846,29 +869,6 @@ def test_vector_inputs_shared_stream_matches_independent_feature_pipelines(
         features=[price],
         targets=[volume],
     )
-    scaler_path = runtime.artifacts_root / "scaler.json"
-    save_scaler_artifact(
-        scaler_path,
-        StandardScalerArtifact(
-            with_mean=True,
-            with_std=True,
-            epsilon=1e-12,
-            observations=4,
-            statistics={
-                "price__@symbol:A": ScalerStatistics(
-                    mean=2.0,
-                    std=1.0,
-                    count=2,
-                ),
-                "price__@symbol:B": ScalerStatistics(
-                    mean=12.0,
-                    std=2.0,
-                    count=2,
-                ),
-            },
-        ),
-    )
-    runtime.artifacts.register(SCALER_STATISTICS, scaler_path.name)
     context = PipelineContext(runtime)
     expected_price = list(
         run_feature_pipeline(
@@ -928,6 +928,39 @@ def test_vector_inputs_shared_stream_matches_independent_feature_pipelines(
     ]
     assert source.opens == 1
     assert source.closes == 1
+
+
+def test_vector_inputs_store_scaled_sequences_raw(
+    tmp_path: Path,
+) -> None:
+    runtime = _runtime_with_rows(
+        tmp_path,
+        [
+            {"time": _ts(0), "value": 1.0},
+            {"time": _ts(1), "value": 11.0},
+        ],
+    )
+    config = FeatureRecordConfig(
+        stream="stream",
+        id="price",
+        field="value",
+        scale=True,
+        sequence=SequenceConfig(size=2),
+    )
+    runtime.dataset = FeatureDatasetConfig(
+        sample=SampleConfig(cadence="1h"),
+        features=[config],
+    )
+    result = materialize_vector_inputs(runtime, VectorInputsTask())
+    manifest_path = runtime.artifacts_root / result.relative_path
+    manifest = load_vector_inputs_manifest(manifest_path)
+    [sequence] = open_vector_input_records(
+        manifest_path.parent / manifest.features[0].path
+    )
+
+    assert isinstance(sequence, FeatureSequence)
+    assert sequence.time == _ts(1)
+    assert sequence.values == [1.0, 11.0]
 
 
 def test_vector_inputs_writes_empty_shards_from_a_shared_stream(

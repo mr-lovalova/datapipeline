@@ -36,6 +36,7 @@ def _schema_columns(adapter: VectorAdapter) -> tuple[list[str], list[str]]:
 def torch_dataset(
     project_yaml: str | Path,
     *,
+    output_id: str | None = None,
     limit: int | None = None,
     feature_columns: Sequence[str] | None = None,
     target_columns: Sequence[str] | None = None,
@@ -53,7 +54,7 @@ def torch_dataset(
             "torch is required for torch_dataset(); install torch in your project.",
         ) from exc
 
-    adapter = VectorAdapter.from_project(project_yaml)
+    adapter = VectorAdapter.from_project(project_yaml, output_id=output_id)
     rows = list(
         adapter.iter_rows(
             limit=limit,
