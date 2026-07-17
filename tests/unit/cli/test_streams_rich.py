@@ -390,18 +390,16 @@ def test_operation_progress_stays_live_across_sequential_pipelines() -> None:
     )
 
     operation = progress.tasks[0]
-    assert operation.description == "Operation serve:dataset"
+    assert operation.description == "Elapsed"
     assert operation.fields["status"] == "write_output · 2,592,885 rows"
-    assert _ProgressLabelColumn(Column()).render(operation).plain == (
-        "Operation serve:dataset 0:00:10"
-    )
+    assert _ProgressLabelColumn(Column()).render(operation).plain == ("Elapsed 0:00:10")
     assert _ProgressActivityColumn(Column()).render(operation).plain == (
         "write_output · 2,592,885 rows"
     )
 
     renderer.handle(PipelineStarted(pipeline_name="dataset:fold_0", node_count=5))
     assert [task.description for task in progress.tasks] == [
-        "Operation serve:dataset",
+        "Elapsed",
         "[dataset:fold_0]",
     ]
     renderer.handle(
@@ -413,11 +411,11 @@ def test_operation_progress_stays_live_across_sequential_pipelines() -> None:
             elapsed_seconds=1,
         )
     )
-    assert [task.description for task in progress.tasks] == ["Operation serve:dataset"]
+    assert [task.description for task in progress.tasks] == ["Elapsed"]
 
     renderer.handle(PipelineStarted(pipeline_name="dataset:fold_1", node_count=5))
     assert [task.description for task in progress.tasks] == [
-        "Operation serve:dataset",
+        "Elapsed",
         "[dataset:fold_1]",
     ]
     renderer.handle(OperationFinished("serve:dataset", "success", 20))
@@ -590,6 +588,7 @@ def test_rich_renderer_renders_operation_sequence_once_and_in_order() -> None:
 
     rendered = output.getvalue()
     markers = [
+        "Operation materialize:adv.20",
         "Config:",
         "[stream:adv.20] started",
         "[stream:adv.20] finished",
@@ -598,6 +597,7 @@ def test_rich_renderer_renders_operation_sequence_once_and_in_order() -> None:
     ]
     positions = [rendered.index(marker) for marker in markers]
     assert positions == sorted(positions)
+    assert rendered.count("Operation materialize:adv.20") == 2
     assert rendered.count("Config:") == 1
     assert "Operation materialize:adv.20 started" not in rendered
     assert progress_renderer.events == [
@@ -608,7 +608,7 @@ def test_rich_renderer_renders_operation_sequence_once_and_in_order() -> None:
     ]
 
 
-def test_rich_renderer_updates_operation_progress_without_printing() -> None:
+def test_rich_renderer_renders_operation_header_and_keeps_progress_live() -> None:
     console, output = _console()
     progress_renderer = _CaptureRenderer()
     renderer = _RichExecutionRenderer(logging.INFO, console, progress_renderer)
@@ -625,7 +625,8 @@ def test_rich_renderer_updates_operation_progress_without_printing() -> None:
     renderer.render(progress)
 
     assert progress_renderer.events == [started, progress]
-    assert output.getvalue() == ""
+    assert "Operation materialize:adv.20" in output.getvalue()
+    assert "Operation materialize:adv.20 started" not in output.getvalue()
 
 
 def test_rich_renderer_hides_plain_operation_start_at_warning() -> None:
@@ -637,7 +638,7 @@ def test_rich_renderer_hides_plain_operation_start_at_warning() -> None:
     assert output.getvalue() == ""
 
 
-def test_rich_renderer_keeps_live_operation_at_warning() -> None:
+def test_rich_renderer_keeps_live_operation_header_at_warning() -> None:
     console, output = _console()
     progress_renderer = _CaptureRenderer()
     renderer = _RichExecutionRenderer(logging.WARNING, console, progress_renderer)
@@ -646,7 +647,7 @@ def test_rich_renderer_keeps_live_operation_at_warning() -> None:
     renderer.render(event)
 
     assert progress_renderer.events == [event]
-    assert output.getvalue() == ""
+    assert "Operation materialize:adv.20" in output.getvalue()
 
 
 def test_rich_renderer_styles_only_final_status() -> None:

@@ -11,6 +11,7 @@ from rich.progress import (
     Task,
     TaskID,
 )
+from rich.rule import Rule
 from rich.table import Column, Table
 from rich.text import Text
 
@@ -114,7 +115,7 @@ class _ExecutionProgress:
             raise RuntimeError("Cannot start overlapping operation progress")
         self._operation_name = event.name
         self._operation_task = self._progress.add_task(
-            f"Operation {event.name}",
+            "Elapsed",
             total=None,
             status="",
         )
@@ -272,9 +273,12 @@ class _RichExecutionRenderer:
             | PipelineFinished,
         ):
             self._progress.handle(event)
+            if isinstance(event, OperationStarted):
+                self._console.print(Rule(Text(f"Operation {event.name}"), style="dim"))
+                return
             if isinstance(
                 event,
-                OperationStarted | OperationProgress | NodeStarted | NodeProgress,
+                OperationProgress | NodeStarted | NodeProgress,
             ):
                 return
         if isinstance(event, NodeProgress):
