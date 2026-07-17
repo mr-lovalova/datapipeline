@@ -49,6 +49,18 @@ def floor_time_to_cadence(ts: datetime, cadence: timedelta) -> datetime:
     return floored.astimezone(ts.tzinfo)
 
 
+def count_cadence_buckets(
+    start: datetime,
+    end: datetime,
+    cadence: timedelta,
+) -> int:
+    anchored_start = floor_time_to_cadence(start, cadence)
+    anchored_end = floor_time_to_cadence(end, cadence)
+    if anchored_end < anchored_start:
+        return 0
+    return ((anchored_end - anchored_start) // cadence) + 1
+
+
 def parse_datetime(value: str) -> datetime:
     """Parse an ISO-8601 datetime.
 

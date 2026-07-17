@@ -16,13 +16,16 @@ from datapipeline.domain.feature import FeatureRecord, FeatureSequence
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.sample_key import SampleKeyContract
 from datapipeline.execution.context import PipelineContext
-from datapipeline.pipelines.vector.keygen import group_key_for
+from datapipeline.pipelines.vector.keygen import (
+    RectangularKeyPlan,
+    group_key_for,
+    sample_domain_key_plan,
+    window_key_plan,
+)
 from datapipeline.pipelines.vector.nodes import (
     align_stream,
     sample_assemble_stage,
-    sample_domain_window_keys,
     vector_assemble_stage,
-    window_keys,
 )
 from datapipeline.utils.time import parse_cadence
 from datapipeline.vector_inputs.store import (
@@ -69,22 +72,15 @@ def build_vector_pipeline(
     )
 
     cadence = parse_cadence(group_by_cadence)
-    keys_feature = None
-    keys_target = None
-    if rectangular:
-        start, end = context.window_bounds(rectangular_required=True)
-        keys = _rectangular_keys(
-            context,
-            start,
-            end,
-            group_by_cadence,
-            sample_keys,
-        )
-        if keys is not None:
-            if target_cfgs:
-                keys_feature, keys_target = tee(keys, 2)
-            else:
-                keys_feature = keys
+    key_plan = (
+        rectangular_key_plan(context, group_by_cadence, sample_keys)
+        if rectangular
+        else None
+    )
+    feature_keys = None if key_plan is None else key_plan.keys()
+    target_keys = None
+    if feature_keys is not None and target_cfgs:
+        feature_keys, target_keys = tee(feature_keys)
 
     keyed_feature_records = _merged_keyed_records(
         manifest_path=manifest_path,
@@ -98,7 +94,7 @@ def build_vector_pipeline(
         sample_key_contract=sample_key_contract,
     )
     feature_vectors = vector_assemble_stage(keyed_feature_records)
-    aligned_feature_vectors = align_stream(feature_vectors, keys_feature)
+    aligned_feature_vectors = align_stream(feature_vectors, feature_keys)
 
     target_vectors = None
     if target_cfgs:
@@ -111,7 +107,7 @@ def build_vector_pipeline(
         )
         target_vectors = align_stream(
             vector_assemble_stage(keyed_target_records),
-            keys_target,
+            target_keys,
         )
     return sample_assemble_stage(aligned_feature_vectors, target_vectors)
 
@@ -175,17 +171,16 @@ def _merged_keyed_records(
         yield from merged_stream
 
 
-def _rectangular_keys(
+def rectangular_key_plan(
     context: PipelineContext,
-    start,
-    end,
     cadence: str,
     sample_keys: Sequence[str],
-) -> Iterator[tuple] | None:
+) -> RectangularKeyPlan | None:
+    start, end = context.window_bounds(rectangular_required=True)
     if not sample_keys:
-        return window_keys(start, end, cadence)
+        return window_key_plan(start, end, cadence)
     domain = _sample_domain(context, cadence, sample_keys)
-    return sample_domain_window_keys(start, end, cadence, sample_keys, domain)
+    return sample_domain_key_plan(start, end, cadence, sample_keys, domain)
 
 
 def _sample_domain(

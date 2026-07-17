@@ -3,6 +3,7 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -29,14 +30,22 @@ from datapipeline.domain.sample import Sample
 from datapipeline.domain.sample_key import SampleKeyContract
 from datapipeline.domain.vector import Vector
 from datapipeline.execution.context import PipelineContext
-from datapipeline.execution.events import NodeStarted, PipelineEvent, PipelineStarted
+from datapipeline.execution.events import (
+    NodeStarted,
+    PipelineEvent,
+    PipelineStarted,
+    ProgressSnapshot,
+)
 from datapipeline.execution.node import SourceNode
 from datapipeline.execution.runner import run_pipeline
 from datapipeline.operations.artifacts.vector_inputs import materialize_vector_inputs
 from datapipeline.operations.runtime.pipeline import _record_preview_stream
 from datapipeline.parsers.identity import IdentityParser
 from datapipeline.pipelines.dataset.nodes import apply_postprocess
-from datapipeline.pipelines.dataset.pipeline import run_dataset_pipeline
+from datapipeline.pipelines.dataset.pipeline import (
+    build_dataset_pipeline,
+    run_dataset_pipeline,
+)
 from datapipeline.pipelines.feature.pipeline import (
     build_feature_pipeline,
     run_feature_pipeline,
@@ -46,7 +55,10 @@ from datapipeline.pipelines.stream.pipeline import (
     run_stream_pipeline,
 )
 from datapipeline.pipelines.vector import pipeline as vector_pipeline
-from datapipeline.pipelines.vector.nodes import sample_domain_window_keys, window_keys
+from datapipeline.pipelines.vector.keygen import (
+    sample_domain_key_plan,
+    window_key_plan,
+)
 from datapipeline.pipelines.vector.pipeline import build_vector_pipeline
 from datapipeline.runtime import (
     AlignedRuntimeStream,
@@ -73,37 +85,121 @@ def _ts(hour: int, minute: int = 0) -> datetime:
     return datetime(2024, 1, 1, hour=hour, minute=minute, tzinfo=timezone.utc)
 
 
-def test_sample_domain_window_keys_emit_sorted_composite_keys() -> None:
+def test_window_key_plan_counts_inclusive_cadence_buckets() -> None:
+    plan = window_key_plan(_ts(0, 10), _ts(2, 50), "1h")
+
+    assert plan is not None
+    keys = tuple(plan.keys())
+    assert keys == ((_ts(0),), (_ts(1),), (_ts(2),))
+    assert plan.total == len(keys) == 3
+
+
+def test_sample_domain_key_plan_counts_clipped_composite_keys() -> None:
     domain = [
-        SampleDomainEntry(key=["MSFT"], start=_ts(0), end=_ts(1)),
-        SampleDomainEntry(key=["AAPL"], start=_ts(1), end=_ts(1)),
+        SampleDomainEntry(key=["MSFT"], start=_ts(0, 30), end=_ts(2, 59)),
+        SampleDomainEntry(key=["AAPL"], start=_ts(2, 15), end=_ts(4, 30)),
+        SampleDomainEntry(key=["GOOG"], start=_ts(4), end=_ts(4, 30)),
     ]
 
-    keys = list(
-        sample_domain_window_keys(
-            _ts(0),
-            _ts(2),
-            "1h",
-            ["security_id"],
-            domain,
-        )
+    plan = sample_domain_key_plan(
+        _ts(1, 15),
+        _ts(3, 45),
+        "1h",
+        ["security_id"],
+        domain,
     )
 
-    assert keys == [
-        (_ts(0), "MSFT"),
-        (_ts(1), "AAPL"),
+    assert plan is not None
+    keys = tuple(plan.keys())
+    assert keys == (
         (_ts(1), "MSFT"),
+        (_ts(2), "AAPL"),
+        (_ts(2), "MSFT"),
+        (_ts(3), "AAPL"),
+    )
+    assert plan.total == len(keys) == 4
+
+
+def test_sample_domain_key_plan_counts_fall_back_lattice_keys() -> None:
+    timezone_ny = ZoneInfo("America/New_York")
+    plan = sample_domain_key_plan(
+        datetime(2024, 11, 3, 0, 7, tzinfo=timezone_ny),
+        datetime(2024, 11, 3, 6, 48, tzinfo=timezone_ny),
+        "2h",
+        ["security_id"],
+        [
+            SampleDomainEntry(
+                key=["AAPL"],
+                start=datetime(2024, 11, 3, 3, 8, tzinfo=timezone_ny),
+                end=datetime(2024, 11, 3, 6, 48, tzinfo=timezone_ny),
+            )
+        ],
+    )
+
+    assert plan is not None
+    keys = tuple(plan.keys())
+    assert [(key[0].isoformat(), key[1]) for key in keys] == [
+        ("2024-11-03T04:00:00-05:00", "AAPL")
     ]
+    assert plan.total == len(keys) == 1
+
+
+def test_sample_domain_key_plan_counts_spring_forward_lattice_keys() -> None:
+    timezone_ny = ZoneInfo("America/New_York")
+    plan = sample_domain_key_plan(
+        datetime(2024, 3, 10, 0, 7, tzinfo=timezone_ny),
+        datetime(2024, 3, 10, 4, 48, tzinfo=timezone_ny),
+        "2h",
+        ["security_id"],
+        [
+            SampleDomainEntry(
+                key=["AAPL"],
+                start=datetime(2024, 3, 10, 4, 8, tzinfo=timezone_ny),
+                end=datetime(2024, 3, 10, 4, 57, tzinfo=timezone_ny),
+            )
+        ],
+    )
+
+    assert plan is not None
+    keys = tuple(plan.keys())
+    assert keys == ()
+    assert plan.total == len(keys) == 0
+
+
+def test_sample_domain_key_plan_omits_total_for_mixed_time_lattices() -> None:
+    timezone_ny = ZoneInfo("America/New_York")
+    fixed_offset_end = datetime.fromisoformat("2024-11-03T04:00:00-05:00")
+    plan = sample_domain_key_plan(
+        datetime(2024, 11, 3, 0, tzinfo=timezone_ny),
+        fixed_offset_end,
+        "2h",
+        ["security_id"],
+        [
+            SampleDomainEntry(
+                key=["AAPL"],
+                start=datetime(2024, 11, 3, 0, tzinfo=timezone_ny),
+                end=fixed_offset_end,
+            )
+        ],
+    )
+
+    assert plan is not None
+    keys = tuple(plan.keys())
+    assert [(key[0].isoformat(), key[1]) for key in keys] == [
+        ("2024-11-03T00:00:00-04:00", "AAPL"),
+        ("2024-11-03T02:00:00-05:00", "AAPL"),
+    ]
+    assert plan.total is None
 
 
 def test_window_keys_rejects_invalid_cadence() -> None:
     with pytest.raises(ValueError, match="Unsupported cadence"):
-        window_keys(_ts(0), _ts(1), "0m")
+        window_key_plan(_ts(0), _ts(1), "0m")
 
 
 def test_sample_domain_window_keys_rejects_invalid_cadence() -> None:
     with pytest.raises(ValueError, match="Unsupported cadence"):
-        sample_domain_window_keys(
+        sample_domain_key_plan(
             _ts(0),
             _ts(1),
             "0m",
@@ -114,7 +210,7 @@ def test_sample_domain_window_keys_rejects_invalid_cadence() -> None:
 
 def test_sample_domain_window_keys_rejects_mismatched_key_width() -> None:
     with pytest.raises(ValueError, match="key length"):
-        sample_domain_window_keys(
+        sample_domain_key_plan(
             _ts(0),
             _ts(1),
             "1h",
@@ -712,12 +808,75 @@ def test_dataset_pipeline_matches_vector_and_postprocess_chain(tmp_path: Path) -
     cfg = FeatureRecordConfig(stream="stream", id="price", field="value")
     register_vector_inputs(runtime, [cfg], "1h")
 
+    pipeline = build_dataset_pipeline(
+        ctx,
+        [cfg],
+        "1h",
+        rectangular=False,
+    )
+    source = pipeline.nodes[0]
+    assert isinstance(source, SourceNode)
+    assert source.progress is None
+
     dataset_out = list(run_dataset_pipeline(ctx, [cfg], "1h", rectangular=False))
 
     manual = build_vector_pipeline(ctx, [cfg], "1h", rectangular=False)
     manual_out = list(apply_postprocess(ctx, manual))
 
     assert dataset_out == manual_out
+
+
+def test_rectangular_dataset_source_reports_exact_sample_total(tmp_path: Path) -> None:
+    runtime = _runtime_with_rows(tmp_path, [])
+    runtime.window_bounds = (_ts(0, 10), _ts(2, 50))
+    _register_price_schema(runtime)
+    context = PipelineContext(runtime)
+    cfg = FeatureRecordConfig(stream="stream", id="price", field="value")
+
+    pipeline = build_dataset_pipeline(context, [cfg], "1h")
+
+    source = pipeline.nodes[0]
+    assert isinstance(source, SourceNode)
+    assert source.progress is not None
+    assert source.progress(1) == ProgressSnapshot(
+        completed=1,
+        total=3,
+        unit="samples",
+    )
+
+
+def test_rectangular_features_and_targets_share_every_planned_key(
+    tmp_path: Path,
+) -> None:
+    runtime = _runtime_with_rows(
+        tmp_path,
+        [
+            {"time": _ts(0), "value": 1.0, "target": 10.0},
+            {"time": _ts(2), "value": 3.0, "target": 30.0},
+        ],
+    )
+    runtime.window_bounds = (_ts(0), _ts(2))
+    feature = FeatureRecordConfig(stream="stream", id="price", field="value")
+    target = FeatureRecordConfig(stream="stream", id="return", field="target")
+    register_vector_inputs(runtime, [feature], "1h", targets=[target])
+
+    samples = list(
+        build_vector_pipeline(
+            PipelineContext(runtime),
+            [feature],
+            "1h",
+            target_configs=[target],
+        )
+    )
+
+    assert [sample.key for sample in samples] == [
+        (_ts(0),),
+        (_ts(1),),
+        (_ts(2),),
+    ]
+    assert samples[1].features.values == {}
+    assert samples[1].targets is not None
+    assert samples[1].targets.values == {}
 
 
 def test_vector_inputs_artifact_feeds_serve_pipeline(tmp_path: Path) -> None:

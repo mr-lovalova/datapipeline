@@ -65,6 +65,7 @@ def test_dataset_pipeline_assembles_before_postprocess(tmp_path) -> None:
         "normalize_features",
         "reject_undeclared_targets",
     ]
+    assert pipeline.nodes[0].progress is None
 
 
 def test_postprocess_has_one_explicit_execution_order(tmp_path) -> None:

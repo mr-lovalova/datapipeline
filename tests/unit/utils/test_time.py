@@ -1,8 +1,12 @@
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from datapipeline.utils.time import parse_cadence, parse_timecode
+from datapipeline.utils.time import (
+    count_cadence_buckets,
+    parse_cadence,
+    parse_timecode,
+)
 
 
 @pytest.mark.parametrize(
@@ -33,3 +37,17 @@ def test_parse_cadence_accepts_positive_dataset_units() -> None:
 def test_parse_cadence_rejects_values_outside_dataset_contract(value: str) -> None:
     with pytest.raises(ValueError, match="Unsupported cadence"):
         parse_cadence(value)
+
+
+@pytest.mark.parametrize(
+    ("cadence", "expected"),
+    [("1h", 7), ("2h", 4), ("15m", 25)],
+)
+def test_count_cadence_buckets_uses_inclusive_floored_bounds(
+    cadence: str,
+    expected: int,
+) -> None:
+    start = datetime(2024, 1, 1, 4, 5, tzinfo=timezone.utc)
+    end = datetime(2024, 1, 1, 10, 10, tzinfo=timezone.utc)
+
+    assert count_cadence_buckets(start, end, parse_cadence(cadence)) == expected

@@ -12,12 +12,11 @@ from datapipeline.artifacts.models import (
     Window,
     WindowMode,
 )
-from datapipeline.utils.time import floor_time_to_cadence
 from datapipeline.config.tasks import MetadataTask
 from datapipeline.operations.persistence import ArtifactOutput
 from datapipeline.runtime import Runtime
 from datapipeline.utils.json_artifact import write_json_artifact
-from datapipeline.utils.time import parse_cadence
+from datapipeline.utils.time import count_cadence_buckets, parse_cadence
 
 from .utils import (
     collect_vector_metadata,
@@ -107,17 +106,6 @@ def _window_bounds_from_stats(
     if mode == "relaxed":
         return _range_union(partition_ranges)
     raise ValueError(f"Unsupported metadata window mode {mode!r}.")
-
-
-def _window_size(
-    start: datetime,
-    end: datetime,
-    cadence: str,
-) -> int:
-    step = parse_cadence(cadence)
-    anchored_start = floor_time_to_cadence(start, step)
-    anchored_end = floor_time_to_cadence(end, step)
-    return int(((anchored_end - anchored_start) / step)) + 1
 
 
 def _merge_sample_domains(
@@ -227,7 +215,7 @@ def materialize_metadata(
     start = computed_start
     end = computed_end
     if start is not None and end is not None:
-        size = _window_size(start, end, dataset.sample.cadence)
+        size = count_cadence_buckets(start, end, parse_cadence(dataset.sample.cadence))
         window_obj = Window(start=start, end=end, mode=task_cfg.window_mode, size=size)
     sample_domain = _merge_sample_domains(
         feature_domain,
