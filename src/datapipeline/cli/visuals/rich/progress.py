@@ -35,6 +35,7 @@ from datapipeline.execution.events import (
     ProgressSnapshot,
 )
 from datapipeline.execution.observability import (
+    CommandFinished,
     FileResult,
     OperationFinished,
     OperationProgress,
@@ -305,7 +306,10 @@ class _RichExecutionRenderer:
     def _render_event(self, event: ExecutionLogEvent) -> Text:
         level = ExecutionEventFormatter.level(event)
         text = Text(ExecutionEventFormatter.message(event))
-        if isinstance(event, PipelineFinished | NodeFinished | OperationFinished):
+        if isinstance(
+            event,
+            CommandFinished | PipelineFinished | NodeFinished | OperationFinished,
+        ):
             status_style = "green" if event.status == "success" else "red"
             text.highlight_words([f"status={event.status}"], style=status_style)
         elif level >= logging.ERROR:

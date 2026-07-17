@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Protocol
 
+from datapipeline.execution.events import RunStatus
+
 
 OperationStatus = Literal["success", "error"]
 
@@ -30,6 +32,13 @@ class OperationFinished:
     elapsed_seconds: float
     error_type: str | None = None
     error_message: str | None = None
+
+
+@dataclass(frozen=True)
+class CommandFinished:
+    command: str
+    status: RunStatus
+    elapsed_seconds: float
 
 
 @dataclass(frozen=True)

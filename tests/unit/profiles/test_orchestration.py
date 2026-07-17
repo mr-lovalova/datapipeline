@@ -40,6 +40,7 @@ from datapipeline.execution.settings import (
     LogOutputSettings,
     ObservabilitySettings,
 )
+from datapipeline.execution.observability import CommandFinished
 from datapipeline.io.output import OutputTarget
 from datapipeline.io.runs import RunPaths
 from datapipeline.profiles.execution import (
@@ -246,6 +247,108 @@ def _assert_preflight_rejected(request: BuildRunRequest | RuntimeRunRequest) -> 
     with pytest.raises(SystemExit) as exc:
         run_profiles(request)
     assert exc.value.code == 2
+
+
+def test_run_profiles_emits_one_command_summary(monkeypatch, tmp_path: Path) -> None:
+    requests = (
+        _build_request(tmp_path, [], []),
+        _runtime_request(
+            tmp_path,
+            command="serve",
+            artifact_tasks=[],
+            jobs=[],
+        ),
+        _runtime_request(
+            tmp_path,
+            command="inspect",
+            artifact_tasks=[],
+            jobs=[],
+        ),
+        _materialize_request(tmp_path, [], [], _runtime(tmp_path)),
+    )
+    times = iter((0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0))
+    events: list[CommandFinished] = []
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.time.perf_counter",
+        lambda: next(times),
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.route_execution_event",
+        lambda event, _logger: events.append(event),
+    )
+
+    for request in requests:
+        run_profiles(request)
+
+    assert events == [
+        CommandFinished("build", "success", 1.0),
+        CommandFinished("serve", "success", 1.0),
+        CommandFinished("inspect", "success", 1.0),
+        CommandFinished("materialize", "success", 1.0),
+    ]
+
+
+def test_run_profiles_reports_failure_after_cleanup_error(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    request = _build_request(tmp_path, [], [])
+    times = iter((10.0, 11.0))
+    events: list[CommandFinished] = []
+
+    def fail_prune(_request) -> None:
+        raise RuntimeError("prune failed")
+
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.time.perf_counter",
+        lambda: next(times),
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration._prune_vector_input_caches",
+        fail_prune,
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.route_execution_event",
+        lambda event, _logger: events.append(event),
+    )
+
+    with pytest.raises(RuntimeError, match="prune failed"):
+        run_profiles(request)
+
+    assert events == [CommandFinished("build", "error", 1.0)]
+
+
+@pytest.mark.parametrize("error", [SystemExit(2), KeyboardInterrupt()])
+def test_run_profiles_preserves_process_control_exceptions(
+    monkeypatch,
+    tmp_path: Path,
+    error: BaseException,
+) -> None:
+    request = _build_request(tmp_path, [], [])
+    times = iter((10.0, 11.0))
+    events: list[CommandFinished] = []
+
+    def fail(_request) -> None:
+        raise error
+
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.time.perf_counter",
+        lambda: next(times),
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration._run_build_profiles",
+        fail,
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.route_execution_event",
+        lambda event, _logger: events.append(event),
+    )
+
+    with pytest.raises(type(error)) as raised:
+        run_profiles(request)
+
+    assert raised.value is error
+    assert events == [CommandFinished("build", "error", 1.0)]
 
 
 def test_build_order_accepts_configured_dependency_order() -> None:

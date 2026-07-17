@@ -9,10 +9,12 @@ import datapipeline.execution.observability as observability
 from datapipeline.cli.logging_setup import (
     configure_root_logging,
     parse_log_output_specs,
+    root_logging_scope,
 )
 from datapipeline.cli.visuals.execution import (
     ExecutionMessage,
     make_operation_observer,
+    route_execution_event,
 )
 from datapipeline.cli.visuals.execution_context import (
     reset_current_execution_event_handler,
@@ -21,6 +23,7 @@ from datapipeline.cli.visuals.execution_context import (
     set_current_terminal_log_handler,
 )
 from datapipeline.execution.observability import (
+    CommandFinished,
     emit_file_result,
     emit_operation_progress,
     operation_observer,
@@ -184,6 +187,76 @@ def test_configure_root_logging_creates_file_on_first_record(tmp_path) -> None:
     _flush_root_handlers()
 
     assert log_path.read_text(encoding="utf-8") == "first record\n"
+
+
+def test_root_logging_scope_restores_command_outputs(tmp_path) -> None:
+    command_log = tmp_path / "command.log"
+    execution_log = tmp_path / "execution.log"
+    configure_root_logging(
+        level=logging.INFO,
+        output=LogOutputSettings(
+            outputs=(LogOutputTarget(transport="fs", destination=command_log),)
+        ),
+    )
+    logger = logging.getLogger("datapipeline.tests.logging_setup.scope")
+    root = logging.getLogger()
+    command_handlers = tuple(root.handlers)
+    command_level = root.level
+
+    with root_logging_scope(
+        logging.INFO,
+        LogOutputSettings(
+            outputs=(LogOutputTarget(transport="fs", destination=execution_log),)
+        ),
+    ):
+        execution_handlers = tuple(root.handlers)
+        logger.info("operation")
+
+    assert tuple(root.handlers) == command_handlers
+    assert root.level == command_level
+    assert all(
+        getattr(handler, "stream", None) is None for handler in execution_handlers
+    )
+    route_execution_event(CommandFinished("serve", "success", 1.5), logger)
+    _flush_root_handlers()
+
+    assert execution_log.read_text(encoding="utf-8") == "operation\n"
+    assert command_log.read_text(encoding="utf-8") == (
+        "Command serve finished status=success elapsed=1.500000s\n"
+    )
+
+
+def test_root_logging_scope_restores_command_outputs_after_failure(tmp_path) -> None:
+    command_log = tmp_path / "command-error.log"
+    execution_log = tmp_path / "execution-error.log"
+    configure_root_logging(
+        level=logging.INFO,
+        output=LogOutputSettings(
+            outputs=(LogOutputTarget(transport="fs", destination=command_log),)
+        ),
+    )
+    logger = logging.getLogger("datapipeline.tests.logging_setup.failed-scope")
+    root = logging.getLogger()
+    command_handlers = tuple(root.handlers)
+
+    with pytest.raises(RuntimeError, match="failed"):
+        with root_logging_scope(
+            logging.INFO,
+            LogOutputSettings(
+                outputs=(LogOutputTarget(transport="fs", destination=execution_log),)
+            ),
+        ):
+            logger.info("operation")
+            raise RuntimeError("failed")
+
+    assert tuple(root.handlers) == command_handlers
+    route_execution_event(CommandFinished("serve", "error", 1.5), logger)
+    _flush_root_handlers()
+
+    assert execution_log.read_text(encoding="utf-8") == "operation\n"
+    assert command_log.read_text(encoding="utf-8") == (
+        "Command serve finished status=error elapsed=1.500000s\n"
+    )
 
 
 def test_configure_root_logging_suppresses_terminal_execution_events_during_visuals(

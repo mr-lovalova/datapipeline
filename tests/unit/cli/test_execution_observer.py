@@ -25,6 +25,7 @@ from datapipeline.execution.events import (
     ProgressSnapshot,
 )
 from datapipeline.execution.observability import (
+    CommandFinished,
     FileResult,
     OperationFinished,
     OperationProgress,
@@ -56,6 +57,16 @@ class _CaptureHandler:
             FileResult("train_0", Path("/tmp/dataset.train_0.jsonl")),
             logging.INFO,
             "train_0: /tmp/dataset.train_0.jsonl",
+        ),
+        (
+            CommandFinished("serve", "success", 2.5),
+            logging.INFO,
+            "Command serve finished status=success elapsed=2.500000s",
+        ),
+        (
+            CommandFinished("serve", "error", 2.5),
+            logging.ERROR,
+            "Command serve finished status=error elapsed=2.500000s",
         ),
         (
             PipelineStarted(pipeline_name="pipeline", node_count=2),

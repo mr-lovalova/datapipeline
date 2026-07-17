@@ -18,6 +18,7 @@ from datapipeline.execution.events import (
 )
 from datapipeline.execution.observer import PipelineObserver
 from datapipeline.execution.observability import (
+    CommandFinished,
     FileResult,
     OperationFinished,
     OperationProgress,
@@ -33,6 +34,7 @@ class ExecutionMessage:
 
 ExecutionLogEvent = (
     ExecutionMessage
+    | CommandFinished
     | FileResult
     | PipelineEvent
     | OperationStarted
@@ -62,12 +64,16 @@ class ExecutionEventFormatter:
     def level(event: ExecutionLogEvent) -> int:
         if isinstance(event, ExecutionMessage):
             return int(event.log_level)
-        if isinstance(event, PipelineFinished | NodeFinished | OperationFinished):
+        if isinstance(
+            event,
+            CommandFinished | PipelineFinished | NodeFinished | OperationFinished,
+        ):
             if event.status == "error":
                 return logging.ERROR
         if isinstance(
             event,
-            FileResult
+            CommandFinished
+            | FileResult
             | PipelineStarted
             | PipelineSummary
             | PipelineProgress
@@ -85,6 +91,11 @@ class ExecutionEventFormatter:
     def message(cls, event: ExecutionLogEvent) -> str:
         if isinstance(event, FileResult):
             return f"{event.label}: {event.path}"
+        if isinstance(event, CommandFinished):
+            return (
+                f"Command {event.command} finished status={event.status} "
+                f"elapsed={event.elapsed_seconds:.6f}s"
+            )
         if isinstance(event, OperationStarted):
             return f"Operation {event.name} started"
         if isinstance(event, OperationFinished):
