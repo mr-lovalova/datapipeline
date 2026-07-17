@@ -10,7 +10,6 @@ from datapipeline.artifacts.specs import dataset_requires_scaler
 from datapipeline.config.dataset.split import DatasetFold
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.execution.context import PipelineContext
-from datapipeline.execution.events import ProgressSnapshot
 from datapipeline.execution.node import PipelineNode, SourceNode
 from datapipeline.execution.pipeline import Pipeline
 from datapipeline.execution.runner import run_pipeline
@@ -19,10 +18,7 @@ from datapipeline.pipelines.dataset.nodes import (
     select_fold_samples,
 )
 from datapipeline.pipelines.dataset.split import build_labeler
-from datapipeline.pipelines.vector.pipeline import (
-    build_vector_pipeline,
-    rectangular_key_plan,
-)
+from datapipeline.pipelines.vector.pipeline import build_vector_source_node
 from datapipeline.domain.sample import Sample
 from datapipeline.transforms.vector.scaler import SampleScaler
 
@@ -60,7 +56,7 @@ def build_dataset_pipeline(
     return Pipeline(
         name="dataset",
         nodes=(
-            _vector_source(
+            build_vector_source_node(
                 context,
                 feature_configs,
                 group_by_cadence,
@@ -93,7 +89,7 @@ def run_scaled_dataset_pipeline(
         Pipeline(
             name="dataset",
             nodes=(
-                _vector_source(
+                build_vector_source_node(
                     context,
                     feature_configs,
                     group_by_cadence,
@@ -133,7 +129,7 @@ def run_fold_dataset_pipeline(
         )
 
     nodes: list[PipelineNode | SourceNode] = [
-        _vector_source(
+        build_vector_source_node(
             context,
             feature_configs,
             group_by_cadence,
@@ -180,36 +176,4 @@ def _sample_scaler(
             for config in (() if target_configs is None else target_configs)
             if config.scale
         ),
-    )
-
-
-def _vector_source(
-    context: PipelineContext,
-    feature_configs: Sequence[FeatureRecordConfig],
-    group_by_cadence: str,
-    target_configs: Sequence[FeatureRecordConfig] | None,
-    rectangular: bool,
-    sample_keys: Sequence[str],
-) -> SourceNode:
-    progress = None
-    if rectangular and (feature_configs or target_configs):
-        key_plan = rectangular_key_plan(context, group_by_cadence, sample_keys)
-        if key_plan is not None:
-            progress = partial(
-                ProgressSnapshot,
-                total=key_plan.total,
-                unit="samples",
-            )
-    return SourceNode(
-        name="vector_assemble",
-        open=partial(
-            build_vector_pipeline,
-            context,
-            feature_configs,
-            group_by_cadence,
-            target_configs,
-            rectangular,
-            sample_keys,
-        ),
-        progress=progress,
     )

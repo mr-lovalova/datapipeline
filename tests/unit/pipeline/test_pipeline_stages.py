@@ -826,23 +826,46 @@ def test_dataset_pipeline_matches_vector_and_postprocess_chain(tmp_path: Path) -
     assert dataset_out == manual_out
 
 
-def test_rectangular_dataset_source_reports_exact_sample_total(tmp_path: Path) -> None:
+def test_rectangular_dataset_source_reuses_its_key_plan(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     runtime = _runtime_with_rows(tmp_path, [])
     runtime.window_bounds = (_ts(0, 10), _ts(2, 50))
     _register_price_schema(runtime)
     context = PipelineContext(runtime)
     cfg = FeatureRecordConfig(stream="stream", id="price", field="value")
+    feature_configs = [cfg]
+    register_vector_inputs(runtime, feature_configs, "1h")
 
-    pipeline = build_dataset_pipeline(context, [cfg], "1h")
+    original = vector_pipeline.rectangular_key_plan
+    plan_count = 0
+
+    def count_plans(pipeline_context, cadence, sample_keys):
+        nonlocal plan_count
+        plan_count += 1
+        return original(pipeline_context, cadence, sample_keys)
+
+    monkeypatch.setattr(vector_pipeline, "rectangular_key_plan", count_plans)
+
+    pipeline = build_dataset_pipeline(context, feature_configs, "1h")
+    feature_configs.clear()
 
     source = pipeline.nodes[0]
     assert isinstance(source, SourceNode)
     assert source.progress is not None
-    assert source.progress(1) == ProgressSnapshot(
-        completed=1,
-        total=3,
+    samples = list(source.open())
+    assert [sample.key for sample in samples] == [
+        (_ts(0),),
+        (_ts(1),),
+        (_ts(2),),
+    ]
+    assert source.progress(len(samples)) == ProgressSnapshot(
+        completed=3,
+        total=len(samples),
         unit="samples",
     )
+    assert plan_count == 1
 
 
 def test_rectangular_features_and_targets_share_every_planned_key(
@@ -1413,7 +1436,11 @@ def test_vector_inputs_rejects_symlinked_output_before_mutation(tmp_path: Path) 
     assert victim.read_text(encoding="utf-8") == "keep"
 
 
-def test_vector_pipeline_requires_vector_inputs_artifact(tmp_path: Path) -> None:
+@pytest.mark.parametrize("rectangular", [False, True])
+def test_vector_pipeline_requires_vector_inputs_artifact(
+    tmp_path: Path,
+    rectangular: bool,
+) -> None:
     runtime = _runtime_with_rows(
         tmp_path,
         rows=[{"time": _ts(0), "value": 1.0}],
@@ -1422,7 +1449,7 @@ def test_vector_pipeline_requires_vector_inputs_artifact(tmp_path: Path) -> None
     cfg = FeatureRecordConfig(stream="stream", id="price", field="value")
 
     with pytest.raises(RuntimeError, match="Vector inputs artifact is required"):
-        list(build_vector_pipeline(context, [cfg], "1h", rectangular=False))
+        list(build_vector_pipeline(context, [cfg], "1h", rectangular=rectangular))
 
 
 def test_cached_vector_pipeline_rejects_manifest_cadence_mismatch(
