@@ -2,6 +2,7 @@ import heapq
 from collections.abc import Iterator, Sequence
 from contextlib import ExitStack
 from datetime import timedelta
+from functools import partial
 from itertools import tee
 from pathlib import Path
 
@@ -16,17 +17,23 @@ from datapipeline.domain.feature import FeatureRecord, FeatureSequence
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.sample_key import SampleKeyContract
 from datapipeline.execution.context import PipelineContext
-from datapipeline.pipelines.vector.keygen import group_key_for
+from datapipeline.execution.events import ProgressSnapshot
+from datapipeline.execution.node import SourceNode
+from datapipeline.pipelines.vector.keygen import (
+    RectangularKeyPlan,
+    group_key_for,
+    sample_domain_key_plan,
+    window_key_plan,
+)
 from datapipeline.pipelines.vector.nodes import (
     align_stream,
     sample_assemble_stage,
-    sample_domain_window_keys,
     vector_assemble_stage,
-    window_keys,
 )
 from datapipeline.utils.time import parse_cadence
 from datapipeline.vector_inputs.store import (
     CachedVectorInputShard,
+    CachedVectorInputsManifest,
     load_vector_inputs_manifest,
     open_vector_input_records,
 )
@@ -40,10 +47,101 @@ def build_vector_pipeline(
     rectangular: bool = True,
     sample_keys: Sequence[str] = (),
 ) -> Iterator[Sample]:
-    feature_cfgs = configs
-    target_cfgs = () if target_configs is None else target_configs
+    feature_cfgs = tuple(configs)
+    target_cfgs = tuple(() if target_configs is None else target_configs)
+    sample_key_fields = tuple(sample_keys)
     if not feature_cfgs and not target_cfgs:
         return iter(())
+
+    manifest_path, manifest, sample_key_contract = _require_vector_inputs(
+        context, group_by_cadence, sample_key_fields
+    )
+    cadence = parse_cadence(group_by_cadence)
+    key_plan = (
+        rectangular_key_plan(context, group_by_cadence, sample_key_fields)
+        if rectangular
+        else None
+    )
+    return _assemble_vector_samples(
+        manifest_path=manifest_path,
+        manifest=manifest,
+        feature_configs=feature_cfgs,
+        target_configs=target_cfgs,
+        cadence=cadence,
+        sample_key_contract=sample_key_contract,
+        key_plan=key_plan,
+    )
+
+
+def build_vector_source_node(
+    context: PipelineContext,
+    configs: Sequence[FeatureRecordConfig],
+    group_by_cadence: str,
+    target_configs: Sequence[FeatureRecordConfig] | None = None,
+    rectangular: bool = True,
+    sample_keys: Sequence[str] = (),
+) -> SourceNode:
+    feature_cfgs = tuple(configs)
+    target_cfgs = tuple(() if target_configs is None else target_configs)
+    sample_key_fields = tuple(sample_keys)
+    has_inputs = bool(feature_cfgs or target_cfgs)
+    key_plan = (
+        rectangular_key_plan(context, group_by_cadence, sample_key_fields)
+        if rectangular and has_inputs
+        else None
+    )
+    progress = None
+    if key_plan is not None:
+        progress = partial(
+            ProgressSnapshot,
+            total=key_plan.total,
+            unit="samples",
+        )
+    return SourceNode(
+        name="vector_assemble",
+        open=partial(
+            _open_vector_samples,
+            context,
+            feature_cfgs,
+            group_by_cadence,
+            target_cfgs,
+            sample_key_fields,
+            key_plan,
+        ),
+        progress=progress,
+    )
+
+
+def _open_vector_samples(
+    context: PipelineContext,
+    feature_configs: Sequence[FeatureRecordConfig],
+    group_by_cadence: str,
+    target_configs: Sequence[FeatureRecordConfig],
+    sample_keys: Sequence[str],
+    key_plan: RectangularKeyPlan | None,
+) -> Iterator[Sample]:
+    if not feature_configs and not target_configs:
+        return iter(())
+
+    manifest_path, manifest, sample_key_contract = _require_vector_inputs(
+        context, group_by_cadence, sample_keys
+    )
+    return _assemble_vector_samples(
+        manifest_path=manifest_path,
+        manifest=manifest,
+        feature_configs=feature_configs,
+        target_configs=target_configs,
+        cadence=parse_cadence(group_by_cadence),
+        sample_key_contract=sample_key_contract,
+        key_plan=key_plan,
+    )
+
+
+def _require_vector_inputs(
+    context: PipelineContext,
+    group_by_cadence: str,
+    sample_keys: Sequence[str],
+) -> tuple[Path, CachedVectorInputsManifest, SampleKeyContract]:
     artifact = context.runtime.artifacts.optional(VECTOR_INPUTS)
     if artifact is None:
         raise RuntimeError(
@@ -67,51 +165,49 @@ def build_vector_pipeline(
         sample_keys,
         manifest.sample_key_types,
     )
+    return manifest_path, manifest, sample_key_contract
 
-    cadence = parse_cadence(group_by_cadence)
-    keys_feature = None
-    keys_target = None
-    if rectangular:
-        start, end = context.window_bounds(rectangular_required=True)
-        keys = _rectangular_keys(
-            context,
-            start,
-            end,
-            group_by_cadence,
-            sample_keys,
-        )
-        if keys is not None:
-            if target_cfgs:
-                keys_feature, keys_target = tee(keys, 2)
-            else:
-                keys_feature = keys
+
+def _assemble_vector_samples(
+    manifest_path: Path,
+    manifest: CachedVectorInputsManifest,
+    feature_configs: Sequence[FeatureRecordConfig],
+    target_configs: Sequence[FeatureRecordConfig],
+    cadence: timedelta,
+    sample_key_contract: SampleKeyContract,
+    key_plan: RectangularKeyPlan | None,
+) -> Iterator[Sample]:
+    feature_keys = None if key_plan is None else key_plan.keys()
+    target_keys = None
+    if feature_keys is not None and target_configs:
+        feature_keys, target_keys = tee(feature_keys)
 
     keyed_feature_records = _merged_keyed_records(
         manifest_path=manifest_path,
         shards=_shards_for_configs(
             manifest.features,
             manifest.targets,
-            feature_cfgs,
+            feature_configs,
         ),
-        configs=feature_cfgs,
+        configs=feature_configs,
         group_by_cadence=cadence,
         sample_key_contract=sample_key_contract,
     )
     feature_vectors = vector_assemble_stage(keyed_feature_records)
-    aligned_feature_vectors = align_stream(feature_vectors, keys_feature)
+    aligned_feature_vectors = align_stream(feature_vectors, feature_keys)
 
     target_vectors = None
-    if target_cfgs:
+    if target_configs:
         keyed_target_records = _merged_keyed_records(
             manifest_path=manifest_path,
             shards=manifest.targets,
-            configs=target_cfgs,
+            configs=target_configs,
             group_by_cadence=cadence,
             sample_key_contract=sample_key_contract,
         )
         target_vectors = align_stream(
             vector_assemble_stage(keyed_target_records),
-            keys_target,
+            target_keys,
         )
     return sample_assemble_stage(aligned_feature_vectors, target_vectors)
 
@@ -175,17 +271,16 @@ def _merged_keyed_records(
         yield from merged_stream
 
 
-def _rectangular_keys(
+def rectangular_key_plan(
     context: PipelineContext,
-    start,
-    end,
     cadence: str,
     sample_keys: Sequence[str],
-) -> Iterator[tuple] | None:
+) -> RectangularKeyPlan | None:
+    start, end = context.window_bounds(rectangular_required=True)
     if not sample_keys:
-        return window_keys(start, end, cadence)
+        return window_key_plan(start, end, cadence)
     domain = _sample_domain(context, cadence, sample_keys)
-    return sample_domain_window_keys(start, end, cadence, sample_keys, domain)
+    return sample_domain_key_plan(start, end, cadence, sample_keys, domain)
 
 
 def _sample_domain(

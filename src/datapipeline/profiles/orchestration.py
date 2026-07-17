@@ -1,4 +1,5 @@
 import logging
+import time
 
 from datapipeline.artifacts.errors import ArtifactResolutionError
 from datapipeline.artifacts.executor import run_build_if_needed
@@ -8,6 +9,9 @@ from datapipeline.artifacts.planning import (
     required_tick_artifacts,
 )
 from datapipeline.config.tasks import VectorInputsTask
+from datapipeline.cli.visuals.execution import route_execution_event
+from datapipeline.execution.events import RunStatus
+from datapipeline.execution.observability import CommandFinished
 from datapipeline.io.runs import (
     finish_run_failed,
     finish_run_success,
@@ -45,6 +49,8 @@ logger = logging.getLogger(__name__)
 
 
 def run_profiles(request: ProfileRunRequest) -> None:
+    started_at = time.perf_counter()
+    status: RunStatus = "error"
     try:
         with project_execution_lock(request.definition.project.artifacts_root):
             if isinstance(request, BuildRunRequest):
@@ -61,6 +67,17 @@ def run_profiles(request: ProfileRunRequest) -> None:
     except (ArtifactResolutionError, ProjectExecutionBusyError) as exc:
         logger.error("%s", exc)
         raise SystemExit(2) from exc
+    else:
+        status = "success"
+    finally:
+        route_execution_event(
+            CommandFinished(
+                command=request.command,
+                status=status,
+                elapsed_seconds=time.perf_counter() - started_at,
+            ),
+            logger,
+        )
 
 
 def _prune_vector_input_caches(request: ProfileRunRequest) -> None:

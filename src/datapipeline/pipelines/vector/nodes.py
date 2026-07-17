@@ -1,13 +1,10 @@
-from collections.abc import Iterator, Sequence
-from datetime import datetime
+from collections.abc import Iterator
 from itertools import groupby
 from typing import Any
 
-from datapipeline.artifacts.models import SampleDomainEntry
 from datapipeline.domain.feature import FeatureRecord, FeatureSequence
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
-from datapipeline.utils.time import floor_time_to_cadence, parse_cadence
 
 
 def _close_iterator(iterator) -> None:
@@ -44,66 +41,6 @@ def vector_assemble_stage(
             yield group_key, Vector(values=values)
     finally:
         _close_iterator(merged)
-
-
-def window_keys(
-    start: datetime | None,
-    end: datetime | None,
-    cadence: str | None,
-) -> Iterator[tuple] | None:
-    if start is None or end is None or cadence is None:
-        return None
-    step = parse_cadence(cadence)
-    current = floor_time_to_cadence(start, step)
-    stop = floor_time_to_cadence(end, step)
-    if stop < current:
-        return None
-
-    def _iter():
-        t = current
-        while t <= stop:
-            yield (t,)
-            t = t + step
-
-    return _iter()
-
-
-def sample_domain_window_keys(
-    start: datetime | None,
-    end: datetime | None,
-    cadence: str,
-    sample_keys: Sequence[str],
-    domain: Sequence[SampleDomainEntry],
-) -> Iterator[tuple] | None:
-    if start is None or end is None:
-        return None
-    if not sample_keys:
-        return window_keys(start, end, cadence)
-    step = parse_cadence(cadence)
-    global_start = floor_time_to_cadence(start, step)
-    global_end = floor_time_to_cadence(end, step)
-
-    prepared = []
-    for entry in domain:
-        if len(entry.key) != len(sample_keys):
-            raise ValueError(
-                "Vector metadata sample-domain key length does not match sample.keys."
-            )
-        domain_start = max(global_start, floor_time_to_cadence(entry.start, step))
-        domain_end = min(global_end, floor_time_to_cadence(entry.end, step))
-        if domain_start <= domain_end:
-            prepared.append((tuple(entry.key), domain_start, domain_end))
-    prepared.sort(key=lambda item: item[0])
-
-    def _iter():
-        current = global_start
-        while current <= global_end:
-            for key_values, domain_start, domain_end in prepared:
-                if domain_start <= current <= domain_end:
-                    yield (current, *key_values)
-            current = current + step
-
-    return _iter()
 
 
 def align_stream(

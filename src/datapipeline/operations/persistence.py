@@ -148,6 +148,7 @@ def _persist_runtime_output(
     writer = writer_factory(effective_target)
     progress = OperationProgressTracker(
         "write_output",
+        "rows",
         resolve_heartbeat_interval_seconds(heartbeat_interval_seconds),
     )
     success = False
@@ -201,6 +202,7 @@ def _persist_routed_runtime_output(
     rows = iter(result.rows)
     progress = OperationProgressTracker(
         "write_output",
+        "rows",
         resolve_heartbeat_interval_seconds(heartbeat_interval_seconds),
     )
     success = False

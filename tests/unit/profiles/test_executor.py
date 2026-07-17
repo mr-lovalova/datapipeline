@@ -1,4 +1,4 @@
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 
 import pytest
@@ -32,9 +32,14 @@ def test_run_execution_configures_logging_and_runs_work_inside_visuals(monkeypat
     calls = []
     inside_visual_context = False
 
+    @contextmanager
+    def root_logging_scope(level, output):
+        calls.append(("logging", level, output))
+        yield
+
     monkeypatch.setattr(
-        "datapipeline.profiles.executor.configure_root_logging",
-        lambda level, output: calls.append(("logging", level, output)),
+        "datapipeline.profiles.executor.root_logging_scope",
+        root_logging_scope,
     )
 
     monkeypatch.setattr(
@@ -98,8 +103,8 @@ def test_run_execution_uses_plain_context_when_visuals_are_unavailable(
 ) -> None:
     runtime = _runtime()
     monkeypatch.setattr(
-        "datapipeline.profiles.executor.configure_root_logging",
-        lambda **_kwargs: None,
+        "datapipeline.profiles.executor.root_logging_scope",
+        lambda *_args, **_kwargs: nullcontext(),
     )
     monkeypatch.setattr(
         "datapipeline.profiles.executor.rich_visuals_supported",
@@ -137,8 +142,8 @@ def test_run_execution_observes_nodes_for_debug_logging(monkeypatch) -> None:
     runtime = _runtime()
     runtime.observe_node_events = False
     monkeypatch.setattr(
-        "datapipeline.profiles.executor.configure_root_logging",
-        lambda **_kwargs: None,
+        "datapipeline.profiles.executor.root_logging_scope",
+        lambda *_args, **_kwargs: nullcontext(),
     )
     monkeypatch.setattr(
         "datapipeline.profiles.executor.rich_visuals_supported",
@@ -169,8 +174,8 @@ def test_run_execution_observes_nodes_for_debug_logging(monkeypatch) -> None:
 def test_run_execution_restores_observation_after_failure(monkeypatch) -> None:
     runtime = _runtime()
     monkeypatch.setattr(
-        "datapipeline.profiles.executor.configure_root_logging",
-        lambda **_kwargs: None,
+        "datapipeline.profiles.executor.root_logging_scope",
+        lambda *_args, **_kwargs: nullcontext(),
     )
 
     def fail() -> None:
@@ -201,8 +206,8 @@ def test_run_execution_preserves_existing_pipeline_observer(monkeypatch) -> None
     runtime.pipeline_observer = existing_observer
     runtime.observe_node_events = False
     monkeypatch.setattr(
-        "datapipeline.profiles.executor.configure_root_logging",
-        lambda **_kwargs: None,
+        "datapipeline.profiles.executor.root_logging_scope",
+        lambda *_args, **_kwargs: nullcontext(),
     )
     monkeypatch.setattr(
         "datapipeline.profiles.executor.rich_visuals_supported",

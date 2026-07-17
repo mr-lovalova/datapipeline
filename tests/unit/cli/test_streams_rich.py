@@ -160,7 +160,6 @@ def test_info_progress_shows_node_and_local_detail() -> None:
 
     root, order_records, open_source = progress.tasks
     assert root.description == "[stream:adv.20]"
-    assert root.fields["show_bar"] is False
     assert root.total is None
     assert root.completed == 0
     assert root.fields["status"] == ""
@@ -169,6 +168,9 @@ def test_info_progress_shows_node_and_local_detail() -> None:
     assert open_source.visible is True
     assert open_source.completed == 20_000
     assert open_source.fields["status"] == ('2/17 "2011.jsonl" · 20,000 records')
+    assert _ProgressActivityColumn(Column()).render(open_source).plain == (
+        '2/17 "2011.jsonl" · 20,000 records'
+    )
 
     with patch.object(progress, "refresh", wraps=progress.refresh) as refresh:
         _finish_node(renderer, 1, "open_source")
@@ -316,21 +318,21 @@ def test_debug_progress_shows_root_and_active_nodes() -> None:
     assert [
         (
             task.description,
-            task.fields["show_bar"],
             task.fields["status"],
         )
         for task in tasks
     ] == [
-        ("[stream:adv.20]", False, ""),
-        ("[stream:adv.20/order_records]", True, "0 out"),
-        ("[stream:adv.20/open_source]", True, "25/100 records"),
-        ("[stream:adv.20/decode_records]", True, "0 out"),
+        ("[stream:adv.20]", ""),
+        ("[stream:adv.20/order_records]", "0 out"),
+        ("[stream:adv.20/open_source]", "25/100 records"),
+        ("[stream:adv.20/decode_records]", "0 out"),
     ]
-    root_task, _, source_task, _ = tasks
+    root_task, order_task, source_task, _ = tasks
     label = _ProgressLabelColumn(Column())
     activity_column = _ProgressActivityColumn(Column())
     assert label.render(root_task).plain == "[stream:adv.20] 0:00:00"
     assert activity_column.render(root_task).plain == ""
+    assert activity_column.render(order_task).plain == "0 out"
     assert source_task.completed == 25
     assert source_task.total == 100
     bar = activity_column._bar.render(source_task)
@@ -382,24 +384,22 @@ def test_operation_progress_stays_live_across_sequential_pipelines() -> None:
             name="serve:dataset",
             step="write_output",
             step_elapsed_seconds=5,
-            items=2_592_885,
+            completed=2_592_885,
+            unit="rows",
         )
     )
 
     operation = progress.tasks[0]
-    assert operation.description == "Operation serve:dataset"
-    assert operation.fields["show_bar"] is False
-    assert operation.fields["status"] == "write_output · 2,592,885 items"
-    assert _ProgressLabelColumn(Column()).render(operation).plain == (
-        "Operation serve:dataset 0:00:10"
-    )
+    assert operation.description == "Elapsed"
+    assert operation.fields["status"] == "write_output · 2,592,885 rows"
+    assert _ProgressLabelColumn(Column()).render(operation).plain == ("Elapsed 0:00:10")
     assert _ProgressActivityColumn(Column()).render(operation).plain == (
-        "write_output · 2,592,885 items"
+        "write_output · 2,592,885 rows"
     )
 
     renderer.handle(PipelineStarted(pipeline_name="dataset:fold_0", node_count=5))
     assert [task.description for task in progress.tasks] == [
-        "Operation serve:dataset",
+        "Elapsed",
         "[dataset:fold_0]",
     ]
     renderer.handle(
@@ -411,11 +411,11 @@ def test_operation_progress_stays_live_across_sequential_pipelines() -> None:
             elapsed_seconds=1,
         )
     )
-    assert [task.description for task in progress.tasks] == ["Operation serve:dataset"]
+    assert [task.description for task in progress.tasks] == ["Elapsed"]
 
     renderer.handle(PipelineStarted(pipeline_name="dataset:fold_1", node_count=5))
     assert [task.description for task in progress.tasks] == [
-        "Operation serve:dataset",
+        "Elapsed",
         "[dataset:fold_1]",
     ]
     renderer.handle(OperationFinished("serve:dataset", "success", 20))
@@ -588,6 +588,7 @@ def test_rich_renderer_renders_operation_sequence_once_and_in_order() -> None:
 
     rendered = output.getvalue()
     markers = [
+        "Operation materialize:adv.20",
         "Config:",
         "[stream:adv.20] started",
         "[stream:adv.20] finished",
@@ -596,6 +597,7 @@ def test_rich_renderer_renders_operation_sequence_once_and_in_order() -> None:
     ]
     positions = [rendered.index(marker) for marker in markers]
     assert positions == sorted(positions)
+    assert rendered.count("Operation materialize:adv.20") == 2
     assert rendered.count("Config:") == 1
     assert "Operation materialize:adv.20 started" not in rendered
     assert progress_renderer.events == [
@@ -606,7 +608,7 @@ def test_rich_renderer_renders_operation_sequence_once_and_in_order() -> None:
     ]
 
 
-def test_rich_renderer_updates_operation_progress_without_printing() -> None:
+def test_rich_renderer_renders_operation_header_and_keeps_progress_live() -> None:
     console, output = _console()
     progress_renderer = _CaptureRenderer()
     renderer = _RichExecutionRenderer(logging.INFO, console, progress_renderer)
@@ -615,14 +617,16 @@ def test_rich_renderer_updates_operation_progress_without_printing() -> None:
         name="materialize:adv.20",
         step="write_output",
         step_elapsed_seconds=60,
-        items=100,
+        completed=100,
+        unit="rows",
     )
 
     renderer.render(started)
     renderer.render(progress)
 
     assert progress_renderer.events == [started, progress]
-    assert output.getvalue() == ""
+    assert "Operation materialize:adv.20" in output.getvalue()
+    assert "Operation materialize:adv.20 started" not in output.getvalue()
 
 
 def test_rich_renderer_hides_plain_operation_start_at_warning() -> None:
@@ -634,7 +638,7 @@ def test_rich_renderer_hides_plain_operation_start_at_warning() -> None:
     assert output.getvalue() == ""
 
 
-def test_rich_renderer_keeps_live_operation_at_warning() -> None:
+def test_rich_renderer_keeps_live_operation_header_at_warning() -> None:
     console, output = _console()
     progress_renderer = _CaptureRenderer()
     renderer = _RichExecutionRenderer(logging.WARNING, console, progress_renderer)
@@ -643,7 +647,7 @@ def test_rich_renderer_keeps_live_operation_at_warning() -> None:
     renderer.render(event)
 
     assert progress_renderer.events == [event]
-    assert output.getvalue() == ""
+    assert "Operation materialize:adv.20" in output.getvalue()
 
 
 def test_rich_renderer_styles_only_final_status() -> None:

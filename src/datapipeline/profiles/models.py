@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, Sequence
 
@@ -54,6 +54,7 @@ class BuildRunRequest:
     definition: PipelineDefinition
     jobs: Sequence[BuildJob]
     execution: ExecutionConfig
+    command: Literal["build"] = field(default="build", init=False)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -73,6 +74,7 @@ class MaterializeRunRequest:
     execution: ExecutionConfig
     artifact_settings: BuildSettings
     runtime: Runtime
+    command: Literal["materialize"] = field(default="materialize", init=False)
 
 
 ProfileRunRequest = BuildRunRequest | RuntimeRunRequest | MaterializeRunRequest

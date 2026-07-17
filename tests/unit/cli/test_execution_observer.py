@@ -25,6 +25,7 @@ from datapipeline.execution.events import (
     ProgressSnapshot,
 )
 from datapipeline.execution.observability import (
+    CommandFinished,
     FileResult,
     OperationFinished,
     OperationProgress,
@@ -56,6 +57,16 @@ class _CaptureHandler:
             FileResult("train_0", Path("/tmp/dataset.train_0.jsonl")),
             logging.INFO,
             "train_0: /tmp/dataset.train_0.jsonl",
+        ),
+        (
+            CommandFinished("serve", "success", 2.5),
+            logging.INFO,
+            "Command serve finished status=success elapsed=2.500000s",
+        ),
+        (
+            CommandFinished("serve", "error", 2.5),
+            logging.ERROR,
+            "Command serve finished status=error elapsed=2.500000s",
         ),
         (
             PipelineStarted(pipeline_name="pipeline", node_count=2),
@@ -123,10 +134,11 @@ class _CaptureHandler:
                 name="build:schema",
                 step="write",
                 step_elapsed_seconds=1,
-                items=3,
+                completed=3,
+                unit="rows",
             ),
             logging.INFO,
-            "Operation build:schema · write · running elapsed=1s items=3",
+            "Operation build:schema · write · running elapsed=1s rows=3",
         ),
         (
             OperationStarted("serve:dataset"),
@@ -408,6 +420,7 @@ def test_operation_scope_emits_flat_lifecycle_result_and_progress(caplog) -> Non
                     "write_artifact",
                     1,
                     3,
+                    "rows",
                 )
     finally:
         reset_current_execution_event_handler(token)
@@ -424,7 +437,7 @@ def test_operation_scope_emits_flat_lifecycle_result_and_progress(caplog) -> Non
     assert "Operation build:model_grid started" in messages
     assert "Model grid: /tmp/model_grid.jsonl" in messages
     assert (
-        "Operation build:model_grid · write_artifact · running elapsed=1s items=3"
+        "Operation build:model_grid · write_artifact · running elapsed=1s rows=3"
         in messages
     )
     assert messages[-1].startswith("Operation build:model_grid finished status=success")

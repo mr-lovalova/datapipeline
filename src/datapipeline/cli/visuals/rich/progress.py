@@ -11,6 +11,7 @@ from rich.progress import (
     Task,
     TaskID,
 )
+from rich.rule import Rule
 from rich.table import Column, Table
 from rich.text import Text
 
@@ -34,6 +35,7 @@ from datapipeline.execution.events import (
     ProgressSnapshot,
 )
 from datapipeline.execution.observability import (
+    CommandFinished,
     FileResult,
     OperationFinished,
     OperationProgress,
@@ -62,7 +64,7 @@ class _ProgressActivityColumn(ProgressColumn):
 
     def render(self, task: Task) -> RenderableType:
         status = Text(task.fields["status"])
-        if not task.fields["show_bar"]:
+        if task.total is None:
             return status
         activity = Table.grid(padding=(0, 1))
         activity.add_row(self._bar.render(task), status)
@@ -114,10 +116,9 @@ class _ExecutionProgress:
             raise RuntimeError("Cannot start overlapping operation progress")
         self._operation_name = event.name
         self._operation_task = self._progress.add_task(
-            f"Operation {event.name}",
+            "Elapsed",
             total=None,
             status="",
-            show_bar=False,
         )
 
     def _update_operation(self, event: OperationProgress) -> None:
@@ -127,8 +128,8 @@ class _ExecutionProgress:
             raise RuntimeError("Operation progress updated out of order")
         self._progress.update(
             self._operation_task,
-            completed=event.items,
-            status=f"{event.step} · {event.items:,} items",
+            completed=event.completed,
+            status=f"{event.step} · {event.completed:,} {event.unit}",
         )
 
     def _finish_operation(self, event: OperationFinished) -> None:
@@ -146,7 +147,6 @@ class _ExecutionProgress:
             f"[{event.pipeline_name}]",
             total=None,
             status="",
-            show_bar=False,
         )
 
     def _finish_pipeline(self, event: PipelineFinished) -> None:
@@ -165,7 +165,6 @@ class _ExecutionProgress:
             label,
             total=None,
             status="0 out",
-            show_bar=True,
             visible=self._debug,
         )
         self._open_nodes.append(event.node_index)
@@ -275,9 +274,12 @@ class _RichExecutionRenderer:
             | PipelineFinished,
         ):
             self._progress.handle(event)
+            if isinstance(event, OperationStarted):
+                self._console.print(Rule(Text(f"Operation {event.name}"), style="dim"))
+                return
             if isinstance(
                 event,
-                OperationStarted | OperationProgress | NodeStarted | NodeProgress,
+                OperationProgress | NodeStarted | NodeProgress,
             ):
                 return
         if isinstance(event, NodeProgress):
@@ -304,7 +306,10 @@ class _RichExecutionRenderer:
     def _render_event(self, event: ExecutionLogEvent) -> Text:
         level = ExecutionEventFormatter.level(event)
         text = Text(ExecutionEventFormatter.message(event))
-        if isinstance(event, PipelineFinished | NodeFinished | OperationFinished):
+        if isinstance(
+            event,
+            CommandFinished | PipelineFinished | NodeFinished | OperationFinished,
+        ):
             status_style = "green" if event.status == "success" else "red"
             text.highlight_words([f"status={event.status}"], style=status_style)
         elif level >= logging.ERROR:

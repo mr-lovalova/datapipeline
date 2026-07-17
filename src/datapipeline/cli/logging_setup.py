@@ -1,6 +1,7 @@
 import logging
 import sys
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
 from pathlib import Path
 
 from datapipeline.cli.visuals.execution import ExecutionMessage
@@ -129,3 +130,33 @@ def configure_root_logging(level: int, output: LogOutputSettings) -> None:
         handlers=handlers,
         force=True,
     )
+
+
+@contextmanager
+def root_logging_scope(
+    level: int,
+    output: LogOutputSettings,
+) -> Iterator[None]:
+    """Temporarily replace root logging without closing the outer handlers."""
+
+    root = logging.getLogger()
+    previous_level = root.level
+    previous_handlers = tuple(root.handlers)
+    for handler in previous_handlers:
+        root.removeHandler(handler)
+
+    try:
+        configure_root_logging(level, output)
+        yield
+    finally:
+        temporary_handlers = tuple(root.handlers)
+        for handler in temporary_handlers:
+            root.removeHandler(handler)
+
+        try:
+            for handler in temporary_handlers:
+                handler.close()
+        finally:
+            root.setLevel(previous_level)
+            for handler in previous_handlers:
+                root.addHandler(handler)

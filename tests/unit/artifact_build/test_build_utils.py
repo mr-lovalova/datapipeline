@@ -16,7 +16,6 @@ from datapipeline.execution.context import PipelineContext
 from datapipeline.operations.artifacts import utils as artifact_utils
 from datapipeline.operations.artifacts.metadata import (
     _window_bounds_from_stats,
-    _window_size,
     materialize_metadata,
 )
 from datapipeline.operations.artifacts.schema import materialize_vector_schema
@@ -153,15 +152,15 @@ def test_collect_vector_metadata_emits_progress(monkeypatch, tmp_path):
         Sample(key=(0,), features=Vector(values={"price": 1.0})),
         Sample(key=(1,), features=Vector(values={"price": 2.0})),
     ]
-    trackers: list[tuple[str, float]] = []
+    trackers: list[tuple[str, str, float]] = []
     advances: list[int] = []
 
     class Progress:
-        def __init__(self, step: str, interval_seconds: float) -> None:
-            trackers.append((step, interval_seconds))
+        def __init__(self, step: str, unit: str, interval_seconds: float) -> None:
+            trackers.append((step, unit, interval_seconds))
 
-        def advance(self, items: int = 1) -> None:
-            advances.append(items)
+        def advance(self, count: int = 1) -> None:
+            advances.append(count)
 
     runtime.heartbeat_interval_seconds = 180
     monkeypatch.setattr(
@@ -179,7 +178,7 @@ def test_collect_vector_metadata_emits_progress(monkeypatch, tmp_path):
         "scan_features",
     )
 
-    assert trackers == [("scan_features", 180)]
+    assert trackers == [("scan_features", "vectors", 180)]
     assert advances == [1, 1]
 
 
@@ -635,19 +634,3 @@ def test_window_bounds_preserve_single_timestamp() -> None:
         _hour(4),
         _hour(4),
     )
-
-
-def test_window_size_counts_cadence_buckets():
-    start = _hour(4)
-    end = _hour(10)
-
-    assert _window_size(start, end, "1h") == 7  # hours 4..10 inclusive
-    assert _window_size(start, end, "2h") == 4  # 4,6,8,10
-    assert _window_size(start, end, "15m") == 25  # 6 hours -> 360 minutes / 15 + 1
-
-
-def test_window_size_rejects_invalid_cadence():
-    timestamp = datetime(2024, 1, 1, tzinfo=timezone.utc)
-
-    with pytest.raises(ValueError, match="Unsupported cadence"):
-        _window_size(timestamp, timestamp, "0m")
