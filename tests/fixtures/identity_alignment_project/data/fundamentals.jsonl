@@ -1,0 +1,11 @@
+{"time":"2024-01-03T00:00:00Z","ticker":"B","metric":"revenue","value":240}
+{"time":"2024-01-01T00:00:00Z","ticker":"A","metric":"debt","value":50}
+{"time":"2024-01-02T00:00:00Z","ticker":"B","metric":"revenue","value":220}
+{"time":"2024-01-01T00:00:00Z","ticker":"B","metric":"debt","value":80}
+{"time":"2024-01-03T00:00:00Z","ticker":"A","metric":"revenue","value":120}
+{"time":"2024-01-02T00:00:00Z","ticker":"A","metric":"debt","value":55}
+{"time":"2024-01-01T00:00:00Z","ticker":"A","metric":"revenue","value":100}
+{"time":"2024-01-03T00:00:00Z","ticker":"B","metric":"debt","value":96}
+{"time":"2024-01-02T00:00:00Z","ticker":"A","metric":"revenue","value":110}
+{"time":"2024-01-01T00:00:00Z","ticker":"B","metric":"revenue","value":200}
+{"time":"2024-01-03T00:00:00Z","ticker":"A","metric":"debt","value":60}

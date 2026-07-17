@@ -42,6 +42,9 @@ def test_accumulator_fits_population_statistics() -> None:
     assert statistics.count == 3
     assert statistics.mean == 2.0
     assert isclose(statistics.std, 0.816496580927726)
+    assert artifact.with_mean is True
+    assert artifact.with_std is True
+    assert artifact.epsilon == 1e-12
     assert artifact.observations == 3
     assert artifact.version == 3
 
@@ -66,6 +69,25 @@ def test_accumulator_ignores_none() -> None:
 def test_accumulator_requires_an_observation() -> None:
     with pytest.raises(RuntimeError, match="no numeric observations"):
         ScalerAccumulator().artifact()
+
+
+@pytest.mark.parametrize(
+    ("epsilon", "error"),
+    [
+        (True, TypeError),
+        ("0.1", TypeError),
+        (0.0, ValueError),
+        (-1.0, ValueError),
+        (float("inf"), ValueError),
+        (float("nan"), ValueError),
+    ],
+)
+def test_accumulator_rejects_invalid_epsilon(
+    epsilon: object,
+    error: type[Exception],
+) -> None:
+    with pytest.raises(error):
+        ScalerAccumulator(epsilon=epsilon)  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize("value", [True, "1.0", [1.0]])

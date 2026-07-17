@@ -125,8 +125,16 @@ def collect_vector_metadata(
     try:
         for sample in vectors:
             vector_count += 1
-            ts = sample.key[0] if isinstance(sample.key, tuple) and sample.key else None
-            if sample_keys and isinstance(ts, datetime):
+            if (
+                not isinstance(sample.key, tuple)
+                or len(sample.key) != len(sample_keys) + 1
+                or not isinstance(sample.key[0], datetime)
+            ):
+                raise RuntimeError(
+                    "Vector sample key does not match the configured sample keys."
+                )
+            ts = sample.key[0]
+            if sample_keys:
                 _update_sample_domain(sample_domain, sample.key, ts)
             for fid, value in sample.features.values.items():
                 entry = stats.get(fid)
@@ -135,23 +143,40 @@ def collect_vector_metadata(
                         id=fid,
                         base_id=_base_feature_id(fid),
                     )
-                entry.observe(value, ts if isinstance(ts, datetime) else None)
+                entry.observe(value, ts)
             progress.advance()
     finally:
         closer = getattr(vectors, "close", None)
         if callable(closer):
             closer()
 
-    return list(stats.values()), vector_count, sample_domain
+    config_order = {config.id: index for index, config in enumerate(configs)}
+    observed_ids = {entry.base_id for entry in stats.values()}
+    unexpected_ids = sorted(observed_ids - set(config_order))
+    if unexpected_ids:
+        raise RuntimeError(
+            "Vector metadata contains IDs outside the configured vectors: "
+            f"{unexpected_ids!r}."
+        )
+    missing_ids = sorted(set(config_order) - observed_ids)
+    if missing_ids:
+        raise RuntimeError(
+            "Configured vectors produced no metadata: "
+            f"{missing_ids!r}. Check upstream source data and credentials."
+        )
+
+    ordered_stats = sorted(
+        stats.values(),
+        key=lambda entry: (config_order[entry.base_id], entry.id),
+    )
+    return ordered_stats, vector_count, sample_domain
 
 
 def _update_sample_domain(
     sample_domain: dict[tuple, tuple[datetime, datetime]],
-    group_key: object,
+    group_key: tuple,
     ts: datetime,
 ) -> None:
-    if not isinstance(group_key, tuple) or len(group_key) < 2:
-        return
     key_values = tuple(group_key[1:])
     current = sample_domain.get(key_values)
     if current is None:
@@ -159,13 +184,6 @@ def _update_sample_domain(
         return
     start, end = current
     sample_domain[key_values] = min(start, ts), max(end, ts)
-
-
-def configured_vectors_are_empty(
-    configs: Sequence[FeatureRecordConfig],
-    vector_count: int,
-) -> bool:
-    return bool(configs) and vector_count == 0
 
 
 def metadata_entries_from_stats(

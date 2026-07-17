@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jerry-thomas"
-version = "5.0.5"
+version = "5.0.6"
 description = "Jerry-Thomas: a stream-first, plugin-friendly data pipeline (mixology-themed CLI)"
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.11"
@@ -26,6 +26,7 @@ ml = [
   "torch>=2.0",
 ]
 test = ["pytest>=8.0"]
+mutation = ["mutmut>=3.5,<4"]
 dev = [
   "build>=1.2",
   "mypy>=1.10",
@@ -96,3 +97,26 @@ identity = "datapipeline.parsers.identity:IdentityParser"
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.mutmut]
+source_paths = ["src/datapipeline/"]
+only_mutate = [
+  "src/datapipeline/alignment/engine.py",
+  "src/datapipeline/operations/artifacts/utils.py",
+  "src/datapipeline/pipelines/dataset/split.py",
+  "src/datapipeline/pipelines/feature/projector.py",
+  "src/datapipeline/pipelines/sort.py",
+  "src/datapipeline/pipelines/vector/keygen.py",
+  "src/datapipeline/transforms/vector/ensure_schema.py",
+  "src/datapipeline/transforms/vector/scaler.py",
+]
+pytest_add_cli_args = ["-q", "-W", "error"]
+pytest_add_cli_args_test_selection = [
+  "tests/unit/alignment/",
+  "tests/unit/artifact_build/",
+  "tests/unit/pipeline/",
+  "tests/unit/transforms/",
+  "tests/integration/",
+]
+mutate_only_covered_lines = true

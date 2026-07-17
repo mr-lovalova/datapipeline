@@ -80,6 +80,28 @@ def test_sample_scaler_respects_disabled_options() -> None:
     assert scaler.scale(sample).features.values["price"] == [10.0, 12.0]
 
 
+@pytest.mark.parametrize(
+    ("with_mean", "with_std", "expected"),
+    [
+        (True, False, 2.0),
+        (False, True, 6.0),
+    ],
+)
+def test_sample_scaler_applies_each_scaling_option_independently(
+    with_mean: bool,
+    with_std: bool,
+    expected: float,
+) -> None:
+    sample = _sample({"price": 12.0})
+    scaler = SampleScaler(
+        _artifact(with_mean=with_mean, with_std=with_std),
+        scaled_feature_ids={"price"},
+        scaled_target_ids=(),
+    )
+
+    assert scaler.scale(sample).features.values["price"] == expected
+
+
 def test_sample_scaler_preserves_scalar_none_without_statistics() -> None:
     sample = _sample({"missing": None})
     scaler = SampleScaler(

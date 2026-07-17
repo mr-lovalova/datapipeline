@@ -98,3 +98,24 @@ def test_normalize_targets_preserves_feature_vector() -> None:
     assert output[0].features is sample.features
     assert output[0].targets is not None
     assert output[0].targets.values == {"target": 2.0}
+
+
+def test_normalize_targets_fills_and_orders_scalar_and_sequence_entries() -> None:
+    sample = Sample(
+        key=(0,),
+        features=Vector(values={"feature": 1.0}),
+        targets=Vector(values={"last": 3.0, "history": [1.0, 2.0]}),
+    )
+    transform = NormalizeTargetsTransform(
+        [_scalar("first"), _sequence("history", 2), _scalar("last")]
+    )
+
+    [output] = transform.apply(iter([sample]))
+
+    assert output.targets is not None
+    assert list(output.targets.values) == ["first", "history", "last"]
+    assert output.targets.values == {
+        "first": None,
+        "history": [1.0, 2.0],
+        "last": 3.0,
+    }

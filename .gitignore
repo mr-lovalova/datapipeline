@@ -25,6 +25,7 @@ __pycache__/
 .ruff_cache/
 .coverage
 htmlcov/
+mutants/
 .pyre/
 .tox/
 .pytype/

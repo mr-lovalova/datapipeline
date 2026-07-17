@@ -18,10 +18,9 @@ def test_scaler_task_has_only_fitting_options() -> None:
     }
 
 
-@pytest.mark.parametrize("field", ["split_label", "folds"])
-def test_scaler_task_rejects_removed_split_configuration(field: str) -> None:
+def test_scaler_task_rejects_unknown_fields() -> None:
     with pytest.raises(ValidationError, match="Extra inputs"):
-        ScalerTask.model_validate({field: "unused"})
+        ScalerTask.model_validate({"unexpected": True})
 
 
 @pytest.mark.parametrize(

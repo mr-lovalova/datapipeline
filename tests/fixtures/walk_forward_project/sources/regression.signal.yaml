@@ -1,0 +1,14 @@
+id: regression.signal
+parser:
+  entrypoint: core.temporal.csv
+  args:
+    time_field: time
+    value_field: value
+loader:
+  entrypoint: core.io
+  args:
+    transport: fs
+    format: csv
+    path: data/signal.csv
+    encoding: utf-8
+    delimiter: ","

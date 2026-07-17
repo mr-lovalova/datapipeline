@@ -42,7 +42,16 @@ from datapipeline.execution.settings import (
 )
 from datapipeline.execution.observability import CommandFinished
 from datapipeline.io.output import OutputTarget
-from datapipeline.io.runs import RunPaths
+from datapipeline.io.runs import (
+    RunPaths,
+    finish_run_success,
+    set_latest_run,
+    start_run,
+)
+from datapipeline.operations.persistence import (
+    RoutedRuntimeOutput,
+    RuntimeOutputBatch,
+)
 from datapipeline.profiles.execution import (
     RuntimeJobPlan,
     execute_runtime_job,
@@ -977,6 +986,76 @@ def test_job_failure_marks_shared_run_failed(monkeypatch, tmp_path: Path) -> Non
         run_profiles(request)
 
     assert failed == [run_paths]
+
+
+def test_later_output_commit_failure_marks_run_failed_and_preserves_latest(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    serve_root = tmp_path / "served"
+    previous_paths = _run_paths(serve_root, "previous")
+    current_paths = _run_paths(serve_root, "current")
+    start_run(previous_paths)
+    finish_run_success(previous_paths)
+    set_latest_run(previous_paths)
+
+    first_output = current_paths.dataset_dir / "first.jsonl"
+    blocked_output = current_paths.dataset_dir / "blocked.jsonl"
+    blocked_output.mkdir(parents=True)
+    result = RuntimeOutputBatch(
+        outputs=(
+            RoutedRuntimeOutput(
+                rows=(
+                    {"output": "first", "value": 1},
+                    {"output": "blocked", "value": 2},
+                ),
+                targets={
+                    "first": OutputTarget(
+                        transport="fs",
+                        format="jsonl",
+                        view="raw",
+                        encoding="utf-8",
+                        destination=first_output,
+                    ),
+                    "blocked": OutputTarget(
+                        transport="fs",
+                        format="jsonl",
+                        view="raw",
+                        encoding="utf-8",
+                        destination=blocked_output,
+                    ),
+                },
+                output_for_row=lambda row: row["output"],
+            ),
+        )
+    )
+    task = OperationTask(id="pipeline", entrypoint="plugin.runtime")
+    request = _runtime_request(
+        tmp_path,
+        command="serve",
+        artifact_tasks=[],
+        jobs=[_runtime_job("dataset", task, _runtime(tmp_path))],
+        serve_run_plans=(ServeRunPlan(current_paths, None),),
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.run_execution",
+        lambda _spec, work: work(),
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.execution.load_ep",
+        lambda *_args: lambda *_plugin_args: result,
+    )
+
+    with pytest.raises(OSError):
+        run_profiles(request)
+
+    current_run = json.loads(current_paths.metadata_path.read_text(encoding="utf-8"))
+    assert current_run["status"] == "failed"
+    assert current_run["finished_at"] is not None
+    assert first_output.read_text(encoding="utf-8") == (
+        '{"output": "first", "value": 1}\n'
+    )
+    assert (serve_root / "latest").resolve() == previous_paths.run_root.resolve()
 
 
 def test_artifact_resolution_failure_exits_at_profile_boundary(

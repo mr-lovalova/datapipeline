@@ -1,0 +1,9 @@
+id: valuation.pe
+from:
+  stream: valuation.inputs
+transforms:
+  - operation: derive
+    left: price
+    operator: div
+    right_field: earnings
+    to: value

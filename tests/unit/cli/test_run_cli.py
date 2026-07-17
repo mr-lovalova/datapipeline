@@ -120,42 +120,6 @@ def test_serve_profile_rejects_invalid_include_output_id(label):
         )
 
 
-def test_serve_profile_rejects_removed_splits_field():
-    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
-        ServeProfile.model_validate(
-            {
-                "cmd": "serve",
-                "name": "dataset",
-                "operation": "serve",
-                "splits": ["train"],
-            }
-        )
-
-
-def test_serve_profile_rejects_removed_include_splits_field():
-    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
-        ServeProfile.model_validate(
-            {
-                "cmd": "serve",
-                "name": "dataset",
-                "operation": "dataset",
-                "include_splits": ["train"],
-            }
-        )
-
-
-def test_serve_profile_rejects_removed_target_field():
-    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
-        ServeProfile.model_validate(
-            {
-                "cmd": "serve",
-                "name": "dataset",
-                "operation": "dataset",
-                "target": "dataset",
-            }
-        )
-
-
 def test_serve_profile_rejects_numeric_operation():
     with pytest.raises(ValidationError, match="operation must be a string"):
         ServeProfile.model_validate(
@@ -183,30 +147,14 @@ def test_serve_profile_rejects_numeric_preview() -> None:
     ("profile_type", "command"),
     [(ServeProfile, "serve"), (InspectProfile, "inspect")],
 )
-def test_runtime_profiles_reject_command_wide_artifact_mode(profile_type, command):
+def test_runtime_profiles_reject_unknown_fields(profile_type, command):
     with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
         profile_type.model_validate(
             {
                 "cmd": command,
                 "name": "example",
                 "operation": "serve",
-                "artifact_mode": "force",
-            }
-        )
-
-
-@pytest.mark.parametrize(
-    ("profile_type", "command"),
-    [(ServeProfile, "serve"), (InspectProfile, "inspect")],
-)
-def test_runtime_profiles_reject_nested_build_config(profile_type, command):
-    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
-        profile_type.model_validate(
-            {
-                "cmd": command,
-                "name": "example",
-                "operation": "serve",
-                "build": {"mode": "AUTO"},
+                "unexpected": True,
             }
         )
 

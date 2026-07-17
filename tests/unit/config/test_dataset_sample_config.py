@@ -48,12 +48,12 @@ def test_feature_dataset_owns_split_and_postprocess_policy() -> None:
     assert dataset.postprocess.samples.features.threshold == 0.9
 
 
-def test_feature_dataset_rejects_legacy_group_by() -> None:
-    with pytest.raises(ValidationError, match="group_by"):
+def test_feature_dataset_rejects_unknown_fields() -> None:
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
         FeatureDatasetConfig.model_validate(
             {
-                "group_by": "1d",
                 "sample": {"cadence": "1d"},
+                "unexpected": True,
             }
         )
 

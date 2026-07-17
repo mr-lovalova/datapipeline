@@ -10,6 +10,9 @@ python -m pytest
 ruff check .
 ```
 
+Data-path changes should follow the regression and mutation checks in
+[docs/testing.md](docs/testing.md).
+
 When iterating on configs and transforms, `jerry serve --preview <stage>` is the
 fastest way to validate a semantic pipeline boundary.
 

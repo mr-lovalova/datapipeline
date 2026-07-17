@@ -93,6 +93,30 @@ def test_align_streams_intersects_three_inputs() -> None:
     ]
 
 
+def test_align_streams_advances_the_target_until_all_inputs_match() -> None:
+    inputs = [
+        ("first", [1, 5, 8]),
+        ("second", [2, 6, 8]),
+        ("third", [3, 7, 8]),
+    ]
+    rows = list(
+        align_streams(
+            [
+                (
+                    stream_id,
+                    iter([_record("A", day, f"{stream_id}-{day}") for day in days]),
+                )
+                for stream_id, days in inputs
+            ],
+            partition_by=("id_",),
+        )
+    )
+
+    assert [[record.value for record in row] for row in rows] == [
+        ["first-8", "second-8", "third-8"]
+    ]
+
+
 def test_align_streams_skips_keys_without_a_complete_match() -> None:
     rows = list(
         align_streams(
@@ -122,6 +146,19 @@ def test_align_streams_requires_matching_partition_types() -> None:
                     ("right", iter([_record(True, 1, "right")])),
                 ],
                 partition_by=("id_",),
+            )
+        )
+
+
+def test_align_streams_requires_every_partition_field() -> None:
+    with pytest.raises(KeyError, match="Partition field 'region' not found"):
+        list(
+            align_streams(
+                [
+                    ("left", iter([_record("A", 1, "left")])),
+                    ("right", iter([_record("A", 1, "right")])),
+                ],
+                partition_by=("id_", "region"),
             )
         )
 
@@ -156,10 +193,11 @@ def test_align_streams_rejects_duplicates(duplicate_input: int) -> None:
             )
         )
 
-    assert str(error.value) == (
-        f"Alignment input {stream_id!r} has duplicate canonical key "
-        "partition=('A',), time=2025-01-01T00:00:00+00:00"
-    )
+    message = str(error.value)
+    assert stream_id in message
+    assert "duplicate canonical key" in message
+    assert "partition=('A',)" in message
+    assert "2025-01-01T00:00:00+00:00" in message
 
 
 @pytest.mark.parametrize("unordered_input", [0, 1])
@@ -282,6 +320,30 @@ def test_align_streams_closes_inputs_when_consumer_stops() -> None:
     )
     next(aligned)
     aligned.close()
+
+    assert closed == {"left", "right"}
+
+
+def test_align_streams_closes_every_input_after_an_alignment_error() -> None:
+    closed: set[str] = set()
+
+    def records(stream_id: str, days: list[int]):
+        try:
+            for day in days:
+                yield _record("A", day, stream_id)
+        finally:
+            closed.add(stream_id)
+
+    with pytest.raises(ValueError, match="is not ordered"):
+        list(
+            align_streams(
+                [
+                    ("left", records("left", [2, 1])),
+                    ("right", records("right", [2, 3])),
+                ],
+                partition_by=("id_",),
+            )
+        )
 
     assert closed == {"left", "right"}
 

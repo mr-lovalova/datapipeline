@@ -79,6 +79,28 @@ def _runtime_with_dataset(tmp_path, dataset_text: str) -> Runtime:
     return runtime
 
 
+def _collect_from_pipeline(
+    monkeypatch,
+    tmp_path,
+    configs,
+    pipeline,
+    sample_keys=(),
+):
+    runtime = _runtime_with_dataset(tmp_path, "sample:\n  cadence: 1h\n")
+    monkeypatch.setattr(
+        artifact_utils,
+        "build_vector_pipeline",
+        lambda *_args, **_kwargs: pipeline,
+    )
+    return collect_vector_metadata(
+        runtime,
+        configs,
+        "1h",
+        sample_keys,
+        "scan_features",
+    )
+
+
 def test_collect_vector_metadata_counts_nan(monkeypatch, tmp_path):
     """Ensure metadata collection treats NaN values as nulls."""
     artifacts_root = tmp_path / "artifacts"
@@ -97,7 +119,10 @@ def test_collect_vector_metadata_counts_nan(monkeypatch, tmp_path):
         stream="met.obs",
         field="value",
     )
-    sample = Sample(key=(0,), features=Vector(values={"wind_speed": math.nan}))
+    sample = Sample(
+        key=(_hour(0),),
+        features=Vector(values={"wind_speed": math.nan}),
+    )
 
     def fake_pipeline(
         context,
@@ -107,7 +132,7 @@ def test_collect_vector_metadata_counts_nan(monkeypatch, tmp_path):
         rectangular=True,
         sample_keys=(),
     ):
-        assert not rectangular
+        assert rectangular is False
         assert sample_keys == ()
         return iter([sample])
 
@@ -149,8 +174,8 @@ def test_collect_vector_metadata_emits_progress(monkeypatch, tmp_path):
         field="close",
     )
     samples = [
-        Sample(key=(0,), features=Vector(values={"price": 1.0})),
-        Sample(key=(1,), features=Vector(values={"price": 2.0})),
+        Sample(key=(_hour(0),), features=Vector(values={"price": 1.0})),
+        Sample(key=(_hour(1),), features=Vector(values={"price": 2.0})),
     ]
     trackers: list[tuple[str, str, float]] = []
     advances: list[int] = []
@@ -182,6 +207,240 @@ def test_collect_vector_metadata_emits_progress(monkeypatch, tmp_path):
     assert advances == [1, 1]
 
 
+def test_collect_vector_metadata_uses_config_order_not_observation_order(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    configs = [
+        FeatureRecordConfig(id="history", stream="market.prices", field="value"),
+        FeatureRecordConfig(id="price", stream="market.prices", field="value"),
+        FeatureRecordConfig(
+            id="fundamental",
+            stream="market.prices",
+            field="value",
+        ),
+    ]
+    samples = [
+        Sample(
+            key=(_hour(0),),
+            features=Vector(
+                values={
+                    "price": 1.0,
+                    "fundamental__@metric:revenue": 10.0,
+                    "fundamental__@metric:debt": 5.0,
+                }
+            ),
+        ),
+        Sample(
+            key=(_hour(1),),
+            features=Vector(values={"history": [1.0, 2.0]}),
+        ),
+    ]
+    stats, _, _ = _collect_from_pipeline(
+        monkeypatch,
+        tmp_path,
+        configs,
+        iter(samples),
+    )
+
+    assert [entry.id for entry in stats] == [
+        "history",
+        "price",
+        "fundamental__@metric:debt",
+        "fundamental__@metric:revenue",
+    ]
+
+
+def test_collect_vector_metadata_rejects_configured_ids_with_no_observations(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    configs = [
+        FeatureRecordConfig(id="missing", stream="market.prices", field="value"),
+        FeatureRecordConfig(id="price", stream="market.prices", field="value"),
+    ]
+    with pytest.raises(RuntimeError, match="missing"):
+        _collect_from_pipeline(
+            monkeypatch,
+            tmp_path,
+            configs,
+            iter(
+                [
+                    Sample(
+                        key=(_hour(0),),
+                        features=Vector(values={"price": 1.0}),
+                    )
+                ]
+            ),
+        )
+
+
+def test_collect_vector_metadata_rejects_when_every_configured_id_is_empty(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    config = FeatureRecordConfig(
+        id="price",
+        stream="market.prices",
+        field="value",
+    )
+
+    with pytest.raises(RuntimeError, match="price"):
+        _collect_from_pipeline(monkeypatch, tmp_path, [config], iter(()))
+
+
+@pytest.mark.parametrize(
+    ("sample_keys", "key"),
+    [
+        ((), 1),
+        ((), ()),
+        ((), (0,)),
+        ((), (_hour(0), "unexpected")),
+        (("ticker",), (_hour(0),)),
+    ],
+)
+def test_collect_vector_metadata_rejects_malformed_sample_keys(
+    monkeypatch,
+    tmp_path,
+    sample_keys,
+    key,
+) -> None:
+    config = FeatureRecordConfig(
+        id="price",
+        stream="market.prices",
+        field="value",
+    )
+    with pytest.raises(RuntimeError, match="sample key"):
+        _collect_from_pipeline(
+            monkeypatch,
+            tmp_path,
+            [config],
+            iter([Sample(key=key, features=Vector(values={"price": 1.0}))]),
+            sample_keys=sample_keys,
+        )
+
+
+def test_collect_vector_metadata_rejects_ids_outside_configured_vectors(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    config = FeatureRecordConfig(
+        id="price",
+        stream="market.prices",
+        field="value",
+    )
+
+    with pytest.raises(RuntimeError, match="rogue"):
+        _collect_from_pipeline(
+            monkeypatch,
+            tmp_path,
+            [config],
+            iter(
+                [
+                    Sample(
+                        key=(_hour(0),),
+                        features=Vector(values={"price": 1.0, "rogue": 2.0}),
+                    )
+                ]
+            ),
+        )
+
+
+def test_collect_vector_metadata_closes_pipeline_when_collection_fails(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    config = FeatureRecordConfig(
+        id="history",
+        stream="market.prices",
+        field="value",
+    )
+    closed = False
+
+    def failing_pipeline():
+        nonlocal closed
+        try:
+            yield Sample(
+                key=(_hour(0),),
+                features=Vector(values={"history": [1.0]}),
+            )
+            yield Sample(
+                key=(_hour(1),),
+                features=Vector(values={"history": [2.0, 3.0]}),
+            )
+        finally:
+            closed = True
+
+    pipeline = failing_pipeline()
+
+    with pytest.raises(ValueError):
+        _collect_from_pipeline(
+            monkeypatch,
+            tmp_path,
+            [config],
+            pipeline,
+        )
+
+    assert closed
+
+
+def test_collect_vector_metadata_skips_sample_domain_without_sample_keys(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    config = FeatureRecordConfig(
+        id="price",
+        stream="market.prices",
+        field="value",
+    )
+    samples = [
+        Sample(key=(_hour(0),), features=Vector(values={"price": 1.0})),
+        Sample(key=(_hour(1),), features=Vector(values={"price": 2.0})),
+    ]
+    _, _, domain = _collect_from_pipeline(
+        monkeypatch, tmp_path, [config], iter(samples)
+    )
+
+    assert domain == {}
+
+
+def test_collect_vector_metadata_tracks_each_keyed_sample_domain(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    config = FeatureRecordConfig(
+        id="price",
+        stream="market.prices",
+        field="value",
+    )
+    samples = [
+        Sample(
+            key=(_hour(2), "AAPL"),
+            features=Vector(values={"price": 2.0}),
+        ),
+        Sample(
+            key=(_hour(0), "AAPL"),
+            features=Vector(values={"price": 1.0}),
+        ),
+        Sample(
+            key=(_hour(1), "MSFT"),
+            features=Vector(values={"price": 3.0}),
+        ),
+    ]
+    _, _, domain = _collect_from_pipeline(
+        monkeypatch,
+        tmp_path,
+        [config],
+        iter(samples),
+        sample_keys=("ticker",),
+    )
+
+    assert domain == {
+        ("AAPL",): (_hour(0), _hour(2)),
+        ("MSFT",): (_hour(1), _hour(1)),
+    }
+
+
 @pytest.mark.parametrize(
     "values",
     [
@@ -201,7 +460,7 @@ def test_collect_vector_metadata_rejects_scalar_list_mixtures(
         field="close",
     )
     samples = [
-        Sample(key=(index,), features=Vector(values={"history": value}))
+        Sample(key=(_hour(index),), features=Vector(values={"history": value}))
         for index, value in enumerate(values)
     ]
     monkeypatch.setattr(
@@ -231,8 +490,11 @@ def test_collect_vector_metadata_rejects_variable_list_lengths(
         field="close",
     )
     samples = [
-        Sample(key=(0,), features=Vector(values={"history": [1.0]})),
-        Sample(key=(1,), features=Vector(values={"history": [2.0, 3.0]})),
+        Sample(key=(_hour(0),), features=Vector(values={"history": [1.0]})),
+        Sample(
+            key=(_hour(1),),
+            features=Vector(values={"history": [2.0, 3.0]}),
+        ),
     ]
     monkeypatch.setattr(
         artifact_utils,
@@ -400,40 +662,6 @@ def test_pipeline_context_rejects_invalid_registered_schema(tmp_path) -> None:
         PipelineContext(runtime).require_artifact(VECTOR_SCHEMA_SPEC)
 
 
-def test_metadata_materialization_rejects_configured_empty_features(
-    monkeypatch,
-    tmp_path,
-) -> None:
-    runtime = _runtime_with_dataset(
-        tmp_path,
-        "\n".join(
-            [
-                "sample:",
-                "  cadence: 1h",
-                "features:",
-                "  - id: price",
-                "    stream: market.prices",
-                "    field: close",
-                "targets: []",
-                "",
-            ]
-        ),
-    )
-
-    def empty_collection(*args, **kwargs):
-        return [], 0, {}
-
-    monkeypatch.setattr(
-        "datapipeline.operations.artifacts.metadata.collect_vector_metadata",
-        empty_collection,
-    )
-
-    with pytest.raises(RuntimeError, match="configured features produced zero vectors"):
-        materialize_metadata(runtime, MetadataTask(output="metadata.json"))
-
-    assert not (runtime.artifacts_root / "metadata.json").exists()
-
-
 def test_metadata_materialization_writes_keyed_sample_domain(
     monkeypatch,
     tmp_path,
@@ -572,6 +800,54 @@ def test_metadata_entries_include_observation_bounds():
 
     assert entries[0].first_observed == datetime(2024, 1, 1, tzinfo=timezone.utc)
     assert entries[0].last_observed == datetime(2024, 1, 2, tzinfo=timezone.utc)
+
+
+def test_metadata_entries_preserve_scalar_and_list_statistics() -> None:
+    scalar = VectorMetadataStats(id="price", base_id="price")
+    scalar.observe(None, _hour(0))
+    scalar.observe(3, _hour(2))
+    sequence = VectorMetadataStats(id="history", base_id="history")
+    sequence.observe([1.0, None, "stale"], _hour(1))
+    sequence.observe([None, 2.0, 3.0], _hour(3))
+    null_only = VectorMetadataStats(id="missing", base_id="missing")
+    null_only.observe(None, _hour(0))
+    null_only.observe(float("nan"), _hour(1))
+
+    entries = metadata_entries_from_stats([scalar, sequence, null_only])
+
+    assert entries[0].model_dump() == {
+        "id": "price",
+        "base_id": "price",
+        "kind": "scalar",
+        "present_count": 2,
+        "null_count": 1,
+        "first_observed": _hour(0),
+        "last_observed": _hour(2),
+        "value_types": ("int",),
+    }
+    assert entries[1].model_dump() == {
+        "id": "history",
+        "base_id": "history",
+        "kind": "list",
+        "present_count": 2,
+        "null_count": 0,
+        "first_observed": _hour(1),
+        "last_observed": _hour(3),
+        "element_types": ("float", "null", "str"),
+        "lengths": {"3": 2},
+        "cadence": {"target": 3},
+        "observed_elements": 4,
+    }
+    assert entries[2].model_dump() == {
+        "id": "missing",
+        "base_id": "missing",
+        "kind": "scalar",
+        "present_count": 2,
+        "null_count": 2,
+        "first_observed": _hour(0),
+        "last_observed": _hour(1),
+        "value_types": (),
+    }
 
 
 def test_window_bounds_modes():
