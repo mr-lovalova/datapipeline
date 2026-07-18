@@ -43,15 +43,7 @@ from datapipeline.execution.observability import (
 )
 
 
-class _ProgressLabelColumn(ProgressColumn):
-    def render(self, task: Task) -> RenderableType:
-        label = Text(task.description)
-        elapsed = timedelta(seconds=int(task.elapsed or 0))
-        label.append(f" {elapsed}")
-        return label
-
-
-class _ProgressActivityColumn(ProgressColumn):
+class _ProgressRowColumn(ProgressColumn):
     def __init__(self, table_column: Column) -> None:
         super().__init__(table_column)
         self._bar = BarColumn(
@@ -63,12 +55,25 @@ class _ProgressActivityColumn(ProgressColumn):
         )
 
     def render(self, task: Task) -> RenderableType:
-        status = Text(task.fields["status"])
-        if task.total is None:
-            return status
-        activity = Table.grid(padding=(0, 1))
-        activity.add_row(self._bar.render(task), status)
-        return activity
+        row = Table.grid(padding=(0, 1))
+        row.add_column(overflow="ellipsis")
+        row.add_column(min_width=7, no_wrap=True)
+        cells: list[RenderableType] = [
+            Text(task.description, no_wrap=True, overflow="ellipsis"),
+            Text(
+                str(timedelta(seconds=int(task.elapsed or 0))),
+                style="cyan",
+            ),
+        ]
+        status = task.fields["status"]
+        if task.total is not None:
+            row.add_column(no_wrap=True)
+            cells.append(self._bar.render(task))
+        if status:
+            row.add_column(overflow="ellipsis")
+            cells.append(Text(status, no_wrap=True, overflow="ellipsis"))
+        row.add_row(*cells)
+        return row
 
 
 class _ExecutionProgress:
@@ -116,7 +121,7 @@ class _ExecutionProgress:
             raise RuntimeError("Cannot start overlapping operation progress")
         self._operation_name = event.name
         self._operation_task = self._progress.add_task(
-            "Elapsed",
+            f"Operation {event.name}",
             total=None,
             status="",
         )
@@ -129,7 +134,7 @@ class _ExecutionProgress:
         self._progress.update(
             self._operation_task,
             completed=event.completed,
-            status=f"{event.step} · {event.completed:,} {event.unit}",
+            status=f"last report: {event.step} · {event.completed:,} {event.unit}",
         )
 
     def _finish_operation(self, event: OperationFinished) -> None:
@@ -299,7 +304,7 @@ class _RichExecutionRenderer:
         table.add_column(no_wrap=True)
         table.add_column(ratio=1, overflow="fold")
         result = Text(str(event.path))
-        result.stylize(f"blue link {event.path.resolve().as_uri()}")
+        result.stylize(f"bright_blue link {event.path.resolve().as_uri()}")
         table.add_row(f"{event.label}:", result)
         return table
 
@@ -336,8 +341,7 @@ def visual_execution(log_level: int):
     console = Console(file=sys.stderr, markup=False, highlight=False)
     debug = log_level <= logging.DEBUG
     progress = Progress(
-        _ProgressLabelColumn(Column(no_wrap=True, overflow="ellipsis")),
-        _ProgressActivityColumn(Column(no_wrap=True, overflow="ellipsis")),
+        _ProgressRowColumn(Column(no_wrap=True, overflow="ellipsis")),
         transient=True,
         console=console,
         refresh_per_second=10,

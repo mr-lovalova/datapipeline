@@ -3,6 +3,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from datapipeline.config.sources import SourceConfig
+from datapipeline.services.scaffold.paths import ensure_project_scaffold
 from datapipeline.services.scaffold.source_yaml import (
     create_source_yaml,
     default_loader_config,
@@ -55,6 +57,43 @@ def test_create_source_preserves_custom_source_id(tmp_path: Path) -> None:
     )
 
 
+def test_create_source_quotes_yaml_sensitive_entrypoints(tmp_path: Path) -> None:
+    plugin_root = _create_plugin(tmp_path)
+    path = create_source_yaml(
+        source_id="demo.weather",
+        loader_ep='custom"loader\\name',
+        loader_args={},
+        parser_ep='custom"parser\\name',
+        root=plugin_root,
+    )
+
+    source = SourceConfig.model_validate(
+        yaml.safe_load(path.read_text(encoding="utf-8"))
+    )
+
+    assert source.loader.entrypoint == 'custom"loader\\name'
+    assert source.parser.entrypoint == 'custom"parser\\name'
+
+
+def test_create_pickle_source_satisfies_source_contract(tmp_path: Path) -> None:
+    plugin_root = _create_plugin(tmp_path)
+    loader_ep, loader_args = default_loader_config("fs", "pickle")
+    path = create_source_yaml(
+        source_id="demo.weather",
+        loader_ep=loader_ep,
+        loader_args=loader_args,
+        parser_ep="identity",
+        root=plugin_root,
+    )
+
+    source = SourceConfig.model_validate(
+        yaml.safe_load(path.read_text(encoding="utf-8"))
+    )
+
+    assert source.loader.args.format == "pickle"
+    assert "encoding" not in source.loader.args.model_fields_set
+
+
 def test_default_loader_config_rejects_unknown_transport() -> None:
     with pytest.raises(ValueError, match="Unsupported source transport"):
         default_loader_config("unknown", None)
@@ -81,6 +120,73 @@ def test_create_source_refuses_to_replace_existing_config(tmp_path: Path) -> Non
         )
 
     assert path.read_bytes() == original
+
+
+def test_create_source_rejects_existing_id_in_another_root(tmp_path: Path) -> None:
+    plugin_root = _create_plugin(tmp_path)
+    project_yaml = plugin_root / "your-dataset" / "project.yaml"
+    project = ensure_project_scaffold(project_yaml)
+    common_sources = plugin_root / "common" / "sources"
+    common_sources.mkdir(parents=True)
+    project_yaml.write_text(
+        project_yaml.read_text(encoding="utf-8").replace(
+            "  sources: ./sources",
+            "  sources: [./sources, ../common/sources]",
+        ),
+        encoding="utf-8",
+    )
+    (common_sources / "existing.yaml").write_text(
+        "id: demo.weather\n"
+        "parser: {entrypoint: identity}\n"
+        "loader: {entrypoint: identity}\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(FileExistsError, match="Source id 'demo.weather'"):
+        create_source_yaml(
+            source_id="demo.weather",
+            loader_ep="custom.loader",
+            loader_args={},
+            parser_ep="identity",
+            root=plugin_root,
+            project_yaml=project_yaml,
+        )
+
+    assert not (project.source_dirs[0] / "demo.weather.yaml").exists()
+
+
+def test_create_source_does_not_validate_unrelated_source_values(
+    tmp_path: Path,
+) -> None:
+    plugin_root = _create_plugin(tmp_path)
+    project_yaml = plugin_root / "your-dataset" / "project.yaml"
+    project = ensure_project_scaffold(project_yaml)
+    (project_yaml.parent / ".env").write_text(
+        "SECRET=TOP-SECRET-VALUE\n",
+        encoding="utf-8",
+    )
+    (project.source_dirs[0] / "existing.yaml").write_text(
+        "id: demo.existing\n"
+        "parser: {entrypoint: identity}\n"
+        "loader:\n"
+        "  entrypoint: core.io\n"
+        "  args:\n"
+        "    transport: ${env:SECRET}\n"
+        "    format: jsonl\n"
+        "    path: data.jsonl\n",
+        encoding="utf-8",
+    )
+
+    path = create_source_yaml(
+        source_id="demo.weather",
+        loader_ep="custom.loader",
+        loader_args={},
+        parser_ep="identity",
+        root=plugin_root,
+        project_yaml=project_yaml,
+    )
+
+    assert path.name == "demo.weather.yaml"
 
 
 @pytest.mark.parametrize(

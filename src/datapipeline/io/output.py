@@ -53,8 +53,8 @@ class OutputTarget:
             return self
         safe_feature = sanitize_path_segment(str(feature_id), default="feature")
         dest = self.destination
-        suffix = "".join(dest.suffixes)
-        stem = dest.name[: -len(suffix)] if suffix else dest.name
+        suffix = _format_suffix(self.format)
+        stem = dest.name.removesuffix(suffix)
         new_name = f"{stem}.{safe_feature}{suffix}"
         new_path = dest.with_name(new_name)
         return replace(self, destination=new_path)
@@ -64,8 +64,8 @@ class OutputTarget:
             return self
         safe_output_id = sanitize_path_segment(output_id)
         dest = self.destination
-        suffix = "".join(dest.suffixes)
-        stem = dest.name[: -len(suffix)] if suffix else dest.name
+        suffix = _format_suffix(self.format)
+        stem = dest.name.removesuffix(suffix)
         new_name = f"{stem}.{safe_output_id}{suffix}"
         new_path = dest.with_name(new_name)
         return replace(self, destination=new_path)

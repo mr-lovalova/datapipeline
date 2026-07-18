@@ -510,7 +510,7 @@ def test_scaling_policy_does_not_invalidate_raw_vector_inputs(tmp_path: Path) ->
     )
 
 
-def test_scaler_hash_tracks_fold_training_population_only(tmp_path: Path) -> None:
+def test_scaler_hash_tracks_every_fold_role(tmp_path: Path) -> None:
     definition = load_pipeline(_write_pipeline(tmp_path))
     streams = _single_stream_catalog()
     feature = FeatureRecordConfig(
@@ -529,8 +529,6 @@ def test_scaler_hash_tracks_fold_training_population_only(tmp_path: Path) -> Non
             DatasetFold(
                 id="holdout",
                 train=["train"],
-                validation=["validation"],
-                test=["test"],
             )
         ],
     )
@@ -539,7 +537,7 @@ def test_scaler_hash_tracks_fold_training_population_only(tmp_path: Path) -> Non
         features=[feature],
         split=split,
     )
-    publication_changed = baseline.model_copy(
+    validation_changed = baseline.model_copy(
         update={
             "split": split.model_copy(
                 update={
@@ -547,7 +545,22 @@ def test_scaler_hash_tracks_fold_training_population_only(tmp_path: Path) -> Non
                         DatasetFold(
                             id="holdout",
                             train=["train"],
-                            validation=["validation", "test"],
+                            validation=["validation"],
+                        )
+                    ]
+                }
+            )
+        }
+    )
+    test_changed = baseline.model_copy(
+        update={
+            "split": split.model_copy(
+                update={
+                    "folds": [
+                        DatasetFold(
+                            id="holdout",
+                            train=["train"],
+                            test=["test"],
                         )
                     ]
                 }
@@ -578,7 +591,8 @@ def test_scaler_hash_tracks_fold_training_population_only(tmp_path: Path) -> Non
             (ScalerTask(),),
         ).for_artifact(SCALER_STATISTICS)
 
-    assert scaler_hash(publication_changed) == scaler_hash(baseline)
+    assert scaler_hash(validation_changed) != scaler_hash(baseline)
+    assert scaler_hash(test_changed) != scaler_hash(baseline)
     assert scaler_hash(training_changed) != scaler_hash(baseline)
 
 

@@ -88,6 +88,16 @@ def _stream_runtime(tmp_path, rows=None) -> Runtime:
     return runtime
 
 
+def test_ticks_task_rejects_time_as_grid_field() -> None:
+    with pytest.raises(ValueError, match="reserved field 'time'"):
+        TicksTask(
+            id="model_grid",
+            stream="source.stream",
+            grid_by=["time"],
+            output="build/model_grid.jsonl",
+        )
+
+
 def test_materialize_ticks_writes_sorted_unique_tick_rows(tmp_path) -> None:
     runtime = _runtime(tmp_path)
 

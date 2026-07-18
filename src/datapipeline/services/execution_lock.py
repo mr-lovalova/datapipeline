@@ -1,5 +1,6 @@
 import errno
 import sys
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -44,6 +45,20 @@ else:
 
 class ProjectExecutionBusyError(RuntimeError):
     pass
+
+
+@contextmanager
+def exclusive_file_lock(path: Path) -> Iterator[None]:
+    """Wait for exclusive access to a stable lock file."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a+b") as lock_file:
+        while not try_acquire_file_lock(lock_file):
+            time.sleep(0.01)
+        try:
+            yield
+        finally:
+            release_file_lock(lock_file)
 
 
 @contextmanager

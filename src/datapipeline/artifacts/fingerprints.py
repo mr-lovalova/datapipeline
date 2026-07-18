@@ -8,7 +8,6 @@ from pathlib import Path
 from datapipeline.artifacts.planning import build_artifact_graph
 from datapipeline.artifacts.specs import dataset_requires_scaler
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
-from datapipeline.config.dataset.split import SplitConfig
 from datapipeline.config.sources import CoreIoLoaderConfig, FsSourceArgs, SourceConfig
 from datapipeline.config.streams import SourceStreamConfig, StreamsConfig
 from datapipeline.config.tasks import (
@@ -23,7 +22,7 @@ from datapipeline.config.tasks import (
 from datapipeline.services.definitions import ArtifactHashes, ProjectManifest
 
 # Increment when Jerry's core artifact semantics change without a config change.
-ARTIFACT_CACHE_VERSION = 4
+ARTIFACT_CACHE_VERSION = 5
 
 
 def _normalized_label(path: Path, base_dir: Path) -> str:
@@ -164,7 +163,11 @@ def _artifact_inputs(
             {
                 "dataset": {
                     "sample": dataset.sample.model_dump(mode="json"),
-                    "split": _scaler_split_inputs(dataset.split),
+                    "split": (
+                        dataset.split.model_dump(mode="json")
+                        if dataset.split is not None
+                        else None
+                    ),
                     "scaled_vectors": [
                         config.model_dump(mode="json", exclude={"sequence"})
                         for config in scaled
@@ -214,20 +217,6 @@ def _artifact_inputs(
         },
         set(streams.sources),
     )
-
-
-def _scaler_split_inputs(split: SplitConfig | None) -> dict[str, object] | None:
-    if split is None:
-        return None
-    config = split.model_dump(mode="json", exclude={"folds"})
-    config["folds"] = [
-        {
-            "id": fold.id,
-            "train": list(fold.train),
-        }
-        for fold in split.folds
-    ]
-    return config
 
 
 def _artifact_digest(

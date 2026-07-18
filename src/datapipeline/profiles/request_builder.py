@@ -4,6 +4,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal, Sequence
 
+from pydantic import ValidationError
+
 from datapipeline.artifacts.settings import BuildSettings
 from datapipeline.config.preview import PreviewStage
 from datapipeline.config.profiles import (
@@ -53,6 +55,17 @@ from datapipeline.services.runtime_compiler import compile_runtime
 logger = logging.getLogger(__name__)
 
 
+def _validation_error_without_inputs(exc: ValidationError) -> str:
+    count = exc.error_count()
+    heading = f"{count} validation error{'s' if count != 1 else ''} for {exc.title}"
+    details = []
+    for error in exc.errors(include_input=False, include_url=False):
+        location = ".".join(str(part) for part in error["loc"]) or exc.title
+        message = "Invalid configuration value" if error.get("ctx") else error["msg"]
+        details.append(f"{location}\n  {message} [type={error['type']}]")
+    return "\n".join((heading, *details))
+
+
 def _execution_root(artifacts_root: Path) -> Path:
     execution_id = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%S-%fZ")
     return (artifacts_root / "_system" / "executions" / execution_id).resolve()
@@ -61,6 +74,12 @@ def _execution_root(artifacts_root: Path) -> Path:
 def _load_definition(project: str) -> PipelineDefinition:
     try:
         return load_pipeline(Path(project))
+    except ValidationError as exc:
+        logger.error(
+            "Failed to load pipeline inputs: %s",
+            _validation_error_without_inputs(exc),
+        )
+        raise SystemExit(2) from exc
     except (OSError, RuntimeError, TypeError, ValueError) as exc:
         logger.error("Failed to load pipeline inputs: %s", exc)
         raise SystemExit(2) from exc
@@ -76,6 +95,13 @@ def _select_profiles(
             project,
             cmd=command,
         )
+    except ValidationError as exc:
+        logger.error(
+            "Failed to load %s profiles: %s",
+            command,
+            _validation_error_without_inputs(exc),
+        )
+        raise SystemExit(2) from exc
     except (OSError, TypeError, ValueError) as exc:
         logger.error("Failed to load %s profiles: %s", command, exc)
         raise SystemExit(2) from exc
@@ -98,6 +124,9 @@ def _select_profiles(
             [apply_profile_defaults(profile, defaults) for profile in selected],
             defaults,
         )
+    except ValidationError as exc:
+        logger.error("%s", _validation_error_without_inputs(exc))
+        raise SystemExit(2) from exc
     except ValueError as exc:
         logger.error("%s", exc)
         raise SystemExit(2) from exc

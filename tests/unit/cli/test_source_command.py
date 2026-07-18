@@ -105,6 +105,21 @@ def test_source_create_rejects_unsafe_source_id_before_loader_selection() -> Non
     assert exc.value.code == 2
 
 
+def test_source_create_rejects_pickle_over_http(caplog) -> None:
+    with pytest.raises(SystemExit) as exc:
+        source.handle(
+            subcmd="create",
+            provider="demo",
+            dataset="weather",
+            transport="http",
+            format="pickle",
+            parser="identity",
+        )
+
+    assert exc.value.code == 2
+    assert "not supported for http" in caplog.text
+
+
 def test_interactive_parser_menu_can_select_temporal_record(monkeypatch) -> None:
     monkeypatch.setattr(source.sys, "stdin", SimpleNamespace(isatty=lambda: True))
     monkeypatch.setattr(source, "list_parsers", lambda root=None: {})

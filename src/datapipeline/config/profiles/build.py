@@ -20,9 +20,7 @@ def normalize_artifact_mode(value: object) -> ArtifactMode | None:
         return "FORCE"
     if name == "OFF":
         return "OFF"
-    raise ValueError(
-        f"artifact mode must be one of {', '.join(ARTIFACT_MODES)}, got {value!r}"
-    )
+    raise ValueError(f"artifact mode must be one of {', '.join(ARTIFACT_MODES)}")
 
 
 class BuildProfile(Profile):

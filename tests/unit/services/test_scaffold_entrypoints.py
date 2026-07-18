@@ -1,5 +1,9 @@
+import subprocess
+import sys
+import time
 import tomllib
 from pathlib import Path
+from textwrap import dedent
 
 import pytest
 from tomlkit.exceptions import ParseError
@@ -9,6 +13,101 @@ from datapipeline.services.scaffold.entrypoints import (
     read_entry_points,
     register_entry_point,
 )
+from datapipeline.services.scaffold.locking import acquire_scaffold_lock
+
+
+def test_register_entry_point_serializes_concurrent_writers(tmp_path: Path) -> None:
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text("[project]\nname = 'example'\n", encoding="utf-8")
+    ready = tmp_path / "ready"
+    go = tmp_path / "go"
+    blocked = tmp_path / "blocked"
+    entered_update = tmp_path / "entered-update"
+    source_root = Path(__file__).parents[3] / "src"
+    script = dedent(
+        """
+        import sys
+        import time
+        from pathlib import Path
+
+        sys.path.insert(0, sys.argv[1])
+
+        import datapipeline.services.scaffold.entrypoints as entrypoints
+        import datapipeline.services.execution_lock as execution_lock
+
+        original_update = entrypoints._register_entry_point
+        original_try_lock = execution_lock.try_acquire_file_lock
+
+        def marked_update(*args, **kwargs):
+            Path(sys.argv[6]).touch()
+            return original_update(*args, **kwargs)
+
+        def marked_try_lock(lock_file):
+            acquired = original_try_lock(lock_file)
+            if not acquired:
+                Path(sys.argv[5]).touch()
+            return acquired
+
+        entrypoints._register_entry_point = marked_update
+        execution_lock.try_acquire_file_lock = marked_try_lock
+        Path(sys.argv[3]).touch()
+        while not Path(sys.argv[4]).exists():
+            time.sleep(0.01)
+        entrypoints.register_entry_point(
+            Path(sys.argv[2]),
+            "datapipeline.parsers",
+            "second",
+            "package:second",
+        )
+        """
+    )
+    command = [
+        sys.executable,
+        "-c",
+        script,
+        str(source_root),
+        str(pyproject),
+        str(ready),
+        str(go),
+        str(blocked),
+        str(entered_update),
+    ]
+
+    with acquire_scaffold_lock(tmp_path) as scaffold_lock:
+        process = subprocess.Popen(command)
+        try:
+            deadline = time.monotonic() + 10
+            while not ready.exists() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert ready.exists()
+            go.touch()
+            deadline = time.monotonic() + 10
+            while not blocked.exists() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert blocked.exists()
+            assert not entered_update.exists()
+            register_entry_point(
+                pyproject,
+                PARSERS_EP,
+                "first",
+                "package:first",
+                scaffold_lock=scaffold_lock,
+            )
+        except BaseException:
+            process.terminate()
+            process.wait(timeout=10)
+            raise
+
+    try:
+        assert process.wait(timeout=10) == 0
+    finally:
+        if process.poll() is None:
+            process.terminate()
+            process.wait(timeout=10)
+    assert read_entry_points(pyproject, PARSERS_EP) == {
+        "first": "package:first",
+        "second": "package:second",
+    }
 
 
 def test_register_entry_point_preserves_unrelated_toml(tmp_path: Path) -> None:
@@ -211,3 +310,11 @@ def test_register_entry_point_rejects_malformed_toml(tmp_path: Path) -> None:
 
     with pytest.raises(ParseError):
         register_entry_point(pyproject, PARSERS_EP, "parser", "package:parser")
+
+    pyproject.write_text("[project]\nname = 'example'\n", encoding="utf-8")
+    assert register_entry_point(
+        pyproject,
+        PARSERS_EP,
+        "parser",
+        "package:parser",
+    )

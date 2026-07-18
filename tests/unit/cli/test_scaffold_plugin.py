@@ -155,6 +155,9 @@ def test_scaffold_plugin_normalizes_hyphenated_name(tmp_path: Path) -> None:
     assert (dataset_root / "profiles" / "serve.dataset.yaml").is_file()
     assert (dataset_root / "profiles" / "serve.defaults.yaml").is_file()
     assert (plugin_root / "src" / "test_datapipeline" / "combiners").is_dir()
+    assert ".jerry-scaffold.lock" in (plugin_root / ".gitignore").read_text(
+        encoding="utf-8"
+    )
 
     pyproject = (plugin_root / "pyproject.toml").read_text()
     assert 'name = "test-datapipeline"' in pyproject

@@ -69,6 +69,41 @@ def _stream_from_document(
     return _STREAM_CONFIG_ADAPTER.validate_python(data)
 
 
+def _declared_ids(
+    project: ProjectManifest,
+    documents: tuple[YamlDocument, ...],
+) -> frozenset[str]:
+    ids: dict[str, Path] = {}
+    for document in documents:
+        raw_id = document.data.get("id")
+        if raw_id is None:
+            raise ValueError(f"Missing 'id' in config file: {document.path}")
+        resolved_id = resolve_config_refs(
+            raw_id,
+            project_yaml=project.path,
+            env=project.environment,
+        )
+        resolved_id = interpolate_config_vars(resolved_id, project.variables)
+        if not isinstance(resolved_id, str) or not resolved_id.strip():
+            raise ValueError(f"Invalid 'id' in config file: {document.path}")
+        resolved_id = resolved_id.strip()
+        previous = ids.get(resolved_id)
+        if previous is not None:
+            raise ValueError(
+                f"Duplicate ids in config files: {previous} and {document.path}"
+            )
+        ids[resolved_id] = document.path
+    return frozenset(ids)
+
+
+def declared_source_ids(project: ProjectManifest) -> frozenset[str]:
+    return _declared_ids(project, _source_documents(project))
+
+
+def declared_stream_ids(project: ProjectManifest) -> frozenset[str]:
+    return _declared_ids(project, _stream_documents(project))
+
+
 def _streams_from_documents(
     project: ProjectManifest,
     source_documents: tuple[YamlDocument, ...],

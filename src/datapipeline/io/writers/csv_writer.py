@@ -8,7 +8,7 @@ from datapipeline.io.sinks.files import AtomicTextFileSink
 
 class CsvFileWriter:
     def __init__(self, dest: Path, encoding: str = "utf-8") -> None:
-        self.sink = AtomicTextFileSink(dest, encoding=encoding)
+        self.sink = AtomicTextFileSink(dest, encoding=encoding, newline="")
         self.writer = csv.writer(self.sink.fh)
         self._header_written = False
         self._projector = CsvTableProjector(flat_payload)

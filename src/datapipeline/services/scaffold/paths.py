@@ -4,6 +4,8 @@ from pathlib import Path
 from datapipeline.services.definitions import ProjectManifest
 from datapipeline.services.path_policy import workspace_cwd
 from datapipeline.services.project import load_project
+from datapipeline.services.scaffold.locking import ScaffoldLock, acquire_scaffold_lock
+from datapipeline.services.scaffold.utils import write_new_file
 
 _DEFAULT_DOTENV_EXAMPLE = (
     "# Copy this file to .env next to project.yaml for local dataset-specific secrets.\n"
@@ -60,36 +62,40 @@ def default_project_yaml_path(plugin_root: Path) -> Path:
     return plugin_root / "your-dataset" / "project.yaml"
 
 
-def ensure_project_scaffold(project_yaml: Path) -> ProjectManifest:
+def ensure_project_scaffold(
+    project_yaml: Path,
+    scaffold_lock: ScaffoldLock | None = None,
+) -> ProjectManifest:
     """Create a minimal project and its configured directories when absent."""
-    if not project_yaml.exists():
-        project_yaml.parent.mkdir(parents=True, exist_ok=True)
-        project_yaml.write_text(
-            "schema_version: 2\n"
-            "artifact_revision: 1\n"
-            "name: default\n"
-            "paths:\n"
-            "  streams: ./streams\n"
-            "  sources: ./sources\n"
-            "  dataset: dataset.yaml\n"
-            "  artifacts: ../artifacts/default\n"
-            "  profiles: ./profiles\n"
-            "globals:\n"
-            "  start_time: 2021-01-01T00:00:00Z\n"
-            "  end_time: 2021-12-31T23:00:00Z\n",
-            encoding="utf-8",
-        )
+    with acquire_scaffold_lock(project_yaml.parent, scaffold_lock):
+        if not project_yaml.exists():
+            project_yaml.parent.mkdir(parents=True, exist_ok=True)
+            write_new_file(
+                project_yaml,
+                "schema_version: 2\n"
+                "artifact_revision: 1\n"
+                "name: default\n"
+                "paths:\n"
+                "  streams: ./streams\n"
+                "  sources: ./sources\n"
+                "  dataset: dataset.yaml\n"
+                "  artifacts: ../artifacts/default\n"
+                "  profiles: ./profiles\n"
+                "globals:\n"
+                "  start_time: 2021-01-01T00:00:00Z\n"
+                "  end_time: 2021-12-31T23:00:00Z\n",
+            )
 
-    project = load_project(project_yaml)
-    for streams in project.stream_dirs:
-        streams.mkdir(parents=True, exist_ok=True)
-    for sources in project.source_dirs:
-        sources.mkdir(parents=True, exist_ok=True)
-    if project.operations_dir is not None:
-        project.operations_dir.mkdir(parents=True, exist_ok=True)
-    project.profiles_dir.mkdir(parents=True, exist_ok=True)
+        project = load_project(project_yaml)
+        for streams in project.stream_dirs:
+            streams.mkdir(parents=True, exist_ok=True)
+        for sources in project.source_dirs:
+            sources.mkdir(parents=True, exist_ok=True)
+        if project.operations_dir is not None:
+            project.operations_dir.mkdir(parents=True, exist_ok=True)
+        project.profiles_dir.mkdir(parents=True, exist_ok=True)
 
-    dotenv_example = project_yaml.parent / ".env.example"
-    if not dotenv_example.exists():
-        dotenv_example.write_text(_DEFAULT_DOTENV_EXAMPLE, encoding="utf-8")
-    return project
+        dotenv_example = project_yaml.parent / ".env.example"
+        if not dotenv_example.exists():
+            write_new_file(dotenv_example, _DEFAULT_DOTENV_EXAMPLE)
+        return project

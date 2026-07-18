@@ -11,6 +11,10 @@ class PromptAborted(Exception):
     pass
 
 
+def _raise_write_failure(*args, **kwargs):
+    raise OSError("write failed")
+
+
 def _create_plugin(tmp_path: Path) -> Path:
     root = tmp_path / "plugin"
     package = root / "src" / "sample_plugin"
@@ -216,4 +220,65 @@ def test_mapper_collision_does_not_create_selected_dependencies(
     assert not (package / "domains").exists()
     if collision == "file":
         assert mapper_path.read_text(encoding="utf-8") == "existing mapper\n"
+    assert pyproject.read_bytes() == original_pyproject
+
+
+def test_parser_rolls_back_created_dto_when_registration_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    plugin = _create_plugin(tmp_path)
+    package = plugin / "src" / "sample_plugin"
+    pyproject = plugin / "pyproject.toml"
+    original_pyproject = pyproject.read_bytes()
+    monkeypatch.setattr(
+        "datapipeline.cli.commands.parser.choose_dto",
+        lambda existing, default=None: ("WeatherDTO", True),
+    )
+    monkeypatch.setattr(
+        "datapipeline.services.scaffold.entrypoints._write_document",
+        _raise_write_failure,
+    )
+
+    with pytest.raises(OSError, match="write failed"):
+        handle_parser("WeatherParser", plugin_root=plugin)
+
+    assert (package / "__init__.py").exists()
+    assert not (package / "dtos").exists()
+    assert not (package / "parsers").exists()
+    assert pyproject.read_bytes() == original_pyproject
+
+
+def test_mapper_rolls_back_created_dependencies_when_registration_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    plugin = _create_plugin(tmp_path)
+    package = plugin / "src" / "sample_plugin"
+    pyproject = plugin / "pyproject.toml"
+    original_pyproject = pyproject.read_bytes()
+    monkeypatch.setattr(
+        "datapipeline.cli.commands.mapper.pick_from_menu",
+        lambda *args, **kwargs: "dto",
+    )
+    monkeypatch.setattr(
+        "datapipeline.cli.commands.mapper.choose_dto",
+        lambda existing, default=None: ("WeatherDTO", True),
+    )
+    monkeypatch.setattr(
+        "datapipeline.cli.commands.mapper.choose_domain",
+        lambda existing, default=None: ("weather", True),
+    )
+    monkeypatch.setattr(
+        "datapipeline.services.scaffold.entrypoints._write_document",
+        _raise_write_failure,
+    )
+
+    with pytest.raises(OSError, match="write failed"):
+        handle_mapper("map_weather", plugin_root=plugin)
+
+    assert (package / "__init__.py").exists()
+    assert not (package / "dtos").exists()
+    assert not (package / "domains").exists()
+    assert not (package / "mappers").exists()
     assert pyproject.read_bytes() == original_pyproject

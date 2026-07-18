@@ -178,15 +178,15 @@ def handle(
     source_id = f"{provider}.{dataset}"
     try:
         validate_source_id(source_id)
+        loader_ep, loader_args = _resolve_loader_config(
+            transport,
+            format,
+            loader,
+            plugin_root,
+        )
     except ValueError as exc:
         logger.error("%s", exc)
         raise SystemExit(2) from None
-    loader_ep, loader_args = _resolve_loader_config(
-        transport,
-        format,
-        loader,
-        plugin_root,
-    )
     parser_ep = _resolve_parser_entrypoint(identity, parser, plugin_root)
 
     project_yaml = resolve_default_project_yaml(workspace)

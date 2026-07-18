@@ -52,7 +52,7 @@ def add_source_command(sub, common: argparse.ArgumentParser) -> None:
         "--format",
         "-f",
         choices=SOURCE_FS_FORMATS,
-        help="data format for fs/http transports (ignored otherwise)",
+        help="data format for fs/http transports; pickle requires fs",
     )
     create.add_argument(
         "--loader",

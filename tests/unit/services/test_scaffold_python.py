@@ -17,6 +17,18 @@ def _plugin_with_invalid_pyproject(tmp_path: Path) -> Path:
     return plugin
 
 
+def _valid_plugin(tmp_path: Path) -> Path:
+    plugin = tmp_path / "plugin"
+    package = plugin / "src" / "plugin"
+    package.mkdir(parents=True)
+    (package / "__init__.py").touch()
+    (plugin / "pyproject.toml").write_text(
+        "[project]\nname = 'plugin'\n",
+        encoding="utf-8",
+    )
+    return plugin
+
+
 def test_loader_validates_pyproject_before_creating_files(tmp_path: Path) -> None:
     plugin = _plugin_with_invalid_pyproject(tmp_path)
 
@@ -69,3 +81,26 @@ def test_loader_rejects_python_keyword_name(tmp_path: Path) -> None:
         create_loader(name="class", root=plugin)
 
     assert not (package / "loaders").exists()
+
+
+def test_loader_removes_created_files_when_registration_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    plugin = _valid_plugin(tmp_path)
+    pyproject = plugin / "pyproject.toml"
+    original = pyproject.read_bytes()
+
+    def fail_write(*args, **kwargs):
+        raise OSError("write failed")
+
+    monkeypatch.setattr(
+        "datapipeline.services.scaffold.entrypoints._write_document",
+        fail_write,
+    )
+
+    with pytest.raises(OSError, match="write failed"):
+        create_loader(name="WeatherLoader", root=plugin)
+
+    assert not (plugin / "src" / "plugin" / "loaders").exists()
+    assert pyproject.read_bytes() == original

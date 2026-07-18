@@ -86,5 +86,5 @@ class ServeOutputConfig(BaseModel):
                 try:
                     codecs.lookup(self.encoding)
                 except LookupError as exc:
-                    raise ValueError(f"Unknown encoding '{self.encoding}'") from exc
+                    raise ValueError("encoding must name a registered codec") from exc
         return self

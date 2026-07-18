@@ -2,9 +2,6 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Mapping
 
-from datapipeline.artifacts.registry import VECTOR_SCHEMA_SPEC
-from datapipeline.execution.context import PipelineContext
-
 from .adapter import VectorAdapter
 
 
@@ -22,15 +19,6 @@ def _resolve_columns(
     if target_columns is None:
         target_columns = []
     return list(feature_columns), list(target_columns)
-
-
-def _schema_columns(adapter: VectorAdapter) -> tuple[list[str], list[str]]:
-    context = PipelineContext(adapter.runtime)
-    schema = context.require_artifact(VECTOR_SCHEMA_SPEC)
-    return (
-        [entry.id for entry in schema.features],
-        [entry.id for entry in schema.targets],
-    )
 
 
 def torch_dataset(
@@ -55,6 +43,9 @@ def torch_dataset(
         ) from exc
 
     adapter = VectorAdapter.from_project(project_yaml, output_id=output_id)
+    schema_feature_columns, schema_target_columns = adapter.row_columns(
+        flatten_sequences
+    )
     rows = list(
         adapter.iter_rows(
             limit=limit,
@@ -62,8 +53,6 @@ def torch_dataset(
             flatten_sequences=flatten_sequences,
         )
     )
-
-    schema_feature_columns, schema_target_columns = _schema_columns(adapter)
     if feature_columns is None and schema_feature_columns:
         feature_columns = schema_feature_columns
     if target_columns is None:

@@ -12,6 +12,7 @@ from datapipeline.services.scaffold.layout import (
     ep_key_from_name,
     to_snake,
 )
+from datapipeline.services.scaffold.locking import ScaffoldLock, acquire_scaffold_lock
 from datapipeline.services.scaffold.paths import (
     ensure_base_pkg_dir,
     pkg_root,
@@ -21,19 +22,30 @@ from datapipeline.services.scaffold.templates import render
 from datapipeline.services.scaffold.utils import (
     ensure_pkg_dir,
     is_python_identifier,
+    rollback_new_scaffold_paths,
     write_new_file,
 )
+
+
+def mapper_scaffold_paths(name: str, root: Path | None) -> tuple[Path, ...]:
+    root_dir, pkg_name, _ = pkg_root(root)
+    base = resolve_base_pkg_dir(root_dir, pkg_name)
+    mappers_dir = base / DIR_MAPPERS
+    return (
+        base / "__init__.py",
+        mappers_dir / "__init__.py",
+        mappers_dir / f"{to_snake(name)}.py",
+    )
 
 
 def validate_mapper_creation(name: str, root: Path | None) -> None:
     if not is_python_identifier(name):
         raise ValueError("Mapper name must be a valid Python identifier")
-    root_dir, pkg_name, pyproject = pkg_root(root)
+    _, _, pyproject = pkg_root(root)
     entrypoint = ep_key_from_name(name)
     if entrypoint in read_entry_points(pyproject, MAPPERS_EP):
         raise FileExistsError(f"Mapper entry point '{entrypoint}' already exists")
-    base = resolve_base_pkg_dir(root_dir, pkg_name)
-    path = base / DIR_MAPPERS / f"{to_snake(name)}.py"
+    path = mapper_scaffold_paths(name, root)[-1]
     if path.exists():
         raise FileExistsError(f"{path} already exists")
 
@@ -45,36 +57,33 @@ def create_mapper(
     input_module: str,
     domain: str,
     root: Path | None,
+    scaffold_lock: ScaffoldLock | None = None,
 ) -> str:
-    validate_mapper_creation(name, root)
     root_dir, pkg_name, pyproject = pkg_root(root)
-    base = ensure_base_pkg_dir(root_dir, pkg_name)
-    package_name = base.name
-
-    mappers_dir = ensure_pkg_dir(base, DIR_MAPPERS)
-    module_name = to_snake(name)
-    path = mappers_dir / f"{module_name}.py"
-
-    domain_module = f"{package_name}.domains.{domain}.model"
-    domain_record = domain_record_class(domain)
-
-    write_new_file(
-        path,
-        render(
+    with acquire_scaffold_lock(pyproject.parent, scaffold_lock) as lock:
+        validate_mapper_creation(name, root)
+        created_paths = mapper_scaffold_paths(name, root)
+        base = created_paths[0].parent
+        path = created_paths[-1]
+        module_name = path.stem
+        content = render(
             TPL_MAPPER_SOURCE,
             FUNCTION_NAME=module_name,
             INPUT_CLASS=input_class,
             INPUT_IMPORT=input_module,
-            DOMAIN_MODULE=domain_module,
-            DOMAIN_RECORD=domain_record,
-        ),
-    )
-
-    ep_key = ep_key_from_name(name)
-    register_entry_point(
-        pyproject,
-        MAPPERS_EP,
-        ep_key,
-        f"{package_name}.mappers.{module_name}:{module_name}",
-    )
-    return ep_key
+            DOMAIN_MODULE=f"{base.name}.domains.{domain}.model",
+            DOMAIN_RECORD=domain_record_class(domain),
+        )
+        with rollback_new_scaffold_paths(created_paths):
+            ensure_base_pkg_dir(root_dir, pkg_name)
+            ensure_pkg_dir(base, DIR_MAPPERS)
+            write_new_file(path, content)
+            ep_key = ep_key_from_name(name)
+            register_entry_point(
+                pyproject,
+                MAPPERS_EP,
+                ep_key,
+                f"{base.name}.mappers.{module_name}:{module_name}",
+                scaffold_lock=lock,
+            )
+            return ep_key

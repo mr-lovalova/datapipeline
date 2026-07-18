@@ -1,14 +1,14 @@
 # Required identifier for this raw source. Source-backed streams reference it under `from.source`.
-id: "{{ id }}"  # suggested format: provider.dataset
+id: {{ id | tojson }}  # suggested format: provider.dataset
 
 # parser.entrypoint: registered parser name (not a file path)
 parser:
-  entrypoint: "{{ parser_ep }}"
+  entrypoint: {{ parser_ep | tojson }}
   args:
 {{ parser_args | to_yaml(4) }}
 
 # loader.entrypoint: registered loader name (not a file path)
 loader:
-  entrypoint: "{{ loader_ep }}"
+  entrypoint: {{ loader_ep | tojson }}
   args:
 {{ loader_args | to_yaml(4) }}

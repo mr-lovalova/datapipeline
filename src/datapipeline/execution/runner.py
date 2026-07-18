@@ -281,12 +281,9 @@ def _run_observed(
                 break
             progress.output_items += 1
             yield item
-    except KeyboardInterrupt as exc:
-        status = "error"
-        error_type = type(exc).__name__
-        error_message = _error_message(exc)
+    except GeneratorExit:
         raise
-    except Exception as exc:
+    except BaseException as exc:
         status = "error"
         error_type = type(exc).__name__
         error_message = _error_message(exc)
@@ -417,6 +414,7 @@ def _unobserved_node(
 ) -> Iterator[Any]:
     produced: Iterable[Any] = ()
     iterator: Iterator[Any] = iter(())
+    processing_failed = False
     try:
         produced = _open_node(node, upstream)
         if produced is None:
@@ -425,12 +423,21 @@ def _unobserved_node(
             )
         iterator = iter(produced)
         yield from iterator
+    except GeneratorExit:
+        raise
+    except BaseException:
+        processing_failed = True
+        raise
     finally:
-        _close_iterator(iterator)
-        if iterator is not produced:
-            _close_iterator(produced)
-        if upstream is not None and produced is not upstream:
-            _close_iterator(upstream)
+        try:
+            _close_iterator(iterator)
+            if iterator is not produced:
+                _close_iterator(produced)
+            if upstream is not None and produced is not upstream:
+                _close_iterator(upstream)
+        except BaseException:
+            if not processing_failed:
+                raise
 
 
 def _observed_node(
@@ -486,17 +493,15 @@ def _observed_node(
             output_items += 1
             progress_state.completed = output_items
             yield item
-    except KeyboardInterrupt as exc:
-        status = "error"
-        error_type = type(exc).__name__
-        error_message = _error_message(exc)
+    except GeneratorExit:
         raise
-    except Exception as exc:
+    except BaseException as exc:
         status = "error"
         error_type = type(exc).__name__
         error_message = _error_message(exc)
         raise
     finally:
+        node_failed = status == "error"
         close_error: BaseException | None = None
         try:
             _close_iterator(iterator)
@@ -506,9 +511,10 @@ def _observed_node(
                 _close_iterator(upstream)
         except BaseException as exc:
             close_error = exc
-            status = "error"
-            error_type = type(exc).__name__
-            error_message = _error_message(exc)
+            if not node_failed:
+                status = "error"
+                error_type = type(exc).__name__
+                error_message = _error_message(exc)
         finally:
             progress.clear(context)
 
@@ -525,5 +531,5 @@ def _observed_node(
                     error_message=error_message,
                 )
             )
-        if close_error is not None:
+        if not node_failed and close_error is not None:
             raise close_error

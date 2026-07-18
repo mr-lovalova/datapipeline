@@ -988,6 +988,57 @@ def test_job_failure_marks_shared_run_failed(monkeypatch, tmp_path: Path) -> Non
     assert failed == [run_paths]
 
 
+def test_latest_failure_still_finalizes_all_runs(
+    monkeypatch,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    task = OperationTask(id="pipeline", entrypoint="plugin.runtime")
+    first = _run_paths(tmp_path / "first")
+    second = _run_paths(tmp_path / "second")
+    request = _runtime_request(
+        tmp_path,
+        command="serve",
+        artifact_tasks=[],
+        jobs=[_runtime_job("serve", task, _runtime(tmp_path))],
+        serve_run_plans=(ServeRunPlan(first, None), ServeRunPlan(second, None)),
+    )
+    latest: list[RunPaths] = []
+
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.run_execution",
+        lambda _spec, work: work(),
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.execute_runtime_job",
+        lambda *_args: None,
+    )
+
+    def set_latest(paths: RunPaths) -> None:
+        latest.append(paths)
+        if paths == first:
+            raise OSError("latest failed")
+        raise OSError("second latest failed")
+
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.set_latest_run",
+        set_latest,
+    )
+
+    with caplog.at_level(logging.ERROR):
+        with pytest.raises(OSError, match="latest failed"):
+            run_profiles(request)
+
+    metadata = [
+        json.loads(paths.metadata_path.read_text(encoding="utf-8"))
+        for paths in (first, second)
+    ]
+    assert [item["status"] for item in metadata] == ["success", "success"]
+    assert all(item["finished_at"] is not None for item in metadata)
+    assert latest == [first, second]
+    assert "second latest failed" in caplog.text
+
+
 def test_later_output_commit_failure_marks_run_failed_and_preserves_latest(
     monkeypatch,
     tmp_path: Path,

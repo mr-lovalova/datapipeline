@@ -5,6 +5,8 @@ from pathlib import Path
 from typing import Any, Literal
 
 from datapipeline.artifacts.hydration import hydrate_runtime_artifacts_for_pipeline
+from datapipeline.artifacts.models import VectorSchemaEntry
+from datapipeline.artifacts.registry import VECTOR_SCHEMA_SPEC
 from datapipeline.artifacts.specs import dataset_requires_scaler
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 from datapipeline.config.dataset.split import (
@@ -16,6 +18,7 @@ from datapipeline.config.dataset.split import (
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
 from datapipeline.execution.context import PipelineContext
+from datapipeline.pipelines.dataset.nodes import build_postprocess_plan
 from datapipeline.pipelines.dataset.pipeline import (
     run_dataset_pipeline,
     run_fold_dataset_pipeline,
@@ -26,6 +29,22 @@ from datapipeline.services.pipeline import load_pipeline
 from datapipeline.services.runtime_compiler import compile_runtime
 
 GroupFormat = Literal["mapping", "tuple", "list", "flat"]
+
+
+def _schema_entry_columns(
+    entries: Sequence[VectorSchemaEntry],
+    flatten_sequences: bool,
+) -> list[str]:
+    columns: list[str] = []
+    for entry in entries:
+        if flatten_sequences and entry.kind == "list":
+            assert entry.cadence is not None
+            columns.extend(
+                f"{entry.id}[{index}]" for index in range(entry.cadence.target)
+            )
+        else:
+            columns.append(entry.id)
+    return columns
 
 
 def _normalize_group(
@@ -107,6 +126,8 @@ class VectorAdapter:
         group_column: str = "group",
         flatten_sequences: bool = False,
     ) -> Generator[dict[str, Any], None, None]:
+        if flatten_sequences:
+            self.row_columns(flatten_sequences=True)
         samples = self._samples(limit)
         sample_keys = self.dataset.sample.keys
         try:
@@ -129,6 +150,34 @@ class VectorAdapter:
                 yield row
         finally:
             samples.close()
+
+    def row_columns(
+        self,
+        flatten_sequences: bool = False,
+    ) -> tuple[list[str], list[str]]:
+        context = PipelineContext(self.runtime)
+        schema = context.require_artifact(VECTOR_SCHEMA_SPEC)
+        postprocess = build_postprocess_plan(context)
+        feature_by_id = {entry.id: entry for entry in schema.features}
+        target_by_id = {entry.id: entry for entry in schema.targets}
+        feature_columns = _schema_entry_columns(
+            [feature_by_id[identifier] for identifier in postprocess.feature_ids],
+            flatten_sequences,
+        )
+        target_columns = _schema_entry_columns(
+            [target_by_id[identifier] for identifier in postprocess.target_ids],
+            flatten_sequences,
+        )
+        if flatten_sequences:
+            seen: set[str] = set()
+            for column in [*feature_columns, *target_columns]:
+                if column in seen:
+                    raise ValueError(
+                        f"Flattened row column {column!r} is produced by multiple "
+                        "postprocessed schema entries."
+                    )
+                seen.add(column)
+        return feature_columns, target_columns
 
     def _samples(self, limit: int | None) -> Generator[Sample, None, None]:
         features = list(self.dataset.features)

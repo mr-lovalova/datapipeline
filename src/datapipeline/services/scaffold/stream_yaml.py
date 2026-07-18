@@ -2,8 +2,27 @@ from pathlib import Path
 
 from datapipeline.config.streams import AlignedStreamConfig, SourceStreamConfig
 from datapipeline.services.project import load_project
+from datapipeline.services.scaffold.locking import ScaffoldLock, acquire_scaffold_lock
 from datapipeline.services.scaffold.paths import ensure_project_scaffold
 from datapipeline.services.scaffold.templates import render
+from datapipeline.services.scaffold.utils import write_new_file
+from datapipeline.services.streams.loader import declared_stream_ids
+
+
+def _new_stream_path(
+    project_yaml: Path,
+    stream_id: str,
+    scaffold_lock: ScaffoldLock,
+) -> Path:
+    if project_yaml.exists():
+        project = load_project(project_yaml)
+        path = project.stream_dirs[0] / f"{stream_id}.yaml"
+        if path.exists():
+            raise FileExistsError(f"{path} already exists")
+    project = ensure_project_scaffold(project_yaml, scaffold_lock)
+    if stream_id in declared_stream_ids(project):
+        raise FileExistsError(f"Stream id '{stream_id}' already exists")
+    return project.stream_dirs[0] / f"{stream_id}.yaml"
 
 
 def write_source_stream(
@@ -11,31 +30,25 @@ def write_source_stream(
     stream_id: str,
     source: str,
     mapper_entrypoint: str,
+    scaffold_lock: ScaffoldLock | None = None,
 ) -> Path:
-    config = SourceStreamConfig.model_validate(
-        {
-            "id": stream_id,
-            "from": {"source": source},
-            "map": {"entrypoint": mapper_entrypoint},
-        }
-    )
-    if project_yaml.exists():
-        project = load_project(project_yaml)
-        existing_path = project.stream_dirs[0] / f"{config.id}.yaml"
-        if existing_path.exists():
-            raise FileExistsError(f"{existing_path} already exists")
-    project = ensure_project_scaffold(project_yaml)
-    streams_dir = project.stream_dirs[0]
-    path = streams_dir / f"{config.id}.yaml"
-    content = render(
-        "streams/source.yaml.j2",
-        source=config.from_.source,
-        stream_id=config.id,
-        mapper_entrypoint=config.map.entrypoint,
-    )
-    with path.open("x", encoding="utf-8") as stream_file:
-        stream_file.write(content)
-    return path
+    with acquire_scaffold_lock(project_yaml.parent, scaffold_lock) as project_lock:
+        config = SourceStreamConfig.model_validate(
+            {
+                "id": stream_id,
+                "from": {"source": source},
+                "map": {"entrypoint": mapper_entrypoint},
+            }
+        )
+        path = _new_stream_path(project_yaml, config.id, project_lock)
+        content = render(
+            "streams/source.yaml.j2",
+            source=config.from_.source,
+            stream_id=config.id,
+            mapper_entrypoint=config.map.entrypoint,
+        )
+        write_new_file(path, content)
+        return path
 
 
 def write_aligned_stream(
@@ -43,31 +56,25 @@ def write_aligned_stream(
     stream_id: str,
     input_streams: list[str],
     combine_entrypoint: str,
+    scaffold_lock: ScaffoldLock | None = None,
 ) -> Path:
-    config = AlignedStreamConfig.model_validate(
-        {
-            "id": stream_id,
-            "from": {"align": input_streams},
-            "combine": {"entrypoint": combine_entrypoint},
-        }
-    )
-    if project_yaml.exists():
-        project = load_project(project_yaml)
-        existing_path = project.stream_dirs[0] / f"{config.id}.yaml"
-        if existing_path.exists():
-            raise FileExistsError(f"{existing_path} already exists")
-    project = ensure_project_scaffold(project_yaml)
-    streams_dir = project.stream_dirs[0]
-    path = streams_dir / f"{config.id}.yaml"
-    content = (
-        render(
-            "streams/aligned.yaml.j2",
-            stream_id=config.id,
-            input_streams=list(config.from_.align),
-            combine_entrypoint=config.combine.entrypoint,
-        ).strip()
-        + "\n"
-    )
-    with path.open("x", encoding="utf-8") as stream_file:
-        stream_file.write(content)
-    return path
+    with acquire_scaffold_lock(project_yaml.parent, scaffold_lock) as project_lock:
+        config = AlignedStreamConfig.model_validate(
+            {
+                "id": stream_id,
+                "from": {"align": input_streams},
+                "combine": {"entrypoint": combine_entrypoint},
+            }
+        )
+        path = _new_stream_path(project_yaml, config.id, project_lock)
+        content = (
+            render(
+                "streams/aligned.yaml.j2",
+                stream_id=config.id,
+                input_streams=list(config.from_.align),
+                combine_entrypoint=config.combine.entrypoint,
+            ).strip()
+            + "\n"
+        )
+        write_new_file(path, content)
+        return path
