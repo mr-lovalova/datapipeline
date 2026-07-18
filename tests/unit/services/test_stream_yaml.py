@@ -85,6 +85,62 @@ def test_aligned_stream_refuses_to_replace_existing_config(tmp_path: Path) -> No
     assert path.read_text(encoding="utf-8") == "existing\n"
 
 
+def test_stream_scaffold_rejects_existing_id_in_another_root(tmp_path: Path) -> None:
+    project_yaml = tmp_path / "project.yaml"
+    project = ensure_project_scaffold(project_yaml)
+    common_streams = tmp_path / "common" / "streams"
+    common_streams.mkdir(parents=True)
+    project_yaml.write_text(
+        project_yaml.read_text(encoding="utf-8").replace(
+            "  streams: ./streams",
+            "  streams: [./streams, ./common/streams]",
+        ),
+        encoding="utf-8",
+    )
+    (common_streams / "existing.yaml").write_text(
+        "id: prices.daily\n"
+        "from: {source: provider.prices}\n"
+        "map: {entrypoint: identity}\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(FileExistsError, match="Stream id 'prices.daily'"):
+        write_source_stream(
+            project_yaml,
+            "prices.daily",
+            "provider.prices",
+            "identity",
+        )
+
+    assert not (project.stream_dirs[0] / "prices.daily.yaml").exists()
+
+
+def test_stream_scaffold_does_not_validate_unrelated_stream_values(
+    tmp_path: Path,
+) -> None:
+    project_yaml = tmp_path / "project.yaml"
+    project = ensure_project_scaffold(project_yaml)
+    (project_yaml.parent / ".env").write_text(
+        "SECRET=TOP-SECRET-VALUE\n",
+        encoding="utf-8",
+    )
+    (project.stream_dirs[0] / "existing.yaml").write_text(
+        "id: prices.existing\n"
+        "from: {source: '${env:SECRET}'}\n"
+        "map: {entrypoint: identity}\n",
+        encoding="utf-8",
+    )
+
+    path = write_source_stream(
+        project_yaml,
+        "prices.daily",
+        "provider.prices",
+        "identity",
+    )
+
+    assert path.name == "prices.daily.yaml"
+
+
 def test_stream_scaffolds_render_valid_configs(tmp_path: Path) -> None:
     project_yaml = tmp_path / "project.yaml"
 
@@ -109,3 +165,34 @@ def test_stream_scaffolds_render_valid_configs(tmp_path: Path) -> None:
     )
     assert source.id == "prices.daily-us"
     assert aligned.from_.align == ("prices.bid", "prices.ask")
+
+
+def test_stream_scaffolds_quote_yaml_sensitive_strings(tmp_path: Path) -> None:
+    project_yaml = tmp_path / "project.yaml"
+
+    source_path = write_source_stream(
+        project_yaml,
+        "null",
+        "null",
+        "null",
+    )
+    aligned_path = write_aligned_stream(
+        project_yaml,
+        "yes",
+        ["null", "off"],
+        "null",
+    )
+
+    source = SourceStreamConfig.model_validate(
+        yaml.safe_load(source_path.read_text(encoding="utf-8"))
+    )
+    aligned = AlignedStreamConfig.model_validate(
+        yaml.safe_load(aligned_path.read_text(encoding="utf-8"))
+    )
+
+    assert source.id == "null"
+    assert source.from_.source == "null"
+    assert source.map.entrypoint == "null"
+    assert aligned.id == "yes"
+    assert aligned.from_.align == ("null", "off")
+    assert aligned.combine.entrypoint == "null"

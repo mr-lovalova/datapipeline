@@ -138,8 +138,8 @@ def test_stream_identity_mapper_skips_scaffold(
 
     stream_path = streams_dir / "weather.weather.yaml"
     assert stream_path.exists()
-    text = stream_path.read_text()
-    assert "entrypoint: identity" in text
+    document = yaml.safe_load(stream_path.read_text(encoding="utf-8"))
+    assert document["map"]["entrypoint"] == "identity"
     package = plugin_root / "src" / "sample_plugin"
     assert not (package / "dtos").exists()
     assert not (package / "domains").exists()

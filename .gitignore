@@ -37,5 +37,6 @@ mutants/
 .idea/
 
 # Project-specific
+.jerry-scaffold.lock
 src/datapipeline.egg-info/
 tests/fixtures/**/build/

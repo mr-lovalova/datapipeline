@@ -5,6 +5,10 @@ from tomlkit.items import AbstractTable, InlineTable
 from tomlkit.toml_document import TOMLDocument
 
 from datapipeline.io.sinks.files import AtomicTextFileSink
+from datapipeline.services.scaffold.locking import (
+    ScaffoldLock,
+    acquire_scaffold_lock,
+)
 
 
 def _write_document(pyproject: Path, document: TOMLDocument, original: str) -> None:
@@ -21,7 +25,7 @@ def _write_document(pyproject: Path, document: TOMLDocument, original: str) -> N
         raise
 
 
-def register_entry_point(
+def _register_entry_point(
     pyproject: Path,
     group: str,
     key: str,
@@ -88,6 +92,18 @@ def register_entry_point(
         entries[key] = target
     _write_document(pyproject, document, original)
     return True
+
+
+def register_entry_point(
+    pyproject: Path,
+    group: str,
+    key: str,
+    target: str,
+    scaffold_lock: ScaffoldLock | None = None,
+) -> bool:
+    resolved = pyproject.resolve()
+    with acquire_scaffold_lock(resolved.parent, scaffold_lock):
+        return _register_entry_point(resolved, group, key, target)
 
 
 def read_entry_points(pyproject: Path, group: str) -> dict[str, str]:

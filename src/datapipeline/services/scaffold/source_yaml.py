@@ -2,6 +2,7 @@ import re
 from pathlib import Path
 
 from datapipeline.services.project import load_project
+from datapipeline.services.scaffold.locking import ScaffoldLock, acquire_scaffold_lock
 from datapipeline.services.scaffold.paths import (
     default_project_yaml_path,
     ensure_project_scaffold,
@@ -9,6 +10,7 @@ from datapipeline.services.scaffold.paths import (
 )
 from datapipeline.services.scaffold.templates import render
 from datapipeline.services.scaffold.utils import write_new_file
+from datapipeline.services.streams.loader import declared_source_ids
 
 DEFAULT_IO_LOADER_EP = "core.io"
 DEFAULT_SYNTHETIC_LOADER_EP = "core.synthetic.ticks"
@@ -21,12 +23,15 @@ def _loader_args(transport: str, fmt: str | None) -> dict[str, object]:
             "transport": "fs",
             "format": fmt or "<FORMAT (csv|json|jsonl|pickle)>",
             "path": "<PATH OR GLOB>",
-            "encoding": "utf-8",
         }
+        if fmt != "pickle":
+            args["encoding"] = "utf-8"
         if fmt == "csv":
             args["delimiter"] = ","
         return args
     if transport == "http":
+        if fmt == "pickle":
+            raise ValueError("Source format 'pickle' is not supported for http")
         args = {
             "transport": "http",
             "format": fmt or "<FORMAT (json|jsonl|csv)>",
@@ -67,38 +72,39 @@ def create_source_yaml(
     parser_args: dict[str, object] | None = None,
     root: Path | None,
     project_yaml: Path | None = None,
+    scaffold_lock: ScaffoldLock | None = None,
 ) -> Path:
     root_dir, _, _ = pkg_root(root)
-    validate_source_id(source_id)
-    parser_args = parser_args or {}
-
     proj_yaml = (
         project_yaml.resolve()
         if project_yaml is not None
         else default_project_yaml_path(root_dir)
     )
-    if proj_yaml.exists():
-        project = load_project(proj_yaml)
-        existing_path = project.source_dirs[0] / f"{source_id}.yaml"
-        if existing_path.exists():
-            raise FileExistsError(f"{existing_path} already exists")
-    project = ensure_project_scaffold(proj_yaml)
-    sources_dir = project.source_dirs[0]
-
-    src_cfg_path = sources_dir / f"{source_id}.yaml"
-    write_new_file(
-        src_cfg_path,
-        render(
-            "source.yaml.j2",
-            id=source_id,
-            parser_ep=parser_ep,
-            parser_args=parser_args,
-            loader_ep=loader_ep,
-            loader_args=loader_args,
-            default_io_loader_ep=DEFAULT_IO_LOADER_EP,
-        ),
-    )
-    return src_cfg_path.resolve()
+    with acquire_scaffold_lock(proj_yaml.parent, scaffold_lock) as project_lock:
+        validate_source_id(source_id)
+        parser_args = parser_args or {}
+        if proj_yaml.exists():
+            project = load_project(proj_yaml)
+            existing_path = project.source_dirs[0] / f"{source_id}.yaml"
+            if existing_path.exists():
+                raise FileExistsError(f"{existing_path} already exists")
+        project = ensure_project_scaffold(proj_yaml, project_lock)
+        if source_id in declared_source_ids(project):
+            raise FileExistsError(f"Source id '{source_id}' already exists")
+        src_cfg_path = project.source_dirs[0] / f"{source_id}.yaml"
+        write_new_file(
+            src_cfg_path,
+            render(
+                "source.yaml.j2",
+                id=source_id,
+                parser_ep=parser_ep,
+                parser_args=parser_args,
+                loader_ep=loader_ep,
+                loader_args=loader_args,
+                default_io_loader_ep=DEFAULT_IO_LOADER_EP,
+            ),
+        )
+        return src_cfg_path.resolve()
 
 
 def default_loader_config(

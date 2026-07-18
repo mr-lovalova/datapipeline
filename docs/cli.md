@@ -129,7 +129,7 @@ filtering.
     combine function receives one matching record from each input in the
     selected order and returns one record or `None`.
   - `--identity` applies only to source-backed streams.
-- `jerry source create <provider>.<dataset> --transport fs|http|synthetic --format csv|json|jsonl|pickle`
+- `jerry source create <provider>.<dataset> --transport fs|http|synthetic --format csv|json|jsonl|pickle` (`pickle` requires `fs`)
   - Also supports positional `<provider> <dataset>` and `--alias <provider>.<dataset>`.
   - Creates a source YAML only (no Python code).
 - `jerry domain create <name>` (also supports `-n/--name`)

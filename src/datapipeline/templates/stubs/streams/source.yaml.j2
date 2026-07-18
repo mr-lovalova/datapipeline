@@ -1,10 +1,10 @@
-id: {{ stream_id }}  # format: domain.dataset.(variant)
+id: {{ stream_id | tojson }}  # format: domain.dataset.(variant)
 
 from:
-  source: {{ source }}
+  source: {{ source | tojson }}
 
 map:
-  entrypoint: {{ mapper_entrypoint }}
+  entrypoint: {{ mapper_entrypoint | tojson }}
   args: {}
 
 # partition_by: [field]  # complete series identity; time is reserved

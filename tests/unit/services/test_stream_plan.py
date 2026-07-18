@@ -89,6 +89,46 @@ def test_invalid_source_id_fails_before_project_mutation(monkeypatch, tmp_path) 
         execute_stream_plan(plan)
 
 
+def test_existing_project_with_missing_config_dirs_can_be_scaffolded(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    _patch_project(monkeypatch, tmp_path)
+    project_yaml = tmp_path / "project.yaml"
+    project_yaml.write_text(
+        "schema_version: 2\n"
+        "artifact_revision: 1\n"
+        "name: default\n"
+        "paths:\n"
+        "  streams: ./streams\n"
+        "  sources: ./sources\n"
+        "  dataset: dataset.yaml\n"
+        "  artifacts: ./artifacts\n"
+        "  profiles: ./profiles\n"
+        "globals: {}\n",
+        encoding="utf-8",
+    )
+    plan = StreamPlan(
+        project_yaml=project_yaml,
+        stream_id="weather.weather",
+        root=tmp_path,
+        source=SourceCreation(
+            source_id="demo.weather",
+            loader_entrypoint="custom.loader",
+            loader_args={},
+            parser=ParserReference("identity"),
+        ),
+        mapper=MapperReference("identity"),
+        domain=DomainReference("weather"),
+        dto_to_create=None,
+    )
+
+    result = execute_stream_plan(plan)
+
+    assert result.path == tmp_path / "streams" / "weather.weather.yaml"
+    assert (tmp_path / "sources" / "demo.weather.yaml").exists()
+
+
 def test_existing_source_fails_before_creating_planned_components(
     monkeypatch,
     tmp_path: Path,
@@ -97,8 +137,22 @@ def test_existing_source_fails_before_creating_planned_components(
     original_pyproject = pyproject.read_bytes()
     project_yaml = tmp_path / "project.yaml"
     project = ensure_project_scaffold(project_yaml)
-    source_path = project.source_dirs[0] / "nasa.weather.yaml"
-    source_path.write_text("existing source\n", encoding="utf-8")
+    common_sources = tmp_path / "common" / "sources"
+    common_sources.mkdir(parents=True)
+    project_yaml.write_text(
+        project_yaml.read_text(encoding="utf-8").replace(
+            "  sources: ./sources",
+            "  sources: [./sources, ./common/sources]",
+        ),
+        encoding="utf-8",
+    )
+    source_path = common_sources / "existing.yaml"
+    source_path.write_text(
+        "id: nasa.weather\n"
+        "parser: {entrypoint: identity}\n"
+        "loader: {entrypoint: identity}\n",
+        encoding="utf-8",
+    )
     dto = PythonType("WeatherDTO", "example.dtos.weather_dto")
     plan = StreamPlan(
         project_yaml=project_yaml,
@@ -115,12 +169,12 @@ def test_existing_source_fails_before_creating_planned_components(
         dto_to_create="WeatherDTO",
     )
 
-    with pytest.raises(FileExistsError, match="nasa.weather.yaml"):
+    with pytest.raises(FileExistsError, match="Source id 'nasa.weather'"):
         execute_stream_plan(plan)
 
     assert not (tmp_path / "src").exists()
     assert not (project.stream_dirs[0] / "weather.weather.yaml").exists()
-    assert source_path.read_text(encoding="utf-8") == "existing source\n"
+    assert "id: nasa.weather" in source_path.read_text(encoding="utf-8")
     assert pyproject.read_bytes() == original_pyproject
 
 
@@ -132,8 +186,22 @@ def test_existing_stream_fails_before_creating_planned_components(
     original_pyproject = pyproject.read_bytes()
     project_yaml = tmp_path / "project.yaml"
     project = ensure_project_scaffold(project_yaml)
-    stream_path = project.stream_dirs[0] / "weather.weather.yaml"
-    stream_path.write_text("existing stream\n", encoding="utf-8")
+    common_streams = tmp_path / "common" / "streams"
+    common_streams.mkdir(parents=True)
+    project_yaml.write_text(
+        project_yaml.read_text(encoding="utf-8").replace(
+            "  streams: ./streams",
+            "  streams: [./streams, ./common/streams]",
+        ),
+        encoding="utf-8",
+    )
+    stream_path = common_streams / "existing.yaml"
+    stream_path.write_text(
+        "id: weather.weather\n"
+        "from: {source: nasa.weather}\n"
+        "map: {entrypoint: identity}\n",
+        encoding="utf-8",
+    )
     dto = PythonType("WeatherDTO", "example.dtos.weather_dto")
     plan = StreamPlan(
         project_yaml=project_yaml,
@@ -150,12 +218,12 @@ def test_existing_stream_fails_before_creating_planned_components(
         dto_to_create="WeatherDTO",
     )
 
-    with pytest.raises(FileExistsError, match="weather.weather.yaml"):
+    with pytest.raises(FileExistsError, match="Stream id 'weather.weather'"):
         execute_stream_plan(plan)
 
     assert not (tmp_path / "src").exists()
     assert not (project.source_dirs[0] / "nasa.weather.yaml").exists()
-    assert stream_path.read_text(encoding="utf-8") == "existing stream\n"
+    assert "id: weather.weather" in stream_path.read_text(encoding="utf-8")
     assert pyproject.read_bytes() == original_pyproject
 
 
@@ -207,10 +275,10 @@ def test_creation_plan_executes_exact_declared_components(
     mapper_call: dict[str, object] = {}
     stream_call: dict[str, object] = {}
 
-    def create_domain(domain, root):
+    def create_domain(domain, root, **kwargs):
         order.append("domain")
 
-    def create_dto(name, root):
+    def create_dto(name, root, **kwargs):
         order.append("dto")
 
     def create_parser(**kwargs):
@@ -332,7 +400,7 @@ def test_dto_creation_is_a_single_explicit_plan_action(monkeypatch, tmp_path) ->
 
     monkeypatch.setattr(
         "datapipeline.services.scaffold.stream_plan.create_dto",
-        lambda name, root: created_dto.update(name=name, root=root),
+        lambda name, root, **kwargs: created_dto.update(name=name, root=root),
     )
     monkeypatch.setattr(
         "datapipeline.services.scaffold.stream_plan.create_mapper",
@@ -359,3 +427,55 @@ def test_dto_creation_is_a_single_explicit_plan_action(monkeypatch, tmp_path) ->
 
     assert created_dto["name"] == "WeatherDTO"
     assert mapper_call["input_module"] == "example.dtos.weather_dto"
+
+
+def test_stream_plan_rolls_back_after_late_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    plugin = tmp_path / "plugin"
+    package = plugin / "src" / "example"
+    package.mkdir(parents=True)
+    (package / "__init__.py").touch()
+    pyproject = plugin / "pyproject.toml"
+    pyproject.write_text("[project]\nname = 'example'\n", encoding="utf-8")
+    original_pyproject = pyproject.read_bytes()
+    project_yaml = plugin / "your-dataset" / "project.yaml"
+    dto = PythonType("WeatherDTO", "example.dtos.weather_dto")
+    plan = StreamPlan(
+        project_yaml=project_yaml,
+        stream_id="weather.hourly",
+        root=plugin,
+        source=SourceCreation(
+            source_id="nasa.weather",
+            loader_entrypoint="custom.loader",
+            loader_args={},
+            parser=ParserCreation("WeatherParser", dto),
+        ),
+        mapper=MapperCreation("map_weather", dto),
+        domain=DomainCreation("weather"),
+        dto_to_create="WeatherDTO",
+    )
+
+    def fail_stream_write(**kwargs):
+        raise OSError("stream write failed")
+
+    monkeypatch.setattr(
+        "datapipeline.services.scaffold.stream_plan.write_source_stream",
+        fail_stream_write,
+    )
+
+    with pytest.raises(OSError, match="stream write failed"):
+        execute_stream_plan(plan)
+
+    assert pyproject.read_bytes() == original_pyproject
+    assert (package / "__init__.py").exists()
+    assert not (package / "domains").exists()
+    assert not (package / "dtos").exists()
+    assert not (package / "parsers").exists()
+    assert not (package / "mappers").exists()
+    assert not project_yaml.exists()
+    assert not (project_yaml.parent / ".env.example").exists()
+    assert not (project_yaml.parent / "sources").exists()
+    assert not (project_yaml.parent / "streams").exists()
+    assert not (project_yaml.parent / "profiles").exists()
