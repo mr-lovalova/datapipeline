@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from datapipeline.artifacts.registry import ArtifactRegistry
-from datapipeline.config.dataset.dataset import FeatureDatasetConfig
+from datapipeline.config.dataset.dataset import DatasetConfig
 from datapipeline.config.execution import ExecutionConfig
 from datapipeline.config.transforms import PreprocessConfig, TransformConfig
 from datapipeline.domain.stream import RecordStream
@@ -52,7 +52,7 @@ class Runtime:
 
     project_yaml: Path
     artifacts_root: Path
-    dataset: FeatureDatasetConfig
+    dataset: DatasetConfig
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
     streams: dict[str, RuntimeStream] = field(default_factory=dict)
     output_ids: tuple[str, ...] = ()

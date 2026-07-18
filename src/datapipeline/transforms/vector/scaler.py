@@ -5,7 +5,7 @@ from dataclasses import dataclass, replace
 from numbers import Real
 
 from datapipeline.artifacts.scaler import ScalerStatistics, StandardScalerArtifact
-from datapipeline.domain.feature_id import base_id
+from datapipeline.domain.variable_id import base_id
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
 

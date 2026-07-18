@@ -6,8 +6,8 @@ import pytest
 
 from datapipeline.artifacts.models import VectorMetadata, VectorStatsArtifact
 from datapipeline.artifacts.specs import VECTOR_METADATA, VECTOR_STATS
-from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
-from datapipeline.config.dataset.feature import FeatureRecordConfig
+from datapipeline.config.dataset.dataset import DatasetConfig, SampleConfig
+from datapipeline.config.dataset.variable import VariableConfig
 from datapipeline.config.tasks import CoverageTask, MatrixTask
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
@@ -93,9 +93,9 @@ class _MatrixContext:
 
 def _matrix_runtime():
     return SimpleNamespace(
-        dataset=FeatureDatasetConfig(
+        dataset=DatasetConfig(
             sample=SampleConfig(cadence="1h"),
-            features=[FeatureRecordConfig(id="speed", stream="stream", field="value")],
+            features=[VariableConfig(id="speed", stream="stream", field="value")],
         )
     )
 

@@ -9,34 +9,33 @@ from typing import Any, cast
 
 import pytest
 
-from datapipeline.domain.feature import FeatureRecord, FeatureSequence
-from datapipeline.domain.record import TemporalRecord
-from datapipeline.vector_inputs.store import (
-    VECTOR_INPUTS_MANIFEST_VERSION,
-    feature_record_to_vector_input_row,
-    load_vector_inputs_manifest,
-    open_vector_input_records,
-    write_vector_input_rows,
+from datapipeline.artifacts.variable_records import (
+    VARIABLE_RECORDS_MANIFEST_VERSION,
+    variable_record_to_row,
+    load_variable_records_manifest,
+    open_variable_records,
+    write_variable_rows,
 )
+from datapipeline.domain.variable import VariableRecord, VariableSequence
 
 
 def _time(hour: int) -> datetime:
     return datetime(2024, 1, 1, hour=hour, tzinfo=timezone.utc)
 
 
-def test_vector_input_rows_round_trip_json_native_values(tmp_path: Path) -> None:
-    record = FeatureRecord(
-        record=TemporalRecord(time=_time(0)),
+def test_variable_record_rows_round_trip_json_native_values(tmp_path: Path) -> None:
+    record = VariableRecord(
         id="record",
+        time=_time(0),
         value={"values": [None, True, 1, 1.5, "text"]},
         entity_key=("A", 7, "north"),
     )
-    null_record = FeatureRecord(
-        record=TemporalRecord(time=_time(1)),
+    null_record = VariableRecord(
         id="null_record",
+        time=_time(1),
         value=None,
     )
-    sequence = FeatureSequence(
+    sequence = VariableSequence(
         time=_time(2),
         id="sequence",
         values=[None, False, 2, 2.5, "other"],
@@ -44,23 +43,43 @@ def test_vector_input_rows_round_trip_json_native_values(tmp_path: Path) -> None
     )
     destination = tmp_path / "inputs.jsonl.gz"
 
-    written = write_vector_input_rows(
+    written = write_variable_rows(
         destination,
         (
-            MappingProxyType(feature_record_to_vector_input_row(item))
+            MappingProxyType(variable_record_to_row(item))
             for item in (record, null_record, sequence)
         ),
     )
 
-    assert written.rows == 3
-    assert list(open_vector_input_records(destination)) == [
+    assert written == 3
+    assert list(open_variable_records(destination)) == [
         record,
         null_record,
         sequence,
     ]
 
 
-def test_vector_input_gzip_is_reproducible(tmp_path: Path) -> None:
+def test_variable_record_row_preserves_wire_shape() -> None:
+    row = variable_record_to_row(
+        VariableRecord(
+            id="price",
+            time=_time(0),
+            value=1.0,
+            entity_key=("AAPL",),
+        )
+    )
+
+    assert list(row) == ["id", "time", "entity_key", "kind", "value"]
+    assert row == {
+        "id": "price",
+        "time": "2024-01-01T00:00:00Z",
+        "entity_key": ["AAPL"],
+        "kind": "record",
+        "value": 1.0,
+    }
+
+
+def test_variable_record_gzip_is_reproducible(tmp_path: Path) -> None:
     row = {
         "id": "price",
         "time": _time(0).isoformat(),
@@ -71,14 +90,14 @@ def test_vector_input_gzip_is_reproducible(tmp_path: Path) -> None:
     first = tmp_path / "first.jsonl.gz"
     second = tmp_path / "second.jsonl.gz"
 
-    first_result = write_vector_input_rows(first, [row])
-    second_result = write_vector_input_rows(second, [row])
+    first_result = write_variable_rows(first, [row])
+    second_result = write_variable_rows(second, [row])
 
     assert first.read_bytes() == second.read_bytes()
     assert first_result == second_result
 
 
-def test_vector_input_writer_aborts_when_atomic_commit_fails(
+def test_variable_record_writer_aborts_when_atomic_commit_fails(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -99,7 +118,7 @@ def test_vector_input_writer_aborts_when_atomic_commit_fails(
     }
 
     with pytest.raises(OSError, match="commit failed"):
-        write_vector_input_rows(destination, [row])
+        write_variable_rows(destination, [row])
 
     assert list(tmp_path.iterdir()) == []
 
@@ -113,36 +132,36 @@ def test_vector_input_writer_aborts_when_atomic_commit_fails(
     ],
     ids=["unsupported-object", "tuple", "non-string-mapping-key"],
 )
-def test_vector_input_writer_rejects_lossy_values_atomically(
+def test_variable_record_writer_rejects_lossy_values_atomically(
     tmp_path: Path,
     value: object,
 ) -> None:
     destination = tmp_path / "inputs.jsonl.gz"
     destination.write_bytes(b"existing")
     records = [
-        FeatureRecord(
-            record=TemporalRecord(time=_time(0)),
+        VariableRecord(
             id="valid",
+            time=_time(0),
             value=1.0,
         ),
-        FeatureRecord(
-            record=TemporalRecord(time=_time(1)),
+        VariableRecord(
             id="invalid",
+            time=_time(1),
             value=value,
         ),
     ]
 
-    with pytest.raises(TypeError, match="Vector input"):
-        write_vector_input_rows(
+    with pytest.raises(TypeError, match="Variable record"):
+        write_variable_rows(
             destination,
-            (feature_record_to_vector_input_row(item) for item in records),
+            (variable_record_to_row(item) for item in records),
         )
 
     assert destination.read_bytes() == b"existing"
     assert list(tmp_path.iterdir()) == [destination]
 
 
-def test_vector_input_writer_rejects_non_scalar_entity_key(tmp_path: Path) -> None:
+def test_variable_record_writer_rejects_non_scalar_entity_key(tmp_path: Path) -> None:
     destination = tmp_path / "inputs.jsonl.gz"
     row = {
         "id": "price",
@@ -153,37 +172,37 @@ def test_vector_input_writer_rejects_non_scalar_entity_key(tmp_path: Path) -> No
     }
 
     with pytest.raises(TypeError, match="Sample key field.*list"):
-        write_vector_input_rows(destination, [row])
+        write_variable_rows(destination, [row])
 
     assert not destination.exists()
     assert list(tmp_path.iterdir()) == []
 
 
-def test_vector_input_row_rejects_non_tuple_entity_key() -> None:
-    record = FeatureRecord(
-        record=TemporalRecord(time=_time(0)),
+def test_variable_record_row_rejects_non_tuple_entity_key() -> None:
+    record = VariableRecord(
         id="price",
+        time=_time(0),
         value=1.0,
         entity_key=cast(Any, "AAPL"),
     )
 
     with pytest.raises(TypeError, match="price.*entity key must be a tuple"):
-        feature_record_to_vector_input_row(record)
+        variable_record_to_row(record)
 
 
-def test_vector_input_row_rejects_non_list_sequence_values() -> None:
-    sequence = FeatureSequence(
+def test_variable_record_row_rejects_non_list_sequence_values() -> None:
+    sequence = VariableSequence(
         time=_time(0),
         id="prices",
         values=cast(Any, (1.0, 2.0)),
     )
 
     with pytest.raises(TypeError, match="prices.*values must be a list"):
-        feature_record_to_vector_input_row(sequence)
+        variable_record_to_row(sequence)
 
 
 @pytest.mark.parametrize("kind", [None, "records"])
-def test_vector_input_writer_rejects_unknown_kind(
+def test_variable_record_writer_rejects_unknown_kind(
     tmp_path: Path,
     kind: object,
 ) -> None:
@@ -196,51 +215,51 @@ def test_vector_input_writer_rejects_unknown_kind(
         "value": (1.0, 2.0),
     }
 
-    with pytest.raises(TypeError, match="Unsupported vector input row kind"):
-        write_vector_input_rows(destination, [row])
+    with pytest.raises(TypeError, match="Unsupported variable record row kind"):
+        write_variable_rows(destination, [row])
 
     assert not destination.exists()
 
 
-def test_vector_input_rows_preserve_nan(tmp_path: Path) -> None:
+def test_variable_record_rows_preserve_nan(tmp_path: Path) -> None:
     destination = tmp_path / "inputs.jsonl.gz"
-    record = FeatureRecord(
-        record=TemporalRecord(time=_time(0)),
+    record = VariableRecord(
         id="price",
+        time=_time(0),
         value=float("nan"),
     )
 
-    write_vector_input_rows(destination, [feature_record_to_vector_input_row(record)])
-    loaded = list(open_vector_input_records(destination))
+    write_variable_rows(destination, [variable_record_to_row(record)])
+    loaded = list(open_variable_records(destination))
 
     assert len(loaded) == 1
-    assert isinstance(loaded[0], FeatureRecord)
+    assert isinstance(loaded[0], VariableRecord)
     assert math.isnan(loaded[0].value)
 
 
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
-def test_vector_input_writer_rejects_non_finite_entity_keys(
+def test_variable_record_writer_rejects_non_finite_entity_keys(
     tmp_path: Path,
     value: float,
 ) -> None:
     destination = tmp_path / "inputs.jsonl.gz"
-    record = FeatureRecord(
-        record=TemporalRecord(time=_time(0)),
+    record = VariableRecord(
         id="price",
+        time=_time(0),
         value=1.0,
         entity_key=(value,),
     )
 
     with pytest.raises(ValueError, match="finite floats"):
-        write_vector_input_rows(
+        write_variable_rows(
             destination,
-            [feature_record_to_vector_input_row(record)],
+            [variable_record_to_row(record)],
         )
 
     assert not destination.exists()
 
 
-def test_vector_input_writer_removes_temp_file_on_interrupt(tmp_path: Path) -> None:
+def test_variable_record_writer_removes_temp_file_on_interrupt(tmp_path: Path) -> None:
     class InterruptedRows:
         def __init__(self) -> None:
             self.count = 0
@@ -263,14 +282,14 @@ def test_vector_input_writer_removes_temp_file_on_interrupt(tmp_path: Path) -> N
     destination = tmp_path / "price.jsonl.gz"
 
     with pytest.raises(KeyboardInterrupt):
-        write_vector_input_rows(destination, InterruptedRows())
+        write_variable_rows(destination, InterruptedRows())
 
     assert not destination.exists()
     assert list(tmp_path.iterdir()) == []
 
 
 @pytest.mark.parametrize("version", [None, 1, 2, 3, 4, 4.0, True])
-def test_vector_inputs_manifest_rejects_incompatible_version(
+def test_variable_records_manifest_rejects_incompatible_version(
     tmp_path: Path,
     version: object,
 ) -> None:
@@ -279,12 +298,12 @@ def test_vector_inputs_manifest_rejects_incompatible_version(
     manifest.write_text(json.dumps(payload), encoding="utf-8")
 
     with pytest.raises(ValueError, match="FORCE mode"):
-        load_vector_inputs_manifest(manifest)
+        load_variable_records_manifest(manifest)
 
 
 def _valid_manifest() -> dict[str, Any]:
     return {
-        "version": VECTOR_INPUTS_MANIFEST_VERSION,
+        "version": VARIABLE_RECORDS_MANIFEST_VERSION,
         "format": "jsonl.gz",
         "cadence": "1h",
         "sample_keys": ["security_id"],
@@ -312,7 +331,7 @@ def _valid_manifest() -> dict[str, Any]:
         ("path", "../outside.jsonl.gz"),
     ],
 )
-def test_vector_inputs_manifest_rejects_invalid_contract(
+def test_variable_records_manifest_rejects_invalid_contract(
     tmp_path: Path,
     change: str,
     value: object,
@@ -325,18 +344,18 @@ def test_vector_inputs_manifest_rejects_invalid_contract(
     manifest = tmp_path / "manifest.json"
     manifest.write_text(json.dumps(payload), encoding="utf-8")
 
-    with pytest.raises(ValueError, match="Invalid vector inputs manifest"):
-        load_vector_inputs_manifest(manifest)
+    with pytest.raises(ValueError, match="Invalid variable records manifest"):
+        load_variable_records_manifest(manifest)
 
 
-def test_vector_inputs_manifest_rejects_duplicate_shards(tmp_path: Path) -> None:
+def test_variable_records_manifest_rejects_duplicate_shards(tmp_path: Path) -> None:
     payload = _valid_manifest()
     payload["features"] = [payload["features"][0], payload["features"][0]]
     manifest = tmp_path / "manifest.json"
     manifest.write_text(json.dumps(payload), encoding="utf-8")
 
-    with pytest.raises(ValueError, match="Invalid vector inputs manifest"):
-        load_vector_inputs_manifest(manifest)
+    with pytest.raises(ValueError, match="Invalid variable records manifest"):
+        load_variable_records_manifest(manifest)
 
 
 @pytest.mark.parametrize(
@@ -383,7 +402,7 @@ def test_vector_inputs_manifest_rejects_duplicate_shards(tmp_path: Path) -> None
     ],
     ids=["missing-value", "missing-entity-key", "null-entity-key", "nested-key"],
 )
-def test_vector_input_reader_rejects_malformed_rows(
+def test_variable_record_reader_rejects_malformed_rows(
     tmp_path: Path,
     row: dict[str, object],
     message: str,
@@ -393,4 +412,4 @@ def test_vector_input_reader_rejects_malformed_rows(
         handle.write(json.dumps(row) + "\n")
 
     with pytest.raises(ValueError, match=message):
-        list(open_vector_input_records(destination))
+        list(open_variable_records(destination))

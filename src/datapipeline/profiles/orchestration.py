@@ -8,8 +8,9 @@ from datapipeline.artifacts.planning import (
     build_artifact_graph,
     required_tick_artifacts,
 )
-from datapipeline.config.tasks import VectorInputsTask
+from datapipeline.artifacts.variable_records import prune_variable_record_cache
 from datapipeline.cli.visuals.execution import route_execution_event
+from datapipeline.config.tasks import VariableRecordsTask
 from datapipeline.execution.events import RunStatus
 from datapipeline.execution.observability import CommandFinished
 from datapipeline.io.runs import (
@@ -28,7 +29,6 @@ from datapipeline.services.execution_lock import (
     project_execution_lock,
 )
 from datapipeline.services.runtime_compiler import compile_runtime
-from datapipeline.vector_inputs.store import prune_vector_input_cache
 
 from .execution import (
     RuntimeJobPlan,
@@ -63,7 +63,7 @@ def run_profiles(request: ProfileRunRequest) -> None:
                 raise TypeError(
                     f"Unsupported profile request: {type(request).__name__}"
                 )
-            _prune_vector_input_caches(request)
+            _prune_variable_record_caches(request)
     except (ArtifactResolutionError, ProjectExecutionBusyError) as exc:
         logger.error("%s", exc)
         raise SystemExit(2) from exc
@@ -80,11 +80,11 @@ def run_profiles(request: ProfileRunRequest) -> None:
         )
 
 
-def _prune_vector_input_caches(request: ProfileRunRequest) -> None:
+def _prune_variable_record_caches(request: ProfileRunRequest) -> None:
     root = request.definition.project.artifacts_root
     for task in request.definition.artifact_operations:
-        if isinstance(task, VectorInputsTask):
-            prune_vector_input_cache(root / task.output)
+        if isinstance(task, VariableRecordsTask):
+            prune_variable_record_cache(root / task.output)
 
 
 def _run_build_profiles(request: BuildRunRequest) -> None:

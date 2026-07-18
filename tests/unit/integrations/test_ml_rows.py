@@ -8,8 +8,8 @@ import datapipeline.integrations.ml.adapter as adapter_module
 import datapipeline.integrations.ml.rows as rows_module
 from datapipeline.artifacts.registry import VECTOR_METADATA_SPEC
 from datapipeline.artifacts.specs import VECTOR_METADATA
-from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
-from datapipeline.config.dataset.feature import FeatureRecordConfig
+from datapipeline.config.dataset.dataset import DatasetConfig, SampleConfig
+from datapipeline.config.dataset.variable import VariableConfig
 from datapipeline.config.dataset.split import (
     DatasetFold,
     TimeInterval,
@@ -308,11 +308,11 @@ def _dataset(
     *,
     split: TimeSplitConfig | None = None,
     scale: bool = False,
-) -> FeatureDatasetConfig:
-    return FeatureDatasetConfig(
+) -> DatasetConfig:
+    return DatasetConfig(
         sample=SampleConfig(cadence="1d"),
         features=[
-            FeatureRecordConfig(
+            VariableConfig(
                 id="value",
                 stream="records",
                 field="value",
@@ -357,7 +357,7 @@ def _split() -> TimeSplitConfig:
 
 def _runtime(
     tmp_path: Path,
-    dataset: FeatureDatasetConfig,
+    dataset: DatasetConfig,
 ) -> Runtime:
     return Runtime(
         project_yaml=tmp_path / "project.yaml",
@@ -372,7 +372,7 @@ def _runtime_with_metadata(
 ) -> Runtime:
     runtime = _runtime(
         tmp_path,
-        FeatureDatasetConfig(sample=SampleConfig(cadence="1h")),
+        DatasetConfig(sample=SampleConfig(cadence="1h")),
     )
     runtime.artifacts_root.mkdir()
     metadata_path = runtime.artifacts_root / "metadata.json"

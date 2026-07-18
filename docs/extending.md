@@ -55,7 +55,7 @@ using the profile output. Dataset split routing, preview, throttle, and
 plugins.
 
 Preprocess and ordered transforms are validated built-in operations rather than
-plugin entry points. Feature shaping and postprocess policies are fixed pipeline
+plugin entry points. Variable shaping and postprocess policies are fixed pipeline
 stages. See [Transforms](transforms/index.md) for their explicit configuration.
 
 ---

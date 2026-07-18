@@ -2,7 +2,7 @@ import json
 
 from datapipeline.artifacts.registry import VECTOR_METADATA_SPEC
 from datapipeline.artifacts.specs import VECTOR_METADATA
-from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
+from datapipeline.config.dataset.dataset import DatasetConfig, SampleConfig
 from datapipeline.config.dataset.postprocess import PostprocessConfig
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
@@ -29,7 +29,7 @@ def _runtime(
     runtime = Runtime(
         project_yaml=project,
         artifacts_root=artifacts_root,
-        dataset=FeatureDatasetConfig(
+        dataset=DatasetConfig(
             sample=SampleConfig(cadence="1h"),
             postprocess=postprocess,
         ),

@@ -7,7 +7,7 @@ from typing import Any, Literal
 from datapipeline.artifacts.hydration import hydrate_runtime_artifacts_for_pipeline
 from datapipeline.artifacts.models import VectorMetadataEntry
 from datapipeline.artifacts.specs import dataset_requires_scaler
-from datapipeline.config.dataset.dataset import FeatureDatasetConfig
+from datapipeline.config.dataset.dataset import DatasetConfig
 from datapipeline.config.dataset.split import (
     DatasetFold,
     SplitConfig,
@@ -71,7 +71,7 @@ def _normalize_group(
 class VectorAdapter:
     """Load a project once and provide ML-friendly iterators."""
 
-    dataset: FeatureDatasetConfig
+    dataset: DatasetConfig
     runtime: Runtime
     output_id: str | None = None
 

@@ -7,16 +7,16 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-import datapipeline.operations.artifacts.vector_inputs as vector_inputs_operation
+import datapipeline.operations.artifacts.variable_records as variable_records_operation
 from datapipeline.artifacts.models import SampleDomainEntry
 from datapipeline.artifacts.specs import (
-    VECTOR_INPUTS,
+    VARIABLE_RECORDS,
     VECTOR_METADATA,
 )
-from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
-from datapipeline.config.dataset.feature import FeatureRecordConfig, SequenceConfig
+from datapipeline.config.dataset.dataset import DatasetConfig, SampleConfig
+from datapipeline.config.dataset.variable import VariableConfig, SequenceConfig
 from datapipeline.config.execution import ExecutionConfig
-from datapipeline.config.tasks import VectorInputsTask
+from datapipeline.config.tasks import VariableRecordsTask
 from datapipeline.config.transforms import (
     EnsureCadenceConfig,
     EnsureTicksConfig,
@@ -24,7 +24,7 @@ from datapipeline.config.transforms import (
     PreprocessConfig,
     TransformConfig,
 )
-from datapipeline.domain.feature import FeatureRecord, FeatureSequence
+from datapipeline.domain.variable import VariableRecord, VariableSequence
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.sample_key import SampleKeyContract
@@ -38,7 +38,9 @@ from datapipeline.execution.events import (
 )
 from datapipeline.execution.node import SourceNode
 from datapipeline.execution.runner import run_pipeline
-from datapipeline.operations.artifacts.vector_inputs import materialize_vector_inputs
+from datapipeline.operations.artifacts.variable_records import (
+    materialize_variable_records,
+)
 from datapipeline.operations.runtime.pipeline import _record_preview_stream
 from datapipeline.parsers.identity import IdentityParser
 from datapipeline.pipelines.dataset.nodes import apply_postprocess
@@ -46,9 +48,9 @@ from datapipeline.pipelines.dataset.pipeline import (
     build_dataset_pipeline,
     run_dataset_pipeline,
 )
-from datapipeline.pipelines.feature.pipeline import (
-    build_feature_pipeline,
-    run_feature_pipeline,
+from datapipeline.pipelines.variable.pipeline import (
+    build_variable_pipeline,
+    run_variable_pipeline,
 )
 from datapipeline.pipelines.stream.pipeline import (
     build_stream_pipeline,
@@ -71,14 +73,14 @@ from datapipeline.sources.data_loader import DataLoader
 from datapipeline.sources.decoders import JsonLinesDecoder
 from datapipeline.sources.models.source import Source
 from datapipeline.utils.time import parse_cadence
-from datapipeline.vector_inputs.store import (
-    CachedVectorInputShard,
-    feature_record_to_vector_input_row,
-    load_vector_inputs_manifest,
-    open_vector_input_records,
-    prune_vector_input_cache,
+from datapipeline.artifacts.variable_records import (
+    VariableShard,
+    variable_record_to_row,
+    load_variable_records_manifest,
+    open_variable_records,
+    prune_variable_record_cache,
 )
-from tests.vector_input_helpers import register_vector_inputs
+from tests.variable_record_helpers import register_variable_records
 
 
 def _ts(hour: int, minute: int = 0) -> datetime:
@@ -320,7 +322,7 @@ def _runtime_with_rows(
     runtime = Runtime(
         project_yaml=project_yaml,
         artifacts_root=artifacts_root,
-        dataset=FeatureDatasetConfig(sample=SampleConfig(cadence="1h")),
+        dataset=DatasetConfig(sample=SampleConfig(cadence="1h")),
         execution=ExecutionConfig(),
     )
 
@@ -571,23 +573,23 @@ def test_pipeline_builders_expose_structure(tmp_path: Path) -> None:
     runtime = _runtime_with_rows(tmp_path, [{"time": _ts(0), "value": 1.0}])
     _register_price_metadata(runtime)
     context = PipelineContext(runtime)
-    cfg = FeatureRecordConfig(stream="stream", id="price", field="value")
+    cfg = VariableConfig(stream="stream", id="price", field="value")
 
     stream_pipeline = build_stream_pipeline(context, "stream")
-    feature_pipeline = build_feature_pipeline(context, cfg)
+    variable_pipeline = build_variable_pipeline(context, cfg)
 
     assert [node.name for node in stream_pipeline.nodes[:2]] == [
         "open_source",
         "map_records",
     ]
-    assert [node.name for node in feature_pipeline.nodes] == [
+    assert [node.name for node in variable_pipeline.nodes] == [
         "stream:stream/open_source",
         "stream:stream/map_records",
         "stream:stream/order_records",
-        "build_feature_stream",
+        "project_variable_records",
     ]
-    assert feature_pipeline.summary is None
-    assert isinstance(feature_pipeline.nodes[0], SourceNode)
+    assert variable_pipeline.summary is None
+    assert isinstance(variable_pipeline.nodes[0], SourceNode)
 
 
 def test_source_pipeline_orders_by_partition_and_time(tmp_path: Path) -> None:
@@ -690,7 +692,7 @@ def test_ensure_ticks_uses_stream_partition_for_tick_artifact(
     ]
 
 
-def test_feature_pipeline_wraps_record_values(tmp_path: Path) -> None:
+def test_variable_pipeline_wraps_record_values(tmp_path: Path) -> None:
     rows = [{"time": _ts(0), "value": 3.0, "symbol": "X"}]
     runtime = _runtime_with_rows(
         tmp_path,
@@ -698,26 +700,26 @@ def test_feature_pipeline_wraps_record_values(tmp_path: Path) -> None:
         partition_by=("symbol",),
     )
     ctx = PipelineContext(runtime)
-    cfg = FeatureRecordConfig(
+    cfg = VariableConfig(
         stream="stream",
         id="price",
         field="value",
     )
 
-    preview_pipeline = build_feature_pipeline(ctx, cfg)
-    features = list(
+    preview_pipeline = build_variable_pipeline(ctx, cfg)
+    variables = list(
         run_pipeline(
             ctx,
-            preview_pipeline.through_node_named("build_feature_stream"),
+            preview_pipeline.through_node_named("project_variable_records"),
         )
     )
-    assert len(features) == 1
-    feature = features[0]
-    assert feature.value == 3.0
-    assert feature.id == "price__@symbol:X"
+    assert len(variables) == 1
+    variable = variables[0]
+    assert variable.value == 3.0
+    assert variable.id == "price__@symbol:X"
 
 
-def test_unpartitioned_feature_pipeline_preserves_time_order(tmp_path: Path) -> None:
+def test_unpartitioned_variable_pipeline_preserves_time_order(tmp_path: Path) -> None:
     rows = [
         {"time": _ts(2), "value": 3.0},
         {"time": _ts(0), "value": 1.0},
@@ -725,21 +727,21 @@ def test_unpartitioned_feature_pipeline_preserves_time_order(tmp_path: Path) -> 
     ]
     runtime = _runtime_with_rows(tmp_path, rows)
 
-    features = list(
-        run_feature_pipeline(
+    variables = list(
+        run_variable_pipeline(
             PipelineContext(runtime),
-            FeatureRecordConfig(stream="stream", id="price", field="value"),
+            VariableConfig(stream="stream", id="price", field="value"),
         )
     )
 
-    assert [(feature.time.hour, feature.value) for feature in features] == [
+    assert [(variable.time.hour, variable.value) for variable in variables] == [
         (0, 1.0),
         (1, 2.0),
         (2, 3.0),
     ]
 
 
-def test_partitioned_feature_pipeline_orders_across_partitions(tmp_path: Path) -> None:
+def test_partitioned_variable_pipeline_orders_across_partitions(tmp_path: Path) -> None:
     rows = [
         {"time": _ts(0), "value": 1.0, "symbol": "A"},
         {"time": _ts(2), "value": 3.0, "symbol": "A"},
@@ -752,21 +754,21 @@ def test_partitioned_feature_pipeline_orders_across_partitions(tmp_path: Path) -
     )
     context = PipelineContext(runtime)
 
-    features = list(
-        run_feature_pipeline(
+    variables = list(
+        run_variable_pipeline(
             context,
-            FeatureRecordConfig(stream="stream", id="price", field="value"),
+            VariableConfig(stream="stream", id="price", field="value"),
         )
     )
 
-    assert [(feature.time.hour, feature.id) for feature in features] == [
+    assert [(variable.time.hour, variable.id) for variable in variables] == [
         (0, "price__@symbol:A"),
         (1, "price__@symbol:B"),
         (2, "price__@symbol:A"),
     ]
 
 
-def test_feature_pipeline_builds_sequences(tmp_path: Path) -> None:
+def test_variable_pipeline_builds_sequences(tmp_path: Path) -> None:
     rows = [
         {"time": _ts(0), "value": 1.0},
         {"time": _ts(1), "value": 2.0},
@@ -775,29 +777,29 @@ def test_feature_pipeline_builds_sequences(tmp_path: Path) -> None:
     ]
     runtime = _runtime_with_rows(tmp_path, rows)
     ctx = PipelineContext(runtime)
-    cfg = FeatureRecordConfig(
+    cfg = VariableConfig(
         stream="stream",
         id="price",
         field="value",
         sequence={"size": 2, "stride": 2},
     )
 
-    preview_pipeline = build_feature_pipeline(ctx, cfg)
+    preview_pipeline = build_variable_pipeline(ctx, cfg)
     sequences = list(
         run_pipeline(
             ctx,
-            preview_pipeline.through_node_named("sequence_features"),
+            preview_pipeline.through_node_named("sequence_variables"),
         )
     )
     assert len(sequences) == 2
-    assert isinstance(sequences[0], FeatureSequence)
+    assert isinstance(sequences[0], VariableSequence)
     assert sequences[0].time == _ts(1)
     assert sequences[0].values == [1.0, 2.0]
     assert sequences[1].time == _ts(3)
     assert sequences[1].values == [3.0, 4.0]
 
 
-def test_feature_pipeline_keeps_scaled_sequence_inputs_raw(
+def test_variable_pipeline_keeps_scaled_sequence_inputs_raw(
     tmp_path: Path,
 ) -> None:
     runtime = _runtime_with_rows(
@@ -807,7 +809,7 @@ def test_feature_pipeline_keeps_scaled_sequence_inputs_raw(
             {"time": _ts(1), "value": 11.0},
         ],
     )
-    config = FeatureRecordConfig(
+    config = VariableConfig(
         stream="stream",
         id="price",
         field="value",
@@ -815,13 +817,13 @@ def test_feature_pipeline_keeps_scaled_sequence_inputs_raw(
         sequence=SequenceConfig(size=2),
     )
 
-    [sequence] = run_feature_pipeline(
+    [sequence] = run_variable_pipeline(
         PipelineContext(runtime),
         config,
         group_by_cadence="1h",
     )
 
-    assert isinstance(sequence, FeatureSequence)
+    assert isinstance(sequence, VariableSequence)
     assert sequence.time == _ts(1)
     assert sequence.values == [1.0, 11.0]
 
@@ -850,8 +852,8 @@ def test_dataset_pipeline_matches_vector_and_postprocess_chain(tmp_path: Path) -
     runtime = _runtime_with_rows(tmp_path, rows)
     _register_price_metadata(runtime)
     ctx = PipelineContext(runtime)
-    cfg = FeatureRecordConfig(stream="stream", id="price", field="value")
-    register_vector_inputs(runtime, [cfg], "1h")
+    cfg = VariableConfig(stream="stream", id="price", field="value")
+    register_variable_records(runtime, [cfg], "1h")
 
     pipeline = build_dataset_pipeline(
         ctx,
@@ -879,9 +881,9 @@ def test_rectangular_dataset_source_reuses_its_key_plan(
     runtime.window_bounds = (_ts(0, 10), _ts(2, 50))
     _register_price_metadata(runtime)
     context = PipelineContext(runtime)
-    cfg = FeatureRecordConfig(stream="stream", id="price", field="value")
+    cfg = VariableConfig(stream="stream", id="price", field="value")
     feature_configs = [cfg]
-    register_vector_inputs(runtime, feature_configs, "1h")
+    register_variable_records(runtime, feature_configs, "1h")
 
     original = vector_pipeline.rectangular_key_plan
     plan_count = 0
@@ -924,9 +926,9 @@ def test_rectangular_features_and_targets_share_every_planned_key(
         ],
     )
     runtime.window_bounds = (_ts(0), _ts(2))
-    feature = FeatureRecordConfig(stream="stream", id="price", field="value")
-    target = FeatureRecordConfig(stream="stream", id="return", field="target")
-    register_vector_inputs(runtime, [feature], "1h", targets=[target])
+    feature = VariableConfig(stream="stream", id="price", field="value")
+    target = VariableConfig(stream="stream", id="return", field="target")
+    register_variable_records(runtime, [feature], "1h", targets=[target])
 
     samples = list(
         build_vector_pipeline(
@@ -947,7 +949,7 @@ def test_rectangular_features_and_targets_share_every_planned_key(
     assert samples[1].targets.values == {}
 
 
-def test_vector_inputs_artifact_feeds_serve_pipeline(tmp_path: Path) -> None:
+def test_variable_records_artifact_feeds_serve_pipeline(tmp_path: Path) -> None:
     rows = [
         {"time": _ts(1), "id_": "B", "value": 2.0, "other": 20.0},
         {"time": _ts(0), "id_": "A", "value": 1.0, "other": 10.0},
@@ -960,31 +962,31 @@ def test_vector_inputs_artifact_feeds_serve_pipeline(tmp_path: Path) -> None:
         partition_by=("id_",),
     )
     configs = [
-        FeatureRecordConfig(
+        VariableConfig(
             stream="prices",
             id="value_feature",
             field="value",
         ),
-        FeatureRecordConfig(
+        VariableConfig(
             stream="prices",
             id="other_feature",
             field="other",
         ),
     ]
-    runtime.dataset = FeatureDatasetConfig(
+    runtime.dataset = DatasetConfig(
         sample=SampleConfig(cadence="1h", keys=["id_"]),
         features=configs,
     )
     source = runtime.streams["prices"].source
     assert isinstance(source, _StubSource)
 
-    unrelated = runtime.artifacts_root / "build/vector_inputs/features/keep.txt"
+    unrelated = runtime.artifacts_root / "build/variable_records/features/keep.txt"
     unrelated.parent.mkdir(parents=True)
     unrelated.write_text("keep", encoding="utf-8")
 
-    result = materialize_vector_inputs(runtime, VectorInputsTask())
+    result = materialize_variable_records(runtime, VariableRecordsTask())
     runtime.artifacts.register(
-        VECTOR_INPUTS,
+        VARIABLE_RECORDS,
         relative_path=result.relative_path,
         meta=result.meta,
     )
@@ -1015,7 +1017,7 @@ def test_vector_inputs_artifact_feeds_serve_pipeline(tmp_path: Path) -> None:
         ("features", "000001.jsonl.gz"),
     ]
     assert result.companion_paths == tuple(
-        str(Path("build/vector_inputs") / path) for path in shard_paths
+        str(Path("build/variable_records") / path) for path in shard_paths
     )
     assert unrelated.read_text(encoding="utf-8") == "keep"
     assert cached == [
@@ -1039,7 +1041,7 @@ def test_vector_inputs_artifact_feeds_serve_pipeline(tmp_path: Path) -> None:
     assert source.closes == 1
 
 
-def test_vector_inputs_shared_stream_matches_independent_feature_pipelines(
+def test_variable_records_shared_stream_matches_independent_variable_pipelines(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -1079,26 +1081,26 @@ def test_vector_inputs_shared_stream_matches_independent_feature_pipelines(
         partition_by=("exchange", "symbol"),
     )
     runtime.streams["stream"] = replace(runtime.streams["stream"], presorted=True)
-    price = FeatureRecordConfig(
+    price = VariableConfig(
         stream="stream",
         id="price",
         field="value",
         scale=True,
         sequence=SequenceConfig(size=2),
     )
-    volume = FeatureRecordConfig(
+    volume = VariableConfig(
         stream="stream",
         id="volume",
         field="volume",
     )
-    runtime.dataset = FeatureDatasetConfig(
+    runtime.dataset = DatasetConfig(
         sample=SampleConfig(cadence="1h", keys=["exchange"]),
         features=[price],
         targets=[volume],
     )
     context = PipelineContext(runtime)
     expected_price = list(
-        run_feature_pipeline(
+        run_variable_pipeline(
             context,
             price,
             sample_keys=["exchange"],
@@ -1106,7 +1108,7 @@ def test_vector_inputs_shared_stream_matches_independent_feature_pipelines(
         )
     )
     expected_volume = list(
-        run_feature_pipeline(
+        run_variable_pipeline(
             context,
             volume,
             sample_keys=["exchange"],
@@ -1121,7 +1123,7 @@ def test_vector_inputs_shared_stream_matches_independent_feature_pipelines(
     assert isinstance(source, _StubSource)
     source.opens = 0
     source.closes = 0
-    normal_batch_sort = vector_inputs_operation.batch_sort
+    normal_batch_sort = variable_records_operation.batch_sort
 
     def spilling_batch_sort(items, buffer_bytes, key, progress=None):
         return normal_batch_sort(
@@ -1132,32 +1134,32 @@ def test_vector_inputs_shared_stream_matches_independent_feature_pipelines(
         )
 
     monkeypatch.setattr(
-        vector_inputs_operation,
+        variable_records_operation,
         "batch_sort",
         spilling_batch_sort,
     )
 
-    result = materialize_vector_inputs(runtime, VectorInputsTask())
+    result = materialize_variable_records(runtime, VariableRecordsTask())
     manifest_path = runtime.artifacts_root / result.relative_path
-    manifest = load_vector_inputs_manifest(manifest_path)
+    manifest = load_variable_records_manifest(manifest_path)
     actual_price = list(
-        open_vector_input_records(manifest_path.parent / manifest.features[0].path)
+        open_variable_records(manifest_path.parent / manifest.features[0].path)
     )
     actual_volume = list(
-        open_vector_input_records(manifest_path.parent / manifest.targets[0].path)
+        open_variable_records(manifest_path.parent / manifest.targets[0].path)
     )
 
-    assert [feature_record_to_vector_input_row(item) for item in actual_price] == [
-        feature_record_to_vector_input_row(item) for item in expected_price
+    assert [variable_record_to_row(item) for item in actual_price] == [
+        variable_record_to_row(item) for item in expected_price
     ]
-    assert [feature_record_to_vector_input_row(item) for item in actual_volume] == [
-        feature_record_to_vector_input_row(item) for item in expected_volume
+    assert [variable_record_to_row(item) for item in actual_volume] == [
+        variable_record_to_row(item) for item in expected_volume
     ]
     assert source.opens == 1
     assert source.closes == 1
 
 
-def test_vector_inputs_store_scaled_sequences_raw(
+def test_variable_records_store_sequence_values_unscaled(
     tmp_path: Path,
 ) -> None:
     runtime = _runtime_with_rows(
@@ -1167,30 +1169,28 @@ def test_vector_inputs_store_scaled_sequences_raw(
             {"time": _ts(1), "value": 11.0},
         ],
     )
-    config = FeatureRecordConfig(
+    config = VariableConfig(
         stream="stream",
         id="price",
         field="value",
         scale=True,
         sequence=SequenceConfig(size=2),
     )
-    runtime.dataset = FeatureDatasetConfig(
+    runtime.dataset = DatasetConfig(
         sample=SampleConfig(cadence="1h"),
         features=[config],
     )
-    result = materialize_vector_inputs(runtime, VectorInputsTask())
+    result = materialize_variable_records(runtime, VariableRecordsTask())
     manifest_path = runtime.artifacts_root / result.relative_path
-    manifest = load_vector_inputs_manifest(manifest_path)
-    [sequence] = open_vector_input_records(
-        manifest_path.parent / manifest.features[0].path
-    )
+    manifest = load_variable_records_manifest(manifest_path)
+    [sequence] = open_variable_records(manifest_path.parent / manifest.features[0].path)
 
-    assert isinstance(sequence, FeatureSequence)
+    assert isinstance(sequence, VariableSequence)
     assert sequence.time == _ts(1)
     assert sequence.values == [1.0, 11.0]
 
 
-def test_vector_inputs_writes_empty_shards_from_a_shared_stream(
+def test_variable_records_writes_empty_shards_from_a_shared_stream(
     tmp_path: Path,
 ) -> None:
     runtime = _runtime_with_rows(
@@ -1200,16 +1200,16 @@ def test_vector_inputs_writes_empty_shards_from_a_shared_stream(
             {"time": _ts(1), "value": 2.0},
         ],
     )
-    runtime.dataset = FeatureDatasetConfig(
+    runtime.dataset = DatasetConfig(
         sample=SampleConfig(cadence="1h"),
         features=[
-            FeatureRecordConfig(
+            VariableConfig(
                 stream="stream",
                 id="window",
                 field="value",
                 sequence=SequenceConfig(size=3),
             ),
-            FeatureRecordConfig(
+            VariableConfig(
                 stream="stream",
                 id="value",
                 field="value",
@@ -1217,66 +1217,66 @@ def test_vector_inputs_writes_empty_shards_from_a_shared_stream(
         ],
     )
 
-    result = materialize_vector_inputs(runtime, VectorInputsTask())
+    result = materialize_variable_records(runtime, VariableRecordsTask())
     manifest_path = runtime.artifacts_root / result.relative_path
-    manifest = load_vector_inputs_manifest(manifest_path)
+    manifest = load_variable_records_manifest(manifest_path)
 
     assert [shard.rows for shard in manifest.features] == [0, 2]
     assert (
-        list(
-            open_vector_input_records(manifest_path.parent / manifest.features[0].path)
-        )
+        list(open_variable_records(manifest_path.parent / manifest.features[0].path))
         == []
     )
 
 
-def test_vector_input_sort_is_part_of_the_observed_stream_pipeline(
+def test_variable_record_sort_is_part_of_the_observed_stream_pipeline(
     tmp_path: Path,
 ) -> None:
     runtime = _runtime_with_rows(
         tmp_path,
         [{"time": _ts(0), "value": 1.0}],
     )
-    runtime.dataset = FeatureDatasetConfig(
+    runtime.dataset = DatasetConfig(
         sample=SampleConfig(cadence="1h"),
-        features=[FeatureRecordConfig(stream="stream", id="value", field="value")],
+        features=[VariableConfig(stream="stream", id="value", field="value")],
     )
     observer = _PipelineStarts()
     runtime.pipeline_observer = observer
 
-    materialize_vector_inputs(runtime, VectorInputsTask())
+    materialize_variable_records(runtime, VariableRecordsTask())
 
-    assert observer.starts == [("vector_inputs:stream", 5)]
-    assert "build_vector_inputs" in observer.nodes
-    assert "order_vector_inputs" in observer.nodes
+    assert observer.starts == [("variable_records:stream", 5)]
+    assert "project_variable_records" in observer.nodes
+    assert "order_variable_records" in observer.nodes
 
 
-def test_vector_inputs_closes_shared_stream_after_feature_error(
+def test_variable_records_closes_shared_stream_after_feature_error(
     tmp_path: Path,
 ) -> None:
     runtime = _runtime_with_rows(
         tmp_path,
         [{"time": _ts(0), "value": 1.0}],
     )
-    runtime.dataset = FeatureDatasetConfig(
+    runtime.dataset = DatasetConfig(
         sample=SampleConfig(cadence="1h"),
         features=[
-            FeatureRecordConfig(stream="stream", id="value", field="value"),
-            FeatureRecordConfig(stream="stream", id="missing", field="missing"),
+            VariableConfig(stream="stream", id="value", field="value"),
+            VariableConfig(stream="stream", id="missing", field="missing"),
         ],
     )
     source = runtime.streams["stream"].source
     assert isinstance(source, _StubSource)
 
     with pytest.raises(KeyError, match="Record field 'missing'"):
-        materialize_vector_inputs(runtime, VectorInputsTask())
+        materialize_variable_records(runtime, VariableRecordsTask())
 
     assert source.opens == 1
     assert source.closes == 1
-    assert not (runtime.artifacts_root / "build/vector_inputs/manifest.json").exists()
+    assert not (
+        runtime.artifacts_root / "build/variable_records/manifest.json"
+    ).exists()
 
 
-def test_failed_vector_inputs_rebuild_preserves_previous_generation(
+def test_failed_variable_records_rebuild_preserves_previous_generation(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -1288,15 +1288,15 @@ def test_failed_vector_inputs_rebuild_preserves_previous_generation(
         ],
         stream_id="prices",
     )
-    runtime.dataset = FeatureDatasetConfig(
+    runtime.dataset = DatasetConfig(
         sample=SampleConfig(cadence="1h"),
         features=[
-            FeatureRecordConfig(stream="prices", id="value", field="value"),
-            FeatureRecordConfig(stream="prices", id="other", field="other"),
+            VariableConfig(stream="prices", id="value", field="value"),
+            VariableConfig(stream="prices", id="other", field="other"),
         ],
     )
-    task = VectorInputsTask()
-    first = materialize_vector_inputs(runtime, task)
+    task = VariableRecordsTask()
+    first = materialize_variable_records(runtime, task)
     manifest_path = runtime.artifacts_root / first.relative_path
     previous_manifest = manifest_path.read_bytes()
     previous = json.loads(previous_manifest)
@@ -1305,7 +1305,7 @@ def test_failed_vector_inputs_rebuild_preserves_previous_generation(
     ]
     previous_generation = Path(previous["features"][0]["path"]).parts[1]
 
-    write_rows = vector_inputs_operation.write_vector_input_rows
+    write_rows = variable_records_operation.write_variable_rows
     writes = 0
 
     def fail_second_shard(path, rows):
@@ -1316,13 +1316,13 @@ def test_failed_vector_inputs_rebuild_preserves_previous_generation(
         return write_rows(path, rows)
 
     monkeypatch.setattr(
-        vector_inputs_operation,
-        "write_vector_input_rows",
+        variable_records_operation,
+        "write_variable_rows",
         fail_second_shard,
     )
 
     with pytest.raises(RuntimeError, match="second shard failed"):
-        materialize_vector_inputs(runtime, task)
+        materialize_variable_records(runtime, task)
 
     assert manifest_path.read_bytes() == previous_manifest
     assert all(path.is_file() for path in previous_shards)
@@ -1330,7 +1330,7 @@ def test_failed_vector_inputs_rebuild_preserves_previous_generation(
     assert [path.name for path in cache_root.iterdir()] == [previous_generation]
 
 
-def test_failed_vector_inputs_manifest_commit_removes_new_generation(
+def test_failed_variable_records_manifest_commit_removes_new_generation(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -1338,127 +1338,129 @@ def test_failed_vector_inputs_manifest_commit_removes_new_generation(
         tmp_path,
         [{"time": _ts(0), "value": 1.0}],
     )
-    runtime.dataset = FeatureDatasetConfig(
+    runtime.dataset = DatasetConfig(
         sample=SampleConfig(cadence="1h"),
-        features=[FeatureRecordConfig(stream="stream", id="value", field="value")],
+        features=[VariableConfig(stream="stream", id="value", field="value")],
     )
-    task = VectorInputsTask()
-    first = materialize_vector_inputs(runtime, task)
+    task = VariableRecordsTask()
+    first = materialize_variable_records(runtime, task)
     manifest_path = runtime.artifacts_root / first.relative_path
     previous_manifest = manifest_path.read_bytes()
-    previous = load_vector_inputs_manifest(manifest_path)
+    previous = load_variable_records_manifest(manifest_path)
     previous_path = manifest_path.parent / previous.features[0].path
 
     def fail_manifest(*_args, **_kwargs):
         raise OSError("manifest commit failed")
 
     monkeypatch.setattr(
-        vector_inputs_operation,
+        variable_records_operation,
         "write_json_artifact",
         fail_manifest,
     )
 
     with pytest.raises(OSError, match="manifest commit failed"):
-        materialize_vector_inputs(runtime, task)
+        materialize_variable_records(runtime, task)
 
     assert manifest_path.read_bytes() == previous_manifest
     previous_generation = previous_path.parent.parent
     assert set(previous_generation.parent.iterdir()) == {previous_generation}
 
 
-def test_identical_vector_inputs_rebuild_publishes_a_new_generation(
+def test_identical_variable_records_rebuild_publishes_a_new_generation(
     tmp_path: Path,
 ) -> None:
     runtime = _runtime_with_rows(
         tmp_path,
         [{"time": _ts(0), "value": 1.0}],
     )
-    runtime.dataset = FeatureDatasetConfig(
+    runtime.dataset = DatasetConfig(
         sample=SampleConfig(cadence="1h"),
-        features=[FeatureRecordConfig(stream="stream", id="value", field="value")],
+        features=[VariableConfig(stream="stream", id="value", field="value")],
     )
-    task = VectorInputsTask()
+    task = VariableRecordsTask()
 
-    first = materialize_vector_inputs(runtime, task)
+    first = materialize_variable_records(runtime, task)
     manifest_path = runtime.artifacts_root / first.relative_path
-    first_manifest = load_vector_inputs_manifest(manifest_path)
+    first_manifest = load_variable_records_manifest(manifest_path)
     first_path = manifest_path.parent / first_manifest.features[0].path
 
-    materialize_vector_inputs(runtime, task)
-    second_manifest = load_vector_inputs_manifest(manifest_path)
+    materialize_variable_records(runtime, task)
+    second_manifest = load_variable_records_manifest(manifest_path)
     second_path = manifest_path.parent / second_manifest.features[0].path
 
     assert second_path != first_path
     assert first_path.is_file()
-    assert len(list(open_vector_input_records(second_path))) == 1
+    assert len(list(open_variable_records(second_path))) == 1
 
 
-def test_changed_vector_inputs_rebuild_retains_previous_generation(
+def test_changed_variable_records_rebuild_retains_previous_generation(
     tmp_path: Path,
 ) -> None:
     runtime = _runtime_with_rows(
         tmp_path,
         [{"time": _ts(0), "value": 1.0}],
     )
-    runtime.dataset = FeatureDatasetConfig(
+    runtime.dataset = DatasetConfig(
         sample=SampleConfig(cadence="1h"),
-        features=[FeatureRecordConfig(stream="stream", id="value", field="value")],
+        features=[VariableConfig(stream="stream", id="value", field="value")],
     )
-    task = VectorInputsTask()
+    task = VariableRecordsTask()
 
-    first = materialize_vector_inputs(runtime, task)
+    first = materialize_variable_records(runtime, task)
     manifest_path = runtime.artifacts_root / first.relative_path
-    first_manifest = load_vector_inputs_manifest(manifest_path)
+    first_manifest = load_variable_records_manifest(manifest_path)
     first_path = manifest_path.parent / first_manifest.features[0].path
-    first_rows = list(open_vector_input_records(first_path))
+    first_rows = list(open_variable_records(first_path))
 
     source = runtime.streams["stream"].source
     assert isinstance(source, _StubSource)
     source._rows.append({"time": _ts(1), "value": 2.0})
-    materialize_vector_inputs(runtime, task)
+    materialize_variable_records(runtime, task)
 
-    second_manifest = load_vector_inputs_manifest(manifest_path)
+    second_manifest = load_variable_records_manifest(manifest_path)
     second_path = manifest_path.parent / second_manifest.features[0].path
     assert second_path != first_path
     assert first_path.is_file()
-    assert list(open_vector_input_records(first_path)) == first_rows
-    assert len(list(open_vector_input_records(second_path))) == 2
+    assert list(open_variable_records(first_path)) == first_rows
+    assert len(list(open_variable_records(second_path))) == 2
 
-    assert prune_vector_input_cache(manifest_path) == (first_path.parent.parent,)
+    assert prune_variable_record_cache(manifest_path) == (first_path.parent.parent,)
     assert not first_path.exists()
     assert second_path.is_file()
 
 
-def test_vector_inputs_rebuild_replaces_a_corrupt_generation(
+def test_variable_records_rebuild_replaces_a_corrupt_generation(
     tmp_path: Path,
 ) -> None:
     runtime = _runtime_with_rows(
         tmp_path,
         [{"time": _ts(0), "value": 1.0}],
     )
-    runtime.dataset = FeatureDatasetConfig(
+    runtime.dataset = DatasetConfig(
         sample=SampleConfig(cadence="1h"),
-        features=[FeatureRecordConfig(stream="stream", id="value", field="value")],
+        features=[VariableConfig(stream="stream", id="value", field="value")],
     )
-    task = VectorInputsTask()
+    task = VariableRecordsTask()
 
-    first = materialize_vector_inputs(runtime, task)
+    first = materialize_variable_records(runtime, task)
     manifest_path = runtime.artifacts_root / first.relative_path
-    manifest = load_vector_inputs_manifest(manifest_path)
+    manifest = load_variable_records_manifest(manifest_path)
     shard_path = manifest_path.parent / manifest.features[0].path
     shard_path.write_bytes(b"corrupt")
 
-    materialize_vector_inputs(runtime, task)
+    materialize_variable_records(runtime, task)
 
-    rebuilt = load_vector_inputs_manifest(manifest_path)
+    rebuilt = load_variable_records_manifest(manifest_path)
     rebuilt_path = manifest_path.parent / rebuilt.features[0].path
     assert rebuilt_path != shard_path
-    assert len(list(open_vector_input_records(rebuilt_path))) == 1
-    removed = prune_vector_input_cache(manifest_path)
+    assert len(list(open_variable_records(rebuilt_path))) == 1
+    removed = prune_variable_record_cache(manifest_path)
     assert removed == (shard_path.parent.parent,)
 
 
-def test_vector_inputs_rejects_symlinked_output_before_mutation(tmp_path: Path) -> None:
+def test_variable_records_rejects_symlinked_output_before_mutation(
+    tmp_path: Path,
+) -> None:
     artifacts_root = tmp_path / "artifacts"
     redirected = artifacts_root / "redirected"
     redirected.mkdir(parents=True)
@@ -1468,21 +1470,21 @@ def test_vector_inputs_rejects_symlinked_output_before_mutation(tmp_path: Path) 
     runtime = SimpleNamespace(
         project_yaml=tmp_path / "project.yaml",
         artifacts_root=artifacts_root,
-        dataset=FeatureDatasetConfig(sample=SampleConfig(cadence="1h")),
+        dataset=DatasetConfig(sample=SampleConfig(cadence="1h")),
         streams={},
     )
 
     with pytest.raises(ValueError, match="must not resolve through a symlink"):
-        materialize_vector_inputs(
+        materialize_variable_records(
             runtime,
-            VectorInputsTask(output="build/manifest.json"),
+            VariableRecordsTask(output="build/manifest.json"),
         )
 
     assert victim.read_text(encoding="utf-8") == "keep"
 
 
 @pytest.mark.parametrize("rectangular", [False, True])
-def test_vector_pipeline_requires_vector_inputs_artifact(
+def test_vector_pipeline_requires_variable_records_artifact(
     tmp_path: Path,
     rectangular: bool,
 ) -> None:
@@ -1491,9 +1493,9 @@ def test_vector_pipeline_requires_vector_inputs_artifact(
         rows=[{"time": _ts(0), "value": 1.0}],
     )
     context = PipelineContext(runtime)
-    cfg = FeatureRecordConfig(stream="stream", id="price", field="value")
+    cfg = VariableConfig(stream="stream", id="price", field="value")
 
-    with pytest.raises(RuntimeError, match="Vector inputs artifact is required"):
+    with pytest.raises(RuntimeError, match="Variable records artifact is required"):
         list(build_vector_pipeline(context, [cfg], "1h", rectangular=rectangular))
 
 
@@ -1504,9 +1506,9 @@ def test_cached_vector_pipeline_rejects_manifest_cadence_mismatch(
         tmp_path,
         rows=[{"time": _ts(0), "value": 1.0}],
     )
-    cfg = FeatureRecordConfig(stream="stream", id="price", field="value")
-    register_vector_inputs(runtime, [cfg], "1h")
-    manifest = runtime.artifacts_root / "build/vector_inputs/manifest.json"
+    cfg = VariableConfig(stream="stream", id="price", field="value")
+    register_variable_records(runtime, [cfg], "1h")
+    manifest = runtime.artifacts_root / "build/variable_records/manifest.json"
     payload = json.loads(manifest.read_text(encoding="utf-8"))
     payload["cadence"] = "1d"
     manifest.write_text(json.dumps(payload), encoding="utf-8")
@@ -1530,9 +1532,9 @@ def test_cached_vector_pipeline_reads_requested_feature_subset(
         {"time": _ts(1), "value": 2.0, "other": 20.0},
     ]
     runtime = _runtime_with_rows(tmp_path, rows)
-    value_cfg = FeatureRecordConfig(stream="stream", id="price", field="value")
-    other_cfg = FeatureRecordConfig(stream="stream", id="other", field="other")
-    register_vector_inputs(runtime, [value_cfg, other_cfg], "1h")
+    value_cfg = VariableConfig(stream="stream", id="price", field="value")
+    other_cfg = VariableConfig(stream="stream", id="other", field="other")
+    register_variable_records(runtime, [value_cfg, other_cfg], "1h")
 
     samples = list(
         build_vector_pipeline(
@@ -1554,8 +1556,8 @@ def test_cached_vector_records_close_streams_when_stopped_early(
     monkeypatch,
 ) -> None:
     configs = [
-        FeatureRecordConfig(stream="stream", id="a", field="value"),
-        FeatureRecordConfig(stream="stream", id="b", field="value"),
+        VariableConfig(stream="stream", id="a", field="value"),
+        VariableConfig(stream="stream", id="b", field="value"),
     ]
     closed_streams: list[str] = []
 
@@ -1564,14 +1566,14 @@ def test_cached_vector_records_close_streams_when_stopped_early(
             self.feature_id = feature_id
             self.items = iter(
                 [
-                    FeatureRecord(
-                        record=TemporalRecord(time=_ts(0)),
+                    VariableRecord(
                         id=feature_id,
+                        time=_ts(0),
                         value=1.0,
                     ),
-                    FeatureRecord(
-                        record=TemporalRecord(time=_ts(1)),
+                    VariableRecord(
                         id=feature_id,
+                        time=_ts(1),
                         value=2.0,
                     ),
                 ]
@@ -1594,15 +1596,15 @@ def test_cached_vector_records_close_streams_when_stopped_early(
         raise AssertionError(path)
 
     monkeypatch.setattr(
-        "datapipeline.pipelines.vector.pipeline.open_vector_input_records",
+        "datapipeline.pipelines.vector.pipeline.open_variable_records",
         _open_records,
     )
 
     keyed_records = vector_pipeline._merged_keyed_records(
         manifest_path=tmp_path / "manifest.json",
         shards=(
-            CachedVectorInputShard(id="a", path="a.jsonl.gz", rows=2),
-            CachedVectorInputShard(id="b", path="b.jsonl.gz", rows=2),
+            VariableShard(id="a", path="a.jsonl.gz", rows=2),
+            VariableShard(id="b", path="b.jsonl.gz", rows=2),
         ),
         configs=configs,
         group_by_cadence=parse_cadence("1h"),

@@ -1,34 +1,34 @@
 from collections.abc import Iterator, Sequence
 from dataclasses import replace
 from functools import partial
-from typing import Any
 
-from datapipeline.config.dataset.feature import FeatureRecordConfig
+from datapipeline.config.dataset.variable import VariableConfig
 from datapipeline.domain.sample_key import SampleKeyContract
+from datapipeline.domain.variable import VariableRecord, VariableSequence
 from datapipeline.execution.context import PipelineContext
 from datapipeline.execution.node import PipelineNode
 from datapipeline.execution.pipeline import Pipeline
 from datapipeline.execution.runner import run_pipeline
-from datapipeline.pipelines.feature.nodes import (
-    build_feature_stream,
-    order_feature_records,
-    sequence_features,
+from datapipeline.pipelines.variable.nodes import (
+    order_variable_records,
+    project_variable_records,
+    sequence_variables,
 )
-from datapipeline.pipelines.feature.projector import FeatureProjector
+from datapipeline.pipelines.variable.projector import VariableProjector
 from datapipeline.pipelines.sort import SortProgress
 from datapipeline.pipelines.stream.pipeline import build_stream_pipeline
 from datapipeline.runtime import require_runtime_stream
 
 
-def run_feature_pipeline(
+def run_variable_pipeline(
     context: PipelineContext,
-    cfg: FeatureRecordConfig,
+    cfg: VariableConfig,
     sample_keys: Sequence[str] = (),
     group_by_cadence: str | None = None,
-) -> Iterator[Any]:
+) -> Iterator[VariableRecord | VariableSequence]:
     return run_pipeline(
         context,
-        build_feature_pipeline(
+        build_variable_pipeline(
             context,
             cfg,
             sample_keys=sample_keys,
@@ -37,9 +37,9 @@ def run_feature_pipeline(
     )
 
 
-def build_feature_pipeline(
+def build_variable_pipeline(
     context: PipelineContext,
-    cfg: FeatureRecordConfig,
+    cfg: VariableConfig,
     sample_keys: Sequence[str] = (),
     group_by_cadence: str | None = None,
 ) -> Pipeline:
@@ -49,10 +49,10 @@ def build_feature_pipeline(
         for node in record_pipeline.nodes
     )
     return Pipeline(
-        name=f"feature:{cfg.id}",
+        name=f"variable:{cfg.id}",
         nodes=(
             *record_nodes,
-            *build_feature_nodes(
+            *build_variable_nodes(
                 context,
                 cfg,
                 sample_keys=sample_keys,
@@ -63,22 +63,22 @@ def build_feature_pipeline(
     )
 
 
-def build_feature_nodes(
+def build_variable_nodes(
     context: PipelineContext,
-    config: FeatureRecordConfig,
+    config: VariableConfig,
     sample_keys: Sequence[str] = (),
     group_by_cadence: str | None = None,
 ) -> tuple[PipelineNode, ...]:
     stream = require_runtime_stream(context.runtime, config.stream)
-    projector = FeatureProjector(
+    projector = VariableProjector(
         stream.partition_by,
         SampleKeyContract(sample_keys),
     )
     nodes = [
         PipelineNode(
-            name="build_feature_stream",
+            name="project_variable_records",
             apply=partial(
-                build_feature_stream,
+                project_variable_records,
                 projector,
                 config,
             ),
@@ -87,17 +87,17 @@ def build_feature_nodes(
     if config.sequence is not None:
         nodes.append(
             PipelineNode(
-                name="sequence_features",
-                apply=partial(sequence_features, config.sequence),
+                name="sequence_variables",
+                apply=partial(sequence_variables, config.sequence),
             )
         )
     if stream.partition_by or sample_keys:
         sort_progress = SortProgress()
         nodes.append(
             PipelineNode(
-                name="order_feature_records",
+                name="order_variable_records",
                 apply=partial(
-                    order_feature_records,
+                    order_variable_records,
                     context.runtime.execution.sort_buffer_bytes,
                     group_by_cadence,
                     sample_keys,

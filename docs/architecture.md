@@ -23,9 +23,9 @@ are flattened, while aligned streams use the explicit fan-in boundary described
 below. The strict config models keep source mapping and alignment separate.
 
 Dataset `sample.keys` select the partition fields represented in row identity.
-The remaining partition fields deterministically suffix feature IDs in declared
+The remaining partition fields deterministically suffix variable IDs in declared
 order. This derives long, wide, and hybrid layouts without a separate stream
-feature-identity setting.
+variable-identity setting.
 
 Configured loader, parser, map, and combine entry points are resolved while
 compiling a runtime from the definition. The resulting callables are stored on the runtime stream. There are
@@ -36,7 +36,7 @@ flowchart LR
   config["project configuration"] --> definition["PipelineDefinition<br/>validated snapshot"]
   definition --> runtime["Runtime.streams<br/>id -> compiled stream"]
   runtime --> records["linear record pipeline"]
-  records --> feature["feature processing"] --> inputs["vector inputs"]
+  records --> projection["feature/target projection"] --> inputs["variable records"]
   inputs --> vectors["vector assembly"] --> postprocess["postprocess stages"]
   postprocess --> output["samples / output"]
 ```
@@ -102,7 +102,7 @@ is built. Pipeline construction uses explicit type dispatch to create the transf
 There is no generic transform engine, signature inspection, arbitrary keyword
 injection, transform plugin lookup, or debug transform registry.
 
-Sequence construction remains a feature-pipeline stage rather than preprocess
+Sequence construction remains a variable-pipeline stage rather than preprocess
 or an ordered stream transform. Scaling is applied later, after a dataset fold
 is selected, so every train, validation, and test output uses its fold's fitted
 scaler. This keeps stream normalization separate from dataset shaping and split
@@ -133,6 +133,6 @@ boundary where its validated contract is needed.
 ## Preview boundaries
 
 `jerry serve --preview` selects a semantic boundary rather than a numeric node
-position: `input`, `canonical`, `records`, `features`, `samples`, or `postprocess`.
+position: `input`, `canonical`, `records`, `variables`, `samples`, or `postprocess`.
 The meaning stays stable when optional pipeline nodes are added or removed. See the
 README's **Preview stages** section for the output behavior of each boundary.

@@ -6,14 +6,20 @@ from functools import partial
 from itertools import tee
 from pathlib import Path
 
+from datapipeline.artifacts.variable_records import (
+    VariableShard,
+    VariableRecordsManifest,
+    load_variable_records_manifest,
+    open_variable_records,
+)
 from datapipeline.artifacts.models import SampleDomainEntry
 from datapipeline.artifacts.registry import (
     VECTOR_METADATA_SPEC,
     ArtifactNotRegisteredError,
 )
-from datapipeline.artifacts.specs import VECTOR_INPUTS
-from datapipeline.config.dataset.feature import FeatureRecordConfig
-from datapipeline.domain.feature import FeatureRecord, FeatureSequence
+from datapipeline.artifacts.specs import VARIABLE_RECORDS
+from datapipeline.config.dataset.variable import VariableConfig
+from datapipeline.domain.variable import VariableRecord, VariableSequence
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.sample_key import SampleKeyContract
 from datapipeline.execution.context import PipelineContext
@@ -31,29 +37,23 @@ from datapipeline.pipelines.vector.nodes import (
     vector_assemble_stage,
 )
 from datapipeline.utils.time import parse_cadence
-from datapipeline.vector_inputs.store import (
-    CachedVectorInputShard,
-    CachedVectorInputsManifest,
-    load_vector_inputs_manifest,
-    open_vector_input_records,
-)
 
 
 def build_vector_pipeline(
     context: PipelineContext,
-    configs: Sequence[FeatureRecordConfig],
+    feature_configs: Sequence[VariableConfig],
     group_by_cadence: str,
-    target_configs: Sequence[FeatureRecordConfig] | None = None,
+    target_configs: Sequence[VariableConfig] | None = None,
     rectangular: bool = True,
     sample_keys: Sequence[str] = (),
 ) -> Iterator[Sample]:
-    feature_cfgs = tuple(configs)
+    feature_cfgs = tuple(feature_configs)
     target_cfgs = tuple(() if target_configs is None else target_configs)
     sample_key_fields = tuple(sample_keys)
     if not feature_cfgs and not target_cfgs:
         return iter(())
 
-    manifest_path, manifest, sample_key_contract = _require_vector_inputs(
+    manifest_path, manifest, sample_key_contract = _require_variable_records(
         context, group_by_cadence, sample_key_fields
     )
     cadence = parse_cadence(group_by_cadence)
@@ -75,13 +75,13 @@ def build_vector_pipeline(
 
 def build_vector_source_node(
     context: PipelineContext,
-    configs: Sequence[FeatureRecordConfig],
+    feature_configs: Sequence[VariableConfig],
     group_by_cadence: str,
-    target_configs: Sequence[FeatureRecordConfig] | None = None,
+    target_configs: Sequence[VariableConfig] | None = None,
     rectangular: bool = True,
     sample_keys: Sequence[str] = (),
 ) -> SourceNode:
-    feature_cfgs = tuple(configs)
+    feature_cfgs = tuple(feature_configs)
     target_cfgs = tuple(() if target_configs is None else target_configs)
     sample_key_fields = tuple(sample_keys)
     has_inputs = bool(feature_cfgs or target_cfgs)
@@ -114,16 +114,16 @@ def build_vector_source_node(
 
 def _open_vector_samples(
     context: PipelineContext,
-    feature_configs: Sequence[FeatureRecordConfig],
+    feature_configs: Sequence[VariableConfig],
     group_by_cadence: str,
-    target_configs: Sequence[FeatureRecordConfig],
+    target_configs: Sequence[VariableConfig],
     sample_keys: Sequence[str],
     key_plan: RectangularKeyPlan | None,
 ) -> Iterator[Sample]:
     if not feature_configs and not target_configs:
         return iter(())
 
-    manifest_path, manifest, sample_key_contract = _require_vector_inputs(
+    manifest_path, manifest, sample_key_contract = _require_variable_records(
         context, group_by_cadence, sample_keys
     )
     return _assemble_vector_samples(
@@ -137,29 +137,29 @@ def _open_vector_samples(
     )
 
 
-def _require_vector_inputs(
+def _require_variable_records(
     context: PipelineContext,
     group_by_cadence: str,
     sample_keys: Sequence[str],
-) -> tuple[Path, CachedVectorInputsManifest, SampleKeyContract]:
-    artifact = context.runtime.artifacts.optional(VECTOR_INPUTS)
+) -> tuple[Path, VariableRecordsManifest, SampleKeyContract]:
+    artifact = context.runtime.artifacts.optional(VARIABLE_RECORDS)
     if artifact is None:
         raise RuntimeError(
-            "Vector inputs artifact is required before vector assembly. "
-            "Run `jerry build --profile vector_inputs` or use "
+            "Variable records artifact is required before vector assembly. "
+            "Run `jerry build --profile variable_records` or use "
             "`--artifact-mode AUTO|FORCE`."
         )
 
     manifest_path = artifact.resolve(context.runtime.artifacts.root)
-    manifest = load_vector_inputs_manifest(manifest_path)
+    manifest = load_variable_records_manifest(manifest_path)
     if manifest.cadence != group_by_cadence:
         raise RuntimeError(
-            "Vector inputs artifact cadence does not match requested pipeline cadence: "
+            "Variable records artifact cadence does not match requested pipeline cadence: "
             f"{manifest.cadence!r} != {group_by_cadence!r}."
         )
     if manifest.sample_keys != tuple(sample_keys):
         raise RuntimeError(
-            "Vector inputs artifact sample keys do not match requested pipeline sample keys."
+            "Variable records artifact sample keys do not match requested pipeline sample keys."
         )
     sample_key_contract = SampleKeyContract(
         sample_keys,
@@ -170,9 +170,9 @@ def _require_vector_inputs(
 
 def _assemble_vector_samples(
     manifest_path: Path,
-    manifest: CachedVectorInputsManifest,
-    feature_configs: Sequence[FeatureRecordConfig],
-    target_configs: Sequence[FeatureRecordConfig],
+    manifest: VariableRecordsManifest,
+    feature_configs: Sequence[VariableConfig],
+    target_configs: Sequence[VariableConfig],
     cadence: timedelta,
     sample_key_contract: SampleKeyContract,
     key_plan: RectangularKeyPlan | None,
@@ -213,10 +213,10 @@ def _assemble_vector_samples(
 
 
 def _shards_for_configs(
-    feature_shards: Sequence[CachedVectorInputShard],
-    target_shards: Sequence[CachedVectorInputShard],
-    configs: Sequence[FeatureRecordConfig],
-) -> Sequence[CachedVectorInputShard]:
+    feature_shards: Sequence[VariableShard],
+    target_shards: Sequence[VariableShard],
+    configs: Sequence[VariableConfig],
+) -> Sequence[VariableShard]:
     requested = {cfg.id for cfg in configs}
     feature_ids = {shard.id for shard in feature_shards}
     if requested <= feature_ids:
@@ -226,7 +226,7 @@ def _shards_for_configs(
         return target_shards
     missing = sorted(requested - feature_ids - target_ids)
     raise RuntimeError(
-        "Vector inputs artifact does not contain configured input ids: "
+        "Variable records artifact does not contain configured variable ids: "
         + ", ".join(missing)
     )
 
@@ -234,32 +234,32 @@ def _shards_for_configs(
 def _merged_keyed_records(
     *,
     manifest_path: Path,
-    shards: Sequence[CachedVectorInputShard],
-    configs: Sequence[FeatureRecordConfig],
+    shards: Sequence[VariableShard],
+    configs: Sequence[VariableConfig],
     group_by_cadence: timedelta,
     sample_key_contract: SampleKeyContract,
-) -> Iterator[tuple[tuple, FeatureRecord | FeatureSequence]]:
+) -> Iterator[tuple[tuple, VariableRecord | VariableSequence]]:
     root = manifest_path.parent
     shards_by_id = {shard.id: shard for shard in shards}
 
     def keyed_stream(
-        stream: Iterator[FeatureRecord | FeatureSequence],
-    ) -> Iterator[tuple[tuple, FeatureRecord | FeatureSequence]]:
+        stream: Iterator[VariableRecord | VariableSequence],
+    ) -> Iterator[tuple[tuple, VariableRecord | VariableSequence]]:
         for record in stream:
             sample_key_contract.validate(record.entity_key)
             yield group_key_for(record, group_by_cadence), record
 
     with ExitStack() as opened:
         opened_streams: list[
-            Iterator[tuple[tuple, FeatureRecord | FeatureSequence]]
+            Iterator[tuple[tuple, VariableRecord | VariableSequence]]
         ] = []
         for cfg in configs:
             shard = shards_by_id.get(cfg.id)
             if shard is None:
                 raise RuntimeError(
-                    f"Vector inputs artifact does not contain configured input '{cfg.id}'."
+                    f"Variable records artifact does not contain variable '{cfg.id}'."
                 )
-            opened_stream = open_vector_input_records(root / shard.path)
+            opened_stream = open_variable_records(root / shard.path)
             closer = getattr(opened_stream, "close", None)
             if callable(closer):
                 opened.callback(closer)

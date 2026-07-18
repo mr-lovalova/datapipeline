@@ -97,7 +97,7 @@ def test_routed_output_target_preserves_dotted_filename_stem(tmp_path):
     )
 
 
-def test_feature_target_preserves_dotted_filename_stem(tmp_path):
+def test_preview_output_preserves_dotted_filename_stem(tmp_path):
     base_dir = tmp_path / "outputs"
     base_dir.mkdir()
     cfg = ServeOutputConfig(
@@ -114,10 +114,10 @@ def test_feature_target_preserves_dotted_filename_stem(tmp_path):
         profile_name="preview",
     )
 
-    feature_target = target.for_feature("equity.adv.daily.20")
+    preview_target = target.for_output("equity.adv.daily.20")
 
     assert (
-        feature_target.destination
+        preview_target.destination
         == (
             base_dir
             / "preview"

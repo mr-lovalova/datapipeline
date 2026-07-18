@@ -3,18 +3,20 @@ import pytest
 from datapipeline.artifacts.hydration import hydrate_runtime_artifacts_for_pipeline
 from datapipeline.artifacts.specs import (
     SCALER_STATISTICS,
-    VECTOR_INPUTS,
+    VARIABLE_RECORDS,
     VECTOR_METADATA,
 )
 from datapipeline.config.tasks import (
     MetadataTask,
     ScalerTask,
-    VectorInputsTask,
+    VariableRecordsTask,
 )
 from datapipeline.execution.context import PipelineContext
 from datapipeline.operations.artifacts.metadata import materialize_metadata
 from datapipeline.operations.artifacts.scaler import materialize_scaler_statistics
-from datapipeline.operations.artifacts.vector_inputs import materialize_vector_inputs
+from datapipeline.operations.artifacts.variable_records import (
+    materialize_variable_records,
+)
 from datapipeline.pipelines.dataset.pipeline import run_scaled_dataset_pipeline
 from datapipeline.services.pipeline import load_pipeline
 from datapipeline.services.runtime_compiler import compile_runtime
@@ -36,13 +38,15 @@ def _vector_samples(project_yaml):
         runtime.artifacts.register(
             SCALER_STATISTICS, relative_path=scaler_rel.relative_path
         )
-    vector_inputs_rel = materialize_vector_inputs(
+    variable_records_rel = materialize_variable_records(
         runtime,
-        VectorInputsTask(id="vector_inputs", output="vector_inputs/manifest.json"),
+        VariableRecordsTask(
+            id="variable_records", output="variable_records/manifest.json"
+        ),
     )
     runtime.artifacts.register(
-        VECTOR_INPUTS,
-        relative_path=vector_inputs_rel.relative_path,
+        VARIABLE_RECORDS,
+        relative_path=variable_records_rel.relative_path,
     )
     metadata_rel = materialize_metadata(
         runtime,

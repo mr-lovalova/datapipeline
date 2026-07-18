@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
+from datapipeline.config.dataset.dataset import DatasetConfig, SampleConfig
 from datapipeline.config.execution import ExecutionConfig
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.runtime import Runtime, SourceRuntimeStream
@@ -38,7 +38,7 @@ def _runtime(
     runtime = Runtime(
         project_yaml=tmp_path / "project.yaml",
         artifacts_root=tmp_path / "artifacts",
-        dataset=FeatureDatasetConfig(sample=SampleConfig(cadence="1h")),
+        dataset=DatasetConfig(sample=SampleConfig(cadence="1h")),
         execution=ExecutionConfig(),
     )
     runtime.streams["prices.raw"] = SourceRuntimeStream(

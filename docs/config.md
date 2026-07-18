@@ -74,7 +74,7 @@ globals:
 - New scaffolded dataset projects include a `.env.example` next to `project.yaml`.
 - `paths.operations` optionally points to `operations/*.yaml`. Omit it when the
   built-in operations are sufficient. When configured, the directory must exist.
-  Core artifact operations are `scaler`, `vector_inputs`, `metadata`, and
+  Core artifact operations are `scaler`, `variable_records`, `metadata`, and
   `stats`; core runtime operations are `dataset`, `coverage`, and `matrix`.
   Files override core settings or declare custom operations.
 - `paths.profiles` points to profile specs grouped by type:
@@ -440,7 +440,7 @@ transforms:
   `[*partition_by, time]` order. When present, it must equal that canonical
   order and is validated while streaming. When absent, mapped records are
   externally sorted. Derived streams reuse upstream canonical order.
-- Feature identity is derived at the dataset boundary. Every `sample.keys`
+- Variable identity is derived at the dataset boundary. Every `sample.keys`
   field must occur in the resolved `partition_by` of every referenced stream.
   Partition fields absent from `sample.keys` suffix the configured feature or
   target ID in partition order (for example, `temp__@station_id:XYZ`). Putting
@@ -448,7 +448,7 @@ transforms:
   putting none there produces wide output; using a subset produces a hybrid.
   Dataset feature and target IDs cannot contain the reserved `__` separator.
   Generated suffixes escape strings and tag non-string scalar values so
-  different component tuples cannot produce the same feature ID.
+  different component tuples cannot produce the same variable ID.
 
 ### Aligned Streams (Engineered Domains)
 
@@ -565,8 +565,8 @@ postprocess:
   must stay per security; downstream streams inherit it.
 - `partition_by` is the complete series identity. `sample.keys` select which
   partition fields identify output rows; remaining partition fields suffix
-  feature IDs such as `close__@security_id:AAPL`. This supports long, wide, and
-  hybrid layouts without a separate format or feature-identity setting.
+  variable IDs such as `close__@security_id:AAPL`. This supports long, wide, and
+  hybrid layouts without a separate format or variable-identity setting.
 - `field` selects the record attribute used as the feature/target value.
 - Every `id` must be unique across both `features` and `targets`. Scaler and
   metadata operations plus postprocess policies use this shared vector-ID
@@ -575,13 +575,13 @@ postprocess:
   `build/scaler.json` artifact when a dataset output is produced. Fitting
   options belong to the scaler operation and cannot be overridden per vector.
   `None` remains `None`; other nonnumeric or non-finite values fail.
-- `sequence` emits `FeatureSequence` windows and accepts `size` plus
+- `sequence` emits `VariableSequence` windows and accepts `size` plus
   optional `stride` (default `1`). Regularize cadence with ordered transforms
-  before feature extraction when contiguous ticks are required. The resolved
+  before variable projection when contiguous ticks are required. The resolved
   stream partition keeps every independent series in one contiguous ordered
   group.
-- Feature configuration exposes only `scale` and `sequence`; it does not accept
-  arbitrary feature transform entry-point clauses.
+- Variable configuration exposes only `scale` and `sequence`; it does not accept
+  arbitrary transform entry-point clauses.
 - `split` first assigns each sample one primitive label. Hash splits assign from
   the complete sample key and require `ratios`. Time splits require ordered
   `intervals` with unique IDs and strictly increasing endpoints. Every interval

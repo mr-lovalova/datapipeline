@@ -7,7 +7,7 @@ Transforms that depend on history operate within a partition. A source-backed
 stream declares `partition_by` as the complete identity of an independent
 series, such as `[security_id]` or `[security_id, metric]`. Derived and aligned
 streams inherit that identity. Dataset `sample.keys` select which partition
-fields identify output rows. Remaining partition fields suffix feature IDs in
+fields identify output rows. Remaining partition fields suffix variable IDs in
 their declared order.
 
 ## Field-Writing Transforms

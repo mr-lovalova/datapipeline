@@ -22,14 +22,14 @@ filtering.
   - `canonical`: domain records after source mapping or aligned combining;
     derived streams pass their input through unchanged at this boundary.
   - `records`: records after configured transforms and ordering.
-  - `features`: ordered feature/target records after sequence construction.
+  - `variables`: ordered feature/target records after sequence construction.
     Values remain unscaled because scaling is selected by the full dataset
     output's fold.
   - `samples`: assembled samples before postprocess.
   - `postprocess`: samples after the configured postprocess pipeline.
     Preview stages remain unscaled; omit `--preview` to apply each selected
     fold's scaler.
-  - Record stages emit once per unique configured record stream, `features`
+  - Record stages emit once per unique configured record stream, `variables`
     emits once per feature/target, and sample stages emit one combined stream.
   - Omit `--preview` to run the full pipeline and output persistence.
   - Use `--log-level DEBUG` for full debug output; the CLI default is `INFO`.

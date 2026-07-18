@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
+from datapipeline.config.dataset.dataset import DatasetConfig, SampleConfig
 from datapipeline.execution.settings import (
     LogLevelDecision,
     LogOutputSettings,
@@ -22,7 +22,7 @@ def _runtime() -> Runtime:
     return Runtime(
         project_yaml=Path("."),
         artifacts_root=Path("."),
-        dataset=FeatureDatasetConfig(sample=SampleConfig(cadence="1h")),
+        dataset=DatasetConfig(sample=SampleConfig(cadence="1h")),
     )
 
 

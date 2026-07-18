@@ -29,7 +29,7 @@ missing from that contract.
 | File layout | Single-file and deliberately misnamed multi-file glob inputs agree |
 | Bounded sorting | A forced external spill produces the same persisted dataset |
 | Long identity | `sample.keys` preserve entity identity in row keys |
-| Wide identity | Remaining partition fields produce deterministic feature IDs |
+| Wide identity | Remaining partition fields produce deterministic variable IDs |
 | Hybrid identity | Entity row keys and widened metric columns coexist |
 | Alignment | Sparse aligned inputs only derive values at matching keys |
 | Sequencing | Fixed windows, stride, missing elements, and column order are golden |

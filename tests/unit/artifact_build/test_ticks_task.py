@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 import pytest
 
 import datapipeline.operations.artifacts.ticks as ticks_module
-from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
+from datapipeline.config.dataset.dataset import DatasetConfig, SampleConfig
 from datapipeline.config.execution import ExecutionConfig
 from datapipeline.config.tasks import TicksTask
 from datapipeline.config.transforms import WhereConfig
@@ -61,7 +61,7 @@ def _runtime(tmp_path, rows=None, partition_by=()) -> Runtime:
     runtime = Runtime(
         project_yaml=project_yaml,
         artifacts_root=artifacts_root,
-        dataset=FeatureDatasetConfig(sample=SampleConfig(cadence="1h")),
+        dataset=DatasetConfig(sample=SampleConfig(cadence="1h")),
         execution=ExecutionConfig(),
     )
     runtime.streams["source.stream"] = SourceRuntimeStream(

@@ -3,7 +3,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Mapping
 
-from datapipeline.config.dataset.dataset import FeatureDatasetConfig
+from datapipeline.config.dataset.dataset import DatasetConfig
 from datapipeline.config.project import ProjectConfig
 from datapipeline.config.streams import StreamsConfig
 from datapipeline.config.tasks import ArtifactTask, OperationTask
@@ -37,7 +37,7 @@ class ArtifactHashes:
 @dataclass(frozen=True, slots=True)
 class PipelineDefinition:
     project: ProjectManifest
-    dataset: FeatureDatasetConfig
+    dataset: DatasetConfig
     streams: StreamsConfig
     artifact_operations: tuple[ArtifactTask, ...]
     runtime_operations: tuple[OperationTask, ...]

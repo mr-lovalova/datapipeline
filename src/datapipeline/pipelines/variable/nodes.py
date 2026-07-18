@@ -2,50 +2,49 @@ from collections import deque
 from collections.abc import Iterable, Iterator, Sequence
 from typing import Any
 
-from datapipeline.config.dataset.feature import FeatureRecordConfig, SequenceConfig
-from datapipeline.domain.feature import FeatureRecord, FeatureSequence
-from datapipeline.pipelines.feature.projector import FeatureProjector
+from datapipeline.config.dataset.variable import SequenceConfig, VariableConfig
+from datapipeline.domain.variable import VariableRecord, VariableSequence
+from datapipeline.pipelines.variable.projector import VariableProjector
 from datapipeline.pipelines.sort import SortProgress, batch_sort
 from datapipeline.utils.time import floor_time_to_cadence, parse_cadence
 
 
-def build_feature_stream(
-    projector: FeatureProjector,
-    config: FeatureRecordConfig,
+def project_variable_records(
+    projector: VariableProjector,
+    config: VariableConfig,
     records: Iterable[Any],
-) -> Iterator[FeatureRecord]:
-    configs = (config,)
+) -> Iterator[VariableRecord]:
     for record in records:
-        yield from projector.project(record, configs)
+        yield from projector.project(record, (config,))
 
 
-def sequence_features(
+def sequence_variables(
     sequence: SequenceConfig,
-    features: Iterator[FeatureRecord],
-) -> Iterator[FeatureSequence]:
-    sequencer = FeatureSequencer(sequence)
-    for feature in features:
-        result = sequencer.append(feature)
+    variables: Iterator[VariableRecord],
+) -> Iterator[VariableSequence]:
+    sequencer = VariableSequencer(sequence)
+    for variable in variables:
+        result = sequencer.append(variable)
         if result is not None:
             yield result
 
 
-class FeatureSequencer:
+class VariableSequencer:
     def __init__(self, config: SequenceConfig) -> None:
         self.config = config
         self._active_key: tuple[str, tuple] | None = None
         self._window: deque[Any] = deque(maxlen=config.size)
         self._position = 0
 
-    def append(self, feature: FeatureRecord) -> FeatureSequence | None:
-        key = feature.id, feature.entity_key
+    def append(self, variable: VariableRecord) -> VariableSequence | None:
+        key = variable.id, variable.entity_key
         if key != self._active_key:
             self._active_key = key
             self._window.clear()
             self._position = 0
 
         position = self._position
-        self._window.append(feature.value)
+        self._window.append(variable.value)
         self._position += 1
 
         window_start = position - self.config.size + 1
@@ -53,26 +52,26 @@ class FeatureSequencer:
             return None
         if window_start % self.config.stride != 0:
             return None
-        return FeatureSequence(
-            time=feature.time,
+        return VariableSequence(
+            time=variable.time,
             values=list(self._window),
-            id=feature.id,
-            entity_key=feature.entity_key,
+            id=variable.id,
+            entity_key=variable.entity_key,
         )
 
 
-def order_feature_records(
+def order_variable_records(
     buffer_bytes: int,
     group_by_cadence: str | None,
     sample_keys: Sequence[str],
     progress: SortProgress,
-    features: Iterator[FeatureRecord | FeatureSequence],
-) -> Iterable[FeatureRecord | FeatureSequence]:
+    variables: Iterator[VariableRecord | VariableSequence],
+) -> Iterable[VariableRecord | VariableSequence]:
     key = _time_then_id
     if sample_keys and group_by_cadence is not None:
         key = _sample_group_then_time_and_id(group_by_cadence)
     return batch_sort(
-        features,
+        variables,
         buffer_bytes=buffer_bytes,
         key=key,
         progress=progress,
@@ -80,7 +79,7 @@ def order_feature_records(
 
 
 def _time_then_id(
-    item: FeatureRecord | FeatureSequence,
+    item: VariableRecord | VariableSequence,
 ) -> tuple[Any, str]:
     return item.time, item.id
 
@@ -88,7 +87,7 @@ def _time_then_id(
 def _sample_group_then_time_and_id(group_by_cadence: str):
     cadence = parse_cadence(group_by_cadence)
 
-    def key(item: FeatureRecord | FeatureSequence) -> tuple[Any, ...]:
+    def key(item: VariableRecord | VariableSequence) -> tuple[Any, ...]:
         time_value = item.time
         return (
             floor_time_to_cadence(time_value, cadence),

@@ -8,7 +8,7 @@ from pathlib import Path
 from datapipeline.artifacts.models import VECTOR_METADATA_VERSION
 from datapipeline.artifacts.planning import build_artifact_graph
 from datapipeline.artifacts.specs import dataset_requires_scaler
-from datapipeline.config.dataset.dataset import FeatureDatasetConfig
+from datapipeline.config.dataset.dataset import DatasetConfig
 from datapipeline.config.sources import CoreIoLoaderConfig, FsSourceArgs, SourceConfig
 from datapipeline.config.streams import SourceStreamConfig, StreamsConfig
 from datapipeline.config.tasks import (
@@ -17,7 +17,7 @@ from datapipeline.config.tasks import (
     ScalerTask,
     StatsTask,
     TicksTask,
-    VectorInputsTask,
+    VariableRecordsTask,
 )
 from datapipeline.services.definitions import ArtifactHashes, ProjectManifest
 
@@ -144,7 +144,7 @@ def _stream_config_closure(
 
 def _artifact_inputs(
     task: ArtifactTask,
-    dataset: FeatureDatasetConfig,
+    dataset: DatasetConfig,
     streams: StreamsConfig,
 ) -> tuple[dict[str, object], set[str]]:
     if isinstance(task, TicksTask):
@@ -152,9 +152,7 @@ def _artifact_inputs(
         return {"streams": stream_config}, source_ids
 
     if isinstance(task, ScalerTask):
-        scaled = tuple(
-            config for config in (*dataset.features, *dataset.targets) if config.scale
-        )
+        scaled = tuple(config for config in dataset.variables if config.scale)
         stream_config, source_ids = _stream_config_closure(
             (config.stream for config in scaled),
             streams,
@@ -178,10 +176,10 @@ def _artifact_inputs(
             source_ids,
         )
 
-    if isinstance(task, VectorInputsTask):
-        vectors = (*dataset.features, *dataset.targets)
+    if isinstance(task, VariableRecordsTask):
+        input_configs = dataset.variables
         stream_config, source_ids = _stream_config_closure(
-            (config.stream for config in vectors),
+            (config.stream for config in input_configs),
             streams,
         )
         return (
@@ -246,7 +244,7 @@ def _artifact_digest(
 
 def calculate_artifact_hashes(
     project: ProjectManifest,
-    dataset: FeatureDatasetConfig,
+    dataset: DatasetConfig,
     streams: StreamsConfig,
     artifact_operations: tuple[ArtifactTask, ...],
 ) -> ArtifactHashes:

@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from datapipeline.artifacts.models import SampleDomainEntry
-from datapipeline.domain.feature import FeatureRecord, FeatureSequence
+from datapipeline.domain.variable import VariableRecord, VariableSequence
 from datapipeline.utils.time import (
     floor_time_to_cadence,
     parse_cadence,
@@ -67,7 +67,7 @@ class RectangularKeyPlan:
 
 
 def group_key_for(
-    item: FeatureRecord | FeatureSequence,
+    item: VariableRecord | VariableSequence,
     cadence: timedelta,
 ) -> tuple:
     return (floor_time_to_cadence(item.time, cadence), *item.entity_key)

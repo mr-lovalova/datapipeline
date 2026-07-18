@@ -8,13 +8,13 @@ from datapipeline.artifacts.models import (
     ScalarVectorMetadataEntry,
     VectorMetadataEntry,
 )
-from datapipeline.config.dataset.feature import FeatureRecordConfig
+from datapipeline.config.dataset.variable import VariableConfig
 from datapipeline.execution.context import PipelineContext
 from datapipeline.execution.runner import resolve_heartbeat_interval_seconds
 from datapipeline.execution.observability import OperationProgressTracker
 from datapipeline.pipelines.vector.pipeline import build_vector_pipeline
 from datapipeline.runtime import Runtime
-from datapipeline.domain.feature_id import base_id as _base_feature_id
+from datapipeline.domain.variable_id import base_id as _base_variable_id
 from datapipeline.transforms.utils import is_missing
 
 
@@ -90,7 +90,7 @@ class VectorMetadataStats:
 
 def collect_vector_metadata(
     runtime: Runtime,
-    configs: Sequence[FeatureRecordConfig],
+    configs: Sequence[VariableConfig],
     cadence: str,
     sample_keys: Sequence[str],
     progress_step: str,
@@ -137,7 +137,7 @@ def collect_vector_metadata(
                 if entry is None:
                     entry = stats[fid] = VectorMetadataStats(
                         id=fid,
-                        base_id=_base_feature_id(fid),
+                        base_id=_base_variable_id(fid),
                     )
                 entry.observe(value, ts)
             progress.advance()

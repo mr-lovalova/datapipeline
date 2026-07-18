@@ -11,7 +11,7 @@ from datapipeline.artifacts.planning import (
 from datapipeline.artifacts.specs import (
     ARTIFACT_DEFINITIONS,
     SCALER_STATISTICS,
-    VECTOR_INPUTS,
+    VARIABLE_RECORDS,
     VECTOR_METADATA,
     VECTOR_STATS,
     ArtifactDefinition,
@@ -23,8 +23,8 @@ from datapipeline.artifacts.validation import (
     validate_artifact_plan,
 )
 from datapipeline.build.state import ArtifactFileFingerprint, BuildState
-from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
-from datapipeline.config.dataset.feature import FeatureRecordConfig
+from datapipeline.config.dataset.dataset import DatasetConfig, SampleConfig
+from datapipeline.config.dataset.variable import VariableConfig
 from datapipeline.config.preview import PreviewStage
 from datapipeline.config.streams import StreamsConfig
 from datapipeline.config.tasks import (
@@ -37,7 +37,7 @@ from datapipeline.config.tasks import (
     ScalerTask,
     StatsTask,
     TicksTask,
-    VectorInputsTask,
+    VariableRecordsTask,
 )
 from datapipeline.plugins import BUILD_OPERATIONS_EP
 from datapipeline.services.definitions import ArtifactHashes
@@ -82,7 +82,7 @@ def test_artifact_keys_match_task_ids():
             MetadataTask(id="metadata"),
             ScalerTask(id="scaler"),
             StatsTask(id="stats", stage="assembled"),
-            VectorInputsTask(id="vector_inputs"),
+            VariableRecordsTask(id="variable_records"),
         ]
     )
 
@@ -90,7 +90,7 @@ def test_artifact_keys_match_task_ids():
         VECTOR_METADATA,
         SCALER_STATISTICS,
         VECTOR_STATS,
-        VECTOR_INPUTS,
+        VARIABLE_RECORDS,
     }
 
 
@@ -100,7 +100,7 @@ def test_stats_build_selects_metadata_dependency_chain(stage):
         [
             StatsTask(id="stats", stage=stage),
             MetadataTask(id="metadata"),
-            VectorInputsTask(id="vector_inputs"),
+            VariableRecordsTask(id="variable_records"),
             ScalerTask(id="scaler"),
         ]
     )
@@ -110,7 +110,7 @@ def test_stats_build_selects_metadata_dependency_chain(stage):
     assert keys == {
         VECTOR_STATS,
         VECTOR_METADATA,
-        VECTOR_INPUTS,
+        VARIABLE_RECORDS,
     }
 
 
@@ -129,16 +129,16 @@ def test_ticks_task_uses_task_id_as_artifact_key():
     assert graph.declared_artifact_keys() == {"dataset_ticks"}
 
 
-def test_tick_artifacts_feed_scaler_and_vector_inputs() -> None:
+def test_tick_artifacts_feed_scaler_and_variable_records() -> None:
     tick_task = TicksTask(
         id="dataset_ticks",
         stream="reference.stream",
         output="build/dataset_ticks.jsonl",
     )
-    dataset = FeatureDatasetConfig(
+    dataset = DatasetConfig(
         sample=SampleConfig(cadence="1h"),
         features=[
-            FeatureRecordConfig(
+            VariableConfig(
                 id="price",
                 stream="feature.stream",
                 field="close",
@@ -164,17 +164,17 @@ def test_tick_artifacts_feed_scaler_and_vector_inputs() -> None:
         [
             tick_task,
             ScalerTask(id="scaler"),
-            VectorInputsTask(id="vector_inputs"),
+            VariableRecordsTask(id="variable_records"),
         ],
         dataset,
         streams,
     )
 
     assert graph.definition(SCALER_STATISTICS).dependencies == ("dataset_ticks",)
-    assert graph.definition(VECTOR_INPUTS).dependencies == ("dataset_ticks",)
+    assert graph.definition(VARIABLE_RECORDS).dependencies == ("dataset_ticks",)
     assert graph.dependents_of({"dataset_ticks"}) == {
         SCALER_STATISTICS,
-        VECTOR_INPUTS,
+        VARIABLE_RECORDS,
         VECTOR_METADATA,
         VECTOR_STATS,
     }
@@ -270,9 +270,7 @@ def test_inactive_scaler_prunes_its_tick_dependency() -> None:
         output="build/dataset_ticks.jsonl",
     )
     graph = build_artifact_graph([tick_task, ScalerTask(id="scaler")])
-    dataset = FeatureDatasetConfig(
-        sample=SampleConfig(cadence="1h"), features=[], targets=[]
-    )
+    dataset = DatasetConfig(sample=SampleConfig(cadence="1h"), features=[], targets=[])
 
     assert (
         graph.active_dependency_closure(
@@ -599,7 +597,7 @@ def test_same_size_artifact_replacement_with_preserved_mtime_is_stale(tmp_path):
         ("input", set()),
         ("canonical", set()),
         ("records", set()),
-        ("features", set()),
+        ("variables", set()),
         ("samples", {VECTOR_METADATA}),
         ("postprocess", {VECTOR_METADATA}),
     ],
@@ -633,8 +631,8 @@ def test_plugin_task_cannot_claim_core_requirements_by_entrypoint(
     assert graph.runtime_requirements(task, preview=None) == {"declared"}
 
 
-@pytest.mark.parametrize("preview", ["input", "canonical", "records", "features"])
-def test_record_and_feature_previews_require_declared_ticks(
+@pytest.mark.parametrize("preview", ["input", "canonical", "records", "variables"])
+def test_record_and_variable_previews_require_declared_ticks(
     preview: PreviewStage,
 ) -> None:
     tick_task = TicksTask(
@@ -647,11 +645,9 @@ def test_record_and_feature_previews_require_declared_ticks(
         stream="unused.stream",
         output="build/unused_ticks.jsonl",
     )
-    dataset = FeatureDatasetConfig(
+    dataset = DatasetConfig(
         sample=SampleConfig(cadence="1h"),
-        features=[
-            FeatureRecordConfig(id="price", stream="feature.stream", field="close")
-        ],
+        features=[VariableConfig(id="price", stream="feature.stream", field="close")],
     )
     streams = StreamsConfig.model_validate(
         {
@@ -680,7 +676,7 @@ def test_record_and_feature_previews_require_declared_ticks(
 def test_invalid_pipeline_preview_is_rejected_for_empty_dataset() -> None:
     graph = build_artifact_graph([])
     task = PipelineTask(id="dataset")
-    dataset = FeatureDatasetConfig(sample=SampleConfig(cadence="1h"))
+    dataset = DatasetConfig(sample=SampleConfig(cadence="1h"))
 
     with pytest.raises(ValueError, match="preview must be one of"):
         graph.runtime_dependency_closure(
@@ -693,34 +689,32 @@ def test_invalid_pipeline_preview_is_rejected_for_empty_dataset() -> None:
 def test_runtime_dependency_closure_uses_stats_task_stage():
     graph = build_artifact_graph(
         [
-            VectorInputsTask(id="vector_inputs"),
+            VariableRecordsTask(id="variable_records"),
             MetadataTask(id="metadata"),
             StatsTask(id="stats", stage="assembled"),
         ]
     )
     task = CoverageTask(id="coverage")
-    dataset = FeatureDatasetConfig(
-        sample=SampleConfig(cadence="1h"), features=[], targets=[]
-    )
+    dataset = DatasetConfig(sample=SampleConfig(cadence="1h"), features=[], targets=[])
 
     assert graph.runtime_dependency_closure(
         task,
         preview=None,
         dataset=dataset,
-    ) == (VECTOR_INPUTS, VECTOR_METADATA, VECTOR_STATS)
+    ) == (VARIABLE_RECORDS, VECTOR_METADATA, VECTOR_STATS)
 
 
 @pytest.mark.parametrize(
     ("stage", "expected"),
     [
-        ("assembled", (VECTOR_INPUTS, VECTOR_METADATA)),
-        ("postprocessed", (VECTOR_INPUTS, VECTOR_METADATA)),
+        ("assembled", (VARIABLE_RECORDS, VECTOR_METADATA)),
+        ("postprocessed", (VARIABLE_RECORDS, VECTOR_METADATA)),
     ],
 )
 def test_matrix_uses_vector_artifacts_without_stats(stage, expected) -> None:
     graph = build_artifact_graph(
         [
-            VectorInputsTask(id="vector_inputs"),
+            VariableRecordsTask(id="variable_records"),
             MetadataTask(id="metadata"),
         ]
     )
@@ -730,7 +724,7 @@ def test_matrix_uses_vector_artifacts_without_stats(stage, expected) -> None:
         graph.runtime_dependency_closure(
             task,
             preview=None,
-            dataset=FeatureDatasetConfig(sample=SampleConfig(cadence="1h")),
+            dataset=DatasetConfig(sample=SampleConfig(cadence="1h")),
         )
         == expected
     )
@@ -744,10 +738,10 @@ def test_matrix_uses_vector_artifacts_without_stats(stage, expected) -> None:
     ],
 )
 def test_dataset_scaler_requirement_matches_feature_config(scale, expected):
-    dataset = FeatureDatasetConfig(
+    dataset = DatasetConfig(
         sample=SampleConfig(cadence="1h"),
         features=[
-            FeatureRecordConfig(
+            VariableConfig(
                 id="price",
                 stream="prices",
                 field="close",
@@ -763,14 +757,14 @@ def test_scaled_dataset_runtime_requires_scaler_beside_vector_artifacts() -> Non
     graph = build_artifact_graph(
         [
             ScalerTask(),
-            VectorInputsTask(),
+            VariableRecordsTask(),
             MetadataTask(),
         ]
     )
-    dataset = FeatureDatasetConfig(
+    dataset = DatasetConfig(
         sample=SampleConfig(cadence="1h"),
         features=[
-            FeatureRecordConfig(
+            VariableConfig(
                 id="price",
                 stream="prices",
                 field="close",
@@ -785,7 +779,7 @@ def test_scaled_dataset_runtime_requires_scaler_beside_vector_artifacts() -> Non
         dataset=dataset,
     ) == (
         SCALER_STATISTICS,
-        VECTOR_INPUTS,
+        VARIABLE_RECORDS,
         VECTOR_METADATA,
     )
 
@@ -793,7 +787,7 @@ def test_scaled_dataset_runtime_requires_scaler_beside_vector_artifacts() -> Non
 def test_empty_pipeline_dataset_has_no_runtime_artifact_requirements():
     graph = build_artifact_graph([])
     task = PipelineTask(id="dataset")
-    dataset = FeatureDatasetConfig(sample=SampleConfig(cadence="1h"))
+    dataset = DatasetConfig(sample=SampleConfig(cadence="1h"))
 
     assert (
         graph.runtime_dependency_closure(
@@ -806,7 +800,7 @@ def test_empty_pipeline_dataset_has_no_runtime_artifact_requirements():
     assert (
         graph.runtime_dependency_closure(
             task,
-            preview="features",
+            preview="variables",
             dataset=dataset,
         )
         == ()
@@ -852,7 +846,7 @@ def test_empty_pipeline_dataset_keeps_explicit_artifact_dependencies():
     assert graph.runtime_dependency_closure(
         task,
         preview=None,
-        dataset=FeatureDatasetConfig(sample=SampleConfig(cadence="1h")),
+        dataset=DatasetConfig(sample=SampleConfig(cadence="1h")),
     ) == ("custom_snapshot",)
 
 
@@ -884,7 +878,7 @@ def test_runtime_task_rejects_inactive_declared_artifact_dependency():
         graph.runtime_dependency_closure(
             task,
             preview=None,
-            dataset=FeatureDatasetConfig(sample=SampleConfig(cadence="1h")),
+            dataset=DatasetConfig(sample=SampleConfig(cadence="1h")),
         )
 
 
@@ -894,7 +888,7 @@ def test_artifact_definitions_have_runner_bound_entrypoints():
         "metadata": MetadataTask(id="metadata"),
         "scaler": ScalerTask(id="scaler"),
         "stats": StatsTask(id="stats", stage="postprocessed"),
-        "vector_inputs": VectorInputsTask(id="vector_inputs"),
+        "variable_records": VariableRecordsTask(id="variable_records"),
     }
     for definition in ARTIFACT_DEFINITIONS:
         task = task_by_id[definition.key]

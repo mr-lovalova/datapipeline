@@ -5,7 +5,7 @@ Transforms are split by the stage where they run:
 - [Preprocess transforms](preprocess.md): one record at a time, before ordering.
 - [Ordered transforms](stream.md): ordered record streams, usually with
   per-partition history.
-- [Feature transforms](feature.md): feature payload shaping before vector
+- [Variable shaping](variable.md): feature/target payload shaping before vector
   assembly.
 - [Postprocess policies](postprocess.md): column selection and sample filtering
   before split and output persistence.

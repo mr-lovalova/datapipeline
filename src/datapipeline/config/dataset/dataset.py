@@ -9,7 +9,7 @@ from pydantic import (
     model_validator,
 )
 
-from datapipeline.config.dataset.feature import FeatureRecordConfig
+from datapipeline.config.dataset.variable import VariableConfig
 from datapipeline.config.dataset.postprocess import PostprocessConfig
 from datapipeline.config.dataset.split import HashSplitConfig, SplitConfig
 from datapipeline.utils.time import CADENCE_PATTERN
@@ -37,22 +37,26 @@ class SampleConfig(BaseModel):
         return keys
 
 
-class FeatureDatasetConfig(BaseModel):
+class DatasetConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
     sample: SampleConfig
-    features: list[FeatureRecordConfig] = Field(default_factory=list)
-    targets: list[FeatureRecordConfig] = Field(default_factory=list)
+    features: list[VariableConfig] = Field(default_factory=list)
+    targets: list[VariableConfig] = Field(default_factory=list)
     split: SplitConfig | None = None
     postprocess: PostprocessConfig = Field(default_factory=PostprocessConfig)
 
+    @property
+    def variables(self) -> tuple[VariableConfig, ...]:
+        return (*self.features, *self.targets)
+
     @model_validator(mode="after")
-    def validate_unique_vector_ids(self) -> Self:
+    def validate_unique_variable_ids(self) -> Self:
         seen: set[str] = set()
-        for config in (*self.features, *self.targets):
+        for config in self.variables:
             if config.id in seen:
                 raise ValueError(
-                    f"dataset vector id {config.id!r} must be unique across "
+                    f"dataset variable id {config.id!r} must be unique across "
                     "features and targets"
                 )
             seen.add(config.id)
@@ -63,9 +67,7 @@ class FeatureDatasetConfig(BaseModel):
         if not isinstance(self.split, HashSplitConfig):
             return self
         sequenced = [
-            config.id
-            for config in (*self.features, *self.targets)
-            if config.sequence is not None
+            config.id for config in self.variables if config.sequence is not None
         ]
         if sequenced:
             raise ValueError(

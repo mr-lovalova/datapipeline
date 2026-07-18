@@ -9,7 +9,7 @@ from datapipeline.pipelines.dataset.nodes import apply_postprocess
 from datapipeline.pipelines.vector.pipeline import build_vector_pipeline
 from datapipeline.services.pipeline import load_pipeline
 from datapipeline.services.runtime_compiler import compile_runtime
-from tests.vector_input_helpers import register_vector_inputs
+from tests.variable_record_helpers import register_variable_records
 
 
 def test_drop_with_metadata_and_partitioned_streams(copy_fixture):
@@ -20,7 +20,7 @@ def test_drop_with_metadata_and_partitioned_streams(copy_fixture):
     hydrate_runtime_artifacts_for_pipeline(runtime, definition)
     dataset = definition.dataset
     context = PipelineContext(runtime)
-    register_vector_inputs(
+    register_variable_records(
         runtime,
         dataset.features,
         dataset.sample.cadence,

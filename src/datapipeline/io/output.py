@@ -48,17 +48,6 @@ class OutputTarget:
     destination: Path | None
     run: RunPaths | None = None
 
-    def for_feature(self, feature_id: str) -> "OutputTarget":
-        if self.transport != "fs" or self.destination is None:
-            return self
-        safe_feature = sanitize_path_segment(str(feature_id), default="feature")
-        dest = self.destination
-        suffix = _format_suffix(self.format)
-        stem = dest.name.removesuffix(suffix)
-        new_name = f"{stem}.{safe_feature}{suffix}"
-        new_path = dest.with_name(new_name)
-        return replace(self, destination=new_path)
-
     def for_output(self, output_id: str) -> "OutputTarget":
         if self.transport != "fs" or self.destination is None:
             return self

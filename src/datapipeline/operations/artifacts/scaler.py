@@ -9,15 +9,15 @@ from datapipeline.artifacts.scaler import (
     save_scaler_artifact,
 )
 from datapipeline.artifacts.specs import dataset_requires_scaler
-from datapipeline.config.dataset.feature import FeatureRecordConfig
+from datapipeline.config.dataset.variable import VariableConfig
 from datapipeline.config.dataset.split import DatasetFold
 from datapipeline.config.tasks import ScalerTask
-from datapipeline.domain.feature import FeatureRecord
+from datapipeline.domain.variable import VariableRecord
 from datapipeline.domain.sample_key import SampleKeyContract
 from datapipeline.execution.context import PipelineContext
 from datapipeline.operations.persistence import ArtifactOutput
 from datapipeline.pipelines.dataset.split import build_labeler
-from datapipeline.pipelines.feature.projector import FeatureProjector
+from datapipeline.pipelines.variable.projector import VariableProjector
 from datapipeline.pipelines.stream.pipeline import run_stream_pipeline
 from datapipeline.runtime import Runtime, require_runtime_stream
 from datapipeline.transforms.vector.scaler import ScalerAccumulator
@@ -27,7 +27,7 @@ from datapipeline.utils.time import floor_time_to_cadence, parse_cadence
 @dataclass(frozen=True)
 class _ScalerInput:
     group_key: tuple
-    features: tuple[FeatureRecord, ...]
+    variables: tuple[VariableRecord, ...]
 
 
 def materialize_scaler_statistics(
@@ -38,14 +38,12 @@ def materialize_scaler_statistics(
     if not dataset_requires_scaler(dataset):
         return None
 
-    configs = tuple(
-        config for config in (*dataset.features, *dataset.targets) if config.scale
-    )
+    configs = tuple(config for config in dataset.variables if config.scale)
     if dataset.split is None:
         standard = _fit_standard_scaler(runtime, configs, task_cfg)
         artifact: StandardScalerArtifact | FoldedScalerArtifact = standard
         meta = {
-            "features": len(standard.statistics),
+            "variables": len(standard.statistics),
             "observations": standard.observations,
         }
     else:
@@ -70,7 +68,7 @@ def materialize_scaler_statistics(
 
 def _fit_standard_scaler(
     runtime: Runtime,
-    configs: Sequence[FeatureRecordConfig],
+    configs: Sequence[VariableConfig],
     task: ScalerTask,
 ) -> StandardScalerArtifact:
     accumulator = _new_accumulator(task)
@@ -78,9 +76,9 @@ def _fit_standard_scaler(
     inputs = _iter_scaler_inputs(runtime, configs)
     try:
         for item in inputs:
-            for feature in item.features:
-                expected_ids.add(feature.id)
-                accumulator.observe(feature.id, feature.value)
+            for variable in item.variables:
+                expected_ids.add(variable.id)
+                accumulator.observe(variable.id, variable.value)
     finally:
         _close_iterator(inputs)
     return _finish_scaler(accumulator, expected_ids, "dataset")
@@ -88,7 +86,7 @@ def _fit_standard_scaler(
 
 def _fit_folded_scaler(
     runtime: Runtime,
-    configs: Sequence[FeatureRecordConfig],
+    configs: Sequence[VariableConfig],
     folds: Sequence[DatasetFold],
     task: ScalerTask,
 ) -> FoldedScalerArtifact:
@@ -111,11 +109,11 @@ def _fit_folded_scaler(
         for item in inputs:
             label = labeler.label(item.group_key)
             for fold_id in output_folds_by_label.get(label, ()):
-                expected_ids[fold_id].update(feature.id for feature in item.features)
+                expected_ids[fold_id].update(variable.id for variable in item.variables)
             for fold_id in train_folds_by_label.get(label, ()):
                 accumulator = accumulators[fold_id]
-                for feature in item.features:
-                    accumulator.observe(feature.id, feature.value)
+                for variable in item.variables:
+                    accumulator.observe(variable.id, variable.value)
     finally:
         _close_iterator(inputs)
 
@@ -154,31 +152,31 @@ def _new_accumulator(task: ScalerTask) -> ScalerAccumulator:
 
 def _iter_scaler_inputs(
     runtime: Runtime,
-    configs: Sequence[FeatureRecordConfig],
+    configs: Sequence[VariableConfig],
 ) -> Iterator[_ScalerInput]:
     context = PipelineContext(runtime)
     cadence_step = parse_cadence(runtime.dataset.sample.cadence)
     sample_key_contract = SampleKeyContract(runtime.dataset.sample.keys)
-    configs_by_stream: dict[str, list[FeatureRecordConfig]] = defaultdict(list)
+    configs_by_stream: dict[str, list[VariableConfig]] = defaultdict(list)
     for config in configs:
         configs_by_stream[config.stream].append(config)
 
     for stream_id, stream_configs in configs_by_stream.items():
         runtime_stream = require_runtime_stream(runtime, stream_id)
-        projector = FeatureProjector(
+        projector = VariableProjector(
             runtime_stream.partition_by,
             sample_key_contract,
         )
         records = run_stream_pipeline(context, stream_id)
         try:
             for record in records:
-                features = tuple(projector.project(record, stream_configs))
+                variables = tuple(projector.project(record, stream_configs))
                 yield _ScalerInput(
                     group_key=(
                         floor_time_to_cadence(record.time, cadence_step),
-                        *features[0].entity_key,
+                        *variables[0].entity_key,
                     ),
-                    features=features,
+                    variables=variables,
                 )
         finally:
             _close_iterator(records)

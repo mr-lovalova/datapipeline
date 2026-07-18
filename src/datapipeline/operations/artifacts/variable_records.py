@@ -10,30 +10,29 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from datapipeline.config.dataset.feature import FeatureRecordConfig
-from datapipeline.config.tasks import VectorInputsTask
+from datapipeline.artifacts.variable_records import (
+    VARIABLE_RECORDS_MANIFEST_VERSION,
+    VariableShard,
+    VariableRecordsManifest,
+    variable_record_to_row,
+    write_variable_rows,
+)
+from datapipeline.config.dataset.variable import VariableConfig
+from datapipeline.config.tasks import VariableRecordsTask
 from datapipeline.domain.sample_key import SampleKeyContract
 from datapipeline.execution.context import PipelineContext
 from datapipeline.execution.node import PipelineNode
 from datapipeline.execution.pipeline import Pipeline
 from datapipeline.execution.runner import run_pipeline
 from datapipeline.operations.persistence import ArtifactOutput
-from datapipeline.pipelines.feature.nodes import FeatureSequencer
-from datapipeline.pipelines.feature.projector import FeatureProjector
+from datapipeline.pipelines.variable.nodes import VariableSequencer
+from datapipeline.pipelines.variable.projector import VariableProjector
 from datapipeline.pipelines.sort import SortProgress, batch_sort
 from datapipeline.pipelines.stream.pipeline import build_stream_pipeline
 from datapipeline.runtime import Runtime, require_runtime_stream
 from datapipeline.services.path_policy import resolve_artifact_output_path
 from datapipeline.utils.json_artifact import write_json_artifact
 from datapipeline.utils.time import floor_time_to_cadence, parse_cadence
-from datapipeline.vector_inputs.store import (
-    VECTOR_INPUTS_MANIFEST_VERSION,
-    CachedVectorInputShard,
-    CachedVectorInputsManifest,
-    WrittenVectorInputShard,
-    feature_record_to_vector_input_row,
-    write_vector_input_rows,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -41,20 +40,20 @@ logger = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class _ShardPlan:
     ordinal: int
-    config: FeatureRecordConfig
+    config: VariableConfig
     path: Path
 
 
 @dataclass(frozen=True)
-class _VectorInputRow:
+class _VariableRow:
     ordinal: int
     order: tuple[Any, ...]
     payload: dict[str, Any]
 
 
-def materialize_vector_inputs(
+def materialize_variable_records(
     runtime: Runtime,
-    task_cfg: VectorInputsTask,
+    task_cfg: VariableRecordsTask,
 ) -> ArtifactOutput:
     dataset = runtime.dataset
 
@@ -62,7 +61,7 @@ def materialize_vector_inputs(
     destination = resolve_artifact_output_path(relative_path, runtime.artifacts_root)
     cache_root = destination.parent / f"{destination.stem}.shards"
     if cache_root.is_symlink():
-        raise ValueError("Vector inputs shard directory must not be a symlink.")
+        raise ValueError("Variable records shard directory must not be a symlink.")
     generation = uuid4().hex
     staging_root = cache_root / f".staging-{generation}"
     generation_root = cache_root / generation
@@ -102,28 +101,28 @@ def materialize_vector_inputs(
         relative_generation_root = Path(cache_root.name) / generation
 
         feature_shards = tuple(
-            CachedVectorInputShard(
+            VariableShard(
                 id=plan.config.id,
                 path=str(
                     relative_generation_root / plan.path.relative_to(staging_root)
                 ),
-                rows=written_shards[plan.ordinal].rows,
+                rows=written_shards[plan.ordinal],
             )
             for plan in feature_plans
         )
         target_shards = tuple(
-            CachedVectorInputShard(
+            VariableShard(
                 id=plan.config.id,
                 path=str(
                     relative_generation_root / plan.path.relative_to(staging_root)
                 ),
-                rows=written_shards[plan.ordinal].rows,
+                rows=written_shards[plan.ordinal],
             )
             for plan in target_plans
         )
 
-        manifest = CachedVectorInputsManifest(
-            version=VECTOR_INPUTS_MANIFEST_VERSION,
+        manifest = VariableRecordsManifest(
+            version=VARIABLE_RECORDS_MANIFEST_VERSION,
             cadence=dataset.sample.cadence,
             sample_keys=tuple(dataset.sample.keys),
             sample_key_types=sample_key_contract.types,
@@ -166,7 +165,7 @@ def _remove_failed_generation(generation_root: Path) -> None:
         pass
     except OSError:
         logger.warning(
-            "Failed to remove incomplete vector-input generation %s",
+            "Failed to remove incomplete variable-record generation %s",
             generation_root,
             exc_info=True,
         )
@@ -177,13 +176,13 @@ def _materialize_stream_groups(
     plans: Sequence[_ShardPlan],
     sample_key_contract: SampleKeyContract,
     cadence: str,
-) -> dict[int, WrittenVectorInputShard]:
+) -> dict[int, int]:
     plans_by_stream: dict[str, list[_ShardPlan]] = defaultdict(list)
     for plan in plans:
         plans_by_stream[plan.config.stream].append(plan)
 
     cadence_step = parse_cadence(cadence)
-    rows: dict[int, WrittenVectorInputShard] = {}
+    rows: dict[int, int] = {}
     for stream_plans in plans_by_stream.values():
         rows.update(
             _materialize_stream_group(
@@ -201,28 +200,28 @@ def _materialize_stream_group(
     plans: Sequence[_ShardPlan],
     sample_key_contract: SampleKeyContract,
     cadence_step: timedelta,
-) -> dict[int, WrittenVectorInputShard]:
+) -> dict[int, int]:
     stream_id = plans[0].config.stream
     stream = require_runtime_stream(context.runtime, stream_id)
     configs = tuple(plan.config for plan in plans)
-    projector = FeatureProjector(stream.partition_by, sample_key_contract)
+    projector = VariableProjector(stream.partition_by, sample_key_contract)
     sequencers = {
-        plan.ordinal: FeatureSequencer(plan.config.sequence)
+        plan.ordinal: VariableSequencer(plan.config.sequence)
         for plan in plans
         if plan.config.sequence is not None
     }
 
-    def build_vector_inputs(
+    def project_variable_records(
         records: Iterator[Any],
-    ) -> Iterator[_VectorInputRow]:
+    ) -> Iterator[_VariableRow]:
         for record in records:
-            for plan, feature in zip(
+            for plan, projected in zip(
                 plans,
                 projector.project(record, configs),
                 strict=True,
             ):
                 sequencer = sequencers.get(plan.ordinal)
-                result = feature if sequencer is None else sequencer.append(feature)
+                result = projected if sequencer is None else sequencer.append(projected)
                 if result is not None:
                     if sample_key_contract.fields:
                         order = (
@@ -234,24 +233,24 @@ def _materialize_stream_group(
                         )
                     else:
                         order = plan.ordinal, result.time, result.id
-                    yield _VectorInputRow(
+                    yield _VariableRow(
                         ordinal=plan.ordinal,
                         order=order,
-                        payload=feature_record_to_vector_input_row(result),
+                        payload=variable_record_to_row(result),
                     )
 
     record_pipeline = build_stream_pipeline(context, stream_id)
     sort_progress = SortProgress()
     pipeline = Pipeline(
-        name=f"vector_inputs:{stream_id}",
+        name=f"variable_records:{stream_id}",
         nodes=(
             *record_pipeline.nodes,
             PipelineNode(
-                name="build_vector_inputs",
-                apply=build_vector_inputs,
+                name="project_variable_records",
+                apply=project_variable_records,
             ),
             PipelineNode(
-                name="order_vector_inputs",
+                name="order_variable_records",
                 apply=partial(
                     batch_sort,
                     buffer_bytes=context.runtime.execution.sort_buffer_bytes,
@@ -265,11 +264,11 @@ def _materialize_stream_group(
     )
     ordered = run_pipeline(context, pipeline)
     plans_by_ordinal = {plan.ordinal: plan for plan in plans}
-    row_counts: dict[int, WrittenVectorInputShard] = {}
+    row_counts: dict[int, int] = {}
     try:
         for ordinal, rows in groupby(ordered, key=lambda row: row.ordinal):
             plan = plans_by_ordinal[ordinal]
-            row_counts[ordinal] = write_vector_input_rows(
+            row_counts[ordinal] = write_variable_rows(
                 plan.path,
                 (row.payload for row in rows),
             )
@@ -278,7 +277,7 @@ def _materialize_stream_group(
 
     for plan in plans:
         if plan.ordinal not in row_counts:
-            row_counts[plan.ordinal] = write_vector_input_rows(plan.path, ())
+            row_counts[plan.ordinal] = write_variable_rows(plan.path, ())
     return row_counts
 
 

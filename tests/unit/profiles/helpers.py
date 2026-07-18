@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 from pathlib import Path
 
-from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
+from datapipeline.config.dataset.dataset import DatasetConfig, SampleConfig
 from datapipeline.config.project import ProjectConfig
 from datapipeline.config.streams import StreamsConfig
 from datapipeline.config.tasks import ArtifactTask, OperationTask
@@ -15,7 +15,7 @@ from datapipeline.services.definitions import (
 def pipeline_definition(
     project_path: Path,
     *,
-    dataset: FeatureDatasetConfig | None = None,
+    dataset: DatasetConfig | None = None,
     streams: StreamsConfig | None = None,
     artifact_operations: Sequence[ArtifactTask] = (),
     runtime_operations: Sequence[OperationTask] = (),
@@ -53,7 +53,7 @@ def pipeline_definition(
         dataset=(
             dataset
             if dataset is not None
-            else FeatureDatasetConfig(sample=SampleConfig(cadence="1h"))
+            else DatasetConfig(sample=SampleConfig(cadence="1h"))
         ),
         streams=streams if streams is not None else StreamsConfig(),
         artifact_operations=tuple(artifact_operations),

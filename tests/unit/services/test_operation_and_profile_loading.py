@@ -120,7 +120,7 @@ def test_artifact_tasks_load_configs(tmp_path):
 
     assert {task.id for task in tasks} == {
         "scaler",
-        "vector_inputs",
+        "variable_records",
         "metadata",
         "stats",
         "schema",
@@ -142,7 +142,7 @@ def test_core_operations_load_without_configuration(tmp_path):
 
     assert [task.id for task in artifact_tasks] == [
         "scaler",
-        "vector_inputs",
+        "variable_records",
         "metadata",
         "stats",
     ]
@@ -151,10 +151,25 @@ def test_core_operations_load_without_configuration(tmp_path):
         "coverage",
         "matrix",
     ]
-    task = next(task for task in artifact_tasks if task.id == "vector_inputs")
-    assert task.id == "vector_inputs"
-    assert task.entrypoint == "core.artifact.vector_inputs"
-    assert task.output == "build/vector_inputs/manifest.json"
+    task = next(task for task in artifact_tasks if task.id == "variable_records")
+    assert task.id == "variable_records"
+    assert task.entrypoint == "core.artifact.variable_records"
+    assert task.output == "build/variable_records/manifest.json"
+
+
+def test_v5_vector_inputs_override_is_not_a_core_operation(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    config_dir = _operations_dir(project_yaml)
+    (config_dir / "vector_inputs.yaml").write_text(
+        "output: build/vector_inputs/manifest.json\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Custom operation 'vector_inputs' must set kind to artifact or runtime",
+    ):
+        _tasks(project_yaml)
 
 
 def test_ticks_artifact_task_loads_arbitrary_id(tmp_path):
@@ -1041,7 +1056,7 @@ def test_plugin_runtime_options_remain_plugin_owned(tmp_path: Path) -> None:
     "entrypoint",
     [
         "core.artifact.scaler",
-        "core.artifact.vector_inputs",
+        "core.artifact.variable_records",
         "core.artifact.metadata",
         "core.artifact.stats",
     ],

@@ -1,13 +1,13 @@
-# Feature Shaping
+# Variable Shaping
 
-`dataset.yaml` exposes two distinct policies. `sequence` shapes feature records
+`dataset.yaml` exposes two distinct policies. `sequence` shapes variable records
 before vector assembly. `scale` marks assembled vector values for output
 scaling with the selected dataset fold.
 
 ## Built-In Policies
 
-- `sequence`: emit sliding windows as `FeatureSequence` payloads.
-- `scale`: standardize a feature with the scaler fitted from the selected
+- `sequence`: emit sliding windows as `VariableSequence` payloads.
+- `scale`: standardize a feature or target with the scaler fitted from the selected
   dataset fold's training labels.
 
 ```yaml
@@ -25,7 +25,7 @@ features:
       stride: 1
 ```
 
-`scale` is a boolean. It does not alter canonical vector-input artifacts or
+`scale` is a boolean. It does not alter canonical variable-record artifacts or
 preview output. During a full dataset serve, every scalar or sequence value in
 one fold output is scaled with that fold's scaler. `with_mean`, `with_std`, and
 `epsilon` are configured once on the scaler build operation and recorded in the
@@ -33,9 +33,9 @@ managed artifact; individual features cannot override them. A `None` value
 remains `None`. Other nonnumeric or non-finite values are rejected.
 
 `sequence` accepts strictly positive integer `size` and optional `stride`
-(default `1`). It creates independent windows per feature ID and entity from
+(default `1`). It creates independent windows per variable ID and entity from
 the source stream's record order. The stream's complete `partition_by` identity
 keeps each series contiguous and sequence memory bounded to one window. Dataset
 `sample.keys` select the partition fields represented in each row; remaining
-partition fields are appended to the feature ID. Cadence regularization belongs
+partition fields are appended to the variable ID. Cadence regularization belongs
 in that stream's `transforms:` when it is required.

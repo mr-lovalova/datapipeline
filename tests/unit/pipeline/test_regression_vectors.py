@@ -6,22 +6,22 @@ from pathlib import Path
 from datapipeline.artifacts.registry import SCALER_SPEC
 from datapipeline.artifacts.scaler import save_scaler_artifact
 from datapipeline.artifacts.specs import SCALER_STATISTICS
-from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
-from datapipeline.config.dataset.feature import FeatureRecordConfig
+from datapipeline.config.dataset.dataset import DatasetConfig, SampleConfig
+from datapipeline.config.dataset.variable import VariableConfig
 from datapipeline.config.execution import ExecutionConfig
 from datapipeline.config.transforms import (
     FillConfig,
     RollingConfig,
     TransformConfig,
 )
-from datapipeline.domain.feature import FeatureRecord
+from datapipeline.domain.variable import VariableRecord
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.execution.context import PipelineContext
-from datapipeline.pipelines.feature.pipeline import run_feature_pipeline
+from datapipeline.pipelines.variable.pipeline import run_variable_pipeline
 from datapipeline.pipelines.vector.pipeline import build_vector_pipeline
 from datapipeline.runtime import Runtime, SourceRuntimeStream
 from datapipeline.transforms.vector.scaler import SampleScaler, ScalerAccumulator
-from tests.vector_input_helpers import register_vector_inputs
+from tests.variable_record_helpers import register_variable_records
 
 
 def _ts(hour: int, minute: int = 0) -> datetime:
@@ -69,7 +69,7 @@ def _runtime_with_streams(
     runtime = Runtime(
         project_yaml=project_yaml,
         artifacts_root=artifacts_root,
-        dataset=FeatureDatasetConfig(sample=SampleConfig(cadence="1h")),
+        dataset=DatasetConfig(sample=SampleConfig(cadence="1h")),
         execution=ExecutionConfig(),
     )
 
@@ -96,7 +96,7 @@ def _runtime_with_streams(
 
 
 def _register_scaler(
-    runtime: Runtime, configs: list[FeatureRecordConfig], group_by: str
+    runtime: Runtime, configs: list[VariableConfig], group_by: str
 ) -> None:
     sanitized = [
         cfg.model_copy(update={"scale": False, "sequence": None}) for cfg in configs
@@ -104,14 +104,14 @@ def _register_scaler(
     context = PipelineContext(runtime)
     accumulator = ScalerAccumulator()
     for cfg in sanitized:
-        stream = run_feature_pipeline(
+        stream = run_variable_pipeline(
             context,
             cfg,
             group_by_cadence=group_by,
         )
         try:
             for feature in stream:
-                if not isinstance(feature, FeatureRecord):
+                if not isinstance(feature, VariableRecord):
                     raise TypeError("Scaler tests require scalar feature records")
                 accumulator.observe(feature.id, feature.value)
         finally:
@@ -157,20 +157,20 @@ def test_vector_targets_respect_partitioned_ids(tmp_path) -> None:
 
     context = PipelineContext(runtime)
     feature_cfgs = [
-        FeatureRecordConfig(
+        VariableConfig(
             stream="wind_speed_stream",
             id="wind_speed",
             field="value",
         ),
     ]
     target_cfgs = [
-        FeatureRecordConfig(
+        VariableConfig(
             stream="wind_production_stream",
             id="wind_production",
             field="value",
         ),
     ]
-    register_vector_inputs(runtime, feature_cfgs, "1h", targets=target_cfgs)
+    register_variable_records(runtime, feature_cfgs, "1h", targets=target_cfgs)
 
     samples = list(
         build_vector_pipeline(context, feature_cfgs, "1h", target_configs=target_cfgs)
@@ -207,20 +207,20 @@ def test_vector_samples_can_group_by_record_key_fields(tmp_path) -> None:
     runtime = _runtime_with_streams(tmp_path, streams)
     context = PipelineContext(runtime)
     feature_cfgs = [
-        FeatureRecordConfig(
+        VariableConfig(
             stream="momentum_stream",
             id="momentum",
             field="value",
         ),
     ]
     target_cfgs = [
-        FeatureRecordConfig(
+        VariableConfig(
             stream="return_stream",
             id="forward_return",
             field="value",
         ),
     ]
-    register_vector_inputs(
+    register_variable_records(
         runtime,
         feature_cfgs,
         "1h",
@@ -279,18 +279,18 @@ def test_vector_samples_keep_entity_buckets_contiguous(tmp_path) -> None:
     runtime = _runtime_with_streams(tmp_path, streams)
     context = PipelineContext(runtime)
     feature_cfgs = [
-        FeatureRecordConfig(
+        VariableConfig(
             stream="momentum_stream",
             id="momentum",
             field="value",
         ),
-        FeatureRecordConfig(
+        VariableConfig(
             stream="volume_stream",
             id="volume",
             field="value",
         ),
     ]
-    register_vector_inputs(
+    register_variable_records(
         runtime,
         feature_cfgs,
         "1d",
@@ -317,7 +317,7 @@ def test_vector_samples_keep_entity_buckets_contiguous(tmp_path) -> None:
     ]
 
 
-def test_sequence_features_are_windowed_by_sample_keys(tmp_path) -> None:
+def test_sequence_variables_are_windowed_by_sample_keys(tmp_path) -> None:
     def _equity_record(hour: int, security_id: str, value: float) -> TemporalRecord:
         rec = _record(_ts(hour), value)
         setattr(rec, "security_id", security_id)
@@ -338,14 +338,14 @@ def test_sequence_features_are_windowed_by_sample_keys(tmp_path) -> None:
     )
     context = PipelineContext(runtime)
     feature_cfgs = [
-        FeatureRecordConfig(
+        VariableConfig(
             stream="monthly_returns",
             id="monthly_return",
             field="value",
             sequence={"size": 2, "stride": 1},
         ),
     ]
-    register_vector_inputs(
+    register_variable_records(
         runtime,
         feature_cfgs,
         "1h",
@@ -393,14 +393,14 @@ def test_partition_fields_outside_sample_keys_form_wide_feature_identity(
     )
     context = PipelineContext(runtime)
     feature_cfgs = [
-        FeatureRecordConfig(
+        VariableConfig(
             stream="monthly_returns",
             id="monthly_return",
             field="value",
             sequence={"size": 2, "stride": 1},
         ),
     ]
-    register_vector_inputs(
+    register_variable_records(
         runtime,
         feature_cfgs,
         "1h",
@@ -455,13 +455,13 @@ def test_stream_transforms_use_explicit_stream_partition(tmp_path) -> None:
     )
     context = PipelineContext(runtime)
     feature_cfgs = [
-        FeatureRecordConfig(
+        VariableConfig(
             stream="daily_prices",
             id="value_mean_2",
             field="value_mean_2",
         ),
     ]
-    register_vector_inputs(
+    register_variable_records(
         runtime,
         feature_cfgs,
         "1h",
@@ -518,13 +518,13 @@ def test_regression_scaled_shapes_airpressure_high_freq_and_windspeed_hourly(
     group_by = "1h"
 
     configs = [
-        FeatureRecordConfig(
+        VariableConfig(
             stream="air_pressure",
             id="air_pressure",
             field="value",
             scale=True,
         ),
-        FeatureRecordConfig(
+        VariableConfig(
             stream="wind_speed",
             id="wind_speed",
             field="value",
@@ -533,7 +533,7 @@ def test_regression_scaled_shapes_airpressure_high_freq_and_windspeed_hourly(
     ]
 
     _register_scaler(runtime, configs, group_by)
-    register_vector_inputs(runtime, configs, group_by)
+    register_variable_records(runtime, configs, group_by)
     context = PipelineContext(runtime)
 
     raw = build_vector_pipeline(context, configs, group_by)
@@ -609,13 +609,13 @@ def test_regression_fill_then_scale_with_missing_values(tmp_path) -> None:
     )
 
     configs = [
-        FeatureRecordConfig(
+        VariableConfig(
             stream="ap",
             id="air_pressure",
             field="value",
             scale=True,
         ),
-        FeatureRecordConfig(
+        VariableConfig(
             stream="ws",
             id="wind_speed",
             field="value",
@@ -624,7 +624,7 @@ def test_regression_fill_then_scale_with_missing_values(tmp_path) -> None:
     ]
 
     _register_scaler(runtime, configs, group_by)
-    register_vector_inputs(runtime, configs, group_by)
+    register_variable_records(runtime, configs, group_by)
     context = PipelineContext(runtime)
     raw = build_vector_pipeline(context, configs, group_by)
     out = list(
