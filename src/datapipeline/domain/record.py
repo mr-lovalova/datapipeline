@@ -14,7 +14,7 @@ class TemporalRecord(Record):
     time: datetime
 
     def __post_init__(self) -> None:
-        if self.time.tzinfo is None:
+        if self.time.tzinfo is None or self.time.utcoffset() is None:
             raise ValueError("time must be timezone-aware")
         self.time = self.time.astimezone(timezone.utc)
 
