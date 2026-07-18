@@ -78,6 +78,18 @@ class _CollectingObserver:
             )
 
 
+class _ProcessingAndCleanupFailure(Iterator[int]):
+    def __init__(self) -> None:
+        self.closed = False
+
+    def __next__(self) -> int:
+        raise RuntimeError("processing failed")
+
+    def close(self) -> None:
+        self.closed = True
+        raise OSError("cleanup failed")
+
+
 def _context(tmp_path: Path) -> PipelineContext:
     project_yaml = tmp_path / "project.yaml"
     project_yaml.write_text(
@@ -745,6 +757,43 @@ def test_stage_failures_reach_node_and_pipeline_events(
     assert pipeline_event.status == "error"
     assert pipeline_event.error_type == type(error).__name__
     assert pipeline_event.error_message == message
+
+
+def test_node_cleanup_does_not_replace_processing_failure(tmp_path: Path) -> None:
+    observer = _CollectingObserver()
+    stream = _ProcessingAndCleanupFailure()
+    pipeline = Pipeline(
+        name="failure",
+        nodes=(SourceNode("source", lambda: stream),),
+    )
+
+    with pytest.raises(RuntimeError, match="processing failed"):
+        list(run_pipeline(_context(tmp_path), pipeline, observer=observer))
+
+    node_event = _events_by_name(observer)["source"]
+    assert node_event.status == "error"
+    assert node_event.error_type == "RuntimeError"
+    assert node_event.error_message == "processing failed"
+    pipeline_event = observer.pipeline_events[-1]
+    assert pipeline_event.status == "error"
+    assert pipeline_event.error_type == "RuntimeError"
+    assert pipeline_event.error_message == "processing failed"
+    assert stream.closed
+
+
+def test_unobserved_cleanup_does_not_replace_processing_failure(
+    tmp_path: Path,
+) -> None:
+    stream = _ProcessingAndCleanupFailure()
+    pipeline = Pipeline(
+        name="failure",
+        nodes=(SourceNode("source", lambda: stream),),
+    )
+
+    with pytest.raises(RuntimeError, match="processing failed"):
+        list(run_pipeline(_context(tmp_path), pipeline))
+
+    assert stream.closed
 
 
 def test_node_cleanup_failure_emits_failed_finish_event(tmp_path: Path) -> None:
