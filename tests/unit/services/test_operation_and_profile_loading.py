@@ -1236,6 +1236,18 @@ def test_nested_profile_files_are_rejected(tmp_path):
         _serve_profiles(project_yaml)
 
 
+def test_profile_filename_rejects_reserved_path_component(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    profiles_root = _profiles_dir(project_yaml)
+    (profiles_root / "inspect....yaml").write_text(
+        "operation: coverage\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="profile name must not be"):
+        _inspect_profiles(project_yaml)
+
+
 def test_profile_command_cannot_override_filename(tmp_path):
     project_yaml = _write_project(tmp_path, operations_ref="operations")
     build_dir = _profile_kind_dir(project_yaml)

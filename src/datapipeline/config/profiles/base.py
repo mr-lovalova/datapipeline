@@ -21,6 +21,8 @@ class Profile(BaseModel):
         text = str(value).strip() if value is not None else ""
         if not text:
             raise ValueError("profile name must be set")
+        if text in {".", ".."}:
+            raise ValueError("profile name must not be '.' or '..'")
         return text
 
 
