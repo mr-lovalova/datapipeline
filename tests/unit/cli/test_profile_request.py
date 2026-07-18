@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -62,6 +63,68 @@ def test_inspect_request_requires_declared_inspect_profiles(tmp_path: Path):
             project=str(project_yaml),
         )
     assert exc.value.code == 2
+
+
+def test_pipeline_validation_does_not_log_secret_inputs(
+    tmp_path: Path,
+    monkeypatch,
+    caplog,
+) -> None:
+    project_yaml = _write_project(tmp_path)
+    secret = "do-not-log-this-secret"
+    monkeypatch.setenv("JERRY_TEST_SECRET", secret)
+    project_yaml.write_text(
+        project_yaml.read_text(encoding="utf-8").replace(
+            "artifact_revision: 1",
+            "artifact_revision: ${env:JERRY_TEST_SECRET}",
+        ),
+        encoding="utf-8",
+    )
+
+    with caplog.at_level(logging.ERROR), pytest.raises(SystemExit):
+        build_runtime_run_request(
+            command="serve",
+            project=str(project_yaml),
+        )
+
+    assert secret not in caplog.text
+    assert "input_value" not in caplog.text
+    assert "input_type" not in caplog.text
+    assert "artifact_revision" in caplog.text
+    assert "Input should be a valid integer" in caplog.text
+
+
+def test_profile_validation_does_not_log_secret_inputs(
+    tmp_path: Path,
+    monkeypatch,
+    caplog,
+) -> None:
+    project_yaml = _write_project(tmp_path)
+    secret = "do-not-log-this-secret"
+    monkeypatch.setenv("JERRY_TEST_SECRET", secret)
+    profiles = tmp_path / "profiles"
+    profiles.mkdir()
+    (profiles / "serve.dataset.yaml").write_text(
+        """\
+operation: dataset
+observability:
+  logging:
+    level: ${env:JERRY_TEST_SECRET}
+""",
+        encoding="utf-8",
+    )
+
+    with caplog.at_level(logging.ERROR), pytest.raises(SystemExit):
+        build_runtime_run_request(
+            command="serve",
+            project=str(project_yaml),
+        )
+
+    assert secret not in caplog.text
+    assert "input_value" not in caplog.text
+    assert "input_type" not in caplog.text
+    assert "logging.level" in caplog.text
+    assert "level must be one of" in caplog.text
 
 
 def test_inspect_request_materializes_execution_scoped_log_output(

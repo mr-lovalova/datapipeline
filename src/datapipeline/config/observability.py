@@ -31,7 +31,7 @@ class LogOutputConfig(BaseModel):
         name = str(value).upper()
         if name not in VALID_LOG_TRANSPORTS:
             raise ValueError(
-                f"transport must be one of {', '.join(VALID_LOG_TRANSPORTS)}, got {value!r}"
+                f"transport must be one of {', '.join(VALID_LOG_TRANSPORTS)}"
             )
         return name
 
@@ -42,9 +42,7 @@ class LogOutputConfig(BaseModel):
             return "GLOBAL"
         name = str(value).upper()
         if name not in VALID_LOG_SCOPES:
-            raise ValueError(
-                f"scope must be one of {', '.join(VALID_LOG_SCOPES)}, got {value!r}"
-            )
+            raise ValueError(f"scope must be one of {', '.join(VALID_LOG_SCOPES)}")
         return name
 
     @field_validator("path", mode="before")
@@ -90,9 +88,7 @@ class LoggingConfig(BaseModel):
             return None
         name = str(value).upper()
         if name not in VALID_LOG_LEVELS:
-            raise ValueError(
-                f"level must be one of {', '.join(VALID_LOG_LEVELS)}, got {value!r}"
-            )
+            raise ValueError(f"level must be one of {', '.join(VALID_LOG_LEVELS)}")
         return name
 
 
@@ -124,6 +120,6 @@ class ObservabilityConfig(BaseModel):
         name = str(value).upper()
         if name not in VALID_VISUAL_PROVIDERS:
             raise ValueError(
-                f"visuals must be one of {', '.join(VALID_VISUAL_PROVIDERS)}, got {value!r}"
+                f"visuals must be one of {', '.join(VALID_VISUAL_PROVIDERS)}"
             )
         return name
