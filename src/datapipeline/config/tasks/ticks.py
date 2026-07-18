@@ -21,4 +21,6 @@ class TicksTask(ArtifactTask):
     def _validate_grid_by(cls, grid_by: list[str]) -> list[str]:
         if len(grid_by) != len(set(grid_by)):
             raise ValueError("grid_by must not contain duplicate fields")
+        if "time" in grid_by:
+            raise ValueError("grid_by must not contain the reserved field 'time'")
         return grid_by
