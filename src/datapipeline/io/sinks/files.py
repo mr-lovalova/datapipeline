@@ -40,12 +40,13 @@ class AtomicTextFileSink:
         dest: Path,
         encoding: str = "utf-8",
         overwrite: bool = True,
+        newline: str | None = None,
     ):
         self._dest = dest
         self._overwrite = overwrite
         codecs.lookup(encoding)
         fd, self._tmp = _temporary_file(dest)
-        self._fh = os.fdopen(fd, "w", encoding=encoding)
+        self._fh = os.fdopen(fd, "w", encoding=encoding, newline=newline)
 
     @property
     def fh(self):

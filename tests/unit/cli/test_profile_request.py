@@ -124,7 +124,36 @@ observability:
     assert "input_value" not in caplog.text
     assert "input_type" not in caplog.text
     assert "logging.level" in caplog.text
-    assert "level must be one of" in caplog.text
+    assert "Invalid configuration value" in caplog.text
+
+
+def test_custom_validation_message_does_not_log_resolved_secret(
+    tmp_path: Path,
+    monkeypatch,
+    caplog,
+) -> None:
+    project_yaml = _write_project(tmp_path)
+    secret = "do-not-log-this-output-id"
+    monkeypatch.setenv("JERRY_TEST_SECRET", secret)
+    profiles = tmp_path / "profiles"
+    profiles.mkdir()
+    (profiles / "serve.dataset.yaml").write_text(
+        "operation: dataset\n"
+        "include_outputs:\n"
+        "  - ${env:JERRY_TEST_SECRET}\n"
+        "  - ${env:JERRY_TEST_SECRET}\n",
+        encoding="utf-8",
+    )
+
+    with caplog.at_level(logging.ERROR), pytest.raises(SystemExit):
+        build_runtime_run_request(
+            command="serve",
+            project=str(project_yaml),
+        )
+
+    assert secret not in caplog.text
+    assert "include_outputs" in caplog.text
+    assert "Invalid configuration value" in caplog.text
 
 
 def test_inspect_request_materializes_execution_scoped_log_output(

@@ -61,7 +61,8 @@ def _validation_error_without_inputs(exc: ValidationError) -> str:
     details = []
     for error in exc.errors(include_input=False, include_url=False):
         location = ".".join(str(part) for part in error["loc"]) or exc.title
-        details.append(f"{location}\n  {error['msg']} [type={error['type']}]")
+        message = "Invalid configuration value" if error.get("ctx") else error["msg"]
+        details.append(f"{location}\n  {message} [type={error['type']}]")
     return "\n".join((heading, *details))
 
 

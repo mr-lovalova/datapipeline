@@ -70,6 +70,62 @@ def test_resolve_output_target_allows_dotted_filename_stem(tmp_path):
     )
 
 
+def test_routed_output_target_preserves_dotted_filename_stem(tmp_path):
+    base_dir = tmp_path / "outputs"
+    base_dir.mkdir()
+    cfg = ServeOutputConfig(
+        transport="fs",
+        format="jsonl",
+        directory=base_dir,
+        filename="equity.price_aware_universe",
+    )
+    target = resolve_output_target(
+        cli_output=None,
+        config_output=cfg,
+        default=None,
+        base_path=Path("."),
+        profile_name="processed",
+    )
+
+    routed_target = target.for_output("holdout.train")
+
+    assert (
+        routed_target.destination
+        == (
+            base_dir / "processed" / "equity.price_aware_universe.holdout.train.jsonl"
+        ).resolve()
+    )
+
+
+def test_feature_target_preserves_dotted_filename_stem(tmp_path):
+    base_dir = tmp_path / "outputs"
+    base_dir.mkdir()
+    cfg = ServeOutputConfig(
+        transport="fs",
+        format="jsonl",
+        directory=base_dir,
+        filename="equity.price_aware_universe",
+    )
+    target = resolve_output_target(
+        cli_output=None,
+        config_output=cfg,
+        default=None,
+        base_path=Path("."),
+        profile_name="preview",
+    )
+
+    feature_target = target.for_feature("equity.adv.daily.20")
+
+    assert (
+        feature_target.destination
+        == (
+            base_dir
+            / "preview"
+            / "equity.price_aware_universe.equity.adv.daily.20.jsonl"
+        ).resolve()
+    )
+
+
 def test_resolve_output_target_rejects_filename_with_selected_extension(tmp_path):
     base_dir = tmp_path / "outputs"
     base_dir.mkdir()

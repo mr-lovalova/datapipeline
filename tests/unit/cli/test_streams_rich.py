@@ -25,8 +25,7 @@ from datapipeline.cli.visuals.execution_context import (
 )
 from datapipeline.cli.visuals.rich.progress import (
     _ExecutionProgress,
-    _ProgressActivityColumn,
-    _ProgressLabelColumn,
+    _ProgressRowColumn,
     _RichExecutionRenderer,
     rich_visuals_supported,
     visual_execution,
@@ -66,6 +65,12 @@ def _console(width: int | None = None) -> tuple[Console, StringIO]:
 def _progress() -> Progress:
     console, _ = _console()
     return Progress(console=console, auto_refresh=False)
+
+
+def _render_progress_row(task) -> str:
+    console, output = _console(width=200)
+    console.print(_ProgressRowColumn(Column()).render(task))
+    return output.getvalue().rstrip()
 
 
 class _CaptureRenderer:
@@ -168,8 +173,8 @@ def test_info_progress_shows_node_and_local_detail() -> None:
     assert open_source.visible is True
     assert open_source.completed == 20_000
     assert open_source.fields["status"] == ('2/17 "2011.jsonl" · 20,000 records')
-    assert _ProgressActivityColumn(Column()).render(open_source).plain == (
-        '2/17 "2011.jsonl" · 20,000 records'
+    assert _render_progress_row(open_source) == (
+        '[stream:adv.20/open_source] 0:00:00 2/17 "2011.jsonl" · 20,000 records'
     )
 
     with patch.object(progress, "refresh", wraps=progress.refresh) as refresh:
@@ -259,13 +264,18 @@ def test_info_elapsed_continues_after_completed_local_phase() -> None:
         )
     )
     root, order_records = progress.tasks
-    label = _ProgressLabelColumn(Column()).render(root)
-    assert label.plain == "[stream:adv.20] 0:00:10"
-    assert label.spans == []
-    assert _ProgressLabelColumn(Column()).render(order_records).plain == (
+    row = _ProgressRowColumn(Column()).render(root)
+    assert _render_progress_row(root) == "[stream:adv.20] 0:00:10"
+    console, _ = _console(width=200)
+    timer = next(
+        segment
+        for segment in console.render(row, console.options)
+        if "0:00:10" in segment.text
+    )
+    assert str(timer.style) == "cyan"
+    assert _render_progress_row(order_records).startswith(
         "[stream:adv.20/order_records] 0:00:10"
     )
-    assert _ProgressActivityColumn(Column()).render(root).plain == ""
     assert root.description == "[stream:adv.20]"
     assert root.total is None
     assert root.completed == 0
@@ -282,10 +292,8 @@ def test_info_elapsed_continues_after_completed_local_phase() -> None:
     )
 
     root, order_records = progress.tasks
-    assert _ProgressLabelColumn(Column()).render(root).plain == (
-        "[stream:adv.20] 0:00:20"
-    )
-    assert _ProgressLabelColumn(Column()).render(order_records).plain == (
+    assert _render_progress_row(root) == "[stream:adv.20] 0:00:20"
+    assert _render_progress_row(order_records).startswith(
         "[stream:adv.20/order_records] 0:00:20"
     )
     assert root.description == "[stream:adv.20]"
@@ -328,14 +336,14 @@ def test_debug_progress_shows_root_and_active_nodes() -> None:
         ("[stream:adv.20/decode_records]", "0 out"),
     ]
     root_task, order_task, source_task, _ = tasks
-    label = _ProgressLabelColumn(Column())
-    activity_column = _ProgressActivityColumn(Column())
-    assert label.render(root_task).plain == "[stream:adv.20] 0:00:00"
-    assert activity_column.render(root_task).plain == ""
-    assert activity_column.render(order_task).plain == "0 out"
+    row_column = _ProgressRowColumn(Column())
+    assert _render_progress_row(root_task) == "[stream:adv.20] 0:00:00"
+    assert _render_progress_row(order_task) == (
+        "[stream:adv.20/order_records] 0:00:00 0 out"
+    )
     assert source_task.completed == 25
     assert source_task.total == 100
-    bar = activity_column._bar.render(source_task)
+    bar = row_column._bar.render(source_task)
     assert bar.completed == 25
     assert bar.total == 100
 
@@ -390,16 +398,15 @@ def test_operation_progress_stays_live_across_sequential_pipelines() -> None:
     )
 
     operation = progress.tasks[0]
-    assert operation.description == "Elapsed"
-    assert operation.fields["status"] == "write_output · 2,592,885 rows"
-    assert _ProgressLabelColumn(Column()).render(operation).plain == ("Elapsed 0:00:10")
-    assert _ProgressActivityColumn(Column()).render(operation).plain == (
-        "write_output · 2,592,885 rows"
+    assert operation.description == "Operation serve:dataset"
+    assert operation.fields["status"] == ("last report: write_output · 2,592,885 rows")
+    assert _render_progress_row(operation) == (
+        "Operation serve:dataset 0:00:10 last report: write_output · 2,592,885 rows"
     )
 
     renderer.handle(PipelineStarted(pipeline_name="dataset:fold_0", node_count=5))
     assert [task.description for task in progress.tasks] == [
-        "Elapsed",
+        "Operation serve:dataset",
         "[dataset:fold_0]",
     ]
     renderer.handle(
@@ -411,15 +418,44 @@ def test_operation_progress_stays_live_across_sequential_pipelines() -> None:
             elapsed_seconds=1,
         )
     )
-    assert [task.description for task in progress.tasks] == ["Elapsed"]
+    assert [task.description for task in progress.tasks] == ["Operation serve:dataset"]
 
     renderer.handle(PipelineStarted(pipeline_name="dataset:fold_1", node_count=5))
     assert [task.description for task in progress.tasks] == [
-        "Elapsed",
+        "Operation serve:dataset",
         "[dataset:fold_1]",
     ]
     renderer.handle(OperationFinished("serve:dataset", "success", 20))
     assert progress.tasks == []
+
+
+def test_determinate_progress_stays_on_one_line_at_standard_width() -> None:
+    console, output = _console(width=80)
+    progress = Progress(
+        _ProgressRowColumn(Column(no_wrap=True, overflow="ellipsis")),
+        console=console,
+        auto_refresh=False,
+    )
+    progress.add_task(
+        "Operation serve:dataset",
+        total=None,
+        status="last report: write_output · 1,974,178 rows",
+    )
+    progress.add_task(
+        "[dataset:fold_1/vector_assemble]",
+        completed=7_605_305,
+        total=8_600_417,
+        status="emitting · 7,605,305/8,600,417 items",
+    )
+
+    console.print(progress.get_renderable())
+
+    lines = output.getvalue().splitlines()
+    assert len(lines) == 2
+    assert "Operation serve:dataset 0:00:00 last report:" in lines[0]
+    assert "0:00:00" in lines[1]
+    assert "━" in lines[1]
+    assert "emitting" in lines[1]
 
 
 def test_rich_renderer_routes_node_progress_without_printing() -> None:
@@ -719,7 +755,7 @@ def test_rich_renderer_renders_file_result_as_aligned_link() -> None:
     ]
     assert "".join(segment.text for segment in linked) == str(path)
     assert all(
-        segment.style.color is not None and segment.style.color.name == "blue"
+        segment.style.color is not None and segment.style.color.name == "bright_blue"
         for segment in linked
     )
 
@@ -848,8 +884,8 @@ def test_visual_execution_uses_minimal_progress_styles(monkeypatch) -> None:
     with visual_execution(logging.INFO):
         pass
 
-    label, activity = columns[:2]
-    assert isinstance(label, _ProgressLabelColumn)
-    assert isinstance(activity, _ProgressActivityColumn)
-    assert activity._bar.complete_style == "cyan"
-    assert activity._bar.finished_style == "cyan"
+    assert len(columns) == 1
+    row = columns[0]
+    assert isinstance(row, _ProgressRowColumn)
+    assert row._bar.complete_style == "cyan"
+    assert row._bar.finished_style == "cyan"
