@@ -100,6 +100,24 @@ def test_json_serializer_flat_view_emits_flattened_payload() -> None:
     assert payload == {"features.x": 1.0}
 
 
+def test_flat_json_serializer_rejects_colliding_sample_feature_ids() -> None:
+    serializer = json_line_serializer(view="flat")
+    sample = Sample(
+        key=("sample",),
+        features=Vector(values={"x": [10, 11], "x.0": 99}),
+    )
+
+    with pytest.raises(ValueError, match=r"features\.x\.0"):
+        serializer(sample)
+
+
+def test_csv_serializer_rejects_colliding_nested_fields() -> None:
+    serializer = csv_row_serializer()
+
+    with pytest.raises(ValueError, match=r"x\.0"):
+        serializer({"x": [10, 11], "x.0": 99})
+
+
 def test_json_serializer_raw_sample_emits_nested_payload() -> None:
     serializer = json_line_serializer(view="raw")
 

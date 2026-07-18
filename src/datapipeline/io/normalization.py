@@ -44,7 +44,7 @@ def flat_payload(item: Any) -> dict[str, Any]:
 
 def flatten_fields(prefix: str, value: Any, out: dict[str, Any]) -> None:
     if _is_scalar(value):
-        out[prefix] = value
+        _set_flat_field(out, prefix, value)
         return
     if isinstance(value, Mapping):
         for key, nested in sorted(value.items(), key=lambda kv: str(kv[0])):
@@ -53,11 +53,17 @@ def flatten_fields(prefix: str, value: Any, out: dict[str, Any]) -> None:
     if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
         if all(_is_scalar(item) for item in value):
             for idx, nested in enumerate(value):
-                out[f"{prefix}.{idx}"] = nested
+                _set_flat_field(out, f"{prefix}.{idx}", nested)
             return
-        out[prefix] = json_text(raw_payload(value))
+        _set_flat_field(out, prefix, json_text(raw_payload(value)))
         return
     raise TypeError(f"Unsupported output value type: {type(value).__name__}")
+
+
+def _set_flat_field(out: dict[str, Any], field: str, value: Any) -> None:
+    if field in out:
+        raise ValueError(f"Flat output field {field!r} is produced more than once.")
+    out[field] = value
 
 
 def _normalize_key_struct(key: Any) -> Any:
