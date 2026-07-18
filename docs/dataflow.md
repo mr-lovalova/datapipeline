@@ -73,6 +73,8 @@ Expected behavior:
 - Stream `from.source: sandbox.ohlcv` resolves to this source spec.
 - For fs loaders, relative `args.path` is normalized via runtime path policy.
 - Standard glob characters in an fs `args.path` select matching files.
+- Gzip CSV/JSONL inputs set `args.compression: gzip` explicitly; a `.gz` suffix
+  alone does not enable decompression.
 
 ## 4) Stream id links canonical records to dataset
 

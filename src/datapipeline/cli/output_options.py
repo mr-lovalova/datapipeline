@@ -16,6 +16,7 @@ _OUTPUT_MATRIX_HELP = (
     "          encoding is not supported\n"
     "  fs:     format=jsonl|csv|pickle|txt|html\n"
     "          encoding is supported only for jsonl/csv/txt (default utf-8)\n"
+    "          gzip compression is supported only for jsonl/csv\n"
     "          jsonl supports view=raw|flat\n"
     "          csv supports view=flat\n"
     "          pickle supports view=raw\n"
@@ -29,6 +30,7 @@ def build_cli_output_config(
     fmt: str | None,
     directory: str | None,
     output_encoding: str | None = None,
+    output_compression: str | None = None,
     workspace_root: Path | None = None,
     view: str | None = None,
 ) -> ServeOutputConfig | None:
@@ -38,6 +40,7 @@ def build_cli_output_config(
         and directory is None
         and view is None
         and output_encoding is None
+        and output_compression is None
     ):
         return None
 
@@ -51,6 +54,7 @@ def build_cli_output_config(
         "format": fmt,
         "view": view,
         "encoding": output_encoding,
+        "compression": output_compression,
     }
     if transport == "fs":
         if not directory:

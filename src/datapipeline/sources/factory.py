@@ -2,6 +2,7 @@ import glob
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from datapipeline.io.compression import Compression
 from datapipeline.sources.adapters.fs import FsFileTransport, FsGlobTransport
 from datapipeline.sources.adapters.http import HttpTransport
 from datapipeline.sources.decoders import (
@@ -38,16 +39,26 @@ def build_loader(
     error_prefixes: Sequence[str] | None = None,
     array_field: str | None = None,
     timeout_seconds: float | None = None,
+    compression: Compression | None = None,
 ) -> DataLoader:
     transport = transport.lower()
     format = format.lower()
+
+    if compression not in {None, "gzip"}:
+        raise ValueError(f"unsupported compression: {compression}")
+    if compression is not None and transport != TRANSPORT_FS:
+        raise ValueError("compression is supported only for fs transport")
+    if compression == "gzip" and format not in {FORMAT_CSV, FORMAT_JSONL}:
+        raise ValueError("gzip compression is supported only for csv and jsonl formats")
 
     source: SourceTransport
     if transport == TRANSPORT_FS:
         if not path:
             raise ValueError("fs transport requires 'path'")
         source = (
-            FsGlobTransport(path) if glob.has_magic(path) else FsFileTransport(path)
+            FsGlobTransport(path, compression=compression)
+            if glob.has_magic(path)
+            else FsFileTransport(path, compression=compression)
         )
     elif transport == TRANSPORT_HTTP:
         if not url:

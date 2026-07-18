@@ -69,6 +69,7 @@ from datapipeline.profiles.models import (
     ServeRunPlan,
 )
 from datapipeline.profiles.orchestration import _validate_build_order, run_profiles
+from datapipeline.services.materialize import resolve_materialize_output
 from tests.unit.profiles.helpers import pipeline_definition
 
 _LOG_DECISION = LogLevelDecision(name="INFO", value=logging.INFO)
@@ -151,6 +152,10 @@ def _output() -> OutputTarget:
         encoding=None,
         destination=None,
     )
+
+
+def _materialize_output(path: Path) -> OutputTarget:
+    return resolve_materialize_output(path)
 
 
 def _runtime_job(
@@ -1241,14 +1246,14 @@ def test_materialize_uses_shared_artifact_and_execution_lifecycle(
         MaterializeJob(
             name="adv-20",
             stream="adv.20",
-            output=tmp_path / "adv-20.jsonl",
+            output=_materialize_output(tmp_path / "adv-20.jsonl"),
             overwrite=False,
             observability=_observability(10),
         ),
         MaterializeJob(
             name="adv-63",
             stream="adv.63",
-            output=tmp_path / "adv-63.jsonl",
+            output=_materialize_output(tmp_path / "adv-63.jsonl"),
             overwrite=False,
             observability=_observability(20),
         ),
@@ -1303,7 +1308,7 @@ def test_materialize_hydrates_current_tick_artifact_when_build_skips(
     job = MaterializeJob(
         name="adv-20",
         stream="adv.20",
-        output=tmp_path / "adv-20.jsonl",
+        output=_materialize_output(tmp_path / "adv-20.jsonl"),
         overwrite=False,
         observability=_observability(),
     )
@@ -1391,7 +1396,7 @@ def test_materialize_rejects_invalid_tick_artifact_producer(
     job = MaterializeJob(
         name="adv-20",
         stream="adv.20",
-        output=tmp_path / "adv-20.jsonl",
+        output=_materialize_output(tmp_path / "adv-20.jsonl"),
         overwrite=False,
         observability=_observability(),
     )

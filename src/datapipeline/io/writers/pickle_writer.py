@@ -6,8 +6,8 @@ from datapipeline.io.sinks.files import AtomicBinaryFileSink
 
 
 class PickleFileWriter:
-    def __init__(self, dest: Path) -> None:
-        self.sink = AtomicBinaryFileSink(dest)
+    def __init__(self, dest: Path, overwrite: bool = True) -> None:
+        self.sink = AtomicBinaryFileSink(dest, overwrite=overwrite)
         self.pickler = pickle.Pickler(self.sink.fh, protocol=pickle.HIGHEST_PROTOCOL)
 
     def write(self, item: object) -> None:

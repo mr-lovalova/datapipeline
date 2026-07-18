@@ -1,9 +1,13 @@
 import codecs
 import gzip
+import io
 import os
 import stat
 import tempfile
 from pathlib import Path
+from typing import BinaryIO, TextIO
+
+from datapipeline.io.compression import Compression
 
 
 def _commit_temp_file(temp: Path, dest: Path, overwrite: bool) -> None:
@@ -41,12 +45,31 @@ class AtomicTextFileSink:
         encoding: str = "utf-8",
         overwrite: bool = True,
         newline: str | None = None,
+        compression: Compression | None = None,
     ):
         self._dest = dest
         self._overwrite = overwrite
         codecs.lookup(encoding)
+        if compression not in {None, "gzip"}:
+            raise ValueError(f"Unsupported compression {compression!r}")
         fd, self._tmp = _temporary_file(dest)
-        self._fh = os.fdopen(fd, "w", encoding=encoding, newline=newline)
+        self._raw: BinaryIO | None = None
+        self._fh: TextIO
+        if compression == "gzip":
+            self._raw = os.fdopen(fd, "wb")
+            compressed = gzip.GzipFile(
+                filename="",
+                fileobj=self._raw,
+                mode="wb",
+                mtime=0,
+            )
+            self._fh = io.TextIOWrapper(
+                compressed,
+                encoding=encoding,
+                newline=newline,
+            )
+        else:
+            self._fh = os.fdopen(fd, "w", encoding=encoding, newline=newline)
 
     @property
     def fh(self):
@@ -56,12 +79,20 @@ class AtomicTextFileSink:
         self._fh.write(s)
 
     def close(self) -> None:
-        self._fh.close()
+        try:
+            self._fh.close()
+        finally:
+            if self._raw is not None:
+                self._raw.close()
         _commit_temp_file(self._tmp, self._dest, self._overwrite)
 
     def abort(self) -> None:
-        self._fh.close()
-        self._tmp.unlink(missing_ok=True)
+        try:
+            self._fh.close()
+        finally:
+            if self._raw is not None:
+                self._raw.close()
+            self._tmp.unlink(missing_ok=True)
 
 
 class AtomicBinaryFileSink:

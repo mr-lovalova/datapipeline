@@ -42,7 +42,6 @@ def _emit_materialize_outputs(logger: logging.Logger) -> None:
     with operation_observer(make_operation_observer(logger)):
         with operation_scope("materialize:adv.20"):
             emit_file_result("Output", Path("/tmp/adv.20.jsonl"))
-            emit_file_result("Metadata", Path("/tmp/adv.20.metadata.json"))
 
 
 def test_operation_and_output_events_render_as_flat_plain_logs_without_visuals(
@@ -63,7 +62,6 @@ def test_operation_and_output_events_render_as_flat_plain_logs_without_visuals(
     assert stream.getvalue().splitlines() == [
         "Operation materialize:adv.20 started",
         "Output: /tmp/adv.20.jsonl",
-        "Metadata: /tmp/adv.20.metadata.json",
         "Operation materialize:adv.20 finished status=success elapsed=0.000000s",
     ]
 
@@ -113,11 +111,10 @@ def test_operation_and_output_logs_do_not_depend_on_visual_handler(
     for expected in (
         "Operation materialize:adv.20 started",
         "Output: /tmp/adv.20.jsonl",
-        "Metadata: /tmp/adv.20.metadata.json",
         "Operation materialize:adv.20 finished status=success elapsed=0.000000s",
     ):
         assert visual_content.count(expected) == 1
-    assert len(handler.events) == 4
+    assert len(handler.events) == 3
 
 
 def test_operation_heartbeat_stays_in_file_during_visuals(tmp_path) -> None:

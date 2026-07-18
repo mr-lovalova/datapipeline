@@ -1,3 +1,4 @@
+import gzip
 import json
 import logging
 from pathlib import Path
@@ -645,6 +646,40 @@ def test_routed_runtime_output_routes_rows_to_output_targets(
         ("train", train_path),
         ("val", val_path),
     ]
+
+
+def test_routed_runtime_output_writes_gzip_targets(tmp_path) -> None:
+    targets = {
+        output_id: OutputTarget(
+            transport="fs",
+            format="jsonl",
+            view="raw",
+            encoding="utf-8",
+            destination=tmp_path / f"{output_id}.jsonl.gz",
+            compression="gzip",
+        )
+        for output_id in ("train", "validation")
+    }
+    rows = [
+        {"output": "train", "value": 1},
+        {"output": "validation", "value": 2},
+    ]
+
+    persist_runtime_result(
+        RoutedRuntimeOutput(
+            rows=iter(rows),
+            targets=targets,
+            output_for_row=lambda row: row["output"],
+        ),
+        target=None,
+        logger=logging.getLogger(__name__),
+    )
+
+    for output_id, expected in (("train", rows[:1]), ("validation", rows[1:])):
+        destination = targets[output_id].destination
+        assert destination is not None
+        with gzip.open(destination, "rt", encoding="utf-8") as stream:
+            assert [json.loads(line) for line in stream] == expected
 
 
 def test_routed_runtime_output_limit_applies_per_output(tmp_path) -> None:

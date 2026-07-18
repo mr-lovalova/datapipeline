@@ -1,3 +1,5 @@
+import csv
+import gzip
 import json
 import pickle
 from dataclasses import dataclass
@@ -64,6 +66,63 @@ def test_writer_factory_fs_jsonl_applies_flat_view(tmp_path) -> None:
     writer.close()
 
     assert json.loads(destination.read_text(encoding="utf-8")) == {"features.x": 1.0}
+
+
+def test_writer_factory_writes_compressed_jsonl(tmp_path) -> None:
+    destination = tmp_path / "out.jsonl.gz"
+    writer = writer_factory(
+        OutputTarget(
+            transport="fs",
+            format="jsonl",
+            view="raw",
+            encoding="utf-8",
+            destination=destination,
+            compression="gzip",
+        )
+    )
+
+    writer.write({"value": 1})
+    writer.close()
+
+    with gzip.open(destination, "rt", encoding="utf-8") as stream:
+        assert json.loads(stream.read()) == {"value": 1}
+
+
+def test_writer_factory_writes_compressed_csv(tmp_path) -> None:
+    destination = tmp_path / "out.csv.gz"
+    writer = writer_factory(
+        OutputTarget(
+            transport="fs",
+            format="csv",
+            view="flat",
+            encoding="utf-8",
+            destination=destination,
+            compression="gzip",
+        )
+    )
+
+    writer.write({"symbol": "AAPL", "price": 10.0})
+    writer.close()
+
+    with gzip.open(destination, "rt", encoding="utf-8", newline="") as stream:
+        assert list(csv.DictReader(stream)) == [{"symbol": "AAPL", "price": "10.0"}]
+
+
+def test_writer_factory_rejects_compression_for_unsupported_target(tmp_path) -> None:
+    with pytest.raises(
+        ValueError,
+        match="gzip compression supports only fs jsonl and csv output",
+    ):
+        writer_factory(
+            OutputTarget(
+                transport="fs",
+                format="pickle",
+                view="raw",
+                encoding=None,
+                destination=tmp_path / "out.pkl.gz",
+                compression="gzip",
+            )
+        )
 
 
 def test_writer_factory_fs_pickle_writes_raw_payload(tmp_path) -> None:

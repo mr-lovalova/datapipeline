@@ -656,6 +656,31 @@ def test_materialize_profiles_load_and_normalize_fields(tmp_path):
     assert profile.observability.visuals == "ON"
 
 
+def test_materialize_profile_accepts_gzip_output(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    profiles_dir = _profile_kind_dir(project_yaml)
+    (profiles_dir / "materialize.adv-20.yaml").write_text(
+        "stream: adv.20\noutput: data/features/adv/20.jsonl.gz\n",
+        encoding="utf-8",
+    )
+
+    profile = _materialize_profiles(project_yaml)[0]
+
+    assert profile.output == Path("data/features/adv/20.jsonl.gz")
+
+
+def test_materialize_profile_rejects_compression_field(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    profiles_dir = _profile_kind_dir(project_yaml)
+    (profiles_dir / "materialize.adv-20.yaml").write_text(
+        "stream: adv.20\noutput: data/features/adv/20.jsonl.gz\ncompression: gzip\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        _materialize_profiles(project_yaml)
+
+
 @pytest.mark.parametrize("field", ["stream", "output"])
 def test_materialize_profile_requires_nonempty_paths(tmp_path, field):
     project_yaml = _write_project(tmp_path, operations_ref="operations")
@@ -679,7 +704,7 @@ def test_materialize_profile_requires_jsonl_output(tmp_path):
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError, match="output must use a .jsonl path"):
+    with pytest.raises(ValueError, match="output must use a .jsonl or .jsonl.gz path"):
         _materialize_profiles(project_yaml)
 
 
@@ -728,6 +753,18 @@ def test_materialize_defaults_apply_overwrite_and_observability(tmp_path):
     assert merged.observability is not None
     assert merged.observability.visuals == "OFF"
     assert merged.observability.heartbeat_interval_seconds == 30
+
+
+def test_materialize_defaults_reject_compression_field(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    profiles_dir = _profile_kind_dir(project_yaml)
+    (profiles_dir / "materialize.defaults.yaml").write_text(
+        "compression: gzip\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        _materialize_defaults(project_yaml)
 
 
 def test_materialize_artifact_mode_is_defaults_only(tmp_path):

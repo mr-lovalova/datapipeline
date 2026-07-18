@@ -14,6 +14,7 @@ from datapipeline.execution.settings import (
 )
 from datapipeline.profiles import materialize
 from datapipeline.profiles.models import MaterializeJob
+from datapipeline.services.materialize import resolve_materialize_output
 
 
 def _observability() -> ObservabilitySettings:
@@ -34,11 +35,16 @@ def _profile(name: str, stream: str, output: str) -> MaterializeProfile:
     )
 
 
-def _job(name: str, stream: str, output: Path, overwrite: bool = False):
+def _job(
+    name: str,
+    stream: str,
+    output: Path,
+    overwrite: bool = False,
+):
     return MaterializeJob(
         name=name,
         stream=stream,
-        output=output,
+        output=resolve_materialize_output(output),
         overwrite=overwrite,
         observability=_observability(),
     )
@@ -67,11 +73,48 @@ def test_resolve_materialize_jobs_applies_command_overrides(
 
     assert [job.name for job in jobs] == ["adv-20", "adv-63"]
     assert [job.stream for job in jobs] == ["adv.20", "adv.63"]
-    assert [job.output for job in jobs] == [
+    assert [job.output.destination for job in jobs] == [
         tmp_path / "adv-20.jsonl",
         tmp_path / "adv-63.jsonl",
     ]
+    assert all(job.output.compression is None for job in jobs)
     assert all(job.overwrite for job in jobs)
+
+
+def test_resolve_materialize_jobs_derives_gzip_from_profile_output(tmp_path) -> None:
+    jobs = materialize.resolve_materialize_jobs(
+        profiles=[_profile("adv-20", "adv.20", "adv-20.jsonl.gz")],
+        project_path=tmp_path / "project.yaml",
+        execution_dir=tmp_path / "execution",
+        overwrite=None,
+        cli_output=None,
+        cli_visuals=None,
+        cli_heartbeat_interval_seconds=None,
+        cli_log_level=None,
+        cli_log_outputs=[],
+        base_log_level="INFO",
+    )
+
+    assert jobs[0].output.destination == tmp_path / "adv-20.jsonl.gz"
+    assert jobs[0].output.compression == "gzip"
+
+
+def test_resolve_materialize_jobs_derives_gzip_from_output_override(tmp_path) -> None:
+    jobs = materialize.resolve_materialize_jobs(
+        profiles=[_profile("adv-20", "adv.20", "profile.jsonl")],
+        project_path=tmp_path / "project.yaml",
+        execution_dir=tmp_path / "execution",
+        overwrite=None,
+        cli_output=tmp_path / "override.jsonl.gz",
+        cli_visuals=None,
+        cli_heartbeat_interval_seconds=None,
+        cli_log_level=None,
+        cli_log_outputs=[],
+        base_log_level="INFO",
+    )
+
+    assert jobs[0].output.destination == tmp_path / "override.jsonl.gz"
+    assert jobs[0].output.compression == "gzip"
 
 
 def test_output_override_requires_one_selected_profile(tmp_path) -> None:
@@ -178,11 +221,11 @@ def test_execute_materialize_job_emits_config_and_files(
 
     def materialize_stream(**kwargs):
         calls.append(kwargs)
-        return job.output
+        return job.output.destination
 
     monkeypatch.setattr(
         materialize,
-        "materialize_stream_to_path",
+        "materialize_stream",
         materialize_stream,
     )
 
@@ -199,4 +242,4 @@ def test_execute_materialize_job_emits_config_and_files(
     config = json.loads(messages[0][0].removeprefix("Config:\n"))
     assert messages[0][1] == logging.DEBUG
     assert config["stream"] == "adv.20"
-    assert files == [("Output", job.output)]
+    assert files == [("Output", job.output.destination)]

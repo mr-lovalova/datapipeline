@@ -1,3 +1,4 @@
+import gzip
 from pathlib import Path
 
 import pytest
@@ -39,24 +40,28 @@ def _write_project_yaml(project_root: Path) -> Path:
     return project_yaml
 
 
-def _write_source_yaml(sources_dir: Path, path_value: str) -> None:
+def _write_source_yaml(
+    sources_dir: Path,
+    path_value: str,
+    compression: str | None = None,
+) -> None:
     sources_dir.mkdir(parents=True, exist_ok=True)
+    lines = [
+        "id: sample.fs",
+        "parser:",
+        "  entrypoint: identity",
+        "  args: {}",
+        "loader:",
+        "  entrypoint: core.io",
+        "  args:",
+        "    transport: fs",
+        "    format: jsonl",
+        f"    path: {path_value}",
+    ]
+    if compression is not None:
+        lines.append(f"    compression: {compression}")
     (sources_dir / "sample.yaml").write_text(
-        "\n".join(
-            [
-                "id: sample.fs",
-                "parser:",
-                "  entrypoint: identity",
-                "  args: {}",
-                "loader:",
-                "  entrypoint: core.io",
-                "  args:",
-                "    transport: fs",
-                "    format: jsonl",
-                f"    path: {path_value}",
-            ]
-        )
-        + "\n",
+        "\n".join(lines) + "\n",
         encoding="utf-8",
     )
 
@@ -104,6 +109,34 @@ def test_load_sources_resolves_fs_path_from_project_root(tmp_path: Path) -> None
     )
     path_value = source.loader.transport.pattern
     assert path_value == str((project_root / "data" / "*.jsonl").resolve())
+
+
+def test_load_source_passes_explicit_gzip_compression_to_core_io(
+    tmp_path: Path,
+) -> None:
+    project_root = tmp_path / "project"
+    data_dir = project_root / "data"
+    data_dir.mkdir(parents=True)
+    for index in (1, 2):
+        with gzip.open(
+            data_dir / f"{index}.jsonl.gz",
+            "wt",
+            encoding="utf-8",
+        ) as stream:
+            stream.write(f'{{"value": {index}}}\n')
+    _write_source_yaml(
+        project_root / "sources",
+        "data/*.jsonl.gz",
+        compression="gzip",
+    )
+    project_yaml = _write_project_yaml(project_root)
+
+    source = build_source(
+        _sources(project_yaml)["sample.fs"],
+        project_yaml=project_yaml,
+    )
+
+    assert list(source.stream()) == [{"value": 1}, {"value": 2}]
 
 
 def test_load_sources_resolves_fs_path_relative_to_project_root_only(

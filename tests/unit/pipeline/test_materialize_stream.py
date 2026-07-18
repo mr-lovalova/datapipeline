@@ -1,3 +1,4 @@
+import gzip
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -7,8 +8,12 @@ import pytest
 from datapipeline.config.dataset.dataset import DatasetConfig, SampleConfig
 from datapipeline.config.execution import ExecutionConfig
 from datapipeline.domain.record import TemporalRecord
+from datapipeline.io.output import OutputTarget
 from datapipeline.runtime import Runtime, SourceRuntimeStream
-from datapipeline.services.materialize import materialize_stream_to_path
+from datapipeline.services.materialize import (
+    materialize_stream,
+    resolve_materialize_output,
+)
 
 
 class _Source:
@@ -52,6 +57,15 @@ def _runtime(
     return runtime
 
 
+def _output(path: Path) -> OutputTarget:
+    return resolve_materialize_output(path)
+
+
+def test_materialize_output_requires_jsonl_suffix(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match=r"\.jsonl or \.jsonl\.gz"):
+        resolve_materialize_output(tmp_path / "prices.csv")
+
+
 @pytest.fixture
 def one_row_runtime(tmp_path: Path) -> Runtime:
     return _runtime(
@@ -68,10 +82,10 @@ def test_materialize_stream_writes_jsonl(tmp_path: Path) -> None:
     runtime = _runtime(tmp_path, rows)
     output = tmp_path / "interim" / "prices.materialized.jsonl"
 
-    result = materialize_stream_to_path(
+    result = materialize_stream(
         runtime=runtime,
         stream_id="prices.raw",
-        output=output,
+        output=_output(output),
     )
 
     payloads = [
@@ -84,6 +98,25 @@ def test_materialize_stream_writes_jsonl(tmp_path: Path) -> None:
     assert result == output.resolve()
 
 
+def test_materialize_stream_writes_gzip_jsonl(tmp_path: Path) -> None:
+    runtime = _runtime(
+        tmp_path,
+        [{"time": _ts(1), "security_id": "AAPL", "close": 10.0}],
+    )
+    output = tmp_path / "interim" / "prices.materialized.jsonl.gz"
+
+    result = materialize_stream(
+        runtime=runtime,
+        stream_id="prices.raw",
+        output=_output(output),
+    )
+
+    with gzip.open(output, "rt", encoding="utf-8") as stream:
+        payloads = [json.loads(line) for line in stream]
+    assert [(row["security_id"], row["close"]) for row in payloads] == [("AAPL", 10.0)]
+    assert result == output.resolve()
+
+
 def test_materialize_stream_refuses_existing_output_without_overwrite(
     tmp_path: Path,
     one_row_runtime: Runtime,
@@ -92,10 +125,10 @@ def test_materialize_stream_refuses_existing_output_without_overwrite(
     output.write_text("", encoding="utf-8")
 
     with pytest.raises(FileExistsError, match="--overwrite"):
-        materialize_stream_to_path(
+        materialize_stream(
             runtime=one_row_runtime,
             stream_id="prices.raw",
-            output=output,
+            output=_output(output),
         )
 
 
@@ -106,26 +139,29 @@ def test_materialize_stream_refuses_managed_artifact_paths(
     output = tmp_path / "artifacts" / "ticks.jsonl"
 
     with pytest.raises(ValueError, match="outside the managed artifacts root"):
-        materialize_stream_to_path(
+        materialize_stream(
             runtime=one_row_runtime,
             stream_id="prices.raw",
-            output=output,
+            output=_output(output),
             overwrite=True,
         )
 
     assert not output.exists()
 
 
+@pytest.mark.parametrize("filename", ["prices.jsonl", "prices.jsonl.gz"])
 def test_materialize_stream_does_not_clobber_output_created_during_stream(
     tmp_path: Path,
     monkeypatch,
     one_row_runtime: Runtime,
+    filename: str,
 ) -> None:
-    output = tmp_path / "prices.jsonl"
+    output = tmp_path / filename
+    concurrent_output = b"concurrent output\n"
 
     def racing_rows(_context, _stream_id):
         def rows():
-            output.write_text("concurrent output\n", encoding="utf-8")
+            output.write_bytes(concurrent_output)
             yield {"time": _ts(1), "security_id": "AAPL", "close": 10.0}
 
         return rows()
@@ -136,10 +172,10 @@ def test_materialize_stream_does_not_clobber_output_created_during_stream(
     )
 
     with pytest.raises(FileExistsError, match="already exists"):
-        materialize_stream_to_path(
+        materialize_stream(
             runtime=one_row_runtime,
             stream_id="prices.raw",
-            output=output,
+            output=_output(output),
         )
 
-    assert output.read_text(encoding="utf-8") == "concurrent output\n"
+    assert output.read_bytes() == concurrent_output

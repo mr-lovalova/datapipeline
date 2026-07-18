@@ -71,12 +71,19 @@ def source_summary(stream_source: RecordStream[object]) -> str | None:
 def _transport_source_summary(transport: SourceTransport) -> str | None:
     if isinstance(transport, FsFileTransport):
         path = transport.path
-        return f"transport=fs.file file={Path(path).name or str(path)}"
+        parts = ["transport=fs.file"]
+        if transport.compression is not None:
+            parts.append(f"compression={transport.compression}")
+        parts.append(f"file={Path(path).name or str(path)}")
+        return " ".join(parts)
 
     if isinstance(transport, FsGlobTransport):
         files = transport.files
         total = len(files)
-        parts = ["transport=fs.glob", f"count={total}"]
+        parts = ["transport=fs.glob"]
+        if transport.compression is not None:
+            parts.append(f"compression={transport.compression}")
+        parts.append(f"count={total}")
         root = _glob_root(files)
         if total == 1:
             parts.append(f"file={_relative_label(files[0], root)}")

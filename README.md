@@ -93,7 +93,8 @@ that profile explicitly, including one configured with `enabled: false`.
 - `jerry build`: materialize artifacts such as variable records, scaler
   statistics, and metadata.
 - `jerry inspect`: run coverage, matrix, or custom inspection profiles.
-- `jerry materialize`: write configured streams to durable JSONL files.
+- `jerry materialize`: write configured streams to durable `.jsonl` or
+  gzip-compressed `.jsonl.gz` files.
 - `jerry clean [--yes] [--older-than <age>]`: lists or removes stale sort spill directories. It does not delete materialized outputs.
 
 Use `jerry <command> --help` for current flags and the

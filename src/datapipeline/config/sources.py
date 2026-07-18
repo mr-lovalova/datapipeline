@@ -10,6 +10,8 @@ from pydantic import (
     model_validator,
 )
 
+from datapipeline.io.compression import Compression
+
 
 _EntryPoint = Annotated[
     str,
@@ -68,6 +70,15 @@ class _DecodedSourceArgs(BaseModel):
 class FsSourceArgs(_DecodedSourceArgs):
     transport: Literal["fs"]
     path: _SourceInputPath
+    compression: Compression | None = None
+
+    @model_validator(mode="after")
+    def validate_compression(self) -> Self:
+        if self.compression == "gzip" and self.format not in {"csv", "jsonl"}:
+            raise ValueError(
+                "gzip compression is supported only for csv and jsonl formats"
+            )
+        return self
 
 
 class HttpSourceArgs(_DecodedSourceArgs):

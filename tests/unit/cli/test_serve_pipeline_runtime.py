@@ -1,3 +1,5 @@
+import gzip
+import json
 import logging
 from types import SimpleNamespace
 
@@ -62,13 +64,14 @@ def _target():
     )
 
 
-def _fs_target(destination):
+def _fs_target(destination, compression=None):
     return OutputTarget(
         transport="fs",
         format="jsonl",
         view="raw",
         encoding="utf-8",
         destination=destination,
+        compression=compression,
         run=None,
     )
 
@@ -344,6 +347,64 @@ def test_postprocess_preview_runs_postprocess(monkeypatch):
     result = _serve(runtime, dataset, target, preview="postprocess")
 
     assert list(result.outputs[0].rows) == ["post:vector"]
+
+
+@pytest.mark.parametrize(
+    ("preview", "expected", "output_id"),
+    [
+        ("input", "source", "derived.prices"),
+        ("canonical", "mapped:source", "derived.prices"),
+        ("records", "records:transformed:mapped:source", "derived.prices"),
+        ("variables", "variable", "price"),
+        ("samples", "vector", None),
+        ("postprocess", "post:vector", None),
+    ],
+)
+def test_all_preview_stages_write_gzip_through_the_shared_output_path(
+    monkeypatch,
+    tmp_path,
+    preview,
+    expected,
+    output_id,
+) -> None:
+    monkeypatch.setattr(
+        "datapipeline.operations.runtime.pipeline.build_stream_pipeline",
+        lambda *args, **kwargs: _record_preview_pipeline(),
+    )
+    monkeypatch.setattr(
+        "datapipeline.operations.runtime.pipeline.run_variable_pipeline",
+        lambda *args, **kwargs: iter(["variable"]),
+    )
+    monkeypatch.setattr(
+        "datapipeline.operations.runtime.pipeline.resolve_window_bounds",
+        lambda runtime_obj, rectangular_required: (None, None),
+    )
+    monkeypatch.setattr(
+        "datapipeline.operations.runtime.pipeline.build_dataset_pipeline",
+        lambda *args, **kwargs: _sample_preview_pipeline(),
+    )
+
+    target = _fs_target(tmp_path / "preview.jsonl.gz", compression="gzip")
+    result = _serve(
+        _runtime({"derived.prices": object()}),
+        _preview_dataset("derived.prices"),
+        target,
+        preview=preview,
+    )
+    persist_runtime_result(
+        result,
+        target=target,
+        logger=logging.getLogger(__name__),
+    )
+
+    destination = (
+        target.for_output(output_id).destination
+        if output_id is not None
+        else target.destination
+    )
+    assert destination is not None
+    with gzip.open(destination, "rt", encoding="utf-8") as stream:
+        assert [json.loads(line) for line in stream] == [expected]
 
 
 def test_preview_rejects_unknown_stage() -> None:

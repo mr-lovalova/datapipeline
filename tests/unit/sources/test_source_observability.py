@@ -120,6 +120,37 @@ def test_file_loader_uses_file_name_and_csv_rows() -> None:
     ) == (1, 1, '"demo.csv"')
 
 
+def test_compressed_fs_source_summaries_include_compression(tmp_path) -> None:
+    first = tmp_path / "01.jsonl.gz"
+    second = tmp_path / "02.jsonl.gz"
+    first.write_bytes(b"")
+    second.write_bytes(b"")
+
+    file_source = Source(
+        DataLoader(
+            FsFileTransport(str(first), compression="gzip"),
+            JsonLinesDecoder(),
+        ),
+        IdentityParser(),
+    )
+    glob_source = Source(
+        DataLoader(
+            FsGlobTransport(str(tmp_path / "*.jsonl.gz"), compression="gzip"),
+            JsonLinesDecoder(),
+        ),
+        IdentityParser(),
+    )
+
+    assert (
+        source_summary(file_source)
+        == "transport=fs.file compression=gzip file=01.jsonl.gz"
+    )
+    assert (
+        source_summary(glob_source) == "transport=fs.glob compression=gzip count=2 "
+        "first=01.jsonl.gz last=02.jsonl.gz"
+    )
+
+
 def test_synthetic_loader_uses_tick_progress_without_a_resource() -> None:
     loader = make_time_loader(
         "2024-01-01T00:00:00Z",

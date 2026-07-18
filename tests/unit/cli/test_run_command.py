@@ -6,6 +6,8 @@ import pytest
 
 from datapipeline.cli.command_router import execute_command
 from datapipeline.cli.output_options import build_cli_output_config
+from datapipeline.cli.parser_builder import build_parser
+from datapipeline.config.profiles import ServeOutputConfig
 
 
 def _serve_args() -> SimpleNamespace:
@@ -19,6 +21,7 @@ def _serve_args() -> SimpleNamespace:
         output_format=None,
         output_directory=None,
         output_encoding=None,
+        output_compression=None,
         output_view=None,
         artifact_mode=None,
         visuals="on",
@@ -36,6 +39,7 @@ def _inspect_args() -> SimpleNamespace:
         output_format=None,
         output_directory=None,
         output_encoding=None,
+        output_compression=None,
         output_view=None,
         artifact_mode=None,
         visuals="on",
@@ -97,6 +101,42 @@ def test_build_cli_output_config_fs_populates_output() -> None:
     assert config.view is None
     assert config.encoding == "utf-8"
     assert config.directory == Path("artifacts").resolve()
+
+
+def test_build_cli_output_config_fs_populates_gzip_compression() -> None:
+    config = build_cli_output_config(
+        transport="fs",
+        fmt="jsonl",
+        directory="artifacts",
+        output_compression="gzip",
+    )
+
+    assert config is not None
+    assert config.compression == "gzip"
+
+
+def test_output_compression_requires_complete_output_override() -> None:
+    with pytest.raises(SystemExit) as exc:
+        build_cli_output_config(
+            transport=None,
+            fmt=None,
+            directory=None,
+            output_compression="gzip",
+        )
+
+    assert exc.value.code == 2
+
+
+def test_build_cli_output_config_rejects_stdout_compression() -> None:
+    with pytest.raises(SystemExit) as exc:
+        build_cli_output_config(
+            transport="stdout",
+            fmt="jsonl",
+            directory=None,
+            output_compression="gzip",
+        )
+
+    assert exc.value.code == 2
 
 
 def test_build_cli_output_config_honors_view() -> None:
@@ -233,6 +273,57 @@ def test_execute_serve_runs_request_from_builder(monkeypatch) -> None:
     assert seen["request"] is sentinel_request
     assert captured["command"] == "serve"
     assert captured["artifact_mode"] == "FORCE"
+
+
+@pytest.mark.parametrize("command", ["serve", "inspect"])
+def test_runtime_command_propagates_gzip_output_override(
+    monkeypatch,
+    tmp_path,
+    command,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def _capture_request(**kwargs):
+        captured.update(kwargs)
+        return object()
+
+    monkeypatch.setattr(
+        "datapipeline.cli.commands.profile_runner.build_runtime_run_request",
+        _capture_request,
+    )
+    monkeypatch.setattr(
+        "datapipeline.cli.commands.profile_runner.run_profiles",
+        lambda request: None,
+    )
+    args = build_parser().parse_args(
+        [
+            command,
+            "--output-transport",
+            "fs",
+            "--output-format",
+            "jsonl",
+            "--output-directory",
+            str(tmp_path),
+            "--output-compression",
+            "gzip",
+        ]
+    )
+
+    execute_command(
+        args=args,
+        plugin_root=None,
+        workspace_context=None,
+        cli_level_arg=None,
+        base_level_name="INFO",
+        cli_log_outputs=[],
+    )
+
+    output = captured["cli_output"]
+    assert isinstance(output, ServeOutputConfig)
+    assert output.transport == "fs"
+    assert output.format == "jsonl"
+    assert output.directory == tmp_path
+    assert output.compression == "gzip"
 
 
 def test_execute_serve_skips_when_no_enabled_profiles(monkeypatch, caplog) -> None:

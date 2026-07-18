@@ -265,7 +265,7 @@ def test_materialize_request_uses_shared_resolution_snapshot(
         encoding="utf-8",
     )
     (profiles / "materialize.adv-20.yaml").write_text(
-        "stream: adv.20\noutput: outputs/adv-20.jsonl\n",
+        "stream: adv.20\noutput: outputs/adv-20.jsonl.gz\n",
         encoding="utf-8",
     )
     runtime = SimpleNamespace(execution=ExecutionConfig())
@@ -311,7 +311,10 @@ def test_materialize_request_uses_shared_resolution_snapshot(
     assert request.runtime is runtime
     assert request.jobs[0].name == "adv-20"
     assert request.jobs[0].stream == "adv.20"
-    assert request.jobs[0].output == tmp_path / "outputs" / "adv-20.jsonl"
+    assert request.jobs[0].output.destination == (
+        tmp_path / "outputs" / "adv-20.jsonl.gz"
+    )
+    assert request.jobs[0].output.compression == "gzip"
     assert request.jobs[0].observability.log_output.outputs[0].destination == (
         execution_dir / "logs" / "materialize.adv-20.log"
     )

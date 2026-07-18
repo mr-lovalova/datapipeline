@@ -106,6 +106,7 @@ output:
   directory: runs
   # view: raw # optional; csv defaults to flat; jsonl/pickle default to raw
   # encoding: utf-8 # fs jsonl/csv only
+  # compression: gzip # optional; fs jsonl/csv only
 limit: 100 # cap vectors per output
 throttle_ms: null # milliseconds to sleep between emitted vectors
 # Optional overrides:
@@ -129,6 +130,9 @@ throttle_ms: null # milliseconds to sleep between emitted vectors
   `<directory>/runs/<run_id>/dataset/`; normal outputs use `<profile>.<ext>` and
   split outputs use `<profile>.<fold-id>.<role>.<ext>`.
 - `output.encoding` is supported for fs `jsonl`/`csv` outputs (default `utf-8`); it is invalid for `stdout` and `pickle`.
+- `output.compression: gzip` writes fs `jsonl`/`csv` outputs with a `.gz`
+  suffix. This applies unchanged to full dataset, split, inspect, and preview
+  outputs; Jerry does not infer compression from a filename.
 - A full pipeline serve with `dataset.yaml:split` writes one output file per
   configured fold role, using profile-qualified filenames such as
   `dataset.holdout.train.jsonl`. `include_outputs` optionally narrows that set
@@ -179,15 +183,16 @@ overwrite: true
   profile remains the source of the stream identity.
 - Relative profile outputs resolve from `project.yaml`; relative CLI `--output`
   values resolve from the workspace root, or the current directory without a
-  workspace. All output paths must end in `.jsonl`.
+  workspace. A `.jsonl` path writes plain JSONL; `.jsonl.gz` writes gzip JSONL.
+  The concrete path is the complete materialize output contract.
 - Before execution, Jerry validates every selected stream and checks the full
   destination set for duplicates and existing files. No profile writes until
   the whole selected batch passes this preflight.
 - `overwrite: false` is the built-in default. `--overwrite` and
   `--no-overwrite` override every selected profile; shared defaults belong in
   `profiles/materialize.defaults.yaml`.
-- Output and metadata paths must be outside `project.paths.artifacts`; that
-  directory is reserved for managed artifacts and build state.
+- Output paths must be outside `project.paths.artifacts`; that directory is
+  reserved for managed artifacts and build state.
 - `artifact_mode` is command-wide and belongs only in
   `profiles/materialize.defaults.yaml`. `AUTO` prepares missing or stale stream
   prerequisites, `FORCE` rebuilds them, and `OFF` requires them to be current.
@@ -362,6 +367,8 @@ loader:
   duplicate entries are rejected.
 - A filesystem `path` containing standard glob characters (`*`, `?`, `[`) loads
   every matching file in sorted order; a path without them loads one file.
+- Filesystem CSV and JSONL sources may set `compression: gzip`. Compression is
+  explicit and is not inferred from a `.gz` suffix.
 - Local freshness snapshots include glob membership, file paths, sizes, and
   filesystem modification metadata. HTTP response bodies and headers are not
   fingerprinted: use `--artifact-mode FORCE` when a stable URL can return new

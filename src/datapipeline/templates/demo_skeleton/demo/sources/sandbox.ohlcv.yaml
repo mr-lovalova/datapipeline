@@ -12,5 +12,6 @@ loader:
   args:
     transport: fs
     format: jsonl
+    # compression: gzip # only when the matched files are gzip-compressed
     path: data/*.jsonl
     encoding: utf-8

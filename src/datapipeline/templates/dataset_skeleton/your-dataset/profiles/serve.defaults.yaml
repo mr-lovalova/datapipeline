@@ -1,4 +1,5 @@
 output:
   transport: fs
   format: jsonl
+  # compression: gzip
   directory: ./output
