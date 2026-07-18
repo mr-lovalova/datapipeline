@@ -79,11 +79,16 @@ class _CollectingObserver:
 
 
 class _ProcessingAndCleanupFailure(Iterator[int]):
-    def __init__(self) -> None:
+    def __init__(self, processing_error: BaseException | None = None) -> None:
+        self.processing_error = (
+            processing_error
+            if processing_error is not None
+            else RuntimeError("processing failed")
+        )
         self.closed = False
 
     def __next__(self) -> int:
-        raise RuntimeError("processing failed")
+        raise self.processing_error
 
     def close(self) -> None:
         self.closed = True
@@ -721,6 +726,7 @@ def test_none_node_output_is_rejected(
     [
         (RuntimeError("boom"), "boom"),
         (KeyboardInterrupt(), None),
+        (SystemExit(2), "2"),
     ],
 )
 def test_stage_failures_reach_node_and_pipeline_events(
@@ -759,38 +765,50 @@ def test_stage_failures_reach_node_and_pipeline_events(
     assert pipeline_event.error_message == message
 
 
-def test_node_cleanup_does_not_replace_processing_failure(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "processing_error",
+    [RuntimeError("processing failed"), SystemExit(2)],
+)
+def test_node_cleanup_does_not_replace_processing_failure(
+    tmp_path: Path,
+    processing_error: BaseException,
+) -> None:
     observer = _CollectingObserver()
-    stream = _ProcessingAndCleanupFailure()
+    stream = _ProcessingAndCleanupFailure(processing_error)
     pipeline = Pipeline(
         name="failure",
         nodes=(SourceNode("source", lambda: stream),),
     )
 
-    with pytest.raises(RuntimeError, match="processing failed"):
+    with pytest.raises(type(processing_error), match=str(processing_error)):
         list(run_pipeline(_context(tmp_path), pipeline, observer=observer))
 
     node_event = _events_by_name(observer)["source"]
     assert node_event.status == "error"
-    assert node_event.error_type == "RuntimeError"
-    assert node_event.error_message == "processing failed"
+    assert node_event.error_type == type(processing_error).__name__
+    assert node_event.error_message == str(processing_error)
     pipeline_event = observer.pipeline_events[-1]
     assert pipeline_event.status == "error"
-    assert pipeline_event.error_type == "RuntimeError"
-    assert pipeline_event.error_message == "processing failed"
+    assert pipeline_event.error_type == type(processing_error).__name__
+    assert pipeline_event.error_message == str(processing_error)
     assert stream.closed
 
 
+@pytest.mark.parametrize(
+    "processing_error",
+    [RuntimeError("processing failed"), SystemExit(2)],
+)
 def test_unobserved_cleanup_does_not_replace_processing_failure(
     tmp_path: Path,
+    processing_error: BaseException,
 ) -> None:
-    stream = _ProcessingAndCleanupFailure()
+    stream = _ProcessingAndCleanupFailure(processing_error)
     pipeline = Pipeline(
         name="failure",
         nodes=(SourceNode("source", lambda: stream),),
     )
 
-    with pytest.raises(RuntimeError, match="processing failed"):
+    with pytest.raises(type(processing_error), match=str(processing_error)):
         list(run_pipeline(_context(tmp_path), pipeline))
 
     assert stream.closed

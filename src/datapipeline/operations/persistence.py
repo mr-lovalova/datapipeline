@@ -1,4 +1,6 @@
 import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence
@@ -12,6 +14,7 @@ from datapipeline.execution.observability import (
 from datapipeline.io.factory import writer_factory
 from datapipeline.io.normalization import json_text, raw_payload
 from datapipeline.io.output import OutputTarget, output_destination_key
+from datapipeline.io.protocols import Writer
 from datapipeline.io.sinks.files import AtomicTextFileSink
 
 
@@ -105,13 +108,72 @@ def persist_artifact_output(
     return persisted
 
 
-def _close_runtime_rows(rows: Iterable[Any], logger: logging.Logger) -> None:
+def _close_runtime_rows(rows: Iterable[Any]) -> None:
     close = getattr(rows, "close", None)
     if callable(close):
+        close()
+
+
+@contextmanager
+def _runtime_rows(
+    rows: Iterable[Any],
+    logger: logging.Logger,
+) -> Iterator[Iterator[Any]]:
+    iterator: Iterator[Any] | None = None
+    failed = False
+    try:
+        iterator = iter(rows)
+        yield iterator
+    except BaseException:
+        failed = True
+        raise
+    finally:
         try:
-            close()
-        except Exception:
+            try:
+                if iterator is not None:
+                    _close_runtime_rows(iterator)
+            finally:
+                if iterator is not rows:
+                    _close_runtime_rows(rows)
+        except BaseException:
+            if not failed:
+                raise
             logger.debug("Failed to close runtime output rows", exc_info=True)
+
+
+def _payload_rows(result: RuntimeOutput, target: OutputTarget) -> Iterator[Any]:
+    if result.payload is None:
+        return iter(())
+    if target.format == "txt":
+        return iter((json_text(raw_payload(result.payload), indent=2),))
+    return iter((dict(result.payload),))
+
+
+def _write_html_output(
+    result: RuntimeOutput,
+    target: OutputTarget,
+    logger: logging.Logger,
+) -> None:
+    if result.render_html is None:
+        raise ValueError("html output is not supported for this operation.")
+    destination = target.destination
+    if destination is None:
+        raise ValueError("html output requires fs destination.")
+
+    sink = AtomicTextFileSink(
+        destination,
+        encoding=target.encoding or "utf-8",
+    )
+    try:
+        sink.write_text(result.render_html())
+        sink.close()
+    except BaseException:
+        try:
+            sink.abort()
+        except BaseException:
+            logger.debug("Failed to abort html output writer", exc_info=True)
+        raise
+    emit_file_result("Output", destination)
 
 
 def _persist_runtime_output(
@@ -121,60 +183,41 @@ def _persist_runtime_output(
     heartbeat_interval_seconds: float | None,
     logger: logging.Logger,
 ) -> None:
-    effective_target = result.target or target
-    if effective_target is None:
-        raise ValueError("Runtime operation requires profile output target.")
-
-    if effective_target.format == "html":
-        if result.render_html is None:
-            raise ValueError("html output is not supported for this operation.")
-        destination = effective_target.destination
-        if destination is None:
-            raise ValueError("html output requires fs destination.")
-        document = result.render_html()
-        sink = AtomicTextFileSink(
-            destination,
-            encoding=effective_target.encoding or "utf-8",
-        )
-        try:
-            sink.write_text(document)
-            sink.close()
-        except BaseException:
-            sink.abort()
-            raise
-        emit_file_result("Output", destination)
-        return
-
-    rows = result.rows
-    if rows is None:
-        if result.payload is None:
-            rows = ()
-        elif effective_target.format == "txt":
-            rows = (json_text(raw_payload(result.payload), indent=2),)
-        else:
-            rows = (dict(result.payload),)
-
-    writer = writer_factory(effective_target)
-    rows = iter(rows)
-    progress = OperationProgressTracker(
-        "write_output",
-        "rows",
-        resolve_heartbeat_interval_seconds(heartbeat_interval_seconds),
-    )
-    success = False
+    supplied_rows = result.rows
+    owned_rows = supplied_rows if supplied_rows is not None else ()
+    writer = None
     try:
-        for row in rows:
-            writer.write(row)
-            progress.advance()
+        with _runtime_rows(owned_rows, logger) as rows:
+            effective_target = result.target or target
+            if effective_target is None:
+                raise ValueError("Runtime operation requires profile output target.")
+
+            if effective_target.format != "html":
+                if supplied_rows is None:
+                    rows = _payload_rows(result, effective_target)
+                writer = writer_factory(effective_target)
+                progress = OperationProgressTracker(
+                    "write_output",
+                    "rows",
+                    resolve_heartbeat_interval_seconds(heartbeat_interval_seconds),
+                )
+                for row in rows:
+                    writer.write(row)
+                    progress.advance()
+
+        if effective_target.format == "html":
+            _write_html_output(result, effective_target, logger)
+            return
+
+        assert writer is not None
         writer.close()
-        success = True
-    finally:
-        _close_runtime_rows(rows, logger)
-        if not success:
+    except BaseException:
+        if writer is not None:
             try:
                 writer.abort()
-            except Exception:
+            except BaseException:
                 logger.debug("Failed to abort runtime output writer", exc_info=True)
+        raise
 
     if effective_target.destination is not None:
         emit_file_result("Output", effective_target.destination)
@@ -182,16 +225,13 @@ def _persist_runtime_output(
         logger.info("Output: stdout")
 
 
-def _persist_routed_runtime_output(
+def _planned_routed_targets(
     result: RoutedRuntimeOutput,
-    *,
-    heartbeat_interval_seconds: float | None,
-    logger: logging.Logger,
-) -> None:
+) -> list[tuple[str, OutputTarget, Path]]:
     if not result.targets:
         raise ValueError("Routed runtime output requires at least one target.")
 
-    planned_targets: list[tuple[str, OutputTarget, Path]] = []
+    planned: list[tuple[str, OutputTarget, Path]] = []
     destination_owners: dict[str, str] = {}
     for output_id, target in result.targets.items():
         destination = target.destination
@@ -205,63 +245,135 @@ def _persist_routed_runtime_output(
                 f"destination: {destination}"
             )
         destination_owners[destination_key] = output_id
-        planned_targets.append((output_id, target, destination))
+        planned.append((output_id, target, destination))
+    return planned
 
-    writers = {}
+
+def _route_runtime_rows(
+    result: RoutedRuntimeOutput,
+    rows: Iterator[Any],
+    writers: Mapping[str, Writer],
+    counts: dict[str, int],
+    progress: OperationProgressTracker,
+) -> None:
+    for row in rows:
+        routed_id = result.output_for_row(row)
+        if routed_id is None:
+            continue
+        writer = writers.get(routed_id)
+        if writer is None:
+            continue
+        if (
+            result.limit_per_output is not None
+            and counts[routed_id] >= result.limit_per_output
+        ):
+            if all(count >= result.limit_per_output for count in counts.values()):
+                break
+            continue
+        writer.write(row)
+        counts[routed_id] += 1
+        progress.advance()
+        if result.limit_per_output is not None and all(
+            count >= result.limit_per_output for count in counts.values()
+        ):
+            break
+
+
+def _persist_routed_runtime_output(
+    result: RoutedRuntimeOutput,
+    *,
+    heartbeat_interval_seconds: float | None,
+    logger: logging.Logger,
+) -> None:
+    writers: dict[str, Writer] = {}
     counts: dict[str, int] = {}
     destinations: dict[str, Path] = {}
-    rows = iter(result.rows)
-    progress = OperationProgressTracker(
-        "write_output",
-        "rows",
-        resolve_heartbeat_interval_seconds(heartbeat_interval_seconds),
-    )
-    success = False
     try:
-        for output_id, target, destination in planned_targets:
-            writers[output_id] = writer_factory(target)
-            counts[output_id] = 0
-            destinations[output_id] = destination
+        with _runtime_rows(result.rows, logger) as rows:
+            for output_id, target, destination in _planned_routed_targets(result):
+                writers[output_id] = writer_factory(target)
+                counts[output_id] = 0
+                destinations[output_id] = destination
 
-        for row in rows:
-            routed_id = result.output_for_row(row)
-            if routed_id is None:
-                continue
-            writer = writers.get(routed_id)
-            if writer is None:
-                continue
-            if (
-                result.limit_per_output is not None
-                and counts[routed_id] >= result.limit_per_output
-            ):
-                if all(count >= result.limit_per_output for count in counts.values()):
-                    break
-                continue
-            writer.write(row)
-            counts[routed_id] += 1
-            progress.advance()
-            if result.limit_per_output is not None and all(
-                count >= result.limit_per_output for count in counts.values()
-            ):
-                break
+            progress = OperationProgressTracker(
+                "write_output",
+                "rows",
+                resolve_heartbeat_interval_seconds(heartbeat_interval_seconds),
+            )
+            _route_runtime_rows(result, rows, writers, counts, progress)
 
         for writer in writers.values():
             writer.close()
-        success = True
-    finally:
-        _close_runtime_rows(rows, logger)
-        if not success:
-            for writer in writers.values():
-                try:
-                    writer.abort()
-                except Exception:
-                    logger.debug(
-                        "Failed to abort routed runtime output writer",
-                        exc_info=True,
-                    )
+    except BaseException:
+        for writer in writers.values():
+            try:
+                writer.abort()
+            except BaseException:
+                logger.debug(
+                    "Failed to abort routed runtime output writer",
+                    exc_info=True,
+                )
+        raise
 
     for output_id, destination in destinations.items():
         emit_file_result(output_id, destination)
+
+
+def _close_pending_runtime_outputs(
+    outputs: Sequence[RuntimeOutput | RoutedRuntimeOutput],
+    logger: logging.Logger,
+) -> None:
+    for output in outputs:
+        if output.rows is None:
+            continue
+        try:
+            _close_runtime_rows(output.rows)
+        except BaseException:
+            logger.debug(
+                "Failed to close pending runtime output rows",
+                exc_info=True,
+            )
+
+
+def _persist_runtime_batch(
+    result: RuntimeOutputBatch,
+    target: OutputTarget | None,
+    heartbeat_interval_seconds: float | None,
+    logger: logging.Logger,
+) -> None:
+    success = False
+    attempted = 0
+    try:
+        for output in result.outputs:
+            attempted += 1
+            if isinstance(output, RoutedRuntimeOutput):
+                _persist_routed_runtime_output(
+                    output,
+                    heartbeat_interval_seconds=heartbeat_interval_seconds,
+                    logger=logger,
+                )
+            else:
+                _persist_runtime_output(
+                    output,
+                    target=target,
+                    heartbeat_interval_seconds=heartbeat_interval_seconds,
+                    logger=logger,
+                )
+        success = True
+    finally:
+        if not success:
+            _close_pending_runtime_outputs(result.outputs[attempted:], logger)
+        if result.on_complete is not None:
+            try:
+                result.on_complete(success)
+            except BaseException:
+                if success:
+                    raise
+                logger.debug(
+                    "Runtime output completion callback failed after an earlier "
+                    "persistence failure",
+                    exc_info=True,
+                )
 
 
 def persist_runtime_result(
@@ -279,26 +391,12 @@ def persist_runtime_result(
             "RuntimeOutputBatch, or None."
         )
     if isinstance(result, RuntimeOutputBatch):
-        success = False
-        try:
-            for output in result.outputs:
-                if isinstance(output, RoutedRuntimeOutput):
-                    _persist_routed_runtime_output(
-                        output,
-                        heartbeat_interval_seconds=heartbeat_interval_seconds,
-                        logger=logger,
-                    )
-                else:
-                    _persist_runtime_output(
-                        output,
-                        target=target,
-                        heartbeat_interval_seconds=heartbeat_interval_seconds,
-                        logger=logger,
-                    )
-            success = True
-        finally:
-            if result.on_complete is not None:
-                result.on_complete(success)
+        _persist_runtime_batch(
+            result,
+            target,
+            heartbeat_interval_seconds,
+            logger,
+        )
         return
 
     if isinstance(result, RoutedRuntimeOutput):

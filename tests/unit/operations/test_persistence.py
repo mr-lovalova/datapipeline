@@ -22,6 +22,7 @@ from datapipeline.operations.persistence import (
     ArtifactOutput,
     RoutedRuntimeOutput,
     RuntimeOutput,
+    RuntimeOutputBatch,
     persist_artifact_output,
     persist_runtime_result,
 )
@@ -33,6 +34,44 @@ class _CaptureHandler:
 
     def __call__(self, event) -> None:
         self.events.append(event)
+
+
+class _ClosableRows:
+    def __init__(
+        self,
+        rows=(),
+        *,
+        iteration_error: Exception | None = None,
+        close_error: Exception | None = None,
+    ) -> None:
+        self._rows = iter(rows)
+        self._iteration_error = iteration_error
+        self._close_error = close_error
+        self.closed = False
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if self._iteration_error is not None:
+            raise self._iteration_error
+        return next(self._rows)
+
+    def close(self) -> None:
+        self.closed = True
+        if self._close_error is not None:
+            raise self._close_error
+
+
+class _IterFailureRows:
+    def __init__(self) -> None:
+        self.closed = False
+
+    def __iter__(self):
+        raise RuntimeError("iterator failed")
+
+    def close(self) -> None:
+        self.closed = True
 
 
 def test_persist_artifact_output_requires_declared_existing_file(tmp_path) -> None:
@@ -197,6 +236,161 @@ def test_failed_runtime_write_closes_rows(tmp_path) -> None:
     assert closed
 
 
+def test_runtime_writer_open_failure_closes_rows(monkeypatch, tmp_path) -> None:
+    rows = _ClosableRows()
+    target = OutputTarget(
+        transport="fs",
+        format="jsonl",
+        view="raw",
+        encoding="utf-8",
+        destination=tmp_path / "out.jsonl",
+    )
+
+    def fail_writer_open(_target):
+        raise OSError("open failed")
+
+    monkeypatch.setattr(persistence, "writer_factory", fail_writer_open)
+
+    with pytest.raises(OSError, match="open failed"):
+        persist_runtime_result(
+            RuntimeOutput(rows=rows),
+            target=target,
+            logger=logging.getLogger(__name__),
+        )
+
+    assert rows.closed
+
+
+def test_runtime_row_cleanup_failure_aborts_output(tmp_path) -> None:
+    destination = tmp_path / "out.jsonl"
+    destination.write_text("previous\n", encoding="utf-8")
+    rows = _ClosableRows(
+        ({"value": 1},),
+        close_error=OSError("cleanup failed"),
+    )
+    target = OutputTarget(
+        transport="fs",
+        format="jsonl",
+        view="raw",
+        encoding="utf-8",
+        destination=destination,
+    )
+
+    with pytest.raises(OSError, match="cleanup failed"):
+        persist_runtime_result(
+            RuntimeOutput(rows=rows),
+            target=target,
+            logger=logging.getLogger(__name__),
+        )
+
+    assert rows.closed
+    assert destination.read_text(encoding="utf-8") == "previous\n"
+
+
+def test_runtime_row_cleanup_does_not_replace_processing_failure(tmp_path) -> None:
+    rows = _ClosableRows(
+        iteration_error=RuntimeError("processing failed"),
+        close_error=OSError("cleanup failed"),
+    )
+    target = OutputTarget(
+        transport="fs",
+        format="jsonl",
+        view="raw",
+        encoding="utf-8",
+        destination=tmp_path / "out.jsonl",
+    )
+
+    with pytest.raises(RuntimeError, match="processing failed"):
+        persist_runtime_result(
+            RuntimeOutput(rows=rows),
+            target=target,
+            logger=logging.getLogger(__name__),
+        )
+
+    assert rows.closed
+
+
+def test_runtime_iterator_failure_closes_rows(tmp_path) -> None:
+    rows = _IterFailureRows()
+    target = OutputTarget(
+        transport="fs",
+        format="jsonl",
+        view="raw",
+        encoding="utf-8",
+        destination=tmp_path / "out.jsonl",
+    )
+
+    with pytest.raises(RuntimeError, match="iterator failed"):
+        persist_runtime_result(
+            RuntimeOutput(rows=rows),
+            target=target,
+            logger=logging.getLogger(__name__),
+        )
+
+    assert rows.closed
+
+
+def test_runtime_batch_failure_closes_pending_rows(tmp_path) -> None:
+    pending_rows = _ClosableRows()
+    target = OutputTarget(
+        transport="fs",
+        format="jsonl",
+        view="raw",
+        encoding="utf-8",
+        destination=tmp_path / "out.jsonl",
+    )
+    result = RuntimeOutputBatch(
+        outputs=(
+            RuntimeOutput(
+                rows=_ClosableRows(iteration_error=RuntimeError("processing failed")),
+                target=target,
+            ),
+            RuntimeOutput(rows=pending_rows, target=target),
+        )
+    )
+
+    with pytest.raises(RuntimeError, match="processing failed"):
+        persist_runtime_result(
+            result,
+            target=None,
+            logger=logging.getLogger(__name__),
+        )
+
+    assert pending_rows.closed
+
+
+def test_runtime_batch_callback_does_not_replace_persistence_failure(
+    tmp_path,
+) -> None:
+    target = OutputTarget(
+        transport="fs",
+        format="jsonl",
+        view="raw",
+        encoding="utf-8",
+        destination=tmp_path / "out.jsonl",
+    )
+
+    def fail_completion(_success: bool) -> None:
+        raise OSError("completion failed")
+
+    result = RuntimeOutputBatch(
+        outputs=(
+            RuntimeOutput(
+                rows=_ClosableRows(iteration_error=RuntimeError("processing failed")),
+                target=target,
+            ),
+        ),
+        on_complete=fail_completion,
+    )
+
+    with pytest.raises(RuntimeError, match="processing failed"):
+        persist_runtime_result(
+            result,
+            target=None,
+            logger=logging.getLogger(__name__),
+        )
+
+
 def test_routed_runtime_output_rejects_colliding_destinations(tmp_path) -> None:
     targets = {
         output_id: OutputTarget(
@@ -224,6 +418,23 @@ def test_routed_runtime_output_rejects_colliding_destinations(tmp_path) -> None:
         )
 
     assert list(tmp_path.iterdir()) == []
+
+
+def test_invalid_routed_runtime_output_closes_rows() -> None:
+    rows = _ClosableRows()
+
+    with pytest.raises(ValueError, match="at least one target"):
+        persist_runtime_result(
+            RoutedRuntimeOutput(
+                rows=rows,
+                targets={},
+                output_for_row=lambda _row: None,
+            ),
+            target=None,
+            logger=logging.getLogger(__name__),
+        )
+
+    assert rows.closed
 
 
 def test_runtime_persistence_emits_flat_output(tmp_path) -> None:
@@ -323,6 +534,31 @@ def test_runtime_persistence_reports_html_path(monkeypatch, tmp_path) -> None:
 
     assert destination.read_text(encoding="utf-8") == "<html></html>"
     assert results == [("Output", destination)]
+
+
+def test_html_output_cleanup_failure_prevents_commit(tmp_path) -> None:
+    destination = tmp_path / "matrix.html"
+    destination.write_text("previous", encoding="utf-8")
+    rows = _ClosableRows(close_error=OSError("cleanup failed"))
+
+    with pytest.raises(OSError, match="cleanup failed"):
+        persist_runtime_result(
+            RuntimeOutput(
+                rows=rows,
+                render_html=lambda: "replacement",
+            ),
+            target=OutputTarget(
+                transport="fs",
+                format="html",
+                view="flat",
+                encoding="utf-8",
+                destination=destination,
+            ),
+            logger=logging.getLogger(__name__),
+        )
+
+    assert rows.closed
+    assert destination.read_text(encoding="utf-8") == "previous"
 
 
 def test_failed_html_commit_preserves_existing_file(monkeypatch, tmp_path) -> None:

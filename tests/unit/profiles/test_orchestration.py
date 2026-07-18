@@ -991,6 +991,7 @@ def test_job_failure_marks_shared_run_failed(monkeypatch, tmp_path: Path) -> Non
 def test_latest_failure_still_finalizes_all_runs(
     monkeypatch,
     tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     task = OperationTask(id="pipeline", entrypoint="plugin.runtime")
     first = _run_paths(tmp_path / "first")
@@ -1017,14 +1018,16 @@ def test_latest_failure_still_finalizes_all_runs(
         latest.append(paths)
         if paths == first:
             raise OSError("latest failed")
+        raise OSError("second latest failed")
 
     monkeypatch.setattr(
         "datapipeline.profiles.orchestration.set_latest_run",
         set_latest,
     )
 
-    with pytest.raises(OSError, match="latest failed"):
-        run_profiles(request)
+    with caplog.at_level(logging.ERROR):
+        with pytest.raises(OSError, match="latest failed"):
+            run_profiles(request)
 
     metadata = [
         json.loads(paths.metadata_path.read_text(encoding="utf-8"))
@@ -1033,6 +1036,7 @@ def test_latest_failure_still_finalizes_all_runs(
     assert [item["status"] for item in metadata] == ["success", "success"]
     assert all(item["finished_at"] is not None for item in metadata)
     assert latest == [first, second]
+    assert "second latest failed" in caplog.text
 
 
 def test_later_output_commit_failure_marks_run_failed_and_preserves_latest(

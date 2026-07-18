@@ -251,6 +251,12 @@ def _finalize_serve_runs(plans: list[ServeRunPlan], succeeded: bool) -> None:
         except Exception as exc:
             if first_error is None:
                 first_error = exc
+            else:
+                logger.exception(
+                    "Failed to finalize serve run '%s' after an earlier "
+                    "finalization failure.",
+                    plan.paths.run_id,
+                )
     if first_error is not None:
         raise first_error
 

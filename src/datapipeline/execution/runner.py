@@ -281,12 +281,9 @@ def _run_observed(
                 break
             progress.output_items += 1
             yield item
-    except KeyboardInterrupt as exc:
-        status = "error"
-        error_type = type(exc).__name__
-        error_message = _error_message(exc)
+    except GeneratorExit:
         raise
-    except Exception as exc:
+    except BaseException as exc:
         status = "error"
         error_type = type(exc).__name__
         error_message = _error_message(exc)
@@ -426,7 +423,9 @@ def _unobserved_node(
             )
         iterator = iter(produced)
         yield from iterator
-    except (Exception, KeyboardInterrupt):
+    except GeneratorExit:
+        raise
+    except BaseException:
         processing_failed = True
         raise
     finally:
@@ -494,12 +493,9 @@ def _observed_node(
             output_items += 1
             progress_state.completed = output_items
             yield item
-    except KeyboardInterrupt as exc:
-        status = "error"
-        error_type = type(exc).__name__
-        error_message = _error_message(exc)
+    except GeneratorExit:
         raise
-    except Exception as exc:
+    except BaseException as exc:
         status = "error"
         error_type = type(exc).__name__
         error_message = _error_message(exc)
