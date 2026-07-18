@@ -168,6 +168,35 @@ def test_failed_runtime_write_preserves_existing_file(tmp_path) -> None:
     assert destination.read_text(encoding="utf-8") == "previous\n"
 
 
+def test_failed_runtime_write_closes_rows(tmp_path) -> None:
+    closed = False
+
+    def rows():
+        nonlocal closed
+        try:
+            yield {"value": object()}
+        finally:
+            closed = True
+
+    stream = rows()
+    target = OutputTarget(
+        transport="fs",
+        format="jsonl",
+        view="raw",
+        encoding="utf-8",
+        destination=tmp_path / "out.jsonl",
+    )
+
+    with pytest.raises(TypeError, match="Unsupported output value type"):
+        persist_runtime_result(
+            RuntimeOutput(rows=stream),
+            target=target,
+            logger=logging.getLogger(__name__),
+        )
+
+    assert closed
+
+
 def test_routed_runtime_output_rejects_colliding_destinations(tmp_path) -> None:
     targets = {
         output_id: OutputTarget(

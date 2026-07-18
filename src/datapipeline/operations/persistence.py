@@ -105,6 +105,15 @@ def persist_artifact_output(
     return persisted
 
 
+def _close_runtime_rows(rows: Iterable[Any], logger: logging.Logger) -> None:
+    close = getattr(rows, "close", None)
+    if callable(close):
+        try:
+            close()
+        except Exception:
+            logger.debug("Failed to close runtime output rows", exc_info=True)
+
+
 def _persist_runtime_output(
     result: RuntimeOutput,
     *,
@@ -146,6 +155,7 @@ def _persist_runtime_output(
             rows = (dict(result.payload),)
 
     writer = writer_factory(effective_target)
+    rows = iter(rows)
     progress = OperationProgressTracker(
         "write_output",
         "rows",
@@ -159,6 +169,7 @@ def _persist_runtime_output(
         writer.close()
         success = True
     finally:
+        _close_runtime_rows(rows, logger)
         if not success:
             try:
                 writer.abort()
@@ -238,12 +249,7 @@ def _persist_routed_runtime_output(
             writer.close()
         success = True
     finally:
-        close_rows = getattr(rows, "close", None)
-        if callable(close_rows):
-            try:
-                close_rows()
-            except Exception:
-                logger.debug("Failed to close routed runtime rows", exc_info=True)
+        _close_runtime_rows(rows, logger)
         if not success:
             for writer in writers.values():
                 try:
