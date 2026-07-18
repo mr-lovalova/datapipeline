@@ -48,15 +48,14 @@ def test_source_stream_requires_mapper() -> None:
         )
 
 
-@pytest.mark.parametrize("field", ["record", "stream"])
-def test_source_stream_rejects_removed_transform_names(field: str) -> None:
+def test_source_stream_rejects_unknown_fields() -> None:
     with pytest.raises(ValueError, match="Extra inputs are not permitted"):
         SourceStreamConfig.model_validate(
             {
                 "id": "prices",
                 "from": {"source": "vendor.prices"},
                 "map": {"entrypoint": "map_price"},
-                field: [],
+                "unexpected": True,
             }
         )
 
@@ -88,11 +87,9 @@ def test_derived_stream_requires_a_transform() -> None:
         ("preprocess", []),
         ("partition_by", ["ticker"]),
         ("ordered_by", ["ticker", "time"]),
-        ("record", []),
-        ("stream", []),
     ],
 )
-def test_derived_stream_rejects_source_and_legacy_fields(
+def test_derived_stream_rejects_source_fields(
     field: str,
     value: object,
 ) -> None:
@@ -194,9 +191,9 @@ def test_stream_catalog_selects_all_concrete_stream_types() -> None:
     assert isinstance(catalog.streams["market_cap"], AlignedStreamConfig)
 
 
-def test_stream_catalog_rejects_removed_ingest_registry() -> None:
+def test_stream_catalog_rejects_unknown_fields() -> None:
     with pytest.raises(ValueError, match="Extra inputs are not permitted"):
-        StreamsConfig.model_validate({"ingests": {}})
+        StreamsConfig.model_validate({"strams": {}})
 
 
 def test_stream_catalog_rejects_source_registry_key_mismatch() -> None:

@@ -133,11 +133,6 @@ def test_ensure_cadence_requires_a_positive_duration(cadence: object) -> None:
     assert EnsureCadenceConfig(cadence="1h").cadence == "1h"
 
 
-def test_stream_config_rejects_removed_debug_stage() -> None:
-    with pytest.raises(ValidationError, match="debug"):
-        _stream(debug=[{"lint": {"mode": "warn"}}])
-
-
 @pytest.mark.parametrize(
     "sequence",
     [

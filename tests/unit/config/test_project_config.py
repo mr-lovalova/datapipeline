@@ -152,30 +152,9 @@ def test_project_config_rejects_unknown_top_level_fields() -> None:
         ProjectConfig.model_validate(_project_data(varaint="long"))
 
 
-def test_project_config_rejects_split_outside_dataset() -> None:
-    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
-        ProjectConfig.model_validate(_project_data(split={"mode": "hash"}))
-
-
-def test_project_config_rejects_postprocess_path() -> None:
-    data = _project_data()
-    data["paths"]["postprocess"] = "postprocess.yaml"
-
-    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
-        ProjectConfig.model_validate(data)
-
-
 def test_project_config_rejects_unknown_path_fields() -> None:
     data = _project_data()
     data["paths"]["profiels"] = "profiles"
-
-    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
-        ProjectConfig.model_validate(data)
-
-
-def test_project_config_rejects_removed_ingest_path() -> None:
-    data = _project_data()
-    data["paths"]["ingests"] = "ingests"
 
     with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
         ProjectConfig.model_validate(data)

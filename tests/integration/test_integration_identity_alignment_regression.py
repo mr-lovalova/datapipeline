@@ -1,0 +1,152 @@
+import math
+
+import pytest
+
+from datapipeline.artifacts.hydration import hydrate_runtime_artifacts_for_pipeline
+from datapipeline.artifacts.registry import (
+    SCALER_SPEC,
+    VECTOR_METADATA_SPEC,
+    VECTOR_SCHEMA_SPEC,
+)
+from datapipeline.artifacts.specs import VECTOR_INPUTS
+from datapipeline.services.runtime_compiler import compile_runtime
+from datapipeline.vector_inputs.store import load_vector_inputs_manifest
+from tests.helpers.regression import read_jsonl, serve_dataset
+
+
+def test_long_and_hybrid_identity_with_aligned_derived_stream(copy_fixture) -> None:
+    project_root = copy_fixture("identity_alignment_project")
+    request = serve_dataset(project_root)
+
+    runtime = compile_runtime(request.definition)
+    hydrated = hydrate_runtime_artifacts_for_pipeline(runtime, request.definition)
+    assert set(hydrated) >= {"vector_inputs", "scaler", "metadata", "schema"}
+
+    manifest = load_vector_inputs_manifest(
+        runtime.artifacts.resolve_path(VECTOR_INPUTS)
+    )
+    assert manifest.sample_keys == ("ticker",)
+    assert manifest.sample_key_types == ("string",)
+    assert [(shard.id, shard.rows) for shard in manifest.features] == [
+        ("price_scaled", 6),
+        ("price_history", 4),
+        ("price_mean_2", 6),
+        ("price_lag_1", 6),
+        ("price_lead_1", 6),
+        ("pe_ratio", 3),
+        ("fundamental", 11),
+    ]
+
+    scaler_artifact = runtime.artifacts.load(SCALER_SPEC)
+    assert scaler_artifact.observations == 6
+    assert set(scaler_artifact.statistics) == {"price_scaled"}
+    price_statistics = scaler_artifact.statistics["price_scaled"]
+    assert price_statistics.count == 6
+    assert price_statistics.mean == pytest.approx(12.0)
+    assert price_statistics.std == pytest.approx(math.sqrt(296 / 3))
+
+    metadata_artifact = runtime.artifacts.load(VECTOR_METADATA_SPEC)
+    assert metadata_artifact.counts.feature_vectors == 6
+    assert metadata_artifact.counts.target_vectors == 0
+    assert metadata_artifact.sample is not None
+    assert metadata_artifact.sample.keys == ["ticker"]
+    assert [entry.key for entry in metadata_artifact.sample.domain] == [["A"], ["B"]]
+
+    schema_artifact = runtime.artifacts.load(VECTOR_SCHEMA_SPEC)
+    assert [(entry.id, entry.kind) for entry in schema_artifact.features] == [
+        ("price_scaled", "scalar"),
+        ("price_history", "list"),
+        ("price_mean_2", "scalar"),
+        ("price_lag_1", "scalar"),
+        ("price_lead_1", "scalar"),
+        ("pe_ratio", "scalar"),
+        ("fundamental__@metric:debt", "scalar"),
+        ("fundamental__@metric:revenue", "scalar"),
+    ]
+    assert schema_artifact.targets == ()
+
+    dataset_path = request.serve_run_plans[0].paths.dataset_dir / "dataset.jsonl"
+    samples = read_jsonl(dataset_path)
+    price_std = math.sqrt(296 / 3)
+    expected = [
+        (1, "A", (2 - 12) / price_std, [None, None], 2.0, None, 4, 1.0, 50, 100),
+        (
+            1,
+            "B",
+            (10 - 12) / price_std,
+            [None, None],
+            10.0,
+            None,
+            20,
+            None,
+            80,
+            200,
+        ),
+        (2, "A", (4 - 12) / price_std, [2, 4], 3.0, 2, 6, None, 55, 110),
+        (
+            2,
+            "B",
+            (20 - 12) / price_std,
+            [10, 20],
+            15.0,
+            10,
+            30,
+            20.0,
+            None,
+            220,
+        ),
+        (3, "A", (6 - 12) / price_std, [4, 6], 5.0, 4, None, 2.0, 60, 120),
+        (
+            3,
+            "B",
+            (30 - 12) / price_std,
+            [20, 30],
+            25.0,
+            20,
+            None,
+            None,
+            96,
+            240,
+        ),
+    ]
+    assert len(samples) == len(expected)
+    for sample, (
+        day,
+        ticker,
+        price,
+        history,
+        mean_2,
+        lag_1,
+        lead_1,
+        pe,
+        debt,
+        revenue,
+    ) in zip(
+        samples,
+        expected,
+        strict=True,
+    ):
+        assert sample["key"] == [f"2024-01-{day:02d} 00:00:00+00:00", ticker]
+        assert list(sample["features"]["values"]) == [
+            "price_scaled",
+            "price_history",
+            "price_mean_2",
+            "price_lag_1",
+            "price_lead_1",
+            "pe_ratio",
+            "fundamental__@metric:debt",
+            "fundamental__@metric:revenue",
+        ]
+        assert sample["features"]["values"] == pytest.approx(
+            {
+                "price_scaled": price,
+                "price_history": history,
+                "price_mean_2": mean_2,
+                "price_lag_1": lag_1,
+                "price_lead_1": lead_1,
+                "pe_ratio": pe,
+                "fundamental__@metric:debt": debt,
+                "fundamental__@metric:revenue": revenue,
+            }
+        )
+        assert sample["targets"] is None

@@ -2,6 +2,7 @@ import json
 
 import pytest
 
+from datapipeline.artifacts.registry import VECTOR_SCHEMA_SPEC
 from datapipeline.artifacts.specs import VECTOR_METADATA, VECTOR_SCHEMA
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
 from datapipeline.config.dataset.postprocess import PostprocessConfig
@@ -204,3 +205,61 @@ def test_postprocess_rejects_schema_metadata_kind_drift(tmp_path) -> None:
 
     with pytest.raises(ValueError, match="does not match the schema"):
         apply_postprocess(PipelineContext(runtime), iter(()))
+
+
+def test_column_selection_uses_metadata_counts_without_mutating_schema(
+    tmp_path,
+) -> None:
+    runtime = _runtime(
+        tmp_path,
+        schema={
+            "schema_version": 2,
+            "features": [
+                {"id": "sparse", "kind": "scalar"},
+                {"id": "complete", "kind": "scalar"},
+            ],
+            "targets": [],
+        },
+        metadata={
+            "schema_version": 1,
+            "counts": {"feature_vectors": 100, "target_vectors": 0},
+            "window": {
+                "start": "2024-01-01T00:00:00Z",
+                "end": "2024-01-05T00:00:00Z",
+                "mode": "union",
+                "size": 5,
+            },
+            "features": [
+                {
+                    "id": "sparse",
+                    "base_id": "sparse",
+                    "kind": "scalar",
+                    "present_count": 3,
+                    "null_count": 0,
+                },
+                {
+                    "id": "complete",
+                    "base_id": "complete",
+                    "kind": "scalar",
+                    "present_count": 100,
+                    "null_count": 0,
+                },
+            ],
+            "targets": [],
+        },
+        postprocess=PostprocessConfig.model_validate(
+            {"columns": {"features": {"threshold": 0.5}}}
+        ),
+    )
+    context = PipelineContext(runtime)
+    sample = Sample(
+        key=(0,),
+        features=Vector(values={"sparse": 1.0, "complete": 2.0}),
+    )
+
+    output = list(apply_postprocess(context, iter([sample])))
+
+    assert output[0].features.values == {"complete": 2.0}
+    assert [
+        entry.id for entry in context.require_artifact(VECTOR_SCHEMA_SPEC).features
+    ] == ["sparse", "complete"]

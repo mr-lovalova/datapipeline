@@ -1,0 +1,29 @@
+sample:
+  cadence: 1d
+  keys: [ticker]
+
+features:
+  - id: price_scaled
+    stream: market.price
+    field: value
+    scale: true
+  - id: price_history
+    stream: market.price
+    field: value
+    sequence:
+      size: 2
+  - id: price_mean_2
+    stream: market.price
+    field: mean_2
+  - id: price_lag_1
+    stream: market.price
+    field: lag_1
+  - id: price_lead_1
+    stream: market.price
+    field: lead_1
+  - id: pe_ratio
+    stream: valuation.pe
+    field: value
+  - id: fundamental
+    stream: company.fundamental
+    field: value

@@ -1,11 +1,11 @@
 id: regression.targets
 
 parser:
-  entrypoint: identity
+  entrypoint: core.temporal_record
   args: {}
 loader:
   entrypoint: "core.io"
   args:
     transport: fs
-    format: pickle
-    path: data/power_target.pkl
+    format: jsonl
+    path: data/power_target.jsonl

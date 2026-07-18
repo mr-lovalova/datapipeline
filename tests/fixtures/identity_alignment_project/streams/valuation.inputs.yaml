@@ -1,0 +1,7 @@
+id: valuation.inputs
+from:
+  align:
+    - market.price
+    - company.earnings
+combine:
+  entrypoint: combine_valuation_inputs

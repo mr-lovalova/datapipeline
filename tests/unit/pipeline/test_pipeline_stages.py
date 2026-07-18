@@ -94,6 +94,22 @@ def test_window_key_plan_counts_inclusive_cadence_buckets() -> None:
     assert plan.total == len(keys) == 3
 
 
+@pytest.mark.parametrize(
+    ("start", "end", "cadence"),
+    [
+        (None, _ts(1), "1h"),
+        (_ts(0), None, "1h"),
+        (_ts(0), _ts(1), None),
+    ],
+)
+def test_window_key_plan_requires_complete_bounds(
+    start: datetime | None,
+    end: datetime | None,
+    cadence: str | None,
+) -> None:
+    assert window_key_plan(start, end, cadence) is None
+
+
 def test_sample_domain_key_plan_counts_clipped_composite_keys() -> None:
     domain = [
         SampleDomainEntry(key=["MSFT"], start=_ts(0, 30), end=_ts(2, 59)),
@@ -118,6 +134,26 @@ def test_sample_domain_key_plan_counts_clipped_composite_keys() -> None:
         (_ts(3), "AAPL"),
     )
     assert plan.total == len(keys) == 4
+
+
+def test_sample_domain_key_plan_includes_a_single_cadence_bucket() -> None:
+    plan = sample_domain_key_plan(
+        _ts(0),
+        _ts(2),
+        "1h",
+        ["security_id"],
+        [
+            SampleDomainEntry(
+                key=["AAPL"],
+                start=_ts(1, 5),
+                end=_ts(1, 55),
+            )
+        ],
+    )
+
+    assert plan is not None
+    assert tuple(plan.keys()) == ((_ts(1), "AAPL"),)
+    assert plan.total == 1
 
 
 def test_sample_domain_key_plan_counts_fall_back_lattice_keys() -> None:

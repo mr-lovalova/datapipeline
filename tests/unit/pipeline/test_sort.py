@@ -97,11 +97,14 @@ def test_batch_sort_resets_reused_progress() -> None:
 
 def test_batch_sort_preserves_input_order_across_merge_passes(monkeypatch) -> None:
     monkeypatch.setattr(sort_module, "_MAX_OPEN_RUNS", 2)
-    items = [StableSortItem(value=1, position=index) for index in range(5)]
+    items = [StableSortItem(value=1, position=index) for index in reversed(range(6))]
+    buffer_bytes = sum(_serialized_size(item) for item in items[:2])
 
-    ordered = list(batch_sort(items, buffer_bytes=1, key=lambda item: item.value))
+    ordered = list(
+        batch_sort(items, buffer_bytes=buffer_bytes, key=lambda item: item.value)
+    )
 
-    assert [item.position for item in ordered] == list(range(5))
+    assert [item.position for item in ordered] == list(reversed(range(6)))
 
 
 @pytest.mark.parametrize(

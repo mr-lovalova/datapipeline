@@ -1,0 +1,9 @@
+id: fixture.prices
+parser:
+  entrypoint: core.temporal_record
+loader:
+  entrypoint: core.io
+  args:
+    transport: fs
+    format: jsonl
+    path: data/prices.jsonl

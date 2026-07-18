@@ -1,0 +1,12 @@
+id: market.price
+from:
+  source: fixture.prices
+partition_by: [ticker]
+map:
+  entrypoint: identity
+
+transforms:
+  - { operation: dedupe }
+  - { operation: rolling, field: value, to: mean_2, window: 2, min_samples: 1 }
+  - { operation: lag, field: value, to: lag_1, periods: 1 }
+  - { operation: lead, field: value, to: lead_1, periods: 1 }

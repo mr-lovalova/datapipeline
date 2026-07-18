@@ -1,0 +1,10 @@
+schema_version: 2
+artifact_revision: 1
+name: identity_alignment_project
+paths:
+  streams: streams
+  sources: sources
+  dataset: dataset.yaml
+  artifacts: build
+  operations: operations
+  profiles: profiles

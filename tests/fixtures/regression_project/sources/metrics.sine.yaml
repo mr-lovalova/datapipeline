@@ -1,11 +1,11 @@
 id: regression.sine
 
 parser:
-  entrypoint: identity
+  entrypoint: core.temporal_record
   args: {}
 loader:
   entrypoint: "core.io"
   args:
     transport: fs
-    format: pickle
-    path: data/sine_subhour.pkl
+    format: jsonl
+    path: data/sine_subhour.jsonl

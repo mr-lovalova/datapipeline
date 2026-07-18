@@ -1,0 +1,12 @@
+artifact_mode: FORCE
+output:
+  transport: fs
+  format: jsonl
+  directory: output
+observability:
+  visuals: OFF
+  heartbeat_interval_seconds: 0
+  logging:
+    level: CRITICAL
+    outputs:
+      - transport: STDERR

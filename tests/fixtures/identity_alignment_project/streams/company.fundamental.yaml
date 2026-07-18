@@ -1,0 +1,6 @@
+id: company.fundamental
+from:
+  source: fixture.fundamentals
+partition_by: [ticker, metric]
+map:
+  entrypoint: identity

@@ -1,0 +1,42 @@
+sample:
+  cadence: 1d
+
+features:
+  - id: signal
+    stream: regression.signal
+    field: value
+    scale: true
+
+targets:
+  - id: outcome
+    stream: regression.outcome
+    field: value
+    scale: true
+
+split:
+  mode: time
+  intervals:
+    - id: train_0
+      until: "2024-01-03T00:00:00Z"
+    - id: purge_0
+      until: "2024-01-04T00:00:00Z"
+    - id: validation_0
+      until: "2024-01-05T00:00:00Z"
+    - id: test_0
+      until: "2024-01-06T00:00:00Z"
+    - id: train_1
+      until: "2024-01-08T00:00:00Z"
+    - id: purge_1
+      until: "2024-01-09T00:00:00Z"
+    - id: validation_1
+      until: "2024-01-10T00:00:00Z"
+    - id: test_1
+  folds:
+    - id: fold_0
+      train: [train_0]
+      validation: [validation_0]
+      test: [test_0]
+    - id: fold_1
+      train: [train_1]
+      validation: [validation_1]
+      test: [test_1]

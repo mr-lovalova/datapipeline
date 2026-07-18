@@ -1,0 +1,9 @@
+schema_version: 2
+artifact_revision: 1
+name: walk_forward_regression
+paths:
+  streams: streams
+  sources: sources
+  dataset: dataset.yaml
+  artifacts: artifacts
+  profiles: profiles

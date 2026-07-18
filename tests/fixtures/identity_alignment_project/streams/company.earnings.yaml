@@ -1,0 +1,6 @@
+id: company.earnings
+from:
+  source: fixture.earnings
+partition_by: [ticker]
+map:
+  entrypoint: identity

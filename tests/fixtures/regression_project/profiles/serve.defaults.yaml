@@ -1,0 +1,4 @@
+output:
+  transport: fs
+  format: jsonl
+  directory: output

@@ -1,0 +1,6 @@
+id: regression.signal
+from:
+  source: regression.signal
+map:
+  entrypoint: identity
+  args: {}

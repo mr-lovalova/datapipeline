@@ -1,11 +1,11 @@
 id: regression.linear
 
 parser:
-  entrypoint: identity
+  entrypoint: core.temporal_record
   args: {}
 loader:
   entrypoint: "core.io"
   args:
     transport: fs
-    format: pickle
-    path: data/linear_hourly.pkl
+    format: jsonl
+    path: data/linear_hourly.jsonl

@@ -283,10 +283,10 @@ def test_stats_task_defaults_to_postprocessed_stage(tmp_path):
     assert stats.stage == "postprocessed"
 
 
-def test_stats_task_rejects_removed_mode_option(tmp_path):
+def test_stats_task_rejects_unknown_fields(tmp_path):
     project_yaml = _write_project(tmp_path, operations_ref="operations")
     config_dir = _operations_dir(project_yaml)
-    (config_dir / "stats.yaml").write_text("mode: raw\n", encoding="utf-8")
+    (config_dir / "stats.yaml").write_text("unexpected: true\n", encoding="utf-8")
 
     with pytest.raises(ValueError, match="Extra inputs are not permitted"):
         _artifact_tasks(project_yaml)

@@ -1,6 +1,0 @@
-operation: matrix
-enabled: true
-output:
-  transport: fs
-  format: html
-  directory: ../artifacts/inspect

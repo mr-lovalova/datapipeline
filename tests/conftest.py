@@ -14,9 +14,9 @@ _TEST_EP_TARGETS = {
         "core.temporal.csv",
     ): "tests.parsers.temporal_csv:TemporalCsvValueParser",
     (
-        "datapipeline.parsers",
-        "core.temporal.jsonpath",
-    ): "tests.parsers.temporal_json:TemporalJsonPathParser",
+        "datapipeline.combiners",
+        "combine_valuation_inputs",
+    ): "tests.combiners:combine_valuation_inputs",
 }
 _ORIGINAL_LOAD_EP = dp_load.load_ep
 

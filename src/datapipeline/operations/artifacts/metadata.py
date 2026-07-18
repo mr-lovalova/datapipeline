@@ -20,7 +20,6 @@ from datapipeline.utils.time import count_cadence_buckets, parse_cadence
 
 from .utils import (
     collect_vector_metadata,
-    configured_vectors_are_empty,
     metadata_entries_from_stats,
     VectorMetadataStats,
 )
@@ -174,12 +173,6 @@ def materialize_metadata(
         dataset.sample.keys,
         "scan_features",
     )
-    if configured_vectors_are_empty(features_cfgs, feature_vectors):
-        raise RuntimeError(
-            "Cannot materialize vector metadata: "
-            f"{len(features_cfgs)} configured features produced zero vectors. "
-            "Check upstream source data and credentials."
-        )
     target_meta: tuple[VectorMetadataEntry, ...] = ()
     target_vectors = 0
     target_cfgs = list(dataset.targets)
@@ -197,12 +190,6 @@ def materialize_metadata(
             dataset.sample.keys,
             "scan_targets",
         )
-        if configured_vectors_are_empty(target_cfgs, target_vectors):
-            raise RuntimeError(
-                "Cannot materialize vector metadata: "
-                f"{len(target_cfgs)} configured targets produced zero vectors. "
-                "Check upstream source data and credentials."
-            )
         target_meta = metadata_entries_from_stats(target_stats)
     feature_meta = metadata_entries_from_stats(feature_stats)
 

@@ -1,0 +1,6 @@
+id: regression.outcome
+from:
+  source: regression.outcome
+map:
+  entrypoint: identity
+  args: {}
