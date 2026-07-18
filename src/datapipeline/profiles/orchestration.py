@@ -231,13 +231,28 @@ def _validate_build_order(jobs: list[BuildJob], graph: ArtifactGraph) -> None:
 
 
 def _finalize_serve_runs(plans: list[ServeRunPlan], succeeded: bool) -> None:
+    if not succeeded:
+        for plan in plans:
+            try:
+                finish_run_failed(plan.paths)
+            except Exception:
+                logger.exception(
+                    "Failed to finalize serve run '%s' after command failure.",
+                    plan.paths.run_id,
+                )
+        return
+
+    first_error: Exception | None = None
     for plan in plans:
-        if not succeeded:
-            finish_run_failed(plan.paths)
-            continue
-        finish_run_success(plan.paths)
-        if plan.preview is None:
-            set_latest_run(plan.paths)
+        try:
+            finish_run_success(plan.paths)
+            if plan.preview is None:
+                set_latest_run(plan.paths)
+        except Exception as exc:
+            if first_error is None:
+                first_error = exc
+    if first_error is not None:
+        raise first_error
 
 
 def _prepare_runtime_artifacts(
