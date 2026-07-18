@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -5,6 +6,7 @@ import pytest
 
 import datapipeline.integrations.ml.adapter as adapter_module
 import datapipeline.integrations.ml.rows as rows_module
+from datapipeline.artifacts.specs import VECTOR_SCHEMA
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.config.dataset.split import (
@@ -173,6 +175,94 @@ def test_vector_adapter_scales_unsplit_dataset_when_configured(
     assert calls == ["scaled"]
 
 
+def test_vector_adapter_row_columns_expand_sequences(tmp_path: Path) -> None:
+    runtime = _runtime_with_schema(
+        tmp_path,
+        {
+            "schema_version": 2,
+            "features": [
+                {"id": "closing_price", "kind": "scalar"},
+                {
+                    "id": "price_history",
+                    "kind": "list",
+                    "cadence": {"target": 3},
+                },
+            ],
+            "targets": [
+                {
+                    "id": "future_returns",
+                    "kind": "list",
+                    "cadence": {"target": 2},
+                }
+            ],
+        },
+    )
+    adapter = VectorAdapter(dataset=runtime.dataset, runtime=runtime)
+
+    assert adapter.row_columns(flatten_sequences=True) == (
+        [
+            "closing_price",
+            "price_history[0]",
+            "price_history[1]",
+            "price_history[2]",
+        ],
+        ["future_returns[0]", "future_returns[1]"],
+    )
+
+
+def test_vector_adapter_rejects_flattened_row_column_collisions(
+    tmp_path: Path,
+) -> None:
+    runtime = _runtime_with_schema(
+        tmp_path,
+        {
+            "schema_version": 2,
+            "features": [
+                {"id": "history[0]", "kind": "scalar"},
+                {
+                    "id": "history",
+                    "kind": "list",
+                    "cadence": {"target": 1},
+                },
+            ],
+            "targets": [],
+        },
+    )
+    adapter = VectorAdapter(dataset=runtime.dataset, runtime=runtime)
+
+    with pytest.raises(ValueError, match="Flattened row column 'history\\[0\\]'"):
+        list(adapter.iter_rows(flatten_sequences=True))
+
+
+def test_vector_adapter_ignores_columns_removed_by_postprocess(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    runtime = _runtime_with_schema(
+        tmp_path,
+        {
+            "schema_version": 2,
+            "features": [
+                {"id": "history[0]", "kind": "scalar"},
+                {
+                    "id": "history",
+                    "kind": "list",
+                    "cadence": {"target": 1},
+                },
+            ],
+            "targets": [],
+        },
+    )
+    monkeypatch.setattr(
+        adapter_module,
+        "build_postprocess_plan",
+        lambda _context: SimpleNamespace(feature_ids=("history",), target_ids=()),
+    )
+    adapter = VectorAdapter(dataset=runtime.dataset, runtime=runtime)
+
+    assert adapter.row_columns(flatten_sequences=True) == (["history[0]"], [])
+
+
 def _dataset(
     *,
     split: TimeSplitConfig | None = None,
@@ -233,3 +323,18 @@ def _runtime(
         artifacts_root=tmp_path / "artifacts",
         dataset=dataset,
     )
+
+
+def _runtime_with_schema(
+    tmp_path: Path,
+    document: dict[str, object],
+) -> Runtime:
+    runtime = _runtime(
+        tmp_path,
+        FeatureDatasetConfig(sample=SampleConfig(cadence="1h")),
+    )
+    runtime.artifacts_root.mkdir()
+    schema_path = runtime.artifacts_root / "schema.json"
+    schema_path.write_text(json.dumps(document), encoding="utf-8")
+    runtime.artifacts.register(VECTOR_SCHEMA, relative_path="schema.json")
+    return runtime

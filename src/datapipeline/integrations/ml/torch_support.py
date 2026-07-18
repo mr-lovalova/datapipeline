@@ -2,10 +2,6 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Mapping
 
-from datapipeline.artifacts.models import VectorSchemaEntry
-from datapipeline.artifacts.registry import VECTOR_SCHEMA_SPEC
-from datapipeline.execution.context import PipelineContext
-
 from .adapter import VectorAdapter
 
 
@@ -23,34 +19,6 @@ def _resolve_columns(
     if target_columns is None:
         target_columns = []
     return list(feature_columns), list(target_columns)
-
-
-def _schema_entry_columns(
-    entries: Sequence[VectorSchemaEntry],
-    flatten_sequences: bool,
-) -> list[str]:
-    columns: list[str] = []
-    for entry in entries:
-        if flatten_sequences and entry.kind == "list":
-            assert entry.cadence is not None
-            columns.extend(
-                f"{entry.id}[{index}]" for index in range(entry.cadence.target)
-            )
-        else:
-            columns.append(entry.id)
-    return columns
-
-
-def _schema_columns(
-    adapter: VectorAdapter,
-    flatten_sequences: bool = False,
-) -> tuple[list[str], list[str]]:
-    context = PipelineContext(adapter.runtime)
-    schema = context.require_artifact(VECTOR_SCHEMA_SPEC)
-    return (
-        _schema_entry_columns(schema.features, flatten_sequences),
-        _schema_entry_columns(schema.targets, flatten_sequences),
-    )
 
 
 def torch_dataset(
@@ -75,17 +43,15 @@ def torch_dataset(
         ) from exc
 
     adapter = VectorAdapter.from_project(project_yaml, output_id=output_id)
+    schema_feature_columns, schema_target_columns = adapter.row_columns(
+        flatten_sequences
+    )
     rows = list(
         adapter.iter_rows(
             limit=limit,
             include_group=False,
             flatten_sequences=flatten_sequences,
         )
-    )
-
-    schema_feature_columns, schema_target_columns = _schema_columns(
-        adapter,
-        flatten_sequences,
     )
     if feature_columns is None and schema_feature_columns:
         feature_columns = schema_feature_columns
