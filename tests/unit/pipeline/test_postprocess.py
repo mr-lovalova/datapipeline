@@ -1,9 +1,7 @@
 import json
 
-import pytest
-
-from datapipeline.artifacts.registry import VECTOR_SCHEMA_SPEC
-from datapipeline.artifacts.specs import VECTOR_METADATA, VECTOR_SCHEMA
+from datapipeline.artifacts.registry import VECTOR_METADATA_SPEC
+from datapipeline.artifacts.specs import VECTOR_METADATA
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
 from datapipeline.config.dataset.postprocess import PostprocessConfig
 from datapipeline.domain.sample import Sample
@@ -19,8 +17,7 @@ from datapipeline.runtime import Runtime
 
 def _runtime(
     tmp_path,
-    schema: dict,
-    metadata: dict | None = None,
+    metadata: dict,
     postprocess: PostprocessConfig | None = None,
 ) -> Runtime:
     artifacts_root = tmp_path / "artifacts"
@@ -38,22 +35,27 @@ def _runtime(
         ),
     )
 
-    schema_path = artifacts_root / "schema.json"
-    schema_path.write_text(json.dumps(schema), encoding="utf-8")
-    runtime.artifacts.register(VECTOR_SCHEMA, schema_path.name)
-    if metadata is not None:
-        metadata_path = artifacts_root / "metadata.json"
-        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
-        runtime.artifacts.register(VECTOR_METADATA, metadata_path.name)
+    metadata_path = artifacts_root / "metadata.json"
+    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+    runtime.artifacts.register(VECTOR_METADATA, metadata_path.name)
     return runtime
 
 
 def test_dataset_pipeline_assembles_before_postprocess(tmp_path) -> None:
     runtime = _runtime(
         tmp_path,
-        schema={
+        metadata={
             "schema_version": 2,
-            "features": [{"id": "feature", "kind": "scalar"}],
+            "counts": {"feature_vectors": 0, "target_vectors": 0},
+            "features": [
+                {
+                    "id": "feature",
+                    "base_id": "feature",
+                    "kind": "scalar",
+                    "present_count": 0,
+                    "null_count": 0,
+                }
+            ],
             "targets": [],
         },
     )
@@ -72,16 +74,8 @@ def test_dataset_pipeline_assembles_before_postprocess(tmp_path) -> None:
 def test_postprocess_has_one_explicit_execution_order(tmp_path) -> None:
     runtime = _runtime(
         tmp_path,
-        schema={
-            "schema_version": 2,
-            "features": [
-                {"id": "sparse", "kind": "scalar"},
-                {"id": "value", "kind": "scalar"},
-            ],
-            "targets": [],
-        },
         metadata={
-            "schema_version": 1,
+            "schema_version": 2,
             "counts": {"feature_vectors": 2, "target_vectors": 0},
             "features": [
                 {
@@ -90,7 +84,14 @@ def test_postprocess_has_one_explicit_execution_order(tmp_path) -> None:
                     "kind": "scalar",
                     "present_count": 0,
                     "null_count": 0,
-                }
+                },
+                {
+                    "id": "value",
+                    "base_id": "value",
+                    "kind": "scalar",
+                    "present_count": 1,
+                    "null_count": 0,
+                },
             ],
             "targets": [],
         },
@@ -115,8 +116,8 @@ def test_postprocess_has_one_explicit_execution_order(tmp_path) -> None:
     plan = build_postprocess_plan(context)
     output = list(apply_postprocess(context, iter(samples)))
 
-    assert plan.feature_ids == ("value",)
-    assert plan.target_ids == ()
+    assert [entry.id for entry in plan.feature_entries] == ["value"]
+    assert plan.target_entries == ()
     assert [node.name for node in plan.nodes] == [
         "select_features",
         "normalize_features",
@@ -129,18 +130,18 @@ def test_postprocess_has_one_explicit_execution_order(tmp_path) -> None:
 def test_postprocess_applies_explicit_target_policies(tmp_path) -> None:
     runtime = _runtime(
         tmp_path,
-        schema={
-            "schema_version": 2,
-            "features": [{"id": "feature", "kind": "scalar"}],
-            "targets": [
-                {"id": "sparse", "kind": "scalar"},
-                {"id": "target", "kind": "scalar"},
-            ],
-        },
         metadata={
-            "schema_version": 1,
+            "schema_version": 2,
             "counts": {"feature_vectors": 1, "target_vectors": 1},
-            "features": [],
+            "features": [
+                {
+                    "id": "feature",
+                    "base_id": "feature",
+                    "kind": "scalar",
+                    "present_count": 1,
+                    "null_count": 0,
+                }
+            ],
             "targets": [
                 {
                     "id": "sparse",
@@ -148,7 +149,14 @@ def test_postprocess_applies_explicit_target_policies(tmp_path) -> None:
                     "kind": "scalar",
                     "present_count": 0,
                     "null_count": 0,
-                }
+                },
+                {
+                    "id": "target",
+                    "base_id": "target",
+                    "kind": "scalar",
+                    "present_count": 1,
+                    "null_count": 0,
+                },
             ],
         },
         postprocess=PostprocessConfig.model_validate(
@@ -173,55 +181,13 @@ def test_postprocess_applies_explicit_target_policies(tmp_path) -> None:
     assert output[0].targets.values == {"target": 1.0}
 
 
-def test_postprocess_rejects_schema_metadata_kind_drift(tmp_path) -> None:
-    runtime = _runtime(
-        tmp_path,
-        schema={
-            "schema_version": 2,
-            "features": [{"id": "value", "kind": "scalar"}],
-            "targets": [],
-        },
-        metadata={
-            "schema_version": 1,
-            "counts": {"feature_vectors": 1, "target_vectors": 0},
-            "features": [
-                {
-                    "id": "value",
-                    "base_id": "value",
-                    "kind": "list",
-                    "present_count": 1,
-                    "null_count": 0,
-                    "lengths": {"1": 1},
-                    "cadence": {"target": 1},
-                    "observed_elements": 1,
-                }
-            ],
-            "targets": [],
-        },
-        postprocess=PostprocessConfig.model_validate(
-            {"columns": {"features": {"threshold": 1.0}}}
-        ),
-    )
-
-    with pytest.raises(ValueError, match="does not match the schema"):
-        apply_postprocess(PipelineContext(runtime), iter(()))
-
-
-def test_column_selection_uses_metadata_counts_without_mutating_schema(
+def test_column_selection_uses_metadata_counts_without_mutating_metadata(
     tmp_path,
 ) -> None:
     runtime = _runtime(
         tmp_path,
-        schema={
-            "schema_version": 2,
-            "features": [
-                {"id": "sparse", "kind": "scalar"},
-                {"id": "complete", "kind": "scalar"},
-            ],
-            "targets": [],
-        },
         metadata={
-            "schema_version": 1,
+            "schema_version": 2,
             "counts": {"feature_vectors": 100, "target_vectors": 0},
             "window": {
                 "start": "2024-01-01T00:00:00Z",
@@ -261,5 +227,5 @@ def test_column_selection_uses_metadata_counts_without_mutating_schema(
 
     assert output[0].features.values == {"complete": 2.0}
     assert [
-        entry.id for entry in context.require_artifact(VECTOR_SCHEMA_SPEC).features
+        entry.id for entry in context.require_artifact(VECTOR_METADATA_SPEC).features
     ] == ["sparse", "complete"]

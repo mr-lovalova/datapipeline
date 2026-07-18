@@ -8,7 +8,6 @@ from datapipeline.artifacts.planning import build_artifact_graph
 from datapipeline.artifacts.specs import (
     VECTOR_INPUTS,
     VECTOR_METADATA,
-    VECTOR_SCHEMA,
 )
 from datapipeline.artifacts.validation import NestedTickDependency
 from datapipeline.build.state import (
@@ -22,7 +21,6 @@ from datapipeline.config.streams import StreamsConfig
 from datapipeline.config.tasks import (
     ArtifactTask,
     MetadataTask,
-    SchemaTask,
     TicksTask,
     VectorInputsTask,
 )
@@ -47,7 +45,6 @@ def test_hydration_replaces_registry_with_dependency_current_artifacts(
     graph = build_artifact_graph(
         [
             VectorInputsTask(id="vector_inputs"),
-            SchemaTask(id="schema"),
             MetadataTask(id="metadata"),
             custom,
         ]
@@ -60,20 +57,18 @@ def test_hydration_replaces_registry_with_dependency_current_artifacts(
     state = BuildState()
     paths = {
         VECTOR_INPUTS: "build/vector-inputs.json",
-        VECTOR_SCHEMA: "build/schema.json",
         VECTOR_METADATA: "build/missing-metadata.json",
         "custom_snapshot": "build/custom.json",
     }
     for relative_path in (
         paths[VECTOR_INPUTS],
-        paths[VECTOR_SCHEMA],
         paths["custom_snapshot"],
     ):
         destination = runtime.artifacts_root / relative_path
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_text("{}", encoding="utf-8")
 
-    for key in (VECTOR_INPUTS, VECTOR_SCHEMA, "custom_snapshot"):
+    for key in (VECTOR_INPUTS, "custom_snapshot"):
         relative_path = paths[key]
         state.register(
             key,
@@ -116,7 +111,6 @@ def test_hydration_replaces_registry_with_dependency_current_artifacts(
     assert hydrated == ("custom_snapshot",)
     assert runtime.artifacts.has("custom_snapshot")
     assert not runtime.artifacts.has(VECTOR_INPUTS)
-    assert not runtime.artifacts.has(VECTOR_SCHEMA)
     assert not runtime.artifacts.has(VECTOR_METADATA)
     assert not runtime.artifacts.has("orphan")
 
@@ -127,8 +121,8 @@ def test_hydration_skips_incomplete_unrelated_artifact_chain(tmp_path) -> None:
         entrypoint="plugin.snapshot",
         output="build/custom.json",
     )
-    schema = SchemaTask(id="schema")
-    graph = build_artifact_graph([custom, schema])
+    metadata = MetadataTask(id="metadata")
+    graph = build_artifact_graph([custom, metadata])
     runtime = Runtime(
         project_yaml=tmp_path / "project.yaml",
         artifacts_root=tmp_path / "artifacts",
@@ -138,7 +132,7 @@ def test_hydration_skips_incomplete_unrelated_artifact_chain(tmp_path) -> None:
     paths = {
         "custom_snapshot": "build/custom.json",
         VECTOR_INPUTS: "build/vector-inputs.json",
-        VECTOR_SCHEMA: "build/schema.json",
+        VECTOR_METADATA: "build/metadata.json",
     }
     for key, relative_path in paths.items():
         destination = runtime.artifacts_root / relative_path
@@ -162,7 +156,7 @@ def test_hydration_skips_incomplete_unrelated_artifact_chain(tmp_path) -> None:
     assert hydrated == ("custom_snapshot",)
     assert runtime.artifacts.has("custom_snapshot")
     assert not runtime.artifacts.has(VECTOR_INPUTS)
-    assert not runtime.artifacts.has(VECTOR_SCHEMA)
+    assert not runtime.artifacts.has(VECTOR_METADATA)
 
 
 def test_project_hydration_excludes_nested_tick_and_dependents(

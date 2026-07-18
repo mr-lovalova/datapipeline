@@ -6,7 +6,8 @@ import pytest
 
 import datapipeline.integrations.ml.adapter as adapter_module
 import datapipeline.integrations.ml.rows as rows_module
-from datapipeline.artifacts.specs import VECTOR_SCHEMA
+from datapipeline.artifacts.registry import VECTOR_METADATA_SPEC
+from datapipeline.artifacts.specs import VECTOR_METADATA
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig
 from datapipeline.config.dataset.split import (
@@ -176,23 +177,38 @@ def test_vector_adapter_scales_unsplit_dataset_when_configured(
 
 
 def test_vector_adapter_row_columns_expand_sequences(tmp_path: Path) -> None:
-    runtime = _runtime_with_schema(
+    runtime = _runtime_with_metadata(
         tmp_path,
         {
             "schema_version": 2,
+            "counts": {"feature_vectors": 1, "target_vectors": 1},
             "features": [
-                {"id": "closing_price", "kind": "scalar"},
+                {
+                    "id": "closing_price",
+                    "base_id": "closing_price",
+                    "kind": "scalar",
+                    "present_count": 1,
+                    "null_count": 0,
+                },
                 {
                     "id": "price_history",
+                    "base_id": "price_history",
                     "kind": "list",
-                    "cadence": {"target": 3},
+                    "present_count": 1,
+                    "null_count": 0,
+                    "length": 3,
+                    "observed_elements": 3,
                 },
             ],
             "targets": [
                 {
                     "id": "future_returns",
+                    "base_id": "future_returns",
                     "kind": "list",
-                    "cadence": {"target": 2},
+                    "present_count": 1,
+                    "null_count": 0,
+                    "length": 2,
+                    "observed_elements": 2,
                 }
             ],
         },
@@ -213,16 +229,27 @@ def test_vector_adapter_row_columns_expand_sequences(tmp_path: Path) -> None:
 def test_vector_adapter_rejects_flattened_row_column_collisions(
     tmp_path: Path,
 ) -> None:
-    runtime = _runtime_with_schema(
+    runtime = _runtime_with_metadata(
         tmp_path,
         {
             "schema_version": 2,
+            "counts": {"feature_vectors": 1, "target_vectors": 0},
             "features": [
-                {"id": "history[0]", "kind": "scalar"},
+                {
+                    "id": "history[0]",
+                    "base_id": "history[0]",
+                    "kind": "scalar",
+                    "present_count": 1,
+                    "null_count": 0,
+                },
                 {
                     "id": "history",
+                    "base_id": "history",
                     "kind": "list",
-                    "cadence": {"target": 1},
+                    "present_count": 1,
+                    "null_count": 0,
+                    "length": 1,
+                    "observed_elements": 1,
                 },
             ],
             "targets": [],
@@ -238,16 +265,27 @@ def test_vector_adapter_ignores_columns_removed_by_postprocess(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    runtime = _runtime_with_schema(
+    runtime = _runtime_with_metadata(
         tmp_path,
         {
             "schema_version": 2,
+            "counts": {"feature_vectors": 1, "target_vectors": 0},
             "features": [
-                {"id": "history[0]", "kind": "scalar"},
+                {
+                    "id": "history[0]",
+                    "base_id": "history[0]",
+                    "kind": "scalar",
+                    "present_count": 1,
+                    "null_count": 0,
+                },
                 {
                     "id": "history",
+                    "base_id": "history",
                     "kind": "list",
-                    "cadence": {"target": 1},
+                    "present_count": 1,
+                    "null_count": 0,
+                    "length": 1,
+                    "observed_elements": 1,
                 },
             ],
             "targets": [],
@@ -256,7 +294,10 @@ def test_vector_adapter_ignores_columns_removed_by_postprocess(
     monkeypatch.setattr(
         adapter_module,
         "build_postprocess_plan",
-        lambda _context: SimpleNamespace(feature_ids=("history",), target_ids=()),
+        lambda _context: SimpleNamespace(
+            feature_entries=(runtime.artifacts.load(VECTOR_METADATA_SPEC).features[1],),
+            target_entries=(),
+        ),
     )
     adapter = VectorAdapter(dataset=runtime.dataset, runtime=runtime)
 
@@ -325,7 +366,7 @@ def _runtime(
     )
 
 
-def _runtime_with_schema(
+def _runtime_with_metadata(
     tmp_path: Path,
     document: dict[str, object],
 ) -> Runtime:
@@ -334,7 +375,7 @@ def _runtime_with_schema(
         FeatureDatasetConfig(sample=SampleConfig(cadence="1h")),
     )
     runtime.artifacts_root.mkdir()
-    schema_path = runtime.artifacts_root / "schema.json"
-    schema_path.write_text(json.dumps(document), encoding="utf-8")
-    runtime.artifacts.register(VECTOR_SCHEMA, relative_path="schema.json")
+    metadata_path = runtime.artifacts_root / "metadata.json"
+    metadata_path.write_text(json.dumps(document), encoding="utf-8")
+    runtime.artifacts.register(VECTOR_METADATA, relative_path="metadata.json")
     return runtime

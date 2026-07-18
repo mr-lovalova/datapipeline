@@ -22,8 +22,8 @@ for custom loaders, parsers, mappers, and aligned-stream combiners.
 
 - Materialize canonical time-series datasets from disparate sources.
 - Preview and debug each stage of the pipeline without writing ad-hoc scripts.
-- Enforce coverage/quality gates and publish artifacts (schema, scaler stats)
-  for downstream ML teams.
+- Enforce coverage/quality gates and publish metadata and scaler statistics for
+  downstream ML teams.
 - Extend the runtime with entry-point driven plugins for domain-specific I/O,
   mapping, combining, and custom operations.
 - Consume vectors directly from Python via iterators, Pandas DataFrames, or
@@ -90,7 +90,8 @@ that profile explicitly, including one configured with `enabled: false`.
 - `jerry plugin init <name> --out lib/`: create a plugin workspace.
 - `jerry inflow create`: scaffold one source-backed stream end to end.
 - `jerry serve`: stream enabled serve profiles.
-- `jerry build`: materialize artifacts such as schema, scaler, and metadata.
+- `jerry build`: materialize artifacts such as vector inputs, scaler
+  statistics, and metadata.
 - `jerry inspect`: run coverage, matrix, or custom inspection profiles.
 - `jerry materialize`: write configured streams to durable JSONL files.
 - `jerry clean [--yes] [--older-than <age>]`: lists or removes stale sort spill directories. It does not delete materialized outputs.
@@ -100,9 +101,9 @@ Use `jerry <command> --help` for current flags and the
 
 ## MLOps & Reproducibility
 
-- `jerry build` materializes deterministic artifacts (schema, scaler, metadata).
-  Builds are keyed by configuration and local-source snapshots, and skip work
-  when nothing changed unless you pass `--force`.
+- `jerry build` materializes deterministic artifacts (vector inputs, scaler
+  statistics, and metadata). Builds are keyed by configuration and local-source
+  snapshots, and skip work when nothing changed unless you pass `--force`.
 - Filesystem serve output is run-scoped under
   `<output-directory>/runs/<run_id>/dataset/`. Normal profiles write
   `<profile>.<ext>`; split profiles write

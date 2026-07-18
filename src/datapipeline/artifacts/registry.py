@@ -6,14 +6,12 @@ from typing import Any, Generic, TypeVar
 
 from datapipeline.artifacts.models import (
     VectorMetadata,
-    VectorSchemaArtifact,
     VectorStatsArtifact,
 )
 from datapipeline.artifacts.scaler import ScalerArtifact, load_scaler_artifact
 from datapipeline.artifacts.specs import (
     SCALER_STATISTICS,
     VECTOR_METADATA,
-    VECTOR_SCHEMA,
     VECTOR_STATS,
 )
 from datapipeline.utils.json_artifact import read_json_artifact
@@ -105,10 +103,6 @@ class ArtifactRegistry:
         return value
 
 
-def _read_vector_schema(path: Path) -> VectorSchemaArtifact:
-    return VectorSchemaArtifact.model_validate(read_json_artifact(path))
-
-
 def _read_vector_metadata(path: Path) -> VectorMetadata:
     return VectorMetadata.model_validate(read_json_artifact(path))
 
@@ -123,11 +117,6 @@ def _read_vector_stats(path: Path) -> VectorStatsArtifact:
         )
     return VectorStatsArtifact.model_validate(payload)
 
-
-VECTOR_SCHEMA_SPEC = ArtifactSpec[VectorSchemaArtifact](
-    key=VECTOR_SCHEMA,
-    loader=_read_vector_schema,
-)
 
 VECTOR_METADATA_SPEC = ArtifactSpec[VectorMetadata](
     key=VECTOR_METADATA,

@@ -9,7 +9,6 @@ from datapipeline.artifacts.specs import (
     SCALER_STATISTICS,
     VECTOR_INPUTS,
     VECTOR_METADATA,
-    VECTOR_SCHEMA,
     VECTOR_STATS,
     ArtifactDefinition,
     dataset_requires_scaler,
@@ -24,7 +23,6 @@ from datapipeline.config.tasks import (
     MatrixTask,
     OperationTask,
     PipelineTask,
-    StatsTask,
     TicksTask,
 )
 from datapipeline.config.transforms import EnsureTicksConfig
@@ -115,18 +113,6 @@ class ArtifactGraph:
             tasks_by_output[destination_key] = task.id
 
         definitions = list(ARTIFACT_DEFINITIONS)
-        stats_task = tasks_by_id.get("stats")
-        if isinstance(stats_task, StatsTask) and stats_task.stage == "assembled":
-            definitions = [
-                replace(
-                    definition,
-                    dependencies=(VECTOR_METADATA,),
-                )
-                if definition.key == VECTOR_STATS
-                else definition
-                for definition in definitions
-            ]
-
         built_in_keys = {definition.key for definition in definitions}
         if dataset is not None and streams is not None:
             scaler_streams = {
@@ -211,24 +197,17 @@ class ArtifactGraph:
         }
         if isinstance(task, PipelineTask):
             if preview is None:
-                return declared | {VECTOR_METADATA, VECTOR_SCHEMA}
+                return declared | {VECTOR_METADATA}
             if preview not in PREVIEW_STAGES:
                 expected = ", ".join(PREVIEW_STAGES)
                 raise ValueError(f"preview must be one of: {expected}")
-            if preview in {"input", "canonical", "records"}:
+            if preview in {"input", "canonical", "records", "features"}:
                 return declared | dataset_tick_artifacts
-            if preview == "features":
-                return declared | dataset_tick_artifacts
-            if preview == "samples":
-                return declared | {VECTOR_METADATA}
-            return declared | {VECTOR_METADATA, VECTOR_SCHEMA}
+            return declared | {VECTOR_METADATA}
         if isinstance(task, CoverageTask):
             return declared | {VECTOR_STATS}
         if isinstance(task, MatrixTask):
-            required = {VECTOR_METADATA}
-            if task.options.stage == "postprocessed":
-                required.add(VECTOR_SCHEMA)
-            return declared | required
+            return declared | {VECTOR_METADATA}
         return declared
 
     def runtime_dependency_closure(

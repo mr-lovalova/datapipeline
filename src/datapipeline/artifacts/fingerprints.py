@@ -5,6 +5,7 @@ import stat
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 
+from datapipeline.artifacts.models import VECTOR_METADATA_VERSION
 from datapipeline.artifacts.planning import build_artifact_graph
 from datapipeline.artifacts.specs import dataset_requires_scaler
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
@@ -14,7 +15,6 @@ from datapipeline.config.tasks import (
     ArtifactTask,
     MetadataTask,
     ScalerTask,
-    SchemaTask,
     StatsTask,
     TicksTask,
     VectorInputsTask,
@@ -205,7 +205,10 @@ def _artifact_inputs(
     if isinstance(task, StatsTask) and task.stage == "postprocessed":
         return {"postprocess": dataset.postprocess.model_dump(mode="json")}, set()
 
-    if isinstance(task, (MetadataTask, SchemaTask, StatsTask)):
+    if isinstance(task, MetadataTask):
+        return {"metadata_format_version": VECTOR_METADATA_VERSION}, set()
+
+    if isinstance(task, StatsTask):
         return {}, set()
 
     # Plugin artifacts receive the full Runtime and declare no input contract.

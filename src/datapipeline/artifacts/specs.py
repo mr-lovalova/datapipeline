@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig
 
 SCALER_STATISTICS = "scaler"
-VECTOR_SCHEMA = "schema"
 VECTOR_METADATA = "metadata"
 VECTOR_STATS = "stats"
 VECTOR_INPUTS = "vector_inputs"
@@ -42,11 +41,7 @@ ARTIFACT_DEFINITIONS: tuple[ArtifactDefinition, ...] = (
         dependencies=(VECTOR_INPUTS,),
     ),
     ArtifactDefinition(
-        key=VECTOR_SCHEMA,
-        dependencies=(VECTOR_METADATA,),
-    ),
-    ArtifactDefinition(
         key=VECTOR_STATS,
-        dependencies=(VECTOR_METADATA, VECTOR_SCHEMA),
+        dependencies=(VECTOR_METADATA,),
     ),
 )

@@ -52,7 +52,7 @@ def _stats() -> VectorStatsArtifact:
 def _metadata() -> VectorMetadata:
     return VectorMetadata.model_validate(
         {
-            "schema_version": 1,
+            "schema_version": 2,
             "features": [
                 {
                     "id": "speed",
@@ -101,6 +101,7 @@ def _matrix_runtime():
 
 
 def _patch_matrix(monkeypatch) -> None:
+    metadata = _metadata()
     monkeypatch.setattr(matrix_ops, "PipelineContext", _MatrixContext)
     monkeypatch.setattr(
         matrix_ops,
@@ -113,8 +114,8 @@ def _patch_matrix(monkeypatch) -> None:
         matrix_ops,
         "build_postprocess_plan",
         lambda _context: PostprocessPlan(
-            feature_ids=("speed",),
-            target_ids=(),
+            feature_entries=metadata.features,
+            target_entries=metadata.targets,
             nodes=(),
         ),
     )
@@ -256,6 +257,7 @@ def test_assembled_matrix_does_not_postprocess(monkeypatch) -> None:
 
 def test_matrix_limit_caps_samples_after_postprocess(monkeypatch) -> None:
     _patch_matrix(monkeypatch)
+    metadata = _metadata()
     samples = [
         Sample(key=f"g{index}", features=Vector(values={"speed": float(index)}))
         for index in range(3)
@@ -275,8 +277,8 @@ def test_matrix_limit_caps_samples_after_postprocess(monkeypatch) -> None:
         matrix_ops,
         "build_postprocess_plan",
         lambda _context: PostprocessPlan(
-            feature_ids=("speed",),
-            target_ids=(),
+            feature_entries=metadata.features,
+            target_entries=metadata.targets,
             nodes=(PipelineNode(name="drop_first", apply=drop_first),),
         ),
     )
@@ -296,13 +298,14 @@ def test_postprocessed_matrix_keeps_headers_when_every_sample_is_dropped(
     tmp_path,
 ) -> None:
     _patch_matrix(monkeypatch)
+    metadata = _metadata()
     drop_all = PipelineNode(name="drop_all", apply=lambda _samples: iter(()))
     monkeypatch.setattr(
         matrix_ops,
         "build_postprocess_plan",
         lambda _context: PostprocessPlan(
-            feature_ids=("speed",),
-            target_ids=(),
+            feature_entries=metadata.features,
+            target_entries=metadata.targets,
             nodes=(drop_all,),
         ),
     )

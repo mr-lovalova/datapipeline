@@ -74,8 +74,8 @@ globals:
 - New scaffolded dataset projects include a `.env.example` next to `project.yaml`.
 - `paths.operations` optionally points to `operations/*.yaml`. Omit it when the
   built-in operations are sufficient. When configured, the directory must exist.
-  Core artifact operations are `scaler`, `vector_inputs`, `metadata`, `schema`,
-  and `stats`; core runtime operations are `dataset`, `coverage`, and `matrix`.
+  Core artifact operations are `scaler`, `vector_inputs`, `metadata`, and
+  `stats`; core runtime operations are `dataset`, `coverage`, and `matrix`.
   Files override core settings or declare custom operations.
 - `paths.profiles` points to profile specs grouped by type:
   `profiles/serve.<name>.yaml`, `profiles/build.<name>.yaml`,
@@ -196,8 +196,8 @@ overwrite: true
 ### Build Profiles (`profiles/build.<name>.yaml`)
 
 ```yaml
-# profiles/build.schema.yaml
-operation: schema # required; artifact operation ID to execute
+# profiles/build.metadata.yaml
+operation: metadata # required; artifact operation ID to execute
 mode: AUTO # AUTO | FORCE | "OFF"
 # enabled: true # optional; profile-level switch
 # Optional overrides:
@@ -213,8 +213,8 @@ mode: AUTO # AUTO | FORCE | "OFF"
 ```
 
 - Build profiles are orchestration profiles; they do not replace operation definitions.
-- `operation` selects the artifact operation ID for that profile (`schema`,
-  `scaler`, `metadata`, ...). Selected build profiles must reference distinct
+- `operation` selects the artifact operation ID for that profile (`metadata`,
+  `scaler`, `stats`, ...). Selected build profiles must reference distinct
   operations.
 - Build profile `observability.logging.outputs[].path` values are resolved relative to the dataset project root (`project.yaml` directory).
 - `jerry build` runs enabled build profiles when they exist;
@@ -568,9 +568,9 @@ postprocess:
   feature IDs such as `close__@security_id:AAPL`. This supports long, wide, and
   hybrid layouts without a separate format or feature-identity setting.
 - `field` selects the record attribute used as the feature/target value.
-- Every `id` must be unique across both `features` and `targets`. Scaler,
-  schema, and metadata operations plus postprocess policies use this shared
-  vector-ID space.
+- Every `id` must be unique across both `features` and `targets`. Scaler and
+  metadata operations plus postprocess policies use this shared vector-ID
+  space.
 - `scale: true` scales assembled scalar or sequence values with the managed
   `build/scaler.json` artifact when a dataset output is produced. Fitting
   options belong to the scaler operation and cannot be overridden per vector.
@@ -644,13 +644,13 @@ postprocess:
 
 - `postprocess.columns.features` and `postprocess.columns.targets` have separate
   selection policies.
-- `postprocess.samples.features` and `postprocess.samples.targets` filter complete rows after schema
-  normalization.
+- `postprocess.samples.features` and `postprocess.samples.targets` filter
+  complete rows after typed normalization.
 - `ids` is optional. Selection and sample filters default to every retained ID.
   Empty, duplicate, or unknown IDs are errors.
-- Column selection requires `build/metadata.json`; normalization always uses
-  the typed `build/schema.json` artifact.
-- Execution order is fixed: column selection, schema normalization, then sample
+- Column selection and normalization use the same typed `build/metadata.json`
+  artifact.
+- Execution order is fixed: column selection, typed normalization, then sample
   filters.
 - Postprocess does not mutate values. Configure missing-value repair on the
   ordered record stream before feature extraction.
@@ -677,12 +677,16 @@ epsilon: 1.0e-12
   If a primitive label is reused across folds, its values are scaled separately
   for each output. Sequence windows are constructed before scaling, so every
   value in one output sequence uses the same fold scaler.
-- `build/schema.json` (from the `schema` operation) is derived from typed metadata
-  without rescanning vectors. It enumerates discovered feature/target
-  identifiers (including partitions), scalar/list kinds, and fixed list
-  lengths used during normalization. Mixed scalar/list values, empty lists,
-  and varying list lengths fail metadata generation.
-- `build/metadata.json` (from the `metadata` operation) captures heavier statistics—present/null counts, inferred value types, list-length histograms, per-partition timestamps, and the dataset window. Configure `metadata.window_mode` with `union|intersection|strict|relaxed` (default `intersection`) to control how start/end bounds are derived. `union` considers base features, `intersection` uses their overlap, `strict` intersects every partition, and `relaxed` unions partitions independently.
+- `build/metadata.json` (from the `metadata` operation) is the canonical typed
+  vector contract. It records feature/target identifiers (including
+  partitions), scalar/list kinds and lengths, present/null counts, inferred
+  value types, per-partition timestamps, and the dataset window. Mixed
+  scalar/list values, empty lists, and varying list lengths fail metadata
+  generation. Configure `metadata.window_mode` with
+  `union|intersection|strict|relaxed` (default `intersection`) to control how
+  start/end bounds are derived. `union` considers base features,
+  `intersection` uses their overlap, `strict` intersects every partition, and
+  `relaxed` unions partitions independently.
 - Artifact operation execution order comes from the typed dependency graph. Runtime
   commands prepare the union of all selected profiles' requirements once;
   explicit build profiles remain separate artifact roots.

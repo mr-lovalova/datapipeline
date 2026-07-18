@@ -95,25 +95,71 @@ def test_full_regression_project_through_serve(copy_fixture) -> None:
         "with_mean": True,
         "with_std": True,
     }
-    assert _read_json(build_root / "schema.json") == {
+    assert _read_json(build_root / "metadata.json") == {
         "features": [
-            {"id": "linear_scaled", "kind": "scalar"},
             {
-                "cadence": {"target": 2},
+                "base_id": "linear_scaled",
+                "first_observed": "2024-03-01T00:00:00Z",
+                "id": "linear_scaled",
+                "kind": "scalar",
+                "last_observed": "2024-03-01T05:00:00Z",
+                "null_count": 0,
+                "present_count": 6,
+                "value_types": ["float"],
+            },
+            {
+                "base_id": "sine_window",
+                "element_types": ["float", "null"],
+                "first_observed": "2024-03-01T00:00:00Z",
                 "id": "sine_window",
                 "kind": "list",
+                "last_observed": "2024-03-01T04:00:00Z",
+                "length": 2,
+                "null_count": 0,
+                "observed_elements": 9,
+                "present_count": 5,
             },
             {
+                "base_id": "humidity_partitioned",
+                "first_observed": "2024-03-01T00:00:00Z",
                 "id": "humidity_partitioned__@location:north",
                 "kind": "scalar",
+                "last_observed": "2024-03-01T05:00:00Z",
+                "null_count": 0,
+                "present_count": 6,
+                "value_types": ["float"],
             },
             {
+                "base_id": "humidity_partitioned",
+                "first_observed": "2024-03-01T00:00:00Z",
                 "id": "humidity_partitioned__@location:south",
                 "kind": "scalar",
+                "last_observed": "2024-03-01T05:00:00Z",
+                "null_count": 0,
+                "present_count": 6,
+                "value_types": ["float"],
             },
         ],
+        "counts": {"feature_vectors": 6, "target_vectors": 6},
         "schema_version": 2,
-        "targets": [{"id": "power_target", "kind": "scalar"}],
+        "targets": [
+            {
+                "base_id": "power_target",
+                "first_observed": "2024-03-01T00:00:00Z",
+                "id": "power_target",
+                "kind": "scalar",
+                "last_observed": "2024-03-01T05:00:00Z",
+                "null_count": 0,
+                "present_count": 6,
+                "value_types": ["float"],
+            }
+        ],
+        "window": {
+            "end": "2024-03-01T04:00:00Z",
+            "mode": "intersection",
+            "size": 5,
+            "start": "2024-03-01T00:00:00Z",
+        },
     }
 
     manifest = _read_json(build_root / "vector_inputs" / "manifest.json")

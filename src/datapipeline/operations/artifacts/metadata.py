@@ -9,6 +9,7 @@ from datapipeline.artifacts.models import (
     VectorMetadata,
     VectorMetadataCounts,
     VectorMetadataEntry,
+    VECTOR_METADATA_VERSION,
     Window,
     WindowMode,
 )
@@ -218,7 +219,7 @@ def materialize_metadata(
         )
 
     doc = VectorMetadata(
-        schema_version=1,
+        schema_version=VECTOR_METADATA_VERSION,
         features=feature_meta,
         targets=target_meta,
         counts=VectorMetadataCounts(

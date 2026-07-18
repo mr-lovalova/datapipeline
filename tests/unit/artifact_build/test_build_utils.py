@@ -4,12 +4,11 @@ from datetime import datetime, timezone
 
 import pytest
 
-from datapipeline.artifacts.models import VectorSchemaArtifact
-from datapipeline.artifacts.registry import VECTOR_SCHEMA_SPEC
-from datapipeline.artifacts.specs import VECTOR_METADATA, VECTOR_SCHEMA
+from datapipeline.artifacts.registry import VECTOR_METADATA_SPEC
+from datapipeline.artifacts.specs import VECTOR_METADATA
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig
-from datapipeline.config.tasks import MetadataTask, SchemaTask
+from datapipeline.config.tasks import MetadataTask
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
 from datapipeline.execution.context import PipelineContext
@@ -18,7 +17,6 @@ from datapipeline.operations.artifacts.metadata import (
     _window_bounds_from_stats,
     materialize_metadata,
 )
-from datapipeline.operations.artifacts.schema import materialize_vector_schema
 from datapipeline.operations.artifacts.utils import (
     VectorMetadataStats,
     collect_vector_metadata,
@@ -512,154 +510,39 @@ def test_collect_vector_metadata_rejects_variable_list_lengths(
         )
 
 
-def test_schema_materialization_derives_entries_from_metadata(
-    tmp_path,
-) -> None:
-    runtime = _runtime_with_dataset(
-        tmp_path,
-        "\n".join(
-            [
-                "sample:",
-                "  cadence: 1h",
-                "features:",
-                "  - id: price",
-                "    stream: market.prices",
-                "    field: close",
-                "targets: []",
-                "",
-            ]
-        ),
-    )
-
-    metadata_path = runtime.artifacts_root / "metadata.json"
-    metadata_path.write_text(
-        json.dumps(
-            {
-                "schema_version": 1,
-                "features": [
-                    {
-                        "id": "price__@area:DK1",
-                        "base_id": "price",
-                        "kind": "list",
-                        "present_count": 1,
-                        "null_count": 0,
-                        "first_observed": "2024-01-01T00:00:00Z",
-                        "last_observed": "2024-01-01T00:00:00Z",
-                        "element_types": ["float"],
-                        "lengths": {"3": 1},
-                        "cadence": {"target": 3},
-                        "observed_elements": 3,
-                    }
-                ],
-                "targets": [
-                    {
-                        "id": "return",
-                        "base_id": "return",
-                        "kind": "scalar",
-                        "present_count": 1,
-                        "null_count": 0,
-                        "first_observed": "2024-01-01T00:00:00Z",
-                        "last_observed": "2024-01-01T00:00:00Z",
-                        "value_types": ["float"],
-                    }
-                ],
-                "counts": {"feature_vectors": 1, "target_vectors": 1},
-            }
-        ),
-        encoding="utf-8",
-    )
-    runtime.artifacts.register(VECTOR_METADATA, "metadata.json")
-
-    materialize_vector_schema(runtime, SchemaTask(output="schema.json"))
-
-    payload = json.loads(
-        (runtime.artifacts_root / "schema.json").read_text(encoding="utf-8")
-    )
-    assert "generated_at" not in payload
-    assert payload["features"] == [
-        {
-            "id": "price__@area:DK1",
-            "kind": "list",
-            "cadence": {"target": 3},
-        }
-    ]
-    assert payload["targets"] == [{"id": "return", "kind": "scalar"}]
-
-
-_EMPTY_SCHEMA = {"schema_version": 2, "features": [], "targets": []}
-
-
-def _schema_with_feature(entry: dict) -> dict:
-    return {**_EMPTY_SCHEMA, "features": [entry]}
-
-
-@pytest.mark.parametrize(
-    "document",
-    [
-        {"features": [], "targets": []},
-        {**_EMPTY_SCHEMA, "schema_version": 2.0},
-        {**_EMPTY_SCHEMA, "schema_version": 1},
-        {"schema_version": 2, "features": []},
-        {**_EMPTY_SCHEMA, "generated_at": "2024-01-01T00:00:00Z"},
-        _schema_with_feature({"id": "x"}),
-        _schema_with_feature({"id": "x", "kind": "scalar", "base_id": "x"}),
-        _schema_with_feature({"id": "x", "kind": "scalar", "cadence": {"target": 2}}),
-        _schema_with_feature({"id": "x", "kind": "list", "cadence": {"target": 0}}),
-        _schema_with_feature({"id": "x", "kind": "list", "cadence": {"target": True}}),
-        _schema_with_feature(
-            {
-                "id": "x",
-                "kind": "list",
-                "cadence": {"target": 2, "strategy": "max"},
-            }
-        ),
-        {
-            **_EMPTY_SCHEMA,
-            "features": [
-                {"id": "price", "kind": "scalar"},
-                {"id": "price", "kind": "scalar"},
-            ],
-        },
-    ],
-)
-def test_schema_artifact_rejects_invalid_documents(document: dict) -> None:
-    with pytest.raises(ValueError):
-        VectorSchemaArtifact.model_validate(document)
-
-
-def test_schema_artifact_rejects_list_without_cadence() -> None:
-    with pytest.raises(ValueError, match="list schema entries must define cadence"):
-        VectorSchemaArtifact.model_validate(
-            {
-                "schema_version": 2,
-                "features": [{"id": "sequence", "kind": "list"}],
-                "targets": [],
-            }
-        )
-
-
-def test_pipeline_context_rejects_invalid_registered_schema(tmp_path) -> None:
+def test_pipeline_context_rejects_invalid_registered_metadata(tmp_path) -> None:
     runtime = Runtime(
         project_yaml=tmp_path / "project.yaml",
         artifacts_root=tmp_path / "artifacts",
         dataset=FeatureDatasetConfig(sample=SampleConfig(cadence="1h")),
     )
     runtime.artifacts_root.mkdir()
-    schema_path = runtime.artifacts_root / "schema.json"
-    schema_path.write_text(
+    metadata_path = runtime.artifacts_root / "metadata.json"
+    metadata_path.write_text(
         json.dumps(
             {
                 "schema_version": 2,
-                "features": [{"id": "price"}],
+                "features": [
+                    {
+                        "id": "history",
+                        "base_id": "history",
+                        "kind": "list",
+                        "present_count": 1,
+                        "null_count": 0,
+                        "length": 0,
+                        "observed_elements": 0,
+                    }
+                ],
                 "targets": [],
+                "counts": {"feature_vectors": 1, "target_vectors": 0},
             }
         ),
         encoding="utf-8",
     )
-    runtime.artifacts.register(VECTOR_SCHEMA, "schema.json")
+    runtime.artifacts.register(VECTOR_METADATA, "metadata.json")
 
-    with pytest.raises(ValueError, match="kind"):
-        PipelineContext(runtime).require_artifact(VECTOR_SCHEMA_SPEC)
+    with pytest.raises(ValueError, match="length"):
+        PipelineContext(runtime).require_artifact(VECTOR_METADATA_SPEC)
 
 
 def test_metadata_materialization_writes_keyed_sample_domain(
@@ -834,8 +717,7 @@ def test_metadata_entries_preserve_scalar_and_list_statistics() -> None:
         "first_observed": _hour(1),
         "last_observed": _hour(3),
         "element_types": ("float", "null", "str"),
-        "lengths": {"3": 2},
-        "cadence": {"target": 3},
+        "length": 3,
         "observed_elements": 4,
     }
     assert entries[2].model_dump() == {

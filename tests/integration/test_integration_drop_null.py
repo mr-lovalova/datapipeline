@@ -1,11 +1,10 @@
 from datetime import datetime, timezone
 
 from datapipeline.artifacts.hydration import hydrate_runtime_artifacts_for_pipeline
-from datapipeline.artifacts.specs import VECTOR_METADATA, VECTOR_SCHEMA
-from datapipeline.config.tasks import MetadataTask, SchemaTask
+from datapipeline.artifacts.specs import VECTOR_METADATA
+from datapipeline.config.tasks import MetadataTask
 from datapipeline.execution.context import PipelineContext
 from datapipeline.operations.artifacts.metadata import materialize_metadata
-from datapipeline.operations.artifacts.schema import materialize_vector_schema
 from datapipeline.pipelines.dataset.nodes import apply_postprocess
 from datapipeline.pipelines.vector.pipeline import build_vector_pipeline
 from datapipeline.services.pipeline import load_pipeline
@@ -13,7 +12,7 @@ from datapipeline.services.runtime_compiler import compile_runtime
 from tests.vector_input_helpers import register_vector_inputs
 
 
-def test_drop_with_schema_and_partitioned_streams(copy_fixture):
+def test_drop_with_metadata_and_partitioned_streams(copy_fixture):
     project_root = copy_fixture("drop_null_project")
     project = project_root / "project.yaml"
     definition = load_pipeline(project)
@@ -35,15 +34,6 @@ def test_drop_with_schema_and_partitioned_streams(copy_fixture):
         VECTOR_METADATA,
         relative_path=metadata.relative_path,
     )
-    schema = materialize_vector_schema(
-        runtime,
-        SchemaTask(id="schema", output="schema.json"),
-    )
-    runtime.artifacts.register(
-        VECTOR_SCHEMA,
-        relative_path=schema.relative_path,
-    )
-
     vectors = build_vector_pipeline(
         context,
         dataset.features,

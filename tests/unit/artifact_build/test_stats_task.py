@@ -21,7 +21,7 @@ def _ts(day: int) -> datetime:
 def _metadata() -> VectorMetadata:
     return VectorMetadata.model_validate(
         {
-            "schema_version": 1,
+            "schema_version": 2,
             "features": [
                 {
                     "id": "speed",
@@ -30,8 +30,7 @@ def _metadata() -> VectorMetadata:
                     "present_count": 1,
                     "null_count": 0,
                     "element_types": ["float", "null"],
-                    "lengths": {"2": 1},
-                    "cadence": {"target": 2},
+                    "length": 2,
                     "observed_elements": 1,
                 }
             ],
@@ -80,9 +79,10 @@ class _Context:
 
 
 def _postprocess_plan(*nodes: PipelineNode) -> PostprocessPlan:
+    metadata = _metadata()
     return PostprocessPlan(
-        feature_ids=("speed",),
-        target_ids=("return",),
+        feature_entries=metadata.features,
+        target_entries=metadata.targets,
         nodes=nodes,
     )
 

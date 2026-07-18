@@ -9,7 +9,6 @@ from datapipeline.artifacts.specs import (
     SCALER_STATISTICS,
     VECTOR_INPUTS,
     VECTOR_METADATA,
-    VECTOR_SCHEMA,
 )
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig
@@ -17,8 +16,8 @@ from datapipeline.config.dataset.split import DatasetFold, TimeInterval, TimeSpl
 from datapipeline.config.streams import StreamsConfig
 from datapipeline.config.tasks import (
     ArtifactTask,
+    MetadataTask,
     ScalerTask,
-    SchemaTask,
     VectorInputsTask,
 )
 from datapipeline.services import config_inventory
@@ -421,11 +420,11 @@ def test_custom_artifact_change_does_not_change_core_artifact_hashes(
     )
 
     assert first.for_artifact("snapshot") != second.for_artifact("snapshot")
-    for key in (VECTOR_INPUTS, VECTOR_METADATA, VECTOR_SCHEMA):
+    for key in (VECTOR_INPUTS, VECTOR_METADATA):
         assert first.for_artifact(key) == second.for_artifact(key)
 
 
-def test_artifact_hashing_rejects_missing_schema_dependencies(tmp_path: Path) -> None:
+def test_artifact_hashing_rejects_missing_metadata_dependencies(tmp_path: Path) -> None:
     definition = load_pipeline(_write_pipeline(tmp_path))
 
     with pytest.raises(
@@ -436,7 +435,7 @@ def test_artifact_hashing_rejects_missing_schema_dependencies(tmp_path: Path) ->
             definition.project,
             definition.dataset,
             definition.streams,
-            (SchemaTask(),),
+            (MetadataTask(),),
         )
 
 
@@ -683,7 +682,7 @@ def test_core_artifact_hashes_track_only_referenced_source_closure(
         streams,
         definition.artifact_operations,
     )
-    for key in (VECTOR_INPUTS, VECTOR_METADATA, VECTOR_SCHEMA):
+    for key in (VECTOR_INPUTS, VECTOR_METADATA):
         assert after_used_change.for_artifact(key) != baseline.for_artifact(key)
 
 
@@ -779,3 +778,34 @@ def test_artifact_cache_version_changes_artifact_hash(
     )
 
     assert changed_artifact_hashes != definition.artifact_hashes
+
+
+def test_metadata_format_version_invalidates_only_metadata_and_dependents(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    definition = load_pipeline(_write_pipeline(tmp_path))
+    tasks = (VectorInputsTask(), MetadataTask())
+    current = calculate_artifact_hashes(
+        definition.project,
+        definition.dataset,
+        definition.streams,
+        tasks,
+    )
+
+    monkeypatch.setattr(
+        fingerprints,
+        "VECTOR_METADATA_VERSION",
+        fingerprints.VECTOR_METADATA_VERSION + 1,
+    )
+    changed = calculate_artifact_hashes(
+        definition.project,
+        definition.dataset,
+        definition.streams,
+        tasks,
+    )
+
+    assert changed.for_artifact(VECTOR_INPUTS) == current.for_artifact(VECTOR_INPUTS)
+    assert changed.for_artifact(VECTOR_METADATA) != current.for_artifact(
+        VECTOR_METADATA
+    )

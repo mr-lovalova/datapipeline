@@ -127,8 +127,8 @@ dataset
 ```
 
 Configuration can enable and parameterize selection and filtering, but cannot
-reorder phases or mutate vector values. Schema and vector metadata are loaded at
-the boundary where their validated contracts are needed.
+reorder phases or mutate vector values. Vector metadata is loaded once at the
+boundary where its validated contract is needed.
 
 ## Preview boundaries
 

@@ -11,7 +11,7 @@ import datapipeline.operations.artifacts.vector_inputs as vector_inputs_operatio
 from datapipeline.artifacts.models import SampleDomainEntry
 from datapipeline.artifacts.specs import (
     VECTOR_INPUTS,
-    VECTOR_SCHEMA,
+    VECTOR_METADATA,
 )
 from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
 from datapipeline.config.dataset.feature import FeatureRecordConfig, SequenceConfig
@@ -335,20 +335,29 @@ def _runtime_with_rows(
     return runtime
 
 
-def _register_price_schema(runtime: Runtime) -> None:
-    schema_path = runtime.artifacts_root / "schema.json"
-    schema_path.write_text(
+def _register_price_metadata(runtime: Runtime) -> None:
+    metadata_path = runtime.artifacts_root / "metadata.json"
+    metadata_path.write_text(
         json.dumps(
             {
                 "schema_version": 2,
-                "features": [{"id": "price", "kind": "scalar"}],
+                "counts": {"feature_vectors": 1, "target_vectors": 0},
+                "features": [
+                    {
+                        "id": "price",
+                        "base_id": "price",
+                        "kind": "scalar",
+                        "present_count": 1,
+                        "null_count": 0,
+                    }
+                ],
                 "targets": [],
             },
             indent=2,
         ),
         encoding="utf-8",
     )
-    runtime.artifacts.register(VECTOR_SCHEMA, "schema.json")
+    runtime.artifacts.register(VECTOR_METADATA, "metadata.json")
 
 
 def test_source_pipeline_carries_source_summary(tmp_path: Path) -> None:
@@ -560,7 +569,7 @@ def test_source_pipeline_runs_map_then_preprocess(
 
 def test_pipeline_builders_expose_structure(tmp_path: Path) -> None:
     runtime = _runtime_with_rows(tmp_path, [{"time": _ts(0), "value": 1.0}])
-    _register_price_schema(runtime)
+    _register_price_metadata(runtime)
     context = PipelineContext(runtime)
     cfg = FeatureRecordConfig(stream="stream", id="price", field="value")
 
@@ -817,9 +826,9 @@ def test_feature_pipeline_keeps_scaled_sequence_inputs_raw(
     assert sequence.values == [1.0, 11.0]
 
 
-def test_postprocess_rejects_targets_absent_from_schema(tmp_path: Path) -> None:
+def test_postprocess_rejects_targets_absent_from_metadata(tmp_path: Path) -> None:
     runtime = _runtime_with_rows(tmp_path, [])
-    _register_price_schema(runtime)
+    _register_price_metadata(runtime)
     samples = [
         Sample(key=(_ts(0),), features=Vector(values={"price": 1.0})),
         Sample(
@@ -839,7 +848,7 @@ def test_dataset_pipeline_matches_vector_and_postprocess_chain(tmp_path: Path) -
         {"time": _ts(1), "value": 2.0},
     ]
     runtime = _runtime_with_rows(tmp_path, rows)
-    _register_price_schema(runtime)
+    _register_price_metadata(runtime)
     ctx = PipelineContext(runtime)
     cfg = FeatureRecordConfig(stream="stream", id="price", field="value")
     register_vector_inputs(runtime, [cfg], "1h")
@@ -868,7 +877,7 @@ def test_rectangular_dataset_source_reuses_its_key_plan(
 ) -> None:
     runtime = _runtime_with_rows(tmp_path, [])
     runtime.window_bounds = (_ts(0, 10), _ts(2, 50))
-    _register_price_schema(runtime)
+    _register_price_metadata(runtime)
     context = PipelineContext(runtime)
     cfg = FeatureRecordConfig(stream="stream", id="price", field="value")
     feature_configs = [cfg]

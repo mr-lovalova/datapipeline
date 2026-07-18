@@ -13,7 +13,6 @@ from datapipeline.artifacts.specs import (
     SCALER_STATISTICS,
     VECTOR_INPUTS,
     VECTOR_METADATA,
-    VECTOR_SCHEMA,
     VECTOR_STATS,
     ArtifactDefinition,
     dataset_requires_scaler,
@@ -36,7 +35,6 @@ from datapipeline.config.tasks import (
     OperationTask,
     PipelineTask,
     ScalerTask,
-    SchemaTask,
     StatsTask,
     TicksTask,
     VectorInputsTask,
@@ -81,7 +79,7 @@ def test_artifact_graph_uses_dependency_order_not_declaration_order():
 def test_artifact_keys_match_task_ids():
     graph = build_artifact_graph(
         [
-            SchemaTask(id="schema"),
+            MetadataTask(id="metadata"),
             ScalerTask(id="scaler"),
             StatsTask(id="stats", stage="assembled"),
             VectorInputsTask(id="vector_inputs"),
@@ -89,17 +87,18 @@ def test_artifact_keys_match_task_ids():
     )
 
     assert graph.declared_artifact_keys() == {
-        VECTOR_SCHEMA,
+        VECTOR_METADATA,
         SCALER_STATISTICS,
         VECTOR_STATS,
         VECTOR_INPUTS,
     }
 
 
-def test_assembled_stats_build_selects_metadata_dependency_chain():
+@pytest.mark.parametrize("stage", ["assembled", "postprocessed"])
+def test_stats_build_selects_metadata_dependency_chain(stage):
     graph = build_artifact_graph(
         [
-            StatsTask(id="stats", stage="assembled"),
+            StatsTask(id="stats", stage=stage),
             MetadataTask(id="metadata"),
             VectorInputsTask(id="vector_inputs"),
             ScalerTask(id="scaler"),
@@ -111,27 +110,6 @@ def test_assembled_stats_build_selects_metadata_dependency_chain():
     assert keys == {
         VECTOR_STATS,
         VECTOR_METADATA,
-        VECTOR_INPUTS,
-    }
-
-
-def test_postprocessed_stats_build_also_selects_schema():
-    graph = build_artifact_graph(
-        [
-            StatsTask(id="stats", stage="postprocessed"),
-            MetadataTask(id="metadata"),
-            SchemaTask(id="schema"),
-            VectorInputsTask(id="vector_inputs"),
-            ScalerTask(id="scaler"),
-        ]
-    )
-
-    keys = set(graph.dependency_closure({"stats"}))
-
-    assert keys == {
-        VECTOR_STATS,
-        VECTOR_METADATA,
-        VECTOR_SCHEMA,
         VECTOR_INPUTS,
     }
 
@@ -197,7 +175,6 @@ def test_tick_artifacts_feed_scaler_and_vector_inputs() -> None:
     assert graph.dependents_of({"dataset_ticks"}) == {
         SCALER_STATISTICS,
         VECTOR_INPUTS,
-        VECTOR_SCHEMA,
         VECTOR_METADATA,
         VECTOR_STATS,
     }
@@ -618,13 +595,13 @@ def test_same_size_artifact_replacement_with_preserved_mtime_is_stale(tmp_path):
 @pytest.mark.parametrize(
     ("preview", "expected"),
     [
-        (None, {VECTOR_METADATA, VECTOR_SCHEMA}),
+        (None, {VECTOR_METADATA}),
         ("input", set()),
         ("canonical", set()),
         ("records", set()),
         ("features", set()),
         ("samples", {VECTOR_METADATA}),
-        ("postprocess", {VECTOR_METADATA, VECTOR_SCHEMA}),
+        ("postprocess", {VECTOR_METADATA}),
     ],
 )
 def test_pipeline_runtime_requirements_follow_preview_stage(
@@ -737,7 +714,7 @@ def test_runtime_dependency_closure_uses_stats_task_stage():
     ("stage", "expected"),
     [
         ("assembled", (VECTOR_INPUTS, VECTOR_METADATA)),
-        ("postprocessed", (VECTOR_INPUTS, VECTOR_METADATA, VECTOR_SCHEMA)),
+        ("postprocessed", (VECTOR_INPUTS, VECTOR_METADATA)),
     ],
 )
 def test_matrix_uses_vector_artifacts_without_stats(stage, expected) -> None:
@@ -745,7 +722,6 @@ def test_matrix_uses_vector_artifacts_without_stats(stage, expected) -> None:
         [
             VectorInputsTask(id="vector_inputs"),
             MetadataTask(id="metadata"),
-            SchemaTask(id="schema"),
         ]
     )
     task = MatrixTask(id="matrix", options={"stage": stage})
@@ -789,7 +765,6 @@ def test_scaled_dataset_runtime_requires_scaler_beside_vector_artifacts() -> Non
             ScalerTask(),
             VectorInputsTask(),
             MetadataTask(),
-            SchemaTask(),
         ]
     )
     dataset = FeatureDatasetConfig(
@@ -812,7 +787,6 @@ def test_scaled_dataset_runtime_requires_scaler_beside_vector_artifacts() -> Non
         SCALER_STATISTICS,
         VECTOR_INPUTS,
         VECTOR_METADATA,
-        VECTOR_SCHEMA,
     )
 
 
@@ -917,7 +891,6 @@ def test_runtime_task_rejects_inactive_declared_artifact_dependency():
 def test_artifact_definitions_have_runner_bound_entrypoints():
     declared = _declared_entrypoints(BUILD_OPERATIONS_EP)
     task_by_id = {
-        "schema": SchemaTask(id="schema"),
         "metadata": MetadataTask(id="metadata"),
         "scaler": ScalerTask(id="scaler"),
         "stats": StatsTask(id="stats", stage="postprocessed"),

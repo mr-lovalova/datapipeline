@@ -129,7 +129,7 @@ class MatrixBuilder:
 
 def _entry_width(entry: VectorMetadataEntry) -> int:
     if isinstance(entry, ListVectorMetadataEntry):
-        return entry.cadence.target
+        return entry.length
     return 1
 
 
@@ -146,11 +146,11 @@ def _cell(entry: VectorMetadataEntry, value: object) -> MatrixCell:
     if isinstance(entry, ListVectorMetadataEntry):
         if is_missing(value):
             null: Status = "null"
-            elements = (null,) * entry.cadence.target
+            elements = (null,) * entry.length
             return MatrixCell("null", elements)
         if not isinstance(value, list):
             raise ValueError(f"List vector {entry.id!r} contains a scalar value.")
-        expected = entry.cadence.target
+        expected = entry.length
         if len(value) != expected:
             raise ValueError(
                 f"List vector {entry.id!r} has length {len(value)}; expected {expected}."

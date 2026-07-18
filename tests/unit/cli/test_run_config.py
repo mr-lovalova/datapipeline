@@ -111,8 +111,8 @@ def test_serve_profile_rejects_artifact_operation(tmp_path: Path, caplog):
     project_yaml = _write_project(tmp_path)
     profiles = tmp_path / "profiles"
     profiles.mkdir(parents=True, exist_ok=True)
-    (profiles / "serve.schema.yaml").write_text(
-        "operation: schema\n",
+    (profiles / "serve.metadata.yaml").write_text(
+        "operation: metadata\n",
         encoding="utf-8",
     )
 
@@ -120,12 +120,12 @@ def test_serve_profile_rejects_artifact_operation(tmp_path: Path, caplog):
         build_runtime_run_request(
             command="serve",
             project=str(project_yaml),
-            profile_name="schema",
+            profile_name="metadata",
         )
 
     assert exc.value.code == 2
     assert (
-        "must reference a runtime operation; 'schema' is an artifact operation"
+        "must reference a runtime operation; 'metadata' is an artifact operation"
         in caplog.text
     )
 
@@ -440,14 +440,14 @@ def test_build_defaults_apply_to_build_profiles(tmp_path: Path):
         ),
         encoding="utf-8",
     )
-    (profiles / "build.schema.yaml").write_text(
-        "operation: schema\n",
+    (profiles / "build.metadata.yaml").write_text(
+        "operation: metadata\n",
         encoding="utf-8",
     )
 
     request = build_build_run_request(
         project=str(project_yaml),
-        profile_name="schema",
+        profile_name="metadata",
     )
     assert request is not None
     assert request.definition.artifact_hashes.values

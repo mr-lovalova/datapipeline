@@ -1068,8 +1068,8 @@ def test_build_profile_rejects_runtime_output_fields():
         BuildProfile.model_validate(
             {
                 "cmd": "build",
-                "name": "schema",
-                "operation": "schema",
+                "name": "metadata",
+                "operation": "metadata",
                 "output": {
                     "transport": "fs",
                     "format": "jsonl",

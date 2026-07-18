@@ -5,19 +5,16 @@ from datapipeline.artifacts.specs import (
     SCALER_STATISTICS,
     VECTOR_INPUTS,
     VECTOR_METADATA,
-    VECTOR_SCHEMA,
 )
 from datapipeline.config.dataset.postprocess import PostprocessConfig
 from datapipeline.config.tasks import (
     MetadataTask,
     ScalerTask,
-    SchemaTask,
     VectorInputsTask,
 )
 from datapipeline.execution.context import PipelineContext
 from datapipeline.operations.artifacts.metadata import materialize_metadata
 from datapipeline.operations.artifacts.scaler import materialize_scaler_statistics
-from datapipeline.operations.artifacts.schema import materialize_vector_schema
 from datapipeline.operations.artifacts.vector_inputs import materialize_vector_inputs
 from datapipeline.pipelines.dataset.nodes import apply_postprocess
 from datapipeline.pipelines.vector.pipeline import build_vector_pipeline
@@ -63,11 +60,6 @@ def test_column_selection_counts_absent_sequence_opportunities(copy_fixture):
         VECTOR_METADATA,
         relative_path=meta_rel.relative_path,
     )
-    schema_rel = materialize_vector_schema(
-        runtime,
-        SchemaTask(id="schema", output="schema.json"),
-    )
-    runtime.artifacts.register(VECTOR_SCHEMA, relative_path=schema_rel.relative_path)
     runtime.dataset = runtime.dataset.model_copy(
         update={
             "postprocess": PostprocessConfig.model_validate(

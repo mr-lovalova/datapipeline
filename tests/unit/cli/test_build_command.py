@@ -15,7 +15,6 @@ from datapipeline.artifacts.specs import (
     SCALER_STATISTICS,
     VECTOR_INPUTS,
     VECTOR_METADATA,
-    VECTOR_SCHEMA,
     VECTOR_STATS,
 )
 from datapipeline.build.state import (
@@ -31,7 +30,6 @@ from datapipeline.config.tasks import (
     ArtifactTask,
     MetadataTask,
     ScalerTask,
-    SchemaTask,
     StatsTask,
     VectorInputsTask,
 )
@@ -194,10 +192,10 @@ def test_report_artifact_plan_logs_current_roots(monkeypatch) -> None:
     build_exec._report_artifact_plan(
         build_exec.SkippedBuild(
             reason="up_to_date",
-            artifacts=(VECTOR_INPUTS, VECTOR_SCHEMA),
+            artifacts=(VECTOR_INPUTS, VECTOR_METADATA),
         ),
         mode="AUTO",
-        requested_artifacts={VECTOR_SCHEMA, VECTOR_METADATA},
+        requested_artifacts={VECTOR_METADATA},
     )
 
     assert len(captured) == 1
@@ -208,10 +206,10 @@ def test_report_artifact_plan_logs_current_roots(monkeypatch) -> None:
         "action": "skip",
         "reason": "up_to_date",
         "mode": "AUTO",
-        "requested": [VECTOR_METADATA, VECTOR_SCHEMA],
-        "required": [VECTOR_INPUTS, VECTOR_SCHEMA],
+        "requested": [VECTOR_METADATA],
+        "required": [VECTOR_INPUTS, VECTOR_METADATA],
         "jobs": [],
-        "current": [VECTOR_INPUTS, VECTOR_SCHEMA],
+        "current": [VECTOR_INPUTS, VECTOR_METADATA],
     }
 
 
@@ -247,7 +245,7 @@ def test_report_artifact_plan_logs_not_required(monkeypatch) -> None:
 
 
 def test_report_artifact_plan_keeps_run_details_at_debug(monkeypatch) -> None:
-    task = SchemaTask(id="schema")
+    task = MetadataTask(id="metadata")
     captured: list[tuple[str, int]] = []
     monkeypatch.setattr(
         build_exec,
@@ -260,17 +258,20 @@ def test_report_artifact_plan_keeps_run_details_at_debug(monkeypatch) -> None:
     build_exec._report_artifact_plan(
         build_exec.BuildPlan(
             reason="force",
-            artifacts=(VECTOR_INPUTS, VECTOR_SCHEMA),
-            jobs=(build_exec.ArtifactBuildJob(task, (VECTOR_SCHEMA,)),),
+            artifacts=(VECTOR_INPUTS, VECTOR_METADATA),
+            jobs=(build_exec.ArtifactBuildJob(task, (VECTOR_METADATA,)),),
             artifact_hashes=ArtifactHashes(
-                {VECTOR_INPUTS: "artifact-hash-1", VECTOR_SCHEMA: "artifact-hash-1"}
+                {
+                    VECTOR_INPUTS: "artifact-hash-1",
+                    VECTOR_METADATA: "artifact-hash-1",
+                }
             ),
             state_path=Path("state.json"),
             previous_state=None,
             graph=build_artifact_graph([task]),
         ),
         mode="FORCE",
-        requested_artifacts={VECTOR_SCHEMA},
+        requested_artifacts={VECTOR_METADATA},
     )
 
     assert len(captured) == 1
@@ -281,9 +282,9 @@ def test_report_artifact_plan_keeps_run_details_at_debug(monkeypatch) -> None:
         "action": "run",
         "reason": "force",
         "mode": "FORCE",
-        "requested": [VECTOR_SCHEMA],
-        "required": [VECTOR_INPUTS, VECTOR_SCHEMA],
-        "jobs": [VECTOR_SCHEMA],
+        "requested": [VECTOR_METADATA],
+        "required": [VECTOR_INPUTS, VECTOR_METADATA],
+        "jobs": [VECTOR_METADATA],
         "current": [VECTOR_INPUTS],
     }
 
@@ -327,27 +328,23 @@ def test_plan_builds_only_requested_generic_artifact(
     assert tuple(job.task.id for job in plan.jobs) == (task.id,)
 
 
-def test_plan_expands_schema_dependencies(tmp_path: Path) -> None:
+def test_plan_expands_metadata_dependencies(tmp_path: Path) -> None:
     definition = _definition(tmp_path, _dataset_with_feature(scale=False))
     vector_inputs = VectorInputsTask(id="vector_inputs")
     metadata = MetadataTask(id="metadata")
-    schema = SchemaTask(id="schema")
-    graph = build_artifact_graph(
-        [ScalerTask(id="scaler"), vector_inputs, metadata, schema]
-    )
+    graph = build_artifact_graph([ScalerTask(id="scaler"), vector_inputs, metadata])
     plan = build_exec._plan_build(
         definition=definition,
         graph=graph,
-        required_artifacts={VECTOR_SCHEMA},
+        required_artifacts={VECTOR_METADATA},
         mode="FORCE",
     )
 
     assert isinstance(plan, build_exec.BuildPlan)
-    assert plan.artifacts == (VECTOR_INPUTS, VECTOR_METADATA, VECTOR_SCHEMA)
+    assert plan.artifacts == (VECTOR_INPUTS, VECTOR_METADATA)
     assert tuple(job.task.id for job in plan.jobs) == (
         VECTOR_INPUTS,
         VECTOR_METADATA,
-        VECTOR_SCHEMA,
     )
 
 
@@ -355,8 +352,7 @@ def test_plan_skips_current_dependency(tmp_path: Path) -> None:
     definition = _definition(tmp_path, _dataset_with_feature(scale=False))
     vector_inputs = VectorInputsTask(id="vector_inputs")
     metadata = MetadataTask(id="metadata")
-    schema = SchemaTask(id="schema")
-    graph = build_artifact_graph([vector_inputs, metadata, schema])
+    graph = build_artifact_graph([vector_inputs, metadata])
     state = BuildState()
     _register_artifact(
         state,
@@ -369,15 +365,12 @@ def test_plan_skips_current_dependency(tmp_path: Path) -> None:
     plan = build_exec._plan_build(
         definition=definition,
         graph=graph,
-        required_artifacts={VECTOR_SCHEMA},
+        required_artifacts={VECTOR_METADATA},
         mode="AUTO",
     )
 
     assert isinstance(plan, build_exec.BuildPlan)
-    assert tuple(job.task.id for job in plan.jobs) == (
-        VECTOR_METADATA,
-        VECTOR_SCHEMA,
-    )
+    assert tuple(job.task.id for job in plan.jobs) == (VECTOR_METADATA,)
 
 
 def test_runtime_operation_change_keeps_artifact_plan_current(
@@ -468,7 +461,7 @@ def test_plan_rejects_missing_dependency_producer(
     tmp_path: Path,
 ) -> None:
     definition = _definition(tmp_path, _dataset_with_feature(scale=False))
-    graph = build_artifact_graph([SchemaTask(id="schema")])
+    graph = build_artifact_graph([MetadataTask(id="metadata")])
 
     with pytest.raises(
         ArtifactResolutionError,
@@ -477,7 +470,7 @@ def test_plan_rejects_missing_dependency_producer(
         build_exec._plan_build(
             definition=definition,
             graph=graph,
-            required_artifacts={VECTOR_SCHEMA},
+            required_artifacts={VECTOR_METADATA},
             mode="AUTO",
         )
 
@@ -503,8 +496,7 @@ def test_stale_dependency_rebuilds_current_dependent(
     definition = _definition(tmp_path, _dataset_with_feature(scale=False))
     vector_inputs = VectorInputsTask(id="vector_inputs")
     metadata = MetadataTask(id="metadata")
-    schema = SchemaTask(id="schema")
-    graph = build_artifact_graph([vector_inputs, metadata, schema])
+    graph = build_artifact_graph([vector_inputs, metadata])
     state = BuildState()
     _register_artifact(
         state,
@@ -515,15 +507,15 @@ def test_stale_dependency_rebuilds_current_dependent(
     _register_artifact(
         state,
         definition.project.artifacts_root,
-        schema,
-        definition.artifact_hashes.for_artifact(schema.id),
+        metadata,
+        definition.artifact_hashes.for_artifact(metadata.id),
     )
     save_build_state(state, _build_state_path(definition))
 
     plan = build_exec._plan_build(
         definition=definition,
         graph=graph,
-        required_artifacts={VECTOR_SCHEMA},
+        required_artifacts={VECTOR_METADATA},
         mode="AUTO",
     )
 
@@ -531,12 +523,10 @@ def test_stale_dependency_rebuilds_current_dependent(
     assert tuple(job.task.id for job in plan.jobs) == (
         VECTOR_INPUTS,
         VECTOR_METADATA,
-        VECTOR_SCHEMA,
     )
     assert plan.jobs[0].invalidated_artifacts == (
         VECTOR_INPUTS,
         VECTOR_METADATA,
-        VECTOR_SCHEMA,
         VECTOR_STATS,
     )
 
@@ -570,17 +560,17 @@ def test_execute_build_jobs_persists_completed_job_before_failure(
     tmp_path: Path,
 ) -> None:
     vector_inputs = VectorInputsTask(id="vector_inputs")
-    schema = SchemaTask(id="schema")
-    graph = build_artifact_graph([vector_inputs, schema])
+    metadata = MetadataTask(id="metadata")
+    graph = build_artifact_graph([vector_inputs, metadata])
     state_path = tmp_path / "artifacts/_system/build/state.json"
     previous_state = BuildState()
     previous_state.register(
-        VECTOR_SCHEMA,
-        schema.output,
+        VECTOR_METADATA,
+        metadata.output,
         artifact_hash="artifact-hash-1",
         files=(
             ArtifactFileFingerprint(
-                relative_path=schema.output,
+                relative_path=metadata.output,
                 size=0,
                 mtime_ns=0,
                 ctime_ns=0,
@@ -590,8 +580,8 @@ def test_execute_build_jobs_persists_completed_job_before_failure(
     save_build_state(previous_state, state_path)
 
     def build(runtime, task):
-        if task.id == VECTOR_SCHEMA:
-            raise RuntimeError("schema failed")
+        if task.id == VECTOR_METADATA:
+            raise RuntimeError("metadata failed")
         return _build_artifact(runtime, task)
 
     outputs: list[tuple[str, Path]] = []
@@ -603,16 +593,19 @@ def test_execute_build_jobs_persists_completed_job_before_failure(
     )
     plan = build_exec.BuildPlan(
         reason="stale",
-        artifacts=(VECTOR_INPUTS, VECTOR_SCHEMA),
+        artifacts=(VECTOR_INPUTS, VECTOR_METADATA),
         jobs=(
             build_exec.ArtifactBuildJob(
                 vector_inputs,
-                (VECTOR_INPUTS, VECTOR_SCHEMA),
+                (VECTOR_INPUTS, VECTOR_METADATA),
             ),
-            build_exec.ArtifactBuildJob(schema, (VECTOR_SCHEMA,)),
+            build_exec.ArtifactBuildJob(metadata, (VECTOR_METADATA,)),
         ),
         artifact_hashes=ArtifactHashes(
-            {VECTOR_INPUTS: "artifact-hash-1", VECTOR_SCHEMA: "artifact-hash-1"}
+            {
+                VECTOR_INPUTS: "artifact-hash-1",
+                VECTOR_METADATA: "artifact-hash-1",
+            }
         ),
         state_path=state_path,
         previous_state=previous_state,
@@ -620,7 +613,7 @@ def test_execute_build_jobs_persists_completed_job_before_failure(
     )
 
     runtime = _runtime(tmp_path / "artifacts")
-    with pytest.raises(RuntimeError, match="schema failed"):
+    with pytest.raises(RuntimeError, match="metadata failed"):
         build_exec._execute_build_jobs(
             runtime=runtime,
             plan=plan,
@@ -643,17 +636,17 @@ def test_execute_build_failure_preserves_previous_persisted_state(
     tmp_path: Path,
 ) -> None:
     vector_inputs = VectorInputsTask(id="vector_inputs")
-    schema = SchemaTask(id="schema")
-    graph = build_artifact_graph([vector_inputs, schema])
+    metadata = MetadataTask(id="metadata")
+    graph = build_artifact_graph([vector_inputs, metadata])
     state_path = tmp_path / "artifacts/_system/build/state.json"
     previous_state = BuildState()
     previous_state.register(
-        VECTOR_SCHEMA,
-        schema.output,
+        VECTOR_METADATA,
+        metadata.output,
         artifact_hash="artifact-hash-1",
         files=(
             ArtifactFileFingerprint(
-                relative_path=schema.output,
+                relative_path=metadata.output,
                 size=0,
                 mtime_ns=0,
                 ctime_ns=0,
@@ -668,15 +661,18 @@ def test_execute_build_failure_preserves_previous_persisted_state(
     _patch_artifact_build(monkeypatch, fail_build)
     plan = build_exec.BuildPlan(
         reason="stale",
-        artifacts=(VECTOR_INPUTS, VECTOR_SCHEMA),
+        artifacts=(VECTOR_INPUTS, VECTOR_METADATA),
         jobs=(
             build_exec.ArtifactBuildJob(
                 vector_inputs,
-                (VECTOR_INPUTS, VECTOR_SCHEMA),
+                (VECTOR_INPUTS, VECTOR_METADATA),
             ),
         ),
         artifact_hashes=ArtifactHashes(
-            {VECTOR_INPUTS: "artifact-hash-1", VECTOR_SCHEMA: "artifact-hash-1"}
+            {
+                VECTOR_INPUTS: "artifact-hash-1",
+                VECTOR_METADATA: "artifact-hash-1",
+            }
         ),
         state_path=state_path,
         previous_state=previous_state,
@@ -692,13 +688,13 @@ def test_execute_build_failure_preserves_previous_persisted_state(
 
     persisted = load_build_state(state_path)
     assert persisted is not None
-    assert list(persisted.artifacts) == [VECTOR_SCHEMA]
+    assert list(persisted.artifacts) == [VECTOR_METADATA]
 
 
 @pytest.mark.parametrize(
     "task",
     [
-        SchemaTask(output="linked/schema.json"),
+        MetadataTask(output="linked/metadata.json"),
         ArtifactTask(
             id="snapshot",
             entrypoint="plugin.snapshot",
@@ -813,11 +809,11 @@ def test_execute_build_job_invalidates_only_graph_descendants(
         entrypoint="plugin.snapshot",
         output="build/custom.json",
     )
+    vector_inputs = VectorInputsTask(id="vector_inputs")
     graph = build_artifact_graph(
         [
             scaler,
-            VectorInputsTask(id="vector_inputs"),
-            SchemaTask(id="schema"),
+            vector_inputs,
             MetadataTask(id="metadata"),
             StatsTask(id="stats", stage="postprocessed"),
             custom,
@@ -841,14 +837,12 @@ def test_execute_build_job_invalidates_only_graph_descendants(
     _patch_artifact_build(monkeypatch, _build_artifact)
     plan = build_exec.BuildPlan(
         reason="force",
-        artifacts=(SCALER_STATISTICS,),
+        artifacts=(VECTOR_INPUTS,),
         jobs=(
             build_exec.ArtifactBuildJob(
-                scaler,
+                vector_inputs,
                 (
-                    SCALER_STATISTICS,
                     VECTOR_INPUTS,
-                    VECTOR_SCHEMA,
                     VECTOR_METADATA,
                     VECTOR_STATS,
                 ),
@@ -868,15 +862,15 @@ def test_execute_build_job_invalidates_only_graph_descendants(
         settings=_build_settings("FORCE"),
     )
 
-    assert set(state.artifacts) == {SCALER_STATISTICS, custom.id}
-    assert runtime.artifacts.has(SCALER_STATISTICS)
-    assert not runtime.artifacts.has(VECTOR_INPUTS)
+    assert set(state.artifacts) == {SCALER_STATISTICS, VECTOR_INPUTS, custom.id}
+    assert runtime.artifacts.has(VECTOR_INPUTS)
+    assert not runtime.artifacts.has(VECTOR_METADATA)
     assert len(messages) == 1
     message, level = messages[0]
     assert level == logging.DEBUG
     assert message.startswith("Config:\n")
     config = json.loads(message[8:])
-    assert config["operation"]["entrypoint"] == "core.artifact.scaler"
+    assert config["operation"]["entrypoint"] == "core.artifact.vector_inputs"
     assert config["mode"] == "FORCE"
     assert config["execution"] == {"sort_buffer_mb": 128}
     assert config["observability"]["visuals"] == "on"
@@ -927,9 +921,9 @@ def test_force_build_preserves_artifacts_resolved_by_previous_profile(
 ) -> None:
     definition = _definition(tmp_path, _dataset_with_feature(scale=False))
     vector_inputs = VectorInputsTask(id="vector_inputs")
-    schema = SchemaTask(id="schema")
     metadata = MetadataTask(id="metadata")
-    graph = build_artifact_graph([vector_inputs, schema, metadata])
+    stats = StatsTask(id="stats", stage="postprocessed")
+    graph = build_artifact_graph([vector_inputs, metadata, stats])
     state = BuildState()
     for task in (vector_inputs, metadata):
         _register_artifact(
@@ -960,14 +954,14 @@ def test_force_build_preserves_artifacts_resolved_by_previous_profile(
     assert build_exec.run_build_if_needed(
         definition,
         graph=graph,
-        required_artifacts={VECTOR_SCHEMA},
+        required_artifacts={VECTOR_STATS},
         settings=_build_settings("FORCE"),
         runtime=runtime,
         resolved_artifacts=resolved,
     )
 
-    assert built == [VECTOR_SCHEMA]
-    assert resolved == {VECTOR_INPUTS, VECTOR_SCHEMA, VECTOR_METADATA}
+    assert built == [VECTOR_STATS]
+    assert resolved == {VECTOR_INPUTS, VECTOR_METADATA, VECTOR_STATS}
 
 
 def test_run_build_keeps_loaded_definition_when_config_changes(

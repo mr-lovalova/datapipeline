@@ -7,7 +7,7 @@ from datapipeline.artifacts.models import (
     ListVectorMetadataEntry,
     SampleMetadata,
     ScalarVectorMetadataEntry,
-    VectorSchemaArtifact,
+    VectorMetadata,
     Window,
 )
 
@@ -58,8 +58,9 @@ def test_vector_metadata_rejects_invalid_observation_bounds(first, last) -> None
         )
 
 
-def test_list_metadata_lengths_must_match_fixed_cadence() -> None:
-    with pytest.raises(ValidationError, match="list lengths"):
+@pytest.mark.parametrize("length", [0, -1, True, 2.0, "2"])
+def test_list_metadata_requires_a_positive_integer_length(length: object) -> None:
+    with pytest.raises(ValidationError, match="length"):
         ListVectorMetadataEntry.model_validate(
             {
                 "id": "history",
@@ -69,9 +70,23 @@ def test_list_metadata_lengths_must_match_fixed_cadence() -> None:
                 "null_count": 0,
                 "first_observed": _time(1),
                 "last_observed": _time(2),
-                "lengths": {"3": 1},
-                "cadence": {"target": 3},
+                "length": length,
                 "observed_elements": 3,
+            }
+        )
+
+
+def test_list_metadata_rejects_observed_elements_above_capacity() -> None:
+    with pytest.raises(ValidationError, match="sequence capacity"):
+        ListVectorMetadataEntry.model_validate(
+            {
+                "id": "history",
+                "base_id": "history",
+                "kind": "list",
+                "present_count": 3,
+                "null_count": 1,
+                "length": 2,
+                "observed_elements": 5,
             }
         )
 
@@ -94,12 +109,46 @@ def test_sample_metadata_rejects_unstable_identity_values(domain) -> None:
         )
 
 
-def test_schema_ids_share_one_feature_and_target_namespace() -> None:
+def _metadata_payload() -> dict[str, object]:
+    return {
+        "schema_version": 2,
+        "features": [],
+        "targets": [],
+        "counts": {"feature_vectors": 1, "target_vectors": 1},
+    }
+
+
+@pytest.mark.parametrize("version", [1, 3, "2"])
+def test_vector_metadata_rejects_unsupported_schema_versions(version: object) -> None:
+    with pytest.raises(ValidationError, match="schema_version"):
+        VectorMetadata.model_validate(
+            {**_metadata_payload(), "schema_version": version}
+        )
+
+
+def test_metadata_ids_share_one_feature_and_target_namespace() -> None:
     with pytest.raises(ValidationError, match="across features and targets"):
-        VectorSchemaArtifact.model_validate(
+        VectorMetadata.model_validate(
             {
+                **_metadata_payload(),
                 "schema_version": 2,
-                "features": [{"id": "price", "kind": "scalar"}],
-                "targets": [{"id": "price", "kind": "scalar"}],
+                "features": [
+                    {
+                        "id": "price",
+                        "base_id": "price",
+                        "kind": "scalar",
+                        "present_count": 1,
+                        "null_count": 0,
+                    }
+                ],
+                "targets": [
+                    {
+                        "id": "price",
+                        "base_id": "return",
+                        "kind": "scalar",
+                        "present_count": 1,
+                        "null_count": 0,
+                    }
+                ],
             }
         )

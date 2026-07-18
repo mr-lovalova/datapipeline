@@ -4,7 +4,7 @@ Core artifact operations are registered by Jerry and use these default outputs.
 Projects declare YAML only for overrides and custom operations:
 
 An artifact's registry key is its operation ID (`scaler`, `vector_inputs`,
-`schema`, `metadata`, or `stats`). Custom operation IDs come from their YAML
+`metadata`, or `stats`). Custom operation IDs come from their YAML
 filenames, such as `operations/model_grid.yaml`.
 
 - `build/vector_inputs/manifest.json` plus compressed feature/target shards under
@@ -19,20 +19,18 @@ filenames, such as `operations/model_grid.yaml`.
 - `build/scaler.json`: managed scaler statistics. Unsplit datasets store one
   standard scaler; split datasets store one scaler fitted from each fold's
   training labels.
-- `build/schema.json`: discovered feature/target identifiers, value shapes, and
-  cadence hints used during postprocess.
-- `build/metadata.json`: counts, sample domain, and resolved dataset window.
+- `build/metadata.json`: the typed feature/target contract used during
+  postprocess, including identifiers, scalar/list kinds, fixed list lengths,
+  coverage counts, value types, sample domain, and resolved dataset window.
 - `build/stats.json`: bounded assembled or postprocessed availability counters
   used by coverage inspection. It never stores per-sample status maps.
 - Tick operation outputs: named timestamp grids used by `ensure_ticks`
   transforms. Their output paths are operation-defined.
 
 The dependency graph is explicit: tick artifacts referenced by configured
-dataset streams feed scaler/vector inputs;
-vector inputs feed metadata; schema is derived from metadata without rescanning
-the vectors; stats depend on metadata and, in postprocessed stage, schema.
-Matrix inspection reads vector inputs directly and enforces a configured cell
-bound instead of expanding the stats artifact. Nested tick
+dataset streams feed scaler/vector inputs; vector inputs feed metadata; stats
+depend on metadata. Matrix inspection reads vector inputs directly and enforces
+a configured cell bound instead of expanding the stats artifact. Nested tick
 artifacts are rejected because that dependency is not yet representable safely.
 
 Coverage treats null values as uncovered. Base and scalar-column coverage is

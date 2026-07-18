@@ -85,7 +85,7 @@ class VectorStatsAccumulator:
                         present_samples=counts.present_samples,
                         non_null_samples=counts.non_null_samples,
                         kind="list",
-                        length=entry.cadence.target,
+                        length=entry.length,
                         observed_elements=counts.observed_elements,
                     )
                 )
@@ -110,7 +110,7 @@ def _observed_list_elements(
         return 0
     if not isinstance(value, list):
         raise ValueError(f"List vector {entry.id!r} contains a scalar value.")
-    expected = entry.cadence.target
+    expected = entry.length
     if len(value) != expected:
         raise ValueError(
             f"List vector {entry.id!r} has length {len(value)}; expected {expected}."

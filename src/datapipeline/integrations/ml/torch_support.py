@@ -43,7 +43,7 @@ def torch_dataset(
         ) from exc
 
     adapter = VectorAdapter.from_project(project_yaml, output_id=output_id)
-    schema_feature_columns, schema_target_columns = adapter.row_columns(
+    default_feature_columns, default_target_columns = adapter.row_columns(
         flatten_sequences
     )
     rows = list(
@@ -53,10 +53,10 @@ def torch_dataset(
             flatten_sequences=flatten_sequences,
         )
     )
-    if feature_columns is None and schema_feature_columns:
-        feature_columns = schema_feature_columns
+    if feature_columns is None and default_feature_columns:
+        feature_columns = default_feature_columns
     if target_columns is None:
-        target_columns = schema_target_columns or [
+        target_columns = default_target_columns or [
             cfg.id for cfg in getattr(adapter.dataset, "targets", []) or []
         ]
 

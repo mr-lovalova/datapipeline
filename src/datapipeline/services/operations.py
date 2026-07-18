@@ -8,7 +8,6 @@ from datapipeline.config.tasks import (
     OperationTask,
     PipelineTask,
     ScalerTask,
-    SchemaTask,
     StatsTask,
     Task,
     TicksTask,
@@ -26,7 +25,6 @@ CORE_OPERATION_MODELS: dict[str, type[Task]] = {
     "scaler": ScalerTask,
     "vector_inputs": VectorInputsTask,
     "metadata": MetadataTask,
-    "schema": SchemaTask,
     "stats": StatsTask,
     "dataset": PipelineTask,
     "coverage": CoverageTask,
@@ -41,7 +39,6 @@ CORE_ARTIFACT_IDS_BY_ENTRYPOINT = {
     "core.artifact.scaler": "scaler",
     "core.artifact.vector_inputs": "vector_inputs",
     "core.artifact.metadata": "metadata",
-    "core.artifact.schema": "schema",
     "core.artifact.stats": "stats",
 }
 

@@ -12,7 +12,7 @@ from datapipeline.artifacts.settings import BuildSettings
 from datapipeline.artifacts.specs import (
     VECTOR_INPUTS,
     VECTOR_METADATA,
-    VECTOR_SCHEMA,
+    VECTOR_STATS,
 )
 from datapipeline.build.state import (
     ArtifactFileFingerprint,
@@ -31,7 +31,7 @@ from datapipeline.config.tasks import (
     MetadataTask,
     OperationTask,
     PipelineTask,
-    SchemaTask,
+    StatsTask,
     TicksTask,
     VectorInputsTask,
 )
@@ -362,15 +362,15 @@ def test_run_profiles_preserves_process_control_exceptions(
 
 def test_build_order_accepts_configured_dependency_order() -> None:
     vector_inputs = VectorInputsTask(id="vector_inputs")
-    schema = SchemaTask(id="schema")
     metadata = MetadataTask(id="metadata")
-    graph = build_artifact_graph([vector_inputs, schema, metadata])
+    stats = StatsTask(id="stats", stage="postprocessed")
+    graph = build_artifact_graph([vector_inputs, metadata, stats])
 
     _validate_build_order(
         [
             BuildJob(vector_inputs, _artifact_settings()),
             BuildJob(metadata, _artifact_settings()),
-            BuildJob(schema, _artifact_settings()),
+            BuildJob(stats, _artifact_settings()),
         ],
         graph,
     )
@@ -379,13 +379,12 @@ def test_build_order_accepts_configured_dependency_order() -> None:
 def test_build_order_rejects_dependency_after_dependent() -> None:
     vector_inputs = VectorInputsTask(id="vector_inputs")
     metadata = MetadataTask(id="metadata")
-    schema = SchemaTask(id="schema")
-    graph = build_artifact_graph([vector_inputs, metadata, schema])
+    graph = build_artifact_graph([vector_inputs, metadata])
 
-    with pytest.raises(ValueError, match="vector_inputs.*before.*schema"):
+    with pytest.raises(ValueError, match="vector_inputs.*before.*metadata"):
         _validate_build_order(
             [
-                BuildJob(schema, _artifact_settings()),
+                BuildJob(metadata, _artifact_settings()),
                 BuildJob(vector_inputs, _artifact_settings()),
             ],
             graph,
@@ -393,15 +392,15 @@ def test_build_order_rejects_dependency_after_dependent() -> None:
 
 
 def test_build_order_rejects_duplicate_operations() -> None:
-    schema = SchemaTask(id="schema")
+    metadata = MetadataTask(id="metadata")
 
     with pytest.raises(ValueError, match="unique artifact operations"):
         _validate_build_order(
             [
-                BuildJob(schema, _artifact_settings()),
-                BuildJob(schema, _artifact_settings()),
+                BuildJob(metadata, _artifact_settings()),
+                BuildJob(metadata, _artifact_settings()),
             ],
-            build_artifact_graph([schema]),
+            build_artifact_graph([metadata]),
         )
 
 
@@ -411,24 +410,24 @@ def test_build_jobs_keep_order_and_share_resolved_artifacts(
 ) -> None:
     vector_inputs = VectorInputsTask(id="vector_inputs")
     metadata = MetadataTask(id="metadata")
-    schema = SchemaTask(id="schema")
+    stats = StatsTask(id="stats", stage="postprocessed")
     vector_runtime = _runtime(tmp_path, "vector-runtime")
     metadata_runtime = _runtime(tmp_path, "metadata-runtime")
-    schema_runtime = _runtime(tmp_path, "schema-runtime")
+    stats_runtime = _runtime(tmp_path, "stats-runtime")
     execution = ExecutionConfig(sort_buffer_mb=32)
     request = _build_request(
         tmp_path,
-        [vector_inputs, metadata, schema],
+        [vector_inputs, metadata, stats],
         [
             BuildJob(vector_inputs, _artifact_settings()),
             BuildJob(metadata, _artifact_settings()),
-            BuildJob(schema, _artifact_settings("FORCE")),
+            BuildJob(stats, _artifact_settings("FORCE")),
         ],
         execution,
     )
     calls: list[dict[str, object]] = []
     execution_specs: list[ExecutionSpec] = []
-    runtimes = iter((vector_runtime, metadata_runtime, schema_runtime))
+    runtimes = iter((vector_runtime, metadata_runtime, stats_runtime))
 
     def build(_project, **kwargs):
         calls.append(dict(kwargs))
@@ -456,28 +455,28 @@ def test_build_jobs_keep_order_and_share_resolved_artifacts(
     assert [call["required_artifacts"] for call in calls] == [
         {VECTOR_INPUTS},
         {VECTOR_METADATA},
-        {VECTOR_SCHEMA},
+        {VECTOR_STATS},
     ]
     assert [call["runtime"].marker for call in calls] == [
         "vector-runtime",
         "metadata-runtime",
-        "schema-runtime",
+        "stats-runtime",
     ]
     assert [call["settings"].mode for call in calls] == ["AUTO", "AUTO", "FORCE"]
     assert calls[0]["resolved_artifacts"] is calls[2]["resolved_artifacts"]
     assert calls[2]["resolved_artifacts"] == {
         VECTOR_INPUTS,
         VECTOR_METADATA,
-        VECTOR_SCHEMA,
+        VECTOR_STATS,
     }
     assert [spec.runtime for spec in execution_specs] == [
         vector_runtime,
         metadata_runtime,
-        schema_runtime,
+        stats_runtime,
     ]
     assert vector_runtime.execution == execution
     assert metadata_runtime.execution == execution
-    assert schema_runtime.execution == execution
+    assert stats_runtime.execution == execution
 
 
 def test_runtime_artifact_union_is_prepared_once_before_jobs(
@@ -485,7 +484,6 @@ def test_runtime_artifact_union_is_prepared_once_before_jobs(
     tmp_path: Path,
 ) -> None:
     vector_inputs = VectorInputsTask(id="vector_inputs")
-    schema = SchemaTask(id="schema")
     metadata = MetadataTask(id="metadata")
     pipeline = PipelineTask(id="dataset")
     first_runtime = _runtime(tmp_path, "first-job")
@@ -496,13 +494,13 @@ def test_runtime_artifact_union_is_prepared_once_before_jobs(
     request = _runtime_request(
         tmp_path,
         command="serve",
-        artifact_tasks=[vector_inputs, schema, metadata],
+        artifact_tasks=[vector_inputs, metadata],
         jobs=[
             _runtime_job(
-                "samples-preview",
+                "records-preview",
                 pipeline,
                 first_runtime,
-                preview="samples",
+                preview="records",
             ),
             _runtime_job(
                 "postprocess-preview",
@@ -569,7 +567,6 @@ def test_runtime_artifact_union_is_prepared_once_before_jobs(
     assert len(build_calls) == 1
     assert build_calls[0]["required_artifacts"] == {
         VECTOR_INPUTS,
-        VECTOR_SCHEMA,
         VECTOR_METADATA,
     }
     assert build_calls[0]["settings"] is artifact_settings
@@ -629,7 +626,7 @@ def test_custom_runtime_missing_required_producer_is_rejected_before_execution(
     report = OperationTask(
         id="report",
         entrypoint="plugin.runtime.report",
-        requires=("schema",),
+        requires=("custom_snapshot",),
     )
     request = _runtime_request(
         tmp_path,
@@ -644,13 +641,12 @@ def test_custom_runtime_missing_required_producer_is_rejected_before_execution(
 def test_missing_runtime_artifact_producer_is_rejected_before_execution(
     tmp_path: Path,
 ) -> None:
-    schema = SchemaTask(id="schema")
     metadata = MetadataTask(id="metadata")
     pipeline = PipelineTask(id="dataset")
     request = _runtime_request(
         tmp_path,
         command="serve",
-        artifact_tasks=[schema, metadata],
+        artifact_tasks=[metadata],
         jobs=[_runtime_job("serve", pipeline, _runtime(tmp_path))],
     )
 
@@ -707,7 +703,6 @@ def test_runtime_jobs_keep_order_and_apply_execution_settings(
         artifact_tasks=[
             VectorInputsTask(id="vector_inputs"),
             MetadataTask(id="metadata"),
-            SchemaTask(id="schema"),
         ],
         jobs=jobs,
         execution=execution,
@@ -832,14 +827,14 @@ def test_runtime_job_reports_unavailable_artifacts(monkeypatch, tmp_path: Path) 
     with pytest.raises(
         ArtifactResolutionError,
         match=(
-            "Runtime operation 'report' requires missing or stale artifacts: schema"
+            "Runtime operation 'report' requires missing or stale artifacts: snapshot"
         ),
     ):
         execute_runtime_job(
             "inspect",
             pipeline_definition(tmp_path / "project.yaml"),
             build_artifact_graph([]),
-            RuntimeJobPlan(job, ("schema",)),
+            RuntimeJobPlan(job, ("snapshot",)),
         )
 
 

@@ -90,7 +90,6 @@ identity = "datapipeline.parsers.identity:IdentityParser"
 
 [project.entry-points."datapipeline.operations.build"]
 "core.artifact.vector_inputs" = "datapipeline.operations.artifacts.vector_inputs:materialize_vector_inputs"
-"core.artifact.schema" = "datapipeline.operations.artifacts.schema:materialize_vector_schema"
 "core.artifact.metadata" = "datapipeline.operations.artifacts.metadata:materialize_metadata"
 "core.artifact.scaler" = "datapipeline.operations.artifacts.scaler:materialize_scaler_statistics"
 "core.artifact.stats" = "datapipeline.operations.artifacts.stats:materialize_vector_stats"
@@ -109,7 +108,7 @@ only_mutate = [
   "src/datapipeline/pipelines/feature/projector.py",
   "src/datapipeline/pipelines/sort.py",
   "src/datapipeline/pipelines/vector/keygen.py",
-  "src/datapipeline/transforms/vector/ensure_schema.py",
+  "src/datapipeline/transforms/vector/normalize.py",
   "src/datapipeline/transforms/vector/scaler.py",
 ]
 pytest_add_cli_args = ["-q", "-W", "error"]

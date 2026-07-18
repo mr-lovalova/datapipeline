@@ -25,7 +25,7 @@ The pipeline has one fixed order:
 
 1. assemble feature and target vectors;
 2. select feature and target columns;
-3. normalize vectors against the retained typed schema;
+3. normalize vectors against the retained typed metadata contract;
 4. filter sample rows by feature coverage, then target coverage.
 
 Feature and target policies are separate. Row filtering is also separate from
@@ -35,7 +35,7 @@ column selection:
   rows by the coverage of selected cells.
 - `SelectFeaturesTransform` and `SelectTargetsTransform` remove columns using
   precomputed `ColumnCoverage` entries. The resulting `retained_ids` is the
-  effective schema for downstream validation.
+  effective column contract for downstream validation.
 
 Selection and sample filters accept an optional `ids` subset and default to
 every retained ID. Empty, duplicate, or unknown IDs are errors.
@@ -56,10 +56,10 @@ buckets where the list happened to appear. The pipeline uses the feature or
 target vector count from `build/metadata.json`, matching the population used to
 collect `present_count`, `null_count`, and `observed_elements`.
 
-## Schema normalization
+## Typed normalization
 
 `NormalizeFeaturesTransform` and `NormalizeTargetsTransform` receive typed
-`VectorSchemaEntry` objects directly. They fill wholly absent schema entries,
-order values by the schema, and reject unexpected IDs, invalid numeric values,
-and incorrect list lengths. They do not truncate values, silently discard extra
-columns, or mutate the pipeline context.
+`VectorMetadataEntry` objects directly. They fill wholly absent metadata
+entries, order values by the metadata contract, and reject unexpected IDs,
+invalid numeric values, and incorrect list lengths. They do not truncate
+values, silently discard extra columns, or mutate the pipeline context.
