@@ -34,6 +34,7 @@ missing from that contract.
 | Alignment | Sparse aligned inputs only derive values at matching keys |
 | Broadcast | Exact global records are reused across partitions and persisted with stable identity |
 | Bivariate rolling | Strict slopes preserve partition state, missing resets, and numerical stability |
+| Forward windows | Future-only sums exclude the current row and preserve strict terminal nulls |
 | Sequencing | Fixed windows, stride, missing elements, and column order are golden |
 | Scaling | Standard and folded feature/target statistics and values are golden |
 | Leakage | Changing validation/test values cannot change fitted train statistics |

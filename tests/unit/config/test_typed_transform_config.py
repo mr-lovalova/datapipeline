@@ -10,6 +10,7 @@ from datapipeline.config.transforms import (
     EnsureTicksConfig,
     FillConfig,
     ForwardFillConfig,
+    ForwardSumConfig,
     RollingConfig,
     RollingSlopeConfig,
     ShiftTimeConfig,
@@ -117,6 +118,18 @@ def test_streams_parse_builtins_into_typed_configs() -> None:
             "min_samples": 10,
         },
         {
+            "operation": "forward_sum",
+            "field": "return",
+            "window": 21,
+        },
+        {
+            "operation": "forward_sum",
+            "field": "return",
+            "window": 21,
+            "to": "future_return",
+            "min_samples": 1,
+        },
+        {
             "operation": "fill",
             "field": "close",
             "window": 5,
@@ -161,6 +174,37 @@ def test_stream_parses_strict_rolling_slope_config() -> None:
             to="beta",
         )
     ]
+
+
+def test_stream_parses_strict_forward_sum_config() -> None:
+    stream = _stream(
+        transforms=[
+            {
+                "operation": "forward_sum",
+                "field": "return",
+                "window": 21,
+                "to": "future_return_21",
+            }
+        ]
+    )
+
+    assert stream.transforms == [
+        ForwardSumConfig(
+            field="return",
+            window=21,
+            to="future_return_21",
+        )
+    ]
+
+
+@pytest.mark.parametrize("window", [0, True, 1.5])
+def test_forward_sum_requires_a_positive_integer_window(window: object) -> None:
+    with pytest.raises(ValidationError, match="window"):
+        ForwardSumConfig(
+            field="return",
+            window=window,
+            to="future_return",
+        )
 
 
 @pytest.mark.parametrize("window", [1, True, 2.5])

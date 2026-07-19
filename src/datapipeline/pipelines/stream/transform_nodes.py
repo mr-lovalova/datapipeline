@@ -16,6 +16,7 @@ from datapipeline.config.transforms import (
     FillConfig,
     FloorTimeConfig,
     ForwardFillConfig,
+    ForwardSumConfig,
     LagConfig,
     LeadConfig,
     PreprocessConfig,
@@ -37,6 +38,7 @@ from datapipeline.transforms.stream.fill import (
     ForwardFillTransform,
     StatisticalFillTransform,
 )
+from datapipeline.transforms.stream.forward_sum import ForwardSumTransform
 from datapipeline.transforms.stream.collapse import CollapseTransform
 from datapipeline.transforms.stream.lag import LagTransform
 from datapipeline.transforms.stream.lead import LeadTransform
@@ -118,6 +120,13 @@ def build_transform_nodes(
             node_op = LeadTransform(
                 operation.field,
                 operation.periods,
+                partition_by,
+                operation.to,
+            ).apply
+        elif isinstance(operation, ForwardSumConfig):
+            node_op = ForwardSumTransform(
+                operation.field,
+                operation.window,
                 partition_by,
                 operation.to,
             ).apply

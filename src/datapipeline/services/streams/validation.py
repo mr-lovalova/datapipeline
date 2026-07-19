@@ -9,6 +9,7 @@ from datapipeline.config.transforms import (
     DeriveConfig,
     FillConfig,
     ForwardFillConfig,
+    ForwardSumConfig,
     LagConfig,
     LeadConfig,
     RollingConfig,
@@ -56,10 +57,19 @@ def validate_stream_configs(
         for operation in stream.transforms:
             if isinstance(
                 operation,
-                (LagConfig, LeadConfig, FillConfig, ForwardFillConfig, RollingConfig),
+                (
+                    LagConfig,
+                    LeadConfig,
+                    FillConfig,
+                    ForwardFillConfig,
+                    RollingConfig,
+                ),
             ):
                 output_field = operation.field if operation.to is None else operation.to
-            elif isinstance(operation, (DeriveConfig, RollingSlopeConfig)):
+            elif isinstance(
+                operation,
+                (DeriveConfig, ForwardSumConfig, RollingSlopeConfig),
+            ):
                 output_field = operation.to
             else:
                 continue

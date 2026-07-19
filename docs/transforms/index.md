@@ -32,6 +32,10 @@ transforms:
     y: stock_return
     to: beta_252
     window: 252
+  - operation: forward_sum
+    field: excess_return
+    to: future_excess_return_21
+    window: 21
 ```
 
 Missing or unknown operations, unknown fields, and invalid field values are

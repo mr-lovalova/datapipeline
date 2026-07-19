@@ -26,6 +26,9 @@ targets:
   - id: power_target
     stream: targets.power
     field: value
+  - id: power_future_2
+    stream: targets.power
+    field: future_2
 
 postprocess:
   samples:

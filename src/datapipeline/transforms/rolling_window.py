@@ -55,7 +55,7 @@ class RollingWindow(ABC):
     def result(self) -> float: ...
 
 
-class RollingMean(RollingWindow):
+class RollingSum(RollingWindow):
     def __init__(self, window: int) -> None:
         super().__init__(window)
         self.values = CompensatedSum()
@@ -80,7 +80,12 @@ class RollingMean(RollingWindow):
             self.removals_since_rebase = 0
 
     def result(self) -> float:
-        return self.values.result() / self.sample_count
+        return self.values.result()
+
+
+class RollingMean(RollingSum):
+    def result(self) -> float:
+        return super().result() / self.sample_count
 
 
 class RollingMoments(RollingWindow):

@@ -12,11 +12,12 @@ variable IDs in their declared order.
 
 ## Field-Writing Transforms
 
-Single-field transforms accept `field` and optional `to`. If `to` is omitted,
-the transform writes back to `field`. Multi-input transforms such as `derive`
-and `rolling_slope` require `to`. Transforms cannot write `time` or a resolved
-`partition_by` field because those fields define canonical record order.
-Identity changes belong in a map or combine function, before the ordering stage.
+Most single-field transforms accept `field` and optional `to`. If `to` is
+omitted, the transform writes back to `field`. `forward_sum` and multi-input
+transforms such as `derive` and `rolling_slope` require `to`. Transforms cannot
+write `time` or a resolved `partition_by` field because those fields define
+canonical record order. Identity changes belong in a map or combine function,
+before the ordering stage.
 
 ```yaml
 transforms:
@@ -31,6 +32,10 @@ transforms:
 - `where`: filter ordered records using the record `where` operator language.
 - `lag` / `lead`: copy a prior or future field value into `to` by `periods`
   within each partition.
+- `forward_sum`: write the sum of exactly the next `window` partition records
+  to the required `to` field. The current record is excluded. A complete window
+  containing `None` or `NaN` produces `None`, as do the final `window` records;
+  partial sums are never emitted. Nonnumeric or infinite values fail.
 - `derive`: write `to` from binary arithmetic on `left` and exactly one of
   `right_field` or `right_value`. Operators: `add`, `sub`, `mul`, `div`.
 - `collapse`: keep the `first` or `last` adjacent record for each partition and
@@ -58,6 +63,16 @@ transforms:
   - { operation: lag, field: stock_return, periods: 1, to: stock_return_lag_1 }
   - { operation: lag, field: market_return, periods: 1, to: market_return_lag_1 }
   - { operation: rolling_slope, x: market_return_lag_1, y: stock_return_lag_1, window: 252, to: beta }
+```
+
+`forward_sum` also counts records rather than inferred sessions. Use
+`ensure_ticks` first for an exchange-session grid, or `ensure_cadence` for a
+fixed-duration series:
+
+```yaml
+transforms:
+  - { operation: ensure_ticks, artifact: model_grid }
+  - { operation: forward_sum, field: market_excess_return, window: 21, to: future_market_excess_return_21 }
 ```
 
 ```yaml

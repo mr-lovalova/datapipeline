@@ -100,6 +100,14 @@ class LeadConfig(_TransformConfig):
     to: NonEmptyString | None = None
 
 
+class ForwardSumConfig(_TransformConfig):
+    operation: Literal["forward_sum"] = "forward_sum"
+
+    field: NonEmptyString
+    window: PositiveInt
+    to: NonEmptyString
+
+
 class EnsureCadenceConfig(_TransformConfig):
     operation: Literal["ensure_cadence"] = "ensure_cadence"
 
@@ -214,6 +222,7 @@ TransformConfig = Annotated[
     | DedupeConfig
     | LagConfig
     | LeadConfig
+    | ForwardSumConfig
     | EnsureCadenceConfig
     | EnsureTicksConfig
     | FillConfig

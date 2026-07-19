@@ -19,6 +19,7 @@ def _sample(
     slope_north: float | None,
     slope_south: float | None,
     power: float,
+    future_power: float | None,
 ) -> dict[str, object]:
     return {
         "key": [f"2024-03-01 {hour:02d}:00:00+00:00"],
@@ -34,7 +35,12 @@ def _sample(
                 "humidity_slope__@location:south": slope_south,
             }
         },
-        "targets": {"values": {"power_target": power}},
+        "targets": {
+            "values": {
+                "power_target": power,
+                "power_future_2": future_power,
+            }
+        },
     }
 
 
@@ -56,6 +62,7 @@ def test_full_regression_project_through_serve(copy_fixture) -> None:
             None,
             None,
             100.0,
+            203.0,
         ),
         _sample(
             1,
@@ -68,6 +75,7 @@ def test_full_regression_project_through_serve(copy_fixture) -> None:
             0.0,
             -0.75,
             102.0,
+            206.0,
         ),
         _sample(
             2,
@@ -80,6 +88,7 @@ def test_full_regression_project_through_serve(copy_fixture) -> None:
             0.5,
             0.375,
             101.0,
+            210.0,
         ),
         _sample(
             3,
@@ -92,6 +101,7 @@ def test_full_regression_project_through_serve(copy_fixture) -> None:
             0.5,
             0.0,
             105.0,
+            212.0,
         ),
         _sample(
             4,
@@ -104,6 +114,7 @@ def test_full_regression_project_through_serve(copy_fixture) -> None:
             -0.25,
             0.625,
             105.0,
+            None,
         ),
     ]
 
@@ -220,7 +231,17 @@ def test_full_regression_project_through_serve(copy_fixture) -> None:
                 "null_count": 0,
                 "present_count": 6,
                 "value_types": ["float"],
-            }
+            },
+            {
+                "base_id": "power_future_2",
+                "first_observed": "2024-03-01T00:00:00Z",
+                "id": "power_future_2",
+                "kind": "scalar",
+                "last_observed": "2024-03-01T05:00:00Z",
+                "null_count": 2,
+                "present_count": 6,
+                "value_types": ["float"],
+            },
         ],
         "window": {
             "end": "2024-03-01T04:00:00Z",
@@ -255,5 +276,8 @@ def test_full_regression_project_through_serve(copy_fixture) -> None:
             {"id": "humidity_adjusted", "rows": 12},
             {"id": "humidity_slope", "rows": 12},
         ],
-        "targets": [{"id": "power_target", "rows": 6}],
+        "targets": [
+            {"id": "power_target", "rows": 6},
+            {"id": "power_future_2", "rows": 6},
+        ],
     }

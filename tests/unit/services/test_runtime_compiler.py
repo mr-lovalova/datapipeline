@@ -219,6 +219,7 @@ combine:
 transforms:
   - {operation: derive, left: value, operator: mul, right_value: 2, to: doubled}
   - {operation: rolling_slope, x: reference_value, y: measurement_value, window: 2, to: slope}
+  - {operation: forward_sum, field: measurement_value, window: 1, to: future_measurement}
 """,
         encoding="utf-8",
     )
@@ -243,17 +244,24 @@ transforms:
     assert enriched.input_stream == "measurements"
     assert enriched.broadcast_stream == "reference"
     assert enriched.partition_by == ("station",)
-    assert len(enriched.transforms) == 2
+    assert len(enriched.transforms) == 3
 
     records = list(run_stream_pipeline(PipelineContext(runtime), "enriched"))
     assert [
-        (record.station, record.time.day, record.value, record.doubled, record.slope)
+        (
+            record.station,
+            record.time.day,
+            record.value,
+            record.doubled,
+            record.slope,
+            record.future_measurement,
+        )
         for record in records
     ] == [
-        ("A", 1, 13, 26, None),
-        ("A", 2, 24, 48, 0.1),
-        ("B", 1, 15, 30, None),
-        ("B", 2, 26, 52, 0.1),
+        ("A", 1, 13, 26, None, 2.0),
+        ("A", 2, 24, 48, 0.1, None),
+        ("B", 1, 15, 30, None, 4.0),
+        ("B", 2, 26, 52, 0.1, None),
     ]
 
 
