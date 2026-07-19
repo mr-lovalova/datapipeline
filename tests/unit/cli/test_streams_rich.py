@@ -10,6 +10,7 @@ from unittest.mock import patch
 from rich.console import Console
 from rich.progress import Progress
 from rich.table import Column
+from rich.text import Text
 
 import datapipeline.cli.visuals.rich.progress as rich_progress
 from datapipeline.cli.visuals.execution import (
@@ -167,12 +168,16 @@ def test_info_progress_shows_node_and_local_detail() -> None:
     assert root.description == "[stream:adv.20]"
     assert root.total is None
     assert root.completed == 0
-    assert root.fields["status"] == ""
+    assert root.fields["status"].plain == ""
     assert root.visible is True
     assert order_records.visible is False
     assert open_source.visible is True
     assert open_source.completed == 20_000
-    assert open_source.fields["status"] == ('2/17 "2011.jsonl" · 20,000 records')
+    status = open_source.fields["status"]
+    assert status.plain == '2/17 "2011.jsonl" · 20,000 records'
+    assert [
+        (status.plain[span.start : span.end], str(span.style)) for span in status.spans
+    ] == [("2/17", "cyan"), ("20,000", "cyan")]
     assert _render_progress_row(open_source) == (
         '[stream:adv.20/open_source] 0:00:00 2/17 "2011.jsonl" · 20,000 records'
     )
@@ -184,9 +189,9 @@ def test_info_progress_shows_node_and_local_detail() -> None:
     root, order_records = progress.tasks
     assert root.description == "[stream:adv.20]"
     assert root.total is None
-    assert root.fields["status"] == ""
+    assert root.fields["status"].plain == ""
     assert order_records.visible is True
-    assert order_records.fields["status"] == "reading · 100 records"
+    assert order_records.fields["status"].plain == "reading · 100 records"
 
 
 def test_info_progress_selects_meaningful_event_owner() -> None:
@@ -206,9 +211,9 @@ def test_info_progress_selects_meaningful_event_owner() -> None:
         )
     )
     root, order_records, map_records, open_source = progress.tasks
-    assert root.fields["status"] == ""
+    assert root.fields["status"].plain == ""
     assert open_source.visible is True
-    assert open_source.fields["status"] == '2/17 "2011.jsonl" · 20,000 items'
+    assert open_source.fields["status"].plain == '2/17 "2011.jsonl" · 20,000 items'
 
     renderer.handle(
         _node_progress(1, "map_records", ProgressSnapshot(completed=20_000))
@@ -227,7 +232,7 @@ def test_info_progress_selects_meaningful_event_owner() -> None:
     assert order_records.visible is True
     assert order_records.completed == 25
     assert order_records.total == 100
-    assert order_records.fields["status"] == "merging · 25/100 items"
+    assert order_records.fields["status"].plain == "merging · 25/100 items"
 
     renderer.handle(
         _node_progress(
@@ -240,7 +245,7 @@ def test_info_progress_selects_meaningful_event_owner() -> None:
 
     assert order_records.visible is False
     assert map_records.visible is True
-    assert map_records.fields["status"] == "20,000 items"
+    assert map_records.fields["status"].plain == "20,000 items"
 
 
 def test_info_elapsed_continues_after_completed_local_phase() -> None:
@@ -326,7 +331,7 @@ def test_debug_progress_shows_root_and_active_nodes() -> None:
     assert [
         (
             task.description,
-            task.fields["status"],
+            task.fields["status"].plain,
         )
         for task in tasks
     ] == [
@@ -399,7 +404,11 @@ def test_operation_progress_stays_live_across_sequential_pipelines() -> None:
 
     operation = progress.tasks[0]
     assert operation.description == "Operation serve:dataset"
-    assert operation.fields["status"] == ("last report: write_output · 2,592,885 rows")
+    status = operation.fields["status"]
+    assert status.plain == "last report: write_output · 2,592,885 rows"
+    assert [
+        (status.plain[span.start : span.end], str(span.style)) for span in status.spans
+    ] == [("2,592,885", "cyan")]
     assert _render_progress_row(operation) == (
         "Operation serve:dataset 0:00:10 last report: write_output · 2,592,885 rows"
     )
@@ -439,13 +448,13 @@ def test_determinate_progress_stays_on_one_line_at_standard_width() -> None:
     progress.add_task(
         "Operation serve:dataset",
         total=None,
-        status="last report: write_output · 1,974,178 rows",
+        status=Text("last report: write_output · 1,974,178 rows"),
     )
     progress.add_task(
         "[dataset:fold_1/vector_assemble]",
         completed=7_605_305,
         total=8_600_417,
-        status="emitting · 7,605,305/8,600,417 items",
+        status=Text("emitting · 7,605,305/8,600,417 items"),
     )
 
     console.print(progress.get_renderable())
