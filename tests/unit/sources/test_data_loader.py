@@ -139,20 +139,25 @@ def test_loader_rejects_misspelled_option(tmp_path) -> None:
         )
 
 
-@pytest.mark.parametrize("format_", ["json", "pickle"])
-def test_loader_rejects_gzip_for_unsupported_format(
-    tmp_path,
-    format_: str,
-) -> None:
+def test_loader_rejects_gzip_for_json(tmp_path) -> None:
     with pytest.raises(
         ValueError,
         match="gzip compression is supported only for csv and jsonl formats",
     ):
         build_loader(
             "fs",
-            format_,
+            "json",
             path=str(tmp_path / "rows.gz"),
             compression="gzip",
+        )
+
+
+def test_loader_rejects_pickle_format(tmp_path) -> None:
+    with pytest.raises(ValueError, match="unsupported format for IO loader: pickle"):
+        build_loader(
+            "fs",
+            "pickle",
+            path=str(tmp_path / "rows.pkl"),
         )
 
 

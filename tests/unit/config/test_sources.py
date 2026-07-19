@@ -103,8 +103,7 @@ def test_core_fs_source_accepts_gzip_compression(format_: str) -> None:
     assert source.loader.args.compression == "gzip"
 
 
-@pytest.mark.parametrize("format_", ["json", "pickle"])
-def test_core_fs_source_rejects_gzip_for_unsupported_format(format_: str) -> None:
+def test_core_fs_source_rejects_gzip_for_json() -> None:
     with pytest.raises(
         ValueError,
         match="gzip compression is supported only for csv and jsonl formats",
@@ -114,9 +113,26 @@ def test_core_fs_source_rejects_gzip_for_unsupported_format(format_: str) -> Non
                 "entrypoint": "core.io",
                 "args": {
                     "transport": "fs",
-                    "format": format_,
+                    "format": "json",
                     "path": "records.gz",
                     "compression": "gzip",
+                },
+            }
+        )
+
+
+def test_core_io_source_rejects_pickle_format() -> None:
+    with pytest.raises(
+        ValueError,
+        match="Input should be 'csv', 'json' or 'jsonl'",
+    ):
+        source_config(
+            loader={
+                "entrypoint": "core.io",
+                "args": {
+                    "transport": "fs",
+                    "format": "pickle",
+                    "path": "records.pkl",
                 },
             }
         )

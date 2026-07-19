@@ -1,10 +1,8 @@
 import codecs
 import csv
-import io
 import itertools
 import json
 import math
-import pickle
 from abc import ABC, abstractmethod
 from collections.abc import Iterable, Iterator, Sequence
 from typing import Any
@@ -173,17 +171,3 @@ class JsonLinesDecoder(Decoder):
             if not s:
                 continue
             yield decoder.decode(s)
-
-
-class PickleDecoder(Decoder):
-    def decode(self, chunks: Iterable[bytes]) -> Iterator[Any]:
-        buffer = io.BytesIO()
-        for chunk in chunks:
-            buffer.write(chunk)
-        buffer.seek(0)
-        unpickler = pickle.Unpickler(buffer)
-        try:
-            while True:
-                yield unpickler.load()
-        except EOFError:
-            return

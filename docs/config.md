@@ -360,7 +360,8 @@ loader:
 
 - `id`: the source alias; referenced by source-backed streams under `from.source`.
 - `parser.entrypoint`: which parser to use; `parser.args` are optional.
-- `loader.entrypoint`: which loader to use; `core.io` is the default for fs/http and is configured via `loader.args`.
+- `loader.entrypoint`: which loader to use; `core.io` is the default for fs/http,
+  accepts CSV, JSON, and JSONL, and is configured via `loader.args`.
 - `inputs.files`: optional project-relative regular files or glob patterns used
   to track custom-loader inputs for artifact freshness. Local `core.io`
   filesystem paths are tracked automatically. The list is order-insensitive;

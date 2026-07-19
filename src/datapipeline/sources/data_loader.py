@@ -8,7 +8,6 @@ from .decoders import (
     Decoder,
     JsonDecoder,
     JsonLinesDecoder,
-    PickleDecoder,
 )
 
 
@@ -32,7 +31,7 @@ class DataLoader(BaseDataLoader):
     def progress_unit(self) -> SourceProgressUnit:
         if isinstance(self.decoder, CsvDecoder):
             return "rows"
-        if isinstance(self.decoder, (JsonDecoder, JsonLinesDecoder, PickleDecoder)):
+        if isinstance(self.decoder, (JsonDecoder, JsonLinesDecoder)):
             return "items"
         return "records"
 

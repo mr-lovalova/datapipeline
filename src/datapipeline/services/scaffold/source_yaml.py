@@ -18,20 +18,19 @@ DEFAULT_TEMPORAL_RECORD_PARSER_EP = "core.temporal_record"
 
 
 def _loader_args(transport: str, fmt: str | None) -> dict[str, object]:
+    if fmt not in {None, "csv", "json", "jsonl"}:
+        raise ValueError(f"Unsupported source format: {fmt!r}")
     if transport == "fs":
         args: dict[str, object] = {
             "transport": "fs",
-            "format": fmt or "<FORMAT (csv|json|jsonl|pickle)>",
+            "format": fmt or "<FORMAT (csv|json|jsonl)>",
             "path": "<PATH OR GLOB>",
+            "encoding": "utf-8",
         }
-        if fmt != "pickle":
-            args["encoding"] = "utf-8"
         if fmt == "csv":
             args["delimiter"] = ","
         return args
     if transport == "http":
-        if fmt == "pickle":
-            raise ValueError("Source format 'pickle' is not supported for http")
         args = {
             "transport": "http",
             "format": fmt or "<FORMAT (json|jsonl|csv)>",
