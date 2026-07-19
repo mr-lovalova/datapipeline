@@ -1,4 +1,4 @@
-from collections.abc import Iterator
+from collections.abc import Generator, Iterator
 from dataclasses import replace
 from functools import partial
 from typing import Any
@@ -26,7 +26,7 @@ from datapipeline.sources.observability import source_progress, source_summary
 def run_stream_pipeline(
     context: PipelineContext,
     stream_id: str,
-) -> Iterator[Any]:
+) -> Generator[Any, None, None]:
     return run_pipeline(context, build_stream_pipeline(context, stream_id))
 
 

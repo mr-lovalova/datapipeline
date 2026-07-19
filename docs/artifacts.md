@@ -56,7 +56,18 @@ Jerry 6 renames the v5 `vector_inputs` artifact to `variable_records`. Rename
 operation overrides, build profiles, and `requires` entries accordingly. The old
 build-state entry and `build/vector_inputs/` directory are ignored; `AUTO`
 builds the new artifact and its dependents. They may be deleted manually after
-the migration. The shared Python layer now uses
+the migration.
+
+Jerry 6 also removes the separate `schema` artifact because `metadata` now owns
+the complete typed feature/target contract. Delete build profiles whose
+operation is `schema` (including the generated `build.schema.yaml`), remove
+`operations/schema.yaml` overrides, and replace `schema` entries in `requires`
+with `metadata`. Update scaffolded plugin dependencies from
+`jerry-thomas>=5.0.7` to `jerry-thomas>=6.0.0`. The old build-state entry and
+schema output (by default `build/schema.json`) are ignored and may be deleted
+after the migration.
+
+The shared Python layer now uses
 `datapipeline.config.dataset.variable.VariableConfig` and
 `datapipeline.domain.variable.VariableRecord` / `VariableSequence`;
 `datapipeline.config.dataset.dataset.DatasetConfig` replaces

@@ -42,14 +42,17 @@ def materialize_stream(
     check_materialize_destination(output_path, overwrite)
 
     rows = run_stream_pipeline(PipelineContext(runtime), stream_id)
-    writer = writer_factory(output, overwrite=overwrite)
     try:
-        for row in rows:
-            writer.write(row)
-        writer.close()
-    except BaseException:
-        writer.abort()
-        raise
+        writer = writer_factory(output, overwrite=overwrite)
+        try:
+            for row in rows:
+                writer.write(row)
+            writer.close()
+        except BaseException:
+            writer.abort()
+            raise
+    finally:
+        rows.close()
     return output_path.resolve()
 
 

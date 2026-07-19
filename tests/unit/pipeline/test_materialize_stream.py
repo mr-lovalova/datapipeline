@@ -179,3 +179,34 @@ def test_materialize_stream_does_not_clobber_output_created_during_stream(
         )
 
     assert output.read_bytes() == concurrent_output
+
+
+def test_materialize_stream_closes_rows_after_writer_failure(
+    tmp_path: Path,
+    monkeypatch,
+    one_row_runtime: Runtime,
+) -> None:
+    rows_closed = False
+
+    def rows():
+        nonlocal rows_closed
+        try:
+            yield object()
+        finally:
+            rows_closed = True
+
+    monkeypatch.setattr(
+        "datapipeline.services.materialize.run_stream_pipeline",
+        lambda _context, _stream_id: rows(),
+    )
+
+    output = tmp_path / "prices.jsonl"
+    with pytest.raises(TypeError, match="Unsupported output value type"):
+        materialize_stream(
+            runtime=one_row_runtime,
+            stream_id="prices.raw",
+            output=_output(output),
+        )
+
+    assert rows_closed
+    assert not output.exists()
