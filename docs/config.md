@@ -369,6 +369,10 @@ loader:
   every matching file in sorted order; a path without them loads one file.
 - Filesystem CSV and JSONL sources may set `compression: gzip`. Compression is
   explicit and is not inferred from a `.gz` suffix.
+- Built-in CSV decoding requires a non-empty, unique header and the same number
+  of fields in every record. Built-in JSON and JSONL decoding reject duplicate
+  object keys, non-standard numeric constants, and numbers outside the finite
+  float range instead of silently changing the data.
 - Local freshness snapshots include glob membership, file paths, sizes, and
   filesystem modification metadata. HTTP response bodies and headers are not
   fingerprinted: use `--artifact-mode FORCE` when a stable URL can return new
