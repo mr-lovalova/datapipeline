@@ -1,5 +1,6 @@
-from collections.abc import Generator, Iterator
+from collections.abc import Generator, Iterable, Iterator
 from dataclasses import replace
+from datetime import datetime
 from functools import partial
 from typing import Any
 
@@ -17,6 +18,7 @@ from datapipeline.pipelines.stream.transform_nodes import (
 from datapipeline.runtime import (
     AlignedRuntimeStream,
     DerivedRuntimeStream,
+    RecordStage,
     SourceRuntimeStream,
     require_runtime_stream,
 )
@@ -94,7 +96,10 @@ def _source_nodes(
             open=stream.source.stream,
             progress=source_progress(stream.source),
         ),
-        PipelineNode(name="map_records", apply=stream.mapper),
+        PipelineNode(
+            name="map_records",
+            apply=partial(_map_records, stream.mapper),
+        ),
         *build_preprocess_nodes(stream.preprocess),
         build_record_order_node(
             stream.partition_by,
@@ -107,6 +112,47 @@ def _source_nodes(
             stream.partition_by,
         ),
     )
+
+
+def _map_records(mapper: RecordStage, records: Iterator[Any]) -> Iterator[Any]:
+    mapped: Iterable[Any] = ()
+    iterator: Iterator[Any] = iter(())
+    processing_failed = False
+    try:
+        mapped = mapper(records)
+        if mapped is None:
+            raise TypeError("Mapper returned None; return an iterable.")
+        iterator = iter(mapped)
+        for position, record in enumerate(iterator, start=1):
+            record_time = getattr(record, "time", None)
+            if not isinstance(record_time, datetime):
+                raise TypeError(
+                    f"Mapped record {position} time must be a datetime; "
+                    f"got {type(record_time).__name__}."
+                )
+            if record_time.tzinfo is None or record_time.utcoffset() is None:
+                raise ValueError(
+                    f"Mapped record {position} time must be timezone-aware."
+                )
+            yield record
+    except GeneratorExit:
+        raise
+    except BaseException:
+        processing_failed = True
+        raise
+    finally:
+        try:
+            if iterator is not records:
+                closer = getattr(iterator, "close", None)
+                if callable(closer):
+                    closer()
+            if iterator is not mapped and mapped is not records:
+                closer = getattr(mapped, "close", None)
+                if callable(closer):
+                    closer()
+        except BaseException:
+            if not processing_failed:
+                raise
 
 
 def _align_inputs(

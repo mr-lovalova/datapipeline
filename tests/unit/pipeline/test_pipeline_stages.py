@@ -1,6 +1,6 @@
 import json
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone, tzinfo
 from pathlib import Path
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
@@ -65,6 +65,7 @@ from datapipeline.pipelines.vector.pipeline import build_vector_pipeline
 from datapipeline.runtime import (
     AlignedRuntimeStream,
     DerivedRuntimeStream,
+    RecordStage,
     Runtime,
     SourceRuntimeStream,
 )
@@ -85,6 +86,11 @@ from tests.variable_record_helpers import register_variable_records
 
 def _ts(hour: int, minute: int = 0) -> datetime:
     return datetime(2024, 1, 1, hour=hour, minute=minute, tzinfo=timezone.utc)
+
+
+class _MissingOffsetTimezone(tzinfo):
+    def utcoffset(self, dt: datetime | None) -> timedelta | None:
+        return None
 
 
 def test_window_key_plan_counts_inclusive_cadence_buckets() -> None:
@@ -337,6 +343,16 @@ def _runtime_with_rows(
     return runtime
 
 
+def _set_source_mapper(runtime: Runtime, mapper: RecordStage) -> None:
+    source_stream = runtime.streams["stream"]
+    assert isinstance(source_stream, SourceRuntimeStream)
+    runtime.streams["stream"] = replace(
+        source_stream,
+        mapper=mapper,
+        presorted=True,
+    )
+
+
 def _register_price_metadata(runtime: Runtime) -> None:
     metadata_path = runtime.artifacts_root / "metadata.json"
     metadata_path.write_text(
@@ -567,6 +583,109 @@ def test_source_pipeline_runs_map_then_preprocess(
         run_pipeline(ctx, pipeline.through_node_named("preprocess_floor_time"))
     )
     assert all(rec.time.minute == 0 for rec in stage2)
+
+
+@pytest.mark.parametrize(
+    ("invalid_time", "error_type", "message"),
+    [
+        (
+            "2024-01-01T00:00:00Z",
+            TypeError,
+            "Mapped record 1 time must be a datetime; got str",
+        ),
+        (
+            datetime(2024, 1, 1),
+            ValueError,
+            "Mapped record 1 time must be timezone-aware",
+        ),
+        (
+            datetime(2024, 1, 1, tzinfo=_MissingOffsetTimezone()),
+            ValueError,
+            "Mapped record 1 time must be timezone-aware",
+        ),
+    ],
+)
+def test_source_pipeline_rejects_invalid_mapped_time(
+    tmp_path: Path,
+    invalid_time,
+    error_type,
+    message: str,
+) -> None:
+    runtime = _runtime_with_rows(tmp_path, [{"raw": 1}])
+
+    def map_record(rows):
+        for _ in rows:
+            yield SimpleNamespace(time=invalid_time)
+
+    _set_source_mapper(runtime, map_record)
+
+    with pytest.raises(error_type, match=message):
+        list(run_stream_pipeline(PipelineContext(runtime), "stream"))
+
+
+def test_source_pipeline_preserves_aware_mapped_time(tmp_path: Path) -> None:
+    mapped_time = datetime(2024, 1, 1, tzinfo=timezone(timedelta(hours=5, minutes=45)))
+    runtime = _runtime_with_rows(tmp_path, [{"raw": 1}])
+
+    def map_record(rows):
+        for _ in rows:
+            yield SimpleNamespace(time=mapped_time)
+
+    _set_source_mapper(runtime, map_record)
+
+    [record] = list(run_stream_pipeline(PipelineContext(runtime), "stream"))
+
+    assert record.time is mapped_time
+
+
+def test_source_pipeline_closes_mapper_after_partial_read(tmp_path: Path) -> None:
+    runtime = _runtime_with_rows(
+        tmp_path,
+        [{"time": _ts(0)}, {"time": _ts(1)}],
+    )
+    mapper_streams = []
+    closed = False
+
+    def map_record(rows):
+        def mapped_records():
+            nonlocal closed
+            try:
+                yield from _mapper(rows)
+            finally:
+                closed = True
+
+        stream = mapped_records()
+        mapper_streams.append(stream)
+        return stream
+
+    _set_source_mapper(runtime, map_record)
+
+    records = run_stream_pipeline(PipelineContext(runtime), "stream")
+    next(records)
+    records.close()
+
+    assert mapper_streams
+    assert closed is True
+
+
+def test_source_pipeline_surfaces_mapper_close_errors(tmp_path: Path) -> None:
+    runtime = _runtime_with_rows(
+        tmp_path,
+        [{"time": _ts(0)}, {"time": _ts(1)}],
+    )
+
+    def map_record(rows):
+        try:
+            yield from _mapper(rows)
+        finally:
+            raise RuntimeError("mapper close failed")
+
+    _set_source_mapper(runtime, map_record)
+    records = run_stream_pipeline(PipelineContext(runtime), "stream")
+    next(records)
+
+    with pytest.raises(RuntimeError, match="mapper close failed"):
+        records.close()
 
 
 def test_pipeline_builders_expose_structure(tmp_path: Path) -> None:
