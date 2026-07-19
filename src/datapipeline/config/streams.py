@@ -6,6 +6,7 @@ from pydantic import (
     Field,
     StringConstraints,
     field_validator,
+    model_validator,
 )
 
 from datapipeline.config.sources import EntryPointConfig, SourceConfig
@@ -37,6 +38,19 @@ class StreamRefConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     stream: _StreamId
+
+
+class BroadcastFromConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    stream: _StreamId
+    broadcast: _StreamId
+
+    @model_validator(mode="after")
+    def validate_distinct_inputs(self) -> "BroadcastFromConfig":
+        if self.stream == self.broadcast:
+            raise ValueError("from.stream and from.broadcast must be different streams")
+        return self
 
 
 class AlignFromConfig(BaseModel):
@@ -87,6 +101,14 @@ class DerivedStreamConfig(_StreamConfig):
         return (self.from_.stream,)
 
 
+class BroadcastStreamConfig(_StreamConfig):
+    from_: BroadcastFromConfig = Field(alias="from")
+    combine: EntryPointConfig
+
+    def input_streams(self) -> tuple[str, ...]:
+        return (self.from_.stream, self.from_.broadcast)
+
+
 class AlignedStreamConfig(_StreamConfig):
     from_: AlignFromConfig = Field(alias="from")
     combine: EntryPointConfig
@@ -95,7 +117,12 @@ class AlignedStreamConfig(_StreamConfig):
         return self.from_.align
 
 
-StreamConfig: TypeAlias = SourceStreamConfig | DerivedStreamConfig | AlignedStreamConfig
+StreamConfig: TypeAlias = (
+    SourceStreamConfig
+    | DerivedStreamConfig
+    | BroadcastStreamConfig
+    | AlignedStreamConfig
+)
 
 
 class StreamsConfig(BaseModel):

@@ -6,7 +6,7 @@ feature vectors for analysis or model training.
 
 The runtime is iterator-first: streams are processed on demand, with explicit
 sorting, artifacts, observability, built-in transforms, and plugin entry points
-for custom loaders, parsers, mappers, and aligned-stream combiners.
+for custom loaders, parsers, mappers, and stream combiners.
 
 > **Core assumptions**
 >
@@ -129,7 +129,7 @@ These live under `lib/<plugin>/src/<package>/`:
 - `parsers/*.py`: raw -> DTO parsers (referenced by source YAML via entry point).
 - `domains/<domain>/model.py`: domain record models.
 - `mappers/*.py`: iterator mappings from parsed values to domain records.
-- `combiners/*.py`: functions combining aligned domain records.
+- `combiners/*.py`: functions combining broadcast or aligned domain records.
 - `loaders/*.py`: optional custom loaders (fs/http usually use the built-in core loader).
 - `pyproject.toml`: entry points for loaders, parsers, mappers, and combiners
   (rerun `pip install -e lib/<plugin>` after changes).

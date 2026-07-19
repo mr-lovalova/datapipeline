@@ -12,15 +12,18 @@ instances are compiled from the definition without reading configuration files.
 ## Runtime streams
 
 Every canonical stream ID has exactly one entry in `Runtime.streams`:
-`SourceRuntimeStream`, `DerivedRuntimeStream`, or `AlignedRuntimeStream`.
+`SourceRuntimeStream`, `DerivedRuntimeStream`, `BroadcastRuntimeStream`, or
+`AlignedRuntimeStream`.
 
 A source-backed stream owns an external source, mapper, preprocess operations,
 partition identity, and ordering policy. A derived stream names one upstream
-stream and adds ordered transforms. An aligned stream names two or more inputs
-and owns a prepared combine stage. Derived and aligned streams inherit their
-partition identity; only source-backed streams declare it. Single-input streams
-are flattened, while aligned streams use the explicit fan-in boundary described
-below. The strict config models keep source mapping and alignment separate.
+stream and adds ordered transforms. A broadcast stream attaches an
+unpartitioned temporal input to a partitioned primary input. An aligned stream
+intersects two or more inputs with the same partition identity. Both fan-in
+stream kinds own a prepared combine stage and inherit partition identity; only
+source-backed streams declare it. Single-input streams are flattened, while
+broadcast and aligned streams use the explicit boundaries described below. The
+strict config models keep source mapping and fan-in behavior separate.
 
 Dataset `sample.keys` select the partition fields represented in row identity.
 The remaining partition fields deterministically suffix variable IDs in declared
@@ -69,13 +72,21 @@ stream:<id>
 The derived stream reuses upstream canonical order directly. It does not add
 identity mapping or sorting stages.
 
-Aligned streams are the one real fan-in boundary. Their root source node is
+Aligned streams are a symmetric fan-in boundary. Their root source node is
 `align_inputs`; it owns opening, validating, merging, and closing the configured
 ordered inputs.
 Those input pipelines run internally without starting competing visual pipelines.
 The aligned root remains the single observable pipeline: `align_inputs` reports
 its current progress, then `combine_records` applies the configured combine
 function before ordered transforms.
+
+Broadcast streams are the asymmetric fan-in boundary. Their root
+`broadcast_inputs` node fully indexes one finite, unpartitioned input by time,
+then pairs each partitioned primary record with the exact timestamp match. It
+rejects missing, duplicate, and unordered keys, but ignores indexed timestamps
+that the primary never uses. Index memory is proportional to the number of
+broadcast records. `combine_records` receives read-only inputs; the indexed
+broadcast record object is reused across primary partitions at that timestamp.
 
 The runner accepts only a source followed by stream stages. It owns lazy
 iteration, closing, output counts, timings, and sampled progress. It has no

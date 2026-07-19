@@ -23,9 +23,12 @@ demo.report = "my_datapipeline.operations:run_report"
 
 Each extension follows the contract of its entry-point group. A stream `map`
 receives an iterator and returns an iterable. An aligned stream `combine`
-receives one matching record from each input and returns one record or `None`.
-Combiners belong to `datapipeline.combiners`, not the iterator-oriented
-`datapipeline.mappers` group.
+receives one matching record from each configured input. A broadcast stream
+`combine` receives the partitioned primary record followed by its exact-time
+unpartitioned record. Both return one record or `None`. Combiner inputs are
+read-only; a broadcast record object is reused across primary partitions at its
+timestamp. Combiners belong to `datapipeline.combiners`, not the
+iterator-oriented `datapipeline.mappers` group.
 
 A custom runtime operation receives exactly three positional arguments:
 

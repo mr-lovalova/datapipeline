@@ -1,0 +1,8 @@
+id: metrics.humidity.adjusted
+from:
+  stream: metrics.humidity
+  broadcast: metrics.linear
+
+combine:
+  entrypoint: combine_humidity_with_baseline
+  args: {}

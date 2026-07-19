@@ -6,7 +6,7 @@ These live under the dataset “project root” directory (the folder containing
 
 - `project.yaml`: paths + globals (single source of truth).
 - `sources/*.yaml`: raw sources (loader + parser wiring).
-- `streams/*.yaml`: source-backed, derived, or aligned canonical streams.
+- `streams/*.yaml`: source-backed, derived, broadcast, or aligned canonical streams.
 - `dataset.yaml`: sample, feature/target, split, and postprocess policy.
 - `profiles/serve.<name>.yaml`: serve profiles.
 - `profiles/build.<name>.yaml`: build profiles.
@@ -447,7 +447,7 @@ transforms:
 - `partition_by`: complete identity of an independent record series, used by
   ordering and history-based transforms. The runtime appends the reserved
   `time` field to the canonical sort key, so it must not appear here. Derived
-  and aligned streams inherit it.
+  and fan-in streams inherit it from their partitioned input.
 - `ordered_by`: optional assertion that records entering the ordering stage use
   `[*partition_by, time]` order. When present, it must equal that canonical
   order and is validated while streaming. When absent, mapped records are
@@ -461,6 +461,48 @@ transforms:
   Dataset feature and target IDs cannot contain the reserved `__` separator.
   Generated suffixes escape strings and tag non-string scalar values so
   different component tuples cannot produce the same variable ID.
+
+### Broadcast Streams
+
+A broadcast stream attaches one unpartitioned record to every partitioned
+primary record at the same timestamp. The primary stream supplies partition
+identity and output order; the broadcast stream supplies shared temporal data.
+
+```yaml
+id: equity.price_with_factors
+from:
+  stream: equity.price.daily
+  broadcast: market.factors.daily
+combine:
+  entrypoint: combine_price_and_factors
+  args: {}
+
+# Optional transforms run after combining.
+# transforms: [...]
+```
+
+Notes:
+
+- `from.stream` is the primary input and must resolve to a non-empty
+  `partition_by`. The broadcast stream inherits that partition identity.
+- `from.broadcast` must resolve to an empty `partition_by`.
+- To attach several global series, align them into one unpartitioned stream,
+  then use that stream as `from.broadcast`.
+- Matching is exact timestamp equality. Broadcast streams do not perform
+  as-of matching, filling, tolerance matching, or many-to-many expansion.
+- The primary input must contain at most one record per `(partition, time)`
+  key. The broadcast input must contain at most one record per timestamp.
+  Source-backed streams establish canonical order before broadcasting;
+  duplicate keys or a violated `ordered_by` assertion still fail.
+- Every primary timestamp must have a broadcast record. A missing match fails
+  the stream; broadcast timestamps unused by the primary are ignored.
+- Jerry fully indexes the finite broadcast input before reading the primary.
+  Memory use is proportional to the number of broadcast records.
+- Combine signature is `combine(primary_record, broadcast_record, **args)`.
+  Inputs are read-only. The same broadcast record object is reused for every
+  primary partition at its timestamp. The combiner returns one record or
+  `None` to skip that primary record.
+- The broadcast stream outputs records; its own `transforms` apply afterward.
 
 ### Aligned Streams (Engineered Domains)
 

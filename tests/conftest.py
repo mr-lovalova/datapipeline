@@ -17,6 +17,10 @@ _TEST_EP_TARGETS = {
         "datapipeline.combiners",
         "combine_valuation_inputs",
     ): "tests.combiners:combine_valuation_inputs",
+    (
+        "datapipeline.combiners",
+        "combine_humidity_with_baseline",
+    ): "tests.combiners:combine_humidity_with_baseline",
 }
 _ORIGINAL_LOAD_EP = dp_load.load_ep
 

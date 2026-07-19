@@ -5,7 +5,7 @@ import pytest
 
 from datapipeline.config.streams import AlignedStreamConfig
 from datapipeline.domain.record import TemporalRecord
-from datapipeline.services.streams.aligned import build_combine_stage
+from datapipeline.services.streams.combine import build_combine_stage
 
 
 @dataclass
@@ -37,7 +37,7 @@ def test_combiner_calls_function_with_positional_records(monkeypatch) -> None:
         return _record(1, left.value + right.value + offset)
 
     monkeypatch.setattr(
-        "datapipeline.services.streams.aligned.load_ep",
+        "datapipeline.services.streams.combine.load_ep",
         lambda _group, _entrypoint: calculate,
     )
     combine = build_combine_stage(_config(), ("id_",))
@@ -49,7 +49,7 @@ def test_combiner_calls_function_with_positional_records(monkeypatch) -> None:
 
 def test_combiner_drops_none(monkeypatch) -> None:
     monkeypatch.setattr(
-        "datapipeline.services.streams.aligned.load_ep",
+        "datapipeline.services.streams.combine.load_ep",
         lambda _group, _entrypoint: lambda _left, _right, offset: None,
     )
     combine = build_combine_stage(_config(), ("id_",))
@@ -63,7 +63,7 @@ def test_combiner_rejects_changed_time(monkeypatch) -> None:
         return left
 
     monkeypatch.setattr(
-        "datapipeline.services.streams.aligned.load_ep",
+        "datapipeline.services.streams.combine.load_ep",
         lambda _group, _entrypoint: change_time,
     )
     combine = build_combine_stage(_config(), ("id_",))
@@ -78,7 +78,7 @@ def test_combiner_rejects_changed_partition(monkeypatch) -> None:
         return left
 
     monkeypatch.setattr(
-        "datapipeline.services.streams.aligned.load_ep",
+        "datapipeline.services.streams.combine.load_ep",
         lambda _group, _entrypoint: change_partition,
     )
     combine = build_combine_stage(_config(), ("id_",))

@@ -32,6 +32,7 @@ missing from that contract.
 | Wide identity | Remaining partition fields produce deterministic variable IDs |
 | Hybrid identity | Entity row keys and widened metric columns coexist |
 | Alignment | Sparse aligned inputs only derive values at matching keys |
+| Broadcast | Exact global records are reused across partitions and persisted with stable identity |
 | Sequencing | Fixed windows, stride, missing elements, and column order are golden |
 | Scaling | Standard and folded feature/target statistics and values are golden |
 | Leakage | Changing validation/test values cannot change fitted train statistics |

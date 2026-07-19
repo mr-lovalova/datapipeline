@@ -1,5 +1,6 @@
 from datapipeline.config.sources import SourceConfig
 from datapipeline.config.streams import (
+    BroadcastStreamConfig,
     DerivedStreamConfig,
     SourceStreamConfig,
     StreamConfig,
@@ -77,6 +78,25 @@ def stream_partition_by(
         return stream.partition_by
     if isinstance(stream, DerivedStreamConfig):
         return stream_partition_by(streams, stream.from_.stream)
+    if isinstance(stream, BroadcastStreamConfig):
+        primary_partition = stream_partition_by(streams, stream.from_.stream)
+        if not primary_partition:
+            raise ValueError(
+                f"Broadcast stream '{stream_id}' primary input "
+                f"'{stream.from_.stream}' must have a non-empty partition_by"
+            )
+
+        broadcast_partition = stream_partition_by(
+            streams,
+            stream.from_.broadcast,
+        )
+        if broadcast_partition:
+            raise ValueError(
+                f"Broadcast stream '{stream_id}' broadcast input "
+                f"'{stream.from_.broadcast}' must have an empty partition_by; "
+                f"got {list(broadcast_partition)!r}"
+            )
+        return primary_partition
 
     input_partitions = [
         stream_partition_by(streams, input_stream)

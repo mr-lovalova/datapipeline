@@ -18,8 +18,8 @@ filtering.
 
 - `jerry serve --project <project.yaml> --preview <stage> --limit N [--log-level LEVEL] [--visuals on|off] [--heartbeat-interval SECONDS]`
   - `input`: values entering the selected stream: parsed source values,
-    completed upstream records, or aligned input tuples.
-  - `canonical`: domain records after source mapping or aligned combining;
+    completed upstream records, broadcast input pairs, or aligned input tuples.
+  - `canonical`: domain records after source mapping or fan-in combining;
     derived streams pass their input through unchanged at this boundary.
   - `records`: records after configured transforms and ordering.
   - `variables`: ordered feature/target records after sequence construction.
@@ -126,10 +126,14 @@ filtering.
 - `jerry inflow create`
   - Wizard to scaffold a complete source-backed stream (source YAML + parser/DTO + mapper + stream).
 - `jerry stream create [--identity]`
-  - Writes a source-backed or aligned stream configuration. It references an
-    existing, identity, or custom mapper; it does not create Python code.
+  - Writes a source-backed, broadcast, or aligned stream configuration. The
+    wizard selects a mapper for source-backed streams and a combiner for fan-in
+    streams; it does not create Python code.
     Use `jerry inflow create` when the source, DTO, parser, domain, or mapper
     must also be scaffolded.
+  - Broadcast streams select one partitioned primary stream, one unpartitioned
+    temporal stream, and a registered combine entry point. Matching is exact by
+    timestamp.
   - Aligned streams require at least two existing input streams and the name of
     a combine entry point already registered in `datapipeline.combiners`. The
     combine function receives one matching record from each input in the

@@ -102,6 +102,7 @@ testpaths = ["tests"]
 [tool.mutmut]
 source_paths = ["src/datapipeline/"]
 only_mutate = [
+  "src/datapipeline/alignment/broadcast.py",
   "src/datapipeline/alignment/engine.py",
   "src/datapipeline/operations/artifacts/utils.py",
   "src/datapipeline/pipelines/dataset/split.py",

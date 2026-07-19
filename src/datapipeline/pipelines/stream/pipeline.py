@@ -4,6 +4,7 @@ from datetime import datetime
 from functools import partial
 from typing import Any
 
+from datapipeline.alignment.broadcast import broadcast_stream
 from datapipeline.alignment.engine import align_streams
 from datapipeline.execution.context import PipelineContext
 from datapipeline.execution.node import Node, PipelineNode, SourceNode
@@ -17,6 +18,7 @@ from datapipeline.pipelines.stream.transform_nodes import (
 )
 from datapipeline.runtime import (
     AlignedRuntimeStream,
+    BroadcastRuntimeStream,
     DerivedRuntimeStream,
     RecordStage,
     SourceRuntimeStream,
@@ -60,6 +62,31 @@ def build_stream_pipeline(
                 ),
             ),
             summary=upstream.summary,
+        )
+    if isinstance(stream, BroadcastRuntimeStream):
+        return Pipeline(
+            name=f"stream:{stream_id}",
+            nodes=(
+                SourceNode(
+                    name="broadcast_inputs",
+                    open=partial(
+                        _broadcast_inputs,
+                        context,
+                        stream.input_stream,
+                        stream.broadcast_stream,
+                        stream.partition_by,
+                    ),
+                ),
+                PipelineNode(name="combine_records", apply=stream.combine),
+                *build_transform_nodes(
+                    context,
+                    stream.transforms,
+                    stream.partition_by,
+                ),
+            ),
+            summary=(
+                f"primary={stream.input_stream},broadcast={stream.broadcast_stream}"
+            ),
         )
     if isinstance(stream, AlignedRuntimeStream):
         return Pipeline(
@@ -172,3 +199,24 @@ def _align_inputs(
         for stream_id in input_streams
     ]
     yield from align_streams(inputs, partition_by=partition_by)
+
+
+def _broadcast_inputs(
+    context: PipelineContext,
+    input_stream: str,
+    broadcast_input: str,
+    partition_by: tuple[str, ...],
+) -> Iterator[tuple[Any, Any]]:
+    input_pipeline = build_stream_pipeline(context, input_stream)
+    broadcast_pipeline = build_stream_pipeline(context, broadcast_input)
+    primary = run_pipeline(
+        context,
+        input_pipeline,
+        observer=ignore_pipeline_event,
+    )
+    broadcast = run_pipeline(
+        context,
+        broadcast_pipeline,
+        observer=ignore_pipeline_event,
+    )
+    yield from broadcast_stream(primary, broadcast, partition_by)

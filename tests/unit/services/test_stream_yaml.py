@@ -4,10 +4,15 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
-from datapipeline.config.streams import AlignedStreamConfig, SourceStreamConfig
+from datapipeline.config.streams import (
+    AlignedStreamConfig,
+    BroadcastStreamConfig,
+    SourceStreamConfig,
+)
 from datapipeline.services.scaffold.paths import ensure_project_scaffold
 from datapipeline.services.scaffold.stream_yaml import (
     write_aligned_stream,
+    write_broadcast_stream,
     write_source_stream,
 )
 
@@ -156,6 +161,13 @@ def test_stream_scaffolds_render_valid_configs(tmp_path: Path) -> None:
         ["prices.bid", "prices.ask"],
         "combine_spread",
     )
+    broadcast_path = write_broadcast_stream(
+        project_yaml,
+        "prices.adjusted",
+        "prices.daily",
+        "market.adjustment",
+        "apply_adjustment",
+    )
 
     source = SourceStreamConfig.model_validate(
         yaml.safe_load(source_path.read_text(encoding="utf-8"))
@@ -163,8 +175,14 @@ def test_stream_scaffolds_render_valid_configs(tmp_path: Path) -> None:
     aligned = AlignedStreamConfig.model_validate(
         yaml.safe_load(aligned_path.read_text(encoding="utf-8"))
     )
+    broadcast = BroadcastStreamConfig.model_validate(
+        yaml.safe_load(broadcast_path.read_text(encoding="utf-8"))
+    )
     assert source.id == "prices.daily-us"
     assert aligned.from_.align == ("prices.bid", "prices.ask")
+    assert broadcast.from_.stream == "prices.daily"
+    assert broadcast.from_.broadcast == "market.adjustment"
+    assert broadcast.combine.entrypoint == "apply_adjustment"
 
 
 def test_stream_scaffolds_quote_yaml_sensitive_strings(tmp_path: Path) -> None:
@@ -182,12 +200,22 @@ def test_stream_scaffolds_quote_yaml_sensitive_strings(tmp_path: Path) -> None:
         ["null", "off"],
         "null",
     )
+    broadcast_path = write_broadcast_stream(
+        project_yaml,
+        "on",
+        "null",
+        "off",
+        "yes",
+    )
 
     source = SourceStreamConfig.model_validate(
         yaml.safe_load(source_path.read_text(encoding="utf-8"))
     )
     aligned = AlignedStreamConfig.model_validate(
         yaml.safe_load(aligned_path.read_text(encoding="utf-8"))
+    )
+    broadcast = BroadcastStreamConfig.model_validate(
+        yaml.safe_load(broadcast_path.read_text(encoding="utf-8"))
     )
 
     assert source.id == "null"
@@ -196,3 +224,7 @@ def test_stream_scaffolds_quote_yaml_sensitive_strings(tmp_path: Path) -> None:
     assert aligned.id == "yes"
     assert aligned.from_.align == ("null", "off")
     assert aligned.combine.entrypoint == "null"
+    assert broadcast.id == "on"
+    assert broadcast.from_.stream == "null"
+    assert broadcast.from_.broadcast == "off"
+    assert broadcast.combine.entrypoint == "yes"

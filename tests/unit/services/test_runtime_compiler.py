@@ -7,7 +7,11 @@ from datapipeline.pipelines.stream.pipeline import (
     run_stream_pipeline,
 )
 from datapipeline.plugins import COMBINERS_EP
-from datapipeline.runtime import DerivedRuntimeStream, SourceRuntimeStream
+from datapipeline.runtime import (
+    BroadcastRuntimeStream,
+    DerivedRuntimeStream,
+    SourceRuntimeStream,
+)
 from datapipeline.services.pipeline import load_pipeline
 from datapipeline.services.runtime_compiler import compile_runtime
 from datapipeline.sources.models.source import Source
@@ -150,6 +154,106 @@ transforms:
     ]
 
 
+def test_yaml_broadcast_stream_reuses_exact_input_across_partitions(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    project_yaml, sources_dir, streams_dir, data_dir = _write_test_project(tmp_path)
+    rows_by_input = {
+        "measurements": [
+            '{"time":"2025-01-02T00:00:00Z","station":"A","value":2}',
+            '{"time":"2025-01-01T00:00:00Z","station":"B","value":3}',
+            '{"time":"2025-01-01T00:00:00Z","station":"A","value":1}',
+            '{"time":"2025-01-02T00:00:00Z","station":"B","value":4}',
+        ],
+        "reference": [
+            '{"time":"2025-01-02T00:00:00Z","value":20}',
+            '{"time":"2025-01-01T00:00:00Z","value":10}',
+        ],
+    }
+    for input_name, rows in rows_by_input.items():
+        (data_dir / f"{input_name}.jsonl").write_text(
+            "\n".join(rows) + "\n",
+            encoding="utf-8",
+        )
+        (sources_dir / f"{input_name}.yaml").write_text(
+            f"""\
+id: {input_name}.source
+parser:
+  entrypoint: core.temporal_record
+loader:
+  entrypoint: core.io
+  args:
+    transport: fs
+    format: jsonl
+    path: data/{input_name}.jsonl
+""",
+            encoding="utf-8",
+        )
+    (streams_dir / "measurements.yaml").write_text(
+        """\
+id: measurements
+from: {source: measurements.source}
+partition_by: [station]
+map: {entrypoint: identity}
+""",
+        encoding="utf-8",
+    )
+    (streams_dir / "reference.yaml").write_text(
+        """\
+id: reference
+from: {source: reference.source}
+map: {entrypoint: identity}
+""",
+        encoding="utf-8",
+    )
+    (streams_dir / "enriched.yaml").write_text(
+        """\
+id: enriched
+from:
+  stream: measurements
+  broadcast: reference
+combine:
+  entrypoint: attach_reference
+  args: {offset: 2}
+transforms:
+  - {operation: derive, left: value, operator: mul, right_value: 2, to: doubled}
+""",
+        encoding="utf-8",
+    )
+
+    def attach_reference(measurement, reference, offset):
+        record = TemporalRecord(time=measurement.time)
+        record.station = measurement.station
+        record.value = measurement.value + reference.value + offset
+        return record
+
+    monkeypatch.setattr(
+        "datapipeline.services.streams.combine.load_ep",
+        lambda group, entrypoint: attach_reference,
+    )
+
+    runtime = compile_runtime(load_pipeline(project_yaml))
+    enriched = runtime.streams["enriched"]
+
+    assert isinstance(enriched, BroadcastRuntimeStream)
+    assert enriched.input_stream == "measurements"
+    assert enriched.broadcast_stream == "reference"
+    assert enriched.partition_by == ("station",)
+    assert len(enriched.transforms) == 1
+
+    records = list(run_stream_pipeline(PipelineContext(runtime), "enriched"))
+    assert [
+        (record.station, record.time.day, record.value, record.doubled)
+        for record in records
+    ] == [
+        ("A", 1, 13, 26),
+        ("A", 2, 24, 48),
+        ("B", 1, 15, 30),
+        ("B", 2, 26, 52),
+    ]
+
+
 def test_yaml_aligned_stream_runs_with_inherited_partition_and_combiner(
     tmp_path,
     monkeypatch,
@@ -224,7 +328,7 @@ combine:
         return combine
 
     monkeypatch.setattr(
-        "datapipeline.services.streams.aligned.load_ep",
+        "datapipeline.services.streams.combine.load_ep",
         load_mapper,
     )
 

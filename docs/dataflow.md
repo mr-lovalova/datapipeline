@@ -10,7 +10,7 @@ jerry.yaml: default_dataset
   -> datasets.<alias> = <path/to/project.yaml>
     -> project.yaml: paths.sources / paths.streams / paths.dataset
       -> sources/*.yaml: id
-        -> streams/*.yaml: from.source|from.stream|from.align, id
+        -> streams/*.yaml: from.source|from.stream|from.broadcast|from.align, id
           -> dataset.yaml: stream: <streams.id>, field: <record_field>
             -> jerry serve
               -> runs/<run_id>/dataset/<profile>.jsonl|csv|...
@@ -111,6 +111,28 @@ transforms:
 
 The derived stream inherits `partition_by` and canonical ordering from
 `equity.ohlcv`.
+
+Broadcast streams attach one unpartitioned temporal stream to every partition
+of a primary stream at an exact timestamp:
+
+```yaml
+# streams/equity.price_with_factors.yaml
+id: equity.price_with_factors
+from:
+  stream: equity.price.daily
+  broadcast: market.factors.daily
+combine:
+  entrypoint: combine_price_and_factors
+  args: {}
+```
+
+The primary must be partitioned, while the broadcast input must have
+`partition_by: []`. Jerry establishes canonical stream order before indexing
+the finite broadcast input in memory. Duplicate keys, violated ordering
+assertions, and missing primary timestamps fail; broadcast timestamps the
+primary does not use are ignored. Matching is exact: there is no implicit as-of
+or fill behavior. Combiner inputs are read-only, and a broadcast record is
+reused across primary partitions at its timestamp.
 
 Aligned streams intersect their inputs by partition and time. Input order is
 also combine argument order:

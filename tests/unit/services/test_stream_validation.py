@@ -3,6 +3,7 @@ import pytest
 from datapipeline.config.sources import SourceConfig
 from datapipeline.config.streams import (
     AlignedStreamConfig,
+    BroadcastStreamConfig,
     DerivedStreamConfig,
     SourceStreamConfig,
     StreamConfig,
@@ -67,6 +68,22 @@ def _aligned(stream_id: str, inputs: list[str]) -> AlignedStreamConfig:
     )
 
 
+def _broadcast(
+    stream_id: str,
+    primary: str,
+    broadcast: str,
+    transforms: list[dict[str, object]] | None = None,
+) -> BroadcastStreamConfig:
+    return BroadcastStreamConfig.model_validate(
+        {
+            "id": stream_id,
+            "from": {"stream": primary, "broadcast": broadcast},
+            "combine": {"entrypoint": "attach_reference"},
+            "transforms": [] if transforms is None else transforms,
+        }
+    )
+
+
 def test_validation_rejects_unknown_source() -> None:
     streams: dict[str, StreamConfig] = {"prices": _source_stream("prices")}
 
@@ -81,6 +98,19 @@ def test_validation_rejects_unknown_stream() -> None:
         validate_stream_configs({}, streams)
 
 
+def test_validation_checks_both_broadcast_inputs() -> None:
+    streams: dict[str, StreamConfig] = {
+        "primary": _source_stream("primary", partition_by=["station"]),
+        "enriched": _broadcast("enriched", "primary", "missing.reference"),
+    }
+
+    with pytest.raises(
+        ValueError,
+        match=r"references unknown stream\(s\): \['missing.reference'\]",
+    ):
+        validate_stream_configs({"source.alias": _source()}, streams)
+
+
 def test_validation_rejects_dependency_cycle() -> None:
     streams: dict[str, StreamConfig] = {
         "first": _derived("first", "second"),
@@ -89,6 +119,17 @@ def test_validation_rejects_dependency_cycle() -> None:
 
     with pytest.raises(ValueError, match="first -> second -> first"):
         validate_stream_configs({}, streams)
+
+
+def test_validation_detects_cycle_through_broadcast_input() -> None:
+    streams: dict[str, StreamConfig] = {
+        "primary": _source_stream("primary", partition_by=["station"]),
+        "enriched": _broadcast("enriched", "primary", "reference"),
+        "reference": _derived("reference", "enriched"),
+    }
+
+    with pytest.raises(ValueError, match="enriched -> reference -> enriched"):
+        validate_stream_configs({"source.alias": _source()}, streams)
 
 
 def test_derived_partition_inheritance_is_transitive() -> None:
@@ -101,6 +142,54 @@ def test_derived_partition_inheritance_is_transitive() -> None:
     validate_stream_configs({"source.alias": _source()}, streams)
 
     assert stream_partition_by(streams, "returns") == ("ticker",)
+
+
+def test_broadcast_inherits_transitive_primary_partition() -> None:
+    streams: dict[str, StreamConfig] = {
+        "measurements": _source_stream("measurements", partition_by=["station"]),
+        "primary": _derived("primary", "measurements"),
+        "global": _source_stream("global"),
+        "reference": _derived("reference", "global"),
+        "enriched": _broadcast("enriched", "primary", "reference"),
+    }
+
+    validate_stream_configs({"source.alias": _source()}, streams)
+
+    assert stream_partition_by(streams, "enriched") == ("station",)
+
+
+def test_validation_rejects_unpartitioned_broadcast_primary() -> None:
+    streams: dict[str, StreamConfig] = {
+        "measurements": _source_stream("measurements"),
+        "reference": _source_stream("reference"),
+        "enriched": _broadcast("enriched", "measurements", "reference"),
+    }
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            "Broadcast stream 'enriched' primary input 'measurements' "
+            "must have a non-empty partition_by"
+        ),
+    ):
+        validate_stream_configs({"source.alias": _source()}, streams)
+
+
+def test_validation_rejects_partitioned_broadcast_input() -> None:
+    streams: dict[str, StreamConfig] = {
+        "measurements": _source_stream("measurements", partition_by=["station"]),
+        "reference": _source_stream("reference", partition_by=["region"]),
+        "enriched": _broadcast("enriched", "measurements", "reference"),
+    }
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            r"Broadcast stream 'enriched' broadcast input 'reference' must have an "
+            r"empty partition_by; got \['region'\]"
+        ),
+    ):
+        validate_stream_configs({"source.alias": _source()}, streams)
 
 
 def test_aligned_partition_inheritance_is_transitive() -> None:

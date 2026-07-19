@@ -64,6 +64,7 @@ from datapipeline.pipelines.vector.keygen import (
 from datapipeline.pipelines.vector.pipeline import build_vector_pipeline
 from datapipeline.runtime import (
     AlignedRuntimeStream,
+    BroadcastRuntimeStream,
     DerivedRuntimeStream,
     RecordStage,
     Runtime,
@@ -555,6 +556,193 @@ def test_aligned_pipeline_closes_inputs_after_partial_read(tmp_path: Path) -> No
 
     assert left.closes == 1
     assert right.closes == 1
+
+
+def test_broadcast_pipeline_reuses_exact_input_across_partitions(
+    tmp_path: Path,
+) -> None:
+    runtime = _runtime_with_rows(tmp_path, [])
+    primary = _StubSource(
+        [
+            {"time": _ts(0), "id_": "A", "value": 1.0},
+            {"time": _ts(1), "id_": "A", "value": 2.0},
+            {"time": _ts(0), "id_": "B", "value": 3.0},
+            {"time": _ts(1), "id_": "B", "value": 4.0},
+        ]
+    )
+    broadcast = _StubSource(
+        [
+            {"time": _ts(0), "value": 10.0},
+            {"time": _ts(1), "value": 20.0},
+        ]
+    )
+
+    def attach_broadcast(rows):
+        for primary_record, broadcast_record in rows:
+            record = TemporalRecord(time=primary_record.time)
+            record.id_ = primary_record.id_
+            record.value = primary_record.value
+            record.broadcast_value = broadcast_record.value
+            yield record
+
+    runtime.streams = {
+        "primary": SourceRuntimeStream(
+            source=primary,
+            mapper=_mapper,
+            preprocess=(),
+            partition_by=("id_",),
+            presorted=True,
+            transforms=(),
+        ),
+        "broadcast": SourceRuntimeStream(
+            source=broadcast,
+            mapper=_mapper,
+            preprocess=(),
+            partition_by=(),
+            presorted=True,
+            transforms=(),
+        ),
+        "enriched": BroadcastRuntimeStream(
+            input_stream="primary",
+            broadcast_stream="broadcast",
+            combine=attach_broadcast,
+            partition_by=("id_",),
+            transforms=(),
+        ),
+    }
+
+    context = PipelineContext(runtime)
+    pipeline = build_stream_pipeline(context, "enriched")
+    records = list(run_pipeline(context, pipeline))
+
+    assert pipeline.summary == "primary=primary,broadcast=broadcast"
+    assert [node.name for node in pipeline.nodes] == [
+        "broadcast_inputs",
+        "combine_records",
+    ]
+    assert [
+        (record.id_, record.time.hour, record.value, record.broadcast_value)
+        for record in records
+    ] == [
+        ("A", 0, 1.0, 10.0),
+        ("A", 1, 2.0, 20.0),
+        ("B", 0, 3.0, 10.0),
+        ("B", 1, 4.0, 20.0),
+    ]
+    assert primary.closes == 1
+    assert broadcast.closes == 1
+
+
+def test_broadcast_pipeline_closes_inputs_after_partial_read(tmp_path: Path) -> None:
+    runtime = _runtime_with_rows(tmp_path, [])
+    primary = _StubSource(
+        [
+            {"time": _ts(0), "id_": "A"},
+            {"time": _ts(1), "id_": "A"},
+        ]
+    )
+    broadcast = _StubSource(
+        [
+            {"time": _ts(0)},
+            {"time": _ts(1)},
+        ]
+    )
+
+    def take_primary(rows):
+        for primary_record, _ in rows:
+            yield primary_record
+
+    runtime.streams = {
+        "primary": SourceRuntimeStream(
+            source=primary,
+            mapper=_mapper,
+            preprocess=(),
+            partition_by=("id_",),
+            presorted=True,
+            transforms=(),
+        ),
+        "broadcast": SourceRuntimeStream(
+            source=broadcast,
+            mapper=_mapper,
+            preprocess=(),
+            partition_by=(),
+            presorted=True,
+            transforms=(),
+        ),
+        "enriched": BroadcastRuntimeStream(
+            input_stream="primary",
+            broadcast_stream="broadcast",
+            combine=take_primary,
+            partition_by=("id_",),
+            transforms=(),
+        ),
+    }
+
+    records = run_stream_pipeline(PipelineContext(runtime), "enriched")
+    assert next(records).time == _ts(0)
+    records.close()
+
+    assert primary.closes == 1
+    assert broadcast.closes == 1
+
+
+def test_broadcast_record_previews_preserve_stage_boundaries(tmp_path: Path) -> None:
+    runtime = _runtime_with_rows(tmp_path, [])
+
+    def attach_broadcast(rows):
+        for primary_record, broadcast_record in rows:
+            record = TemporalRecord(time=primary_record.time)
+            record.id_ = primary_record.id_
+            record.value = primary_record.value
+            record.broadcast_value = broadcast_record.value
+            yield record
+
+    runtime.streams = {
+        "primary": SourceRuntimeStream(
+            source=_StubSource(
+                [
+                    {"time": _ts(0), "id_": "A", "value": 1.0},
+                    {"time": _ts(2), "id_": "A", "value": 2.0},
+                ]
+            ),
+            mapper=_mapper,
+            preprocess=(),
+            partition_by=("id_",),
+            presorted=True,
+            transforms=(),
+        ),
+        "broadcast": SourceRuntimeStream(
+            source=_StubSource(
+                [
+                    {"time": _ts(0), "value": 10.0},
+                    {"time": _ts(2), "value": 20.0},
+                ]
+            ),
+            mapper=_mapper,
+            preprocess=(),
+            partition_by=(),
+            presorted=True,
+            transforms=(),
+        ),
+        "enriched": BroadcastRuntimeStream(
+            input_stream="primary",
+            broadcast_stream="broadcast",
+            combine=attach_broadcast,
+            partition_by=("id_",),
+            transforms=(EnsureCadenceConfig(cadence="1h"),),
+        ),
+    }
+    context = PipelineContext(runtime)
+
+    input_rows = list(_record_preview_stream(context, "enriched", "input"))
+    canonical = list(_record_preview_stream(context, "enriched", "canonical"))
+    records = list(_record_preview_stream(context, "enriched", "records"))
+
+    assert [
+        (primary.time.hour, broadcast.time.hour) for primary, broadcast in input_rows
+    ] == [(0, 0), (2, 2)]
+    assert [record.time.hour for record in canonical] == [0, 2]
+    assert [record.time.hour for record in records] == [0, 1, 2]
 
 
 def test_source_pipeline_runs_map_then_preprocess(

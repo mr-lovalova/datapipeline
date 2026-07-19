@@ -14,6 +14,8 @@ def _sample(
     sine: list[float | None],
     north: float,
     south: float,
+    adjusted_north: float,
+    adjusted_south: float,
     power: float,
 ) -> dict[str, object]:
     return {
@@ -24,6 +26,8 @@ def _sample(
                 "sine_window": sine,
                 "humidity_partitioned__@location:north": north,
                 "humidity_partitioned__@location:south": south,
+                "humidity_adjusted__@location:north": adjusted_north,
+                "humidity_adjusted__@location:south": adjusted_south,
             }
         },
         "targets": {"values": {"power_target": power}},
@@ -43,6 +47,8 @@ def test_full_regression_project_through_serve(copy_fixture) -> None:
             [0.0, 0.5],
             40.0,
             38.5,
+            50.0,
+            48.5,
             100.0,
         ),
         _sample(
@@ -51,6 +57,8 @@ def test_full_regression_project_through_serve(copy_fixture) -> None:
             [1.0, 0.5],
             40.0,
             37.0,
+            52.0,
+            49.0,
             102.0,
         ),
         _sample(
@@ -59,6 +67,8 @@ def test_full_regression_project_through_serve(copy_fixture) -> None:
             [0.0, None],
             41.0,
             37.75,
+            55.0,
+            51.75,
             101.0,
         ),
         _sample(
@@ -67,6 +77,8 @@ def test_full_regression_project_through_serve(copy_fixture) -> None:
             [-0.5, -1.0],
             42.0,
             37.75,
+            58.0,
+            53.75,
             105.0,
         ),
         _sample(
@@ -75,6 +87,8 @@ def test_full_regression_project_through_serve(copy_fixture) -> None:
             [-0.5, 0.0],
             41.5,
             39.0,
+            59.5,
+            57.0,
             105.0,
         ),
     ]
@@ -139,6 +153,26 @@ def test_full_regression_project_through_serve(copy_fixture) -> None:
                 "present_count": 6,
                 "value_types": ["float"],
             },
+            {
+                "base_id": "humidity_adjusted",
+                "first_observed": "2024-03-01T00:00:00Z",
+                "id": "humidity_adjusted__@location:north",
+                "kind": "scalar",
+                "last_observed": "2024-03-01T05:00:00Z",
+                "null_count": 0,
+                "present_count": 6,
+                "value_types": ["float"],
+            },
+            {
+                "base_id": "humidity_adjusted",
+                "first_observed": "2024-03-01T00:00:00Z",
+                "id": "humidity_adjusted__@location:south",
+                "kind": "scalar",
+                "last_observed": "2024-03-01T05:00:00Z",
+                "null_count": 0,
+                "present_count": 6,
+                "value_types": ["float"],
+            },
         ],
         "counts": {"feature_vectors": 6, "target_vectors": 6},
         "schema_version": 2,
@@ -184,6 +218,7 @@ def test_full_regression_project_through_serve(copy_fixture) -> None:
             {"id": "linear_scaled", "rows": 6},
             {"id": "sine_window", "rows": 5},
             {"id": "humidity_partitioned", "rows": 12},
+            {"id": "humidity_adjusted", "rows": 12},
         ],
         "targets": [{"id": "power_target", "rows": 6}],
     }

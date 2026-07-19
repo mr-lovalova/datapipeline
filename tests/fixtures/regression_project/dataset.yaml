@@ -15,6 +15,9 @@ features:
   - id: humidity_partitioned
     stream: metrics.humidity
     field: value
+  - id: humidity_adjusted
+    stream: metrics.humidity.adjusted
+    field: value
 
 targets:
   - id: power_target

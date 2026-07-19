@@ -36,6 +36,15 @@ class DerivedRuntimeStream:
 
 
 @dataclass(frozen=True)
+class BroadcastRuntimeStream:
+    input_stream: str
+    broadcast_stream: str
+    combine: RecordStage
+    partition_by: tuple[str, ...]
+    transforms: tuple[TransformConfig, ...]
+
+
+@dataclass(frozen=True)
 class AlignedRuntimeStream:
     inputs: tuple[str, ...]
     combine: RecordStage
@@ -43,7 +52,12 @@ class AlignedRuntimeStream:
     transforms: tuple[TransformConfig, ...]
 
 
-RuntimeStream = SourceRuntimeStream | DerivedRuntimeStream | AlignedRuntimeStream
+RuntimeStream = (
+    SourceRuntimeStream
+    | DerivedRuntimeStream
+    | BroadcastRuntimeStream
+    | AlignedRuntimeStream
+)
 
 
 @dataclass
