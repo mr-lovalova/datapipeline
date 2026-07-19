@@ -218,6 +218,7 @@ combine:
   args: {offset: 2}
 transforms:
   - {operation: derive, left: value, operator: mul, right_value: 2, to: doubled}
+  - {operation: rolling_slope, x: reference_value, y: measurement_value, window: 2, to: slope}
 """,
         encoding="utf-8",
     )
@@ -225,6 +226,8 @@ transforms:
     def attach_reference(measurement, reference, offset):
         record = TemporalRecord(time=measurement.time)
         record.station = measurement.station
+        record.measurement_value = measurement.value
+        record.reference_value = reference.value
         record.value = measurement.value + reference.value + offset
         return record
 
@@ -240,17 +243,17 @@ transforms:
     assert enriched.input_stream == "measurements"
     assert enriched.broadcast_stream == "reference"
     assert enriched.partition_by == ("station",)
-    assert len(enriched.transforms) == 1
+    assert len(enriched.transforms) == 2
 
     records = list(run_stream_pipeline(PipelineContext(runtime), "enriched"))
     assert [
-        (record.station, record.time.day, record.value, record.doubled)
+        (record.station, record.time.day, record.value, record.doubled, record.slope)
         for record in records
     ] == [
-        ("A", 1, 13, 26),
-        ("A", 2, 24, 48),
-        ("B", 1, 15, 30),
-        ("B", 2, 26, 52),
+        ("A", 1, 13, 26, None),
+        ("A", 2, 24, 48, 0.1),
+        ("B", 1, 15, 30, None),
+        ("B", 2, 26, 52, 0.1),
     ]
 
 

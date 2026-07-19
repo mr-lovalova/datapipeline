@@ -6,3 +6,6 @@ from:
 combine:
   entrypoint: combine_humidity_with_baseline
   args: {}
+
+transforms:
+  - { operation: rolling_slope, x: baseline, y: humidity, window: 2, to: slope }

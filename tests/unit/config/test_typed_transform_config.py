@@ -11,6 +11,7 @@ from datapipeline.config.transforms import (
     FillConfig,
     ForwardFillConfig,
     RollingConfig,
+    RollingSlopeConfig,
     ShiftTimeConfig,
 )
 
@@ -102,6 +103,20 @@ def test_streams_parse_builtins_into_typed_configs() -> None:
         {"operation": "rolling", "field": "close", "windwo": 20},
         {"operation": "rolling", "field": "close", "window": 2.5},
         {
+            "operation": "rolling_slope",
+            "x": "market_return",
+            "y": "stock_return",
+            "window": 20,
+        },
+        {
+            "operation": "rolling_slope",
+            "x": "market_return",
+            "y": "stock_return",
+            "window": 20,
+            "to": "beta",
+            "min_samples": 10,
+        },
+        {
             "operation": "fill",
             "field": "close",
             "window": 5,
@@ -123,6 +138,40 @@ def test_stream_config_rejects_invalid_builtin_parameters(clause: object) -> Non
 def test_stream_config_rejects_a_record_only_transform_model() -> None:
     with pytest.raises(ValidationError, match="shift_time"):
         _stream(transforms=[ShiftTimeConfig(by="1h")])
+
+
+def test_stream_parses_strict_rolling_slope_config() -> None:
+    stream = _stream(
+        transforms=[
+            {
+                "operation": "rolling_slope",
+                "x": "market_return",
+                "y": "stock_return",
+                "window": 252,
+                "to": "beta",
+            }
+        ]
+    )
+
+    assert stream.transforms == [
+        RollingSlopeConfig(
+            x="market_return",
+            y="stock_return",
+            window=252,
+            to="beta",
+        )
+    ]
+
+
+@pytest.mark.parametrize("window", [1, True, 2.5])
+def test_rolling_slope_requires_at_least_two_records(window: object) -> None:
+    with pytest.raises(ValidationError, match="window"):
+        RollingSlopeConfig(
+            x="market_return",
+            y="stock_return",
+            window=window,
+            to="beta",
+        )
 
 
 @pytest.mark.parametrize("cadence", [None, "", "ticks", "0m", "-1h"])

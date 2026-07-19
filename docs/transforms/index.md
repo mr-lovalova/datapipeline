@@ -27,6 +27,11 @@ transforms:
     to: close_mean_20
     window: 20
     statistic: mean
+  - operation: rolling_slope
+    x: market_return
+    y: stock_return
+    to: beta_252
+    window: 252
 ```
 
 Missing or unknown operations, unknown fields, and invalid field values are

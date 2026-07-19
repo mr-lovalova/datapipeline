@@ -18,6 +18,9 @@ features:
   - id: humidity_adjusted
     stream: metrics.humidity.adjusted
     field: value
+  - id: humidity_slope
+    stream: metrics.humidity.adjusted
+    field: slope
 
 targets:
   - id: power_target

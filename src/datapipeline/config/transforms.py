@@ -169,6 +169,15 @@ class RollingConfig(_TransformConfig):
         return self
 
 
+class RollingSlopeConfig(_TransformConfig):
+    operation: Literal["rolling_slope"] = "rolling_slope"
+
+    x: NonEmptyString
+    y: NonEmptyString
+    window: Annotated[int, Field(strict=True, ge=2)]
+    to: NonEmptyString
+
+
 class DeriveConfig(_TransformConfig):
     operation: Literal["derive"] = "derive"
 
@@ -211,6 +220,7 @@ TransformConfig = Annotated[
     | ForwardFillConfig
     | CollapseConfig
     | RollingConfig
+    | RollingSlopeConfig
     | DeriveConfig,
     Field(discriminator="operation"),
 ]

@@ -12,6 +12,7 @@ from datapipeline.config.transforms import (
     LagConfig,
     LeadConfig,
     RollingConfig,
+    RollingSlopeConfig,
 )
 from datapipeline.domain.stream import canonical_record_order
 
@@ -58,7 +59,7 @@ def validate_stream_configs(
                 (LagConfig, LeadConfig, FillConfig, ForwardFillConfig, RollingConfig),
             ):
                 output_field = operation.field if operation.to is None else operation.to
-            elif isinstance(operation, DeriveConfig):
+            elif isinstance(operation, (DeriveConfig, RollingSlopeConfig)):
                 output_field = operation.to
             else:
                 continue

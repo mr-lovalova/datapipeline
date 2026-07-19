@@ -12,5 +12,7 @@ def combine_valuation_inputs(price, earnings) -> TemporalRecord:
 def combine_humidity_with_baseline(humidity, baseline) -> TemporalRecord:
     record = TemporalRecord(time=humidity.time)
     record.location = humidity.location
+    record.humidity = humidity.value
+    record.baseline = baseline.value
     record.value = humidity.value + baseline.value
     return record
