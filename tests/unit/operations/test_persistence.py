@@ -614,8 +614,7 @@ def test_routed_runtime_output_routes_rows_to_output_targets(
     rows = [
         {"output": "train", "value": 1},
         {"output": "val", "value": 2},
-        {"output": "test", "value": 3},
-        {"output": None, "value": 4},
+        {"output": None, "value": 3},
     ]
     results: list[tuple[str, Path]] = []
     monkeypatch.setattr(
@@ -646,6 +645,35 @@ def test_routed_runtime_output_routes_rows_to_output_targets(
         ("train", train_path),
         ("val", val_path),
     ]
+
+
+def test_routed_runtime_output_rejects_unknown_output_id(tmp_path) -> None:
+    targets = {
+        output_id: OutputTarget(
+            transport="fs",
+            format="jsonl",
+            view="raw",
+            encoding="utf-8",
+            destination=tmp_path / f"{output_id}.jsonl",
+        )
+        for output_id in ("train", "val")
+    }
+
+    with pytest.raises(
+        ValueError,
+        match="unknown output ID 'test'",
+    ):
+        persist_runtime_result(
+            RoutedRuntimeOutput(
+                rows=iter(({"output": "train"}, {"output": "test"})),
+                targets=targets,
+                output_for_row=lambda row: row["output"],
+            ),
+            target=None,
+            logger=logging.getLogger(__name__),
+        )
+
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_routed_runtime_output_writes_gzip_targets(tmp_path) -> None:
@@ -700,7 +728,7 @@ def test_routed_runtime_output_limit_applies_per_output(tmp_path) -> None:
         destination=val_path,
     )
     rows = [
-        {"split": "ignored", "value": 0},
+        {"split": None, "value": 0},
         {"split": "train", "value": 1},
         {"split": "train", "value": 2},
         {"split": "val", "value": 3},

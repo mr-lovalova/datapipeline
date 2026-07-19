@@ -262,7 +262,9 @@ def _route_runtime_rows(
             continue
         writer = writers.get(routed_id)
         if writer is None:
-            continue
+            raise ValueError(
+                f"output_for_row returned unknown output ID {routed_id!r}."
+            )
         if (
             result.limit_per_output is not None
             and counts[routed_id] >= result.limit_per_output

@@ -50,7 +50,9 @@ def run_report(
 `runtime` is the compiled `Runtime`, `task` is the configured `OperationTask`,
 and `limit` is the CLI cap or `None`. Return `RuntimeOutput`,
 `RoutedRuntimeOutput`, `RuntimeOutputBatch`, or `None`. Jerry persists the result
-using the profile output. Dataset split routing, preview, throttle, and
+using the profile output. A routed output's `output_for_row` callback returns a
+string output ID present in its `targets` mapping, or `None` to drop that row;
+any other result fails the operation. Dataset split routing, preview, throttle, and
 `include_outputs` belong to the built-in dataset operation and are not passed to
 plugins.
 
