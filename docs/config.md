@@ -768,8 +768,10 @@ epsilon: 1.0e-12
 
 - Jerry outputs are deterministic given a fixed config, plugin code, and source snapshot.
 - A command uses the validated configuration and environment snapshot loaded at
-  startup. Keep configuration and source inputs stable while it runs; edits are
-  observed by the next command rather than re-read mid-execution.
+  startup. Local source files and glob inventories are rechecked around every
+  artifact operation; if they change, the command fails rather than registering
+  an artifact from a mixed source generation as current. Configuration edits are
+  observed by the next command.
 - Core artifact hashes cover each artifact's effective typed dependency and
   source closure. Plugin artifact operations conservatively cover the complete
   dataset and stream catalog because they do not declare inputs. Hashing does

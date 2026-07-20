@@ -106,6 +106,48 @@ def _definition(
     return replace(definition, dataset=dataset)
 
 
+def _definition_with_local_source(
+    tmp_path: Path,
+) -> tuple[PipelineDefinition, Path]:
+    project = _write_project(tmp_path)
+    data = tmp_path / "data"
+    data.mkdir()
+    source_path = data / "a.jsonl"
+    source_path.write_text("{}\n", encoding="utf-8")
+    (tmp_path / "sources" / "prices.yaml").write_text(
+        "id: prices\n"
+        "parser: {entrypoint: identity}\n"
+        "loader:\n"
+        "  entrypoint: core.io\n"
+        "  args: {transport: fs, format: jsonl, path: 'data/*.jsonl'}\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "streams" / "prices.yaml").write_text(
+        "id: prices\nfrom: {source: prices}\nmap: {entrypoint: identity}\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "dataset.yaml").write_text(
+        "sample: {cadence: 1h}\n"
+        "features:\n"
+        "  - {id: price, stream: prices, field: value}\n"
+        "targets: []\n",
+        encoding="utf-8",
+    )
+    return load_pipeline(project), source_path
+
+
+def _edit_source(path: Path) -> None:
+    path.write_text('{"changed": true}\n', encoding="utf-8")
+
+
+def _add_source(path: Path) -> None:
+    path.with_name("b.jsonl").write_text("{}\n", encoding="utf-8")
+
+
+def _remove_source(path: Path) -> None:
+    path.unlink()
+
+
 def _build_state_path(definition: PipelineDefinition) -> Path:
     return (
         definition.project.artifacts_root / "_system" / "build" / "state.json"
@@ -149,6 +191,14 @@ def _patch_artifact_build(monkeypatch, build) -> None:
         return run
 
     monkeypatch.setattr(build_exec, "load_ep", load_ep)
+
+
+def _patch_stable_artifact_inputs(monkeypatch) -> None:
+    monkeypatch.setattr(
+        build_exec,
+        "_require_stable_artifact_inputs",
+        lambda definition, artifact_id, expected_hash: None,
+    )
 
 
 def _build_settings(mode: str = "AUTO") -> BuildSettings:
@@ -592,6 +642,8 @@ def test_execute_build_jobs_persists_completed_job_before_failure(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
+    definition = _definition(tmp_path)
+    _patch_stable_artifact_inputs(monkeypatch)
     variable_records = VariableRecordsTask(id="variable_records")
     metadata = MetadataTask(id="metadata")
     graph = build_artifact_graph([variable_records, metadata])
@@ -648,6 +700,7 @@ def test_execute_build_jobs_persists_completed_job_before_failure(
     runtime = _runtime(tmp_path / "artifacts")
     with pytest.raises(RuntimeError, match="metadata failed"):
         build_exec._execute_build_jobs(
+            definition,
             runtime=runtime,
             plan=plan,
             settings=_build_settings(),
@@ -668,6 +721,8 @@ def test_execute_build_failure_preserves_previous_persisted_state(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
+    definition = _definition(tmp_path)
+    _patch_stable_artifact_inputs(monkeypatch)
     variable_records = VariableRecordsTask(id="variable_records")
     metadata = MetadataTask(id="metadata")
     graph = build_artifact_graph([variable_records, metadata])
@@ -714,6 +769,7 @@ def test_execute_build_failure_preserves_previous_persisted_state(
 
     with pytest.raises(RuntimeError, match="variable records failed"):
         build_exec._execute_build_jobs(
+            definition,
             runtime=_runtime(tmp_path / "artifacts"),
             plan=plan,
             settings=_build_settings(),
@@ -741,6 +797,8 @@ def test_execute_build_rejects_symlink_escape_before_calling_runner(
     tmp_path: Path,
     task: ArtifactTask,
 ) -> None:
+    definition = _definition(tmp_path)
+    _patch_stable_artifact_inputs(monkeypatch)
     artifacts_root = tmp_path / "artifacts"
     artifacts_root.mkdir()
     outside = tmp_path / "outside"
@@ -769,6 +827,7 @@ def test_execute_build_rejects_symlink_escape_before_calling_runner(
 
     with pytest.raises(ValueError, match="must stay under artifacts root"):
         build_exec._execute_build_jobs(
+            definition,
             runtime=_runtime(artifacts_root),
             plan=plan,
             settings=_build_settings("FORCE"),
@@ -782,6 +841,8 @@ def test_execute_build_preflights_every_output_before_running_any_job(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
+    definition = _definition(tmp_path)
+    _patch_stable_artifact_inputs(monkeypatch)
     artifacts_root = tmp_path / "artifacts"
     artifacts_root.mkdir()
     outside = tmp_path / "outside"
@@ -823,6 +884,7 @@ def test_execute_build_preflights_every_output_before_running_any_job(
 
     with pytest.raises(ValueError, match="must stay under artifacts root"):
         build_exec._execute_build_jobs(
+            definition,
             runtime=_runtime(artifacts_root),
             plan=plan,
             settings=_build_settings("FORCE"),
@@ -836,6 +898,8 @@ def test_execute_build_job_invalidates_only_graph_descendants(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
+    definition = _definition(tmp_path)
+    _patch_stable_artifact_inputs(monkeypatch)
     scaler = ScalerTask(id="scaler")
     custom = ArtifactTask(
         id="custom_snapshot",
@@ -890,6 +954,7 @@ def test_execute_build_job_invalidates_only_graph_descendants(
     )
 
     state = build_exec._execute_build_jobs(
+        definition,
         runtime=runtime,
         plan=plan,
         settings=_build_settings("FORCE"),
@@ -909,10 +974,117 @@ def test_execute_build_job_invalidates_only_graph_descendants(
     assert config["observability"]["visuals"] == "on"
 
 
+@pytest.mark.parametrize(
+    "mutate_source",
+    [_edit_source, _add_source, _remove_source],
+    ids=("edit", "glob-add", "glob-remove"),
+)
+def test_build_rejects_source_drift_before_starting_runner(
+    monkeypatch,
+    tmp_path: Path,
+    mutate_source,
+) -> None:
+    definition, source_path = _definition_with_local_source(tmp_path)
+    graph = build_artifact_graph(
+        definition.artifact_operations,
+        definition.dataset,
+        definition.streams,
+    )
+    runner_calls: list[str] = []
+
+    def build(runtime, task):
+        runner_calls.append(task.id)
+        return _build_artifact(runtime, task)
+
+    _patch_artifact_build(monkeypatch, build)
+    mutate_source(source_path)
+
+    with pytest.raises(RuntimeError, match="Source files changed while building"):
+        build_exec.run_build_if_needed(
+            definition,
+            graph=graph,
+            required_artifacts={VARIABLE_RECORDS},
+            settings=_build_settings("FORCE"),
+            runtime=_runtime(definition.project.artifacts_root),
+        )
+
+    assert runner_calls == []
+    assert not _build_state_path(definition).exists()
+
+
+def test_build_rejects_source_drift_before_registering_result(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    definition, source_path = _definition_with_local_source(tmp_path)
+    graph = build_artifact_graph(
+        definition.artifact_operations,
+        definition.dataset,
+        definition.streams,
+    )
+    task = graph.tasks_by_id[VARIABLE_RECORDS]
+    previous_state = BuildState()
+    _register_artifact(
+        previous_state,
+        definition.project.artifacts_root,
+        task,
+        definition.artifact_hashes.for_artifact(task.id),
+    )
+    state_path = _build_state_path(definition)
+    save_build_state(previous_state, state_path)
+    persisted_state = state_path.read_bytes()
+    runtime = _runtime(definition.project.artifacts_root)
+
+    def build(runtime, task):
+        _edit_source(source_path)
+        return _build_artifact(runtime, task)
+
+    _patch_artifact_build(monkeypatch, build)
+
+    with pytest.raises(RuntimeError, match="Source files changed while building"):
+        build_exec.run_build_if_needed(
+            definition,
+            graph=graph,
+            required_artifacts={VARIABLE_RECORDS},
+            settings=_build_settings("FORCE"),
+            runtime=runtime,
+        )
+
+    assert state_path.read_bytes() == persisted_state
+    assert not runtime.artifacts.has(VARIABLE_RECORDS)
+
+
+def test_build_accepts_unchanged_local_sources(monkeypatch, tmp_path: Path) -> None:
+    definition, _ = _definition_with_local_source(tmp_path)
+    graph = build_artifact_graph(
+        definition.artifact_operations,
+        definition.dataset,
+        definition.streams,
+    )
+    _patch_artifact_build(monkeypatch, _build_artifact)
+    runtime = _runtime(definition.project.artifacts_root)
+
+    assert build_exec.run_build_if_needed(
+        definition,
+        graph=graph,
+        required_artifacts={VARIABLE_RECORDS},
+        settings=_build_settings("FORCE"),
+        runtime=runtime,
+    )
+
+    state = load_build_state(_build_state_path(definition))
+    assert state is not None
+    assert state.artifacts[VARIABLE_RECORDS].artifact_hash == (
+        definition.artifact_hashes.for_artifact(VARIABLE_RECORDS)
+    )
+    assert runtime.artifacts.has(VARIABLE_RECORDS)
+
+
 def test_run_build_hydrates_current_dependencies_before_job(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
+    _patch_stable_artifact_inputs(monkeypatch)
     definition = _definition(tmp_path, _dataset_with_feature(scale=False))
     variable_records = VariableRecordsTask(id="variable_records")
     metadata = MetadataTask(id="metadata")
@@ -952,6 +1124,7 @@ def test_force_build_preserves_artifacts_resolved_by_previous_profile(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
+    _patch_stable_artifact_inputs(monkeypatch)
     definition = _definition(tmp_path, _dataset_with_feature(scale=False))
     variable_records = VariableRecordsTask(id="variable_records")
     metadata = MetadataTask(id="metadata")
@@ -1022,7 +1195,7 @@ def test_run_build_keeps_loaded_definition_when_config_changes(
         build_exec, "_report_artifact_plan", lambda *_args, **_kwargs: None
     )
 
-    def change_project(**_kwargs) -> None:
+    def change_project(_definition, **_kwargs) -> None:
         definition.project.path.write_text(
             definition.project.path.read_text(encoding="utf-8") + "\n# changed\n",
             encoding="utf-8",
