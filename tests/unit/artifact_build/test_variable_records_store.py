@@ -51,7 +51,7 @@ def test_variable_record_rows_round_trip_json_native_values(tmp_path: Path) -> N
     )
 
     assert written == 3
-    assert list(open_variable_records(destination)) == [
+    assert list(open_variable_records(destination, expected_rows=3)) == [
         record,
         null_record,
         sequence,
@@ -434,3 +434,39 @@ def test_variable_record_reader_rejects_non_standard_numbers(
 
     with pytest.raises(ValueError, match="Non-standard JSON"):
         list(open_variable_records(destination))
+
+
+def test_variable_record_reader_rejects_fewer_rows_than_declared(
+    tmp_path: Path,
+) -> None:
+    destination = tmp_path / "inputs.jsonl.gz"
+    write_variable_rows(
+        destination,
+        [variable_record_to_row(VariableRecord("price", _time(0), 1.0))],
+    )
+
+    with pytest.raises(ValueError, match="declares 2 rows but contains 1"):
+        list(open_variable_records(destination, expected_rows=2))
+
+
+def test_variable_record_reader_rejects_extra_row_before_yielding_it(
+    tmp_path: Path,
+) -> None:
+    destination = tmp_path / "inputs.jsonl.gz"
+    records = [VariableRecord("price", _time(hour), float(hour)) for hour in range(2)]
+    write_variable_rows(destination, map(variable_record_to_row, records))
+    opened = open_variable_records(destination, expected_rows=1)
+
+    assert next(opened) == records[0]
+    with pytest.raises(ValueError, match="more than its declared 1 rows"):
+        next(opened)
+
+
+def test_variable_record_reader_does_not_verify_unread_rows(tmp_path: Path) -> None:
+    destination = tmp_path / "inputs.jsonl.gz"
+    record = VariableRecord("price", _time(0), 1.0)
+    write_variable_rows(destination, [variable_record_to_row(record)])
+    opened = open_variable_records(destination, expected_rows=2)
+
+    assert next(opened) == record
+    opened.close()

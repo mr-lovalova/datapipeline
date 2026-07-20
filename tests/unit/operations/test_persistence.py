@@ -75,6 +75,42 @@ class _IterFailureRows:
         self.closed = True
 
 
+def test_runtime_output_requires_a_representation() -> None:
+    with pytest.raises(ValueError, match="requires rows, payload, or render_html"):
+        RuntimeOutput()
+
+
+def test_runtime_output_rejects_rows_and_payload() -> None:
+    with pytest.raises(ValueError, match="cannot define both rows and payload"):
+        RuntimeOutput(rows=(), payload={})
+
+
+def test_runtime_output_allows_rows_and_html_representations() -> None:
+    output = RuntimeOutput(rows=(), render_html=lambda: "<html></html>")
+
+    assert output.rows == ()
+    assert output.render_html is not None
+
+
+def test_html_only_runtime_output_rejects_non_html_target(tmp_path: Path) -> None:
+    destination = tmp_path / "output.jsonl"
+
+    with pytest.raises(ValueError, match="does not support a non-HTML representation"):
+        persist_runtime_result(
+            RuntimeOutput(render_html=lambda: "<html></html>"),
+            target=OutputTarget(
+                transport="fs",
+                format="jsonl",
+                view="raw",
+                encoding="utf-8",
+                destination=destination,
+            ),
+            logger=logging.getLogger(__name__),
+        )
+
+    assert not destination.exists()
+
+
 def test_persist_artifact_output_requires_declared_existing_file(tmp_path) -> None:
     runtime = SimpleNamespace(
         artifacts_root=tmp_path,

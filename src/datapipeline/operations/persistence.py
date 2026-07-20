@@ -39,6 +39,12 @@ class RuntimeOutput:
     render_html: Callable[[], str] | None = None
     target: OutputTarget | None = None
 
+    def __post_init__(self) -> None:
+        if self.rows is None and self.payload is None and self.render_html is None:
+            raise ValueError("RuntimeOutput requires rows, payload, or render_html.")
+        if self.rows is not None and self.payload is not None:
+            raise ValueError("RuntimeOutput cannot define both rows and payload.")
+
 
 @dataclass(frozen=True)
 class RoutedRuntimeOutput:
@@ -142,11 +148,12 @@ def _runtime_rows(
 
 
 def _payload_rows(result: RuntimeOutput, target: OutputTarget) -> Iterator[Any]:
-    if result.payload is None:
-        return iter(())
+    payload = result.payload
+    if payload is None:
+        raise ValueError("Runtime output does not support a non-HTML representation.")
     if target.format == "txt":
-        return iter((json_text(raw_payload(result.payload), indent=2),))
-    return iter((dict(result.payload),))
+        return iter((json_text(raw_payload(payload), indent=2),))
+    return iter((dict(payload),))
 
 
 def _write_html_output(

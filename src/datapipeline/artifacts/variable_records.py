@@ -241,7 +241,9 @@ def prune_variable_record_cache(manifest_path: Path) -> tuple[Path, ...]:
 
 def open_variable_records(
     path: Path,
+    expected_rows: int | None = None,
 ) -> Iterator[VariableRecord | VariableSequence]:
+    rows = 0
     with gzip.open(path, "rt", encoding="utf-8") as fh:
         for line in fh:
             if not line.strip():
@@ -249,7 +251,18 @@ def open_variable_records(
             row = json.loads(line, parse_constant=_reject_json_constant)
             if not isinstance(row, dict):
                 raise ValueError(f"Expected variable record row object in '{path}'.")
+            rows += 1
+            if expected_rows is not None and rows > expected_rows:
+                raise ValueError(
+                    f"Variable records shard '{path}' contains more than its "
+                    f"declared {expected_rows} rows."
+                )
             yield _row_to_variable(row, path)
+    if expected_rows is not None and rows != expected_rows:
+        raise ValueError(
+            f"Variable records shard '{path}' declares {expected_rows} rows but "
+            f"contains {rows}."
+        )
 
 
 def _reject_json_constant(value: str) -> None:

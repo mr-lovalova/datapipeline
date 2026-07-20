@@ -1831,6 +1831,31 @@ def test_cached_vector_pipeline_rejects_manifest_cadence_mismatch(
         )
 
 
+def test_cached_vector_pipeline_verifies_manifest_shard_rows(
+    tmp_path: Path,
+) -> None:
+    runtime = _runtime_with_rows(
+        tmp_path,
+        rows=[{"time": _ts(0), "value": 1.0}],
+    )
+    cfg = VariableConfig(stream="stream", id="price", field="value")
+    register_variable_records(runtime, [cfg], "1h")
+    manifest = runtime.artifacts_root / "build/variable_records/manifest.json"
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    payload["features"][0]["rows"] = 2
+    manifest.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="declares 2 rows but contains 1"):
+        list(
+            build_vector_pipeline(
+                PipelineContext(runtime),
+                [cfg],
+                "1h",
+                rectangular=False,
+            )
+        )
+
+
 def test_cached_vector_pipeline_reads_requested_feature_subset(
     tmp_path: Path,
 ) -> None:
@@ -1895,7 +1920,8 @@ def test_cached_vector_records_close_streams_when_stopped_early(
         def close(self) -> None:
             closed_streams.append(self.feature_id)
 
-    def _open_records(path):
+    def _open_records(path, expected_rows):
+        assert expected_rows == 2
         if path.name == "a.jsonl.gz":
             return _ClosingStream("a")
         if path.name == "b.jsonl.gz":

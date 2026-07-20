@@ -259,7 +259,10 @@ def _merged_keyed_records(
                 raise RuntimeError(
                     f"Variable records artifact does not contain variable '{cfg.id}'."
                 )
-            opened_stream = open_variable_records(root / shard.path)
+            opened_stream = open_variable_records(
+                root / shard.path,
+                expected_rows=shard.rows,
+            )
             closer = getattr(opened_stream, "close", None)
             if callable(closer):
                 opened.callback(closer)
