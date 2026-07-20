@@ -104,6 +104,7 @@ source_paths = ["src/datapipeline/"]
 only_mutate = [
   "src/datapipeline/alignment/broadcast.py",
   "src/datapipeline/alignment/engine.py",
+  "src/datapipeline/domain/value.py",
   "src/datapipeline/operations/artifacts/utils.py",
   "src/datapipeline/pipelines/dataset/split.py",
   "src/datapipeline/pipelines/variable/projector.py",
@@ -119,6 +120,7 @@ pytest_add_cli_args = ["-q", "-W", "error"]
 pytest_add_cli_args_test_selection = [
   "tests/unit/alignment/",
   "tests/unit/artifact_build/",
+  "tests/unit/io/",
   "tests/unit/pipeline/",
   "tests/unit/transforms/",
   "tests/integration/",

@@ -22,7 +22,7 @@ from datapipeline.config.tasks import (
 from datapipeline.services.definitions import ArtifactHashes, ProjectManifest
 
 # Increment when Jerry's core artifact semantics change without a config change.
-ARTIFACT_CACHE_VERSION = 5
+ARTIFACT_CACHE_VERSION = 6
 
 
 def _normalized_label(path: Path, base_dir: Path) -> str:

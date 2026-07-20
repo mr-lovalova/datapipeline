@@ -190,10 +190,32 @@ def test_serializers_reject_arbitrary_objects() -> None:
         csv_row_serializer()(Unsupported())
 
 
-@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
-def test_json_serializer_rejects_non_finite_numbers(value: float) -> None:
-    with pytest.raises(ValueError, match="Out of range float values"):
-        json_line_serializer()(value)
+def test_serializers_normalize_nan_as_missing() -> None:
+    value = float("nan")
+
+    assert json.loads(json_line_serializer()({"value": value})) == {"value": None}
+    assert json.loads(json_line_serializer(view="flat")({"value": value})) == {
+        "value": None
+    }
+    assert csv_row_serializer()({"value": value}) == {"value": None}
+    assert pickle_serializer()({"value": value}) == {"value": None}
+    assert text_line_serializer()({"value": value}) == '{"value": null}\n'
+
+
+@pytest.mark.parametrize("value", [float("inf"), float("-inf")])
+@pytest.mark.parametrize(
+    "serializer",
+    [
+        json_line_serializer(),
+        json_line_serializer(view="flat"),
+        csv_row_serializer(),
+        pickle_serializer(),
+        text_line_serializer(),
+    ],
+)
+def test_serializers_reject_infinity(value: float, serializer) -> None:
+    with pytest.raises(ValueError, match="must not contain infinity"):
+        serializer({"value": value})
 
 
 def test_json_serializer_rejects_non_string_mapping_keys() -> None:

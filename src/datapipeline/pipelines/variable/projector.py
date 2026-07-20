@@ -10,6 +10,7 @@ from datapipeline.domain.variable_id import (
     make_partitioned_variable_id,
 )
 from datapipeline.domain.sample_key import SampleKeyContract
+from datapipeline.domain.value import normalize_data_value
 from datapipeline.transforms.utils import get_field, partition_key
 
 
@@ -50,6 +51,6 @@ class VariableProjector:
             yield VariableRecord(
                 id=variable_id,
                 time=record.time,
-                value=get_field(record, config.field),
+                value=normalize_data_value(get_field(record, config.field)),
                 entity_key=entity_key,
             )

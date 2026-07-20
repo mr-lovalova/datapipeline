@@ -26,7 +26,8 @@ def test_json_artifact_interrupt_preserves_previous_file(
     destination = tmp_path / "artifact.json"
     destination.write_text('{"previous": true}\n', encoding="utf-8")
 
-    def interrupt_dump(payload, handle, indent, sort_keys):
+    def interrupt_dump(payload, handle, indent, sort_keys, allow_nan):
+        assert allow_nan is False
         handle.write('{"partial":')
         raise KeyboardInterrupt
 
@@ -37,3 +38,16 @@ def test_json_artifact_interrupt_preserves_previous_file(
 
     assert destination.read_text(encoding="utf-8") == '{"previous": true}\n'
     assert list(tmp_path.iterdir()) == [destination]
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_json_artifact_rejects_non_finite_numbers(
+    tmp_path: Path,
+    value: float,
+) -> None:
+    destination = tmp_path / "artifact.json"
+
+    with pytest.raises(ValueError, match="Out of range float values"):
+        write_json_artifact(destination, {"value": value})
+
+    assert not destination.exists()

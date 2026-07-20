@@ -1,6 +1,5 @@
 import gzip
 import json
-import math
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -221,20 +220,26 @@ def test_variable_record_writer_rejects_unknown_kind(
     assert not destination.exists()
 
 
-def test_variable_record_rows_preserve_nan(tmp_path: Path) -> None:
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_variable_record_writer_rejects_non_finite_values_atomically(
+    tmp_path: Path,
+    value: float,
+) -> None:
     destination = tmp_path / "inputs.jsonl.gz"
+    destination.write_bytes(b"existing")
     record = VariableRecord(
         id="price",
         time=_time(0),
-        value=float("nan"),
+        value={"values": [1.0, value]},
     )
+    row = variable_record_to_row(record)
 
-    write_variable_rows(destination, [variable_record_to_row(record)])
-    loaded = list(open_variable_records(destination))
+    with pytest.raises(ValueError, match="Out of range float values"):
+        write_variable_rows(destination, [row])
 
-    assert len(loaded) == 1
-    assert isinstance(loaded[0], VariableRecord)
-    assert math.isnan(loaded[0].value)
+    assert row["value"] is record.value
+    assert destination.read_bytes() == b"existing"
+    assert list(tmp_path.iterdir()) == [destination]
 
 
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
@@ -288,7 +293,7 @@ def test_variable_record_writer_removes_temp_file_on_interrupt(tmp_path: Path) -
     assert list(tmp_path.iterdir()) == []
 
 
-@pytest.mark.parametrize("version", [None, 1, 2, 3, 4, 4.0, True])
+@pytest.mark.parametrize("version", [None, 1, 2, 3, 4, 5, 5.0, 6.0, True])
 def test_variable_records_manifest_rejects_incompatible_version(
     tmp_path: Path,
     version: object,
@@ -412,4 +417,20 @@ def test_variable_record_reader_rejects_malformed_rows(
         handle.write(json.dumps(row) + "\n")
 
     with pytest.raises(ValueError, match=message):
+        list(open_variable_records(destination))
+
+
+@pytest.mark.parametrize("value", ["NaN", "Infinity", "-Infinity"])
+def test_variable_record_reader_rejects_non_standard_numbers(
+    tmp_path: Path,
+    value: str,
+) -> None:
+    destination = tmp_path / "inputs.jsonl.gz"
+    with gzip.open(destination, "wt", encoding="utf-8") as handle:
+        handle.write(
+            '{"id":"price","time":"2024-01-01T00:00:00Z",'
+            f'"kind":"record","entity_key":[],"value":{value}}}\n'
+        )
+
+    with pytest.raises(ValueError, match="Non-standard JSON"):
         list(open_variable_records(destination))

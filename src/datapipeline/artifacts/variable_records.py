@@ -24,7 +24,7 @@ from datapipeline.domain.variable import VariableRecord, VariableSequence
 from datapipeline.io.sinks.files import GzipBinarySink
 from datapipeline.utils.time import CADENCE_PATTERN, parse_datetime
 
-VARIABLE_RECORDS_MANIFEST_VERSION: Final = 5
+VARIABLE_RECORDS_MANIFEST_VERSION: Final = 6
 _JSON_SCALAR_TYPES = {type(None), bool, int, float, str}
 _NonEmptyString = Annotated[
     str,
@@ -51,7 +51,7 @@ class VariableShard(BaseModel):
 class VariableRecordsManifest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    version: Literal[5] = VARIABLE_RECORDS_MANIFEST_VERSION
+    version: Literal[6] = VARIABLE_RECORDS_MANIFEST_VERSION
     format: Literal["jsonl.gz"] = "jsonl.gz"
     cadence: str = Field(pattern=CADENCE_PATTERN)
     sample_keys: tuple[_NonEmptyString, ...] = ()
@@ -157,7 +157,7 @@ def write_variable_rows(
             else:
                 raise TypeError(f"Unsupported variable record row kind {kind!r}.")
             _require_json_value(payload)
-            line = json.dumps(payload, separators=(",", ":")) + "\n"
+            line = json.dumps(payload, separators=(",", ":"), allow_nan=False) + "\n"
             encoded = line.encode("utf-8")
             sink.write_bytes(encoded)
             count += 1
@@ -246,10 +246,14 @@ def open_variable_records(
         for line in fh:
             if not line.strip():
                 continue
-            row = json.loads(line)
+            row = json.loads(line, parse_constant=_reject_json_constant)
             if not isinstance(row, dict):
                 raise ValueError(f"Expected variable record row object in '{path}'.")
             yield _row_to_variable(row, path)
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"Non-standard JSON number {value!r} is not supported.")
 
 
 def _row_to_variable(

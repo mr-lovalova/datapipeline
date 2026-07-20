@@ -117,6 +117,45 @@ def test_materialize_stream_writes_gzip_jsonl(tmp_path: Path) -> None:
     assert result == output.resolve()
 
 
+def test_materialize_stream_normalizes_nan_as_null(tmp_path: Path) -> None:
+    runtime = _runtime(
+        tmp_path,
+        [{"time": _ts(1), "security_id": "AAPL", "close": float("nan")}],
+    )
+    output = tmp_path / "prices.jsonl"
+
+    materialize_stream(
+        runtime=runtime,
+        stream_id="prices.raw",
+        output=_output(output),
+    )
+
+    assert json.loads(output.read_text(encoding="utf-8"))["close"] is None
+
+
+@pytest.mark.parametrize("value", [float("inf"), float("-inf")])
+def test_materialize_stream_rejects_infinity_atomically(
+    tmp_path: Path,
+    value: float,
+) -> None:
+    runtime = _runtime(
+        tmp_path,
+        [{"time": _ts(1), "security_id": "AAPL", "close": value}],
+    )
+    output = tmp_path / "prices.jsonl"
+    output.write_text("previous\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="must not contain infinity"):
+        materialize_stream(
+            runtime=runtime,
+            stream_id="prices.raw",
+            output=_output(output),
+            overwrite=True,
+        )
+
+    assert output.read_text(encoding="utf-8") == "previous\n"
+
+
 def test_materialize_stream_refuses_existing_output_without_overwrite(
     tmp_path: Path,
     one_row_runtime: Runtime,

@@ -295,6 +295,38 @@ def test_materialize_ticks_rejects_missing_key_field(tmp_path) -> None:
     assert list(destination.parent.iterdir()) == [destination]
 
 
+@pytest.mark.parametrize(
+    ("value", "message"),
+    [
+        (float("nan"), "missing grid_by field"),
+        (float("inf"), "must not contain infinity"),
+        (float("-inf"), "must not contain infinity"),
+    ],
+)
+def test_materialize_ticks_rejects_non_finite_grid_values_atomically(
+    tmp_path,
+    value: float,
+    message: str,
+) -> None:
+    record = _record(0, "placeholder")
+    record.security_id = value
+    runtime = _runtime(tmp_path, [record])
+
+    with pytest.raises(ValueError, match=message):
+        materialize_ticks(
+            runtime,
+            TicksTask(
+                id="model_grid",
+                entrypoint="core.artifact.ticks",
+                stream="source.stream",
+                grid_by=["security_id"],
+                output="build/model_grid.jsonl",
+            ),
+        )
+
+    assert not (runtime.artifacts_root / "build/model_grid.jsonl").exists()
+
+
 def test_materialize_ticks_uses_stream_transforms(
     monkeypatch,
     tmp_path,

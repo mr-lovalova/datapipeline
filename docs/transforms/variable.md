@@ -29,8 +29,9 @@ features:
 preview output. During a full dataset serve, every scalar or sequence value in
 one fold output is scaled with that fold's scaler. `with_mean`, `with_std`, and
 `epsilon` are configured once on the scaler build operation and recorded in the
-managed artifact; individual features cannot override them. A `None` value
-remains `None`. Other nonnumeric or non-finite values are rejected.
+managed artifact; individual features cannot override them. `None` is the
+canonical missing value. A transient floating `NaN` is converted to `None`
+when the field is projected; other nonnumeric values and infinity are rejected.
 
 `sequence` accepts strictly positive integer `size` and optional `stride`
 (default `1`). It creates independent windows per variable ID and entity from

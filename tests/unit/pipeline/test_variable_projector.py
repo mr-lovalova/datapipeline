@@ -1,3 +1,4 @@
+import math
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -48,6 +49,28 @@ def test_variable_projector_projects_long_identity_as_entity_key() -> None:
         ("sensor", 7),
     ]
     assert [variable.entity_key for variable in variables] == [("north",), ("north",)]
+
+
+def test_variable_projector_normalizes_nested_nan_without_mutating_record() -> None:
+    record = _Record(sensor={"values": [1.0, float("nan")]})
+    projector = VariableProjector((), SampleKeyContract(()))
+    config = VariableConfig(stream="stream", id="sensor", field="sensor")
+
+    [variable] = projector.project(record, (config,))
+
+    assert variable.value == {"values": [1.0, None]}
+    assert isinstance(record.sensor, dict)
+    assert math.isnan(record.sensor["values"][1])
+
+
+@pytest.mark.parametrize("value", [float("inf"), float("-inf")])
+def test_variable_projector_rejects_nested_infinity(value: float) -> None:
+    record = _Record(sensor={"values": [1.0, value]})
+    projector = VariableProjector((), SampleKeyContract(()))
+    config = VariableConfig(stream="stream", id="sensor", field="sensor")
+
+    with pytest.raises(ValueError, match="must not contain infinity"):
+        next(projector.project(record, (config,)))
 
 
 def test_variable_projector_derives_wide_variable_identity() -> None:

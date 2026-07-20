@@ -133,6 +133,9 @@ throttle_ms: null # milliseconds to sleep between emitted vectors
 - `output.compression: gzip` writes fs `jsonl`/`csv` outputs with a `.gz`
   suffix. This applies unchanged to full dataset, split, inspect, and preview
   outputs; Jerry does not infer compression from a filename.
+- Output values use `None` as the canonical missing value. A transient floating
+  `NaN` is emitted as null (`None` in pickle and an empty CSV cell); positive
+  and negative infinity fail the output operation.
 - A full pipeline serve with `dataset.yaml:split` writes one output file per
   configured fold role, using profile-qualified filenames such as
   `dataset.holdout.train.jsonl`. `include_outputs` optionally narrows that set
@@ -623,13 +626,18 @@ postprocess:
   variable IDs such as `close__@security_id:AAPL`. This supports long, wide, and
   hybrid layouts without a separate format or variable-identity setting.
 - `field` selects the record attribute used as the feature/target value.
+- `None` is the canonical missing variable value. A floating `NaN` produced by
+  a parser, mapper, or transform is converted to `None` when the field is
+  projected; positive and negative infinity are rejected. Identity fields
+  reject every non-finite float rather than treating it as missing.
 - Every `id` must be unique across both `features` and `targets`. Scaler and
   metadata operations plus postprocess policies use this shared vector-ID
   space.
 - `scale: true` scales assembled scalar or sequence values with the managed
   `build/scaler.json` artifact when a dataset output is produced. Fitting
   options belong to the scaler operation and cannot be overridden per vector.
-  `None` remains `None`; other nonnumeric or non-finite values fail.
+  `None` and transient `NaN` remain missing; other nonnumeric values and
+  infinity fail.
 - `sequence` emits `VariableSequence` windows and accepts `size` plus
   optional `stride` (default `1`). Regularize cadence with ordered transforms
   before variable projection when contiguous ticks are required. The resolved
