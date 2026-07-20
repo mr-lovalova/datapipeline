@@ -261,6 +261,33 @@ def test_vector_adapter_rejects_flattened_row_column_collisions(
         list(adapter.iter_rows(flatten_sequences=True))
 
 
+def test_vector_adapter_rejects_group_column_collision(tmp_path: Path) -> None:
+    runtime = _runtime_with_metadata(
+        tmp_path,
+        {
+            "schema_version": 2,
+            "counts": {"feature_vectors": 1, "target_vectors": 0},
+            "features": [
+                {
+                    "id": "group",
+                    "base_id": "group",
+                    "kind": "scalar",
+                    "present_count": 1,
+                    "null_count": 0,
+                }
+            ],
+            "targets": [],
+        },
+    )
+    adapter = VectorAdapter(dataset=runtime.dataset, runtime=runtime)
+
+    with pytest.raises(
+        ValueError,
+        match="Group column 'group' conflicts with a dataset row column",
+    ):
+        list(adapter.iter_rows())
+
+
 def test_vector_adapter_ignores_columns_removed_by_postprocess(
     tmp_path: Path,
     monkeypatch,

@@ -122,8 +122,15 @@ class VectorAdapter:
         group_column: str = "group",
         flatten_sequences: bool = False,
     ) -> Generator[dict[str, Any], None, None]:
-        if flatten_sequences:
-            self.row_columns(flatten_sequences=True)
+        if include_group or flatten_sequences:
+            feature_columns, target_columns = self.row_columns(flatten_sequences)
+            if include_group and (
+                group_column in feature_columns or group_column in target_columns
+            ):
+                raise ValueError(
+                    f"Group column {group_column!r} conflicts with a dataset row "
+                    "column."
+                )
         samples = self._samples(limit)
         sample_keys = self.dataset.sample.keys
         try:
