@@ -1,4 +1,5 @@
 import json
+from math import log1p
 from pathlib import Path
 
 from tests.helpers.regression import read_jsonl, serve_dataset
@@ -20,6 +21,7 @@ def _sample(
     slope_south: float | None,
     power: float,
     future_power: float | None,
+    log_power: float,
 ) -> dict[str, object]:
     return {
         "key": [f"2024-03-01 {hour:02d}:00:00+00:00"],
@@ -39,6 +41,7 @@ def _sample(
             "values": {
                 "power_target": power,
                 "power_future_2": future_power,
+                "power_log1p": log_power,
             }
         },
     }
@@ -63,6 +66,7 @@ def test_full_regression_project_through_serve(copy_fixture) -> None:
             None,
             100.0,
             203.0,
+            log1p(100.0),
         ),
         _sample(
             1,
@@ -76,6 +80,7 @@ def test_full_regression_project_through_serve(copy_fixture) -> None:
             -0.75,
             102.0,
             206.0,
+            log1p(102.0),
         ),
         _sample(
             2,
@@ -89,6 +94,7 @@ def test_full_regression_project_through_serve(copy_fixture) -> None:
             0.375,
             101.0,
             210.0,
+            log1p(101.0),
         ),
         _sample(
             3,
@@ -102,6 +108,7 @@ def test_full_regression_project_through_serve(copy_fixture) -> None:
             0.0,
             105.0,
             212.0,
+            log1p(105.0),
         ),
         _sample(
             4,
@@ -115,6 +122,7 @@ def test_full_regression_project_through_serve(copy_fixture) -> None:
             0.625,
             105.0,
             None,
+            log1p(105.0),
         ),
     ]
 
@@ -242,6 +250,16 @@ def test_full_regression_project_through_serve(copy_fixture) -> None:
                 "present_count": 6,
                 "value_types": ["float"],
             },
+            {
+                "base_id": "power_log1p",
+                "first_observed": "2024-03-01T00:00:00Z",
+                "id": "power_log1p",
+                "kind": "scalar",
+                "last_observed": "2024-03-01T05:00:00Z",
+                "null_count": 0,
+                "present_count": 6,
+                "value_types": ["float"],
+            },
         ],
         "window": {
             "end": "2024-03-01T04:00:00Z",
@@ -279,5 +297,6 @@ def test_full_regression_project_through_serve(copy_fixture) -> None:
         "targets": [
             {"id": "power_target", "rows": 6},
             {"id": "power_future_2", "rows": 6},
+            {"id": "power_log1p", "rows": 6},
         ],
     }

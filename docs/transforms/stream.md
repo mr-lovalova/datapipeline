@@ -13,11 +13,11 @@ variable IDs in their declared order.
 ## Field-Writing Transforms
 
 Most single-field transforms accept `field` and optional `to`. If `to` is
-omitted, the transform writes back to `field`. `forward_sum` and multi-input
-transforms such as `derive` and `rolling_slope` require `to`. Transforms cannot
-write `time` or a resolved `partition_by` field because those fields define
-canonical record order. Identity changes belong in a map or combine function,
-before the ordering stage.
+omitted, the transform writes back to `field`. `log`, `log1p`, `forward_sum`,
+and multi-input transforms such as `derive` and `rolling_slope` require `to`.
+Transforms cannot write `time` or a resolved `partition_by` field because those
+fields define canonical record order. Identity changes belong in a map or
+combine function, before the ordering stage.
 
 ```yaml
 transforms:
@@ -36,6 +36,14 @@ transforms:
   to the required `to` field. The current record is excluded. A complete window
   containing `None` or `NaN` produces `None`, as do the final `window` records;
   partial sums are never emitted. Nonnumeric or infinite values fail.
+- `log`: write the natural logarithm of `field` to `to`; values must be greater
+  than zero.
+- `log1p`: write the natural logarithm of one plus `field` to `to`; values must
+  be greater than `-1`. This operation preserves precision for returns near
+  zero and is not implemented as `log(1 + value)`.
+
+Both logarithms preserve `None` and `NaN` as missing and reject other
+nonnumeric or infinite values.
 - `derive`: write `to` from binary arithmetic on `left` and exactly one of
   `right_field` or `right_value`. Operators: `add`, `sub`, `mul`, `div`.
 - `collapse`: keep the `first` or `last` adjacent record for each partition and

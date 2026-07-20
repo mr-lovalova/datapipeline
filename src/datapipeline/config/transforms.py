@@ -186,6 +186,20 @@ class RollingSlopeConfig(_TransformConfig):
     to: NonEmptyString
 
 
+class LogConfig(_TransformConfig):
+    operation: Literal["log"] = "log"
+
+    field: NonEmptyString
+    to: NonEmptyString
+
+
+class Log1pConfig(_TransformConfig):
+    operation: Literal["log1p"] = "log1p"
+
+    field: NonEmptyString
+    to: NonEmptyString
+
+
 class DeriveConfig(_TransformConfig):
     operation: Literal["derive"] = "derive"
 
@@ -230,6 +244,8 @@ TransformConfig = Annotated[
     | CollapseConfig
     | RollingConfig
     | RollingSlopeConfig
+    | LogConfig
+    | Log1pConfig
     | DeriveConfig,
     Field(discriminator="operation"),
 ]

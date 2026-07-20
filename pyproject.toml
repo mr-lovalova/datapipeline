@@ -111,6 +111,7 @@ only_mutate = [
   "src/datapipeline/pipelines/vector/keygen.py",
   "src/datapipeline/transforms/rolling_slope.py",
   "src/datapipeline/transforms/stream/forward_sum.py",
+  "src/datapipeline/transforms/stream/logarithm.py",
   "src/datapipeline/transforms/vector/normalize.py",
   "src/datapipeline/transforms/vector/scaler.py",
 ]

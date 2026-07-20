@@ -280,6 +280,8 @@ def test_validation_rejects_noncanonical_declared_order() -> None:
             "window": 2,
             "to": "ticker",
         },
+        {"operation": "log", "field": "price", "to": "ticker"},
+        {"operation": "log1p", "field": "return", "to": "ticker"},
         {
             "operation": "derive",
             "left": "close",

@@ -1,3 +1,5 @@
+from math import log, log1p
+
 from datapipeline.execution.context import PipelineContext
 from datapipeline.execution.events import PipelineEvent, PipelineStarted
 from datapipeline.domain.record import TemporalRecord
@@ -218,6 +220,8 @@ combine:
   args: {offset: 2}
 transforms:
   - {operation: derive, left: value, operator: mul, right_value: 2, to: doubled}
+  - {operation: log, field: reference_value, to: log_reference}
+  - {operation: log1p, field: measurement_value, to: log_measurement}
   - {operation: rolling_slope, x: reference_value, y: measurement_value, window: 2, to: slope}
   - {operation: forward_sum, field: measurement_value, window: 1, to: future_measurement}
 """,
@@ -244,7 +248,7 @@ transforms:
     assert enriched.input_stream == "measurements"
     assert enriched.broadcast_stream == "reference"
     assert enriched.partition_by == ("station",)
-    assert len(enriched.transforms) == 3
+    assert len(enriched.transforms) == 5
 
     records = list(run_stream_pipeline(PipelineContext(runtime), "enriched"))
     assert [
@@ -253,15 +257,17 @@ transforms:
             record.time.day,
             record.value,
             record.doubled,
+            record.log_reference,
+            record.log_measurement,
             record.slope,
             record.future_measurement,
         )
         for record in records
     ] == [
-        ("A", 1, 13, 26, None, 2.0),
-        ("A", 2, 24, 48, 0.1, None),
-        ("B", 1, 15, 30, None, 4.0),
-        ("B", 2, 26, 52, 0.1, None),
+        ("A", 1, 13, 26, log(10), log1p(1), None, 2.0),
+        ("A", 2, 24, 48, log(20), log1p(2), 0.1, None),
+        ("B", 1, 15, 30, log(10), log1p(3), None, 4.0),
+        ("B", 2, 26, 52, log(20), log1p(4), 0.1, None),
     ]
 
 

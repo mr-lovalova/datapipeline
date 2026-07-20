@@ -36,6 +36,9 @@ transforms:
     field: excess_return
     to: future_excess_return_21
     window: 21
+  - operation: log1p
+    field: simple_return
+    to: log_return
 ```
 
 Missing or unknown operations, unknown fields, and invalid field values are

@@ -19,6 +19,8 @@ from datapipeline.config.transforms import (
     ForwardSumConfig,
     LagConfig,
     LeadConfig,
+    Log1pConfig,
+    LogConfig,
     PreprocessConfig,
     RollingConfig,
     RollingSlopeConfig,
@@ -42,6 +44,7 @@ from datapipeline.transforms.stream.forward_sum import ForwardSumTransform
 from datapipeline.transforms.stream.collapse import CollapseTransform
 from datapipeline.transforms.stream.lag import LagTransform
 from datapipeline.transforms.stream.lead import LeadTransform
+from datapipeline.transforms.stream.logarithm import Log1pTransform, LogTransform
 from datapipeline.transforms.stream.rolling import RollingTransform
 from datapipeline.transforms.stream.rolling_slope import RollingSlopeTransform
 from datapipeline.transforms.time import FloorTimeTransform, ShiftTimeTransform
@@ -179,6 +182,10 @@ def build_transform_nodes(
                 partition_by,
                 operation.to,
             ).apply
+        elif isinstance(operation, LogConfig):
+            node_op = LogTransform(operation.field, operation.to).apply
+        elif isinstance(operation, Log1pConfig):
+            node_op = Log1pTransform(operation.field, operation.to).apply
         elif isinstance(operation, DeriveConfig):
             if operation.right_field is not None:
                 transform = DeriveTransform(

@@ -35,6 +35,7 @@ missing from that contract.
 | Broadcast | Exact global records are reused across partitions and persisted with stable identity |
 | Bivariate rolling | Strict slopes preserve partition state, missing resets, and numerical stability |
 | Forward windows | Future-only sums exclude the current row and preserve strict terminal nulls |
+| Logarithms | Natural-log domains, missing values, and near-zero `log1p` precision are exact |
 | Sequencing | Fixed windows, stride, missing elements, and column order are golden |
 | Scaling | Standard and folded feature/target statistics and values are golden |
 | Leakage | Changing validation/test values cannot change fitted train statistics |

@@ -11,6 +11,8 @@ from datapipeline.config.transforms import (
     FillConfig,
     ForwardFillConfig,
     ForwardSumConfig,
+    Log1pConfig,
+    LogConfig,
     RollingConfig,
     RollingSlopeConfig,
     ShiftTimeConfig,
@@ -129,6 +131,13 @@ def test_streams_parse_builtins_into_typed_configs() -> None:
             "to": "future_return",
             "min_samples": 1,
         },
+        {"operation": "log", "field": "price"},
+        {
+            "operation": "log1p",
+            "field": "return",
+            "to": "log_return",
+            "base": 10,
+        },
         {
             "operation": "fill",
             "field": "close",
@@ -194,6 +203,20 @@ def test_stream_parses_strict_forward_sum_config() -> None:
             window=21,
             to="future_return_21",
         )
+    ]
+
+
+def test_stream_parses_explicit_logarithm_configs() -> None:
+    stream = _stream(
+        transforms=[
+            {"operation": "log", "field": "price", "to": "log_price"},
+            {"operation": "log1p", "field": "return", "to": "log_return"},
+        ]
+    )
+
+    assert stream.transforms == [
+        LogConfig(field="price", to="log_price"),
+        Log1pConfig(field="return", to="log_return"),
     ]
 
 
